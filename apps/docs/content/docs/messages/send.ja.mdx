@@ -1,9 +1,9 @@
 ---
 title: "送信"
-description: セッションにメッセージを送って次の turn を作り、その turn の結果を読む
+description: セッションにメッセージを送って次のターンを作り、そのターンの結果を読む
 ---
 
-メッセージ 1 つが turn 1 つである。同じセッションのメッセージは、同じ worker、同じ作業ツリー、同じ Claude Code の会話で順に実行される。scope は `sessions:write` である。[Quickstart](/getting-started/quickstart) の `API` と `KEY` を使う。
+メッセージ 1 つがターン 1 つである。同じセッションのメッセージは、同じ worker、同じ作業ツリー、同じ Claude Code の会話で順に実行される。scope は `sessions:write` である。[Quickstart](/getting-started/quickstart) の `API` と `KEY` を使う。
 
 ## セッションを 1 つ用意する
 
@@ -37,11 +37,11 @@ TURN=$(echo "$sent" | jq -r .turn_id)
 }
 ```
 
-レスポンスは 202 である。前の turn がまだ実行中なら、新しい turn は `queued` で待機し、順番が来たら実行される。
+レスポンスは 202 である。前のターンがまだ実行中なら、新しいターンは `queued` で待機し、順番が来たら実行される。
 
 - `message` は UTF-8 で 32,768 バイトまでである。超えると 413 になる。
 - 1 つのセッションに溜められる待機中の入力は、デフォルトで 20 個である。超えると 429 になる。
-- `Idempotency-Key` が必要である。レスポンスを受け取れなかったときは、同じ key と同じ本文でもう一度送る。turn は 1 回だけ作られる。
+- `Idempotency-Key` が必要である。レスポンスを受け取れなかったときは、同じキーと同じ本文でもう一度送る。ターンは 1 回だけ作られる。
 
 ## 結果を読む
 
@@ -60,20 +60,20 @@ curl -sS "$API/v1/sessions/$SID/turns/$TURN" -H "Authorization: Bearer $KEY" | j
 }
 ```
 
-turn が終わったかどうかは、この `status` だけで判断する。5 つの値のどれかであれば終了している。`completed` は、エンジンが turn を正常に終えたという意味であり、依頼した作業をすべて終えたという意味ではない。モデルがツールを 1 つ呼んだだけで応答を終えても、ツールがエラーを受け取っても `completed` である。作業ができたかどうかは、[ストリーミング](/messages/streaming)の `assistant`・`tool_result` イベントを読んで判断し、不十分なら同じセッションに次のメッセージを送る。
+ターンが終わったかどうかは、この `status` だけで判断する。5 つの値のどれかであれば終了している。`completed` は、エンジンがターンを正常に終えたという意味であり、依頼した作業をすべて終えたという意味ではない。モデルがツールを 1 つ呼んだだけで応答を終えても、ツールがエラーを受け取っても `completed` である。作業ができたかどうかは、[ストリーミング](/messages/streaming)の `assistant`・`tool_result` イベントを読んで判断し、不十分なら同じセッションに次のメッセージを送る。
 
 ## 送信できないとき
 
 | レスポンス | 意味 |
 | --- | --- |
 | 409 `SESSION_PAUSED` | セッションが paused である。先に resume する([承認待ちと再開](/sessions/waiting-and-resume)) |
-| 409 `RECOVERY_REQUIRED` | 先に復旧の判断が必要である([クローズ](/sessions/close)) |
+| 409 `RECOVERY_REQUIRED` | 先に復旧判断が必要である([クローズ](/sessions/close)) |
 | 409 `SESSION_CLOSING`, `SESSION_CLOSED` | 閉じている途中、または閉じている |
-| 409 `CHECKPOINT_UNAVAILABLE` | checkpoint の問題で新しい turn を受け付けない。原因はレスポンスの `message` にある。会話履歴が上限を超えた場合は、新しいセッションを開く |
+| 409 `CHECKPOINT_UNAVAILABLE` | checkpoint の問題で新しいターンを受け付けない。原因はレスポンスの `message` にある。会話履歴が上限を超えた場合は、新しいセッションを開く |
 | 413 | メッセージが長すぎる |
 | 429 | 待機中の入力が上限に達した |
 
 ## 次のステップ
 
-- [ストリーミングの受信](/messages/streaming): turn の実行中に進行状況を見る
+- [ストリーミングの受信](/messages/streaming): ターンの実行中に進行状況を見る
 - [添付](/messages/attachments)

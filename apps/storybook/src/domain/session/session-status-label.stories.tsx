@@ -5,7 +5,7 @@ import { SessionStatusLabel } from "@werft-ai/react/components";
 import { SESSION_ROW_MESSAGES } from "./session-fixtures.ts";
 
 const meta = {
-  title: "Patterns/Session/SessionStatusLabel",
+  title: "Domain/Session/SessionStatusLabel",
   component: SessionStatusLabel,
   args: { status: "running", label: "Working", axisLabel: "Status" },
 } satisfies Meta<typeof SessionStatusLabel>;

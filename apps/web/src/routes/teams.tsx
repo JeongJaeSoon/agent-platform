@@ -18,6 +18,7 @@ import {
   NativeSelect,
   NativeSelectOption,
 } from "@werft-ai/ui";
+import { ArrowLeft } from "lucide-react";
 import { type FormEvent, useId, useState } from "react";
 import {
   membersQuery,
@@ -46,7 +47,7 @@ import { StatusScreen } from "../components/status-screen.tsx";
 import { RowList, RowListItem } from "../components/table.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 
-const FORM = "flex flex-col items-start gap-3";
+const FORM = "flex flex-col items-start gap-4";
 const NAME_FIELD = "max-w-md";
 const SECONDARY = "text-muted-foreground text-sm [overflow-wrap:anywhere]";
 
@@ -196,32 +197,35 @@ function TeamPage({ id }: { readonly id: string }) {
   const { client } = useAgentPlatform();
   const team = useQuery(teamQuery(client, id));
   const [outcome, setOutcome] = useState<Outcome | null>(null);
+  // In the head's action slot, as on an agent: the title stays where every
+  // other screen has it.
+  const back = (
+    <Link
+      to="/teams"
+      className={buttonVariants({ variant: "outline", size: "sm" })}
+    >
+      <ArrowLeft className="size-3.5" aria-hidden="true" />
+      {t("teams.back")}
+    </Link>
+  );
 
+  if (team.isPending) return <StatusScreen kind="loading" />;
+  if (team.error) {
+    return (
+      <Page title={t("teams.title")} actions={back}>
+        <ListError error={team.error} onRetry={() => void team.refetch()} />
+      </Page>
+    );
+  }
   return (
-    <div className="flex flex-col gap-[var(--ap-space-block)]">
-      <p className="m-0">
-        <Link to="/teams" className={PRIMARY_LINK}>
-          {t("teams.back")}
-        </Link>
-      </p>
-      {team.isPending ? (
-        <StatusScreen kind="loading" />
-      ) : team.error ? (
-        <Page title={t("teams.title")}>
-          <ListError error={team.error} onRetry={() => void team.refetch()} />
-        </Page>
-      ) : (
-        <Page
-          title={
-            <span className="[overflow-wrap:anywhere]">{team.data.name}</span>
-          }
-        >
-          <OutcomeLine outcome={outcome} />
-          <TeamSettings team={team.data} onOutcome={setOutcome} />
-          <TeamMembers team={team.data} onOutcome={setOutcome} />
-        </Page>
-      )}
-    </div>
+    <Page
+      title={<span className="[overflow-wrap:anywhere]">{team.data.name}</span>}
+      actions={back}
+    >
+      <OutcomeLine outcome={outcome} />
+      <TeamSettings team={team.data} onOutcome={setOutcome} />
+      <TeamMembers team={team.data} onOutcome={setOutcome} />
+    </Page>
   );
 }
 

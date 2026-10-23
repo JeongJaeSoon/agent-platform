@@ -315,14 +315,14 @@ function KeyScreenNav({ current }: { readonly current: ApiKeyKind }) {
   const service = useIssuesServiceKeys();
   if (!service && current === "personal") return null;
   return (
-    <nav aria-label={t("apiKeys.nav")} className="flex gap-1 border-b">
+    <nav aria-label={t("apiKeys.nav")} className="flex gap-6 border-b">
       {(["personal", "service"] as const).map((kind) => (
         <Link
           key={kind}
           to={SCREEN[kind].list}
           aria-current={kind === current ? "page" : undefined}
           className={cn(
-            "-mb-px border-transparent border-b-2 px-3 py-2 text-muted-foreground text-sm no-underline!",
+            "-mb-px border-transparent border-b-2 py-2 text-control text-muted-foreground no-underline!",
             "hover:text-foreground",
             "aria-[current=page]:border-foreground aria-[current=page]:font-semibold aria-[current=page]:text-foreground",
           )}
@@ -779,14 +779,19 @@ function NewKeyScreen({ kind }: { readonly kind: ApiKeyKind }) {
 
   return (
     <div className={PAGE}>
-      <Link
-        to={screen.list}
-        className="inline-flex items-center gap-1 self-start text-muted-foreground text-sm no-underline! hover:text-foreground"
+      <Page
+        title={t(screen.newTitle)}
+        description={t(screen.intro)}
+        actions={
+          <Link
+            to={screen.list}
+            className={buttonVariants({ variant: "outline", size: "sm" })}
+          >
+            <ArrowLeft aria-hidden="true" className="size-3.5" />
+            {t(screen.title)}
+          </Link>
+        }
       >
-        <ArrowLeft aria-hidden="true" className="size-4" />
-        {t(screen.title)}
-      </Link>
-      <Page title={t(screen.newTitle)} description={t(screen.intro)}>
         {outcome?.kind === "error" ? (
           <FormError>{outcome.text}</FormError>
         ) : null}

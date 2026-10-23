@@ -3,7 +3,7 @@ title: "実行プロファイルを選ぶ"
 description: セッションがどのモデル・ツール・権限モードで動くかを決める実行プロファイル
 ---
 
-実行プロファイル (profile) は、セッションの動作方式を決める。runtime とそのバージョン、モデル、ツール一覧、権限モード、モデル provider、リポジトリを使うかどうかである。プロファイルは運用者がインストールのカタログ (`config/profiles.yaml`) に登録し、ユーザーは id で選ぶ。リポジトリごとに動作できるプロファイルの一覧もカタログ (`config/repositories.yaml`) にある。
+実行プロファイル (profile) は、セッションの動作方式を決める。runtime とそのバージョン、モデル、ツール一覧、権限モード、モデル provider、リポジトリを使うかどうかである。運用者が環境のカタログ (`config/profiles.yaml`) にプロファイルを登録し、ユーザーは id を指定して選ぶ。リポジトリごとに動作できるプロファイルの一覧もカタログ (`config/repositories.yaml`) にある。
 
 ## 一覧を見る
 
@@ -71,7 +71,7 @@ curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq .runtime
 
 ## 進行中のセッションのプロファイルを変更する
 
-`POST /v1/sessions/{id}/profile` で変更する。実行中の turn は開始時のプロファイルで終わり、その次の入力から新しいプロファイルで動く。会話と作業ツリーは最後の checkpoint から引き継がれる。同じプロファイルに変更しても何も変わらず、receipt だけが残る。
+`POST /v1/sessions/{id}/profile` で変更する。実行中のターンは開始時のプロファイルで終わり、その次の入力から新しいプロファイルで動く。会話と作業ツリーは最後の checkpoint から引き継がれる。同じプロファイルに変更しても何も変わらず、receipt だけが残る。
 
 ```bash
 until [ "$(curl -sS "$API/v1/sessions/$SID/turns/1" -H "Authorization: Bearer $KEY" | jq -r .status)" = completed ]; do

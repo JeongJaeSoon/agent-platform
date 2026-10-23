@@ -4,7 +4,7 @@ description: セッションの進行をどこで見るか、そして OTLP の�
 ---
 
 <Callout type="warn">
-Werft はまだ OpenTelemetry trace をエクスポートしない。セッションを実行しても、collector には trace が生成されない。以下のサンプル collector は、OTLP を受ける側を先に立ち上げて試すためのものである。
+Werft はまだ OpenTelemetry トレースをエクスポートしない。セッションを実行しても、collector にはトレースが生成されない。以下のサンプル collector は、OTLP を受ける側を先に立ち上げて試すためのものである。
 </Callout>
 
 ## 今見られる場所
@@ -16,7 +16,7 @@ Werft はまだ OpenTelemetry trace をエクスポートしない。セッシ�
 | コストと token | `GET /v1/sessions/{id}/usage`([状態とライフサイクル](/sessions/lifecycle#使用量)) |
 | サーバーの状態 | `GET /readyz`、API·worker の stdout JSON ログ |
 
-イベントは DB に保存された正本である。エンジンのメッセージのうち秘密に見える値は、保存前に `[REDACTED]` に伏せられる。イベントは、そのセッションを見られる `sessions:read` の主体だけが読める。
+イベントは DB に保存された正本である。エンジンのメッセージのうち秘密に見える値は、保存前に `[REDACTED]` に伏せられる。イベントを読めるのは、`sessions:read` を持ち、そのセッションを閲覧できる主体だけである。
 
 ```bash
 curl -sS -w '\n' "$API/readyz"
@@ -32,8 +32,8 @@ curl -sS -w '\n' "$API/readyz"
 
 | サンプル | OTLP/HTTP の受け口 | 画面 | 受けるシグナル |
 | --- | --- | --- | --- |
-| Grafana LGTM (`infra/observability/lgtm/`) | `http://127.0.0.1:26318` | `http://localhost:26000` | trace, ログ, メトリクス |
-| Langfuse (`infra/observability/langfuse/`) | `http://127.0.0.1:25318` | `http://localhost:25000` | trace |
+| Grafana LGTM (`infra/observability/lgtm/`) | `http://127.0.0.1:26318` | `http://localhost:26000` | トレース, ログ, メトリクス |
+| Langfuse (`infra/observability/langfuse/`) | `http://127.0.0.1:25318` | `http://localhost:25000` | トレース |
 
 以下は Grafana LGTM である。リポジトリのルートで実行する。
 
@@ -41,9 +41,9 @@ curl -sS -w '\n' "$API/readyz"
 docker compose -p werft-obs-lgtm -f infra/observability/lgtm/compose.yml up -d --wait
 ```
 
-## テスト trace を送る
+## テストトレースを送る
 
-`send-test-span.sh` は、今後 Werft が送る形に似せたダミーの trace を一つ送る。`werft.turn` の下にモデル呼び出し(`werft.llm_request`)とツール呼び出し(`werft.tool`)がある。`--with-log` は、同じ trace に紐づくログを一行も送る。
+`send-test-span.sh` は、今後 Werft が送る形に似せたダミーのトレースを一つ送る。`werft.turn` の下にモデル呼び出し(`werft.llm_request`)とツール呼び出し(`werft.tool`)がある。`--with-log` を指定すると、同じトレースに紐づくログも 1 行送る。
 
 ```bash
 infra/observability/send-test-span.sh http://127.0.0.1:26318 --with-log | tee span.txt
@@ -54,7 +54,7 @@ TRACE_ID=$(sed -n 's/^trace_id=\([0-9a-f]*\) .*/\1/p' span.txt)
 trace_id=… session_id=ses_test_…
 ```
 
-Grafana(`http://localhost:26000`、ログインなし)の Explore → Tempo で trace id を指定して探す。一つのセッションのターンをすべて見るには、TraceQL `{ span.werft.session_id = "<session_id>" }` で検索する。ログは Explore → Loki で `{service_name="werft-api"}` を指定して探す。API でも確認できる。
+Grafana(`http://localhost:26000`、ログインなし)の Explore → Tempo でトレース ID を指定して探す。一つのセッションのターンをすべて見るには、TraceQL `{ span.werft.session_id = "<session_id>" }` で検索する。ログは Explore → Loki で `{service_name="werft-api"}` を指定して探す。API でも確認できる。
 
 ```bash
 until curl -sf "http://127.0.0.1:26000/api/datasources/proxy/uid/tempo/api/traces/$TRACE_ID" -o trace.json; do
@@ -69,7 +69,7 @@ werft.llm_request werft.tool werft.turn
 
 ## 停止する
 
-`-v` は保存した trace も削除する。
+`-v` は保存したトレースも削除する。
 
 ```bash
 docker compose -p werft-obs-lgtm -f infra/observability/lgtm/compose.yml down -v

@@ -1,0 +1,26 @@
+/*
+ * preview.css without Tailwind's preflight, for a shadow root: what a host
+ * app that compiles the kit but keeps its own base styles would load. The
+ * page's preflight cannot reach into the shadow root; `all: initial` also
+ * drops what it would pass down by inheritance. Custom properties still
+ * inherit, so the toolbar's Theme applies.
+ */
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+@import "@werft-ai/ui/styles.css";
+@import "@werft-ai/ui/theme.css";
+
+/* biome-ignore lint/suspicious/noUnknownAtRules: a Tailwind 4 directive */
+@source "../../../../packages/ui/src";
+/* biome-ignore lint/suspicious/noUnknownAtRules: a Tailwind 4 directive */
+@source "./kit-sample.tsx";
+
+:host {
+  all: initial;
+  /* tokens.css sets it on :root, so a host without preflight has it too. */
+  color-scheme: inherit;
+  display: block;
+  background: var(--ap-color-surface);
+  color: var(--ap-color-foreground);
+  font-family: var(--ap-font-sans);
+}

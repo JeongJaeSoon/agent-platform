@@ -14,7 +14,7 @@ const TABLE_MESSAGES = {
 };
 
 const meta = {
-  title: "Patterns/Session/SessionRow",
+  title: "Domain/Session/SessionRow",
   globals: { locale: "en" },
   component: SessionRow,
   render: (args) => (
@@ -62,6 +62,7 @@ function LoadingRow() {
 export const Loading: Story = { render: () => <LoadingRow /> };
 
 export const Failed: Story = {
+  name: "Error",
   args: {
     session: {
       ...SESSION,

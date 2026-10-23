@@ -45,7 +45,7 @@ curl -sS -o /dev/null -w '%{http_code}\n' -X POST "$API/v1/linked-accounts/slack
 503
 ```
 
-With a configured installation, the start request returns an `authorize_url`. After you consent to Slack at that address, the web link screen passes `code` and `state` to the callback and the link is complete. The link state is `active`, `stale`, or `revoked`.
+With a configured installation, the start request returns an `authorize_url`. After you grant consent on Slack's authorization screen at that URL, the web link screen passes `code` and `state` to the callback and the link is complete. The link state is `active`, `stale`, or `revoked`.
 
 | Response | Meaning |
 | --- | --- |
@@ -53,6 +53,33 @@ With a configured installation, the start request returns an `authorize_url`. Af
 | 409 `LINK_TEAM_MISMATCH` | The account belongs to a Slack team that is not installed |
 | 409 `LINK_TAKEN` | That Slack account is already linked to someone else |
 | 409 `LINK_EXISTS` | I already have a link for the same team |
+
+## Register a Slack installation
+
+This is the operator's terminal path. Given a Slack app installed in a Slack workspace, register the installation with that app's bot token. A console flow that creates and installs the Slack app for you comes in a later version. The CLI asks Slack (`auth.test`, `bots.info`) for the team, the bot user, and the app, and records a confirmed (`verified`) installation. The app needs the bot scope `users:read`. Pass the token only in the `SLACK_BOT_TOKEN` environment variable. The CLI never takes the token as an argument and never prints it.
+
+```bash
+read -rs SLACK_BOT_TOKEN && export SLACK_BOT_TOKEN
+bun run slack-install register --workspace "$WS" --app-id A0123ABCD
+unset SLACK_BOT_TOKEN
+```
+
+```text
+{"outcome":"verified","registration":"registered","installation_id":"…","workspace_id":"…","app_id":"A0123ABCD","team_id":"T0123ABCD","bot_user_id":"U0123ABCD"}
+```
+
+Running the same command again re-confirms the same installation (`registration: existing`). On failure it writes one line to stderr and exits with one of these codes.
+
+| Exit code | Meaning |
+| --- | --- |
+| 0 | A confirmed installation exists |
+| 2 | Bad arguments or environment variables |
+| 3 | Slack refused the token or is unreachable |
+| 4 | That app and team belong to another workspace (`workspace_conflict`). Even if it was revoked there, only that workspace can register it again |
+| 5 | The installation was revoked while registering (`revoked`). Running again reopens it |
+| 6 | The workspace does not exist (`workspace_not_found`) |
+| 7 | The token belongs to an app other than `--app-id` (`app_mismatch`) |
+| 1 | Any other error |
 
 ## An agent's Slack app
 
@@ -63,7 +90,7 @@ curl -sS "$API/v1/agents/$AID/identities" "${WEB[@]}" \
   -d '{"provider": "slack_bot", "app_id": "A0APP", "team_id": "T0TEAM", "credential_ref": "slack/research-bot-token"}'
 ```
 
-Without a confirmed Slack installation this returns 409 `SLACK_NOT_INSTALLED`. For now only the operator can create an installation, through a repository function.
+Without a confirmed Slack installation this returns 409 `SLACK_NOT_INSTALLED`. The operator creates an installation with the registration CLI above.
 
 ## Next steps
 

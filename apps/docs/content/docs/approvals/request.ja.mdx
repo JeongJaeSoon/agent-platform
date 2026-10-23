@@ -15,7 +15,7 @@ description: セッションが作った commit を、リポジトリの agent/<
 
 ## ファイルを変更するセッションを用意する
 
-[Quickstart](/getting-started/quickstart) の `API` と `KEY` を使う。このスクリプトはリポジトリの `README.md` に 1 行を追加し、権限リクエストを許可すると turn が終わる。
+[Quickstart](/getting-started/quickstart) の `API` と `KEY` を使う。このスクリプトはリポジトリの `README.md` に 1 行を追加し、権限リクエストを許可するとターンが終わる。
 
 ```bash
 SID=$(curl -sS "$API/v1/sessions" \
@@ -41,7 +41,7 @@ done
 
 ## リクエストする
 
-本文は空(`{}`)で送る。何をどこに送るかは、リクエストする人が選ぶのではない。プラットフォームが、その時点のセッションの最新の checkpoint とその commit、セッションのリポジトリ、ブランチ `agent/<session-id>` を固定する。
+リクエスト本文には空の JSON オブジェクト(`{}`)を送る。何をどこに送るかは、リクエストする人が選ぶのではない。プラットフォームが、その時点のセッションの最新の checkpoint とその commit、セッションのリポジトリ、ブランチ `agent/<session-id>` を固定する。
 
 ```bash
 push=$(curl -sS "$API/v1/sessions/$SID/push-requests" \
