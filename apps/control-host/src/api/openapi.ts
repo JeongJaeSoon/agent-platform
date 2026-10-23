@@ -71,6 +71,7 @@ import {
   listPendingRequestsResponseSchema,
   listProfilesResponseSchema,
   listPushRequestsResponseSchema,
+  listSessionOutputsResponseSchema,
   listSessionsQuerySchema,
   listSessionsResponseSchema,
   listTakeoversResponseSchema,
@@ -106,6 +107,7 @@ import {
   sessionCredentialUnboundDetailsSchema,
   sessionDurabilitySchema,
   sessionIdParamsSchema,
+  sessionOutputParamsSchema,
   sessionShareSchema,
   sessionSummarySchema,
   sessionUsageResponseSchema,
@@ -247,6 +249,7 @@ const responseComponents = {
   AuthMeResponse: authMeResponseSchema,
   InstallationLimitsResponse: installationLimitsResponseSchema,
   SessionUsageResponse: sessionUsageResponseSchema,
+  ListSessionOutputsResponse: listSessionOutputsResponseSchema,
   ListAgentsResponse: listAgentsResponseSchema,
   ListProfilesResponse: listProfilesResponseSchema,
   AgentDetail: agentDetailSchema,
@@ -385,6 +388,8 @@ export type RouteDeclaration = {
         // Parsed with `schema` by openapi.test.ts.
         example?: unknown;
       }
+    // A file download: the body is the file's bytes, not JSON.
+    | { status: 200; download: true; description: string }
     | { status: 204; description?: string };
   errors: number[];
   errorCodes?: Partial<Record<number, readonly ApiErrorCode[]>>;
@@ -1078,6 +1083,69 @@ export const API_ROUTE_DECLARATIONS = [
       },
     },
     errors: [401, 404, 503],
+  },
+  {
+    method: "get",
+    path: "/v1/sessions/{id}/outputs",
+    operationId: "listSessionOutputs",
+    tag: "Sessions",
+    summary: "Files the session left under out/ at its latest checkpoint",
+    description:
+      "Lists the files under the workspace's `out/` directory as the session's latest committed checkpoint recorded them: `path` (relative to the workspace, starting with `out/`), `bytes` and `sha256`. A file over the output limits is listed with `omitted: too_large` and `sha256: null`; its bytes were not kept, so it cannot be downloaded. A file written after the latest checkpoint is not listed until the next one commits. A session with no committed checkpoint answers an empty list with `checkpoint_revision: null`. Download a listed file with `GET /v1/sessions/{id}/outputs/{path}`. Reading changes nothing.",
+    scope: "read",
+    success: {
+      status: 200,
+      schema: "ListSessionOutputsResponse",
+      description: "The outputs of the session's latest committed checkpoint.",
+      example: {
+        session_id: EXAMPLE_SESSION_ID,
+        checkpoint_revision: 2,
+        items: [
+          {
+            path: "out/report.md",
+            bytes: 2048,
+            sha256:
+              "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+            omitted: null,
+          },
+          {
+            path: "out/recording.mp4",
+            bytes: 734003200,
+            sha256: null,
+            omitted: "too_large",
+          },
+        ],
+      },
+    },
+    errors: [401, 404, 409, 503],
+    errorCodes: { 409: ["CHECKPOINT_UNAVAILABLE"] },
+    errorNotes: {
+      CHECKPOINT_UNAVAILABLE:
+        "The latest checkpoint's manifest is missing, damaged or unreadable; `message` names it.",
+    },
+  },
+  {
+    method: "get",
+    path: "/v1/sessions/{id}/outputs/{path}",
+    operationId: "downloadSessionOutput",
+    tag: "Sessions",
+    summary: "Download one file the session left under out/",
+    description:
+      "Streams one file that `GET /v1/sessions/{id}/outputs` lists, as `application/octet-stream` with `Content-Disposition: attachment` and `X-Content-Type-Options: nosniff`. `{path}` is the listed `path` exactly, percent-encoded as one path segment (`out/report.md` is `out%2Freport.md`). The bytes are the ones the checkpoint verified; if the store no longer holds them the transfer ends early with an error rather than completing with other bytes, so check the length (or `sha256`) of what arrived. A path the list does not name, a file listed with `omitted`, or a session with no committed checkpoint answers 404.",
+    scope: "read",
+    success: {
+      status: 200,
+      download: true,
+      description: "The file's bytes.",
+    },
+    errors: [401, 404, 409, 503],
+    errorCodes: { 409: ["CHECKPOINT_UNAVAILABLE"] },
+    errorNotes: {
+      NOT_FOUND:
+        "Also when the path is not listed, is listed as `omitted`, or the session has no committed checkpoint.",
+      CHECKPOINT_UNAVAILABLE:
+        "The latest checkpoint's manifest or this file's stored object is missing, damaged or unreadable; `message` names it.",
+    },
   },
   {
     method: "post",
@@ -2684,6 +2752,9 @@ function paramsSchemaFor(path: string): z.ZodObject {
   if (path.startsWith("/v1/workspaces/{id}")) return workspaceParamsSchema;
   if (path.includes("{turn_id}")) return turnIdParamsSchema;
   if (path.includes("{push_request_id}")) return pushRequestParamsSchema;
+  if (path === "/v1/sessions/{id}/outputs/{path}") {
+    return sessionOutputParamsSchema;
+  }
   if (
     path.startsWith("/v1/sessions/{id}") ||
     path.startsWith("/v1/admin/sessions/{id}")
@@ -2785,21 +2856,46 @@ function createApiRouteConfig(route: RouteDeclaration): ApiRouteConfig {
             description: success.description ?? "No content",
             headers: responseHeaders(),
           }
-        : {
-            description:
-              success.description ?? (success.sse ? "Event stream" : "Success"),
-            headers: responseHeaders(),
-            content: success.sse
-              ? {
-                  "text/event-stream": {
-                    schema: ref(success.schema),
-                    ...(success.example === undefined
-                      ? {}
-                      : { example: success.example }),
+        : "download" in success
+          ? {
+              description: success.description,
+              headers: {
+                ...responseHeaders(),
+                "Content-Disposition": {
+                  description:
+                    "Always `attachment`, with the file's name as `filename*` (RFC 6266, UTF-8) and an ASCII `filename` fallback.",
+                  schema: { type: "string" },
+                },
+                "Content-Length": {
+                  description: "The file's size in bytes.",
+                  schema: { type: "integer" },
+                },
+              },
+              content: {
+                "application/octet-stream": {
+                  schema: {
+                    type: "string",
+                    contentMediaType: "application/octet-stream",
                   },
-                }
-              : jsonContent(success.schema, success.example),
-          },
+                },
+              },
+            }
+          : {
+              description:
+                success.description ??
+                (success.sse ? "Event stream" : "Success"),
+              headers: responseHeaders(),
+              content: success.sse
+                ? {
+                    "text/event-stream": {
+                      schema: ref(success.schema),
+                      ...(success.example === undefined
+                        ? {}
+                        : { example: success.example }),
+                    },
+                  }
+                : jsonContent(success.schema, success.example),
+            },
   };
   const errors = new Set<number>(route.errors);
   if (csrf || route.scope) errors.add(403);

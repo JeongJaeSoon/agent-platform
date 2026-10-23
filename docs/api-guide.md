@@ -445,7 +445,32 @@ curl -sS "$API/v1/receipts/$(echo "$pushed" | jq -r .push_receipt_id)" "${AUTH[@
 
 **흔한 오류.** 409 `PUSH_SOURCE_MISSING`이면 세션에 저장소나 checkpoint가 아직 없다. 409 `PUSH_REQUEST_OPEN`이면 열린 요청이 있다. 409 `PUSH_REQUEST_DECIDED`면 이미 결정한 요청이다. 409 `CHECKPOINT_MOVED`면 승인 body의 `git_commit`이 고정된 commit과 다르거나, 요청 뒤에 세션이 다시 checkpoint를 남겼다. 이 요청은 거부하고 새로 요청한다. `sessions:approve`가 없는 key로 결정하면 403 `FORBIDDEN`이고 receipt가 남는다. worker의 자격(launch nonce·session token)은 `/v1`에서 인증되지 않아 401이다.
 
-## 11. 로컬 예시 정리
+## 11. 세션 결과물 목록과 내려받기
+
+OpenAPI: [`listSessionOutputs`](api/index.html), [`downloadSessionOutput`](api/index.html)
+
+**목적.** 세션이 작업 디렉터리의 `out/` 아래에 남긴 파일을 사람이 받는다. 목록은 세션의 최신 commit된 checkpoint가 기록한 것이라 worker나 작업 디렉터리가 사라져도 남는다. 마지막 checkpoint 뒤에 쓴 파일은 다음 checkpoint가 commit될 때까지 목록에 없다.
+
+**순서.** 목록을 읽고, 받을 파일의 `path`를 그대로 한 path segment로 percent-encode해서(`out/report.md`는 `out%2Freport.md`) 내려받는다. 권한은 세션 읽기(`sessions:read`)와 같다.
+
+```bash
+outputs=$(curl -sS "$API/v1/sessions/$SID/outputs" "${AUTH[@]}")
+echo "$outputs" | jq .
+echo "$outputs" | jq -e --arg sid "$SID" '.session_id == $sid and (.items | type == "array")'
+OUT_PATH=$(echo "$outputs" | jq -r '[.items[] | select(.omitted == null)][0].path // empty')
+if [ -n "$OUT_PATH" ]; then
+  curl -sS -o /tmp/agent-platform-output "${AUTH[@]}" \
+    "$API/v1/sessions/$SID/outputs/$(jq -rn --arg path "$OUT_PATH" '$path | @uri')"
+  test "$(shasum -a 256 /tmp/agent-platform-output | cut -d' ' -f1)" = \
+    "$(echo "$outputs" | jq -r --arg path "$OUT_PATH" '.items[] | select(.path == $path) | .sha256')"
+fi
+```
+
+**기대 응답.** 목록은 `checkpoint_revision`과 `items`(`path`, `bytes`, `sha256`, `omitted`)를 준다. checkpoint가 아직 없으면 `checkpoint_revision: null`과 빈 `items`다. 상한을 넘은 파일은 `omitted: "too_large"`, `sha256: null`로만 보이고 내용은 저장되지 않았다. 내려받기는 `application/octet-stream`, `Content-Disposition: attachment`(파일 이름은 `filename*`), `X-Content-Type-Options: nosniff`로 파일 내용을 그대로 준다. 받은 내용의 sha256은 목록의 `sha256`과 같다. 저장소의 객체가 checkpoint가 확인한 내용과 다르면 전송이 끝나기 전에 끊긴다.
+
+**흔한 오류.** 404 `NOT_FOUND`면 세션이 없거나 보이지 않거나, path가 목록에 없거나(`/`를 인코딩하지 않은 경우 포함) `omitted` 파일이다. 409 `CHECKPOINT_UNAVAILABLE`이면 최신 checkpoint의 manifest나 그 파일 객체를 읽을 수 없다.
+
+## 12. 로컬 예시 정리
 
 **목적.** 이 문서가 만든 로컬 데이터와 worker 자원을 제거한다.
 
