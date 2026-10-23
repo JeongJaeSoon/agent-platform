@@ -205,7 +205,7 @@ const approver = werft.withOptions({ apiKey: approverKey });
 | `sessions.pushRequests.create` · `list` · `get` · `decide` · `openPullRequest` · `commentPullRequest` | [push 승인](/approvals/request)과 PR |
 | `receipts.get`, `auth.me`, `limits.get`, `profiles.list`, `root.get` | receipt, 내 정보, 한도, 프로필, 상태 |
 
-`sessions.list`와 `turns.list`는 `await`하면 첫 페이지, `for await`하면 모든 항목을 준다. 필드 이름은 API와 같은 snake_case다. 에이전트·멤버·key 관리처럼 웹 로그인으로만 부르는 API는 감싸지 않는다.
+`sessions.list`와 `turns.list`는 `await`하면 첫 페이지, `for await`하면 모든 항목을 준다. 필드 이름은 API와 같은 snake_case다. 에이전트·멤버·key 관리처럼 웹 로그인으로만 부르는 API는 감싸지 않는다. `limits.get`은 로그인한 workspace owner만 읽으므로 API key로 부르면 403이다.
 
 ## 저장소의 예제
 
