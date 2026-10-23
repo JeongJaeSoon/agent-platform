@@ -86,7 +86,7 @@ integration("slack_inbound_events on PostgreSQL", () => {
     eventTime: new Date("2026-10-24T10:00:00Z"),
   });
 
-  test("one row per (team_id, event_id), dropped or not", async () => {
+  test("one row per (app_id, event_id), dropped or not", async () => {
     const app = await agentApp();
     const inbox = createPostgresSlackInboundEventStore(db);
     const team = slackId("T");
@@ -94,10 +94,11 @@ integration("slack_inbound_events on PostgreSQL", () => {
       ...event(app, team, "Ev01"),
       status: "received",
       payload: { type: "event_callback", event_id: "Ev01" },
+      conversationKey: null,
     };
-    expect(await inbox.seen(team, "Ev01")).toBe(false);
+    expect(await inbox.seen(app.appId, "Ev01")).toBe(false);
     expect(await inbox.record(received)).toBe("recorded");
-    expect(await inbox.seen(team, "Ev01")).toBe(true);
+    expect(await inbox.seen(app.appId, "Ev01")).toBe(true);
     expect(await inbox.record(received)).toBe("duplicate");
     const dropped: SlackInboundEventInput = {
       ...event(app, team, "Ev02"),
@@ -110,23 +111,87 @@ integration("slack_inbound_events on PostgreSQL", () => {
         ...event(app, team, "Ev02"),
         status: "received",
         payload: {},
+        conversationKey: null,
       }),
     ).toBe("duplicate");
+    // The same app's event in another team is still its retry.
     expect(await inbox.record({ ...received, teamId: slackId("T") })).toBe(
-      "recorded",
+      "duplicate",
     );
+    // Another app of the same team keeps its own copy.
+    const other = await agentApp();
+    expect(
+      await inbox.record({
+        ...event(other, team, "Ev01"),
+        status: "received",
+        payload: {},
+        conversationKey: null,
+      }),
+    ).toBe("recorded");
+    expect(await inbox.seen(other.appId, "Ev01")).toBe(true);
 
     const rows = await db
       .select()
       .from(slackInboundEvents)
       .where(eq(slackInboundEvents.agentId, app.agentId));
-    expect(rows).toHaveLength(3);
+    expect(rows).toHaveLength(2);
     const drop = rows.find((row) => row.eventId === "Ev02");
     expect(drop).toMatchObject({
       status: "dropped",
       dropReason: "bot_message",
       payload: null,
     });
+  });
+
+  test("two pools claiming at once take every row exactly once", async () => {
+    const app = await agentApp();
+    const inbox = createPostgresSlackInboundEventStore(db);
+    const team = slackId("T");
+    const ids = Array.from({ length: 60 }, (_, i) => `EvRACE${i}`);
+    for (const [i, eventId] of ids.entries()) {
+      await inbox.record({
+        ...event(app, team, eventId),
+        status: "received",
+        payload: {},
+        // Each its own thread, so only the lease decides.
+        conversationKey: `${app.slackAppId}:C1:${i}`,
+      });
+    }
+    const second = new Pool({ connectionString: database.url, max: 6 });
+    try {
+      const stores = [
+        inbox,
+        createPostgresSlackInboundEventStore(drizzle(second, { schema })),
+      ];
+      const taken: string[] = [];
+      const rowIds: string[] = [];
+      const worker = async (store: (typeof stores)[number]) => {
+        for (;;) {
+          const batch = await store.claim({
+            limit: 4,
+            leaseMs: 60_000,
+            maxAttempts: 5,
+          });
+          if (batch.length === 0) return;
+          taken.push(...batch.map((claim) => claim.eventId));
+          rowIds.push(...batch.map((claim) => claim.id));
+        }
+      };
+      // Three claimers per pool, all at once.
+      await Promise.all(
+        stores.flatMap((store) => [1, 2, 3].map(() => worker(store))),
+      );
+      console.log(
+        `contention (PostgreSQL): ${rowIds.length} claims, ${new Set(rowIds).size} distinct rows; ${ids.length} raced`,
+      );
+      // Other tests' received rows are claimed too, once each as well.
+      expect(new Set(rowIds).size).toBe(rowIds.length);
+      expect(taken.filter((id) => id.startsWith("EvRACE")).sort()).toEqual(
+        [...ids].sort(),
+      );
+    } finally {
+      await second.end();
+    }
   });
 
   test("the table refuses a dropped row with a payload or a reason on a kept one", async () => {

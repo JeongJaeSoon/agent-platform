@@ -1,0 +1,132 @@
+import { describe, expect, test } from "bun:test";
+import { createMemorySlackInboundEventStore } from "../testing/slack-fakes.ts";
+import {
+  drainSlackInbox,
+  type SlackInboxLogger,
+  slackConversationKey,
+} from "./slack-inbox.ts";
+
+function recorder() {
+  const lines: string[] = [];
+  const logger: SlackInboxLogger = {
+    info: (message) => lines.push(message),
+    warn: (message) => lines.push(message),
+  };
+  return { lines, logger };
+}
+
+async function received(
+  inbox: ReturnType<typeof createMemorySlackInboundEventStore>,
+  eventId: string,
+) {
+  await inbox.store.record({
+    workspaceId: "w",
+    agentId: "a",
+    slackAppId: "s",
+    teamId: "T1",
+    appId: "A1",
+    eventId,
+    eventType: "app_mention",
+    eventSubtype: null,
+    eventTime: null,
+    status: "received",
+    payload: {},
+    conversationKey: null,
+  });
+}
+
+describe("slackConversationKey", () => {
+  test("a reply keys to its thread, a top-level message to itself", () => {
+    expect(
+      slackConversationKey("app", {
+        channel: "C1",
+        ts: "2.0",
+        thread_ts: "1.0",
+      }),
+    ).toBe("app:C1:1.0");
+    expect(slackConversationKey("app", { channel: "D1", ts: "2.0" })).toBe(
+      "app:D1:2.0",
+    );
+    expect(slackConversationKey("app", { type: "app_uninstalled" })).toBeNull();
+    expect(slackConversationKey("app", { channel: "C1" })).toBeNull();
+  });
+});
+
+describe("drainSlackInbox", () => {
+  test("a handler that throws gives the event back with its backoff", async () => {
+    let clock = 1_000_000;
+    const inbox = createMemorySlackInboundEventStore({ now: () => clock });
+    await received(inbox, "Ev1");
+    const { lines, logger } = recorder();
+    const drain = await drainSlackInbox({
+      inbox: inbox.store,
+      handler: async () => {
+        throw new Error("boom");
+      },
+      logger,
+      batchSize: 5,
+      leaseMs: 60_000,
+      deadline: Number.POSITIVE_INFINITY,
+      now: () => clock,
+    });
+    expect(drain).toMatchObject({ claimed: 1, retried: 1, processed: 0 });
+    expect(lines).toEqual([
+      "Slack event claimed",
+      "Slack event failed; retried later",
+    ]);
+    const row = [...inbox.lease.values()][0];
+    expect(row).toMatchObject({ state: "received", attempts: 1 });
+    expect(row?.nextAttemptAt).toBe(clock + 30_000);
+    clock += 30_000;
+    const after = await drainSlackInbox({
+      inbox: inbox.store,
+      handler: async () => {},
+      logger,
+      batchSize: 5,
+      leaseMs: 60_000,
+      deadline: Number.POSITIVE_INFINITY,
+      now: () => clock,
+    });
+    expect(after).toMatchObject({ claimed: 1, processed: 1 });
+  });
+
+  test("a lease lost under the handler writes nothing and says so", async () => {
+    let clock = 1_000_000;
+    const inbox = createMemorySlackInboundEventStore({ now: () => clock });
+    await received(inbox, "Ev1");
+    const { lines, logger } = recorder();
+    const drain = await drainSlackInbox({
+      inbox: inbox.store,
+      handler: async () => {
+        clock += 61_000;
+      },
+      logger,
+      batchSize: 1,
+      leaseMs: 60_000,
+      // One claim only: the row is claimable again once the lease is gone.
+      deadline: 1_000_001,
+      now: () => clock,
+    });
+    expect(drain).toMatchObject({ claimed: 1, processed: 0, lost: 1 });
+    expect(lines).toContain("Slack event lease lost; left to its next claim");
+    expect([...inbox.lease.values()][0]?.state).toBe("received");
+  });
+
+  test("the deadline ends the pass between batches", async () => {
+    let clock = 0;
+    const inbox = createMemorySlackInboundEventStore({ now: () => clock });
+    for (const id of ["Ev1", "Ev2", "Ev3"]) await received(inbox, id);
+    const drain = await drainSlackInbox({
+      inbox: inbox.store,
+      handler: async () => {
+        clock += 10;
+      },
+      logger: recorder().logger,
+      batchSize: 1,
+      leaseMs: 60_000,
+      deadline: 15,
+      now: () => clock,
+    });
+    expect(drain).toMatchObject({ claimed: 2, processed: 2 });
+  });
+});
