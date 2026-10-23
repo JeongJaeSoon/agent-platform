@@ -30,7 +30,7 @@ const CELL_PADDING_X =
 const CELL_VARIANT = {
   default: "",
   actions:
-    "w-px whitespace-nowrap [&_[data-slot=button]:not([data-size=icon])]:min-w-[var(--ap-row-action-min-width)]",
+    "w-px whitespace-nowrap [&_[data-slot=button]:not([data-size^=icon])]:min-w-[var(--ap-row-action-min-width)]",
   nowrap: "w-px whitespace-nowrap",
   text: "w-full min-w-[var(--ap-row-text-min-width)] max-w-0 [&_[data-slot=row-lines]>*:not(:first-child)]:truncate",
 } as const;
@@ -138,7 +138,7 @@ export function TableHead({
       data-variant={variant}
       className={cn(
         CELL_PADDING_X,
-        "py-[var(--ap-row-head-padding-y)] text-left align-middle font-medium text-caption text-muted-foreground",
+        "py-[var(--ap-row-head-padding-y)] text-left align-middle font-medium text-caption text-subtle-foreground",
         CELL_VARIANT[variant],
         className,
       )}
