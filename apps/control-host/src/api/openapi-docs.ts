@@ -215,6 +215,11 @@ export const ERROR_CODE_WHEN: Partial<Record<ApiErrorCode, When>> = {
     "The push request has not been pushed (`state` is not `pushed`); a pull request opens only from a pushed branch.",
   PULL_REQUEST_MISSING:
     "No pull request was opened from this push request yet; open it first.",
+  CONFIG_TOKEN_INVALID:
+    "The workspace's Slack App Configuration Token cannot be used. `error.details.reason_code` is `not_set` (none stored), `rejected` (Slack refused it; paste another) or `needs_reentry` (Slack no longer takes the stored token, or a rotation's answer was lost; an owner or admin pastes a new one).",
+  SLACK_APP_CREATING:
+    "The agent's Slack app is still being created. `error.details.uncertain: true` means Slack's answer was lost: check api.slack.com/apps for an app made at that time, delete it, then retry with `replace_uncertain: true`.",
+  AGENT_NOT_ACTIVE: "The agent has no active release; activate one first.",
 };
 
 function when(

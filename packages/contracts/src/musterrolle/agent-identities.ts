@@ -52,7 +52,7 @@ export const slackEventDropReasonSchema = z.enum(
 export const agentIdentityIdSchema = z.uuid();
 
 // Slack's own ids: an app id, a team id, a bot user id.
-const slackIdSchema = z
+export const slackIdSchema = z
   .string()
   .min(1)
   .max(64)

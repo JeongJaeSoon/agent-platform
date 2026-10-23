@@ -101,7 +101,7 @@ describe("secret cipher", () => {
 
   test("a field holding the separator is refused", () => {
     expect(() =>
-      sealSecret(key, { ...fields, ownerRef: "a|b" }, value),
+      sealSecret(key, { ...fields, ownerRef: "slack_app:a|b" }, value),
     ).toThrow();
   });
 });
