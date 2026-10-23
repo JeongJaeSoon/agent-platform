@@ -53,6 +53,13 @@ export {
   RowListItem,
   type RowListProps,
 } from "./row-list.tsx";
+export { SearchInput, type SearchInputProps } from "./search-input.tsx";
+export {
+  SegmentedControl,
+  SegmentedControlItem,
+  type SegmentedControlItemProps,
+  type SegmentedControlProps,
+} from "./segmented-control.tsx";
 export { Skeleton, type SkeletonProps } from "./skeleton.tsx";
 export {
   Table,
@@ -67,7 +74,13 @@ export {
   type TableHeadProps,
   TableRow,
 } from "./table.tsx";
-export { Tabs, TabsContent, TabsList, TabsTrigger } from "./tabs.tsx";
+export {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+  type TabsTriggerProps,
+} from "./tabs.tsx";
 export { Textarea } from "./textarea.tsx";
 export {
   Tooltip,
