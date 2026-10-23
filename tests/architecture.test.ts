@@ -390,6 +390,35 @@ function moduleFile(from: string, specifier: string): string {
   throw new Error(`${from}: cannot resolve export * from "${specifier}"`);
 }
 
+/**
+ * Whether a constant's value is a list of link classes ("text-primary
+ * hover:underline"), as opposed to a URL that merely contains "text-".
+ */
+function isLinkClasses(value: ts.Expression): boolean {
+  let inner = value;
+  while (
+    ts.isAsExpression(inner) ||
+    ts.isSatisfiesExpression(inner) ||
+    ts.isParenthesizedExpression(inner) ||
+    ts.isTypeAssertionExpression(inner)
+  )
+    inner = inner.expression;
+  const text = ts.isStringLiteralLike(inner)
+    ? inner.text
+    : ts.isTemplateExpression(inner)
+      ? [
+          inner.head.text,
+          ...inner.templateSpans.map((s) => s.literal.text),
+        ].join(" ")
+      : undefined;
+  return (
+    text !== undefined &&
+    text
+      .split(/\s+/)
+      .some((token) => /^(?:[\w-]+:)*(?:text-|underline$)/.test(token))
+  );
+}
+
 /** Count of each web UI rule's matches, per file relative to apps/web/src. */
 export type WebUiCounts = Record<string, Partial<Record<WebUiRule, number>>>;
 
@@ -475,14 +504,12 @@ export async function webUiViolations(
             .length,
         );
       }
-      // A string of link classes, not a URL constant (HELP_LINK = "#help").
       if (
         ts.isVariableDeclaration(node) &&
         ts.isIdentifier(node.name) &&
         /^[A-Z0-9_]*LINK[A-Z0-9_]*$/.test(node.name.text) &&
         node.initializer &&
-        ts.isStringLiteralLike(node.initializer) &&
-        /\btext-|\bunderline\b/.test(node.initializer.text)
+        isLinkClasses(node.initializer)
       )
         add(name, "link-constant", 1);
     });
@@ -1232,6 +1259,9 @@ describe("architecture", () => {
         [
           'const LINK: string = "underline";',
           'const OTHER = 0, ROW_LINK = "hover:underline text-primary";',
+          'const CONST_LINK = "text-primary underline" as const;',
+          "const MIXED_LINK = `text-primary ${extra} underline`;",
+          'const DOCS_LINK: string = "https://tailwindcss.com/docs/text-decoration-line";',
           "const NAV_LINK = `",
           "  text-primary hover:underline",
           "`;",
@@ -1256,7 +1286,7 @@ describe("architecture", () => {
         "dirty.tsx": {
           "raw-anchor": 4,
           "shadow-component": 2,
-          "link-constant": 3,
+          "link-constant": 5,
         },
         "styles.css": { "legacy-class": 1 },
       });
