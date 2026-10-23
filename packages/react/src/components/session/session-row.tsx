@@ -70,7 +70,8 @@ export function SessionRow({
         value={session.last_event_at ?? session.created_at}
         locale={locale}
         // The narrow layout's cell cuts what overflows; the ring stays inside.
-        className="relative focus-visible:-outline-offset-2"
+        // Important: apps/web's unlayered focus rule sets a 2px offset.
+        className="relative focus-visible:-outline-offset-2!"
       />
     </>
   );

@@ -220,7 +220,8 @@ export function SessionOverviewRow({
               value={at}
               locale={locale}
               {...(now === undefined ? {} : { now })}
-              className="truncate focus-visible:-outline-offset-2"
+              // Important: apps/web's unlayered focus rule sets a 2px offset.
+              className="truncate focus-visible:-outline-offset-2!"
             />
           )}
         </span>
