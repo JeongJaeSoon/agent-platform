@@ -6,7 +6,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./testing": "./src/testing/execution-backend-contract.ts"
+    "./testing": "./src/testing/execution-backend-contract.ts",
+    "./testing/slack": "./src/testing/slack-fakes.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"

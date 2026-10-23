@@ -23,6 +23,7 @@ import {
   auditRetentionRequestSchema,
   auditRetentionResponseSchema,
   authMeResponseSchema,
+  BOT_SCOPES,
   bootstrapRequestSchema,
   bootstrapResponseSchema,
   changeSessionProfileRequestSchema,
@@ -41,13 +42,17 @@ import {
   createPushRequestRequestSchema,
   createSessionRequestSchema,
   createSessionResponseSchema,
+  createSlackAppRequestSchema,
+  createSlackAppResponseSchema,
   createTeamRequestSchema,
   credentialBindingParamsSchema,
   decidePushRequestRequestSchema,
+  deleteSlackAppResponseSchema,
   deleteSlackSecretResponseSchema,
   deleteTeamResponseSchema,
   getReceiptResponseSchema,
   getSessionResponseSchema,
+  getSlackAppResponseSchema,
   getTurnResponseSchema,
   googleLoginCallbackRequestSchema,
   healthResponseSchema,
@@ -99,6 +104,7 @@ import {
   pushRequestSchema,
   putSlackBindingRequestSchema,
   putSlackBindingResponseSchema,
+  putSlackConfigTokenResponseSchema,
   putSlackSecretRequestSchema,
   putSlackSecretResponseSchema,
   readyResponseSchema,
@@ -121,6 +127,9 @@ import {
   setAccessResponseSchema,
   setSessionShareRequestSchema,
   setSessionShareResponseSchema,
+  slackAppParamsSchema,
+  slackAppSecretParamsSchema,
+  slackConfigTokenSummarySchema,
   slackGuestRequestSchema,
   slackGuestResponseSchema,
   slackLinkCallbackRequestSchema,
@@ -193,6 +202,7 @@ const requestComponents = {
   AuditRetentionRequest: auditRetentionRequestSchema,
   SlackGuestRequest: slackGuestRequestSchema,
   PutSlackSecretRequest: putSlackSecretRequestSchema,
+  CreateSlackAppRequest: createSlackAppRequestSchema,
   CreateAgentRequest: createAgentRequestSchema,
   UpdateAgentRequest: updateAgentRequestSchema,
   CreateAgentReleaseRequest: createAgentReleaseRequestSchema,
@@ -257,6 +267,11 @@ const responseComponents = {
   SlackSecretSummary: slackSecretSummarySchema,
   PutSlackSecretResponse: putSlackSecretResponseSchema,
   DeleteSlackSecretResponse: deleteSlackSecretResponseSchema,
+  SlackConfigTokenSummary: slackConfigTokenSummarySchema,
+  PutSlackConfigTokenResponse: putSlackConfigTokenResponseSchema,
+  GetSlackAppResponse: getSlackAppResponseSchema,
+  CreateSlackAppResponse: createSlackAppResponseSchema,
+  DeleteSlackAppResponse: deleteSlackAppResponseSchema,
   PasswordResetResponse: passwordResetResponseSchema,
   AuthMeResponse: authMeResponseSchema,
   InstallationLimitsResponse: installationLimitsResponseSchema,
@@ -468,6 +483,47 @@ const COMMON_ERROR_CODES: Partial<Record<number, readonly ApiErrorCode[]>> = {
 const EXAMPLE_SESSION_ID = "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01";
 const EXAMPLE_RECEIPT_ID = "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c";
 const EXAMPLE_USER_ID = "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35";
+const EXAMPLE_AGENT_ID = "8d2c4f1a-6b3e-4a9d-b7c5-2e1f0a9b8c7d";
+const EXAMPLE_SLACK_APP_REDIRECT = `https://console.example.ts.net/agents/${EXAMPLE_AGENT_ID}/slack/callback`;
+const EXAMPLE_SLACK_APP = {
+  id: "6a1d3e5f-2b4c-4d8e-9f0a-1b2c3d4e5f60",
+  kind: "agent",
+  agent_id: EXAMPLE_AGENT_ID,
+  state: "created",
+  app_id: "A0B1C2D3E4F",
+  client_id: "1234567890.9876543210",
+  redirect_url: EXAMPLE_SLACK_APP_REDIRECT,
+  created_by_token_user: "U0ISSUER",
+  created_at: "2026-10-23T09:00:00Z",
+  updated_at: "2026-10-23T09:00:00Z",
+  secrets: {
+    slack_signing_secret: {
+      configured: true,
+      last4: "c3d4",
+      updated_at: "2026-10-23T09:00:00Z",
+      updated_by: null,
+    },
+    slack_client_secret: {
+      configured: true,
+      last4: "e5f6",
+      updated_at: "2026-10-23T09:00:00Z",
+      updated_by: null,
+    },
+    slack_bot_token: {
+      configured: false,
+      last4: null,
+      updated_at: null,
+      updated_by: null,
+    },
+  },
+};
+const EXAMPLE_SLACK_AUTHORIZE_URL = `https://slack.com/oauth/v2/authorize?${new URLSearchParams(
+  {
+    client_id: EXAMPLE_SLACK_APP.client_id,
+    scope: BOT_SCOPES.join(","),
+    redirect_uri: EXAMPLE_SLACK_APP_REDIRECT,
+  },
+)}`;
 const EXAMPLE_WORKSPACE = {
   id: "9d2c4e61-8a3b-4f70-b1e5-6c0a7d3f2b98",
   slug: "acme",
@@ -822,18 +878,20 @@ export const API_ROUTE_DECLARATIONS = [
     summary:
       "Whether the Slack App Configuration Token is set (owner or admin)",
     description:
-      "Says whether a token is set, its last four characters, when it was last set and by whom. The token itself is never returned. API keys are refused.",
+      "Says whether a token is set, its last four characters, when it was last set and by whom, when the current access token expires and which Slack user issued it. `state` is `unset`, `active`, or `needs_reentry` when Slack no longer takes the stored token or a rotation's answer was lost: paste a new one. The token itself is never returned. API keys are refused.",
     auth: "session",
     success: {
       status: 200,
-      schema: "SlackSecretSummary",
-      description:
-        "Whether a token is set; the last four characters and who set it when it is.",
+      schema: "SlackConfigTokenSummary",
+      description: "The token's state; never its value.",
       example: {
         configured: true,
         last4: "a9f3",
         updated_at: "2026-10-23T09:00:00Z",
         updated_by: { user_id: EXAMPLE_USER_ID, display_name: "Jae" },
+        state: "active",
+        expires_at: "2026-10-23T21:00:00Z",
+        issuer: { user_id: "U0ISSUER", team_id: "T0TEAM" },
       },
     },
     errors: [401, 403, 404, 503],
@@ -850,27 +908,32 @@ export const API_ROUTE_DECLARATIONS = [
     summary:
       "Set or replace the Slack App Configuration Token (owner or admin)",
     description:
-      "Stores the token encrypted; a replace keeps one value under a new version. The response and the `set_slack_secret` receipt carry the last four characters only, and the value is in no log or error. API keys are refused.",
+      "Paste the refresh token from api.slack.com/apps. It is rotated with Slack at once (`tooling.tokens.rotate`), which proves Slack takes it; the new access and refresh tokens are stored encrypted together and the pasted one is spent. A token Slack refuses changes nothing stored (409 CONFIG_TOKEN_INVALID, `rejected`). When the token belongs to another Slack user than before, `warnings` says so: that user becomes the collaborator of every app made from now on. The response and the `set_slack_secret` receipt carry the last four characters only, and the value is in no log or error. API keys are refused.",
     auth: "session",
     body: "PutSlackSecretRequest",
     requestExample: { value: "<refresh-token-from-api.slack.com>" },
     success: {
       status: 200,
-      schema: "PutSlackSecretResponse",
+      schema: "PutSlackConfigTokenResponse",
       description:
-        "Stored; the summary as GET now answers it, and the receipt.",
+        "Stored; the summary as GET now answers it, the receipt and any warnings.",
       example: {
         configured: true,
         last4: "a9f3",
         updated_at: "2026-10-23T09:00:00Z",
         updated_by: { user_id: EXAMPLE_USER_ID, display_name: "Jae" },
+        state: "active",
+        expires_at: "2026-10-23T21:00:00Z",
+        issuer: { user_id: "U0ISSUER", team_id: "T0TEAM" },
         receipt_id: EXAMPLE_RECEIPT_ID,
+        warnings: [],
       },
     },
-    errors: [400, 401, 403, 404, 413, 503],
+    errors: [400, 401, 403, 404, 409, 413, 503],
+    errorCodes: { 409: ["CONFIG_TOKEN_INVALID"] },
     errorNotes: {
       BACKEND_UNAVAILABLE:
-        "Also when the API runs without a master key (PLATFORM_SECRET_KEY).",
+        "Also when the API runs without a master key (PLATFORM_SECRET_KEY), or Slack could not be reached; nothing stored changed.",
     },
     idempotent: false,
   },
@@ -891,6 +954,87 @@ export const API_ROUTE_DECLARATIONS = [
     },
     errors: [401, 403, 404, 503],
     errorNotes: {
+      BACKEND_UNAVAILABLE:
+        "Also when the API runs without a master key (PLATFORM_SECRET_KEY).",
+    },
+    idempotent: false,
+  },
+  {
+    method: "delete",
+    path: "/v1/workspaces/{id}/slack/apps/{app_id}",
+    operationId: "deleteSlackApp",
+    tag: "Workspace settings",
+    summary: "Delete one of the workspace's Slack apps in Slack",
+    description:
+      "Deletes the app in Slack (`apps.manifest.delete` with the config token) and its stored secrets; the row stays as `deleted`. Only an app recorded in this workspace's Slack apps can be named. An agent's app takes an owner, an admin or that agent's admin; any other app an owner or admin. An app Slack no longer has counts as deleted. One still being created answers 409 SLACK_APP_CREATING. API keys are refused.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "DeleteSlackAppResponse",
+      description:
+        "Deleted in Slack, or already gone there; the app as now stored, its secrets dropped.",
+      example: {
+        slack_app: {
+          ...EXAMPLE_SLACK_APP,
+          state: "deleted",
+          secrets: {
+            slack_signing_secret: {
+              configured: false,
+              last4: null,
+              updated_at: null,
+              updated_by: null,
+            },
+            slack_client_secret: {
+              configured: false,
+              last4: null,
+              updated_at: null,
+              updated_by: null,
+            },
+            slack_bot_token: {
+              configured: false,
+              last4: null,
+              updated_at: null,
+              updated_by: null,
+            },
+          },
+        },
+      },
+    },
+    errors: [401, 403, 404, 409, 503],
+    errorCodes: { 409: ["CONFIG_TOKEN_INVALID", "SLACK_APP_CREATING"] },
+    errorNotes: {
+      BACKEND_UNAVAILABLE:
+        "Also when the API runs without a master key (PLATFORM_SECRET_KEY), or Slack could not be reached or refused; the app stays `deleting` and the same request retries it.",
+    },
+    idempotent: false,
+  },
+  {
+    method: "put",
+    path: "/v1/workspaces/{id}/slack/apps/{app_id}/secrets/{purpose}",
+    operationId: "putSlackAppSecret",
+    tag: "Workspace settings",
+    summary: "Set a secret of a Slack app made by hand (owner or admin)",
+    description:
+      "`purpose` is `slack_signing_secret`, `slack_client_secret` or `slack_bot_token`. Only an app of kind `manual` takes values from a person: the platform writes the secrets of the apps it created (403 `server_managed_secret`), since whoever knew an app's signing secret could sign events as Slack. The value is stored encrypted under the app; the response and the `set_slack_secret` receipt carry its last four characters only. API keys are refused.",
+    auth: "session",
+    body: "PutSlackSecretRequest",
+    requestExample: { value: "<value-from-api.slack.com>" },
+    success: {
+      status: 200,
+      schema: "PutSlackSecretResponse",
+      description: "Stored; its summary and the receipt.",
+      example: {
+        configured: true,
+        last4: "a9f3",
+        updated_at: "2026-10-23T09:00:00Z",
+        updated_by: { user_id: EXAMPLE_USER_ID, display_name: "Jae" },
+        receipt_id: EXAMPLE_RECEIPT_ID,
+      },
+    },
+    errors: [400, 401, 403, 404, 413, 503],
+    errorNotes: {
+      BAD_REQUEST:
+        "Also when `app_id` is not a UUID or `purpose` is not one of the three, `slack_config_token` included.",
       BACKEND_UNAVAILABLE:
         "Also when the API runs without a master key (PLATFORM_SECRET_KEY).",
     },
@@ -2428,6 +2572,69 @@ export const API_ROUTE_DECLARATIONS = [
     idempotent: false,
   },
   {
+    method: "get",
+    path: "/v1/agents/{id}/slack/app",
+    operationId: "getSlackApp",
+    tag: "Agents",
+    summary: "The agent's Slack app, if the platform made one",
+    description:
+      "The agent's live Slack app (`creating`, `created` or `deleting`) and the URL where a Slack workspace admin approves installing it, or nulls when it has none. Secrets appear only as whether each is stored. Owners, admins and the agent's admins; API keys are refused.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "GetSlackAppResponse",
+      description: "The agent's app and install URL, or nulls.",
+      example: {
+        slack_app: EXAMPLE_SLACK_APP,
+        authorize_url: EXAMPLE_SLACK_AUTHORIZE_URL,
+      },
+    },
+    errors: [401, 403, 404, 503],
+    errorNotes: {
+      BACKEND_UNAVAILABLE:
+        "Also when the API runs without a master key (PLATFORM_SECRET_KEY).",
+    },
+  },
+  {
+    method: "post",
+    path: "/v1/agents/{id}/slack/app",
+    operationId: "createSlackApp",
+    tag: "Agents",
+    summary: "Create the agent's Slack app and get its install URL",
+    description:
+      "Creates one Slack app for the agent with the workspace's App Configuration Token (`apps.manifest.create`): the agent's name, its bot, the agent view and the bot scopes, with no event subscriptions yet. The app is recorded as `creating` before Slack is asked; its signing and client secrets are stored by the server under the app and never returned. Asking again for an agent that has its app returns the same app with `created: false`. If Slack's answer was lost the app stays `creating` and the next request answers 409 SLACK_APP_CREATING; once `uncertain`, check api.slack.com/apps, delete any app made then, and retry with `replace_uncertain: true`. `warnings` says when the config token now belongs to another Slack user than the one who made the workspace's previous app. The agent needs an active release. Owners, admins and the agent's admins from a signed-in console; API keys are refused.",
+    auth: "session",
+    body: "CreateSlackAppRequest",
+    requestExample: { replace_uncertain: false },
+    success: {
+      status: 200,
+      schema: "CreateSlackAppResponse",
+      description:
+        "The agent's app, whether this request created it, the install URL and any warnings.",
+      example: {
+        slack_app: EXAMPLE_SLACK_APP,
+        authorize_url: EXAMPLE_SLACK_AUTHORIZE_URL,
+        created: true,
+        warnings: [],
+      },
+    },
+    errors: [400, 401, 403, 404, 409, 413, 503],
+    errorCodes: {
+      409: [
+        "AGENT_NOT_ACTIVE",
+        "CONFIG_TOKEN_INVALID",
+        "SLACK_APP_CREATING",
+        "REVISION_CONFLICT",
+      ],
+    },
+    errorNotes: {
+      REVISION_CONFLICT: "Here: the agent's app is being deleted.",
+      BACKEND_UNAVAILABLE:
+        "Also when the API runs without a master key (PLATFORM_SECRET_KEY) or SLACK_OIDC_REDIRECT_URI, when Slack refused the manifest (`error.details.slack_error`; nothing was created) or could not be reached.",
+    },
+    idempotent: false,
+  },
+  {
     method: "post",
     path: "/v1/api-keys",
     operationId: "createApiKey",
@@ -2901,6 +3108,9 @@ function paramsSchemaFor(path: string): z.ZodObject {
   if (path.startsWith("/v1/teams/{team_id}")) return teamIdParamsSchema;
   if (path.startsWith("/v1/workspaces/{id}/members/{userId}"))
     return memberParamsSchema;
+  if (path.includes("{app_id}/secrets/{purpose}"))
+    return slackAppSecretParamsSchema;
+  if (path.includes("{app_id}")) return slackAppParamsSchema;
   if (path === "/v1/invites/{id}") return inviteIdParamsSchema;
   if (path === "/v1/api-keys/{id}") return apiKeyIdParamsSchema;
   if (path.startsWith("/v1/members/{user_id}")) return memberUserParamsSchema;

@@ -5,24 +5,25 @@ import {
   CSRF_HEADER_NAME,
   CSRF_HEADER_VALUE,
   deleteSlackSecretResponseSchema,
-  putSlackSecretResponseSchema,
+  putSlackConfigTokenResponseSchema,
   REQUEST_BODY_MAX_BYTES,
-  slackSecretSummarySchema,
+  slackConfigTokenSummarySchema,
   WEB_SESSION_COOKIE_NAME,
 } from "@werft-ai/contracts";
 import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import {
   createAuthorizationPolicy,
+  createSlackConfigTokens,
   createSlackSecretService,
   type IdentityStore,
-  lastFour,
   type MembershipRole,
   type ResolvedWebSession,
-  type SecretSlot,
-  type SecretStore,
-  type SecretSummary,
-  secretOwnerRef,
 } from "@werft-ai/platform";
+import {
+  createFakeSlackConfigApi,
+  createMemoryConfigTokenStore,
+  createMemorySecretStore,
+} from "@werft-ai/platform/testing/slack";
 import { generateWebSessionToken, hashWebSessionToken } from "../auth.ts";
 import { hashApiKey } from "../keys.ts";
 import { recordRouteErrors } from "../route-error-coverage.ts";
@@ -32,8 +33,6 @@ const createApiApp = recordRouteErrors("routes/slack-secrets.test.ts");
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000a1";
 const OTHER_WORKSPACE = "019a0000-0000-7000-8000-0000000000b1";
-// Made per run: a fixed token-shaped string has no place in a file.
-const VALUE = `xoxe-1-${randomBytes(24).toString("hex")}`;
 
 const sessions = new Map<string, ResolvedWebSession>();
 function cookieFor(role: MembershipRole, workspaceId = WORKSPACE): string {
@@ -85,43 +84,20 @@ const keyStore = {
   },
 };
 
-const values = new Map<string, { value: string; summary: SecretSummary }>();
-const receipts: { id: string; purpose: string; last4: string }[] = [];
-const slotKey = (slot: SecretSlot) =>
-  `${slot.workspaceId}|${secretOwnerRef(slot.owner)}|${slot.purpose}`;
-const store: SecretStore = {
-  describe: async (slot) => values.get(slotKey(slot))?.summary ?? null,
-  get: async (slot) => values.get(slotKey(slot))?.value ?? null,
-  put: async (slot, value, options) => {
-    const summary: SecretSummary = {
-      last4: lastFour(value),
-      secretVersion: 1,
-      updatedAt: new Date("2026-10-23T00:00:00.000Z"),
-      updatedBy: null,
-    };
-    values.set(slotKey(slot), { value, summary });
-    if (options?.audit) {
-      receipts.push({
-        id: options.audit.receiptId,
-        purpose: slot.purpose,
-        last4: summary.last4,
-      });
-    }
-    return { outcome: "stored", summary };
-  },
-  rotate: async () => null,
-  delete: async (slot) => {
-    const previous = values.get(slotKey(slot));
-    if (!previous) return { outcome: "not_found" };
-    values.delete(slotKey(slot));
-    return { outcome: "deleted", last4: previous.summary.last4 };
-  },
+const secrets = createMemorySecretStore();
+const tokenStore = createMemoryConfigTokenStore(secrets);
+const slack = createFakeSlackConfigApi();
+const pastedTokens: string[] = [];
+const paste = () => {
+  const value = slack.issueRefresh();
+  pastedTokens.push(value);
+  return value;
 };
 
 const logs = new MemoryLogSink();
 const responses: string[] = [];
 
-function appWith(secretStore: SecretStore | null) {
+function appWith(enabled: boolean) {
   const app = createApiApp({
     authMode: "api-key",
     identity,
@@ -132,7 +108,14 @@ function appWith(secretStore: SecretStore | null) {
         router,
         createSlackSecretService({
           authorization: createAuthorizationPolicy({}),
-          store: secretStore,
+          store: enabled ? secrets.store : null,
+          tokens: enabled
+            ? createSlackConfigTokens({
+                store: tokenStore.store,
+                api: slack.api,
+              })
+            : null,
+          appKind: async () => null,
         }),
       ),
   });
@@ -173,57 +156,94 @@ function appWith(secretStore: SecretStore | null) {
   };
 }
 
-const call = appWith(store);
-const put = (value: unknown = VALUE) => JSON.stringify({ value });
+const call = appWith(true);
+const put = (value: unknown) => JSON.stringify({ value });
+const unknownToken = () => {
+  const value = `xoxe-1-${randomBytes(24).toString("hex")}`;
+  pastedTokens.push(value);
+  return value;
+};
 
 function code(json: unknown) {
   return apiErrorResponseSchema.parse(json).error;
 }
 
 describe("the Slack config token API", () => {
-  test("an owner sets it, sees only the last four, replaces and deletes it", async () => {
+  test("an owner sets it, sees its state and last four, replaces and deletes it", async () => {
     const owner = cookieFor("owner");
-    const set = await call("PUT", { cookie: owner, body: put() });
+    const first = paste();
+    const set = await call("PUT", { cookie: owner, body: put(first) });
     expect(set.status).toBe(200);
-    expect(putSlackSecretResponseSchema.parse(set.json)).toMatchObject({
+    const stored = tokenStore.pair(WORKSPACE);
+    expect(stored?.refresh_token).not.toBe(first);
+    expect(putSlackConfigTokenResponseSchema.parse(set.json)).toMatchObject({
       configured: true,
-      last4: VALUE.slice(-4),
+      last4: stored?.refresh_token.slice(-4),
+      state: "active",
+      issuer: { user_id: "U0ISSUER", team_id: "T0FAKE" },
+      warnings: [],
     });
     const read = await call("GET", { cookie: owner });
-    expect(slackSecretSummarySchema.parse(read.json)).toEqual({
+    expect(slackConfigTokenSummarySchema.parse(read.json)).toMatchObject({
       configured: true,
-      last4: VALUE.slice(-4),
-      updated_at: "2026-10-23T00:00:00.000Z",
-      updated_by: null,
+      state: "active",
+      issuer: { user_id: "U0ISSUER", team_id: "T0FAKE" },
     });
-    const next = `${VALUE}-next`;
-    expect(
-      (await call("PUT", { cookie: cookieFor("admin"), body: put(next) }))
-        .status,
-    ).toBe(200);
-    expect(values.get(`${WORKSPACE}|workspace|slack_config_token`)?.value).toBe(
-      next,
-    );
-    expect(receipts.map(({ purpose, last4 }) => ({ purpose, last4 }))).toEqual([
-      { purpose: "slack_config_token", last4: VALUE.slice(-4) },
-      { purpose: "slack_config_token", last4: next.slice(-4) },
+
+    slack.state.userId = "U0OTHER";
+    const replaced = await call("PUT", {
+      cookie: cookieFor("admin"),
+      body: put(paste()),
+    });
+    expect(replaced.status).toBe(200);
+    expect(replaced.json.warnings).toEqual([
+      {
+        code: "config_token_issuer_changed",
+        previous_user_id: "U0ISSUER",
+        user_id: "U0OTHER",
+      },
     ]);
+    expect(secrets.receipts.map(({ purpose }) => purpose)).toEqual([
+      "slack_config_token",
+      "slack_config_token",
+    ]);
+
     const deleted = await call("DELETE", { cookie: owner });
     expect(deleted.status).toBe(200);
     deleteSlackSecretResponseSchema.parse(deleted.json);
     expect((await call("GET", { cookie: owner })).json).toMatchObject({
       configured: false,
       last4: null,
+      state: "unset",
     });
     expect((await call("DELETE", { cookie: owner })).status).toBe(404);
   });
 
+  test("a token Slack refuses answers 409 and changes nothing stored", async () => {
+    const owner = cookieFor("owner");
+    expect(
+      (await call("PUT", { cookie: owner, body: put(paste()) })).status,
+    ).toBe(200);
+    const before = (await call("GET", { cookie: owner })).json;
+    const refused = await call("PUT", {
+      cookie: owner,
+      body: put(unknownToken()),
+    });
+    expect(refused.status).toBe(409);
+    expect(code(refused.json)).toMatchObject({
+      code: "CONFIG_TOKEN_INVALID",
+      details: { reason_code: "rejected" },
+    });
+    expect((await call("GET", { cookie: owner })).json).toEqual(before);
+    await call("DELETE", { cookie: owner });
+  });
+
   test("a member is refused on every method and the value is not stored", async () => {
-    values.clear();
+    secrets.values.clear();
     const member = cookieFor("member");
     for (const [method, body] of [
       ["GET", undefined],
-      ["PUT", put()],
+      ["PUT", put(paste())],
       ["DELETE", undefined],
     ] as const) {
       const response = await call(method, {
@@ -233,19 +253,19 @@ describe("the Slack config token API", () => {
       expect(response.status).toBe(403);
       expect(code(response.json).code).toBe("FORBIDDEN");
     }
-    expect(values.size).toBe(0);
+    expect(secrets.values.size).toBe(0);
   });
 
   test.each(KEYS)("an API key is refused ($kind)", async (key) => {
     for (const method of ["GET", "PUT", "DELETE"] as const) {
       const response = await call(method, {
         key,
-        ...(method === "PUT" ? { body: put() } : {}),
+        ...(method === "PUT" ? { body: put(paste()) } : {}),
       });
       expect(response.status).toBe(403);
       expect(code(response.json).code).toBe("FORBIDDEN");
     }
-    expect(values.size).toBe(0);
+    expect(secrets.values.size).toBe(0);
   });
 
   test("a cookie write without the CSRF header, or from another site, is refused", async () => {
@@ -254,7 +274,7 @@ describe("the Slack config token API", () => {
       const response = await call(method, {
         cookie: owner,
         csrf: false,
-        ...(method === "PUT" ? { body: put() } : {}),
+        ...(method === "PUT" ? { body: put(paste()) } : {}),
       });
       expect(response.status).toBe(403);
       expect(code(response.json).message).toContain(CSRF_HEADER_NAME);
@@ -267,12 +287,12 @@ describe("the Slack config token API", () => {
       const response = await call("PUT", {
         cookie: owner,
         headers,
-        body: put(),
+        body: put(paste()),
       });
       expect(response.status).toBe(403);
       expect(code(response.json).code).toBe("FORBIDDEN");
     }
-    expect(values.size).toBe(0);
+    expect(secrets.values.size).toBe(0);
   });
 
   test("another workspace's path is not found", async () => {
@@ -284,7 +304,7 @@ describe("the Slack config token API", () => {
       (
         await call("PUT", {
           cookie: cookieFor("owner", OTHER_WORKSPACE),
-          body: put(),
+          body: put(paste()),
         })
       ).status,
     ).toBe(404);
@@ -299,30 +319,31 @@ describe("the Slack config token API", () => {
 
   test("a malformed or oversized value is refused without echoing it", async () => {
     const owner = cookieFor("owner");
+    const value = unknownToken();
     for (const body of [
-      put(`${VALUE} with spaces`),
-      put(VALUE.slice(0, 5)),
-      JSON.stringify({ value: VALUE, extra: VALUE }),
-      `{"value": "${VALUE}"`,
+      put(`${value} with spaces`),
+      put(value.slice(0, 5)),
+      JSON.stringify({ value, extra: value }),
+      `{"value": "${value}"`,
     ]) {
       const response = await call("PUT", { cookie: owner, body });
       expect(response.status).toBe(400);
     }
     const huge = await call("PUT", {
       cookie: owner,
-      body: put(`${VALUE}${"a".repeat(REQUEST_BODY_MAX_BYTES)}`),
+      body: put(`${value}${"a".repeat(REQUEST_BODY_MAX_BYTES)}`),
     });
     expect(huge.status).toBe(413);
-    expect(values.size).toBe(0);
+    expect(secrets.values.size).toBe(0);
   });
 
   test("without a master key every method answers 503", async () => {
-    const off = appWith(null);
+    const off = appWith(false);
     const owner = cookieFor("owner");
     for (const method of ["GET", "PUT", "DELETE"] as const) {
       const response = await off(method, {
         cookie: owner,
-        ...(method === "PUT" ? { body: put() } : {}),
+        ...(method === "PUT" ? { body: put(paste()) } : {}),
       });
       expect(response.status).toBe(503);
       expect(code(response.json).message).toContain("PLATFORM_SECRET_KEY");
@@ -336,9 +357,16 @@ describe("the Slack config token API", () => {
 
 afterAll(() => {
   const seen = [...responses, ...logs.records.map((r) => JSON.stringify(r))];
+  const tokens = [
+    ...pastedTokens,
+    ...slack.state.accessTokens,
+    ...slack.state.refreshTokens,
+  ];
   for (const text of seen) {
-    expect(text).not.toContain(VALUE);
-    expect(text).not.toContain(VALUE.slice(7, 40));
+    for (const token of tokens) {
+      expect(text).not.toContain(token);
+      expect(text).not.toContain(token.slice(7, 40));
+    }
   }
   expect(logs.records.length).toBeGreaterThan(0);
 });

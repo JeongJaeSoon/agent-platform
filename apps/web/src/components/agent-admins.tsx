@@ -6,7 +6,7 @@ import type {
   AgentAdminKind,
 } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
-import { ConfirmDialog, EmptyState } from "@werft-ai/ui";
+import { ConfirmDialog, EmptyState, Link as TextLink } from "@werft-ai/ui";
 import { useId, useState } from "react";
 import {
   administeredAgentsQuery,
@@ -379,13 +379,11 @@ export function AdministeredAgents({
           <ul className="web-list">
             {items.map((agent) => (
               <li key={agent.id} className="web-list__item">
-                <Link
-                  to="/agents/$id"
-                  params={{ id: agent.id }}
-                  className="web-table__primary"
-                >
-                  {agent.name}
-                </Link>
+                <TextLink asChild className="web-table__primary">
+                  <Link to="/agents/$id" params={{ id: agent.id }}>
+                    {agent.name}
+                  </Link>
+                </TextLink>
                 <span className="web-table__secondary">{agent.slug}</span>
               </li>
             ))}

@@ -348,7 +348,7 @@ describe("SessionRow", () => {
       ],
     );
     expect(labels).toEqual([
-      ["turn", "positive"],
+      ["session", "neutral"],
       ["admission", "caution"],
     ]);
   });

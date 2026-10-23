@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import type { FakeSlackWebApi } from "./fake-slack-api.ts";
 
 // A stand-in for Sign in with Slack: the three endpoints the platform calls
 // (authorize, openid.connect.token, keys), with id_tokens signed by a key
@@ -58,6 +59,8 @@ export async function startMockSlackOidc(
     bot?: Partial<MockSlackBot>;
     /** Signs tokens for this audience instead of the client: a forged token. */
     audience?: string;
+    /** Slack's Web API fake, served on the same port ahead of the bot above. */
+    webApi?: FakeSlackWebApi;
   } = {},
 ): Promise<MockSlackOidc> {
   const clientId = options.clientId ?? "mock-client-id";
@@ -120,6 +123,8 @@ export async function startMockSlackOidc(
     async fetch(request) {
       const url = new URL(request.url);
       if (url.pathname === "/healthz") return new Response("ok");
+      const answered = await options.webApi?.handle(request.clone());
+      if (answered) return answered;
       if (
         url.pathname === "/api/auth.test" ||
         url.pathname === "/api/bots.info"

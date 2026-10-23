@@ -2,14 +2,16 @@ import type {
   AdmissionState,
   ExecutionState,
   ReceiptStatus,
+  SessionStatus,
   TurnStatus,
 } from "@werft-ai/contracts";
 
 /**
- * admission·turn·receipt·execution are separate axes and are never merged into
+ * session·admission·turn·receipt·execution are separate axes and are never merged into
  * one badge (02 UX 설계 §4.1). A tone is a meaning; the hex lives in tokens.css.
  */
 export const STATUS_AXIS_VALUES = [
+  "session",
   "admission",
   "turn",
   "receipt",
@@ -28,13 +30,15 @@ export const STATUS_TONE_VALUES = [
 ] as const;
 export type StatusTone = (typeof STATUS_TONE_VALUES)[number];
 
-export type StatusStateOf<A extends StatusAxis> = A extends "admission"
-  ? AdmissionState
-  : A extends "turn"
-    ? TurnStatus
-    : A extends "receipt"
-      ? ReceiptStatus
-      : ExecutionState;
+export type StatusStateOf<A extends StatusAxis> = A extends "session"
+  ? SessionStatus
+  : A extends "admission"
+    ? AdmissionState
+    : A extends "turn"
+      ? TurnStatus
+      : A extends "receipt"
+        ? ReceiptStatus
+        : ExecutionState;
 
 export interface StatusDescriptor {
   /** What a person reads. Korean operational copy, never uppercased (§6). */
@@ -46,14 +50,30 @@ export interface StatusDescriptor {
 
 /** The axis name a screen reader hears before the state. */
 export const STATUS_AXIS_LABEL: Record<StatusAxis, string> = {
+  session: "작업",
   admission: "세션",
   turn: "턴",
   receipt: "접수",
   execution: "실행",
 };
 
+/*
+ * What the session is doing, as the session list reports it. `idle` is not a
+ * finished turn: the session is open and waiting for the next message, so it
+ * reads as rest, not success.
+ */
+const session: Record<SessionStatus, StatusDescriptor> = {
+  queued: { label: "대기 중", tone: "neutral", inFlight: false },
+  running: { label: "작업 중", tone: "progress", inFlight: true },
+  needs_input: { label: "답변 대기", tone: "attention", inFlight: false },
+  idle: { label: "쉬는 중", tone: "neutral", inFlight: false },
+  failed: { label: "실패", tone: "danger", inFlight: false },
+  stopped: { label: "멈춤", tone: "neutral", inFlight: false },
+};
+
+// An open session takes work; that is the state worth a colour.
 const admission: Record<AdmissionState, StatusDescriptor> = {
-  active: { label: "활성", tone: "neutral", inFlight: false },
+  active: { label: "활성", tone: "positive", inFlight: false },
   pausing: { label: "일시정지 중", tone: "caution", inFlight: true },
   paused: { label: "일시정지됨", tone: "caution", inFlight: false },
   resuming: { label: "복원 중", tone: "progress", inFlight: true },
@@ -100,6 +120,7 @@ const execution: Record<ExecutionState, StatusDescriptor> = {
 };
 
 export const STATUS_VOCABULARY = {
+  session,
   admission,
   turn,
   receipt,
