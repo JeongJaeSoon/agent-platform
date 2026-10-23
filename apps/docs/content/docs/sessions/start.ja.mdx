@@ -34,7 +34,7 @@ SID=$(echo "$created" | jq -r .session_id)
 | `repository_id` | はい | カタログ上のリポジトリ id。worker はこのリポジトリを clone する |
 | `message` | はい | 最初の turn の入力。UTF-8 で 32,768 バイトまで |
 | `model` | | プロファイルが許可したモデルのうち 1 つ。省略するとデフォルトのモデル |
-| `agent_release_id` | | このセッションをエージェントの release に紐づける([作成する](/agents/create#セッションに紐付ける)) |
+| `agent_release_id` | | このセッションをエージェントの release に紐づける([作成](/agents/create#セッションに紐付ける)) |
 
 レスポンスは 201 である。受け付けただけで、結果は turn の取得で確認する([状態とライフサイクル](/sessions/lifecycle))。
 

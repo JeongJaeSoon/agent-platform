@@ -11,7 +11,7 @@ Werft はまだ OpenTelemetry trace をエクスポートしない。セッシ�
 
 | 何を | どこで |
 | --- | --- |
-| セッションで起きたこと(モデルの回答、ツール呼び出しと結果、権限リクエスト、状態変化) | イベントストリーム `GET /v1/sessions/{id}/events`([ストリーミングで受け取る](/messages/streaming)) |
+| セッションで起きたこと(モデルの回答、ツール呼び出しと結果、権限リクエスト、状態変化) | イベントストリーム `GET /v1/sessions/{id}/events`([ストリーミングの受信](/messages/streaming)) |
 | コマンド一つの結果 | receipt `GET /v1/receipts/{id}`([receipt](/approvals/receipt)) |
 | コストと token | `GET /v1/sessions/{id}/usage`([状態とライフサイクル](/sessions/lifecycle#使用量)) |
 | サーバーの状態 | `GET /readyz`、API·worker の stdout JSON ログ |
@@ -79,5 +79,5 @@ Langfuse サンプルのアカウントとキー、画面での探し方は運�
 
 ## 次のステップ
 
-- [ストリーミングで受け取る](/messages/streaming): セッションイベントの受信
+- [ストリーミングの受信](/messages/streaming): セッションイベントの受信
 - [TypeScript SDK](/sdk)
