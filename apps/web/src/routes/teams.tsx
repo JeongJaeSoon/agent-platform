@@ -18,6 +18,8 @@ import {
   Input,
   NativeSelect,
   NativeSelectOption,
+  RowList,
+  RowListItem,
   Link as TextLink,
 } from "@werft-ai/ui";
 import { ArrowLeft } from "lucide-react";
@@ -45,7 +47,6 @@ import {
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { Page } from "../components/page.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
-import { RowList, RowListItem } from "../components/table.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 
 const FORM = "flex flex-col items-start gap-4";

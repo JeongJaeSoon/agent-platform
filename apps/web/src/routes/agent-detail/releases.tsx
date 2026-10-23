@@ -18,13 +18,15 @@ import {
   formatTimestamp,
   NativeSelect,
   NativeSelectOption,
+  RowLines,
+  RowList,
+  RowListItem,
 } from "@werft-ai/ui";
 import { type FormEvent, type ReactNode, useId, useState } from "react";
 import { profilesQuery, queryKeys } from "../../api/queries.ts";
 import { useRole } from "../../auth/guard.tsx";
 import { NOTICE } from "../../components/auth-page.tsx";
 import type { Outcome } from "../../components/outcome.tsx";
-import { RowLines, RowList, RowListItem } from "../../components/table.tsx";
 import { errorKey, useI18n } from "../../i18n/i18n.tsx";
 import { agentRefusal } from "../agents.tsx";
 import {
