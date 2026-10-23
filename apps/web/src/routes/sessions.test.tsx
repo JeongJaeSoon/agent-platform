@@ -229,6 +229,8 @@ const detailRoutes = {
 };
 
 describe("approval inbox", () => {
+  // A row names the request and session on its buttons, as the card title does.
+  const ALLOW = `허용: Bash · ${SESSION_ID.slice(0, 8)}`;
   const waitingRoutes = (items: unknown[], next_cursor: string | null) => ({
     "GET /v1/auth/me": () => json(200, me()),
     "GET /v1/sessions": () => json(200, { items: [], next_cursor: null }),
@@ -255,6 +257,10 @@ describe("approval inbox", () => {
       ),
     );
     const inbox = await screen.findByRole("region", { name: "답변 대기" });
+    expect(
+      await within(inbox).findAllByRole("button", { name: ALLOW }),
+    ).toHaveLength(1);
+    expect(inbox.querySelector('[data-slot="approval-row"]')).toBeTruthy();
     // The count sits beside the heading as a badge; no line of its own.
     const badge = (await within(inbox).findByText("답을 기다리는 세션 2개"))
       .parentElement as HTMLElement;
@@ -313,7 +319,7 @@ describe("approval inbox", () => {
     });
     const waitingReads = () =>
       api.calls.filter((call) => call.search === "?status=needs_input").length;
-    const allow = await screen.findByRole("button", { name: "허용" });
+    const allow = await screen.findByRole("button", { name: ALLOW });
     const before = waitingReads();
     await user.click(allow);
     expect(await screen.findByText("답을 보냈습니다.")).toBeTruthy();
@@ -337,7 +343,7 @@ describe("approval inbox", () => {
     const waitingReads = () =>
       api.calls.filter((call) => call.search === "?status=needs_input").length;
     await waitFor(() => expect(waitingReads()).toBe(2));
-    await user.click(await screen.findByRole("button", { name: "허용" }));
+    await user.click(await screen.findByRole("button", { name: ALLOW }));
     expect(await screen.findByText("답을 보냈습니다.")).toBeTruthy();
     // The inbox's page and the tab's list are separate queries: both read again.
     await waitFor(() => expect(waitingReads()).toBeGreaterThanOrEqual(4));
@@ -358,7 +364,7 @@ describe("approval inbox", () => {
         });
       },
     });
-    const allow = await screen.findByRole("button", { name: "허용" });
+    const allow = await screen.findByRole("button", { name: ALLOW });
     allow.focus();
     await user.keyboard("{Enter}");
     expect(

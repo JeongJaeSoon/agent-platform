@@ -118,6 +118,7 @@ export function SessionsScreen() {
     >
       <div className="flex flex-col gap-[var(--ap-space-block)]">
         <ApprovalInbox
+          layout="row"
           loading={<StatusScreen kind="loading" />}
           renderError={loadError}
           unavailable={unavailable}
