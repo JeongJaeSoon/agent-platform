@@ -30,6 +30,8 @@ import {
   closeSessionRequestSchema,
   commentPullRequestRequestSchema,
   commentPullRequestResponseSchema,
+  completeSlackInstallRequestSchema,
+  completeSlackInstallResponseSchema,
   createAgentReleaseRequestSchema,
   createAgentReleaseResponseSchema,
   createAgentRequestSchema,
@@ -116,6 +118,7 @@ import {
   revokeApiKeyResponseSchema,
   revokeCredentialBindingResponseSchema,
   type SessionScope,
+  SLACK_INSTALL_STATE_TTL_SECONDS,
   sessionCredentialUnboundDetailsSchema,
   sessionDurabilitySchema,
   sessionIdParamsSchema,
@@ -137,6 +140,7 @@ import {
   slackSecretSummarySchema,
   sseEventSchema,
   startGoogleLoginResponseSchema,
+  startSlackInstallResponseSchema,
   startSlackLinkResponseSchema,
   takeOverSessionRequestSchema,
   teamChangeResponseSchema,
@@ -205,6 +209,7 @@ const requestComponents = {
   SlackGuestRequest: slackGuestRequestSchema,
   PutSlackSecretRequest: putSlackSecretRequestSchema,
   CreateSlackAppRequest: createSlackAppRequestSchema,
+  CompleteSlackInstallRequest: completeSlackInstallRequestSchema,
   CreateAgentRequest: createAgentRequestSchema,
   UpdateAgentRequest: updateAgentRequestSchema,
   CreateAgentReleaseRequest: createAgentReleaseRequestSchema,
@@ -274,6 +279,8 @@ const responseComponents = {
   GetSlackAppResponse: getSlackAppResponseSchema,
   CreateSlackAppResponse: createSlackAppResponseSchema,
   DeleteSlackAppResponse: deleteSlackAppResponseSchema,
+  StartSlackInstallResponse: startSlackInstallResponseSchema,
+  CompleteSlackInstallResponse: completeSlackInstallResponseSchema,
   PasswordResetResponse: passwordResetResponseSchema,
   AuthMeResponse: authMeResponseSchema,
   InstallationLimitsResponse: installationLimitsResponseSchema,
@@ -2609,16 +2616,13 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "The agent's Slack app, if the platform made one",
     description:
-      "The agent's live Slack app (`creating`, `created` or `deleting`) and the URL where a Slack workspace admin approves installing it, or nulls when it has none. Secrets appear only as whether each is stored. Owners, admins and the agent's admins; API keys are refused.",
+      "The agent's live Slack app (`creating`, `created` or `deleting`), or null when it has none. Secrets appear only as whether each is stored; `secrets.slack_bot_token.configured` says whether Slack handed over a bot token; an install refused after the code exchange keeps it, so the agent's `slack_bot` identity is what says the app is installed. The install link comes from `POST /v1/agents/{id}/slack/install/start`. Owners, admins and the agent's admins; API keys are refused.",
     auth: "session",
     success: {
       status: 200,
       schema: "GetSlackAppResponse",
-      description: "The agent's app and install URL, or nulls.",
-      example: {
-        slack_app: EXAMPLE_SLACK_APP,
-        authorize_url: EXAMPLE_SLACK_AUTHORIZE_URL,
-      },
+      description: "The agent's app, or null.",
+      example: { slack_app: EXAMPLE_SLACK_APP },
     },
     errors: [401, 403, 404, 503],
     errorNotes: {
@@ -2631,9 +2635,9 @@ export const API_ROUTE_DECLARATIONS = [
     path: "/v1/agents/{id}/slack/app",
     operationId: "createSlackApp",
     tag: "Agents",
-    summary: "Create the agent's Slack app and get its install URL",
+    summary: "Create the agent's Slack app",
     description:
-      "Creates one Slack app for the agent with the workspace's App Configuration Token (`apps.manifest.create`): the agent's name, its bot, the agent view and the bot scopes, with no event subscriptions yet. The app is recorded as `creating` before Slack is asked; its signing and client secrets are stored by the server under the app and never returned. Asking again for an agent that has its app returns the same app with `created: false`. If Slack's answer was lost the app stays `creating` and the next request answers 409 SLACK_APP_CREATING; once `uncertain`, check api.slack.com/apps, delete any app made then, and retry with `replace_uncertain: true`. `warnings` says when the config token now belongs to another Slack user than the one who made the workspace's previous app. The agent needs an active release. Owners, admins and the agent's admins from a signed-in console; API keys are refused.",
+      "Creates one Slack app for the agent with the workspace's App Configuration Token (`apps.manifest.create`): the agent's name, its bot, the agent view and the bot scopes, with no event subscriptions yet. The app is recorded as `creating` before Slack is asked; its signing and client secrets are stored by the server under the app and never returned. Asking again for an agent that has its app returns the same app with `created: false`. If Slack's answer was lost the app stays `creating` and the next request answers 409 SLACK_APP_CREATING; once `uncertain`, check api.slack.com/apps, delete any app made then, and retry with `replace_uncertain: true`. `warnings` says when the config token now belongs to another Slack user than the one who made the workspace's previous app. The agent needs an active release. Installing it into Slack starts at `POST /v1/agents/{id}/slack/install/start`. Owners, admins and the agent's admins from a signed-in console; API keys are refused.",
     auth: "session",
     body: "CreateSlackAppRequest",
     requestExample: { replace_uncertain: false },
@@ -2641,10 +2645,9 @@ export const API_ROUTE_DECLARATIONS = [
       status: 200,
       schema: "CreateSlackAppResponse",
       description:
-        "The agent's app, whether this request created it, the install URL and any warnings.",
+        "The agent's app, whether this request created it, and any warnings.",
       example: {
         slack_app: EXAMPLE_SLACK_APP,
-        authorize_url: EXAMPLE_SLACK_AUTHORIZE_URL,
         created: true,
         warnings: [],
       },
@@ -2662,6 +2665,112 @@ export const API_ROUTE_DECLARATIONS = [
       REVISION_CONFLICT: "Here: the agent's app is being deleted.",
       BACKEND_UNAVAILABLE:
         "Also when the API runs without a master key (PLATFORM_SECRET_KEY) or SLACK_OIDC_REDIRECT_URI, when Slack refused the manifest (`error.details.slack_error`; nothing was created) or could not be reached.",
+    },
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/agents/{id}/slack/install/start",
+    operationId: "startSlackInstall",
+    tag: "Agents",
+    summary: "Get a single-use link that installs the agent's Slack app",
+    description: `Returns Slack's consent URL for the agent's app with a new OAuth \`state\`, valid ${SLACK_INSTALL_STATE_TTL_SECONDS / 60} minutes; every call makes another. The state is bound to the caller, the workspace, the agent and the app, and only that caller can complete it (\`POST /v1/slack/install/complete\`). The app must be \`created\`: none answers 404, one still being created 409 SLACK_APP_CREATING, one being deleted 409 REVISION_CONFLICT. The Slack team it must be installed in is the one the workspace's App Configuration Token belongs to (409 CONFIG_TOKEN_INVALID when none is set). Owners, admins and the agent's admins from a signed-in console; API keys are refused.`,
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "StartSlackInstallResponse",
+      description: "Where the browser goes next, and when the link expires.",
+      example: {
+        authorize_url: `${EXAMPLE_SLACK_AUTHORIZE_URL}&state=<single-use>`,
+        expires_at: "2026-10-24T09:10:00Z",
+      },
+    },
+    errors: [401, 403, 404, 409, 503],
+    errorCodes: {
+      409: ["SLACK_APP_CREATING", "REVISION_CONFLICT", "CONFIG_TOKEN_INVALID"],
+    },
+    errorNotes: {
+      REVISION_CONFLICT: "Here: the agent's app is being deleted.",
+      BACKEND_UNAVAILABLE:
+        "Also when the API runs without a master key (PLATFORM_SECRET_KEY).",
+    },
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/slack/install/complete",
+    operationId: "completeSlackInstall",
+    tag: "Agents",
+    summary: "Finish installing an agent's Slack app with what Slack returned",
+    description:
+      "The console's callback page sends the `state` and the `code` (or Slack's `error`) from Slack's redirect, with the agent it is for. The state is spent first, whatever happens next: unknown, spent, expired, or issued to another caller, workspace, agent or app answers 409 SLACK_INSTALL_STATE_INVALID with `error.details.reason_code`. An `error` from Slack (e.g. `access_denied`) answers 409 SLACK_INSTALL_DENIED. The code is exchanged with `oauth.v2.access`; unless the answer names the agent's app, the workspace's Slack team, no enterprise install and every bot scope, nothing is stored (409 SLACK_INSTALL_REJECTED). Then the bot token is sealed under the app (never returned), the install is verified with the token itself (`auth.test` and `bots.info`), the agent's identity is linked, and the steps after an install run; `finalized: false` says those failed and the install stands. Installing again with a new link replaces the bot token and keeps the one install. Every answer carries `Referrer-Policy: no-referrer`. Owners, admins and the agent's admins from a signed-in console; API keys are refused. A new identity writes a `link_agent_identity` receipt.",
+    auth: "session",
+    body: "CompleteSlackInstallRequest",
+    requestExample: {
+      agent_id: EXAMPLE_AGENT_ID,
+      state: "state-from-the-redirect",
+      code: "code-from-the-redirect",
+    },
+    success: {
+      status: 200,
+      schema: "CompleteSlackInstallResponse",
+      description:
+        "The app, its verified install, the agent's identity and whether the steps after the install ran.",
+      example: {
+        slack_app: {
+          ...EXAMPLE_SLACK_APP,
+          secrets: {
+            ...EXAMPLE_SLACK_APP.secrets,
+            slack_bot_token: {
+              configured: true,
+              last4: "a1b2",
+              updated_at: "2026-10-24T09:05:00Z",
+              updated_by: null,
+            },
+          },
+        },
+        installation: {
+          id: "3c5e7a9b-1d2f-4a6b-8c0d-2e4f6a8b0c1d",
+          app_id: EXAMPLE_SLACK_APP.app_id,
+          team_id: "T0A1B2C3D",
+          bot_user_id: "U0B1C2D3E",
+          status: "verified",
+        },
+        agent_identity: {
+          id: "5e7a9c1b-3d4f-4b6c-8d0e-4f6a8b0c2d3e",
+          agent_id: EXAMPLE_AGENT_ID,
+          provider: "slack_bot",
+          app_id: EXAMPLE_SLACK_APP.app_id,
+          team_id: "T0A1B2C3D",
+          bot_user_id: "U0B1C2D3E",
+          credential_ref: `slack_app:${EXAMPLE_SLACK_APP.id}/slack_bot_token`,
+          status: "active",
+          revision: 1,
+          created_by: "7a9c1e3b-5d6f-4c8d-9e0f-6a8b0c2d4e5f",
+          created_at: "2026-10-24T09:05:00Z",
+          revoked_at: null,
+        },
+        receipt_id: "9c1e3a5b-7d8f-4e0a-8b1c-8b0c2d4e6f7a",
+        finalized: true,
+      },
+    },
+    errors: [400, 401, 403, 404, 409, 413, 503],
+    errorCodes: {
+      409: [
+        "SLACK_INSTALL_STATE_INVALID",
+        "SLACK_INSTALL_DENIED",
+        "SLACK_INSTALL_REJECTED",
+        "SLACK_INSTALL_CONFLICT",
+        "AGENT_IDENTITY_TAKEN",
+        "CREDENTIAL_REF_IN_USE",
+        "REVISION_CONFLICT",
+      ],
+    },
+    errorNotes: {
+      REVISION_CONFLICT:
+        "Here: the agent's app changed, or the install was revoked, while it was being installed; start again.",
+      BACKEND_UNAVAILABLE:
+        "Also when the API runs without a master key (PLATFORM_SECRET_KEY), or Slack could not be reached; start again.",
     },
     idempotent: false,
   },
