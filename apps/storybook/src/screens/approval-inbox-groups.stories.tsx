@@ -96,8 +96,11 @@ function ApprovalInboxGroupsBody({ state }: { readonly state: GroupState }) {
             onAllow={() => {}}
             onDeny={() => {}}
             subject={
-              <Link href={`#/sessions/${SESSION_ID}`}>
-                {SESSION_ID.slice(0, 8)} <span aria-hidden="true">›</span>
+              <Link
+                href={`#/sessions/${SESSION_ID}`}
+                aria-label={SESSION_ID.slice(0, 8)}
+              >
+                {SESSION_ID.slice(0, 8)} ›
               </Link>
             }
             messages={{

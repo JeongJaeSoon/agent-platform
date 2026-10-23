@@ -13,7 +13,6 @@ import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-  RowLines,
   RowList,
   RowListItem,
   Skeleton,
@@ -34,11 +33,6 @@ import type { ReactNode } from "react";
  */
 
 const API_CHANGE = <Badge variant="red">API 변경 필요</Badge>;
-const TEXT_REQUEST = (
-  <Badge variant="amber" data-part-request="Text">
-    부품 요청 중: Text
-  </Badge>
-);
 
 type PanelState = "loading" | "error" | "none" | "ready" | "warnings";
 
@@ -64,7 +58,7 @@ function AlertStandIn({
       <CardHeader>
         <CardDescription className="flex items-start gap-2">
           <Badge variant={TONE[tone].variant}>{TONE[tone].label}</Badge>
-          <span>{children}</span>
+          {children}
         </CardDescription>
         <CardAction>
           <Badge variant="amber" data-part-request="Alert">
@@ -154,10 +148,10 @@ function VariableRows({ rows }: { readonly rows: readonly Row[] }) {
     <RowList variant="joined" aria-label="선언한 변수">
       {rows.map((row) => (
         <RowListItem key={row.name}>
-          <RowLines>
-            <code>{row.name}</code>
-            {row.value ? <code>{row.value}</code> : null}
-          </RowLines>
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
+            <div>{row.name}</div>
+            {row.value ? <div>{row.value}</div> : null}
+          </div>
           {row.source === "agent" ? (
             <Badge variant="blue">에이전트 값</Badge>
           ) : null}
@@ -194,7 +188,7 @@ function RowMenu({ name }: { readonly name: string }) {
           className="size-11"
           aria-label={`${name} 관리`}
         >
-          <span aria-hidden="true">⋯</span>
+          ⋯
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="flex flex-col gap-1">
@@ -233,12 +227,8 @@ function AgentValuesTable() {
             <TableBody>
               {AGENT_VALUES.map((variable) => (
                 <TableRow key={variable.name}>
-                  <TableCell>
-                    <code>{variable.name}</code>
-                  </TableCell>
-                  <TableCell>
-                    <code>{variable.value}</code>
-                  </TableCell>
+                  <TableCell>{variable.name}</TableCell>
+                  <TableCell>{variable.value}</TableCell>
                   <TableCell className="whitespace-nowrap">
                     {variable.updated}
                   </TableCell>
@@ -267,11 +257,11 @@ function AgentValuesTable() {
       <RowList className="md:hidden" aria-label="에이전트 값">
         {AGENT_VALUES.map((variable) => (
           <RowListItem key={variable.name}>
-            <RowLines>
-              <code>{variable.name}</code>
-              <code>{variable.value}</code>
-              <span>{variable.updated}</span>
-            </RowLines>
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
+              <div>{variable.name}</div>
+              <div>{variable.value}</div>
+              <div>{variable.updated}</div>
+            </div>
             <RowMenu name={variable.name} />
           </RowListItem>
         ))}
@@ -283,10 +273,7 @@ function AgentValuesTable() {
 function AgentVariablesScreen({ state }: { readonly state: PanelState }) {
   return (
     <div className="story-stack">
-      <div className="story-row">
-        {API_CHANGE}
-        {TEXT_REQUEST}
-      </div>
+      <div className="story-row">{API_CHANGE}</div>
       <Card>
         <CardHeader>
           <CardTitle>변수</CardTitle>

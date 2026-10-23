@@ -46,7 +46,7 @@ function AlertStandIn({
       <CardHeader>
         <CardDescription className="flex items-start gap-2">
           <Badge variant={TONE[tone].variant}>{TONE[tone].label}</Badge>
-          <span>{children}</span>
+          {children}
         </CardDescription>
         <CardAction>
           <Badge variant="amber" data-part-request="Alert">
@@ -87,10 +87,10 @@ function SessionParkedBannerBody({ state }: { readonly state: BannerState }) {
   }
   return (
     <AlertStandIn tone="warning" action={RESUME}>
-      <span className="story-row items-center">
+      <div className="story-row items-center">
         <StatusLabel axis="admission" state="paused" label="일시정지됨" />
         답은 저장했습니다. 다시 시작하면 반영됩니다.
-      </span>
+      </div>
     </AlertStandIn>
   );
 }

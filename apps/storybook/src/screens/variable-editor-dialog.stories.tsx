@@ -97,7 +97,7 @@ function VariableEditorDialogScreen({
           <CardHeader>
             <CardDescription className="flex items-start gap-2">
               <Badge variant="blue">안내</Badge>
-              <span>저장했습니다. 다음 세션부터 반영됩니다.</span>
+              저장했습니다. 다음 세션부터 반영됩니다.
             </CardDescription>
             <CardAction>
               <Badge variant="amber" data-part-request="Alert">

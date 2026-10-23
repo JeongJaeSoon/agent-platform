@@ -49,7 +49,7 @@ function AlertStandIn({
       <CardHeader>
         <CardDescription className="flex items-start gap-2">
           <Badge variant={TONE[tone].variant}>{TONE[tone].label}</Badge>
-          <span>{children}</span>
+          {children}
         </CardDescription>
         <CardAction>
           <Badge variant="amber" data-part-request="Alert">

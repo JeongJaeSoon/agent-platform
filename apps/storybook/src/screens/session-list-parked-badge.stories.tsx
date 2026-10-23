@@ -17,10 +17,13 @@ function SessionListParkedBadgeBody({ state }: { readonly state: RowState }) {
   return (
     <RowList variant="joined" aria-label="세션">
       <RowListItem>
-        <Link href={`#/sessions/${SESSION_ID}`}>
-          {SESSION_ID.slice(0, 8)} <span aria-hidden="true">›</span>
+        <Link
+          href={`#/sessions/${SESSION_ID}`}
+          aria-label={SESSION_ID.slice(0, 8)}
+        >
+          {SESSION_ID.slice(0, 8)} ›
         </Link>
-        <span className="story-row items-center">
+        <div className="story-row items-center">
           {state === "expired" ? null : (
             <SessionStatusLabel
               status="needs_input"
@@ -31,7 +34,7 @@ function SessionListParkedBadgeBody({ state }: { readonly state: RowState }) {
           {state === "waiting" ? null : (
             <Badge variant="amber">일시정지됨</Badge>
           )}
-        </span>
+        </div>
       </RowListItem>
     </RowList>
   );

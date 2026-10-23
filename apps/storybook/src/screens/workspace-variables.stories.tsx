@@ -14,7 +14,6 @@ import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-  RowLines,
   RowList,
   RowListItem,
   Skeleton,
@@ -34,11 +33,6 @@ import type { ReactNode } from "react";
  */
 
 const API_CHANGE = <Badge variant="red">API 변경 필요</Badge>;
-const TEXT_REQUEST = (
-  <Badge variant="amber" data-part-request="Text">
-    부품 요청 중: Text
-  </Badge>
-);
 
 type PanelState =
   | "loading"
@@ -70,7 +64,7 @@ function AlertStandIn({
       <CardHeader>
         <CardDescription className="flex items-start gap-2">
           <Badge variant={TONE[tone].variant}>{TONE[tone].label}</Badge>
-          <span>{children}</span>
+          {children}
         </CardDescription>
         <CardAction>
           <Badge variant="amber" data-part-request="Alert">
@@ -119,7 +113,7 @@ function RowMenu({ name }: { readonly name: string }) {
           className="size-11"
           aria-label={`${name} 관리`}
         >
-          <span aria-hidden="true">⋯</span>
+          ⋯
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="flex flex-col gap-1">
@@ -159,12 +153,8 @@ function VariablesTable({ rows }: { readonly rows: readonly Variable[] }) {
             <TableBody>
               {rows.map((variable) => (
                 <TableRow key={variable.name}>
-                  <TableCell>
-                    <code>{variable.name}</code>
-                  </TableCell>
-                  <TableCell>
-                    <code>{variable.value}</code>
-                  </TableCell>
+                  <TableCell>{variable.name}</TableCell>
+                  <TableCell>{variable.value}</TableCell>
                   <TableCell className="whitespace-nowrap">
                     {variable.grant}
                   </TableCell>
@@ -196,13 +186,13 @@ function VariablesTable({ rows }: { readonly rows: readonly Variable[] }) {
       <RowList className="md:hidden" aria-label="변수">
         {rows.map((variable) => (
           <RowListItem key={variable.name}>
-            <RowLines>
-              <code>{variable.name}</code>
-              <code>{variable.value}</code>
-              <span>
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
+              <div>{variable.name}</div>
+              <div>{variable.value}</div>
+              <div>
                 {variable.grant} · {variable.updated}
-              </span>
-            </RowLines>
+              </div>
+            </div>
             <RowMenu name={variable.name} />
           </RowListItem>
         ))}
@@ -215,10 +205,7 @@ function WorkspaceVariablesScreen({ state }: { readonly state: PanelState }) {
   const listed = state === "ready" || state === "delete" || state === "deleted";
   return (
     <div className="story-stack">
-      <div className="story-row">
-        {API_CHANGE}
-        {TEXT_REQUEST}
-      </div>
+      <div className="story-row">{API_CHANGE}</div>
       {state === "deleted" ? (
         <AlertStandIn tone="info" role="status">
           LOG_LEVEL을 삭제했습니다.
