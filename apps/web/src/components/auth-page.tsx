@@ -1,6 +1,11 @@
+import { Card } from "@werft-ai/ui";
 import type { ReactNode } from "react";
 import { Main } from "./main.tsx";
 
+/**
+ * Title and card as one block. The auth-page class is how RootLayout knows
+ * to centre it in the viewport.
+ */
 export function AuthPage({
   title,
   children,
@@ -9,9 +14,11 @@ export function AuthPage({
   readonly children: ReactNode;
 }) {
   return (
-    <Main className="mx-auto flex w-full max-w-md flex-col gap-4 px-4 py-6 md:px-6 md:py-10">
-      <h1 className="m-0 font-semibold text-xl">{title}</h1>
-      {children}
+    <Main className="auth-page px-4 py-8">
+      <div className="mx-auto flex w-full max-w-[25rem] flex-col gap-6">
+        <h1 className="m-0 text-center font-semibold text-xl">{title}</h1>
+        <Card className="gap-4 px-4">{children}</Card>
+      </div>
     </Main>
   );
 }
