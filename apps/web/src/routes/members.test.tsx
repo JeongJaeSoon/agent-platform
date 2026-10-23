@@ -385,7 +385,7 @@ describe("구성원 화면", () => {
   test("대기 중인 초대를 확인받고 회수한다", async () => {
     const invite = pendingInvite;
     let revoked = false;
-    const { api } = renderAt("/members", {
+    const { api } = renderAt("/members/invites", {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": () => json(200, { items: [owner] }),
       "GET /v1/invites": () => json(200, { items: revoked ? [] : [invite] }),
@@ -410,7 +410,7 @@ describe("구성원 화면", () => {
   });
 
   test("초대 회수를 취소하면 아무것도 보내지 않는다", async () => {
-    const { api } = renderAt("/members", {
+    const { api } = renderAt("/members/invites", {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": () => json(200, { items: [owner] }),
       "GET /v1/invites": () => json(200, { items: [pendingInvite] }),
@@ -657,6 +657,77 @@ describe("되돌리기 어려운 동작의 확인", () => {
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(document.activeElement).toBe(why);
+  });
+});
+
+describe("구성원 · 팀 · 초대 탭", () => {
+  const tabsOf = () =>
+    within(screen.getByRole("navigation", { name: "구성원 보기" }))
+      .getAllByRole("link")
+      .map((link) => [
+        link.textContent,
+        link.getAttribute("href"),
+        link.getAttribute("aria-current"),
+      ]);
+
+  test("관리하는 사람은 세 탭을 보고, 지금 탭 하나만 현재다", async () => {
+    renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": () => json(200, { items: [owner, teammate] }),
+      ...noInvites,
+    });
+    await screen.findByRole("button", { name: "Mate 편집" });
+    expect(tabsOf()).toEqual([
+      ["구성원", "/members", "page"],
+      ["팀", "/members/teams", null],
+      ["초대", "/members/invites", null],
+    ]);
+    // Pending invites have their own tab now.
+    expect(screen.queryByText("대기 중인 초대")).toBeNull();
+  });
+
+  test("초대 탭은 대기 중인 초대를 보이고 초대 버튼을 둔다", async () => {
+    renderAt("/members/invites", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": () => json(200, { items: [owner] }),
+      "GET /v1/invites": () => json(200, { items: [pendingInvite] }),
+    });
+    expect(await screen.findByText("late@example.com")).toBeDefined();
+    expect(tabsOf()[2]).toEqual(["초대", "/members/invites", "page"]);
+    expect(screen.getByRole("button", { name: "구성원 초대" })).toBeDefined();
+    expect(screen.queryByRole("region", { name: "구성원 표" })).toBeNull();
+  });
+
+  test("초대 탭에서 구성원 목록을 못 불러오면 초대 버튼 대신 오류와 다시 시도를 보인다", async () => {
+    const user = await setupUser();
+    let fail = true;
+    renderAt("/members/invites", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": () =>
+        fail
+          ? apiError(500, "INTERNAL", "boom")
+          : json(200, { items: [owner] }),
+      "GET /v1/invites": () => json(200, { items: [pendingInvite] }),
+    });
+    expect(await screen.findByText("late@example.com")).toBeDefined();
+    const retry = await screen.findByRole("button", { name: "다시 시도" });
+    expect(screen.queryByRole("button", { name: "구성원 초대" })).toBeNull();
+    fail = false;
+    await user.click(retry);
+    expect(
+      await screen.findByRole("button", { name: "구성원 초대" }),
+    ).toBeDefined();
+    expect(screen.queryByRole("button", { name: "다시 시도" })).toBeNull();
+  });
+
+  test("관리 권한이 없으면 팀 탭만 보인다", async () => {
+    renderAt("/members/teams", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/my-teams": () => json(200, { items: [] }),
+    });
+    expect(await screen.findByText("아직 속한 팀이 없습니다.")).toBeDefined();
+    expect(tabsOf()).toEqual([["팀", "/members/teams", "page"]]);
+    expect(screen.queryByRole("button", { name: "구성원 초대" })).toBeNull();
   });
 });
 

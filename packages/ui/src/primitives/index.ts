@@ -46,6 +46,7 @@ export {
 } from "./native-select.tsx";
 export { Popover, PopoverContent, PopoverTrigger } from "./popover.tsx";
 export { RadioGroup, RadioGroupItem } from "./radio-group.tsx";
+export { RelativeTime, type RelativeTimeProps } from "./relative-time.tsx";
 export {
   RowLines,
   RowList,
@@ -81,3 +82,9 @@ export {
   type TabsTriggerProps,
 } from "./tabs.tsx";
 export { Textarea } from "./textarea.tsx";
+export {
+  Tooltip,
+  TooltipContent,
+  type TooltipProps,
+  TooltipTrigger,
+} from "./tooltip.tsx";

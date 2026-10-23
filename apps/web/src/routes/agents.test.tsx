@@ -1142,14 +1142,15 @@ describe("에이전트 상세", () => {
       release_id: server.releases[0]?.id,
       expected_revision: -1,
     });
-    const summary = screen.getByRole("complementary", {
-      name: "에이전트 요약",
+    // The overview panel stays mounted behind the release tab.
+    const glance = screen.getByRole("list", {
+      name: "에이전트 현황",
+      hidden: true,
     });
     await waitFor(() =>
-      expect(
-        within(summary).getByText("활성 release").nextElementSibling
-          ?.textContent,
-      ).toBe(`version 1 · ${PROFILE}`),
+      expect(glance.firstElementChild?.textContent).toContain(
+        `version 1실행 프로필 ${PROFILE}`,
+      ),
     );
     expect(agentDetailSchema.safeParse(server.detail()).success).toBe(true);
   });
@@ -1624,16 +1625,17 @@ describe("식별자와 상태 문구", () => {
     expect(slug.value).toBe("pay");
   });
 
-  test("상세 머리는 상태 배지만 두고 식별자·활성 release는 요약 카드에만 둔다", async () => {
+  test("상세 머리는 상태 배지와 역할만 두고 식별자는 카드 탭에 둔다", async () => {
     renderAt(DETAIL, { ...meOk, ...agentServer().routes });
     const heading = await screen.findByRole("heading", { level: 1 });
     const head = heading.closest("[data-slot=page-header]") as HTMLElement;
     expect(within(head).getByText("아직 쓸 수 없음")).toBeDefined();
+    expect(within(head).getByText("결제 문의 담당")).toBeDefined();
     expect(within(head).queryByText(/billing/)).toBeNull();
-    const summary = screen.getByRole("complementary", {
-      name: "에이전트 요약",
-    });
-    expect(within(summary).getByText("billing")).toBeDefined();
+    const card = screen
+      .getByRole("heading", { name: "에이전트 카드", hidden: true })
+      .closest("section") as HTMLElement;
+    expect(within(card).getByText("billing")).toBeDefined();
     expect(screen.queryByText(/000000000001/)).toBeNull();
   });
 });

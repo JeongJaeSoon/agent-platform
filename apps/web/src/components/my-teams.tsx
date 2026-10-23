@@ -56,7 +56,10 @@ export function MyTeams({
               <RowListItem key={team.id}>
                 {manages ? (
                   <TextLink asChild className="[overflow-wrap:anywhere]">
-                    <Link to="/teams/$teamId" params={{ teamId: team.id }}>
+                    <Link
+                      to="/members/teams/$teamId"
+                      params={{ teamId: team.id }}
+                    >
                       {team.name}
                     </Link>
                   </TextLink>
