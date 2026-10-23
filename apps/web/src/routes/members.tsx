@@ -15,7 +15,6 @@ import { useId, useState } from "react";
 import { invitesQuery, membersQuery, queryKeys } from "../api/queries.ts";
 import {
   permissionReason,
-  ReasonHint,
   roleLabel,
   useHasPermission,
   useMe,
@@ -26,6 +25,7 @@ import {
 import { FormError, NOTICE } from "../components/auth-page.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { Page } from "../components/page.tsx";
+import { ReasonHint } from "../components/reason-hint.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import {
   RowLines,
