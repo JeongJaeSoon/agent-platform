@@ -101,6 +101,7 @@ describe("session contracts", () => {
   test("summary repository_id is a catalog key or null, never empty", () => {
     const summary = {
       id: SESSION_ID,
+      title: null,
       revision: 0,
       admission_state: "active",
       status: "queued",
@@ -120,9 +121,31 @@ describe("session contracts", () => {
     expect(sessionSummarySchema.safeParse(missing).success).toBe(false);
   });
 
+  test("a summary from a server before titles reads title null", () => {
+    const { title: _omitted, ...older } = {
+      id: SESSION_ID,
+      title: "x",
+      revision: 0,
+      admission_state: "active",
+      status: "queued",
+      runtime: null,
+      repository_id: null,
+      current_turn_id: null,
+      queued_turn_count: 0,
+      last_event_at: null,
+      created_at: AT,
+      updated_at: AT,
+    };
+    expect(sessionSummarySchema.parse(older).title).toBeNull();
+    expect(
+      sessionSummarySchema.safeParse({ ...older, title: "" }).success,
+    ).toBe(false);
+  });
+
   test("summary runtime is a whole catalog entry or null, never a partial one", () => {
     const summary = {
       id: SESSION_ID,
+      title: null,
       revision: 0,
       admission_state: "active",
       status: "queued",
@@ -163,6 +186,7 @@ describe("session contracts", () => {
   test("accepts the api.md detail example with durability", () => {
     const detail = getSessionResponseSchema.parse({
       id: SESSION_ID,
+      title: null,
       revision: 12,
       admission_state: "active",
       status: "needs_input",
@@ -384,6 +408,7 @@ describe("answers, pending requests and control", () => {
     // that ran says which ones, and a reset stays visible afterwards.
     const base = {
       id: SESSION_ID,
+      title: null,
       revision: 3,
       admission_state: "recovery_required",
       status: "failed",

@@ -525,13 +525,15 @@ curl -s -b jar -X POST "http://127.0.0.1:3000/v1/agents/$AGENT_ID/admins" \
 | `team` | 만든 사람과 지정한 팀의 지금 구성원 |
 | `workspace` | workspace 멤버 모두(기본값) |
 
-- 판정 순서는 workspace 일치 → 공유 범위 → key scope → agent_id → (`session.approve`만) 답할 사람인가다. 범위 밖이면 owner·admin도 목록·검색(`?status=`)·상세·turn·SSE·usage·pending·receipt·메시지·응답·interrupt·종료 어디서나 `404`다. 있는지조차 알리지 않는다.
+- 판정 순서는 workspace 일치 → 공유 범위 → key scope → agent_id → (`session.approve`·`session.rename`만) 답할 사람인가다. 범위 밖이면 owner·admin도 목록·검색(`?status=`)·상세·turn·SSE·usage·pending·receipt·메시지·응답·이름 바꾸기·interrupt·종료 어디서나 `404`다. 있는지조차 알리지 않는다.
 - 팀 범위는 판정 때마다 지금 구성원을 읽는다. 팀에서 빠지거나 팀이 지워지면 다음 요청부터 `404`다.
 - service key는 멤버가 아니다. `workspace` 범위의 세션과 자기가 만든 세션만 본다. key가 만든 세션에서는 그 key가 만든 사람 자리에 선다.
 - 범위를 좁히면 그 세션의 열린 SSE가 바로 깨어나 다시 판정되고, 더는 볼 수 없는 연결은 끊긴다(로그 `SSE stream closed`, `reason: not_visible`). 다시 연결하면 `404`다.
 - 아직 한 번도 바꾸지 않은 세션은 `session_shares` 행 없이 `workspace`로 읽힌다(`revision` 0).
 
 보는 것과 대신 답하는 것은 다르다. 권한 요청·질문에 답하고 push·PR을 결정하는 것(`session.approve`)은 세션을 볼 수 있는 사람 가운데 만든 사람(key가 만든 세션이면 그 key), 그 에이전트의 관리자, owner·admin만 한다. 공유로 보기만 하는 사람(member, 남이 만든 세션을 보는 service key)은 `403`(`reason_code: role`, "holds sessions:approve but may not use it on this session")이고 요청은 열린 채 세션은 `needs_input`에 머문다. 볼 수 없는 사람은 지금처럼 `404`다. 개인 key는 만든 사람으로, 그 사람의 지금 역할로 판정한다. workspace가 없는 호출자(legacy key, `AUTH_MODE=none`)는 곁에 대신 답할 멤버가 없으므로 지금처럼 답한다. `GET /v1/sessions/{id}/pending-requests`의 `answerable`이 같은 판정을 미리 알려 준다. 이 미리보기는 판정 행을 남기지 않는다.
+
+세션 이름을 바꾸는 것(`PATCH /v1/sessions/{id}`, `session.rename`)도 답하는 사람과 같은 사람만 한다. scope는 `sessions:write`이고, 응답이 세션 상세라 `sessions:read`도 함께 본다. 공유로 보기만 하는 사람은 `403`(`reason_code: role`, "holds sessions:write but may not use it on this session"), 볼 수 없는 사람은 `404`다. 거절은 판정 행으로 남고, 허용은 남지 않는다. 이름은 제어가 아니어서 세션 `revision`도 receipt도 바뀌지 않는다. 바뀐 이름은 `status` 이벤트의 `title`로 스트림에 실린다. 생성 때 `title`이 없으면 첫 메시지에서 결정적 규칙으로 만들고, 이 기능 전의 세션은 `sessions.title`이 `NULL`이다(backfill 없음, migration 0155).
 
 범위를 바꾸는 것(`session.share`)은 사람의 세션이면 만든 사람만, key가 만든 세션이면 owner·admin과 그 에이전트의 관리자만 한다. 세션을 볼 수 있지만 바꿀 수 없는 사람은 `403`, 볼 수 없는 사람은 `404`다. API key는 바꾸지 못한다. 바꾼 경우에만 `share_session` receipt(`result.scope`)와 판정 행이 남는다.
 
