@@ -6,7 +6,7 @@ import type {
   AgentAdminKind,
 } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
-import { ConfirmDialog } from "@werft-ai/ui";
+import { ConfirmDialog, EmptyState } from "@werft-ai/ui";
 import { useId, useState } from "react";
 import {
   administeredAgentsQuery,
@@ -192,7 +192,7 @@ function AdminList({
   return (
     <>
       {admins.data.users.length + admins.data.teams.length === 0 ? (
-        <p className="web-page__empty">{t("agentAdmins.empty")}</p>
+        <EmptyState title={t("agentAdmins.empty")} />
       ) : (
         <ul className="web-list">
           {admins.data.users.map((user) => {
@@ -372,7 +372,7 @@ export function AdministeredAgents({
           onRetry={() => void administered.refetch()}
         />
       ) : items.length === 0 ? (
-        <p className="web-page__empty">{t("agentAdmins.mine.empty")}</p>
+        <EmptyState title={t("agentAdmins.mine.empty")} />
       ) : (
         <>
           <p className="web-field__hint">{t("agentAdmins.mine.intro")}</p>

@@ -53,6 +53,7 @@
   --color-surface-sunken: var(--ap-color-surface-sunken);
   --color-border-strong: var(--ap-color-border-strong);
   --color-focus-ring: var(--ap-color-focus-ring);
+  --color-link: var(--ap-color-link);
   --font-sans: var(--ap-font-sans);
   --font-mono: var(--ap-font-mono);
   --radius-control: var(--ap-radius-control);

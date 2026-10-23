@@ -11,6 +11,7 @@ import {
   Badge,
   Button,
   cn,
+  EmptyState,
   Field,
   FieldDescription,
   FieldLabel,
@@ -172,7 +173,7 @@ export function Releases({
       </form>
       {result}
       {ordered.length === 0 ? (
-        <p className={MUTED}>{t("agent.releases.empty")}</p>
+        <EmptyState title={t("agent.releases.empty")} />
       ) : (
         <RowList>
           {ordered.map((item) => {
