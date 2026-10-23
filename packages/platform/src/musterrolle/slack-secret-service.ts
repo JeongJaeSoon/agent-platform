@@ -1,15 +1,19 @@
 import type {
   DeleteSlackSecretResponse,
+  PutSlackConfigTokenResponse,
   PutSlackSecretResponse,
-  SecretPurpose,
+  SlackAppKind,
+  SlackAppSecretPurpose,
+  SlackConfigTokenSummary,
   SlackSecretSummary,
 } from "@werft-ai/contracts";
 import type {
   PutSecretResult,
-  SecretSlot,
+  SecretAudit,
   SecretStore,
   SecretSummary,
 } from "../ports/secret-store.ts";
+import type { ConfigTokenSummary } from "../ports/slack-config-token-store.ts";
 import {
   requirePermitted,
   SessionServiceError,
@@ -19,12 +23,7 @@ import {
   type Caller,
   MANAGEMENT_ROLES,
 } from "./policy.ts";
-
-export type SlackAppKind = "agent" | "link" | "manual";
-export type SlackAppSecretPurpose = Exclude<
-  SecretPurpose,
-  "slack_config_token"
->;
+import type { SlackConfigTokens } from "./slack-config-token.ts";
 
 const FORBIDDEN_WEB_ONLY = () =>
   new SessionServiceError(
@@ -79,28 +78,36 @@ export function slackSecretSummaryOf(
   };
 }
 
+export function slackConfigTokenSummaryOf(
+  summary: ConfigTokenSummary,
+): SlackConfigTokenSummary {
+  return {
+    ...slackSecretSummaryOf(summary.secret),
+    state: summary.state,
+    expires_at: summary.expiresAt?.toISOString() ?? null,
+    issuer:
+      summary.issuer === null
+        ? null
+        : { user_id: summary.issuer.userId, team_id: summary.issuer.teamId },
+  };
+}
+
 export function createSlackSecretService(deps: {
   authorization: AuthorizationPolicy;
   /** Null when the API runs without a master key. */
   store: SecretStore | null;
-  /**
-   * The kind of one of the workspace's Slack apps, or null when it has no
-   * such app. Supplied once `slack_apps` exists (94S-181); until then no
-   * app secret can be set by a person.
-   */
-  appKind?: (
+  tokens: SlackConfigTokens | null;
+  /** The kind of one of the workspace's Slack apps, or null when it has none. */
+  appKind: (
     workspaceId: string,
-    appId: string,
+    slackAppId: string,
   ) => Promise<SlackAppKind | null>;
   newId?: () => string;
 }) {
   const { authorization } = deps;
   const newId = deps.newId ?? (() => crypto.randomUUID());
 
-  async function managedStore(
-    caller: Caller,
-    workspaceId: string,
-  ): Promise<SecretStore> {
+  async function permitted(caller: Caller, workspaceId: string) {
     if (workspaceId !== caller.ownerId) throw NOT_FOUND();
     await requirePermitted(authorization, caller, "workspace.manage", {
       kind: "workspace",
@@ -112,77 +119,95 @@ export function createSlackSecretService(deps: {
     ) {
       throw FORBIDDEN_WEB_ONLY();
     }
+  }
+
+  async function managedStore(
+    caller: Caller,
+    workspaceId: string,
+  ): Promise<SecretStore> {
+    await permitted(caller, workspaceId);
     if (deps.store === null) throw STORE_OFF();
     return deps.store;
   }
 
-  async function put(
+  async function managedTokens(
     caller: Caller,
-    store: SecretStore,
-    slot: SecretSlot,
-    value: string,
-  ): Promise<PutSlackSecretResponse> {
-    const receiptId = newId();
-    const result: PutSecretResult = await store.put(slot, value, {
-      audit: { principal: caller, receiptId, roles: MANAGERS },
-    });
-    switch (result.outcome) {
-      case "stored":
-        return {
-          ...slackSecretSummaryOf(result.summary),
-          receipt_id: receiptId,
-        };
-      case "actor_inactive":
-        throw ACTOR_INACTIVE();
-      case "outranked":
-        throw OUTRANKED();
-      default:
-        throw NOT_FOUND();
-    }
+    workspaceId: string,
+  ): Promise<SlackConfigTokens> {
+    await permitted(caller, workspaceId);
+    if (deps.tokens === null) throw STORE_OFF();
+    return deps.tokens;
   }
 
-  const configToken = (workspaceId: string): SecretSlot => ({
-    workspaceId,
-    owner: { kind: "workspace" },
-    purpose: "slack_config_token",
+  const auditOf = (caller: Caller): SecretAudit => ({
+    principal: caller,
+    receiptId: newId(),
+    roles: MANAGERS,
   });
 
   return {
     async describeConfigToken(
       caller: Caller,
       workspaceId: string,
-    ): Promise<SlackSecretSummary> {
-      const store = await managedStore(caller, workspaceId);
-      return slackSecretSummaryOf(
-        await store.describe(configToken(workspaceId)),
-      );
+    ): Promise<SlackConfigTokenSummary> {
+      const tokens = await managedTokens(caller, workspaceId);
+      return slackConfigTokenSummaryOf(await tokens.describe(workspaceId));
     },
 
     /**
-     * `readValue` runs only once the caller is allowed, so a refused caller
-     * learns nothing about the request body.
+     * The pasted refresh token is rotated at once, which both proves Slack
+     * takes it and yields the access token kept with it. `readValue` runs
+     * only once the caller is allowed, so a refused caller learns nothing
+     * about the request body.
      */
     async setConfigToken(
       caller: Caller,
       workspaceId: string,
       readValue: () => Promise<string>,
-    ): Promise<PutSlackSecretResponse> {
-      const store = await managedStore(caller, workspaceId);
-      return put(caller, store, configToken(workspaceId), await readValue());
+    ): Promise<PutSlackConfigTokenResponse> {
+      const tokens = await managedTokens(caller, workspaceId);
+      const audit = auditOf(caller);
+      const result = await tokens.register(
+        workspaceId,
+        await readValue(),
+        audit,
+      );
+      switch (result.outcome) {
+        case "stored":
+          return {
+            ...slackConfigTokenSummaryOf(result.summary),
+            receipt_id: audit.receiptId,
+            warnings:
+              result.previousIssuerUserId !== null &&
+              result.summary.issuer !== null
+                ? [
+                    {
+                      code: "config_token_issuer_changed",
+                      previous_user_id: result.previousIssuerUserId,
+                      user_id: result.summary.issuer.userId,
+                    },
+                  ]
+                : [],
+          };
+        case "actor_inactive":
+          throw ACTOR_INACTIVE();
+        case "outranked":
+          throw OUTRANKED();
+        default:
+          throw NOT_FOUND();
+      }
     },
 
     async deleteConfigToken(
       caller: Caller,
       workspaceId: string,
     ): Promise<DeleteSlackSecretResponse> {
-      const store = await managedStore(caller, workspaceId);
-      const receiptId = newId();
-      const result = await store.delete(configToken(workspaceId), {
-        audit: { principal: caller, receiptId, roles: MANAGERS },
-      });
+      const tokens = await managedTokens(caller, workspaceId);
+      const audit = auditOf(caller);
+      const result = await tokens.delete(workspaceId, audit);
       switch (result.outcome) {
         case "deleted":
-          return { receipt_id: receiptId };
+          return { receipt_id: audit.receiptId };
         case "actor_inactive":
           throw ACTOR_INACTIVE();
         case "outranked":
@@ -200,12 +225,12 @@ export function createSlackSecretService(deps: {
     async setAppSecret(
       caller: Caller,
       workspaceId: string,
-      appId: string,
+      slackAppId: string,
       purpose: SlackAppSecretPurpose,
       readValue: () => Promise<string>,
     ): Promise<PutSlackSecretResponse> {
       const store = await managedStore(caller, workspaceId);
-      const kind = (await deps.appKind?.(workspaceId, appId)) ?? null;
+      const kind = await deps.appKind(workspaceId, slackAppId);
       if (kind === null) throw NOT_FOUND();
       if (kind !== "manual") {
         throw new SessionServiceError(
@@ -215,12 +240,29 @@ export function createSlackSecretService(deps: {
           { reason_code: "server_managed_secret" },
         );
       }
-      return put(
-        caller,
-        store,
-        { workspaceId, owner: { kind: "slack_app", id: appId }, purpose },
+      const audit = auditOf(caller);
+      const result: PutSecretResult = await store.put(
+        {
+          workspaceId,
+          owner: { kind: "slack_app", id: slackAppId },
+          purpose,
+        },
         await readValue(),
+        { audit },
       );
+      switch (result.outcome) {
+        case "stored":
+          return {
+            ...slackSecretSummaryOf(result.summary),
+            receipt_id: audit.receiptId,
+          };
+        case "actor_inactive":
+          throw ACTOR_INACTIVE();
+        case "outranked":
+          throw OUTRANKED();
+        default:
+          throw NOT_FOUND();
+      }
     },
   };
 }

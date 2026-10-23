@@ -168,8 +168,50 @@ describe("구성원 화면", () => {
     });
     const user = await setupUser();
     await changeRole(user, "Mate의 역할", "owner");
-    expect((await screen.findByRole("alert")).textContent).toContain(
-      "소유자 역할은 소유자만 주거나 바꿀 수 있습니다",
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "소유자 역할을 주거나 소유자의 역할·접근(비활성화·정지·다시 활성화)을 바꾸는 일은 소유자만 할 수 있습니다 — 소유자에게 요청하세요.",
+    );
+  });
+
+  test("관리자는 비활성 소유자를 다시 활성화하지 못하고, 이유를 안내 버튼 뒤에 둔다", async () => {
+    const boss = { ...gone, display_name: "Boss", role: "owner" as const };
+    renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me(undefined, "admin")),
+      "GET /v1/members": () =>
+        json(200, { items: [{ ...owner, role: "admin" }, teammate, boss] }),
+      ...noInvites,
+    });
+    const row = (await screen.findByText("Boss")).closest("tr") as HTMLElement;
+    const enable = within(row).getByRole("button", {
+      name: "다시 활성화",
+    }) as HTMLButtonElement;
+    expect(enable.disabled).toBe(true);
+    expect(
+      document.getElementById(enable.getAttribute("aria-describedby") ?? "")
+        ?.textContent,
+    ).toBe("소유자는 관리자가 다시 활성화할 수 없습니다.");
+    expect(
+      within(row).getByRole("button", {
+        name: "Boss을(를) 다시 활성화할 수 없는 이유",
+      }),
+    ).toBeDefined();
+  });
+
+  test("다시 활성화가 403 OWNER_PROTECTED로 거절되면 그 동작의 말로 보인다", async () => {
+    const boss = { ...gone, display_name: "Boss", role: "owner" as const };
+    renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": () => json(200, { items: [owner, boss] }),
+      ...noInvites,
+      [`POST /v1/members/${GONE_ID}/enable`]: () =>
+        apiError(403, "OWNER_PROTECTED", "Only an owner may enable an owner"),
+    });
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "다시 활성화" }),
+    );
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "소유자는 관리자가 다시 활성화할 수 없습니다.",
     );
   });
 

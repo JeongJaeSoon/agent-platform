@@ -7,7 +7,13 @@ import type {
   StartSlackLinkResponse,
 } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
-import { Badge, Button, cn, formatTimestamp } from "@werft-ai/ui";
+import {
+  Badge,
+  Button,
+  cn,
+  formatTimestamp,
+  Link as TextLink,
+} from "@werft-ai/ui";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { linkedAccountsQuery, queryKeys } from "../api/queries.ts";
 import { refusalText, useRole } from "../auth/guard.tsx";
@@ -399,7 +405,9 @@ export function SlackLinkCallbackScreen() {
         <div className="flex flex-col gap-[var(--ap-space-block)]">
           <FormError>{failure}</FormError>
           <p className="m-0">
-            <Link to="/settings/linked-accounts">{t("linked.back")}</Link>
+            <TextLink asChild underline="always">
+              <Link to="/settings/linked-accounts">{t("linked.back")}</Link>
+            </TextLink>
           </p>
         </div>
       ) : (

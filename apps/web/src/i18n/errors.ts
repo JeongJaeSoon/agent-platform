@@ -20,7 +20,7 @@ export const errorsKo = {
   "error.LAST_OWNER":
     "마지막 소유자는 역할을 바꾸거나 비활성화할 수 없습니다 — 다른 사람을 먼저 소유자로 정하세요. 자기 자신도 비활성화할 수 없습니다.",
   "error.OWNER_PROTECTED":
-    "소유자 역할은 소유자만 주거나 바꿀 수 있습니다 — 소유자에게 요청하세요.",
+    "소유자 역할을 주거나 소유자의 역할·접근(비활성화·정지·다시 활성화)을 바꾸는 일은 소유자만 할 수 있습니다 — 소유자에게 요청하세요.",
   "error.UNSUPPORTED_CAPABILITY":
     "카드 모델이 이 프로필의 모델과 다르거나, 프로필이 허용하지 않는 도구가 있거나, 없는 프로필입니다.",
   "error.REVISION_CONFLICT":
@@ -50,7 +50,7 @@ export const errorsEn: Record<keyof typeof errorsKo, string> = {
   "error.LAST_OWNER":
     "The last owner cannot change their role or be disabled — make someone else an owner first. You also cannot disable yourself.",
   "error.OWNER_PROTECTED":
-    "Only an owner can grant or change the owner role — ask an owner.",
+    "Only an owner can grant the owner role or change an owner's role or access (disable, suspend, re-enable) — ask an owner.",
   "error.UNSUPPORTED_CAPABILITY":
     "The card's model is not this profile's model, the card uses a tool the profile does not allow, or the profile does not exist.",
   "error.REVISION_CONFLICT":
@@ -86,7 +86,7 @@ export const errorsJa: Record<keyof typeof errorsKo, string> = {
   "error.LAST_OWNER":
     "最後のオーナーは、ロールの変更も無効化もできません。先にほかの人をオーナーにしてください。また、自分自身は無効化できません。",
   "error.OWNER_PROTECTED":
-    "オーナーのロールを付与・変更できるのはオーナーのみです。オーナーに依頼してください。",
+    "オーナーのロールの付与や、オーナーのロール・アクセス（無効化・停止・再有効化）の変更ができるのはオーナーのみです。オーナーに依頼してください。",
   "error.UNSUPPORTED_CAPABILITY":
     "カードのモデルがこのプロファイルのモデルと異なるか、プロファイルで許可されていないツールをカードが使っているか、プロファイルが存在しません。",
   "error.REVISION_CONFLICT":

@@ -1,8 +1,8 @@
 import {
   deleteSlackSecretResponseSchema,
+  putSlackConfigTokenResponseSchema,
   putSlackSecretRequestSchema,
-  putSlackSecretResponseSchema,
-  slackSecretSummarySchema,
+  slackConfigTokenSummarySchema,
   workspaceParamsSchema,
 } from "@werft-ai/contracts";
 import type { SlackSecretService } from "@werft-ai/platform";
@@ -31,7 +31,7 @@ export function registerSlackSecretRoutes(
         lowercaseWorkspaceId(context),
       ),
     );
-    return jsonWithSchema(context, slackSecretSummarySchema, summary);
+    return jsonWithSchema(context, slackConfigTokenSummarySchema, summary);
   });
 
   apiRoute(router, "putSlackConfigToken", async (context) => {
@@ -43,7 +43,7 @@ export function registerSlackSecretRoutes(
           (await parseJsonBody(context, putSlackSecretRequestSchema)).value,
       ),
     );
-    return jsonWithSchema(context, putSlackSecretResponseSchema, set);
+    return jsonWithSchema(context, putSlackConfigTokenResponseSchema, set);
   });
 
   apiRoute(router, "deleteSlackConfigToken", async (context) => {

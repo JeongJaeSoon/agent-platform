@@ -21,6 +21,8 @@ import {
   createPostgresSessionReader,
   createPostgresSessionShareStore,
   createPostgresSessionUnitOfWork,
+  createPostgresSlackAppStore,
+  createPostgresSlackConfigTokenStore,
   createPostgresSlackGuestSetting,
   createPostgresSurfaceBindingStore,
   createPostgresTeamStore,
@@ -30,6 +32,7 @@ import {
   createPostgresWorkerUnitOfWork,
   createPostgresWorkspaceKeyStore,
   hasUncollectedCheckpoint,
+  slackAppKind,
 } from "@werft-ai/db";
 import { createLogger, sanitizeText } from "@werft-ai/observability";
 import {
@@ -51,6 +54,9 @@ import {
   createSessionOutputService,
   createSessionService,
   createSessionShareService,
+  createSlackAppService,
+  createSlackConfigApi,
+  createSlackConfigTokens,
   createSlackSecretService,
   createSurfaceBindingService,
   createTeamService,
@@ -123,6 +129,7 @@ import { registerPushRequestRoutes } from "./routes/push-requests.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
 import { registerSessionShareRoutes } from "./routes/session-shares.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
+import { registerSlackAppRoutes } from "./routes/slack-apps.ts";
 import { registerSlackBindingRoutes } from "./routes/slack-bindings.ts";
 import { registerSlackSecretRoutes } from "./routes/slack-secrets.ts";
 import { registerTeamRoutes } from "./routes/teams.ts";
@@ -131,6 +138,7 @@ import { registerWorkerRoutes } from "./routes/worker.ts";
 import { registerWorkspaceRoutes } from "./routes/workspaces.ts";
 import { PostgresSessionNotifier } from "./session-notifier.ts";
 import { createShutdown } from "./shutdown.ts";
+import { consoleOriginFrom, slackApiUrlFrom } from "./slack-config.ts";
 import { slackOidcConfigFromEnv } from "./slack-link.ts";
 
 const authMode = process.env.AUTH_MODE;
@@ -299,9 +307,36 @@ if (slackOidc === null) {
     {},
   );
 }
+const slackConfigApi = createSlackConfigApi({
+  apiUrl: slackApiUrlFrom(process.env),
+});
+const slackConfigTokens =
+  secretKey === null
+    ? null
+    : createSlackConfigTokens({
+        store: createPostgresSlackConfigTokenStore(db, secretKey),
+        api: slackConfigApi,
+      });
+const consoleOrigin = consoleOriginFrom(process.env);
+if (consoleOrigin === null) {
+  logger.warn(
+    "Slack apps cannot be created (SLACK_OIDC_REDIRECT_URI unset): their OAuth redirect is on the console's origin",
+    {},
+  );
+}
 const slackSecrets = createSlackSecretService({
   authorization,
   store: secretKey === null ? null : createPostgresSecretStore(db, secretKey),
+  tokens: slackConfigTokens,
+  appKind: (workspaceId, slackAppId) =>
+    slackAppKind(db, workspaceId, slackAppId),
+});
+const slackApps = createSlackAppService({
+  authorization,
+  apps: secretKey === null ? null : createPostgresSlackAppStore(db, secretKey),
+  tokens: slackConfigTokens,
+  api: slackConfigApi,
+  consoleOrigin,
 });
 const credentialBindingService = createCredentialBindingService({
   authorization,
@@ -495,6 +530,11 @@ const app = createApiApp({
       logger,
     });
     registerSlackBindingRoutes(router, { service: slackBindings, logger });
+    registerSlackAppRoutes(router, {
+      apps: slackApps,
+      secrets: slackSecrets,
+      logger,
+    });
     registerApiKeyRoutes(router, apiKeys);
     registerTeamRoutes(router, teams, agentAdmins);
     registerCredentialBindingRoutes(router, credentialBindingService);

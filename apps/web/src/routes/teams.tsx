@@ -18,6 +18,7 @@ import {
   Input,
   NativeSelect,
   NativeSelectOption,
+  Link as TextLink,
 } from "@werft-ai/ui";
 import { ArrowLeft } from "lucide-react";
 import { type FormEvent, useId, useState } from "react";
@@ -38,7 +39,6 @@ import { LoadFailure } from "../components/load-failure.tsx";
 import {
   MUTED,
   MyTeams,
-  PRIMARY_LINK,
   SECTION,
   SECTION_TITLE,
 } from "../components/my-teams.tsx";
@@ -168,13 +168,11 @@ export function TeamsScreen() {
           <RowList>
             {teams.data.items.map((team) => (
               <RowListItem key={team.id}>
-                <Link
-                  to="/teams/$teamId"
-                  params={{ teamId: team.id }}
-                  className={PRIMARY_LINK}
-                >
-                  {team.name}
-                </Link>
+                <TextLink asChild className="[overflow-wrap:anywhere]">
+                  <Link to="/teams/$teamId" params={{ teamId: team.id }}>
+                    {team.name}
+                  </Link>
+                </TextLink>
                 <span className={`${SECONDARY} ml-auto`}>
                   {t("teams.memberCount", { count: team.member_count })}
                 </span>
