@@ -1,8 +1,9 @@
 import { type LoaderPlugin, llms, loader } from "fumadocs-core/source";
 import { metaSchema, pageSchema } from "fumadocs-core/source/schema";
 import { defineDocs } from "fumadocs-mdx/macro";
+import { i18n, type Locale, messages } from "./i18n";
 import { openapi, slugifyTag } from "./openapi";
-import { appName, withBasePath } from "./shared";
+import { withBasePath } from "./shared";
 
 const docs = defineDocs({
   dir: "content/docs",
@@ -45,21 +46,25 @@ export const source = loader(
   },
   {
     baseUrl: "/",
+    i18n,
     plugins: [openapi.loaderPlugin(), pageTreeFixes],
   },
 );
 
 export const docsLlms = llms(source, {
   // Operation items carry a method badge as their name; the title is plain text.
-  renderName: (node) => {
-    if (node.type === "page") return source.getNodePage(node)?.data.title ?? "";
-    return node.type === "folder" ? String(node.name) : `${appName} 문서`;
+  renderName: (node, { lang }) => {
+    if (node.type === "page")
+      return source.getNodePage(node, lang)?.data.title ?? "";
+    return node.type === "folder"
+      ? String(node.name)
+      : messages[(lang ?? i18n.defaultLanguage) as Locale].siteTitle;
   },
   // Operation descriptions run to several paragraphs; an index line keeps the first.
-  renderDescription: (node) => {
+  renderDescription: (node, { lang }) => {
     const description =
       node.type === "page"
-        ? source.getNodePage(node)?.data.description
+        ? source.getNodePage(node, lang)?.data.description
         : undefined;
     return description?.split("\n")[0] ?? "";
   },
@@ -70,3 +75,11 @@ export const docsLlms = llms(source, {
     return `${heading}\n\n${await page.data.getText("processed")}`;
   },
 });
+
+/** A page in another language whose own translation does not exist yet. */
+export function isUntranslated(page: { path: string; locale?: string }) {
+  return (
+    page.locale !== i18n.defaultLanguage &&
+    !page.path.endsWith(`.${page.locale}.mdx`)
+  );
+}
