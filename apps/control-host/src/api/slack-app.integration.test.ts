@@ -55,7 +55,11 @@ integration("slack-app create on PostgreSQL against a fake Slack", () => {
     await database?.drop();
   });
 
-  async function run(argv: string[], apiUrl = slack.url) {
+  async function run(
+    argv: string[],
+    apiUrl = slack.url,
+    extraEnv: Record<string, string> = {},
+  ) {
     const out: string[] = [];
     const err: string[] = [];
     const io: SlackAppIo = {
@@ -63,6 +67,7 @@ integration("slack-app create on PostgreSQL against a fake Slack", () => {
         DATABASE_URL: "postgres://handled-by-openDatabase",
         SLACK_OIDC_REDIRECT_URI: `${CONSOLE}/settings/linked-accounts/slack`,
         SLACK_API_URL: apiUrl,
+        ...extraEnv,
       },
       out: (line) => out.push(line),
       err: (line) => err.push(line),
@@ -325,6 +330,52 @@ integration("slack-app create on PostgreSQL against a fake Slack", () => {
     const retry = await run(createLink(workspaceId));
     expect(retry.code).toBe(SLACK_APP_EXIT.app_busy);
     expect(retry.err.join("\n")).toContain("SLACK_APP_CREATING");
+  });
+
+  test("finalize sends the event subscription, twice to the same effect; unset url is 8 and sends nothing; no app is 4", async () => {
+    const workspaceId = await workspaceWithToken();
+    const agentId = await agent(workspaceId);
+    const created = await run(create(workspaceId, agentId));
+    const appId = JSON.parse(created.out[0] ?? "{}").app_id;
+    const updates = () =>
+      slack.calls.filter((call) => call.method === "apps.manifest.update")
+        .length;
+    const before = updates();
+
+    const unset = await run(["finalize", "--agent", agentId]);
+    expect(unset.code).toBe(SLACK_APP_EXIT.events_url_unset);
+    expect(unset.out).toEqual([]);
+    expect(unset.err.join("\n")).toContain("events_url_unset");
+    expect(updates()).toBe(before);
+
+    const env = { SLACK_EVENTS_PUBLIC_URL: "https://events.example.test/" };
+    const manifests: unknown[] = [];
+    for (const _ of [1, 2]) {
+      const done = await run(["finalize", "--agent", agentId], slack.url, env);
+      expect(done.code).toBe(SLACK_APP_EXIT.created);
+      expect(JSON.parse(done.out[0] ?? "{}")).toEqual({
+        outcome: "finalized",
+        slack_app_id: JSON.parse(created.out[0] ?? "{}").slack_app_id,
+        app_id: appId,
+        agent_id: agentId,
+        request_url: `https://events.example.test/v1/slack/events/${agentId}`,
+        warnings: [],
+      });
+      manifests.push(structuredClone(slack.apps.get(appId)?.manifest));
+    }
+    expect(updates()).toBe(before + 2);
+    expect(manifests[1]).toEqual(manifests[0]);
+    expect(
+      (manifests[0] as { settings: { event_subscriptions: object } }).settings
+        .event_subscriptions,
+    ).toMatchObject({
+      request_url: `https://events.example.test/v1/slack/events/${agentId}`,
+    });
+
+    const bare = await agent(workspaceId);
+    expect(
+      (await run(["finalize", "--agent", bare], slack.url, env)).code,
+    ).toBe(SLACK_APP_EXIT.agent_not_found);
   });
 
   test("nothing printed carries a token or an app secret", () => {

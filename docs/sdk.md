@@ -38,6 +38,7 @@ API key scope가 `sessions:*`인 operation을 모두 감싼다. 요청·응답 �
 | `sessions.pushRequests.create` · `list` · `get` · `decide` · `openPullRequest` · `commentPullRequest` | `…/push-requests/**` |
 | `receipts.get`, `auth.me`, `limits.get`, `profiles.list`, `root.get` | `GET /v1/receipts/{id}`, `/v1/auth/me`, `/v1/limits`, `/v1/profiles`, `/v1` |
 
+- `limits.get`(`GET /v1/limits`)은 로그인한 workspace owner만 읽는다. API key로 부르면 403이다.
 - 타입은 OpenAPI에서 생성한 타입에서 이름만 붙여 가져온다. 응답 타입의 enum은 열린 union이라, 서버가 새 값(새 상태, 새 오류 코드)을 보내도 타입과 코드가 깨지지 않는다. 요청 타입은 닫혀 있다.
 - `sessions.list`와 `turns.list`는 `await`하면 첫 페이지, `for await`하면 모든 항목을 준다. `page.nextPage()`는 마지막 페이지에서 `null`이다.
 - pause·resume·terminate·close의 `expected_revision`은 호출자가 넘긴다. SDK가 대신 읽어 채우지 않고, `REVISION_CONFLICT`도 자동으로 다시 보내지 않는다.

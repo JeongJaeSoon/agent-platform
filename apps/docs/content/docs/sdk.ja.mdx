@@ -205,7 +205,7 @@ const approver = werft.withOptions({ apiKey: approverKey });
 | `sessions.pushRequests.create` · `list` · `get` · `decide` · `openPullRequest` · `commentPullRequest` | [push の承認](/approvals/request)と PR |
 | `receipts.get`, `auth.me`, `limits.get`, `profiles.list`, `root.get` | receipt、自分の情報、上限、プロファイル、状態 |
 
-`sessions.list` と `turns.list` は、`await` すると最初のページを、`for await` するとすべての項目を返す。フィールド名は API と同じ snake_case である。エージェント·メンバー·キーの管理のように Web ログインでのみ呼ぶ API はラップしていない。
+`sessions.list` と `turns.list` は、`await` すると最初のページを、`for await` するとすべての項目を返す。フィールド名は API と同じ snake_case である。エージェント·メンバー·キーの管理のように Web ログインでのみ呼ぶ API はラップしていない。`limits.get` はログインした workspace owner だけが読めるため、API キーで呼ぶと 403 になる。
 
 ## リポジトリのサンプル
 

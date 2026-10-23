@@ -1,6 +1,8 @@
 import type {
   InstallationLimitsResponse,
   SessionUsageResponse,
+  UsageSummaryQuery,
+  UsageSummaryResponse,
 } from "@werft-ai/contracts";
 import {
   budgetExceeded,
@@ -9,7 +11,7 @@ import {
   sessionBudgetOf,
 } from "../limits/installation-limits.ts";
 import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
-import type { UsageReader } from "../ports/usage-reader.ts";
+import type { UsageReader, UsageSummaryFilter } from "../ports/usage-reader.ts";
 import {
   requirePermitted,
   SessionServiceError,
@@ -35,12 +37,47 @@ export function createUsageService(deps: {
 }) {
   const { authorization, reader, limits } = deps;
 
+  function requireInstallationReader(actor: Caller) {
+    return requirePermitted(authorization, actor, "usage.installation_read", {
+      kind: "workspace",
+      id: actor.ownerId,
+    });
+  }
+
+  // A personal key adds up its creator's sessions, the ones made in the
+  // console included; a key nobody created adds up its own.
+  async function filterFor(
+    actor: Caller,
+    scope: UsageSummaryQuery["scope"],
+  ): Promise<UsageSummaryFilter> {
+    if (scope === "installation") {
+      await requireInstallationReader(actor);
+      return { kind: "installation" };
+    }
+    await requirePermitted(authorization, actor, "session.read", {
+      kind: "session",
+      id: null,
+    });
+    const userId = actor.actor?.userId ?? null;
+    if (userId !== null) {
+      return { kind: "user", ownerId: actor.ownerId, userId };
+    }
+    const apiKeyId = actor.actor?.apiKeyId ?? null;
+    if (apiKeyId !== null) {
+      return { kind: "api_key", ownerId: actor.ownerId, apiKeyId };
+    }
+    throw new SessionServiceError(
+      "FORBIDDEN",
+      "This caller started no sessions of its own to sum",
+    );
+  }
+
   return {
-    // Any principal holding sessions:read may read it, whoever's sessions
-    // they own (decision): alpha users are internal staff and the
-    // scope model has no installation operator to reserve it for. Revisit
-    // before external exposure.
-    async getInstallationLimits(): Promise<InstallationLimitsResponse> {
+    // Summed over every owner, so the installation owner's alone (94S-762).
+    async getInstallationLimits(
+      actor: Caller,
+    ): Promise<InstallationLimitsResponse> {
+      await requireInstallationReader(actor);
       const usage = await reader.installationUsage();
       return {
         scope: "installation",
@@ -62,6 +99,35 @@ export function createUsageService(deps: {
             accounted_content: [...STORAGE_ACCOUNTED_CONTENT],
             updated_at: usage.storageUpdatedAt?.toISOString() ?? null,
           },
+        },
+      };
+    },
+
+    async getUsageSummary(
+      actor: Caller,
+      query: UsageSummaryQuery,
+    ): Promise<UsageSummaryResponse> {
+      const filter = await filterFor(actor, query.scope);
+      const summary = await reader.usageSummary(filter, {
+        since: query.since,
+        ...(query.until === undefined ? {} : { until: query.until }),
+      });
+      return {
+        scope: query.scope,
+        period: {
+          since: query.since.toISOString(),
+          until: summary.until.toISOString(),
+        },
+        refreshed_at: summary.readAt.toISOString(),
+        session_count: summary.sessionCount,
+        cost_usd: summary.costUsd,
+        cost_complete: summary.incompleteTurnCount === 0,
+        token_count: summary.providerTokens,
+        run_seconds: summary.runSeconds,
+        basis: {
+          sessions: "created_in_period",
+          cost: "provider_usage_estimate",
+          run_time: "turn_wall_clock",
         },
       };
     },

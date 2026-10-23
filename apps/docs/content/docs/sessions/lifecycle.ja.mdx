@@ -122,6 +122,15 @@ curl -sS "$API/v1/sessions/$SID/usage" -H "Authorization: Bearer $KEY" \
 
 コストは請求額ではなく、価格表で計算した推定値である。`complete` が `false` なら、合計はまだ確定していない。開いているターンがある(`open_turn_count`)か、終了したターンのうちコストが報告されていないものがある(`unreported_turn_count`)。後者の場合は、すべてのターンが終了しても `false` のままである。
 
+期間中に自分が始めたセッションをすべて合計するには `GET /v1/usage/summary` を使う。`since` は日付(その日の 00:00 UTC)か offset 付きの時刻で、`until` を省くと現在までになる。
+
+```bash
+curl -sS "$API/v1/usage/summary?scope=me&since=2026-10-01" -H "Authorization: Bearer $KEY" \
+  | jq '{session_count, cost_usd, cost_complete, token_count, run_seconds}'
+```
+
+対象は期間内に作成したセッションで、`cost_usd` はそれらの `/usage` の `cost.amount_usd` の合計である。そのうち一つでも `complete: false` なら `cost_complete` も `false` になる。個人キーは作成した人のセッションを合計する。`scope=installation`(すべての owner のセッション)と `GET /v1/limits` はログインした workspace owner だけが読め、ほかのメンバーとすべての API キーは 403 になる。
+
 ## 次のステップ
 
 - [承認待ちと再開](/sessions/waiting-and-resume): `needs_input` への応答、pause と resume

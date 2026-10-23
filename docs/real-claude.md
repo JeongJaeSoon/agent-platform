@@ -51,7 +51,7 @@ unset ANTHROPIC_API_KEY
 2. turn 2: 같은 worker에서 `git log`와 `cat`으로 그 커밋을 읽는다.
 3. pause: checkpoint가 turn 2까지 덮는다.
 4. resume 후 turn 3: 새 worker(turn 1과 겹치는 attempt 없음)에서 같은 커밋 hash와 파일 내용이 나오고, Claude Code 세션 id가 turn 1과 같다.
-5. `GET /v1/sessions/{id}/usage`: 세 turn 모두 비용을 보고했고(`complete: true`) 금액이 0보다 크며 상한을 넘지 않았다. `cost_limit_usd`는 `GET /v1/limits`와 같다.
+5. `GET /v1/sessions/{id}/usage`: 세 turn 모두 비용을 보고했고(`complete: true`) 금액이 0보다 크며 상한을 넘지 않았다. key로 부른 `GET /v1/limits`는 owner 전용이라 403이다.
 
 run record(`E2E_OUT`, 끝에 경로를 출력한다)의 `record.txt`에는 tested SHA, 이미지 id, SDK·Claude Code 버전과 함께 `model`, `provider_endpoint`, `session_cost_limit_usd`가 남는다. `test.log`에는 세션 id, 커밋, attempt, 실제 비용을 담은 `real_model` JSON 한 줄이 남는다. 성공하면 `tests: pass=1 skip=0 fail=0`이다.
 

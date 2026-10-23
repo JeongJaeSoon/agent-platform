@@ -5,6 +5,20 @@ export const sessionListKo = {
   "sessionList.new": "새 세션",
   "sessionList.newUnavailable":
     "웹에서는 아직 세션을 시작할 수 없습니다. API로 시작하세요.",
+  "sessionList.search": "제목이나 ID로 찾기",
+  "sessionList.noMatch": "조건에 맞는 세션이 없습니다",
+  "sessionList.noMatchHint": "필터나 검색어를 바꿔 보세요.",
+  "sessionList.clearFilters": "필터 지우기",
+  "sessionList.shown": "{count}개 표시",
+  "sessionList.searchScope": "검색은 지금 불러온 세션 안에서만 찾습니다.",
+  "sessionList.column.session": "세션",
+  "sessionList.column.status": "상태",
+  "sessionList.column.model": "모델",
+  "sessionList.column.repository": "저장소",
+  "sessionList.column.recent": "최근",
+  "sessionList.unknown": "—",
+  "sessionList.noRepository": "저장소 없음",
+  "sessionList.waitedMinutes": "{minutes}분",
 };
 
 export const sessionListEn: Record<keyof typeof sessionListKo, string> = {
@@ -14,6 +28,21 @@ export const sessionListEn: Record<keyof typeof sessionListKo, string> = {
   "sessionList.new": "New session",
   "sessionList.newUnavailable":
     "Sessions cannot be started from the web yet. Start one through the API.",
+  "sessionList.search": "Find by title or ID",
+  "sessionList.noMatch": "No sessions match",
+  "sessionList.noMatchHint": "Try another filter or search.",
+  "sessionList.clearFilters": "Clear filters",
+  "sessionList.shown": "{count} shown",
+  "sessionList.searchScope":
+    "Search looks only through the sessions loaded so far.",
+  "sessionList.column.session": "Session",
+  "sessionList.column.status": "Status",
+  "sessionList.column.model": "Model",
+  "sessionList.column.repository": "Repository",
+  "sessionList.column.recent": "Recent",
+  "sessionList.unknown": "—",
+  "sessionList.noRepository": "No repository",
+  "sessionList.waitedMinutes": "{minutes} min",
 };
 
 export const sessionListJa: Record<keyof typeof sessionListKo, string> = {
@@ -23,4 +52,19 @@ export const sessionListJa: Record<keyof typeof sessionListKo, string> = {
   "sessionList.new": "新しいセッション",
   "sessionList.newUnavailable":
     "Webからはまだセッションを開始できません。APIから開始してください。",
+  "sessionList.search": "タイトルやIDで探す",
+  "sessionList.noMatch": "条件に合うセッションはありません",
+  "sessionList.noMatchHint": "フィルターや検索語を変えてみてください。",
+  "sessionList.clearFilters": "フィルターをクリア",
+  "sessionList.shown": "{count}件を表示",
+  "sessionList.searchScope":
+    "検索は読み込み済みのセッションの中だけを探します。",
+  "sessionList.column.session": "セッション",
+  "sessionList.column.status": "状態",
+  "sessionList.column.model": "モデル",
+  "sessionList.column.repository": "リポジトリ",
+  "sessionList.column.recent": "最近",
+  "sessionList.unknown": "—",
+  "sessionList.noRepository": "リポジトリなし",
+  "sessionList.waitedMinutes": "{minutes}分",
 };
