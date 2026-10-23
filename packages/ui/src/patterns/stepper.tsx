@@ -1,4 +1,3 @@
-import { Check } from "lucide-react";
 import {
   type JSX,
   type KeyboardEvent,
@@ -15,6 +14,10 @@ import { cn } from "../foundations/cn.ts";
  * steps that can be selected, and Enter or Space selects one. Which steps a
  * user may go back or forward to is the screen's decision, passed in as
  * `disabled`; without `onStepSelect` the steps are only a progress display.
+ *
+ * A finished step says so in words, never with a symbol. From `sm` up the
+ * status word sits on its own 20px line under the name, so every step is the
+ * same height; below `sm` it sits at the row's right end.
  */
 
 export interface StepperStep {
@@ -22,6 +25,8 @@ export interface StepperStep {
   readonly label: ReactNode;
   readonly description?: ReactNode | undefined;
   readonly disabled?: boolean | undefined;
+  /** A word shown after the name, e.g. "선택". A finished step shows `completedLabel` instead. */
+  readonly status?: ReactNode | undefined;
 }
 
 export interface StepperProps {
@@ -30,7 +35,7 @@ export interface StepperProps {
   /** Names the step list for screen readers, e.g. "에이전트 만들기 단계". */
   readonly label: string;
   readonly onStepSelect?: ((id: string) => void) | undefined;
-  /** Read out after each step before the current one. */
+  /** Shown after each step before the current one. */
   readonly completedLabel?: string | undefined;
   readonly className?: string | undefined;
 }
@@ -80,8 +85,7 @@ export function Stepper({
 
   return (
     <nav aria-label={label} data-slot="stepper" className={className}>
-      {/* -mx-1 takes back the items' hover padding: the first circle sits on the page's left edge. */}
-      <ol className="-mx-1 flex flex-col gap-3 sm:flex-row sm:gap-4">
+      <ol className="flex flex-col gap-2 break-keep sm:flex-row sm:items-center sm:gap-3">
         {steps.map((step, index) => {
           const state: StepState =
             index < currentIndex
@@ -89,35 +93,60 @@ export function Stepper({
               : index === currentIndex
                 ? "current"
                 : "upcoming";
+          const status = state === "complete" ? completedLabel : step.status;
+          const last = index === steps.length - 1;
           const body = (
             <>
               <StepIndicator state={state} number={index + 1} />
-              <span className="flex min-w-0 flex-col gap-0.5 text-left">
-                <span className="font-medium text-sm leading-snug">
-                  {step.label}
-                  {state === "complete" ? (
-                    <span className="sr-only">, {completedLabel}</span>
+              <span className="flex min-w-0 flex-1 items-start justify-between gap-2 sm:flex-col sm:gap-0">
+                <span className="flex min-w-0 flex-col">
+                  <span className="whitespace-nowrap font-medium text-sm leading-6">
+                    {step.label}
+                  </span>
+                  {step.description ? (
+                    <span className="text-caption text-muted-foreground">
+                      {step.description}
+                    </span>
                   ) : null}
                 </span>
-                {step.description ? (
-                  <span className="text-muted-foreground text-xs leading-snug">
-                    {step.description}
+                {status ? (
+                  <span
+                    data-slot="stepper-step-status"
+                    className={cn(
+                      // leading-6 below sm puts the word's centre on the name line.
+                      "whitespace-nowrap text-caption leading-6 sm:leading-5",
+                      state === "complete"
+                        ? "text-(color:--ap-tone-success-fg)"
+                        : "text-muted-foreground",
+                    )}
+                  >
+                    <span className="sr-only">, </span>
+                    {status}
                   </span>
-                ) : null}
+                ) : (
+                  // Keeps every step the same height from sm up.
+                  <span
+                    aria-hidden="true"
+                    data-slot="stepper-step-status"
+                    className="hidden h-5 sm:block"
+                  />
+                )}
               </span>
             </>
           );
           const itemClass = cn(
-            "flex items-start gap-2 rounded-control p-1 text-muted-foreground",
-            state === "current" && "text-foreground",
-            state === "complete" && "text-foreground",
+            "flex min-w-0 flex-1 items-start gap-2 sm:flex-none sm:shrink-0",
+            state === "upcoming" ? "text-muted-foreground" : "text-foreground",
           );
           return (
             <li
               key={step.id}
               data-slot="stepper-step"
               data-state={state}
-              className="sm:flex-1"
+              className={cn(
+                "flex items-center gap-3 sm:items-start",
+                !last && "sm:flex-1",
+              )}
             >
               {onStepSelect ? (
                 <button
@@ -134,7 +163,7 @@ export function Stepper({
                   onClick={() => onStepSelect(step.id)}
                   className={cn(
                     itemClass,
-                    "w-full transition-[color,box-shadow] hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none",
+                    "rounded-control text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:cursor-not-allowed disabled:opacity-50",
                   )}
                 >
                   {body}
@@ -146,6 +175,19 @@ export function Stepper({
                 >
                   {body}
                 </div>
+              )}
+              {last ? null : (
+                <span
+                  aria-hidden="true"
+                  data-slot="stepper-connector"
+                  className={cn(
+                    // Through the circle's centre, 12px from the top.
+                    "hidden h-px min-w-4 flex-1 sm:mt-3 sm:block sm:-translate-y-1/2",
+                    state === "complete"
+                      ? "bg-(color:--ap-tone-success-border)"
+                      : "bg-border",
+                  )}
+                />
               )}
             </li>
           );
@@ -167,17 +209,15 @@ function StepIndicator({
       aria-hidden="true"
       className={cn(
         "grid size-6 shrink-0 place-content-center rounded-full border font-medium text-xs",
-        state === "upcoming" && "border-input bg-card text-muted-foreground",
-        state !== "upcoming" &&
-          "border-primary bg-primary text-primary-foreground",
-        state === "current" && "ring-[3px] ring-primary/25",
+        state === "complete" &&
+          "border-(color:--ap-tone-success-border) bg-(color:--ap-tone-success-bg) text-(color:--ap-tone-success-fg)",
+        state === "current" &&
+          "border-primary bg-primary text-primary-foreground ring-[3px] ring-primary/25",
+        state === "upcoming" &&
+          "border-(color:--ap-tone-neutral-border) bg-card text-muted-foreground",
       )}
     >
-      {state === "complete" ? (
-        <Check className="size-3.5" strokeWidth={1.5} aria-hidden="true" />
-      ) : (
-        number
-      )}
+      {number}
     </span>
   );
 }
