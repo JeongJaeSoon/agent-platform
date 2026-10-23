@@ -554,7 +554,7 @@ describe("내가 속한 팀", () => {
       "GET /v1/my-teams": () => json(200, { items: [TEAM] }),
     });
     const link = await screen.findByRole("link", { name: "결제팀" });
-    expect(link.getAttribute("href")).toBe(`/teams/${TEAM.id}`);
+    expect(link.getAttribute("href")).toBe(`/members/teams/${TEAM.id}`);
   });
 
   test("속한 팀이 없으면 홈에 섹션을 두지 않는다", async () => {
