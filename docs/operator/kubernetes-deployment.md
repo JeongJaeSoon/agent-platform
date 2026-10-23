@@ -15,11 +15,12 @@ worker Pod 하나의 메모리(`worker.memoryMb`)는 transcript 상한에 맞춰
 | api Deployment + Service(3000) + authorizer Service(3100) | 2 | 3100은 egress-proxy만 닿는다(NetworkPolicy). Ingress는 3000의 `/v1`·`/docs`·`/healthz`·`/readyz`만 route한다. worker용 `/internal`은 열지 않는다 |
 | scheduler Deployment + Role/RoleBinding | 1, `Recreate` | worker Pod·nonce Secret·workspace PVC를 같은 namespace에서만 만들고 지운다 |
 | reconciler Deployment | 1 | |
+| slack Deployment | 1 | Slack inbox를 비운다. `slack.enabled: false`면 없다. 바깥으로는 DNS(53), 443, DB 포트(`networkPolicy.slack.databasePort`, 기본 5432)로만 나간다 |
 | egress-proxy Deployment + Service(3128, 3129) | 2 | worker의 유일한 바깥 경로 |
 | migrate Job | install·upgrade마다 1 | `pre-install,pre-upgrade` hook |
 | checkpoint GC CronJob | 주 1회 | `checkpointGc.schedule` |
 | 카탈로그 ConfigMap | 1 | `catalog.profiles`·`catalog.repositories` |
-| NetworkPolicy | 4 | worker는 egress-proxy로만 나간다 |
+| NetworkPolicy | 5 | worker는 egress-proxy로만 나간다. 제어 영역 Pod 중 바깥 연결을 막는 것은 slack 하나다 |
 | Ingress, ExternalSecret | 선택 | `ingress.enabled`, `secrets.externalSecret.enabled` |
 
 chart가 만들지 않는 것: PostgreSQL 16, S3 호환 object store, Secret 값, worker Pod(scheduler가 세션마다 만든다). kind에서는 `deploy/kind/deps.yaml`의 PostgreSQL·LocalStack이 대신한다.
@@ -33,10 +34,11 @@ chart가 만들지 않는 것: PostgreSQL 16, S3 호환 object store, Secret 값
 
 | 키 | 읽는 곳 |
 |---|---|
-| `DATABASE_URL` | api, scheduler, reconciler, migrate, checkpoint GC |
+| `DATABASE_URL` | api, scheduler, reconciler, slack, migrate, checkpoint GC |
 | `EGRESS_AUTHORIZER_TOKEN` | api, egress-proxy(같은 값) |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | api, checkpoint GC. `secrets.objectStoreKeys: true`일 때만. `false`면 AWS 기본 credential chain(IRSA)으로 서명한다 |
-| `secrets.catalogEnv`의 이름(기본 `ANTHROPIC_API_KEY`) | api만. 카탈로그가 `value_env`로 가리키는 provider·저장소 자격 증명 |
+| `secrets.catalogEnv`의 이름(기본 `ANTHROPIC_API_KEY`) | api만. 카탈로그가 `value_env`로 가리키는 provider·저장소 자격 증명. slack도 카탈로그 파일은 읽지만 자격 증명은 받지 않는다 |
+| `PLATFORM_SECRET_KEY` | api, slack. 선택. 없으면 Slack secret 저장소가 꺼진다 |
 
 ## 설치 순서
 
@@ -44,7 +46,7 @@ chart가 만들지 않는 것: PostgreSQL 16, S3 호환 object store, Secret 값
 
 1. ExternalSecret(사용할 때, hook weight -10)이 Secret을 쓴다.
 2. migrate Job(hook weight 0)이 schema를 올린다. 실패하면 Helm이 멈추고 Deployment는 바뀌지 않는다.
-3. api, egress-proxy, reconciler, scheduler Deployment가 한꺼번에 적용된다. 서로 기다리지 않고, 각자 probe를 통과하면 ready가 된다. scheduler와 reconciler는 첫 pass가 끝나야 ready다.
+3. api, egress-proxy, reconciler, scheduler, slack Deployment가 한꺼번에 적용된다. 서로 기다리지 않고, 각자 probe를 통과하면 ready가 된다. scheduler·reconciler·slack은 첫 pass가 끝나야 ready다.
 
 ### kind (로컬)
 

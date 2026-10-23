@@ -649,7 +649,7 @@ curl -s -b jar -X POST "http://127.0.0.1:3000/v1/agents/$AGENT_ID/identities" \
 
 - `platform.yaml`이 없으면 `PLATFORM_SECRET_KEY` 환경 변수를 읽는다. 비어 있으면 저장소를 끈다. 이때 기동 로그에 `Secret store is off` 경고가 남고, 아래 API는 `503`으로 답한다.
 - 64 hex가 아니면 API가 뜨지 않는다. `platform.yaml`이 있는데 값을 읽지 못해도 뜨지 않는다. 오류에는 변수 이름이나 secret id만 나오고 값은 나오지 않는다.
-- compose는 이 키를 `api`에만 넘긴다. Helm도 api Deployment에만 Secret의 `PLATFORM_SECRET_KEY`를 optional로 넘긴다. scheduler와 worker는 받지 않는다(`deploy/helm/render-check.ts`가 검사한다).
+- compose는 이 키를 `api`와 `slack` 서비스에만 넘긴다(`tests/images.test.ts`가 검사한다). Helm은 api Deployment와 slack Deployment(`slack.enabled`일 때)에 Secret의 `PLATFORM_SECRET_KEY`를 optional로 넘긴다. slack role도 기동할 때 같은 키를 검증하기 때문이다. scheduler와 worker는 받지 않는다(`deploy/helm/render-check.ts`가 검사한다).
 - 키를 잃으면 저장된 값을 읽을 수 없다. 새 키로 띄운 뒤 config token을 다시 넣고, 자동 생성한 앱은 다시 만든다. 키 회전 도구는 아직 없고 `key_version`은 1이다.
 
 로컬 스택에서는 키를 macOS Keychain에 두고 기동할 때마다 꺼낸다. 처음 한 번만 1–3을 한다.
@@ -758,8 +758,9 @@ Slack은 에이전트 앱의 이벤트를 `POST /v1/slack/events/{agent_id}`로 
 
 - 검사 순서: 레이트 리미터(전체 분당 1000, 에이전트마다 분당 600. 넘으면 `429 RATE_LIMITED`와 `Retry-After`) → 본문 256 KiB(넘으면 서명을 보기 전에 `413`) → 서명(그 앱의 signing secret으로 HMAC-SHA256, 상수 시간 비교) → 시각(±300초) → JSON 파싱(`400`) → `event_id` 중복. 리미터는 DB를 읽기 전에 돈다.
 - 모르는 에이전트, 앱이 없는 에이전트, signing secret이 없는 앱, 틀리거나 오래된 서명은 모두 같은 `401 UNAUTHORIZED`("Request signature is not valid")다. 응답으로 에이전트가 있는지 알 수 없다. signing secret은 성공한 조회만 60초 동안 프로세스에 둔다. 앱을 만들거나 지우면 그 프로세스의 캐시를 바로 지운다. 다른 replica는 60초 안에 따라온다.
-- `url_verification`은 서명이 맞을 때만 `{challenge}`로 답한다. 나머지는 `{ok: true}`이고 3초 안에 답한다. Slack 재시도(`X-Slack-Retry-Num`)는 `(team_id, event_id)` unique로 한 행이 된다. inbox 쓰기가 실패하면 `503`이라 Slack이 다시 보낸다.
-- 행의 `status`는 `received`(처리할 것)·`dropped`(`drop_reason`이 있고 본문은 두지 않는다)·`processed`(앱 해제처럼 받을 때 끝낸 것)다. 본문(`payload`)은 Slack의 옛 `token` 칸을 뺀 이벤트 전체다.
+- `url_verification`은 서명이 맞을 때만 `{challenge}`로 답한다. 나머지는 `{ok: true}`이고 3초 안에 답한다. Slack 재시도(`X-Slack-Retry-Num`)는 `(app_id, event_id)` unique로 한 행이 된다. 앱마다 따로 세므로, 한 team에 설치된 앱 둘이 같은 `event_id`를 받으면 두 행이 다 남는다. inbox 쓰기가 실패하면 `503`이라 Slack이 다시 보낸다.
+- 행의 `status`는 `received`(처리할 것)·`dropped`(`drop_reason`이 있고 본문은 두지 않는다)·`processed`(앱 해제처럼 받을 때 끝냈거나 `slack` 역할이 처리한 것)·`failed`(`slack` 역할이 5번 시도하고 포기한 것)다. 본문(`payload`)은 Slack의 옛 `token` 칸을 뺀 이벤트 전체다.
+- 채널 메시지에는 `conversation_key` `<slack_app_id>:<channel>:<thread_ts ?? ts>`가 붙는다. 스레드 밖 메시지는 자기 `ts`가 스레드다. DM도 channel id로 같다. 채널·`ts`가 없는 이벤트와 `dropped` 행에는 없다.
 - 버리는 이유(`drop_reason`): `app_mismatch`(이벤트의 `api_app_id`가 URL 에이전트의 앱이 아님), `unsupported_event`(구독하지 않은 종류), `bot_message`(`bot_id`가 있음), `own_bot_user`(이 앱의 bot 사용자가 보냄), `message_subtype`(subtype이 없거나 `thread_broadcast`인 message만 받는다), `user_tokens_only`(bot token이 없는 `tokens_revoked`), 그리고 `agentForSlackEvent`의 이유(`unidentified`·`not_installed` 등. 위 "에이전트의 Slack 앱 연결"). `app_mention`은 bot이 보낸 것만 버린다. `member_joined_channel`은 bot 규칙 없이 저장만 한다.
 - `app_uninstalled`와 bot token을 담은 `tokens_revoked`는 그 설치를 `revoked`로 바꾸고 `processed`로 남는다.
 - 로그는 id·결과·`status`·`drop_reason`·재시도 번호만 남긴다. 본문·메시지 글·서명·헤더 값은 응답·로그·오류에 나오지 않는다.
@@ -786,6 +787,31 @@ scripts/slack-funnel.sh off                  # on과 같은 --https·--set-path�
 공개 port는 `SLACK_FUNNEL_HTTPS_PORT`(443 기본, 8443, 10000)다. 그 뒤 API에 `SLACK_EVENTS_PUBLIC_URL=https://<host>.ts.net`(443이 아니면 `:<port>`)을 주고 다시 띄운 다음, 설치를 하거나 `slack-app finalize`를 실행한다. Helm chart의 Ingress는 사내 전용이라 Slack이 닿지 않는다. Slack용 입구는 `/v1/slack/events` Prefix만 넘기는 인터넷 쪽 Ingress·LB를 따로 두고, 그 주소를 `api.extraEnv.SLACK_EVENTS_PUBLIC_URL`에 준다.
 
 로컬 mock overlay의 가짜 Slack은 서명된 이벤트도 보낸다. `POST http://mock-slack:4020/fake/events` `{url, app_id, team_id, event, event_id?, age_seconds?, retry_num?}`는 그 앱의 signing secret으로 서명해 `url`로 보내고 `{ok, status, body, event_id}`를 돌려준다. `challenge`를 주면 `url_verification`을 보낸다. signing secret은 출력하지 않는다.
+
+**Slack inbox 처리 (`slack` 역할)**
+
+`received` 행은 control host의 `slack` 역할(`main.ts slack`)이 비운다. reconciler와 같은 감독 루프로, pass 하나가 "claim → 처리 → 할 것이 없거나 pass 예산(pass 제한 시간의 절반)이 끝나면 종료"다. `main.ts slack --once`는 pass 하나, `--health`는 상태 파일을 본다. compose에서는 `slack` 서비스(profile `apps`와 `slack`)이고 api image를 쓴다. Helm은 `slack` Deployment다([Kubernetes 배포](kubernetes-deployment.md)).
+
+| 설정 | 기본 | 의미 |
+|---|---|---|
+| `SLACK_ROLE_INTERVAL_SEC` | 2 | pass가 끝난 뒤 다음 pass까지 쉬는 시간. 이벤트가 첫 claim까지 기다리는 시간이다 |
+| `SLACK_ROLE_PASS_TIMEOUT_SEC` | 60 | 넘긴 pass는 SIGTERM, 10초 뒤 SIGKILL로 끝내고 실패로 센다 |
+| `SLACK_ROLE_MAX_CONSECUTIVE_FAILURES` | 3 | 실패 pass가 이만큼 이어지면 루프가 exit 1 한다 |
+| `SLACK_ROLE_HEALTH_STALE_SEC` | 90 | 이 시간 동안 성공한 pass가 없으면 unhealthy. interval + timeout보다 커야 기동한다 |
+| `SLACK_ROLE_STATUS_FILE` | `/tmp/slack-status.json` | 루프 상태 파일. compose는 넘기지 않는다 |
+| `SLACK_ROLE_BATCH_SIZE` | 10 | claim 한 번에 잡는 행 수 상한 |
+| `SLACK_ROLE_LEASE_SEC` | 60 | claim한 행을 쥐는 시간. 역할이 죽으면 이 시간이 지난 뒤 다른 pass가 이어 잡는다 |
+
+prefix가 `SLACK_`가 아니라 `SLACK_ROLE_`인 것은 `SLACK_API_URL`·`SLACK_OIDC_*`·`SLACK_EVENTS_PUBLIC_URL`이 api의 설정이기 때문이다.
+
+- claim(한 transaction): `received`이고, lease가 없거나 끝났고, `next_attempt_at`이 없거나 지났고, 같은 `conversation_key`에 더 이른 `received` 행이 없는 행을 `(event_time, received_at, id)` 순서로 `FOR UPDATE SKIP LOCKED`로 잡는다. 잡으면 `claim_token`을 새로 쓰고 `lease_expires_at = now() + lease`, `attempts + 1`이다. 그래서 한 스레드에서는 앞 이벤트가 끝나야 다음 이벤트를 잡고, 다른 스레드는 함께 처리한다.
+- 끝내기·실패 쓰기는 `id`·`claim_token`이 같고 `lease_expires_at > now()`일 때만 쓴다. lease를 잃은 쪽은 아무것도 쓰지 않고 `Slack event lease lost` 한 줄만 남긴다. lease 판정은 모두 DB의 `now()`다(앱 해제의 superseded 판정과 같은 시계).
+- 실패하면 lease를 풀고 `next_attempt_at = now() + backoff`(30초에서 두 배씩, 상한 5분)다. lease 만료로 다시 잡힌 것도 시도로 센다. 5번째 시도가 실패하거나 5번째 lease가 끝나면 `failed`다.
+- 처리 전에 그 설치가 지금 `revoked`이면(이벤트가 기다리는 사이 앱이 해제됨) 처리하지 않고 `dropped`·`installation_revoked`로 끝내며 본문과 `conversation_key`를 지운다.
+- 처리기는 아직 no-op이라 claim한 행은 `processed`가 된다(세션 연결은 뒤 티켓). 로그는 `Slack event claimed`(id·event_id·종류·시도 횟수)와 pass 요약 `Slack inbox pass`다.
+- 기동할 때 api와 같은 catalog(`PLATFORM_CONFIG_DIR`)를 같은 규칙으로 읽는다. 무인 profile이 있는데 `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS=true`가 없으면 api와 같은 이유로 기동을 거부한다. catalog의 credential은 풀지 않는다. provider key와 Secrets Manager 접근은 api에만 있다.
+- master key(`PLATFORM_SECRET_KEY`)는 api와 이 역할에만 간다(bot token으로 Slack에 보내는 일이 이 역할에 붙는다). 값이 64 hex가 아니면 기동하지 않는다. worker·scheduler·reconciler에는 없다(`tests/images.test.ts`, `deploy/helm/render-check.ts`가 검사한다).
+- 0158 이전에 쌓인 `received`·`processed` 행은 migration이 같은 규칙으로 `conversation_key`를 채운다.
 
 ### 에이전트의 Slack 채널 설정
 
