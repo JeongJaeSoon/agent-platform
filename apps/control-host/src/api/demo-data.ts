@@ -245,7 +245,7 @@ export const DEMO_SESSIONS: readonly DemoSession[] = [
 
 type Response<T> = { status: number; body: T; headers: Headers };
 
-class DemoClient {
+export class DemoClient {
   constructor(
     private readonly base: string,
     private cookie = "",
@@ -321,13 +321,30 @@ class DemoClient {
   }
 
   // Ends the web session login made: left behind, each run's would push a
-  // person's own sign-in past the per-user limit.
+  // person's own sign-in past the per-user limit. Signing out twice is
+  // harmless, so a failed attempt is sent again.
   async logout() {
     if (this.cookie === "") return;
-    await this.request("POST", "/v1/auth/logout");
-    this.cookie = "";
+    let last = "";
+    for (let attempt = 0; attempt < LOGOUT_ATTEMPTS; attempt++) {
+      if (attempt > 0) await Bun.sleep(LOGOUT_RETRY_MS);
+      try {
+        const response = await this.request("POST", "/v1/auth/logout");
+        if (response.status >= 200 && response.status < 300) {
+          this.cookie = "";
+          return;
+        }
+        last = `answered ${response.status}`;
+      } catch (error) {
+        last = error instanceof Error ? error.message : String(error);
+      }
+    }
+    throw new Error(`signing out failed: ${last}`);
   }
 }
+
+const LOGOUT_ATTEMPTS = 5;
+const LOGOUT_RETRY_MS = 1_000;
 
 type AgentRow = {
   id: string;
@@ -550,14 +567,37 @@ export async function seedDemoData(base: string): Promise<DemoDataOutcome[]> {
   for (const account of DEMO_ACCOUNTS) {
     clients[account.role] = new DemoClient(base);
   }
+  let outcomes: DemoDataOutcome[] = [];
+  let failure: { error: unknown } | null = null;
   try {
     for (const account of DEMO_ACCOUNTS) {
       await clients[account.role].login(account.email);
     }
-    return await seedAs(clients);
-  } finally {
-    for (const client of Object.values(clients)) await client.logout();
+    outcomes = await seedAs(clients);
+  } catch (error) {
+    failure = { error };
   }
+  const signOut = await signOutAll(Object.values(clients)).then(
+    () => null,
+    (error: unknown) => error,
+  );
+  if (failure) {
+    if (signOut) console.error(String(signOut));
+    throw failure.error;
+  }
+  if (signOut) throw signOut;
+  return outcomes;
+}
+
+/** Signs every client out, each whatever the others did, then fails once. */
+export async function signOutAll(clients: readonly DemoClient[]) {
+  const results = await Promise.allSettled(
+    clients.map((client) => client.logout()),
+  );
+  const failed = results.flatMap((result) =>
+    result.status === "rejected" ? [String(result.reason)] : [],
+  );
+  if (failed.length > 0) throw new Error(failed.join("; "));
 }
 
 async function seedAs(

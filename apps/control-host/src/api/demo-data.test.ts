@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { readCatalogConfig } from "./catalog-config.ts";
-import { DEMO_SESSIONS, demoDataRefusal } from "./demo-data.ts";
+import {
+  DEMO_SESSIONS,
+  DemoClient,
+  demoDataRefusal,
+  signOutAll,
+} from "./demo-data.ts";
 
 const local = {
   DEMO_ACCOUNTS: "local",
@@ -108,4 +113,52 @@ describe("DEMO_SESSIONS", () => {
     expect(new Set(titles).size).toBe(titles.length);
     expect(DEMO_SESSIONS.length - titles.length).toBe(1);
   });
+});
+
+describe("signOutAll", () => {
+  test(
+    "signs every client out through a retryable failure and an unreachable api",
+    async () => {
+      const logouts: string[] = [];
+      let failures = 1;
+      const server = Bun.serve({
+        port: 0,
+        fetch(request) {
+          const cookie = request.headers.get("cookie") ?? "";
+          logouts.push(cookie);
+          if (failures-- > 0) {
+            return Response.json(
+              { error: { code: "BACKEND_UNAVAILABLE", retryable: true } },
+              { status: 503 },
+            );
+          }
+          return new Response(null, { status: 204 });
+        },
+      });
+      try {
+        const reachable = new DemoClient(
+          `http://127.0.0.1:${server.port}`,
+          "__Host-ap_session=owner",
+        );
+        // Port 9 (discard) refuses: every attempt throws.
+        const unreachable = new DemoClient(
+          "http://127.0.0.1:9",
+          "__Host-ap_session=member",
+        );
+        await expect(signOutAll([unreachable, reachable])).rejects.toThrow(
+          "signing out failed",
+        );
+        expect(logouts).toEqual([
+          "__Host-ap_session=owner",
+          "__Host-ap_session=owner",
+        ]);
+        // Signed out: a second pass sends nothing more.
+        await signOutAll([reachable]);
+        expect(logouts).toHaveLength(2);
+      } finally {
+        server.stop(true);
+      }
+    },
+    { timeout: 15_000 },
+  );
 });
