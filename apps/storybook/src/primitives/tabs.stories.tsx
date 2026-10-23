@@ -37,14 +37,15 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const Variants: Story = {};
+/** Both list variants; the third tab is disabled. */
+export const Default: Story = {};
 
-export const VariantsDark: Story = {
-  name: "Variants (dark)",
+export const DefaultDark: Story = {
+  name: "Default (dark)",
   globals: { theme: "dark" },
 };
 
-export const VariantsMobile: Story = {
-  name: "Variants (390px)",
+export const DefaultMobile: Story = {
+  name: "Default (390px)",
   globals: { viewport: { value: "mobile390", isRotated: false } },
 };

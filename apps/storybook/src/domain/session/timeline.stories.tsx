@@ -10,7 +10,7 @@ import {
 } from "./session-fixtures.ts";
 
 const meta = {
-  title: "Patterns/Session/Timeline",
+  title: "Domain/Session/Timeline",
   globals: { locale: "en" },
   component: Timeline,
   args: {
@@ -34,6 +34,7 @@ export const Empty: Story = { args: { entries: [] } };
 export const Loading: Story = { args: { entries: [], state: "connecting" } };
 
 export const Failed: Story = {
+  name: "Error",
   args: { entries: timelineEntries(FAILED_EVENTS), state: "closed" },
 };
 

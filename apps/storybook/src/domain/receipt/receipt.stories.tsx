@@ -9,7 +9,7 @@ const CREATED_AT = "2026-09-21T02:15:00.000Z";
 const UPDATED_AT = "2026-09-21T02:15:42.000Z";
 
 const meta = {
-  title: "Patterns/Receipt",
+  title: "Domain/Receipt/ReceiptSummary",
   component: ReceiptSummary,
   args: {
     operation: "append_message",
@@ -26,7 +26,8 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const AcceptedWithLink: Story = {
+/** Accepted, with a link to the receipt. */
+export const Default: Story = {
   args: {
     action: (
       <ReceiptLink
@@ -48,6 +49,7 @@ export const Unknown: Story = {
 };
 
 export const Failed: Story = {
+  name: "Error",
   args: {
     operation: "answer",
     status: "failed",
@@ -59,23 +61,6 @@ export const Failed: Story = {
 
 export const FailedDark: Story = {
   ...Failed,
-  name: "Failed (dark)",
+  name: "Error (dark)",
   globals: { theme: "dark" },
-};
-
-export const Link: Story = {
-  render: () => (
-    <div className="story-row">
-      <ReceiptLink
-        receiptId="rcpt_01J8Z5"
-        status="accepted"
-        href="/receipts/rcpt_01J8Z5"
-      />
-      <ReceiptLink
-        receiptId="rcpt_01J8Z6"
-        status="failed"
-        href="/receipts/rcpt_01J8Z6"
-      />
-    </div>
-  ),
 };

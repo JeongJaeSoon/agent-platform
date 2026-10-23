@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Button, EmptyState } from "@werft-ai/ui";
 
 const meta = {
-  title: "States/EmptyState",
+  title: "Patterns/EmptyState",
   component: EmptyState,
   args: {
     title: "아직 세션이 없습니다",
@@ -12,6 +12,8 @@ const meta = {
 
 export default meta;
 type Story = StoryObj<typeof meta>;
+
+export const Default: Story = {};
 
 export const TitleOnly: Story = { args: { description: undefined } };
 

@@ -8,7 +8,7 @@ import {
 } from "@werft-ai/react/components";
 
 const meta = {
-  title: "Patterns/StatusLabel",
+  title: "Domain/Status/StatusLabel",
   component: StatusLabel,
   args: { axis: "turn", state: "running" },
 } satisfies Meta<typeof StatusLabel>;
@@ -30,7 +30,7 @@ function AxisRow<A extends StatusAxis>({ axis }: { axis: A }) {
   );
 }
 
-export const Playground: Story = {};
+export const Default: Story = {};
 
 export const EveryState: Story = {
   render: () => (

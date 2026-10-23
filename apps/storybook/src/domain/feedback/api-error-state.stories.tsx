@@ -3,7 +3,7 @@ import { ApiErrorState } from "@werft-ai/react/components";
 import { fn } from "storybook/test";
 
 const meta = {
-  title: "States/ApiErrorState",
+  title: "Domain/Feedback/ApiErrorState",
   component: ApiErrorState,
   args: { message: "session is closed", code: "SESSION_CLOSED" },
 } satisfies Meta<typeof ApiErrorState>;
@@ -11,7 +11,8 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const WithRetryAndEvidence: Story = {
+/** With a retry and an evidence link. */
+export const Default: Story = {
   args: {
     retry: fn(),
     evidenceLink: { href: "/sessions/01J8Z5/journal" },
@@ -27,8 +28,8 @@ export const UnknownCode: Story = {
   args: { message: "upstream exploded", code: "SOMETHING_NEW" },
 };
 
-export const WithRetryAndEvidenceDark: Story = {
-  ...WithRetryAndEvidence,
-  name: "With retry and evidence (dark)",
+export const DefaultDark: Story = {
+  ...Default,
+  name: "Default (dark)",
   globals: { theme: "dark" },
 };

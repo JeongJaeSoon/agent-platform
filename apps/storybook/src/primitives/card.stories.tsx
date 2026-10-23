@@ -45,12 +45,14 @@ export const Default: Story = {
   ),
 };
 
-export const Dark: Story = {
+export const DefaultDark: Story = {
   ...Default,
+  name: "Default (dark)",
   globals: { theme: "dark" },
 };
 
-export const Mobile: Story = {
+export const DefaultMobile: Story = {
   ...Default,
+  name: "Default (390px)",
   globals: { viewport: { value: "mobile390", isRotated: false } },
 };

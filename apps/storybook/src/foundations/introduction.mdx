@@ -1,0 +1,83 @@
+import { Meta } from "@storybook/addon-docs/blocks";
+
+<Meta title="Foundations/Introduction" />
+
+# @werft-ai/ui · @werft-ai/react
+
+agent-platform 콘솔이 쓰는 UI 키트다. 사이드바는 패키지의 층과 같은 순서로 놓았다.
+
+- **Foundations** · `packages/ui/src/foundations` — 토큰(`tokens.css`), Tailwind 연결(`theme.css`), BEM 기본(`styles.css`).
+- **Primitives** · `packages/ui/src/primitives` — 아무것도 모른다. shadcn/ui 항목과 `Skeleton`.
+- **Patterns** · `packages/ui/src/patterns` — primitives를 조합한다.
+- **Domain** · `packages/react/src/components`(`@werft-ai/react/components`) — `@werft-ai/contracts` 타입을 받는다. Session·Status·Receipt·Feedback.
+- **Blocks** · `packages/react/src/blocks`(`@werft-ai/react/blocks`) — provider와 query로 데이터를 붙인 화면 단위.
+- **Screens** · 스토리 전용 — 위 조각으로 만든 화면 한 칸의 상태.
+
+컴포넌트마다 해당하는 상태를 같은 이름의 스토리로 둔다: `Default`·`Disabled`·`Invalid`·`Loading`·`Empty`·`Error`.
+`States`는 그 상태들을 한 열에 모은 것이고, `(dark)`·`(390px)`·`(English)`·`(日本語)`가 붙은 스토리는 테마·폭·언어를 고정한 사본이다.
+툴바의 Theme(light/dark)와 Language(한국어/日本語/English)는 고정하지 않은 스토리에 적용된다.
+모든 스토리는 CI에서 실제 Chrome으로 한 번씩 그려지고, axe 위반이 있으면 실패한다.
+
+화면을 짤 때의 규칙은 [화면 구성 원칙](https://github.com/JeongJaeSoon/agent-platform/blob/main/packages/ui/README.md#화면-구성-원칙)을 따른다.
+토큰 값은 Foundations/Tokens에, 두 테마는 Foundations/Light and dark에 나란히 있다.
+
+## 설치
+
+두 패키지는 아직 이 저장소의 워크스페이스 private 패키지다(`"private": true`). 저장소 안에서는 `package.json`에 이렇게 적는다.
+
+```json
+"dependencies": {
+  "@werft-ai/ui": "workspace:*",
+  "@werft-ai/react": "workspace:*"
+}
+```
+
+레지스트리에서 설치하는 법(npm 설정 파일과 토큰)은 설치 가이드가 이 자리를 채운다.
+
+## 쓰는 쪽이 갖출 의존성
+
+지금 `package.json` 기준이다.
+
+`@werft-ai/ui`는 `react`·`react-dom`(`^19.3.0`)을 `peerDependencies`로 받는다. 앱의 React를 그대로 쓰며, 사본이 둘이 되면 hook이 깨진다.
+Radix·`class-variance-authority`·`clsx`·`tailwind-merge`·`lucide-react`는 `dependencies`로 함께 설치된다. 쓰는 쪽이 따로 설치할 것은 다음과 같다.
+
+- `react`·`react-dom` 19 — peer.
+- `pretendard` — `styles.css`가 import하는 `fonts.css`의 한글 글꼴(아직 `devDependencies`에 있다).
+- `tailwindcss` 4 — 아래 CSS 경로 1.
+
+`@werft-ai/react`는 런타임 의존성을 하나도 선언하지 않는다(모두 `devDependencies`). 쓰는 쪽이 설치할 것은
+`react`, `@tanstack/react-query` 5, `react-hook-form`, `@hookform/resolvers`, `zod`, `@use-funnel/core`, `lucide-react`,
+그리고 워크스페이스의 `@werft-ai/ui`·`@werft-ai/client`·`@werft-ai/core`·`@werft-ai/contracts`다.
+
+## CSS
+
+### 경로 1: Tailwind 4 앱
+
+앱의 CSS에서 이 순서로 import하고, Tailwind가 키트 소스를 스캔하게 한다(`apps/web/src/styles.css`가 예다).
+
+```css
+@import "tailwindcss";
+@import "@werft-ai/ui/styles.css";
+@import "@werft-ai/ui/theme.css";
+
+@source "<키트까지의 경로>/packages/ui/src";
+@source "<키트까지의 경로>/packages/react/src";
+```
+
+`theme.css`가 토큰을 Tailwind 유틸리티(`bg-primary`·`rounded-control`·`text-control` 등)에 잇는다.
+키트 규칙은 `ap` cascade layer에 있어 Tailwind 유틸리티 뒤, 앱의 layer 밖 규칙 앞에 온다.
+
+### 경로 2: 미리 빌드한 CSS
+
+Tailwind 없는 앱을 위한 미리 빌드한 CSS(preflight 제외)는 아직 없다. 패키지 빌드가 들어오면 이 자리를 채운다.
+그때까지 Tailwind 없이 `@werft-ai/ui/tokens.css`·`@werft-ai/ui/styles.css`만 import하면 `ap-*` 클래스로 그리는 부분(`EmptyState`·`ErrorState`·`Skeleton` 등)만 모양이 있고, shadcn primitive는 모양 없이 그려진다.
+
+preflight가 없는 앱에서 키트가 어떻게 보이는지는 Foundations/No preflight에서 본다. preflight를 shadow root로 막고 경로 1의 나머지만 적용한 화면이다.
+
+## 폰트
+
+`styles.css`가 `fonts.css`를 import한다. Geist·Geist Mono는 패키지 안(`src/foundations/fonts/`)에 있고, 한글은 쓰는 쪽이 설치한 `pretendard`의 dynamic subset을 쓴다. CDN에서 받는 글꼴은 없다.
+
+## 테마
+
+라이트가 기본이다. 다크는 시스템 설정(`prefers-color-scheme`)을 따르고, `<html data-theme="dark">` 또는 `data-theme="light"`로 직접 고정할 수 있다.

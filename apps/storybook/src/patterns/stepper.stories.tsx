@@ -10,7 +10,7 @@ const STEPS: StepperStep[] = [
 ];
 
 const meta = {
-  title: "Primitives/Stepper",
+  title: "Patterns/Stepper",
   component: Stepper,
   args: { label: "에이전트 만들기 단계", steps: STEPS, currentStepId: "model" },
 } satisfies Meta<typeof Stepper>;
@@ -18,7 +18,7 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const Display: Story = {};
+export const Default: Story = {};
 
 /** Later steps stay disabled until the screen says they can be reached. */
 export const Interactive: Story = {
