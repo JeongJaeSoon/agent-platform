@@ -9,12 +9,17 @@ import {
   PUSH_REQUEST_STATE_VALUES,
   RECEIPT_STATUS_VALUES,
   SESSION_STATUS_VALUES,
+  SLACK_APP_KIND_VALUES,
+  SLACK_APP_STATE_VALUES,
   SLACK_SURFACE_ACTION_VALUES,
   SURFACE_BINDING_STATUS_VALUES,
   SURFACE_CHANNEL_KIND_VALUES,
   SURFACE_DISCLOSURE_VALUES,
   SURFACE_KIND_VALUES,
+  type SlackAppKind,
+  type SlackAppState,
 } from "@werft-ai/contracts";
+import type { SecretOwnerRef } from "@werft-ai/platform";
 import { sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
@@ -415,7 +420,7 @@ export const secretValues = pgTable(
     workspaceId: uuid("workspace_id")
       .notNull()
       .references(() => workspaces.id),
-    ownerRef: text("owner_ref").notNull(),
+    ownerRef: text("owner_ref").$type<SecretOwnerRef>().notNull(),
     purpose: text().notNull(),
     secretVersion: integer("secret_version").notNull(),
     keyVersion: integer("key_version").notNull(),
@@ -442,6 +447,108 @@ export const secretValues = pgTable(
       sql`${table.secretVersion} > 0 AND ${table.keyVersion} > 0`,
     ),
     check("secret_values_last4_check", sql`length(${table.last4}) = 4`),
+  ],
+);
+
+// What the console and the rotator know about a workspace's App
+// Configuration Token without opening it; the token pair itself is the
+// workspace's `slack_config_token` secret. A rotation takes the lease in one
+// transaction, asks Slack with none open and stores the answer in another;
+// a lease found expired means a rotation's answer may be lost, and the
+// single-use refresh token with it.
+export const slackConfigTokens = pgTable(
+  "slack_config_tokens",
+  {
+    workspaceId: uuid("workspace_id")
+      .primaryKey()
+      .references(() => workspaces.id),
+    state: text().$type<"active" | "needs_reentry">().notNull(),
+    accessExpiresAt: timestamp("access_expires_at", { withTimezone: true }),
+    issuerUserId: text("issuer_user_id"),
+    issuerTeamId: text("issuer_team_id"),
+    previousIssuerUserId: text("previous_issuer_user_id"),
+    issuerChangedAt: timestamp("issuer_changed_at", { withTimezone: true }),
+    leaseId: uuid("lease_id"),
+    leaseUntil: timestamp("lease_until", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    check(
+      "slack_config_tokens_state_check",
+      sql`${table.state} IN ('active', 'needs_reentry')`,
+    ),
+    check(
+      "slack_config_tokens_lease_check",
+      sql`(${table.leaseId} IS NULL) = (${table.leaseUntil} IS NULL)`,
+    ),
+  ],
+);
+
+// One Slack app the platform made or was told about. The row is written in
+// `creating` before Slack is asked, so a lost answer is noticed instead of
+// making a second app. Manifest updates and deletes go only to `app_id`s
+// found here for the caller's workspace.
+export const slackApps = pgTable(
+  "slack_apps",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    kind: text().$type<SlackAppKind>().notNull(),
+    agentId: uuid("agent_id"),
+    state: text().$type<SlackAppState>().notNull(),
+    appId: text("app_id"),
+    clientId: text("client_id"),
+    redirectUrl: text("redirect_url").notNull(),
+    createdByTokenUser: text("created_by_token_user"),
+    /** No foreign key: the row outlives the account; null for the CLI. */
+    createdBy: uuid("created_by"),
+    signingSecretRef: text("signing_secret_ref"),
+    clientSecretRef: text("client_secret_ref"),
+    botTokenRef: text("bot_token_ref"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    unique("slack_apps_app_id_key").on(table.appId),
+    uniqueIndex("slack_apps_live_agent_idx")
+      .on(table.workspaceId, table.agentId)
+      .where(
+        sql`${table.kind} = 'agent' AND ${table.state} IN ('creating', 'created', 'deleting')`,
+      ),
+    uniqueIndex("slack_apps_live_link_idx")
+      .on(table.workspaceId)
+      .where(
+        sql`${table.kind} = 'link' AND ${table.state} IN ('creating', 'created', 'deleting')`,
+      ),
+    foreignKey({
+      name: "slack_apps_agent_fk",
+      columns: [table.workspaceId, table.agentId],
+      foreignColumns: [agents.workspaceId, agents.id],
+    }),
+    check(
+      "slack_apps_kind_check",
+      sql`${table.kind} IN (${sql.raw(sqlList(SLACK_APP_KIND_VALUES))})`,
+    ),
+    check(
+      "slack_apps_state_check",
+      sql`${table.state} IN (${sql.raw(sqlList(SLACK_APP_STATE_VALUES))})`,
+    ),
+    check(
+      "slack_apps_agent_check",
+      sql`(${table.kind} = 'agent') = (${table.agentId} IS NOT NULL)`,
+    ),
+    check(
+      "slack_apps_created_check",
+      sql`${table.state} NOT IN ('created', 'deleting', 'deleted') OR (${table.appId} IS NOT NULL AND ${table.clientId} IS NOT NULL)`,
+    ),
   ],
 );
 

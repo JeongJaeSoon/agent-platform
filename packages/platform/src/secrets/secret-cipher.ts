@@ -1,4 +1,5 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import type { SecretOwnerRef } from "../ports/secret-store.ts";
 
 const ALGORITHM = "aes-256-gcm";
 const NONCE_BYTES = 12;
@@ -55,7 +56,7 @@ export class SecretKey {
 export type SecretAadFields = {
   id: string;
   workspaceId: string;
-  ownerRef: string;
+  ownerRef: SecretOwnerRef;
   purpose: string;
   secretVersion: number;
   keyVersion: number;

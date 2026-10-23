@@ -50,6 +50,12 @@ export const API_ERROR_CODE_VALUES = [
   "LINK_EXISTS",
   // The Slack app is already pinned to another agent (M8).
   "AGENT_IDENTITY_TAKEN",
+  // Slack apps (94S-181): the workspace's App Configuration Token is unset
+  // or Slack no longer takes it; an app for the agent is being created, or
+  // its creation's answer was lost; the agent has no active release yet.
+  "CONFIG_TOKEN_INVALID",
+  "SLACK_APP_CREATING",
+  "AGENT_NOT_ACTIVE",
   // An invite that was revoked, replaced by a newer one, or has expired.
   "INVITE_EXPIRED",
   "INVITE_USED",

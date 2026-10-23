@@ -6,6 +6,7 @@ import {
   type SecretAadFields,
   type SecretAudit,
   type SecretKey,
+  type SecretOwnerRef,
   type SecretSlot,
   type SecretStore,
   type SecretSummary,
@@ -38,7 +39,7 @@ const bySlot = (slot: SecretSlot) =>
 function aadOf(row: {
   id: string;
   workspaceId: string;
-  ownerRef: string;
+  ownerRef: SecretOwnerRef;
   purpose: string;
   secretVersion: number;
   keyVersion: number;
@@ -72,7 +73,7 @@ async function lockedRow(
   return row;
 }
 
-async function auditRefusal(
+export async function secretAuditRefusal(
   tx: Database,
   workspaceId: string,
   audit: SecretAudit,
@@ -84,7 +85,7 @@ async function auditRefusal(
   return audit.roles.includes(role) ? null : "outranked";
 }
 
-function receiptRow(
+export function secretReceiptRow(
   audit: SecretAudit,
   slot: SecretSlot,
   operation: "set_slack_secret" | "delete_slack_secret",
@@ -131,24 +132,77 @@ async function summaryOf(
   };
 }
 
-export function createPostgresSecretStore(
-  db: Database,
-  key: SecretKey,
-): SecretStore {
-  function open(row: Row): string {
-    return openSecret(key, aadOf(row), {
-      nonce: Buffer.from(row.nonce),
-      ciphertext: Buffer.from(row.ciphertext),
-    });
-  }
+function openRow(key: SecretKey, row: Row): string {
+  return openSecret(key, aadOf(row), {
+    nonce: Buffer.from(row.nonce),
+    ciphertext: Buffer.from(row.ciphertext),
+  });
+}
 
-  async function write(
-    tx: Database,
-    slot: SecretSlot,
-    current: Row | undefined,
-    value: string,
-    updatedBy: string | null,
-  ): Promise<void> {
+/**
+ * Seals `value` into the slot inside the caller's transaction, so a store
+ * that keeps more than the secret (a Slack app's row, the config token's
+ * expiry) commits both together.
+ */
+export async function writeSecretInTx(
+  tx: Database,
+  key: SecretKey,
+  named: SecretSlot,
+  value: string,
+  /** Left out: whoever set the value before stays its setter. */
+  updatedBy?: string | null,
+): Promise<void> {
+  const slot = canonical(named);
+  const current = await lockedRow(tx, slot);
+  await write(
+    tx,
+    key,
+    slot,
+    current,
+    value,
+    updatedBy === undefined ? (current?.updatedBy ?? null) : updatedBy,
+  );
+}
+
+/** The value in the slot, read under the slot's lock; null when unset. */
+export async function readSecretInTx(
+  tx: Database,
+  key: SecretKey,
+  named: SecretSlot,
+): Promise<string | null> {
+  const row = await lockedRow(tx, canonical(named));
+  return row ? openRow(key, row) : null;
+}
+
+/** Drops the slot's value; the last four characters it had, or null. */
+export async function deleteSecretInTx(
+  tx: Database,
+  named: SecretSlot,
+): Promise<string | null> {
+  const slot = canonical(named);
+  await lockSlot(tx, slot);
+  const [deleted] = await tx
+    .delete(secretValues)
+    .where(bySlot(slot))
+    .returning({ last4: secretValues.last4 });
+  return deleted?.last4 ?? null;
+}
+
+export function describeSecret(
+  db: Database,
+  slot: SecretSlot,
+): Promise<SecretSummary | null> {
+  return summaryOf(db, bySlot(canonical(slot)));
+}
+
+async function write(
+  tx: Database,
+  key: SecretKey,
+  slot: SecretSlot,
+  current: Row | undefined,
+  value: string,
+  updatedBy: string | null,
+): Promise<void> {
     const fields = aadOf({
       id: current?.id ?? randomUUID(),
       workspaceId: slot.workspaceId,
@@ -181,17 +235,21 @@ export function createPostgresSecretStore(
         ...columns,
       });
     }
-  }
+}
 
+export function createPostgresSecretStore(
+  db: Database,
+  key: SecretKey,
+): SecretStore {
   return {
-    describe: (slot) => summaryOf(db, bySlot(canonical(slot))),
+    describe: (slot) => describeSecret(db, slot),
 
     async get(slot) {
       const [row] = await db
         .select()
         .from(secretValues)
         .where(bySlot(canonical(slot)));
-      return row ? open(row) : null;
+      return row ? openRow(key, row) : null;
     },
 
     put(named, value, options) {
@@ -199,7 +257,7 @@ export function createPostgresSecretStore(
       return db.transaction(async (tx): Promise<PutSecretResult> => {
         const audit = options?.audit;
         if (audit) {
-          const refused = await auditRefusal(tx, slot.workspaceId, audit);
+          const refused = await secretAuditRefusal(tx, slot.workspaceId, audit);
           if (refused) return { outcome: refused };
         }
         const [workspace] = await tx
@@ -210,6 +268,7 @@ export function createPostgresSecretStore(
         const current = await lockedRow(tx, slot);
         await write(
           tx,
+          key,
           slot,
           current,
           value,
@@ -219,7 +278,7 @@ export function createPostgresSecretStore(
           await tx
             .insert(receipts)
             .values(
-              receiptRow(audit, slot, "set_slack_secret", lastFour(value)),
+              secretReceiptRow(audit, slot, "set_slack_secret", lastFour(value)),
             );
         }
         const summary = await summaryOf(tx, bySlot(slot));
@@ -228,22 +287,12 @@ export function createPostgresSecretStore(
       });
     },
 
-    rotate(named, next) {
-      const slot = canonical(named);
-      return db.transaction(async (tx) => {
-        const current = await lockedRow(tx, slot);
-        if (!current) return null;
-        await write(tx, slot, current, await next(open(current)), null);
-        return summaryOf(tx, bySlot(slot));
-      });
-    },
-
     delete(named, options) {
       const slot = canonical(named);
       return db.transaction(async (tx) => {
         const audit = options?.audit;
         if (audit) {
-          const refused = await auditRefusal(tx, slot.workspaceId, audit);
+          const refused = await secretAuditRefusal(tx, slot.workspaceId, audit);
           if (refused) return { outcome: refused };
         }
         await lockSlot(tx, slot);
@@ -256,7 +305,7 @@ export function createPostgresSecretStore(
           await tx
             .insert(receipts)
             .values(
-              receiptRow(audit, slot, "delete_slack_secret", deleted.last4),
+              secretReceiptRow(audit, slot, "delete_slack_secret", deleted.last4),
             );
         }
         return { outcome: "deleted", last4: deleted.last4 };

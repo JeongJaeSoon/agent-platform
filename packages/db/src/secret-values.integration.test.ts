@@ -138,8 +138,8 @@ integration("secret values on PostgreSQL", () => {
     expect(await store.put(upper, value)).toMatchObject({ outcome: "stored" });
     expect(await store.get(lower)).toBe(value);
     expect(await store.get(upper)).toBe(value);
-    expect(await store.rotate(lower, async () => fakeToken())).toMatchObject({
-      secretVersion: 2,
+    expect(await store.put(lower, fakeToken())).toMatchObject({
+      summary: { secretVersion: 2 },
     });
     expect(await store.delete(upper)).toMatchObject({ outcome: "deleted" });
   });
@@ -343,41 +343,4 @@ integration("secret values on PostgreSQL", () => {
     });
   });
 
-  test("rotate hands over the current value and stores the next", async () => {
-    const store = createPostgresSecretStore(db, key);
-    const slot = configToken(await workspace());
-    expect(await store.rotate(slot, async () => fakeToken())).toBeNull();
-    const first = fakeToken();
-    const second = fakeToken();
-    await store.put(slot, first);
-    let seen = "";
-    const rotated = await store.rotate(slot, async (current) => {
-      seen = current;
-      return second;
-    });
-    expect(seen).toBe(first);
-    expect(rotated).toMatchObject({
-      last4: second.slice(-4),
-      secretVersion: 2,
-    });
-    expect(await store.get(slot)).toBe(second);
-  });
-
-  test("two rotations of one slot run one after the other", async () => {
-    const store = createPostgresSecretStore(db, key);
-    const slot = configToken(await workspace());
-    await store.put(slot, "v0-aaaaaaaa");
-    const seen: string[] = [];
-    await Promise.all(
-      ["v1-bbbbbbbb", "v2-cccccccc"].map((next) =>
-        store.rotate(slot, async (current) => {
-          seen.push(current);
-          await Bun.sleep(20);
-          return next;
-        }),
-      ),
-    );
-    expect(new Set(seen).size).toBe(2);
-    expect((await store.describe(slot))?.secretVersion).toBe(3);
-  });
 });
