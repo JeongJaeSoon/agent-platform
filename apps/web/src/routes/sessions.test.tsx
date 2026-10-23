@@ -325,6 +325,24 @@ describe("approval inbox", () => {
     await waitFor(() => expect(waitingReads()).toBeGreaterThan(before));
   });
 
+  test("an answer from the inbox reads the waiting tab again", async () => {
+    const user = await setupUser();
+    const { api } = renderAt("/sessions?status=needs_input", {
+      ...waitingRoutes([summary(SESSION_ID, { status: "needs_input" })], null),
+      [`POST /v1/sessions/${SESSION_ID}/answers`]: () =>
+        json(202, { receipt_id: RECEIPT_ID, receipt_status: "accepted" }),
+    });
+    const tab = await screen.findByRole("tabpanel");
+    await within(tab).findByRole("link", { name: SESSION_ID });
+    const waitingReads = () =>
+      api.calls.filter((call) => call.search === "?status=needs_input").length;
+    await waitFor(() => expect(waitingReads()).toBe(2));
+    await user.click(await screen.findByRole("button", { name: "허용" }));
+    expect(await screen.findByText("답을 보냈습니다.")).toBeTruthy();
+    // The inbox's page and the tab's list are separate queries: both read again.
+    await waitFor(() => expect(waitingReads()).toBeGreaterThanOrEqual(4));
+  });
+
   test("a session answered from the keyboard leaves and hands focus to the inbox heading", async () => {
     const user = await setupUser();
     let waiting = [summary(SESSION_ID, { status: "needs_input" })];

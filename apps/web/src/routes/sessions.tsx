@@ -1,4 +1,9 @@
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import {
+  hashKey,
+  useInfiniteQuery,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import {
   Link,
   useNavigate,
@@ -39,7 +44,7 @@ import {
   TabsTrigger,
 } from "@werft-ai/ui";
 import { ArrowLeft, Plus } from "lucide-react";
-import { type FormEvent, useId, useState } from "react";
+import { type FormEvent, useEffect, useId, useState } from "react";
 import {
   permissionReason,
   ReasonButton,
@@ -166,6 +171,32 @@ export function SessionsScreen() {
   );
 }
 
+const STATUS_LISTS = [...queryKeys.sessions, "status"] as const;
+
+/**
+ * The session hooks and the approval inbox refresh the full list and the
+ * waiting page by their exact keys, which miss the status lists; follow
+ * those refreshes so an answered or stopped session leaves its tab.
+ */
+function useFollowListRefresh() {
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    const followed = new Set([
+      hashKey(queryKeys.sessions),
+      hashKey(queryKeys.waitingSessions),
+    ]);
+    return queryClient.getQueryCache().subscribe((event) => {
+      if (
+        event.type === "updated" &&
+        event.action.type === "invalidate" &&
+        followed.has(event.query.queryHash)
+      ) {
+        void queryClient.invalidateQueries({ queryKey: STATUS_LISTS });
+      }
+    });
+  }, [queryClient]);
+}
+
 /**
  * One status of the caller's sessions, a page at a time. The session list
  * block reads every status only; this follows its rows and paging.
@@ -173,9 +204,10 @@ export function SessionsScreen() {
 function SessionsInStatus({ status }: { readonly status: SessionFilter }) {
   const { t, locale } = useI18n();
   const { client, renderLink } = useAgentPlatform();
+  useFollowListRefresh();
   const sessions = useInfiniteQuery({
     // Under the sessions key, so what refreshes the list refreshes this too.
-    queryKey: [...queryKeys.sessions, "status", status],
+    queryKey: [...STATUS_LISTS, status],
     queryFn: ({ pageParam }) =>
       unwrap(
         client.GET("/v1/sessions", {
