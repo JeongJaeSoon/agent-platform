@@ -169,8 +169,8 @@ resume from: saved
 
 ## 재시도
 
-- 다시 보내는 경우: 응답이 `retryable: true`일 때, 프록시가 낸 502·504, 응답을 읽지 못한 연결 실패와 시도 timeout. 연결 실패와 timeout은 GET과 `Idempotency-Key`가 있는 명령만 다시 보낸다.
-- 다시 보내지 않는 경우: 409 전부, 500, 그 밖의 4xx.
+- 다시 보내는 경우: 오류 본문이 `retryable: true`일 때(429 포함), 프록시가 낸 502·504, 응답을 읽지 못한 연결 실패와 시도 timeout. 프록시 502·504와 연결 실패·timeout은 GET과 `Idempotency-Key`가 있는 명령만 다시 보낸다. key가 없는 `openPullRequest`·`commentPullRequest`는 서버가 이미 실행했을 수 있어 다시 보내지 않는다.
+- 다시 보내지 않는 경우: 409 전부, 500, `retryable: true`가 아닌 그 밖의 4xx.
 - `Retry-After`가 있으면 그만큼 기다린다. `maxRetryDelayMs`(기본 60초)를 넘으면 기다리지 않고 실패한다.
 - 프로세스를 다시 띄운 뒤 같은 명령을 이어서 재시도하려면 오류의 `idempotencyKey`를 저장해 두고 `{ idempotencyKey }`로 넘긴다.
 
