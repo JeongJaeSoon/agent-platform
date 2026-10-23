@@ -25,10 +25,12 @@ const ALLOWED_RUNTIME_DEPENDENCIES = [
   "@radix-ui/react-tabs",
   "class-variance-authority",
   "clsx",
-  "react",
-  "react-dom",
+  "lucide-react",
   "tailwind-merge",
 ];
+
+// The consumer's own React: a second copy breaks hooks.
+const PEER_DEPENDENCIES = ["react", "react-dom"];
 
 async function sourceFiles(): Promise<string[]> {
   const glob = new Glob("src/**/*.{ts,tsx}");
@@ -76,6 +78,37 @@ describe("패키지 경계", () => {
     expect(Object.keys(manifest.dependencies).sort()).toEqual(
       ALLOWED_RUNTIME_DEPENDENCIES,
     );
+    expect(Object.keys(manifest.peerDependencies).sort()).toEqual(
+      PEER_DEPENDENCIES,
+    );
+  });
+
+  test("런타임에 import하는 패키지가 dependencies·peerDependencies와 같다", async () => {
+    // A runtime import listed only in devDependencies works here, where the
+    // workspace installs everything, and breaks for a consumer of the package.
+    const runtime = new Glob("src/**/*.{ts,tsx,css}");
+    const imported = new Set<string>();
+    for await (const file of runtime.scan({ cwd: PACKAGE_ROOT })) {
+      if (/\.test\.|__fixtures__|test-support/.test(file)) continue;
+      const source = await Bun.file(`${PACKAGE_ROOT}/${file}`).text();
+      const specifiers = source.matchAll(
+        /\b(?:from|import)\s*\(?\s*["']([^"'.][^"']*)["']/g,
+      );
+      for (const [, specifier = ""] of specifiers) {
+        const [scope = "", name = ""] = specifier.split("/");
+        imported.add(scope.startsWith("@") ? `${scope}/${name}` : scope);
+      }
+    }
+    const manifest = await Bun.file(`${PACKAGE_ROOT}/package.json`).json();
+    const declared = [
+      ...Object.keys(manifest.dependencies),
+      ...Object.keys(manifest.peerDependencies),
+      // react-dom is never imported by name; Radix needs it beside react.
+    ].filter((name) => name !== "react-dom");
+    // fonts.css imports pretendard, which stays a devDependency until the
+    // published build decides how fonts ship: as a dependency every image
+    // would install it, and its OFL-1.1 licence is not reviewed for that.
+    expect([...imported].sort()).toEqual([...declared, "pretendard"].sort());
   });
 
   test("Radix primitive는 primitives/ 안에서만 import한다", async () => {
