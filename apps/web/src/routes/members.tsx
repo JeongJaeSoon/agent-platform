@@ -34,7 +34,7 @@ import {
   TableHeader,
   TableRow,
 } from "@werft-ai/ui";
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { invitesQuery, membersQuery, queryKeys } from "../api/queries.ts";
 import {
   permissionReason,
@@ -181,6 +181,13 @@ function MemberTable({
   const [confirming, setConfirming] = useState<MemberView | null>(null);
   // Roles change in 구성원 편집, not in the row (rows only disable).
   const [editing, setEditing] = useState<MemberView | null>(null);
+  // The name button that opened 구성원 편집 gets the keyboard back, and a
+  // saved role opens its confirmation only once the editor has handed it
+  // back, so the confirmation returns there too rather than to <body>.
+  const editOpener = useRef<HTMLElement | null>(null);
+  const saved = useRef<{ member: MemberView; role: WorkspaceRole } | null>(
+    null,
+  );
   // A saved role still waits here for the confirmation.
   const [roleChange, setRoleChange] = useState<{
     member: MemberView;
@@ -354,7 +361,10 @@ function MemberTable({
                         aria-label={t("members.editFor", {
                           name: member.display_name,
                         })}
-                        onClick={() => setEditing(member)}
+                        onClick={(event) => {
+                          editOpener.current = event.currentTarget;
+                          setEditing(member);
+                        }}
                       >
                         <span className="truncate">{member.display_name}</span>
                         <span aria-hidden="true">&nbsp;›</span>
@@ -446,8 +456,13 @@ function MemberTable({
           busy={changeRole.isPending}
           onClose={() => setEditing(null)}
           onSave={(next) => {
+            saved.current = { member: editing, role: next };
             setEditing(null);
-            setRoleChange({ member: editing, role: next });
+          }}
+          onClosed={() => {
+            if (editOpener.current?.isConnected) editOpener.current.focus();
+            if (saved.current) setRoleChange(saved.current);
+            saved.current = null;
           }}
         />
       ) : null}
@@ -505,12 +520,15 @@ function MemberEditDialog({
   busy,
   onClose,
   onSave,
+  onClosed,
 }: {
   readonly member: MemberView;
   readonly reason: string | undefined;
   readonly busy: boolean;
   readonly onClose: () => void;
   readonly onSave: (role: WorkspaceRole) => void;
+  /** After it has closed and would hand focus back; the screen does that. */
+  readonly onClosed: () => void;
 }) {
   const { t } = useI18n();
   const [role, setRole] = useState<string>(member.role);
@@ -519,7 +537,12 @@ function MemberEditDialog({
   const blocked = reason !== undefined;
   return (
     <Dialog open onOpenChange={(open) => (open ? undefined : onClose())}>
-      <DialogContent>
+      <DialogContent
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          onClosed();
+        }}
+      >
         <DialogHeader>
           <DialogTitle>{t("members.edit.title")}</DialogTitle>
           <DialogDescription>

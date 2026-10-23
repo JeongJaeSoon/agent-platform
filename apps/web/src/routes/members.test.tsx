@@ -531,6 +531,36 @@ describe("되돌리기 어려운 동작의 확인", () => {
     expect(calls).toEqual([]);
   });
 
+  test("편집을 닫으면 키보드가 그 이름 버튼으로 돌아온다", async () => {
+    const calls: string[] = [];
+    renderAt("/members", routes(calls));
+    const user = await setupUser();
+    const name = await screen.findByRole("button", { name: "Mate 편집" });
+    await openEdit(user, "Mate");
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(document.activeElement === name).toBe(true));
+    const edit = await openEdit(user, "Mate");
+    await user.click(within(edit).getByRole("button", { name: "취소" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(document.activeElement === name).toBe(true));
+  });
+
+  test("저장 뒤 확인창을 닫아도 키보드가 그 이름 버튼으로 돌아온다", async () => {
+    const calls: string[] = [];
+    renderAt("/members", routes(calls));
+    const user = await setupUser();
+    const name = await screen.findByRole("button", { name: "Mate 편집" });
+    const confirm = await pickRole(user, "Mate", "admin");
+    await waitFor(() =>
+      expect(confirm.contains(document.activeElement)).toBe(true),
+    );
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(document.activeElement === name).toBe(true));
+    expect(calls).toEqual([]);
+  });
+
   test("자기 자신과 하나뿐인 소유자는 비활성화를 막고 이유를 붙인다", async () => {
     const other = member({
       user_id: GONE_ID,
