@@ -345,7 +345,7 @@ const slackSecrets = createSlackSecretService({
 const slackAppStore =
   secretKey === null ? null : createPostgresSlackAppStore(db, secretKey);
 const slackSigningSecrets =
-  secretKey === null || slackAppStore === null
+  secretKey === null || slackAppStore === null // narrows both
     ? null
     : createSlackSigningSecrets({
         apps: slackAppStore,
@@ -366,21 +366,21 @@ if (slackEventsPublicUrl === null) {
     {},
   );
 }
-const slackInstallStore =
-  secretKey === null ? null : createPostgresSlackInstallStore(db);
+const slackInstallStore = createPostgresSlackInstallStore(db);
+const slackIdentityStore = createPostgresAgentIdentityStore(db);
 const slackEvents = createSlackEventsService({
   signingSecrets: slackSigningSecrets ?? { forAgent: async () => null },
   inbox: createPostgresSlackInboundEventStore(db),
-  identities: createPostgresAgentIdentityStore(db),
-  installs: createPostgresSlackInstallStore(db),
+  identities: slackIdentityStore,
+  installs: slackInstallStore,
 });
 const slackInstall = createSlackInstallService({
   authorization,
   apps: slackAppStore,
-  states: slackInstallStore,
+  states: secretKey === null ? null : slackInstallStore,
   secrets: secretKey === null ? null : createPostgresSecretStore(db, secretKey),
   tokens: slackConfigTokens,
-  identities: createPostgresAgentIdentityStore(db),
+  identities: slackIdentityStore,
   api: slackConfigApi,
   // 94S-794 appends the home channel and welcome step here.
   ...(slackAppStore === null

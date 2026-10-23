@@ -393,19 +393,6 @@ async function ingestBody(
 // it per route, never as a `*` middleware: that router is mounted ahead of
 // the authenticated one, so a wildcard there would read every /v1 body
 // before authentication and undo the auth-before-body rule.
-export async function ingestThenStopClock(
-  context: Context<ApiEnvironment>,
-  next: () => Promise<void>,
-): Promise<Response | undefined> {
-  const rejected = await ingestBody(context);
-  if (rejected) {
-    return rejected;
-  }
-  setHandlerClock(context);
-  await next();
-  return undefined;
-}
-
 export function ingestThenStopClockWithin(maxBytes: number) {
   return async (
     context: Context<ApiEnvironment>,
@@ -420,6 +407,10 @@ export function ingestThenStopClockWithin(maxBytes: number) {
     return undefined;
   };
 }
+
+export const ingestThenStopClock = ingestThenStopClockWithin(
+  REQUEST_BODY_MAX_BYTES,
+);
 
 export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
   const authMode = options.authMode ?? process.env.AUTH_MODE;

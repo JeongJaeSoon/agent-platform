@@ -27,6 +27,7 @@ export function registerSlackEventRoutes(
   },
 ) {
   const { events, limiter, logger } = deps;
+  const ingest = ingestThenStopClockWithin(SLACK_EVENTS_BODY_MAX_BYTES);
 
   apiRoute(
     router,
@@ -42,10 +43,7 @@ export function registerSlackEventRoutes(
           admitted.retryAfter,
         );
       }
-      return ingestThenStopClockWithin(SLACK_EVENTS_BODY_MAX_BYTES)(
-        context,
-        next,
-      );
+      return ingest(context, next);
     },
     async (context) => {
       const agentId = context.req.param("agent_id") ?? "";
