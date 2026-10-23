@@ -27,6 +27,8 @@ export type RecordedActor = {
   userId: string | null;
   workspaceId: string | null;
   apiKeyId: string | null;
+  /** The Slack link a person spoke through; a write re-reads it. */
+  linkedAccount?: { id: string; revision: number };
 };
 
 /** The partition a store reads and writes under. */

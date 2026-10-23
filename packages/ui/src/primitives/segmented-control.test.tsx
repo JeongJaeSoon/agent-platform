@@ -200,7 +200,7 @@ describe("SegmentedControl", () => {
     ]) {
       expect(item).toContain(name);
     }
-    expect(item.some((name) => name.startsWith("aria-pressed:bg-"))).toBe(true);
+    expect(item).toContain("aria-pressed:bg-active");
   });
 
   test("두 진입점에서 같은 부품을 내보낸다", async () => {

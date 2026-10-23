@@ -95,7 +95,7 @@ export function SegmentedControlItem({
       }}
       className={cn(
         "inline-flex h-[var(--ap-control-height-sm)] items-center gap-2 whitespace-nowrap rounded-control border-0 bg-transparent px-2 font-medium text-control text-muted-foreground hover:text-foreground",
-        "aria-pressed:bg-[var(--ap-color-active,#ebebeb)] aria-pressed:text-foreground",
+        "aria-pressed:bg-active aria-pressed:text-foreground",
         "focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2",
         "disabled:pointer-events-none disabled:opacity-50",
         "[&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0",

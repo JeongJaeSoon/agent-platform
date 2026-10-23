@@ -330,6 +330,57 @@ describe("tokens.css", () => {
     expect(ratios.filter((line) => !line.endsWith("ok"))).toEqual([]);
   });
 
+  test("링크·상태 점·채운 위험 버튼이 바탕에서 AA를 넘는다", () => {
+    // Link text 4.5:1; a dot is a graphic, 3:1 (WCAG 1.4.11).
+    const DOTS = ["wait", "run", "idle", "done", "failed"].map(
+      (state) => `--ap-color-status-dot-${state}`,
+    );
+    const pairs: [string, string, number][] = [
+      ...[
+        "--ap-color-surface",
+        "--ap-color-sidebar",
+        "--ap-color-surface-sunken",
+      ].flatMap((surface): [string, string, number][] => [
+        ["--ap-color-link", surface, 4.5],
+        ...DOTS.map((dot): [string, string, number] => [dot, surface, 3]),
+      ]),
+      [
+        "--ap-color-destructive-foreground",
+        "--ap-color-destructive-solid",
+        4.5,
+      ],
+      ["--ap-color-focus-ring", "--ap-color-surface", 3],
+    ];
+    const themes: [string, Map<string, string>][] = [
+      [
+        "light",
+        paletteOf((d) => d.selector === ":root" && d.atRules.length === 0),
+      ],
+      [
+        "dark(수동)",
+        paletteOf((d) => d.selector === ':root[data-theme="dark"]'),
+      ],
+      [
+        "dark(시스템)",
+        paletteOf((d) =>
+          d.atRules.includes("@media (prefers-color-scheme: dark)"),
+        ),
+      ],
+    ];
+    const failures = themes.flatMap(([theme, palette]) =>
+      pairs.flatMap(([fg, bg, floor]) => {
+        const a = palette.get(fg) ?? "";
+        const b = palette.get(bg) ?? "";
+        if (!/^#[0-9a-f]{6}$/i.test(a) || !/^#[0-9a-f]{6}$/i.test(b)) {
+          return [`${theme}: ${fg} on ${bg} 읽을 수 없다`];
+        }
+        const ratio = contrast(a, b);
+        return ratio < floor ? [`${theme}: ${fg} on ${bg} = ${ratio}`] : [];
+      }),
+    );
+    expect(failures).toEqual([]);
+  });
+
   test("테마마다 color-scheme을 선언해 native 컨트롤도 따라간다", () => {
     const schemes = tokenDeclarations
       .filter((d) => d.property === "color-scheme")
@@ -361,7 +412,8 @@ describe("tokens.css", () => {
         .map((d) => d.property),
     );
     const themed = [...light].filter(
-      (name) => /^--ap-(color|tone|shadow)-/.test(name) && !aliases.has(name),
+      (name) =>
+        /^--ap-(color|tone|shadow|avatar)-/.test(name) && !aliases.has(name),
     );
     expect(themed.length).toBeGreaterThan(0);
     for (const name of themed) {

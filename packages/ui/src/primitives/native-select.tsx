@@ -27,9 +27,9 @@ export function NativeSelect({
         data-slot="native-select"
         data-size={size}
         className={cn(
-          "h-[var(--ap-control-height)] w-full min-w-0 appearance-none rounded-control border border-input bg-card px-3 py-0 pr-7 text-control outline-none transition-[color,box-shadow] disabled:pointer-events-none disabled:cursor-not-allowed data-[size=sm]:h-[var(--ap-control-height-sm)] data-[size=sm]:text-caption motion-reduce:transition-none",
-          "focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50",
-          "aria-invalid:border-destructive aria-invalid:ring-destructive/20",
+          "h-[var(--ap-control-height)] w-full min-w-0 appearance-none rounded-control border border-input bg-card px-3 py-0 pr-7 text-control transition-[color,border-color] disabled:pointer-events-none disabled:cursor-not-allowed data-[size=sm]:h-[var(--ap-control-height-sm)] data-[size=sm]:text-caption motion-reduce:transition-none",
+          "hover:border-border-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring",
+          "aria-invalid:border-destructive",
           className,
         )}
         {...useFieldControl(props)}
@@ -37,7 +37,7 @@ export function NativeSelect({
       <ChevronDown
         data-slot="native-select-icon"
         className="pointer-events-none absolute top-1/2 right-3 size-4 -translate-y-1/2 select-none text-subtle-foreground"
-        strokeWidth={2}
+        strokeWidth={1.5}
         aria-hidden="true"
       />
     </div>

@@ -72,13 +72,20 @@ type Story = StoryObj<typeof meta>;
 export const Color: Story = {
   render: () => (
     <TokenTable
-      prefixes={["--ap-color-", "--ap-tone-"]}
-      preview={(name) => (
-        <span
-          className="inline-block size-6 shrink-0 rounded-control border border-border-strong"
-          style={{ background: `var(${name})` }}
-        />
-      )}
+      prefixes={["--ap-color-", "--ap-tone-", "--ap-avatar-"]}
+      preview={(name) =>
+        name.startsWith("--ap-color-status-dot-") ? (
+          <span
+            className="inline-block size-2 shrink-0 rounded-full"
+            style={{ background: `var(${name})` }}
+          />
+        ) : (
+          <span
+            className="inline-block size-6 shrink-0 rounded-control border border-border-strong"
+            style={{ background: `var(${name})` }}
+          />
+        )
+      }
     />
   ),
 };
