@@ -26,8 +26,8 @@
      * Surfaces and accent follow shadcn/ui's neutral base colour (white
      * surface, near-black primary). Where shadcn's value fails WCAG AA here,
      * the value is darkened instead: muted-foreground (#737373 drops under
-     * 4.5:1 on the tone backgrounds), border-input and focus-ring (#e5e5e5
-     * and #a1a1a1 are under 3:1 on white).
+     * 4.5:1 on the tone backgrounds) and border-input (#e5e5e5 is under 3:1
+     * on white). Mockup v4 (Console.dc.html) sets the other values.
      *
      * Console v35: the sidebar sits on `sidebar`, the main column and its
      * cards on one `surface`. A sidebar nav row takes `sidebar-hover` under
@@ -39,28 +39,55 @@
     --ap-color-surface: #ffffff;
     /* The main background's old name, still read by apps/docs. */
     --ap-color-canvas: var(--ap-color-surface);
-    --ap-color-surface-sunken: #f5f5f5;
+    --ap-color-surface-sunken: #fafafa;
+    /* Any row or button under the pointer, and the selected one. */
+    --ap-color-hover: var(--ap-color-sidebar-hover);
+    --ap-color-active: var(--ap-color-sidebar-accent);
+    --ap-color-skeleton: #ededed;
 
-    --ap-color-border: #e5e5e5;
+    --ap-color-border: #eaeaea;
     --ap-color-border-strong: #d4d4d4;
     /* A control's edge is how it is found (WCAG 1.4.11): 3:1 on surface and
      canvas, which border-strong is not. */
     --ap-color-border-input: #8a8a8a;
-    --ap-color-foreground: #0a0a0a;
-    --ap-color-muted-foreground: #666666;
+    --ap-color-foreground: #171717;
+    --ap-color-muted-foreground: #4d4d4d;
     /* The faintest text (v35 text-3), still 4.5:1 on sidebar and surface. */
     --ap-color-subtle-foreground: #6b6b6b;
 
-    /* Used for focus and the single primary action. */
+    /* Used for the single primary action. */
     --ap-color-accent: #171717;
-    --ap-color-accent-hover: #2e2e2e;
-    --ap-color-accent-foreground: #fafafa;
-    --ap-color-focus-ring: #737373;
+    --ap-color-accent-hover: #383838;
+    --ap-color-accent-foreground: #ffffff;
+    /* 4.6:1 on surface; the one focus outline every part draws. */
+    --ap-color-focus-ring: #0070f3;
+    --ap-color-link: #0060d1;
     /*
-     * Text links. Resolved on :root, so it follows the dark accent without a
-     * dark entry of its own; give it a value here to tint links apart.
+     * A filled destructive button, white text on red, the same in dark: v4's
+     * dark #e5484d holds white at only 3.9:1.
      */
-    --ap-color-link: var(--ap-color-accent);
+    --ap-color-destructive-solid: #c4282d;
+    --ap-color-destructive-foreground: #ffffff;
+
+    /*
+     * Status dots, one per session state (v4). Only the dot is coloured; the
+     * label beside it keeps the text colour. 3:1 on surface as a graphic.
+     */
+    --ap-color-status-dot-wait: #9a4f00;
+    --ap-color-status-dot-run: #0060d1;
+    --ap-color-status-dot-idle: #8f8f8f;
+    --ap-color-status-dot-done: #0f7a33;
+    --ap-color-status-dot-failed: #c4282d;
+
+    /* Avatar fills, picked per person so neighbours tell apart. */
+    --ap-avatar-1-bg: #e6f0ff;
+    --ap-avatar-1-fg: #0a4fb3;
+    --ap-avatar-2-bg: #f3e8ff;
+    --ap-avatar-2-fg: #6b21a8;
+    --ap-avatar-3-bg: #e7f6ec;
+    --ap-avatar-3-fg: #166534;
+    --ap-avatar-4-bg: #fff1e0;
+    --ap-avatar-4-fg: #9a4f00;
 
     /*
      * Status tones. A tone is a meaning, not a colour name: components pick a
@@ -74,29 +101,29 @@
     --ap-tone-neutral-bg: #f5f5f5;
     --ap-tone-neutral-border: #e5e5e5;
 
-    --ap-tone-progress-fg: #1f4f7a;
-    --ap-tone-progress-bg: #e4eef7;
-    --ap-tone-progress-border: #b8d3e8;
+    --ap-tone-progress-fg: #0060d1;
+    --ap-tone-progress-bg: #ebf4ff;
+    --ap-tone-progress-border: #bcd9ff;
 
-    --ap-tone-attention-fg: #7a5200;
-    --ap-tone-attention-bg: #fbefd6;
-    --ap-tone-attention-border: #ecd39a;
+    --ap-tone-attention-fg: #9a4f00;
+    --ap-tone-attention-bg: #fff7e8;
+    --ap-tone-attention-border: #f5cf8a;
 
-    --ap-tone-caution-fg: #7a5200;
-    --ap-tone-caution-bg: #fbefd6;
-    --ap-tone-caution-border: #ecd39a;
+    --ap-tone-caution-fg: #9a4f00;
+    --ap-tone-caution-bg: #fff7e8;
+    --ap-tone-caution-border: #f5cf8a;
 
-    --ap-tone-danger-fg: #c4262b;
-    --ap-tone-danger-bg: #fdecec;
-    --ap-tone-danger-border: #f7c4c4;
+    --ap-tone-danger-fg: #c4282d;
+    --ap-tone-danger-bg: #fff0f0;
+    --ap-tone-danger-border: #f6c3c5;
 
     --ap-tone-success-fg: #0f7a33;
     --ap-tone-success-bg: #eaf7ee;
     --ap-tone-success-border: #b6e3c3;
 
-    --ap-tone-unknown-fg: #7a5200;
-    --ap-tone-unknown-bg: #fbefd6;
-    --ap-tone-unknown-border: #ecd39a;
+    --ap-tone-unknown-fg: #9a4f00;
+    --ap-tone-unknown-bg: #fff7e8;
+    --ap-tone-unknown-border: #f5cf8a;
 
     --ap-tone-positive-fg: #0f7a33;
     --ap-tone-positive-bg: #eaf7ee;
@@ -113,8 +140,9 @@
 
     /*
      * Console v35 sizes only: 12 meta, 13 body, 14 section, 20 page title,
-     * 24 figures.
+     * 24 figures. v4 adds 11 for counts, avatars and kbd.
      */
+    --ap-text-2xs: 0.6875rem;
     --ap-text-xs: 0.75rem;
     --ap-text-sm: 0.8125rem;
     --ap-text-label: 0.875rem;
@@ -150,8 +178,9 @@
     --ap-radius-pill: 999px;
 
     /* One shadow, for what floats (menus, dialogs, toasts). */
-    --ap-shadow-pop: 0 2px 8px rgb(0 0 0 / 0.08);
-    --ap-color-overlay: rgb(0 0 0 / 0.5);
+    --ap-shadow-pop:
+      0 0 0 1px rgb(0 0 0 / 0.06), 0 8px 24px -6px rgb(0 0 0 / 0.12);
+    --ap-color-overlay: rgb(0 0 0 / 0.24);
 
     /*
      * Motion. Every animated rule reads these, so the reduced-motion block
@@ -206,54 +235,74 @@
       --ap-color-sidebar-hover: #1a1a1a;
       --ap-color-sidebar-accent: #232323;
       --ap-color-surface: #0a0a0a;
-      --ap-color-surface-sunken: #1a1a1a;
+      --ap-color-surface-sunken: #111111;
+      --ap-color-skeleton: #1f1f1f;
 
-      --ap-color-border: #2e2e2e;
-      --ap-color-border-strong: #454545;
+      --ap-color-border: #262626;
+      --ap-color-border-strong: #3a3a3a;
       --ap-color-border-input: #737373;
       --ap-color-foreground: #ededed;
       --ap-color-muted-foreground: #a1a1a1;
       --ap-color-subtle-foreground: #8f8f8f;
 
       --ap-color-accent: #ededed;
-      --ap-color-accent-hover: #cccccc;
+      --ap-color-accent-hover: #cfcfcf;
       --ap-color-accent-foreground: #0a0a0a;
-      --ap-color-focus-ring: #737373;
+      --ap-color-focus-ring: #3291ff;
+      --ap-color-link: #52a8ff;
+      --ap-color-destructive-solid: #c4282d;
+      --ap-color-destructive-foreground: #ffffff;
+
+      --ap-color-status-dot-wait: #f1a33b;
+      --ap-color-status-dot-run: #52a8ff;
+      --ap-color-status-dot-idle: #6f6f6f;
+      --ap-color-status-dot-done: #5cc77a;
+      --ap-color-status-dot-failed: #ff6b6f;
+
+      --ap-avatar-1-bg: #0b2547;
+      --ap-avatar-1-fg: #8cc2ff;
+      --ap-avatar-2-bg: #2a1342;
+      --ap-avatar-2-fg: #d4b0ff;
+      --ap-avatar-3-bg: #0e2a17;
+      --ap-avatar-3-fg: #86e0a3;
+      --ap-avatar-4-bg: #2d1b04;
+      --ap-avatar-4-fg: #f5c27a;
 
       --ap-tone-neutral-fg: #d4d4d4;
       --ap-tone-neutral-bg: #1f1f1f;
       --ap-tone-neutral-border: #454545;
 
       --ap-tone-progress-fg: #52a8ff;
-      --ap-tone-progress-bg: #0d1b2e;
-      --ap-tone-progress-border: #163a66;
+      --ap-tone-progress-bg: #071a30;
+      --ap-tone-progress-border: #0f3a66;
 
-      --ap-tone-attention-fg: #ffb224;
-      --ap-tone-attention-bg: #291c06;
-      --ap-tone-attention-border: #533a12;
+      --ap-tone-attention-fg: #f1a33b;
+      --ap-tone-attention-bg: #231503;
+      --ap-tone-attention-border: #5a3a08;
 
-      --ap-tone-caution-fg: #ffb224;
-      --ap-tone-caution-bg: #291c06;
-      --ap-tone-caution-border: #533a12;
+      --ap-tone-caution-fg: #f1a33b;
+      --ap-tone-caution-bg: #231503;
+      --ap-tone-caution-border: #5a3a08;
 
-      --ap-tone-danger-fg: #ff6166;
-      --ap-tone-danger-bg: #2a1215;
-      --ap-tone-danger-border: #6b2329;
+      --ap-tone-danger-fg: #ff6b6f;
+      --ap-tone-danger-bg: #2a0d0f;
+      --ap-tone-danger-border: #5c1b1f;
 
       --ap-tone-success-fg: #5cc77a;
       --ap-tone-success-bg: #0a1f10;
       --ap-tone-success-border: #16452a;
 
-      --ap-tone-unknown-fg: #ffb224;
-      --ap-tone-unknown-bg: #291c06;
-      --ap-tone-unknown-border: #533a12;
+      --ap-tone-unknown-fg: #f1a33b;
+      --ap-tone-unknown-bg: #231503;
+      --ap-tone-unknown-border: #5a3a08;
 
       --ap-tone-positive-fg: #5cc77a;
       --ap-tone-positive-bg: #0a1f10;
       --ap-tone-positive-border: #16452a;
 
-      --ap-shadow-pop: 0 2px 8px rgb(0 0 0 / 0.45);
-      --ap-color-overlay: rgb(0 0 0 / 0.65);
+      --ap-shadow-pop:
+        0 0 0 1px rgb(255 255 255 / 0.08), 0 8px 24px -6px rgb(0 0 0 / 0.6);
+      --ap-color-overlay: rgb(0 0 0 / 0.6);
     }
   }
 
@@ -268,54 +317,74 @@
     --ap-color-sidebar-hover: #1a1a1a;
     --ap-color-sidebar-accent: #232323;
     --ap-color-surface: #0a0a0a;
-    --ap-color-surface-sunken: #1a1a1a;
+    --ap-color-surface-sunken: #111111;
+    --ap-color-skeleton: #1f1f1f;
 
-    --ap-color-border: #2e2e2e;
-    --ap-color-border-strong: #454545;
+    --ap-color-border: #262626;
+    --ap-color-border-strong: #3a3a3a;
     --ap-color-border-input: #737373;
     --ap-color-foreground: #ededed;
     --ap-color-muted-foreground: #a1a1a1;
     --ap-color-subtle-foreground: #8f8f8f;
 
     --ap-color-accent: #ededed;
-    --ap-color-accent-hover: #cccccc;
+    --ap-color-accent-hover: #cfcfcf;
     --ap-color-accent-foreground: #0a0a0a;
-    --ap-color-focus-ring: #737373;
+    --ap-color-focus-ring: #3291ff;
+    --ap-color-link: #52a8ff;
+    --ap-color-destructive-solid: #c4282d;
+    --ap-color-destructive-foreground: #ffffff;
+
+    --ap-color-status-dot-wait: #f1a33b;
+    --ap-color-status-dot-run: #52a8ff;
+    --ap-color-status-dot-idle: #6f6f6f;
+    --ap-color-status-dot-done: #5cc77a;
+    --ap-color-status-dot-failed: #ff6b6f;
+
+    --ap-avatar-1-bg: #0b2547;
+    --ap-avatar-1-fg: #8cc2ff;
+    --ap-avatar-2-bg: #2a1342;
+    --ap-avatar-2-fg: #d4b0ff;
+    --ap-avatar-3-bg: #0e2a17;
+    --ap-avatar-3-fg: #86e0a3;
+    --ap-avatar-4-bg: #2d1b04;
+    --ap-avatar-4-fg: #f5c27a;
 
     --ap-tone-neutral-fg: #d4d4d4;
     --ap-tone-neutral-bg: #1f1f1f;
     --ap-tone-neutral-border: #454545;
 
     --ap-tone-progress-fg: #52a8ff;
-    --ap-tone-progress-bg: #0d1b2e;
-    --ap-tone-progress-border: #163a66;
+    --ap-tone-progress-bg: #071a30;
+    --ap-tone-progress-border: #0f3a66;
 
-    --ap-tone-attention-fg: #ffb224;
-    --ap-tone-attention-bg: #291c06;
-    --ap-tone-attention-border: #533a12;
+    --ap-tone-attention-fg: #f1a33b;
+    --ap-tone-attention-bg: #231503;
+    --ap-tone-attention-border: #5a3a08;
 
-    --ap-tone-caution-fg: #ffb224;
-    --ap-tone-caution-bg: #291c06;
-    --ap-tone-caution-border: #533a12;
+    --ap-tone-caution-fg: #f1a33b;
+    --ap-tone-caution-bg: #231503;
+    --ap-tone-caution-border: #5a3a08;
 
-    --ap-tone-danger-fg: #ff6166;
-    --ap-tone-danger-bg: #2a1215;
-    --ap-tone-danger-border: #6b2329;
+    --ap-tone-danger-fg: #ff6b6f;
+    --ap-tone-danger-bg: #2a0d0f;
+    --ap-tone-danger-border: #5c1b1f;
 
     --ap-tone-success-fg: #5cc77a;
     --ap-tone-success-bg: #0a1f10;
     --ap-tone-success-border: #16452a;
 
-    --ap-tone-unknown-fg: #ffb224;
-    --ap-tone-unknown-bg: #291c06;
-    --ap-tone-unknown-border: #533a12;
+    --ap-tone-unknown-fg: #f1a33b;
+    --ap-tone-unknown-bg: #231503;
+    --ap-tone-unknown-border: #5a3a08;
 
     --ap-tone-positive-fg: #5cc77a;
     --ap-tone-positive-bg: #0a1f10;
     --ap-tone-positive-border: #16452a;
 
-    --ap-shadow-pop: 0 2px 8px rgb(0 0 0 / 0.45);
-    --ap-color-overlay: rgb(0 0 0 / 0.65);
+    --ap-shadow-pop:
+      0 0 0 1px rgb(255 255 255 / 0.08), 0 8px 24px -6px rgb(0 0 0 / 0.6);
+    --ap-color-overlay: rgb(0 0 0 / 0.6);
   }
 
   @media (prefers-reduced-motion: reduce) {
