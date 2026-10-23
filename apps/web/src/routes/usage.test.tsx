@@ -116,6 +116,15 @@ describe("사용량·한도", () => {
     expect(screen.queryByText("3시간 20분")).toBeNull();
   });
 
+  test("1분이 안 되는 실행 시간은 0분이 아니라 초로 보인다", async () => {
+    renderAt("/usage", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      [summaryRoute("me")]: () =>
+        json(200, { ...summary("me", 3), run_seconds: 2 }),
+    });
+    expect(await screen.findByText("2초")).toBeTruthy();
+  });
+
   test("합계를 읽지 못하면 다시 시도로 다시 읽는다", async () => {
     let fail = true;
     renderAt("/usage", {

@@ -241,6 +241,8 @@ function KpiSkeleton() {
 }
 
 function duration(seconds: number, t: Translate): string {
+  // A fake-model or short run lasts seconds; "0분" would read as nothing ran.
+  if (seconds < 60) return t("usage.duration.seconds", { s: seconds });
   const minutes = Math.floor(seconds / 60);
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
