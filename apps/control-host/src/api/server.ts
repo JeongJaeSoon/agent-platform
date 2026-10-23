@@ -39,6 +39,7 @@ import {
 import { createLogger, sanitizeText } from "@werft-ai/observability";
 import {
   catalogRevision,
+  composeSlackFinalize,
   createAgentAdminService,
   createAgentIdentityService,
   createAgentService,
@@ -56,7 +57,6 @@ import {
   createSessionOutputService,
   createSessionService,
   createSessionShareService,
-  composeSlackFinalize,
   createSlackAppService,
   createSlackConfigApi,
   createSlackConfigTokens,

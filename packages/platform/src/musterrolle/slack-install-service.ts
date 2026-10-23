@@ -410,8 +410,7 @@ export function createSlackInstallService(deps: {
       let finalized = false;
       let warnings: SlackFinalizeWarning[] = [];
       try {
-        ({ finalized, warnings } =
-        await finalize({
+        ({ finalized, warnings } = await finalize({
           workspaceId: app.workspaceId,
           agentId,
           slackAppId: app.id,

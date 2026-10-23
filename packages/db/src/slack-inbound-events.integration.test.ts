@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomBytes, randomUUID } from "node:crypto";
-import { type SlackInboundEventInput, SecretKey } from "@werft-ai/platform";
+import { SecretKey, type SlackInboundEventInput } from "@werft-ai/platform";
 import {
   createTempDatabase,
   type TempDatabase,
@@ -114,9 +114,9 @@ integration("slack_inbound_events on PostgreSQL", () => {
       }),
     ).toBe("duplicate");
     // Another team may reuse the id.
-    expect(
-      await inbox.record({ ...received, teamId: slackId("T") }),
-    ).toBe("recorded");
+    expect(await inbox.record({ ...received, teamId: slackId("T") })).toBe(
+      "recorded",
+    );
 
     const rows = await db
       .select()
@@ -189,12 +189,12 @@ integration("slack_inbound_events on PostgreSQL", () => {
       teamId,
       botUserId: slackId("U"),
     });
-    expect(await installs.revokeInstallation({ appId: app.appId, teamId })).toBe(
-      "revoked",
-    );
-    expect(await installs.revokeInstallation({ appId: app.appId, teamId })).toBe(
-      "revoked",
-    );
+    expect(
+      await installs.revokeInstallation({ appId: app.appId, teamId }),
+    ).toBe("revoked");
+    expect(
+      await installs.revokeInstallation({ appId: app.appId, teamId }),
+    ).toBe("revoked");
     const [row] = await db
       .select({ status: slackInstallations.status })
       .from(slackInstallations)

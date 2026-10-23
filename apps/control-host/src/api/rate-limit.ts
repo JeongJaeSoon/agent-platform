@@ -17,7 +17,10 @@ export class WindowRateLimiter {
   /** Counts one request; false when the key is over its limit. */
   take(key: string, now: number): boolean {
     let window = this.#windows.get(key);
-    if (window === undefined || now - window.startedAt >= this.options.windowMs) {
+    if (
+      window === undefined ||
+      now - window.startedAt >= this.options.windowMs
+    ) {
       this.#windows.delete(key);
       if (this.#windows.size >= this.options.maxKeys) {
         const oldest = this.#windows.keys().next().value;

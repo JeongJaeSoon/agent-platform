@@ -224,8 +224,7 @@ describe("Slack events service", () => {
     expect(w.inbox.calls.record).toBe(0);
     // 300 seconds either way is still inside the window.
     expect(
-      (await w.service.receive(w.signed(body, { at: NOW_SECONDS - 300 })))
-        .kind,
+      (await w.service.receive(w.signed(body, { at: NOW_SECONDS - 300 }))).kind,
     ).toBe("ack");
   });
 
@@ -344,9 +343,9 @@ describe("Slack events service", () => {
   test("the app's own events with a matching team are received", async () => {
     const w = world();
     await w.install();
-    expect(await w.service.receive(w.signed(w.event(MENTION)))).toMatchObject(
-      { status: "received" },
-    );
+    expect(await w.service.receive(w.signed(w.event(MENTION)))).toMatchObject({
+      status: "received",
+    });
   });
 
   test("bots and other subtypes are dropped; plain, thread_broadcast and mentions are kept", async () => {
@@ -354,16 +353,36 @@ describe("Slack events service", () => {
     await w.install();
     const message = { type: "message", channel: "C0CHAN", ts: "1.1" };
     const cases = [
-      [{ ...message, user: "U0BOTX", bot_id: "B0OTHER" }, "dropped", "bot_message"],
+      [
+        { ...message, user: "U0BOTX", bot_id: "B0OTHER" },
+        "dropped",
+        "bot_message",
+      ],
       [{ ...message, user: BOT_USER }, "dropped", "own_bot_user"],
-      [{ ...message, user: "U0P", subtype: "file_share" }, "dropped", "message_subtype"],
-      [{ ...message, user: "U0P", subtype: "message_changed" }, "dropped", "message_subtype"],
+      [
+        { ...message, user: "U0P", subtype: "file_share" },
+        "dropped",
+        "message_subtype",
+      ],
+      [
+        { ...message, user: "U0P", subtype: "message_changed" },
+        "dropped",
+        "message_subtype",
+      ],
       [{ ...MENTION, bot_id: "B0OTHER" }, "dropped", "bot_message"],
       [{ ...message, user: "U0P" }, "received", undefined],
-      [{ ...message, user: "U0P", subtype: "thread_broadcast" }, "received", undefined],
+      [
+        { ...message, user: "U0P", subtype: "thread_broadcast" },
+        "received",
+        undefined,
+      ],
       [{ ...MENTION, subtype: "thread_broadcast" }, "received", undefined],
       [MENTION, "received", undefined],
-      [{ type: "member_joined_channel", user: BOT_USER, channel: "C0CHAN" }, "received", undefined],
+      [
+        { type: "member_joined_channel", user: BOT_USER, channel: "C0CHAN" },
+        "received",
+        undefined,
+      ],
       [{ type: "reaction_added", user: "U0P" }, "dropped", "unsupported_event"],
     ] as const;
     for (const [fields, status, reason] of cases) {
@@ -386,9 +405,9 @@ describe("Slack events service", () => {
         "revoked",
       );
       // What follows the revoke is dropped.
-      expect(
-        await w.service.receive(w.signed(w.event(MENTION))),
-      ).toMatchObject({ status: "dropped", reason: "installation_revoked" });
+      expect(await w.service.receive(w.signed(w.event(MENTION)))).toMatchObject(
+        { status: "dropped", reason: "installation_revoked" },
+      );
     }
   });
 

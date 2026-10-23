@@ -261,7 +261,11 @@ export function createFakeSlackWebApi(
             event: input.event ?? {},
             ...(input.eventId === undefined ? {} : { eventId: input.eventId }),
           })
-        : { token: hex(12), challenge: input.challenge, type: "url_verification" };
+        : {
+            token: hex(12),
+            challenge: input.challenge,
+            type: "url_verification",
+          };
     const body = JSON.stringify(envelope);
     const sentAt = Math.floor(Date.now() / 1000) - (input.ageSeconds ?? 0);
     const response = await fetch(input.url, {

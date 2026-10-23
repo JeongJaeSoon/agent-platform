@@ -2809,7 +2809,7 @@ export const API_ROUTE_DECLARATIONS = [
       status: 200,
       schema: "SlackEventsResponse",
       description:
-        "`{\"challenge\": ...}` for a url_verification, `{\"ok\": true}` for everything else that was signed.",
+        '`{"challenge": ...}` for a url_verification, `{"ok": true}` for everything else that was signed.',
       example: { ok: true },
     },
     errors: [400, 401, 413, 429, 503],
