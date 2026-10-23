@@ -6,6 +6,7 @@ import {
   Badge,
   Button,
   ConfirmDialog,
+  cn,
   EmptyState,
   formatTimestamp,
   NativeSelect,
@@ -51,6 +52,7 @@ const PRIMARY =
   "block break-words font-semibold group-data-[disabled=true]:text-muted-foreground";
 const SECONDARY =
   "block text-muted-foreground text-xs [overflow-wrap:anywhere]";
+const NOWRAP = "whitespace-nowrap";
 
 type Outcome =
   | { readonly kind: "notice"; readonly text: string }
@@ -323,9 +325,13 @@ function MemberTable({
                   <TableCell>
                     {/* One line per cell: below the table's width the container scrolls,
                         so every row keeps two lines. */}
-                    <RowLines className="whitespace-nowrap">
-                      <span className={PRIMARY}>{member.display_name}</span>
-                      <span className={SECONDARY}>{member.email}</span>
+                    <RowLines>
+                      <span className={cn(PRIMARY, NOWRAP)}>
+                        {member.display_name}
+                      </span>
+                      <span className={cn(SECONDARY, NOWRAP)}>
+                        {member.email}
+                      </span>
                     </RowLines>
                   </TableCell>
                   <TableCell>
@@ -367,11 +373,14 @@ function MemberTable({
                   </TableCell>
                   <TableCell>
                     {disabled ? (
-                      <RowLines className="items-start whitespace-nowrap">
-                        <Badge variant="gray">
-                          {t("members.state.disabled")}
-                        </Badge>
-                        <span className={SECONDARY}>
+                      <RowLines>
+                        {/* A flex line keeps the badge at its own width. */}
+                        <span className="flex">
+                          <Badge variant="gray">
+                            {t("members.state.disabled")}
+                          </Badge>
+                        </span>
+                        <span className={cn(SECONDARY, NOWRAP)}>
                           {t("members.enableHint")}
                         </span>
                       </RowLines>
