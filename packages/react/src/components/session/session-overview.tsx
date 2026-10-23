@@ -126,7 +126,7 @@ export function SessionOverviewRow({
       data-status={session.status}
       className={cn(
         SESSION_OVERVIEW_COLUMNS,
-        "relative min-h-[var(--ap-row-min-height)] min-w-0 items-center gap-4 border-b px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)] text-control last:border-b-0 hover:bg-sidebar-hover",
+        "relative min-h-[var(--ap-row-min-height)] min-w-0 items-center gap-4 border-b px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)] text-control last:border-b-0 hover:bg-(--ap-color-hover)",
         className,
       )}
     >

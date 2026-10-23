@@ -178,7 +178,7 @@ export function SessionsScreen() {
 
 /** Console v4 .seg-item: 28px, 8px across, grey fill when picked. */
 const SEGMENT =
-  "h-7 flex-none rounded-control border-0 px-2 text-control text-muted-foreground hover:text-foreground data-[state=active]:bg-sidebar-accent data-[state=active]:text-foreground data-[state=active]:shadow-none";
+  "h-7 flex-none rounded-control border-0 px-2 text-control text-muted-foreground hover:text-foreground data-[state=active]:bg-(--ap-color-active) data-[state=active]:text-foreground data-[state=active]:shadow-none";
 
 const STATUS_LISTS = [...queryKeys.sessions, "status"] as const;
 

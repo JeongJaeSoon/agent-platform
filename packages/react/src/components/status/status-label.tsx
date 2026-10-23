@@ -32,17 +32,14 @@ export interface StatusLabelProps<A extends StatusAxis> {
   readonly className?: string | undefined;
 }
 
-// ui-kit's status-dot tokens, falling back to the tone colours until they land.
 const DOT_FILL: Record<StatusTone, string> = {
-  attention: "bg-[var(--ap-color-status-dot-wait,var(--ap-tone-fg))]",
-  caution: "bg-[var(--ap-color-status-dot-wait,var(--ap-tone-fg))]",
-  progress: "bg-[var(--ap-color-status-dot-run,var(--ap-tone-fg))]",
-  positive: "bg-[var(--ap-color-status-dot-done,var(--ap-tone-fg))]",
-  danger: "bg-[var(--ap-color-status-dot-failed,var(--ap-tone-fg))]",
-  neutral:
-    "bg-[var(--ap-color-status-dot-idle,var(--ap-color-subtle-foreground))]",
-  unknown:
-    "bg-[var(--ap-color-status-dot-idle,var(--ap-color-subtle-foreground))]",
+  attention: "bg-(--ap-color-status-dot-wait)",
+  caution: "bg-(--ap-color-status-dot-wait)",
+  progress: "bg-(--ap-color-status-dot-run)",
+  positive: "bg-(--ap-color-status-dot-done)",
+  danger: "bg-(--ap-color-status-dot-failed)",
+  neutral: "bg-(--ap-color-status-dot-idle)",
+  unknown: "bg-(--ap-color-status-dot-idle)",
 };
 
 export function StatusLabel<A extends StatusAxis>({
@@ -80,7 +77,7 @@ export function StatusLabel<A extends StatusAxis>({
           className={cn(
             "flex-none rounded-full",
             spinning
-              ? "size-2.5 animate-[ap-spin_0.9s_linear_infinite] border-[1.5px] border-[var(--ap-color-status-dot-run,var(--ap-tone-fg))] border-r-transparent"
+              ? "size-2.5 animate-[ap-spin_0.9s_linear_infinite] border-[1.5px] border-(--ap-color-status-dot-run) border-r-transparent"
               : cn("size-2", DOT_FILL[descriptor.tone]),
           )}
         />
