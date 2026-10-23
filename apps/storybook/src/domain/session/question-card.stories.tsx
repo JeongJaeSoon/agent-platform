@@ -222,7 +222,22 @@ export const Japanese: Story = {
   },
 };
 
-/** Every state above in one column, so dark and 390px cover them all. */
+export const WritingOwnMobile: Story = {
+  ...WritingOwn,
+  name: "Writing own (390px)",
+  globals: { viewport: { value: "mobile390", isRotated: false } },
+};
+
+export const UnansweredDark: Story = {
+  ...Unanswered,
+  name: "Unanswered (dark)",
+  globals: { theme: "dark" },
+};
+
+/**
+ * Every state set by args in one column, so dark and 390px cover them all;
+ * the clicked-into ones have their own dark and 390px stories above.
+ */
 export const States: Story = {
   render: (args) => (
     <div className="flex flex-col gap-3">

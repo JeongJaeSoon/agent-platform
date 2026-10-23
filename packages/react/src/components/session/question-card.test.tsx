@@ -317,11 +317,16 @@ describe("QuestionCard", () => {
     await user.keyboard("{/ArrowRight}");
     expect(group.contains(document.activeElement)).toBe(true);
     expect(document.activeElement === blue).toBe(true);
+    // One Tab stop per group: Tab leaves the radios for the first checkbox.
+    await user.tab();
+    expect(
+      document.activeElement === getByRole("checkbox", { name: "git" }),
+    ).toBe(true);
   });
 
   test("여러 개 고르기는 체크박스를 Space로 켜고 끈다", async () => {
     const user = await setupUser();
-    const { getByRole } = render(
+    const { getByRole, getByText } = render(
       <QuestionCard
         request={REQUEST}
         messages={MESSAGES}
@@ -335,5 +340,10 @@ describe("QuestionCard", () => {
     expect(git.getAttribute("aria-checked")).toBe("true");
     await user.keyboard(" ");
     expect(git.getAttribute("aria-checked")).toBe("false");
+    // The chip is the label: a click on its text toggles once.
+    await user.click(getByText("bun"));
+    expect(
+      getByRole("checkbox", { name: "bun" }).getAttribute("aria-checked"),
+    ).toBe("true");
   });
 });
