@@ -201,7 +201,7 @@ export function Releases({
                   </span>
                 </RowLines>
                 {active ? (
-                  <Badge>{t("agent.releases.active")}</Badge>
+                  <Badge variant="green">{t("agent.releases.active")}</Badge>
                 ) : (
                   <Button
                     type="button"

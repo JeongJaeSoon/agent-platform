@@ -29,6 +29,7 @@ import {
 } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
+import { Page } from "../components/page.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
 
@@ -39,20 +40,13 @@ function loadError(error: unknown, onRetry: () => void) {
   return <LoadFailure error={error} onRetry={onRetry} />;
 }
 
-const PAGE = "flex flex-col gap-6";
-const TITLE = "m-0 font-semibold text-title";
+const PAGE = "flex flex-col gap-[var(--ap-space-section)]";
 
 export function SessionsScreen() {
   const { t } = useI18n();
   const unavailable = useUnavailable();
   return (
-    <div className={PAGE}>
-      <div className="flex flex-col gap-1">
-        <h1 className={TITLE}>{t("sessions.title")}</h1>
-        <p className="m-0 text-muted-foreground text-control">
-          {t("sessions.intro")}
-        </p>
-      </div>
+    <Page title={t("sessions.title")} description={t("sessions.intro")}>
       <ApprovalInbox
         loading={<StatusScreen kind="loading" />}
         renderError={loadError}
@@ -63,7 +57,7 @@ export function SessionsScreen() {
         loading={<StatusScreen kind="loading" />}
         renderError={loadError}
       />
-    </div>
+    </Page>
   );
 }
 
@@ -171,7 +165,10 @@ function SessionProfile({ session }: { readonly session: SessionDetailData }) {
   };
 
   return (
-    <section className="flex flex-col gap-3" aria-labelledby={titleId}>
+    <section
+      className="flex flex-col gap-[var(--ap-space-block)]"
+      aria-labelledby={titleId}
+    >
       <h2 id={titleId} className="m-0 font-semibold text-body">
         {t("session.profile")}
       </h2>

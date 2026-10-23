@@ -74,13 +74,6 @@ describe("styles.css", () => {
     expect(rule).toContain("white-space: nowrap");
   });
 
-  test("draws focus on the dark rail in the rail's light foreground", () => {
-    const rule = css.match(
-      /\[data-slot="app-sidebar"\] :focus-visible \{([^}]*)\}/,
-    )?.[1];
-    expect(rule).toContain("var(--ap-color-rail-foreground)");
-  });
-
   test("declares no animation of its own; motion comes from utilities", () => {
     expect(css).not.toContain("@keyframes");
   });

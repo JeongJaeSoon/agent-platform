@@ -76,7 +76,7 @@ export function RevisionDiff({
         {t("diff.caption", { before: beforeLabel, after: afterLabel })}
       </figcaption>
       {changed ? (
-        <pre className="m-0 overflow-x-auto rounded-md border p-3 font-mono text-xs">
+        <pre className="m-0 overflow-x-auto rounded-card border p-3 font-mono text-xs">
           {lines.map((line, index) => (
             <span
               // Lines repeat, so position is the only stable identity here.

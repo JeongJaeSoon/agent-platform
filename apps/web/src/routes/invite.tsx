@@ -39,8 +39,8 @@ import { FunnelResetNotice, useFunnel } from "../funnel/tanstack-funnel.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
 
 const BOX =
-  "flex flex-col items-start gap-3 rounded-md border bg-card p-4 text-card-foreground";
-const BOX_TITLE = "m-0 font-semibold text-lg";
+  "flex flex-col items-start gap-3 rounded-card border bg-card p-4 text-card-foreground";
+const BOX_TITLE = "m-0 font-semibold text-body";
 const BOX_BODY = "m-0 text-muted-foreground";
 
 function InviteStatus({

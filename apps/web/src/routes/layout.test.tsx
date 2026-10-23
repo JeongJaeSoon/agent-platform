@@ -51,7 +51,7 @@ describe("app shell", () => {
     ).toEqual([
       ["홈", "세션", "에이전트"],
       ["구성원", "팀", "워크스페이스 설정"],
-      ["연동 계정", "API key", "언어·테마"],
+      ["연동 계정", "내 key", "언어·테마"],
     ]);
     expect(groups[0]?.getAttribute("aria-labelledby")).toBeTruthy();
     expect(within(nav).getByRole("group", { name: "업무" })).toBeDefined();
@@ -67,19 +67,18 @@ describe("app shell", () => {
     ).toBeNull();
   });
 
-  test("the page header names the group and the page", async () => {
+  test("the top bar names the page with the sidebar's words", async () => {
     renderAt("/settings/api-keys", signedIn);
-    const header = await screen.findByRole("banner");
-    await waitFor(() =>
-      expect(header.textContent).toBe("메뉴 열기내 설정/API key"),
-    );
+    // The page head is a <header> too; the top bar comes first.
+    const [header] = await screen.findAllByRole("banner");
+    await waitFor(() => expect(header?.textContent).toBe("메뉴 열기내 key"));
   });
 
   test("lists and forms take different widths", async () => {
     renderAt("/", signedIn);
-    await screen.findByRole("heading", { name: "Acme" });
+    await screen.findByRole("heading", { name: "홈" });
     expect(document.getElementById("main")?.className).toContain(
-      "max-w-[var(--ap-layout-content-width)]",
+      "max-w-[calc(var(--ap-w-wide)+2*var(--ap-gutter))]",
     );
   });
 
@@ -87,8 +86,20 @@ describe("app shell", () => {
     renderAt("/settings/api-keys", signedIn);
     await screen.findByRole("heading", { level: 1, name: "내 key" });
     expect(document.getElementById("main")?.className).toContain(
-      "max-w-[var(--ap-layout-settings-width)]",
+      "max-w-[calc(var(--ap-w-narrow)+2*var(--ap-gutter))]",
     );
+  });
+
+  test("new is offered on the list screens to whoever may create agents", async () => {
+    renderAt("/sessions", signedIn);
+    const [header] = await screen.findAllByRole("banner");
+    expect(
+      (
+        await within(header as HTMLElement).findByRole("link", {
+          name: "새로 만들기",
+        })
+      ).getAttribute("href"),
+    ).toBe("/agents/new");
   });
 
   test("the sessions item counts the sessions waiting for an answer", async () => {
@@ -155,7 +166,7 @@ describe("app shell", () => {
     });
     const user = await setupUser();
     await user.click(await screen.findByRole("button", { name: "다시 시도" }));
-    expect(await screen.findByRole("heading", { name: "Acme" })).toBeDefined();
+    expect(await screen.findByRole("heading", { name: "홈" })).toBeDefined();
     expect(
       api.calls.filter((call) => call.path === "/v1/auth/me"),
     ).toHaveLength(2);
@@ -170,11 +181,11 @@ describe("app shell", () => {
     expect(link.textContent).toBe("세션");
   });
 
-  test("the account menu holds settings, language, theme, keys and logout", async () => {
+  test("the account menu holds linked accounts, language, theme, keys and logout", async () => {
     renderAt("/", signedIn);
     const region = await screen.findByRole("region", { name: "사용자 메뉴" });
     const trigger = within(region).getByRole("button", {
-      name: "Owner 소유자",
+      name: "Owner · 소유자",
     });
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
     expect(screen.queryByRole("menu")).toBeNull();
@@ -182,41 +193,60 @@ describe("app shell", () => {
 
     const user = await setupUser();
     await user.click(trigger);
-    const menu = screen.getByRole("menu", { name: "Owner 소유자" });
+    const menu = screen.getByRole("menu", { name: "Owner · 소유자" });
     expect(within(menu).getByText("owner@example.com")).toBeDefined();
+    expect(within(menu).getByText("소유자 · Acme")).toBeDefined();
+    // Each submenu item shows its current value after the label.
     expect(
       within(menu)
         .getAllByRole("menuitem")
         .map((item) => item.textContent),
-    ).toEqual(["내 설정", "언어", "API key", "로그아웃"]);
+    ).toEqual([
+      "연동 계정",
+      "언어한국어",
+      "테마시스템 설정",
+      "내 key",
+      "로그아웃",
+    ]);
     expect(
       within(menu)
-        .getByRole("menuitem", { name: "API key" })
+        .getByRole("menuitem", { name: "내 key" })
         .getAttribute("href"),
     ).toBe("/settings/api-keys");
     expect(
       within(menu)
-        .getByRole("menuitem", { name: "내 설정" })
+        .getByRole("menuitem", { name: "연동 계정" })
         .getAttribute("href"),
-    ).toBe("/settings/preferences");
+    ).toBe("/settings/linked-accounts");
 
+    await user.click(within(menu).getByRole("menuitem", { name: /^테마/ }));
     await user.click(
-      within(menu).getByRole("menuitemradio", { name: "어둡게" }),
+      within(screen.getByRole("menu", { name: /^테마/ })).getByRole(
+        "menuitemradio",
+        { name: "어둡게" },
+      ),
     );
     expect(document.documentElement.dataset.theme).toBe("dark");
     expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe("dark");
+    expect(screen.queryByRole("menu", { name: /^테마/ })).toBeNull();
+    const themeItem = within(menu).getByRole("menuitem", { name: /^테마/ });
+    expect(themeItem.textContent).toBe("테마어둡게");
+    await user.click(themeItem);
     expect(
-      within(menu)
+      within(screen.getByRole("menu", { name: /^테마/ }))
         .getByRole("menuitemradio", { name: "어둡게" })
         .getAttribute("aria-checked"),
     ).toBe("true");
     await user.click(
-      within(menu).getByRole("menuitemradio", { name: "시스템 설정" }),
+      within(screen.getByRole("menu", { name: /^테마/ })).getByRole(
+        "menuitemradio",
+        { name: "시스템 설정" },
+      ),
     );
     expect(document.documentElement.dataset.theme).toBeUndefined();
 
-    await user.click(within(menu).getByRole("menuitem", { name: "언어" }));
-    const languages = screen.getByRole("menu", { name: "언어" });
+    await user.click(within(menu).getByRole("menuitem", { name: /^언어/ }));
+    const languages = screen.getByRole("menu", { name: /^언어/ });
     expect(
       within(languages)
         .getAllByRole("menuitemradio")
@@ -226,7 +256,7 @@ describe("app shell", () => {
       within(languages).getByRole("menuitemradio", { name: "English" }),
     );
     expect(
-      await screen.findByRole("menuitem", { name: "Language" }),
+      await screen.findByRole("menuitem", { name: /^Language/ }),
     ).toBeDefined();
   });
 
@@ -235,7 +265,7 @@ describe("app shell", () => {
     const region = await screen.findByRole("region", { name: "사용자 메뉴" });
     const user = await setupUser();
     await user.click(within(region).getByRole("button", { name: /Owner/ }));
-    await user.click(screen.getByRole("menuitem", { name: "API key" }));
+    await user.click(screen.getByRole("menuitem", { name: "내 key" }));
     expect(history.location.pathname).toBe("/settings/api-keys");
     expect(screen.queryByRole("menu")).toBeNull();
     expect(document.activeElement?.id).toBe("main");
@@ -248,7 +278,7 @@ describe("app shell", () => {
     const user = await setupUser();
     trigger.focus();
     await user.keyboard("{ArrowUp}");
-    expect(document.activeElement?.textContent).toBe("내 설정");
+    expect(document.activeElement?.textContent).toBe("연동 계정");
     await user.keyboard("{ArrowDown}{ArrowRight}");
     expect(document.activeElement?.textContent).toBe("한국어");
     await user.keyboard("{ArrowDown}");
@@ -256,8 +286,12 @@ describe("app shell", () => {
     await user.keyboard("{ArrowDown}");
     expect(document.activeElement?.textContent).toBe("English");
     await user.keyboard("{Escape}");
-    expect(screen.queryByRole("menu", { name: "언어" })).toBeNull();
-    expect(document.activeElement?.textContent).toBe("언어");
+    expect(screen.queryByRole("menu", { name: /^언어/ })).toBeNull();
+    expect(document.activeElement?.textContent).toBe("언어한국어");
+    await user.keyboard("{ArrowDown}{ArrowRight}");
+    expect(document.activeElement?.textContent).toBe("시스템 설정");
+    await user.keyboard("{ArrowLeft}");
+    expect(document.activeElement?.textContent).toBe("테마시스템 설정");
     await user.keyboard("{End}");
     expect(document.activeElement?.textContent).toBe("로그아웃");
     await user.keyboard("{Escape}");
