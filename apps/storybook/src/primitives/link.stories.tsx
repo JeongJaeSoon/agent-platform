@@ -118,20 +118,24 @@ const All: Story = {
     const copy = copyFor(globals.locale);
     return (
       <div className="story-stack">
-        <Link href="#teams">{copy.team}</Link>
+        <p>
+          <Link href="#teams">{copy.team}</Link>
+        </p>
         <p className="text-body">
           {copy.question}{" "}
           <Link href="#signup" underline="always">
             {copy.signUp}
           </Link>
         </p>
-        <Link
-          href="https://example.com/docs"
-          target="_blank"
-          newTabLabel={copy.newTab}
-        >
-          {copy.docs}
-        </Link>
+        <p>
+          <Link
+            href="https://example.com/docs"
+            target="_blank"
+            newTabLabel={copy.newTab}
+          >
+            {copy.docs}
+          </Link>
+        </p>
       </div>
     );
   },

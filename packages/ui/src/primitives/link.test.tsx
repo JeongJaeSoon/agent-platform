@@ -187,6 +187,29 @@ describe("Link", () => {
     expect(getByRole("link", { name: "문서 (새 탭에서 열림)" })).toBeTruthy();
   });
 
+  test("target 대소문자와 관계없이 새 탭으로 다룬다", () => {
+    const { getAllByRole } = render(
+      <>
+        <Link href="https://example.com" target="_BLANK" newTabLabel="(새 탭)">
+          직접
+        </Link>
+        <Link asChild={true}>
+          <a href="https://example.com" target="_Blank">
+            자식
+          </a>
+        </Link>
+      </>,
+    );
+    const [direct, child] = getAllByRole("link");
+    for (const link of [direct, child]) {
+      expect(link?.getAttribute("rel")?.split(" ").sort()).toEqual([
+        "noopener",
+        "noreferrer",
+      ]);
+    }
+    expect(direct?.textContent).toBe("직접(새 탭)");
+  });
+
   test("같은 탭 링크에는 안내 문구를 넣지 않는다", () => {
     const { getByRole } = render(
       <Link href="/agents" newTabLabel="(새 탭에서 열림)">
@@ -222,5 +245,36 @@ describe("SkipLink", () => {
     ).toBe(true);
     await user.keyboard("{Enter}");
     expect(document.activeElement === getByRole("main")).toBe(true);
+  });
+
+  test("인코딩된 fragment도 대상을 찾는다", async () => {
+    const user = await setupUser();
+    const mainId = "본문 영역";
+    const { getByRole } = render(
+      <div>
+        <SkipLink href={`#${encodeURIComponent(mainId)}`}>본문으로</SkipLink>
+        <main id={mainId} tabIndex={-1} />
+      </div>,
+    );
+    await user.click(getByRole("link"));
+    expect(document.activeElement === getByRole("main")).toBe(true);
+  });
+
+  test("호출자가 막은 클릭에서는 포커스를 옮기지 않는다", async () => {
+    const user = await setupUser();
+    const mainId = "main";
+    const { getByRole } = render(
+      <div>
+        <SkipLink
+          href={`#${mainId}`}
+          onClick={(event) => event.preventDefault()}
+        >
+          본문으로
+        </SkipLink>
+        <main id={mainId} tabIndex={-1} />
+      </div>,
+    );
+    await user.click(getByRole("link"));
+    expect(document.activeElement === getByRole("main")).toBe(false);
   });
 });

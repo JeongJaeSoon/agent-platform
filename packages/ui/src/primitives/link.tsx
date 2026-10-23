@@ -55,9 +55,9 @@ export type LinkProps = ComponentProps<"a"> &
 
 // A new tab must not get `window.opener` or the referrer, whatever rel the
 // caller passed.
-function safeRel(target: string | undefined, ...rels: (string | undefined)[]) {
+function safeRel(newTab: boolean, ...rels: (string | undefined)[]) {
   const tokens = new Set(rels.join(" ").split(/\s+/).filter(Boolean));
-  if (target === "_blank") {
+  if (newTab) {
     tokens.add("noopener");
     tokens.add("noreferrer");
   }
@@ -94,10 +94,12 @@ export function Link({
   // and handed to Slot whole.
   const child =
     asChild && isValidElement<ChildProps>(children) ? children : null;
-  const target = child?.props.target ?? props.target;
-  const rel = safeRel(target, props.rel, child?.props.rel);
+  // Browsers match the target keyword without case.
+  const newTab =
+    (child?.props.target ?? props.target)?.toLowerCase() === "_blank";
+  const rel = safeRel(newTab, props.rel, child?.props.rel);
   const label =
-    target === "_blank" && newTabLabel != null ? (
+    newTab && newTabLabel != null ? (
       <span className="sr-only">{newTabLabel}</span>
     ) : null;
   const shared = {
@@ -131,6 +133,14 @@ export type SkipLinkProps = ComponentProps<"a"> & {
   readonly href: string;
 };
 
+function fragmentId(href: string): string {
+  try {
+    return decodeURIComponent(href.slice(1));
+  } catch {
+    return href.slice(1);
+  }
+}
+
 /*
  * "Skip to content": off screen until it takes focus, so the first Tab lands
  * on it. Its positioned ancestor is the page root.
@@ -154,7 +164,7 @@ export function SkipLink({
         if (event.defaultPrevented || !href.startsWith("#")) return;
         // A fragment jump alone does not move focus in every browser, and an
         // untrusted click (a script, a test) never does.
-        const target = document.getElementById(href.slice(1));
+        const target = document.getElementById(fragmentId(href));
         if (target === null) return;
         event.preventDefault();
         target.focus();
