@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import {
   mkdir,
   mkdtemp,
@@ -296,37 +296,76 @@ export async function exportedComponentNames(
   const names = new Set<string>();
   const seen = new Set<string>();
   const visit = async (file: string): Promise<void> => {
-    if (seen.has(file) || !existsSync(file)) return;
+    if (seen.has(file)) return;
     seen.add(file);
-    const source = await readFile(file, "utf8");
+    const source = withoutComments(await readFile(file, "utf8"));
     for (const match of source.matchAll(
       /export\s*\*\s*from\s*["']([^"']+)["']/g,
     ))
-      if (match[1]?.startsWith("."))
-        await visit(resolve(dirname(file), match[1]));
-    for (const match of source.matchAll(/export\s*(?:type\s*)?\{([^}]*)\}/g)) {
-      if (match[0].startsWith("export type")) continue;
-      for (const entry of (match[1] ?? "").split(",")) {
-        const name = entry.trim();
+      if (match[1]?.startsWith(".")) await visit(moduleFile(file, match[1]));
+    for (const match of source.matchAll(/export\s*(type\b\s*)?\{([^}]*)\}/g)) {
+      if (match[1]) continue;
+      for (const item of (match[2] ?? "").split(",")) {
+        const name = item.trim();
         if (!name || name.startsWith("type ")) continue;
         names.add(name.split(/\s+as\s+/).pop() ?? name);
       }
     }
     for (const match of source.matchAll(
-      /export\s+(?:declare\s+)?(?:async\s+)?(?:function\*?|const|let|class)\s+([A-Za-z_$][\w$]*)/g,
+      /export\s+(?:declare\s+)?(?:async\s+)?(?:function\*?|const|let|var|class)\s+([A-Za-z_$][\w$]*)/g,
     ))
       names.add(match[1] ?? "");
+    for (const match of source.matchAll(laterDeclarator))
+      names.add(match[1] ?? "");
   };
-  const exports = (
-    JSON.parse(await readFile(join(directory, "package.json"), "utf8")) as {
-      exports?: Record<string, string>;
-    }
-  ).exports;
-  for (const [entry, target] of Object.entries(exports ?? {}))
-    if (/\.tsx?$/.test(target) && !entry.includes("test-support"))
-      await visit(join(directory, target));
-  return new Set([...names].filter((name) => /^[A-Z][a-z]/.test(name)));
+  const { exports } = JSON.parse(
+    await readFile(join(directory, "package.json"), "utf8"),
+  ) as { exports?: unknown };
+  const subpaths =
+    typeof exports === "string" ? { ".": exports } : (exports ?? {});
+  for (const [subpath, target] of Object.entries(subpaths)) {
+    if (subpath.includes("test-support")) continue;
+    for (const path of leaves(target))
+      if (/\.tsx?$/.test(path)) await visit(join(directory, path));
+  }
+  // SCREAMING_CASE exports are constants, not components.
+  return new Set(
+    [...names].filter(
+      (name) => /^[A-Z]/.test(name) && !/^[A-Z0-9_]+$/.test(name),
+    ),
+  );
 }
+
+/** Every string target of a package.json `exports` value, conditions included. */
+function leaves(value: unknown): string[] {
+  if (typeof value === "string") return [value];
+  if (value && typeof value === "object")
+    return Object.values(value).flatMap(leaves);
+  return [];
+}
+
+/** The file an extensionless or directory specifier names; an unknown one fails loudly. */
+function moduleFile(from: string, specifier: string): string {
+  const base = resolve(dirname(from), specifier);
+  for (const candidate of [
+    base,
+    `${base}.ts`,
+    `${base}.tsx`,
+    join(base, "index.ts"),
+    join(base, "index.tsx"),
+  ])
+    if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
+  throw new Error(`${from}: cannot resolve export * from "${specifier}"`);
+}
+
+function withoutComments(source: string): string {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/(^|\s)\/\/.*$/gm, "$1");
+}
+
+/** The second and later bindings of `const a = 1, Card = () => ...`. */
+const laterDeclarator = /,\s*([A-Z][\w$]*)\s*(?::[^=,;()]+)?=(?![=>])/g;
 
 /** Count of each web UI rule's matches, per file relative to apps/web/src. */
 export type WebUiCounts = Record<string, Partial<Record<WebUiRule, number>>>;
@@ -373,36 +412,34 @@ export async function webUiViolations(
     const file = join(entry.parentPath, entry.name);
     const name = relative(directory, file);
     if (entry.name.endsWith(".css")) {
-      add(
-        name,
-        "legacy-class",
-        [
-          ...(await readFile(file, "utf8")).matchAll(
-            /\.(?:web-[a-z0-9_-]+|ap-input[a-z0-9_-]*)/g,
-          ),
-        ].length,
-      );
+      // Every mention, so an attribute selector ([class~="web-x"]) counts too.
+      const css = withoutComments(await readFile(file, "utf8"));
+      add(name, "legacy-class", [...css.matchAll(legacyClass)].length);
       continue;
     }
     if (!/\.tsx?$/.test(entry.name) || isTestFile(file)) continue;
-    const source = await readFile(file, "utf8");
+    const source = withoutComments(await readFile(file, "utf8"));
     const count = (pattern: RegExp) => [...source.matchAll(pattern)].length;
-    add(name, "raw-table", count(/<table\b/g));
-    add(name, "raw-anchor", count(/<a(?=[\s>])/g));
+    add(name, "raw-table", count(/<table(?=[\s>/])/g));
+    add(name, "raw-anchor", count(/<a(?=[\s>/])/g));
     add(
       name,
       "shadow-component",
       [
         ...source.matchAll(
-          /\b(?:function|const|let|class)\s+([A-Z][A-Za-z0-9_$]*)/g,
+          /\b(?:function\*?|const|let|var|class)\s+([A-Z][\w$]*)/g,
         ),
+        ...source.matchAll(laterDeclarator),
       ].filter((match) => components.has(match[1] ?? "")).length,
     );
     add(name, "legacy-class", count(legacyClass));
+    // A URL constant (HELP_LINK = "https://...") is not a className.
     add(
       name,
       "link-constant",
-      count(/\bconst\s+[A-Z0-9_]*LINK[A-Z0-9_]*\s*=\s*["'`]/g),
+      count(
+        /\bconst\s+[A-Z0-9_]*LINK[A-Z0-9_]*\s*(?::[^=]+)?=\s*["'`](?!\/|[a-z]+:)/g,
+      ),
     );
     add(name, "raw-destructive", count(/(?<![\w-])text-destructive(?![\w-])/g));
   }
@@ -1093,6 +1130,88 @@ describe("architecture", () => {
         `${join("routes", "screen.tsx")} raw-table: 0 found, 1 allowed. Lower this entry in tests/web-ui-allowlist.ts to 0 (remove it)`,
       );
       expect(stale).toHaveLength(7);
+    } finally {
+      await rm(fixture, { recursive: true, force: true });
+    }
+  });
+
+  test("the web UI scan reads past comments, URLs, generics and every way to declare or export a name", async () => {
+    const fixture = await mkdtemp(join(tmpdir(), "arch-web-ui-edge-"));
+    try {
+      await mkdir(join(fixture, "ui", "src", "parts"), { recursive: true });
+      await writeFile(
+        join(fixture, "ui", "package.json"),
+        JSON.stringify({
+          exports: { ".": { import: "./src/index.ts" } },
+        }),
+      );
+      await writeFile(
+        join(fixture, "ui", "src", "index.ts"),
+        [
+          'export * from "./card";',
+          'export * from "./parts";',
+          "export\ntype { CardProps } from './card';",
+          "// export const Ghost = () => null;",
+        ].join("\n"),
+      );
+      await writeFile(
+        join(fixture, "ui", "src", "card.tsx"),
+        "export const First = () => null, Second = () => null;",
+      );
+      await writeFile(
+        join(fixture, "ui", "src", "parts", "index.ts"),
+        "export const APIError = () => null;",
+      );
+      expect(
+        [...(await exportedComponentNames(join(fixture, "ui")))].sort(),
+      ).toEqual(["APIError", "First", "Second"]);
+
+      const web = join(fixture, "web");
+      await mkdir(web);
+      await writeFile(
+        join(web, "clean.tsx"),
+        [
+          '// <table> <a href="/"> web-field text-destructive',
+          "/* const Card = () => null; */",
+          "const identity = <table,>(value: table) => value;",
+          'const HELP_LINK = "https://example.com/help";',
+          'const HOME_LINK = "/home";',
+          "const CardProps = {};",
+        ].join("\n"),
+      );
+      await writeFile(
+        join(web, "dirty.tsx"),
+        [
+          'const LINK: string = "underline";',
+          "const unrelated = 0, Second = () => <div />;",
+          "function APIError() { return <a/>; }",
+        ].join("\n"),
+      );
+      await writeFile(
+        join(web, "styles.css"),
+        '/* .web-old */\n[class~="web-field"] { color: red; }',
+      );
+      expect(
+        await webUiViolations(
+          web,
+          await exportedComponentNames(join(fixture, "ui")),
+        ),
+      ).toEqual({
+        "dirty.tsx": {
+          "raw-anchor": 1,
+          "shadow-component": 2,
+          "link-constant": 1,
+        },
+        "styles.css": { "legacy-class": 1 },
+      });
+
+      await writeFile(
+        join(fixture, "ui", "src", "index.ts"),
+        'export * from "./missing";',
+      );
+      await expect(exportedComponentNames(join(fixture, "ui"))).rejects.toThrow(
+        'cannot resolve export * from "./missing"',
+      );
     } finally {
       await rm(fixture, { recursive: true, force: true });
     }
