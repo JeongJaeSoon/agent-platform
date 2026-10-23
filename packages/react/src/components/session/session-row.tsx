@@ -5,7 +5,7 @@ import type {
   SessionStatus,
   SessionSummary,
 } from "@werft-ai/contracts";
-import { cn, formatTimestamp, type TimestampLocale } from "@werft-ai/ui";
+import { cn, RelativeTime, type TimestampLocale } from "@werft-ai/ui";
 import type { JSX, ReactNode } from "react";
 
 import { StatusLabel } from "../status/status-label.tsx";
@@ -65,9 +65,13 @@ export function SessionRow({
       <span className="sr-only">
         {session.last_event_at ? messages.lastEvent : messages.created}{" "}
       </span>
-      <time dateTime={session.last_event_at ?? session.created_at}>
-        {formatTimestamp(session.last_event_at ?? session.created_at, locale)}
-      </time>
+      {/* Above the row link's overlay, so hovering and focus reach it. */}
+      <RelativeTime
+        value={session.last_event_at ?? session.created_at}
+        locale={locale}
+        // The narrow layout's cell cuts what overflows; the ring stays inside.
+        className="relative focus-visible:-outline-offset-2"
+      />
     </>
   );
   return (

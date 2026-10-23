@@ -20,7 +20,9 @@ import {
   Badge,
   Card,
   cn,
+  formatExactTime,
   formatTimestamp,
+  RelativeTime,
   Table,
   TableBody,
   TableCell,
@@ -29,6 +31,9 @@ import {
   TableHeader,
   TableRow,
   Link as TextLink,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from "@werft-ai/ui";
 import { ArrowRight, Check, Folder, GitBranch, Inbox } from "lucide-react";
 import { type ReactNode, useEffect, useId, useState } from "react";
@@ -314,12 +319,7 @@ export function HomeScreen() {
                       </Link>
                     </TextLink>
                     {" · "}
-                    <time
-                      dateTime={oldest.at}
-                      title={formatTimestamp(oldest.at, locale)}
-                    >
-                      {relativeTime(oldest.at, locale, now)}
-                    </time>
+                    <RelativeTime value={oldest.at} locale={locale} now={now} />
                   </>
                 ),
               },
@@ -1026,12 +1026,21 @@ function RecentRow({
             {session.status === "needs_input" && waitingSince ? (
               <>
                 {" · "}
-                <time
-                  dateTime={waitingSince}
-                  title={formatTimestamp(waitingSince, locale)}
-                >
-                  {waitedFor(waitingSince, locale, now)}
-                </time>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <time
+                      dateTime={waitingSince}
+                      // biome-ignore lint/a11y/noNoninteractiveTabindex: keyboard users reach the exact time only through focus
+                      tabIndex={0}
+                      className="rounded-sm focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2"
+                    >
+                      {waitedFor(waitingSince, locale, now)}
+                    </time>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {formatExactTime(waitingSince, locale)}
+                  </TooltipContent>
+                </Tooltip>
               </>
             ) : null}
           </span>
@@ -1067,9 +1076,7 @@ function RecentRow({
         </span>
       </TableCell>
       <TableCell className="whitespace-nowrap text-right text-muted-foreground">
-        <time dateTime={at} title={formatTimestamp(at, locale)}>
-          {relativeTime(at, locale, now)}
-        </time>
+        <RelativeTime value={at} locale={locale} now={now} />
       </TableCell>
     </TableRow>
   );

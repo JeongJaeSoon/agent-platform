@@ -112,6 +112,12 @@ describe("session outputs", () => {
       `/v1/sessions/${SESSION_ID}/outputs/out%2Freport.md`,
     );
     expect(report.getAttribute("download")).toBe("report.md");
+    // The name a sighted user sees on hover or focus is the Tooltip's.
+    expect(
+      document.getElementById(report.getAttribute("aria-describedby") ?? "")
+        ?.textContent,
+    ).toBe("report.md 내려받기");
+    expect(report.hasAttribute("title")).toBe(false);
     const nested = screen.getByRole("link", {
       name: "sub/보고서 (최종).csv 내려받기",
     });

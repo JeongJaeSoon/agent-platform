@@ -482,10 +482,11 @@ describe("sessions list", () => {
     expect(within(row).getByText("Working")).toBeTruthy();
     expect(screen.getByRole("searchbox", { name: "Find by title or ID" }));
     expect(screen.queryByText(/세션/)).toBeNull();
-    // The exact time rides on the short one until the ui-kit's tooltip.
-    expect(row.querySelector("time")?.getAttribute("title")).toBe(
-      "Oct 11, 2026, 17:14",
-    );
+    const time = row.querySelector("time");
+    expect(
+      document.getElementById(time?.getAttribute("aria-describedby") ?? "")
+        ?.textContent,
+    ).toMatch(/^October 11, 2026/);
   });
 
   test("a row's link opens the session inside the app", async () => {

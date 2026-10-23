@@ -1,7 +1,7 @@
 /* biome-ignore-all lint/a11y/useSemanticElements: container-responsive columns use a div-grid table. */
 /* biome-ignore-all lint/a11y/useFocusableInteractive: static table rows delegate keyboard navigation to their cell links. */
 import type { SessionStatus, SessionSummary } from "@werft-ai/contracts";
-import { cn, formatTimestamp, type TimestampLocale } from "@werft-ai/ui";
+import { cn, RelativeTime, type TimestampLocale } from "@werft-ai/ui";
 import { Folder } from "lucide-react";
 import type { JSX, ReactNode } from "react";
 
@@ -101,9 +101,14 @@ export interface SessionOverviewRowProps {
   readonly messages: SessionOverviewRowMessages;
   /** After the status, such as how long an answer has been awaited. */
   readonly statusDetail?: string | undefined;
-  /** Draws the last activity; the absolute time when omitted. */
+  /**
+   * Draws the last activity; when omitted, "12분 전" with the exact time in
+   * a tooltip.
+   */
   readonly renderTime?: ((iso: string) => ReactNode) | undefined;
   readonly locale?: TimestampLocale | undefined;
+  /** The instant the default time counts from; the time of render if unset. */
+  readonly now?: number | undefined;
   readonly className?: string | undefined;
 }
 
@@ -114,6 +119,7 @@ export function SessionOverviewRow({
   statusDetail,
   renderTime,
   locale = "ko",
+  now,
   className,
 }: SessionOverviewRowProps): JSX.Element {
   const shortId = shortSessionId(session.id);
@@ -203,16 +209,19 @@ export function SessionOverviewRow({
         className="flex min-w-0 justify-end overflow-hidden whitespace-nowrap text-caption text-subtle-foreground"
       >
         <span className="sr-only">{messages.recent} </span>
-        {/* Above the row link's overlay, so hovering shows the time's title.
-            A longer word than the column ("yesterday 15:14") is cut, not
-            spilled over the repository. */}
-        <span className="relative min-w-0 truncate">
+        {/* Above the row link's overlay, so hovering and focus reach the
+            time. A longer word than the column ("yesterday 15:14") is cut,
+            not spilled over the repository; the ring sits inside the cut. */}
+        <span className="relative flex min-w-0">
           {renderTime ? (
             renderTime(at)
           ) : (
-            <time dateTime={at} title={formatTimestamp(at, locale)}>
-              {formatTimestamp(at, locale)}
-            </time>
+            <RelativeTime
+              value={at}
+              locale={locale}
+              {...(now === undefined ? {} : { now })}
+              className="truncate focus-visible:-outline-offset-2"
+            />
           )}
         </span>
       </span>
