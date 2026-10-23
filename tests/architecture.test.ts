@@ -508,7 +508,7 @@ export async function webUiViolations(
       if (
         ts.isVariableDeclaration(node) &&
         ts.isIdentifier(node.name) &&
-        /^[A-Z0-9_]*LINK[A-Z0-9_]*$/.test(node.name.text) &&
+        /link/i.test(node.name.text) &&
         node.initializer &&
         isLinkClasses(node.initializer)
       )
@@ -1263,6 +1263,8 @@ describe("architecture", () => {
           'const CONST_LINK = "text-primary underline" as const;',
           'const ACTIVE_LINK = "data-[active=true]:text-primary";',
           'const LOUD_LINK = "hover:underline!";',
+          'const linkClassName = "text-primary hover:underline";',
+          'const linkHref = "/text-guide";',
           "const MIXED_LINK = `text-primary ${extra} underline`;",
           'const DOCS_LINK: string = "https://tailwindcss.com/docs/text-decoration-line";',
           "const NAV_LINK = `",
@@ -1289,7 +1291,7 @@ describe("architecture", () => {
         "dirty.tsx": {
           "raw-anchor": 4,
           "shadow-component": 2,
-          "link-constant": 7,
+          "link-constant": 8,
         },
         "styles.css": { "legacy-class": 1 },
       });
