@@ -54,6 +54,30 @@ curl -sS -o /dev/null -w '%{http_code}\n' -X POST "$API/v1/linked-accounts/slack
 | 409 `LINK_TAKEN` | 그 Slack 계정이 다른 사람에게 연결돼 있다 |
 | 409 `LINK_EXISTS` | 같은 팀에 내 연결이 이미 있다 |
 
+## Slack 설치 등록
+
+운영자가 Slack 앱을 Slack 워크스페이스에 설치한 뒤, 그 앱의 bot token으로 설치를 등록한다. CLI가 Slack의 `auth.test`·`bots.info`로 팀, bot 사용자, 앱을 확인하고 확인된(`verified`) 설치를 남긴다. 앱에는 bot scope `users:read`가 있어야 한다. token은 환경 변수 `SLACK_BOT_TOKEN`으로만 넘긴다. CLI는 token을 인자로 받지 않고 출력하지도 않는다.
+
+```bash
+read -rs SLACK_BOT_TOKEN && export SLACK_BOT_TOKEN
+bun run slack-install register --workspace "$WS" --app-id A0123ABCD
+```
+
+```text
+{"outcome":"verified","registration":"registered","installation_id":"…","workspace_id":"…","app_id":"A0123ABCD","team_id":"T0123ABCD","bot_user_id":"U0123ABCD"}
+```
+
+같은 명령을 다시 실행하면 같은 설치를 다시 확인한다(`registration: existing`). 실패하면 stderr에 한 줄을 쓰고 아래 종료 코드로 끝난다.
+
+| 종료 코드 | 뜻 |
+| --- | --- |
+| 0 | 확인된 설치가 있다 |
+| 2 | 인자·환경 변수가 잘못됐거나 워크스페이스가 없다 |
+| 3 | Slack이 token을 거절했거나, 다른 앱의 token이거나, Slack에 닿지 않는다 |
+| 4 | 그 앱과 팀이 다른 워크스페이스에 이미 설치돼 있다(`workspace_conflict`) |
+| 5 | 등록하는 동안 설치가 해제됐다(`revoked`). 다시 실행하면 다시 연다 |
+| 1 | 그 밖의 오류 |
+
 ## 에이전트의 Slack 앱
 
 에이전트마다 자기 Slack 앱을 갖는다. 연결에는 앱 id, 팀 id, bot token이 든 자격 참조의 이름(`credential_ref`, 값이 아니다)을 보낸다.
@@ -63,7 +87,7 @@ curl -sS "$API/v1/agents/$AID/identities" "${WEB[@]}" \
   -d '{"provider": "slack_bot", "app_id": "A0APP", "team_id": "T0TEAM", "credential_ref": "slack/research-bot-token"}'
 ```
 
-확인된 Slack 설치가 없으면 409 `SLACK_NOT_INSTALLED`다. 설치는 아직 운영자가 저장소 함수로만 만든다.
+확인된 Slack 설치가 없으면 409 `SLACK_NOT_INSTALLED`다. 설치는 운영자가 위의 Slack 설치 등록 CLI로 만든다.
 
 ## 다음 단계
 

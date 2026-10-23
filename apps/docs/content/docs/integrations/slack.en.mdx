@@ -54,6 +54,30 @@ With a configured installation, the start request returns an `authorize_url`. Af
 | 409 `LINK_TAKEN` | That Slack account is already linked to someone else |
 | 409 `LINK_EXISTS` | I already have a link for the same team |
 
+## Register a Slack installation
+
+After installing the Slack app in a Slack workspace, the operator registers the installation with that app's bot token. The CLI asks Slack (`auth.test`, `bots.info`) for the team, the bot user, and the app, and records a confirmed (`verified`) installation. The app needs the bot scope `users:read`. Pass the token only in the `SLACK_BOT_TOKEN` environment variable. The CLI never takes the token as an argument and never prints it.
+
+```bash
+read -rs SLACK_BOT_TOKEN && export SLACK_BOT_TOKEN
+bun run slack-install register --workspace "$WS" --app-id A0123ABCD
+```
+
+```text
+{"outcome":"verified","registration":"registered","installation_id":"…","workspace_id":"…","app_id":"A0123ABCD","team_id":"T0123ABCD","bot_user_id":"U0123ABCD"}
+```
+
+Running the same command again re-confirms the same installation (`registration: existing`). On failure it writes one line to stderr and exits with one of these codes.
+
+| Exit code | Meaning |
+| --- | --- |
+| 0 | A confirmed installation exists |
+| 2 | Bad arguments or environment variables, or the workspace does not exist |
+| 3 | Slack refused the token, the token belongs to another app, or Slack is unreachable |
+| 4 | That app and team are already installed for another workspace (`workspace_conflict`) |
+| 5 | The installation was revoked while registering (`revoked`). Running again reopens it |
+| 1 | Any other error |
+
 ## An agent's Slack app
 
 Each agent has its own Slack app. To connect it, send the app id, the team id, and the name of a credential reference that holds the bot token (`credential_ref`, not the value).
@@ -63,7 +87,7 @@ curl -sS "$API/v1/agents/$AID/identities" "${WEB[@]}" \
   -d '{"provider": "slack_bot", "app_id": "A0APP", "team_id": "T0TEAM", "credential_ref": "slack/research-bot-token"}'
 ```
 
-Without a confirmed Slack installation this returns 409 `SLACK_NOT_INSTALLED`. For now only the operator can create an installation, through a repository function.
+Without a confirmed Slack installation this returns 409 `SLACK_NOT_INSTALLED`. The operator creates an installation with the registration CLI above.
 
 ## Next steps
 
