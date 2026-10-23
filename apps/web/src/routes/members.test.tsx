@@ -496,7 +496,9 @@ describe("되돌리기 어려운 동작의 확인", () => {
     const user = await setupUser();
     why.focus();
     await user.keyboard("{Enter}");
-    const note = await screen.findByRole("dialog");
+    const note = await screen.findByRole("dialog", {
+      name: "Boss을(를) 비활성화할 수 없는 이유",
+    });
     expect(note.textContent).toBe("소유자는 관리자가 비활성화할 수 없습니다.");
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());

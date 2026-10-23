@@ -168,7 +168,8 @@ export function ReasonHint({
             <Info aria-hidden="true" />
           </Button>
         </PopoverTrigger>
-        <PopoverContent>{reason}</PopoverContent>
+        {/* Radix moves focus into this dialog; it is named like its button. */}
+        <PopoverContent aria-label={label}>{reason}</PopoverContent>
       </Popover>
     </>
   );
