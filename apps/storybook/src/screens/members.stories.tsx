@@ -43,6 +43,7 @@ import {
   TabsList,
   TabsTrigger,
 } from "@werft-ai/ui";
+import { Plus } from "lucide-react";
 import { type ReactNode, useId, useState } from "react";
 import { fn } from "storybook/test";
 
@@ -172,6 +173,10 @@ const INVITES = [
   },
 ] as const;
 
+const ROLE_COLUMN = "w-[calc(120px+var(--ap-row-padding-x))]";
+const WIDE_ONLY = "@max-2xl:hidden";
+const ACTIONS = "w-[calc(var(--ap-row-action-min-width)+4rem)]";
+
 /** Name that opens 구성원 편집 (role lives there, not in the row). */
 function NameButton({
   children,
@@ -183,7 +188,10 @@ function NameButton({
   return (
     <button
       type="button"
-      className={cn(linkVariants(), "text-left focus-visible:underline")}
+      className={cn(
+        linkVariants(),
+        "block max-w-full truncate text-left font-semibold focus-visible:underline",
+      )}
       onClick={onClick}
     >
       {children} ›
@@ -257,7 +265,12 @@ function Head({
   );
 }
 
-const inviteButton = <Button type="button">초대 링크 만들기</Button>;
+const inviteButton = (
+  <Button type="button">
+    <Plus aria-hidden="true" />
+    구성원 초대
+  </Button>
+);
 const teamButton = <Button type="button">팀 만들기</Button>;
 
 type ListState = "ready" | "loading" | "error";
@@ -306,81 +319,79 @@ function MembersTab({
         </span>
       </div>
       <ListBody state={state} label="구성원 목록">
-        <PartRequest name="LockedButton+Tooltip" />
-        <TableContainer label="구성원" className="hidden md:block">
-          <Table>
+        <div className="flex flex-wrap gap-2">
+          <PartRequest name="LockedButton+Tooltip" />
+          <PartRequest name="Avatar (UIKIT-V4-DATA-PARTS)" />
+          <PartRequest name="GridTable (UIKIT-V4-GRID-TABLE)" />
+          <Badge variant="amber">
+            API 변경 필요: 관리하는 에이전트·마지막 활동 (94S-816)
+          </Badge>
+        </div>
+        {/* Console v4 .t-mem (L302): 1.6fr name, 120px role, 1.4fr agents,
+            1fr last active, then v3's actions column (rows only disable).
+            Fixed layout and a container query fold agents and last active
+            on a narrow screen instead of scrolling sideways. */}
+        <TableContainer label="구성원" className="@container">
+          <Table className="table-fixed">
             <TableHeader>
               <TableRow>
-                <TableHead>이름</TableHead>
-                <TableHead>역할</TableHead>
-                <TableHead>상태</TableHead>
-                <TableHead>가입일</TableHead>
-                <TableHead variant="actions">관리</TableHead>
+                <TableHead>구성원</TableHead>
+                <TableHead className={ROLE_COLUMN}>역할</TableHead>
+                <TableHead className={`${WIDE_ONLY} w-[28%]`}>
+                  관리하는 에이전트
+                </TableHead>
+                <TableHead className={`${WIDE_ONLY} w-[20%]`}>
+                  마지막 활동
+                </TableHead>
+                <TableHead variant="actions" className={ACTIONS}>
+                  관리
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {MEMBERS.map((member) => (
                 <TableRow key={member.id}>
                   <TableCell>
-                    <RowLines>
+                    <div className="flex min-w-0 flex-col">
                       <NameButton onClick={() => onEdit(member)}>
                         {member.name}
                         {member.id === ME[viewer] ? " (나)" : ""}
                       </NameButton>
-                      <span className="text-caption text-muted-foreground">
+                      <div className="truncate text-caption text-muted-foreground">
                         {member.email}
-                      </span>
-                    </RowLines>
+                      </div>
+                    </div>
                   </TableCell>
-                  <TableCell>{ROLE_LABEL[member.role]}</TableCell>
-                  <TableCell>
-                    <Badge variant={member.active ? "green" : "gray"}>
-                      {member.active ? "활성" : "비활성"}
-                    </Badge>
+                  <TableCell className={ROLE_COLUMN}>
+                    <div className="flex flex-wrap items-center gap-1">
+                      <Badge
+                        variant={member.role === "member" ? "gray" : "blue"}
+                      >
+                        {ROLE_LABEL[member.role]}
+                      </Badge>
+                      {member.active ? null : <Badge>비활성</Badge>}
+                    </div>
                   </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {member.joined}
+                  <TableCell
+                    className={`${WIDE_ONLY} text-caption text-muted-foreground`}
+                  >
+                    미계측
                   </TableCell>
-                  <TableCell variant="actions">
-                    {access(member, viewer)}
+                  <TableCell
+                    className={`${WIDE_ONLY} text-caption text-muted-foreground`}
+                  >
+                    미계측
+                  </TableCell>
+                  <TableCell variant="actions" className={ACTIONS}>
+                    <div className="flex justify-end">
+                      {access(member, viewer)}
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
         </TableContainer>
-        <div className="flex flex-col gap-2 md:hidden">
-          <PartRequest name="DropdownMenu" />
-          <RowList aria-label="구성원">
-            {MEMBERS.map((member) => (
-              <RowListItem
-                key={member.id}
-                className="flex items-center justify-between gap-2"
-              >
-                <RowLines>
-                  <NameButton onClick={() => onEdit(member)}>
-                    {member.name}
-                  </NameButton>
-                  <span className="text-caption text-muted-foreground">
-                    {member.email}
-                  </span>
-                  <span className="text-caption text-muted-foreground">
-                    {ROLE_LABEL[member.role]} ·{" "}
-                    {member.active ? "활성" : "비활성"}
-                  </span>
-                </RowLines>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="size-11"
-                  aria-label={`${member.name} 동작`}
-                >
-                  ⋯
-                </Button>
-              </RowListItem>
-            ))}
-          </RowList>
-        </div>
       </ListBody>
     </div>
   );

@@ -7,10 +7,22 @@ import {
   Button,
   ConfirmDialog,
   cn,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
   EmptyState,
+  Field,
+  FieldDescription,
+  FieldLabel,
+  FieldLegend,
+  FieldSet,
   formatTimestamp,
-  NativeSelect,
-  NativeSelectOption,
+  linkVariants,
+  RadioGroup,
+  RadioGroupItem,
   RowLines,
   RowList,
   RowListItem,
@@ -52,7 +64,13 @@ const PRIMARY =
   "block break-words font-semibold group-data-[disabled=true]:text-muted-foreground";
 const SECONDARY =
   "block text-muted-foreground text-xs [overflow-wrap:anywhere]";
-const NOWRAP = "whitespace-nowrap";
+// Console v4 .t-mem: 1.6fr name, 120px role, 1.4fr agents, 1fr last active;
+// the actions column is v3's (rows only disable). Agents and last active
+// fold away when the table is narrow, as v4's tables do.
+const ROLE_COLUMN = "w-[calc(120px+var(--ap-row-padding-x))]";
+const WIDE_ONLY = "@max-2xl:hidden";
+const ACTIONS = "w-[calc(var(--ap-row-action-min-width)+4rem)]";
+const UNMEASURED = "text-muted-foreground text-xs";
 
 type Outcome =
   | { readonly kind: "notice"; readonly text: string }
@@ -101,7 +119,6 @@ export function MembersScreen() {
   // The list is also the permission probe: when it failed, nobody knows.
   const failed = members.isError && !isApiError(members.error, "FORBIDDEN");
   const [outcome, setOutcome] = useState<Outcome | null>(null);
-  const titleId = useId();
 
   if (!manages) {
     return (
@@ -112,6 +129,7 @@ export function MembersScreen() {
   return (
     <Page
       title={t("members.title")}
+      description={t("members.description")}
       actions={
         failed ? undefined : (
           <InviteDialog
@@ -129,25 +147,20 @@ export function MembersScreen() {
           <output className={NOTICE}>{outcome.text}</output>
         )
       ) : null}
-      <section className={SECTION} aria-labelledby={titleId}>
-        <h2 id={titleId} className={SECTION_TITLE}>
-          {t("members.listTitle")}
-        </h2>
-        {members.isPending ? (
-          <StatusScreen kind="loading" />
-        ) : members.error ? (
-          isApiError(members.error, "FORBIDDEN") ? (
-            <StatusScreen kind="forbidden" />
-          ) : (
-            <LoadFailure
-              error={members.error}
-              onRetry={() => void members.refetch()}
-            />
-          )
+      {members.isPending ? (
+        <StatusScreen kind="loading" />
+      ) : members.error ? (
+        isApiError(members.error, "FORBIDDEN") ? (
+          <StatusScreen kind="forbidden" />
         ) : (
-          <MemberTable items={members.data.items} onOutcome={setOutcome} />
-        )}
-      </section>
+          <LoadFailure
+            error={members.error}
+            onRetry={() => void members.refetch()}
+          />
+        )
+      ) : (
+        <MemberTable items={members.data.items} onOutcome={setOutcome} />
+      )}
       {members.isSuccess ? <InviteList onOutcome={setOutcome} /> : null}
     </Page>
   );
@@ -165,8 +178,9 @@ function MemberTable({
   const queryClient = useQueryClient();
   const role = useRole();
   const [confirming, setConfirming] = useState<MemberView | null>(null);
-  // A picked role waits here for the confirmation; arrowing through the
-  // select must not send a role on every step.
+  // Roles change in 구성원 편집, not in the row (rows only disable).
+  const [editing, setEditing] = useState<MemberView | null>(null);
+  // A saved role still waits here for the confirmation.
   const [roleChange, setRoleChange] = useState<{
     member: MemberView;
     role: WorkspaceRole;
@@ -288,14 +302,23 @@ function MemberTable({
 
   return (
     <>
-      <TableContainer label={t("members.tableLabel")}>
-        <Table>
+      <TableContainer label={t("members.tableLabel")} className="@container">
+        {/* Fixed layout so a narrow screen shrinks the name, not the frame:
+            the console v4 member table never scrolls sideways. */}
+        <Table className="table-fixed">
           <TableHeader>
             <TableRow>
               <TableHead scope="col">{t("members.column.name")}</TableHead>
-              <TableHead scope="col">{t("members.column.role")}</TableHead>
-              <TableHead scope="col">{t("members.column.state")}</TableHead>
-              <TableHead scope="col" variant="actions">
+              <TableHead scope="col" className={ROLE_COLUMN}>
+                {t("members.column.role")}
+              </TableHead>
+              <TableHead scope="col" className={cn(WIDE_ONLY, "w-[28%]")}>
+                {t("members.column.agents")}
+              </TableHead>
+              <TableHead scope="col" className={cn(WIDE_ONLY, "w-[20%]")}>
+                {t("members.column.lastActive")}
+              </TableHead>
+              <TableHead scope="col" variant="actions" className={ACTIONS}>
                 {t("members.column.actions")}
               </TableHead>
             </TableRow>
@@ -303,14 +326,10 @@ function MemberTable({
           <TableBody>
             {items.map((member) => {
               const disabled = member.disabled_at !== null;
-              const roleWhy = roleReason(member);
               const keepWhy = disabled
                 ? enableReason(member)
                 : keepReason(member);
-              const ids = {
-                role: `${reasonId}-${member.user_id}-role`,
-                keep: `${reasonId}-${member.user_id}-keep`,
-              };
+              const keepId = `${reasonId}-${member.user_id}-keep`;
               const busy =
                 (changeRole.isPending &&
                   changeRole.variables?.member.user_id === member.user_id) ||
@@ -323,80 +342,57 @@ function MemberTable({
                   data-disabled={disabled}
                 >
                   <TableCell>
-                    {/* One line per cell: below the table's width the container scrolls,
-                        so every row keeps two lines. */}
-                    <RowLines>
-                      <span className={cn(PRIMARY, NOWRAP)}>
-                        {member.display_name}
-                      </span>
-                      <span className={cn(SECONDARY, NOWRAP)}>
+                    <RowLines className="min-w-0">
+                      <button
+                        type="button"
+                        className={cn(
+                          linkVariants(),
+                          PRIMARY,
+                          "flex min-w-0 max-w-full text-left",
+                        )}
+                        aria-label={t("members.editFor", {
+                          name: member.display_name,
+                        })}
+                        onClick={() => setEditing(member)}
+                      >
+                        <span className="truncate">{member.display_name}</span>
+                        <span aria-hidden="true">&nbsp;›</span>
+                      </button>
+                      <span className={cn(SECONDARY, "truncate")}>
                         {member.email}
                       </span>
                     </RowLines>
                   </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-1">
-                      <NativeSelect
-                        size="sm"
-                        className="w-auto"
-                        aria-label={t("members.roleFor", {
-                          name: member.display_name,
-                        })}
-                        aria-describedby={
-                          roleWhy && !disabled ? ids.role : undefined
-                        }
-                        value={member.role}
-                        disabled={busy || disabled || roleWhy !== undefined}
-                        onChange={(event) =>
-                          setRoleChange({
-                            member,
-                            role: event.target.value as WorkspaceRole,
-                          })
-                        }
+                  <TableCell className={ROLE_COLUMN}>
+                    <div className="flex flex-wrap items-center gap-1">
+                      <Badge
+                        variant={member.role === "member" ? "gray" : "blue"}
                       >
-                        {WORKSPACE_ROLE_VALUES.map((value) => (
-                          <NativeSelectOption key={value} value={value}>
-                            {roleLabel(t, value)}
-                          </NativeSelectOption>
-                        ))}
-                      </NativeSelect>
-                      {roleWhy && !disabled ? (
-                        <ReasonHint
-                          id={ids.role}
-                          label={t("members.roleWhy", {
-                            name: member.display_name,
-                          })}
-                          reason={roleWhy}
-                        />
+                        {roleLabel(t, member.role)}
+                      </Badge>
+                      {disabled ? (
+                        <Badge variant="gray">
+                          {t("members.state.disabled")}
+                        </Badge>
                       ) : null}
                     </div>
                   </TableCell>
-                  <TableCell>
-                    {disabled ? (
-                      <RowLines>
-                        {/* A flex line keeps the badge at its own width. */}
-                        <span className="flex">
-                          <Badge variant="gray">
-                            {t("members.state.disabled")}
-                          </Badge>
-                        </span>
-                        <span className={cn(SECONDARY, NOWRAP)}>
-                          {t("members.enableHint")}
-                        </span>
-                      </RowLines>
-                    ) : (
-                      <Badge variant="green">{t("members.state.active")}</Badge>
-                    )}
+                  {/* Not in GET /v1/members yet (94S-816); never made up here. */}
+                  <TableCell className={cn(WIDE_ONLY, UNMEASURED)}>
+                    {t("members.unmeasured")}
                   </TableCell>
-                  <TableCell variant="actions">
-                    <div className="flex items-center gap-1">
+                  <TableCell className={cn(WIDE_ONLY, UNMEASURED)}>
+                    {t("members.unmeasured")}
+                  </TableCell>
+                  <TableCell variant="actions" className={ACTIONS}>
+                    <div className="flex items-center justify-end gap-1">
                       {disabled ? (
                         <Button
                           type="button"
                           variant="outline"
                           size="sm"
                           disabled={busy || keepWhy !== undefined}
-                          aria-describedby={keepWhy ? ids.keep : undefined}
+                          aria-describedby={keepWhy ? keepId : undefined}
                           onClick={() =>
                             setAccess.mutate({ member, enable: true })
                           }
@@ -409,7 +405,7 @@ function MemberTable({
                           variant="outline"
                           size="sm"
                           disabled={busy || keepWhy !== undefined}
-                          aria-describedby={keepWhy ? ids.keep : undefined}
+                          aria-describedby={keepWhy ? keepId : undefined}
                           aria-label={t("members.disableFor", {
                             name: member.display_name,
                           })}
@@ -420,7 +416,7 @@ function MemberTable({
                       )}
                       {keepWhy ? (
                         <ReasonHint
-                          id={ids.keep}
+                          id={keepId}
                           label={t(
                             disabled
                               ? "members.enableWhy"
@@ -438,6 +434,22 @@ function MemberTable({
           </TableBody>
         </Table>
       </TableContainer>
+      {editing ? (
+        <MemberEditDialog
+          member={editing}
+          reason={
+            editing.disabled_at === null
+              ? roleReason(editing)
+              : t("members.edit.disabledNote")
+          }
+          busy={changeRole.isPending}
+          onClose={() => setEditing(null)}
+          onSave={(next) => {
+            setEditing(null);
+            setRoleChange({ member: editing, role: next });
+          }}
+        />
+      ) : null}
       <ConfirmDialog
         open={confirming !== null}
         onOpenChange={(open) => {
@@ -478,6 +490,80 @@ function MemberTable({
         }}
       />
     </>
+  );
+}
+
+/**
+ * 구성원 편집 (v3 MemberEdit): the role, picked here and saved through the
+ * same confirmation the row used to raise. What the row would withhold, this
+ * shows as the reason and keeps every choice disabled.
+ */
+function MemberEditDialog({
+  member,
+  reason,
+  busy,
+  onClose,
+  onSave,
+}: {
+  readonly member: MemberView;
+  readonly reason: string | undefined;
+  readonly busy: boolean;
+  readonly onClose: () => void;
+  readonly onSave: (role: WorkspaceRole) => void;
+}) {
+  const { t } = useI18n();
+  const [role, setRole] = useState<string>(member.role);
+  const legendId = useId();
+  const reasonId = useId();
+  const blocked = reason !== undefined;
+  return (
+    <Dialog open onOpenChange={(open) => (open ? undefined : onClose())}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t("members.edit.title")}</DialogTitle>
+          <DialogDescription>
+            {member.display_name} · {member.email}
+          </DialogDescription>
+        </DialogHeader>
+        <FieldSet>
+          <FieldLegend id={legendId} variant="label">
+            {t("members.column.role")}
+          </FieldLegend>
+          {blocked ? (
+            <FieldDescription id={reasonId}>{reason}</FieldDescription>
+          ) : null}
+          <RadioGroup
+            value={role}
+            onValueChange={setRole}
+            disabled={blocked || busy}
+            aria-labelledby={legendId}
+            aria-describedby={blocked ? reasonId : undefined}
+          >
+            {WORKSPACE_ROLE_VALUES.map((value) => (
+              <Field key={value} orientation="horizontal">
+                <RadioGroupItem value={value} />
+                <FieldLabel>{roleLabel(t, value)}</FieldLabel>
+                <FieldDescription>
+                  {t(`members.roleHelp.${value}`)}
+                </FieldDescription>
+              </Field>
+            ))}
+          </RadioGroup>
+        </FieldSet>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+          <Button
+            type="button"
+            disabled={blocked || busy || role === member.role}
+            onClick={() => onSave(role as WorkspaceRole)}
+          >
+            {t("members.edit.save")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
