@@ -496,7 +496,9 @@ export async function webUiViolations(
       }
       if (
         (ts.isFunctionDeclaration(node) ||
+          ts.isFunctionExpression(node) ||
           ts.isClassDeclaration(node) ||
+          ts.isClassExpression(node) ||
           ts.isVariableDeclaration(node)) &&
         node.name &&
         ts.isIdentifier(node.name) &&
@@ -1290,6 +1292,7 @@ describe("architecture", () => {
           'export const docsUrl = "https://example.com/web-api";',
           'const tone = cn("hover:text-destructive/80", "web-old!");',
           'const Faint = () => <p className="text-destructive/[0.5]">x</p>;',
+          "export default memo(function Second() { return <section />; });",
           "const MIXED_LINK = `text-primary ${extra} underline`;",
           'const DOCS_LINK: string = "https://tailwindcss.com/docs/text-decoration-line";',
           "const NAV_LINK = `",
@@ -1315,7 +1318,7 @@ describe("architecture", () => {
       ).toEqual({
         "dirty.tsx": {
           "raw-anchor": 4,
-          "shadow-component": 2,
+          "shadow-component": 3,
           "legacy-class": 1,
           "link-constant": 8,
           "raw-destructive": 2,
