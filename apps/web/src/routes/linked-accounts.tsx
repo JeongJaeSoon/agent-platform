@@ -7,23 +7,32 @@ import type {
   StartSlackLinkResponse,
 } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
-import { Button, EmptyState, formatTimestamp } from "@werft-ai/ui";
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { Badge, Button, cn, formatTimestamp } from "@werft-ai/ui";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { linkedAccountsQuery, queryKeys } from "../api/queries.ts";
 import { refusalText, useRole } from "../auth/guard.tsx";
 import { FormError, NOTICE } from "../components/auth-page.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import type { Outcome } from "../components/outcome.tsx";
+import { Page } from "../components/page.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
-import { RowLines, RowList, RowListItem } from "../components/table.tsx";
+import { RowLines, RowListItem } from "../components/table.tsx";
 import { errorKey, type Translate, useI18n } from "../i18n/i18n.tsx";
 import { useAppServices } from "../services.tsx";
 
-const PAGE = "flex flex-col gap-6";
-const TITLE = "m-0 font-semibold text-xl";
-const SECTION = "flex flex-col gap-3";
-const SECTION_TITLE = "m-0 font-semibold text-lg";
-const HINT = "m-0 text-muted-foreground";
+// One row per service (console v35): 64px tall, its button at least 88px.
+const SERVICES =
+  "m-0 flex list-none flex-col overflow-hidden rounded-card border bg-card p-0 [&>li+li]:border-t";
+const SERVICE_ROW =
+  "flex min-h-16 flex-wrap items-center gap-x-3 gap-y-2 px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)]";
+const SERVICE_NAME = "m-0 font-semibold text-body";
+const SERVICE_BUTTON = "ml-auto min-w-22";
+// Lines under a service start where its name does: inset, mark, gap.
+const SERVICE_INDENT = "pl-[calc(var(--ap-row-padding-x)+1.5rem+0.75rem)]";
+const SERVICE_DETAIL = cn(
+  SERVICE_INDENT,
+  "border-t pr-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)]",
+);
 const PRIMARY = "block break-words font-semibold";
 const SECONDARY =
   "block text-muted-foreground text-xs [overflow-wrap:anywhere]";
@@ -62,8 +71,7 @@ export function LinkedAccountsScreen() {
   const role = useRole();
   const accounts = useQuery(linkedAccountsQuery(client));
   const [outcome, setOutcome] = useState<Outcome | null>(null);
-  const titleId = useId();
-  const sectionRef = useRef<HTMLElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   // The account whose row holds focus, until focus or a press goes elsewhere.
   // Its row leaving takes focus with it, which fires neither event.
@@ -81,7 +89,7 @@ export function LinkedAccountsScreen() {
           ? event.target.closest<HTMLElement>("li[data-account]")
           : null;
       focusedRow.current =
-        row && sectionRef.current?.contains(row)
+        row && listRef.current?.contains(row)
           ? (row.dataset.account ?? null)
           : null;
     };
@@ -100,9 +108,8 @@ export function LinkedAccountsScreen() {
   useLayoutEffect(() => {
     // Rows as drawn: a failed reread keeps the data but draws no list.
     const rows = [
-      ...(sectionRef.current?.querySelectorAll<HTMLElement>(
-        "li[data-account]",
-      ) ?? []),
+      ...(listRef.current?.querySelectorAll<HTMLElement>("li[data-account]") ??
+        []),
     ];
     const ids = rows.map((row) => row.dataset.account ?? "");
     const before = shownIds.current;
@@ -151,56 +158,121 @@ export function LinkedAccountsScreen() {
   const notice = outcome?.kind === "notice" ? outcome.text : null;
 
   return (
-    <div className={PAGE}>
-      <h1 className={TITLE}>{t("linked.title")}</h1>
-      <p className={HINT}>{t("linked.intro")}</p>
+    <Page title={t("linked.title")} description={t("linked.intro")}>
       {outcome?.kind === "error" ? <FormError>{outcome.text}</FormError> : null}
       {/* Always mounted, so a screen reader hears the notice when it
           changes; out of the flow while empty. */}
       <output className={notice ? NOTICE : "sr-only"}>{notice}</output>
-      <section ref={sectionRef} className={SECTION} aria-labelledby={titleId}>
-        <h2
-          ref={headingRef}
-          id={titleId}
-          tabIndex={-1}
-          className={`${SECTION_TITLE} outline-none`}
-        >
-          {t("linked.slack")}
-        </h2>
-        {accounts.isPending ? (
-          <StatusScreen kind="loading" />
-        ) : accounts.error ? (
-          isApiError(accounts.error, "FORBIDDEN") ? (
-            <FormError>{linkRefusal(t, accounts.error, role)}</FormError>
+      <ul ref={listRef} className={SERVICES}>
+        <SoonService mark="G" name="GitHub" use={t("linked.use.github")} />
+        <li>
+          <div className={SERVICE_ROW}>
+            <ServiceMark>S</ServiceMark>
+            <RowLines>
+              <span className="flex flex-wrap items-center gap-2">
+                <h2
+                  ref={headingRef}
+                  tabIndex={-1}
+                  className={`${SERVICE_NAME} outline-none`}
+                >
+                  {t("linked.slack")}
+                </h2>
+                {accounts.isSuccess ? (
+                  <Badge variant={live.length > 0 ? "green" : "gray"}>
+                    {t(
+                      live.length > 0 ? "linked.connected" : "linked.notLinked",
+                    )}
+                  </Badge>
+                ) : null}
+              </span>
+              <span className={SECONDARY}>{t("linked.use.slack")}</span>
+            </RowLines>
+            {/* One link per Slack workspace, so another workspace can still
+                be added while one is linked. */}
+            {accounts.isSuccess ? (
+              <Button
+                type="button"
+                variant="outline"
+                className={SERVICE_BUTTON}
+                aria-label={start.isPending ? undefined : t("linked.connect")}
+                // Not held after success: back from Slack (bfcache) must be
+                // able to start again.
+                disabled={start.isPending}
+                onClick={() => start.mutate()}
+              >
+                {start.isPending ? t("linked.starting") : t("linked.link")}
+              </Button>
+            ) : null}
+          </div>
+          {accounts.isPending ? (
+            <div className={SERVICE_DETAIL}>
+              <StatusScreen kind="loading" />
+            </div>
+          ) : accounts.error ? (
+            <div className={SERVICE_DETAIL}>
+              {isApiError(accounts.error, "FORBIDDEN") ? (
+                <FormError>{linkRefusal(t, accounts.error, role)}</FormError>
+              ) : (
+                <LoadFailure
+                  error={accounts.error}
+                  onRetry={() => void accounts.refetch()}
+                />
+              )}
+            </div>
           ) : (
-            <LoadFailure
-              error={accounts.error}
-              onRetry={() => void accounts.refetch()}
+            <SlackAccounts
+              accounts={live}
+              unlinking={unlink.isPending ? unlink.variables?.id : undefined}
+              onUnlink={(account) => unlink.mutate(account)}
             />
-          )
-        ) : (
-          <SlackAccounts
-            accounts={live}
-            unlinking={unlink.isPending ? unlink.variables?.id : undefined}
-            onUnlink={(account) => unlink.mutate(account)}
-          />
-        )}
-        {/* One link per Slack workspace, so another workspace can still
-            be added while one is linked. */}
-        {accounts.isSuccess ? (
-          <Button
-            type="button"
-            className="self-start"
-            // Not held after success: back from Slack (bfcache) must be
-            // able to start again.
-            disabled={start.isPending}
-            onClick={() => start.mutate()}
-          >
-            {start.isPending ? t("linked.starting") : t("linked.connect")}
-          </Button>
-        ) : null}
-      </section>
-    </div>
+          )}
+        </li>
+        <SoonService
+          mark="GW"
+          name="Google Workspace"
+          use={t("linked.use.google")}
+        />
+      </ul>
+    </Page>
+  );
+}
+
+function ServiceMark({ children }: { readonly children: string }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="grid size-6 shrink-0 place-items-center rounded-control bg-muted font-semibold text-caption text-muted-foreground"
+    >
+      {children}
+    </span>
+  );
+}
+
+/**
+ * A service the console names but cannot link yet: no API behind it, so the
+ * row says so and offers nothing to press.
+ */
+function SoonService({
+  mark,
+  name,
+  use,
+}: {
+  readonly mark: string;
+  readonly name: string;
+  readonly use: string;
+}) {
+  const { t } = useI18n();
+  return (
+    <li data-soon="true" className={SERVICE_ROW}>
+      <ServiceMark>{mark}</ServiceMark>
+      <RowLines>
+        <span className="flex flex-wrap items-center gap-2">
+          <h2 className={SERVICE_NAME}>{name}</h2>
+          <Badge variant="gray">{t("linked.soon")}</Badge>
+        </span>
+        <span className={SECONDARY}>{use}</span>
+      </RowLines>
+    </li>
   );
 }
 
@@ -214,16 +286,18 @@ function SlackAccounts({
   readonly onUnlink: (account: LinkedAccount) => void;
 }) {
   const { t, locale } = useI18n();
-  if (accounts.length === 0) {
-    return <EmptyState title={t("linked.none")} />;
-  }
+  // Nothing linked reads from the row's badge; no second empty line.
+  if (accounts.length === 0) return null;
   return (
-    <RowList variant="joined">
+    <ul className="m-0 list-none border-t p-0 [&>li+li]:border-t">
       {accounts.map((account) => (
         <RowListItem
           key={account.id}
           data-account={account.id}
-          className="flex-col items-start sm:flex-row sm:items-center"
+          className={cn(
+            SERVICE_INDENT,
+            "flex-col items-start sm:flex-row sm:items-center",
+          )}
         >
           <RowLines>
             <span className={PRIMARY}>
@@ -256,7 +330,7 @@ function SlackAccounts({
           </Button>
         </RowListItem>
       ))}
-    </RowList>
+    </ul>
   );
 }
 
@@ -320,18 +394,17 @@ export function SlackLinkCallbackScreen() {
         ? linkRefusal(t, finish.error, role)
         : null;
   return (
-    <div className={PAGE}>
-      <h1 className={TITLE}>{t("linked.title")}</h1>
+    <Page title={t("linked.title")}>
       {failure ? (
-        <>
+        <div className="flex flex-col gap-[var(--ap-space-block)]">
           <FormError>{failure}</FormError>
           <p className="m-0">
             <Link to="/settings/linked-accounts">{t("linked.back")}</Link>
           </p>
-        </>
+        </div>
       ) : (
         <StatusScreen kind="loading" />
       )}
-    </div>
+    </Page>
   );
 }

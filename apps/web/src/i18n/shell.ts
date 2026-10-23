@@ -5,12 +5,15 @@ export const shellKo = {
   "shell.openMenu": "메뉴 열기",
   "shell.closeMenu": "메뉴 닫기",
   "shell.account": "사용자 메뉴",
+  "shell.accountOf": "{name} · {role}",
   "shell.theme": "테마",
   "shell.theme.system": "시스템 설정",
   "shell.theme.light": "밝게",
   "shell.theme.dark": "어둡게",
   "shell.waiting": "답변 대기 {count}개",
   "shell.waitingMore": "답변 대기 {count}개 이상",
+  "shell.waitingNone": "답변 대기 없음",
+  "shell.new": "새로 만들기",
 };
 
 export const shellEn: Record<keyof typeof shellKo, string> = {
@@ -20,12 +23,15 @@ export const shellEn: Record<keyof typeof shellKo, string> = {
   "shell.openMenu": "Open menu",
   "shell.closeMenu": "Close menu",
   "shell.account": "User menu",
+  "shell.accountOf": "{name} · {role}",
   "shell.theme": "Theme",
   "shell.theme.system": "System",
   "shell.theme.light": "Light",
   "shell.theme.dark": "Dark",
   "shell.waiting": "{count} waiting for an answer",
   "shell.waitingMore": "{count}+ waiting for an answer",
+  "shell.waitingNone": "Nothing waiting for an answer",
+  "shell.new": "New",
 };
 
 export const shellJa: Record<keyof typeof shellKo, string> = {
@@ -35,10 +41,13 @@ export const shellJa: Record<keyof typeof shellKo, string> = {
   "shell.openMenu": "メニューを開く",
   "shell.closeMenu": "メニューを閉じる",
   "shell.account": "ユーザーメニュー",
+  "shell.accountOf": "{name} · {role}",
   "shell.theme": "テーマ",
   "shell.theme.system": "システム設定",
   "shell.theme.light": "ライト",
   "shell.theme.dark": "ダーク",
   "shell.waiting": "回答待ち {count}件",
   "shell.waitingMore": "回答待ち {count}件以上",
+  "shell.waitingNone": "回答待ちはありません",
+  "shell.new": "新規作成",
 };

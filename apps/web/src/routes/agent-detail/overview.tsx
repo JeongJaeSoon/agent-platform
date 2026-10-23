@@ -5,7 +5,8 @@ import { useI18n } from "../../i18n/i18n.tsx";
 import { MUTED } from "./classes.ts";
 import { latestVersion } from "./versions.tsx";
 
-const PANEL_CARD = "flex min-w-0 flex-col gap-3 rounded-lg border bg-card p-4";
+const PANEL_CARD =
+  "flex min-w-0 flex-col gap-3 rounded-card border bg-card p-4";
 const PANEL_TITLE = "m-0 font-semibold text-body leading-5";
 // The label column fits its words, so a value never sits across the page
 // from its label when the panel spans the full width.

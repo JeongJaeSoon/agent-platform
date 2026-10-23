@@ -285,7 +285,7 @@ describe("워크스페이스 설정", () => {
 
   test("구성원에게는 메뉴가 없다", async () => {
     renderAt("/", { "GET /v1/auth/me": () => json(200, memberMe()) });
-    await screen.findByRole("link", { name: "API key" });
+    await screen.findByRole("link", { name: "내 key" });
     expect(
       screen.queryByRole("link", { name: "워크스페이스 설정" }),
     ).toBeNull();

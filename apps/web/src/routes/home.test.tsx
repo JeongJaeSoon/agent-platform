@@ -45,7 +45,7 @@ const oneSession = {
 };
 
 async function states() {
-  await screen.findByRole("heading", { name: "Acme" });
+  await screen.findByRole("heading", { name: "홈" });
   // Home has other lists; the checklist is the region named for it.
   return () =>
     within(screen.getByRole("region", { name: "시작하기" }))
@@ -335,7 +335,7 @@ describe("내가 속한 팀", () => {
       "GET /v1/agents": forbidden,
       "GET /v1/my-teams": () => json(200, { items: [] }),
     });
-    await screen.findByRole("heading", { name: "Acme" });
+    await screen.findByRole("heading", { name: "홈" });
     await waitFor(() =>
       expect(api.calls.some((c) => c.path === "/v1/my-teams")).toBe(true),
     );
@@ -371,7 +371,7 @@ describe("내가 관리하는 에이전트", () => {
       ...memberRoutes,
       "GET /v1/administered-agents": () => json(200, { items: [] }),
     });
-    await screen.findByRole("heading", { name: "Acme" });
+    await screen.findByRole("heading", { name: "홈" });
     await waitFor(() =>
       expect(api.calls.some((c) => c.path === "/v1/administered-agents")).toBe(
         true,

@@ -1,5 +1,4 @@
 export const homeKo = {
-  "home.title": "워크스페이스",
   "home.signedInAs": "{name}({email}) 계정으로 로그인했습니다",
   "home.checklist.title": "시작하기",
   "home.checklist.admin": "소유자 계정 만들기",
@@ -29,7 +28,6 @@ export const homeKo = {
 };
 
 export const homeEn: Record<keyof typeof homeKo, string> = {
-  "home.title": "Workspace",
   "home.signedInAs": "Logged in as {name} ({email})",
   "home.checklist.title": "Getting started",
   "home.checklist.admin": "Create the owner account",
@@ -59,7 +57,6 @@ export const homeEn: Record<keyof typeof homeKo, string> = {
 };
 
 export const homeJa: Record<keyof typeof homeKo, string> = {
-  "home.title": "ワークスペース",
   "home.signedInAs": "{name}（{email}）でログインしています",
   "home.checklist.title": "はじめに",
   "home.checklist.admin": "オーナーアカウントを作成",

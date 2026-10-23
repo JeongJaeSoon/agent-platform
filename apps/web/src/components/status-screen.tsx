@@ -26,8 +26,8 @@ export type StatusScreenProps =
     };
 
 const BOX =
-  "flex flex-col items-start gap-2 rounded-md border bg-card p-4 text-card-foreground";
-const TITLE = "m-0 flex items-center gap-2 font-semibold text-lg";
+  "flex flex-col items-start gap-2 rounded-card border bg-card p-4 text-card-foreground";
+const TITLE = "m-0 flex items-center gap-2 font-semibold text-body";
 
 export function StatusScreen(props: StatusScreenProps) {
   const { t } = useI18n();

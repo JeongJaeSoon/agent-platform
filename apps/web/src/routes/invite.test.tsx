@@ -45,7 +45,7 @@ describe("초대 수락", () => {
       },
     });
     await accept("처음", SECRET, "Newcomer");
-    expect(await screen.findByRole("heading", { name: "Acme" })).toBeDefined();
+    expect(await screen.findByRole("heading", { name: "홈" })).toBeDefined();
     expect(history.location.pathname).toBe("/");
     const call = api.calls.find((c) => c.path === "/v1/invites/accept");
     expect(call?.body).toEqual({

@@ -16,7 +16,7 @@ export function AuthPage({
   return (
     <Main className="auth-page px-4 py-8">
       <div className="mx-auto flex w-full max-w-[25rem] flex-col gap-6">
-        <h1 className="m-0 text-center font-semibold text-xl">{title}</h1>
+        <h1 className="m-0 text-center font-semibold text-title">{title}</h1>
         <Card className="gap-4 px-4">{children}</Card>
       </div>
     </Main>
@@ -36,4 +36,4 @@ export function FormError({ children }: { readonly children: ReactNode }) {
 export const ASIDE = "m-0 text-muted-foreground text-sm";
 
 export const NOTICE =
-  "m-0 block rounded-md border border-[var(--ap-tone-progress-border)] bg-[var(--ap-tone-progress-bg)] p-3 text-[var(--ap-tone-progress-fg)]";
+  "m-0 block rounded-card border border-[var(--ap-tone-progress-border)] bg-[var(--ap-tone-progress-bg)] px-4 py-3 text-[var(--ap-tone-progress-fg)]";

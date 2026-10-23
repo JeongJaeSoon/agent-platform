@@ -101,13 +101,17 @@ describe("preferences", () => {
     expect(document.documentElement.dataset.theme).toBe("dark");
     expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe("dark");
     let menu = await openMenu();
+    await user.click(within(menu).getByRole("menuitem", { name: /^테마/ }));
+    const themeMenu = screen.getByRole("menu", { name: /^테마/ });
     expect(
-      within(menu)
+      within(themeMenu)
         .getByRole("menuitemradio", { name: "어둡게" })
         .getAttribute("aria-checked"),
     ).toBe("true");
 
-    await user.click(within(menu).getByRole("menuitemradio", { name: "밝게" }));
+    await user.click(
+      within(themeMenu).getByRole("menuitemradio", { name: "밝게" }),
+    );
     expect(
       within(themes)
         .getByRole("radio", { name: /밝게/ })
@@ -121,8 +125,8 @@ describe("preferences", () => {
       ),
     );
     menu = await openMenu();
-    await user.click(within(menu).getByRole("menuitem", { name: "言語" }));
-    const languages = screen.getByRole("menu", { name: "言語" });
+    await user.click(within(menu).getByRole("menuitem", { name: /^言語/ }));
+    const languages = screen.getByRole("menu", { name: /^言語/ });
     expect(
       within(languages)
         .getByRole("menuitemradio", { name: "日本語" })

@@ -12,6 +12,7 @@ import { useMe } from "../auth/guard.tsx";
 import { AdministeredAgents } from "../components/agent-admins.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { MyTeams } from "../components/my-teams.tsx";
+import { Page } from "../components/page.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { type MessageKey, useI18n } from "../i18n/i18n.tsx";
 import { agentState } from "./agents.tsx";
@@ -119,20 +120,19 @@ export function HomeScreen() {
   ).length;
 
   return (
-    <div className="flex flex-col gap-8">
-      <div className="flex flex-col gap-1">
-        <h1 className="m-0 font-semibold text-title">
-          {me?.workspace?.name ?? t("home.title")}
-        </h1>
-        {me?.user ? (
-          <p className="m-0 text-control text-muted-foreground [overflow-wrap:anywhere]">
+    <Page
+      title={t("nav.home")}
+      description={
+        me?.user ? (
+          <span className="[overflow-wrap:anywhere]">
             {t("home.signedInAs", {
               name: me.user.display_name,
               email: me.user.email,
             })}
-          </p>
-        ) : null}
-      </div>
+          </span>
+        ) : undefined
+      }
+    >
       {allDone ? null : checklist}
       <HomeSection
         title={t("home.waiting.title")}
@@ -214,7 +214,7 @@ export function HomeScreen() {
       {allDone ? checklist : null}
       <AdministeredAgents showEmpty={false} />
       <MyTeams showEmpty={false} />
-    </div>
+    </Page>
   );
 }
 
@@ -237,7 +237,7 @@ function HomeSection({
   const titleId = useId();
   return (
     <section
-      className="@container flex min-w-0 flex-col gap-3"
+      className="@container flex min-w-0 flex-col gap-[var(--ap-space-block)]"
       aria-labelledby={titleId}
     >
       <div className="flex min-h-7 items-center justify-between gap-3">
@@ -246,14 +246,7 @@ function HomeSection({
           className="m-0 flex items-center gap-2 font-semibold text-body"
         >
           {title}
-          {badge ? (
-            <Badge
-              variant="outline"
-              className="border-[var(--ap-tone-attention-border)] bg-[var(--ap-tone-attention-bg)] text-[var(--ap-tone-attention-fg)]"
-            >
-              {badge}
-            </Badge>
-          ) : null}
+          {badge ? <Badge variant="amber">{badge}</Badge> : null}
         </h2>
         {more}
       </div>
@@ -299,7 +292,7 @@ function Checklist({ steps }: { readonly steps: readonly Step[] }) {
   const done = steps.filter((step) => step.state === "done").length;
   return (
     <section
-      className="flex min-w-0 flex-col gap-3"
+      className="flex min-w-0 flex-col gap-[var(--ap-space-block)]"
       aria-labelledby={titleId}
       data-slot="home-checklist"
     >

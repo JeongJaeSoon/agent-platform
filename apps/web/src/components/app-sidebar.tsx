@@ -3,6 +3,26 @@ import { Link } from "@tanstack/react-router";
 import { waitingSessionsQuery } from "@werft-ai/core";
 import { useAgentPlatform } from "@werft-ai/react";
 import { Badge, cn } from "@werft-ai/ui";
+import {
+  Bell,
+  Bot,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Globe,
+  House,
+  KeyRound,
+  Link as LinkIcon,
+  List,
+  LogOut,
+  type LucideIcon,
+  Monitor,
+  Moon,
+  Settings,
+  Sun,
+  Users,
+  UsersRound,
+} from "lucide-react";
 import { type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
 import { useCan, useHasPermission, useMe, useRole } from "../auth/guard.tsx";
 import {
@@ -13,7 +33,7 @@ import {
   useI18n,
 } from "../i18n/i18n.tsx";
 import { MAIN_CONTENT_ID } from "./main.tsx";
-import { chooseTheme, THEMES, useTheme } from "./theme.ts";
+import { chooseTheme, THEMES, type Theme, useTheme } from "./theme.ts";
 
 type NavPath =
   | "/"
@@ -29,6 +49,7 @@ type NavPath =
 export interface NavItem {
   readonly to: NavPath;
   readonly label: MessageKey;
+  readonly icon: LucideIcon;
 }
 
 export interface NavGroup {
@@ -45,29 +66,39 @@ export function useNavGroups(): readonly NavGroup[] {
     {
       label: "shell.group.work",
       items: [
-        { to: "/", label: "nav.home" },
-        { to: "/sessions", label: "nav.sessions" },
-        { to: "/agents", label: "nav.agents" },
+        { to: "/", label: "nav.home", icon: House },
+        { to: "/sessions", label: "nav.sessions", icon: List },
+        { to: "/agents", label: "nav.agents", icon: Bot },
       ],
     },
     {
       label: "shell.group.workspace",
       items: [
         ...(managesMembers
-          ? [{ to: "/members", label: "nav.members" } as const]
+          ? [{ to: "/members", label: "nav.members", icon: Users } as const]
           : []),
-        { to: "/teams", label: "nav.teams" },
+        { to: "/teams", label: "nav.teams", icon: UsersRound },
         ...(showsWorkspaceSettings
-          ? [{ to: "/settings/workspace", label: "nav.workspace" } as const]
+          ? [
+              {
+                to: "/settings/workspace",
+                label: "nav.workspace",
+                icon: Settings,
+              } as const,
+            ]
           : []),
       ],
     },
     {
       label: "shell.group.personal",
       items: [
-        { to: "/settings/linked-accounts", label: "nav.linkedAccounts" },
-        { to: "/settings/api-keys", label: "nav.apiKeys" },
-        { to: "/settings/preferences", label: "nav.preferences" },
+        {
+          to: "/settings/linked-accounts",
+          label: "nav.linkedAccounts",
+          icon: LinkIcon,
+        },
+        { to: "/settings/api-keys", label: "nav.apiKeys", icon: KeyRound },
+        { to: "/settings/preferences", label: "nav.preferences", icon: Globe },
       ],
     },
   ];
@@ -110,10 +141,7 @@ function WaitingBadge() {
   const { count, more } = waiting;
   return (
     <>
-      <Badge
-        className="ml-auto bg-rail-foreground text-rail"
-        aria-hidden="true"
-      >
+      <Badge variant="amber" className="ml-auto" aria-hidden="true">
         {more ? `${count}+` : count}
       </Badge>
       <span className="sr-only">
@@ -145,38 +173,46 @@ export function AppSidebar({
       data-open={openBelowMd}
       // Only the nav scrolls, so the user block stays in view at any height;
       // below md the open menu is capped to the screen under the header.
-      // z-10: the language submenu opens past the rail, over the page.
-      className="hidden max-h-[calc(100dvh-3.25rem)] flex-col gap-2 bg-rail px-2 py-3 text-rail-foreground data-[open=true]:flex md:sticky md:top-0 md:z-10 md:col-start-1 md:row-span-2 md:row-start-1 md:flex md:h-dvh md:max-h-none"
+      // z-10: the language submenu opens past the sidebar, over the page.
+      className="hidden max-h-[calc(100dvh-var(--ap-topbar-h))] flex-col gap-2 border-b bg-sidebar px-2 py-3 text-foreground data-[open=true]:flex md:sticky md:top-0 md:z-10 md:col-start-1 md:row-span-2 md:row-start-1 md:flex md:h-dvh md:max-h-none md:border-r md:border-b-0"
     >
       <div className="hidden h-11 shrink-0 flex-col justify-center px-2 md:flex">
         <p className="m-0 truncate font-semibold text-control leading-5">
           {t("common.appName")}
         </p>
         {me?.workspace ? (
-          <p className="m-0 truncate text-caption text-rail-muted-foreground leading-5">
+          <p className="m-0 truncate text-caption text-muted-foreground leading-5">
             {me.workspace.name}
           </p>
         ) : null}
       </div>
       <nav
         aria-label={t("nav.label")}
-        // The rail is dark in both themes; a light scrollbar glared on it.
-        className="-mx-2 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-2 [scrollbar-color:var(--ap-color-rail-muted-foreground)_transparent]"
+        className="-mx-2 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-2"
       >
-        {groups.map((group) => (
-          <NavSection key={group.label} group={group} onNavigate={onNavigate} />
+        {groups.map((group, index) => (
+          <NavSection
+            key={group.label}
+            group={group}
+            // The work group leads the rail unlabelled on screen (console
+            // v35); the group keeps its name for screen readers.
+            headingHidden={index === 0}
+            onNavigate={onNavigate}
+          />
         ))}
       </nav>
-      <UserMenu logout={logout} onNavigate={onNavigate} />
+      <UserBar logout={logout} onNavigate={onNavigate} />
     </div>
   );
 }
 
 function NavSection({
   group,
+  headingHidden,
   onNavigate,
 }: {
   readonly group: NavGroup;
+  readonly headingHidden: boolean;
   readonly onNavigate: () => void;
 }) {
   const { t } = useI18n();
@@ -188,7 +224,10 @@ function NavSection({
     <div role="group" aria-labelledby={headingId} className="flex flex-col">
       <p
         id={headingId}
-        className="m-0 px-2 pt-3 pb-1 text-rail-muted-foreground text-caption"
+        className={cn(
+          "m-0 px-2 pt-3 pb-1 text-caption text-subtle-foreground",
+          headingHidden && "sr-only",
+        )}
       >
         {t(group.label)}
       </p>
@@ -199,11 +238,15 @@ function NavSection({
           activeOptions={{ exact: item.to === "/" }}
           onClick={onNavigate}
           className={cn(
-            "flex h-8 items-center gap-2 rounded-md px-2 text-rail-muted-foreground text-control no-underline",
-            "hover:bg-rail-foreground/10 hover:text-rail-foreground",
-            "data-[status=active]:bg-rail-foreground/10 data-[status=active]:font-semibold data-[status=active]:text-rail-foreground",
+            "flex h-8 items-center gap-2 rounded-control px-2 text-control text-foreground no-underline",
+            "hover:bg-sidebar-hover",
+            "data-[status=active]:bg-sidebar-accent data-[status=active]:font-medium",
           )}
         >
+          <item.icon
+            aria-hidden="true"
+            className="size-4 shrink-0 text-muted-foreground"
+          />
           <span className="whitespace-nowrap">{t(item.label)}</span>
           {item.to === "/sessions" ? <WaitingBadge /> : null}
         </Link>
@@ -218,82 +261,25 @@ function initial(name: string) {
   return Array.from(name.trim())[0]?.toUpperCase() ?? "";
 }
 
-// Lucide paths (ISC), drawn inline like the other icons in this app.
-const ICONS = {
-  chevronDown: ["m6 9 6 6 6-6"],
-  chevronRight: ["m9 18 6-6-6-6"],
-  check: ["M20 6 9 17l-5-5"],
-  settings: [
-    "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z",
-    "M9 12a3 3 0 1 0 6 0a3 3 0 1 0-6 0",
-  ],
-  globe: [
-    "M2 12a10 10 0 1 0 20 0a10 10 0 1 0-20 0",
-    "M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20",
-    "M2 12h20",
-  ],
-  light: [
-    "M8 12a4 4 0 1 0 8 0a4 4 0 1 0-8 0",
-    "M12 2v2",
-    "M12 20v2",
-    "m4.93 4.93 1.41 1.41",
-    "m17.66 17.66 1.41 1.41",
-    "M2 12h2",
-    "M20 12h2",
-    "m6.34 17.66-1.41 1.41",
-    "m19.07 4.93-1.41 1.41",
-  ],
-  dark: ["M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"],
-  system: [
-    "M4 3h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z",
-    "M8 21h8",
-    "M12 17v4",
-  ],
-  key: [
-    "M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z",
-    "M16 7.5a.5.5 0 1 0 1 0a.5.5 0 1 0-1 0",
-  ],
-  logOut: [
-    "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4",
-    "m16 17 5-5-5-5",
-    "M21 12H9",
-  ],
-} as const;
+const THEME_ICONS: Record<Theme, LucideIcon> = {
+  system: Monitor,
+  light: Sun,
+  dark: Moon,
+};
 
-function Icon({
-  name,
-  className,
-}: {
-  readonly name: keyof typeof ICONS;
-  readonly className?: string;
-}) {
-  return (
-    <svg
-      aria-hidden="true"
-      className={cn("size-4 shrink-0", className)}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      {ICONS[name].map((d) => (
-        <path key={d} d={d} />
-      ))}
-    </svg>
-  );
-}
-
+const ICON = "size-4 shrink-0";
 const MENU_CARD =
-  "absolute z-20 flex flex-col rounded-xl border bg-popover p-1 text-popover-foreground shadow-lg";
+  "absolute z-20 flex flex-col rounded-card border bg-popover p-1 text-popover-foreground shadow-pop";
 const MENU_ITEM =
-  "flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-control text-popover-foreground no-underline hover:bg-muted focus-visible:bg-muted disabled:opacity-50";
-const MENU_ICON = "text-muted-foreground";
+  "flex h-8 w-full items-center gap-2 rounded-control px-2 text-left text-control text-popover-foreground no-underline hover:bg-muted focus-visible:bg-muted disabled:opacity-50";
+const MENU_ICON = cn(ICON, "text-muted-foreground");
+const MENU_RULE = "-mx-1 my-1 border-0 border-t";
+
+type Submenu = "language" | "theme";
 
 // Items are tagged by the menu they belong to, so arrow keys in the account
-// menu skip the language submenu nested inside it.
-function menuItems(root: HTMLElement | null, menu: "account" | "language") {
+// menu skip the submenus nested inside it.
+function menuItems(root: HTMLElement | null, menu: "account" | Submenu) {
   return Array.from(
     root?.querySelectorAll<HTMLElement>(
       `[data-menu="${menu}"]:not(:disabled)`,
@@ -314,6 +300,51 @@ function moveFocus(items: readonly HTMLElement[], key: string) {
 
 const ARROWS = ["ArrowDown", "ArrowUp", "Home", "End"];
 
+/** The account pill and, beside it, the bell for sessions waiting on me. */
+function UserBar({
+  logout,
+  onNavigate,
+}: {
+  readonly logout: { readonly pending: boolean; readonly run: () => void };
+  readonly onNavigate: () => void;
+}) {
+  return (
+    // Below md the account menu takes this bar's width, the screen's less the
+    // gutters; from md it sits on the pill at the sidebar's width.
+    <div className="relative flex shrink-0 items-center justify-between gap-2 border-t pt-2">
+      <UserMenu logout={logout} onNavigate={onNavigate} />
+      <WaitingBell onNavigate={onNavigate} />
+    </div>
+  );
+}
+
+function WaitingBell({ onNavigate }: { readonly onNavigate: () => void }) {
+  const { t } = useI18n();
+  const waiting = useWaitingSessions().data;
+  const count = waiting?.count ?? 0;
+  const label =
+    count === 0
+      ? t("shell.waitingNone")
+      : t(waiting?.more ? "shell.waitingMore" : "shell.waiting", { count });
+  return (
+    <Link
+      to="/sessions"
+      aria-label={label}
+      title={label}
+      onClick={onNavigate}
+      className="relative grid size-8 shrink-0 place-items-center rounded-control text-muted-foreground hover:bg-sidebar-hover hover:text-foreground"
+    >
+      <Bell aria-hidden="true" className={ICON} />
+      {count > 0 ? (
+        <span
+          aria-hidden="true"
+          className="absolute top-1 right-1 size-2 rounded-full bg-(--ap-tone-attention-fg)"
+        />
+      ) : null}
+    </Link>
+  );
+}
+
 function UserMenu({
   logout,
   onNavigate,
@@ -328,19 +359,20 @@ function UserMenu({
   const roleLabel = role && isMessageKey(roleKey) ? t(roleKey) : undefined;
   const theme = useTheme();
   const [open, setOpen] = useState(false);
-  const [languageOpen, setLanguageOpen] = useState(false);
+  const [submenu, setSubmenu] = useState<Submenu | null>(null);
   const triggerId = useId();
   const menuId = useId();
-  const themeLabelId = useId();
-  const languageItemId = useId();
-  const languageMenuId = useId();
   const sectionRef = useRef<HTMLElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const languageItemRef = useRef<HTMLButtonElement>(null);
+  const submenuItemRefs = useRef<Record<Submenu, HTMLButtonElement | null>>({
+    language: null,
+    theme: null,
+  });
+  const name = me?.user?.display_name ?? t("shell.account");
 
   useEffect(() => {
     if (!open) {
-      setLanguageOpen(false);
+      setSubmenu(null);
       return;
     }
     menuItems(sectionRef.current, "account")[0]?.focus();
@@ -352,10 +384,13 @@ function UserMenu({
   }, [open]);
 
   useEffect(() => {
-    if (!languageOpen) return;
-    const items = menuItems(sectionRef.current, "language");
-    (items.find((item) => item.dataset.locale === locale) ?? items[0])?.focus();
-  }, [languageOpen, locale]);
+    if (!submenu) return;
+    const items = menuItems(sectionRef.current, submenu);
+    (
+      items.find((item) => item.getAttribute("aria-checked") === "true") ??
+      items[0]
+    )?.focus();
+  }, [submenu]);
 
   // The followed item goes away with the menu; focus lands on the page.
   const followLink = () => {
@@ -364,9 +399,11 @@ function UserMenu({
     document.getElementById(MAIN_CONTENT_ID)?.focus();
   };
 
-  const closeLanguage = () => {
-    setLanguageOpen(false);
-    languageItemRef.current?.focus();
+  const closeSubmenu = () => {
+    if (!submenu) return;
+    const item = submenuItemRefs.current[submenu];
+    setSubmenu(null);
+    item?.focus();
   };
 
   const onAccountKey = (event: KeyboardEvent) => {
@@ -376,24 +413,130 @@ function UserMenu({
     moveFocus(menuItems(sectionRef.current, "account"), event.key);
   };
 
-  const onLanguageKey = (event: KeyboardEvent) => {
+  const onSubmenuKey = (event: KeyboardEvent) => {
     if (event.key === "Escape" || event.key === "ArrowLeft") {
       event.preventDefault();
       event.stopPropagation();
-      closeLanguage();
+      closeSubmenu();
       return;
     }
-    if (!ARROWS.includes(event.key)) return;
+    if (!ARROWS.includes(event.key) || !submenu) return;
     event.preventDefault();
     event.stopPropagation();
-    moveFocus(menuItems(sectionRef.current, "language"), event.key);
+    moveFocus(menuItems(sectionRef.current, submenu), event.key);
+  };
+
+  const submenuParent = (
+    which: Submenu,
+    icon: LucideIcon,
+    label: string,
+    value: string,
+  ) => {
+    const Icon = icon;
+    const itemId = `${menuId}-${which}`;
+    const listId = `${menuId}-${which}-menu`;
+    const expanded = submenu === which;
+    return (
+      <div className="relative">
+        <button
+          ref={(node) => {
+            submenuItemRefs.current[which] = node;
+          }}
+          id={itemId}
+          type="button"
+          role="menuitem"
+          data-menu="account"
+          aria-haspopup="menu"
+          aria-expanded={expanded}
+          aria-controls={expanded ? listId : undefined}
+          tabIndex={-1}
+          className={cn(MENU_ITEM, expanded && "bg-muted")}
+          onClick={() => setSubmenu(expanded ? null : which)}
+          onKeyDown={(event) => {
+            if (event.key !== "ArrowRight") return;
+            event.preventDefault();
+            setSubmenu(which);
+          }}
+        >
+          <Icon aria-hidden="true" className={MENU_ICON} />
+          {label}
+          <span className="ml-auto text-caption text-muted-foreground">
+            {value}
+          </span>
+          <ChevronRight aria-hidden="true" className="size-3.5 shrink-0" />
+        </button>
+        {expanded ? (
+          <div
+            id={listId}
+            role="menu"
+            aria-labelledby={itemId}
+            // Beside the menu where the sidebar leaves room; on a phone the
+            // sidebar is the screen's width, so it covers the item instead.
+            className={cn(
+              MENU_CARD,
+              "inset-x-0 bottom-0 md:inset-x-auto md:left-full md:ml-2 md:w-44",
+            )}
+            onKeyDown={onSubmenuKey}
+          >
+            {which === "language"
+              ? LOCALES.map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    role="menuitemradio"
+                    data-menu="language"
+                    aria-checked={locale === value}
+                    tabIndex={-1}
+                    className={MENU_ITEM}
+                    onClick={() => {
+                      setLocale(value);
+                      closeSubmenu();
+                    }}
+                  >
+                    <span lang={value}>{LOCALE_NAMES[value]}</span>
+                    {locale === value ? (
+                      <Check aria-hidden="true" className="ml-auto size-3.5" />
+                    ) : null}
+                  </button>
+                ))
+              : THEMES.map((value) => {
+                  const ThemeIcon = THEME_ICONS[value];
+                  return (
+                    <button
+                      key={value}
+                      type="button"
+                      role="menuitemradio"
+                      data-menu="theme"
+                      aria-checked={theme === value}
+                      tabIndex={-1}
+                      className={MENU_ITEM}
+                      onClick={() => {
+                        chooseTheme(value);
+                        closeSubmenu();
+                      }}
+                    >
+                      <ThemeIcon aria-hidden="true" className={MENU_ICON} />
+                      {t(`shell.theme.${value}`)}
+                      {theme === value ? (
+                        <Check
+                          aria-hidden="true"
+                          className="ml-auto size-3.5"
+                        />
+                      ) : null}
+                    </button>
+                  );
+                })}
+          </div>
+        ) : null}
+      </div>
+    );
   };
 
   return (
     <section
       ref={sectionRef}
       aria-label={t("shell.account")}
-      className="relative shrink-0 border-rail-foreground/15 border-t pt-2"
+      className="min-w-0 md:relative"
       onKeyDown={(event) => {
         if (event.key !== "Escape" || !open) return;
         setOpen(false);
@@ -405,120 +548,47 @@ function UserMenu({
           id={menuId}
           role="menu"
           aria-labelledby={triggerId}
-          className={cn(MENU_CARD, "inset-x-0 bottom-full mb-1")}
+          // As wide as the sidebar, not the pill it opens from.
+          className={cn(
+            MENU_CARD,
+            "inset-x-0 bottom-full mb-1 md:right-auto md:w-[calc(var(--ap-layout-sidebar-width)-1rem)]",
+          )}
           onKeyDown={onAccountKey}
         >
           {me?.user ? (
-            <p
-              role="presentation"
-              className="m-0 truncate px-2 py-1.5 text-caption text-muted-foreground"
-            >
-              {me.user.email}
-            </p>
+            <div role="presentation" className="flex flex-col px-2 py-2">
+              <span className="truncate text-control">{me.user.email}</span>
+              <span className="truncate text-caption text-muted-foreground">
+                {[roleLabel, me.workspace?.name].filter(Boolean).join(" · ")}
+              </span>
+            </div>
           ) : null}
+          <hr className={MENU_RULE} />
           <Link
-            to="/settings/preferences"
+            to="/settings/linked-accounts"
             role="menuitem"
             data-menu="account"
             tabIndex={-1}
             className={MENU_ITEM}
             onClick={followLink}
           >
-            <Icon name="settings" className={MENU_ICON} />
-            {t("shell.group.personal")}
+            <LinkIcon aria-hidden="true" className={MENU_ICON} />
+            {t("nav.linkedAccounts")}
           </Link>
-          <div className="relative">
-            <button
-              ref={languageItemRef}
-              id={languageItemId}
-              type="button"
-              role="menuitem"
-              data-menu="account"
-              aria-haspopup="menu"
-              aria-expanded={languageOpen}
-              aria-controls={languageOpen ? languageMenuId : undefined}
-              tabIndex={-1}
-              className={cn(MENU_ITEM, languageOpen && "bg-muted")}
-              onClick={() => setLanguageOpen((value) => !value)}
-              onKeyDown={(event) => {
-                if (event.key !== "ArrowRight") return;
-                event.preventDefault();
-                setLanguageOpen(true);
-              }}
-            >
-              <Icon name="globe" className={MENU_ICON} />
-              {t("common.language")}
-              <Icon name="chevronRight" className="ml-auto size-3.5" />
-            </button>
-            {languageOpen ? (
-              <div
-                id={languageMenuId}
-                role="menu"
-                aria-labelledby={languageItemId}
-                // Beside the menu where the rail leaves room; on a phone the
-                // rail is the screen's width, so it covers the item instead.
-                className={cn(
-                  MENU_CARD,
-                  "inset-x-0 bottom-0 md:inset-x-auto md:left-full md:ml-2 md:w-40",
-                )}
-                onKeyDown={onLanguageKey}
-              >
-                {LOCALES.map((value) => (
-                  <button
-                    key={value}
-                    type="button"
-                    role="menuitemradio"
-                    data-menu="language"
-                    data-locale={value}
-                    aria-checked={locale === value}
-                    tabIndex={-1}
-                    className={MENU_ITEM}
-                    onClick={() => {
-                      setLocale(value);
-                      closeLanguage();
-                    }}
-                  >
-                    <span lang={value}>{LOCALE_NAMES[value]}</span>
-                    {locale === value ? (
-                      <Icon name="check" className="ml-auto size-3.5" />
-                    ) : null}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-          </div>
-          {/* biome-ignore lint/a11y/useSemanticElements: a menu groups its items with role=group, not a fieldset */}
-          <div
-            role="group"
-            aria-labelledby={themeLabelId}
-            className="flex flex-col"
-          >
-            <p
-              id={themeLabelId}
-              className="m-0 px-2 pt-1.5 pb-1 text-caption text-muted-foreground"
-            >
-              {t("shell.theme")}
-            </p>
-            {THEMES.map((value) => (
-              <button
-                key={value}
-                type="button"
-                role="menuitemradio"
-                data-menu="account"
-                aria-checked={theme === value}
-                tabIndex={-1}
-                className={MENU_ITEM}
-                onClick={() => chooseTheme(value)}
-              >
-                <Icon name={value} className={MENU_ICON} />
-                {t(`shell.theme.${value}`)}
-                {theme === value ? (
-                  <Icon name="check" className="ml-auto size-3.5" />
-                ) : null}
-              </button>
-            ))}
-          </div>
-          <hr className="-mx-1 my-1 border-0 border-t" />
+          <hr className={MENU_RULE} />
+          {submenuParent(
+            "language",
+            Globe,
+            t("common.language"),
+            LOCALE_NAMES[locale],
+          )}
+          {submenuParent(
+            "theme",
+            THEME_ICONS[theme],
+            t("shell.theme"),
+            t(`shell.theme.${theme}`),
+          )}
+          <hr className={MENU_RULE} />
           <Link
             to="/settings/api-keys"
             role="menuitem"
@@ -527,10 +597,10 @@ function UserMenu({
             className={MENU_ITEM}
             onClick={followLink}
           >
-            <Icon name="key" className={MENU_ICON} />
+            <KeyRound aria-hidden="true" className={MENU_ICON} />
             {t("nav.apiKeys")}
           </Link>
-          <hr className="-mx-1 my-1 border-0 border-t" />
+          <hr className={MENU_RULE} />
           <button
             type="button"
             role="menuitem"
@@ -540,7 +610,7 @@ function UserMenu({
             disabled={logout.pending}
             onClick={logout.run}
           >
-            <Icon name="logOut" className={MENU_ICON} />
+            <LogOut aria-hidden="true" className={MENU_ICON} />
             {logout.pending ? t("common.loggingOut") : t("common.logout")}
           </button>
         </div>
@@ -552,32 +622,31 @@ function UserMenu({
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
+        // The role shows in the menu head, not on the pill; it is still
+        // heard with the name.
+        aria-label={
+          roleLabel ? t("shell.accountOf", { name, role: roleLabel }) : name
+        }
         onClick={() => setOpen((value) => !value)}
         onKeyDown={(event) => {
           if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
           event.preventDefault();
           setOpen(true);
         }}
-        className="inline-flex h-10 max-w-full items-center gap-2 rounded-full px-2 text-left hover:bg-rail-foreground/10 aria-expanded:bg-rail-foreground/10"
+        className="inline-flex h-9 max-w-full items-center gap-2 rounded-full px-2 text-left hover:bg-sidebar-hover aria-expanded:bg-sidebar-accent"
       >
         <span
           aria-hidden="true"
-          className="grid size-6 shrink-0 place-items-center rounded-full bg-rail-foreground/15 font-semibold text-[0.6875rem]"
+          className="grid size-6 shrink-0 place-items-center rounded-full bg-sidebar-accent font-semibold text-caption"
         >
           {initial(me?.user?.display_name ?? me?.workspace?.name ?? "")}
         </span>
-        <span className="min-w-0 truncate font-medium text-control leading-4">
-          {me?.user?.display_name ?? t("shell.account")}
+        <span className="min-w-0 truncate font-medium text-control">
+          {name}
         </span>
-        {roleLabel ? (
-          <span className="shrink-0 text-caption text-rail-muted-foreground leading-4">
-            <span aria-hidden="true">· </span>
-            {roleLabel}
-          </span>
-        ) : null}
-        <Icon
-          name="chevronDown"
-          className="size-3.5 text-rail-muted-foreground"
+        <ChevronDown
+          aria-hidden="true"
+          className="size-3.5 shrink-0 text-muted-foreground"
         />
       </button>
     </section>
