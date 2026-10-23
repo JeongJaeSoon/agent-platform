@@ -32,7 +32,6 @@ export const DEFAULT_CONFIG_DIR = resolve(
 export const PROFILES_FILE = "profiles.yaml";
 export const REPOSITORIES_FILE = "repositories.yaml";
 export const ALLOW_UNATTENDED_SETTING = "PLATFORM_ALLOW_UNATTENDED_PERMISSIONS";
-// Optional: names where the master key for runtime secrets comes from.
 export const PLATFORM_FILE = "platform.yaml";
 export const SECRET_KEY_SETTING = "PLATFORM_SECRET_KEY";
 // One bounded read per secret at startup; the API does not start without

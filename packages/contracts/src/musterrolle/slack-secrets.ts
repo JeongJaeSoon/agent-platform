@@ -7,11 +7,6 @@ import {
 } from "../shared/index.ts";
 import { displayNameSchema } from "./workspaces.ts";
 
-// Slack secrets are written by a person (the App Configuration Token, a
-// manual app's values) or by the server from Slack's own responses, and are
-// never read back: what a caller sees is whether one is set and its last
-// four characters.
-
 export const SECRET_PURPOSE_VALUES = [
   "slack_config_token",
   "slack_signing_secret",

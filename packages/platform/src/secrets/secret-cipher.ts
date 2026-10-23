@@ -1,15 +1,10 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 
-// AES-256-GCM for runtime secrets at rest. The additional data binds a
-// ciphertext to its row, owner, purpose and versions, so a ciphertext copied
-// onto another row, another workspace or another app does not decrypt.
-
 const ALGORITHM = "aes-256-gcm";
 const NONCE_BYTES = 12;
 const TAG_BYTES = 16;
 const KEY_HEX = /^[0-9a-fA-F]{64}$/;
 
-/** The only master key version until a rotation tool exists. */
 export const SECRET_KEY_VERSION = 1;
 
 export class SecretKeyError extends Error {
@@ -78,7 +73,6 @@ export function secretAad(fields: SecretAadFields): Buffer {
     String(fields.secretVersion),
     String(fields.keyVersion),
   ];
-  // A separator inside a field would let two different tuples share one AAD.
   if (parts.some((part) => part.length === 0 || part.includes("|"))) {
     throw new Error("Secret AAD fields must be non-empty and contain no '|'");
   }

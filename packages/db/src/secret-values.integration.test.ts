@@ -158,8 +158,6 @@ integration("secret values on PostgreSQL", () => {
   });
 
   const app = randomUUID();
-  // Each case changes one AAD column and reads the row back through the slot
-  // that now names it.
   const tampered: [
     string,
     (row: typeof secretValues.$inferSelect) => string,
@@ -379,7 +377,6 @@ integration("secret values on PostgreSQL", () => {
         }),
       ),
     );
-    // Each rotation saw the value the other left, never the same one twice.
     expect(new Set(seen).size).toBe(2);
     expect((await store.describe(slot))?.secretVersion).toBe(3);
   });

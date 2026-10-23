@@ -19,10 +19,6 @@ import { DB_NOW } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import { receipts, secretValues, users, workspaces } from "./schema.ts";
 
-// The SecretStore over `secret_values`. Every write of a slot runs under one
-// advisory lock and the row's own lock, so a replace, a rotation and a delete
-// of one slot happen one after another and versions never repeat.
-
 type Row = typeof secretValues.$inferSelect;
 
 // Postgres returns uuids in lowercase and the AAD and lock key are built from
@@ -76,7 +72,6 @@ async function lockedRow(
   return row;
 }
 
-/** Null when the person may write; otherwise why not. */
 async function auditRefusal(
   tx: Database,
   workspaceId: string,
@@ -147,7 +142,6 @@ export function createPostgresSecretStore(
     });
   }
 
-  /** Seals `value` as the next version of the slot and writes it. */
   async function write(
     tx: Database,
     slot: SecretSlot,

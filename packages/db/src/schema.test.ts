@@ -91,6 +91,7 @@ describe("database schema", () => {
       "push_requests",
       "queue_messages",
       "receipts",
+      "secret_values",
       "session_share_targets",
       "session_shares",
       "sessions",

@@ -29,7 +29,6 @@ const APP = "019a0000-0000-7000-8000-00000000a991";
 const VALUE = `xoxe-1-${randomBytes(24).toString("hex")}`;
 const LAST4 = VALUE.slice(-4);
 const READ = async () => VALUE;
-// A body reader that must not run: the caller is refused first.
 const UNREAD = async (): Promise<string> => {
   throw new Error("the body was read for a refused caller");
 };

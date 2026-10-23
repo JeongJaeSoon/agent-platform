@@ -400,10 +400,7 @@ export const slackInstallations = pgTable(
 );
 
 // Runtime secrets (Slack config token, app secrets), AES-256-GCM under the
-// API's master key. The AAD binds each ciphertext to
-// `id|workspace_id|owner_ref|purpose|secret_version|key_version`, so a
-// ciphertext moved to another row, owner or version does not decrypt. A
-// replace bumps secret_version on the same row; a delete removes it.
+// API's master key.
 export const secretValues = pgTable(
   "secret_values",
   {
@@ -411,7 +408,6 @@ export const secretValues = pgTable(
     workspaceId: uuid("workspace_id")
       .notNull()
       .references(() => workspaces.id),
-    /** `workspace` or `slack_app:<slack_apps.id>`. */
     ownerRef: text("owner_ref").notNull(),
     purpose: text().notNull(),
     secretVersion: integer("secret_version").notNull(),

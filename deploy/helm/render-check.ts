@@ -299,11 +299,6 @@ function checkObjectStoreKeys(
 
 const SECRET_KEY = "PLATFORM_SECRET_KEY";
 
-/**
- * The master key for runtime secrets reaches the api container alone, from
- * the Secret and optional; the scheduler, and so every worker it launches,
- * never holds it.
- */
 function checkSecretKey(label: string, manifests: Manifest[]): string[] {
   const errors: string[] = [];
   let holders = 0;

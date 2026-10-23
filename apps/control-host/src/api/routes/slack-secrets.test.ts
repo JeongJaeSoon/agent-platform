@@ -59,7 +59,6 @@ const identity = {
   },
 } as unknown as IdentityStore;
 
-// A service key, and an owner's own personal key: neither sets a secret.
 const KEYS = (["service", "personal"] as const).map((kind) => ({
   kind,
   plaintext: `csp_${crypto.randomUUID()}`,
@@ -86,7 +85,6 @@ const keyStore = {
   },
 };
 
-// What the store was handed, for the receipts check: purpose and last four.
 const values = new Map<string, { value: string; summary: SecretSummary }>();
 const receipts: { id: string; purpose: string; last4: string }[] = [];
 const slotKey = (slot: SecretSlot) =>
@@ -244,8 +242,6 @@ describe("the Slack config token API", () => {
         key,
         ...(method === "PUT" ? { body: put() } : {}),
       });
-      // Why each is refused (an owner's key on a non-console surface) is
-      // slack-secret-service.test.ts's to show; here, that it is.
       expect(response.status).toBe(403);
       expect(code(response.json).code).toBe("FORBIDDEN");
     }
@@ -339,8 +335,6 @@ describe("the Slack config token API", () => {
 });
 
 afterAll(() => {
-  // The value went into requests above; it must come back in no response,
-  // error body or log line, nor its middle in any form.
   const seen = [...responses, ...logs.records.map((r) => JSON.stringify(r))];
   for (const text of seen) {
     expect(text).not.toContain(VALUE);

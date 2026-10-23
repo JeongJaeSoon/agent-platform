@@ -20,10 +20,6 @@ import {
   MANAGEMENT_ROLES,
 } from "./policy.ts";
 
-// The write-only Slack secrets a person sets from the console: owners and
-// admins, in a browser session (so the CSRF checks apply), never a key.
-// Values go in; only whether one is set and its last four come back.
-
 export type SlackAppKind = "agent" | "link" | "manual";
 export type SlackAppSecretPurpose = Exclude<
   SecretPurpose,
@@ -105,8 +101,6 @@ export function createSlackSecretService(deps: {
     caller: Caller,
     workspaceId: string,
   ): Promise<SecretStore> {
-    // requirePermitted scopes the decision to the caller's own workspace,
-    // so a path naming another one has to be refused here.
     if (workspaceId !== caller.ownerId) throw NOT_FOUND();
     await requirePermitted(authorization, caller, "workspace.manage", {
       kind: "workspace",
