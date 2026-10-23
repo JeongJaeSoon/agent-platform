@@ -57,8 +57,18 @@ export function Avatar({
       {...props}
       // After the rest, so a stray role or aria-* cannot undo the rule.
       {...(named
-        ? { role: "img", "aria-label": label, "aria-hidden": undefined }
-        : { role: undefined, "aria-label": undefined, "aria-hidden": true })}
+        ? {
+            role: "img",
+            "aria-label": label,
+            "aria-labelledby": undefined,
+            "aria-hidden": undefined,
+          }
+        : {
+            role: undefined,
+            "aria-label": undefined,
+            "aria-labelledby": undefined,
+            "aria-hidden": true,
+          })}
     >
       {initials}
     </span>

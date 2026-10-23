@@ -23,6 +23,17 @@ describe("Avatar", () => {
     expect(avatar?.getAttribute("role")).toBeNull();
   });
 
+  test("aria-labelledby를 넘겨도 이름은 label이다", () => {
+    const { getByRole, queryByRole } = render(
+      <>
+        <span id="other">다른 이름</span>
+        <Avatar initials="JS" label="정재순" aria-labelledby="other" />
+      </>,
+    );
+    expect(getByRole("img", { name: "정재순" }).textContent).toBe("JS");
+    expect(queryByRole("img", { name: "다른 이름" })).toBeNull();
+  });
+
   test("label을 주면 그 이름의 이미지로 읽힌다", () => {
     const { getByRole } = render(<Avatar initials="JS" label="정재순" />);
     const avatar = getByRole("img", { name: "정재순" });

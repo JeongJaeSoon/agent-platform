@@ -218,6 +218,33 @@ describe("SecretField", () => {
     }
   });
 
+  test("복사 중에 A→B→A로 돌아와도 늦게 온 결과는 버린다", async () => {
+    const screen = render(<SecretField value={VALUE} {...COPY} />);
+    const { container, rerender } = screen;
+    const user = await setupUser();
+    let refuse: (error: Error) => void = () => {};
+    const restore = stubClipboard(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          refuse = reject;
+        }),
+    );
+    try {
+      globalThis.getSelection?.()?.removeAllRanges();
+      await user.click(screen.getByRole("button", { name: "복사" }));
+      rerender(<SecretField value="ws_FAKE_OTHER" {...COPY} />);
+      rerender(<SecretField value={VALUE} {...COPY} />);
+      refuse(new Error("denied"));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(container.querySelector("[aria-live=polite]")?.textContent).toBe(
+        "",
+      );
+      expect(globalThis.getSelection?.()?.toString()).toBe("");
+    } finally {
+      restore();
+    }
+  });
+
   test("값이 바뀌면 지난 값의 결과를 지운다", async () => {
     const screen = render(<SecretField value={VALUE} {...COPY} />);
     const { container, rerender } = screen;

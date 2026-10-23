@@ -28,6 +28,10 @@ describe("StatusDot", () => {
     expect(classes).not.toContain("size-2");
     expect(classes).toContain("animate-spin");
     expect(classes).toContain("border-r-transparent");
+    expect(classes).toContain("border-[1.5px]");
+    expect(classes).toContain(
+      "motion-reduce:border-r-(color:--ap-color-status-dot-run)",
+    );
     expect(classes).toContain("motion-reduce:animate-none");
     expect(classes).toContain("motion-reduce:size-2");
     expect(classes).toContain(

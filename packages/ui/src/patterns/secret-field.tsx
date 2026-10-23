@@ -39,19 +39,23 @@ export function SecretField({
   const [result, setResult] = useState<Result | null>(null);
   // A new value clears the old result, so A -> B -> A does not bring it back.
   const [resultFor, setResultFor] = useState(value);
+  // Bumped on every change, so a copy started before A -> B -> A is stale too.
+  const [generation, setGeneration] = useState(0);
   if (resultFor !== value) {
     setResultFor(value);
     setResult(null);
+    setGeneration((current) => current + 1);
   }
   // A copy that settles after the value changed must not report or select.
-  const latest = useRef(value);
+  const latest = useRef(generation);
   useEffect(() => {
-    latest.current = value;
-  }, [value]);
+    latest.current = generation;
+  }, [generation]);
   const shown = result?.value === value ? result : null;
 
   const copy = async () => {
     const copied = value;
+    const started = generation;
     let ok = true;
     try {
       const clipboard = globalThis.navigator?.clipboard;
@@ -60,7 +64,7 @@ export function SecretField({
     } catch {
       ok = false;
     }
-    if (latest.current !== copied) return;
+    if (latest.current !== started) return;
     // Selected, the value is one keystroke from a manual copy.
     if (!ok && valueRef.current) {
       globalThis.getSelection?.()?.selectAllChildren(valueRef.current);
