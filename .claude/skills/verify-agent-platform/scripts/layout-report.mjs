@@ -370,14 +370,15 @@ if (prefixes.length === 2) {
   ];
   const total = (p) => Object.values(counts[p]).reduce((x, y) => x + y, 0);
   md.unshift(
-    "",
     `합계: ${a} ${total(a)} → ${b} ${total(b)}`,
     "",
+    `| 화면 폭 | ${a} | ${b} |`,
+    "|---|---|---|",
     ...keys.map(
       (k) => `| ${k} | ${counts[a][k] ?? "-"} | ${counts[b][k] ?? "-"} |`,
     ),
+    "",
   );
-  md.unshift(`| 화면 폭 | ${a} | ${b} |`, "|---|---|---|");
 }
 md.unshift(
   "# 콘솔 간격·폭·정렬 실측 (v35 규칙 대비)",
