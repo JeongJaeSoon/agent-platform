@@ -1995,6 +1995,30 @@ describe("세션 상세 머리 경로", () => {
     expect(await bar.findByText(SESSION_ID.slice(0, 8))).toBeTruthy();
   });
 
+  test("열어 둔 세션을 다시 불러오다 실패하면 예전 제목을 지운다", async () => {
+    let visible = true;
+    const { services } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () =>
+        visible
+          ? json(200, { ...detail, title: "결제 오류 고치기" })
+          : apiError(404, "NOT_FOUND", "Resource not found"),
+    });
+    const bar = await trail();
+    expect(await bar.findByText("결제 오류 고치기")).toBeTruthy();
+
+    visible = false;
+    await act(() =>
+      services.queryClient.refetchQueries({
+        queryKey: ["sessions", SESSION_ID],
+        exact: true,
+      }),
+    );
+    expect(await screen.findByText(/이 세션을 찾을 수 없습니다/)).toBeTruthy();
+    expect(bar.queryByText("결제 오류 고치기")).toBeNull();
+    expect(bar.queryByRole("link")).toBeNull();
+  });
+
   test("세션을 불러오지 못하면 빈 이름 앞에 구분선을 남기지 않고 항목 이름만 둔다", async () => {
     renderAt(`/sessions/${SESSION_ID}`, {
       ...detailRoutes,

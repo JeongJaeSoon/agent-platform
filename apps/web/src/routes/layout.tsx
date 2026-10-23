@@ -194,14 +194,18 @@ function useLeafTitle(pathname: string): string | undefined {
   const { client } = useAgentPlatform();
   const sessionId = SESSION_PATH.exec(pathname)?.[1];
   const agentId = AGENT_PATH.exec(pathname)?.[1];
-  const session = useQuery({
+  const sessionRead = useQuery({
     ...sessionQuery(client, sessionId ?? ""),
     enabled: false,
-  }).data;
-  const agent = useQuery({
+  });
+  const agentRead = useQuery({
     ...agentQuery(client, agentId === "new" ? "" : (agentId ?? "")),
     enabled: false,
-  }).data;
+  });
+  // A refetch that failed keeps the old data; the screen has dropped it (a
+  // share taken back, a deletion), so the bar drops it too.
+  const session = sessionRead.isError ? undefined : sessionRead.data;
+  const agent = agentRead.isError ? undefined : agentRead.data;
   // Until the screen has it, or when it failed, the bar names only the item:
   // no separator left hanging before an empty name.
   if (session && sessionId !== undefined) {
