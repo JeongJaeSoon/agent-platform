@@ -100,8 +100,9 @@ export function ApprovalRow({
       {...within}
     >
       <div className="flex flex-wrap items-start justify-end gap-x-4 gap-y-2">
-        {/* The line's text, at the buttons' height so the two read as one line. */}
-        <div className="flex min-w-0 flex-1 basis-60 flex-wrap items-center gap-x-4 leading-[var(--ap-control-height)]">
+        {/* At least the buttons' height, centred, so the two read as one
+            line; wrapped lines keep their own height. */}
+        <div className="flex min-h-[var(--ap-control-height)] min-w-0 flex-1 basis-60 flex-wrap content-center items-center gap-x-4 gap-y-1">
           <div className="flex min-w-0 flex-wrap items-center gap-x-2">
             <Hourglass
               className="size-4 shrink-0"
