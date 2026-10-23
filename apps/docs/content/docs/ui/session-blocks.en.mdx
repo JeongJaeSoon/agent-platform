@@ -76,7 +76,7 @@ cd ui-demo
 ../node_modules/.bin/vite --host 127.0.0.1 --port 5173
 ```
 
-Sign in to the web console in the same browser, then open `http://127.0.0.1:5173`. The list shows the sessions the signed-in person created, and when you click a session id, `SessionDetail` at `/sessions/<id>` renders the status, waiting requests, the next-instruction input, usage, session controls, and progress events. Progress events keep arriving over the event stream.
+Sign in to the web console in the same browser, then open `http://127.0.0.1:5173`. The list shows the sessions the signed-in person created, and when you click a session id, `SessionDetail` at `/sessions/<id>` renders the status, waiting requests, an input for follow-up instructions, usage, session controls, and progress events. Progress events keep arriving over the event stream.
 
 If you are not signed in, the error rendered by `renderError` and a retry button appear where the list would be.
 
@@ -90,7 +90,7 @@ If you are not signed in, the error rendered by `renderError` and a retry button
 | `SessionDetail` | The screen of one session | `id`, `back`, `controls`, `unavailable`, `refusal` |
 | `ApprovalInbox` | Sessions waiting for an answer and their requests. You answer right here | `unavailable`, `refusal` |
 
-- `unavailable` lists the actions that cannot be done (`answer`, `control`, `send`) and the reason. An action you name is rendered disabled with its reason. The server rejects it again by permission either way.
+- `unavailable` lists the actions that cannot be done (`answer`, `control`, `send`) and the reason. An action you name is rendered disabled with its reason. Whether or not the UI disables it, the server checks permissions again and rejects a request the person may not make.
 - `refusal` turns the error of a command the server rejected into the app's own wording.
 - To use something smaller than a block, combine the hooks of `@werft-ai/react` (`useSessions`, `useSession`, `useSessionEvents`, `useSendMessage`, `useAnswer`, `useSessionControl`) and the components of `@werft-ai/ui` directly.
 

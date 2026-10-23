@@ -45,7 +45,7 @@ curl -sS -o /dev/null -w '%{http_code}\n' -X POST "$API/v1/linked-accounts/slack
 503
 ```
 
-With a configured installation, the start request returns an `authorize_url`. After you consent to Slack at that address, the web link screen passes `code` and `state` to the callback and the link is complete. The link state is `active`, `stale`, or `revoked`.
+With a configured installation, the start request returns an `authorize_url`. After you grant consent on Slack's authorization screen at that URL, the web link screen passes `code` and `state` to the callback and the link is complete. The link state is `active`, `stale`, or `revoked`.
 
 | Response | Meaning |
 | --- | --- |

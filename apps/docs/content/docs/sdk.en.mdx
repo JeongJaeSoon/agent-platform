@@ -104,7 +104,7 @@ close: succeeded {
 
 ## Events and errors
 
-Read the event stream with `for await`. The stream does not close when the turn ends, so end it with a `signal` or `stream.close()`. A server error is an `APIError`, and `isApiError(error, code)` tells them apart.
+Read the event stream with `for await`. The stream does not close when the turn ends, so end it with a `signal` or `stream.close()`. A server error is an `APIError`. Use `isApiError(error, code)` to check for a specific error code.
 
 ```ts title="werft-events.ts"
 import { isApiError, Werft, waitForTurn } from "@werft-ai/sdk";
@@ -169,7 +169,7 @@ Save `stream.lastEventId` and open the stream with `stream(sessionId, { lastEven
 
 ## Retries
 
-- Resent: when the error body says `retryable: true` (including 429), on 502 and 504 produced by a proxy, and on connection failures where the response could not be read and on attempt timeouts. Proxy 502 and 504 (those without an API error body), connection failures, and timeouts are resent only for GET and for commands that have an `Idempotency-Key`. `openPullRequest` and `commentPullRequest`, which have no key, are not resent in these cases because the server may already have run them. An error body with `retryable: true` is resent regardless of the kind of command.
+- Resent: when the error body says `retryable: true` (including 429), on 502 and 504 produced by a proxy, and on connection failures where the response could not be read and on attempt timeouts. Proxy 502 and 504 (those without an API error body), connection failures, and timeouts are resent only for GET and for commands that have an `Idempotency-Key`. `openPullRequest` and `commentPullRequest`, which have no key, are not resent in these cases because the server may already have run them. If the error body contains `retryable: true`, the SDK resends the request regardless of the kind of command.
 - Not resent: every 409, 500, and any other 4xx that is not `retryable: true`.
 - If `Retry-After` is present, it waits that long. If it exceeds `maxRetryDelayMs` (default 60 seconds), it fails without waiting.
 - To keep retrying the same command after restarting the process, save the error's `idempotencyKey` and pass it as `{ idempotencyKey }`.

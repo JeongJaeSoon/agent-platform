@@ -3,11 +3,11 @@ title: "最初のセッション"
 description: 権限リクエストに答え、メッセージを続けて送り、セッションを閉じる
 ---
 
-セッション 1 つを最初から最後まで通して実行する。エージェントがファイルを書こうとして権限を尋ね、人が許可し、次のメッセージが同じ作業ツリーで続き、最後にセッションを閉じる。[Quickstart](/getting-started/quickstart) で作成した `API` と `KEY` を同じターミナルで使う。
+セッション 1 つを最初から最後まで通して実行する。エージェントがファイルを書き込む前に権限を求め、人が許可する。次のメッセージを同じ作業ツリーで続けて処理し、最後にセッションを閉じる。[Quickstart](/getting-started/quickstart) で作成した `API` と `KEY` を同じターミナルで使う。
 
 ## ファイルを書くセッションを作成する
 
-この台本は Bash で `hello.txt` を書く。ローカルのプロファイルは、ファイルを変更するコマンドの前に権限を尋ねる。
+このスクリプトは Bash で `hello.txt` を作成する。ローカルのプロファイルは、ファイルを変更するコマンドの前に権限を尋ねる。
 
 ```bash
 created=$(curl -sS "$API/v1/sessions" \
@@ -69,7 +69,7 @@ done
 
 ## 続けて送る
 
-同じセッションにメッセージを送ると、次の turn になる。worker は同じ作業ツリーと同じ Claude Code の会話を引き継いで使う。読み取りコマンドは権限を尋ねない。
+同じセッションにメッセージを送ると、次のターンになる。worker は同じ作業ツリーと同じ Claude Code の会話を引き継いで使う。読み取りコマンドは権限を尋ねない。
 
 ```bash
 curl -sS "$API/v1/sessions/$SID/messages" \
@@ -95,7 +95,7 @@ curl -sS "$API/v1/sessions/$SID/turns" -H "Authorization: Bearer $KEY" | jq -c '
 
 ## 閉じる
 
-作業を終えたセッションは閉じる。進行中の turn を最後まで実行し、checkpoint を残してから `closed` になる。制御リクエストには、現在のセッションの `revision` を `expected_revision` として送る。
+作業を終えたセッションは閉じる。進行中のターンを最後まで実行し、checkpoint を残してから `closed` になる。制御リクエストには、現在のセッションの `revision` を `expected_revision` として送る。
 
 ```bash
 REV=$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq .revision)

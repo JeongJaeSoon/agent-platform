@@ -3,7 +3,7 @@ title: "承認"
 description: push リクエストが固定した commit を確認して承認する。プラットフォームが数秒以内に push する
 ---
 
-承認には `sessions:approve` が必要である。この scope は、人だけが持つように発行する。CI などの自動化には与えない。セッションを実行する worker の資格では `/v1` を呼べないため(401)、エージェントが自分で承認することはできない。[リクエスト](/approvals/request)の `SID`、`PUSH_ID`、`PUSH_COMMIT` を使う。
+承認には `sessions:approve` が必要である。この scope は、人だけが持つように発行する。CI などの自動化には与えない。セッションを実行する worker の認証情報では `/v1` を呼び出せないため(401)、エージェントは自分で承認できない。[リクエスト](/approvals/request)の `SID`、`PUSH_ID`、`PUSH_COMMIT` を使う。
 
 ## 承認する
 
@@ -69,7 +69,7 @@ curl -sS "$API/v1/receipts/$(echo "$pushed" | jq -r .push_receipt_id)" -H "Autho
 | --- | --- |
 | 409 `CHECKPOINT_MOVED` | `git_commit` が固定された commit と異なる、またはリクエストの後にセッションが checkpoint を残し直した。このリクエストは[拒否](/approvals/reject)して、新しくリクエストする |
 | 409 `PUSH_REQUEST_DECIDED` | すでに判断済みのリクエストである |
-| 403 `FORBIDDEN` | key に `sessions:approve` がない |
+| 403 `FORBIDDEN` | キーに `sessions:approve` がない |
 
 拒否された試行にも receipt が残る。エラー本文の `error.details.receipt_id` で読む。
 

@@ -25,7 +25,7 @@ curl: (28) Operation timed out after 5005 milliseconds with 8000 bytes received
    1 event: tool_use
 ```
 
-このセッションの 2 つの turn(準備メッセージと `ls`)のイベントがすべて届いた。frame 1 つは、`event:`、`data:`、`id:` の 3 行と空行である。
+このセッションの 2 つのターン(準備メッセージと `ls`)のイベントがすべて届いた。frame 1 つは、`event:`、`data:`、`id:` の 3 行と空行である。
 
 ```text
 event: tool_use
@@ -33,7 +33,7 @@ data: {"schema_version":1,"session_id":"…","turn_id":"2","attempt_id":"att_…
 id: ev_3m
 ```
 
-`data` は JSON である。どのセッション・turn・attempt のイベントかと時刻があり、内容は内側の `data` にある。
+`data` は JSON である。どのセッション・ターン・attempt のイベントかと時刻があり、内容は内側の `data` にある。
 
 | event | 内側の `data` |
 | --- | --- |
@@ -42,7 +42,7 @@ id: ev_3m
 | `tool_use` | モデルが呼び出したツールと入力 |
 | `tool_result` | ツールの結果。失敗なら `is_error: true` |
 | `question` | 権限リクエストまたは質問が発生した。応答の方法は[承認待ちと再開](/sessions/waiting-and-resume) |
-| `result` | エンジンが turn を終えた。完了の判定ではない |
+| `result` | エンジンがターンを終えた。完了の判定ではない |
 | `status` | セッションの状態が変わった(`phase`: `running`、`idle` など) |
 | `error` | 実行エラー |
 
@@ -61,7 +61,7 @@ listed
 {"is_error":false}
 ```
 
-turn が終わったかどうかは、イベントではなく turn の `status` で確認する([送信](/messages/send#結果を読む))。作業ができたかどうかは、`assistant` と `tool_result` の内容で判断する。
+ターンが終わったかどうかは、イベントではなくターンの `status` で確認する([送信](/messages/send#結果を読む))。作業ができたかどうかは、`assistant` と `tool_result` の内容で判断する。
 
 ## 切断後に続きを受信する
 
@@ -79,11 +79,11 @@ curl: (28) Operation timed out after 3005 milliseconds with 0 bytes received
 0
 ```
 
-その後は新しいイベントがなく、何も届かなかった。その間に次のメッセージを送っていれば、その turn のイベントが届く。
+その後は新しいイベントがなく、何も届かなかった。その間に次のメッセージを送っていれば、そのターンのイベントが届く。
 
 | レスポンス | 意味 |
 | --- | --- |
-| 410 `CURSOR_EXPIRED` | その `id` が保持範囲の外にある。セッションと turn を HTTP で読み直し、新しく接続する。現在のサーバーはイベントを削除しないためこのレスポンスは返さないが、クライアントでは処理しておく |
+| 410 `CURSOR_EXPIRED` | その `id` が保持範囲の外にある。セッションとターンを HTTP で読み直し、新しく接続する。現在のサーバーはイベントを削除しないためこのレスポンスは返さないが、クライアントでは処理しておく |
 | 429 | 同時に開いているストリームが多すぎる |
 
 ## 次のステップ

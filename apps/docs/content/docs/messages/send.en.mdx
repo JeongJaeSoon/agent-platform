@@ -60,7 +60,7 @@ curl -sS "$API/v1/sessions/$SID/turns/$TURN" -H "Authorization: Bearer $KEY" | j
 }
 ```
 
-Judge whether a turn has finished by this `status` alone. If it is one of the five values, it has finished. `completed` means the engine ended the turn normally, not that the requested work was done. It is `completed` even if the model calls only one tool and ends its answer, or if a tool receives an error. Decide whether the work was done by reading the `assistant` and `tool_result` events in [Streaming](/messages/streaming), and if it is not done enough, send the next message to the same session.
+Judge whether a turn has finished by this `status` alone. If it is one of the five values, it has finished. `completed` means the engine ended the turn normally, not that the requested work was done. It is `completed` even if the model calls only one tool and ends its answer, or if a tool receives an error. Decide whether the work was done by reading the `assistant` and `tool_result` events in [Streaming](/messages/streaming), and if more work is needed, send a follow-up message to the same session.
 
 ## When you cannot send
 
