@@ -5,7 +5,7 @@ import type {
   SessionDetail,
 } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
-import { buttonVariants } from "@werft-ai/ui";
+import { buttonVariants, Link } from "@werft-ai/ui";
 import { Download } from "lucide-react";
 import { useId } from "react";
 import { LoadFailure } from "../components/load-failure.tsx";
@@ -91,7 +91,7 @@ export function SessionOutputs({
                 </span>
               </div>
               {item.omitted === null ? (
-                <a
+                <Link
                   href={`/v1/sessions/${encodeURIComponent(session.id)}/outputs/${encodeURIComponent(item.path)}`}
                   download={name.slice(name.lastIndexOf("/") + 1)}
                   aria-label={t("session.outputs.download", { name })}
@@ -102,7 +102,7 @@ export function SessionOutputs({
                   })}
                 >
                   <Download className="size-3.5" aria-hidden="true" />
-                </a>
+                </Link>
               ) : null}
             </li>
           );

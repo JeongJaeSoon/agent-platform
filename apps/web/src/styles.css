@@ -48,14 +48,6 @@ body {
   font-family: var(--ap-font-sans);
 }
 
-/* Tailwind's preflight strips link styling; a link must still look like one. */
-.web-auth a:not([data-slot="button"]):not(.ap-button),
-.web-shell__main a:not([data-slot="button"]):not(.ap-button) {
-  color: var(--ap-color-accent);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
 a:focus-visible,
 button:focus-visible,
 input:focus-visible,

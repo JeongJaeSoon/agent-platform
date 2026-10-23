@@ -5,6 +5,7 @@ import {
   RouterProvider,
 } from "@tanstack/react-router";
 import { AgentPlatformProvider, type RenderLink } from "@werft-ai/react";
+import { cn } from "@werft-ai/ui";
 import { type ReactNode, useCallback, useState } from "react";
 import { I18nProvider, type Locale, useI18n } from "./i18n/i18n.tsx";
 import { createAppRouter } from "./router.tsx";
@@ -16,6 +17,7 @@ export interface AppProps {
   readonly locale?: Locale;
 }
 
+// The parts set their own underline; the colour defaults to the link colour.
 const renderLink: RenderLink = ({
   id,
   children,
@@ -26,7 +28,7 @@ const renderLink: RenderLink = ({
   <Link
     to="/sessions/$id"
     params={{ id }}
-    className={className}
+    className={cn("text-link", className)}
     title={title}
     aria-label={label}
   >
