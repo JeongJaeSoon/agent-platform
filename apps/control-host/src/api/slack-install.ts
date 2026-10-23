@@ -10,6 +10,7 @@ import {
 import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
 import { createLogger } from "@werft-ai/observability";
 import { drizzle } from "drizzle-orm/node-postgres";
+import { SlackConfigError, slackApiUrlFrom } from "./slack-config.ts";
 
 // Registers the Slack app's install in a team for a workspace and marks it
 // verified, with the team and bot user Slack itself reports for the bot
@@ -34,17 +35,10 @@ Exit codes: 0 verified, 1 unexpected error, 2 usage, 3 Slack refused the token,
             4 workspace_conflict, 5 revoked, 6 workspace not found,
             7 the token belongs to another app`;
 
-const SLACK_API_URL = "https://slack.com/api";
 const SLACK_HTTP_TIMEOUT_MS = 10_000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const APP_ID = /^A[A-Z0-9]+$/;
 const SLACK_ID = /^[A-Z0-9]+$/;
-const PLAIN_HTTP_HOSTS = new Set([
-  "localhost",
-  "127.0.0.1",
-  "[::1]",
-  "mock-slack",
-]);
 
 export class SlackInstallUsageError extends Error {}
 
@@ -276,22 +270,14 @@ export type SlackInstallIo = {
 };
 
 function apiUrlFrom(env: Record<string, string | undefined>): string {
-  const value = (env.SLACK_API_URL || SLACK_API_URL).replace(/\/+$/, "");
-  let protocol: string;
   try {
-    protocol = new URL(value).protocol;
-  } catch {
-    throw new SlackInstallUsageError("SLACK_API_URL must be an absolute URL");
+    return slackApiUrlFrom(env);
+  } catch (error) {
+    if (error instanceof SlackConfigError) {
+      throw new SlackInstallUsageError(error.message);
+    }
+    throw error;
   }
-  // The token rides in a header: plain HTTP only to a mock on this host or
-  // the compose network's mock-slack service.
-  const local = PLAIN_HTTP_HOSTS.has(new URL(value).hostname);
-  if (protocol !== "https:" && !(protocol === "http:" && local)) {
-    throw new SlackInstallUsageError(
-      "SLACK_API_URL must be https (http only for a local mock)",
-    );
-  }
-  return value;
 }
 
 /** Returns the exit code. Nothing it writes carries the token. */
