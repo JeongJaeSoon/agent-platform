@@ -201,14 +201,14 @@ function useLeafTitle(pathname: string): string | undefined {
     ...agentQuery(client, agentId === "new" ? "" : (agentId ?? "")),
     enabled: false,
   }).data;
-  if (sessionId !== undefined) {
-    if (!session) return "";
+  // Until the screen has it, or when it failed, the bar names only the item:
+  // no separator left hanging before an empty name.
+  if (session && sessionId !== undefined) {
     // A server from before titles sends none, as the page head shows.
     return session.title || sessionId.slice(0, 8);
   }
   if (agentId === "new") return t("agents.newTitle");
-  if (agentId !== undefined) return agent?.agent.name ?? "";
-  return undefined;
+  return agent?.agent.name;
 }
 
 function PageTrail({

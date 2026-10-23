@@ -1984,4 +1984,17 @@ describe("세션 상세 머리 경로", () => {
     const bar = await trail();
     expect(await bar.findByText(SESSION_ID.slice(0, 8))).toBeTruthy();
   });
+
+  test("세션을 불러오지 못하면 빈 이름 앞에 구분선을 남기지 않고 항목 이름만 둔다", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () =>
+        apiError(404, "NOT_FOUND", "no such session"),
+    });
+    expect(await screen.findByText(/이 세션을 찾을 수 없습니다/)).toBeTruthy();
+    const bar = await trail();
+    expect(bar.queryByRole("link")).toBeNull();
+    expect(bar.getByText("세션")).toBeTruthy();
+    expect(bar.queryByText("/")).toBeNull();
+  });
 });
