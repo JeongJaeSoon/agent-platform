@@ -472,7 +472,7 @@ export function HomeScreen() {
       link={
         <TextLink
           asChild
-          className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-(color:--home-link) text-control"
+          className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-(color:--ap-color-link) text-control"
         >
           <Link to="/agents/$id" params={{ id: agent.id }}>
             {t("home.glance.toAgent")}
@@ -703,7 +703,7 @@ function ArrowLink({
   return (
     <TextLink
       asChild
-      className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-(color:--home-link) text-control"
+      className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-(color:--ap-color-link) text-control"
     >
       <Link to={to}>
         {children}
