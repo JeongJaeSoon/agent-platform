@@ -106,7 +106,7 @@ describe("workspace shell", () => {
     renderAt("/", meOk);
     expect(await screen.findByRole("heading", { name: "홈" })).toBeDefined();
     expect(
-      screen.getByText("Owner(owner@example.com) 계정으로 로그인했습니다"),
+      screen.getByText("설치 전체 현황과 워크스페이스 점검 항목입니다."),
     ).toBeDefined();
     const steps = within(
       screen.getByRole("region", { name: "시작하기" }),

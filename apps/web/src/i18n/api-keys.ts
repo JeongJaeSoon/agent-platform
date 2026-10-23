@@ -25,6 +25,7 @@ export const apiKeysKo = {
   "apiKeys.guide.agent.approve":
     "'요청에 답하기'(sessions:approve) 권한은 넣을 수 없습니다. 에이전트가 사람 대신 승인하지 않습니다.",
   "apiKeys.nav": "key 목록",
+  "apiKeys.navCount": "{count}개",
   "apiKeys.mineTitle": "내 key",
   "apiKeys.mineIntro":
     "나로 동작하는 key입니다. CLI나 스크립트가 내 권한 안에서 API를 부를 때 씁니다.",
@@ -125,6 +126,7 @@ export const apiKeysEn: Record<keyof typeof apiKeysKo, string> = {
   "apiKeys.guide.agent.approve":
     "Cannot include Answer requests (sessions:approve): an agent never approves on a person's behalf.",
   "apiKeys.nav": "Key lists",
+  "apiKeys.navCount": "{count} keys",
   "apiKeys.mineTitle": "My keys",
   "apiKeys.mineIntro":
     "Keys that act as you. Use them when the CLI or a script calls the API with your permissions.",
@@ -227,6 +229,7 @@ export const apiKeysJa: Record<keyof typeof apiKeysKo, string> = {
   "apiKeys.guide.agent.approve":
     "「リクエストへの回答」（sessions:approve）は含められません。エージェントが人の代わりに承認することはありません。",
   "apiKeys.nav": "キーの一覧",
+  "apiKeys.navCount": "{count}件",
   "apiKeys.mineTitle": "自分のキー",
   "apiKeys.mineIntro":
     "あなたとして動作するキーです。CLI やスクリプトがあなたの権限の範囲で API を呼び出すときに使います。",

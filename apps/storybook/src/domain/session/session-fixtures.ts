@@ -183,6 +183,11 @@ export const SESSION: SessionSummary = {
     permission_mode: "default",
   },
   repository_id: "agent-platform",
+  repository: {
+    id: "agent-platform",
+    full_name: "werft-ai/agent-platform",
+    branch: "main",
+  },
   current_turn_id: "turn_01",
   queued_turn_count: 1,
   last_event_at: "2026-10-21T01:00:44.000Z",

@@ -12,6 +12,7 @@ describe("Foundations 토큰 표", () => {
     for (const prefix of [
       "--ap-color-",
       "--ap-tone-",
+      "--ap-avatar-",
       "--ap-text-",
       "--ap-space-",
       "--ap-radius-",

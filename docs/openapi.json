@@ -2251,6 +2251,18 @@
               }
             ]
           },
+          "repository": {
+            "default": null,
+            "description": "The repository the session was created against, as the session recorded it then: a later catalog change or removal does not alter it. Null for a session created without a repository.",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SessionRepository"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "current_turn_id": {
             "anyOf": [
               {
@@ -2298,11 +2310,52 @@
           "status",
           "runtime",
           "repository_id",
+          "repository",
           "current_turn_id",
           "queued_turn_count",
           "last_event_at",
           "created_at",
           "updated_at"
+        ],
+        "additionalProperties": false
+      },
+      "SessionRepository": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The catalog key, as `repository_id`. Null for a session created before the catalog existed."
+          },
+          "full_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A name to show: the path of the repository's http(s) URL without host, credentials, query or `.git` (`owner/name`, or `group/sub/name`), or else the catalog key; null when neither exists. Never the URL itself, which may embed a credential."
+          },
+          "branch": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The branch the session's workspace was cloned from. Not the branch a push writes to (`agent/<session-id>`)."
+          }
+        },
+        "required": [
+          "id",
+          "full_name",
+          "branch"
         ],
         "additionalProperties": false
       },
@@ -2415,6 +2468,18 @@
               {
                 "type": "string",
                 "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "repository": {
+            "default": null,
+            "description": "The repository the session was created against, as the session recorded it then: a later catalog change or removal does not alter it. Null for a session created without a repository.",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SessionRepository"
               },
               {
                 "type": "null"
@@ -2777,6 +2842,7 @@
           "status",
           "runtime",
           "repository_id",
+          "repository",
           "current_turn_id",
           "queued_turn_count",
           "last_event_at",
@@ -16239,6 +16305,11 @@
                         "permission_mode": "default"
                       },
                       "repository_id": "sample-app",
+                      "repository": {
+                        "id": "sample-app",
+                        "full_name": "acme/sample-app",
+                        "branch": "main"
+                      },
                       "current_turn_id": "3",
                       "queued_turn_count": 1,
                       "last_event_at": "2026-10-11T08:15:42Z",
@@ -16460,6 +16531,11 @@
                     "permission_mode": "default"
                   },
                   "repository_id": "sample-app",
+                  "repository": {
+                    "id": "sample-app",
+                    "full_name": "acme/sample-app",
+                    "branch": "main"
+                  },
                   "current_turn_id": "3",
                   "queued_turn_count": 1,
                   "last_event_at": "2026-10-11T08:15:42Z",
@@ -16719,6 +16795,11 @@
                     "permission_mode": "default"
                   },
                   "repository_id": "sample-app",
+                  "repository": {
+                    "id": "sample-app",
+                    "full_name": "acme/sample-app",
+                    "branch": "main"
+                  },
                   "current_turn_id": "3",
                   "queued_turn_count": 1,
                   "last_event_at": "2026-10-11T08:15:42Z",

@@ -1,5 +1,6 @@
-import { describe, expect, test } from "bun:test";
-import { queryKeys } from "@werft-ai/core";
+import { describe, expect, jest, test } from "bun:test";
+import type { ApiClient } from "@werft-ai/client";
+import { queryKeys, waitingSessionsQuery } from "@werft-ai/core";
 import { AGENT_ID, agentServer } from "../test-support/fake-agents.ts";
 import {
   apiError,
@@ -10,8 +11,10 @@ import {
   WORKSPACE_ID,
 } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
+import { statusPageQuery, useNow, waitedFor } from "./home.tsx";
 
-const { act, renderAt, screen, waitFor, within } = await appHarness();
+const { act, renderAt, renderHook, screen, waitFor, within } =
+  await appHarness();
 
 const owner = {
   user_id: USER_ID,
@@ -243,9 +246,10 @@ describe("홈 요약", () => {
       .filter((item) => item.querySelector("h3"))
       .map((card) => ({
         title: card.querySelector("h3")?.textContent,
-        value:
+        badge:
           card.querySelector("h3")?.parentElement?.nextElementSibling
-            ?.firstElementChild?.textContent,
+            ?.textContent,
+        value: card.querySelector("p.text-number")?.textContent,
         rows: [...card.querySelectorAll("dl > div")].map((row) => [
           row.querySelector("dt")?.textContent,
           row.querySelector("dd")?.textContent,
@@ -254,6 +258,7 @@ describe("홈 요약", () => {
   const waitingSession = {
     ...oneSession,
     id: "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+    title: "hello.txt 만들고 commit",
     status: "needs_input",
   };
   const request = (created_at: string) => ({
@@ -302,6 +307,7 @@ describe("홈 요약", () => {
       expect(cards(overview)).toEqual([
         {
           title: "전체 사용량",
+          badge: undefined,
           value: "—미계측",
           rows: [
             ["세션", "—미계측"],
@@ -311,29 +317,34 @@ describe("홈 요약", () => {
         },
         {
           title: "확인할 항목",
+          badge: "운영",
           value: "2",
           rows: [
             ["답변 대기", "1"],
             ["30분 넘게 대기", "1개 세션"],
             ["가장 오래된 요청", expect.stringContaining("1a2b3c4d · ")],
             ["결제 담당", "3일 후 만료"],
-            ["연동 계정 만료", "—미계측"],
             ["에이전트", "켜짐 1 · 초안 1"],
           ],
         },
         {
-          title: "내 세션 기준",
+          title: "내가 시작한 세션 기준",
+          badge: undefined,
           value: "—미계측",
           rows: [
-            ["세션", "2+"],
+            ["세션", "—미계측"],
             ["실행 시간", "—미계측"],
             ["토큰", "—미계측"],
           ],
         },
       ]),
     );
-    // The request list and its answers live on the session screen only.
-    expect(screen.queryByRole("region", { name: /^답변 대기/ })).toBeNull();
+    // The waiting request is answerable from home, above the cards.
+    const inbox = screen.getByRole("region", { name: /^답변 대기/ });
+    expect(
+      inbox.compareDocumentPosition(overview) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     const oldest = await within(overview).findByRole("link", {
       name: waitingSession.id.slice(0, 8),
     });
@@ -344,7 +355,16 @@ describe("홈 요약", () => {
         .getAttribute("href"),
     ).toBe("/settings/api-keys/service");
 
+    expect(
+      screen.getByText("설치 전체 수치는 설치 운영자에게만 보입니다"),
+    ).toBeTruthy();
     const recent = screen.getByRole("table", { name: "최근 세션" });
+    // The design's dot, not a pill: amber for waiting, the text says which.
+    expect(
+      [...recent.querySelectorAll("[data-dot]")].map((dot) =>
+        dot.getAttribute("data-dot"),
+      ),
+    ).toEqual(["wait", "idle"]);
     expect(
       [...recent.querySelectorAll("tr")].map((row) =>
         [...row.children].map((cell) => cell.textContent),
@@ -352,8 +372,8 @@ describe("홈 요약", () => {
     ).toEqual([
       ["세션", "작업 상태", "에이전트", "저장소", "최근 활동"],
       [
-        waitingSession.id.slice(0, 8),
-        "작업: 답변 대기",
+        `${waitingSession.title}${waitingSession.id.slice(0, 8)}`,
+        expect.stringMatching(/^작업: 답변 대기 · \d+(분|시간|일)$/),
         "—",
         "demo",
         expect.any(String),
@@ -371,6 +391,12 @@ describe("홈 요약", () => {
         .getAllByRole("link")
         .map((l) => l.getAttribute("href")),
     ).toEqual([`/sessions/${waitingSession.id}`, `/sessions/${oneSession.id}`]);
+    // A titled session links by its title; one without a title, by its id.
+    expect(
+      within(recent)
+        .getAllByRole("link")
+        .map((l) => l.textContent),
+    ).toEqual([waitingSession.title, oneSession.id.slice(0, 8)]);
   });
 
   test("한도를 읽을 수 없는 사람에게는 설치 전체 카드를 숨긴다", async () => {
@@ -382,7 +408,7 @@ describe("홈 요약", () => {
     await waitFor(() =>
       expect(cards(overview).map((card) => card.title)).toEqual([
         "확인할 항목",
-        "내 세션 기준",
+        "내가 시작한 세션 기준",
       ]),
     );
   });
@@ -412,7 +438,6 @@ describe("홈 요약", () => {
         "답변 대기",
         "30분 넘게 대기",
         "가장 오래된 요청",
-        "연동 계정 만료",
         "에이전트",
       ]);
       expect(check?.rows[1]).toEqual(["30분 넘게 대기", "0개 세션"]);
@@ -524,6 +549,279 @@ describe("홈 요약", () => {
       order.findIndex((title) => title?.startsWith("최근 세션")),
     );
   });
+
+  test.each([
+    ["owner", [], "설치 전체 현황과 워크스페이스 점검 항목입니다."],
+    ["admin", [], "내 세션과 관리하는 에이전트, 워크스페이스 점검 항목입니다."],
+    [
+      "member",
+      [agentServer().detail().agent],
+      "Owner 님이 관리하는 에이전트와 내 세션을 기준으로 구성했습니다.",
+    ],
+    [
+      "member",
+      [],
+      "Owner 님이 시작했거나 공유받은 세션을 기준으로 구성했습니다.",
+    ],
+  ] as const)(
+    "설명은 역할로 고른다: %s, 관리하는 에이전트 %p",
+    async (role, administered, intro) => {
+      renderAt("/", {
+        ...homeRoutes(),
+        "GET /v1/auth/me": () => json(200, me(undefined, role)),
+        "GET /v1/administered-agents": () => json(200, { items: administered }),
+      });
+      expect(await screen.findByText(intro)).toBeDefined();
+    },
+  );
+
+  test("다시 읽기에 실패한 목록은 진행 상황 합계에 옛 값으로 남지 않는다", async () => {
+    const running = {
+      ...oneSession,
+      id: "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e",
+      status: "running",
+    };
+    let runningFails = false;
+    const { services } = renderAt("/", {
+      ...homeRoutes(),
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/administered-agents": () => json(200, { items: [] }),
+      "GET /v1/sessions?status=running": () =>
+        runningFails
+          ? json(500, { error: { code: "INTERNAL", message: "boom" } })
+          : json(200, { items: [running], next_cursor: null }),
+      "GET /v1/sessions?status=idle": () =>
+        json(200, { items: [], next_cursor: null }),
+      "GET /v1/linked-accounts": () => json(200, { items: [] }),
+    });
+    const overview = await screen.findByRole("region", { name: "한눈에 보기" });
+    const progress = () => cards(overview)[1];
+    await waitFor(() =>
+      expect(progress()).toMatchObject({
+        value: "2",
+        rows: [
+          ["답변 대기", "1"],
+          ["작업 중", "1"],
+          ["쉬는 중", "0"],
+        ],
+      }),
+    );
+    runningFails = true;
+    await act(() => services.queryClient.refetchQueries());
+    await waitFor(() =>
+      expect(progress()).toMatchObject({
+        value: "—",
+        rows: [
+          ["답변 대기", "1"],
+          ["작업 중", "—"],
+          ["쉬는 중", "0"],
+        ],
+      }),
+    );
+  });
+
+  test("비활성으로 알려 온 Slack 계정은 연결로 세지 않고 다시 연결을 보인다", async () => {
+    renderAt("/", {
+      ...homeRoutes(),
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/administered-agents": () => json(200, { items: [] }),
+      "GET /v1/sessions?status=running": () =>
+        json(200, { items: [], next_cursor: null }),
+      "GET /v1/sessions?status=idle": () =>
+        json(200, { items: [], next_cursor: null }),
+      "GET /v1/linked-accounts": () =>
+        json(200, {
+          items: [
+            {
+              id: "5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b",
+              user_id: "6f7a8b9c-0d1e-4f2a-9b3c-4d5e6f7a8b9c",
+              provider: "slack",
+              external_tenant: "T0001",
+              external_user_id: "U0001",
+              status: "stale",
+              verified_at: "2026-10-01T00:00:00Z",
+              revision: 1,
+            },
+          ],
+        }),
+    });
+    const overview = await screen.findByRole("region", { name: "한눈에 보기" });
+    await waitFor(() =>
+      expect(cards(overview)[2]).toMatchObject({
+        value: "0 / 3",
+        rows: [
+          ["GitHub", "준비 중"],
+          ["Slack", "다시 연결"],
+          ["Google Workspace", "준비 중"],
+        ],
+      }),
+    );
+  });
+
+  test("관리하는 에이전트를 읽지 못하면 카드를 짐작하지 않고 다시 시도를 보인다", async () => {
+    renderAt("/", {
+      ...homeRoutes(),
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/administered-agents": () =>
+        json(500, { error: { code: "INTERNAL", message: "boom" } }),
+    });
+    const overview = await screen.findByRole("region", { name: "한눈에 보기" });
+    expect(
+      await within(overview).findByRole("button", { name: "다시 시도" }),
+    ).toBeTruthy();
+    expect(within(overview).queryAllByRole("listitem")).toEqual([]);
+  });
+
+  test("구성원 홈은 내 사용량, 진행 상황, 연동 계정 카드다", async () => {
+    const running = {
+      ...oneSession,
+      id: "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e",
+      status: "running",
+    };
+    renderAt("/", {
+      ...homeRoutes(),
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/administered-agents": () => json(200, { items: [] }),
+      "GET /v1/sessions?status=running": () =>
+        json(200, { items: [running], next_cursor: null }),
+      "GET /v1/sessions?status=idle": () =>
+        json(200, { items: [oneSession], next_cursor: "next" }),
+      "GET /v1/linked-accounts": () => json(200, { items: [] }),
+    });
+    const overview = await screen.findByRole("region", { name: "한눈에 보기" });
+    await waitFor(() =>
+      expect(cards(overview).slice(1)).toEqual([
+        {
+          title: "진행 상황",
+          badge: "지금",
+          value: "3+",
+          rows: [
+            ["답변 대기", "1"],
+            ["작업 중", "1"],
+            ["쉬는 중", "1+"],
+          ],
+        },
+        {
+          title: "연결 상태",
+          badge: "내 계정",
+          value: "0 / 3",
+          rows: [
+            ["GitHub", "준비 중"],
+            ["Slack", "연결 안 됨"],
+            ["Google Workspace", "준비 중"],
+          ],
+        },
+      ]),
+    );
+    expect(cards(overview)[0]?.title).toBe("내가 시작한 세션 기준");
+    expect(
+      [...overview.querySelectorAll("[data-dot]")].map((dot) =>
+        dot.getAttribute("data-dot"),
+      ),
+    ).toEqual(["wait", "run", "idle", "idle", "idle", "idle"]);
+    // The "last 30 days" basis waits for a usage period; only the owner's shows.
+    expect(
+      screen.queryByText("설치 전체 수치는 설치 운영자에게만 보입니다"),
+    ).toBeNull();
+    expect(
+      within(overview)
+        .getByRole("link", { name: /연동 계정 보기/ })
+        .getAttribute("href"),
+    ).toBe("/settings/linked-accounts");
+  });
+
+  test.each([
+    ["member", ["내가 시작한 세션 기준", "AGENT", "AGENT"]],
+    ["admin", ["내가 시작한 세션 기준", "AGENT", "확인할 항목"]],
+  ] as const)(
+    "%s가 관리하는 에이전트는 카드로 보인다",
+    async (role, titles) => {
+      const agent = agentServer().detail().agent;
+      const other = {
+        ...agent,
+        id: "3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f",
+        name: "Second",
+      };
+      renderAt("/", {
+        ...homeRoutes(),
+        "GET /v1/auth/me": () => json(200, me(undefined, role)),
+        "GET /v1/administered-agents": () =>
+          json(200, {
+            items: [
+              agent,
+              other,
+              { ...other, id: "4d5e6f7a-8b9c-4d0e-9f1a-2b3c4d5e6f7a" },
+            ],
+          }),
+      });
+      const overview = await screen.findByRole("region", {
+        name: "한눈에 보기",
+      });
+      const expected = titles.map((title, index) =>
+        title === "AGENT" ? [agent.name, other.name][index - 1] : title,
+      );
+      await waitFor(() =>
+        expect(cards(overview).map((card) => card.title)).toEqual(expected),
+      );
+      expect(
+        within(overview)
+          .getAllByRole("link", { name: /에이전트 보기/ })[0]
+          ?.getAttribute("href"),
+      ).toBe(`/agents/${agent.id}`);
+    },
+  );
+
+  test("새 세션 버튼은 세션 목록처럼 사유와 함께 막혀 있다", async () => {
+    renderAt("/", {
+      ...homeRoutes(),
+      "GET /v1/auth/me": () => json(200, memberMe()),
+    });
+    const button = await screen.findByRole("button", { name: "새 세션" });
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      document.getElementById(button.getAttribute("aria-describedby") ?? "")
+        ?.textContent,
+    ).toBe("웹에서는 아직 세션을 시작할 수 없습니다. API로 시작하세요.");
+  });
+});
+
+describe("statusPageQuery", () => {
+  test("작업 중·쉬는 중 목록은 답변 대기 목록과 같은 주기로 다시 읽는다", () => {
+    // The open total adds the three lists; read at different paces it would
+    // count a session that moved between them twice or not at all.
+    const client = {} as ApiClient;
+    for (const status of ["running", "idle"] as const)
+      expect<unknown>(
+        statusPageQuery(client, status, true).refetchInterval,
+      ).toBe(waitingSessionsQuery(client).refetchInterval);
+  });
+});
+
+describe("waitedFor", () => {
+  const at = "2026-10-23T09:00:00.000Z";
+  const after = (ms: number) => new Date(at).getTime() + ms;
+  test("가장 큰 단위의 정수로 적는다", () => {
+    expect(waitedFor(at, "ko", after(12 * 60_000 + 59_000))).toBe("12분");
+    expect(waitedFor(at, "ko", after(2 * 3_600_000 + 5 * 60_000))).toBe(
+      "2시간",
+    );
+    expect(waitedFor(at, "en", after(30_000))).toBe("0 min");
+  });
+  test("시계가 어긋나 미래 시각이어도 음수로 적지 않는다", () => {
+    expect(waitedFor(at, "ko", after(-60_000))).toBe("0분");
+  });
+  test("홈의 시각은 응답이 그대로여도 분마다 움직인다", () => {
+    jest.useFakeTimers({ now: new Date(at) });
+    try {
+      const { result, unmount } = renderHook(() => useNow());
+      expect(waitedFor(at, "ko", result.current)).toBe("0분");
+      act(() => jest.advanceTimersByTime(12 * 60_000));
+      expect(waitedFor(at, "ko", result.current)).toBe("12분");
+      unmount();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });
 
 describe("내가 속한 팀", () => {
@@ -554,7 +852,7 @@ describe("내가 속한 팀", () => {
       "GET /v1/my-teams": () => json(200, { items: [TEAM] }),
     });
     const link = await screen.findByRole("link", { name: "결제팀" });
-    expect(link.getAttribute("href")).toBe(`/teams/${TEAM.id}`);
+    expect(link.getAttribute("href")).toBe(`/members/teams/${TEAM.id}`);
   });
 
   test("속한 팀이 없으면 홈에 섹션을 두지 않는다", async () => {

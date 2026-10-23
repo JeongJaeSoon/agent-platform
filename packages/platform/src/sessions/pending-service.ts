@@ -92,6 +92,18 @@ export function createPendingRequestService(deps: {
           );
         case "invalid":
           throw new SessionServiceError("BAD_REQUEST", result.reason);
+        case "actor_inactive":
+          throw new SessionServiceError(
+            "FORBIDDEN",
+            "This principal is no longer a member of the workspace",
+          );
+        case "role":
+          throw new SessionServiceError(
+            "FORBIDDEN",
+            "This principal holds sessions:approve but may not use it on this session",
+            undefined,
+            { reason_code: "role" },
+          );
         default:
           return result.response;
       }
