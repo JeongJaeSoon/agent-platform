@@ -10,7 +10,11 @@ import {
   TURN_BUDGET_EXCEEDED_REASON,
   type WorkspaceDescriptor,
 } from "@werft-ai/contracts";
-import { FakeAgentRuntime, type FakeStep } from "@werft-ai/runtime-claude";
+import {
+  claudeContractRun,
+  FakeAgentRuntime,
+  type FakeStep,
+} from "@werft-ai/runtime-claude";
 import {
   type AgentRun,
   type CheckpointPreparation,
@@ -107,7 +111,7 @@ function harness(
   const workspaces: Array<WorkspaceDescriptor | undefined> = [];
   const runtimes: RuntimeRegistry = {
     launcherFor: () => ({
-      start: ({ runtimeConfig, principal, workspace, ...launch }, hooks) => {
+      start: ({ runtimeConfig, principal, workspace, ...launch }) => {
         launched.push(runtimeConfig);
         workspaces.push(workspace);
         budgets.push(launch.maxBudgetUsd);
@@ -115,21 +119,23 @@ function harness(
         claudeMds.push(launch.committedClaudeMd());
         const wrap = overrides.wrap ?? ((run: AgentRun) => run);
         return wrap(
-          runtime.start(
-            {
-              claudeConfigDir: "/tmp/fake/config",
-              cwd: "/tmp/fake/workspace",
-              home: "/tmp/fake/home",
-              model: runtimeConfig.model,
-              profile: engineProfile(
-                runtimeConfig.provider,
-                principal.owner_scope,
-                "http://egress-proxy.test:3129",
-              ),
-              tools: runtimeConfig.tools,
-              ...launch,
-            },
-            hooks,
+          claudeContractRun(launch.correlationId, (hooks) =>
+            runtime.start(
+              {
+                claudeConfigDir: "/tmp/fake/config",
+                cwd: "/tmp/fake/workspace",
+                home: "/tmp/fake/home",
+                model: runtimeConfig.model,
+                profile: engineProfile(
+                  runtimeConfig.provider,
+                  principal.owner_scope,
+                  "http://egress-proxy.test:3129",
+                ),
+                tools: runtimeConfig.tools,
+                ...launch,
+              },
+              hooks,
+            ),
           ),
         );
       },

@@ -3,16 +3,30 @@
 export {
   CLAUDE_AGENT_SDK_VERSION,
   CLAUDE_CODE_VERSION,
+  CLAUDE_DESCRIPTOR,
   CLAUDE_RUNTIME_FINGERPRINT,
+  type ClaudeOptions,
   claudeCheckpointCodec,
 } from "@werft-ai/runtime-claude-codec";
-export type { ClaudeRuntimeConfig, RuntimeProfile } from "./config.ts";
+export type {
+  ClaudeNativeRun,
+  ClaudeRuntimeConfig,
+  NativeApprovalGate,
+  RuntimeProfile,
+} from "./config.ts";
+export {
+  ClaudeAgentRuntime,
+  type ClaudeDeployment,
+  claudeContractRun,
+  claudeRuntimeConfig,
+} from "./contract.ts";
 export {
   FakeAgentRuntime,
   type FakeRuntimeOptions,
   type FakeStep,
 } from "./fake-adapter.ts";
-export { pendingRequestEvent } from "./mapper.ts";
+export { fakeContractRuntime } from "./fake-contract.ts";
+export { ClaudeEventMapper, pendingRequestEvent } from "./mapper.ts";
 export { runtimeEnvironment } from "./profile.ts";
 export { claudeProfileFingerprint } from "./profile-fingerprint.ts";
 export { type RemoteMcpServer, remoteMcpRelay } from "./remote-mcp.ts";

@@ -101,31 +101,28 @@ describe("claudeRuntimeRegistry", () => {
     });
 
     expect(() =>
-      launcher.start(
-        {
-          committedClaudeMd: () => {
-            throw new Error(
-              "Repository CLAUDE.md refused: a restored workspace has no freshly fetched commit behind it",
-            );
-          },
-          correlationId: "s:a",
-          maxBudgetUsd: 25,
-          mode: "new",
-          principal: { owner_scope: "owner-a" },
-          runtimeConfig: {
-            model: "m",
-            tools: [],
-            permission_mode: "default",
-            provider: {
-              kind: "anthropic",
-              endpoint: "http://127.0.0.1:9",
-              auth: { kind: "egress_token", token: "placeholder" },
-            },
-            project_settings: { claude_md: true },
-          },
+      launcher.start({
+        committedClaudeMd: () => {
+          throw new Error(
+            "Repository CLAUDE.md refused: a restored workspace has no freshly fetched commit behind it",
+          );
         },
-        { onPermission: async () => ({ behavior: "deny", message: "none" }) },
-      ),
+        correlationId: "s:a",
+        maxBudgetUsd: 25,
+        mode: "new",
+        principal: { owner_scope: "owner-a" },
+        runtimeConfig: {
+          model: "m",
+          tools: [],
+          permission_mode: "default",
+          provider: {
+            kind: "anthropic",
+            endpoint: "http://127.0.0.1:9",
+            auth: { kind: "egress_token", token: "placeholder" },
+          },
+          project_settings: { claude_md: true },
+        },
+      }),
     ).toThrow("no freshly fetched commit");
   });
 });

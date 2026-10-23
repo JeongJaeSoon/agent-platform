@@ -248,6 +248,7 @@ jobs:
               - packages/testkit/src/workspace.
               - tests/agent-sdk-compat/
               - tests/architecture.
+              - tests/runtime-contract-spike.
               - tests/ci-images.
               - tests/ci-services.
               - tests/d2-gate/

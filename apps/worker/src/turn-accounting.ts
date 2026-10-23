@@ -1,4 +1,4 @@
-import type { NativeSdkMessage } from "@werft-ai/runtime-core";
+import type { RuntimeEvent } from "@werft-ai/runtime-core";
 
 /** The provider failure a turn ended on, as the engine classified it. */
 export type ProviderFailure = {
@@ -48,15 +48,14 @@ export class TurnAccounting {
     return this.countRestarted;
   }
 
-  observe(native: NativeSdkMessage): void {
-    if (native.type === "result") {
-      const total = native.total_cost_usd;
+  observe(event: RuntimeEvent): void {
+    if (event.type === "turn.ended") {
+      const total = event.costTotalUsd;
       this.lastResultReported = false;
       if (typeof total !== "number" || !Number.isFinite(total) || total < 0) {
         return;
       }
-      const sessionId =
-        typeof native.session_id === "string" ? native.session_id : undefined;
+      const sessionId = event.engineSessionId;
       if (total === 0) {
         // A new engine session that has spent nothing yet is a real zero,
         // and it is the baseline from here on.
@@ -82,26 +81,22 @@ export class TurnAccounting {
       this.lastSessionId = sessionId;
       return;
     }
-    if (native.type === "assistant") {
+    if (event.type === "message") {
       // Every request ends in one: a clean one means the retries before it
       // succeeded, and whatever they saw is no longer why anything failed.
       this.providerFailure =
-        typeof native.error === "string"
-          ? {
-              error: native.error,
+        event.error === undefined
+          ? undefined
+          : {
+              error: event.error,
               status: this.providerFailure?.status ?? null,
-            }
-          : undefined;
+            };
       return;
     }
-    if (native.type === "system" && native.subtype === "api_retry") {
+    if (event.type === "runtime.warning" && event.code === "api_retry") {
       this.providerFailure = {
-        error:
-          typeof native.error === "string"
-            ? native.error
-            : (this.providerFailure?.error ?? "unknown"),
-        status:
-          typeof native.error_status === "number" ? native.error_status : null,
+        error: event.message ?? this.providerFailure?.error ?? "unknown",
+        status: event.status ?? null,
       };
     }
   }

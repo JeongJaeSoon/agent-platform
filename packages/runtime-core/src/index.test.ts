@@ -25,11 +25,12 @@ describe("runtime-core contracts", () => {
   // interface no longer has; the runtime assertion cannot see either.
   test("the listed members are exactly AgentRuntime's and AgentRun's", () => {
     const runtimeMembers = {
-      capabilities: true,
+      descriptor: true,
       start: true,
     } satisfies Record<keyof AgentRuntime, true>;
     const runMethods = {
       abort: true,
+      answer: true,
       close: true,
       events: true,
       finishInput: true,
@@ -44,6 +45,6 @@ describe("runtime-core contracts", () => {
       true
     >;
     expect(Object.keys(runtimeMembers)).toHaveLength(2);
-    expect(Object.keys(runMethods)).toHaveLength(10);
+    expect(Object.keys(runMethods)).toHaveLength(11);
   });
 });

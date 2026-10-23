@@ -5,6 +5,12 @@ import type {
   CheckpointLeaseGrant,
   CheckpointPreparation,
 } from "./checkpoint.ts";
+import type {
+  AnswerResult,
+  ApprovalAnswer,
+  NegotiatedCapabilities,
+  RuntimeEvent,
+} from "./runtime-contract.ts";
 
 export type NativeSdkMessage = {
   [key: string]: unknown;
@@ -29,10 +35,15 @@ export type AgentFrame = {
  * iterating `events()` (or the run itself) a second time throws, so the host
  * fans out to observers instead of subscribing twice.
  */
-export interface AgentRun extends AsyncIterable<AgentFrame> {
+export interface AgentRun extends AsyncIterable<RuntimeEvent> {
   abort(): void;
+  /**
+   * Settles one `approval.requested` at most once. Answers for a request
+   * already settled, or given for other arguments, are `stale`.
+   */
+  answer(answer: ApprovalAnswer): Promise<AnswerResult>;
   close(): void;
-  events(): AsyncIterable<AgentFrame>;
+  events(): AsyncIterable<RuntimeEvent>;
   finishInput(): void;
   /**
    * True when the engine session already holds this input uuid: in the
@@ -45,9 +56,10 @@ export interface AgentRun extends AsyncIterable<AgentFrame> {
    * Resolves once the engine has loaded the session it was started on — the
    * resumed transcript read, the engine initialized — without any input
    * sent. Rejects when the transcript cannot be read. A resumed worker
-   * reports itself ready only after this.
+   * reports itself ready only after this, and refuses to run when what it
+   * negotiated misses a required feature.
    */
-  ready(): Promise<void>;
+  ready(): Promise<NegotiatedCapabilities>;
   interrupt(): Promise<{ stillQueued: string[] }>;
   /**
    * Takes the exclusive checkpoint lease when the run is quiescent, judged in

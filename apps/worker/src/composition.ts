@@ -7,15 +7,21 @@ import {
   CLAUDE_AGENT_SDK_VERSION,
   CLAUDE_CODE_VERSION,
   CLAUDE_RUNTIME_FINGERPRINT,
+  ClaudeAgentRuntime,
+  type ClaudeDeployment,
+  type ClaudeOptions,
   type ClaudeRuntimeConfig,
-  ClaudeSdkRuntime,
   claudeProfileFingerprint,
+  claudeRuntimeConfig,
   type RuntimeProfile,
-  remoteMcpRelay,
 } from "@werft-ai/runtime-claude";
-import type {
-  CheckpointObjectStore,
-  RuntimeFingerprint,
+import {
+  type CheckpointObjectStore,
+  type InstructionPart,
+  type PlatformMcpServer,
+  type RuntimeFingerprint,
+  type RuntimeStart,
+  runtimeRequirementsOf,
 } from "@werft-ai/runtime-core";
 
 import type { WorkerCheckpointPort } from "./checkpoint.ts";
@@ -118,44 +124,34 @@ export function claudeRuntimeRegistry(
   engines: EngineProcesses,
 ): RuntimeRegistry {
   const launcher: RuntimeLauncher = {
-    start(launch, hooks) {
-      const {
-        committedClaudeMd,
-        correlationId,
-        maxBudgetUsd,
-        // Read by claudeRunConfig; kept out of the resume plan spread below.
-        principal: _principal,
-        // The host's to report, not the engine's to read.
-        restoredRevision: _restoredRevision,
-        runtimeConfig,
-        // Read by claudeRunConfig.
-        workspace: _workspace,
-        ...plan
-      } = launch;
+    start(launch) {
       // The claim is the only source of what to run, so the adapter's
       // allowlist is that one endpoint and model. Left out: an allowlist
       // baked into the image to check the server against — worth adding
       // once one image serves tenants that must not share a provider.
-      const runtime = new ClaudeSdkRuntime(
+      const runtime = new ClaudeAgentRuntime(
         {
-          endpoints: [runtimeConfig.provider.endpoint],
-          models: [runtimeConfig.model],
+          endpoints: [launch.runtimeConfig.provider.endpoint],
+          models: [launch.runtimeConfig.model],
+        },
+        {
+          ...claudeDeployment(config),
+          // Not part of the fingerprint: how often a provider call is retried
+          // changes nothing a checkpoint resumes.
+          ...(config.runtime.providerMaxRetries === undefined
+            ? {}
+            : { providerMaxRetries: config.runtime.providerMaxRetries }),
+          ...(launch.sessionStore === undefined
+            ? {}
+            : { sessionStore: launch.sessionStore }),
+          ...(launch.mode === "resume" && launch.localTranscriptResume === true
+            ? { localTranscriptResume: true as const }
+            : {}),
         },
         engines,
       );
       return runtime.start(
-        {
-          ...claudeRunConfig(config, launch, committedClaudeMd),
-          correlationId,
-          // Not part of the fingerprint: how often a provider call is retried
-          // changes nothing a checkpoint resumes.
-          providerMaxRetries: config.runtime.providerMaxRetries,
-          // Nor is this: it is what the session had left at the claim, so
-          // it differs on every resume of the same run.
-          ...(maxBudgetUsd === undefined ? {} : { maxBudgetUsd }),
-          ...plan,
-        },
-        hooks,
+        claimRuntimeStart(config, launch, launch.committedClaudeMd),
       );
     },
   };
@@ -204,71 +200,145 @@ type ClaudeRunConfig = Pick<
   | "tools"
 >;
 
+const RUN_CONFIG_KEYS = [
+  "appendSystemPrompt",
+  "claudeConfigDir",
+  "cwd",
+  "home",
+  "identities",
+  "mcpServers",
+  "model",
+  "permissionMode",
+  "profile",
+  "repositoryClaudeMd",
+  "settingSources",
+  "tools",
+] as const satisfies ReadonlyArray<keyof ClaudeRunConfig>;
+
+/** What every claim on this image runs with, whatever the session. */
+function claudeDeployment(
+  config: Pick<WorkerConfig, "runtime">,
+): ClaudeDeployment {
+  // None of the repository's own Claude settings: its hooks would run
+  // commands no permission callback sees, with the egress token in reach,
+  // and the claim's profile is the only policy reviewed.
+  return {
+    claudeConfigDir: config.runtime.claudeConfigDir,
+    settingSources: [],
+  };
+}
+
 /**
- * What a claim runs, short of how it resumes: shared by the launcher and by
- * the fingerprint a checkpoint is stamped with, so the two cannot describe
- * different runs.
+ * What a claim runs, short of how it resumes: the same conversion the
+ * launcher starts the engine with, so the fingerprint a checkpoint is
+ * stamped with cannot describe a different run.
  */
 export function claudeRunConfig(
   config: Pick<WorkerConfig, "egressCredentialUrl" | "runtime">,
   launch: Pick<RuntimeLaunch, "principal" | "runtimeConfig" | "workspace">,
   committedClaudeMd: () => string | null,
 ): ClaudeRunConfig {
+  const full = claudeRuntimeConfig(
+    claimRuntimeStart(
+      config,
+      { ...launch, correlationId: "", mode: "new" },
+      committedClaudeMd,
+    ),
+    claudeDeployment(config),
+  ) as Record<string, unknown>;
+  return Object.fromEntries(
+    RUN_CONFIG_KEYS.filter((key) => full[key] !== undefined).map((key) => [
+      key,
+      full[key],
+    ]),
+  ) as ClaudeRunConfig;
+}
+
+/** The claim as the runtime contract's start. */
+export function claimRuntimeStart(
+  config: Pick<WorkerConfig, "egressCredentialUrl" | "runtime">,
+  launch: Pick<
+    RuntimeLaunch,
+    | "correlationId"
+    | "maxBudgetUsd"
+    | "principal"
+    | "runtimeConfig"
+    | "workspace"
+  > &
+    ({ mode: "new" } | { mode: "resume"; resume: string }),
+  committedClaudeMd: () => string | null,
+): RuntimeStart<ClaudeOptions> {
   const { principal, runtimeConfig } = launch;
-  return {
+  const profile = engineProfile(
+    runtimeConfig.provider,
+    principal.owner_scope,
+    config.egressCredentialUrl,
+  );
+  const instructions: InstructionPart[] = [
     // Only then: a repository session's digest stays the one its
     // checkpoints were taken under.
     ...(launch.workspace?.repository === null
-      ? { appendSystemPrompt: OUT_DIRECTORY_PROMPT }
-      : {}),
-    claudeConfigDir: config.runtime.claudeConfigDir,
-    cwd: config.runtime.cwd,
-    home: config.runtime.home,
-    model: runtimeConfig.model,
-    permissionMode: runtimeConfig.permission_mode,
-    // The catalog provider is shared across partitions; the claim's
-    // principal is what makes this session's checkpoints its own.
-    profile: engineProfile(
-      runtimeConfig.provider,
-      principal.owner_scope,
-      config.egressCredentialUrl,
-    ),
-    // None of the repository's own Claude settings: its hooks would run
-    // commands no permission callback sees, with the egress token in reach,
-    // and the claim's profile is the only policy reviewed. Its CLAUDE.md
-    // comes back only when that profile says so, as committed on the branch
-    // rather than as the checkout now reads (`projectSettingsSchema`).
+      ? [{ scope: "platform" as const, text: OUT_DIRECTORY_PROMPT }]
+      : []),
+    // Its CLAUDE.md comes back only when the profile says so, as committed
+    // on the branch rather than as the checkout now reads
+    // (`projectSettingsSchema`).
     ...(runtimeConfig.project_settings?.claude_md === true
-      ? { repositoryClaudeMd: { contents: committedClaudeMd() } }
-      : {}),
-    settingSources: [],
-    tools: runtimeConfig.tools,
-    ...mcpRunConfig(runtimeConfig, config.egressCredentialUrl),
+      ? [{ scope: "repository" as const, text: committedClaudeMd() }]
+      : []),
+  ];
+  return {
+    bindings: {
+      // The catalog provider is shared across partitions; the claim's
+      // principal is what makes this session's checkpoints its own.
+      principal: profile.principal,
+      provider: {
+        auth: profile.auth,
+        endpoint: profile.endpoint,
+        kind: profile.kind,
+      },
+    },
+    bundle: {
+      instructions,
+      mcpServers: mcpServersOf(runtimeConfig, config.egressCredentialUrl),
+      skills: [],
+      tools: runtimeConfig.tools,
+    },
+    config: {
+      correlationId: launch.correlationId,
+      cwd: config.runtime.cwd,
+      home: config.runtime.home,
+      // Nor is this: it is what the session had left at the claim, so it
+      // differs on every resume of the same run.
+      ...(launch.maxBudgetUsd === undefined
+        ? {}
+        : { maxBudgetUsd: launch.maxBudgetUsd }),
+      model: runtimeConfig.model,
+      permissionMode: runtimeConfig.permission_mode,
+      ...(launch.mode === "resume"
+        ? { mode: "resume" as const, resume: launch.resume }
+        : { mode: "new" as const }),
+    },
+    env: { vars: [] },
+    options: {},
+    requirements: runtimeRequirementsOf(runtimeConfig),
   };
 }
 
-function mcpRunConfig(
+function mcpServersOf(
   runtimeConfig: RuntimeConfig,
   egressCredentialUrl: string,
-): Pick<ClaudeRunConfig, "identities" | "mcpServers"> {
-  const servers = runtimeConfig.mcp_servers ?? [];
-  if (servers.length === 0) return {};
-  return {
-    identities: {
-      mcpServers: Object.fromEntries(servers.map((s) => [s.name, s.binding])),
+): PlatformMcpServer[] {
+  return (runtimeConfig.mcp_servers ?? []).map((server) => ({
+    binding: server.binding,
+    name: server.name,
+    relay: {
+      token: server.access.token,
+      url: `${egressCredentialUrl}/mcp/${server.name}`,
     },
-    mcpServers: Object.fromEntries(
-      servers.map((s) => [
-        s.name,
-        remoteMcpRelay({
-          name: s.name,
-          url: `${egressCredentialUrl}/mcp/${s.name}`,
-          token: s.access.token,
-          tools: runtimeConfig.tools,
-        }),
-      ]),
-    ),
-  };
+    required: true,
+    tools: runtimeConfig.tools,
+  }));
 }
 
 /**

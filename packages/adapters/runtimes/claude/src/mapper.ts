@@ -1,12 +1,16 @@
 import { type SessionEvent, sessionEventSchema } from "@werft-ai/contracts";
 
-import type {
-  AgentFrame,
-  NativeEnvelope,
-  NativeSdkMessage,
+import {
+  type AgentFrame,
+  type NativeEnvelope,
+  type NativeSdkMessage,
+  RUNTIME_EVENT_SCHEMA,
+  type RuntimeEvent,
+  type RuntimeEventBody,
 } from "@werft-ai/runtime-core";
 
 import { CLAUDE_AGENT_SDK_VERSION } from "./config.ts";
+import { endedByAbort } from "./run.ts";
 
 const REDACTED = "[REDACTED]";
 // Paths are not secrets: an approval has to say which file it touches.
@@ -35,6 +39,117 @@ export function frameFromNativeMessage(
     envelope,
     events: projectPublicEvents(envelope, cursor),
   };
+}
+
+/**
+ * Turns the driver's frames into runtime events. Every frame yields its v1
+ * projection first, so the public stream keeps the order it has today, then
+ * what the worker reads of the same message.
+ */
+export class ClaudeEventMapper {
+  private sequence = 0;
+
+  constructor(private readonly correlationId: string) {}
+
+  fromFrame(frame: AgentFrame): RuntimeEvent[] {
+    const message = frame.envelope.message;
+    const bodies: RuntimeEventBody[] = [
+      { type: "v1.projected", events: frame.events },
+      ...normalized(message),
+    ];
+    return bodies.map((body) => this.stamp(body));
+  }
+
+  fromNative(native: NativeSdkMessage, cursor: string): RuntimeEvent[] {
+    return this.fromFrame(
+      frameFromNativeMessage(native, this.correlationId, cursor),
+    );
+  }
+
+  stamp(body: RuntimeEventBody): RuntimeEvent {
+    const sequence = this.sequence++;
+    return {
+      ...body,
+      correlationId: this.correlationId,
+      id: `${this.correlationId}:${sequence}`,
+      schema: RUNTIME_EVENT_SCHEMA,
+      sequence,
+    };
+  }
+}
+
+function normalized(message: NativeSdkMessage): RuntimeEventBody[] {
+  if (message.type === "assistant") {
+    return [
+      {
+        type: "message",
+        role: "assistant",
+        ...(typeof message.error === "string" ? { error: message.error } : {}),
+      },
+    ];
+  }
+  if (message.type === "system" && message.subtype === "api_retry") {
+    return [
+      {
+        type: "runtime.warning",
+        code: "api_retry",
+        ...(typeof message.error === "string"
+          ? { message: message.error }
+          : {}),
+        status:
+          typeof message.error_status === "number"
+            ? message.error_status
+            : null,
+      },
+    ];
+  }
+  if (message.type === "system" && message.subtype === "mirror_error") {
+    return [
+      {
+        type: "runtime.warning",
+        code: "mirror_error",
+        ...(typeof message.error === "string" && message.error.length > 0
+          ? { message: message.error }
+          : {}),
+      },
+    ];
+  }
+  if (message.type !== "result") return [];
+  return [
+    {
+      type: "turn.ended",
+      abortedByStop: endedByAbort(message),
+      ...(typeof message.total_cost_usd === "number"
+        ? { costTotalUsd: message.total_cost_usd }
+        : {}),
+      detail: {
+        apiErrorStatus: message.api_error_status,
+        isError: message.is_error,
+        stopReason: message.stop_reason,
+        subtype: message.subtype,
+        terminalReason: message.terminal_reason,
+      },
+      ...(typeof message.session_id === "string"
+        ? { engineSessionId: message.session_id }
+        : {}),
+      inputs: attributedUuids(message),
+      usage: message.usage,
+    },
+  ];
+}
+
+/** The inputs a result says it consumed, the way TurnLedger reads them. */
+function attributedUuids(message: NativeSdkMessage): string[] {
+  const listed = Array.isArray(message.user_message_uuids)
+    ? message.user_message_uuids.filter(
+        (value): value is string => typeof value === "string",
+      )
+    : [];
+  const last =
+    typeof message.user_message_uuid === "string"
+      ? [message.user_message_uuid]
+      : [];
+  return [...new Set([...listed, ...last])];
 }
 
 export function sanitizeNativeMessage(

@@ -1,20 +1,19 @@
 import type {
   AgentFrame,
   AgentInput,
-  AgentRun,
-  AgentRuntime,
   CheckpointLeaseGrant,
   CheckpointPreparation,
   NativeSdkMessage,
   PermissionDecision,
   PermissionRequest,
   RuntimeCapabilities,
-  RuntimeHooks,
+  RuntimeMode,
 } from "@werft-ai/runtime-core";
 
 import {
   CLAUDE_RUNTIME_CAPABILITIES,
-  type ClaudeRuntimeConfig,
+  type ClaudeNativeRun,
+  type NativeApprovalGate,
 } from "./config.ts";
 import { frameFromNativeMessage } from "./mapper.ts";
 import type { InterruptedResult } from "./run.ts";
@@ -44,7 +43,8 @@ export type FakeRuntimeOptions = {
   resumeFailure?: string;
 };
 
-export class FakeAgentRuntime implements AgentRuntime<ClaudeRuntimeConfig> {
+/** Stands in for ClaudeSdkRuntime, the driver; wrap it with fakeContractRuntime. */
+export class FakeAgentRuntime {
   readonly capabilities: RuntimeCapabilities = CLAUDE_RUNTIME_CAPABILITIES;
   /** Every input the host sent, including ones the engine deduplicated. */
   readonly inputs: AgentInput[] = [];
@@ -60,7 +60,11 @@ export class FakeAgentRuntime implements AgentRuntime<ClaudeRuntimeConfig> {
     private readonly options: FakeRuntimeOptions = {},
   ) {}
 
-  start(config: ClaudeRuntimeConfig, hooks: RuntimeHooks): AgentRun {
+  /** Reads only the run's identity and mode, of whatever config it is given. */
+  start(
+    config: RuntimeMode & { [key: string]: unknown; correlationId: string },
+    hooks: NativeApprovalGate,
+  ): ClaudeNativeRun {
     return new FakeRun(
       this,
       config.correlationId,
@@ -75,7 +79,7 @@ export class FakeAgentRuntime implements AgentRuntime<ClaudeRuntimeConfig> {
   }
 }
 
-class FakeRun implements AgentRun {
+class FakeRun implements ClaudeNativeRun {
   private readonly abortController = new AbortController();
   private readonly arrivals: Array<() => void> = [];
   // Replaced after each interrupt: the run outlives it, like the real SDK's.

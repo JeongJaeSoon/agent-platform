@@ -3,7 +3,13 @@ import {
   CLAUDE_CODE_VERSION,
 } from "@werft-ai/runtime-claude-codec";
 import type {
+  AgentFrame,
+  AgentInput,
+  CheckpointLeaseGrant,
+  CheckpointPreparation,
   NativeEnvelope,
+  PermissionDecision,
+  PermissionRequest,
   RuntimeCapabilities,
   RuntimeConfig,
   TranscriptMirror,
@@ -16,6 +22,29 @@ export const CLAUDE_RUNTIME_CAPABILITIES: RuntimeCapabilities = {
   interrupt: true,
   resume: true,
 };
+
+/** The engine's approval callback, held by whoever drives the run. */
+export type NativeApprovalGate = {
+  onPermission(request: PermissionRequest): Promise<PermissionDecision>;
+};
+
+/**
+ * One engine execution as the Claude driver runs it: frames carrying the
+ * sanitized SDK message and its v1 projection. The runtime contract's
+ * `AgentRun` is a layer over this one (contract.ts).
+ */
+export interface ClaudeNativeRun extends AsyncIterable<AgentFrame> {
+  abort(): void;
+  close(): void;
+  events(): AsyncIterable<AgentFrame>;
+  finishInput(): void;
+  holdsInput(uuid: string): Promise<boolean>;
+  interrupt(): Promise<{ stillQueued: string[] }>;
+  leaseCheckpoint(): Promise<CheckpointLeaseGrant>;
+  prepareCheckpoint(): Promise<CheckpointPreparation>;
+  ready(): Promise<void>;
+  send(input: AgentInput): void;
+}
 
 export type PermissionMode =
   | "default"

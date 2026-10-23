@@ -18,17 +18,22 @@ import {
   MAX_TURN_COST_USD,
   TURN_BUDGET_EXCEEDED_REASON,
 } from "@werft-ai/contracts";
-import { endedByAbort } from "@werft-ai/runtime-claude";
 import {
   type AgentRun,
+  type ApprovalAnswer,
+  type ApprovalRequested,
+  type ApprovalResolved,
+  approvalInputHash,
   type CheckpointLease,
   type CheckpointPreparation,
   isOwnershipLost,
   isRetryable,
-  type NativeSdkMessage,
   type PermissionDecision,
   type PermissionRequest,
-  type RuntimeHooks,
+  type RuntimeEvent,
+  runtimeRequirementsOf,
+  type TurnEnded,
+  unmetFeatures,
   type WorkerGatewayClient,
   WorkerGatewayRequestError,
 } from "@werft-ai/runtime-core";
@@ -81,7 +86,7 @@ export type RuntimeLaunch = RuntimeResumePlan & {
 };
 
 export type RuntimeLauncher = {
-  start(launch: RuntimeLaunch, hooks: RuntimeHooks): AgentRun;
+  start(launch: RuntimeLaunch): AgentRun;
 };
 
 export interface RuntimeRegistry {
@@ -248,6 +253,8 @@ export class WorkerHost {
   private mirrorError: string | undefined;
   private engineBudgeted = false;
   private pending: PendingRequestRegistry | undefined;
+  /** Approvals handed to the registry, by the run's local id. */
+  private readonly approvals = new Map<string, AbortController>();
   private publisher: EventPublisher | undefined;
   private pumping: Promise<void> | undefined;
   /** The restore in flight or done, settled either way; see `shutdown`. */
@@ -404,23 +411,20 @@ export class WorkerHost {
         const plan = await this.startUp(claim);
         if (plan !== undefined && this.stopping === undefined) {
           this.engineBudgeted = claim.remaining_budget_usd !== null;
-          run = launcher.start(
-            {
-              ...plan,
-              committedClaudeMd:
-                plan.mode === "resume" && plan.committedClaudeMd !== undefined
-                  ? plan.committedClaudeMd
-                  : () => this.options.workspace.committedClaudeMd(),
-              correlationId: `${claim.session_id}:${claim.attempt_id}`,
-              ...(claim.remaining_budget_usd === null
-                ? {}
-                : { maxBudgetUsd: claim.remaining_budget_usd }),
-              principal: claim.principal,
-              runtimeConfig: claim.runtime_config,
-              workspace: claim.workspace,
-            },
-            { onPermission: (request) => this.onPermission(request) },
-          );
+          run = launcher.start({
+            ...plan,
+            committedClaudeMd:
+              plan.mode === "resume" && plan.committedClaudeMd !== undefined
+                ? plan.committedClaudeMd
+                : () => this.options.workspace.committedClaudeMd(),
+            correlationId: `${claim.session_id}:${claim.attempt_id}`,
+            ...(claim.remaining_budget_usd === null
+              ? {}
+              : { maxBudgetUsd: claim.remaining_budget_usd }),
+            principal: claim.principal,
+            runtimeConfig: claim.runtime_config,
+            workspace: claim.workspace,
+          });
           this.engine = run;
           this.attemptState = "running";
           this.pumping = this.pump(run);
@@ -525,11 +529,19 @@ export class WorkerHost {
     plan: RuntimeResumePlan,
     claim: BootstrapClaimResponse,
   ): Promise<boolean> {
-    if (claim.restore === null) return true;
-    if (plan.mode === "resume") {
-      const loaded = await this.untilStopped(run.ready().then(() => true));
-      if (loaded === undefined || this.stopping !== undefined) return false;
+    const negotiated = await this.untilStopped(run.ready());
+    if (negotiated === undefined || this.stopping !== undefined) return false;
+    const unmet = unmetFeatures(
+      negotiated.effective,
+      negotiated.effectiveExtraFeatures,
+      runtimeRequirementsOf(claim.runtime_config),
+    );
+    if (unmet.length > 0) {
+      throw new Error(
+        `This runtime cannot serve the session's profile: ${unmet.join(", ")} unsupported`,
+      );
     }
+    if (claim.restore === null) return true;
     const restored =
       plan.mode === "resume"
         ? (plan.restoredRevision ?? claim.restore.revision)
@@ -1711,16 +1723,24 @@ export class WorkerHost {
   private pump(run: AgentRun): Promise<void> {
     return (async () => {
       try {
-        for await (const frame of run.events()) {
-          this.publisher?.publish(
-            frame.events,
-            this.turn?.closed === true ? null : this.scope.turn_id,
-          );
-          await this.observe(frame.envelope.message);
+        for await (const event of run.events()) {
+          if (event.type === "v1.projected") {
+            this.publisher?.publish(
+              event.events,
+              this.turn?.closed === true ? null : this.scope.turn_id,
+            );
+          } else if (event.type === "approval.requested") {
+            this.onApprovalRequested(run, event);
+          } else if (event.type === "approval.resolved") {
+            this.onApprovalResolved(event);
+          } else {
+            await this.observe(event);
+          }
         }
       } catch (error) {
         this.logger.warn("worker.stream.ended", { reason: describe(error) });
       } finally {
+        for (const waiting of this.approvals.values()) waiting.abort();
         const turn = this.turn;
         if (turn?.timedOut === true) {
           // The interrupt ended the stream rather than the turn: still the
@@ -1761,8 +1781,8 @@ export class WorkerHost {
    * A promise only while an aborted terminal waits for its interrupt's
    * receipt: the pump awaits it before taking the next frame.
    */
-  private observe(native: NativeSdkMessage): Promise<void> | undefined {
-    this.accounting.observe(native);
+  private observe(event: RuntimeEvent): Promise<void> | undefined {
+    this.accounting.observe(event);
     if (this.accounting.restarted && this.engineBudgeted) {
       // `/clear` starts the engine's count over, and the budget the claim
       // gave it with it: left running, the next turn could spend the whole
@@ -1774,14 +1794,12 @@ export class WorkerHost {
           "The engine started its cost count over, so its budget no longer bounds the session's",
       });
     }
-    if (native.type === "system" && native.subtype === "mirror_error") {
+    if (event.type === "runtime.warning" && event.code === "mirror_error") {
       // Latched for the run like the ledger's own: the SDK has given up on a
       // batch, and no later write brings it back.
       if (this.mirrorError === undefined) {
         this.mirrorError = `Transcript mirror dropped a batch: ${
-          typeof native.error === "string" && native.error.length > 0
-            ? native.error
-            : "unspecified error"
+          event.message ?? "unspecified error"
         }`;
         // Recorded now rather than at the next interval: until the gateway
         // holds it, a checkpoint-less completion is still accepted.
@@ -1793,10 +1811,11 @@ export class WorkerHost {
         this.stop({ kind: "drain", reason: this.mirrorError });
       }
     }
-    if (native.type !== "result") return;
+    if (event.type !== "turn.ended") return;
+    const native = event;
     const turn = this.turn;
     if (turn === undefined) return;
-    const attributed = attributedUuids(native);
+    const attributed = native.inputs;
     // A result that names other inputs belongs to a batch this turn is not
     // part of; one that names nothing settles nothing on its own.
     if (attributed.length > 0 && !attributed.includes(turn.uuid)) return;
@@ -1817,7 +1836,7 @@ export class WorkerHost {
       !turn.closed &&
       !turn.timedOut &&
       turn.interruptReceipt === "pending" &&
-      endedByAbort(native)
+      native.abortedByStop
     ) {
       // Closed now, cut once the receipt decides: until then the pump takes
       // no further frame (it awaits this), so the cut still lands right
@@ -1852,6 +1871,47 @@ export class WorkerHost {
           }),
       ...cost,
     });
+  }
+
+  /**
+   * Hands a run's approval to the pending registry and its decision back to
+   * the run. Not awaited: the stream goes on while a person decides.
+   */
+  private onApprovalRequested(run: AgentRun, request: ApprovalRequested): void {
+    const base = { inputHash: request.inputHash, localId: request.localId };
+    if (
+      approvalInputHash(request.tool.name, request.tool.input) !==
+      request.inputHash
+    ) {
+      void run.answer({
+        ...base,
+        decidedBy: "policy",
+        message: "The request's arguments do not match its hash",
+        outcome: "cancelled",
+      });
+      return;
+    }
+    const waiting = new AbortController();
+    this.approvals.set(request.localId, waiting);
+    void this.onPermission({
+      input: request.tool.input,
+      requestId: request.nativeRef.id,
+      signal: waiting.signal,
+      tool: request.tool.name,
+      toolUseId: request.toolCallId,
+    })
+      .then((decision) => run.answer({ ...base, ...answerOf(decision) }))
+      .catch((error: unknown) =>
+        this.logger.warn("worker.approval.failed", { reason: describe(error) }),
+      )
+      .finally(() => this.approvals.delete(request.localId));
+  }
+
+  /** A request the run settled on its own no longer waits on a person. */
+  private onApprovalResolved(resolved: ApprovalResolved): void {
+    if (resolved.decidedBy === "runtime") {
+      this.approvals.get(resolved.localId)?.abort();
+    }
   }
 
   private async onPermission(
@@ -2263,19 +2323,35 @@ export function inputUuid(
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-/** The inputs a result says it consumed, the way TurnLedger reads them. */
-function attributedUuids(native: NativeSdkMessage): string[] {
-  const listed = Array.isArray(native.user_message_uuids)
-    ? native.user_message_uuids.filter(
-        (value): value is string => typeof value === "string",
-      )
-    : [];
-  const last =
-    typeof native.user_message_uuid === "string"
-      ? [native.user_message_uuid]
-      : [];
-  return [...new Set([...listed, ...last])];
+function answerOf(
+  decision: PermissionDecision,
+): DistributiveOmit<ApprovalAnswer, "inputHash" | "localId"> {
+  if (decision.behavior === "deny") {
+    return {
+      decidedBy: "user",
+      message: decision.message,
+      optionKind: "reject_once",
+      outcome: "selected",
+    };
+  }
+  const answers = decision.updatedInput?.answers;
+  if (
+    answers !== undefined &&
+    answers !== null &&
+    typeof answers === "object"
+  ) {
+    return {
+      answers: answers as Record<string, string>,
+      decidedBy: "user",
+      outcome: "answered",
+    };
+  }
+  return { decidedBy: "user", optionKind: "allow_once", outcome: "selected" };
 }
+
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
+  ? Omit<T, K>
+  : never;
 
 /**
  * `interruptAcknowledged` is the worker's own fact that the engine took its
@@ -2284,14 +2360,16 @@ function attributedUuids(native: NativeSdkMessage): string[] {
  * outcome it reached.
  */
 function terminalOf(
-  native: NativeSdkMessage,
+  native: TurnEnded,
   providerFailure: ProviderFailure | undefined,
   interruptAcknowledged: boolean,
 ): Settlement {
   const subtype =
-    typeof native.subtype === "string" ? native.subtype : "unknown";
-  const interrupted = interruptAcknowledged && endedByAbort(native);
-  const failed = native.is_error === true || subtype !== "success";
+    typeof native.detail.subtype === "string"
+      ? native.detail.subtype
+      : "unknown";
+  const interrupted = interruptAcknowledged && native.abortedByStop;
+  const failed = native.detail.isError === true || subtype !== "success";
   const status: WorkerTerminalStatus = interrupted
     ? "interrupted"
     : failed
@@ -2310,7 +2388,7 @@ function terminalOf(
  * the subtype says nothing there and the engine's terminal reason
  * (`api_error`, …) is the cause.
  */
-function failureReason(native: NativeSdkMessage, subtype: string): string {
+function failureReason(native: TurnEnded, subtype: string): string {
   // The engine's budget is the session's remaining one, so this is the same
   // limit the gateway enforces between turns, reached inside one.
   if (subtype === "error_max_budget_usd") return TURN_BUDGET_EXCEEDED_REASON;
@@ -2318,26 +2396,27 @@ function failureReason(native: NativeSdkMessage, subtype: string): string {
   // finalize judges it against the session's spend, which no wording of
   // the refusal can get wrong.
   if (subtype !== "success") return subtype;
-  return typeof native.terminal_reason === "string" &&
-    native.terminal_reason.length > 0
-    ? native.terminal_reason
+  const terminalReason = native.detail.terminalReason;
+  return typeof terminalReason === "string" && terminalReason.length > 0
+    ? terminalReason
     : "error";
 }
 
 function resultPayload(
-  native: NativeSdkMessage,
+  native: TurnEnded,
   providerFailure: ProviderFailure | undefined,
 ): unknown {
+  const { detail } = native;
   return {
-    subtype: native.subtype ?? null,
-    is_error: native.is_error ?? null,
-    stop_reason: native.stop_reason ?? null,
-    terminal_reason: native.terminal_reason ?? null,
-    ...(native.terminal_reason === "api_error"
+    subtype: detail.subtype ?? null,
+    is_error: detail.isError ?? null,
+    stop_reason: detail.stopReason ?? null,
+    terminal_reason: detail.terminalReason ?? null,
+    ...(detail.terminalReason === "api_error"
       ? {
           api_error_status:
-            typeof native.api_error_status === "number"
-              ? native.api_error_status
+            typeof detail.apiErrorStatus === "number"
+              ? detail.apiErrorStatus
               : null,
           provider_error: providerFailure?.error ?? null,
           last_retry_status: providerFailure?.status ?? null,

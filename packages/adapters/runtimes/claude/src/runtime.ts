@@ -9,16 +9,13 @@ import {
   type SpawnedProcess,
   type SpawnOptions,
 } from "@anthropic-ai/claude-agent-sdk";
-import type {
-  AgentRun,
-  AgentRuntime,
-  RuntimeCapabilities,
-  RuntimeHooks,
-} from "@werft-ai/runtime-core";
+import type { RuntimeCapabilities } from "@werft-ai/runtime-core";
 
 import {
   CLAUDE_RUNTIME_CAPABILITIES,
+  type ClaudeNativeRun,
   type ClaudeRuntimeConfig,
+  type NativeApprovalGate,
 } from "./config.ts";
 import {
   ENGINE_API_KEY_DESCRIPTOR,
@@ -34,7 +31,8 @@ import { TurnLedger } from "./turn-ledger.ts";
 
 const MIN_BUDGET_USD = 0.000001;
 
-export class ClaudeSdkRuntime implements AgentRuntime<ClaudeRuntimeConfig> {
+/** The Claude driver under the runtime contract; ClaudeAgentRuntime wraps it. */
+export class ClaudeSdkRuntime {
   readonly capabilities: RuntimeCapabilities = CLAUDE_RUNTIME_CAPABILITIES;
 
   constructor(
@@ -42,7 +40,10 @@ export class ClaudeSdkRuntime implements AgentRuntime<ClaudeRuntimeConfig> {
     private readonly processObserver?: RuntimeProcessObserver,
   ) {}
 
-  start(config: ClaudeRuntimeConfig, hooks: RuntimeHooks): AgentRun {
+  start(
+    config: ClaudeRuntimeConfig,
+    hooks: NativeApprovalGate,
+  ): ClaudeNativeRun {
     validateRuntimeConfig(config, this.policy);
     const { history, launched } = resumedHistory(config);
     const input = new InputStream();
@@ -94,7 +95,7 @@ function resumedHistory(config: ClaudeRuntimeConfig): {
 
 export function buildSdkOptions(
   config: ClaudeRuntimeConfig,
-  hooks: RuntimeHooks,
+  hooks: NativeApprovalGate,
   ledger = new TurnLedger(config.resume),
   abortController = new AbortController(),
   processObserver?: RuntimeProcessObserver,

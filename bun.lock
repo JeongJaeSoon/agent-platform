@@ -189,6 +189,14 @@
         "zod": "4.6.5",
       },
     },
+    "packages/adapters/runtimes/pi-stub": {
+      "name": "@werft-ai/runtime-pi-stub",
+      "version": "0.0.0",
+      "dependencies": {
+        "@werft-ai/contracts": "workspace:*",
+        "@werft-ai/runtime-core": "workspace:*",
+      },
+    },
     "packages/client": {
       "name": "@werft-ai/client",
       "version": "0.0.0",
@@ -1351,6 +1359,8 @@
     "@werft-ai/runtime-claude-codec": ["@werft-ai/runtime-claude-codec@workspace:packages/adapters/runtimes/claude-codec"],
 
     "@werft-ai/runtime-core": ["@werft-ai/runtime-core@workspace:packages/runtime-core"],
+
+    "@werft-ai/runtime-pi-stub": ["@werft-ai/runtime-pi-stub@workspace:packages/adapters/runtimes/pi-stub"],
 
     "@werft-ai/sdk": ["@werft-ai/sdk@workspace:packages/sdk"],
 

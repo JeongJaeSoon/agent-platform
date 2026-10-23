@@ -1,11 +1,16 @@
 import type { AgentRun } from "./agent-run.ts";
-import type { RuntimeCapabilities } from "./capabilities.ts";
+import type { RuntimeDescriptor, RuntimeStart } from "./runtime-contract.ts";
 
 export type AgentInput = {
   message: string;
   uuid: string;
 };
 
+/**
+ * An engine's approval callback as the Claude adapter and the worker's
+ * pending registry hold it. Not part of the runtime contract: a run raises
+ * `approval.requested` and takes `answer()` instead.
+ */
 export type PermissionRequest = {
   input: Record<string, unknown>;
   requestId: string;
@@ -17,10 +22,6 @@ export type PermissionRequest = {
 export type PermissionDecision =
   | { behavior: "allow"; updatedInput?: Record<string, unknown> }
   | { behavior: "deny"; message: string; interrupt?: boolean };
-
-export type RuntimeHooks = {
-  onPermission(request: PermissionRequest): Promise<PermissionDecision>;
-};
 
 /**
  * A run either starts a fresh engine session or resumes one from the handle
@@ -47,7 +48,7 @@ export type RuntimeConfig = RuntimeMode & {
   tools: string[];
 };
 
-export interface AgentRuntime<TConfig extends RuntimeConfig = RuntimeConfig> {
-  readonly capabilities: RuntimeCapabilities;
-  start(config: TConfig, hooks: RuntimeHooks): AgentRun;
+export interface AgentRuntime<TOptions = unknown> {
+  readonly descriptor: RuntimeDescriptor;
+  start(start: RuntimeStart<TOptions>): AgentRun;
 }
