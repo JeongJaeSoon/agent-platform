@@ -5,10 +5,11 @@ import type {
   SessionDetail,
 } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
-import { buttonVariants, Link } from "@werft-ai/ui";
+import { buttonVariants, EmptyState, Link } from "@werft-ai/ui";
 import { Download } from "lucide-react";
 import { useId } from "react";
 import { LoadFailure } from "../components/load-failure.tsx";
+import { StatusScreen } from "../components/status-screen.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 
 const UNITS = ["byte", "kilobyte", "megabyte", "gigabyte"] as const;
@@ -28,19 +29,9 @@ function formatBytes(bytes: number, locale: string): string {
   }).format(value);
 }
 
-/**
- * The files the session left under `out/` at its latest checkpoint, each
- * with a download link. Nothing is drawn while there are none.
- */
-export function SessionOutputs({
-  session,
-}: {
-  readonly session: SessionDetail;
-}) {
-  const { t, locale } = useI18n();
+function useSessionOutputs(session: SessionDetail) {
   const { client } = useAgentPlatform();
-  const titleId = useId();
-  const outputs = useQuery({
+  return useQuery({
     // A new checkpoint is a new list.
     queryKey: ["sessions", session.id, "outputs", session.checkpoint_revision],
     queryFn: () =>
@@ -52,6 +43,32 @@ export function SessionOutputs({
     retry: false,
     enabled: session.checkpoint_revision !== null,
   });
+}
+
+/** How many outputs the session has, once read: the outputs tab's count. */
+export function SessionOutputsCount({
+  session,
+}: {
+  readonly session: SessionDetail;
+}) {
+  const outputs = useSessionOutputs(session);
+  return session.checkpoint_revision === null
+    ? 0
+    : (outputs.data?.items.length ?? null);
+}
+
+/**
+ * The files the session left under `out/` at its latest checkpoint, each
+ * with a download link.
+ */
+export function SessionOutputs({
+  session,
+}: {
+  readonly session: SessionDetail;
+}) {
+  const { t, locale } = useI18n();
+  const titleId = useId();
+  const outputs = useSessionOutputs(session);
 
   // A session gone from view is the detail screen's to report.
   if (outputs.error && !isApiError(outputs.error, "NOT_FOUND")) {
@@ -62,14 +79,19 @@ export function SessionOutputs({
       />
     );
   }
+  if (outputs.isPending && session.checkpoint_revision !== null) {
+    return <StatusScreen kind="loading" />;
+  }
   const items = outputs.data?.items ?? [];
-  if (items.length === 0) return null;
+  if (items.length === 0) {
+    return <EmptyState title={t("session.outputs.empty")} />;
+  }
   return (
     <section
-      className="flex flex-col gap-[var(--ap-space-block)]"
+      className="flex flex-col gap-[var(--ap-space-block)] rounded-card border bg-card p-4"
       aria-labelledby={titleId}
     >
-      <h2 id={titleId} className="m-0 font-semibold text-body">
+      <h2 id={titleId} className="sr-only">
         {t("session.outputs.title")}
       </h2>
       <ul className="m-0 flex list-none flex-col gap-2 p-0">

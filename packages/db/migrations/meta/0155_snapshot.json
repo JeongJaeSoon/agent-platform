@@ -1,5 +1,5 @@
 {
-  "id": "040cb177-65d9-499a-aaa2-72c375ac001e",
+  "id": "b7c87d7c-8721-4972-8281-4d20d0851edc",
   "prevId": "97c3184d-bc90-407d-b92a-75bed63194a4",
   "version": "7",
   "dialect": "postgresql",
@@ -1231,12 +1231,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
-        },
-        "model": {
-          "name": "model",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
@@ -1618,12 +1612,6 @@
         },
         "profile_fingerprint": {
           "name": "profile_fingerprint",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "model": {
-          "name": "model",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -4913,6 +4901,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "repository_mode": {
           "name": "repository_mode",
           "type": "text",
@@ -4990,12 +4984,6 @@
         },
         "profile_fingerprint": {
           "name": "profile_fingerprint",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "model": {
-          "name": "model",
           "type": "text",
           "primaryKey": false,
           "notNull": false

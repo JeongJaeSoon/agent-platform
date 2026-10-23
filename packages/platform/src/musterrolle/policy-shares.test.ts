@@ -489,6 +489,61 @@ describe("session.approve (94S-798)", () => {
   });
 });
 
+describe("session.rename (94S-804)", () => {
+  // The same people as session.approve: seeing a session through its share
+  // is not naming it. o allowed, r refused (403), n not found (404).
+  // Columns: owner, admin, creator, member, agent admin, service key, the
+  // creator's personal key.
+  const WHO: Who[] = [
+    "owner",
+    "admin",
+    "creator",
+    "member",
+    "agent_admin",
+    "service_key",
+    "creators_key",
+  ];
+  const TABLE: [string, string, string][] = [
+    ["a person's session shared with the workspace", CREATORS_OPEN, "ooororo"],
+    ["a person's session shared with a team", CREATORS_TEAM, "noorono"],
+    ["a person's private session", PERSONS, "nnonnno"],
+    ["a service key's session shared with the workspace", KEYS_OPEN, "oorroor"],
+    ["a service key's private session", KEYS, "nnnnnon"],
+  ];
+  const cell = (decision: AuthorizationDecision) =>
+    decision.outcome === "allow"
+      ? "o"
+      : decision.reason_code === "not_found"
+        ? "n"
+        : decision.reason_code === "role"
+          ? "r"
+          : decision.reason_code;
+  for (const [row, id, cells] of TABLE) {
+    test(row, async () => {
+      const got = await Promise.all(
+        WHO.map(async (who) =>
+          cell(await decide(who, "session.rename", on(id))),
+        ),
+      );
+      expect(got.join("")).toBe(cells);
+    });
+  }
+
+  test("needs sessions:write: a creator's key without it is refused", async () => {
+    expect(
+      await reason("creators_key", "session.rename", on(CREATORS_OPEN), {
+        scopes: ["sessions:read"],
+      }),
+    ).toBe("role");
+  });
+
+  test("names one session: never the collection", async () => {
+    expect(
+      await reason("owner", "session.rename", { kind: "session", id: null }),
+    ).toBe("role");
+  });
+});
+
 describe("the pending requests a viewer is offered (94S-798)", () => {
   function service(who: Who) {
     const rows: string[] = [];

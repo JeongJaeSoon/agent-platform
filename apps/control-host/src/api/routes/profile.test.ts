@@ -69,11 +69,13 @@ const catalog: SessionCatalog = {
 
 const record: SessionDetailRecord = {
   id: sessionId,
+  title: null,
   revision: 7,
   admission_state: "active",
   status: "idle",
   model: "claude-sonnet-5",
   repository_id: "app",
+  repository: { id: "app", full_name: "app", branch: "main" },
   current_turn_id: null,
   queued_turn_count: 0,
   last_event_at: null,
@@ -126,6 +128,7 @@ function change(
       decideRecoveryAtomic: notReached,
       resumeAtomic: notReached,
       changeProfileAtomic,
+      renameAtomic: notReached,
     },
     reader: {
       listSessions: notReached,

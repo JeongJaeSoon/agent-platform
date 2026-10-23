@@ -1,7 +1,6 @@
 import {
   hashKey,
   useInfiniteQuery,
-  useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
 import {
@@ -11,13 +10,9 @@ import {
   useSearch,
 } from "@tanstack/react-router";
 import { isApiError, unwrap } from "@werft-ai/client";
-import type {
-  ListSessionsResponse,
-  SessionDetail as SessionDetailData,
-  SessionStatus,
-} from "@werft-ai/contracts";
-import { profilesQuery, queryKeys } from "@werft-ai/core";
-import { useAgentPlatform, useChangeSessionProfile } from "@werft-ai/react";
+import type { ListSessionsResponse, SessionStatus } from "@werft-ai/contracts";
+import { queryKeys } from "@werft-ai/core";
+import { useAgentPlatform } from "@werft-ai/react";
 import {
   ApprovalInbox,
   type SessionActionProps,
@@ -33,33 +28,21 @@ import {
   Button,
   buttonVariants,
   EmptyState,
-  Field,
-  FieldDescription,
-  FieldLabel,
-  NativeSelect,
-  NativeSelectOption,
   Tabs,
   TabsContent,
   TabsList,
   TabsTrigger,
 } from "@werft-ai/ui";
 import { ArrowLeft, Plus } from "lucide-react";
-import { type FormEvent, useEffect, useId, useState } from "react";
-import {
-  permissionReason,
-  ReasonButton,
-  refusalText,
-  useCan,
-  useRole,
-} from "../auth/guard.tsx";
+import { useEffect } from "react";
+import { ReasonButton, useCan } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
-import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { Page } from "../components/page.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
-import { SessionOutputs } from "./session-outputs.tsx";
+import { SessionOutputs, SessionOutputsCount } from "./session-outputs.tsx";
 
-function loadError(error: unknown, onRetry: () => void) {
+export function loadError(error: unknown, onRetry: () => void) {
   if (isApiError(error, "FORBIDDEN")) {
     return <StatusScreen kind="forbidden" />;
   }
@@ -90,6 +73,24 @@ export function sessionsSearch(
   return status ? { status } : {};
 }
 
+/** The console cannot start a session yet; the button says why. */
+export function NewSessionButton() {
+  const { t } = useI18n();
+  return (
+    // Narrow screens wrap the reason under the button, so the title keeps
+    // the width of the row.
+    <div className="max-sm:w-min">
+      <ReasonButton
+        className={buttonVariants()}
+        reason={t("sessionList.newUnavailable")}
+      >
+        <Plus aria-hidden="true" />
+        {t("sessionList.new")}
+      </ReasonButton>
+    </div>
+  );
+}
+
 export function SessionsScreen() {
   const { t } = useI18n();
   const unavailable = useUnavailable();
@@ -102,15 +103,7 @@ export function SessionsScreen() {
     <Page
       title={t("sessions.title")}
       description={t("sessions.intro")}
-      actions={
-        <ReasonButton
-          className={buttonVariants()}
-          reason={t("sessionList.newUnavailable")}
-        >
-          <Plus aria-hidden="true" />
-          {t("sessionList.new")}
-        </ReasonButton>
-      }
+      actions={<NewSessionButton />}
     >
       <div className="flex flex-col gap-[var(--ap-space-block)]">
         <ApprovalInbox
@@ -131,11 +124,13 @@ export function SessionsScreen() {
           }
           className="min-w-0 gap-[var(--ap-space-block)]"
         >
-          <div className="overflow-x-auto border-b">
+          <div className="border-b">
             <TabsList
               variant="line"
               aria-label={t("sessionList.filter.label")}
-              className="h-9 p-0"
+              // English names overflow 390px; the tabs wrap rather than scroll,
+              // since a scroll box clips the active tab's underline.
+              className="flex-wrap justify-start gap-y-0 p-0 group-data-[orientation=horizontal]/tabs:h-auto"
             >
               <TabsTrigger
                 value="all"
@@ -299,7 +294,7 @@ function SessionsInStatus({ status }: { readonly status: SessionFilter }) {
 }
 
 /** Why the signed-in credential may not take each session action. */
-function useUnavailable(): SessionActionProps["unavailable"] {
+export function useUnavailable(): SessionActionProps["unavailable"] {
   const { t } = useI18n();
   const missing = (scope: string) => t("guard.missingScope", { scope });
   const canAnswer = useCan("sessions:approve");
@@ -322,136 +317,26 @@ export function SessionDetailScreen() {
         back={
           <Link
             to="/sessions"
-            className={buttonVariants({ variant: "outline", size: "sm" })}
+            className={buttonVariants({ variant: "outline" })}
           >
-            <ArrowLeft className="size-3.5" aria-hidden="true" />
+            <ArrowLeft strokeWidth={1.5} aria-hidden="true" />
             {t("session.back")}
           </Link>
         }
         id={id}
         loading={<StatusScreen kind="loading" />}
         renderError={loadError}
-        controls={(session) => (
-          <>
-            <SessionProfile session={session} />
-            <SessionOutputs session={session} />
-          </>
-        )}
+        tabs={(session) => [
+          {
+            value: "outputs",
+            label: t("session.outputs.title"),
+            count: <SessionOutputsCount session={session} />,
+            content: <SessionOutputs session={session} />,
+          },
+        ]}
         unavailable={unavailable}
         refusal={(error) => t(errorKey(error.code))}
       />
     </div>
-  );
-}
-
-/**
- * Moves the session onto another profile from its next turn on. Only profiles
- * that run the same runtime and bill the same way are offered; the server
- * decides the rest (the repository's catalog pairing, a release session) and
- * says why it refused.
- */
-function SessionProfile({ session }: { readonly session: SessionDetailData }) {
-  const { t } = useI18n();
-  const { client } = useAgentPlatform();
-  const role = useRole();
-  const titleId = useId();
-  const profiles = useQuery(profilesQuery(client));
-  const change = useChangeSessionProfile(session.id);
-  const [outcome, setOutcome] = useState<Outcome | null>(null);
-  const [picked, setPicked] = useState<string | null>(null);
-  const reason = useCan("sessions:control")
-    ? undefined
-    : permissionReason(t, "session.control", role);
-
-  const { runtime } = session;
-  if (!runtime) return null;
-  const items = profiles.data?.items ?? [];
-  const current = items.find((profile) => profile.id === runtime.profile_id);
-  const choices = current
-    ? items.filter(
-        (profile) =>
-          profile.id !== current.id &&
-          profile.runtime_kind === current.runtime_kind &&
-          profile.runtime_version === current.runtime_version &&
-          profile.billing === current.billing,
-      )
-    : [];
-  const target =
-    picked !== null && choices.some((profile) => profile.id === picked)
-      ? picked
-      : (choices[0]?.id ?? "");
-
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    setOutcome(null);
-    change.mutate(
-      { expected_revision: session.revision, profile_id: target },
-      {
-        onSuccess: () =>
-          setOutcome({
-            kind: "notice",
-            text: t("session.profile.changed", { profile: target }),
-          }),
-        onError: (error) =>
-          setOutcome({
-            kind: "error",
-            text:
-              error.code === "RELEASE_PROFILE_MISMATCH"
-                ? t("session.profile.refused.release")
-                : error.code === "UNSUPPORTED_CAPABILITY"
-                  ? t("session.profile.refused.capability")
-                  : refusalText(t, error, "session.control", role),
-          }),
-      },
-    );
-  };
-
-  return (
-    <section
-      className="flex flex-col gap-[var(--ap-space-block)]"
-      aria-labelledby={titleId}
-    >
-      <h2 id={titleId} className="m-0 font-semibold text-body">
-        {t("session.profile")}
-      </h2>
-      <OutcomeLine outcome={outcome} />
-      {profiles.isPending ? (
-        <StatusScreen kind="loading" />
-      ) : profiles.error ? (
-        loadError(profiles.error, () => void profiles.refetch())
-      ) : choices.length === 0 ? (
-        <EmptyState
-          title={
-            current ? t("session.profile.none") : t("session.profile.unknown")
-          }
-        />
-      ) : (
-        <form className="flex flex-col items-start gap-3" onSubmit={submit}>
-          <Field className="w-full [&_[data-slot=native-select-wrapper]]:w-full">
-            <FieldLabel>{t("session.profile.next")}</FieldLabel>
-            <NativeSelect
-              value={target}
-              disabled={reason !== undefined}
-              onChange={(event) => setPicked(event.target.value)}
-            >
-              {choices.map((profile) => (
-                <NativeSelectOption key={profile.id} value={profile.id}>
-                  {`${profile.id} · ${profile.model}`}
-                </NativeSelectOption>
-              ))}
-            </NativeSelect>
-            <FieldDescription>{t("session.profile.hint")}</FieldDescription>
-          </Field>
-          <ReasonButton
-            type="submit"
-            className={buttonVariants()}
-            reason={reason}
-            disabled={change.isPending}
-          >
-            {t("session.profile.submit")}
-          </ReasonButton>
-        </form>
-      )}
-    </section>
   );
 }

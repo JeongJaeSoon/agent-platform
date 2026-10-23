@@ -12,6 +12,7 @@ import {
   createSlackAppService,
   createSlackConfigApi,
   createSlackConfigTokens,
+  createSlackLinkAppService,
   type SecretKey,
   SessionServiceError,
 } from "@werft-ai/platform";
@@ -40,11 +41,15 @@ export const SLACK_APP_EXIT = {
 } as const;
 
 const USAGE = `Usage: bun run apps/control-host/src/api/slack-app.ts create --workspace <workspace_id> --agent <agent_id> [--replace-uncertain]
+       bun run apps/control-host/src/api/slack-app.ts create --kind link --workspace <workspace_id> [--replace-uncertain]
+  --kind agent (default) makes the agent's app; --kind link makes the
+  workspace's account-linking app (Sign in with Slack), which a first
+  "Slack 연결" in the console would otherwise make.
 Environment: DATABASE_URL (required), the master key as the API reads it
              (PLATFORM_SECRET_KEY or platform.yaml in PLATFORM_CONFIG_DIR),
              SLACK_OIDC_REDIRECT_URI (required: its origin is the console's),
              SLACK_API_URL (default https://slack.com/api; http only for a local mock)
-Exit codes: 0 created, or the agent already had it; 1 unexpected error; 2 usage;
+Exit codes: 0 created, or the agent or workspace already had it; 1 unexpected error; 2 usage;
             3 the config token is missing or Slack no longer takes it (paste a new one);
             4 agent or workspace not found; 5 the agent has no active release;
             6 the app is still being created or is being deleted (after checking
@@ -58,9 +63,8 @@ export class SlackAppUsageError extends Error {}
 export type SlackAppCommand = {
   command: "create";
   workspaceId: string;
-  agentId: string;
   replaceUncertain: boolean;
-};
+} & ({ kind: "agent"; agentId: string } | { kind: "link" });
 
 export function parseSlackAppCommand(argv: string[]): SlackAppCommand {
   let parsed: ReturnType<typeof parse>;
@@ -74,11 +78,13 @@ export function parseSlackAppCommand(argv: string[]): SlackAppCommand {
     );
   }
   const { workspace, agent } = parsed.values;
+  const kind = parsed.values.kind ?? "agent";
   if (
     parsed.positionals.length !== 1 ||
     parsed.positionals[0] !== "create" ||
     workspace === undefined ||
-    agent === undefined
+    (kind !== "agent" && kind !== "link") ||
+    (kind === "agent") !== (agent !== undefined)
   ) {
     throw new SlackAppUsageError(USAGE);
   }
@@ -86,22 +92,25 @@ export function parseSlackAppCommand(argv: string[]): SlackAppCommand {
     ["--workspace", workspace],
     ["--agent", agent],
   ] as const) {
-    if (!UUID.test(value)) {
+    if (value !== undefined && !UUID.test(value)) {
       throw new SlackAppUsageError(`${name} must be a UUID\n${USAGE}`);
     }
   }
-  return {
-    command: "create",
+  const common = {
+    command: "create" as const,
     workspaceId: workspace.toLowerCase(),
-    agentId: agent.toLowerCase(),
     replaceUncertain: parsed.values["replace-uncertain"] === true,
   };
+  return agent === undefined
+    ? { ...common, kind: "link" }
+    : { ...common, kind: "agent", agentId: agent.toLowerCase() };
 }
 
 function parse(argv: string[]) {
   return parseArgs({
     args: argv,
     options: {
+      kind: { type: "string" },
       workspace: { type: "string" },
       agent: { type: "string" },
       "replace-uncertain": { type: "boolean" },
@@ -169,7 +178,7 @@ export async function runSlackApp(
 
     const database = await io.openDatabase(databaseUrl);
     try {
-      const service = createSlackAppService({
+      const deps = {
         authorization: createAuthorizationPolicy({}),
         apps: createPostgresSlackAppStore(database.db, key),
         tokens: createSlackConfigTokens({
@@ -178,7 +187,29 @@ export async function runSlackApp(
         }),
         api,
         consoleOrigin,
-      });
+      };
+      if (command.kind === "link") {
+        const result = await createSlackLinkAppService({
+          ...deps,
+          fallback: null,
+        }).createLinkAppAsOperator(command.workspaceId, {
+          replace_uncertain: command.replaceUncertain,
+        });
+        io.out(
+          JSON.stringify({
+            outcome: result.created ? "created" : "exists",
+            kind: "link",
+            slack_app_id: result.slack_app.id,
+            app_id: result.slack_app.app_id,
+            client_id: result.slack_app.client_id,
+            redirect_url: result.slack_app.redirect_url,
+            created_by_token_user: result.slack_app.created_by_token_user,
+            warnings: result.warnings,
+          }),
+        );
+        return SLACK_APP_EXIT.created;
+      }
+      const service = createSlackAppService(deps);
       const result = await service.createAgentAppAsOperator(
         command.workspaceId,
         command.agentId,
@@ -191,8 +222,8 @@ export async function runSlackApp(
           app_id: result.slack_app.app_id,
           agent_id: result.slack_app.agent_id,
           created_by_token_user: result.slack_app.created_by_token_user,
-          authorize_url: result.authorize_url,
           warnings: result.warnings,
+          next: `Install it from the agent's page in the console, or with a signed-in console session: POST /v1/agents/${result.slack_app.agent_id}/slack/install/start`,
         }),
       );
       return SLACK_APP_EXIT.created;

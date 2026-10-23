@@ -282,6 +282,7 @@ const ROW_MESSAGES: SessionRowMessages = {
 
 const SESSION: SessionSummary = {
   id: "0192f0c4-7d3a-7b4e-9f00-000000000001",
+  title: null,
   revision: 3,
   admission_state: "active",
   status: "running",
@@ -294,6 +295,7 @@ const SESSION: SessionSummary = {
   },
   model: "model-claude-default",
   repository_id: null,
+  repository: null,
   current_turn_id: null,
   queued_turn_count: 2,
   last_event_at: null,

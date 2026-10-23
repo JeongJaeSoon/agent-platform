@@ -41,6 +41,7 @@ function pause(
       decideRecoveryAtomic: notReached,
       resumeAtomic: notReached,
       changeProfileAtomic: notReached,
+      renameAtomic: notReached,
     },
     reader: {
       listSessions: notReached,

@@ -99,3 +99,42 @@ export function slackAuthorizeUrl(input: {
   if (input.state !== undefined) params.set("state", input.state);
   return `${SLACK_AUTHORIZE_URL}?${params.toString()}`;
 }
+
+/** What the link app's consent screen asks for: who the person is, no email. */
+export const SLACK_LINK_USER_SCOPES = ["openid", "profile"] as const;
+
+/** The link app's words in Slack, kept together for copy review. */
+export const LINK_APP_COPY = {
+  nameSuffix: " 계정 연결",
+  description: "agent-platform 콘솔에서 Slack 계정을 연결합니다.",
+} as const;
+
+/**
+ * The workspace's account-linking app: Sign in with Slack only, so no bot,
+ * no bot scopes and no events. The workspace's name is cut, not the
+ * suffix, to fit Slack's limit.
+ */
+export function buildLinkAppManifest(input: {
+  workspaceName: string;
+  redirectUrl: string;
+}) {
+  const suffix = LINK_APP_COPY.nameSuffix;
+  const name = `${clip(input.workspaceName.trim(), APP_NAME_MAX - [...suffix].length).trim()}${suffix}`;
+  return {
+    display_information: { name, description: LINK_APP_COPY.description },
+    oauth_config: {
+      redirect_urls: [input.redirectUrl],
+      scopes: { user: [...SLACK_LINK_USER_SCOPES] },
+    },
+    settings: {
+      org_deploy_enabled: false,
+      socket_mode_enabled: false,
+      token_rotation_enabled: false,
+    },
+  };
+}
+
+/** The console page Sign in with Slack returns to. */
+export function slackLinkRedirectUrl(consoleOrigin: string): string {
+  return new URL("/settings/linked-accounts/slack", consoleOrigin).toString();
+}

@@ -30,7 +30,6 @@ import {
   type AgentAppManifestInput,
   buildAgentAppManifest,
   slackAppRedirectUrl,
-  slackAuthorizeUrl,
 } from "./slack-manifest.ts";
 import { slackSecretSummaryOf } from "./slack-secret-service.ts";
 
@@ -119,14 +118,6 @@ export function slackAppView(record: SlackAppRecord): SlackApp {
     },
   };
 }
-
-const authorizeUrlOf = (record: SlackAppRecord) =>
-  record.state === "created" && record.clientId !== null
-    ? slackAuthorizeUrl({
-        clientId: record.clientId,
-        redirectUrl: record.redirectUrl,
-      })
-    : null;
 
 export type SlackAppService = ReturnType<typeof createSlackAppService>;
 
@@ -221,8 +212,7 @@ export function createSlackAppService(deps: {
       case "creating":
         throw creating(begun.app, begun.uncertain);
       case "exists": {
-        const url = authorizeUrlOf(begun.app);
-        if (url === null) {
+        if (begun.app.state !== "created") {
           throw new SessionServiceError(
             "REVISION_CONFLICT",
             "This agent's Slack app is being deleted",
@@ -230,7 +220,6 @@ export function createSlackAppService(deps: {
         }
         return {
           slack_app: slackAppView(begun.app),
-          authorize_url: url,
           created: false,
           warnings: [],
         };
@@ -280,11 +269,8 @@ export function createSlackAppService(deps: {
             },
           ]
         : [];
-    const url = authorizeUrlOf(record);
-    if (url === null) throw new Error("created Slack app has no client id");
     return {
       slack_app: slackAppView(record),
-      authorize_url: url,
       created: true,
       warnings,
     };
@@ -321,10 +307,7 @@ export function createSlackAppService(deps: {
       await permitAgent(caller, agentId);
       const { apps } = ready();
       const record = await apps.findForAgent(caller.ownerId, agentId);
-      return {
-        slack_app: record === null ? null : slackAppView(record),
-        authorize_url: record === null ? null : authorizeUrlOf(record),
-      };
+      return { slack_app: record === null ? null : slackAppView(record) };
     },
 
     async deleteApp(

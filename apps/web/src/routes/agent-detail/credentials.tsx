@@ -1,5 +1,15 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type ApiError, isApiError, unwrap } from "@werft-ai/client";
+import {
+  queryOptions,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import {
+  type ApiClient,
+  type ApiError,
+  isApiError,
+  unwrap,
+} from "@werft-ai/client";
 import type {
   ActivationCredentialUnboundDetails,
   AgentDetail,
@@ -41,6 +51,19 @@ import { latestVersion } from "./versions.tsx";
 const bindingsKey = (agentId: string) =>
   [...queryKeys.agent(agentId), "credential-bindings"] as const;
 
+export function credentialBindingsQuery(client: ApiClient, agentId: string) {
+  return queryOptions({
+    queryKey: bindingsKey(agentId),
+    queryFn: () =>
+      unwrap(
+        client.GET("/v1/agents/{id}/credential-bindings", {
+          params: { path: { id: agentId } },
+        }),
+      ),
+    retry: false,
+  });
+}
+
 /**
  * The credential names an agent may use (design 4.4, D11). There is no
  * free-text field on purpose: a lowercase token pasted as a "name" would pass
@@ -70,16 +93,7 @@ export function Credentials({
   const agentId = detail.agent.id;
   const [revoking, setRevoking] = useState<CredentialBindingView | null>(null);
 
-  const bindings = useQuery({
-    queryKey: bindingsKey(agentId),
-    queryFn: () =>
-      unwrap(
-        client.GET("/v1/agents/{id}/credential-bindings", {
-          params: { path: { id: agentId } },
-        }),
-      ),
-    retry: false,
-  });
+  const bindings = useQuery(credentialBindingsQuery(client, agentId));
 
   const refused = (error: ApiError) =>
     error.code === "CREDENTIAL_REF_IN_USE"

@@ -240,8 +240,65 @@ export const sessionDurabilitySchema = z.object({
 const NEEDS_INPUT_PROJECTION =
   "needs_input is derived when read: a running session or turn with at least one pending request a client can still answer (open, unexpired, raised by the attempt that holds the turn). It returns to running as soon as none is left, whether by an answer, the worker settling the request, expiry or the attempt losing the session, with no change to updated_at. The event stream reports both edges as status events: needs_input right after the question that opened the wait, and the status read here once the wait ends — at the answer or settlement that ended it, or within one reconciler pass when nothing was written (expiry, a lost attempt).";
 
+export const SESSION_TITLE_MAX_GRAPHEMES = 80;
+// Bounds the input before it is segmented; a title never needs more.
+const SESSION_TITLE_MAX_CHARS = 1024;
+const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+/** Runs of whitespace, line breaks included, become one space; ends trimmed. */
+export function normalizeSessionTitle(text: string): string {
+  return text.replace(/\s+/gu, " ").trim();
+}
+
+export function titleGraphemes(text: string): string[] {
+  return Array.from(graphemes.segment(text), (part) => part.segment);
+}
+
+export const sessionTitleSchema = z
+  .string()
+  .max(SESSION_TITLE_MAX_CHARS)
+  .refine((text) => normalizeSessionTitle(text) !== "", {
+    message: "Title is empty once whitespace is collapsed",
+  })
+  .refine(
+    (text) =>
+      titleGraphemes(normalizeSessionTitle(text)).length <=
+      SESSION_TITLE_MAX_GRAPHEMES,
+    {
+      message: `Title exceeds ${SESSION_TITLE_MAX_GRAPHEMES} characters`,
+    },
+  )
+  .meta({
+    description: `Stored with runs of whitespace and line breaks collapsed to one space and the ends trimmed; at most ${SESSION_TITLE_MAX_GRAPHEMES} characters (grapheme clusters) after that.`,
+  });
+
+export const sessionRepositorySchema = z.object({
+  id: z.string().min(1).nullable().meta({
+    description:
+      "The catalog key, as `repository_id`. Null for a session created before the catalog existed.",
+  }),
+  full_name: z.string().min(1).nullable().meta({
+    description:
+      "A name to show: the path of the repository's http(s) URL without host, credentials, query or `.git` (`owner/name`, or `group/sub/name`), or else the catalog key; null when neither exists. Never the URL itself, which may embed a credential.",
+  }),
+  branch: z.string().min(1).meta({
+    description:
+      "The branch the session's workspace was cloned from. Not the branch a push writes to (`agent/<session-id>`).",
+  }),
+});
+
 export const sessionSummarySchema = z.object({
   id: sessionIdSchema,
+  // Defaults so a reader ahead of its server, during a rollout, reads a
+  // summary from before titles as having none.
+  title: z
+    .string()
+    .min(1)
+    .nullable()
+    .default(null)
+    .meta({
+      description: `The session's name: the \`title\` it was created or renamed with, or else one derived from its first message (whitespace collapsed, cut to ${SESSION_TITLE_MAX_GRAPHEMES} characters with a trailing ellipsis). Null for sessions created before titles existed and for a first message with no text.`,
+    }),
   revision: revisionSchema,
   admission_state: admissionStateSchema,
   status: sessionStatusSchema.meta({ description: NEEDS_INPUT_PROJECTION }),
@@ -257,6 +314,11 @@ export const sessionSummarySchema = z.object({
   // legacy rows) carry no key and surface null; the stored repo URL is
   // never exposed because it may embed credentials.
   repository_id: z.string().min(1).nullable(),
+  // Defaults like title, so a reader ahead of its server reads none.
+  repository: sessionRepositorySchema.nullable().default(null).meta({
+    description:
+      "The repository the session was created against, as the session recorded it then: a later catalog change or removal does not alter it. Null for a session created without a repository.",
+  }),
   current_turn_id: turnIdSchema.nullable(),
   queued_turn_count: z.number().int().nonnegative(),
   last_event_at: timestampSchema.nullable(),
@@ -291,6 +353,9 @@ export const messageTextSchema = z
 export const createSessionRequestSchema = z
   .object({
     profile_id: z.string().min(1),
+    title: sessionTitleSchema.optional().meta({
+      description: `The session's name. Omitted, it is derived from \`message\`: whitespace and line breaks collapsed to one space, the ends trimmed, and text longer than ${SESSION_TITLE_MAX_GRAPHEMES} characters cut to ${SESSION_TITLE_MAX_GRAPHEMES - 1} and an ellipsis (…). Rename it later with \`PATCH /v1/sessions/{id}\`.`,
+    }),
     repository_id: z.string().min(1).optional().meta({
       description:
         "The catalog repository the session works on. Required when the profile's `repository_mode` is `required`, refused when it is `none`, either when it is `optional`; omitted, the session starts in an empty workspace with no repository to push to.",
@@ -313,6 +378,9 @@ export const createSessionResponseSchema = z.object({
   receipt_status: receiptStatusSchema,
   status: sessionStatusSchema,
 });
+export const updateSessionRequestSchema = z
+  .object({ title: sessionTitleSchema })
+  .strict();
 export const listSessionsQuerySchema = paginationQuerySchema.extend({
   status: sessionStatusSchema.optional().meta({
     description:
@@ -338,10 +406,12 @@ export type SessionAttention = z.infer<typeof sessionAttentionSchema>;
 export type PauseBlockedReason = z.infer<typeof pauseBlockedReasonSchema>;
 export type CloseBlockedReason = z.infer<typeof closeBlockedReasonSchema>;
 export type SessionDurability = z.infer<typeof sessionDurabilitySchema>;
+export type SessionRepository = z.infer<typeof sessionRepositorySchema>;
 export type SessionSummary = z.infer<typeof sessionSummarySchema>;
 export type SessionDetail = z.infer<typeof sessionDetailSchema>;
 export type CreateSessionRequest = z.infer<typeof createSessionRequestSchema>;
 export type CreateSessionResponse = z.infer<typeof createSessionResponseSchema>;
+export type UpdateSessionRequest = z.infer<typeof updateSessionRequestSchema>;
 export type ListSessionsQuery = z.infer<typeof listSessionsQuerySchema>;
 export type ListSessionsResponse = z.infer<typeof listSessionsResponseSchema>;
 export type GetSessionResponse = z.infer<typeof getSessionResponseSchema>;

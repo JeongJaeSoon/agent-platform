@@ -8,29 +8,34 @@ import { cn } from "../foundations/cn.ts";
  * shadcn/ui new-york Button. Changed from upstream: no `dark:` variants (the
  * tokens already switch theme, including the manual `data-theme` toggle that
  * Tailwind's `dark:` cannot see), `destructive` uses its own foreground token
- * instead of white, transitions stop under reduced motion, and console v35
- * sizing: no shadow, 32px or 28px tall and no `lg`.
+ * instead of white, transitions stop under reduced motion, console v35
+ * sizing (no shadow, 32px or 28px tall and no `lg`), and mockup v4's focus
+ * outline, hovers, outlined `danger` and 28px `icon-sm`. No `outline-none`:
+ * Tailwind 4 carries its `none` into `outline-2`.
  */
 export const buttonVariants = cva(
-  "inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-control font-medium text-control outline-none transition-[color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 motion-reduce:transition-none [&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0",
+  "inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-control font-medium text-control transition-[background-color,border-color] duration-[var(--ap-motion-fast)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:pointer-events-none disabled:opacity-45 aria-invalid:border-destructive motion-reduce:transition-none [&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0",
   {
     variants: {
       variant: {
         default: "bg-primary text-primary-foreground hover:bg-primary-hover",
         destructive:
-          "bg-destructive text-destructive-foreground hover:bg-destructive/90 focus-visible:ring-destructive/20",
+          "bg-destructive-solid text-destructive-foreground hover:brightness-92",
         outline:
-          "border border-input bg-card hover:bg-accent hover:text-accent-foreground",
+          "border border-border bg-card hover:bg-hover hover:text-accent-foreground",
         secondary:
           "bg-secondary text-secondary-foreground hover:bg-secondary/80",
         ghost:
-          "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+          "border border-transparent text-muted-foreground hover:bg-hover hover:text-foreground",
         link: "text-primary underline-offset-4 hover:underline",
+        danger:
+          "border border-[var(--ap-tone-danger-border)] bg-card text-destructive hover:bg-[var(--ap-tone-danger-bg)]",
       },
       size: {
         default: "h-[var(--ap-control-height)] px-3",
         sm: "h-[var(--ap-control-height-sm)] px-2",
         icon: "size-[var(--ap-control-height)]",
+        "icon-sm": "size-[var(--ap-control-height-sm)]",
       },
     },
     defaultVariants: { variant: "default", size: "default" },

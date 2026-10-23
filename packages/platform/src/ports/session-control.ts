@@ -179,6 +179,19 @@ export type ChangeProfileInput = {
   now: Date;
 };
 
+export type RenameSessionInput = {
+  principal: Principal;
+  sessionId: string;
+  // Already normalised (normalizeSessionTitle).
+  title: string;
+  now: Date;
+};
+
+export type RenameSessionResult =
+  | { outcome: "not_found" }
+  | { outcome: "actor_inactive" }
+  | { outcome: "renamed"; changed: boolean };
+
 export type ChangeProfileResult =
   | { outcome: "accepted" | "replayed"; response: ControlAcceptedResponse }
   | { outcome: "conflict" | "not_found" }
@@ -250,4 +263,10 @@ export interface SessionControl {
    * profile and is handed no more input. Settles at once.
    */
   changeProfileAtomic(input: ChangeProfileInput): Promise<ChangeProfileResult>;
+  /**
+   * Sets the title in any admission state and, when it changed, writes a
+   * `status` event carrying it. Neither the revision nor a receipt moves:
+   * a name is no control.
+   */
+  renameAtomic(input: RenameSessionInput): Promise<RenameSessionResult>;
 }

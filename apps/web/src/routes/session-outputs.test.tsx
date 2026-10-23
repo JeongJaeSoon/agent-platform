@@ -3,10 +3,17 @@ import type {
   ListSessionOutputsResponse,
   SessionDetail,
 } from "@werft-ai/contracts";
+import { setupUser } from "@werft-ai/ui/test-support/dom";
 import { apiError, json, me } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
 const { renderAt, screen, waitFor } = await appHarness();
+
+async function openOutputs() {
+  await (await setupUser()).click(
+    await screen.findByRole("tab", { name: /^결과물/ }),
+  );
+}
 
 const SESSION_ID = "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01";
 const AT = "2026-10-11T08:14:02.000Z";
@@ -85,6 +92,16 @@ describe("session outputs", () => {
       `/sessions/${SESSION_ID}`,
       routes(() => json(200, outputs)),
     );
+    // The tab counts them once read.
+    expect(
+      (await screen.findByRole("tab", { name: /^결과물/ })).textContent,
+    ).toBe("결과물");
+    await waitFor(() =>
+      expect(screen.getByRole("tab", { name: /^결과물/ }).textContent).toBe(
+        "결과물3",
+      ),
+    );
+    await openOutputs();
     const section = await screen.findByRole("region", { name: "결과물" });
     expect(section.textContent).toContain("report.md");
     expect(section.textContent).toContain("2kB");
@@ -112,7 +129,7 @@ describe("session outputs", () => {
     expect(document.activeElement === report).toBe(true);
   });
 
-  test("draws nothing while the session has no outputs", async () => {
+  test("says so while the session has no outputs", async () => {
     const { api } = renderAt(
       `/sessions/${SESSION_ID}`,
       routes(() =>
@@ -130,7 +147,8 @@ describe("session outputs", () => {
         ),
       ).toBe(true),
     );
-    await screen.findByRole("heading", { name: SESSION_ID });
+    await openOutputs();
+    expect(await screen.findByText("아직 결과물이 없습니다.")).toBeTruthy();
     expect(screen.queryByRole("region", { name: "결과물" })).toBeNull();
   });
 
@@ -140,7 +158,9 @@ describe("session outputs", () => {
       [`GET /v1/sessions/${SESSION_ID}`]: () =>
         json(200, { ...detail, checkpoint_revision: null }),
     });
-    await screen.findByRole("heading", { name: SESSION_ID });
+    await screen.findByRole("heading", {
+      name: new RegExp(`^${SESSION_ID.slice(0, 8)}`),
+    });
     expect(
       api.calls.some(
         (call) => call.path === `/v1/sessions/${SESSION_ID}/outputs`,
@@ -153,6 +173,7 @@ describe("session outputs", () => {
       `/sessions/${SESSION_ID}`,
       routes(() => apiError(409, "CHECKPOINT_UNAVAILABLE", "manifest damaged")),
     );
+    await openOutputs();
     expect(
       await screen.findByRole("button", { name: "다시 시도" }),
     ).toBeTruthy();

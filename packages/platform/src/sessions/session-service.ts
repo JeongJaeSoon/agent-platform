@@ -28,17 +28,21 @@ import type {
   TerminateSessionRequest,
   TerminateSessionResponse,
   TurnDetail,
+  UpdateSessionRequest,
 } from "@werft-ai/contracts";
-import { CREDENTIAL_UNBOUND_GUIDANCE } from "@werft-ai/contracts";
+import {
+  CREDENTIAL_UNBOUND_GUIDANCE,
+  normalizeSessionTitle,
+} from "@werft-ai/contracts";
 import { releaseModel } from "../agents/release-ids.ts";
 import {
   budgetExceeded,
   type SessionSpend,
 } from "../limits/installation-limits.ts";
 import {
-  ACTION_SCOPES,
   type AuthorizationPolicy,
   type Caller,
+  scopeOf,
 } from "../musterrolle/policy.ts";
 import type { CredentialBindingStore } from "../ports/credential-binding-store.ts";
 import type { SessionControl } from "../ports/session-control.ts";
@@ -61,6 +65,7 @@ import {
   type SessionCatalog,
   sessionProfile,
 } from "./catalog.ts";
+import { deriveSessionTitle } from "./session-title.ts";
 
 export class SessionServiceError extends Error {
   constructor(
@@ -260,7 +265,7 @@ export async function requireAllowed(
       { reason_code: "credential_unbound" },
     );
   }
-  const scope = ACTION_SCOPES[action];
+  const scope = scopeOf(action);
   throw new SessionServiceError(
     "FORBIDDEN",
     scope !== undefined && decision?.effective_scopes.includes(scope)
@@ -549,6 +554,10 @@ export function createSessionService(deps: {
         idempotencyKey: input.idempotencyKey,
         payloadHash: payloadHash(input.body),
         profileId: input.body.profile_id,
+        title:
+          input.body.title === undefined
+            ? deriveSessionTitle(input.body.message)
+            : normalizeSessionTitle(input.body.title),
         repository:
           pair === null
             ? null
@@ -904,6 +913,37 @@ export function createSessionService(deps: {
         default:
           return result.response;
       }
+    },
+
+    async renameSession(
+      actor: Caller,
+      sessionId: string,
+      body: UpdateSessionRequest,
+    ): Promise<SessionDetail> {
+      // The answer is the detail, which reading the session gives. Rename
+      // first, so a refusal is kept under what was asked.
+      for (const action of ["session.rename", "session.read"] as const) {
+        await requirePermitted(authorization, actor, action, {
+          kind: "session",
+          id: sessionId,
+        });
+      }
+      const result = await controls.renameAtomic({
+        principal: actor,
+        sessionId,
+        title: normalizeSessionTitle(body.title),
+        now: now(),
+      });
+      if (result.outcome === "not_found") {
+        throw new SessionServiceError("NOT_FOUND", "Resource not found");
+      }
+      if (result.outcome === "actor_inactive") {
+        throw new SessionServiceError(
+          "FORBIDDEN",
+          "This principal is no longer a member of the workspace",
+        );
+      }
+      return detailOf(actor, sessionId);
     },
 
     async decideRecovery(

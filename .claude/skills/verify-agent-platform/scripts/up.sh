@@ -63,7 +63,8 @@ echo "run id: $run_id  (record it; later: lib.sh $run_id, doctor.sh $run_id, dow
 
 # shellcheck disable=SC1091
 . "$run/state.env"
-"$repo/scripts/local.sh" up --fake-model 2>&1 | tee "$run/evidence/up.log" >&2
+# The features bootstrap the first owner themselves, so no demo accounts.
+LOCAL_DEMO_ACCOUNTS=0 "$repo/scripts/local.sh" up --fake-model 2>&1 | tee "$run/evidence/up.log" >&2
 
 api=$(docker compose --profile apps port api 3000 | head -n 1)
 echo "VERIFY_API=http://127.0.0.1:${api##*:}" >>"$run/state.env"

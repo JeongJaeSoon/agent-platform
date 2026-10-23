@@ -3,7 +3,8 @@
 # `agent-platform` from compose.yaml, on the loopback ports docs/quickstart.md
 # lists.
 #
-#   scripts/local.sh up [--fake-model]   check Docker, ports and the key, build, start, wait for /readyz
+#   scripts/local.sh up [--fake-model]   check Docker, ports and the key, build, start, wait for /readyz,
+#                                        add the web console's demo accounts
 #   scripts/local.sh down                delete the stack AND ALL ITS DATA
 #   scripts/local.sh reset [--fake-model]
 #                                        down, then up
@@ -12,6 +13,7 @@
 #                                        print a new API key once (same CLI as `bun run keys create`)
 #   scripts/local.sh forget-lost-checkpoints
 #                                        after a Docker restart: give up the lost checkpoints, keep the rest
+#   scripts/local.sh demo-accounts       add whichever demo account is missing to a running stack
 #
 # A local installation is volatile: LocalStack keeps S3 in memory, so any
 # `down` or Docker restart loses every checkpoint object while postgres keeps
@@ -32,6 +34,11 @@
 # the compose fake Messages API answers from the script in each prompt
 # (docs/quickstart.md). The project is the same either way, so `down`
 # deletes whichever is up.
+#
+# `up` ends by adding the demo owner and member (docs/quickstart.md "웹 콘솔
+# 데모 계정"), skipping any that exist; LOCAL_DEMO_ACCOUNTS=0 leaves them
+# out. Only a stack on this machine's Docker whose api listens on loopback
+# gets them: their password is in the repository.
 #
 # COMPOSE_PROJECT_NAME, COMPOSE_FILE and EXECUTION_INSTALLATION_ID are
 # compose's to resolve: the ports checked, the /readyz waited on
@@ -71,7 +78,7 @@ compose() {
 }
 
 usage() {
-  sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//' >&2
+  sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//' >&2
   exit 2
 }
 
@@ -171,12 +178,14 @@ up() {
   while :; do
     body=$(readyz)
     case "$body" in
-      *'"status":"ready"'*) echo "$body"; return 0 ;;
+      *'"status":"ready"'*) break ;;
     esac
     [ "$SECONDS" -lt "$deadline" ] ||
       die "API not ready after ${READY_TIMEOUT_SEC}s: ${body:-no answer from the api /readyz}"
     sleep 2
   done
+  [ "${LOCAL_DEMO_ACCOUNTS:-1}" = 0 ] || demo_accounts
+  echo "$body"
 }
 
 # The installation id the stack was started with, read off its egress proxy;
@@ -210,6 +219,43 @@ down() {
   echo "local.sh: deleted" >&2
 }
 
+# Why this stack must not get the demo accounts, or nothing. The CLI checks
+# its own side too (apps/control-host/src/api/demo-accounts.ts).
+demo_accounts_refusal() {
+  local endpoint api bindings ip
+  # The endpoint the CLI resolves, DOCKER_HOST and DOCKER_CONTEXT included.
+  endpoint=$(docker context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null) || true
+  case "$endpoint" in
+    unix://* | npipe://*) ;;
+    *) echo "Docker is not this machine's (${endpoint:-unknown endpoint})"; return ;;
+  esac
+  # The running api's bindings, not the render: a container started from
+  # other compose files keeps what it was started with.
+  api=$(compose ps -q api 2>/dev/null) || true
+  [ -n "$api" ] || { echo "the api is not running"; return; }
+  bindings=$(docker inspect --format '{{json .NetworkSettings.Ports}}' "$api" |
+    jq -r '[.[]? | select(. != null) | .[] | .HostIp | if . == "" then "0.0.0.0" else . end] | unique | .[]') ||
+    { echo "cannot read the api's port bindings"; return; }
+  [ -n "$bindings" ] || { echo "the api publishes no port"; return; }
+  for ip in $bindings; do
+    case "$ip" in
+      127.0.0.1 | ::1) ;;
+      *) echo "the api listens on $ip, not loopback alone"; return ;;
+    esac
+  done
+}
+
+demo_accounts() {
+  local refusal
+  refusal=$(demo_accounts_refusal)
+  if [ -n "$refusal" ]; then
+    echo "local.sh: demo accounts not added: $refusal" >&2
+    return
+  fi
+  compose exec -T -e DEMO_ACCOUNTS=local api bun run apps/control-host/src/api/demo-accounts.ts >&2 ||
+    die "adding the demo accounts failed; the stack itself is up"
+}
+
 status() {
   compose ps
   echo "readyz: $(readyz)"
@@ -236,5 +282,6 @@ case "${1:-}" in
   status) status ;;
   key) shift; key "$@" ;;
   forget-lost-checkpoints) forget_lost_checkpoints ;;
+  demo-accounts) demo_accounts ;;
   *) usage ;;
 esac

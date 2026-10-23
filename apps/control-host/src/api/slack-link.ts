@@ -19,20 +19,35 @@ export class SlackOidcConfigError extends Error {}
 
 const SLACK_ISSUER = "https://slack.com";
 
-/** Null when Sign in with Slack is not configured; linking then answers 503. */
-export function slackOidcConfigFromEnv(
+/** The installation's Sign in with Slack settings, from SLACK_OIDC_*. */
+export type SlackOidcSettings = {
+  /** Also the console's address: Slack apps' redirects are made on its origin. */
+  redirectUri: string;
+  issuer: string;
+  /** A hand-made OIDC app, for a workspace that has no link app. */
+  client: { clientId: string; clientSecret: string } | null;
+};
+
+/**
+ * Null when SLACK_OIDC_REDIRECT_URI is unset; linking then answers 503. The
+ * redirect alone is enough: each workspace's link app is made on demand.
+ * A client id and secret, set together, name a fallback app.
+ */
+export function slackOidcSettingsFromEnv(
   environment: Record<string, string | undefined>,
-): SlackOidcConfig | null {
-  const clientId = environment.SLACK_OIDC_CLIENT_ID;
-  const clientSecret = environment.SLACK_OIDC_CLIENT_SECRET;
+): SlackOidcSettings | null {
+  const clientId = environment.SLACK_OIDC_CLIENT_ID || undefined;
+  const clientSecret = environment.SLACK_OIDC_CLIENT_SECRET || undefined;
   const redirectUri = environment.SLACK_OIDC_REDIRECT_URI;
-  const set = [clientId, clientSecret, redirectUri].filter(
-    (value) => value !== undefined && value !== "",
-  );
-  if (set.length === 0) return null;
-  if (!clientId || !clientSecret || !redirectUri) {
+  if ((clientId === undefined) !== (clientSecret === undefined)) {
     throw new SlackOidcConfigError(
-      "SLACK_OIDC_CLIENT_ID, SLACK_OIDC_CLIENT_SECRET and SLACK_OIDC_REDIRECT_URI are set together or not at all",
+      "SLACK_OIDC_CLIENT_ID and SLACK_OIDC_CLIENT_SECRET are set together or not at all",
+    );
+  }
+  if (!redirectUri) {
+    if (clientId === undefined) return null;
+    throw new SlackOidcConfigError(
+      "SLACK_OIDC_CLIENT_ID and SLACK_OIDC_CLIENT_SECRET need SLACK_OIDC_REDIRECT_URI",
     );
   }
   const issuer = (environment.SLACK_OIDC_ISSUER || SLACK_ISSUER).replace(
@@ -54,7 +69,28 @@ export function slackOidcConfigFromEnv(
       throw new SlackOidcConfigError(`${name} must be an http(s) URL`);
     }
   }
-  return { clientId, clientSecret, redirectUri, issuer };
+  return {
+    redirectUri,
+    issuer,
+    client:
+      clientId !== undefined && clientSecret !== undefined
+        ? { clientId, clientSecret }
+        : null,
+  };
+}
+
+/** The startup warning when no workspace can link a Slack account; else null. */
+export function signInWithSlackOff(
+  settings: SlackOidcSettings | null,
+  storeOn: boolean,
+): string | null {
+  if (settings === null) {
+    return "Sign in with Slack is off (SLACK_OIDC_REDIRECT_URI unset); Slack accounts cannot be linked";
+  }
+  if (!storeOn && settings.client === null) {
+    return "Sign in with Slack is off: no link app can be made without PLATFORM_SECRET_KEY, and no SLACK_OIDC_CLIENT_ID is set to fall back on";
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------

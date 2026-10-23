@@ -156,8 +156,7 @@ describe("Slack app service", () => {
         slack_bot_token: { configured: false },
       },
     });
-    const url = new URL(out.authorize_url);
-    expect(url.searchParams.get("client_id")).toBe("1000.1");
+    expect(out).not.toHaveProperty("authorize_url");
     const stored = [...secrets.values.values()].map(({ value }) => value);
     expect(stored).toHaveLength(3);
     for (const value of stored) {

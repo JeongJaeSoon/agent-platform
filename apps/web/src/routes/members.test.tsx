@@ -52,11 +52,59 @@ const noInvites = { "GET /v1/invites": () => json(200, { items: [] }) };
 
 type User = Awaited<ReturnType<typeof setupUser>>;
 
+const ROLE_NAME = { owner: "소유자", admin: "관리자", member: "구성원" };
+
+/** Opens 구성원 편집 for a member and returns the dialog. */
+async function openEdit(user: User, name: string) {
+  await user.click(await screen.findByRole("button", { name: `${name} 편집` }));
+  return screen.findByRole("dialog", { name: "구성원 편집" });
+}
+
+/** Picks a role in 구성원 편집 and saves it, which asks to confirm. */
+async function pickRole(
+  user: User,
+  name: string,
+  role: keyof typeof ROLE_NAME,
+) {
+  const edit = await openEdit(user, name);
+  await user.click(within(edit).getByRole("radio", { name: ROLE_NAME[role] }));
+  await user.click(within(edit).getByRole("button", { name: "저장" }));
+  return screen.findByRole("dialog", { name: /역할을 .+\(으\)로 바꿀까요\?/ });
+}
+
 /** Picks a role and goes through with it in the confirmation. */
-async function changeRole(user: User, label: string, role: string) {
-  await user.selectOptions(await screen.findByLabelText(label), role);
-  const dialog = await screen.findByRole("dialog");
+async function changeRole(
+  user: User,
+  name: string,
+  role: keyof typeof ROLE_NAME,
+) {
+  const dialog = await pickRole(user, name, role);
   await user.click(within(dialog).getByRole("button", { name: "역할 바꾸기" }));
+}
+
+/** The role badge in a member's row. */
+function roleIn(name: string) {
+  // Also while a dialog hides the page from the accessibility tree.
+  const row = screen
+    .getByRole("button", { name: `${name} 편집`, hidden: true })
+    .closest("tr");
+  return (row as HTMLElement).querySelectorAll("td")[1]?.textContent;
+}
+
+/** Whether 구성원 편집 lets the role change, and the reason when not. */
+async function roleRule(user: User, name: string) {
+  const edit = await openEdit(user, name);
+  const radios = within(edit).getAllByRole("radio") as HTMLButtonElement[];
+  const group = within(edit).getByRole("radiogroup");
+  const rule = {
+    disabled: radios.every((radio) => radio.disabled),
+    reason: document.getElementById(
+      group.getAttribute("aria-describedby") ?? "",
+    )?.textContent,
+  };
+  await user.click(within(edit).getByRole("button", { name: "취소" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  return rule;
 }
 
 const pendingInvite = {
@@ -84,16 +132,27 @@ describe("구성원 화면", () => {
       "GET /v1/members": () => json(200, { items: [owner, teammate, gone] }),
       ...noInvites,
     });
-    const select = await screen.findByLabelText("Mate의 역할");
-    const options = within(select).getAllByRole("option");
-    expect(options.map((o) => o.getAttribute("value"))).toEqual([
-      ...WORKSPACE_ROLE_VALUES,
-    ]);
-    // A keyboard reaches the sideways scroll of a table wider than the screen.
+    const user = await setupUser();
+    const edit = await openEdit(user, "Mate");
+    expect(
+      within(edit)
+        .getAllByRole("radio")
+        .map((radio) => radio.getAttribute("value")),
+    ).toEqual([...WORKSPACE_ROLE_VALUES]);
+    await user.click(within(edit).getByRole("button", { name: "취소" }));
     const region = screen.getByRole("region", { name: "구성원 표" });
-    expect(region.getAttribute("tabindex")).toBe("0");
-    expect(region.contains(select)).toBe(true);
-    const goneRow = screen.getByText("Gone").closest("tr");
+    expect(
+      within(region)
+        .getAllByRole("columnheader")
+        .map((head) => head.textContent),
+    ).toEqual(["구성원", "역할", "관리"]);
+    const mateRow = within(region)
+      .getByRole("button", { name: "Mate 편집" })
+      .closest("tr") as HTMLElement;
+    expect(mateRow.textContent).toContain("mate@example.com");
+    expect(roleIn("Mate")).toBe("구성원");
+    expect(roleIn("Owner")).toBe("소유자");
+    const goneRow = screen.getByText(/^Gone/).closest("tr");
     expect(goneRow?.getAttribute("data-disabled")).toBe("true");
     expect(within(goneRow as HTMLElement).getByText("비활성")).toBeDefined();
     expect(
@@ -101,6 +160,18 @@ describe("구성원 화면", () => {
         name: "다시 활성화",
       }),
     ).toBeDefined();
+  });
+
+  test("행에는 비활성화만 있고 역할 select는 없다", async () => {
+    renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": () => json(200, { items: [owner, teammate] }),
+      ...noInvites,
+    });
+    const region = await screen.findByRole("region", { name: "구성원 표" });
+    await screen.findByRole("button", { name: "Mate 편집" });
+    expect(within(region).queryByRole("combobox")).toBeNull();
+    expect(within(region).queryByRole("button", { name: /삭제/ })).toBeNull();
   });
 
   test("역할 변경은 서버가 답한 뒤에야 바뀐 것으로 보인다", async () => {
@@ -119,18 +190,17 @@ describe("구성원 화면", () => {
         }),
     });
     const user = await setupUser();
-    const select = (await screen.findByLabelText(
-      "Mate의 역할",
-    )) as HTMLSelectElement;
-    await changeRole(user, "Mate의 역할", "owner");
-    await waitFor(() => expect(select.disabled).toBe(true));
-    expect(select.value).toBe("member");
+    await changeRole(user, "Mate", "owner");
+    await waitFor(() =>
+      expect(api.calls.some((c) => c.method === "PATCH")).toBe(true),
+    );
+    expect(roleIn("Mate")).toBe("구성원");
     expect(screen.queryByText(/역할을 소유자\(으\)로 바꿨습니다/)).toBeNull();
     release();
     expect(
       await screen.findByText("Mate의 역할을 소유자(으)로 바꿨습니다."),
     ).toBeDefined();
-    await waitFor(() => expect(select.value).toBe("owner"));
+    await waitFor(() => expect(roleIn("Mate")).toBe("소유자"));
     const patch = api.calls.find((c) => c.method === "PATCH");
     expect(patch?.body).toEqual({ role: "owner" });
     expect(patch?.headers.get("x-requested-with")).toBe("agent-platform-web");
@@ -152,7 +222,7 @@ describe("구성원 화면", () => {
         apiError(409, "LAST_OWNER", "The last owner cannot be demoted"),
     });
     const user = await setupUser();
-    await changeRole(user, "Boss의 역할", "member");
+    await changeRole(user, "Boss", "member");
     expect((await screen.findByRole("alert")).textContent).toBe(
       "하나뿐인 소유자의 역할은 바꿀 수 없습니다 — 다른 사람을 먼저 소유자로 정하세요.",
     );
@@ -167,7 +237,7 @@ describe("구성원 화면", () => {
         apiError(403, "OWNER_PROTECTED", "Only an owner can grant owner"),
     });
     const user = await setupUser();
-    await changeRole(user, "Mate의 역할", "owner");
+    await changeRole(user, "Mate", "owner");
     expect((await screen.findByRole("alert")).textContent).toBe(
       "소유자 역할을 주거나 소유자의 역할·접근(비활성화·정지·다시 활성화)을 바꾸는 일은 소유자만 할 수 있습니다 — 소유자에게 요청하세요.",
     );
@@ -286,7 +356,7 @@ describe("구성원 화면", () => {
     });
     const user = await setupUser();
     await user.click(
-      await screen.findByRole("button", { name: "초대 링크 만들기" }),
+      await screen.findByRole("button", { name: "구성원 초대" }),
     );
     const email = await screen.findByLabelText("이메일");
     await user.type(email, "GONE@example.com");
@@ -315,7 +385,7 @@ describe("구성원 화면", () => {
   test("대기 중인 초대를 확인받고 회수한다", async () => {
     const invite = pendingInvite;
     let revoked = false;
-    const { api } = renderAt("/members", {
+    const { api } = renderAt("/members/invites", {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": () => json(200, { items: [owner] }),
       "GET /v1/invites": () => json(200, { items: revoked ? [] : [invite] }),
@@ -340,7 +410,7 @@ describe("구성원 화면", () => {
   });
 
   test("초대 회수를 취소하면 아무것도 보내지 않는다", async () => {
-    const { api } = renderAt("/members", {
+    const { api } = renderAt("/members/invites", {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": () => json(200, { items: [owner] }),
       "GET /v1/invites": () => json(200, { items: [pendingInvite] }),
@@ -381,7 +451,7 @@ describe("구성원 화면", () => {
       });
       const user = await setupUser();
       await user.click(
-        await screen.findByRole("button", { name: "초대 링크 만들기" }),
+        await screen.findByRole("button", { name: "구성원 초대" }),
       );
       await user.type(await screen.findByLabelText("이메일"), "n@example.com");
       await user.click(
@@ -428,13 +498,17 @@ describe("되돌리기 어려운 동작의 확인", () => {
   test("역할을 골라 넘기기만 해서는 아무것도 보내지 않는다", async () => {
     const calls: string[] = [];
     renderAt("/members", routes(calls));
-    const { fireEvent } = await import("@testing-library/react");
-    const select = (await screen.findByLabelText(
-      "Mate의 역할",
-    )) as HTMLSelectElement;
-    // What arrow keys on a closed select do: a change per step.
-    fireEvent.change(select, { target: { value: "admin" } });
-    fireEvent.change(select, { target: { value: "owner" } });
+    const user = await setupUser();
+    const edit = await openEdit(user, "Mate");
+    const save = within(edit).getByRole("button", {
+      name: "저장",
+    }) as HTMLButtonElement;
+    // The role it already has is nothing to save.
+    expect(save.disabled).toBe(true);
+    await user.click(within(edit).getByRole("radio", { name: "관리자" }));
+    await user.click(within(edit).getByRole("radio", { name: "소유자" }));
+    expect(calls).toEqual([]);
+    await user.click(save);
     const dialog = await screen.findByRole("dialog");
     expect(dialog.textContent).toContain(
       "Mate의 역할을 소유자(으)로 바꿀까요?",
@@ -448,14 +522,40 @@ describe("되돌리기 어려운 동작의 확인", () => {
     const calls: string[] = [];
     renderAt("/members", routes(calls));
     const user = await setupUser();
-    const select = (await screen.findByLabelText(
-      "Mate의 역할",
-    )) as HTMLSelectElement;
-    await user.selectOptions(select, "admin");
-    const dialog = await screen.findByRole("dialog");
+    const dialog = await pickRole(user, "Mate", "admin");
     await user.click(within(dialog).getByRole("button", { name: "취소" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(select.value).toBe("member");
+    expect(roleIn("Mate")).toBe("구성원");
+    expect(calls).toEqual([]);
+  });
+
+  test("편집을 닫으면 키보드가 그 이름 버튼으로 돌아온다", async () => {
+    const calls: string[] = [];
+    renderAt("/members", routes(calls));
+    const user = await setupUser();
+    const name = await screen.findByRole("button", { name: "Mate 편집" });
+    await openEdit(user, "Mate");
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(document.activeElement === name).toBe(true));
+    const edit = await openEdit(user, "Mate");
+    await user.click(within(edit).getByRole("button", { name: "취소" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(document.activeElement === name).toBe(true));
+  });
+
+  test("저장 뒤 확인창을 닫아도 키보드가 그 이름 버튼으로 돌아온다", async () => {
+    const calls: string[] = [];
+    renderAt("/members", routes(calls));
+    const user = await setupUser();
+    const name = await screen.findByRole("button", { name: "Mate 편집" });
+    const confirm = await pickRole(user, "Mate", "admin");
+    await waitFor(() =>
+      expect(confirm.contains(document.activeElement)).toBe(true),
+    );
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(document.activeElement === name).toBe(true));
     expect(calls).toEqual([]);
   });
 
@@ -494,7 +594,7 @@ describe("되돌리기 어려운 동작의 확인", () => {
     expect((await reasonOf("Mate")).disabled).toBe(false);
   });
 
-  test("비활성 소유자의 역할 select는 그리지 않은 이유를 가리키지 않는다", async () => {
+  test("비활성 구성원의 역할은 편집에서 막고, 다시 활성화하라고 한다", async () => {
     renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me(undefined, "admin")),
       "GET /v1/members": () =>
@@ -510,15 +610,14 @@ describe("되돌리기 어려운 동작의 확인", () => {
         }),
       ...noInvites,
     });
-    const select = await screen.findByLabelText("Boss의 역할");
-    expect((select as HTMLSelectElement).disabled).toBe(true);
-    const describedBy = select.getAttribute("aria-describedby");
-    expect(
-      describedBy === null || document.getElementById(describedBy) !== null,
-    ).toBe(true);
+    const user = await setupUser();
+    expect(await roleRule(user, "Boss")).toEqual({
+      disabled: true,
+      reason: "비활성 구성원의 역할은 다시 활성화한 뒤 바꿀 수 있습니다.",
+    });
   });
 
-  test("역할도 같은 규칙으로 막고, 이유는 행 높이를 바꾸지 않는 안내 버튼 뒤에 둔다", async () => {
+  test("역할도 같은 규칙으로 편집에서 막고, 비활성화 이유는 행 높이를 바꾸지 않는 안내 버튼 뒤에 둔다", async () => {
     const boss = member({
       user_id: GONE_ID,
       email: "boss@example.com",
@@ -531,26 +630,16 @@ describe("되돌리기 어려운 동작의 확인", () => {
         json(200, { items: [{ ...owner, role: "admin" }, boss, teammate] }),
       ...noInvites,
     });
-    const roleOf = async (name: string) => {
-      const select = (await screen.findByLabelText(
-        `${name}의 역할`,
-      )) as HTMLSelectElement;
-      return {
-        disabled: select.disabled,
-        reason: document.getElementById(
-          select.getAttribute("aria-describedby") ?? "",
-        )?.textContent,
-      };
-    };
-    expect(await roleOf("Owner")).toEqual({
+    const user = await setupUser();
+    expect(await roleRule(user, "Owner")).toEqual({
       disabled: true,
       reason: "자기 자신의 역할은 바꿀 수 없습니다.",
     });
-    expect(await roleOf("Boss")).toEqual({
+    expect(await roleRule(user, "Boss")).toEqual({
       disabled: true,
       reason: "소유자의 역할은 관리자가 바꿀 수 없습니다.",
     });
-    expect((await roleOf("Mate")).disabled).toBe(false);
+    expect((await roleRule(user, "Mate")).disabled).toBe(false);
 
     // Nothing under the control: the reason opens from the keyboard.
     const why = screen.getByRole("button", {
@@ -559,7 +648,6 @@ describe("되돌리기 어려운 동작의 확인", () => {
     expect(why.closest("td")?.textContent).toBe(
       "비활성화소유자는 관리자가 비활성화할 수 없습니다.",
     );
-    const user = await setupUser();
     why.focus();
     await user.keyboard("{Enter}");
     const note = await screen.findByRole("dialog", {
@@ -569,6 +657,77 @@ describe("되돌리기 어려운 동작의 확인", () => {
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(document.activeElement).toBe(why);
+  });
+});
+
+describe("구성원 · 팀 · 초대 탭", () => {
+  const tabsOf = () =>
+    within(screen.getByRole("navigation", { name: "구성원 보기" }))
+      .getAllByRole("link")
+      .map((link) => [
+        link.textContent,
+        link.getAttribute("href"),
+        link.getAttribute("aria-current"),
+      ]);
+
+  test("관리하는 사람은 세 탭을 보고, 지금 탭 하나만 현재다", async () => {
+    renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": () => json(200, { items: [owner, teammate] }),
+      ...noInvites,
+    });
+    await screen.findByRole("button", { name: "Mate 편집" });
+    expect(tabsOf()).toEqual([
+      ["구성원", "/members", "page"],
+      ["팀", "/members/teams", null],
+      ["초대", "/members/invites", null],
+    ]);
+    // Pending invites have their own tab now.
+    expect(screen.queryByText("대기 중인 초대")).toBeNull();
+  });
+
+  test("초대 탭은 대기 중인 초대를 보이고 초대 버튼을 둔다", async () => {
+    renderAt("/members/invites", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": () => json(200, { items: [owner] }),
+      "GET /v1/invites": () => json(200, { items: [pendingInvite] }),
+    });
+    expect(await screen.findByText("late@example.com")).toBeDefined();
+    expect(tabsOf()[2]).toEqual(["초대", "/members/invites", "page"]);
+    expect(screen.getByRole("button", { name: "구성원 초대" })).toBeDefined();
+    expect(screen.queryByRole("region", { name: "구성원 표" })).toBeNull();
+  });
+
+  test("초대 탭에서 구성원 목록을 못 불러오면 초대 버튼 대신 오류와 다시 시도를 보인다", async () => {
+    const user = await setupUser();
+    let fail = true;
+    renderAt("/members/invites", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": () =>
+        fail
+          ? apiError(500, "INTERNAL", "boom")
+          : json(200, { items: [owner] }),
+      "GET /v1/invites": () => json(200, { items: [pendingInvite] }),
+    });
+    expect(await screen.findByText("late@example.com")).toBeDefined();
+    const retry = await screen.findByRole("button", { name: "다시 시도" });
+    expect(screen.queryByRole("button", { name: "구성원 초대" })).toBeNull();
+    fail = false;
+    await user.click(retry);
+    expect(
+      await screen.findByRole("button", { name: "구성원 초대" }),
+    ).toBeDefined();
+    expect(screen.queryByRole("button", { name: "다시 시도" })).toBeNull();
+  });
+
+  test("관리 권한이 없으면 팀 탭만 보인다", async () => {
+    renderAt("/members/teams", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/my-teams": () => json(200, { items: [] }),
+    });
+    expect(await screen.findByText("아직 속한 팀이 없습니다.")).toBeDefined();
+    expect(tabsOf()).toEqual([["팀", "/members/teams", "page"]]);
+    expect(screen.queryByRole("button", { name: "구성원 초대" })).toBeNull();
   });
 });
 
@@ -586,9 +745,7 @@ describe("권한", () => {
         "구성원 초대와 관리는 워크스페이스 소유자나 관리자가 합니다.",
       ),
     ).toBeDefined();
-    expect(
-      screen.queryByRole("button", { name: "초대 링크 만들기" }),
-    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "구성원 초대" })).toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
     expect(document.body.textContent).not.toContain("member.manage");
     expect(api.calls.some((c) => c.path.startsWith("/v1/members"))).toBe(false);
@@ -603,7 +760,7 @@ describe("권한", () => {
       [`PATCH /v1/members/${OTHER_ID}`]: forbidden,
     });
     const user = await setupUser();
-    await changeRole(user, "Mate의 역할", "owner");
+    await changeRole(user, "Mate", "owner");
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toBe(
       "구성원 관리 권한이 있어야 할 수 있습니다. 지금 역할: 소유자.",
@@ -618,7 +775,7 @@ describe("권한", () => {
       ...noInvites,
     });
     const button = await screen.findByRole("button", {
-      name: "초대 링크 만들기",
+      name: "구성원 초대",
     });
     await waitFor(() =>
       expect((button as HTMLButtonElement).disabled).toBe(false),

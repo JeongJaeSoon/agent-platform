@@ -32,6 +32,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/sessions",
     "GET /v1/sessions",
     "GET /v1/sessions/{id}",
+    "PATCH /v1/sessions/{id}",
     "POST /v1/sessions/{id}/messages",
     "GET /v1/sessions/{id}/turns",
     "GET /v1/sessions/{id}/turns/{turn_id}",
@@ -150,6 +151,10 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/agents/{id}/slack/app",
     "DELETE /v1/workspaces/{id}/slack/apps/{app_id}",
     "PUT /v1/workspaces/{id}/slack/apps/{app_id}/secrets/{purpose}",
+  ],
+  "routes/slack-install.test.ts": [
+    "POST /v1/agents/{id}/slack/install/start",
+    "POST /v1/slack/install/complete",
   ],
 };
 

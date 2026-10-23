@@ -5,13 +5,19 @@
  * the service exercises the same outcomes the Postgres stores give.
  */
 import { randomBytes } from "node:crypto";
-import type { SlackAppSecretPurpose } from "@werft-ai/contracts";
+import { BOT_SCOPES, type SlackAppSecretPurpose } from "@werft-ai/contracts";
 import type {
   CreatedSlackApp,
   RotatedConfigToken,
   SlackConfigApi,
+  SlackInstallApi,
+  SlackInstallGrant,
 } from "../musterrolle/slack-config-api.ts";
 import { SlackApiError } from "../musterrolle/slack-config-api.ts";
+import type {
+  AgentIdentityRecord,
+  AgentIdentityStore,
+} from "../ports/agent-identity-store.ts";
 import {
   type SecretAudit,
   type SecretSlot,
@@ -28,6 +34,10 @@ import type {
   ConfigTokenSummary,
   SlackConfigTokenStore,
 } from "../ports/slack-config-token-store.ts";
+import type {
+  SlackInstallState,
+  SlackInstallStore,
+} from "../ports/slack-install-store.ts";
 import { lastFour } from "../secrets/secret-cipher.ts";
 
 /** Token-shaped values are made per run, never written into a file. */
@@ -241,6 +251,8 @@ export function createMemoryConfigTokenStore(secrets: MemorySecrets) {
 export function createMemorySlackAppStore(input: {
   secrets: MemorySecrets;
   agents: Map<string, SlackAppAgent & { workspaceId: string; active: boolean }>;
+  /** Workspace names by id, for link apps. */
+  workspaces?: Map<string, string>;
   now?: () => Date;
 }) {
   const clock = input.now ?? (() => new Date());
@@ -313,6 +325,44 @@ export function createMemorySlackAppStore(input: {
       rows.set(row.id, row);
       return { outcome: "begun", app: record(row), agent };
     },
+    async beginLinkApp(begin) {
+      const workspaceName = input.workspaces?.get(begin.workspaceId);
+      if (workspaceName === undefined) {
+        return { outcome: "workspace_not_found" };
+      }
+      const existing = [...rows.values()].find(
+        (row) =>
+          row.workspaceId === begin.workspaceId &&
+          row.kind === "link" &&
+          LIVE.has(row.state),
+      );
+      if (existing?.state === "created" || existing?.state === "deleting") {
+        return { outcome: "exists", app: record(existing) };
+      }
+      if (existing?.state === "creating") {
+        const uncertain = existing.createdAt < begin.staleBefore;
+        if (!(uncertain && begin.replaceUncertain)) {
+          return { outcome: "creating", app: record(existing), uncertain };
+        }
+        touch(existing, { state: "abandoned" });
+      }
+      const now = clock();
+      const row = {
+        id: begin.newId,
+        workspaceId: begin.workspaceId,
+        kind: "link" as const,
+        agentId: null,
+        state: "creating" as const,
+        appId: null,
+        clientId: null,
+        redirectUrl: begin.redirectUrl,
+        createdByTokenUser: null,
+        createdAt: now,
+        updatedAt: now,
+      };
+      rows.set(row.id, row);
+      return { outcome: "begun", app: record(row), workspaceName };
+    },
     async finishCreate(finish) {
       if (faults.finishCreate > 0) {
         faults.finishCreate -= 1;
@@ -336,6 +386,15 @@ export function createMemorySlackAppStore(input: {
       });
       return record(row);
     },
+    async storeBotToken({ workspaceId, slackAppId, botToken }) {
+      const row = rows.get(slackAppId);
+      if (!row || row.workspaceId !== workspaceId || row.state !== "created") {
+        return null;
+      }
+      input.secrets.write(slot(row, "slack_bot_token"), botToken);
+      touch(row, {});
+      return record(row);
+    },
     async failCreate(_workspaceId, slackAppId) {
       const row = rows.get(slackAppId);
       if (row?.state === "creating") touch(row, { state: "failed" });
@@ -347,6 +406,22 @@ export function createMemorySlackAppStore(input: {
     async findForAgent(workspaceId, agentId) {
       const row = live(workspaceId, agentId);
       return row ? record(row) : null;
+    },
+    async linkAppClient(workspaceId) {
+      const row = [...rows.values()].find(
+        (candidate) =>
+          candidate.workspaceId === workspaceId &&
+          candidate.kind === "link" &&
+          candidate.state === "created",
+      );
+      const clientSecret = row
+        ? input.secrets.values.get(
+            input.secrets.slotKey(slot(row, "slack_client_secret")),
+          )?.value
+        : undefined;
+      return row && clientSecret !== undefined
+        ? { app: record(row), clientSecret }
+        : null;
     },
     async lastTokenUser(workspaceId) {
       const made = [...rows.values()]
@@ -431,7 +506,7 @@ export function createFakeSlackConfigApi(options?: {
     }
   };
 
-  const api: SlackConfigApi = {
+  const api: SlackConfigApi & SlackInstallApi = {
     async rotateConfigToken(refreshToken) {
       state.calls.push({ method: "tooling.tokens.rotate" });
       const behaviour = state.next.rotate;
@@ -497,6 +572,180 @@ export function createFakeSlackConfigApi(options?: {
         throw new SlackApiError("apps.manifest.delete", "app_not_found", true);
       }
     },
+    async exchangeInstallCode(input) {
+      state.calls.push({ method: "oauth.v2.access" });
+      const pending = install.codes.get(input.code);
+      install.codes.delete(input.code);
+      const app = pending && state.apps.get(pending.appId);
+      if (!pending || !app) {
+        throw new SlackApiError("oauth.v2.access", "invalid_code", true);
+      }
+      if (
+        input.clientId !== app.clientId ||
+        input.redirectUri !== pending.redirectUri
+      ) {
+        throw new SlackApiError("oauth.v2.access", "bad_redirect_uri", true);
+      }
+      const behaviour = install.next.exchange;
+      if (behaviour) {
+        install.next.exchange = undefined;
+        return behaviour();
+      }
+      const botToken = fakeSlackValue("xoxb");
+      install.botTokens.set(botToken, pending.appId);
+      return install.grant({
+        botToken,
+        appId: pending.appId,
+        teamId: state.teamId,
+        enterpriseInstall: false,
+        scopes: [...BOT_SCOPES],
+      });
+    },
+    async botIdentity(botToken) {
+      state.calls.push({ method: "auth.test" });
+      const appId = install.botTokens.get(botToken);
+      if (appId === undefined) {
+        throw new SlackApiError("auth.test", "invalid_auth", true);
+      }
+      state.calls.push({ method: "bots.info" });
+      return { teamId: state.teamId, botUserId: `U${appId}BOT`, appId };
+    },
   };
-  return { api, state, issueRefresh };
+
+  const install = {
+    codes: new Map<string, { appId: string; redirectUri: string }>(),
+    /** Bot token to the app it was issued for. */
+    botTokens: new Map<string, string>(),
+    /** Rewrites each grant before it is returned, e.g. to drop a scope. */
+    grant: (grant: SlackInstallGrant) => grant,
+    next: {} as { exchange?: Behaviour<SlackInstallGrant> },
+  };
+
+  /** Follows an authorize URL as an approving admin would. */
+  function authorize(authorizeUrl: string) {
+    const query = new URL(authorizeUrl).searchParams;
+    const found = [...state.apps.entries()].find(
+      ([, app]) => app.clientId === query.get("client_id"),
+    );
+    const redirectUri = query.get("redirect_uri");
+    if (!found || !redirectUri) throw new Error("unknown app or no redirect");
+    const code = fakeSlackValue("code");
+    install.codes.set(code, { appId: found[0], redirectUri });
+    return { code, state: query.get("state") ?? "" };
+  }
+
+  return { api, state, issueRefresh, install, authorize };
+}
+
+/** Install links and installs, as the Postgres store keeps them. */
+export function createMemorySlackInstallStore() {
+  const states = new Map<string, SlackInstallState>();
+  const installations = new Map<
+    string,
+    {
+      id: string;
+      workspaceId: string;
+      status: "pending" | "verified" | "revoked";
+      botUserId: string | null;
+    }
+  >();
+  const hex = (hash: Uint8Array) => Buffer.from(hash).toString("hex");
+  const store: SlackInstallStore = {
+    async issueState(stateHash, state, now) {
+      for (const [key, row] of states) {
+        if (row.expiresAt < now) states.delete(key);
+      }
+      states.set(hex(stateHash), state);
+    },
+    async consumeState(stateHash) {
+      const row = states.get(hex(stateHash)) ?? null;
+      states.delete(hex(stateHash));
+      return row;
+    },
+    async recordInstallation(input) {
+      const key = `${input.appId}|${input.teamId}`;
+      const existing = installations.get(key);
+      if (existing && existing.workspaceId !== input.workspaceId) {
+        return { outcome: "workspace_conflict" };
+      }
+      const row = existing ?? {
+        id: crypto.randomUUID(),
+        workspaceId: input.workspaceId,
+        status: "pending" as const,
+        botUserId: null,
+      };
+      Object.assign(row, { status: "verified", botUserId: input.botUserId });
+      installations.set(key, row);
+      return { outcome: "verified", installationId: row.id };
+    },
+  };
+  return { store, states, installations };
+}
+
+/**
+ * Links agents to installs the way the Postgres store does, minus the
+ * caller's role re-read; the other methods are not needed by its users.
+ */
+export function createMemoryAgentIdentityStore(
+  installations: ReturnType<
+    typeof createMemorySlackInstallStore
+  >["installations"],
+) {
+  const identities: AgentIdentityRecord[] = [];
+  /** Agents archived since the caller's right was checked. */
+  const archived = new Set<string>();
+  const receipts: { id: string; identityId: string }[] = [];
+  const unused = async (): Promise<never> => {
+    throw new Error("not in the memory agent identity store");
+  };
+  const store: AgentIdentityStore = {
+    async link(input) {
+      if (archived.has(input.agentId)) return { outcome: "agent_not_found" };
+      const installation = installations.get(
+        `${input.key.appId}|${input.key.teamId}`,
+      );
+      if (
+        !installation ||
+        installation.workspaceId !== input.workspaceId ||
+        installation.status !== "verified" ||
+        installation.botUserId === null
+      ) {
+        return { outcome: "not_installed" };
+      }
+      const holder = identities.find(
+        (identity) =>
+          identity.installationId === installation.id &&
+          identity.status === "active",
+      );
+      if (holder) {
+        return holder.agentId === input.agentId
+          ? { outcome: "exists", identity: holder }
+          : { outcome: "taken" };
+      }
+      const identity: AgentIdentityRecord = {
+        id: crypto.randomUUID(),
+        workspaceId: input.workspaceId,
+        agentId: input.agentId,
+        provider: "slack_bot",
+        installationId: installation.id,
+        appId: input.key.appId,
+        teamId: input.key.teamId,
+        externalPrincipalId: installation.botUserId,
+        credentialRef: input.credentialRef,
+        status: "active",
+        revision: 1,
+        createdBy: input.principal.actor?.userId ?? null,
+        createdAt: STAMP,
+        revokedAt: null,
+      };
+      identities.push(identity);
+      const receiptId = crypto.randomUUID();
+      receipts.push({ id: receiptId, identityId: identity.id });
+      return { outcome: "linked", identity, receiptId };
+    },
+    revoke: unused,
+    list: unused,
+    resolveSlackEvent: unused,
+  };
+  return { store, identities, receipts, archived };
 }

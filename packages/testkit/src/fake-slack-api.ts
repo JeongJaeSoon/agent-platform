@@ -26,6 +26,8 @@ export type FakeSlackWebApi = {
   authorize(authorizeUrl: string): { code: string; state: string | null };
   apps: Map<string, FakeSlackApp>;
   calls: FakeSlackCall[];
+  /** Fields merged into every oauth.v2.access answer, to mimic a bad one. */
+  installAnswer: Record<string, unknown>;
 };
 
 type Context = {
@@ -58,6 +60,9 @@ export function createFakeSlackWebApi(
   const codes = new Map<string, { appId: string; redirectUri: string }>();
   const apps = new Map<string, FakeSlackApp>();
   const calls: FakeSlackCall[] = [];
+  /** The scopes each pending code's authorize URL asked for. */
+  const scopesOf = new Map<string, string>();
+  const installAnswer: Record<string, unknown> = {};
   let appCounter = 0;
 
   const issueConfigToken = () => {
@@ -92,6 +97,24 @@ export function createFakeSlackWebApi(
         user_id: `U${app.appId}BOT`,
         bot_id: `B${app.appId}`,
         app_id: app.appId,
+      };
+    },
+
+    "bots.info"(context) {
+      const app = [...apps.values()].find((candidate) =>
+        candidate.botTokens.includes(context.token ?? ""),
+      );
+      if (!app) return null;
+      if (context.params.bot !== `B${app.appId}`) {
+        throw new SlackError("bot_not_found");
+      }
+      return {
+        bot: {
+          id: `B${app.appId}`,
+          app_id: app.appId,
+          user_id: `U${app.appId}BOT`,
+          deleted: false,
+        },
       };
     },
 
@@ -156,6 +179,8 @@ export function createFakeSlackWebApi(
 
     "oauth.v2.access"(context) {
       const pending = codes.get(context.params.code ?? "");
+      const scope = scopesOf.get(context.params.code ?? "");
+      scopesOf.delete(context.params.code ?? "");
       codes.delete(context.params.code ?? "");
       const app = pending ? apps.get(pending.appId) : undefined;
       if (!pending || !app) throw new SlackError("invalid_code");
@@ -176,10 +201,27 @@ export function createFakeSlackWebApi(
         bot_user_id: `U${app.appId}BOT`,
         app_id: app.appId,
         team: { id: teamId, name: "mock" },
+        enterprise: null,
+        is_enterprise_install: false,
+        scope: scope ?? "",
         authed_user: { id: userId },
+        ...installAnswer,
       };
     },
   };
+
+  function authorize(authorizeUrl: string) {
+    const query = new URL(authorizeUrl).searchParams;
+    const app = [...apps.values()].find(
+      (candidate) => candidate.clientId === query.get("client_id"),
+    );
+    const redirectUri = query.get("redirect_uri");
+    if (!app || !redirectUri) throw new Error("unknown app or no redirect");
+    const code = hex(16);
+    codes.set(code, { appId: app.appId, redirectUri });
+    scopesOf.set(code, query.get("scope") ?? "");
+    return { code, state: query.get("state") };
+  }
 
   async function paramsOf(request: Request, url: URL) {
     const params: Record<string, string> = Object.fromEntries(url.searchParams);
@@ -203,20 +245,26 @@ export function createFakeSlackWebApi(
     calls,
     issueConfigToken,
 
-    authorize(authorizeUrl) {
-      const query = new URL(authorizeUrl).searchParams;
-      const app = [...apps.values()].find(
-        (candidate) => candidate.clientId === query.get("client_id"),
-      );
-      const redirectUri = query.get("redirect_uri");
-      if (!app || !redirectUri) throw new Error("unknown app or no redirect");
-      const code = hex(16);
-      codes.set(code, { appId: app.appId, redirectUri });
-      return { code, state: query.get("state") };
-    },
+    installAnswer,
+    authorize,
 
     async handle(request) {
       const url = new URL(request.url);
+      // The consent screen, answered as an approving admin: the code comes
+      // back as JSON instead of a redirect, so curl can drive an install.
+      if (
+        url.pathname === "/fake/oauth/authorize" &&
+        request.method === "GET"
+      ) {
+        try {
+          return Response.json({ ok: true, ...authorize(url.toString()) });
+        } catch {
+          return Response.json(
+            { ok: false, error: "invalid_request" },
+            { status: 400 },
+          );
+        }
+      }
       if (url.pathname === "/fake/config-tokens" && request.method === "POST") {
         return Response.json({ ok: true, refresh_token: issueConfigToken() });
       }

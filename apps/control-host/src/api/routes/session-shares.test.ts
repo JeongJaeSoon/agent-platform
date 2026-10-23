@@ -40,12 +40,14 @@ const SHARE: SessionShareView = {
 
 const DETAIL: SessionDetail = {
   id: SESSION,
+  title: null,
   revision: 3,
   admission_state: "active",
   status: "running",
   runtime: null,
   model: null,
   repository_id: null,
+  repository: null,
   current_turn_id: null,
   queued_turn_count: 0,
   last_event_at: null,

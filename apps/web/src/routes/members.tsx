@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link, Outlet, useLocation } from "@tanstack/react-router";
 import { type ApiError, isApiError, unwrap } from "@werft-ai/client";
 import type { Invite, MemberView, WorkspaceRole } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
@@ -6,12 +7,37 @@ import {
   Badge,
   Button,
   ConfirmDialog,
+  cn,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
   EmptyState,
+  Field,
+  FieldDescription,
+  FieldLabel,
+  FieldLegend,
+  FieldSet,
   formatTimestamp,
-  NativeSelect,
-  NativeSelectOption,
+  LinkTab,
+  LinkTabs,
+  linkVariants,
+  RadioGroup,
+  RadioGroupItem,
+  RowLines,
+  RowList,
+  RowListItem,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableHeader,
+  TableRow,
 } from "@werft-ai/ui";
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { invitesQuery, membersQuery, queryKeys } from "../api/queries.ts";
 import {
   permissionReason,
@@ -28,18 +54,6 @@ import { Page } from "../components/page.tsx";
 import { ReasonHint } from "../components/reason-hint.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import {
-  RowLines,
-  RowList,
-  RowListItem,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "../components/table.tsx";
-import {
   errorKey,
   type MessageKey,
   type Translate,
@@ -53,8 +67,11 @@ const PRIMARY =
   "block break-words font-semibold group-data-[disabled=true]:text-muted-foreground";
 const SECONDARY =
   "block text-muted-foreground text-xs [overflow-wrap:anywhere]";
-// One width for "disable" and "enable again", so the column does not jump.
-const ACTION = "min-w-24";
+
+// At 390px the name, role and actions columns only fit side by side when the
+// name gives up the text column's minimum and the role badges stack.
+const NARROW_NAME = "@max-md:min-w-0";
+const NARROW_ROLE = "@max-md:flex-col @max-md:items-start";
 
 type Outcome =
   | { readonly kind: "notice"; readonly text: string }
@@ -94,28 +111,28 @@ function refusal(
   return t(errorKey(error.code));
 }
 
-export function MembersScreen() {
+/**
+ * The 구성원 page: its head and the 구성원 · 팀 · 초대 tabs (v3 M-01), each an
+ * address of its own. A tab the viewer may not manage is not offered; 팀
+ * always is, since anyone sees the teams they are in there.
+ */
+export function MembersLayout() {
   const { t } = useI18n();
   const { client } = useAgentPlatform();
+  const { pathname } = useLocation();
   const manages = useHasPermission("member.manage");
   const members = useQuery({ ...membersQuery(client), enabled: manages });
   const reason = usePermissionReason("member.manage", members);
   // The list is also the permission probe: when it failed, nobody knows.
   const failed = members.isError && !isApiError(members.error, "FORBIDDEN");
-  const [outcome, setOutcome] = useState<Outcome | null>(null);
-  const titleId = useId();
-
-  if (!manages) {
-    return (
-      <Page title={t("members.title")} description={t("members.withheld")} />
-    );
-  }
+  const onTeams = pathname.startsWith("/members/teams");
 
   return (
     <Page
       title={t("members.title")}
+      description={t(manages ? "members.description" : "members.withheld")}
       actions={
-        failed ? undefined : (
+        !manages || failed || onTeams ? undefined : (
           <InviteDialog
             reason={reason}
             members={members.data?.items ?? []}
@@ -124,34 +141,94 @@ export function MembersScreen() {
         )
       }
     >
-      {outcome ? (
-        outcome.kind === "error" ? (
-          <FormError>{outcome.text}</FormError>
-        ) : (
-          <output className={NOTICE}>{outcome.text}</output>
-        )
-      ) : null}
-      <section className={SECTION} aria-labelledby={titleId}>
-        <h2 id={titleId} className={SECTION_TITLE}>
-          {t("members.listTitle")}
-        </h2>
-        {members.isPending ? (
-          <StatusScreen kind="loading" />
-        ) : members.error ? (
-          isApiError(members.error, "FORBIDDEN") ? (
-            <StatusScreen kind="forbidden" />
-          ) : (
-            <LoadFailure
-              error={members.error}
-              onRetry={() => void members.refetch()}
-            />
-          )
-        ) : (
-          <MemberTable items={members.data.items} onOutcome={setOutcome} />
-        )}
-      </section>
-      {members.isSuccess ? <InviteList onOutcome={setOutcome} /> : null}
+      <div className="flex flex-col gap-[var(--ap-space-block)]">
+        <LinkTabs aria-label={t("members.tabs")}>
+          {manages ? (
+            <LinkTab asChild current={pathname === "/members"}>
+              <Link to="/members" activeOptions={{ exact: true }}>
+                {t("members.tab.members")}
+              </Link>
+            </LinkTab>
+          ) : null}
+          <LinkTab asChild current={onTeams}>
+            <Link to="/members/teams" activeOptions={{ exact: true }}>
+              {t("members.tab.teams")}
+            </Link>
+          </LinkTab>
+          {manages ? (
+            <LinkTab asChild current={pathname === "/members/invites"}>
+              <Link to="/members/invites" activeOptions={{ exact: true }}>
+                {t("members.tab.invites")}
+              </Link>
+            </LinkTab>
+          ) : null}
+        </LinkTabs>
+        <Outlet />
+      </div>
     </Page>
+  );
+}
+
+/** The 구성원 tab. Without member.manage the page head already says why. */
+export function MembersScreen() {
+  const { client } = useAgentPlatform();
+  const manages = useHasPermission("member.manage");
+  const members = useQuery({ ...membersQuery(client), enabled: manages });
+  const [outcome, setOutcome] = useState<Outcome | null>(null);
+
+  if (!manages) return null;
+
+  return (
+    <div className="flex flex-col gap-[var(--ap-space-block)]">
+      <OutcomeNote outcome={outcome} />
+      {members.isPending ? (
+        <StatusScreen kind="loading" />
+      ) : members.error ? (
+        isApiError(members.error, "FORBIDDEN") ? (
+          <StatusScreen kind="forbidden" />
+        ) : (
+          <LoadFailure
+            error={members.error}
+            onRetry={() => void members.refetch()}
+          />
+        )
+      ) : (
+        <MemberTable items={members.data.items} onOutcome={setOutcome} />
+      )}
+    </div>
+  );
+}
+
+/** The 초대 tab: invites still waiting to be accepted. */
+export function InvitesScreen() {
+  const { client } = useAgentPlatform();
+  const manages = useHasPermission("member.manage");
+  const members = useQuery({ ...membersQuery(client), enabled: manages });
+  const [outcome, setOutcome] = useState<Outcome | null>(null);
+
+  if (!manages) return null;
+
+  return (
+    <div className="flex flex-col gap-[var(--ap-space-block)]">
+      {/* The invite button in the head waits on this list; say why it is gone. */}
+      {members.isError && !isApiError(members.error, "FORBIDDEN") ? (
+        <LoadFailure
+          error={members.error}
+          onRetry={() => void members.refetch()}
+        />
+      ) : null}
+      <OutcomeNote outcome={outcome} />
+      <InviteList onOutcome={setOutcome} />
+    </div>
+  );
+}
+
+function OutcomeNote({ outcome }: { readonly outcome: Outcome | null }) {
+  if (!outcome) return null;
+  return outcome.kind === "error" ? (
+    <FormError>{outcome.text}</FormError>
+  ) : (
+    <output className={NOTICE}>{outcome.text}</output>
   );
 }
 
@@ -167,8 +244,16 @@ function MemberTable({
   const queryClient = useQueryClient();
   const role = useRole();
   const [confirming, setConfirming] = useState<MemberView | null>(null);
-  // A picked role waits here for the confirmation; arrowing through the
-  // select must not send a role on every step.
+  // Roles change in 구성원 편집, not in the row (rows only disable).
+  const [editing, setEditing] = useState<MemberView | null>(null);
+  // The name button that opened 구성원 편집 gets the keyboard back, and a
+  // saved role opens its confirmation only once the editor has handed it
+  // back, so the confirmation returns there too rather than to <body>.
+  const editOpener = useRef<HTMLElement | null>(null);
+  const saved = useRef<{ member: MemberView; role: WorkspaceRole } | null>(
+    null,
+  );
+  // A saved role still waits here for the confirmation.
   const [roleChange, setRoleChange] = useState<{
     member: MemberView;
     role: WorkspaceRole;
@@ -290,27 +375,28 @@ function MemberTable({
 
   return (
     <>
-      <TableContainer label={t("members.tableLabel")}>
+      <TableContainer label={t("members.tableLabel")} className="@container">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead scope="col">{t("members.column.name")}</TableHead>
-              <TableHead scope="col">{t("members.column.role")}</TableHead>
-              <TableHead scope="col">{t("members.column.state")}</TableHead>
-              <TableHead scope="col">{t("members.column.actions")}</TableHead>
+              <TableHead scope="col" variant="text" className={NARROW_NAME}>
+                {t("members.column.name")}
+              </TableHead>
+              <TableHead scope="col" variant="nowrap">
+                {t("members.column.role")}
+              </TableHead>
+              <TableHead scope="col" variant="actions" className="text-right">
+                {t("members.column.actions")}
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {items.map((member) => {
               const disabled = member.disabled_at !== null;
-              const roleWhy = roleReason(member);
               const keepWhy = disabled
                 ? enableReason(member)
                 : keepReason(member);
-              const ids = {
-                role: `${reasonId}-${member.user_id}-role`,
-                keep: `${reasonId}-${member.user_id}-keep`,
-              };
+              const keepId = `${reasonId}-${member.user_id}-keep`;
               const busy =
                 (changeRole.isPending &&
                   changeRole.variables?.member.user_id === member.user_id) ||
@@ -322,75 +408,57 @@ function MemberTable({
                   className="group"
                   data-disabled={disabled}
                 >
-                  <TableCell>
-                    {/* One line per cell: below the table's width the container scrolls,
-                        so every row keeps two lines. */}
-                    <RowLines className="whitespace-nowrap">
-                      <span className={PRIMARY}>{member.display_name}</span>
-                      <span className={SECONDARY}>{member.email}</span>
-                    </RowLines>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-1">
-                      <NativeSelect
-                        size="sm"
-                        className="w-auto"
-                        aria-label={t("members.roleFor", {
+                  <TableCell variant="text" className={NARROW_NAME}>
+                    <RowLines>
+                      <button
+                        type="button"
+                        className={cn(
+                          linkVariants(),
+                          // v4 .strong: weight 500, not the list's 600.
+                          "flex min-w-0 max-w-full text-left font-medium group-data-[disabled=true]:text-muted-foreground",
+                        )}
+                        aria-label={t("members.editFor", {
                           name: member.display_name,
                         })}
-                        aria-describedby={
-                          roleWhy && !disabled ? ids.role : undefined
-                        }
-                        value={member.role}
-                        disabled={busy || disabled || roleWhy !== undefined}
-                        onChange={(event) =>
-                          setRoleChange({
-                            member,
-                            role: event.target.value as WorkspaceRole,
-                          })
-                        }
+                        onClick={(event) => {
+                          editOpener.current = event.currentTarget;
+                          setEditing(member);
+                        }}
                       >
-                        {WORKSPACE_ROLE_VALUES.map((value) => (
-                          <NativeSelectOption key={value} value={value}>
-                            {roleLabel(t, value)}
-                          </NativeSelectOption>
-                        ))}
-                      </NativeSelect>
-                      {roleWhy && !disabled ? (
-                        <ReasonHint
-                          id={ids.role}
-                          label={t("members.roleWhy", {
-                            name: member.display_name,
-                          })}
-                          reason={roleWhy}
-                        />
-                      ) : null}
-                    </div>
+                        <span className="truncate">{member.display_name}</span>
+                        <span aria-hidden="true">&nbsp;›</span>
+                      </button>
+                      <span
+                        className="text-muted-foreground text-xs"
+                        title={member.email}
+                      >
+                        {member.email}
+                      </span>
+                    </RowLines>
                   </TableCell>
-                  <TableCell>
-                    {disabled ? (
-                      <RowLines className="items-start whitespace-nowrap">
+                  <TableCell variant="nowrap">
+                    <div className={cn("flex items-center gap-1", NARROW_ROLE)}>
+                      <Badge
+                        variant={member.role === "member" ? "gray" : "blue"}
+                      >
+                        {roleLabel(t, member.role)}
+                      </Badge>
+                      {disabled ? (
                         <Badge variant="gray">
                           {t("members.state.disabled")}
                         </Badge>
-                        <span className={SECONDARY}>
-                          {t("members.enableHint")}
-                        </span>
-                      </RowLines>
-                    ) : (
-                      <Badge variant="green">{t("members.state.active")}</Badge>
-                    )}
+                      ) : null}
+                    </div>
                   </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-1">
+                  <TableCell variant="actions">
+                    <div className="flex items-center justify-end gap-1">
                       {disabled ? (
                         <Button
                           type="button"
                           variant="outline"
                           size="sm"
-                          className={ACTION}
                           disabled={busy || keepWhy !== undefined}
-                          aria-describedby={keepWhy ? ids.keep : undefined}
+                          aria-describedby={keepWhy ? keepId : undefined}
                           onClick={() =>
                             setAccess.mutate({ member, enable: true })
                           }
@@ -402,9 +470,8 @@ function MemberTable({
                           type="button"
                           variant="outline"
                           size="sm"
-                          className={ACTION}
                           disabled={busy || keepWhy !== undefined}
-                          aria-describedby={keepWhy ? ids.keep : undefined}
+                          aria-describedby={keepWhy ? keepId : undefined}
                           aria-label={t("members.disableFor", {
                             name: member.display_name,
                           })}
@@ -415,7 +482,7 @@ function MemberTable({
                       )}
                       {keepWhy ? (
                         <ReasonHint
-                          id={ids.keep}
+                          id={keepId}
                           label={t(
                             disabled
                               ? "members.enableWhy"
@@ -433,6 +500,27 @@ function MemberTable({
           </TableBody>
         </Table>
       </TableContainer>
+      {editing ? (
+        <MemberEditDialog
+          member={editing}
+          reason={
+            editing.disabled_at === null
+              ? roleReason(editing)
+              : t("members.edit.disabledNote")
+          }
+          busy={changeRole.isPending}
+          onClose={() => setEditing(null)}
+          onSave={(next) => {
+            saved.current = { member: editing, role: next };
+            setEditing(null);
+          }}
+          onClosed={() => {
+            if (editOpener.current?.isConnected) editOpener.current.focus();
+            if (saved.current) setRoleChange(saved.current);
+            saved.current = null;
+          }}
+        />
+      ) : null}
       <ConfirmDialog
         open={confirming !== null}
         onOpenChange={(open) => {
@@ -473,6 +561,88 @@ function MemberTable({
         }}
       />
     </>
+  );
+}
+
+/**
+ * 구성원 편집 (v3 MemberEdit): the role, picked here and saved through the
+ * same confirmation the row used to raise. What the row would withhold, this
+ * shows as the reason and keeps every choice disabled.
+ */
+function MemberEditDialog({
+  member,
+  reason,
+  busy,
+  onClose,
+  onSave,
+  onClosed,
+}: {
+  readonly member: MemberView;
+  readonly reason: string | undefined;
+  readonly busy: boolean;
+  readonly onClose: () => void;
+  readonly onSave: (role: WorkspaceRole) => void;
+  /** After it has closed and would hand focus back; the screen does that. */
+  readonly onClosed: () => void;
+}) {
+  const { t } = useI18n();
+  const [role, setRole] = useState<string>(member.role);
+  const legendId = useId();
+  const reasonId = useId();
+  const blocked = reason !== undefined;
+  return (
+    <Dialog open onOpenChange={(open) => (open ? undefined : onClose())}>
+      <DialogContent
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          onClosed();
+        }}
+      >
+        <DialogHeader>
+          <DialogTitle>{t("members.edit.title")}</DialogTitle>
+          <DialogDescription>
+            {member.display_name} · {member.email}
+          </DialogDescription>
+        </DialogHeader>
+        <FieldSet>
+          <FieldLegend id={legendId} variant="label">
+            {t("members.column.role")}
+          </FieldLegend>
+          {blocked ? (
+            <FieldDescription id={reasonId}>{reason}</FieldDescription>
+          ) : null}
+          <RadioGroup
+            value={role}
+            onValueChange={setRole}
+            disabled={blocked || busy}
+            aria-labelledby={legendId}
+            aria-describedby={blocked ? reasonId : undefined}
+          >
+            {WORKSPACE_ROLE_VALUES.map((value) => (
+              <Field key={value} orientation="horizontal">
+                <RadioGroupItem value={value} />
+                <FieldLabel>{roleLabel(t, value)}</FieldLabel>
+                <FieldDescription>
+                  {t(`members.roleHelp.${value}`)}
+                </FieldDescription>
+              </Field>
+            ))}
+          </RadioGroup>
+        </FieldSet>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+          <Button
+            type="button"
+            disabled={blocked || busy || role === member.role}
+            onClick={() => onSave(role as WorkspaceRole)}
+          >
+            {t("members.edit.save")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

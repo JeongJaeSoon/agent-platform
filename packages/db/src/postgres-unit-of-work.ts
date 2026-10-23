@@ -38,6 +38,7 @@ import type {
 import {
   InvalidCursorError,
   projectDurability,
+  sessionRepositoryOf,
   storedPendingReasonHoldsWork,
   transcriptLimitAttention,
 } from "@werft-ai/platform";
@@ -56,7 +57,6 @@ import {
 } from "drizzle-orm";
 import { contextGapAttention } from "./context-gap.ts";
 import {
-  actorStillMember,
   findIdempotent,
   type IdempotencyScope,
   lockIdempotencyScope,
@@ -86,6 +86,11 @@ import {
   publicStatus,
 } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
+import {
+  keyReaches,
+  lockRequester,
+  lockSessionReach,
+} from "./requester-locks.ts";
 import { startupFailedAttention } from "./restore-failures.ts";
 import {
   attempts,
@@ -205,7 +210,15 @@ export function createPostgresSessionUnitOfWork(
         }
 
         if (input.repository === null) return { outcome: "unsupported" };
-        if (!(await actorStillMember(tx, input.principal))) {
+        const requester = await lockRequester(
+          tx,
+          input.principal,
+          "sessions:write",
+        );
+        if (
+          !requester ||
+          !(await keyReaches(tx, requester, input.agentReleaseId ?? null))
+        ) {
           return { outcome: "actor_inactive" };
         }
         if (
@@ -245,6 +258,7 @@ export function createPostgresSessionUnitOfWork(
           id: sessionId,
           ownerId: scope.principal,
           ...repository,
+          title: input.title ?? null,
           profileId: input.profileId,
           profileFingerprint: input.profileFingerprint ?? null,
           model: input.model ?? null,
@@ -303,13 +317,20 @@ export function createPostgresSessionUnitOfWork(
           };
         }
 
-        if (!(await actorStillMember(tx, input.principal))) {
-          return { outcome: "actor_inactive" };
-        }
+        const requester = await lockRequester(
+          tx,
+          input.principal,
+          "sessions:write",
+        );
+        if (!requester) return { outcome: "actor_inactive" };
         // The session row lock serializes every append to one session, so
         // max(sequence)+1 below cannot be handed out twice or leave a gap.
         const [session] = await tx
           .select({
+            id: sessions.id,
+            workspaceId: sessions.workspaceId,
+            createdByUserId: sessions.createdByUserId,
+            createdByApiKeyId: sessions.createdByApiKeyId,
             admissionState: sessions.admissionState,
             checkpointPendingReason: sessions.checkpointPendingReason,
             status: sessions.status,
@@ -326,6 +347,12 @@ export function createPostgresSessionUnitOfWork(
           .limit(1)
           .for("update");
         if (!session) {
+          return { outcome: "not_found" };
+        }
+        if (!(await keyReaches(tx, requester, session.agentReleaseId))) {
+          return { outcome: "actor_inactive" };
+        }
+        if ((await lockSessionReach(tx, requester, session)) !== "ok") {
           return { outcome: "not_found" };
         }
         if (session.takeoverRequiredAt !== null) {
@@ -639,6 +666,7 @@ export function createPostgresSessionReader(
         .sort((a, b) => b.sequence - a.sequence)[0];
       return {
         id: row.id,
+        title: row.title,
         revision: row.revision,
         admission_state: row.admissionState,
         status: publicStatus(row.status, awaitingInput),
@@ -646,6 +674,7 @@ export function createPostgresSessionReader(
         profile_fingerprint: row.profileFingerprint,
         model: row.model,
         repository_id: row.repositoryId,
+        repository: sessionRepositoryOf(row),
         current_turn_id: current ? String(current.sequence) : null,
         queued_turn_count: mine.filter((turn) => turn.status === "queued")
           .length,
