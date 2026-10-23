@@ -128,6 +128,8 @@ const ADDED_COLUMNS: Record<string, string[]> = {
     "takeover_required_at",
     // arrives as 'repository'
     "repository_mode",
+    // 0154
+    "title",
   ],
   turns: ["actor_id"],
   // kind arrives as 'service'
@@ -205,8 +207,8 @@ integration("0100 identity migration on PostgreSQL", () => {
       const logger = createLogger({ sinks: [sink] });
       const first = await migrateDatabase(database.url, { logger });
       const second = await migrateDatabase(database.url, { logger });
-      expect(first).toEqual({ adopted: 0, applied: 55, total: 64 });
-      expect(second).toEqual({ adopted: 0, applied: 0, total: 64 });
+      expect(first).toEqual({ adopted: 0, applied: 56, total: 65 });
+      expect(second).toEqual({ adopted: 0, applied: 0, total: 65 });
       expect(sink.records.map(({ message }) => message)).toEqual([
         "db.migrate.applied",
         "db.migrate.noop",

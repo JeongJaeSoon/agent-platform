@@ -390,6 +390,13 @@ integration("session share scopes over HTTP on PostgreSQL", () => {
         ),
     ],
     [
+      "rename",
+      (who) =>
+        send("PATCH", `/v1/sessions/${sessionId}`, asCookie(cookies[who]), {
+          title: `named by ${who}`,
+        }),
+    ],
+    [
       "interrupt",
       (who) =>
         send(
@@ -525,6 +532,57 @@ integration("session share scopes over HTTP on PostgreSQL", () => {
     );
   });
 
+  // 94S-804: renaming is answered as answering is.
+  async function renaming(who: Who): Promise<{
+    who: Who;
+    status: number;
+    title?: string | null;
+    code?: string;
+    details?: unknown;
+  }> {
+    const response = await surfaces.find(([s]) => s === "rename")?.[1](who);
+    if (!response) throw new Error("no rename surface");
+    if (response.status === 200) {
+      const body = (await response.json()) as { title: string | null };
+      return { who, status: 200, title: body.title };
+    }
+    const { code, details } = await codeOf(response);
+    return { who, status: response.status, code, details };
+  }
+
+  test("everyone sees a workspace-wide session; only its creator, owner and admin rename it (94S-804)", async () => {
+    const got = [];
+    for (const who of [
+      "owner",
+      "admin",
+      "creator",
+      "teammate",
+      "outsider",
+    ] as const) {
+      got.push(await renaming(who));
+    }
+    const refused = {
+      status: 403,
+      code: "FORBIDDEN",
+      details: { reason_code: "role" },
+    };
+    expect(got).toEqual([
+      { who: "owner", status: 200, title: "named by owner" },
+      { who: "admin", status: 200, title: "named by admin" },
+      { who: "creator", status: 200, title: "named by creator" },
+      { who: "teammate", ...refused },
+      { who: "outsider", ...refused },
+    ]);
+    const detail = await send(
+      "GET",
+      `/v1/sessions/${sessionId}`,
+      asCookie(cookies.teammate),
+    );
+    expect(((await detail.json()) as { title: string }).title).toBe(
+      "named by creator",
+    );
+  });
+
   test("a private session is the creator's on every surface; everyone else, owner and admin included, gets not_found", async () => {
     await share("private");
     expect(await listed("creator")).toContain(sessionId);
@@ -560,6 +618,7 @@ integration("session share scopes over HTTP on PostgreSQL", () => {
         "session.read",
         "session.submit",
         "session.approve",
+        "session.rename",
         "session.control",
       ]),
     );
@@ -598,6 +657,13 @@ integration("session share scopes over HTTP on PostgreSQL", () => {
       answer: 404,
       code: "NOT_FOUND",
     });
+    // 94S-804: renaming follows the same lines.
+    expect(await renaming("teammate")).toMatchObject({
+      status: 403,
+      details: { reason_code: "role" },
+    });
+    expect(await renaming("owner")).toMatchObject({ status: 404 });
+    expect(await renaming("creator")).toMatchObject({ status: 200 });
     for (const [, call] of surfaces) {
       expect((await call("outsider")).status).toBe(404);
     }

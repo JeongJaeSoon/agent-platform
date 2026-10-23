@@ -2,11 +2,13 @@ import { describe, expect, test } from "bun:test";
 import { type ApiErrorCode, apiErrorResponseSchema } from "@werft-ai/contracts";
 import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import {
+  type AuthorizationPolicy,
   createAuthorizationPolicy,
   createSessionService,
   InvalidCursorError,
   type SessionCatalog,
   type SessionControl,
+  type SessionDetailRecord,
   type SessionReader,
   type SessionUnitOfWork,
 } from "@werft-ai/platform";
@@ -54,6 +56,7 @@ const catalog: SessionCatalog = {
 function app(
   overrides: Partial<SessionUnitOfWork & SessionReader & SessionControl> = {},
   logger?: StructuredLogger,
+  authorization: AuthorizationPolicy = createAuthorizationPolicy(),
 ) {
   const service = createSessionService({
     limits: {
@@ -62,7 +65,7 @@ function app(
       sessionCostLimitUsd: 1_000,
       sessionTokenLimit: null,
     },
-    authorization: createAuthorizationPolicy(),
+    authorization,
     catalog,
     releases: {
       resolveRelease: async () => {
@@ -95,6 +98,9 @@ function app(
         throw new Error("not reached");
       },
       changeProfileAtomic: async () => {
+        throw new Error("not reached");
+      },
+      renameAtomic: async () => {
         throw new Error("not reached");
       },
       ...overrides,
@@ -874,6 +880,9 @@ describe("POST /v1/sessions/{id}/recovery-decisions validation", () => {
         changeProfileAtomic: async () => {
           throw new Error("not reached");
         },
+        renameAtomic: async () => {
+          throw new Error("not reached");
+        },
       },
       reader: {
         listSessions: async () => ({ items: [], next_cursor: null }),
@@ -1021,5 +1030,184 @@ describe("POST /v1/sessions/{id}/resume validation", () => {
       code: "CHECKPOINT_UNAVAILABLE",
       retryable: false,
     });
+  });
+});
+
+describe("session titles (94S-804)", () => {
+  const path = `/v1/sessions/${sessionId}`;
+  const record: SessionDetailRecord = {
+    id: sessionId,
+    title: "Renamed",
+    revision: 2,
+    admission_state: "active",
+    status: "idle",
+    repository_id: "sample-app",
+    current_turn_id: null,
+    queued_turn_count: 0,
+    last_event_at: null,
+    created_at: "2026-10-23T00:00:00.000Z",
+    updated_at: "2026-10-23T00:00:00.000Z",
+    execution: null,
+    checkpoint_revision: null,
+    pending_request_count: 0,
+    attention: null,
+    durability: {
+      last_transcript_persisted_at: null,
+      checkpoint_committed_at: null,
+      checkpoint_revision: null,
+      last_completed_turn_id: null,
+      last_checkpointed_turn_id: null,
+      checkpoint_pending_reason: null,
+      checkpoint_fallback_revision: null,
+      context_reset_turn_id: null,
+    },
+    profile_id: "claude-coding-v1",
+    cost_usd: 0,
+    provider_tokens: 0,
+    repo_url: "https://example.invalid/app.git",
+    branch: "main",
+    repository_mode: "repository",
+    profile_fingerprint: null,
+  };
+  const accepted = {
+    session_id: sessionId,
+    turn_id: "1",
+    receipt_id: crypto.randomUUID(),
+    receipt_status: "accepted",
+    status: "queued",
+  } as const;
+
+  async function createdTitle(body: unknown) {
+    let title: string | null | undefined;
+    const response = await app({
+      acceptInputAtomic: async (input) => {
+        title = input.title;
+        return { outcome: "accepted", response: accepted };
+      },
+    }).request("/v1/sessions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Owner-Id": "owner-a",
+        "Idempotency-Key": "key-1",
+      },
+      body: JSON.stringify(body),
+    });
+    expect(response.status).toBe(201);
+    return title;
+  }
+
+  test("create keeps a given title, whitespace collapsed", async () => {
+    expect(await createdTitle({ ...valid, title: "  My\n  session " })).toBe(
+      "My session",
+    );
+  });
+
+  test("create without a title derives it from the message", async () => {
+    expect(
+      await createdTitle({ ...valid, message: "Fix the\n\nflaky test" }),
+    ).toBe("Fix the flaky test");
+    expect(await createdTitle({ ...valid, message: " \n " })).toBeNull();
+  });
+
+  test("create refuses an empty or overlong title", async () => {
+    expect((await post({ ...valid, title: "  " })).status).toBe(400);
+    expect((await post({ ...valid, title: "x".repeat(81) })).status).toBe(400);
+  });
+
+  function patch(
+    body: unknown,
+    overrides: Partial<SessionUnitOfWork & SessionReader & SessionControl>,
+    authorization?: AuthorizationPolicy,
+  ) {
+    return app(overrides, undefined, authorization).request(path, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", "X-Owner-Id": "owner-a" },
+      body: JSON.stringify(body),
+    });
+  }
+
+  test("rename stores the collapsed title and answers the detail", async () => {
+    let stored: string | undefined;
+    const response = await patch(
+      { title: " Renamed\n" },
+      {
+        renameAtomic: async (input) => {
+          stored = input.title;
+          return { outcome: "renamed", changed: true };
+        },
+        getSession: async () => record,
+      },
+    );
+    expect(response.status).toBe(200);
+    expect(stored).toBe("Renamed");
+    expect(await response.json()).toMatchObject({
+      id: sessionId,
+      title: "Renamed",
+    });
+  });
+
+  test("rename refuses a bad body with 400 and an oversized one with 413", async () => {
+    const untouched = {
+      renameAtomic: async () => {
+        throw new Error("not reached");
+      },
+    };
+    for (const body of [
+      {},
+      { title: "" },
+      { title: null },
+      { title: "a", x: 1 },
+    ]) {
+      const response = await patch(body, untouched);
+      expect(response.status).toBe(400);
+    }
+    const large = await patch({ title: "x".repeat(65 * 1024) }, untouched);
+    expect(large.status).toBe(413);
+  });
+
+  test("rename of an unknown session is 404", async () => {
+    const response = await patch(
+      { title: "T" },
+      { renameAtomic: async () => ({ outcome: "not_found" }) },
+    );
+    expect(response.status).toBe(404);
+    expect(await errorCode(response)).toBe("NOT_FOUND");
+  });
+
+  test("rename refused by the policy is 403 and never reaches the store", async () => {
+    const response = await patch(
+      { title: "T" },
+      {
+        renameAtomic: async () => {
+          throw new Error("not reached");
+        },
+      },
+      {
+        authorize: async ({ action }) => ({
+          outcome: action === "session.rename" ? "deny" : "allow",
+          reason_code: action === "session.rename" ? "role" : "ok",
+          effective_scopes: ["sessions:write"],
+          policy_version: "test",
+          decision_id: crypto.randomUUID(),
+        }),
+      },
+    );
+    expect(response.status).toBe(403);
+    expect(await errorCode(response)).toBe("FORBIDDEN");
+  });
+
+  test("rename maps a storage connection failure to 503", async () => {
+    const response = await patch(
+      { title: "T" },
+      {
+        renameAtomic: async () => {
+          throw Object.assign(new Error("connection terminated"), {
+            code: "57P01",
+          });
+        },
+      },
+    );
+    expect(response.status).toBe(503);
   });
 });

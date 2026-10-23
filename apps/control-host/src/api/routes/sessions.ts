@@ -17,6 +17,7 @@ import {
   terminateSessionRequestSchema,
   terminateSessionResponseSchema,
   turnIdParamsSchema,
+  updateSessionRequestSchema,
 } from "@werft-ai/contracts";
 import type { SessionService } from "@werft-ai/platform";
 import {
@@ -60,6 +61,15 @@ export function registerSessionRoutes(
     const params = requireParams(context, sessionIdParamsSchema);
     const detail = await mapped(() =>
       service.getSession(context.get("caller"), params.id),
+    );
+    return jsonWithSchema(context, getSessionResponseSchema, detail);
+  });
+
+  apiRoute(router, "updateSession", async (context) => {
+    const params = requireParams(context, sessionIdParamsSchema);
+    const body = await parseJsonBody(context, updateSessionRequestSchema);
+    const detail = await mapped(() =>
+      service.renameSession(context.get("caller"), params.id, body),
     );
     return jsonWithSchema(context, getSessionResponseSchema, detail);
   });

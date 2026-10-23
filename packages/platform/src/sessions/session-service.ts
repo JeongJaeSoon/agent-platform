@@ -28,16 +28,20 @@ import type {
   TerminateSessionRequest,
   TerminateSessionResponse,
   TurnDetail,
+  UpdateSessionRequest,
 } from "@werft-ai/contracts";
-import { CREDENTIAL_UNBOUND_GUIDANCE } from "@werft-ai/contracts";
+import {
+  CREDENTIAL_UNBOUND_GUIDANCE,
+  normalizeSessionTitle,
+} from "@werft-ai/contracts";
 import {
   budgetExceeded,
   type SessionSpend,
 } from "../limits/installation-limits.ts";
 import {
-  ACTION_SCOPES,
   type AuthorizationPolicy,
   type Caller,
+  scopeOf,
 } from "../musterrolle/policy.ts";
 import type { CredentialBindingStore } from "../ports/credential-binding-store.ts";
 import type { SessionControl } from "../ports/session-control.ts";
@@ -59,6 +63,7 @@ import {
   type SessionCatalog,
   sessionProfile,
 } from "./catalog.ts";
+import { deriveSessionTitle } from "./session-title.ts";
 
 export class SessionServiceError extends Error {
   constructor(
@@ -251,7 +256,7 @@ export async function requireAllowed(
       { reason_code: "credential_unbound" },
     );
   }
-  const scope = ACTION_SCOPES[action];
+  const scope = scopeOf(action);
   throw new SessionServiceError(
     "FORBIDDEN",
     scope !== undefined && decision?.effective_scopes.includes(scope)
@@ -529,6 +534,10 @@ export function createSessionService(deps: {
         idempotencyKey: input.idempotencyKey,
         payloadHash: payloadHash(input.body),
         profileId: input.body.profile_id,
+        title:
+          input.body.title === undefined
+            ? deriveSessionTitle(input.body.message)
+            : normalizeSessionTitle(input.body.title),
         repository:
           pair === null
             ? null
@@ -875,6 +884,27 @@ export function createSessionService(deps: {
         default:
           return result.response;
       }
+    },
+
+    async renameSession(
+      actor: Caller,
+      sessionId: string,
+      body: UpdateSessionRequest,
+    ): Promise<SessionDetail> {
+      await requirePermitted(authorization, actor, "session.rename", {
+        kind: "session",
+        id: sessionId,
+      });
+      const result = await controls.renameAtomic({
+        principal: actor,
+        sessionId,
+        title: normalizeSessionTitle(body.title),
+        now: now(),
+      });
+      if (result.outcome === "not_found") {
+        throw new SessionServiceError("NOT_FOUND", "Resource not found");
+      }
+      return detailOf(actor, sessionId);
     },
 
     async decideRecovery(
