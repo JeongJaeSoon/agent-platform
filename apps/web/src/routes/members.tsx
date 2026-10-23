@@ -82,15 +82,13 @@ function refusal(
     return t("members.roleLastOwner");
   if (target?.action === "disable" && error.code === "LAST_OWNER")
     return t(target.self ? "members.disableSelf" : "members.disableLastOwner");
-  if (
-    target?.action !== "enable" &&
-    target?.member.role === "owner" &&
-    error.code === "OWNER_PROTECTED"
-  ) {
+  if (target?.member.role === "owner" && error.code === "OWNER_PROTECTED") {
     return t(
       target.action === "role"
         ? "members.roleOwnerProtected"
-        : "members.disableOwnerProtected",
+        : target.action === "disable"
+          ? "members.disableOwnerProtected"
+          : "members.enableOwnerProtected",
     );
   }
   return t(errorKey(error.code));
@@ -205,6 +203,12 @@ function MemberTable({
       owner: "members.disableOwnerProtected",
       lastOwner: "members.disableLastOwner",
     });
+  // A disabled row is never the viewer, and owners never run out while one
+  // is live, so only the owner rule applies to bringing it back.
+  const enableReason = (member: MemberView) =>
+    role === "admin" && member.role === "owner"
+      ? t("members.enableOwnerProtected")
+      : undefined;
 
   const settle = async (text: string) => {
     onOutcome({ kind: "notice", text });
@@ -300,7 +304,9 @@ function MemberTable({
             {items.map((member) => {
               const disabled = member.disabled_at !== null;
               const roleWhy = roleReason(member);
-              const keepWhy = disabled ? undefined : keepReason(member);
+              const keepWhy = disabled
+                ? enableReason(member)
+                : keepReason(member);
               const ids = {
                 role: `${reasonId}-${member.user_id}-role`,
                 keep: `${reasonId}-${member.user_id}-keep`,
@@ -383,7 +389,8 @@ function MemberTable({
                           variant="outline"
                           size="sm"
                           className={ACTION}
-                          disabled={busy}
+                          disabled={busy || keepWhy !== undefined}
+                          aria-describedby={keepWhy ? ids.keep : undefined}
                           onClick={() =>
                             setAccess.mutate({ member, enable: true })
                           }
@@ -409,9 +416,12 @@ function MemberTable({
                       {keepWhy ? (
                         <ReasonHint
                           id={ids.keep}
-                          label={t("members.disableWhy", {
-                            name: member.display_name,
-                          })}
+                          label={t(
+                            disabled
+                              ? "members.enableWhy"
+                              : "members.disableWhy",
+                            { name: member.display_name },
+                          )}
                           reason={keepWhy}
                         />
                       ) : null}
