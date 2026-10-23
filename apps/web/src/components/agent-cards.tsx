@@ -311,7 +311,7 @@ export function AgentAvatar({ name }: { readonly name: string }) {
   return (
     <span
       aria-hidden="true"
-      className="grid size-8 flex-none place-items-center rounded-control bg-accent font-semibold text-caption text-muted-foreground"
+      className="grid size-8 flex-none place-items-center rounded-control bg-active font-semibold text-caption text-muted-foreground"
     >
       {initials(name)}
     </span>

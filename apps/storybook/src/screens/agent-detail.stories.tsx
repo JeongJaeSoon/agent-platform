@@ -68,7 +68,7 @@ function Avatar({ name }: { readonly name: string }) {
   return (
     <div
       aria-hidden="true"
-      className="grid size-8 flex-none place-items-center rounded-control bg-accent font-semibold text-caption text-muted-foreground"
+      className="grid size-8 flex-none place-items-center rounded-control bg-active font-semibold text-caption text-muted-foreground"
     >
       {name.slice(0, 2)}
     </div>
