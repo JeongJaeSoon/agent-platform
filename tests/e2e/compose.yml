@@ -6,8 +6,12 @@
 # and proxy allowlist a quickstart user gets. What changes: host ports are
 # ephemeral (still loopback), so a run never collides with a developer
 # stack or another run; the fake Messages API's control port is published,
-# so the suite can see a scripted model call in flight; and the scheduler
-# loops faster, which only shortens waits.
+# so the suite can see a scripted model call in flight; the scheduler
+# loops faster, which only shortens waits; and there are more execution
+# slots. An idle session keeps its worker, and so its slot, for
+# WORKER_IDLE_TIMEOUT_SEC (30 minutes), longer than a run: the suites'
+# sessions add up, and past the product default of 10 a later suite's
+# first turn waits in `queued` for the whole run.
 services:
   postgres:
     ports: !override
@@ -30,6 +34,9 @@ services:
   api:
     ports: !override
       - "127.0.0.1::3000"
+    environment:
+      EXECUTION_SLOT_LIMIT: "16"
   scheduler:
     environment:
+      EXECUTION_SLOT_LIMIT: "16"
       SCHEDULER_INTERVAL_SEC: "2"

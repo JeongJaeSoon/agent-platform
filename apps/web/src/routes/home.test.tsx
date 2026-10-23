@@ -7,6 +7,7 @@ import {
   me,
   memberMe,
   USER_ID,
+  WORKSPACE_ID,
 } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
@@ -200,6 +201,56 @@ describe("bootstrap checklist", () => {
 });
 
 describe("홈 요약", () => {
+  const inDays = (days: number) =>
+    new Date(Date.now() + days * 86_400_000 + 60_000).toISOString();
+  const limits = {
+    scope: "installation",
+    refreshed_at: "2026-10-23T09:00:00.000Z",
+    limits: {
+      execution_slot_limit: 8,
+      queued_input_limit_per_session: 20,
+      storage_limit_bytes: 1073741824,
+      max_turn_seconds: 3600,
+      session_cost_limit_usd: "20",
+      session_token_limit: null,
+      provider_max_retries: 2,
+    },
+    usage: {
+      execution_slots_used: 3,
+      queued_input_count: 0,
+      storage: {
+        used_bytes: 0,
+        accounted_content: ["input_messages"],
+        updated_at: null,
+      },
+    },
+  };
+  const expiringKey = {
+    id: "9c8b7a6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+    kind: "service",
+    workspace_id: WORKSPACE_ID,
+    agent_id: AGENT_ID,
+    created_by: USER_ID,
+    scopes: ["sessions:read"],
+    created_at: "2026-10-01T00:00:00.000Z",
+    expires_at: inDays(3),
+    revoked_at: null,
+  };
+  /** Each card as title, headline and its label/value rows. */
+  const cards = (overview: HTMLElement) =>
+    within(overview)
+      .getAllByRole("listitem")
+      .filter((item) => item.querySelector("h3"))
+      .map((card) => ({
+        title: card.querySelector("h3")?.textContent,
+        value:
+          card.querySelector("h3")?.parentElement?.nextElementSibling
+            ?.firstElementChild?.textContent,
+        rows: [...card.querySelectorAll("dl > div")].map((row) => [
+          row.querySelector("dt")?.textContent,
+          row.querySelector("dd")?.textContent,
+        ]),
+      }));
   const waitingSession = {
     ...oneSession,
     id: "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
@@ -238,42 +289,134 @@ describe("홈 요약", () => {
           items: [waitingSession, oneSession],
           next_cursor: "next",
         }),
+      "GET /v1/limits": () => json(200, limits),
+      "GET /v1/api-keys": () => json(200, { items: [expiringKey] }),
       ...pending(waitingSession.id, "2026-10-23T09:00:00.000Z"),
     };
   };
 
-  test("세 요약 카드와 최근 세션을 보이고, 답변 대기는 가장 오래된 요청 하나만 가리킨다", async () => {
+  test("카드 세 장에 실제 수치와 미계측을 나눠 보이고, 답변 대기는 가장 오래된 요청 하나만 가리킨다", async () => {
     renderAt("/", homeRoutes());
     const overview = await screen.findByRole("region", { name: "한눈에 보기" });
     await waitFor(() =>
-      expect(
-        within(overview)
-          .getAllByRole("listitem")
-          .map((card) => [
-            card.querySelector("h3")?.textContent,
-            card.querySelector("h3 + a")?.textContent,
-            card.querySelector("div:has(> h3) + div > p")?.textContent,
-          ]),
-      ).toEqual([
-        ["답변 대기", "세션 목록", "1"],
-        ["세션", "세션 목록", "2+"],
-        ["에이전트", "에이전트 목록", "2"],
+      expect(cards(overview)).toEqual([
+        {
+          title: "전체 사용량",
+          value: "—미계측",
+          rows: [
+            ["세션", "—미계측"],
+            ["동시 실행", "3 / 8 slot"],
+            ["결과물 저장", "—미계측"],
+          ],
+        },
+        {
+          title: "확인할 항목",
+          value: "2",
+          rows: [
+            ["답변 대기", "1"],
+            ["30분 넘게 대기", "1개 세션"],
+            ["가장 오래된 요청", expect.stringContaining("1a2b3c4d · ")],
+            ["결제 담당", "3일 후 만료"],
+            ["연동 계정 만료", "—미계측"],
+            ["에이전트", "켜짐 1 · 초안 1"],
+          ],
+        },
+        {
+          title: "내 세션 기준",
+          value: "—미계측",
+          rows: [
+            ["세션", "2+"],
+            ["실행 시간", "—미계측"],
+            ["토큰", "—미계측"],
+          ],
+        },
       ]),
     );
-    expect(within(overview).getByText("켜짐 1 · 초안 1")).toBeDefined();
     // The request list and its answers live on the session screen only.
     expect(screen.queryByRole("region", { name: /^답변 대기/ })).toBeNull();
     const oldest = await within(overview).findByRole("link", {
       name: waitingSession.id.slice(0, 8),
     });
     expect(oldest.getAttribute("href")).toBe(`/sessions/${waitingSession.id}`);
+    expect(
+      within(overview)
+        .getByRole("link", { name: "결제 담당" })
+        .getAttribute("href"),
+    ).toBe("/settings/api-keys/service");
 
     const recent = screen.getByRole("table", { name: "최근 세션" });
     expect(
+      [...recent.querySelectorAll("tr")].map((row) =>
+        [...row.children].map((cell) => cell.textContent),
+      ),
+    ).toEqual([
+      ["세션", "작업 상태", "에이전트", "저장소", "최근 활동"],
+      [
+        waitingSession.id.slice(0, 8),
+        "작업: 답변 대기",
+        "—",
+        "demo",
+        expect.any(String),
+      ],
+      [
+        oneSession.id.slice(0, 8),
+        "작업: 쉬는 중",
+        "—",
+        "demo",
+        expect.any(String),
+      ],
+    ]);
+    expect(
       within(recent)
         .getAllByRole("link")
-        .map((l) => l.textContent),
-    ).toEqual([waitingSession.id, oneSession.id]);
+        .map((l) => l.getAttribute("href")),
+    ).toEqual([`/sessions/${waitingSession.id}`, `/sessions/${oneSession.id}`]);
+  });
+
+  test("한도를 읽을 수 없는 사람에게는 설치 전체 카드를 숨긴다", async () => {
+    renderAt("/", {
+      ...homeRoutes(),
+      "GET /v1/limits": () => apiError(403, "FORBIDDEN", "forbidden"),
+    });
+    const overview = await screen.findByRole("region", { name: "한눈에 보기" });
+    await waitFor(() =>
+      expect(cards(overview).map((card) => card.title)).toEqual([
+        "확인할 항목",
+        "내 세션 기준",
+      ]),
+    );
+  });
+
+  test("막 들어온 요청과 만료가 먼 key는 확인할 항목이 아니다", async () => {
+    const recentRequest = new Date(Date.now() - 60_000).toISOString();
+    renderAt("/", {
+      ...homeRoutes(),
+      ...pending(waitingSession.id, recentRequest),
+      "GET /v1/api-keys": () =>
+        json(200, {
+          items: [
+            { ...expiringKey, expires_at: inDays(30) },
+            {
+              ...expiringKey,
+              id: "8b7a6d5e-4f3a-4b2c-9d1e-0f9a8b7c6d5e",
+              revoked_at: inDays(-1),
+            },
+          ],
+        }),
+    });
+    const overview = await screen.findByRole("region", { name: "한눈에 보기" });
+    await waitFor(() => {
+      const check = cards(overview)[1];
+      expect(check?.value).toBe("0");
+      expect(check?.rows.map(([label]) => label)).toEqual([
+        "답변 대기",
+        "30분 넘게 대기",
+        "가장 오래된 요청",
+        "연동 계정 만료",
+        "에이전트",
+      ]);
+      expect(check?.rows[1]).toEqual(["30분 넘게 대기", "0개 세션"]);
+    });
   });
 
   test("가장 오래된 요청은 세션의 갱신 시각이 아니라 요청 시각으로 고른다", async () => {
@@ -299,7 +442,9 @@ describe("홈 요약", () => {
       name: askedEarly.id.slice(0, 8),
     });
     expect(oldest.getAttribute("href")).toBe(`/sessions/${askedEarly.id}`);
-    expect(oldest.parentElement?.textContent).toContain("2026. 10. 23. 18:00");
+    expect(
+      oldest.parentElement?.querySelector("time")?.getAttribute("title"),
+    ).toBe("2026. 10. 23. 18:00");
   });
 
   test("대기 세션 목록을 다시 읽다 실패하면 전에 고른 가장 오래된 요청을 내린다", async () => {
@@ -327,7 +472,7 @@ describe("홈 요약", () => {
     );
   });
 
-  test("대기 세션이 한 페이지를 넘으면 가장 오래된 요청을 짐작하지 않는다", async () => {
+  test("대기 세션이 한 페이지를 넘으면 가장 오래된 요청도, 오래 기다린 수도 짐작하지 않는다", async () => {
     renderAt("/", {
       ...homeRoutes(),
       "GET /v1/sessions?status=needs_input": () =>
@@ -335,12 +480,16 @@ describe("홈 요약", () => {
     });
     const overview = await screen.findByRole("region", { name: "한눈에 보기" });
     await waitFor(() =>
-      expect(
-        within(overview)
-          .getAllByRole("listitem")[0]
-          ?.querySelector("div:has(> h3) + div > p")?.textContent,
-      ).toBe("1+"),
+      expect(cards(overview)[1]?.rows[0]).toEqual(["답변 대기", "1+"]),
     );
+    // The keys answered; the waiting count is what stays unknown.
+    await waitFor(() =>
+      expect(
+        within(overview).getByRole("link", { name: "결제 담당" }),
+      ).toBeDefined(),
+    );
+    expect(cards(overview)[1]?.value).toBe("—");
+    expect(cards(overview)[1]?.rows[1]).toEqual(["30분 넘게 대기", "—"]);
     expect(
       within(overview).queryByRole("link", {
         name: waitingSession.id.slice(0, 8),

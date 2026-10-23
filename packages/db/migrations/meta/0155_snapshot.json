@@ -1,5 +1,5 @@
 {
-  "id": "ac956cab-d80e-4c17-9d34-d3c66e56563d",
+  "id": "b7c87d7c-8721-4972-8281-4d20d0851edc",
   "prevId": "97c3184d-bc90-407d-b92a-75bed63194a4",
   "version": "7",
   "dialect": "postgresql",
@@ -4901,6 +4901,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "repository_mode": {
           "name": "repository_mode",
           "type": "text",
@@ -5634,109 +5640,6 @@
           "value": "(\"slack_config_tokens\".\"lease_id\" IS NULL) = (\"slack_config_tokens\".\"lease_until\" IS NULL)"
         }
       },
-      "isRLSEnabled": false
-    },
-    "public.slack_install_states": {
-      "name": "slack_install_states",
-      "schema": "",
-      "columns": {
-        "state_hash": {
-          "name": "state_hash",
-          "type": "bytea",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "agent_id": {
-          "name": "agent_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "slack_app_id": {
-          "name": "slack_app_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "actor_user_id": {
-          "name": "actor_user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "team_id": {
-          "name": "team_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "redirect_url": {
-          "name": "redirect_url",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "slack_install_states_expires_idx": {
-          "name": "slack_install_states_expires_idx",
-          "columns": [
-            {
-              "expression": "expires_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "slack_install_states_workspace_id_workspaces_id_fk": {
-          "name": "slack_install_states_workspace_id_workspaces_id_fk",
-          "tableFrom": "slack_install_states",
-          "tableTo": "workspaces",
-          "columnsFrom": ["workspace_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "slack_install_states_slack_app_id_slack_apps_id_fk": {
-          "name": "slack_install_states_slack_app_id_slack_apps_id_fk",
-          "tableFrom": "slack_install_states",
-          "tableTo": "slack_apps",
-          "columnsFrom": ["slack_app_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.slack_installations": {

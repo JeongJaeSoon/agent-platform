@@ -1,8 +1,7 @@
 import type { AgentDetail, AgentVersion } from "@werft-ai/contracts";
-import { formatTimestamp } from "@werft-ai/ui";
+import { formatTimestamp, RowLines, RowList, RowListItem } from "@werft-ai/ui";
 import { useId, useState } from "react";
 import { RevisionDiff } from "../../components/revision-diff.tsx";
-import { RowLines, RowList, RowListItem } from "../../components/table.tsx";
 import { useI18n } from "../../i18n/i18n.tsx";
 import {
   FORM_INLINE,

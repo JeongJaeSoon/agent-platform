@@ -32,6 +32,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/sessions",
     "GET /v1/sessions",
     "GET /v1/sessions/{id}",
+    "PATCH /v1/sessions/{id}",
     "POST /v1/sessions/{id}/messages",
     "GET /v1/sessions/{id}/turns",
     "GET /v1/sessions/{id}/turns/{turn_id}",

@@ -15,13 +15,14 @@ const CELL_PADDING_X =
 
 /*
  * `actions` is a column of row buttons: as narrow as its content, never
- * wrapped, and every button in it at least --ap-row-action-min-width wide so
- * the column does not jump when a label changes ("disable" ↔ "enable").
+ * wrapped, and every labelled button in it at least --ap-row-action-min-width
+ * wide so the column does not jump when a label changes ("disable" ↔
+ * "enable"). An icon button keeps its own square size.
  */
 const CELL_VARIANT = {
   default: "",
   actions:
-    "w-px whitespace-nowrap [&_[data-slot=button]]:min-w-[var(--ap-row-action-min-width)]",
+    "w-px whitespace-nowrap [&_[data-slot=button]:not([data-size=icon])]:min-w-[var(--ap-row-action-min-width)]",
 } as const;
 
 export type TableCellVariant = keyof typeof CELL_VARIANT;

@@ -32,6 +32,8 @@ export type AcceptSessionInput = {
   idempotencyKey: string;
   payloadHash: string;
   profileId: string;
+  // As given, or derived from the message; null when neither has text.
+  title?: string | null;
   // null when the catalog no longer lists the profile/repository: a replay
   // of an earlier acceptance must still succeed, a new request must not.
   // "none" when the profile is allowed to run without one.

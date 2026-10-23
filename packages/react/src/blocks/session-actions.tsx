@@ -14,7 +14,12 @@ import {
   useRef,
   useState,
 } from "react";
-import { ApprovalCard, Composer, QuestionCard } from "../components/index.ts";
+import {
+  ApprovalCard,
+  ApprovalRow,
+  Composer,
+  QuestionCard,
+} from "../components/index.ts";
 import {
   type SessionControl,
   useAnswer,
@@ -35,6 +40,9 @@ export interface SessionActionProps {
   /** The host's words for a command the server refused. */
   readonly refusal?: ((error: ApiError) => string) | undefined;
 }
+
+/** A permission request as the full card or as one line of a list. */
+export type ApprovalLayout = "card" | "row";
 
 type Outcome = { readonly kind: "notice" | "error"; readonly text: string };
 
@@ -108,6 +116,7 @@ export function PendingAnswers({
   showEmpty = true,
   subject,
   answerable = true,
+  layout = "card",
 }: SessionActionProps & {
   readonly sessionId: string;
   readonly items: readonly PendingRequest[];
@@ -117,8 +126,12 @@ export function PendingAnswers({
   readonly showEmpty?: boolean;
   /** What each request belongs to, drawn on its card's title line. */
   readonly subject?: ReactNode;
+  /** How a permission request is drawn; a question is always a card. */
+  readonly layout?: ApprovalLayout | undefined;
 }) {
   const { t, locale } = useBlockText();
+  const Approval = layout === "row" ? ApprovalRow : ApprovalCard;
+  const short = sessionId.slice(0, 8);
   const answer = useAnswer(sessionId);
   const refused = useRefusal(refusal);
   const [outcome, setOutcome] = useState<
@@ -206,7 +219,7 @@ export function PendingAnswers({
           {items.map((request) => (
             <li key={request.request_id}>
               {request.kind === "permission" ? (
-                <ApprovalCard
+                <Approval
                   request={request}
                   subject={subject}
                   locale={locale}
@@ -220,6 +233,10 @@ export function PendingAnswers({
                     expired: t("session.pending.expired"),
                     allow: t("session.answer.allow"),
                     deny: t("session.answer.deny"),
+                    allowName: (tool) =>
+                      t("session.answer.allowFor", { tool, session: short }),
+                    denyName: (tool) =>
+                      t("session.answer.denyFor", { tool, session: short }),
                     denyReason: t("session.answer.denyReason"),
                     denySubmit: t("session.answer.denySubmit"),
                     cancel: t("session.answer.cancel"),

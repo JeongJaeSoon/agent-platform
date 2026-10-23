@@ -18,6 +18,11 @@ export {
   type PermissionRequest,
 } from "./session/approval-card.tsx";
 export {
+  ApprovalRow,
+  type ApprovalRowMessages,
+  type ApprovalRowProps,
+} from "./session/approval-row.tsx";
+export {
   Composer,
   type ComposerMessages,
   type ComposerProps,

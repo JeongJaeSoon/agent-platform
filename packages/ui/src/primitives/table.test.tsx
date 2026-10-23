@@ -88,11 +88,36 @@ describe("Table", () => {
       expect(el?.className).toContain("w-px");
       expect(el?.className).toContain("whitespace-nowrap");
       expect(el?.className).toContain(
-        "[&_[data-slot=button]]:min-w-[var(--ap-row-action-min-width)]",
+        "[&_[data-slot=button]:not([data-size=icon])]:min-w-[var(--ap-row-action-min-width)]",
       );
     }
     expect(button.getAttribute("data-slot")).toBe("button");
+    expect(button.getAttribute("data-size")).toBe("sm");
     expect(TOKENS).toContain("--ap-row-action-min-width: 6rem;");
+  });
+
+  test("actions 셀의 아이콘 버튼은 하한 선택자에서 빠진다", () => {
+    const { getByRole } = render(
+      <table>
+        <tbody>
+          <tr>
+            <TableCell variant="actions">
+              <Button type="button" size="icon" aria-label="이유">
+                i
+              </Button>
+              <Button type="button" size="sm">
+                비활성화
+              </Button>
+            </TableCell>
+          </tr>
+        </tbody>
+      </table>,
+    );
+    const icon = getByRole("button", { name: "이유" });
+    const labelled = getByRole("button", { name: "비활성화" });
+    const selector = "[data-slot=button]:not([data-size=icon])";
+    expect(icon.matches(selector)).toBe(false);
+    expect(labelled.matches(selector)).toBe(true);
   });
 
   test("기본 셀에는 actions 클래스가 붙지 않는다", () => {

@@ -117,6 +117,7 @@ export const responseSchemas = {
   "GET /v1/sessions": listSessionsResponseSchema,
   "POST /v1/sessions": createSessionResponseSchema,
   "GET /v1/sessions/{id}": getSessionResponseSchema,
+  "PATCH /v1/sessions/{id}": getSessionResponseSchema,
   "GET /v1/sessions/{id}/share": sessionShareSchema,
   "POST /v1/sessions/{id}/share": setSessionShareResponseSchema,
   "POST /v1/sessions/{id}/audit-read": auditReadResponseSchema,
