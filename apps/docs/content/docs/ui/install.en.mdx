@@ -1,0 +1,66 @@
+---
+title: "Install"
+description: "Create a Vite app inside the repository and import @werft-ai/ui and @werft-ai/react"
+---
+
+Create a small Vite app inside the repository that uses the UI packages. The rest of the pages in this section keep filling in this app.
+
+<Callout type="warn">
+There is not yet a way to install them from npm. The two packages are workspace packages of this repository and export TypeScript source as it is. So they cannot be imported from an app outside the repository.
+</Callout>
+
+## Preparation
+
+Install the dependencies from the repository root. Links named `node_modules/@werft-ai/ui` and `node_modules/@werft-ai/react` appear at the root, pointing to `packages/ui` and `packages/react`.
+
+```sh
+bun install
+```
+
+You need the following. Other packages in this repository already use all of them, so the install above puts them in the root `node_modules`.
+
+| What | Why |
+| --- | --- |
+| React 19, `react-dom` | Both packages render with React 19 |
+| `@tanstack/react-query` | The hooks and blocks of `@werft-ai/react` use this cache. The app wraps itself in `QueryClientProvider` |
+| Tailwind CSS 4, `@tailwindcss/vite` | The look of the primitives comes from Tailwind utilities. Without Tailwind, the primitives render with no styling |
+| Vite, `@vitejs/plugin-react` | The packages export TypeScript source, so the app's bundler compiles it |
+
+## Create the app
+
+Create a `ui-demo` directory at the repository root and put two files in it. Do not add `ui-demo` to the workspace. Module resolution walks up the parent directories, so its imports resolve from the root `node_modules`.
+
+```html title="ui-demo/index.html"
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Werft UI demo</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+```
+
+```ts title="ui-demo/vite.config.ts"
+import tailwindcss from "@tailwindcss/vite";
+import react from "@vitejs/plugin-react";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  plugins: [react(), tailwindcss()],
+  // The blocks call /v1 on their own origin with the login cookie.
+  server: { proxy: { "/v1": "http://127.0.0.1:3000" } },
+});
+```
+
+`server.proxy` forwards the app's `/v1` requests to the local stack you started as in [Install](/getting-started/install). This is because session blocks call `/v1` on their own origin with the web login cookie. The reason is in [Add session blocks](/ui/session-blocks).
+
+You create `src/styles.css` in [Apply the theme](/ui/theme) and `src/main.tsx` in [Add session blocks](/ui/session-blocks).
+
+## Next steps
+
+- [Apply the theme](/ui/theme): import the CSS and turn on the dark theme

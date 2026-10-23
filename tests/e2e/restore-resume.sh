@@ -37,7 +37,7 @@
 #
 # Needs what tests/e2e/run.sh and scripts/restore.sh need: Docker Engine 28+,
 # compose v2.24.6+, bun, jq. On macOS put /bin ahead of Homebrew's bash 5.3,
-# which hangs on the backup's heredoc (docs/backup-restore.md).
+# which hangs on the backup's heredoc (docs/operator/backup-restore.md).
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"

@@ -165,7 +165,7 @@ describe("app Dockerfiles", () => {
     expect(REMOVED_AFTER_INSTALL["egress-proxy"]).toEqual([]);
   });
 
-  // docs/operations.md names this identity; image-smoke.sh commits with it.
+  // docs/operator/images-and-supply-chain.md names this identity; image-smoke.sh commits with it.
   test("the worker gives Claude's commits a default author", () => {
     expect(basePins.worker.source).toContain(
       "git config --system user.name Werft \\\n" +

@@ -5,6 +5,7 @@ import type {
   CheckpointCodec,
   CheckpointManifest,
   CheckpointObjectStore,
+  CheckpointOutput,
   ObjectRef,
   RuntimeFingerprint,
   WorkspaceArtifact,
@@ -1051,6 +1052,297 @@ describe("unversioned, then locked", () => {
     expect(
       await objects.head(checkpoint.manifest_ref, checkpoint.manifest_version),
     ).toMatchObject({ held: true });
+  });
+});
+
+describe("outputs", () => {
+  async function output(revision: number, body: string, path: string) {
+    const bytes = encode(body);
+    const ref = await upload(
+      `${attemptDirectory(revision)}outputs/${sha256(bytes)}`,
+      bytes,
+    );
+    return { ...ref, path };
+  }
+
+  function withOutputs(outputs: readonly CheckpointOutput[]) {
+    return (candidate: CheckpointManifest): CheckpointManifest => ({
+      ...candidate,
+      outputs,
+    });
+  }
+
+  test("commits stored and too-large outputs and holds each stored version", async () => {
+    const part = await upload(`${prefix}mirror/part-0.jsonl`, encode("a\n"));
+    const report = await output(0, "# report\n", "out/report.md");
+    const { checkpoint } = await publish(
+      0,
+      [part],
+      withOutputs([
+        report,
+        { bytes: 70_000_000, omitted: "too_large", path: "out/video.mp4" },
+      ]),
+    );
+
+    expect(await finalize(checkpoint)).toEqual({
+      outcome: "committed",
+      revision: 0,
+    });
+    expect(await objects.head(report.key, report.version)).toMatchObject({
+      held: true,
+    });
+  });
+
+  test("refuses an output stored outside the session's prefix", async () => {
+    const part = await upload(`${prefix}mirror/part-0.jsonl`, encode("a\n"));
+    const bytes = encode("stolen\n");
+    const foreign = await upload(
+      `sessions/55555555-5555-4555-8555-555555555555/checkpoints/0000000000/a/p/outputs/${sha256(bytes)}`,
+      bytes,
+    );
+    const { checkpoint } = await publish(
+      0,
+      [part],
+      withOutputs([{ ...foreign, path: "out/stolen.md" }]),
+    );
+
+    expect(await finalize(checkpoint)).toEqual({
+      outcome: "rejected",
+      reason: expect.stringMatching(/references an object outside sessions\//),
+    });
+    expect(checkpoints.commits()).toBe(0);
+  });
+
+  test("refuses an output whose bytes do not match its digest", async () => {
+    const part = await upload(`${prefix}mirror/part-0.jsonl`, encode("a\n"));
+    const claimed = sha256(encode("what the worker said\n"));
+    const stored = await upload(
+      `${attemptDirectory(0)}outputs/${claimed}`,
+      encode("what the store holds\n"),
+    );
+    const { checkpoint } = await publish(
+      0,
+      [part],
+      withOutputs([
+        {
+          ...stored,
+          bytes: encode("what the worker said\n").byteLength,
+          path: "out/a.md",
+          sha256: claimed,
+        },
+      ]),
+    );
+
+    expect(await finalize(checkpoint)).toMatchObject({
+      reason: expect.stringMatching(
+        new RegExp(`outputs/${claimed} hashes to [0-9a-f]{64}, not ${claimed}`),
+      ),
+    });
+    expect(checkpoints.commits()).toBe(0);
+  });
+
+  test("refuses an output not stored under its own digest", async () => {
+    const part = await upload(`${prefix}mirror/part-0.jsonl`, encode("a\n"));
+    const bytes = encode("# report\n");
+    const elsewhere = await upload(
+      `${attemptDirectory(0)}outputs/report.md`,
+      bytes,
+    );
+    const { checkpoint } = await publish(
+      0,
+      [part],
+      withOutputs([{ ...elsewhere, path: "out/report.md" }]),
+    );
+
+    expect(await finalize(checkpoint)).toEqual({
+      outcome: "rejected",
+      reason: expect.stringMatching(
+        /not at a checkpoint directory's outputs\//,
+      ),
+    });
+  });
+
+  test.each([
+    ["outside out/", ["notes/a.md"]],
+    ["climbing out of the workspace", ["out/../secret"]],
+    ["twice", ["out/a.md", "out/a.md"]],
+  ])("refuses an output path %s", async (_, paths) => {
+    const part = await upload(`${prefix}mirror/part-0.jsonl`, encode("a\n"));
+    const { checkpoint } = await publish(
+      0,
+      [part],
+      withOutputs(
+        paths.map((path) => ({ bytes: 1, omitted: "too_large", path })),
+      ),
+    );
+
+    expect(await finalize(checkpoint)).toEqual({
+      outcome: "rejected",
+      reason: expect.stringMatching(/output/),
+    });
+  });
+
+  test("inherits the pointer's output by its exact ref, and nothing else from another directory", async () => {
+    const part = await upload(`${prefix}mirror/part-0.jsonl`, encode("a\n"));
+    const report = await output(0, "# report\n", "out/report.md");
+    await finalize(
+      (await publish(0, [part], withOutputs([report]))).checkpoint,
+    );
+    // Same bytes under a new name: the ref is the pointer's, the path is not.
+    const renamed = { ...report, path: "out/final.md" };
+    const next = await publish(1, [part], withOutputs([renamed]));
+
+    expect(await finalize(next.checkpoint)).toEqual({
+      outcome: "committed",
+      revision: 1,
+    });
+
+    // An object in revision 0's directory the pointer never named.
+    const bytes = encode("never committed\n");
+    const orphan = await upload(
+      `${attemptDirectory(0)}outputs/${sha256(bytes)}`,
+      bytes,
+    );
+    const stray = await publish(
+      2,
+      [part],
+      withOutputs([{ ...orphan, path: "out/orphan.md" }]),
+    );
+    expect(await finalize(stray.checkpoint)).toEqual({
+      outcome: "rejected",
+      reason: expect.stringMatching(/not under this publish's/),
+    });
+  });
+});
+
+describe("reading outputs", () => {
+  const tooLarge: CheckpointOutput = {
+    bytes: 70_000_000,
+    omitted: "too_large",
+    path: "out/video.mp4",
+  };
+
+  async function commitReport(body = "# report\n") {
+    const part = await upload(`${prefix}mirror/part-0.jsonl`, encode("a\n"));
+    const bytes = encode(body);
+    const report = {
+      ...(await upload(
+        `${attemptDirectory(0)}outputs/${sha256(bytes)}`,
+        bytes,
+      )),
+      path: "out/report.md",
+    };
+    const { checkpoint } = await publish(0, [part], (manifest) => ({
+      ...manifest,
+      outputs: [report, tooLarge],
+    }));
+    expect(await finalize(checkpoint)).toMatchObject({ outcome: "committed" });
+    return { checkpoint, report };
+  }
+
+  async function drain(body: AsyncIterable<Uint8Array>): Promise<string> {
+    let text = "";
+    const decoder = new TextDecoder();
+    for await (const chunk of body) text += decoder.decode(chunk);
+    return text;
+  }
+
+  test("a session without a committed checkpoint has none", async () => {
+    expect(await service.readOutputs(sessionId)).toEqual({ status: "none" });
+    expect(await service.openOutput(sessionId, "out/report.md")).toEqual({
+      status: "missing",
+    });
+  });
+
+  test("lists the pointer's stored and omitted outputs", async () => {
+    const { report } = await commitReport();
+    expect(await service.readOutputs(sessionId)).toEqual({
+      status: "ready",
+      revision: 0,
+      outputs: [report, tooLarge],
+    });
+  });
+
+  test("streams a listed output by the version the checkpoint pinned", async () => {
+    const { report } = await commitReport();
+    // An overwrite after the commit changes what the key reads, not the version.
+    await objects.put(report.key, encode("# swapped\n"));
+
+    const opened = await service.openOutput(sessionId, "out/report.md");
+    expect(opened).toMatchObject({ status: "ready", output: report });
+    if (opened.status !== "ready") return;
+    expect(await drain(opened.body)).toBe("# report\n");
+  });
+
+  test.each([
+    ["omitted", "out/video.mp4"],
+    ["not listed", "out/other.md"],
+    ["a climbing spelling of a listed path", "out/../out/report.md"],
+    ["the storage key", "outputs/report.md"],
+  ])("a path %s is missing", async (_, path) => {
+    await commitReport();
+    expect(await service.openOutput(sessionId, path)).toEqual({
+      status: "missing",
+    });
+  });
+
+  test("a manifest that no longer matches the pointer is unavailable", async () => {
+    const { checkpoint } = await commitReport();
+    objects.remove(checkpoint.manifest_ref);
+    const unversioned = createCheckpointService({
+      codecs: { [runtime.engine]: codec },
+      objectProtection: "unversioned",
+      objects,
+      store: checkpoints.store,
+      workspaceBundles: structuralBundleVerifier,
+    });
+
+    expect(await unversioned.readOutputs(sessionId)).toMatchObject({
+      status: "unavailable",
+      reason: expect.stringMatching(/revision 0 is missing, damaged/),
+    });
+    expect(
+      await unversioned.openOutput(sessionId, "out/report.md"),
+    ).toMatchObject({ status: "unavailable" });
+  });
+
+  test("an unversioned key overwritten with other bytes ends the stream with an error before its last chunk", async () => {
+    const { report } = await commitReport();
+    const unversioned = createCheckpointService({
+      codecs: { [runtime.engine]: codec },
+      objectProtection: "unversioned",
+      objects,
+      store: checkpoints.store,
+      workspaceBundles: structuralBundleVerifier,
+    });
+    // Same length, so only the digest can tell.
+    await objects.put(report.key, encode("# Report\n"));
+
+    const opened = await unversioned.openOutput(sessionId, "out/report.md");
+    expect(opened.status).toBe("ready");
+    if (opened.status !== "ready") return;
+    const received: Uint8Array[] = [];
+    const reading = (async () => {
+      for await (const chunk of opened.body) received.push(chunk);
+    })();
+    await expect(reading).rejects.toThrow(/hashing to [0-9a-f]{64}, not/);
+    expect(received).toEqual([]);
+  });
+
+  test("an unversioned key gone after the commit is unavailable", async () => {
+    const { report } = await commitReport();
+    objects.remove(report.key);
+    const unversioned = createCheckpointService({
+      codecs: { [runtime.engine]: codec },
+      objectProtection: "unversioned",
+      objects,
+      store: checkpoints.store,
+      workspaceBundles: structuralBundleVerifier,
+    });
+    expect(await unversioned.openOutput(sessionId, "out/report.md")).toEqual({
+      status: "unavailable",
+      reason: `output ${report.key} is not stored`,
+    });
   });
 });
 

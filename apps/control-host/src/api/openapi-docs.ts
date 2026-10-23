@@ -25,9 +25,12 @@ export const API_INFO_DESCRIPTION = `Private alpha session control plane. This d
 
 ## Authentication
 
-Send an API key as an HTTP bearer token, \`Bearer <key>\` (\`bearerApiKey\`), or use the browser session cookie that \`POST /v1/auth/login\` sets (\`cookieSession\`). A missing, malformed, unknown or revoked credential answers \`401 UNAUTHORIZED\`. \`/healthz\`, \`/readyz\`, \`/v1/openapi.json\`, \`/v1/auth/bootstrap\` and \`/v1/auth/login\` take no credential.
+There are two ways to call the API, and they are not interchangeable:
 
-A cookie-authenticated request with any method other than GET must also send \`X-Requested-With: ${CSRF_HEADER_VALUE}\` and must not be cross-site (\`Sec-Fetch-Site\`, \`Origin\`); otherwise it answers \`403 FORBIDDEN\`. API-key requests never need that header.
+- **Servers and scripts** send an API key as an HTTP bearer token, \`Bearer <key>\` (\`bearerApiKey\`). The key is limited to the scopes it was issued with, and it never needs the CSRF header.
+- **The web console** uses the browser session cookie that \`POST /v1/auth/login\` sets (\`cookieSession\`). What it may do follows the user's workspace role, and every request other than GET must send \`X-Requested-With: ${CSRF_HEADER_VALUE}\` and must not be cross-site (\`Sec-Fetch-Site\`, \`Origin\`); otherwise it answers \`403 FORBIDDEN\`.
+
+An API key cannot manage agents, members, teams or API keys, list or stop sessions through the administration operations, read a session outside its share or take a session over: those operations answer it \`403 FORBIDDEN\`, whatever its scopes. A missing, malformed, unknown or revoked credential answers \`401 UNAUTHORIZED\`. \`/healthz\`, \`/readyz\`, \`/v1/openapi.json\`, \`/v1/auth/bootstrap\` and \`/v1/auth/login\` take no credential.
 
 ## Scopes
 
@@ -60,9 +63,9 @@ Every error answers \`application/json\` with \`{"error": {"code", "message", "r
 
 export const SECURITY_SCHEME_DESCRIPTIONS = {
   bearerApiKey:
-    "An API key sent as an HTTP bearer token, `Bearer <key>`. It holds exactly the scopes it was issued with; a key issued before scopes existed holds none.",
+    "For servers and scripts: an API key sent as an HTTP bearer token, `Bearer <key>`. It holds exactly the scopes it was issued with; a key issued before scopes existed holds none. It never needs the CSRF header, and it cannot manage agents, members, teams or API keys.",
   cookieSession:
-    "The browser session cookie set by `POST /v1/auth/login`. It holds the scopes of the user's workspace role (`owner`: all; `member`: all but `sessions:recover`). Requests other than GET must also send `X-Requested-With: agent-platform-web`.",
+    "For the web console: the browser session cookie set by `POST /v1/auth/login`. It holds the scopes of the user's workspace role (`owner`: all; `admin` and `member`: all but `sessions:recover`). Requests other than GET must also send `X-Requested-With: agent-platform-web`.",
 } as const;
 
 export const IDEMPOTENCY_KEY_DESCRIPTION =

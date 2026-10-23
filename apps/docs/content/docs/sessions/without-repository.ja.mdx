@@ -1,0 +1,24 @@
+---
+title: "リポジトリなしのセッション"
+description: リポジトリなしで動くセッションの現状
+---
+
+<Callout type="warn">
+リポジトリなしで動くセッションは、まだ API で作成できない。`POST /v1/sessions` は `repository_id` が必須で、空の値は 400 になる。
+</Callout>
+
+実行プロファイルには、リポジトリを使うかどうかがすでに記載されている。`GET /v1/profiles` の `repository_mode` は、`required`(リポジトリ必須)、`optional`、`none`(リポジトリなし)のいずれかである。
+
+```bash
+curl -sS "$API/v1/profiles" -H "Authorization: Bearer $KEY" | jq -c '.items[] | {id, repository_mode}'
+```
+
+```text
+{"id":"claude-coding-local","repository_mode":"required"}
+```
+
+ローカルスタックのプロファイルはすべて `required` である。現時点では、セッションごとにリポジトリを 1 つ選ぶ([開始](/sessions/start))。
+
+## 次のステップ
+
+- [送信](/messages/send): セッションにメッセージを送る

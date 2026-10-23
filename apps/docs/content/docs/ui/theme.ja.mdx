@@ -1,0 +1,59 @@
+---
+title: "テーマの適用"
+description: "トークンと Tailwind の接続を import し、ダークテーマを有効にする"
+---
+
+コンポーネントの色、間隔、フォント、radius、シャドウは、すべて `--ap-` プレフィックスの付いた CSS 変数(トークン)から決まる。アプリは CSS を三つ import し、パッケージのソースを Tailwind にスキャンさせる。
+
+## CSS を取り込む
+
+[インストール](/ui/install)で作ったアプリに `src/styles.css` を作る。
+
+```css title="ui-demo/src/styles.css"
+@import "tailwindcss";
+@import "@werft-ai/ui/styles.css";
+@import "@werft-ai/ui/theme.css";
+
+@source "../../packages/ui/src";
+@source "../../packages/react/src";
+
+body {
+  margin: 0;
+  background: var(--ap-color-canvas);
+  color: var(--ap-color-foreground);
+  font-family: var(--ap-font-sans);
+}
+```
+
+| import | 役割 |
+| --- | --- |
+| `tailwindcss` | Tailwind 4 |
+| `@werft-ai/ui/styles.css` | トークン(`tokens.css`)、フォント、キット要素の基本ルール。フォント(Geist, Pretendard)はパッケージ内のファイルを使う。CDN からは取得しない |
+| `@werft-ai/ui/theme.css` | トークンを Tailwind のユーティリティにつなぐ。`bg-canvas`, `bg-primary`, `text-control`, `font-sans`, `rounded-md`, `shadow-sm` といったユーティリティクラスは、このファイルで定義される |
+
+`@source` の二行は、Tailwind が `node_modules` 配下にリンクされたパッケージのソースからクラス名を探せるようにする。Tailwind の自動検出は `node_modules` をスキップするため、Web コンソール(`apps/web/src/styles.css`)にも同じ二行がある。パスはこの CSS ファイルが基準である。
+
+## ダークテーマ
+
+トークンはライトテーマがデフォルトである。ダークテーマは二通りの方法で有効になる。
+
+- システム設定: オペレーティングシステムがダークモードなら(`prefers-color-scheme: dark`)、何もしなくてよい。
+- 手動で切り替え: `<html>` の `data-theme` を変更する。`"dark"` はシステム設定に関係なく暗く、`"light"` は明るく固定する。
+
+```ts
+document.documentElement.dataset.theme = "dark";
+```
+
+コンポーネントは Tailwind の `dark:` variant を使わない。`dark:` は `data-theme` の切り替えを検知できないため、アプリの CSS でも色を変えるときにトークン(`var(--ap-color-…)`)を使えば、どちらの方式にも追従する。
+
+## 上書き
+
+`tokens.css` と `styles.css` のルールは `@layer ap` の中にあり、この layer は Tailwind の `utilities` の後ろに来る。そのため、次の二つが決まる。
+
+- `ConfirmDialog`, `DestructiveActionDialog`, `EmptyState`, `ErrorState`, `Skeleton`, `StatusLabel`, `ReceiptSummary`, `ReceiptLink` は自分のクラスで描画する。これらに `className` で渡した Tailwind のユーティリティは、同じプロパティであれば適用されない。
+- layer の外に書いたアプリの CSS は、これらのルールに勝つ。見た目を変えるには、layer 外の CSS で上書きする。
+
+## 次のステップ
+
+- [セッションブロックの組み込み](/ui/session-blocks): この CSS を使う画面を描画する
+- <SiblingLink href="/storybook/">Storybook</SiblingLink>: toolbar でテーマを切り替えて、コンポーネントごとに二つのテーマを確認する

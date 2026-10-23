@@ -46,6 +46,7 @@ import {
   createPullRequestService,
   createPushExecutor,
   createPushRequestService,
+  createSessionOutputService,
   createSessionService,
   createSessionShareService,
   createTeamService,
@@ -107,6 +108,7 @@ import {
 } from "./routes/invites.ts";
 import { registerLinkedAccountRoutes } from "./routes/linked-accounts.ts";
 import { registerMemberRoutes } from "./routes/members.ts";
+import { registerSessionOutputRoutes } from "./routes/outputs.ts";
 import { registerPauseRoutes } from "./routes/pause.ts";
 import { registerPendingRoutes } from "./routes/pending.ts";
 import { registerProfileRoutes } from "./routes/profiles.ts";
@@ -242,6 +244,10 @@ const sessions = createSessionService({
   releases: agents,
   credentials: credentialBindings,
   limits,
+});
+const sessionOutputs = createSessionOutputService({
+  sessions,
+  source: checkpoints.outputs,
 });
 // The same parsed limits admission and dispatch run under, so what this
 // reports is what the gates enforce.
@@ -441,6 +447,7 @@ const app = createApiApp({
       slackGuests,
     });
     registerSessionRoutes(router, sessions);
+    registerSessionOutputRoutes(router, sessionOutputs);
     registerSessionShareRoutes(router, shares, sessions);
     registerPauseRoutes(router, sessions);
     registerCloseRoutes(router, sessions);

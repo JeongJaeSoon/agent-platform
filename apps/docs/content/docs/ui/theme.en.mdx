@@ -1,0 +1,59 @@
+---
+title: "Apply the theme"
+description: "Import the tokens and the Tailwind connection, and turn on the dark theme"
+---
+
+The colors, spacing, fonts, radii, and shadows of the components all come from CSS variables (tokens) with the `--ap-` prefix. The app imports three CSS files and makes Tailwind scan the package sources.
+
+## Import the CSS
+
+Create `src/styles.css` in the app you made in [Install](/ui/install).
+
+```css title="ui-demo/src/styles.css"
+@import "tailwindcss";
+@import "@werft-ai/ui/styles.css";
+@import "@werft-ai/ui/theme.css";
+
+@source "../../packages/ui/src";
+@source "../../packages/react/src";
+
+body {
+  margin: 0;
+  background: var(--ap-color-canvas);
+  color: var(--ap-color-foreground);
+  font-family: var(--ap-font-sans);
+}
+```
+
+| import | What it does |
+| --- | --- |
+| `tailwindcss` | Tailwind 4 |
+| `@werft-ai/ui/styles.css` | The tokens (`tokens.css`), the fonts, and the default rules for the kit's elements. The fonts (Geist, Pretendard) use files inside the package. They are not fetched from a CDN |
+| `@werft-ai/ui/theme.css` | Connects the tokens to Tailwind utilities. Names such as `bg-canvas`, `bg-primary`, `text-control`, `font-sans`, `rounded-md`, and `shadow-sm` come from here |
+
+The two `@source` lines make Tailwind look for class names in the package sources linked under `node_modules`. Tailwind's automatic detection skips `node_modules`, so the web console (`apps/web/src/styles.css`) has the same two lines. The paths are relative to this CSS file.
+
+## Dark theme
+
+The tokens default to the light theme. The dark theme turns on in two ways.
+
+- System setting: if the operating system is in dark mode (`prefers-color-scheme: dark`), there is nothing to do.
+- Manual switch: change `data-theme` on `<html>`. `"dark"` forces dark regardless of the system setting, and `"light"` forces light.
+
+```ts
+document.documentElement.dataset.theme = "dark";
+```
+
+The components do not use Tailwind's `dark:` variant. `dark:` cannot see the `data-theme` switch, so if the app's own CSS also uses tokens (`var(--ap-color-…)`) for its colors, it follows both the system setting and the `data-theme` switch.
+
+## Overriding
+
+The rules in `tokens.css` and `styles.css` live inside `@layer ap`, and this layer comes after Tailwind's `utilities`. That settles two things.
+
+- `ConfirmDialog`, `DestructiveActionDialog`, `EmptyState`, `ErrorState`, `Skeleton`, `StatusLabel`, `ReceiptSummary`, and `ReceiptLink` render with their own classes. A Tailwind utility passed to them through `className` does not apply if it sets the same property.
+- The app's CSS written outside the layer wins over these rules. To change the look, override it with CSS outside the layer.
+
+## Next steps
+
+- [Add session blocks](/ui/session-blocks): render a screen that uses this CSS
+- <SiblingLink href="/storybook/">Storybook</SiblingLink>: switch the theme in the toolbar to see both themes for each component

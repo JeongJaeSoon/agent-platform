@@ -1,0 +1,30 @@
+import { Hexagon, type LucideIcon, Play, Receipt, Square } from "lucide-react";
+import type { JSX } from "react";
+
+import type { StatusAxis } from "./vocabulary.ts";
+
+/*
+ * Every axis gets its own silhouette, so two labels that happen to share a tone
+ * are still told apart without reading the colour (§4.1, §6 dual encoding).
+ */
+const SHAPE: Record<StatusAxis, LucideIcon> = {
+  admission: Square,
+  turn: Play,
+  receipt: Receipt,
+  execution: Hexagon,
+};
+
+export function AxisIcon({ axis }: { axis: StatusAxis }): JSX.Element {
+  const Shape = SHAPE[axis];
+  return (
+    <Shape
+      className="ap-status__icon"
+      size={12}
+      strokeWidth={1.25}
+      absoluteStrokeWidth
+      fill={axis === "turn" ? "currentColor" : "none"}
+      aria-hidden="true"
+      focusable="false"
+    />
+  );
+}

@@ -3,19 +3,28 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "sideEffects": [
+    "*.css"
+  ],
   "exports": {
     ".": "./src/index.ts",
-    "./tokens.css": "./src/tokens.css",
-    "./styles.css": "./src/styles.css",
-    "./theme.css": "./src/theme.css",
-    "./test-support/dom": "./src/test-support/dom.ts"
+    "./primitives": "./src/primitives/index.ts",
+    "./patterns": "./src/patterns/index.ts",
+    "./tokens.css": "./src/foundations/tokens.css",
+    "./styles.css": "./src/foundations/styles.css",
+    "./theme.css": "./src/foundations/theme.css",
+    "./test-support/dom": "./src/test-support/dom.ts",
+    "./test-support/html": "./src/test-support/html.ts"
   },
   "scripts": {
     "demo": "bun --bun vite --config src/__fixtures__/vite.config.ts",
     "typecheck": "tsc -p tsconfig.json"
   },
+  "peerDependencies": {
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
   "dependencies": {
-    "@werft-ai/contracts": "workspace:*",
     "@radix-ui/react-checkbox": "1.3.11",
     "@radix-ui/react-dialog": "^1.1.23",
     "@radix-ui/react-radio-group": "1.4.7",
@@ -23,8 +32,7 @@
     "@radix-ui/react-tabs": "1.1.21",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "react": "^19.3.0",
-    "react-dom": "^19.3.0",
+    "lucide-react": "1.53.0",
     "tailwind-merge": "^3.5.0"
   },
   "devDependencies": {
@@ -35,6 +43,9 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "5.2.0",
+    "pretendard": "1.3.9",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
     "tailwindcss": "4.3.3",
     "vite": "7.3.7"
   }

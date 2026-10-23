@@ -1,0 +1,231 @@
+---
+title: "TypeScript SDK"
+description: "@werft-ai/sdk로 세션을 만들고, 권한 요청에 답하고, 닫는다"
+---
+
+`@werft-ai/sdk`는 서버와 스크립트에서 Werft API를 부르는 TypeScript 클라이언트다. API key로 세션을 다룬다. HTTP API의 규칙(scope, Idempotency-Key, 오류 코드, 이벤트 스트림)을 그대로 따르고, 재시도·key 생성·turn 대기를 대신 해 준다. Node 20 이상과 Bun에서 돈다.
+
+<Callout type="warn">
+SDK는 npm에 올라가 있지 않다. 이 저장소의 workspace 패키지(`packages/sdk`, 버전 0.x)라서 저장소 안의 스크립트에서만 `@werft-ai/sdk`로 가져올 수 있다.
+</Callout>
+
+## 준비
+
+[설치](/getting-started/install)대로 띄운 스택과 [Quickstart](/getting-started/quickstart)의 `API`와 `KEY`를 쓴다. 스택은 `--fake-model`로 띄운다. 아래 스크립트의 `GATE-SPEC {…}` 메시지는 fake 모델이 읽는 대본이라, 실제 Claude 스택에서는 같은 도구 호출과 출력이 나오지 않는다. 저장소 루트에서 의존성을 설치한다.
+
+```sh
+bun install
+```
+
+key에는 아래 스크립트가 쓰는 `sessions:read`, `sessions:write`, `sessions:approve`, `sessions:control`이 필요하다. 클라이언트는 `WERFT_BASE_URL`과 `WERFT_API_KEY` 환경 변수를 읽는다.
+
+## 첫 스크립트
+
+세션을 만들고, 파일을 쓰려는 권한 요청에 답하고, turn이 끝나면 세션을 닫는다. 저장소 루트에 저장한다.
+
+```ts title="werft-first.ts"
+import {
+  closeResult,
+  type PendingRequestHandlers,
+  Werft,
+  waitForReceipt,
+  waitForTurn,
+} from "@werft-ai/sdk";
+
+const werft = new Werft();
+const signal = AbortSignal.timeout(5 * 60_000);
+const COMMAND = "echo alpha > hello.txt";
+
+// The handler decides what runs: allow the exact command, deny everything else.
+const approvals: PendingRequestHandlers = {
+  permission(request) {
+    const command = (request.input as { command?: unknown } | null)?.command;
+    if (request.tool === "Bash" && command === COMMAND)
+      return { decision: "allow" };
+    return { decision: "deny", reason: `This script only allows: ${COMMAND}` };
+  },
+};
+
+const created = await werft.sessions.create(
+  {
+    profile_id: "claude-coding-local",
+    repository_id: "sample-app",
+    message: `GATE-SPEC ${JSON.stringify({
+      id: "sdk-first",
+      steps: [
+        {
+          tool: "Bash",
+          input: { command: COMMAND, description: "write hello.txt" },
+        },
+      ],
+      final: "wrote hello.txt",
+    })}`,
+  },
+  { signal },
+);
+console.log(`created: turn ${created.turn_id} ${created.status}`);
+
+const turn = await waitForTurn(werft, created.session_id, created.turn_id, {
+  signal,
+  onRequest: approvals,
+  onAnswer: (outcome) => console.log(`answered: ${outcome.outcome}`),
+});
+console.log(`turn ${turn.turn_id}: ${turn.status}`);
+
+const { revision } = await werft.sessions.get(created.session_id, { signal });
+const accepted = await werft.sessions.close(
+  created.session_id,
+  { expected_revision: revision, reason: "script finished" },
+  { signal },
+);
+const receipt = await waitForReceipt(werft, accepted.receipt_id, { signal });
+console.log(`close: ${receipt.status}`, closeResult(receipt));
+```
+
+```bash
+WERFT_BASE_URL="$API" WERFT_API_KEY="$KEY" bun werft-first.ts
+```
+
+```text
+created: turn 1 queued
+answered: accepted
+turn 1: completed
+close: succeeded {
+  checkpoint_revision: 0,
+  cancelled_turn_count: 0,
+  resulting_admission_state: "closed",
+}
+```
+
+- `sessions.create`와 `messages.send`처럼 `Idempotency-Key`가 필요한 명령은 SDK가 호출마다 key를 하나 만들고, 그 호출의 재시도에 같은 key를 보낸다.
+- `waitForTurn`은 turn의 `status`가 끝난 값이 될 때까지 2초마다 확인하고, 그사이 생긴 권한 요청과 질문을 handler에 넘긴다. handler가 `undefined`를 돌려주거나 그 종류의 handler가 없으면 요청을 열어 두고 사람에게 맡긴다.
+- `failed`도 오류가 아니라 `turn.status` 값이다. 일이 됐는지는 이벤트의 `assistant`와 `tool_result`로 판단한다.
+- `expected_revision`은 호출하는 쪽이 넘긴다. SDK는 대신 읽어 채우지 않고, `REVISION_CONFLICT`를 받아도 다시 보내지 않는다.
+
+## 이벤트와 오류
+
+이벤트 스트림은 `for await`로 읽는다. 스트림은 turn이 끝나도 닫히지 않으므로 `signal`이나 `stream.close()`로 끝낸다. 서버 오류는 `APIError`이고 `isApiError(error, code)`로 가른다.
+
+```ts title="werft-events.ts"
+import { isApiError, Werft, waitForTurn } from "@werft-ai/sdk";
+
+const werft = new Werft();
+const created = await werft.sessions.create({
+  profile_id: "claude-coding-local",
+  repository_id: "sample-app",
+  message:
+    'GATE-SPEC {"id":"sdk-events","steps":[],"final":"hello from the SDK"}',
+});
+await waitForTurn(werft, created.session_id, created.turn_id, {
+  signal: AbortSignal.timeout(60_000),
+});
+
+const stream = werft.sessions.events.stream(created.session_id);
+for await (const event of stream) {
+  if (event.kind === "assistant") {
+    const message = (
+      event.payload as {
+        message?: { content?: { type: string; text?: string }[] };
+      }
+    ).message;
+    console.log(message?.content?.find((block) => block.type === "text")?.text);
+  }
+  if (event.kind === "result") break;
+}
+stream.close();
+console.log(`resume from: ${stream.lastEventId ? "saved" : "none"}`);
+
+const { revision } = await werft.sessions.get(created.session_id);
+try {
+  await werft.sessions.pause(created.session_id, {
+    expected_revision: revision + 1,
+  });
+} catch (error) {
+  if (isApiError(error, "REVISION_CONFLICT"))
+    console.log(`${error.status} ${error.code}`);
+  else throw error;
+}
+```
+
+```bash
+WERFT_BASE_URL="$API" WERFT_API_KEY="$KEY" bun werft-events.ts
+```
+
+```text
+hello from the SDK
+resume from: saved
+409 REVISION_CONFLICT
+```
+
+`stream.lastEventId`를 저장해 두었다가 `stream(sessionId, { lastEventId })`로 열면 그다음 이벤트부터 받는다.
+
+| 오류 | 언제 |
+| --- | --- |
+| `APIError` | 서버가 오류로 답했다. `status`, `code`, `retryable`, `requestId`, `details` |
+| `ConnectionError` | 응답을 읽지 못했다. 명령이 실행됐는지 모른다 |
+| `TimeoutError` | 한 번의 시도가 `timeoutMs`(기본 60초)를 넘었다 |
+| `AbortedError` | 넘긴 `signal`이 abort했다 |
+| `TurnBlockedError` | `waitForTurn`에서, 세션이 `paused`·`stopped`·`recovery_required`·`closed`라 turn이 스스로 끝나지 않는다 |
+
+## 재시도
+
+- 다시 보내는 경우: 오류 본문이 `retryable: true`일 때(429 포함), 프록시가 낸 502·504, 응답을 읽지 못한 연결 실패와 시도 timeout. 프록시 502·504(API 오류 본문이 없는 것)와 연결 실패·timeout은 GET과 `Idempotency-Key`가 있는 명령만 다시 보낸다. key가 없는 `openPullRequest`·`commentPullRequest`는 서버가 이미 실행했을 수 있어 이 경우에는 다시 보내지 않는다. 오류 본문에 `retryable: true`가 있으면 명령 종류와 관계없이 요청을 다시 보낸다.
+- 다시 보내지 않는 경우: 409 전부, 500, `retryable: true`가 아닌 그 밖의 4xx.
+- `Retry-After`가 있으면 그만큼 기다린다. `maxRetryDelayMs`(기본 60초)를 넘으면 기다리지 않고 실패한다.
+- 프로세스를 다시 띄운 뒤 같은 명령을 이어서 재시도하려면 오류의 `idempotencyKey`를 저장해 두고 `{ idempotencyKey }`로 넘긴다.
+
+## 클라이언트 옵션
+
+```ts
+const werft = new Werft({
+  baseUrl: "https://agents.example.com",
+  apiKey,
+  maxRetries: 2,
+  timeoutMs: 60_000,
+});
+const approver = werft.withOptions({ apiKey: approverKey });
+```
+
+- key는 `Authorization` 헤더로만 보낸다. 오류 메시지나 `console.log`에는 나오지 않는다.
+- 브라우저(`window`가 있는 곳)에서는 만들 수 없다. 페이지에 key를 두면 새기 때문이다. `dangerouslyAllowBrowser: true`로만 푼다.
+- loopback이 아닌 주소로 가는 `http://`는 거절한다. `allowInsecureHttp: true`로만 푼다.
+- 승인용 key를 따로 쓰려면 `withOptions`로 두 번째 클라이언트를 만든다.
+
+## 감싸는 API
+
+| 메서드 | API |
+| --- | --- |
+| `sessions.create` · `get` · `list` · `usage` · `share` | 세션 만들기·읽기·목록·사용량·공유 |
+| `sessions.messages.send` | 메시지 보내기 |
+| `sessions.turns.get` · `list` | turn 읽기 |
+| `sessions.events.stream` | 이벤트 스트림 |
+| `sessions.requests.list` · `answer` | 권한 요청과 질문 |
+| `sessions.interrupt` · `pause` · `resume` · `terminate` · `close` · `changeProfile` | 제어 |
+| `sessions.recoveryDecisions.create` | 복구 결정 |
+| `sessions.pushRequests.create` · `list` · `get` · `decide` · `openPullRequest` · `commentPullRequest` | [push 승인](/approvals/request)과 PR |
+| `receipts.get`, `auth.me`, `limits.get`, `profiles.list`, `root.get` | receipt, 내 정보, 한도, 프로필, 상태 |
+
+`sessions.list`와 `turns.list`는 `await`하면 첫 페이지, `for await`하면 모든 항목을 준다. 필드 이름은 API와 같은 snake_case다. 에이전트·멤버·key 관리처럼 웹 로그인으로만 부르는 API는 감싸지 않는다.
+
+## 저장소의 예제
+
+`packages/sdk/examples/session-close.ts`는 세션 생성, 이벤트를 받으며 turn 대기, 권한 요청 허락, close, 닫힌 뒤의 메시지 거절까지 한 번에 돈다.
+
+```bash
+WERFT_BASE_URL="$API" WERFT_API_KEY="$KEY" bun packages/sdk/examples/session-close.ts | tail -7
+```
+
+```text
+close: receipt succeeded {
+  checkpoint_revision: 1,
+  cancelled_turn_count: 0,
+  resulting_admission_state: "closed",
+}
+session …: admission closed, status stopped
+message after close: 409 SESSION_CLOSED
+```
+
+## 다음 단계
+
+- [Quickstart](/getting-started/quickstart): 같은 흐름을 curl로
+- [승인 대기와 재개](/sessions/waiting-and-resume): handler가 답하는 요청의 종류

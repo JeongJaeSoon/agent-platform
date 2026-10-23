@@ -1,0 +1,130 @@
+---
+title: "First session"
+description: Answer a permission request, send follow-up messages, and close the session
+---
+
+This guide walks you through one session from start to finish. The agent asks for permission before writing a file, a person allows it, a follow-up message continues in the same working tree, and finally you close the session. Use the `API` and `KEY` you created in the [Quickstart](/getting-started/quickstart) in the same terminal.
+
+## Create a session that writes a file
+
+This script writes `hello.txt` with Bash. The local profile asks for permission before a command that changes files.
+
+```bash
+created=$(curl -sS "$API/v1/sessions" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg m 'GATE-SPEC {"id":"first","steps":[{"tool":"Bash","input":{"command":"echo alpha > hello.txt","description":"write hello.txt"}}],"final":"wrote hello.txt"}' \
+    '{profile_id: "claude-coding-local", repository_id: "sample-app", message: $m}')")
+SID=$(echo "$created" | jq -r .session_id)
+echo "$SID"
+```
+
+Building the body with `jq -nc --arg` means you do not have to escape the quotes inside the message by hand.
+
+## Wait for the permission request
+
+When the session asks for permission and stops, `status` becomes `needs_input`.
+
+```bash
+until [ "$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq -r .status)" = needs_input ]; do
+  sleep 2
+done
+curl -sS "$API/v1/sessions/$SID/pending-requests" -H "Authorization: Bearer $KEY" \
+  | jq '.items[] | {request_id, kind, tool, command: .input.command}'
+```
+
+```text
+{
+  "request_id": "req_…",
+  "kind": "permission",
+  "tool": "Bash",
+  "command": "echo alpha > hello.txt"
+}
+```
+
+## Allow it
+
+```bash
+REQ=$(curl -sS "$API/v1/sessions/$SID/pending-requests" -H "Authorization: Bearer $KEY" | jq -r '.items[0].request_id')
+curl -sS "$API/v1/sessions/$SID/answers" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg r "$REQ" '{request_id: $r, kind: "permission", decision: "allow"}')" \
+  | jq '{receipt_status, approval: .approval.surface}'
+until [ "$(curl -sS "$API/v1/sessions/$SID/turns/1" -H "Authorization: Bearer $KEY" | jq -r .status)" = completed ]; do
+  sleep 2
+done
+```
+
+```text
+{
+  "receipt_status": "accepted",
+  "approval": "api"
+}
+```
+
+To deny, send `"decision": "deny"` and a `"reason"`. A request that is not answered ends as denied after 30 minutes. Details are in [Waiting for approval and resuming](/sessions/waiting-and-resume).
+
+## Send a follow-up
+
+Sending a message to the same session becomes the next turn. The worker continues with the same working tree and the same Claude Code conversation. Read commands do not ask for permission.
+
+```bash
+curl -sS "$API/v1/sessions/$SID/messages" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg m 'GATE-SPEC {"id":"second","steps":[{"tool":"Bash","input":{"command":"cat hello.txt","description":"read hello.txt"}}],"final":"read it"}' '{message: $m}')" \
+  | jq '{turn_id, receipt_status}'
+until [ "$(curl -sS "$API/v1/sessions/$SID/turns/2" -H "Authorization: Bearer $KEY" | jq -r .status)" = completed ]; do
+  sleep 2
+done
+curl -sS "$API/v1/sessions/$SID/turns" -H "Authorization: Bearer $KEY" | jq -c '.items[] | {turn_id, status}'
+```
+
+```text
+{
+  "turn_id": "2",
+  "receipt_status": "accepted"
+}
+{"turn_id":"1","status":"completed"}
+{"turn_id":"2","status":"completed"}
+```
+
+## Close
+
+Close a session when its work is done. The running turn finishes, a checkpoint is saved, and then the session enters the `closed` state. Send the session's current `revision` as `expected_revision` in control requests.
+
+```bash
+REV=$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq .revision)
+curl -sS "$API/v1/sessions/$SID/close" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --argjson r "$REV" '{expected_revision: $r, reason: "first session done"}')" \
+  | jq '{receipt_status}'
+until [ "$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq -r .admission_state)" = closed ]; do
+  sleep 2
+done
+curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq '{status, admission_state}'
+```
+
+```text
+{
+  "receipt_status": "accepted"
+}
+{
+  "status": "stopped",
+  "admission_state": "closed"
+}
+```
+
+You cannot send more messages to a closed session (409 `SESSION_CLOSED`).
+
+## Next steps
+
+- [Start](/sessions/start): Fields and errors of the session creation request
+- [Status and lifecycle](/sessions/lifecycle): What `status` and `admission_state` mean
+- [Create](/agents/create): Define an agent and bind it to a session

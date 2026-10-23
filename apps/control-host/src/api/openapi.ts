@@ -71,6 +71,7 @@ import {
   listPendingRequestsResponseSchema,
   listProfilesResponseSchema,
   listPushRequestsResponseSchema,
+  listSessionOutputsResponseSchema,
   listSessionsQuerySchema,
   listSessionsResponseSchema,
   listTakeoversResponseSchema,
@@ -106,6 +107,7 @@ import {
   sessionCredentialUnboundDetailsSchema,
   sessionDurabilitySchema,
   sessionIdParamsSchema,
+  sessionOutputParamsSchema,
   sessionShareSchema,
   sessionSummarySchema,
   sessionUsageResponseSchema,
@@ -247,6 +249,7 @@ const responseComponents = {
   AuthMeResponse: authMeResponseSchema,
   InstallationLimitsResponse: installationLimitsResponseSchema,
   SessionUsageResponse: sessionUsageResponseSchema,
+  ListSessionOutputsResponse: listSessionOutputsResponseSchema,
   ListAgentsResponse: listAgentsResponseSchema,
   ListProfilesResponse: listProfilesResponseSchema,
   AgentDetail: agentDetailSchema,
@@ -282,7 +285,8 @@ export const OPENAPI_TAGS = [
   },
   {
     name: "Auth",
-    description: "Discover the API and manage authenticated browser sessions.",
+    description:
+      "Discover the API, sign in (including by redeeming an invite) and manage authenticated browser sessions.",
   },
   {
     name: "Sessions",
@@ -312,12 +316,18 @@ export const OPENAPI_TAGS = [
   },
   {
     name: "Recovery",
-    description: "Resolve sessions that require an operator recovery decision.",
+    description:
+      "Resolve sessions that require an operator recovery decision. The requester's own decision also takes an API key with `sessions:recover`.",
+  },
+  {
+    name: "Admin",
+    description:
+      "See and stop every session of the workspace, read a session outside its share with an audited reason, decide recovery for any session, and take over the sessions of members who were offboarded. Owners and admins, signed in; only an owner decides recovery. Every operation here refuses an API key except the recovery decision, which also takes a key holding `sessions:recover`, but only for sessions the key can already see.",
   },
   {
     name: "Members",
     description:
-      "Invite people, change member roles and take over the sessions of members who were offboarded. Owners and admins, from a browser session; only an owner grants or changes the owner role.",
+      "Invite people, change member roles and issue password reset links. Owners and admins, from a browser session; only an owner grants or changes the owner role or issues a password reset link.",
   },
   {
     name: "Teams",
@@ -356,6 +366,29 @@ type ComponentName =
 
 type ApiTagName = (typeof OPENAPI_TAGS)[number]["name"];
 
+// Scalar renders these as the sections of the reference sidebar.
+export const OPENAPI_TAG_GROUPS = [
+  { name: "Getting started", tags: ["Auth", "API keys"] },
+  { name: "Agents", tags: ["Agents"] },
+  {
+    name: "Sessions",
+    tags: [
+      "Sessions",
+      "Messages & turns",
+      "Events",
+      "Pending requests",
+      "Session control",
+      "Push requests",
+    ],
+  },
+  {
+    name: "Workspace management",
+    tags: ["Members", "Teams", "Linked accounts", "Workspace settings"],
+  },
+  { name: "Administration", tags: ["Admin", "Recovery"] },
+  { name: "Operations", tags: ["Health", "Limits & receipts"] },
+] as const satisfies readonly { name: string; tags: readonly ApiTagName[] }[];
+
 export type RouteDeclaration = {
   method: "get" | "post" | "patch" | "delete";
   path: string;
@@ -385,6 +418,8 @@ export type RouteDeclaration = {
         // Parsed with `schema` by openapi.test.ts.
         example?: unknown;
       }
+    // A file download: the body is the file's bytes, not JSON.
+    | { status: 200; download: true; description: string }
     | { status: 204; description?: string };
   errors: number[];
   errorCodes?: Partial<Record<number, readonly ApiErrorCode[]>>;
@@ -727,7 +762,7 @@ export const API_ROUTE_DECLARATIONS = [
     method: "post",
     path: "/v1/workspaces/{id}/members/{userId}/password-reset",
     operationId: "issuePasswordReset",
-    tag: "Auth",
+    tag: "Members",
     summary: "Issue a one-time password reset link for a member (owner only)",
     description:
       "Requires the issuer's current password, counted against the issuer's login failure window. An owner cannot issue a link for themselves, nor for a member who owns another workspace. The token is returned once and expires in one hour; issuing another revokes the member's open link. Writes an `issue_password_reset` receipt whose result names the target's role.",
@@ -843,7 +878,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Sessions",
     summary: "Durably accept a session and its first input",
     description:
-      "Creates a session for a catalog profile and repository and queues `message` as turn `1`. The 201 means the input is stored, not that it ran: follow the turn with `GET /v1/sessions/{id}/turns/{turn_id}` or the event stream. `model` picks one of the models the profile offers (its `model` or `models` in the catalog); omitted, the profile's default runs. The model stays until the session's profile is changed (`POST /v1/sessions/{id}/profile`), which runs the new profile's default. A session waits in `queued` while no execution slot is free; it is never refused for that. `agent_release_id` pins the session to that release of an agent, so a key bound to the agent may create it; `profile_id` must be the release's runtime profile (409 RELEASE_PROFILE_MISMATCH). The run itself follows `profile_id`. Every credential the release names must still be bound to its agent; otherwise 409 CREDENTIAL_UNBOUND, whose `details` carry the guidance to show the requester and the agent's admins to ask (`SessionCredentialUnboundDetails`), never the missing names. The receipt settles with turn `1`: `succeeded` when it completes, `failed` when it fails or is interrupted or cancelled, `unknown` when its outcome is unknown.",
+      "Creates a session for a catalog profile and repository and queues `message` as turn `1`. Whether `repository_id` is sent follows the profile's `repository_mode` (`GET /v1/profiles`): `required` needs it, `none` refuses it, `optional` takes either; a session created without one starts in an empty workspace, has no repository to push to (`POST /v1/sessions/{id}/push-requests` answers 409 PUSH_SOURCE_MISSING) and its detail's `repository_id` is null. The 201 means the input is stored, not that it ran: follow the turn with `GET /v1/sessions/{id}/turns/{turn_id}` or the event stream. `model` picks one of the models the profile offers (its `model` or `models` in the catalog); omitted, the profile's default runs. The model stays until the session's profile is changed (`POST /v1/sessions/{id}/profile`), which runs the new profile's default. A session waits in `queued` while no execution slot is free; it is never refused for that. `agent_release_id` pins the session to that release of an agent, so a key bound to the agent may create it; `profile_id` must be the release's runtime profile (409 RELEASE_PROFILE_MISMATCH). The run itself follows `profile_id`. Every credential the release names must still be bound to its agent; otherwise 409 CREDENTIAL_UNBOUND, whose `details` carry the guidance to show the requester and the agent's admins to ask (`SessionCredentialUnboundDetails`), never the missing names. The receipt settles with turn `1`: `succeeded` when it completes, `failed` when it fails or is interrupted or cancelled, `unknown` when its outcome is unknown.",
     scope: "write",
     body: "CreateSessionRequest",
     requestExample: {
@@ -876,7 +911,7 @@ export const API_ROUTE_DECLARATIONS = [
     },
     errorNotes: {
       UNSUPPORTED_CAPABILITY:
-        "`profile_id` or `repository_id` is not in the catalog, the catalog does not allow the pair, or the profile does not offer `model`.",
+        "`profile_id` or `repository_id` is not in the catalog, the catalog does not allow the pair, the profile does not offer `model`, `repository_id` is missing for a profile whose `repository_mode` is `required` (`Profile <id> needs a repository: send repository_id`), or sent for one whose `repository_mode` is `none` (`Profile <id> runs without a repository: omit repository_id`).",
       RATE_LIMITED:
         "Reserved here: the per-session input queue limit applies to later messages, not to the first, so this operation does not currently return it.",
     },
@@ -970,7 +1005,7 @@ export const API_ROUTE_DECLARATIONS = [
     method: "post",
     path: "/v1/sessions/{id}/audit-read",
     operationId: "auditReadSession",
-    tag: "Sessions",
+    tag: "Admin",
     summary: "Read a session outside its share, with a reason",
     description:
       "Owners and admins. The session detail and a page of its turns, whatever the share; nothing on the session changes and no other action is opened by it. Every read is recorded with its `justification`.",
@@ -984,7 +1019,7 @@ export const API_ROUTE_DECLARATIONS = [
     method: "get",
     path: "/v1/admin/sessions",
     operationId: "listAdminSessions",
-    tag: "Sessions",
+    tag: "Admin",
     summary: "Every session of the workspace, metadata only",
     description:
       "Owners and admins. Who made each session, its agent release, state and share scope, newest first; no content, title or summary.",
@@ -996,7 +1031,7 @@ export const API_ROUTE_DECLARATIONS = [
     method: "post",
     path: "/v1/admin/sessions/{id}/terminate",
     operationId: "adminTerminateSession",
-    tag: "Session control",
+    tag: "Admin",
     summary: "Stop any session of the workspace, with a reason",
     description:
       "Owners and admins, whatever the session's share. The `justification` is recorded with the decision and becomes the stop reason. Otherwise as `POST /v1/sessions/{id}/terminate`.",
@@ -1020,7 +1055,7 @@ export const API_ROUTE_DECLARATIONS = [
     method: "post",
     path: "/v1/admin/sessions/{id}/recovery-decisions",
     operationId: "adminDecideSessionRecovery",
-    tag: "Recovery",
+    tag: "Admin",
     summary: "Decide recovery for any session of the workspace",
     description:
       "Owners only, whatever the session's share. The decision's `reason` is the justification, recorded with the decision. Otherwise as `POST /v1/sessions/{id}/recovery-decisions`.",
@@ -1078,6 +1113,69 @@ export const API_ROUTE_DECLARATIONS = [
       },
     },
     errors: [401, 404, 503],
+  },
+  {
+    method: "get",
+    path: "/v1/sessions/{id}/outputs",
+    operationId: "listSessionOutputs",
+    tag: "Sessions",
+    summary: "Files the session left under out/ at its latest checkpoint",
+    description:
+      "Lists the files under the workspace's `out/` directory as the session's latest committed checkpoint recorded them: `path` (relative to the workspace, starting with `out/`), `bytes` and `sha256`. A file over the output limits is listed with `omitted: too_large` and `sha256: null`; its bytes were not kept, so it cannot be downloaded. A file written after the latest checkpoint is not listed until the next one commits. A session with no committed checkpoint answers an empty list with `checkpoint_revision: null`. Download a listed file with `GET /v1/sessions/{id}/outputs/{path}`. Reading changes nothing.",
+    scope: "read",
+    success: {
+      status: 200,
+      schema: "ListSessionOutputsResponse",
+      description: "The outputs of the session's latest committed checkpoint.",
+      example: {
+        session_id: EXAMPLE_SESSION_ID,
+        checkpoint_revision: 2,
+        items: [
+          {
+            path: "out/report.md",
+            bytes: 2048,
+            sha256:
+              "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+            omitted: null,
+          },
+          {
+            path: "out/recording.mp4",
+            bytes: 734003200,
+            sha256: null,
+            omitted: "too_large",
+          },
+        ],
+      },
+    },
+    errors: [401, 404, 409, 503],
+    errorCodes: { 409: ["CHECKPOINT_UNAVAILABLE"] },
+    errorNotes: {
+      CHECKPOINT_UNAVAILABLE:
+        "The latest checkpoint's manifest is missing, damaged or unreadable; `message` names it.",
+    },
+  },
+  {
+    method: "get",
+    path: "/v1/sessions/{id}/outputs/{path}",
+    operationId: "downloadSessionOutput",
+    tag: "Sessions",
+    summary: "Download one file the session left under out/",
+    description:
+      "Streams one file that `GET /v1/sessions/{id}/outputs` lists, as `application/octet-stream` with `Content-Disposition: attachment` and `X-Content-Type-Options: nosniff`. `{path}` is the listed `path` exactly, percent-encoded as one path segment (`out/report.md` is `out%2Freport.md`). The bytes are the ones the checkpoint verified; if the store no longer holds them the transfer ends early with an error rather than completing with other bytes, so check the length (or `sha256`) of what arrived. A path the list does not name, a file listed with `omitted`, or a session with no committed checkpoint answers 404.",
+    scope: "read",
+    success: {
+      status: 200,
+      download: true,
+      description: "The file's bytes.",
+    },
+    errors: [401, 404, 409, 503],
+    errorCodes: { 409: ["CHECKPOINT_UNAVAILABLE"] },
+    errorNotes: {
+      NOT_FOUND:
+        "Also when the path is not listed, is listed as `omitted`, or the session has no committed checkpoint.",
+      CHECKPOINT_UNAVAILABLE:
+        "The latest checkpoint's manifest or this file's stored object is missing, damaged or unreadable; `message` names it.",
+    },
   },
   {
     method: "post",
@@ -1665,7 +1763,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Session control",
     summary: "Run the session's next turns on another profile",
     description:
-      "Moves an `active`, `paused` or `stopped` session onto `profile_id`, a profile this host's catalog allows with the session's repository. It takes effect at the next turn that starts: a turn running now finishes on the profile it started with, and its worker then leaves so the next one claims the new profile and restores the session's checkpoint, conversation included. The session then runs the new profile's default `model`, whatever `model` it was created with. Earlier turns keep their record and cost; each turn's `attempts[].profile_id` says what it ran on.\n\nThe new profile must run the same runtime kind and version, since the next worker restores checkpoints that runtime took, and must be billed the same way (`billing: none` or not), since the session's cost limit stays as it is. A session created from an agent release runs the release's profile and answers `409 RELEASE_PROFILE_MISMATCH`. The change settles in the request: the receipt is `succeeded` with result `{previous_profile_id, profile_id}`, and a `status` event on the stream carries both. Naming the profile the session already runs changes nothing and still answers `succeeded`.",
+      "Moves an `active`, `paused` or `stopped` session onto `profile_id`, a profile this host's catalog allows with the session's repository, or, for a session created without one, a profile whose `repository_mode` is `optional` or `none`. It takes effect at the next turn that starts: a turn running now finishes on the profile it started with, and its worker then leaves so the next one claims the new profile and restores the session's checkpoint, conversation included. The session then runs the new profile's default `model`, whatever `model` it was created with. Earlier turns keep their record and cost; each turn's `attempts[].profile_id` says what it ran on.\n\nThe new profile must run the same runtime kind and version, since the next worker restores checkpoints that runtime took, and must be billed the same way (`billing: none` or not), since the session's cost limit stays as it is. A session created from an agent release runs the release's profile and answers `409 RELEASE_PROFILE_MISMATCH`. The change settles in the request: the receipt is `succeeded` with result `{previous_profile_id, profile_id}`, and a `status` event on the stream carries both. Naming the profile the session already runs changes nothing and still answers `succeeded`.",
     scope: "control",
     body: "ChangeSessionProfileRequest",
     requestExample: { expected_revision: 8, profile_id: "claude-coding-fast" },
@@ -1849,7 +1947,7 @@ export const API_ROUTE_DECLARATIONS = [
     method: "post",
     path: "/v1/invites/accept",
     operationId: "acceptInvite",
-    tag: "Members",
+    tag: "Auth",
     summary: "Redeem an invite; sets the session cookie",
     description:
       "An address with no account gets one with this password. An existing account joins with its current password, which is never changed. The token is spent once; a revoked, replaced or expired token answers 410, an accepted one 409. Writes an `accept_invite` receipt.",
@@ -1948,7 +2046,7 @@ export const API_ROUTE_DECLARATIONS = [
     method: "get",
     path: "/v1/takeovers",
     operationId: "listTakeovers",
-    tag: "Members",
+    tag: "Admin",
     summary: "Sessions waiting for an owner to take them over",
     description:
       "Sessions whose requester was offboarded. Each takes no further input until an owner takes it over. API keys are refused.",
@@ -1960,7 +2058,7 @@ export const API_ROUTE_DECLARATIONS = [
     method: "post",
     path: "/v1/sessions/{id}/takeover",
     operationId: "takeOverSession",
-    tag: "Members",
+    tag: "Admin",
     summary: "Become the requester of an offboarded member's session",
     description:
       "The caller becomes the session's requester and its queued input runs again. A session shared with less than the whole workspace and not with the caller needs a `justification`, kept on the decision and the receipt; without one it answers 403 with `reason_code` `justification_required`. The body may be empty. API keys are refused.",
@@ -2412,7 +2510,7 @@ export const API_ROUTE_DECLARATIONS = [
     method: "get",
     path: "/v1/profiles",
     operationId: "listProfiles",
-    tag: "Limits & receipts",
+    tag: "Agents",
     summary: "The runtime profiles this installation can run",
     description:
       "Lists the catalog profiles a session's `profile_id` or a release's `runtime_profile_id` may name, by `id`, with the model each one runs and its `repository_mode`: whether a session of it names a repository (`required`), may (`optional`) or never does (`none`). The catalog is the operator's config, read once at startup; this reads it and changes nothing. A profile's provider endpoint and credential are not included.",
@@ -2684,6 +2782,9 @@ function paramsSchemaFor(path: string): z.ZodObject {
   if (path.startsWith("/v1/workspaces/{id}")) return workspaceParamsSchema;
   if (path.includes("{turn_id}")) return turnIdParamsSchema;
   if (path.includes("{push_request_id}")) return pushRequestParamsSchema;
+  if (path === "/v1/sessions/{id}/outputs/{path}") {
+    return sessionOutputParamsSchema;
+  }
   if (
     path.startsWith("/v1/sessions/{id}") ||
     path.startsWith("/v1/admin/sessions/{id}")
@@ -2785,21 +2886,46 @@ function createApiRouteConfig(route: RouteDeclaration): ApiRouteConfig {
             description: success.description ?? "No content",
             headers: responseHeaders(),
           }
-        : {
-            description:
-              success.description ?? (success.sse ? "Event stream" : "Success"),
-            headers: responseHeaders(),
-            content: success.sse
-              ? {
-                  "text/event-stream": {
-                    schema: ref(success.schema),
-                    ...(success.example === undefined
-                      ? {}
-                      : { example: success.example }),
+        : "download" in success
+          ? {
+              description: success.description,
+              headers: {
+                ...responseHeaders(),
+                "Content-Disposition": {
+                  description:
+                    "Always `attachment`, with the file's name as `filename*` (RFC 6266, UTF-8) and an ASCII `filename` fallback.",
+                  schema: { type: "string" },
+                },
+                "Content-Length": {
+                  description: "The file's size in bytes.",
+                  schema: { type: "integer" },
+                },
+              },
+              content: {
+                "application/octet-stream": {
+                  schema: {
+                    type: "string",
+                    contentMediaType: "application/octet-stream",
                   },
-                }
-              : jsonContent(success.schema, success.example),
-          },
+                },
+              },
+            }
+          : {
+              description:
+                success.description ??
+                (success.sse ? "Event stream" : "Success"),
+              headers: responseHeaders(),
+              content: success.sse
+                ? {
+                    "text/event-stream": {
+                      schema: ref(success.schema),
+                      ...(success.example === undefined
+                        ? {}
+                        : { example: success.example }),
+                    },
+                  }
+                : jsonContent(success.schema, success.example),
+            },
   };
   const errors = new Set<number>(route.errors);
   if (csrf || route.scope) errors.add(403);
@@ -2889,6 +3015,7 @@ export function buildOpenApiDocument() {
     openapi: generated.openapi,
     info: generated.info,
     tags: OPENAPI_TAGS,
+    "x-tagGroups": OPENAPI_TAG_GROUPS,
     components: {
       securitySchemes: {
         bearerApiKey: {

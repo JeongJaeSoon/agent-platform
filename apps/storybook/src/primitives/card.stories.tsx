@@ -28,7 +28,7 @@ export const Default: Story = {
           청구서 문의에 답하고 환불을 접수합니다.
         </CardDescription>
         <CardAction>
-          <Badge variant="outline">초안</Badge>
+          <Badge variant="gray">초안</Badge>
         </CardAction>
       </CardHeader>
       <CardContent>
@@ -45,12 +45,14 @@ export const Default: Story = {
   ),
 };
 
-export const Dark: Story = {
+export const DefaultDark: Story = {
   ...Default,
+  name: "Default (dark)",
   globals: { theme: "dark" },
 };
 
-export const Mobile: Story = {
+export const DefaultMobile: Story = {
   ...Default,
+  name: "Default (390px)",
   globals: { viewport: { value: "mobile390", isRotated: false } },
 };

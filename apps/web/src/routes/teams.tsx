@@ -18,6 +18,7 @@ import {
   NativeSelect,
   NativeSelectOption,
 } from "@werft-ai/ui";
+import { ArrowLeft } from "lucide-react";
 import { type FormEvent, useId, useState } from "react";
 import {
   membersQuery,
@@ -34,8 +35,6 @@ import {
 } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import {
-  LIST,
-  LIST_ITEM,
   MUTED,
   MyTeams,
   PRIMARY_LINK,
@@ -43,12 +42,12 @@ import {
   SECTION_TITLE,
 } from "../components/my-teams.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
+import { Page } from "../components/page.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
+import { RowList, RowListItem } from "../components/table.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 
-const PAGE = "flex flex-col gap-6";
-const PAGE_TITLE = "m-0 font-semibold text-xl [overflow-wrap:anywhere]";
-const FORM = "flex flex-col items-start gap-3";
+const FORM = "flex flex-col items-start gap-4";
 const NAME_FIELD = "max-w-md";
 const SECONDARY = "text-muted-foreground text-sm [overflow-wrap:anywhere]";
 
@@ -132,18 +131,14 @@ export function TeamsScreen() {
 
   if (!manages) {
     return (
-      <div className={PAGE}>
-        <h1 className={PAGE_TITLE}>{t("teams.title")}</h1>
-        <p className={MUTED}>{t("teams.intro")}</p>
+      <Page title={t("teams.title")} description={t("teams.intro")}>
         <MyTeams showEmpty />
-      </div>
+      </Page>
     );
   }
 
   return (
-    <div className={PAGE}>
-      <h1 className={PAGE_TITLE}>{t("teams.title")}</h1>
-      <p className={MUTED}>{t("teams.intro")}</p>
+    <Page title={t("teams.title")} description={t("teams.intro")}>
       <OutcomeLine outcome={outcome} />
       {failed ? null : (
         <form className={FORM} onSubmit={submit}>
@@ -169,9 +164,9 @@ export function TeamsScreen() {
         ) : teams.data.items.length === 0 ? (
           <p className={MUTED}>{t("teams.empty")}</p>
         ) : (
-          <ul className={LIST}>
+          <RowList>
             {teams.data.items.map((team) => (
-              <li key={team.id} className={LIST_ITEM}>
+              <RowListItem key={team.id}>
                 <Link
                   to="/teams/$teamId"
                   params={{ teamId: team.id }}
@@ -182,13 +177,13 @@ export function TeamsScreen() {
                 <span className={`${SECONDARY} ml-auto`}>
                   {t("teams.memberCount", { count: team.member_count })}
                 </span>
-              </li>
+              </RowListItem>
             ))}
-          </ul>
+          </RowList>
         )}
       </section>
       {isApiError(teams.error, "FORBIDDEN") ? <MyTeams showEmpty /> : null}
-    </div>
+    </Page>
   );
 }
 
@@ -202,30 +197,35 @@ function TeamPage({ id }: { readonly id: string }) {
   const { client } = useAgentPlatform();
   const team = useQuery(teamQuery(client, id));
   const [outcome, setOutcome] = useState<Outcome | null>(null);
+  // In the head's action slot, as on an agent: the title stays where every
+  // other screen has it.
+  const back = (
+    <Link
+      to="/teams"
+      className={buttonVariants({ variant: "outline", size: "sm" })}
+    >
+      <ArrowLeft className="size-3.5" aria-hidden="true" />
+      {t("teams.back")}
+    </Link>
+  );
 
+  if (team.isPending) return <StatusScreen kind="loading" />;
+  if (team.error) {
+    return (
+      <Page title={t("teams.title")} actions={back}>
+        <ListError error={team.error} onRetry={() => void team.refetch()} />
+      </Page>
+    );
+  }
   return (
-    <div className={PAGE}>
-      <p className="m-0">
-        <Link to="/teams" className={PRIMARY_LINK}>
-          {t("teams.back")}
-        </Link>
-      </p>
-      {team.isPending ? (
-        <StatusScreen kind="loading" />
-      ) : team.error ? (
-        <>
-          <h1 className={PAGE_TITLE}>{t("teams.title")}</h1>
-          <ListError error={team.error} onRetry={() => void team.refetch()} />
-        </>
-      ) : (
-        <>
-          <h1 className={PAGE_TITLE}>{team.data.name}</h1>
-          <OutcomeLine outcome={outcome} />
-          <TeamSettings team={team.data} onOutcome={setOutcome} />
-          <TeamMembers team={team.data} onOutcome={setOutcome} />
-        </>
-      )}
-    </div>
+    <Page
+      title={<span className="[overflow-wrap:anywhere]">{team.data.name}</span>}
+      actions={back}
+    >
+      <OutcomeLine outcome={outcome} />
+      <TeamSettings team={team.data} onOutcome={setOutcome} />
+      <TeamMembers team={team.data} onOutcome={setOutcome} />
+    </Page>
   );
 }
 
@@ -458,11 +458,11 @@ function TeamMembers({
       {team.members.length === 0 ? (
         <p className={MUTED}>{t("teams.noMembers")}</p>
       ) : (
-        <ul className={LIST}>
+        <RowList>
           {team.members.map((member) => {
             const name = member.display_name ?? member.email;
             return (
-              <li key={member.user_id} className={LIST_ITEM}>
+              <RowListItem key={member.user_id}>
                 <span className="font-medium [overflow-wrap:anywhere]">
                   {name}
                 </span>
@@ -483,10 +483,10 @@ function TeamMembers({
                 >
                   {t("teams.removeMember")}
                 </Button>
-              </li>
+              </RowListItem>
             );
           })}
-        </ul>
+        </RowList>
       )}
       <ConfirmDialog
         open={removing !== null}

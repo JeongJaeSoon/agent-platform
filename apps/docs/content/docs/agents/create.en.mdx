@@ -1,0 +1,146 @@
+---
+title: "Create"
+description: Define an agent, create and activate a release, and bind it to a session
+---
+
+An agent is a named definition in a workspace. The definition is a card (role, instructions, model, tools), and every edit to the card adds a new version. A release binds one version to a run profile, and the release an agent points to is its active release. When you pass a release while creating a session, that session belongs to that agent.
+
+<Callout type="warn">
+Sessions currently run with the run profile named by `profile_id`. The release's instructions and tool list are only recorded on the session and are not yet passed to the model. See [Instructions and roles](/agents/instructions-and-roles) and [Permissions](/agents/permissions) for details.
+</Callout>
+
+## In the web console
+
+The web console of the local stack is at `http://127.0.0.1:3000/`.
+
+1. The first time only, create the first owner and workspace at `/bootstrap`. The API logs the bootstrap token once when it first starts: `docker compose logs api | grep BOOTSTRAP_TOKEN=`
+2. After logging in, open "Agents" in the left sidebar and click "New" at the top right. The "New agent" screen opens with four steps: Name → What it does → Release → Turn on.
+3. In the "Name" step, enter a name. The identifier (slug) is filled in from the name, and you can change it. Click "Next".
+4. In the "What it does" step, enter the role, instructions, reply language, model, tools it may use, and blocked tools, then click "Save draft and continue". The agent is saved as a draft and version 1 is created.
+5. In the "Release" step, choose a run profile and click "Create release". The profile must use the same model as the card.
+6. In the "Turn on" step, click "Turn the agent on". New sessions now start with this release. "Do this later" leaves the agent as a draft and opens its detail screen.
+
+Owners, admins, and members can all create agents, and the person who creates one becomes that agent's administrator.
+
+## Through the API
+
+The agents API accepts only the same cookie login as the web console. Calling it with an API key returns 403.
+
+### Log in
+
+```sh
+read -rs AP_PASSWORD
+AP_COOKIE=$(curl -sS -o /dev/null -D - "$API/v1/auth/login" \
+  -H 'Content-Type: application/json' -H 'X-Requested-With: agent-platform-web' \
+  -d "$(jq -nc --arg e 'owner@example.test' --arg p "$AP_PASSWORD" '{email: $e, password: $p}')" \
+  | sed -n 's/^[Ss]et-[Cc]ookie: \(__Host-ap_session=[^;]*\).*/\1/p')
+```
+
+The login cookie has a `__Host-` name and is `Secure`, so curl's cookie jar does not store it over http. Take it from the response headers and send it in a `Cookie` header. Requests that change state need `X-Requested-With: agent-platform-web`.
+
+```bash
+WEB=(-H 'Content-Type: application/json' -H 'X-Requested-With: agent-platform-web' -H "Cookie: $AP_COOKIE")
+curl -sS "$API/v1/auth/me" "${WEB[@]}" | jq '{role: .principal.role, workspace: .workspace.slug}'
+```
+
+### Create
+
+```bash
+agent=$(curl -sS "$API/v1/agents" "${WEB[@]}" -d '{
+  "slug": "research-bot",
+  "name": "Research Bot",
+  "card": {
+    "role": "저장소를 읽고 질문에 답한다",
+    "instructions": "Answer briefly. Cite file paths.",
+    "model": "claude-sonnet-5",
+    "capabilities": { "tools": ["Read", "Grep", "Glob"], "mcp": null }
+  }
+}')
+AID=$(echo "$agent" | jq -r .agent.id)
+VID=$(echo "$agent" | jq -r '.versions[0].id')
+echo "$agent" | jq '{slug: .agent.slug, version: .versions[0].version_no, active_release_id: .agent.active_release_id}'
+```
+
+```text
+{
+  "slug": "research-bot",
+  "version": 1,
+  "active_release_id": null
+}
+```
+
+If the same workspace already has the same slug, the response is 409 `ALREADY_EXISTS`. Creating an agent alone does not activate anything.
+
+### Create a release
+
+A release binds one version to one run profile. If the card's `model` differs from the profile's model, or the card has a tool the profile does not have, the response is 422.
+
+```bash
+release=$(curl -sS "$API/v1/agents/$AID/releases" "${WEB[@]}" \
+  -d "$(jq -nc --arg v "$VID" '{version_id: $v, runtime_profile_id: "claude-coding-local"}')")
+REL=$(echo "$release" | jq -r .release.id)
+echo "$release" | jq '{id: .release.id, created, tools: .release.effective_tools.tools}'
+```
+
+```text
+{
+  "id": "sha256:…",
+  "created": true,
+  "tools": [
+    "Read",
+    "Glob",
+    "Grep"
+  ]
+}
+```
+
+The release id is a hash of the card and profile contents. Creating a release again with the same contents returns the same release with `created: false`.
+
+### Activate
+
+`expected_revision` is the agent's current `activation_revision`. It starts at `-1`. If someone changed it elsewhere first, the response is 409 `REVISION_CONFLICT`.
+
+```bash
+curl -sS "$API/v1/agents/$AID/activate" "${WEB[@]}" \
+  -d "$(jq -nc --arg r "$REL" '{release_id: $r, expected_revision: -1}')" \
+  | jq '{activation_revision, previous_release_id}'
+```
+
+```text
+{
+  "activation_revision": 0,
+  "previous_release_id": null
+}
+```
+
+## Bind to a session
+
+Put `agent_release_id` in `POST /v1/sessions`. `profile_id` must be that release's profile (otherwise 409 `RELEASE_PROFILE_MISMATCH`). The agent lives in a workspace, so the key must also be a key of that workspace. With the operator CLI, issue it with `--workspace`.
+
+```bash
+WS=$(curl -sS "$API/v1/auth/me" "${WEB[@]}" | jq -r .workspace.id)
+WS_KEY=$(scripts/local.sh key --workspace "$WS" --scopes sessions:read,sessions:write)
+curl -sS "$API/v1/sessions" \
+  -H "Authorization: Bearer $WS_KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg r "$REL" --arg m 'GATE-SPEC {"id":"agent","steps":[],"final":"hello from research-bot"}' \
+    '{profile_id: "claude-coding-local", repository_id: "sample-app", agent_release_id: $r, message: $m}')" \
+  | jq '{status, turn_id}'
+```
+
+```text
+key_id …
+{
+  "status": "queued",
+  "turn_id": "1"
+}
+```
+
+Sending with a key that is not in the workspace (for example `scripts/local.sh key quickstart …`) returns 404 because the release is not found.
+
+## Next steps
+
+- [Instructions and roles](/agents/instructions-and-roles): card fields and versions
+- [Choose a run profile](/agents/run-profiles): profiles and models
+- [Permissions](/agents/permissions): tool permissions and agent administrators

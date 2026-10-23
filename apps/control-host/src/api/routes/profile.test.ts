@@ -96,6 +96,7 @@ const record: SessionDetailRecord = {
   provider_tokens: 100,
   repo_url: "https://example.invalid/app.git",
   branch: "main",
+  repository_mode: "repository",
   profile_fingerprint: profileFingerprint(sonnet),
 };
 

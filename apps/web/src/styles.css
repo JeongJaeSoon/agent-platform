@@ -1,7 +1,6 @@
 /*
- * `@theme inline` makes a utility like `bg-canvas` resolve to
- * var(--ap-color-canvas) at runtime, so it follows the dark theme with no
- * rebuild.
+ * theme.css maps the tokens to utilities (`bg-background`, `rounded-control`…), and
+ * Tailwind's preflight makes every box border-box, so neither is repeated here.
  */
 @import "tailwindcss";
 @import "@werft-ai/ui/styles.css";
@@ -17,34 +16,9 @@
 /* biome-ignore lint/suspicious/noUnknownAtRules: a Tailwind 4 directive */
 @source "../../../packages/react/src";
 
-/*
- * Tokens with no shadcn name. Colours shadcn names (`border`, `foreground`,
- * `accent`…) come from theme.css, where `accent` is a quiet hover surface and
- * the brand colour is `primary`.
- */
-/* biome-ignore lint/suspicious/noUnknownAtRules: a Tailwind 4 directive */
-@theme inline {
-  --color-canvas: var(--ap-color-canvas);
-  --color-surface: var(--ap-color-surface);
-  --color-surface-sunken: var(--ap-color-surface-sunken);
-  --color-rail: var(--ap-color-rail);
-  --color-rail-foreground: var(--ap-color-rail-foreground);
-  --color-rail-muted-foreground: var(--ap-color-rail-muted-foreground);
-  --color-border-strong: var(--ap-color-border-strong);
-  --color-focus-ring: var(--ap-color-focus-ring);
-  --font-sans: var(--ap-font-sans);
-  --font-mono: var(--ap-font-mono);
-  --radius-sm: var(--ap-radius-sm);
-  --radius-md: var(--ap-radius-md);
-  --radius-lg: var(--ap-radius-lg);
-  --shadow-sm: var(--ap-shadow-sm);
-  --shadow-md: var(--ap-shadow-md);
-  --shadow-lg: var(--ap-shadow-lg);
-}
-
 body {
   margin: 0;
-  background: var(--ap-color-canvas);
+  background: var(--ap-color-surface);
   color: var(--ap-color-foreground);
   font-family: var(--ap-font-sans);
   font-size: var(--ap-text-label);
@@ -54,10 +28,24 @@ body {
   overflow-wrap: break-word;
 }
 
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
+/* Japanese has no spaces, so keep-all would leave a whole sentence unbroken
+   and push the page sideways; it wraps between characters instead. */
+:lang(ja) body {
+  word-break: normal;
+}
+
+/* Pretendard carries the kana and a few hundred kanji but not the rest, so a
+   single Japanese word mixed its faces. A Japanese system face goes first;
+   Hangul still falls through to Pretendard. Nothing more is downloaded. */
+:lang(ja) {
+  --ap-font-sans:
+    Geist, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI",
+    "Yu Gothic", Meiryo, "Noto Sans CJK JP", "Noto Sans JP",
+    "Pretendard Variable", Pretendard, system-ui, sans-serif;
+}
+
+[lang="ja"] {
+  font-family: var(--ap-font-sans);
 }
 
 /* Tailwind's preflight strips link styling; a link must still look like one. */
@@ -75,14 +63,6 @@ select:focus-visible,
 [tabindex]:focus-visible {
   outline: 2px solid var(--ap-color-focus-ring);
   outline-offset: 2px;
-}
-/* The light ring is too dark to see against the dark rail (WCAG 1.4.11). */
-[data-slot="app-sidebar"] :focus-visible {
-  outline-color: var(--ap-color-rail-foreground);
-}
-/* The account menu is a light card over the rail: back to the usual ring. */
-[data-slot="app-sidebar"] [role="menu"] :focus-visible {
-  outline-color: var(--ap-color-focus-ring);
 }
 
 .web-auth {
@@ -121,9 +101,9 @@ select:focus-visible,
 .web-notice {
   display: block;
   margin: 0;
-  padding: var(--ap-space-3);
+  padding: var(--ap-space-3) var(--ap-space-4);
   border: 1px solid var(--ap-tone-progress-border);
-  border-radius: var(--ap-radius-md);
+  border-radius: var(--ap-radius-card);
   background: var(--ap-tone-progress-bg);
   color: var(--ap-tone-progress-fg);
 }
@@ -131,7 +111,7 @@ select:focus-visible,
 .web-status {
   padding: var(--ap-space-4);
   border: 1px solid var(--ap-color-border);
-  border-radius: var(--ap-radius-md);
+  border-radius: var(--ap-radius-card);
   background: var(--ap-color-surface);
   display: flex;
   flex-direction: column;
@@ -148,7 +128,7 @@ select:focus-visible,
 .web-status__title {
   margin: 0;
   font-weight: var(--ap-weight-bold);
-  font-size: var(--ap-text-lg);
+  font-size: var(--ap-text-label);
   display: flex;
   align-items: center;
   gap: var(--ap-space-2);
@@ -174,7 +154,7 @@ select:focus-visible,
 }
 .web-page__title {
   margin: 0;
-  font-size: var(--ap-text-xl);
+  font-size: var(--ap-text-title);
 }
 .web-page__empty,
 .web-page__intro {
@@ -184,19 +164,16 @@ select:focus-visible,
 .web-section {
   display: flex;
   flex-direction: column;
-  gap: var(--ap-space-3);
+  gap: var(--ap-space-block);
 }
 .web-section h2 {
   margin: 0;
-  font-size: var(--ap-text-lg);
+  font-size: var(--ap-text-label);
 }
 .web-form--inline {
   max-width: none;
 }
 
-.web-table-wrap {
-  overflow-x: auto;
-}
 .web-table {
   width: 100%;
   border-collapse: collapse;
@@ -240,10 +217,11 @@ select:focus-visible,
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--ap-space-2) var(--ap-space-3);
-  padding: var(--ap-space-3);
+  gap: var(--ap-row-line-gap) var(--ap-space-3);
+  min-height: var(--ap-row-min-height);
+  padding: var(--ap-row-padding-y) var(--ap-row-padding-x);
   border: 1px solid var(--ap-color-border);
-  border-radius: var(--ap-radius-md);
+  border-radius: var(--ap-radius-card);
   background: var(--ap-color-surface);
 }
 .web-list__item > :last-child {
@@ -271,7 +249,7 @@ select:focus-visible,
   margin: 0;
   padding: var(--ap-space-3);
   border: 1px solid var(--ap-color-border);
-  border-radius: var(--ap-radius-md);
+  border-radius: var(--ap-radius-control);
   display: flex;
   flex-direction: column;
   gap: var(--ap-space-2);
@@ -280,7 +258,7 @@ select:focus-visible,
   display: inline-block;
   padding: 0 var(--ap-space-2);
   border: 1px solid var(--ap-color-border);
-  border-radius: var(--ap-radius-md);
+  border-radius: var(--ap-radius-control);
   font-size: var(--ap-text-xs);
   white-space: nowrap;
 }
@@ -306,7 +284,7 @@ select:focus-visible,
   padding: var(--ap-space-3);
   overflow-x: auto;
   border: 1px solid var(--ap-color-border);
-  border-radius: var(--ap-radius-md);
+  border-radius: var(--ap-radius-control);
   font-family: var(--ap-font-mono);
   font-size: var(--ap-text-xs);
 }
@@ -335,6 +313,6 @@ select:focus-visible,
 
 @media (min-width: 48rem) {
   .web-auth {
-    padding: var(--ap-space-10) var(--ap-space-6);
+    padding: var(--ap-space-8) var(--ap-space-6);
   }
 }

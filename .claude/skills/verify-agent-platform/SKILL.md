@@ -81,7 +81,7 @@ run, project, 이미지를 빌드한 소스(`up.sh` 때의 HEAD + 커밋하지 �
 | 스크립트 | 용도 |
 |---|---|
 | `node scripts/web-user.mjs <run id> <command> <who> …` | `bootstrap`·`bootstrap-bad-token`·`login`·`login-wrong`·`login-no-csrf`·`invite <inviter> <who> <role>`·`accept`·`key <who> <personal\|service> <scopes>`. 비밀번호·token·secret은 run 디렉터리에만 두고, 응답 본문(그 칸은 `(saved, N chars)`)과 상태 코드를 출력한다. [web-login.md](features/web-login.md) |
-| `node scripts/browser.mjs <run id> <command> …` | 이 run 전용 headless Chrome(CDP): `start`·`stop`, `open`, `login <who>`·`accept <who>`·`bootstrap <who>`, `shot`(`W`·`THEME` env), `blockshot`(오류 상태), `slowshot`(로딩 상태), `click`·`press`(포커스 후 키)·`type`·`select`·`key`·`eval`. [web-console.md](features/web-console.md) |
+| `node scripts/browser.mjs <run id> <command> …` | 이 run 전용 headless Chrome(CDP): `start`·`stop`, `open`, `login <who>`·`accept <who>`·`bootstrap <who>`, `shot`(`W`·`THEME` env), `blockshot`(오류 상태), `slowshot`(로딩 상태), `click`·`press`(포커스 후 키)·`type`·`select`·`key`·`eval`, `measure`(간격·폭·정렬 실측, `layout-report.mjs`가 v35 규칙 표로). [web-console.md](features/web-console.md) |
 
 기능별 명령과 기대 결과는 `features/*.md`에 있다. 가장 짧은 한 바퀴는 [web-login.md](features/web-login.md)다.
 

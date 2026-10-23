@@ -204,9 +204,7 @@ export function createPostgresSessionUnitOfWork(
           return unbound(input.agentReleaseId);
         }
 
-        if (input.repository === null || input.repository === "none") {
-          return { outcome: "unsupported" };
-        }
+        if (input.repository === null) return { outcome: "unsupported" };
         if (!(await actorStillMember(tx, input.principal))) {
           return { outcome: "actor_inactive" };
         }
@@ -229,16 +227,28 @@ export function createPostgresSessionUnitOfWork(
         if (refused) return refused;
         const sessionId = randomUUID();
         const actor = input.principal.actor;
+        const repository =
+          input.repository === "none"
+            ? {
+                repositoryMode: "none" as const,
+                repositoryId: null,
+                repoUrl: null,
+                branch: null,
+              }
+            : {
+                repositoryMode: "repository" as const,
+                repositoryId: input.repository.id,
+                repoUrl: input.repository.url,
+                branch: input.repository.branch,
+              };
         await tx.insert(sessions).values({
           id: sessionId,
           ownerId: scope.principal,
-          repoUrl: input.repository.url,
-          branch: input.repository.branch,
+          ...repository,
           profileId: input.profileId,
           profileFingerprint: input.profileFingerprint ?? null,
           unmetered: input.unmetered ?? false,
           agentReleaseId: input.agentReleaseId ?? null,
-          repositoryId: input.repository.id,
           workspaceId: actor?.workspaceId ?? null,
           createdByUserId: actor?.userId ?? null,
           createdByApiKeyId: actor?.apiKeyId ?? null,
@@ -818,6 +828,7 @@ export function createPostgresSessionReader(
             provider_tokens: row.providerTokens,
             repo_url: row.repoUrl,
             branch: row.branch,
+            repository_mode: row.repositoryMode,
             profile_fingerprint: row.profileFingerprint,
             durability: projectDurability({
               checkpointCommittedAt: row.checkpointCommittedAt,

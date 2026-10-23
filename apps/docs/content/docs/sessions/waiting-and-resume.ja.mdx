@@ -1,0 +1,144 @@
+---
+title: "承認待ちと再開"
+description: 権限リクエストと質問に応答し、セッションを pause して resume する
+---
+
+ターンがツールを実行する前に人の許可を待つ、または人に質問すると、セッションは `needs_input` になる。応答するとターンが続行する。セッションをしばらく休ませたいときは pause し、後で resume する。[開始](/sessions/start)で作った `SID` を引き続き使う。応答するにはキーに `sessions:approve` が、pause・resume には `sessions:control` が必要である。
+
+## 待機中のリクエスト
+
+```bash
+curl -sS "$API/v1/sessions/$SID/messages" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg m 'GATE-SPEC {"id":"deny","steps":[{"tool":"Bash","input":{"command":"rm -rf build","description":"clean build"}}],"final":"cleaned"}' '{message: $m}')" \
+  | jq -r .turn_id
+until [ "$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq -r .status)" = needs_input ]; do
+  sleep 2
+done
+curl -sS "$API/v1/sessions/$SID/pending-requests" -H "Authorization: Bearer $KEY" \
+  | jq '.items[] | {request_id, kind, tool, input, expires_at}'
+```
+
+リクエストは次のどちらかである。
+
+- `kind: "permission"`: ツール実行の許可。`tool` と `input` が、何を実行するかを示す。
+- `kind: "question"`: モデルが `AskUserQuestion` で尋ねる質問。`questions[]` ごとに `question_id`、質問文の `prompt`、選択肢の `options[]` がある。
+
+リクエストは 30 分以内に応答しないと、拒否として終了する。その後に応答すると 409 `REQUEST_EXPIRED` になる。
+
+## 拒否する
+
+```bash
+REQ=$(curl -sS "$API/v1/sessions/$SID/pending-requests" -H "Authorization: Bearer $KEY" | jq -r '.items[0].request_id')
+curl -sS "$API/v1/sessions/$SID/answers" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg r "$REQ" '{request_id: $r, kind: "permission", decision: "deny", reason: "Do not delete build output."}')" \
+  | jq '{receipt_status, surface: .approval.surface}'
+```
+
+```text
+{
+  "receipt_status": "accepted",
+  "surface": "api"
+}
+```
+
+許可は `"decision": "allow"` である。`reason` は拒否の場合だけ使い、省略できる。モデルはその理由をツールの結果として受け取り、ターンを続ける。レスポンスの `approval` には、誰が(`answered_by`)、どこから(`surface`: `api`・`web`・`slack`)応答したかが残る。
+
+## 質問に答える
+
+```bash
+curl -sS "$API/v1/sessions/$SID/messages" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg m 'GATE-SPEC {"id":"ask","steps":[{"tool":"AskUserQuestion","input":{"questions":[{"question":"Which environment?","header":"Environment","options":[{"label":"staging","description":"safe"},{"label":"production","description":"live"}],"multiSelect":false}]}}],"final":"selected"}' '{message: $m}')" \
+  > /dev/null
+until [ "$(curl -sS "$API/v1/sessions/$SID/pending-requests" -H "Authorization: Bearer $KEY" | jq -r '.items[0].kind // empty')" = question ]; do
+  sleep 2
+done
+pending=$(curl -sS "$API/v1/sessions/$SID/pending-requests" -H "Authorization: Bearer $KEY")
+echo "$pending" | jq -c '.items[0].questions[0] | {prompt, options: [.options[] | {option_id, label}]}'
+answer=$(echo "$pending" | jq -c '.items[0] | {
+  request_id,
+  kind: "question",
+  answers: [{question_id: .questions[0].question_id, selected_option_ids: [.questions[0].options[0].option_id]}]
+}')
+curl -sS "$API/v1/sessions/$SID/answers" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$answer" | jq '{receipt_status}'
+```
+
+```text
+{"prompt":"Which environment?","options":[{"option_id":"q0o0","label":"staging"},{"option_id":"q0o1","label":"production"}]}
+{
+  "receipt_status": "accepted"
+}
+```
+
+選択する代わりに文章で答えるには、`selected_option_ids: []` と `free_text` を送る。
+
+## pause と resume
+
+pause は、進行中の作業を終わらせて checkpoint(作業ツリーと会話履歴)を残し、worker を停止する。resume は、新しい worker がその checkpoint から同じ作業ツリーと同じ会話を復元する。どちらも現在の `revision` を `expected_revision` として送る。その間にセッションが変わっていると 409 `REVISION_CONFLICT` になる。
+
+```bash
+until [ "$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq -r .status)" = idle ]; do
+  sleep 2
+done
+REV=$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq .revision)
+curl -sS "$API/v1/sessions/$SID/pause" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --argjson r "$REV" '{expected_revision: $r, reason: "lunch"}')" | jq '{receipt_status}'
+until [ "$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq -r .admission_state)" = paused ]; do
+  sleep 2
+done
+curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq '{admission_state, checkpoint_revision}'
+```
+
+```text
+{
+  "receipt_status": "accepted"
+}
+{
+  "admission_state": "paused",
+  "checkpoint_revision": 3
+}
+```
+
+paused の間に送ったメッセージは 409 `SESSION_PAUSED` になる。60 秒以内に drain できないと、`attention` が `PAUSE_BLOCKED` になる。開いているリクエストがあれば、応答するか interrupt する。
+
+```bash
+REV=$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq .revision)
+curl -sS "$API/v1/sessions/$SID/resume" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --argjson r "$REV" '{expected_revision: $r}')" | jq '{receipt_status}'
+until [ "$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq -r .admission_state)" = active ]; do
+  sleep 2
+done
+curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq '{admission_state}'
+```
+
+```text
+{
+  "receipt_status": "accepted"
+}
+{
+  "admission_state": "active"
+}
+```
+
+## 次のステップ
+
+- [クローズ](/sessions/close): 終わったセッションを閉じる、または止める
+- [receipt](/approvals/receipt): 受け付けたコマンドの結果を確認する

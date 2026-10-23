@@ -11,7 +11,7 @@
 @source "../src";
 
 body {
-  background: var(--ap-color-canvas);
+  background: var(--ap-color-surface);
   color: var(--ap-color-foreground);
   font-family: var(--ap-font-sans);
 }

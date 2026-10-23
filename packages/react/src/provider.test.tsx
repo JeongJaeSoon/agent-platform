@@ -7,7 +7,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import {
   AgentPlatformProvider,
   type AgentPlatformProviderProps,
+  defaultMessages,
+  LOCALES,
   sessionsEn,
+  sessionsJa,
   sessionsKo,
   useAgentPlatform,
   useMe,
@@ -61,6 +64,9 @@ describe("AgentPlatformProvider", () => {
     expect(render(<Message name="sessions.title" />, { locale: "en" })).toBe(
       sessionsEn["sessions.title"],
     );
+    expect(render(<Message name="sessions.title" />, { locale: "ja" })).toBe(
+      sessionsJa["sessions.title"],
+    );
   });
 
   test("messages replace the defaults key by key", () => {
@@ -94,10 +100,15 @@ describe("AgentPlatformProvider", () => {
     );
   });
 
-  test("both locales carry the same keys", () => {
-    expect(Object.keys(sessionsEn).sort()).toEqual(
-      Object.keys(sessionsKo).sort(),
-    );
+  test("every locale carries the same keys, none of them blank", () => {
+    const keys = Object.keys(defaultMessages.ko).sort();
+    for (const locale of LOCALES) {
+      const messages = defaultMessages[locale];
+      expect(Object.keys(messages).sort()).toEqual(keys);
+      for (const key of keys) {
+        expect(messages[key as keyof typeof messages].trim()).not.toBe("");
+      }
+    }
   });
 });
 

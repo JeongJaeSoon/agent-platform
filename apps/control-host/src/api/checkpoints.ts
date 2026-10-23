@@ -9,6 +9,7 @@ import {
   type PushBundleSource,
   type PushSource,
   rejectUnverifiedCheckpoints,
+  type SessionOutputSource,
   serviceCheckpointVerifier,
 } from "@werft-ai/platform";
 import {
@@ -239,6 +240,7 @@ export type ApiCheckpoints = {
   verifier: CheckpointVerifier;
   protocol: CheckpointProtocol | undefined;
   pushSource: PushSource & PushBundleSource;
+  outputs: SessionOutputSource;
 };
 
 /**
@@ -252,18 +254,21 @@ export function createApiCheckpoints(
   maxGitMemoryBytes?: number,
 ): ApiCheckpoints {
   if (config === "disabled") {
+    const disabled = {
+      status: "unavailable",
+      reason: "the checkpoint object store is disabled",
+    } as const;
     return {
       verifier: rejectUnverifiedCheckpoints,
       protocol: undefined,
       pushSource: {
-        readPushSource: async () => ({
-          status: "unavailable",
-          reason: "the checkpoint object store is disabled",
-        }),
-        spoolPushBundles: async () => ({
-          status: "unavailable",
-          reason: "the checkpoint object store is disabled",
-        }),
+        readPushSource: async () => disabled,
+        spoolPushBundles: async () => disabled,
+      },
+      // Without a store no checkpoint is ever committed.
+      outputs: {
+        readOutputs: async () => ({ status: "none" }),
+        openOutput: async () => ({ status: "missing" }),
       },
     };
   }
@@ -281,6 +286,7 @@ export function createApiCheckpoints(
     verifier: serviceCheckpointVerifier(service),
     protocol: service,
     pushSource: service,
+    outputs: service,
   };
 }
 
@@ -333,7 +339,7 @@ export async function assertCheckpointBucketProtection(
  * gets. SSE-KMS is not accepted in its place: every worker would need
  * GenerateDataKey on the key, which is exactly the credential
  * narrows, and a worker without it fails its first write rather than this
- * check (docs/operations.md).
+ * check (docs/operator/api-server.md).
  */
 const CHECKPOINT_BUCKET_ENCRYPTION = "AES256";
 

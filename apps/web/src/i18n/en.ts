@@ -9,6 +9,8 @@ import type { MessageKey } from "./ko.ts";
 import { linkedEn } from "./linked.ts";
 import { membersEn } from "./members.ts";
 import { modelsEn } from "./models.ts";
+import { outputsEn } from "./outputs.ts";
+import { preferencesEn } from "./preferences.ts";
 import { shellEn } from "./shell.ts";
 import { teamsEn } from "./teams.ts";
 import { workspaceEn } from "./workspace.ts";
@@ -25,8 +27,10 @@ export const en: Record<MessageKey, string> = {
   ...sessionsEn,
   ...flowEn,
   ...linkedEn,
+  ...outputsEn,
   ...apiKeysEn,
   ...workspaceEn,
+  ...preferencesEn,
   ...errorsEn,
   ...formsEn,
 };

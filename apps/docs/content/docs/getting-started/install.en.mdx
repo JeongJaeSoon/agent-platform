@@ -1,0 +1,76 @@
+---
+title: "Install"
+description: Bring up the Werft stack on your local machine
+---
+
+Werft consists of an API server, a scheduler, a worker container started for each session, PostgreSQL, S3 (LocalStack), a Git server (Gitea), and an egress proxy. This page brings all of them up on one machine with Docker Compose. It uses a fake model that runs without a key, so you do not need an Anthropic account.
+
+## Prerequisites
+
+| Item | Version |
+| --- | --- |
+| Docker Engine | 28 or later |
+| Docker Compose | 2.24.6 or later |
+| curl, jq, uuidgen, git | Any version |
+
+The stack opens ports on `127.0.0.1` only. Ports 3000 (API and web console), 5432 (PostgreSQL), 4566 and 4567 (LocalStack), and 3001 (Gitea) must be free.
+
+```sh
+docker version --format 'Docker Engine {{.Server.Version}}'
+docker compose version
+for p in 3000 5432 4566 4567 3001; do
+  lsof -nP -iTCP:$p -sTCP:LISTEN >/dev/null 2>&1 && echo "사용 중: $p"
+done
+```
+
+If no line starting with `사용 중:` ("in use") appears, you can continue.
+
+## Get the code
+
+```sh
+git clone https://github.com/JeongJaeSoon/agent-platform.git
+cd agent-platform
+```
+
+## Start the stack
+
+```bash
+scripts/local.sh up --fake-model
+```
+
+The first run builds the images from this checkout, so it takes a few minutes to about 10 minutes. When it is ready, the last line shows the following.
+
+```text
+{"status":"ready","checks":{"database":"ok","schema":"ok","config":"ok"}}
+```
+
+With `--fake-model`, model calls are received by a fake Messages API inside compose. A real Claude Code runs inside the worker, and the fake answers according to the script written in the message ([Quickstart](/getting-started/quickstart)). If you start without the option, with `scripts/local.sh up`, it calls the real Claude with the shell's `ANTHROPIC_API_KEY` and costs money.
+
+## Check the status
+
+```bash
+scripts/local.sh status
+```
+
+You are good when `api`, `scheduler`, and `reconciler` are running and `/readyz` responds at the end. Worker containers do not stay resident. The scheduler starts and removes one for each session.
+
+## Stop the stack
+
+```sh
+scripts/local.sh down
+```
+
+`down` deletes the stack and **all data** (sessions, checkpoints, API keys, Gitea repositories). The local S3 is in memory only, so there is no way to bring the stack down while keeping the data. To start over from scratch, use `scripts/local.sh reset --fake-model`.
+
+## When you are stuck
+
+| Symptom | Action |
+| --- | --- |
+| `Docker Engine … is too old` | Upgrade Docker Engine to 28 or later |
+| `127.0.0.1 port(s) … already in use` | Use the `lsof` loop above to find the process using that port |
+| `up needs ANTHROPIC_API_KEY exported or in .env` | `up` without options uses the real Claude. To run without a key, add `--fake-model` |
+| The API does not come up after restarting Docker | The local S3 is empty. Start fresh with `scripts/local.sh reset --fake-model` |
+
+## Next steps
+
+- [Quickstart](/getting-started/quickstart): Get an API key and create your first session

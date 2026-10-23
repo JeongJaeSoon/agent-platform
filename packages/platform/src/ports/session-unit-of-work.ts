@@ -34,8 +34,7 @@ export type AcceptSessionInput = {
   profileId: string;
   // null when the catalog no longer lists the profile/repository: a replay
   // of an earlier acceptance must still succeed, a new request must not.
-  // "none" when the profile is allowed to run without one; accepting such a
-  // session is not supported yet.
+  // "none" when the profile is allowed to run without one.
   repository: { id: string; url: string; branch: string } | "none" | null;
   // The profile's fingerprint under the catalog that allowed the pair, which
   // every claim of the session is then held to. Left out, the row
@@ -101,6 +100,10 @@ export type SessionDetailRecord = Omit<SessionDetail, "runtime"> & {
   // a credential. Null for a session accepted without a repository.
   repo_url: string | null;
   branch: string | null;
+  // The row's own value: `none` for a session accepted without a
+  // repository, `repository` for every other, a row from before the catalog
+  // included. Not the profile's repository_mode, and never exposed.
+  repository_mode: "repository" | "none";
   profile_fingerprint: string | null;
 };
 

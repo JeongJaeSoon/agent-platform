@@ -414,6 +414,14 @@ describe("API checkpoint composition", () => {
       }),
     ).toMatchObject({ status: "rejected" });
   });
+
+  test("without an object store a session has no outputs rather than unreadable ones", async () => {
+    const { outputs } = createApiCheckpoints({} as never, "disabled");
+    expect(await outputs.readOutputs(sessionId)).toEqual({ status: "none" });
+    expect(await outputs.openOutput(sessionId, "out/report.md")).toEqual({
+      status: "missing",
+    });
+  });
 });
 
 describe("checkpoint bucket encryption at startup", () => {

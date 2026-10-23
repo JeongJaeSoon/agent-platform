@@ -1,0 +1,93 @@
+---
+title: "開始"
+description: セッション作成リクエストのフィールド、レスポンス、リトライとエラー
+---
+
+セッションは、リポジトリ 1 つと実行プロファイル 1 つで動く会話である。セッションを作ると最初のメッセージがターン 1 として受け付けられ、scheduler がそのセッションの worker コンテナを起動する。scope は `sessions:write` である。
+
+## 作成する
+
+```bash
+created=$(curl -sS "$API/v1/sessions" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg m 'GATE-SPEC {"id":"start","steps":[],"final":"started"}' \
+    '{profile_id: "claude-coding-local", repository_id: "sample-app", message: $m}')")
+echo "$created" | jq .
+SID=$(echo "$created" | jq -r .session_id)
+```
+
+```text
+{
+  "session_id": "…",
+  "turn_id": "1",
+  "receipt_id": "…",
+  "receipt_status": "accepted",
+  "status": "queued"
+}
+```
+
+| フィールド | 必須 | 内容 |
+| --- | --- | --- |
+| `profile_id` | はい | 実行プロファイルの id([実行プロファイルを選ぶ](/agents/run-profiles)) |
+| `repository_id` | はい | カタログ上のリポジトリ id。worker はこのリポジトリを clone する |
+| `message` | はい | 最初のターンの入力。UTF-8 で 32,768 バイトまで |
+| `model` | | プロファイルが許可したモデルのうち 1 つ。省略するとデフォルトのモデル |
+| `agent_release_id` | | このセッションをエージェントのリリースに紐づける([作成](/agents/create#セッションに紐付ける)) |
+
+レスポンスは 201 である。受け付けただけで、結果はターンの取得で確認する([状態とライフサイクル](/sessions/lifecycle))。
+
+## Idempotency-Key
+
+セッション API のすべての POST には `Idempotency-Key` ヘッダーが必要である。ないと 400 になる。レスポンスを受け取れなかったときは、**同じキーと同じ本文**でもう一度送る。サーバーはコマンドを 1 回だけ実行する。セッション作成とメッセージは最初のレスポンスをそのまま返し、interrupt などの制御はその receipt の現在の状態を返す。同じキーで本文が違うと 409 `IDEMPOTENCY_CONFLICT` になる。
+
+```bash
+IDEM=$(uuidgen)
+BODY=$(jq -nc --arg m 'GATE-SPEC {"id":"retry","steps":[],"final":"once"}' \
+  '{profile_id: "claude-coding-local", repository_id: "sample-app", message: $m}')
+first=$(curl -sS "$API/v1/sessions" -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $IDEM" -d "$BODY")
+second=$(curl -sS "$API/v1/sessions" -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $IDEM" -d "$BODY")
+[ "$(echo "$first" | jq -r .session_id)" = "$(echo "$second" | jq -r .session_id)" ] && echo "same session"
+```
+
+```text
+same session
+```
+
+新しい意図には新しいキーを使う。timeout の後に新しいキーで送ると、セッションが 2 つできることがある。
+
+## 一覧を見る
+
+```bash
+curl -sS "$API/v1/sessions?limit=5" -H "Authorization: Bearer $KEY" | jq -c '.items[] | {id, status}'
+```
+
+`limit`、`cursor`(レスポンスの `next_cursor`)、`status` で絞り込む。キーが見られるセッションだけが返る。
+
+## エラー
+
+エラー本文はどの API でも同じ形である。`retryable` が `true` のときだけ、同じキーで再送する価値がある。
+
+```text
+{"error":{"code":"UNSUPPORTED_CAPABILITY","message":"Profile claude-coding-local does not offer model claude-opus-9","retryable":false,"request_id":"…","details":null}}
+```
+
+| レスポンス | 意味 |
+| --- | --- |
+| 400 | 本文が schema と異なる、または `Idempotency-Key` がない |
+| 401 | キーがない、誤っている、または失効している |
+| 403 | キーに `sessions:write` がない |
+| 409 `IDEMPOTENCY_CONFLICT` | 同じキーで本文が異なる |
+| 413 | メッセージが 32,768 バイトを超えている。ストレージ容量の上限なら `STORAGE_LIMIT_EXCEEDED` |
+| 422 `UNSUPPORTED_CAPABILITY` | プロファイルまたはリポジトリが存在しない、その組み合わせが許可されていない、またはプロファイルがそのモデルを許可していない |
+| 429 `RATE_LIMITED` | 少し待ってからもう一度送る |
+
+実行 slot が足りなくても拒否はしない。セッションは `queued` で待機する。
+
+## 次のステップ
+
+- [状態とライフサイクル](/sessions/lifecycle): セッションとターンの状態
+- [送信](/messages/send): 同じセッションにメッセージをさらに送る

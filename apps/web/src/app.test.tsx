@@ -33,6 +33,9 @@ function renderAt(path: string, routes: Routes, locale: "ko" | "en" = "ko") {
 const meOk = {
   "GET /v1/auth/me": () => json(200, me()),
   "GET /v1/my-teams": () => json(200, { items: [] }),
+  // Home lists the waiting and recent sessions; an unrouted read would put
+  // its error alert beside the one a test looks for.
+  "GET /v1/sessions": () => json(200, { items: [], next_cursor: null }),
 };
 const callsTo = (calls: Recorded[], path: string) =>
   calls.filter((call) => call.path === path);
@@ -101,11 +104,13 @@ describe("상태 화면", () => {
 describe("workspace shell", () => {
   test("/auth/me의 사용자·워크스페이스와 bootstrap checklist를 보인다", async () => {
     renderAt("/", meOk);
-    expect(await screen.findByRole("heading", { name: "Acme" })).toBeDefined();
+    expect(await screen.findByRole("heading", { name: "홈" })).toBeDefined();
     expect(
       screen.getByText("Owner(owner@example.com) 계정으로 로그인했습니다"),
     ).toBeDefined();
-    const steps = screen.getAllByRole("listitem");
+    const steps = within(
+      screen.getByRole("region", { name: "시작하기" }),
+    ).getAllByRole("listitem");
     expect(steps.map((step) => step.getAttribute("data-done"))).toEqual([
       "true",
       "false",
@@ -121,7 +126,7 @@ describe("workspace shell", () => {
     });
     const user = await setupUser();
     await user.click(
-      await screen.findByRole("button", { name: "Owner 소유자" }),
+      await screen.findByRole("button", { name: "Owner · 소유자" }),
     );
     await user.click(screen.getByRole("menuitem", { name: "로그아웃" }));
     expect(await screen.findByText("로그아웃했습니다.")).toBeDefined();
@@ -138,7 +143,7 @@ describe("workspace shell", () => {
     });
     const user = await setupUser();
     await user.click(
-      await screen.findByRole("button", { name: "Owner 소유자" }),
+      await screen.findByRole("button", { name: "Owner · 소유자" }),
     );
     await user.click(screen.getByRole("menuitem", { name: "로그아웃" }));
     expect((await screen.findByRole("alert")).textContent).toContain(
@@ -156,7 +161,7 @@ describe("workspace shell", () => {
     });
     const user = await setupUser();
     await user.click(
-      await screen.findByRole("button", { name: "Owner 소유자" }),
+      await screen.findByRole("button", { name: "Owner · 소유자" }),
     );
     await user.click(screen.getByRole("menuitem", { name: "로그아웃" }));
     expect(await screen.findByText("로그아웃했습니다.")).toBeDefined();
@@ -171,7 +176,7 @@ describe("workspace shell", () => {
           ? apiError(401, "UNAUTHORIZED", "Authentication is required")
           : json(200, me()),
     });
-    expect(await screen.findByRole("heading", { name: "Acme" })).toBeDefined();
+    expect(await screen.findByRole("heading", { name: "홈" })).toBeDefined();
     expired = true;
     await services.queryClient.refetchQueries({ queryKey: ["me"] });
     expect(await screen.findByText("로그인이 필요합니다")).toBeDefined();
@@ -202,7 +207,7 @@ describe("로그인", () => {
     );
     await user.type(screen.getByLabelText("비밀번호"), "correct horse battery");
     await user.click(screen.getByRole("button", { name: "로그인" }));
-    expect(await screen.findByRole("heading", { name: "Acme" })).toBeDefined();
+    expect(await screen.findByRole("heading", { name: "홈" })).toBeDefined();
     expect(history.location.pathname).toBe("/");
     expect(services.queryClient.getQueryData(["stale"])).toBeUndefined();
     expect(callsTo(api.calls, "/v1/auth/login")[0]?.body).toEqual({
@@ -402,17 +407,33 @@ describe("i18n·반응형·키보드", () => {
     ).toBeDefined();
   });
 
+  test("일본어를 고르면 바로 바뀌고 다음 방문을 위해 기억한다", async () => {
+    renderAt("/login", {});
+    const user = await setupUser();
+    const select = await screen.findByLabelText("언어");
+    expect(
+      within(select)
+        .getAllByRole("option")
+        .map((option) => option.textContent),
+    ).toEqual(["한국어", "日本語", "English"]);
+    await user.selectOptions(select, "ja");
+    expect(
+      await screen.findByRole("heading", { name: "ログイン" }),
+    ).toBeDefined();
+    expect(document.documentElement.lang).toBe("ja");
+    expect(localStorage.getItem("ap.locale")).toBe("ja");
+    localStorage.removeItem("ap.locale");
+  });
+
   test.each([360, 768, 1440])(
     "%ipx에서 shell이 같은 내용으로 그려진다",
     async (width) => {
       const { setViewport } = await import("@werft-ai/ui/test-support/dom");
       setViewport({ width, height: 800 });
       renderAt("/", meOk);
+      expect(await screen.findByRole("heading", { name: "홈" })).toBeDefined();
       expect(
-        await screen.findByRole("heading", { name: "Acme" }),
-      ).toBeDefined();
-      expect(
-        screen.getByRole("button", { name: "Owner 소유자" }),
+        screen.getByRole("button", { name: "Owner · 소유자" }),
       ).toBeDefined();
       expect(window.innerWidth).toBe(width);
     },

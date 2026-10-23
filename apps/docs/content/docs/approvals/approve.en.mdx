@@ -1,0 +1,79 @@
+---
+title: "Approve"
+description: Check the commit the push request pinned and approve it. The platform pushes within a few seconds
+---
+
+Approving needs `sessions:approve`. This scope is issued only to people. Do not give it to automation such as CI. A worker running a session cannot call `/v1` with its credentials (401), so an agent cannot approve on its own. Use `SID`, `PUSH_ID`, and `PUSH_COMMIT` from the [Request](/approvals/request).
+
+## Approve
+
+`git_commit` in the decision body must equal the commit the request pinned. It shows that the person approving has checked what they are approving.
+
+```bash
+curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/decision" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg c "$PUSH_COMMIT" '{decision: "approve", git_commit: $c}')" \
+  | jq '{state, decided_by: .decided_by.principal.kind}'
+```
+
+```text
+{
+  "state": "approved",
+  "decided_by": "api_key"
+}
+```
+
+## See the push result
+
+The platform picks up one approved request every 3 seconds and pushes it. Wait until the request goes through `pushing` and becomes `pushed` or `failed`.
+
+```bash
+until curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID" -H "Authorization: Bearer $KEY" \
+  | jq -e '.state | IN("pushed", "failed")' >/dev/null; do
+  sleep 2
+done
+pushed=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID" -H "Authorization: Bearer $KEY")
+echo "$pushed" | jq '{state}'
+curl -sS "$API/v1/receipts/$(echo "$pushed" | jq -r .push_receipt_id)" -H "Authorization: Bearer $KEY" \
+  | jq '{operation, status, refusal: .result.refusal}'
+```
+
+```text
+{
+  "state": "failed"
+}
+{
+  "operation": "push",
+  "status": "failed",
+  "refusal": "no_push_credential"
+}
+```
+
+The `sample-app` repository in the local stack has no push credential, so it ends with `no_push_credential`. When an operator sets up a GitHub App or PAT for the repository ([GitHub](/integrations/github)), it becomes `pushed`, and the receipt's `result` records `remote_ref` (`refs/heads/agent/<session-id>`) and `previous_commit`.
+
+The platform sends only that one commit to that branch. It does not force push. It does not send to the default branch.
+
+| `refusal` | Meaning |
+| --- | --- |
+| `no_push_credential` | The repository has no push credential |
+| `catalog_changed` | An operator changed the repository settings after the request. Make a new request |
+| `non_fast_forward` | The remote branch is not an ancestor of this commit |
+| `default_branch`, `target_refused` | The branch is the default branch or is not `agent/<session-id>` |
+| `push_failed` | Token issuance failed, the remote refused, or a network error |
+
+## When the approval is refused
+
+| Response | Meaning |
+| --- | --- |
+| 409 `CHECKPOINT_MOVED` | `git_commit` differs from the pinned commit, or the session saved a checkpoint again after the request. [Reject](/approvals/reject) this request and make a new one |
+| 409 `PUSH_REQUEST_DECIDED` | The request was already decided |
+| 403 `FORBIDDEN` | The key lacks `sessions:approve` |
+
+A refused attempt also leaves a receipt. Read it with `error.details.receipt_id` in the error body.
+
+## Next steps
+
+- [Reject](/approvals/reject)
+- [receipt](/approvals/receipt): read the record of the request, decision, and push

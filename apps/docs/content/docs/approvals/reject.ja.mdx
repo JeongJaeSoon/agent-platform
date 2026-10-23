@@ -1,0 +1,63 @@
+---
+title: "拒否"
+description: push リクエストを拒否する。拒否した後に新しくリクエストできる
+---
+
+送り出してはいけない commit なら拒否する。承認と同じ `sessions:approve` が必要である。セッションごとに開いているリクエストは 1 つなので、直す点があれば、拒否してセッションに次のメッセージを送った後、新しくリクエストする。[リクエスト](/approvals/request)の `SID` を使う。前のリクエストは終了しているので、新しいリクエストを作る。
+
+## 拒否する
+
+```bash
+push=$(curl -sS "$API/v1/sessions/$SID/push-requests" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d '{}')
+PUSH_ID=$(echo "$push" | jq -r .id)
+PUSH_COMMIT=$(echo "$push" | jq -r .git_commit)
+curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/decision" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg c "$PUSH_COMMIT" '{decision: "reject", git_commit: $c, reason: "needs tests first"}')" \
+  | jq '{state, decision_reason}'
+```
+
+```text
+{
+  "state": "rejected",
+  "decision_reason": "needs tests first"
+}
+```
+
+`reason` は省略できる。拒否では、commit が変わったかどうかは検査しない。
+
+## 判断は 1 回
+
+すでに判断したリクエストに再度判断すると、409 `PUSH_REQUEST_DECIDED` になる。その試行も receipt として残る。
+
+```bash
+again=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/decision" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg c "$PUSH_COMMIT" '{decision: "approve", git_commit: $c}')")
+echo "$again" | jq '{code: .error.code}'
+curl -sS "$API/v1/receipts/$(echo "$again" | jq -r .error.details.receipt_id)" -H "Authorization: Bearer $KEY" \
+  | jq '{operation, status, refusal: .result.refusal}'
+```
+
+```text
+{
+  "code": "PUSH_REQUEST_DECIDED"
+}
+{
+  "operation": "decide_push",
+  "status": "failed",
+  "refusal": "already_decided"
+}
+```
+
+## 次のステップ
+
+- [receipt](/approvals/receipt): リクエスト・判断・push の記録を読む

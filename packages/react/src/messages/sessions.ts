@@ -149,6 +149,11 @@ export const sessionsKo = {
     "이벤트 연결이 끊겼습니다. 새로고침하면 다시 연결합니다.",
   "session.events.debug": "내부 이벤트도 보기",
   "session.events.turn": "turn {turn}",
+  "session.events.kind.agent": "에이전트",
+  "session.events.kind.tool": "도구",
+  "session.events.kind.request": "답을 기다리는 요청",
+  "session.events.kind.error": "오류",
+  "session.events.kind.system": "시스템",
 
   "session.event.kind.status": "상태",
   "session.event.kind.system": "시스템",
@@ -324,6 +329,11 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
     "The event connection ended. Reload the page to reconnect.",
   "session.events.debug": "Show internal events",
   "session.events.turn": "turn {turn}",
+  "session.events.kind.agent": "Agent",
+  "session.events.kind.tool": "Tool",
+  "session.events.kind.request": "Request waiting for an answer",
+  "session.events.kind.error": "Error",
+  "session.events.kind.system": "System",
 
   "session.event.kind.status": "Status",
   "session.event.kind.system": "System",
@@ -350,4 +360,186 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "session.event.result.success": "Turn complete",
   "session.event.result.other": "Turn ended ({subtype})",
   "session.event.result.tokens": "{count} tokens",
+};
+
+export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
+  "nav.sessions": "セッション",
+
+  "sessions.title": "セッション",
+  "sessions.intro":
+    "自分が作成した、または共有されたセッションです。セッションを開くと状態とイベントを確認できます。",
+  "sessions.empty": "セッションはまだありません。",
+  "sessions.more": "さらに表示",
+  "sessions.loadingMore": "読み込み中…",
+  "sessions.column.id": "セッション",
+  "sessions.column.status": "作業状態",
+  "sessions.column.admission": "セッション状態",
+  "sessions.column.runtime": "ランタイム",
+  "sessions.column.lastEvent": "最新イベント",
+  "sessions.column.created": "作成日時",
+  "sessions.tableLabel": "セッション一覧表",
+  "session.factsTable": "{title}の表",
+  "sessions.none": "—",
+
+  "sessions.status.queued": "待機中",
+  "sessions.status.running": "作業中",
+  "sessions.status.needs_input": "回答待ち",
+  "sessions.status.idle": "アイドル",
+  "sessions.status.failed": "失敗",
+  "sessions.status.stopped": "停止",
+
+  "sessions.admission.active": "受付中",
+  "sessions.admission.pausing": "一時停止中",
+  "sessions.admission.paused": "一時停止済み",
+  "sessions.admission.resuming": "再開中",
+  "sessions.admission.stopping": "終了中",
+  "sessions.admission.stopped": "終了済み",
+  "sessions.admission.recovery_required": "要復旧",
+  "sessions.admission.closing": "アーカイブ中",
+  "sessions.admission.closed": "アーカイブ済み",
+
+  "session.tabs.label": "セッション詳細",
+  "session.tabs.timeline": "経過",
+  "session.tabs.info": "情報",
+  "session.panel": "回答と承認",
+  "session.pending.emptyTitle": "保留中のリクエストなし",
+  "session.back": "セッション一覧",
+  "session.notFound":
+    "このセッションは見つかりません。削除されたか、閲覧権限がありません。",
+  "session.overview": "状態",
+  "session.currentTurn": "進行中の作業",
+  "session.queuedTurns": "待機中の作業",
+  "session.attention": "要確認",
+  "session.updated": "最終更新",
+
+  "session.profile": "プロファイル",
+  "session.profile.next": "次の作業から使うプロファイル",
+  "session.profile.hint":
+    "進行中の作業は現在のプロファイルで完了し、次の作業から新しいプロファイルで会話を続けます。",
+  "session.profile.submit": "プロファイルを変更",
+  "session.profile.changed": "次の作業から {profile} を使います。",
+  "session.profile.refused.release":
+    "このプロファイルには変更できません。エージェントのリリースから作成したセッションは、そのリリースのプロファイルのみ使えます。",
+  "session.profile.refused.capability":
+    "このプロファイルには変更できません。このセッションのリポジトリ・ランタイム・課金方式に合わないか、現在のプロファイルの設定が変更されています。",
+  "session.profile.none":
+    "同じランタイムと課金方式で変更できるプロファイルがほかにありません。",
+  "session.profile.unknown":
+    "現在のプロファイルがカタログにないため、ほかのプロファイルに変更できません。",
+
+  "session.usage": "使用量",
+  "session.usage.amount": "累計コスト",
+  "session.usage.unmetered": "課金なし",
+  "session.usage.incomplete": "実行中のターンがあるため、まだ確定していません",
+  "session.usage.unreported":
+    "コストを報告せずに終了したターンがあるため、実際より少なく表示されている可能性があります",
+  "session.usage.costLimit": "コスト上限",
+  "session.usage.tokens": "トークン",
+  "session.usage.tokenLimit": "トークン上限",
+  "session.usage.noLimit": "なし",
+  "session.usage.budgetExceeded":
+    "上限に達したため、新しいターンは開始しません。",
+
+  "session.pending": "回答待ちのリクエスト",
+  "session.pending.empty": "回答を待っているリクエストはありません。",
+  "session.pending.permission": "権限リクエスト: {tool}",
+  "session.pending.question": "質問",
+  "session.pending.expires": "{at}まで",
+  "session.pending.expired": "期限切れのため、回答できません。",
+  "session.answer.input": "リクエスト内容を表示",
+  "session.answer.allow": "許可",
+  "session.answer.deny": "拒否",
+  "session.answer.denyReason": "拒否する理由",
+  "session.answer.denySubmit": "拒否を送信",
+  "session.answer.cancel": "キャンセル",
+  "session.answer.freeText": "自由に入力",
+  "session.answer.unanswered": "選択肢を選ぶか、回答を入力してください。",
+  "session.answer.submit": "回答を送信",
+  "session.answer.sent": "回答を送信しました。",
+
+  "session.control": "セッション操作",
+  "session.control.interrupt": "このターンを停止",
+  "session.control.pause": "一時停止",
+  "session.control.resume": "再開",
+  "session.control.terminate": "セッションを終了",
+  "session.control.terminate.title": "セッションを終了しますか？",
+  "session.control.terminate.consequence":
+    "待機中のメッセージとリクエストは取り消され、実行は強制的に停止します。すでに外部で行った操作（コミット・プッシュなど）は元に戻りません。あとで最後のチェックポイントから再開できます。",
+  "session.control.terminate.confirm": "終了",
+  "session.control.cancel": "キャンセル",
+  "session.control.none": "現在実行できる操作はありません。",
+  "session.control.sent":
+    "リクエストを送信しました。変更後の状態は上の「状態」に表示されます。",
+
+  "session.composer.label": "次の指示",
+  "session.composer.send": "送信",
+  "session.composer.hint":
+    "Ctrl+Enter（⌘+Enter）でも送信できます。現在のターンが終わると、次のターンとして実行されます。",
+  "session.composer.queued": "待機中のメッセージ",
+  "session.composer.inactive":
+    "メッセージを受け付けるのは進行中のセッションのみです。",
+  "session.composer.sent": "メッセージを送信しました（ターン {turn}）。",
+
+  "session.command.refused": "リクエストは拒否されました。",
+  "session.refused.REQUEST_EXPIRED":
+    "回答済み、期限切れ、またはクローズ済みのリクエストです。",
+  "session.refused.REQUEST_STALE":
+    "セッションが先に進んだため、このリクエストは無効になりました。",
+  "session.refused.TURN_NOT_STARTED":
+    "このターンはまだ開始していないため、停止するものがありません。",
+  "session.refused.REVISION_CONFLICT":
+    "その間にセッションの状態が変わりました。状態を確認してから、もう一度お試しください。",
+  "session.refused.PAUSE_COMMITTING":
+    "一時停止を確定しているため、現在は取り消せません。停止したあとで再開してください。",
+  "session.refused.SESSION_PAUSED": "一時停止中のセッションです。",
+  "session.refused.SESSION_RESUMING": "再開中のセッションです。",
+  "session.refused.SESSION_STOPPED": "終了したセッションです。",
+  "session.refused.SESSION_CLOSED": "クローズ済みのセッションです。",
+  "session.refused.RECOVERY_REQUIRED":
+    "復旧方法の決定が必要なセッションのため、現在は実行できません。",
+
+  "inbox.title": "回答待ち",
+  "inbox.count": "回答待ちのセッション {count}件",
+  "inbox.countMore": "回答待ちのセッション {count}件以上",
+  "inbox.empty": "回答を待っているセッションはありません。",
+  "inbox.open": "セッションを開く",
+
+  "session.events": "イベント",
+  "session.events.empty": "イベントはまだありません。",
+  "session.events.connecting": "イベントに接続中…",
+  "session.events.closed":
+    "イベントの接続が切れました。ページを再読み込みすると再接続します。",
+  "session.events.debug": "内部イベントも表示",
+  "session.events.turn": "ターン {turn}",
+
+  "session.event.kind.status": "状態",
+  "session.event.kind.system": "システム",
+  "session.event.kind.internal": "内部",
+  "session.event.kind.thinking": "思考",
+  "session.event.kind.assistant": "応答",
+  "session.event.kind.toolUse": "ツール呼び出し",
+  "session.event.kind.toolResult": "ツール結果",
+  "session.event.kind.permission": "権限リクエスト",
+  "session.event.kind.question": "質問",
+  "session.event.kind.result": "ターン終了",
+  "session.event.kind.error": "エラー",
+  "session.event.phase.interrupting": "停止中",
+  "session.event.phase.engine_stopped": "エンジン停止",
+  "session.event.init": "セッション開始",
+  "session.event.vcsChanged": "作業ツリーの変更",
+  "session.event.thinkingTokens": "思考中（{count}）",
+  "session.event.thought": "思考内容",
+  "session.event.toolResult": "{tool}の結果",
+  "session.event.toolResult.unknown": "ツール結果",
+  "session.event.toolResult.ok": "成功",
+  "session.event.toolResult.error": "エラー",
+  "session.event.toolResult.lines": "{count}行",
+  "session.event.result.success": "ターン完了",
+  "session.event.result.other": "ターン終了（{subtype}）",
+  "session.event.result.tokens": "{count}トークン",
+  "session.events.kind.agent": "エージェント",
+  "session.events.kind.tool": "ツール",
+  "session.events.kind.request": "回答待ちのリクエスト",
+  "session.events.kind.error": "エラー",
+  "session.events.kind.system": "システム",
 };

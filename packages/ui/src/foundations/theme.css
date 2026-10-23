@@ -1,0 +1,74 @@
+/*
+ * Tailwind 4 only: the one place tokens.css becomes utilities, for every
+ * consumer (apps/web, Storybook, a host app compiling this package). Import it
+ * after `tailwindcss`; without Tailwind this file does nothing.
+ *
+ * shadcn's semantic names (`bg-primary`, `border-input`…) exist only as these
+ * Tailwind keys and point straight at `--ap-*`: there is no unprefixed
+ * `--primary` at runtime. shadcn's `accent` is a quiet hover surface; the
+ * strong colour is `primary`, which is `--ap-color-accent`. `inline` makes a
+ * utility read the token at runtime, so it follows the dark theme.
+ */
+
+/* biome-ignore lint/suspicious/noUnknownAtRules: a Tailwind 4 directive */
+@theme inline {
+  --text-caption: var(--ap-text-xs);
+  --text-control: var(--ap-text-sm);
+  --text-body: var(--ap-text-label);
+  --text-description: var(--ap-text-sm);
+  --text-description--line-height: var(--ap-leading-body);
+  --text-title: var(--ap-text-title);
+  --text-title--line-height: var(--ap-leading-title);
+  --text-title--letter-spacing: -0.025rem;
+  --text-number: var(--ap-text-number);
+  --text-number--line-height: var(--ap-leading-number);
+
+  --color-background: var(--ap-color-surface);
+  --color-foreground: var(--ap-color-foreground);
+  --color-card: var(--ap-color-surface);
+  --color-card-foreground: var(--ap-color-foreground);
+  --color-popover: var(--ap-color-surface);
+  --color-popover-foreground: var(--ap-color-foreground);
+  --color-primary: var(--ap-color-accent);
+  --color-primary-hover: var(--ap-color-accent-hover);
+  --color-primary-foreground: var(--ap-color-accent-foreground);
+  --color-secondary: var(--ap-tone-neutral-bg);
+  --color-secondary-foreground: var(--ap-tone-neutral-fg);
+  --color-muted: var(--ap-color-surface-sunken);
+  --color-muted-foreground: var(--ap-color-muted-foreground);
+  --color-accent: var(--ap-tone-neutral-bg);
+  --color-accent-foreground: var(--ap-color-foreground);
+  --color-destructive: var(--ap-tone-danger-fg);
+  --color-destructive-foreground: var(--ap-color-surface);
+  --color-border: var(--ap-color-border);
+  --color-input: var(--ap-color-border-input);
+  --color-ring: var(--ap-color-focus-ring);
+
+  /* Tokens with no shadcn name. */
+  --color-sidebar: var(--ap-color-sidebar);
+  --color-sidebar-hover: var(--ap-color-sidebar-hover);
+  --color-sidebar-accent: var(--ap-color-sidebar-accent);
+  --color-surface: var(--ap-color-surface);
+  --color-subtle-foreground: var(--ap-color-subtle-foreground);
+  --color-surface-sunken: var(--ap-color-surface-sunken);
+  --color-border-strong: var(--ap-color-border-strong);
+  --color-focus-ring: var(--ap-color-focus-ring);
+  --font-sans: var(--ap-font-sans);
+  --font-mono: var(--ap-font-mono);
+  --radius-control: var(--ap-radius-control);
+  --radius-card: var(--ap-radius-card);
+  --shadow-pop: var(--ap-shadow-pop);
+}
+
+/*
+ * Tailwind 4 borders default to currentColor; shadcn's items assume this.
+ * The token, not `--color-border`: reading a theme key here would make
+ * Tailwind emit it on `:root`, where a host's own key of that name collides.
+ */
+@layer base {
+  *,
+  ::after,
+  ::before {
+    border-color: var(--ap-color-border);
+  }
+}

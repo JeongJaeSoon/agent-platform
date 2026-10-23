@@ -13,7 +13,7 @@
   "info": {
     "title": "Werft API",
     "version": "0.1.0-alpha",
-    "description": "Private alpha session control plane. This document is generated from the route declarations in apps/control-host/src/api/openapi.ts and the Zod schemas in packages/contracts; do not edit it by hand.\n\n## Authentication\n\nSend an API key as an HTTP bearer token, `Bearer \u003ckey>` (`bearerApiKey`), or use the browser session cookie that `POST /v1/auth/login` sets (`cookieSession`). A missing, malformed, unknown or revoked credential answers `401 UNAUTHORIZED`. `/healthz`, `/readyz`, `/v1/openapi.json`, `/v1/auth/bootstrap` and `/v1/auth/login` take no credential.\n\nA cookie-authenticated request with any method other than GET must also send `X-Requested-With: agent-platform-web` and must not be cross-site (`Sec-Fetch-Site`, `Origin`); otherwise it answers `403 FORBIDDEN`. API-key requests never need that header.\n\n## Scopes\n\nEach operation names the one scope it requires, in its description and in its `security` requirement:\n\n- `sessions:read`: read sessions, turns, events, pending requests, usage, limits and receipts.\n- `sessions:write`: create sessions and send messages.\n- `sessions:approve`: answer pending permission and question requests.\n- `sessions:control`: interrupt, pause, resume and terminate.\n- `sessions:recover`: record recovery decisions.\n\nWhat a credential holds:\n\n- An API key holds exactly the scopes it was issued with (`scopes` in `POST /v1/api-keys`, or `--scopes` in the key CLI). A key issued before scopes existed holds none and must be reissued.\n- A cookie session holds the scopes of the user's workspace role: `owner` holds all five, `admin` and `member` all but `sessions:recover`.\n- A credential without the required scope answers `403 FORBIDDEN` before the body or the resource is read.\n\n## Idempotency\n\nEach command (any method but GET) says in its description whether `Idempotency-Key` is required or ignored. Where it is required, send 1–255 characters; a missing or invalid key answers `400 BAD_REQUEST`. The key is scoped to the caller, the operation and the target resource. Retrying with the same key and the same body returns the original status and body without running the command again; the same key with a different body answers `409 IDEMPOTENCY_CONFLICT`. After a timeout or a lost response, retry with the same key rather than a new one. Where it is ignored, nothing is replayed: a retry runs the command again, so reread the resource before retrying.\n\n## Errors\n\nEvery error answers `application/json` with `{\"error\": {\"code\", \"message\", \"retryable\", \"request_id\", \"details\"}}` (`ApiErrorResponse`). Branch on `code`, not on `message`. `retryable: true` means the same request may succeed later unchanged (`REQUEST_TIMEOUT`, `RATE_LIMITED`, `BACKEND_UNAVAILABLE`, `NOT_READY`). Each response below lists its codes and when each one happens.\n\n## Response headers\n\n- `X-Request-Id`: on every response, a fresh id for this request; an error's `request_id` is the same value. Quote it when reporting a problem.\n- `Retry-After`: seconds to wait, on `429 RATE_LIMITED` and on `503 BACKEND_UNAVAILABLE`."
+    "description": "Private alpha session control plane. This document is generated from the route declarations in apps/control-host/src/api/openapi.ts and the Zod schemas in packages/contracts; do not edit it by hand.\n\n## Authentication\n\nThere are two ways to call the API, and they are not interchangeable:\n\n- **Servers and scripts** send an API key as an HTTP bearer token, `Bearer \u003ckey>` (`bearerApiKey`). The key is limited to the scopes it was issued with, and it never needs the CSRF header.\n- **The web console** uses the browser session cookie that `POST /v1/auth/login` sets (`cookieSession`). What it may do follows the user's workspace role, and every request other than GET must send `X-Requested-With: agent-platform-web` and must not be cross-site (`Sec-Fetch-Site`, `Origin`); otherwise it answers `403 FORBIDDEN`.\n\nAn API key cannot manage agents, members, teams or API keys, list or stop sessions through the administration operations, read a session outside its share or take a session over: those operations answer it `403 FORBIDDEN`, whatever its scopes. A missing, malformed, unknown or revoked credential answers `401 UNAUTHORIZED`. `/healthz`, `/readyz`, `/v1/openapi.json`, `/v1/auth/bootstrap` and `/v1/auth/login` take no credential.\n\n## Scopes\n\nEach operation names the one scope it requires, in its description and in its `security` requirement:\n\n- `sessions:read`: read sessions, turns, events, pending requests, usage, limits and receipts.\n- `sessions:write`: create sessions and send messages.\n- `sessions:approve`: answer pending permission and question requests.\n- `sessions:control`: interrupt, pause, resume and terminate.\n- `sessions:recover`: record recovery decisions.\n\nWhat a credential holds:\n\n- An API key holds exactly the scopes it was issued with (`scopes` in `POST /v1/api-keys`, or `--scopes` in the key CLI). A key issued before scopes existed holds none and must be reissued.\n- A cookie session holds the scopes of the user's workspace role: `owner` holds all five, `admin` and `member` all but `sessions:recover`.\n- A credential without the required scope answers `403 FORBIDDEN` before the body or the resource is read.\n\n## Idempotency\n\nEach command (any method but GET) says in its description whether `Idempotency-Key` is required or ignored. Where it is required, send 1–255 characters; a missing or invalid key answers `400 BAD_REQUEST`. The key is scoped to the caller, the operation and the target resource. Retrying with the same key and the same body returns the original status and body without running the command again; the same key with a different body answers `409 IDEMPOTENCY_CONFLICT`. After a timeout or a lost response, retry with the same key rather than a new one. Where it is ignored, nothing is replayed: a retry runs the command again, so reread the resource before retrying.\n\n## Errors\n\nEvery error answers `application/json` with `{\"error\": {\"code\", \"message\", \"retryable\", \"request_id\", \"details\"}}` (`ApiErrorResponse`). Branch on `code`, not on `message`. `retryable: true` means the same request may succeed later unchanged (`REQUEST_TIMEOUT`, `RATE_LIMITED`, `BACKEND_UNAVAILABLE`, `NOT_READY`). Each response below lists its codes and when each one happens.\n\n## Response headers\n\n- `X-Request-Id`: on every response, a fresh id for this request; an error's `request_id` is the same value. Quote it when reporting a problem.\n- `Retry-After`: seconds to wait, on `429 RATE_LIMITED` and on `503 BACKEND_UNAVAILABLE`."
   },
   "tags": [
     {
@@ -22,7 +22,7 @@
     },
     {
       "name": "Auth",
-      "description": "Discover the API and manage authenticated browser sessions."
+      "description": "Discover the API, sign in (including by redeeming an invite) and manage authenticated browser sessions."
     },
     {
       "name": "Sessions",
@@ -50,11 +50,15 @@
     },
     {
       "name": "Recovery",
-      "description": "Resolve sessions that require an operator recovery decision."
+      "description": "Resolve sessions that require an operator recovery decision. The requester's own decision also takes an API key with `sessions:recover`."
+    },
+    {
+      "name": "Admin",
+      "description": "See and stop every session of the workspace, read a session outside its share with an audited reason, decide recovery for any session, and take over the sessions of members who were offboarded. Owners and admins, signed in; only an owner decides recovery. Every operation here refuses an API key except the recovery decision, which also takes a key holding `sessions:recover`, but only for sessions the key can already see."
     },
     {
       "name": "Members",
-      "description": "Invite people, change member roles and take over the sessions of members who were offboarded. Owners and admins, from a browser session; only an owner grants or changes the owner role."
+      "description": "Invite people, change member roles and issue password reset links. Owners and admins, from a browser session; only an owner grants or changes the owner role or issues a password reset link."
     },
     {
       "name": "Teams",
@@ -81,18 +85,67 @@
       "description": "Inspect installation limits and asynchronous command receipts."
     }
   ],
+  "x-tagGroups": [
+    {
+      "name": "Getting started",
+      "tags": [
+        "Auth",
+        "API keys"
+      ]
+    },
+    {
+      "name": "Agents",
+      "tags": [
+        "Agents"
+      ]
+    },
+    {
+      "name": "Sessions",
+      "tags": [
+        "Sessions",
+        "Messages & turns",
+        "Events",
+        "Pending requests",
+        "Session control",
+        "Push requests"
+      ]
+    },
+    {
+      "name": "Workspace management",
+      "tags": [
+        "Members",
+        "Teams",
+        "Linked accounts",
+        "Workspace settings"
+      ]
+    },
+    {
+      "name": "Administration",
+      "tags": [
+        "Admin",
+        "Recovery"
+      ]
+    },
+    {
+      "name": "Operations",
+      "tags": [
+        "Health",
+        "Limits & receipts"
+      ]
+    }
+  ],
   "components": {
     "securitySchemes": {
       "bearerApiKey": {
         "type": "http",
         "scheme": "bearer",
-        "description": "An API key sent as an HTTP bearer token, `Bearer \u003ckey>`. It holds exactly the scopes it was issued with; a key issued before scopes existed holds none."
+        "description": "For servers and scripts: an API key sent as an HTTP bearer token, `Bearer \u003ckey>`. It holds exactly the scopes it was issued with; a key issued before scopes existed holds none. It never needs the CSRF header, and it cannot manage agents, members, teams or API keys."
       },
       "cookieSession": {
         "type": "apiKey",
         "in": "cookie",
         "name": "__Host-ap_session",
-        "description": "The browser session cookie set by `POST /v1/auth/login`. It holds the scopes of the user's workspace role (`owner`: all; `member`: all but `sessions:recover`). Requests other than GET must also send `X-Requested-With: agent-platform-web`."
+        "description": "For the web console: the browser session cookie set by `POST /v1/auth/login`. It holds the scopes of the user's workspace role (`owner`: all; `admin` and `member`: all but `sessions:recover`). Requests other than GET must also send `X-Requested-With: agent-platform-web`."
       }
     },
     "headers": {
@@ -120,6 +173,7 @@
             "minLength": 1
           },
           "repository_id": {
+            "description": "The catalog repository the session works on. Required when the profile's `repository_mode` is `required`, refused when it is `none`, either when it is `optional`; omitted, the session starts in an empty workspace with no repository to push to.",
             "type": "string",
             "minLength": 1
           },
@@ -141,7 +195,6 @@
         },
         "required": [
           "profile_id",
-          "repository_id",
           "message"
         ],
         "additionalProperties": false
@@ -6346,6 +6399,82 @@
         ],
         "additionalProperties": false
       },
+      "ListSessionOutputsResponse": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "checkpoint_revision": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 2147483647
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "bytes": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "sha256": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "omitted": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "too_large"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "path",
+                "bytes",
+                "sha256",
+                "omitted"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "session_id",
+          "checkpoint_revision",
+          "items"
+        ],
+        "additionalProperties": false
+      },
       "ListAgentsResponse": {
         "type": "object",
         "properties": {
@@ -10800,7 +10929,7 @@
       "post": {
         "operationId": "issuePasswordReset",
         "tags": [
-          "Auth"
+          "Members"
         ],
         "summary": "Issue a one-time password reset link for a member (owner only)",
         "description": "Requires the issuer's current password, counted against the issuer's login failure window. An owner cannot issue a link for themselves, nor for a member who owns another workspace. The token is returned once and expires in one hour; issuing another revokes the member's open link. Writes an `issue_password_reset` receipt whose result names the target's role.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
@@ -12197,7 +12326,7 @@
           "Sessions"
         ],
         "summary": "Durably accept a session and its first input",
-        "description": "Creates a session for a catalog profile and repository and queues `message` as turn `1`. The 201 means the input is stored, not that it ran: follow the turn with `GET /v1/sessions/{id}/turns/{turn_id}` or the event stream. `model` picks one of the models the profile offers (its `model` or `models` in the catalog); omitted, the profile's default runs. The model stays until the session's profile is changed (`POST /v1/sessions/{id}/profile`), which runs the new profile's default. A session waits in `queued` while no execution slot is free; it is never refused for that. `agent_release_id` pins the session to that release of an agent, so a key bound to the agent may create it; `profile_id` must be the release's runtime profile (409 RELEASE_PROFILE_MISMATCH). The run itself follows `profile_id`. Every credential the release names must still be bound to its agent; otherwise 409 CREDENTIAL_UNBOUND, whose `details` carry the guidance to show the requester and the agent's admins to ask (`SessionCredentialUnboundDetails`), never the missing names. The receipt settles with turn `1`: `succeeded` when it completes, `failed` when it fails or is interrupted or cancelled, `unknown` when its outcome is unknown.\n\n**Scope:** `sessions:write` (API key or cookie session). **Idempotency-Key:** required.",
+        "description": "Creates a session for a catalog profile and repository and queues `message` as turn `1`. Whether `repository_id` is sent follows the profile's `repository_mode` (`GET /v1/profiles`): `required` needs it, `none` refuses it, `optional` takes either; a session created without one starts in an empty workspace, has no repository to push to (`POST /v1/sessions/{id}/push-requests` answers 409 PUSH_SOURCE_MISSING) and its detail's `repository_id` is null. The 201 means the input is stored, not that it ran: follow the turn with `GET /v1/sessions/{id}/turns/{turn_id}` or the event stream. `model` picks one of the models the profile offers (its `model` or `models` in the catalog); omitted, the profile's default runs. The model stays until the session's profile is changed (`POST /v1/sessions/{id}/profile`), which runs the new profile's default. A session waits in `queued` while no execution slot is free; it is never refused for that. `agent_release_id` pins the session to that release of an agent, so a key bound to the agent may create it; `profile_id` must be the release's runtime profile (409 RELEASE_PROFILE_MISMATCH). The run itself follows `profile_id`. Every credential the release names must still be bound to its agent; otherwise 409 CREDENTIAL_UNBOUND, whose `details` carry the guidance to show the requester and the agent's admins to ask (`SessionCredentialUnboundDetails`), never the missing names. The receipt settles with turn `1`: `succeeded` when it completes, `failed` when it fails or is interrupted or cancelled, `unknown` when its outcome is unknown.\n\n**Scope:** `sessions:write` (API key or cookie session). **Idempotency-Key:** required.",
         "x-scope": "sessions:write",
         "security": [
           {
@@ -12524,7 +12653,7 @@
             }
           },
           "422": {
-            "description": "- `UNSUPPORTED_CAPABILITY`: This installation or the session's runtime cannot serve the request. `profile_id` or `repository_id` is not in the catalog, the catalog does not allow the pair, or the profile does not offer `model`.",
+            "description": "- `UNSUPPORTED_CAPABILITY`: This installation or the session's runtime cannot serve the request. `profile_id` or `repository_id` is not in the catalog, the catalog does not allow the pair, the profile does not offer `model`, `repository_id` is missing for a profile whose `repository_mode` is `required` (`Profile \u003cid> needs a repository: send repository_id`), or sent for one whose `repository_mode` is `none` (`Profile \u003cid> runs without a repository: omit repository_id`).",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -13674,7 +13803,7 @@
       "post": {
         "operationId": "auditReadSession",
         "tags": [
-          "Sessions"
+          "Admin"
         ],
         "summary": "Read a session outside its share, with a reason",
         "description": "Owners and admins. The session detail and a page of its turns, whatever the share; nothing on the session changes and no other action is opened by it. Every read is recorded with its `justification`.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
@@ -13991,7 +14120,7 @@
       "get": {
         "operationId": "listAdminSessions",
         "tags": [
-          "Sessions"
+          "Admin"
         ],
         "summary": "Every session of the workspace, metadata only",
         "description": "Owners and admins. Who made each session, its agent release, state and share scope, newest first; no content, title or summary.\n\n**Auth:** cookie session only; no scope.",
@@ -14135,7 +14264,7 @@
       "post": {
         "operationId": "adminTerminateSession",
         "tags": [
-          "Session control"
+          "Admin"
         ],
         "summary": "Stop any session of the workspace, with a reason",
         "description": "Owners and admins, whatever the session's share. The `justification` is recorded with the decision and becomes the stop reason. Otherwise as `POST /v1/sessions/{id}/terminate`.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** required.",
@@ -14539,7 +14668,7 @@
       "post": {
         "operationId": "adminDecideSessionRecovery",
         "tags": [
-          "Recovery"
+          "Admin"
         ],
         "summary": "Decide recovery for any session of the workspace",
         "description": "Owners only, whatever the session's share. The decision's `reason` is the justification, recorded with the decision. Otherwise as `POST /v1/sessions/{id}/recovery-decisions`.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** required.",
@@ -15105,6 +15234,513 @@
                               "type": "string",
                               "enum": [
                                 "NOT_FOUND"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "description": "- `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BACKEND_UNAVAILABLE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/sessions/{id}/outputs": {
+      "get": {
+        "operationId": "listSessionOutputs",
+        "tags": [
+          "Sessions"
+        ],
+        "summary": "Files the session left under out/ at its latest checkpoint",
+        "description": "Lists the files under the workspace's `out/` directory as the session's latest committed checkpoint recorded them: `path` (relative to the workspace, starting with `out/`), `bytes` and `sha256`. A file over the output limits is listed with `omitted: too_large` and `sha256: null`; its bytes were not kept, so it cannot be downloaded. A file written after the latest checkpoint is not listed until the next one commits. A session with no committed checkpoint answers an empty list with `checkpoint_revision: null`. Download a listed file with `GET /v1/sessions/{id}/outputs/{path}`. Reading changes nothing.\n\n**Scope:** `sessions:read` (API key or cookie session).",
+        "x-scope": "sessions:read",
+        "security": [
+          {
+            "bearerApiKey": [
+              "sessions:read"
+            ]
+          },
+          {
+            "cookieSession": [
+              "sessions:read"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The outputs of the session's latest committed checkpoint.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "example": {
+                  "session_id": "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01",
+                  "checkpoint_revision": 2,
+                  "items": [
+                    {
+                      "path": "out/report.md",
+                      "bytes": 2048,
+                      "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                      "omitted": null
+                    },
+                    {
+                      "path": "out/recording.mp4",
+                      "bytes": 734003200,
+                      "sha256": null,
+                      "omitted": "too_large"
+                    }
+                  ]
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ListSessionOutputsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "- `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "UNAUTHORIZED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "- `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, checked before the body or the resource is read.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "FORBIDDEN"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "- `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "NOT_FOUND"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "- `CHECKPOINT_UNAVAILABLE`: The session has no committed checkpoint that can serve this request. The latest checkpoint's manifest is missing, damaged or unreadable; `message` names it.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "CHECKPOINT_UNAVAILABLE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "description": "- `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BACKEND_UNAVAILABLE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/sessions/{id}/outputs/{path}": {
+      "get": {
+        "operationId": "downloadSessionOutput",
+        "tags": [
+          "Sessions"
+        ],
+        "summary": "Download one file the session left under out/",
+        "description": "Streams one file that `GET /v1/sessions/{id}/outputs` lists, as `application/octet-stream` with `Content-Disposition: attachment` and `X-Content-Type-Options: nosniff`. `{path}` is the listed `path` exactly, percent-encoded as one path segment (`out/report.md` is `out%2Freport.md`). The bytes are the ones the checkpoint verified; if the store no longer holds them the transfer ends early with an error rather than completing with other bytes, so check the length (or `sha256`) of what arrived. A path the list does not name, a file listed with `omitted`, or a session with no committed checkpoint answers 404.\n\n**Scope:** `sessions:read` (API key or cookie session).",
+        "x-scope": "sessions:read",
+        "security": [
+          {
+            "bearerApiKey": [
+              "sessions:read"
+            ]
+          },
+          {
+            "cookieSession": [
+              "sessions:read"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The file's bytes.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              },
+              "Content-Disposition": {
+                "description": "Always `attachment`, with the file's name as `filename*` (RFC 6266, UTF-8) and an ASCII `filename` fallback.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Content-Length": {
+                "description": "The file's size in bytes.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "contentMediaType": "application/octet-stream"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "- `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "UNAUTHORIZED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "- `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, checked before the body or the resource is read.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "FORBIDDEN"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "- `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. Also when the path is not listed, is listed as `omitted`, or the session has no committed checkpoint.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "NOT_FOUND"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "- `CHECKPOINT_UNAVAILABLE`: The session has no committed checkpoint that can serve this request. The latest checkpoint's manifest or this file's stored object is missing, damaged or unreadable; `message` names it.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "CHECKPOINT_UNAVAILABLE"
                               ]
                             }
                           }
@@ -20791,7 +21427,7 @@
           "Session control"
         ],
         "summary": "Run the session's next turns on another profile",
-        "description": "Moves an `active`, `paused` or `stopped` session onto `profile_id`, a profile this host's catalog allows with the session's repository. It takes effect at the next turn that starts: a turn running now finishes on the profile it started with, and its worker then leaves so the next one claims the new profile and restores the session's checkpoint, conversation included. The session then runs the new profile's default `model`, whatever `model` it was created with. Earlier turns keep their record and cost; each turn's `attempts[].profile_id` says what it ran on.\n\nThe new profile must run the same runtime kind and version, since the next worker restores checkpoints that runtime took, and must be billed the same way (`billing: none` or not), since the session's cost limit stays as it is. A session created from an agent release runs the release's profile and answers `409 RELEASE_PROFILE_MISMATCH`. The change settles in the request: the receipt is `succeeded` with result `{previous_profile_id, profile_id}`, and a `status` event on the stream carries both. Naming the profile the session already runs changes nothing and still answers `succeeded`.\n\n**Scope:** `sessions:control` (API key or cookie session). **Idempotency-Key:** required.",
+        "description": "Moves an `active`, `paused` or `stopped` session onto `profile_id`, a profile this host's catalog allows with the session's repository, or, for a session created without one, a profile whose `repository_mode` is `optional` or `none`. It takes effect at the next turn that starts: a turn running now finishes on the profile it started with, and its worker then leaves so the next one claims the new profile and restores the session's checkpoint, conversation included. The session then runs the new profile's default `model`, whatever `model` it was created with. Earlier turns keep their record and cost; each turn's `attempts[].profile_id` says what it ran on.\n\nThe new profile must run the same runtime kind and version, since the next worker restores checkpoints that runtime took, and must be billed the same way (`billing: none` or not), since the session's cost limit stays as it is. A session created from an agent release runs the release's profile and answers `409 RELEASE_PROFILE_MISMATCH`. The change settles in the request: the receipt is `succeeded` with result `{previous_profile_id, profile_id}`, and a `status` event on the stream carries both. Naming the profile the session already runs changes nothing and still answers `succeeded`.\n\n**Scope:** `sessions:control` (API key or cookie session). **Idempotency-Key:** required.",
         "x-scope": "sessions:control",
         "security": [
           {
@@ -22735,7 +23371,7 @@
       "post": {
         "operationId": "acceptInvite",
         "tags": [
-          "Members"
+          "Auth"
         ],
         "summary": "Redeem an invite; sets the session cookie",
         "description": "An address with no account gets one with this password. An existing account joins with its current password, which is never changed. The token is spent once; a revoked, replaced or expired token answers 410, an accepted one 409. Writes an `accept_invite` receipt.\n\n**Auth:** public; no credential. **Idempotency-Key:** ignored.",
@@ -24946,7 +25582,7 @@
       "get": {
         "operationId": "listTakeovers",
         "tags": [
-          "Members"
+          "Admin"
         ],
         "summary": "Sessions waiting for an owner to take them over",
         "description": "Sessions whose requester was offboarded. Each takes no further input until an owner takes it over. API keys are refused.\n\n**Auth:** cookie session only; no scope.",
@@ -25090,7 +25726,7 @@
       "post": {
         "operationId": "takeOverSession",
         "tags": [
-          "Members"
+          "Admin"
         ],
         "summary": "Become the requester of an offboarded member's session",
         "description": "The caller becomes the session's requester and its queued input runs again. A session shared with less than the whole workspace and not with the caller needs a `justification`, kept on the decision and the receipt; without one it answers 403 with `reason_code` `justification_required`. The body may be empty. API keys are refused.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
@@ -33132,7 +33768,7 @@
       "get": {
         "operationId": "listProfiles",
         "tags": [
-          "Limits & receipts"
+          "Agents"
         ],
         "summary": "The runtime profiles this installation can run",
         "description": "Lists the catalog profiles a session's `profile_id` or a release's `runtime_profile_id` may name, by `id`, with the model each one runs and its `repository_mode`: whether a session of it names a repository (`required`), may (`optional`) or never does (`none`). The catalog is the operator's config, read once at startup; this reads it and changes nothing. A profile's provider endpoint and credential are not included.\n\n**Scope:** `sessions:read` (API key or cookie session).",

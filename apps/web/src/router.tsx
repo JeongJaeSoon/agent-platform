@@ -15,7 +15,12 @@ import {
   agentSearch,
 } from "./routes/agent-detail.tsx";
 import { AgentsScreen, NewAgentScreen } from "./routes/agents.tsx";
-import { ApiKeysScreen } from "./routes/api-keys.tsx";
+import {
+  ApiKeysScreen,
+  NewApiKeyScreen,
+  NewServiceKeyScreen,
+  ServiceKeysScreen,
+} from "./routes/api-keys.tsx";
 import { BootstrapScreen } from "./routes/bootstrap.tsx";
 import {
   GoogleCallbackScreen,
@@ -33,6 +38,7 @@ import {
 } from "./routes/linked-accounts.tsx";
 import { LoginScreen, type LoginSearch, loginSearch } from "./routes/login.tsx";
 import { MembersScreen } from "./routes/members.tsx";
+import { PreferencesScreen } from "./routes/preferences.tsx";
 import { SessionDetailScreen, SessionsScreen } from "./routes/sessions.tsx";
 import { TeamDetailScreen, TeamsScreen } from "./routes/teams.tsx";
 import { WorkspaceSettingsScreen } from "./routes/workspace-settings.tsx";
@@ -160,6 +166,30 @@ const apiKeys = createRoute({
   component: ApiKeysScreen,
 });
 
+const newApiKey = createRoute({
+  getParentRoute: () => authed,
+  path: "/settings/api-keys/new",
+  component: NewApiKeyScreen,
+});
+
+const serviceKeys = createRoute({
+  getParentRoute: () => authed,
+  path: "/settings/api-keys/service",
+  component: ServiceKeysScreen,
+});
+
+const newServiceKey = createRoute({
+  getParentRoute: () => authed,
+  path: "/settings/api-keys/service/new",
+  component: NewServiceKeyScreen,
+});
+
+const preferences = createRoute({
+  getParentRoute: () => authed,
+  path: "/settings/preferences",
+  component: PreferencesScreen,
+});
+
 const workspaceSettings = createRoute({
   getParentRoute: () => authed,
   path: "/settings/workspace",
@@ -204,6 +234,10 @@ const routeTree = root.addChildren([
     linkedAccounts,
     slackLink,
     apiKeys,
+    newApiKey,
+    serviceKeys,
+    newServiceKey,
+    preferences,
     workspaceSettings,
   ]),
 ]);

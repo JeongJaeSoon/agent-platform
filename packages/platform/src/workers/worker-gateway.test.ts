@@ -714,6 +714,7 @@ describe("WorkerGateway", () => {
         id: "s-1",
         profileId: "claude-coding-v1",
         profileFingerprint: null,
+        repositoryMode: "repository",
         repositoryId: "sample-app",
       }),
     ).toEqual({
@@ -803,6 +804,135 @@ describe("WorkerGateway", () => {
     expect(bootstrapClaimResponseSchema.safeParse(spentClaim).success).toBe(
       true,
     );
+  });
+
+  test("a session without a repository is claimed with no repository token and no CLAUDE.md", async () => {
+    const base = {
+      runtime_kind: "claude_agent_sdk" as const,
+      runtime_version: "0.3.270",
+      model: "claude-sonnet-5",
+      tools: ["Read"],
+      permission_mode: "plan" as const,
+      provider: {
+        kind: "anthropic" as const,
+        endpoint: "https://api.anthropic.invalid",
+        auth: {
+          kind: "api_key" as const,
+          value: "provider-key",
+          ref: { value_env: "PROVIDER_KEY" },
+        },
+      },
+    };
+    const optional = {
+      ...base,
+      repository: "optional" as const,
+      project_settings: { claude_md: true },
+    };
+    const general = { ...base, tools: ["Write"], repository: "none" as const };
+    const binding = {
+      sessionId: scope.session_id,
+      attemptId: "att_1",
+      leaseEpoch: 1,
+      executionGeneration: 1,
+      authRevision: 0,
+      leaseExpiresAt: new Date("2026-09-22T00:00:30Z"),
+      leaseRemainingMs: 29_950,
+      profileId: "general",
+      profileFingerprint: profileFingerprint(general),
+      unmetered: false,
+      ownerScope: "owner-a",
+      repository: null,
+      restore: null,
+      restoreProfiles: [
+        {
+          profileId: "optional",
+          profileFingerprint: profileFingerprint(optional),
+        },
+      ],
+      costUsd: 0,
+      providerTokens: 0,
+    };
+    const runnable: ClaimInput["runnable"][] = [];
+    const issued: ClaimInput["egress"][] = [];
+    const claimWith = (bound: typeof binding) =>
+      createWorkerGateway({
+        work: work({
+          claimAtomic: async (input) => {
+            runnable.push(input.runnable);
+            issued.push(input.egress);
+            return { outcome: "claimed", binding: bound };
+          },
+        }),
+        catalog: {
+          profiles: { required: base, optional, general },
+          repositories: {
+            app: {
+              url: "https://example.invalid/app.git",
+              branch: "main",
+              profiles: ["required", "optional"],
+            },
+          },
+        },
+        checkpoints: acceptAllCheckpoints,
+        options: {
+          sessionCostLimitUsd: 1_000,
+          sessionTokenLimit: null,
+          leaseTtlMs: 30_000,
+        },
+      }).bootstrapClaim(
+        { kind: "bootstrap" },
+        {
+          execution_id: "e",
+          execution_generation: 1,
+          credential: { kind: "launch_nonce", nonce: "n" },
+        },
+      );
+    const claimed = await claimWith(binding);
+    expect(claimed.workspace).toEqual({ repository: null });
+    expect(JSON.stringify(claimed)).not.toContain("wer_");
+    expect(claimed.runtime_config.tools).toEqual(["Write"]);
+    expect(claimed.restore_runtime_configs).toHaveLength(1);
+    expect(claimed.restore_runtime_configs?.[0]).not.toHaveProperty(
+      "project_settings",
+    );
+    expect(bootstrapClaimResponseSchema.safeParse(claimed).success).toBe(true);
+    expect(runnable[0]).toEqual([
+      expect.objectContaining({ profileId: "required", repositoryId: "app" }),
+      expect.objectContaining({ profileId: "optional", repositoryId: "app" }),
+      {
+        profileId: "optional",
+        profileFingerprint: profileFingerprint(optional),
+        repositoryId: null,
+      },
+      {
+        profileId: "general",
+        profileFingerprint: profileFingerprint(general),
+        repositoryId: null,
+      },
+    ]);
+    const [egress] = issued;
+    if (!egress) throw new Error("claim was not asked to issue egress tokens");
+    expect(
+      egress.bindingsOf({
+        id: "s-1",
+        profileId: "general",
+        profileFingerprint: profileFingerprint(general),
+        repositoryMode: "none",
+        repositoryId: null,
+      }),
+    ).toEqual({
+      provider: profileFingerprint(general),
+      repository: null,
+      object_store: "sessions/s-1/",
+    });
+    const optionalClaim = await claimWith({
+      ...binding,
+      profileId: "optional",
+      profileFingerprint: profileFingerprint(optional),
+      restoreProfiles: [],
+    });
+    expect(optionalClaim.runtime_config).not.toHaveProperty("project_settings");
+    expect(optionalClaim.workspace).toEqual({ repository: null });
   });
 
   test("bootstrapClaim answers a launch whose session was failed for a catalog mismatch with a final 409", async () => {

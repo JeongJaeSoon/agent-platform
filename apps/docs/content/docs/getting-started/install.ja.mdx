@@ -1,0 +1,76 @@
+---
+title: "インストール"
+description: ローカルマシンに Werft スタックを立ち上げる
+---
+
+Werft は API サーバー、scheduler、セッションごとに起動する worker コンテナ、PostgreSQL、S3 (LocalStack)、Git サーバー (Gitea)、egress proxy で構成される。このページではそのすべてを Docker Compose で 1 台のマシンに立ち上げる。モデルはキーなしで動く fake モデルを使うため、Anthropic アカウントは不要である。
+
+## 必要なもの
+
+| 項目 | バージョン |
+| --- | --- |
+| Docker Engine | 28 以上 |
+| Docker Compose | 2.24.6 以上 |
+| curl, jq, uuidgen, git | 任意のバージョン |
+
+スタックは `127.0.0.1` にのみポートを開く。3000 (API・Web コンソール)、5432 (PostgreSQL)、4566・4567 (LocalStack)、3001 (Gitea) が空いている必要がある。
+
+```sh
+docker version --format 'Docker Engine {{.Server.Version}}'
+docker compose version
+for p in 3000 5432 4566 4567 3001; do
+  lsof -nP -iTCP:$p -sTCP:LISTEN >/dev/null 2>&1 && echo "사용 중: $p"
+done
+```
+
+ポートが使用中であることを示す `사용 중:` の行が出なければ、次に進める。
+
+## 取得する
+
+```sh
+git clone https://github.com/JeongJaeSoon/agent-platform.git
+cd agent-platform
+```
+
+## 立ち上げる
+
+```bash
+scripts/local.sh up --fake-model
+```
+
+初回はイメージをこの checkout からビルドするため、数分から 10 分ほどかかる。準備が終わると、最後の行に次が出力される。
+
+```text
+{"status":"ready","checks":{"database":"ok","schema":"ok","config":"ok"}}
+```
+
+`--fake-model` を付けると、モデル呼び出しは compose 内の fake Messages API が受ける。worker の中では本物の Claude Code が動き、fake はメッセージに書かれたスクリプトどおりに答える ([Quickstart](/getting-started/quickstart))。オプションなしで `scripts/local.sh up` を実行すると、シェルの `ANTHROPIC_API_KEY` で実際の Claude を呼び出し、費用がかかる。
+
+## 状態を確認する
+
+```bash
+scripts/local.sh status
+```
+
+`api`・`scheduler`・`reconciler` が running で、末尾に `/readyz` の応答があればよい。worker コンテナは常駐しない。scheduler がセッションごとに起動して削除する。
+
+## 停止する
+
+```sh
+scripts/local.sh down
+```
+
+`down` はスタックと**すべてのデータ** (セッション、checkpoint、API キー、Gitea リポジトリ) を削除する。ローカルの S3 はメモリ上にしかないため、データを残したまま停止する方法はない。最初からやり直すには `scripts/local.sh reset --fake-model` を実行する。
+
+## うまくいかないとき
+
+| 症状 | 対処 |
+| --- | --- |
+| `Docker Engine … is too old` | Docker Engine を 28 以上に上げる |
+| `127.0.0.1 port(s) … already in use` | 上の `lsof` ループで、そのポートを使っているプロセスを探す |
+| `up needs ANTHROPIC_API_KEY exported or in .env` | オプションなしの `up` は実際の Claude を使う。キーなしで動かすには `--fake-model` を付ける |
+| Docker を再起動した後に API が起動しない | ローカルの S3 が空になっている。`scripts/local.sh reset --fake-model` で立ち上げ直す |
+
+## 次のステップ
+
+- [Quickstart](/getting-started/quickstart): API キーを取得して最初のセッションを作成する

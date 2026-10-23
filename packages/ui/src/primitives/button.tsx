@@ -2,16 +2,17 @@ import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
 import type { ComponentProps, JSX } from "react";
 
-import { cn } from "../lib/cn.ts";
+import { cn } from "../foundations/cn.ts";
 
 /*
  * shadcn/ui new-york Button. Changed from upstream: no `dark:` variants (the
  * tokens already switch theme, including the manual `data-theme` toggle that
  * Tailwind's `dark:` cannot see), `destructive` uses its own foreground token
- * instead of white, and transitions stop under reduced motion.
+ * instead of white, transitions stop under reduced motion, and console v35
+ * sizing: no shadow, 32px or 28px tall and no `lg`.
  */
 export const buttonVariants = cva(
-  "inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium text-control outline-none transition-[color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 motion-reduce:transition-none [&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0",
+  "inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-control font-medium text-control outline-none transition-[color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 motion-reduce:transition-none [&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0",
   {
     variants: {
       variant: {
@@ -19,7 +20,7 @@ export const buttonVariants = cva(
         destructive:
           "bg-destructive text-destructive-foreground hover:bg-destructive/90 focus-visible:ring-destructive/20",
         outline:
-          "border border-input bg-card shadow-xs hover:bg-accent hover:text-accent-foreground",
+          "border border-input bg-card hover:bg-accent hover:text-accent-foreground",
         secondary:
           "bg-secondary text-secondary-foreground hover:bg-secondary/80",
         ghost:
@@ -28,8 +29,7 @@ export const buttonVariants = cva(
       },
       size: {
         default: "h-[var(--ap-control-height)] px-3",
-        sm: "h-[var(--ap-control-height-sm)] gap-2 rounded-md px-2.5",
-        lg: "h-10 rounded-md px-6 has-[>svg]:px-4",
+        sm: "h-[var(--ap-control-height-sm)] px-2",
         icon: "size-[var(--ap-control-height)]",
       },
     },

@@ -9,24 +9,21 @@ import {
   Field,
   FieldLabel,
   formatTimestamp,
-  SessionStatusLabel,
-  StatusLabel,
+  PageHeader,
   Tabs,
   TabsContent,
   TabsList,
   TabsTrigger,
+  useDetailLayout,
+} from "@werft-ai/ui";
+import { type ReactNode, useId, useMemo, useState } from "react";
+import {
+  SessionStatusLabel,
+  StatusLabel,
   Timeline,
   type TimelineEntry,
   turnSummaryText,
-} from "@werft-ai/ui";
-import {
-  type ReactNode,
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+} from "../components/index.ts";
 import {
   type EventStreamState,
   type SessionEventFrame,
@@ -78,7 +75,7 @@ export function SessionDetail({
     isApiError(session.error, "FORBIDDEN");
   const detail = lostAccess ? undefined : session.data;
   const readable = detail !== undefined;
-  const { wrapperRef, narrow } = useDetailWidth(readable);
+  const layout = useDetailLayout(readable);
   const usage = useSessionUsage(id, readable);
   const pending = usePendingRequests(id, readable);
   const events = useSessionEvents(id, readable);
@@ -111,7 +108,7 @@ export function SessionDetail({
     <Tabs
       value={tab}
       onValueChange={setTab}
-      className="min-w-0 gap-4"
+      className="min-w-0 gap-[var(--ap-space-block)]"
       key="body"
     >
       <div className="flex flex-wrap items-center justify-between gap-2 border-b">
@@ -122,14 +119,11 @@ export function SessionDetail({
         >
           <TabsTrigger
             value="timeline"
-            className="h-9 px-3 text-control after:bottom-0"
+            className="h-9 text-control after:bottom-0"
           >
             {t("session.tabs.timeline")}
           </TabsTrigger>
-          <TabsTrigger
-            value="info"
-            className="h-9 px-3 text-control after:bottom-0"
-          >
+          <TabsTrigger value="info" className="h-9 text-control after:bottom-0">
             {t("session.tabs.info")}
           </TabsTrigger>
         </TabsList>
@@ -146,13 +140,13 @@ export function SessionDetail({
         ) : null}
       </div>
       <TabsContent value="timeline" className="flex flex-col gap-4">
-        <div className="min-w-0 rounded-lg border bg-card">
+        <div className="min-w-0 rounded-card border bg-card">
           <Events events={events.events} state={events.state} debug={debug} />
         </div>
         {hasPending ? composer : null}
       </TabsContent>
       <TabsContent value="info">
-        <div className="flex flex-col gap-3 rounded-lg border bg-card p-4">
+        <div className="flex flex-col gap-3 rounded-card border bg-card p-4">
           <Overview session={detail} />
           {usage.data ? <Usage usage={usage.data} /> : null}
         </div>
@@ -163,7 +157,15 @@ export function SessionDetail({
     <aside
       key="panel"
       aria-label={t("session.panel")}
-      className="flex min-w-0 flex-col gap-4"
+      // Stacked above the body, the cards keep about the panel's width side
+      // by side instead of stretching a question across the whole page. With
+      // nothing to show, the answers block keeps its live region mounted but
+      // leaves the grid, so it does not hold an empty cell.
+      className={
+        layout.narrow
+          ? "grid min-w-0 grid-cols-[repeat(auto-fill,minmax(min(100%,var(--ap-layout-detail-panel-width)),1fr))] items-start gap-4 [&>[data-slot=pending-answers]:not(:has(li,p,output:not(:empty)))]:absolute"
+          : "flex min-w-0 flex-col gap-4"
+      }
     >
       {pending.data ? (
         <PendingAnswers
@@ -184,7 +186,7 @@ export function SessionDetail({
           {composer}
         </Section>
       ) : pendingCount === undefined ? (
-        <div className="flex min-w-0 flex-col gap-3 rounded-lg border bg-card p-4">
+        <div className="flex min-w-0 flex-col gap-3 rounded-card border bg-card p-4">
           {pending.error ? null : (
             <output className="text-caption text-muted-foreground">
               {t("sessions.loadingMore")}
@@ -209,20 +211,16 @@ export function SessionDetail({
     </aside>
   );
   return (
-    <div className="flex min-w-0 flex-col gap-6">
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="m-0 font-mono font-semibold text-title [overflow-wrap:anywhere]">
-              {id}
-            </h1>
+    <div className="flex min-w-0 flex-col">
+      <PageHeader
+        title={<span className="font-mono [overflow-wrap:anywhere]">{id}</span>}
+        description={
+          <span className="flex flex-wrap items-center gap-x-4 gap-y-1">
             <SessionStatusLabel
               status={detail.status}
               label={t(`sessions.status.${detail.status}`)}
               axisLabel={t("sessions.column.status")}
             />
-          </div>
-          <div className="mt-1 flex flex-wrap gap-x-4 gap-y-2 text-muted-foreground text-control">
             <span className="[overflow-wrap:anywhere]">
               {detail.runtime
                 ? `${detail.runtime.profile_id} · ${detail.runtime.kind} ${detail.runtime.version}`
@@ -236,42 +234,19 @@ export function SessionDetail({
               {t("session.updated")}:{" "}
               {formatTimestamp(detail.updated_at, locale)}
             </span>
-          </div>
-        </div>
-        {back}
-      </header>
-      <div
-        ref={wrapperRef}
-        data-slot="session-detail-layout"
-        className={
-          narrow
-            ? "grid min-w-0 grid-cols-1 items-start gap-6"
-            : "grid min-w-0 grid-cols-[minmax(0,1fr)_var(--ap-layout-detail-panel-width)] items-start gap-6"
+          </span>
         }
+        actions={back}
+      />
+      <div
+        ref={layout.ref}
+        data-slot="session-detail-layout"
+        className={layout.className}
       >
-        {narrow ? [panel, body] : [body, panel]}
+        {layout.narrow ? [panel, body] : [body, panel]}
       </div>
     </div>
   );
-}
-
-function useDetailWidth(readable: boolean) {
-  const wrapperRef = useRef<HTMLDivElement>(null);
-  const [narrow, setNarrow] = useState(false);
-  useEffect(() => {
-    if (
-      !readable ||
-      typeof ResizeObserver === "undefined" ||
-      !wrapperRef.current
-    )
-      return;
-    const observer = new ResizeObserver(([entry]) => {
-      if (entry) setNarrow(entry.contentRect.width < 900);
-    });
-    observer.observe(wrapperRef.current);
-    return () => observer.disconnect();
-  }, [readable]);
-  return { wrapperRef, narrow };
 }
 
 function Section({
@@ -284,7 +259,7 @@ function Section({
   const titleId = useId();
   return (
     <section
-      className="flex min-w-0 flex-col gap-3 rounded-lg border bg-card p-4"
+      className="flex min-w-0 flex-col gap-3 rounded-card border bg-card p-4"
       aria-labelledby={titleId}
     >
       <h2 id={titleId} className="m-0 font-semibold text-body leading-5">
@@ -425,7 +400,7 @@ function Usage({
         ]}
       />
       {usage.budget_exceeded ? (
-        <output className="rounded-md border border-[var(--ap-tone-attention-border)] bg-card px-3 py-2 text-body">
+        <output className="rounded-control border border-[var(--ap-tone-attention-border)] bg-card px-3 py-2 text-body">
           {t("session.usage.budgetExceeded")}
         </output>
       ) : null}
@@ -481,6 +456,7 @@ function Events({
           connecting: t("session.events.connecting"),
           closed: t("session.events.closed"),
           turn: (turn) => t("session.events.turn", { turn }),
+          kind: (kind) => t(`session.events.kind.${kind}`),
         }}
         state={state}
         showDebug={debug}

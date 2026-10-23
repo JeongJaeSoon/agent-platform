@@ -1,6 +1,6 @@
 import type { ComponentProps, JSX } from "react";
 
-import { cn } from "../lib/cn.ts";
+import { cn } from "../foundations/cn.ts";
 
 export function Card({
   className,
@@ -10,7 +10,7 @@ export function Card({
     <div
       data-slot="card"
       className={cn(
-        "flex flex-col gap-3 rounded-lg border bg-card py-4 text-card-foreground",
+        "flex flex-col gap-3 rounded-card border bg-card py-4 text-card-foreground",
         className,
       )}
       {...props}

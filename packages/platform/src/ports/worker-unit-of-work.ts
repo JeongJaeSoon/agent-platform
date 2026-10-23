@@ -95,8 +95,9 @@ export type RepositoryPair = {
 
 export type RunnablePair =
   | RepositoryPair
-  // A profile this host may run without a repository. It never matches a
-  // row whose repository_id is null only because it predates the catalog.
+  // A profile this host may run without a repository: it matches only a row
+  // of repository_mode none, never one whose repository_id is null because
+  // it predates the catalog.
   | {
       profileId: string;
       profileFingerprint: string;
@@ -138,16 +139,22 @@ export type EgressIssue = {
   repositoryHash: Uint8Array;
   objectStoreHash: Uint8Array;
   mcpHash?: Uint8Array;
+  // `repository` is null for a session without one: no repository token is
+  // issued, and `repositoryHash` goes unused.
   bindingsOf(session: {
     id: string;
     profileId: string | null;
     profileFingerprint: string | null;
+    repositoryMode: "repository" | "none";
     repositoryId: string | null;
     mcp?: SessionMcp | null;
   }): EgressBindings;
 };
 
-export type EgressBindings = Record<Exclude<EgressPurpose, "mcp">, string> & {
+export type EgressBindings = {
+  provider: string;
+  repository: string | null;
+  object_store: string;
   mcp?: string;
 };
 

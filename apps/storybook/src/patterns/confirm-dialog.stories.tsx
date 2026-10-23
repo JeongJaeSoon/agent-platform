@@ -20,7 +20,8 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
 
-export const Busy: Story = { args: { busy: true } };
+/** The confirm is on its way; both buttons wait. */
+export const Loading: Story = { args: { busy: true } };
 
 export const Danger: Story = {
   args: {
@@ -44,6 +45,7 @@ export const DefaultDark: Story = {
   globals: { theme: "dark" },
 };
 
-export const Mobile: Story = {
+export const DefaultMobile: Story = {
+  name: "Default (390px)",
   globals: { viewport: { value: "mobile390", isRotated: false } },
 };

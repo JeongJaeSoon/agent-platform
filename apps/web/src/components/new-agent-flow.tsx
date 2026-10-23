@@ -45,6 +45,7 @@ import { FunnelResetNotice, useFunnel } from "../funnel/tanstack-funnel.tsx";
 import { errorKey, type MessageKey, useI18n } from "../i18n/i18n.tsx";
 import {
   AGENT_CARD_LANGUAGE_VALUES,
+  AGENT_FORM,
   AgentCardFields,
   type ApiCard,
   CARD_ERROR_FIELDS,
@@ -359,7 +360,7 @@ export function NewAgentFlow({
   };
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-[var(--ap-space-block)]">
       <FunnelResetNotice funnel={funnel} />
       <Stepper label={t("agents.flow.label")} {...stepper} steps={steps} />
       <funnel.Render
@@ -447,7 +448,7 @@ function NameStep({
   });
   return (
     <form
-      className="flex max-w-2xl flex-col gap-6"
+      className={AGENT_FORM}
       noValidate
       onSubmit={form.handleSubmit(onNext)}
     >
@@ -506,12 +507,12 @@ function JobStep({
   );
   return (
     <form
-      className="flex max-w-2xl flex-col gap-6"
+      className={AGENT_FORM}
       noValidate
       onSubmit={submitStep(form, onSave, refuse)}
     >
       <StepHeading focus={focus}>{t("agents.flow.job")}</StepHeading>
-      <p className="m-0 text-muted-foreground text-sm">
+      <p className="m-0 text-control text-muted-foreground">
         {t("agents.flow.jobIntro")}
       </p>
       <AgentCardFields
@@ -561,9 +562,9 @@ function ReleaseStep({
   const cardModel = agent.data?.versions.find((v) => v.id === versionId)?.card
     .model;
   return (
-    <section className="flex max-w-2xl flex-col gap-6">
+    <section className={AGENT_FORM}>
       <StepHeading focus={focus}>{t("agents.flow.release")}</StepHeading>
-      <p className="m-0 text-muted-foreground text-sm">
+      <p className="m-0 text-control text-muted-foreground">
         {t("agents.flow.releaseIntro")}
       </p>
       {agent.error ? (
@@ -641,7 +642,7 @@ function ReleaseForm({
   };
   return (
     <form
-      className="flex flex-col gap-6"
+      className="flex flex-col gap-4"
       noValidate
       onSubmit={submitStep(form, release, refuse)}
     >
@@ -724,7 +725,7 @@ function ActivateStep({
     if (activate.isSuccess) opened.current?.focus();
   }, [activate.isSuccess]);
   return (
-    <section className="flex max-w-2xl flex-col gap-6">
+    <section className={AGENT_FORM}>
       <StepHeading focus={focus}>{t("agents.flow.activate")}</StepHeading>
       {/* Mounted before the result, so the result is read when it lands. */}
       <output className={activate.isSuccess ? "web-notice" : undefined}>

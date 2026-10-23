@@ -1,0 +1,98 @@
+---
+title: "Slack"
+description: What works in the Slack integration today, and what does not exist yet
+---
+
+<Callout type="warn">
+You cannot yet mention the agent in Slack to start a session, or approve with a Slack button. Installing the Slack app (OAuth) and receiving Slack events do not exist yet. Below are the APIs that are already there in preparation.
+</Callout>
+
+| What exists today | API | Who |
+| --- | --- | --- |
+| Link my Slack account to my web account | `POST /v1/linked-accounts/slack/start`, `…/callback`, `GET /v1/linked-accounts`, `DELETE /v1/linked-accounts/{id}` | The signed-in user, for themselves |
+| Connect a Slack app (bot) to an agent | `POST`·`GET /v1/agents/{id}/identities`, `DELETE …/identities/{identity_id}` | owner, admin, and that agent's administrator |
+| Allow guests to use agents | `POST /v1/workspaces/{id}/slack-guest` | owner, admin |
+
+All three are called only with the web login cookie. An API key gets 403. The examples below use the `WEB` header and `WS` from [Create](/agents/create#log-in).
+
+## Enable guest use
+
+This decides whether Slack guests (multi-channel and single-channel guests) can use agents. It is off by default.
+
+```bash
+WS=$(curl -sS "$API/v1/auth/me" "${WEB[@]}" | jq -r .workspace.id)
+curl -sS "$API/v1/workspaces/$WS/slack-guest" "${WEB[@]}" \
+  -d '{"slack_guest_enabled": true}' | jq .
+```
+
+```text
+{
+  "slack_guest_enabled": true
+}
+```
+
+Even when it is on, a guest has to link their own Slack account before using an agent. Users from another company who join through Slack Connect cannot use agents regardless of this setting.
+
+## Link a Slack account
+
+The link uses Sign in with Slack (OpenID Connect). The operator sets `SLACK_OIDC_CLIENT_ID`, `SLACK_OIDC_CLIENT_SECRET`, and `SLACK_OIDC_REDIRECT_URI`, and that workspace must have a confirmed Slack installation. The local stack has neither, so the start request returns 503.
+
+```bash
+curl -sS -o /dev/null -w '%{http_code}\n' -X POST "$API/v1/linked-accounts/slack/start" "${WEB[@]}"
+```
+
+```text
+503
+```
+
+With a configured installation, the start request returns an `authorize_url`. After you grant consent on Slack's authorization screen at that URL, the web link screen passes `code` and `state` to the callback and the link is complete. The link state is `active`, `stale`, or `revoked`.
+
+| Response | Meaning |
+| --- | --- |
+| 409 `SLACK_NOT_INSTALLED` | This workspace has no confirmed Slack installation |
+| 409 `LINK_TEAM_MISMATCH` | The account belongs to a Slack team that is not installed |
+| 409 `LINK_TAKEN` | That Slack account is already linked to someone else |
+| 409 `LINK_EXISTS` | I already have a link for the same team |
+
+## Register a Slack installation
+
+This is the operator's terminal path. Given a Slack app installed in a Slack workspace, register the installation with that app's bot token. A console flow that creates and installs the Slack app for you comes in a later version. The CLI asks Slack (`auth.test`, `bots.info`) for the team, the bot user, and the app, and records a confirmed (`verified`) installation. The app needs the bot scope `users:read`. Pass the token only in the `SLACK_BOT_TOKEN` environment variable. The CLI never takes the token as an argument and never prints it.
+
+```bash
+read -rs SLACK_BOT_TOKEN && export SLACK_BOT_TOKEN
+bun run slack-install register --workspace "$WS" --app-id A0123ABCD
+unset SLACK_BOT_TOKEN
+```
+
+```text
+{"outcome":"verified","registration":"registered","installation_id":"…","workspace_id":"…","app_id":"A0123ABCD","team_id":"T0123ABCD","bot_user_id":"U0123ABCD"}
+```
+
+Running the same command again re-confirms the same installation (`registration: existing`). On failure it writes one line to stderr and exits with one of these codes.
+
+| Exit code | Meaning |
+| --- | --- |
+| 0 | A confirmed installation exists |
+| 2 | Bad arguments or environment variables |
+| 3 | Slack refused the token or is unreachable |
+| 4 | That app and team belong to another workspace (`workspace_conflict`). Even if it was revoked there, only that workspace can register it again |
+| 5 | The installation was revoked while registering (`revoked`). Running again reopens it |
+| 6 | The workspace does not exist (`workspace_not_found`) |
+| 7 | The token belongs to an app other than `--app-id` (`app_mismatch`) |
+| 1 | Any other error |
+
+## An agent's Slack app
+
+Each agent has its own Slack app. To connect it, send the app id, the team id, and the name of a credential reference that holds the bot token (`credential_ref`, not the value).
+
+```sh
+curl -sS "$API/v1/agents/$AID/identities" "${WEB[@]}" \
+  -d '{"provider": "slack_bot", "app_id": "A0APP", "team_id": "T0TEAM", "credential_ref": "slack/research-bot-token"}'
+```
+
+Without a confirmed Slack installation this returns 409 `SLACK_NOT_INSTALLED`. The operator creates an installation with the registration CLI above.
+
+## Next steps
+
+- [API key](/api-keys)
+- [GitHub](/integrations/github)

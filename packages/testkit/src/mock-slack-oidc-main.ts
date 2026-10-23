@@ -14,5 +14,9 @@ const idp = await startMockSlackOidc({
     teamId: process.env.MOCK_SLACK_TEAM_ID ?? "T0MOCK",
     userId: process.env.MOCK_SLACK_USER_ID ?? "U0MOCK",
   },
+  bot: {
+    token: process.env.MOCK_SLACK_BOT_TOKEN ?? "mock-bot-token",
+    appId: process.env.MOCK_SLACK_APP_ID ?? "A0MOCK",
+  },
 });
 console.log(`mock Slack OIDC listening on ${port}, issuer ${idp.url}`);

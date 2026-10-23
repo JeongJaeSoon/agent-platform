@@ -6,7 +6,7 @@
 # naming a pair not listed answers 422. A session whose pair has since been
 # removed, or whose id now points at another URL or branch, is failed with
 # CATALOG_MISMATCH at its next launch; restoring the pair lets the next
-# message run it again, and nothing reruns on its own (docs/operations.md).
+# message run it again, and nothing reruns on its own (docs/operator/api-server.md).
 #
 # URLs must be http:// or https:// (a worker's only way out is the HTTP(S)
 # egress proxy) and must not carry a credential (no userinfo, no query
@@ -28,7 +28,7 @@
 # fine-grained PAT with Contents read-only, as the password of the login
 # x-access-token. Write the https clone URL ending in .git, and put
 # github.com:443 on EGRESS_CREDENTIAL_ALLOWLIST, never on EGRESS_ALLOWLIST
-# (docs/operations.md, GitHub 저장소).
+# (docs/operator/api-server.md, GitHub 저장소).
 #
 #   app:
 #     url: https://github.com/<owner>/<repo>.git

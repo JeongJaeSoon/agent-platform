@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { queryKeys } from "@werft-ai/core";
 import { AGENT_ID, agentServer } from "../test-support/fake-agents.ts";
 import {
   apiError,
@@ -9,7 +10,7 @@ import {
 } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
-const { renderAt, screen, waitFor, within } = await appHarness();
+const { act, renderAt, screen, waitFor, within } = await appHarness();
 
 const owner = {
   user_id: USER_ID,
@@ -45,9 +46,10 @@ const oneSession = {
 };
 
 async function states() {
-  await screen.findByRole("heading", { name: "Acme" });
+  await screen.findByRole("heading", { name: "홈" });
+  // Home has other lists; the checklist is the region named for it.
   return () =>
-    screen
+    within(screen.getByRole("region", { name: "시작하기" }))
       .getAllByRole("listitem")
       .map((step) => step.getAttribute("data-state"));
 }
@@ -197,6 +199,184 @@ describe("bootstrap checklist", () => {
   });
 });
 
+describe("홈 요약", () => {
+  const waitingSession = {
+    ...oneSession,
+    id: "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+    status: "needs_input",
+  };
+  const request = (created_at: string) => ({
+    kind: "permission",
+    request_id: `req-${created_at}`,
+    turn_id: "turn-1",
+    attempt_id: "attempt-1",
+    created_at,
+    expires_at: "2026-10-23T09:30:00.000Z",
+    tool: "Bash",
+    input: { command: "ls" },
+  });
+  const pending = (id: string, created_at: string) => ({
+    [`GET /v1/sessions/${id}/pending-requests`]: () =>
+      json(200, { items: [request(created_at)] }),
+  });
+  const homeRoutes = () => {
+    const server = agentServer();
+    const released = {
+      ...server.detail().agent,
+      active_release_id: "rel-1",
+    };
+    return {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": () => json(200, { items: [owner] }),
+      "GET /v1/invites": () => json(200, { items: [] }),
+      "GET /v1/agents": () =>
+        json(200, { items: [released, server.detail().agent] }),
+      "GET /v1/sessions?status=needs_input": () =>
+        json(200, { items: [waitingSession], next_cursor: null }),
+      "GET /v1/sessions": () =>
+        json(200, {
+          items: [waitingSession, oneSession],
+          next_cursor: "next",
+        }),
+      ...pending(waitingSession.id, "2026-10-23T09:00:00.000Z"),
+    };
+  };
+
+  test("세 요약 카드와 최근 세션을 보이고, 답변 대기는 가장 오래된 요청 하나만 가리킨다", async () => {
+    renderAt("/", homeRoutes());
+    const overview = await screen.findByRole("region", { name: "한눈에 보기" });
+    await waitFor(() =>
+      expect(
+        within(overview)
+          .getAllByRole("listitem")
+          .map((card) => [
+            card.querySelector("h3")?.textContent,
+            card.querySelector("h3 + a")?.textContent,
+            card.querySelector("div:has(> h3) + div > p")?.textContent,
+          ]),
+      ).toEqual([
+        ["답변 대기", "세션 목록", "1"],
+        ["세션", "세션 목록", "2+"],
+        ["에이전트", "에이전트 목록", "2"],
+      ]),
+    );
+    expect(within(overview).getByText("켜짐 1 · 초안 1")).toBeDefined();
+    // The request list and its answers live on the session screen only.
+    expect(screen.queryByRole("region", { name: /^답변 대기/ })).toBeNull();
+    const oldest = await within(overview).findByRole("link", {
+      name: waitingSession.id.slice(0, 8),
+    });
+    expect(oldest.getAttribute("href")).toBe(`/sessions/${waitingSession.id}`);
+
+    const recent = screen.getByRole("table", { name: "최근 세션" });
+    expect(
+      within(recent)
+        .getAllByRole("link")
+        .map((l) => l.textContent),
+    ).toEqual([waitingSession.id, oneSession.id]);
+  });
+
+  test("가장 오래된 요청은 세션의 갱신 시각이 아니라 요청 시각으로 고른다", async () => {
+    // Updated first, asked last: updated_at would pick it.
+    const askedLate = {
+      ...waitingSession,
+      id: "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e",
+      updated_at: "2026-10-23T08:00:00.000Z",
+    };
+    const askedEarly = {
+      ...waitingSession,
+      updated_at: "2026-10-23T08:30:00.000Z",
+    };
+    renderAt("/", {
+      ...homeRoutes(),
+      "GET /v1/sessions?status=needs_input": () =>
+        json(200, { items: [askedLate, askedEarly], next_cursor: null }),
+      ...pending(askedLate.id, "2026-10-23T09:10:00.000Z"),
+      ...pending(askedEarly.id, "2026-10-23T09:00:00.000Z"),
+    });
+    const overview = await screen.findByRole("region", { name: "한눈에 보기" });
+    const oldest = await within(overview).findByRole("link", {
+      name: askedEarly.id.slice(0, 8),
+    });
+    expect(oldest.getAttribute("href")).toBe(`/sessions/${askedEarly.id}`);
+    expect(oldest.parentElement?.textContent).toContain("2026. 10. 23. 18:00");
+  });
+
+  test("대기 세션 목록을 다시 읽다 실패하면 전에 고른 가장 오래된 요청을 내린다", async () => {
+    let fail = false;
+    const { services } = renderAt("/", {
+      ...homeRoutes(),
+      "GET /v1/sessions?status=needs_input": () =>
+        fail
+          ? json(500, { error: { code: "INTERNAL" } })
+          : json(200, { items: [waitingSession], next_cursor: null }),
+    });
+    const overview = await screen.findByRole("region", { name: "한눈에 보기" });
+    const name = waitingSession.id.slice(0, 8);
+    await within(overview).findByRole("link", { name });
+    fail = true;
+    await act(async () => {
+      await services.queryClient.refetchQueries({
+        queryKey: queryKeys.waitingSessions,
+      });
+      // The query batches its notification on a timer; let it land in act.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await waitFor(() =>
+      expect(within(overview).queryByRole("link", { name })).toBeNull(),
+    );
+  });
+
+  test("대기 세션이 한 페이지를 넘으면 가장 오래된 요청을 짐작하지 않는다", async () => {
+    renderAt("/", {
+      ...homeRoutes(),
+      "GET /v1/sessions?status=needs_input": () =>
+        json(200, { items: [waitingSession], next_cursor: "more" }),
+    });
+    const overview = await screen.findByRole("region", { name: "한눈에 보기" });
+    await waitFor(() =>
+      expect(
+        within(overview)
+          .getAllByRole("listitem")[0]
+          ?.querySelector("div:has(> h3) + div > p")?.textContent,
+      ).toBe("1+"),
+    );
+    expect(
+      within(overview).queryByRole("link", {
+        name: waitingSession.id.slice(0, 8),
+      }),
+    ).toBeNull();
+  });
+
+  test("시작하기를 다 마치면 checklist는 요약 아래로 내려간다", async () => {
+    renderAt("/", {
+      ...homeRoutes(),
+      "GET /v1/members": () =>
+        json(200, {
+          items: [
+            owner,
+            {
+              ...owner,
+              user_id: "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e",
+              email: "member@example.com",
+              role: "member",
+            },
+          ],
+        }),
+    });
+    const read = await states();
+    await waitFor(() =>
+      expect(read()).toEqual(["done", "done", "done", "done"]),
+    );
+    const order = [...document.querySelectorAll("main section > div h2")].map(
+      (heading) => heading.textContent,
+    );
+    expect(order.indexOf("시작하기")).toBeGreaterThan(
+      order.findIndex((title) => title?.startsWith("최근 세션")),
+    );
+  });
+});
+
 describe("내가 속한 팀", () => {
   const TEAM = { id: "9e0f1a2b-3c4d-4e5f-8a6b-7c8d9e0f1a2b", name: "결제팀" };
   const forbidden = () => apiError(403, "FORBIDDEN", "not allowed");
@@ -236,7 +416,7 @@ describe("내가 속한 팀", () => {
       "GET /v1/agents": forbidden,
       "GET /v1/my-teams": () => json(200, { items: [] }),
     });
-    await screen.findByRole("heading", { name: "Acme" });
+    await screen.findByRole("heading", { name: "홈" });
     await waitFor(() =>
       expect(api.calls.some((c) => c.path === "/v1/my-teams")).toBe(true),
     );
@@ -272,7 +452,7 @@ describe("내가 관리하는 에이전트", () => {
       ...memberRoutes,
       "GET /v1/administered-agents": () => json(200, { items: [] }),
     });
-    await screen.findByRole("heading", { name: "Acme" });
+    await screen.findByRole("heading", { name: "홈" });
     await waitFor(() =>
       expect(api.calls.some((c) => c.path === "/v1/administered-agents")).toBe(
         true,

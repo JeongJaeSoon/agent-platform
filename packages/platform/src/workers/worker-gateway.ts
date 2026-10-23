@@ -59,6 +59,7 @@ import type { WorkerPendingStore } from "../ports/pending-requests.ts";
 import type {
   ConfirmExecutionGoneResult,
   EgressBindings,
+  EgressIssue,
   EgressPurpose,
   FenceRejection,
   FinalizeResult,
@@ -70,6 +71,7 @@ import type {
 } from "../ports/worker-unit-of-work.ts";
 import {
   allowedPair,
+  type CatalogProfile,
   catalogRevision,
   type EgressUpstream,
   mcpBinding,
@@ -78,6 +80,7 @@ import {
   profileWithModel,
   providerUpstreamOf,
   repositoryBinding,
+  repositoryModeOf,
   repositoryUpstreamOf,
   runtimeConfigOf,
   runtimeConfigWithMcp,
@@ -463,36 +466,46 @@ export function createWorkerGateway(deps: {
   const pollIntervalMs =
     deps.options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
 
+  // One pair per model the profile offers, its default first: a row
+  // from before the pin binds to the first pair that matches it.
+  function fingerprintsOf(profile: CatalogProfile): string[] {
+    return profileModels(profile).flatMap((model) => {
+      const runs = profileWithModel(profile, model);
+      return runs ? [profileFingerprint(runs)] : [];
+    });
+  }
   // Only sessions this host can actually run are claimable. Letting a
   // session whose profile left the catalog start anyway would hand it a
   // guessed runtime, and the worker would run the wrong agent or crash-loop
   // through a queue slot. It waits for a host that knows the profile — as
   // the session was created with it — and that still lets it run
-  // against the session's repository.
-  const runnable: RunnablePair[] = Object.entries(catalog.repositories).flatMap(
-    ([repositoryId, repository]) =>
-      repository.profiles.flatMap((profileId) => {
-        const profile = own(catalog.profiles, profileId);
-        // One pair per model the profile offers, its default first: a row
-        // from before the pin binds to the first pair that matches it.
-        return profile
-          ? profileModels(profile).flatMap((model) => {
-              const runs = profileWithModel(profile, model);
-              return runs
-                ? [
-                    {
-                      profileId,
-                      profileFingerprint: profileFingerprint(runs),
-                      repositoryId,
-                      url: repository.url,
-                      branch: repository.branch,
-                    },
-                  ]
-                : [];
-            })
-          : [];
-      }),
-  );
+  // against the session's repository, or without one.
+  const runnable: RunnablePair[] = [
+    ...Object.entries(catalog.repositories).flatMap(
+      ([repositoryId, repository]) =>
+        repository.profiles.flatMap((profileId) => {
+          const profile = own(catalog.profiles, profileId);
+          return profile
+            ? fingerprintsOf(profile).map((fingerprint) => ({
+                profileId,
+                profileFingerprint: fingerprint,
+                repositoryId,
+                url: repository.url,
+                branch: repository.branch,
+              }))
+            : [];
+        }),
+    ),
+    ...Object.entries(catalog.profiles).flatMap(([profileId, profile]) =>
+      repositoryModeOf(profile) === "required"
+        ? []
+        : fingerprintsOf(profile).map((fingerprint) => ({
+            profileId,
+            profileFingerprint: fingerprint,
+            repositoryId: null,
+          })),
+    ),
+  ];
 
   const revision = catalogRevision(catalog);
 
@@ -528,6 +541,7 @@ export function createWorkerGateway(deps: {
     profileId: string | null,
     fingerprint: string | null,
     providerToken: string,
+    hasRepository: boolean,
   ): {
     runtime: SessionRuntime;
     profile_fingerprint: string;
@@ -550,7 +564,7 @@ export function createWorkerGateway(deps: {
         profile_id: profileId,
       },
       profile_fingerprint: profileFingerprint(profile),
-      runtime_config: runtimeConfigOf(profile, providerToken),
+      runtime_config: runtimeConfigOf(profile, providerToken, hasRepository),
     };
   }
 
@@ -560,7 +574,10 @@ export function createWorkerGateway(deps: {
   // runtime_config. A profile this catalog no longer holds as it was is left
   // out, so a checkpoint made under it is refused as incompatible.
   function restoreRuntimesOf(
-    binding: Pick<WorkerBinding, "profileId" | "restoreProfiles">,
+    binding: Pick<
+      WorkerBinding,
+      "profileId" | "restoreProfiles" | "repository"
+    >,
     profileFingerprintNow: string,
     providerToken: string,
     mcp: ReturnType<typeof claimedMcp>,
@@ -578,7 +595,17 @@ export function createWorkerGateway(deps: {
         ? sessionProfile(listed, made.profileFingerprint)
         : null;
       return profile
-        ? [withMcp(runtimeConfigOf(profile, providerToken), mcp, mcpToken)]
+        ? [
+            withMcp(
+              runtimeConfigOf(
+                profile,
+                providerToken,
+                binding.repository !== null,
+              ),
+              mcp,
+              mcpToken,
+            ),
+          ]
         : [];
     });
     return configs.length === 0
@@ -588,34 +615,37 @@ export function createWorkerGateway(deps: {
 
   // What each egress token is held to, taken from the catalog at the moment
   // the claim binds the session. Only a runnable pair is ever claimed, so
-  // both entries exist here.
-  function egressBindingsOf(session: {
-    id: string;
-    profileId: string | null;
-    profileFingerprint: string | null;
-    repositoryId: string | null;
-    mcp?: SessionMcp | null;
-  }): EgressBindings {
+  // its entries exist here.
+  function egressBindingsOf(
+    session: Parameters<EgressIssue["bindingsOf"]>[0],
+  ): EgressBindings {
     const listed = session.profileId
       ? own(catalog.profiles, session.profileId)
       : undefined;
     const profile = listed
       ? sessionProfile(listed, session.profileFingerprint)
       : null;
+    if (!profile) {
+      throw new Error("A claimed session has no runnable profile");
+    }
+    const provider = profileFingerprint(profile);
+    const object_store = sessionObjectPrefix(session.id);
+    const mcp = claimedMcp(session.mcp);
+    const mcpBinding = mcp === null ? {} : { mcp: mcp.binding };
+    if (session.repositoryMode === "none") {
+      return { provider, repository: null, object_store, ...mcpBinding };
+    }
     const repository = session.repositoryId
       ? own(catalog.repositories, session.repositoryId)
       : undefined;
-    if (!profile || !repository || session.repositoryId === null) {
-      throw new Error(
-        "A claimed session has no runnable profile and repository",
-      );
+    if (!repository || session.repositoryId === null) {
+      throw new Error("A claimed session has no runnable repository");
     }
-    const mcp = claimedMcp(session.mcp);
     return {
-      provider: profileFingerprint(profile),
+      provider,
       repository: repositoryBinding(session.repositoryId, repository),
-      object_store: sessionObjectPrefix(session.id),
-      ...(mcp === null ? {} : { mcp: mcp.binding }),
+      object_store,
+      ...mcpBinding,
     };
   }
 
@@ -873,6 +903,7 @@ export function createWorkerGateway(deps: {
             binding.profileId,
             binding.profileFingerprint,
             providerToken,
+            binding.repository !== null,
           );
           const resolved = {
             ...profile,

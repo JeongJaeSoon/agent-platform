@@ -7,7 +7,7 @@
  * between two live buckets; a backup is a directory. The restore therefore
  * re-pins: it finds the version each byte-identical object got in the new
  * bucket, rewrites each committed manifest with those versions under the
- * key it always had, and holds everything. See docs/backup-restore.md.
+ * key it always had, and holds everything. See docs/operator/backup-restore.md.
  *
  * Two passes live here, both refusing rather than guessing:
  *
@@ -25,7 +25,8 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join, normalize } from "node:path";
 import { MAX_RESTORE_PROFILES, type RuntimeConfig } from "@werft-ai/contracts";
 import {
-  allowedPair,
+  allowedRun,
+  type CatalogProfile,
   runtimeConfigOf,
   type SessionCatalog,
   sessionProfile,
@@ -158,37 +159,66 @@ export function planRuntime(
  */
 export function sessionClaim(
   session: {
-    readonly branch: string;
+    readonly branch: string | null;
     readonly ownerId: string;
     readonly profileFingerprint: string | null;
     readonly profileId: string | null;
-    readonly repoUrl: string;
+    readonly repoUrl: string | null;
     readonly repositoryId: string | null;
+    readonly repositoryMode: "repository" | "none";
   },
   catalog: SessionCatalog,
-): { principal: { owner_scope: string }; runtime_config: RuntimeConfig } {
-  const pair =
-    session.profileId === null || session.repositoryId === null
+): SessionClaim {
+  const without = session.repositoryMode === "none";
+  const run =
+    session.profileId === null || (!without && session.repositoryId === null)
       ? null
-      : allowedPair(catalog, session.profileId, session.repositoryId);
+      : allowedRun(catalog, session.profileId, session.repositoryId);
   if (
-    pair === null ||
-    pair.repository.url !== session.repoUrl ||
-    pair.repository.branch !== session.branch
+    run === null ||
+    (run.repository !== null &&
+      (run.repository.url !== session.repoUrl ||
+        run.repository.branch !== session.branch))
   ) {
     throw new Error(
-      `profile ${session.profileId ?? "(none)"} and repository ${session.repositoryId ?? "(none)"} at the session's URL and branch are not an allowed pair in the catalog`,
+      without
+        ? `profile ${session.profileId ?? "(none)"} may not run without a repository in the catalog`
+        : `profile ${session.profileId ?? "(none)"} and repository ${session.repositoryId ?? "(none)"} at the session's URL and branch are not an allowed pair in the catalog`,
     );
   }
-  const profile = sessionProfile(pair.profile, session.profileFingerprint);
+  const profile = sessionProfile(run.profile, session.profileFingerprint);
   if (profile === null) {
     throw new Error(
       `profile ${session.profileId} has other settings in the catalog than the session was created with`,
     );
   }
+  return claimOf(session.ownerId, profile, !without);
+}
+
+/**
+ * The claim fields the digest reads. A session without a repository is told
+ * apart by its workspace; a claim without one is taken for a session with a
+ * repository, so those keep the shape their digests were made from.
+ */
+export type SessionClaim = {
+  principal: { owner_scope: string };
+  runtime_config: RuntimeConfig;
+  workspace?: { repository: null };
+};
+
+function claimOf(
+  ownerId: string,
+  profile: CatalogProfile,
+  hasRepository: boolean,
+): SessionClaim {
   return {
-    principal: { owner_scope: session.ownerId },
-    runtime_config: runtimeConfigOf(profile, "verify-restore-stand-in"),
+    principal: { owner_scope: ownerId },
+    runtime_config: runtimeConfigOf(
+      profile,
+      "verify-restore-stand-in",
+      hasRepository,
+    ),
+    ...(hasRepository ? {} : { workspace: { repository: null } }),
   };
 }
 
@@ -209,13 +239,17 @@ export function earlierProfileKey(sessionId: string, profileId: string) {
  * MAX_RESTORE_PROFILES are offered.
  */
 export function earlierProfileClaims(
-  session: { readonly id: string; readonly ownerId: string },
+  session: {
+    readonly id: string;
+    readonly ownerId: string;
+    readonly repositoryMode: "repository" | "none";
+  },
   earlier: readonly {
     readonly profileId: string;
     readonly profileFingerprint: string;
   }[],
   catalog: SessionCatalog,
-): [key: string, claim: ReturnType<typeof sessionClaim>][] {
+): [key: string, claim: SessionClaim][] {
   return earlier
     .flatMap(({ profileId, profileFingerprint: made }) => {
       const listed = Object.hasOwn(catalog.profiles, profileId)
@@ -226,11 +260,12 @@ export function earlierProfileClaims(
       return [
         [
           earlierProfileKey(session.id, profileId),
-          {
-            principal: { owner_scope: session.ownerId },
-            runtime_config: runtimeConfigOf(profile, "verify-restore-stand-in"),
-          },
-        ] as [string, ReturnType<typeof sessionClaim>],
+          claimOf(
+            session.ownerId,
+            profile,
+            session.repositoryMode === "repository",
+          ),
+        ] as [string, SessionClaim],
       ];
     })
     .slice(0, MAX_RESTORE_PROFILES);

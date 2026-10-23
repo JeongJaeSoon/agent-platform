@@ -3,19 +3,35 @@ import { describe, expect, test } from "bun:test";
 /*
  * happy-dom has no layout engine, so widths and motion cannot be observed by
  * rendering. These are properties of the stylesheet instead, as in
- * packages/ui/src/styles.test.ts.
+ * packages/ui/src/foundations/styles.test.ts.
  */
 const css = await Bun.file(`${import.meta.dir}/styles.css`).text();
 
 describe("styles.css", () => {
-  test("connects the packages/ui tokens to Tailwind through @theme inline", () => {
-    expect(css).toContain('@import "tailwindcss";');
-    expect(css).toContain('@import "@werft-ai/ui/styles.css";');
-    const theme = css.match(/@theme inline \{([^}]*)\}/)?.[1] ?? "";
-    const mappings = [...theme.matchAll(/--([\w-]+):\s*var\(--ap-([\w-]+)\)/g)];
-    expect(mappings.length).toBeGreaterThan(10);
-    for (const [, name] of mappings)
-      expect(name?.startsWith("ap-")).toBe(false);
+  test("takes the Tailwind theme from packages/ui instead of its own", () => {
+    const imports = [...css.matchAll(/@import "([^"]+)";/g)].map(([, p]) => p);
+    expect(imports).toEqual([
+      "tailwindcss",
+      "@werft-ai/ui/styles.css",
+      "@werft-ai/ui/theme.css",
+    ]);
+    expect(css).not.toContain("@theme");
+  });
+
+  test("Japanese wraps between characters, not only at spaces", () => {
+    expect(css).toMatch(/:lang\(ja\) body \{\s*word-break: normal;/);
+  });
+
+  test("Japanese takes a Japanese face before Pretendard, so no word mixes faces", () => {
+    const stack =
+      css.match(/:lang\(ja\) \{\s*--ap-font-sans:([^;]+);/)?.[1] ?? "";
+    expect(stack.indexOf("Hiragino Sans")).toBeGreaterThan(-1);
+    expect(stack.indexOf("Hiragino Sans")).toBeLessThan(
+      stack.indexOf("Pretendard"),
+    );
+    expect(css).toMatch(
+      /\[lang="ja"\] \{\s*font-family: var\(--ap-font-sans\);/,
+    );
   });
 
   test("steps at 768 and fixes nothing wider than 360px", () => {
@@ -56,13 +72,6 @@ describe("styles.css", () => {
       /\.web-table--nowrap th,\s*\.web-table--nowrap td \{([^}]*)\}/,
     )?.[1];
     expect(rule).toContain("white-space: nowrap");
-  });
-
-  test("draws focus on the dark rail in the rail's light foreground", () => {
-    const rule = css.match(
-      /\[data-slot="app-sidebar"\] :focus-visible \{([^}]*)\}/,
-    )?.[1];
-    expect(rule).toContain("var(--ap-color-rail-foreground)");
   });
 
   test("declares no animation of its own; motion comes from utilities", () => {

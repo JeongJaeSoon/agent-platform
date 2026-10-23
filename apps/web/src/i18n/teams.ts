@@ -14,7 +14,7 @@ export const teamsKo = {
   "teams.mine.intro":
     "소유자나 관리자가 넣은 팀입니다. 팀이 에이전트 관리자로 지정되면 그 에이전트를 관리합니다.",
   "teams.mine.empty": "아직 속한 팀이 없습니다.",
-  "teams.back": "← 팀 목록",
+  "teams.back": "팀 목록",
   "teams.settings": "팀 설정",
   "teams.rename": "이름 바꾸기",
   "teams.renamed": "팀 이름을 {name}(으)로 바꿨습니다.",
@@ -58,7 +58,7 @@ export const teamsEn: Record<keyof typeof teamsKo, string> = {
   "teams.mine.intro":
     "An owner or admin put you in these teams. When a team is named an agent's admin, you manage that agent.",
   "teams.mine.empty": "You are not in any team yet.",
-  "teams.back": "← All teams",
+  "teams.back": "All teams",
   "teams.settings": "Team settings",
   "teams.rename": "Rename",
   "teams.renamed": "Renamed the team to {name}.",
@@ -84,4 +84,48 @@ export const teamsEn: Record<keyof typeof teamsKo, string> = {
   "teams.removeMemberTitle": "Remove {name} from the {team} team?",
   "teams.removeMemberConsequence":
     "They stay in the workspace, but can no longer manage agents through this team. Adding them again restores it.",
+};
+
+export const teamsJa: Record<keyof typeof teamsKo, string> = {
+  "teams.title": "チーム",
+  "teams.intro":
+    "チームはメンバーのグループです。チームをエージェントの管理者に指定すると、チームのメンバー全員がそのエージェントを管理できます。",
+  "teams.name": "チーム名",
+  "teams.create": "チームを作成",
+  "teams.creating": "作成中…",
+  "teams.created": "チーム「{name}」を作成しました。",
+  "teams.nameTaken":
+    "同じ名前のチームがすでにあります。別の名前を入力してください。",
+  "teams.listTitle": "チーム一覧",
+  "teams.empty": "チームはまだありません。",
+  "teams.memberCount": "メンバー {count}人",
+  "teams.mine.title": "所属チーム",
+  "teams.mine.intro":
+    "オーナーまたは管理者が追加したチームです。チームがエージェントの管理者に指定されると、そのエージェントを管理できます。",
+  "teams.mine.empty": "所属しているチームはまだありません。",
+  "teams.back": "チーム一覧",
+  "teams.settings": "チーム設定",
+  "teams.rename": "名前を変更",
+  "teams.renamed": "チーム名を「{name}」に変更しました。",
+  "teams.delete": "チームを削除",
+  "teams.deleteHint":
+    "チームを削除すると、このチームが管理者になっているエージェントからも外れます。",
+  "teams.deleteTitle": "チーム「{name}」を削除しますか？",
+  "teams.deleteConsequence":
+    "メンバーはワークスペースに残りますが、このチームを通じて管理していたエージェントは管理できなくなります。",
+  "teams.members": "チームメンバー",
+  "teams.addHint": "追加すると、承諾なしですぐにメンバーになります。",
+  "teams.pickMember": "追加する人",
+  "teams.pickPlaceholder": "人を選択",
+  "teams.addMember": "メンバーを追加",
+  "teams.noCandidates": "追加できる有効なメンバーがいません。",
+  "teams.memberAdded": "{name}さんをチームに追加しました。",
+  "teams.memberRemoved": "{name}さんをチームから外しました。",
+  "teams.noMembers": "メンバーはまだいません。",
+  "teams.addedAt": "{at}に追加",
+  "teams.removeMember": "外す",
+  "teams.removeMemberFor": "{name}さんをチームから外す",
+  "teams.removeMemberTitle": "{name}さんをチーム「{team}」から外しますか？",
+  "teams.removeMemberConsequence":
+    "ワークスペースには残りますが、このチームを通じて管理していたエージェントは管理できなくなります。再び追加すると元に戻ります。",
 };

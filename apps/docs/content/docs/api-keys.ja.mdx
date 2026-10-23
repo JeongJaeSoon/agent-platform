@@ -1,0 +1,89 @@
+---
+title: "API キー"
+description: API キーの種類と scope、Web ログインでの発行と失効
+---
+
+API キーは `/v1` のセッション API を呼ぶ Bearer トークンである。リクエストごとに `Authorization: Bearer <key>` で送る。キーにできることは scope が決める。エージェント·メンバー·キーの管理といった管理 API はキーでは呼べず(403)、Web ログインの cookie でのみ呼べる。
+
+## scope
+
+| scope | できること |
+| --- | --- |
+| `sessions:read` | セッション·ターン·イベント·使用量·receipt の読み取り |
+| `sessions:write` | セッションの作成、メッセージの送信、push リクエスト |
+| `sessions:control` | interrupt, pause, resume, close, terminate, プロファイルの変更 |
+| `sessions:approve` | 権限リクエストと質問への回答、push リクエストの承認·拒否、PR の作成とコメント |
+| `sessions:recover` | 復旧判断。`write` や `control` には含まれない |
+
+scope のないリクエストは、本文を読む前に 403 `FORBIDDEN` になる。`sessions:approve` は人にだけ発行する。
+
+## 種類
+
+| 種類 | 誰が発行 | 動作 |
+| --- | --- | --- |
+| 個人キー (`personal`) | すべてのメンバー、自分の分だけ | 作成した人として動作する。scope は、キーの scope と、その人の現在のロールが許可する scope の共通部分である。その人が無効化されると 401 |
+| サービスキー (`service`) | owner·admin | ワークスペースのサービスとして動作する。発行した人が離れても動作し続ける |
+| エージェント専用サービスキー (`service` + `agent_id`) | owner·admin·そのエージェントの管理者 | そのエージェントのリリースで作られたセッションだけを作成し、閲覧する。`sessions:approve` は持てない |
+
+## 発行する
+
+Web コンソールで発行するか、Web ログインの cookie で `POST /v1/api-keys` を呼ぶ。以下は[作成](/agents/create#ログイン)の `WEB` ヘッダーを使う。秘密値(`secret`)はこのレスポンスで一度だけ返る。変数に入れ、出力しない。
+
+```bash
+issued=$(curl -sS "$API/v1/api-keys" "${WEB[@]}" \
+  -d '{"kind": "personal", "scopes": ["sessions:read", "sessions:write"]}')
+MY_KEY=$(echo "$issued" | jq -r .secret)
+KEY_ID=$(echo "$issued" | jq -r .key.id)
+echo "$issued" | jq '{kind: .key.kind, scopes: .key.scopes, receipt: (.receipt_id != null)}'
+curl -sS -w '\n' "$API/v1" -H "Authorization: Bearer $MY_KEY"
+```
+
+```text
+{
+  "kind": "personal",
+  "scopes": [
+    "sessions:read",
+    "sessions:write"
+  ],
+  "receipt": true
+}
+{"status":"ok","owner_id":"…"}
+```
+
+発行した人の scope を超える scope をリクエストすると 403 `SCOPE_NOT_GRANTABLE` になる。
+
+## 一覧と失効
+
+一覧には、自分の個人キーと、自分が管理するサービスキーだけが出る。秘密値は出ない。
+
+```bash
+curl -sS "$API/v1/api-keys" "${WEB[@]}" | jq -c --arg id "$KEY_ID" '.items[] | select(.id == $id) | {kind, scopes, revoked_at}'
+curl -sS -X DELETE "$API/v1/api-keys/$KEY_ID" "${WEB[@]}" | jq '{receipt: (.receipt_id != null)}'
+curl -sS -o /dev/null -w '%{http_code}\n' "$API/v1" -H "Authorization: Bearer $MY_KEY"
+```
+
+```text
+{"kind":"personal","scopes":["sessions:read","sessions:write"],"revoked_at":null}
+{
+  "receipt": true
+}
+401
+```
+
+失効したキーは、次のリクエストから 401 になる。すでに失効したキーをもう一度失効させても何も変わらず、`receipt_id: null` になる。
+
+## 運用者 CLI
+
+運用者はサーバーでキーを直接発行できる。ローカルスタックでは `scripts/local.sh key` である([Quickstart](/getting-started/quickstart#api-キーを取得する))。この経路は上記の権限判定を通らない。
+
+```sh
+scripts/local.sh key <owner> --scopes sessions:read,sessions:write
+scripts/local.sh key --workspace <workspace-id> --scopes sessions:read,sessions:write
+```
+
+`<owner>` で作ったキーは、その名前を owner として使う。`--workspace` で作ったキーは、そのワークスペースのサービスキーである。ワークスペース全体に共有されたセッションと、自分が作ったセッションが見える。Web ユーザーの非公開セッションや、人·チームにだけ共有されたセッションは見えない。
+
+## 次のステップ
+
+- [オブザーバビリティ (OTel)](/observability)
+- [Quickstart](/getting-started/quickstart)

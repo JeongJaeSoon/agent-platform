@@ -14,6 +14,7 @@ import type {
   CompatibilityVerdict,
   RuntimeFingerprint,
 } from "@werft-ai/runtime-core";
+import { workspacePathProblem } from "@werft-ai/runtime-core";
 import { z } from "zod";
 
 import { digestParts } from "./transcript-digest.ts";
@@ -60,6 +61,25 @@ const workspaceArtifactSchema = objectRefSchema
         .some((segment) => segment === ".." || segment === ""),
     { message: "workspace path must be relative and free of .. segments" },
   );
+// Never restored, but handed to a person under this name, so held to the
+// same rule as a restore path, and to `out/`.
+const outputPathSchema = z
+  .string()
+  .refine(
+    (path) =>
+      path.startsWith("out/") && workspacePathProblem(path) === undefined,
+    { message: "output path must be a safe relative path under out/" },
+  );
+const outputSchema = z.union([
+  objectRefSchema.extend({ path: outputPathSchema }).strict(),
+  z
+    .object({
+      bytes: z.number().int().nonnegative(),
+      omitted: z.literal("too_large"),
+      path: outputPathSchema,
+    })
+    .strict(),
+]);
 // The label is the transcript's subpath under the session directory, and a
 // restore plan hands it on as one; the same rule ClaudeSessionStore applies
 // when it writes the file, so a manifest can never name a place the store
@@ -101,6 +121,7 @@ const manifestSchema = z
     createdAt: z.iso.datetime(),
     cwd: z.string().startsWith("/"),
     engine: z.literal(CLAUDE_CHECKPOINT_ENGINE),
+    outputs: z.array(outputSchema).min(1).optional(),
     resume: z.string().min(1),
     revision: z.number().int().nonnegative(),
     runtime: runtimeFingerprintSchema,

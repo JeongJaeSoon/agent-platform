@@ -1,3 +1,5 @@
+import { useSyncExternalStore } from "react";
+
 export const THEMES = ["system", "light", "dark"] as const;
 export type Theme = (typeof THEMES)[number];
 
@@ -17,11 +19,31 @@ export function storedTheme(): Theme {
   return "system";
 }
 
+const listeners = new Set<() => void>();
+
 export function applyTheme(theme: Theme) {
   const root = globalThis.document?.documentElement;
   if (!root) return;
   if (theme === "system") delete root.dataset.theme;
   else root.dataset.theme = theme;
+  for (const listener of listeners) listener();
+}
+
+// The page itself holds the theme, so blocked storage cannot make two
+// controls disagree about what is showing.
+function shownTheme(): Theme {
+  const shown = globalThis.document?.documentElement.dataset.theme;
+  return isTheme(shown) ? shown : "system";
+}
+
+function subscribe(listener: () => void) {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+/** The theme on screen now; every control showing it follows a change. */
+export function useTheme(): Theme {
+  return useSyncExternalStore(subscribe, shownTheme, () => "system");
 }
 
 export function chooseTheme(theme: Theme) {

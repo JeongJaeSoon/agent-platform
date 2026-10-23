@@ -8,11 +8,13 @@ import type {
   CheckpointCodec,
   CheckpointManifest,
   CheckpointObjectStore,
+  CheckpointOutput,
   CheckpointPreparation,
   CompatibilityMismatch,
   ObjectHead,
   ObjectRef,
   RuntimeFingerprint,
+  StoredOutput,
   TranscriptLimits,
   TranscriptSizeProblem,
   WorkspaceArtifact,
@@ -23,6 +25,7 @@ import {
   DEFAULT_MAX_WORKSPACE_BUNDLE_BYTES,
   MAX_WORKSPACE_BUNDLE_CHAIN,
   runtimeFor,
+  storedOutputs,
   TRANSCRIPT_LIMITS,
   transcriptBytes,
   transcriptGenerationOf,
@@ -196,6 +199,17 @@ export type RestorePlanResult =
 export type PushSourceResult =
   | { gitCommit: string; revision: number; status: "ready" }
   | { status: "none" }
+  | { reason: string; status: "unavailable" };
+
+export type SessionOutputsResult =
+  | { outputs: readonly CheckpointOutput[]; revision: number; status: "ready" }
+  | { status: "none" }
+  | { reason: string; status: "unavailable" };
+
+export type SessionOutputBodyResult =
+  | { body: AsyncIterable<Uint8Array>; output: StoredOutput; status: "ready" }
+  /** No checkpoint, no such path, or a path listed without its bytes. */
+  | { status: "missing" }
   | { reason: string; status: "unavailable" };
 
 export type PushBundlesResult =
@@ -592,7 +606,12 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       ),
     ];
     const untracked = manifest.workspace.untracked;
-    const refs: readonly ObjectRef[] = [...transcriptRefs, ...untracked];
+    const outputs = storedOutputs(manifest.outputs);
+    const refs: readonly ObjectRef[] = [
+      ...transcriptRefs,
+      ...untracked,
+      ...outputs,
+    ];
     const chain = chainOf(manifest.workspace);
     // Counted before any request goes out: the bundles are the rest.
     if (refs.length + chain.length > maxManifestObjects) {
@@ -630,6 +649,20 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     const directories = `${prefix}checkpoints/`;
     const outsidePublish = (ref: ObjectRef) =>
       ref.key.startsWith(directories) && !ref.key.startsWith(publish);
+    // An output is stored at `<publish directory>outputs/<its sha256>`, the
+    // key a reader of the list may take as the digest's own name. Another
+    // publish's directory only for the exact ref the pointer named, like an
+    // untracked file.
+    const misplaced = outputs.find(
+      (ref) =>
+        !ref.key.startsWith(directories) ||
+        !ref.key.endsWith(`/outputs/${ref.sha256}`),
+    );
+    if (misplaced !== undefined) {
+      return refused(
+        `manifest output ${misplaced.path} is stored at ${misplaced.key}, not at a checkpoint directory's outputs/${misplaced.sha256}`,
+      );
+    }
     const stray = confined
       ? (transcriptRefs.find(outsidePublish) ??
         untracked.find((ref) => {
@@ -638,12 +671,31 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
             outsidePublish(ref) &&
             (artifact === undefined || !verified.untracked.has(artifact))
           );
+        }) ??
+        outputs.find((ref) => {
+          const token = refToken(ref);
+          return (
+            outsidePublish(ref) &&
+            (token === undefined || !verified.objects.has(token))
+          );
         }))
       : undefined;
     if (stray !== undefined) {
       return refused(
         `manifest references ${stray.key}, which is not under this publish's ${publish}`,
       );
+    }
+    const outputPathProblem = workspacePathsProblem(
+      (manifest.outputs ?? []).map((output) => output.path),
+    );
+    if (outputPathProblem !== undefined) {
+      return refused(`manifest lists outputs unsafely: ${outputPathProblem}`);
+    }
+    const outsideOut = (manifest.outputs ?? []).find(
+      (output) => !output.path.startsWith("out/"),
+    );
+    if (outsideOut !== undefined) {
+      return refused(`manifest lists output ${outsideOut.path} outside out/`);
     }
     // The key says where the object is stored; `path` says where restoring
     // writes it. A safe key with a climbing path lands outside the workspace,
@@ -980,6 +1032,10 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
         const artifact = workspaceArtifactToken(ref);
         if (artifact !== undefined) untracked.add(artifact);
       }
+      for (const ref of storedOutputs(manifest.outputs)) {
+        const token = refToken(ref);
+        if (token !== undefined) objects.add(token);
+      }
     } catch {
       return { objects: new Set(), untracked: new Set() };
     }
@@ -1232,6 +1288,25 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     } catch {
       return undefined;
     }
+  }
+
+  async function committedOutputs(
+    sessionId: string,
+  ): Promise<SessionOutputsResult> {
+    const pointer = await store.readPointer(sessionId);
+    if (pointer === null) return { status: "none" };
+    const manifest = await committedManifest(pointer);
+    if (manifest === undefined) {
+      return {
+        status: "unavailable",
+        reason: `the manifest of checkpoint revision ${pointer.revision} is missing, damaged or unreadable`,
+      };
+    }
+    return {
+      status: "ready",
+      revision: pointer.revision,
+      outputs: manifest.outputs ?? [],
+    };
   }
 
   /**
@@ -1489,6 +1564,42 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
         revision: pointer.revision,
         gitCommit: verdict.manifest.workspace.gitCommit,
       };
+    },
+
+    /**
+     * The `out/` files the pointer's own checkpoint lists. Finalize verified
+     * and held every stored one before the pointer could name it, so only
+     * the manifest is read again here, by its pinned version and digest.
+     */
+    readOutputs: committedOutputs,
+
+    /**
+     * One stored output of the pointer's checkpoint, matched by its exact
+     * manifest path: the key and version come from the manifest, never from
+     * `path`.
+     */
+    async openOutput(
+      sessionId: string,
+      path: string,
+    ): Promise<SessionOutputBodyResult> {
+      const listed = await committedOutputs(sessionId);
+      if (listed.status === "none") return { status: "missing" };
+      if (listed.status === "unavailable") return listed;
+      const output = storedOutputs(listed.outputs).find(
+        (candidate) => candidate.path === path,
+      );
+      if (output === undefined) return { status: "missing" };
+      const chunks = await objects.stream(
+        output.key,
+        pinnedVersion(output.version),
+      );
+      if (chunks === undefined) {
+        return {
+          status: "unavailable",
+          reason: `output ${output.key} is not stored`,
+        };
+      }
+      return { status: "ready", output, body: verifiedBody(chunks, output) };
     },
 
     /**
@@ -1806,6 +1917,38 @@ async function digestObject(
   return { bytes, sha256: hash.digest("hex"), status: "read" };
 }
 
+/**
+ * Passes `chunks` through while holding them to `ref`'s size and digest.
+ * The last chunk is held back until the digest matches, so a reader counting
+ * on `Content-Length` never receives a complete body of the wrong bytes: a
+ * mismatch ends the stream with an error one chunk short. In `locked` the
+ * pinned version cannot differ; an `unversioned` key can be overwritten.
+ */
+async function* verifiedBody(
+  chunks: AsyncIterable<Uint8Array>,
+  ref: ObjectRef,
+): AsyncGenerator<Uint8Array> {
+  const hash = createHash("sha256");
+  let bytes = 0;
+  let held: Uint8Array | undefined;
+  for await (const chunk of chunks) {
+    bytes += chunk.byteLength;
+    if (bytes > ref.bytes) {
+      throw new Error(`${ref.key} holds more than its ${ref.bytes} bytes`);
+    }
+    hash.update(chunk);
+    if (held !== undefined) yield held;
+    held = chunk;
+  }
+  const digest = hash.digest("hex");
+  if (bytes !== ref.bytes || digest !== ref.sha256) {
+    throw new Error(
+      `${ref.key} holds ${bytes} bytes hashing to ${digest}, not ${ref.bytes} hashing to ${ref.sha256}`,
+    );
+  }
+  if (held !== undefined) yield held;
+}
+
 /** `FileHandle.write` may take less than it was handed. */
 async function writeFully(
   file: Awaited<ReturnType<typeof open>>,
@@ -1859,6 +2002,13 @@ function withoutVersions(manifest: CheckpointManifest): CheckpointManifest {
   });
   return {
     ...manifest,
+    ...(manifest.outputs === undefined
+      ? {}
+      : {
+          outputs: manifest.outputs.map((output) =>
+            "omitted" in output ? output : strip(output),
+          ),
+        }),
     transcripts: {
       root: revision(manifest.transcripts.root),
       subagents: Object.fromEntries(

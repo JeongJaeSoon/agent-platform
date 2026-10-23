@@ -1,0 +1,100 @@
+---
+title: "Add session blocks"
+description: "Render a session list and a session screen with SessionList and SessionDetail"
+---
+
+A session block reads data from the API and renders one piece of a screen. The app supplies only where to place the block, how loading and errors look, and how to build links. Here you add a session list and a session screen to the app you made in [Install](/ui/install) and [Apply the theme](/ui/theme).
+
+## How blocks call the API
+
+A block calls `/v1` on the same origin with the client from `@werft-ai/client`, and authenticates with the web console's login cookie. The client adds the CSRF header that cookie requests need (`X-Requested-With: agent-platform-web`). So the following are required.
+
+- The app and the API must share an origin. During development, Vite's `server.proxy` forwards `/v1` to the stack (the `vite.config.ts` in [Install](/ui/install)).
+- The browser must be signed in. Cookies do not distinguish ports, so if you sign in to the web console at `http://127.0.0.1:3000` in the same browser, that cookie is also sent with the app's requests at `http://127.0.0.1:5173`.
+- The sessions you see and the actions you can take follow the signed-in person's permissions.
+
+## App code
+
+```tsx title="ui-demo/src/main.tsx"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { createApiClient } from "@werft-ai/client";
+import { AgentPlatformProvider, type RenderLink } from "@werft-ai/react";
+import { SessionDetail, SessionList } from "@werft-ai/react/blocks";
+import { ErrorState, Skeleton } from "@werft-ai/ui";
+import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
+import "./styles.css";
+
+const client = createApiClient();
+const queryClient = new QueryClient();
+const renderLink: RenderLink = ({ to: _to, id, children, ...rest }) => (
+  <a href={`/sessions/${id}`} {...rest}>
+    {children}
+  </a>
+);
+
+const loading = <Skeleton lines={3} />;
+const renderError = (_error: unknown, retry: () => void) => (
+  <ErrorState message="불러오지 못했다." retry={retry} retryLabel="다시 시도" />
+);
+const sessionId = location.pathname.match(/^\/sessions\/([^/]+)$/)?.[1];
+
+createRoot(document.getElementById("root") as HTMLElement).render(
+  <StrictMode>
+    <QueryClientProvider client={queryClient}>
+      <AgentPlatformProvider
+        client={client}
+        locale="ko"
+        renderLink={renderLink}
+      >
+        <main className="mx-auto max-w-4xl p-6">
+          {sessionId ? (
+            <SessionDetail
+              id={sessionId}
+              back={<a href="/">세션 목록</a>}
+              loading={loading}
+              renderError={renderError}
+            />
+          ) : (
+            <SessionList loading={loading} renderError={renderError} />
+          )}
+        </main>
+      </AgentPlatformProvider>
+    </QueryClientProvider>
+  </StrictMode>,
+);
+```
+
+- `AgentPlatformProvider` holds the client that blocks and hooks read, the language (`ko`, `ja`, `en`), and the link function. Place it inside `QueryClientProvider`.
+- `renderLink` is called when a block renders a link to a session. The app decides the URL. In an app with a router, return that router's `Link`.
+- `loading` and `renderError` are passed to each block. The wording is also the app's own.
+
+## Run
+
+```sh
+cd ui-demo
+../node_modules/.bin/vite --host 127.0.0.1 --port 5173
+```
+
+Sign in to the web console in the same browser, then open `http://127.0.0.1:5173`. The list shows the sessions the signed-in person created, and when you click a session id, `SessionDetail` at `/sessions/<id>` renders the status, waiting requests, an input for follow-up instructions, usage, session controls, and progress events. Progress events keep arriving over the event stream.
+
+If you are not signed in, the error rendered by `renderError` and a retry button appear where the list would be.
+
+## Blocks
+
+| Block | What it renders | What it takes (besides loading and error) |
+| --- | --- | --- |
+| `SessionList` | The signed-in person's session list. It reads one page at a time | None |
+| `RecentSessions` | A few recent sessions | `label`, `limit` |
+| `WaitingSessions` | Sessions waiting for an answer | `label` |
+| `SessionDetail` | The screen of one session | `id`, `back`, `controls`, `unavailable`, `refusal` |
+| `ApprovalInbox` | Sessions waiting for an answer and their requests. You answer right here | `unavailable`, `refusal` |
+
+- `unavailable` lists the actions that cannot be done (`answer`, `control`, `send`) and the reason. An action you name is rendered disabled with its reason. Whether or not the UI disables it, the server checks permissions again and rejects a request the person may not make.
+- `refusal` turns the error of a command the server rejected into the app's own wording.
+- To use something smaller than a block, combine the hooks of `@werft-ai/react` (`useSessions`, `useSession`, `useSessionEvents`, `useSendMessage`, `useAnswer`, `useSessionControl`) and the components of `@werft-ai/ui` directly.
+
+## Next steps
+
+- Blocks/Session in <SiblingLink href="/storybook/">Storybook</SiblingLink>: the blocks in each state (empty list, failure, read-only, mobile)
+- [Waiting for approval and resuming](/sessions/waiting-and-resume): the kinds of requests that `SessionDetail` and `ApprovalInbox` answer

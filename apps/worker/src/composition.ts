@@ -128,6 +128,8 @@ export function claudeRuntimeRegistry(
         // The host's to report, not the engine's to read.
         restoredRevision: _restoredRevision,
         runtimeConfig,
+        // Read by claudeRunConfig.
+        workspace: _workspace,
         ...plan
       } = launch;
       // The claim is the only source of what to run, so the adapter's
@@ -177,8 +179,18 @@ export function claudeRuntimeRegistry(
   };
 }
 
+/**
+ * What the engine of a session without a repository is told, since it has
+ * nowhere to push: `out/` is where the platform looks for what to hand over.
+ * It is part of the fingerprint, so rewording it stops those sessions'
+ * checkpoints from resuming.
+ */
+export const OUT_DIRECTORY_PROMPT =
+  "This workspace has no repository. Put files meant for people in `out/` at the workspace root.";
+
 type ClaudeRunConfig = Pick<
   Extract<ClaudeRuntimeConfig, { mode: "new" }>,
+  | "appendSystemPrompt"
   | "claudeConfigDir"
   | "cwd"
   | "home"
@@ -197,13 +209,18 @@ type ClaudeRunConfig = Pick<
  * the fingerprint a checkpoint is stamped with, so the two cannot describe
  * different runs.
  */
-function claudeRunConfig(
+export function claudeRunConfig(
   config: Pick<WorkerConfig, "egressCredentialUrl" | "runtime">,
-  launch: Pick<RuntimeLaunch, "principal" | "runtimeConfig">,
+  launch: Pick<RuntimeLaunch, "principal" | "runtimeConfig" | "workspace">,
   committedClaudeMd: () => string | null,
 ): ClaudeRunConfig {
   const { principal, runtimeConfig } = launch;
   return {
+    // Only then: a repository session's digest stays the one its
+    // checkpoints were taken under.
+    ...(launch.workspace?.repository === null
+      ? { appendSystemPrompt: OUT_DIRECTORY_PROMPT }
+      : {}),
     claudeConfigDir: config.runtime.claudeConfigDir,
     cwd: config.runtime.cwd,
     home: config.runtime.home,
@@ -257,19 +274,29 @@ function mcpRunConfig(
 /**
  * The fingerprint a checkpoint of this claim's run is stamped with, and the
  * one a restore plan is asked for. The committed CLAUDE.md is not
- * read: the digest records only that the profile lets it in.
+ * read: the digest records only that the profile lets it in. A claim given
+ * without its workspace is taken for a session with a repository, which is
+ * all `image-runtime.ts` is fed.
  */
 export function claudeClaimFingerprint(
   config: Pick<WorkerConfig, "egressCredentialUrl" | "runtime">,
 ): (
-  claim: Pick<BootstrapClaimResponse, "principal" | "runtime_config">,
+  claim: Pick<BootstrapClaimResponse, "principal" | "runtime_config"> & {
+    workspace?: BootstrapClaimResponse["workspace"] | undefined;
+  },
 ) => RuntimeFingerprint {
   return (claim) => ({
     ...CLAUDE_RUNTIME_FINGERPRINT,
     profileSha256: claudeProfileFingerprint(
       claudeRunConfig(
         config,
-        { principal: claim.principal, runtimeConfig: claim.runtime_config },
+        {
+          principal: claim.principal,
+          runtimeConfig: claim.runtime_config,
+          ...(claim.workspace === undefined
+            ? {}
+            : { workspace: claim.workspace }),
+        },
         () => null,
       ),
     ),

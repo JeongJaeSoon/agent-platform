@@ -1,0 +1,79 @@
+---
+title: "GitHub"
+description: GitHub リポジトリでセッションを動かし、承認した結果をブランチへ push し、そのブランチで PR を開く
+---
+
+GitHub との間でやることは三つある。セッション開始時にリポジトリを clone する。人が承認した commit を `agent/<session-id>` ブランチへ push する。そのブランチで PR を開き、コメントを付ける。clone は worker が API のプロキシ経由で行い、push と PR はプラットフォーム(API)が直接行う。どちらの場合も、リポジトリの認証情報は worker に渡らない。
+
+## 運用者がやること
+
+リポジトリは運用者がカタログ(`config/repositories.yaml`)に登録する。認証情報は次のどちらかである。
+
+| 方式 | 必要な権限 |
+| --- | --- |
+| GitHub App(デフォルト) | Repository permissions: Contents Read and write, Pull requests Read and write |
+| fine-grained PAT | 同じ二つの権限 |
+
+`Workflows` 権限は与えない。push される commit はエージェントが書いたものなので、この権限があるとエージェントが書き換えた `.github/workflows/` のファイルも push され、CI で実行される。デフォルトブランチはリポジトリの ruleset でも保護しておく。設定方法は運用ドキュメントにある。
+
+## ユーザーがやること
+
+1. そのリポジトリの `repository_id` でセッションを作る([開始](/sessions/start))。
+2. 結果を[リクエスト](/approvals/request)し、[承認](/approvals/approve)する。リクエストが `pushed` になると、リポジトリに `agent/<session-id>` ブランチができる。
+3. PR を開く。`sessions:approve` が必要である。
+
+```sh
+curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/pull-request" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d '{"title": "Add release notes", "body": "Written by the agent, approved by me."}' \
+  | jq '{number: .pull_request.number, url: .pull_request.url, created}'
+```
+
+head は `agent/<session-id>`、base はカタログに書いたブランチである。リクエスト一つにつき PR は一つである。そのブランチの PR がすでに開いている場合は、新しく開かずにその PR を返す(`created: false`)。プラットフォームは PR を承認・マージせず、レビュアーやラベルも決めない。
+
+4. コメントを付ける。同じ `marker`(デフォルトは `status`)のコメントがすでにある場合は、新しく付けずにそのコメントを書き換える。
+
+```sh
+curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/pull-request/comments" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d '{"body": "Tests pass on the agent branch."}'
+```
+
+タイトル・本文・コメントは GitHub に送る前に整形される。秘密情報に見える行は伏せ、`@メンション` や `Closes #N` のような close キーワードは、通知や自動クローズが起きないように置き換える。
+
+## ローカルスタックでは
+
+ローカルの `sample-app` は GitHub ではなくスタック内の Gitea リポジトリで、push 用の認証情報がない。そのため承認した push は `no_push_credential` で `failed` になり、PR のリクエストは push されていないリクエストなので 409 になる。[承認](/approvals/approve)で `failed` として終わったリクエストで確認する。
+
+```bash
+FAILED=$(curl -sS "$API/v1/sessions/$SID/push-requests" -H "Authorization: Bearer $KEY" \
+  | jq -r '[.items[] | select(.state == "failed")][0].id')
+curl -sS "$API/v1/sessions/$SID/push-requests/$FAILED/pull-request" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d '{"title": "Add release notes"}' | jq '{code: .error.code}'
+```
+
+```text
+{
+  "code": "PUSH_NOT_PUSHED"
+}
+```
+
+| レスポンス | 意味 |
+| --- | --- |
+| 409 `PUSH_NOT_PUSHED` | リクエストがまだ `pushed` ではない |
+| 409 `PULL_REQUEST_MISSING` | コメントの前に PR を先に開く必要がある |
+| 409 `CATALOG_MISMATCH` | リクエストの後に運用者がリポジトリ設定を変更した |
+| 403 `FORBIDDEN` | `sessions:approve` がない、または GitHub ではないリポジトリである(`no_forge`) |
+| 503 `BACKEND_UNAVAILABLE` | GitHub 呼び出しがリトライの後も失敗した |
+
+## 次のステップ
+
+- [Slack](/integrations/slack)
+- [receipt](/approvals/receipt): PR を開く操作とコメントも receipt(`open_pull_request`, `comment_pull_request`)を残す

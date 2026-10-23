@@ -1,0 +1,79 @@
+---
+title: "送信"
+description: セッションにメッセージを送って次のターンを作り、そのターンの結果を読む
+---
+
+メッセージ 1 つがターン 1 つである。同じセッションのメッセージは、同じ worker、同じ作業ツリー、同じ Claude Code の会話で順に実行される。scope は `sessions:write` である。[Quickstart](/getting-started/quickstart) の `API` と `KEY` を使う。
+
+## セッションを 1 つ用意する
+
+```bash
+SID=$(curl -sS "$API/v1/sessions" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg m 'GATE-SPEC {"id":"m1","steps":[],"final":"ready"}' \
+    '{profile_id: "claude-coding-local", repository_id: "sample-app", message: $m}')" \
+  | jq -r .session_id)
+```
+
+## 送信する
+
+```bash
+sent=$(curl -sS "$API/v1/sessions/$SID/messages" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg m 'GATE-SPEC {"id":"m2","steps":[{"tool":"Bash","input":{"command":"ls","description":"list files"}}],"final":"listed"}' '{message: $m}')")
+echo "$sent" | jq .
+TURN=$(echo "$sent" | jq -r .turn_id)
+```
+
+```text
+{
+  "turn_id": "2",
+  "receipt_id": "…",
+  "receipt_status": "accepted"
+}
+```
+
+レスポンスは 202 である。前のターンがまだ実行中なら、新しいターンは `queued` で待機し、順番が来たら実行される。
+
+- `message` は UTF-8 で 32,768 バイトまでである。超えると 413 になる。
+- 1 つのセッションに溜められる待機中の入力は、デフォルトで 20 個である。超えると 429 になる。
+- `Idempotency-Key` が必要である。レスポンスを受け取れなかったときは、同じキーと同じ本文でもう一度送る。ターンは 1 回だけ作られる。
+
+## 結果を読む
+
+```bash
+until curl -sS "$API/v1/sessions/$SID/turns/$TURN" -H "Authorization: Bearer $KEY" \
+  | jq -e '.status | IN("completed", "failed", "interrupted", "cancelled", "outcome_unknown")' >/dev/null; do
+  sleep 2
+done
+curl -sS "$API/v1/sessions/$SID/turns/$TURN" -H "Authorization: Bearer $KEY" | jq '{turn_id, status}'
+```
+
+```text
+{
+  "turn_id": "2",
+  "status": "completed"
+}
+```
+
+ターンが終わったかどうかは、この `status` だけで判断する。5 つの値のどれかであれば終了している。`completed` は、エンジンがターンを正常に終えたという意味であり、依頼した作業をすべて終えたという意味ではない。モデルがツールを 1 つ呼んだだけで応答を終えても、ツールがエラーを受け取っても `completed` である。作業ができたかどうかは、[ストリーミング](/messages/streaming)の `assistant`・`tool_result` イベントを読んで判断し、不十分なら同じセッションに次のメッセージを送る。
+
+## 送信できないとき
+
+| レスポンス | 意味 |
+| --- | --- |
+| 409 `SESSION_PAUSED` | セッションが paused である。先に resume する([承認待ちと再開](/sessions/waiting-and-resume)) |
+| 409 `RECOVERY_REQUIRED` | 先に復旧判断が必要である([クローズ](/sessions/close)) |
+| 409 `SESSION_CLOSING`, `SESSION_CLOSED` | 閉じている途中、または閉じている |
+| 409 `CHECKPOINT_UNAVAILABLE` | checkpoint の問題で新しいターンを受け付けない。原因はレスポンスの `message` にある。会話履歴が上限を超えた場合は、新しいセッションを開く |
+| 413 | メッセージが長すぎる |
+| 429 | 待機中の入力が上限に達した |
+
+## 次のステップ
+
+- [ストリーミングの受信](/messages/streaming): ターンの実行中に進行状況を見る
+- [添付](/messages/attachments)

@@ -1,0 +1,29 @@
+---
+title: "概要"
+description: "Web コンソールが使う React コンポーネントとセッションブロック"
+---
+
+Werft の Web コンソールの画面は二つのパッケージで作られている。同じパッケージを使えば、別の React アプリにセッション一覧とセッション画面を組み込める。
+
+| パッケージ | 含まれるもの |
+| --- | --- |
+| `@werft-ai/ui` | デザイントークン(`tokens.css`)、Tailwind との接続(`theme.css`)、primitive(`Button`, `Card`, `Dialog`, `Tabs` など)、状態表示(`StatusLabel`, `ErrorState`, `Skeleton`, `EmptyState`)、セッションの部品(`Timeline`, `Composer`, `ApprovalCard`, `QuestionCard`) |
+| `@werft-ai/react` | サーバー状態を読み書きする hook(`useSessions`, `useSession`, `useSessionEvents`, `useSendMessage`, `useAnswer` など)と `AgentPlatformProvider`。`@werft-ai/react/blocks` には、データの読み取りまで行って描画するセッションブロック `SessionList`, `RecentSessions`, `WaitingSessions`, `SessionDetail`, `ApprovalInbox` がある |
+
+`@werft-ai/ui` は受け取った状態を描画するだけである。API を呼んだり、権限を判断したりはしない。API の呼び出しは `@werft-ai/react` の hook とブロックが担う。
+
+<Callout type="warn">
+二つのパッケージは npm に公開されていない(`private`、バージョン 0.0.0)。外部リポジトリのアプリにインストールして使う方法はまだ提供していない。今のところ、このリポジトリ内のアプリからのみ workspace パッケージとして import できる。パッケージはビルド済みの JavaScript ではなく TypeScript のソースをエクスポートするため、Vite のように TypeScript をコンパイルするバンドラーが必要である。
+</Callout>
+
+## この節の順序
+
+1. [インストール](/ui/install): リポジトリ内に Vite アプリを作り、パッケージを import する
+2. [テーマの適用](/ui/theme): CSS を三つ import し、ダークテーマを有効にする
+3. [セッションブロックの組み込み](/ui/session-blocks): ローカルスタックのセッション一覧とセッション画面を描画する
+4. [Storybook](/ui/storybook): コンポーネントごとに状態別の見た目と props を確認する
+
+## 次のステップ
+
+- [インストール](/ui/install)
+- <SiblingLink href="/storybook/">Storybook</SiblingLink>: 個別コンポーネントの API

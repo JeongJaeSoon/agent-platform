@@ -71,6 +71,12 @@ OpenAPI: [`createSession`](api/index.html), [`getSession`](api/index.html)
 
 **순서.** 고를 수 있는 profile과 그 모델은 `GET /v1/profiles`(`listProfiles`)로 본다. `profile_id`, `repository_id`, 첫 `message`를 보내고, 응답의 `session_id`와 `turn_id`를 저장한다. 이 예시는 다음 절에서 승인 요청을 보여 주기 위해 파일 쓰기 도구를 호출하는 fake 대본을 쓴다. 실제 Claude 스택(`scripts/local.sh up`)에서는 `profile_id`가 `claude-coding-real`이고 `message`는 자유 문장이다. 선택 필드 `model`로 profile이 허용한 모델(카탈로그의 `model`이나 `models`) 중 하나를 고를 수 있다. 생략하면 profile의 기본 `model`로 돌고, 고른 모델은 `GET /v1/sessions/{id}`의 `runtime.model`에 나온다. 세션의 profile을 바꾸면(`POST /v1/sessions/{id}/profile`) 그 뒤로는 새 profile의 기본 `model`로 돈다.
 
+`repository_id`를 보낼지는 profile의 `repository_mode`(`GET /v1/profiles`)가 정한다. `required`면 꼭 보내고, `none`이면 보내지 않으며, `optional`이면 둘 다 된다. `repository_id` 없이 만든 세션은 빈 작업 디렉터리에서 시작하고, 세션 조회의 `repository_id`가 `null`이다. 저장소가 없으므로 push 요청은 409 `PUSH_SOURCE_MISSING`이고, `optional` profile이 저장소의 CLAUDE.md를 읽게 해 두었어도 이 세션에서는 읽지 않는다. fake-model 스택에서는 `general` profile이 저장소 없이 돈다. 그 생성 body는 다음과 같다.
+
+```json
+{ "profile_id": "general", "message": "회의 메모를 세 줄로 요약해 줘." }
+```
+
 ```bash
 CREATE_BODY=$(jq -nc --arg message 'GATE-SPEC {"id":"guide-permission","steps":[{"tool":"Bash","input":{"command":"echo guide > api-guide.txt","description":"write api-guide.txt"}}],"final":"wrote api-guide.txt"}' \
   '{profile_id:"claude-coding-local", repository_id:"sample-app", message:$message}')
@@ -84,7 +90,7 @@ SID=$(echo "$created" | jq -r .session_id)
 
 **기대 응답.** 201과 함께 `session_id`, `turn_id: "1"`, `receipt_id`, `receipt_status: "accepted"`, `status: "queued"`가 온다. 실제 완료 결과는 생성 receipt의 옛 acceptance body가 아니라 turn 조회로 판정한다.
 
-**흔한 오류.** 422는 profile 또는 repository 선택이 유효하지 않다는 뜻이다. `createSession`은 계약상 429 `RATE_LIMITED`를 반환할 수 있으므로 나중에 재시도한다. 입력 queue 상한은 메시지 추가에 적용된다(4절). 저장소 상한은 413 `STORAGE_LIMIT_EXCEEDED`로 나타나며 `/v1/limits`를 본다. 실행 slot이 모자라면 세션은 거절되지 않고 `queued`로 기다린다. 세션 비용·token 상한은 요청을 거절하지 않고, 넘은 뒤 세션 `attention`의 `BUDGET_EXCEEDED`와 `/usage`의 `budget_exceeded: true`로 나타난다(8절). 409 `IDEMPOTENCY_CONFLICT`면 같은 key에 다른 본문을 보냈다.
+**흔한 오류.** 422 `UNSUPPORTED_CAPABILITY`는 profile 또는 repository 선택이 유효하지 않다는 뜻이다. `required` profile에 `repository_id`가 없으면 메시지가 `Profile <id> needs a repository: send repository_id`이고, `none` profile에 보내면 `Profile <id> runs without a repository: omit repository_id`다. `repository_id: null`은 생략이 아니라 400이다. `createSession`은 계약상 429 `RATE_LIMITED`를 반환할 수 있으므로 나중에 재시도한다. 입력 queue 상한은 메시지 추가에 적용된다(4절). 저장소 상한은 413 `STORAGE_LIMIT_EXCEEDED`로 나타나며 `/v1/limits`를 본다. 실행 slot이 모자라면 세션은 거절되지 않고 `queued`로 기다린다. 세션 비용·token 상한은 요청을 거절하지 않고, 넘은 뒤 세션 `attention`의 `BUDGET_EXCEEDED`와 `/usage`의 `budget_exceeded: true`로 나타난다(8절). 409 `IDEMPOTENCY_CONFLICT`면 같은 key에 다른 본문을 보냈다.
 
 ## 3. pending-requests의 승인·질문에 답하기
 
@@ -252,7 +258,7 @@ curl -sS "$API/v1/sessions/$SID/profile" "${AUTH[@]}" \
 
 이미 돌고 있는 turn은 시작한 프로필로 끝난다. 그 뒤 들어오는 입력은 새 프로필의 worker가 마지막 checkpoint에서 같은 engine 대화를 복원해 처리한다. 어느 turn이 어떤 프로필로 돌았는지는 turn 조회의 `attempts[].profile_id`로 본다. 같은 프로필로 바꾸면 아무것도 바뀌지 않고 receipt만 남는다.
 
-**흔한 오류.** 422 `UNSUPPORTED_CAPABILITY`는 새 프로필이 카탈로그에 없거나, 세션의 repository와 짝이 아니거나, runtime 종류·버전이 다르거나(checkpoint를 복원할 수 없다), 과금 방식(`provider.billing`)이 다를 때, 또는 세션의 지금 프로필이 카탈로그에서 빠졌거나 다른 설정으로 바뀌어 runtime을 비교할 수 없을 때다. 409 `RELEASE_PROFILE_MISMATCH`는 agent release로 만든 세션이라 프로필을 release가 정한다는 뜻이다. 409 `REVISION_CONFLICT`면 세션을 다시 읽는다.
+**흔한 오류.** 422 `UNSUPPORTED_CAPABILITY`는 새 프로필이 카탈로그에 없거나, 세션의 repository와 짝이 아니거나(저장소 없이 만든 세션이면 새 프로필의 `repository_mode`가 `required`이거나), runtime 종류·버전이 다르거나(checkpoint를 복원할 수 없다), 과금 방식(`provider.billing`)이 다를 때, 또는 세션의 지금 프로필이 카탈로그에서 빠졌거나 다른 설정으로 바뀌어 runtime을 비교할 수 없을 때다. 409 `RELEASE_PROFILE_MISMATCH`는 agent release로 만든 세션이라 프로필을 release가 정한다는 뜻이다. 409 `REVISION_CONFLICT`면 세션을 다시 읽는다.
 
 ### 세션 끝내기: close·terminate·recovery close
 
@@ -364,7 +370,7 @@ echo "$limits" | jq .
 echo "$limits" | jq -e '.scope == "installation" and .limits.execution_slot_limit >= 0 and .usage.execution_slots_used >= 0'
 ```
 
-**기대 응답.** 세션 응답은 `cost.amount_usd`, `complete`, 보고/미보고/open turn 수, 비용 상한, 누적 provider token 수(`token_count`)와 token 상한(`token_limit`), queued input 수를 준다. `token_limit`이 null이면 설치에 token 상한이 없다. `budget_exceeded`는 비용과 token 중 어느 상한에든 닿으면 true다. 세션의 profile이 과금 없음(`billing: none`)을 선언했으면 `cost.kind`가 `"unmetered"`다. 이때 비용은 늘지 않고 비용 상한이 그 세션에 적용되지 않아 `cost_limit_usd`가 null이지만, token 상한은 그대로 걸린다([operations.md](operations.md#과금-없는-profile-billing-none-94s-541)). 설치 응답은 설정된 상한(`session_token_limit` 포함)과 현재 execution slot·queued input·저장소 사용량을 준다.
+**기대 응답.** 세션 응답은 `cost.amount_usd`, `complete`, 보고/미보고/open turn 수, 비용 상한, 누적 provider token 수(`token_count`)와 token 상한(`token_limit`), queued input 수를 준다. `token_limit`이 null이면 설치에 token 상한이 없다. `budget_exceeded`는 비용과 token 중 어느 상한에든 닿으면 true다. 세션의 profile이 과금 없음(`billing: none`)을 선언했으면 `cost.kind`가 `"unmetered"`다. 이때 비용은 늘지 않고 비용 상한이 그 세션에 적용되지 않아 `cost_limit_usd`가 null이지만, token 상한은 그대로 걸린다([configuration.md](operator/configuration.md#과금-없는-profile-billing-none)). 설치 응답은 설정된 상한(`session_token_limit` 포함)과 현재 execution slot·queued input·저장소 사용량을 준다.
 
 **흔한 오류.** 404 `NOT_FOUND`면 세션이 없거나 현재 owner에게 보이지 않는다. `complete: false`를 0원으로 해석하지 않는다. 503이면 DB나 사용량 집계를 포함한 설치 상태를 확인한다.
 
@@ -441,11 +447,36 @@ curl -sS "$API/v1/receipts/$(echo "$pushed" | jq -r .push_receipt_id)" "${AUTH[@
   | jq '{operation, status, refusal: .result.refusal, remote_ref: .result.remote_ref, git_commit: .result.git_commit, approved_by: .result.approved_by.principal}'
 ```
 
-**기대 응답.** 요청은 201로 `state: "requested"`와 고정한 값들을 돌려준다. 결정은 200으로 `approved` 또는 `rejected`와 `decided_by`를 돌려준다. 요청·결정·거절된 시도마다 receipt(`request_push`·`decide_push`)가 남고, 거절이면 오류의 `error.details.receipt_id`가 그 receipt를 가리킨다. receipt의 `result`에는 판정(`verdict`), 거절 사유(`refusal`), 요청 id, checkpoint revision, commit, 대상 브랜치가 있고 `actor`에는 누가 했는지가 있다. 승인된 요청은 `pushing`을 거쳐 `pushed`나 `failed`가 되고, `push_receipt_id`가 가리키는 `push` receipt에 원격 URL·ref(`refs/heads/agent/<session-id>`)·이전 commit·승인자, 실패면 `refusal`이 있다. 사유별 뜻은 [operations 문서](operations.md#승인된-요청의-push-94s-629)에 있다.
+**기대 응답.** 요청은 201로 `state: "requested"`와 고정한 값들을 돌려준다. 결정은 200으로 `approved` 또는 `rejected`와 `decided_by`를 돌려준다. 요청·결정·거절된 시도마다 receipt(`request_push`·`decide_push`)가 남고, 거절이면 오류의 `error.details.receipt_id`가 그 receipt를 가리킨다. receipt의 `result`에는 판정(`verdict`), 거절 사유(`refusal`), 요청 id, checkpoint revision, commit, 대상 브랜치가 있고 `actor`에는 누가 했는지가 있다. 승인된 요청은 `pushing`을 거쳐 `pushed`나 `failed`가 되고, `push_receipt_id`가 가리키는 `push` receipt에 원격 URL·ref(`refs/heads/agent/<session-id>`)·이전 commit·승인자, 실패면 `refusal`이 있다. 사유별 뜻은 [API 서버 문서](operator/api-server.md#승인된-요청의-push)에 있다.
 
 **흔한 오류.** 409 `PUSH_SOURCE_MISSING`이면 세션에 저장소나 checkpoint가 아직 없다. 409 `PUSH_REQUEST_OPEN`이면 열린 요청이 있다. 409 `PUSH_REQUEST_DECIDED`면 이미 결정한 요청이다. 409 `CHECKPOINT_MOVED`면 승인 body의 `git_commit`이 고정된 commit과 다르거나, 요청 뒤에 세션이 다시 checkpoint를 남겼다. 이 요청은 거부하고 새로 요청한다. `sessions:approve`가 없는 key로 결정하면 403 `FORBIDDEN`이고 receipt가 남는다. worker의 자격(launch nonce·session token)은 `/v1`에서 인증되지 않아 401이다.
 
-## 11. 로컬 예시 정리
+## 11. 세션 결과물 목록과 내려받기
+
+OpenAPI: [`listSessionOutputs`](api/index.html), [`downloadSessionOutput`](api/index.html)
+
+**목적.** 세션이 작업 디렉터리의 `out/` 아래에 남긴 파일을 사람이 받는다. 목록은 세션의 최신 commit된 checkpoint가 기록한 것이라 worker나 작업 디렉터리가 사라져도 남는다. 마지막 checkpoint 뒤에 쓴 파일은 다음 checkpoint가 commit될 때까지 목록에 없다.
+
+**순서.** 목록을 읽고, 받을 파일의 `path`를 그대로 한 path segment로 percent-encode해서(`out/report.md`는 `out%2Freport.md`) 내려받는다. 권한은 세션 읽기(`sessions:read`)와 같다.
+
+```bash
+outputs=$(curl -sS "$API/v1/sessions/$SID/outputs" "${AUTH[@]}")
+echo "$outputs" | jq .
+echo "$outputs" | jq -e --arg sid "$SID" '.session_id == $sid and (.items | type == "array")'
+OUT_PATH=$(echo "$outputs" | jq -r '[.items[] | select(.omitted == null)][0].path // empty')
+if [ -n "$OUT_PATH" ]; then
+  curl -sS -o /tmp/agent-platform-output "${AUTH[@]}" \
+    "$API/v1/sessions/$SID/outputs/$(jq -rn --arg path "$OUT_PATH" '$path | @uri')"
+  test "$(shasum -a 256 /tmp/agent-platform-output | cut -d' ' -f1)" = \
+    "$(echo "$outputs" | jq -r --arg path "$OUT_PATH" '.items[] | select(.path == $path) | .sha256')"
+fi
+```
+
+**기대 응답.** 목록은 `checkpoint_revision`과 `items`(`path`, `bytes`, `sha256`, `omitted`)를 준다. checkpoint가 아직 없으면 `checkpoint_revision: null`과 빈 `items`다. 상한을 넘은 파일은 `omitted: "too_large"`, `sha256: null`로만 보이고 내용은 저장되지 않았다. 내려받기는 `application/octet-stream`, `Content-Disposition: attachment`(파일 이름은 `filename*`), `X-Content-Type-Options: nosniff`로 파일 내용을 그대로 준다. 받은 내용의 sha256은 목록의 `sha256`과 같다. 저장소의 객체가 checkpoint가 확인한 내용과 다르면 전송이 끝나기 전에 끊긴다.
+
+**흔한 오류.** 404 `NOT_FOUND`면 세션이 없거나 보이지 않거나, path가 목록에 없거나(`/`를 인코딩하지 않은 경우 포함) `omitted` 파일이다. 409 `CHECKPOINT_UNAVAILABLE`이면 최신 checkpoint의 manifest나 그 파일 객체를 읽을 수 없다.
+
+## 12. 로컬 예시 정리
 
 **목적.** 이 문서가 만든 로컬 데이터와 worker 자원을 제거한다.
 

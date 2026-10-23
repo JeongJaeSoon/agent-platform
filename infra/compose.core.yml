@@ -42,7 +42,7 @@ x-egress-ports:
 # (tests/images.test.ts).
 #
 # Published ports are loopback only, and only for what a process on this
-# host uses (docs/development.md): nothing here is meant for another machine,
+# host uses (docs/contributing/development.md): nothing here is meant for another machine,
 # and the postgres credentials are local defaults.
 services:
   postgres:
@@ -184,7 +184,7 @@ services:
   # `apps` profile: the sessions API and the scheduler.
   # `docker compose --profile apps up -d --build`.
   # Every value below has a working default. The local layer also reads a
-  # ../.env when present and never writes it (docs/development.md); no other
+  # ../.env when present and never writes it (docs/contributing/development.md); no other
   # installation picks up a checkout's .env.
   api:
     image: ${API_IMAGE:-agent-platform-control-host:dev}
@@ -231,11 +231,11 @@ services:
       # --scopes sessions:read,sessions:write`.
       # /internal routes carry their own worker authentication either way.
       AUTH_MODE: ${AUTH_MODE:-api-key}
-      # The first owner's bootstrap token (docs/operations.md). No value, not
+      # The first owner's bootstrap token (docs/operator/api-server.md). No value, not
       # `:-`: unset, the API mints one and prints it to stderr; an empty value
       # stops it from starting.
       BOOTSTRAP_TOKEN:
-      # Google sign-in (docs/operations.md "Google 로그인"); unset is off.
+      # Google sign-in (docs/operator/api-server.md "Google 로그인"); unset is off.
       GOOGLE_OIDC_CLIENT_ID: ${GOOGLE_OIDC_CLIENT_ID:-}
       GOOGLE_OIDC_CLIENT_SECRET: ${GOOGLE_OIDC_CLIENT_SECRET:-}
       GOOGLE_OIDC_REDIRECT_URI: ${GOOGLE_OIDC_REDIRECT_URI:-}
@@ -249,7 +249,7 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       PORT: "3000"
       # Sign in with Slack, for linking a person's Slack account
-      # (docs/operations.md). Unset keeps linking off; the three are set
+      # (docs/operator/api-server.md). Unset keeps linking off; the three are set
       # together. SLACK_OIDC_ISSUER is for a mock IdP only.
       SLACK_OIDC_CLIENT_ID: ${SLACK_OIDC_CLIENT_ID:-}
       SLACK_OIDC_CLIENT_SECRET: ${SLACK_OIDC_CLIENT_SECRET:-}

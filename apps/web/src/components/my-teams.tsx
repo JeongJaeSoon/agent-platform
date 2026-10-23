@@ -7,13 +7,11 @@ import { myTeamsQuery } from "../api/queries.ts";
 import { useHasPermission } from "../auth/guard.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 import { LoadFailure } from "./load-failure.tsx";
+import { RowList, RowListItem } from "./table.tsx";
 
-export const SECTION = "flex flex-col gap-3";
-export const SECTION_TITLE = "m-0 font-semibold text-lg";
+export const SECTION = "flex flex-col gap-[var(--ap-space-block)]";
+export const SECTION_TITLE = "m-0 font-semibold text-body";
 export const MUTED = "m-0 text-muted-foreground";
-export const LIST = "m-0 flex list-none flex-col gap-2 p-0";
-export const LIST_ITEM =
-  "flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border bg-card p-3";
 export const PRIMARY_LINK =
   "font-medium text-primary underline-offset-2 hover:underline [overflow-wrap:anywhere]";
 
@@ -50,9 +48,9 @@ export function MyTeams({
       ) : (
         <>
           <p className={`${MUTED} text-sm`}>{t("teams.mine.intro")}</p>
-          <ul className={LIST}>
+          <RowList>
             {items.map((team) => (
-              <li key={team.id} className={LIST_ITEM}>
+              <RowListItem key={team.id}>
                 {manages ? (
                   <Link
                     to="/teams/$teamId"
@@ -66,9 +64,9 @@ export function MyTeams({
                     {team.name}
                   </span>
                 )}
-              </li>
+              </RowListItem>
             ))}
-          </ul>
+          </RowList>
         </>
       )}
     </section>

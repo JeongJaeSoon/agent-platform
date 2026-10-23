@@ -1,0 +1,65 @@
+---
+title: "receipt"
+description: コマンド 1 つがどのように終わったかを記録した receipt を読む
+---
+
+メッセージ、制御(interrupt・pause・resume・close・terminate・復旧判断・プロファイル変更)、push のリクエストと判断、アカウント・キーの管理といったコマンドは、receipt を残す。receipt には、誰が(`actor`)、何を(`operation`、`target_ref`)したか、そしてどのように終わったか(`status`、`result`、`error`)が入る。非同期コマンドはレスポンスの `receipt_status` が `accepted` で、終わったかどうかは receipt を読み直して確認する。scope は `sessions:read` である。
+
+| `status` | 意味 |
+| --- | --- |
+| `accepted` | 受け付けたが、まだ終わっていない |
+| `succeeded` | 終わった。結果は `result` |
+| `failed` | 拒否または失敗した。理由は `error` と `result.refusal` |
+| `unknown` | 結果が不明である |
+
+## 読む
+
+レスポンスの `receipt_id` で `GET /v1/receipts/{id}` を呼ぶ。[拒否](/approvals/reject)で作ったリクエストの receipt を読む。
+
+```bash
+pr=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID" -H "Authorization: Bearer $KEY")
+for id in $(echo "$pr" | jq -r '.request_receipt_id, .decision_receipt_id'); do
+  curl -sS "$API/v1/receipts/$id" -H "Authorization: Bearer $KEY" \
+    | jq -c '{operation, status, actor: .actor.principal.kind, decision: .result.decision}'
+done
+```
+
+```text
+{"operation":"request_push","status":"succeeded","actor":"api_key","decision":null}
+{"operation":"decide_push","status":"succeeded","actor":"api_key","decision":"reject"}
+```
+
+拒否されたリクエストは、エラー本文の `error.details.receipt_id` がその receipt を指す。拒否にも記録が残るということである。
+
+## 終わるまで待つ
+
+非同期の制御の receipt は、`accepted` から `succeeded` または `failed` に変わる。待っている間に別の結果が出ても止まるように、両方を見る。
+
+```bash
+REV=$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq .revision)
+RID=$(curl -sS "$API/v1/sessions/$SID/pause" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --argjson r "$REV" '{expected_revision: $r, reason: "lunch"}')" | jq -r .receipt_id)
+until curl -sS "$API/v1/receipts/$RID" -H "Authorization: Bearer $KEY" \
+  | jq -e '.status | IN("succeeded", "failed", "unknown")' >/dev/null; do
+  sleep 2
+done
+curl -sS "$API/v1/receipts/$RID" -H "Authorization: Bearer $KEY" \
+  | jq '{operation, status, state: .result.resulting_admission_state}'
+```
+
+```text
+{
+  "operation": "pause",
+  "status": "succeeded",
+  "state": "paused"
+}
+```
+
+receipt には秘密の値は入らない。他人の範囲にある receipt は 404 になる。
+
+## 次のステップ
+
+- [GitHub](/integrations/github): push したブランチで PR を開き、コメントを付ける

@@ -1,0 +1,98 @@
+---
+title: "Slack"
+description: Slack 連携で今できることと、まだないこと
+---
+
+<Callout type="warn">
+Slack でエージェントにメンションしてセッションを開始する機能や、Slack のボタンで承認する機能はまだない。Slack アプリのインストール(OAuth)と Slack イベントの受信がまだないためである。以下は、その準備としてすでにある API である。
+</Callout>
+
+| 今あるもの | API | 誰が |
+| --- | --- | --- |
+| 自分の Slack アカウントを Web アカウントに連携 | `POST /v1/linked-accounts/slack/start`, `…/callback`, `GET /v1/linked-accounts`, `DELETE /v1/linked-accounts/{id}` | ログインした本人 |
+| エージェントに Slack アプリ(bot)を接続 | `POST`·`GET /v1/agents/{id}/identities`, `DELETE …/identities/{identity_id}` | owner·admin·そのエージェントの管理者 |
+| guest のエージェント利用を許可 | `POST /v1/workspaces/{id}/slack-guest` | owner·admin |
+
+三つとも Web ログインの cookie でのみ呼び出せる。API キーでは 403 になる。以下の例は[作成](/agents/create#ログイン)の `WEB` ヘッダーと `WS` を使う。
+
+## guest の利用設定
+
+Slack guest(マルチチャンネル·シングルチャンネル guest)がエージェントを使えるかどうかを決める。デフォルトはオフである。
+
+```bash
+WS=$(curl -sS "$API/v1/auth/me" "${WEB[@]}" | jq -r .workspace.id)
+curl -sS "$API/v1/workspaces/$WS/slack-guest" "${WEB[@]}" \
+  -d '{"slack_guest_enabled": true}' | jq .
+```
+
+```text
+{
+  "slack_guest_enabled": true
+}
+```
+
+オンにしても、guest は自分の Slack アカウントを連携しないと使えない。Slack Connect で参加した他社のユーザーは、この設定に関係なく使えない。
+
+## Slack アカウントの連携
+
+Sign in with Slack(OpenID Connect)で連携する。運用者が `SLACK_OIDC_CLIENT_ID`·`SLACK_OIDC_CLIENT_SECRET`·`SLACK_OIDC_REDIRECT_URI` を設定し、そのワークスペースに確認済みの Slack インストールがある必要がある。ローカルスタックにはどちらもないため、開始リクエストは 503 になる。
+
+```bash
+curl -sS -o /dev/null -w '%{http_code}\n' -X POST "$API/v1/linked-accounts/slack/start" "${WEB[@]}"
+```
+
+```text
+503
+```
+
+設定済みのインストールでは、開始リクエストが `authorize_url` を返す。その URL の Slack の認可画面で同意すると、Web の連携画面が `code` と `state` を callback に渡し、連携が完了する。連携の状態は `active`·`stale`·`revoked` である。
+
+| レスポンス | 意味 |
+| --- | --- |
+| 409 `SLACK_NOT_INSTALLED` | このワークスペースに確認済みの Slack インストールがない |
+| 409 `LINK_TEAM_MISMATCH` | インストールされていない Slack チームのアカウントである |
+| 409 `LINK_TAKEN` | その Slack アカウントは別の人に連携されている |
+| 409 `LINK_EXISTS` | 同じチームに自分の連携がすでにある |
+
+## Slack インストールの登録
+
+運用者がターミナルで使う経路である。Slack ワークスペースにインストール済みの Slack アプリがあれば、そのアプリの bot token でインストールを登録する。コンソールで Slack アプリを自動で作成・インストールする流れは次のバージョンで入る。CLI が Slack の `auth.test`·`bots.info` でチーム、bot ユーザー、アプリを確認し、確認済み(`verified`)のインストールを残す。アプリには bot scope `users:read` が必要である。token は環境変数 `SLACK_BOT_TOKEN` でのみ渡す。CLI は token を引数で受け取らず、出力もしない。
+
+```bash
+read -rs SLACK_BOT_TOKEN && export SLACK_BOT_TOKEN
+bun run slack-install register --workspace "$WS" --app-id A0123ABCD
+unset SLACK_BOT_TOKEN
+```
+
+```text
+{"outcome":"verified","registration":"registered","installation_id":"…","workspace_id":"…","app_id":"A0123ABCD","team_id":"T0123ABCD","bot_user_id":"U0123ABCD"}
+```
+
+同じコマンドをもう一度実行すると、同じインストールを確認し直す(`registration: existing`)。失敗すると stderr に 1 行を書き、次の終了コードで終わる。
+
+| 終了コード | 意味 |
+| --- | --- |
+| 0 | 確認済みのインストールがある |
+| 2 | 引数または環境変数が正しくない |
+| 3 | Slack が token を拒否した、または Slack に届かない |
+| 4 | そのアプリとチームは別のワークスペースのものである(`workspace_conflict`)。そこで解除されていても、そのワークスペースだけが再登録できる |
+| 5 | 登録中にインストールが解除された(`revoked`)。もう一度実行すると再び開く |
+| 6 | ワークスペースが存在しない(`workspace_not_found`) |
+| 7 | token が `--app-id` とは別のアプリのものである(`app_mismatch`) |
+| 1 | その他のエラー |
+
+## エージェントの Slack アプリ
+
+エージェントごとに自分の Slack アプリを持つ。接続には、アプリ id、チーム id、bot token が入った認証情報への参照の名前(`credential_ref`、値ではない)を送る。
+
+```sh
+curl -sS "$API/v1/agents/$AID/identities" "${WEB[@]}" \
+  -d '{"provider": "slack_bot", "app_id": "A0APP", "team_id": "T0TEAM", "credential_ref": "slack/research-bot-token"}'
+```
+
+確認済みの Slack インストールがない場合は 409 `SLACK_NOT_INSTALLED` になる。インストールは運用者が上の登録 CLI で作成する。
+
+## 次のステップ
+
+- [API キー](/api-keys)
+- [GitHub](/integrations/github)

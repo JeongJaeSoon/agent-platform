@@ -146,8 +146,9 @@ describe("에이전트 목록", () => {
     renderAt("/agents", { ...meOk, ...server.routes });
     const link = await screen.findByRole("link", { name: "결제 담당" });
     expect(link.getAttribute("href")).toBe(DETAIL);
-    expect(screen.getByText("초안")).toBeDefined();
-    expect(screen.getByText(/^식별자 billing · /)).toBeDefined();
+    const row = link.closest("tr") as HTMLElement;
+    expect(within(row).getByText("초안")).toBeDefined();
+    expect(row.textContent).toContain("식별자 billing");
   });
 
   test("배지는 초안·활성·일시정지·보관됨을 서로 다르게 보인다", async () => {
@@ -181,7 +182,7 @@ describe("에이전트 목록", () => {
     const badges = ["draft", "live", "held", "old"].map((name) => {
       const badge = screen
         .getByRole("link", { name })
-        .closest("li")
+        .closest("tr")
         ?.querySelector("[data-slot=badge]");
       return [badge?.textContent, badge?.getAttribute("data-state")];
     });
@@ -203,8 +204,9 @@ describe("에이전트 목록", () => {
     expect(
       await screen.findByText(/전체 에이전트 목록은 소유자와 관리자만 봅니다/),
     ).toBeDefined();
-    const button = screen.getByRole("button", { name: "새 에이전트" });
-    expect((button as HTMLButtonElement).disabled).toBe(false);
+    // Whoever may create is offered it once, in the top bar.
+    expect(screen.queryByRole("button", { name: "새 에이전트" })).toBeNull();
+    const button = screen.getByRole("link", { name: "새로 만들기" });
     expect(screen.queryByRole("alert")).toBeNull();
     expect(document.body.textContent).not.toContain("agent.manage");
     expect(document.body.textContent).not.toContain("does not hold");
@@ -459,7 +461,7 @@ describe("새 에이전트", () => {
     act(() => history.push("/agents"));
     const link = await screen.findByRole("link", { name: "결제 담당" });
     expect(
-      link.closest("li")?.querySelector("[data-slot=badge]")?.textContent,
+      link.closest("tr")?.querySelector("[data-slot=badge]")?.textContent,
     ).toBe("초안");
   });
 
@@ -837,10 +839,14 @@ describe("에이전트 상세", () => {
       release_id: server.releases[0]?.id,
       expected_revision: -1,
     });
+    const summary = screen.getByRole("complementary", {
+      name: "에이전트 요약",
+    });
     await waitFor(() =>
       expect(
-        screen.getByText(new RegExp(`활성 release: version 1 · ${PROFILE}`)),
-      ).toBeDefined(),
+        within(summary).getByText("활성 release").nextElementSibling
+          ?.textContent,
+      ).toBe(`version 1 · ${PROFILE}`),
     );
     expect(agentDetailSchema.safeParse(server.detail()).success).toBe(true);
   });
@@ -889,7 +895,12 @@ describe("에이전트 상세", () => {
     await user.type(instructions, "환불 문의에도 답한다.");
     await user.click(screen.getByRole("button", { name: "저장" }));
     await screen.findByText(/저장했습니다 — version 2/);
-    await user.click(screen.getByRole("button", { name: "배포 탭으로" }));
+    // The summary panel offers the same move; this is the one by the result.
+    await user.click(
+      within(screen.getByRole("tabpanel")).getByRole("button", {
+        name: "배포 탭으로",
+      }),
+    );
     expect(
       screen.getByRole("tab", { name: "배포", selected: true }),
     ).toBeDefined();
@@ -1310,11 +1321,16 @@ describe("식별자와 상태 문구", () => {
     expect(slug.value).toBe("pay");
   });
 
-  test("상세는 활성 release가 없을 때 배지로만 말하고 version 해시를 보이지 않는다", async () => {
+  test("상세 머리는 상태 배지만 두고 식별자·활성 release는 요약 카드에만 둔다", async () => {
     renderAt(DETAIL, { ...meOk, ...agentServer().routes });
-    expect(await screen.findByText("아직 쓸 수 없음")).toBeDefined();
-    expect(screen.getByText("식별자 billing")).toBeDefined();
-    expect(screen.queryByText(/활성 release: 없음/)).toBeNull();
+    const heading = await screen.findByRole("heading", { level: 1 });
+    const head = heading.closest("[data-slot=page-header]") as HTMLElement;
+    expect(within(head).getByText("아직 쓸 수 없음")).toBeDefined();
+    expect(within(head).queryByText(/billing/)).toBeNull();
+    const summary = screen.getByRole("complementary", {
+      name: "에이전트 요약",
+    });
+    expect(within(summary).getByText("billing")).toBeDefined();
     expect(screen.queryByText(/000000000001/)).toBeNull();
   });
 });
@@ -1334,9 +1350,7 @@ describe("새 에이전트: 브라우저 history", () => {
       ...server.routes,
     });
     const user = await setupUser();
-    await user.click(
-      await screen.findByRole("button", { name: "새 에이전트" }),
-    );
+    await user.click(await screen.findByRole("link", { name: "새로 만들기" }));
     await toJobStep(user);
     await fillJob(user);
     await atStep("배포 판");
@@ -1382,9 +1396,7 @@ describe("새 에이전트: 브라우저 history", () => {
   test("저장하지 않은 입력이 있으면 흐름을 떠나기 전에 묻고, 단계 사이 이동은 묻지 않는다", async () => {
     openInBrowser("/agents", { ...meOk, ...agentServer().routes });
     const user = await setupUser();
-    await user.click(
-      await screen.findByRole("button", { name: "새 에이전트" }),
-    );
+    await user.click(await screen.findByRole("link", { name: "새로 만들기" }));
     await toJobStep(user);
     await user.type(screen.getByLabelText("역할"), CARD.role);
     const unload = () => {

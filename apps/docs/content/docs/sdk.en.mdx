@@ -1,0 +1,231 @@
+---
+title: "TypeScript SDK"
+description: "Create a session, answer permission requests, and close it with @werft-ai/sdk"
+---
+
+`@werft-ai/sdk` is a TypeScript client for calling the Werft API from servers and scripts. It works with sessions through an API key. It follows the HTTP API's rules as they are (scope, Idempotency-Key, error codes, event stream), and handles retries, key generation, and waiting for a turn for you. It runs on Node 20 or later and on Bun.
+
+<Callout type="warn">
+The SDK is not published to npm. It is a workspace package of this repository (`packages/sdk`, version 0.x), so you can import `@werft-ai/sdk` only from scripts inside the repository.
+</Callout>
+
+## Preparation
+
+Use the stack you started as in [Install](/getting-started/install), and the `API` and `KEY` from the [Quickstart](/getting-started/quickstart). Start the stack with `--fake-model`. The `GATE-SPEC {…}` message in the scripts below is a script that the fake model reads, so a real Claude stack does not produce the same tool calls and output. Install the dependencies from the repository root.
+
+```sh
+bun install
+```
+
+The key needs `sessions:read`, `sessions:write`, `sessions:approve`, and `sessions:control`, which the scripts below use. The client reads the `WERFT_BASE_URL` and `WERFT_API_KEY` environment variables.
+
+## First script
+
+This creates a session, answers a permission request to write a file, and closes the session when the turn ends. Save it at the repository root.
+
+```ts title="werft-first.ts"
+import {
+  closeResult,
+  type PendingRequestHandlers,
+  Werft,
+  waitForReceipt,
+  waitForTurn,
+} from "@werft-ai/sdk";
+
+const werft = new Werft();
+const signal = AbortSignal.timeout(5 * 60_000);
+const COMMAND = "echo alpha > hello.txt";
+
+// The handler decides what runs: allow the exact command, deny everything else.
+const approvals: PendingRequestHandlers = {
+  permission(request) {
+    const command = (request.input as { command?: unknown } | null)?.command;
+    if (request.tool === "Bash" && command === COMMAND)
+      return { decision: "allow" };
+    return { decision: "deny", reason: `This script only allows: ${COMMAND}` };
+  },
+};
+
+const created = await werft.sessions.create(
+  {
+    profile_id: "claude-coding-local",
+    repository_id: "sample-app",
+    message: `GATE-SPEC ${JSON.stringify({
+      id: "sdk-first",
+      steps: [
+        {
+          tool: "Bash",
+          input: { command: COMMAND, description: "write hello.txt" },
+        },
+      ],
+      final: "wrote hello.txt",
+    })}`,
+  },
+  { signal },
+);
+console.log(`created: turn ${created.turn_id} ${created.status}`);
+
+const turn = await waitForTurn(werft, created.session_id, created.turn_id, {
+  signal,
+  onRequest: approvals,
+  onAnswer: (outcome) => console.log(`answered: ${outcome.outcome}`),
+});
+console.log(`turn ${turn.turn_id}: ${turn.status}`);
+
+const { revision } = await werft.sessions.get(created.session_id, { signal });
+const accepted = await werft.sessions.close(
+  created.session_id,
+  { expected_revision: revision, reason: "script finished" },
+  { signal },
+);
+const receipt = await waitForReceipt(werft, accepted.receipt_id, { signal });
+console.log(`close: ${receipt.status}`, closeResult(receipt));
+```
+
+```bash
+WERFT_BASE_URL="$API" WERFT_API_KEY="$KEY" bun werft-first.ts
+```
+
+```text
+created: turn 1 queued
+answered: accepted
+turn 1: completed
+close: succeeded {
+  checkpoint_revision: 0,
+  cancelled_turn_count: 0,
+  resulting_admission_state: "closed",
+}
+```
+
+- For commands that need an `Idempotency-Key`, such as `sessions.create` and `messages.send`, the SDK makes one key per call and sends the same key on that call's retries.
+- `waitForTurn` checks every 2 seconds until the turn's `status` reaches a final value, and hands the permission requests and questions that appear in the meantime to the handler. If the handler returns `undefined`, or there is no handler for that kind, the request is left open for a person.
+- `failed` is also a `turn.status` value, not an error. Judge whether the work got done from the `assistant` and `tool_result` events.
+- `expected_revision` is passed by the caller. The SDK does not read it and fill it in for you, and it does not resend after receiving `REVISION_CONFLICT`.
+
+## Events and errors
+
+Read the event stream with `for await`. The stream does not close when the turn ends, so end it with a `signal` or `stream.close()`. A server error is an `APIError`. Use `isApiError(error, code)` to check for a specific error code.
+
+```ts title="werft-events.ts"
+import { isApiError, Werft, waitForTurn } from "@werft-ai/sdk";
+
+const werft = new Werft();
+const created = await werft.sessions.create({
+  profile_id: "claude-coding-local",
+  repository_id: "sample-app",
+  message:
+    'GATE-SPEC {"id":"sdk-events","steps":[],"final":"hello from the SDK"}',
+});
+await waitForTurn(werft, created.session_id, created.turn_id, {
+  signal: AbortSignal.timeout(60_000),
+});
+
+const stream = werft.sessions.events.stream(created.session_id);
+for await (const event of stream) {
+  if (event.kind === "assistant") {
+    const message = (
+      event.payload as {
+        message?: { content?: { type: string; text?: string }[] };
+      }
+    ).message;
+    console.log(message?.content?.find((block) => block.type === "text")?.text);
+  }
+  if (event.kind === "result") break;
+}
+stream.close();
+console.log(`resume from: ${stream.lastEventId ? "saved" : "none"}`);
+
+const { revision } = await werft.sessions.get(created.session_id);
+try {
+  await werft.sessions.pause(created.session_id, {
+    expected_revision: revision + 1,
+  });
+} catch (error) {
+  if (isApiError(error, "REVISION_CONFLICT"))
+    console.log(`${error.status} ${error.code}`);
+  else throw error;
+}
+```
+
+```bash
+WERFT_BASE_URL="$API" WERFT_API_KEY="$KEY" bun werft-events.ts
+```
+
+```text
+hello from the SDK
+resume from: saved
+409 REVISION_CONFLICT
+```
+
+Save `stream.lastEventId` and open the stream with `stream(sessionId, { lastEventId })` to receive from the next event on.
+
+| Error | When |
+| --- | --- |
+| `APIError` | The server answered with an error. `status`, `code`, `retryable`, `requestId`, `details` |
+| `ConnectionError` | The response could not be read. It is unknown whether the command ran |
+| `TimeoutError` | A single attempt exceeded `timeoutMs` (default 60 seconds) |
+| `AbortedError` | The `signal` you passed aborted |
+| `TurnBlockedError` | In `waitForTurn`, the session is `paused`, `stopped`, `recovery_required`, or `closed`, so the turn cannot finish by itself |
+
+## Retries
+
+- Resent: when the error body says `retryable: true` (including 429), on 502 and 504 produced by a proxy, and on connection failures where the response could not be read and on attempt timeouts. Proxy 502 and 504 (those without an API error body), connection failures, and timeouts are resent only for GET and for commands that have an `Idempotency-Key`. `openPullRequest` and `commentPullRequest`, which have no key, are not resent in these cases because the server may already have run them. If the error body contains `retryable: true`, the SDK resends the request regardless of the kind of command.
+- Not resent: every 409, 500, and any other 4xx that is not `retryable: true`.
+- If `Retry-After` is present, it waits that long. If it exceeds `maxRetryDelayMs` (default 60 seconds), it fails without waiting.
+- To keep retrying the same command after restarting the process, save the error's `idempotencyKey` and pass it as `{ idempotencyKey }`.
+
+## Client options
+
+```ts
+const werft = new Werft({
+  baseUrl: "https://agents.example.com",
+  apiKey,
+  maxRetries: 2,
+  timeoutMs: 60_000,
+});
+const approver = werft.withOptions({ apiKey: approverKey });
+```
+
+- The key is sent only in the `Authorization` header. It does not appear in error messages or `console.log`.
+- You cannot create the client in a browser (where `window` exists), because a key placed in a page leaks. Only `dangerouslyAllowBrowser: true` lifts this.
+- `http://` to a non-loopback address is rejected. Only `allowInsecureHttp: true` lifts this.
+- To use a separate key for approvals, make a second client with `withOptions`.
+
+## Wrapped APIs
+
+| Method | API |
+| --- | --- |
+| `sessions.create` · `get` · `list` · `usage` · `share` | Create, read, list, usage, and share sessions |
+| `sessions.messages.send` | Send a message |
+| `sessions.turns.get` · `list` | Read turns |
+| `sessions.events.stream` | Event stream |
+| `sessions.requests.list` · `answer` | Permission requests and questions |
+| `sessions.interrupt` · `pause` · `resume` · `terminate` · `close` · `changeProfile` | Control |
+| `sessions.recoveryDecisions.create` | Recovery decisions |
+| `sessions.pushRequests.create` · `list` · `get` · `decide` · `openPullRequest` · `commentPullRequest` | [Push approval](/approvals/request) and PRs |
+| `receipts.get`, `auth.me`, `limits.get`, `profiles.list`, `root.get` | receipt, my info, limits, profiles, health |
+
+`sessions.list` and `turns.list` give the first page when you `await` them and every item when you use `for await`. Field names are snake_case, the same as the API. APIs that are called only with a web login, such as agent, member, and key management, are not wrapped.
+
+## Examples in the repository
+
+`packages/sdk/examples/session-close.ts` runs through the whole flow at once: create a session, wait for the turn while receiving events, allow a permission request, close, and have a message rejected after the session is closed.
+
+```bash
+WERFT_BASE_URL="$API" WERFT_API_KEY="$KEY" bun packages/sdk/examples/session-close.ts | tail -7
+```
+
+```text
+close: receipt succeeded {
+  checkpoint_revision: 1,
+  cancelled_turn_count: 0,
+  resulting_admission_state: "closed",
+}
+session …: admission closed, status stopped
+message after close: 409 SESSION_CLOSED
+```
+
+## Next steps
+
+- [Quickstart](/getting-started/quickstart): the same flow with curl
+- [Waiting for approval and resuming](/sessions/waiting-and-resume): the kinds of requests the handler answers

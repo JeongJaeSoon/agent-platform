@@ -1,0 +1,231 @@
+---
+title: "TypeScript SDK"
+description: "@werft-ai/sdk でセッションを作成し、権限リクエストに回答し、閉じる"
+---
+
+`@werft-ai/sdk` は、サーバーやスクリプトから Werft API を呼ぶ TypeScript クライアントである。API キーでセッションを扱う。HTTP API の規則(scope、Idempotency-Key、エラーコード、イベントストリーム)にそのまま従い、リトライ·キーの生成·ターンの待機を代わりに行う。Node 20 以上と Bun で動く。
+
+<Callout type="warn">
+SDK は npm に公開されていない。このリポジトリの workspace パッケージ(`packages/sdk`、バージョン 0.x)なので、リポジトリ内のスクリプトからのみ `@werft-ai/sdk` として import できる。
+</Callout>
+
+## 準備
+
+[インストール](/getting-started/install)の手順で立ち上げたスタックと、[Quickstart](/getting-started/quickstart) の `API` と `KEY` を使う。スタックは `--fake-model` で立ち上げる。以下のスクリプトの `GATE-SPEC {…}` メッセージは fake モデルが読むスクリプトなので、実際の Claude スタックでは同じツール呼び出しと出力にはならない。リポジトリのルートで依存関係をインストールする。
+
+```sh
+bun install
+```
+
+キーには、以下のスクリプトが使う `sessions:read`、`sessions:write`、`sessions:approve`、`sessions:control` が必要である。クライアントは環境変数 `WERFT_BASE_URL` と `WERFT_API_KEY` を読む。
+
+## 最初のスクリプト
+
+セッションを作成し、ファイルを書き込もうとする権限リクエストに回答し、ターンが終わったらセッションを閉じる。リポジトリのルートに保存する。
+
+```ts title="werft-first.ts"
+import {
+  closeResult,
+  type PendingRequestHandlers,
+  Werft,
+  waitForReceipt,
+  waitForTurn,
+} from "@werft-ai/sdk";
+
+const werft = new Werft();
+const signal = AbortSignal.timeout(5 * 60_000);
+const COMMAND = "echo alpha > hello.txt";
+
+// The handler decides what runs: allow the exact command, deny everything else.
+const approvals: PendingRequestHandlers = {
+  permission(request) {
+    const command = (request.input as { command?: unknown } | null)?.command;
+    if (request.tool === "Bash" && command === COMMAND)
+      return { decision: "allow" };
+    return { decision: "deny", reason: `This script only allows: ${COMMAND}` };
+  },
+};
+
+const created = await werft.sessions.create(
+  {
+    profile_id: "claude-coding-local",
+    repository_id: "sample-app",
+    message: `GATE-SPEC ${JSON.stringify({
+      id: "sdk-first",
+      steps: [
+        {
+          tool: "Bash",
+          input: { command: COMMAND, description: "write hello.txt" },
+        },
+      ],
+      final: "wrote hello.txt",
+    })}`,
+  },
+  { signal },
+);
+console.log(`created: turn ${created.turn_id} ${created.status}`);
+
+const turn = await waitForTurn(werft, created.session_id, created.turn_id, {
+  signal,
+  onRequest: approvals,
+  onAnswer: (outcome) => console.log(`answered: ${outcome.outcome}`),
+});
+console.log(`turn ${turn.turn_id}: ${turn.status}`);
+
+const { revision } = await werft.sessions.get(created.session_id, { signal });
+const accepted = await werft.sessions.close(
+  created.session_id,
+  { expected_revision: revision, reason: "script finished" },
+  { signal },
+);
+const receipt = await waitForReceipt(werft, accepted.receipt_id, { signal });
+console.log(`close: ${receipt.status}`, closeResult(receipt));
+```
+
+```bash
+WERFT_BASE_URL="$API" WERFT_API_KEY="$KEY" bun werft-first.ts
+```
+
+```text
+created: turn 1 queued
+answered: accepted
+turn 1: completed
+close: succeeded {
+  checkpoint_revision: 0,
+  cancelled_turn_count: 0,
+  resulting_admission_state: "closed",
+}
+```
+
+- `sessions.create` や `messages.send` のように `Idempotency-Key` が必要なコマンドは、SDK が呼び出しごとにキーを一つ作り、その呼び出しのリトライには同じキーを送る。
+- `waitForTurn` は、ターンの `status` が終了値になるまで 2 秒ごとに確認し、その間に生じた権限リクエストと質問を handler に渡す。handler が `undefined` を返した場合や、その種類の handler がない場合は、リクエストを開いたままにして人に任せる。
+- `failed` もエラーではなく `turn.status` の値である。作業が成功したかどうかは、イベントの `assistant` と `tool_result` で判断する。
+- `expected_revision` は呼び出す側が渡す。SDK は代わりに読み取って埋めることはせず、`REVISION_CONFLICT` を受けても再送しない。
+
+## イベントとエラー
+
+イベントストリームは `for await` で読む。ストリームはターンが終わっても閉じないので、`signal` か `stream.close()` で終了させる。サーバーのエラーは `APIError` で、`isApiError(error, code)` で判別する。
+
+```ts title="werft-events.ts"
+import { isApiError, Werft, waitForTurn } from "@werft-ai/sdk";
+
+const werft = new Werft();
+const created = await werft.sessions.create({
+  profile_id: "claude-coding-local",
+  repository_id: "sample-app",
+  message:
+    'GATE-SPEC {"id":"sdk-events","steps":[],"final":"hello from the SDK"}',
+});
+await waitForTurn(werft, created.session_id, created.turn_id, {
+  signal: AbortSignal.timeout(60_000),
+});
+
+const stream = werft.sessions.events.stream(created.session_id);
+for await (const event of stream) {
+  if (event.kind === "assistant") {
+    const message = (
+      event.payload as {
+        message?: { content?: { type: string; text?: string }[] };
+      }
+    ).message;
+    console.log(message?.content?.find((block) => block.type === "text")?.text);
+  }
+  if (event.kind === "result") break;
+}
+stream.close();
+console.log(`resume from: ${stream.lastEventId ? "saved" : "none"}`);
+
+const { revision } = await werft.sessions.get(created.session_id);
+try {
+  await werft.sessions.pause(created.session_id, {
+    expected_revision: revision + 1,
+  });
+} catch (error) {
+  if (isApiError(error, "REVISION_CONFLICT"))
+    console.log(`${error.status} ${error.code}`);
+  else throw error;
+}
+```
+
+```bash
+WERFT_BASE_URL="$API" WERFT_API_KEY="$KEY" bun werft-events.ts
+```
+
+```text
+hello from the SDK
+resume from: saved
+409 REVISION_CONFLICT
+```
+
+`stream.lastEventId` を保存しておき、`stream(sessionId, { lastEventId })` で開くと、その次のイベントから受け取れる。
+
+| エラー | いつ |
+| --- | --- |
+| `APIError` | サーバーがエラーで応答した。`status`, `code`, `retryable`, `requestId`, `details` |
+| `ConnectionError` | レスポンスを読めなかった。コマンドが実行されたかどうかは不明 |
+| `TimeoutError` | 一回の試行が `timeoutMs`(デフォルト 60 秒)を超えた |
+| `AbortedError` | 渡した `signal` が abort した |
+| `TurnBlockedError` | `waitForTurn` で、セッションが `paused`·`stopped`·`recovery_required`·`closed` のためターンが自然に終わらない |
+
+## リトライ
+
+- 再送する場合: エラー本文が `retryable: true` のとき(429 を含む)、プロキシが返した 502·504、レスポンスを読めなかった接続失敗と試行 timeout。プロキシの 502·504(API のエラー本文がないもの)と接続失敗·timeout は、GET と `Idempotency-Key` があるコマンドだけを再送する。キーがない `openPullRequest`·`commentPullRequest` は、サーバーがすでに実行した可能性があるため、この場合は再送しない。エラー本文に `retryable: true` が含まれる場合は、コマンドの種類に関係なくリクエストを再送する。
+- 再送しない場合: 409 すべて、500、`retryable: true` ではないそれ以外の 4xx。
+- `Retry-After` がある場合はその分だけ待つ。`maxRetryDelayMs`(デフォルト 60 秒)を超える場合は待たずに失敗する。
+- プロセスを再起動したあとで同じコマンドのリトライを続けるには、エラーの `idempotencyKey` を保存しておき、`{ idempotencyKey }` として渡す。
+
+## クライアントのオプション
+
+```ts
+const werft = new Werft({
+  baseUrl: "https://agents.example.com",
+  apiKey,
+  maxRetries: 2,
+  timeoutMs: 60_000,
+});
+const approver = werft.withOptions({ apiKey: approverKey });
+```
+
+- キーは `Authorization` ヘッダーでのみ送る。エラーメッセージや `console.log` には出ない。
+- ブラウザ(`window` がある環境)では作成できない。ページにキーを置くと漏れるためである。`dangerouslyAllowBrowser: true` を指定したときだけ解除できる。
+- loopback ではないアドレスへの `http://` は拒否する。`allowInsecureHttp: true` を指定したときだけ解除できる。
+- 承認用のキーを別に使うには、`withOptions` で二つ目のクライアントを作る。
+
+## ラップしている API
+
+| メソッド | API |
+| --- | --- |
+| `sessions.create` · `get` · `list` · `usage` · `share` | セッションの作成·読み取り·一覧·使用量·共有 |
+| `sessions.messages.send` | メッセージの送信 |
+| `sessions.turns.get` · `list` | ターンの読み取り |
+| `sessions.events.stream` | イベントストリーム |
+| `sessions.requests.list` · `answer` | 権限リクエストと質問 |
+| `sessions.interrupt` · `pause` · `resume` · `terminate` · `close` · `changeProfile` | 制御 |
+| `sessions.recoveryDecisions.create` | 復旧判断 |
+| `sessions.pushRequests.create` · `list` · `get` · `decide` · `openPullRequest` · `commentPullRequest` | [push の承認](/approvals/request)と PR |
+| `receipts.get`, `auth.me`, `limits.get`, `profiles.list`, `root.get` | receipt、自分の情報、上限、プロファイル、状態 |
+
+`sessions.list` と `turns.list` は、`await` すると最初のページを、`for await` するとすべての項目を返す。フィールド名は API と同じ snake_case である。エージェント·メンバー·キーの管理のように Web ログインでのみ呼ぶ API はラップしていない。
+
+## リポジトリのサンプル
+
+`packages/sdk/examples/session-close.ts` は、セッションの作成、イベントを受け取りながらのターンの待機、権限リクエストの許可、close、閉じたあとのメッセージの拒否までを一度に実行する。
+
+```bash
+WERFT_BASE_URL="$API" WERFT_API_KEY="$KEY" bun packages/sdk/examples/session-close.ts | tail -7
+```
+
+```text
+close: receipt succeeded {
+  checkpoint_revision: 1,
+  cancelled_turn_count: 0,
+  resulting_admission_state: "closed",
+}
+session …: admission closed, status stopped
+message after close: 409 SESSION_CLOSED
+```
+
+## 次のステップ
+
+- [Quickstart](/getting-started/quickstart): 同じ流れを curl で
+- [承認待ちと再開](/sessions/waiting-and-resume): handler が回答するリクエストの種類

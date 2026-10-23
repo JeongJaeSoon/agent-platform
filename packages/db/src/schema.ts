@@ -1576,7 +1576,7 @@ export const apiKeys = pgTable(
 // whose own `catalogRevision` equals it may fail a session for a pair its
 // catalog lacks. One row at most; none means a single replica, where every
 // gateway is the authority. The API never writes it — the operator's
-// compare-and-swap does, as a rollout's first step (docs/operations.md).
+// compare-and-swap does, as a rollout's first step (docs/operator/api-server.md).
 export const catalogAuthority = pgTable(
   "catalog_authority",
   {

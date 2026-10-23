@@ -675,13 +675,19 @@ function sessionRepositoryOf(
 
 type RunnableFields = Pick<
   SessionRow,
-  "profileId" | "profileFingerprint" | "repositoryId" | "repoUrl" | "branch"
+  | "profileId"
+  | "profileFingerprint"
+  | "repositoryMode"
+  | "repositoryId"
+  | "repoUrl"
+  | "branch"
 >;
 
 function allowsPair(pair: RunnablePair, session: RunnableFields): boolean {
+  if (pair.profileId !== session.profileId) return false;
+  if (pair.repositoryId === null) return session.repositoryMode === "none";
   return (
-    pair.repositoryId !== null &&
-    pair.profileId === session.profileId &&
+    session.repositoryMode === "repository" &&
     pair.repositoryId === session.repositoryId &&
     pair.url === session.repoUrl &&
     pair.branch === session.branch
@@ -725,29 +731,51 @@ function replayableBinding(
   );
 }
 
-// A row with no repository id predates the catalog and matches nothing.
-// No session is claimed without a repository yet, so a pair without one
-// matches nothing either. The same predicate as runnablePairOf.
+// A row of mode repository with no repository id predates the catalog and
+// matches nothing: the SQL tuple holds a NULL. The same predicate as
+// runnablePairOf.
 export function runnableCondition(all: readonly RunnablePair[]): SQL {
-  const runnable = all.filter(
+  const withRepository = all.filter(
     (pair): pair is RepositoryPair => pair.repositoryId !== null,
   );
-  if (runnable.length === 0) return sql`false`;
-  const pairs = sql.join(
-    runnable.map(
-      (pair) =>
-        sql`(${pair.profileId}, ${pair.repositoryId}, ${pair.url}, ${pair.branch})`,
-    ),
-    sql`, `,
-  );
-  const pinned = sql.join(
-    runnable.map(
-      (pair) =>
-        sql`(${pair.profileId}, ${pair.repositoryId}, ${pair.url}, ${pair.branch}, ${pair.profileFingerprint})`,
-    ),
-    sql`, `,
-  );
-  return sql`((${sessions.profileId}, ${sessions.repositoryId}, ${sessions.repoUrl}, ${sessions.branch}, ${sessions.profileFingerprint}) IN (${pinned}) OR (${sessions.profileFingerprint} IS NULL AND (${sessions.profileId}, ${sessions.repositoryId}, ${sessions.repoUrl}, ${sessions.branch}) IN (${pairs})))`;
+  const without = all.filter((pair) => pair.repositoryId === null);
+  const conditions: SQL[] = [];
+  if (withRepository.length > 0) {
+    const pairs = sql.join(
+      withRepository.map(
+        (pair) =>
+          sql`(${pair.profileId}, ${pair.repositoryId}, ${pair.url}, ${pair.branch})`,
+      ),
+      sql`, `,
+    );
+    const pinned = sql.join(
+      withRepository.map(
+        (pair) =>
+          sql`(${pair.profileId}, ${pair.repositoryId}, ${pair.url}, ${pair.branch}, ${pair.profileFingerprint})`,
+      ),
+      sql`, `,
+    );
+    conditions.push(
+      sql`(${sessions.repositoryMode} = 'repository' AND ((${sessions.profileId}, ${sessions.repositoryId}, ${sessions.repoUrl}, ${sessions.branch}, ${sessions.profileFingerprint}) IN (${pinned}) OR (${sessions.profileFingerprint} IS NULL AND (${sessions.profileId}, ${sessions.repositoryId}, ${sessions.repoUrl}, ${sessions.branch}) IN (${pairs}))))`,
+    );
+  }
+  if (without.length > 0) {
+    const profiles = sql.join(
+      without.map((pair) => sql`${pair.profileId}`),
+      sql`, `,
+    );
+    const pinned = sql.join(
+      without.map(
+        (pair) => sql`(${pair.profileId}, ${pair.profileFingerprint})`,
+      ),
+      sql`, `,
+    );
+    conditions.push(
+      sql`(${sessions.repositoryMode} = 'none' AND ((${sessions.profileId}, ${sessions.profileFingerprint}) IN (${pinned}) OR (${sessions.profileFingerprint} IS NULL AND ${sessions.profileId} IN (${profiles}))))`,
+    );
+  }
+  if (conditions.length === 0) return sql`false`;
+  return sql`(${sql.join(conditions, sql` OR `)})`;
 }
 
 function budgetOf(input: {
@@ -822,7 +850,7 @@ async function giveUpOnCatalogMismatch(
   // Held until the claim commits, so an activation that replaces this
   // revision waits for the give-up judged under it instead of completing
   // while it still writes. The first activation, from none, has no row to
-  // wait on; it is made while one replica runs (docs/operations.md).
+  // wait on; it is made while one replica runs (docs/operator/api-server.md).
   const [authority] = await tx
     .select({ revision: catalogAuthority.revision })
     .from(catalogAuthority)
@@ -996,6 +1024,7 @@ async function issueCredentials(
     | "id"
     | "profileId"
     | "profileFingerprint"
+    | "repositoryMode"
     | "repositoryId"
     | "agentReleaseId"
   >,
@@ -1019,13 +1048,17 @@ async function issueCredentials(
       binding: bindings.provider,
       expiresAt,
     },
-    {
-      tokenHash: input.egress.repositoryHash,
-      attemptId,
-      purpose: "repository",
-      binding: bindings.repository,
-      expiresAt,
-    },
+    ...(bindings.repository === null
+      ? []
+      : [
+          {
+            tokenHash: input.egress.repositoryHash,
+            attemptId,
+            purpose: "repository" as const,
+            binding: bindings.repository,
+            expiresAt,
+          },
+        ]),
     {
       tokenHash: input.egress.objectStoreHash,
       attemptId,

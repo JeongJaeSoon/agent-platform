@@ -1,0 +1,144 @@
+---
+title: "Waiting for approval and resuming"
+description: Answer permission requests and questions, and pause and resume a session
+---
+
+When a turn waits for a person's permission before running a tool, or asks a person a question, the session becomes `needs_input`. When you answer, the turn continues. To let a session rest for a while, pause it and resume it later. Continue using the `SID` created in [Start](/sessions/start). Answering needs `sessions:approve` on the key, and pause and resume need `sessions:control`.
+
+## Pending requests
+
+```bash
+curl -sS "$API/v1/sessions/$SID/messages" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg m 'GATE-SPEC {"id":"deny","steps":[{"tool":"Bash","input":{"command":"rm -rf build","description":"clean build"}}],"final":"cleaned"}' '{message: $m}')" \
+  | jq -r .turn_id
+until [ "$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq -r .status)" = needs_input ]; do
+  sleep 2
+done
+curl -sS "$API/v1/sessions/$SID/pending-requests" -H "Authorization: Bearer $KEY" \
+  | jq '.items[] | {request_id, kind, tool, input, expires_at}'
+```
+
+A request is one of two kinds.
+
+- `kind: "permission"`: permission to run a tool. `tool` and `input` show what would run.
+- `kind: "question"`: a question the model asks with `AskUserQuestion`. Each entry of `questions[]` has a `question_id`, the question text `prompt`, and the `options[]` to choose from.
+
+If a request is not answered within 30 minutes, it ends as a denial. Answering after that gets 409 `REQUEST_EXPIRED`.
+
+## Deny
+
+```bash
+REQ=$(curl -sS "$API/v1/sessions/$SID/pending-requests" -H "Authorization: Bearer $KEY" | jq -r '.items[0].request_id')
+curl -sS "$API/v1/sessions/$SID/answers" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg r "$REQ" '{request_id: $r, kind: "permission", decision: "deny", reason: "Do not delete build output."}')" \
+  | jq '{receipt_status, surface: .approval.surface}'
+```
+
+```text
+{
+  "receipt_status": "accepted",
+  "surface": "api"
+}
+```
+
+To allow, use `"decision": "allow"`. `reason` is used only for a denial and is optional. The model receives that reason as the tool result and continues the turn. The response's `approval` records who answered (`answered_by`) and where (`surface`: `api`, `web`, `slack`).
+
+## Answer a question
+
+```bash
+curl -sS "$API/v1/sessions/$SID/messages" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg m 'GATE-SPEC {"id":"ask","steps":[{"tool":"AskUserQuestion","input":{"questions":[{"question":"Which environment?","header":"Environment","options":[{"label":"staging","description":"safe"},{"label":"production","description":"live"}],"multiSelect":false}]}}],"final":"selected"}' '{message: $m}')" \
+  > /dev/null
+until [ "$(curl -sS "$API/v1/sessions/$SID/pending-requests" -H "Authorization: Bearer $KEY" | jq -r '.items[0].kind // empty')" = question ]; do
+  sleep 2
+done
+pending=$(curl -sS "$API/v1/sessions/$SID/pending-requests" -H "Authorization: Bearer $KEY")
+echo "$pending" | jq -c '.items[0].questions[0] | {prompt, options: [.options[] | {option_id, label}]}'
+answer=$(echo "$pending" | jq -c '.items[0] | {
+  request_id,
+  kind: "question",
+  answers: [{question_id: .questions[0].question_id, selected_option_ids: [.questions[0].options[0].option_id]}]
+}')
+curl -sS "$API/v1/sessions/$SID/answers" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$answer" | jq '{receipt_status}'
+```
+
+```text
+{"prompt":"Which environment?","options":[{"option_id":"q0o0","label":"staging"},{"option_id":"q0o1","label":"production"}]}
+{
+  "receipt_status": "accepted"
+}
+```
+
+To answer in text instead of choosing, send `selected_option_ids: []` and `free_text`.
+
+## pause and resume
+
+Pause finishes the work in progress, saves a checkpoint (the working tree and the transcript), and then takes the worker down. Resume has a new worker restore the same working tree and the same conversation from that checkpoint. Both send the current `revision` as `expected_revision`. If the session changed in between, the response is 409 `REVISION_CONFLICT`.
+
+```bash
+until [ "$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq -r .status)" = idle ]; do
+  sleep 2
+done
+REV=$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq .revision)
+curl -sS "$API/v1/sessions/$SID/pause" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --argjson r "$REV" '{expected_revision: $r, reason: "lunch"}')" | jq '{receipt_status}'
+until [ "$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq -r .admission_state)" = paused ]; do
+  sleep 2
+done
+curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq '{admission_state, checkpoint_revision}'
+```
+
+```text
+{
+  "receipt_status": "accepted"
+}
+{
+  "admission_state": "paused",
+  "checkpoint_revision": 3
+}
+```
+
+A message sent while paused gets 409 `SESSION_PAUSED`. If it cannot drain within 60 seconds, `attention` becomes `PAUSE_BLOCKED`. If a request is open, answer it or interrupt.
+
+```bash
+REV=$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq .revision)
+curl -sS "$API/v1/sessions/$SID/resume" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --argjson r "$REV" '{expected_revision: $r}')" | jq '{receipt_status}'
+until [ "$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq -r .admission_state)" = active ]; do
+  sleep 2
+done
+curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq '{admission_state}'
+```
+
+```text
+{
+  "receipt_status": "accepted"
+}
+{
+  "admission_state": "active"
+}
+```
+
+## Next steps
+
+- [Close](/sessions/close): close or stop a finished session
+- [receipt](/approvals/receipt): check the result of an accepted command

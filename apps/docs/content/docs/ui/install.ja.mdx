@@ -1,0 +1,66 @@
+---
+title: "インストール"
+description: "リポジトリ内に Vite アプリを作り、@werft-ai/ui と @werft-ai/react を import する"
+---
+
+UI パッケージを使う小さな Vite アプリをリポジトリ内に作る。この節の残りのページは、このアプリを続けて作り込んでいく。
+
+<Callout type="warn">
+npm でインストールする方法はまだ提供していない。二つのパッケージはこのリポジトリの workspace パッケージで、TypeScript のソースをそのままエクスポートする。そのため、リポジトリ外のアプリからは import できない。
+</Callout>
+
+## 準備
+
+リポジトリのルートで依存関係をインストールする。ルートの `node_modules/@werft-ai/ui` と `node_modules/@werft-ai/react` が、`packages/ui` と `packages/react` を指すリンクとして作られる。
+
+```sh
+bun install
+```
+
+必要なものは次のとおりである。いずれもこのリポジトリの他のパッケージがすでに使っているので、上記のインストールでルートの `node_modules` に入っている。
+
+| 何が | なぜ |
+| --- | --- |
+| React 19、`react-dom` | 二つのパッケージは React 19 で描画する |
+| `@tanstack/react-query` | `@werft-ai/react` の hook とブロックがこの cache を使う。アプリが `QueryClientProvider` で包む |
+| Tailwind CSS 4、`@tailwindcss/vite` | primitive の見た目は Tailwind のユーティリティで決まる。Tailwind なしで使うと、primitive はスタイルのない状態で描画される |
+| Vite、`@vitejs/plugin-react` | パッケージは TypeScript のソースをエクスポートするので、アプリのバンドラーがコンパイルする |
+
+## アプリを作る
+
+リポジトリのルートに `ui-demo` ディレクトリを作り、二つのファイルを置く。`ui-demo` は workspace に入れない。import は上位へたどってルートの `node_modules` から解決される。
+
+```html title="ui-demo/index.html"
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Werft UI demo</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+```
+
+```ts title="ui-demo/vite.config.ts"
+import tailwindcss from "@tailwindcss/vite";
+import react from "@vitejs/plugin-react";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  plugins: [react(), tailwindcss()],
+  // The blocks call /v1 on their own origin with the login cookie.
+  server: { proxy: { "/v1": "http://127.0.0.1:3000" } },
+});
+```
+
+`server.proxy` は、アプリの `/v1` リクエストを、[インストール](/getting-started/install)の手順で立ち上げたローカルスタックへ転送する。セッションブロックが、自分の origin の `/v1` を Web ログインの cookie で呼ぶためである。理由は[セッションブロックの組み込み](/ui/session-blocks)にある。
+
+`src/styles.css` は[テーマの適用](/ui/theme)で、`src/main.tsx` は[セッションブロックの組み込み](/ui/session-blocks)で作る。
+
+## 次のステップ
+
+- [テーマの適用](/ui/theme): CSS を import し、ダークテーマを有効にする
