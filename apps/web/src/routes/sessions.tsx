@@ -141,7 +141,7 @@ export function SessionsScreen() {
               aria-label={t("sessionList.filter.label")}
               // English names overflow 390px; the tabs wrap rather than scroll,
               // since a scroll box clips the active tab's underline.
-              className="h-auto flex-wrap justify-start gap-y-0 p-0"
+              className="flex-wrap justify-start gap-y-0 p-0 group-data-[orientation=horizontal]/tabs:h-auto"
             >
               <TabsTrigger
                 value="all"
