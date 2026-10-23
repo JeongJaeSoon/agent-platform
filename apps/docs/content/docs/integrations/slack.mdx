@@ -56,7 +56,7 @@ curl -sS -o /dev/null -w '%{http_code}\n' -X POST "$API/v1/linked-accounts/slack
 
 ## Slack 설치 등록
 
-운영자가 Slack 앱을 Slack 워크스페이스에 설치한 뒤, 그 앱의 bot token으로 설치를 등록한다. CLI가 Slack의 `auth.test`·`bots.info`로 팀, bot 사용자, 앱을 확인하고 확인된(`verified`) 설치를 남긴다. 앱에는 bot scope `users:read`가 있어야 한다. token은 환경 변수 `SLACK_BOT_TOKEN`으로만 넘긴다. CLI는 token을 인자로 받지 않고 출력하지도 않는다.
+운영자가 터미널에서 쓰는 경로다. Slack 워크스페이스에 설치된 Slack 앱이 있으면, 그 앱의 bot token으로 설치를 등록한다. 콘솔에서 Slack 앱을 자동으로 만들고 설치하는 흐름은 다음 버전에 들어온다. CLI가 Slack의 `auth.test`·`bots.info`로 팀, bot 사용자, 앱을 확인하고 확인된(`verified`) 설치를 남긴다. 앱에는 bot scope `users:read`가 있어야 한다. token은 환경 변수 `SLACK_BOT_TOKEN`으로만 넘긴다. CLI는 token을 인자로 받지 않고 출력하지도 않는다.
 
 ```bash
 read -rs SLACK_BOT_TOKEN && export SLACK_BOT_TOKEN
@@ -74,10 +74,11 @@ unset SLACK_BOT_TOKEN
 | --- | --- |
 | 0 | 확인된 설치가 있다 |
 | 2 | 인자나 환경 변수가 잘못됐다 |
-| 3 | Slack이 token을 거절했거나, 다른 앱의 token이거나, Slack에 닿지 않는다 |
-| 4 | 그 앱과 팀이 다른 워크스페이스에 이미 설치돼 있다(`workspace_conflict`) |
+| 3 | Slack이 token을 거절했거나 Slack에 닿지 않는다 |
+| 4 | 그 앱과 팀이 다른 워크스페이스의 것이다(`workspace_conflict`). 거기서 해제됐어도 그 워크스페이스만 다시 등록할 수 있다 |
 | 5 | 등록하는 동안 설치가 해제됐다(`revoked`). 다시 실행하면 다시 연다 |
 | 6 | 워크스페이스가 없다(`workspace_not_found`) |
+| 7 | token이 `--app-id`와 다른 앱의 것이다(`app_mismatch`) |
 | 1 | 그 밖의 오류 |
 
 ## 에이전트의 Slack 앱

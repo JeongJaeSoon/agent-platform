@@ -56,7 +56,7 @@ With a configured installation, the start request returns an `authorize_url`. Af
 
 ## Register a Slack installation
 
-After installing the Slack app in a Slack workspace, the operator registers the installation with that app's bot token. The CLI asks Slack (`auth.test`, `bots.info`) for the team, the bot user, and the app, and records a confirmed (`verified`) installation. The app needs the bot scope `users:read`. Pass the token only in the `SLACK_BOT_TOKEN` environment variable. The CLI never takes the token as an argument and never prints it.
+This is the operator's terminal path. Given a Slack app installed in a Slack workspace, register the installation with that app's bot token. A console flow that creates and installs the Slack app for you comes in a later version. The CLI asks Slack (`auth.test`, `bots.info`) for the team, the bot user, and the app, and records a confirmed (`verified`) installation. The app needs the bot scope `users:read`. Pass the token only in the `SLACK_BOT_TOKEN` environment variable. The CLI never takes the token as an argument and never prints it.
 
 ```bash
 read -rs SLACK_BOT_TOKEN && export SLACK_BOT_TOKEN
@@ -74,10 +74,11 @@ Running the same command again re-confirms the same installation (`registration:
 | --- | --- |
 | 0 | A confirmed installation exists |
 | 2 | Bad arguments or environment variables |
-| 3 | Slack refused the token, the token belongs to another app, or Slack is unreachable |
-| 4 | That app and team are already installed for another workspace (`workspace_conflict`) |
+| 3 | Slack refused the token or is unreachable |
+| 4 | That app and team belong to another workspace (`workspace_conflict`). Even if it was revoked there, only that workspace can register it again |
 | 5 | The installation was revoked while registering (`revoked`). Running again reopens it |
 | 6 | The workspace does not exist (`workspace_not_found`) |
+| 7 | The token belongs to an app other than `--app-id` (`app_mismatch`) |
 | 1 | Any other error |
 
 ## An agent's Slack app

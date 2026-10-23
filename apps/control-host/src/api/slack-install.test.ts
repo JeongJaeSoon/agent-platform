@@ -54,6 +54,17 @@ describe("slack-install arguments", () => {
     );
   });
 
+  test("a missing option value is named without echoing the argv", () => {
+    expect(() =>
+      parseSlackInstallCommand([
+        "register",
+        "--app-id",
+        "A0123ABC",
+        "--workspace",
+      ]),
+    ).toThrow("an option is missing its value");
+  });
+
   test("a token passed as an argument is refused without being echoed", async () => {
     for (const argv of [
       [
@@ -198,8 +209,8 @@ describe("slack-install against a mock Slack", () => {
       [
         { SLACK_BOT_TOKEN: TOKEN },
         "A0OTHER",
-        SLACK_INSTALL_EXIT.slack_auth_failed,
-        "the token belongs to app A0MOCK, not A0OTHER",
+        SLACK_INSTALL_EXIT.app_mismatch,
+        "app_mismatch: the token belongs to app A0MOCK, not A0OTHER",
       ],
       [
         { SLACK_BOT_TOKEN: TOKEN, SLACK_API_URL: "http://127.0.0.1:9/api" },
@@ -223,6 +234,14 @@ describe("slack-install against a mock Slack", () => {
         SLACK_INSTALL_EXIT.usage,
         "SLACK_API_URL must be https (http only for a local mock)",
       ],
+      ...["http://[2001:db8::1]/api", "http://intranet/api"].map(
+        (url): [Record<string, string>, string, number, string] => [
+          { SLACK_BOT_TOKEN: TOKEN, SLACK_API_URL: url },
+          "A0MOCK",
+          SLACK_INSTALL_EXIT.usage,
+          "SLACK_API_URL must be https (http only for a local mock)",
+        ],
+      ),
     ];
     for (const [extra, appId, code, message] of cases) {
       const run = capture({ ...env, ...extra });

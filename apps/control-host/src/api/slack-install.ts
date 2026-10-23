@@ -24,19 +24,27 @@ export const SLACK_INSTALL_EXIT = {
   workspace_conflict: 4,
   revoked: 5,
   workspace_not_found: 6,
+  app_mismatch: 7,
 } as const;
 
 const USAGE = `Usage: bun run apps/control-host/src/api/slack-install.ts register --workspace <workspace_id> --app-id <app_id>
 Environment: SLACK_BOT_TOKEN (required; never an argument), DATABASE_URL (required),
              SLACK_API_URL (default https://slack.com/api; http only for a local mock)
 Exit codes: 0 verified, 1 unexpected error, 2 usage, 3 Slack refused the token,
-            4 workspace_conflict, 5 revoked, 6 workspace not found`;
+            4 workspace_conflict, 5 revoked, 6 workspace not found,
+            7 the token belongs to another app`;
 
 const SLACK_API_URL = "https://slack.com/api";
 const SLACK_HTTP_TIMEOUT_MS = 10_000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const APP_ID = /^A[A-Z0-9]+$/;
 const SLACK_ID = /^[A-Z0-9]+$/;
+const PLAIN_HTTP_HOSTS = new Set([
+  "localhost",
+  "127.0.0.1",
+  "[::1]",
+  "mock-slack",
+]);
 
 export class SlackInstallUsageError extends Error {}
 
@@ -50,9 +58,13 @@ export function parseSlackInstallCommand(argv: string[]): SlackInstallCommand {
   let parsed: ReturnType<typeof parse>;
   try {
     parsed = parse(argv);
-  } catch {
-    // parseArgs quotes the offending option, which may be a pasted token.
-    throw new SlackInstallUsageError(`unknown or malformed option\n${USAGE}`);
+  } catch (error) {
+    // parseArgs quotes the offending option, which may be a pasted token, so
+    // only its error code is turned into words.
+    const code = (error as { code?: unknown }).code;
+    throw new SlackInstallUsageError(
+      `${code === "ERR_PARSE_ARGS_INVALID_OPTION_VALUE" ? "an option is missing its value" : "unknown option or argument"}\n${USAGE}`,
+    );
   }
   const { workspace, "app-id": appId } = parsed.values;
   if (
@@ -272,13 +284,8 @@ function apiUrlFrom(env: Record<string, string | undefined>): string {
     throw new SlackInstallUsageError("SLACK_API_URL must be an absolute URL");
   }
   // The token rides in a header: plain HTTP only to a mock on this host or
-  // on the compose network (a single-label name such as mock-slack).
-  const { hostname } = new URL(value);
-  const local =
-    hostname === "localhost" ||
-    hostname === "127.0.0.1" ||
-    hostname === "[::1]" ||
-    !hostname.includes(".");
+  // the compose network's mock-slack service.
+  const local = PLAIN_HTTP_HOSTS.has(new URL(value).hostname);
   if (protocol !== "https:" && !(protocol === "http:" && local)) {
     throw new SlackInstallUsageError(
       "SLACK_API_URL must be https (http only for a local mock)",
@@ -318,8 +325,8 @@ export async function runSlackInstall(
     const identity = await slackBotIdentity(apiUrl, token, io.fetch);
     if (identity.appId !== command.appId) {
       return fail(
-        SLACK_INSTALL_EXIT.slack_auth_failed,
-        `slack_auth_failed: the token belongs to app ${identity.appId}, not ${command.appId}`,
+        SLACK_INSTALL_EXIT.app_mismatch,
+        `app_mismatch: the token belongs to app ${identity.appId}, not ${command.appId}`,
       );
     }
 
