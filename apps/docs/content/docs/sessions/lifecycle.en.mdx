@@ -31,7 +31,7 @@ curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" \
 | --- | --- |
 | `queued` | There is input and it is waiting for a worker |
 | `running` | A worker is running a turn |
-| `needs_input` | The running turn is waiting for a permission request or question it can answer |
+| `needs_input` | The running turn is waiting for a person to answer a permission request or question |
 | `idle` | No turn to run. The next message is accepted |
 | `stopped` | Execution has stopped (after interrupt, terminate, pause, or close) |
 | `failed` | Execution failed. The reason is in `attention` |

@@ -23,7 +23,7 @@ A request without the scope gets 403 `FORBIDDEN` before the body is read. Issue 
 | --- | --- | --- |
 | Personal key (`personal`) | Any member, their own only | Acts as the person who created it. Its scopes are the intersection of the key's scopes and the scopes that person's current role allows. If that person is deactivated, 401 |
 | Service key (`service`) | owner, admin | Acts as a service of the workspace. It keeps working after the person who issued it leaves |
-| Agent-specific service key (`service` + `agent_id`) | owner, admin, and that agent's manager | Creates and sees only sessions created from that agent's release. It cannot have `sessions:approve` |
+| Agent-specific service key (`service` + `agent_id`) | owner, admin, and that agent's administrator | Creates and sees only sessions created from that agent's release. It cannot have `sessions:approve` |
 
 ## Issue a key
 

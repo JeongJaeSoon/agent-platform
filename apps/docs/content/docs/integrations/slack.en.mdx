@@ -10,7 +10,7 @@ You cannot yet mention the agent in Slack to start a session, or approve with a 
 | What exists today | API | Who |
 | --- | --- | --- |
 | Link my Slack account to my web account | `POST /v1/linked-accounts/slack/start`, `…/callback`, `GET /v1/linked-accounts`, `DELETE /v1/linked-accounts/{id}` | The signed-in user, for themselves |
-| Connect a Slack app (bot) to an agent | `POST`·`GET /v1/agents/{id}/identities`, `DELETE …/identities/{identity_id}` | owner, admin, and that agent's manager |
+| Connect a Slack app (bot) to an agent | `POST`·`GET /v1/agents/{id}/identities`, `DELETE …/identities/{identity_id}` | owner, admin, and that agent's administrator |
 | Allow guests to use agents | `POST /v1/workspaces/{id}/slack-guest` | owner, admin |
 
 All three are called only with the web login cookie. An API key gets 403. The examples below use the `WEB` header and `WS` from [Create](/agents/create#log-in).
