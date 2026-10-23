@@ -328,11 +328,11 @@ describe("홈 요약", () => {
           ],
         },
         {
-          title: "내 세션 기준",
+          title: "내가 시작한 세션 기준",
           badge: undefined,
           value: "—미계측",
           rows: [
-            ["세션", "2+"],
+            ["세션", "—미계측"],
             ["실행 시간", "—미계측"],
             ["토큰", "—미계측"],
           ],
@@ -399,7 +399,7 @@ describe("홈 요약", () => {
     await waitFor(() =>
       expect(cards(overview).map((card) => card.title)).toEqual([
         "확인할 항목",
-        "내 세션 기준",
+        "내가 시작한 세션 기준",
       ]),
     );
   });
@@ -564,6 +564,96 @@ describe("홈 요약", () => {
         "GET /v1/administered-agents": () => json(200, { items: administered }),
       });
       expect(await screen.findByText(intro)).toBeDefined();
+    },
+  );
+
+  test("구성원 홈은 내 사용량, 진행 상황, 연동 계정 카드다", async () => {
+    const running = {
+      ...oneSession,
+      id: "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e",
+      status: "running",
+    };
+    renderAt("/", {
+      ...homeRoutes(),
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/administered-agents": () => json(200, { items: [] }),
+      "GET /v1/sessions?status=running": () =>
+        json(200, { items: [running], next_cursor: null }),
+      "GET /v1/sessions?status=idle": () =>
+        json(200, { items: [oneSession], next_cursor: "next" }),
+      "GET /v1/linked-accounts": () => json(200, { items: [] }),
+    });
+    const overview = await screen.findByRole("region", { name: "한눈에 보기" });
+    await waitFor(() =>
+      expect(cards(overview).slice(1)).toEqual([
+        {
+          title: "진행 상황",
+          badge: "지금",
+          value: "3+",
+          rows: [
+            ["답변 대기", "1"],
+            ["작업 중", "1"],
+            ["쉬는 중", "1+"],
+          ],
+        },
+        {
+          title: "연결 상태",
+          badge: "내 계정",
+          value: "0 / 3",
+          rows: [
+            ["GitHub", "준비 중"],
+            ["Slack", "연결 안 됨"],
+            ["Google Workspace", "준비 중"],
+          ],
+        },
+      ]),
+    );
+    expect(cards(overview)[0]?.title).toBe("내가 시작한 세션 기준");
+    expect(
+      within(overview)
+        .getByRole("link", { name: /연동 계정 보기/ })
+        .getAttribute("href"),
+    ).toBe("/settings/linked-accounts");
+  });
+
+  test.each([
+    ["member", ["내가 시작한 세션 기준", "AGENT", "AGENT"]],
+    ["admin", ["내가 시작한 세션 기준", "AGENT", "확인할 항목"]],
+  ] as const)(
+    "%s가 관리하는 에이전트는 카드로 보인다",
+    async (role, titles) => {
+      const agent = agentServer().detail().agent;
+      const other = {
+        ...agent,
+        id: "3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f",
+        name: "Second",
+      };
+      renderAt("/", {
+        ...homeRoutes(),
+        "GET /v1/auth/me": () => json(200, me(undefined, role)),
+        "GET /v1/administered-agents": () =>
+          json(200, {
+            items: [
+              agent,
+              other,
+              { ...other, id: "4d5e6f7a-8b9c-4d0e-9f1a-2b3c4d5e6f7a" },
+            ],
+          }),
+      });
+      const overview = await screen.findByRole("region", {
+        name: "한눈에 보기",
+      });
+      const expected = titles.map((title, index) =>
+        title === "AGENT" ? [agent.name, other.name][index - 1] : title,
+      );
+      await waitFor(() =>
+        expect(cards(overview).map((card) => card.title)).toEqual(expected),
+      );
+      expect(
+        within(overview)
+          .getAllByRole("link", { name: /에이전트 보기/ })[0]
+          ?.getAttribute("href"),
+      ).toBe(`/agents/${agent.id}`);
     },
   );
 

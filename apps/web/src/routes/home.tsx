@@ -1,14 +1,17 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { isApiError, unwrap } from "@werft-ai/client";
+import { type ApiClient, isApiError, unwrap } from "@werft-ai/client";
 import type {
+  Agent,
   ApiKeyView,
   InstallationLimitsResponse,
+  ListSessionsResponse,
   SessionSummary,
 } from "@werft-ai/contracts";
 import {
   apiKeysQuery,
   pendingRequestsQuery,
+  queryKeys,
   waitingSessionsQuery,
 } from "@werft-ai/core";
 import { useAgentPlatform, useSessions } from "@werft-ai/react";
@@ -34,10 +37,12 @@ import {
   administeredAgentsQuery,
   agentsQuery,
   invitesQuery,
+  linkedAccountsQuery,
   membersQuery,
 } from "../api/queries.ts";
 import { useMe, useRole } from "../auth/guard.tsx";
 import { AdministeredAgents } from "../components/agent-admins.tsx";
+import { AgentStateBadge } from "../components/agent-state.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { MyTeams } from "../components/my-teams.tsx";
 import { Page } from "../components/page.tsx";
@@ -109,7 +114,14 @@ export function useNow(): number {
  */
 export function HomeScreen() {
   const { t, locale } = useI18n();
-  const intro = useIntro();
+  const { reader, agents: managed } = useReader();
+  const name = useMe()?.user?.display_name;
+  const intro =
+    reader === "owner" || reader === "admin"
+      ? t(INTRO[reader])
+      : reader && name
+        ? t(INTRO[reader], { name })
+        : undefined;
   const now = useNow();
   const unavailable = useUnavailable();
   const { client } = useAgentPlatform();
@@ -131,6 +143,13 @@ export function HomeScreen() {
     retry: false,
   });
   const keys = useQuery(apiKeysQuery(client));
+  const requester = reader === "requester";
+  const running = useQuery(statusPageQuery(client, "running", requester));
+  const idle = useQuery(statusPageQuery(client, "idle", requester));
+  const accounts = useQuery({
+    ...linkedAccountsQuery(client),
+    enabled: requester,
+  });
   // Either list can show the step done; to call it not done, both must answer.
   const invited: StepState =
     members.data || invites.data
@@ -229,6 +248,240 @@ export function HomeScreen() {
   const attention =
     requests && keys.isSuccess ? requests.stale + expiring.length : null;
   const unmeasured = <Unmeasured />;
+  // The design shows the installation's figures to its owner only; a viewer
+  // the server refuses does not get the card either.
+  const installCard = isApiError(limits.error, "FORBIDDEN") ? null : (
+    <GlanceCard
+      key="install"
+      eyebrow={t("home.glance.installation")}
+      title={t("home.glance.installationTitle")}
+      value={unmeasured}
+      note={t("home.glance.estimatedCost")}
+      rows={[
+        { label: t("home.glance.sessions"), value: unmeasured },
+        {
+          label: t("home.glance.slots"),
+          value: limits.data
+            ? t("home.glance.slotsValue", {
+                used: limits.data.usage.execution_slots_used,
+                limit: limits.data.limits.execution_slot_limit,
+              })
+            : t("home.overview.unknown"),
+        },
+        { label: t("home.glance.outputs"), value: unmeasured },
+      ]}
+      footer={
+        limits.data
+          ? t("home.glance.refreshed", {
+              at: formatTimestamp(limits.data.refreshed_at, locale),
+            })
+          : null
+      }
+    />
+  );
+  const oversightCard = (
+    <GlanceCard
+      key="oversight"
+      eyebrow={t("home.glance.workspace")}
+      title={t("home.glance.workspaceTitle")}
+      badge={<Badge>{t("home.glance.operations")}</Badge>}
+      value={attention === null ? t("home.overview.unknown") : attention}
+      note={t("home.glance.attentionNote")}
+      rows={[
+        {
+          label: t("home.overview.waiting"),
+          value: waitingCount ?? t("home.overview.unknown"),
+        },
+        {
+          label: t("home.glance.staleWait"),
+          value: requests ? (
+            <Caution on={requests.stale > 0}>
+              {t("home.glance.sessionCount", { count: requests.stale })}
+            </Caution>
+          ) : (
+            t("home.overview.unknown")
+          ),
+        },
+        ...(oldest
+          ? [
+              {
+                label: t("home.overview.oldest"),
+                value: (
+                  <>
+                    <TextLink asChild className="font-mono font-normal">
+                      <Link
+                        to="/sessions/$id"
+                        params={{ id: oldest.sessionId }}
+                        title={oldest.sessionId}
+                      >
+                        {oldest.sessionId.slice(0, 8)}
+                      </Link>
+                    </TextLink>
+                    {" · "}
+                    <time
+                      dateTime={oldest.at}
+                      title={formatTimestamp(oldest.at, locale)}
+                    >
+                      {relativeTime(oldest.at, locale, now)}
+                    </time>
+                  </>
+                ),
+              },
+            ]
+          : []),
+        ...expiring.map((key) => ({
+          wraps: true,
+          label: (
+            <KeyName
+              apiKey={key}
+              agentName={
+                agentItems.find((agent) => agent.id === key.agent_id)?.name
+              }
+            />
+          ),
+          value: (
+            <Caution on>
+              {t("home.glance.keyExpires", {
+                when: relativeTime(key.expires_at ?? "", locale, now),
+              })}
+            </Caution>
+          ),
+        })),
+        { label: t("home.glance.linkedExpiry"), value: unmeasured },
+        {
+          label: t("home.overview.agents"),
+          value: isApiError(agents.error, "FORBIDDEN")
+            ? t("home.overview.agentsWithheld")
+            : agents.data
+              ? t("home.overview.agentsNote", {
+                  active: activeAgents,
+                  draft: draftAgents,
+                })
+              : t("home.overview.unknown"),
+        },
+      ]}
+      footer={t("home.glance.attentionFooter")}
+      link={<ArrowLink to="/sessions">{t("home.glance.toWaiting")}</ArrowLink>}
+    />
+  );
+  const mineCard = (
+    <GlanceCard
+      key="mine"
+      eyebrow={t("home.glance.mine")}
+      title={t("home.glance.mineTitle")}
+      value={unmeasured}
+      note={t("home.glance.estimatedCost")}
+      rows={[
+        // No list says who started a session yet, so even the count waits.
+        { label: t("home.glance.sessions"), value: unmeasured },
+        { label: t("home.glance.runTime"), value: unmeasured },
+        { label: t("home.glance.tokens"), value: unmeasured },
+      ]}
+    />
+  );
+  const openCount =
+    waiting.data && running.data && idle.data
+      ? count(
+          waiting.data.items.length +
+            running.data.items.length +
+            idle.data.items.length,
+          [waiting.data, running.data, idle.data].some(
+            (page) => page.next_cursor !== null,
+          ),
+        )
+      : null;
+  const progressCard = (
+    <GlanceCard
+      key="progress"
+      eyebrow={t("home.glance.progress")}
+      title={t("home.glance.progressTitle")}
+      badge={<Badge>{t("home.glance.now")}</Badge>}
+      value={openCount ?? t("home.overview.unknown")}
+      note={t("home.glance.openNote")}
+      rows={[
+        {
+          label: t("home.overview.waiting"),
+          value: waitingCount ?? t("home.overview.unknown"),
+        },
+        { label: t("home.glance.running"), value: pageCount(running.data) },
+        { label: t("home.glance.idle"), value: pageCount(idle.data) },
+      ]}
+      footer={t("home.overview.sessionsNote")}
+      link={<ArrowLink to="/sessions">{t("home.glance.toSessions")}</ArrowLink>}
+    />
+  );
+  const slackLinked = accounts.data?.items.some(
+    (account) => account.status !== "revoked",
+  );
+  const accountsCard = (
+    <GlanceCard
+      key="accounts"
+      eyebrow={t("home.glance.accounts")}
+      title={t("home.glance.accountsTitle")}
+      badge={<Badge>{t("home.glance.myAccounts")}</Badge>}
+      // GitHub and Google cannot be linked yet, so only Slack can count.
+      value={
+        slackLinked === undefined
+          ? t("home.overview.unknown")
+          : t("home.glance.ratio", { count: slackLinked ? 1 : 0, total: 3 })
+      }
+      note={t("home.glance.linkedNote")}
+      rows={[
+        { label: "GitHub", value: t("linked.soon") },
+        {
+          label: "Slack",
+          value:
+            slackLinked === undefined
+              ? t("home.overview.unknown")
+              : t(slackLinked ? "linked.connected" : "linked.notLinked"),
+        },
+        { label: "Google Workspace", value: t("linked.soon") },
+      ]}
+      footer={t("home.glance.accountsFooter")}
+      link={
+        <ArrowLink to="/settings/linked-accounts">
+          {t("home.glance.toAccounts")}
+        </ArrowLink>
+      }
+    />
+  );
+  const agentCard = (agent: Agent) => (
+    <GlanceCard
+      key={agent.id}
+      eyebrow={t("home.glance.agent")}
+      title={agent.name}
+      badge={<AgentStateBadge agent={agent} />}
+      value={unmeasured}
+      note={t("home.glance.agentWaitingNote")}
+      rows={[
+        { label: t("home.glance.running"), value: unmeasured },
+        { label: t("home.glance.recentSessions"), value: unmeasured },
+        { label: t("home.glance.credentials"), value: unmeasured },
+      ]}
+      link={
+        <TextLink
+          asChild
+          className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-control"
+        >
+          <Link to="/agents/$id" params={{ id: agent.id }}>
+            {t("home.glance.toAgent")}
+            <ArrowRight className="size-3.5" aria-hidden="true" />
+          </Link>
+        </TextLink>
+      }
+    />
+  );
+  // The design's card set for each reader (Console.dc.html homeCards).
+  const cards =
+    reader === "owner"
+      ? [installCard, oversightCard, mineCard]
+      : reader === "admin"
+        ? [mineCard, ...managed.slice(0, 1).map(agentCard), oversightCard]
+        : reader === "manager"
+          ? [mineCard, ...managed.slice(0, 2).map(agentCard)]
+          : reader === "requester"
+            ? [mineCard, progressCard, accountsCard]
+            : null;
 
   return (
     <Page
@@ -245,143 +498,13 @@ export function HomeScreen() {
         refusal={(error) => t(errorKey(error.code))}
       />
       <HomeSection title={t("home.overview.title")}>
-        <ul className="m-0 grid list-none grid-cols-1 items-stretch gap-4 p-0 @[720px]:grid-cols-3">
-          {/* Everyone who reads sessions may read the limits; the card
-              stays away only for a viewer the server refuses. */}
-          {isApiError(limits.error, "FORBIDDEN") ? null : (
-            <GlanceCard
-              eyebrow={t("home.glance.installation")}
-              title={t("home.glance.installationTitle")}
-              value={unmeasured}
-              note={t("home.glance.estimatedCost")}
-              rows={[
-                { label: t("home.glance.sessions"), value: unmeasured },
-                {
-                  label: t("home.glance.slots"),
-                  value: limits.data
-                    ? t("home.glance.slotsValue", {
-                        used: limits.data.usage.execution_slots_used,
-                        limit: limits.data.limits.execution_slot_limit,
-                      })
-                    : t("home.overview.unknown"),
-                },
-                { label: t("home.glance.outputs"), value: unmeasured },
-              ]}
-              footer={
-                limits.data
-                  ? t("home.glance.refreshed", {
-                      at: formatTimestamp(limits.data.refreshed_at, locale),
-                    })
-                  : null
-              }
-            />
-          )}
-          <GlanceCard
-            eyebrow={t("home.glance.workspace")}
-            title={t("home.glance.workspaceTitle")}
-            badge={t("home.glance.operations")}
-            value={attention === null ? t("home.overview.unknown") : attention}
-            note={t("home.glance.attentionNote")}
-            rows={[
-              {
-                label: t("home.overview.waiting"),
-                value: waitingCount ?? t("home.overview.unknown"),
-              },
-              {
-                label: t("home.glance.staleWait"),
-                value: requests ? (
-                  <Caution on={requests.stale > 0}>
-                    {t("home.glance.sessionCount", { count: requests.stale })}
-                  </Caution>
-                ) : (
-                  t("home.overview.unknown")
-                ),
-              },
-              ...(oldest
-                ? [
-                    {
-                      label: t("home.overview.oldest"),
-                      value: (
-                        <>
-                          <TextLink asChild className="font-mono font-normal">
-                            <Link
-                              to="/sessions/$id"
-                              params={{ id: oldest.sessionId }}
-                              title={oldest.sessionId}
-                            >
-                              {oldest.sessionId.slice(0, 8)}
-                            </Link>
-                          </TextLink>
-                          {" · "}
-                          <time
-                            dateTime={oldest.at}
-                            title={formatTimestamp(oldest.at, locale)}
-                          >
-                            {relativeTime(oldest.at, locale, now)}
-                          </time>
-                        </>
-                      ),
-                    },
-                  ]
-                : []),
-              ...expiring.map((key) => ({
-                wraps: true,
-                label: (
-                  <KeyName
-                    apiKey={key}
-                    agentName={
-                      agentItems.find((agent) => agent.id === key.agent_id)
-                        ?.name
-                    }
-                  />
-                ),
-                value: (
-                  <Caution on>
-                    {t("home.glance.keyExpires", {
-                      when: relativeTime(key.expires_at ?? "", locale, now),
-                    })}
-                  </Caution>
-                ),
-              })),
-              { label: t("home.glance.linkedExpiry"), value: unmeasured },
-              {
-                label: t("home.overview.agents"),
-                value: isApiError(agents.error, "FORBIDDEN")
-                  ? t("home.overview.agentsWithheld")
-                  : agents.data
-                    ? t("home.overview.agentsNote", {
-                        active: activeAgents,
-                        draft: draftAgents,
-                      })
-                    : t("home.overview.unknown"),
-              },
-            ]}
-            footer={t("home.glance.attentionFooter")}
-            link={
-              <ArrowLink to="/sessions">{t("home.glance.toWaiting")}</ArrowLink>
-            }
-          />
-          <GlanceCard
-            eyebrow={t("home.glance.mine")}
-            title={t("home.glance.mineTitle")}
-            value={unmeasured}
-            note={t("home.glance.estimatedCost")}
-            rows={[
-              {
-                label: t("home.glance.sessions"),
-                value: firstPage
-                  ? count(
-                      firstPage.items.length,
-                      firstPage.next_cursor !== null,
-                    )
-                  : t("home.overview.unknown"),
-              },
-              { label: t("home.glance.runTime"), value: unmeasured },
-              { label: t("home.glance.tokens"), value: unmeasured },
-            ]}
-            footer={t("home.overview.sessionsNote")}
-          />
-        </ul>
+        {cards ? (
+          <ul className="m-0 grid list-none grid-cols-1 items-stretch gap-4 p-0 @[720px]:grid-cols-3">
+            {cards}
+          </ul>
+        ) : (
+          <StatusScreen kind="loading" />
+        )}
       </HomeSection>
       <HomeSection
         title={t("home.recent.title")}
@@ -396,31 +519,59 @@ export function HomeScreen() {
   );
 }
 
+type Reader = "owner" | "admin" | "manager" | "requester";
+
+const INTRO = {
+  owner: "home.intro.owner",
+  admin: "home.intro.admin",
+  manager: "home.intro.manager",
+  requester: "home.intro.requester",
+} as const satisfies Record<Reader, MessageKey>;
+
 /**
  * The design writes home for four readers: the owner, an admin, a member who
- * manages an agent, and any other member. Nothing until the member's agents
- * are read, so the line does not change under the reader.
+ * manages an agent, and any other member, told apart by the role and the
+ * agents the reader manages. Undecided until those agents are read, so the
+ * page does not change under the reader.
  */
-function useIntro(): string | undefined {
-  const { t } = useI18n();
+function useReader(): {
+  readonly reader: Reader | undefined;
+  readonly agents: readonly Agent[];
+} {
   const { client } = useAgentPlatform();
   const role = useRole();
-  const name = useMe()?.user?.display_name;
-  const member = role !== undefined && role !== "owner" && role !== "admin";
   // Same query as the agents section below, so it is read once.
   const administered = useQuery({
     ...administeredAgentsQuery(client),
-    enabled: member,
+    enabled: role !== undefined && role !== "owner",
   });
-  if (role === "owner") return t("home.intro.owner");
-  if (role === "admin") return t("home.intro.admin");
-  if (!member || !name || administered.isPending) return undefined;
-  return t(
-    (administered.data?.items.length ?? 0) > 0
-      ? "home.intro.manager"
-      : "home.intro.requester",
-    { name },
-  );
+  const agents = administered.data?.items ?? [];
+  if (role === "owner") return { reader: "owner", agents };
+  if (role === undefined || administered.isPending)
+    return { reader: undefined, agents };
+  if (role === "admin") return { reader: "admin", agents };
+  return { reader: agents.length > 0 ? "manager" : "requester", agents };
+}
+
+/** One status's first page, read only for the reader whose card counts it. */
+function statusPageQuery(
+  client: ApiClient,
+  status: "running" | "idle",
+  enabled: boolean,
+) {
+  return {
+    queryKey: [...queryKeys.sessions, "home", status],
+    queryFn: () =>
+      unwrap(
+        client.GET("/v1/sessions", { params: { query: { status } } }),
+      ) as Promise<ListSessionsResponse>,
+    enabled,
+    retry: false,
+  };
+}
+
+function pageCount(page: ListSessionsResponse | undefined): string {
+  return page ? count(page.items.length, page.next_cursor !== null) : "—";
 }
 
 /** A first page that has more reads as "at least". */
@@ -498,7 +649,7 @@ function ArrowLink({
   to,
   children,
 }: {
-  readonly to: "/sessions";
+  readonly to: "/sessions" | "/settings/linked-accounts";
   readonly children: ReactNode;
 }) {
   return (
@@ -586,7 +737,7 @@ function GlanceCard({
 }: {
   readonly eyebrow: string;
   readonly title: string;
-  readonly badge?: string;
+  readonly badge?: ReactNode;
   readonly value: ReactNode;
   readonly note: string;
   readonly rows: readonly GlanceRow[];
@@ -603,7 +754,7 @@ function GlanceCard({
             <p className="m-0 text-caption text-muted-foreground">{eyebrow}</p>
             <h3 className="m-0 font-semibold text-body">{title}</h3>
           </div>
-          {badge ? <Badge className="shrink-0">{badge}</Badge> : null}
+          {badge ? <div className="shrink-0">{badge}</div> : null}
         </div>
         <div>
           <p className="m-0 font-semibold text-number tabular-nums">{value}</p>
