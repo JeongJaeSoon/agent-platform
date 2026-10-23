@@ -30,6 +30,31 @@ export function slackApiUrlFrom(
 }
 
 /**
+ * SLACK_EVENTS_PUBLIC_URL: the base Slack reaches the events route under,
+ * without `/v1/slack/events/...`. Slack calls https request URLs only.
+ */
+export function slackEventsPublicUrlFrom(
+  env: Record<string, string | undefined>,
+): string | null {
+  const value = env.SLACK_EVENTS_PUBLIC_URL;
+  if (!value) return null;
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new SlackConfigError(
+      "SLACK_EVENTS_PUBLIC_URL must be an absolute URL",
+    );
+  }
+  if (url.protocol !== "https:" || url.search !== "" || url.hash !== "") {
+    throw new SlackConfigError(
+      "SLACK_EVENTS_PUBLIC_URL must be an https URL without a query",
+    );
+  }
+  return `${url.origin}${url.pathname}`.replace(/\/+$/, "");
+}
+
+/**
  * The console's origin, taken from SLACK_OIDC_REDIRECT_URI (the account
  * linking callback, which the console serves); null when it is unset.
  */
