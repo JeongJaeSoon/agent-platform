@@ -497,6 +497,31 @@
         ? only[0]
         : k;
     };
+    // A table frame pads its cells, not its rows: a row's padding is its
+    // first cell's top, bottom and left with its last cell's right.
+    const table =
+      card.padding.every((p) => p === 0) && kids.length === 1
+        ? (kids[0].closest("table") ?? kids[0].querySelector("table"))
+        : null;
+    if (table) {
+      const rows = [...table.querySelectorAll("tbody tr")]
+        .filter((tr) => !hidden(tr) && tr.cells.length > 0)
+        .slice(0, 2)
+        .map((tr) => {
+          const first = getComputedStyle(tr.cells[0]);
+          const last = getComputedStyle(tr.cells[tr.cells.length - 1]);
+          return {
+            ...inside(tr),
+            padding: [
+              first.paddingTop,
+              last.paddingRight,
+              first.paddingBottom,
+              first.paddingLeft,
+            ].map(parseFloat),
+          };
+        });
+      return { ...card, rows };
+    }
     return listLike
       ? { ...card, rows: kids.slice(0, 2).map((k) => inside(rowBox(k))) }
       : card;

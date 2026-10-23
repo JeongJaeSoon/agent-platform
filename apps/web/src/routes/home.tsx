@@ -1,8 +1,7 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { isApiError } from "@werft-ai/client";
-import type { SessionSummary } from "@werft-ai/contracts";
-import { waitingSessionsQuery } from "@werft-ai/core";
+import { pendingRequestsQuery, waitingSessionsQuery } from "@werft-ai/core";
 import { useAgentPlatform, useSessions } from "@werft-ai/react";
 import { RecentSessions } from "@werft-ai/react/blocks";
 import { Card, cn, formatTimestamp } from "@werft-ai/ui";
@@ -112,18 +111,29 @@ export function HomeScreen() {
   const waitingCount = waiting.data
     ? count(waiting.data.items.length, waiting.data.next_cursor !== null)
     : null;
-  // Answering happens on the session screen; home names only who waited
-  // longest, and only when the one page holds every waiting session.
-  const oldest =
-    waiting.data?.next_cursor === null
-      ? waiting.data.items.reduce<SessionSummary | undefined>(
-          (first, item) =>
-            first === undefined || item.updated_at < first.updated_at
-              ? item
-              : first,
-          undefined,
+  // Answering happens on the session screen; home names only the oldest
+  // request, read from the same per-session lists the session screen reads.
+  // It shows nothing unless the one page holds every waiting session and
+  // every list answered: a partial read would name the wrong request.
+  const complete = waiting.data?.next_cursor === null;
+  const oldest = useQueries({
+    queries: complete
+      ? (waiting.data?.items ?? []).map((session) =>
+          pendingRequestsQuery(client, session.id),
         )
-      : undefined;
+      : [],
+    combine: (lists) => {
+      if (!lists.every((list) => list.isSuccess)) return undefined;
+      let first: { sessionId: string; at: string } | undefined;
+      lists.forEach((list, index) => {
+        const sessionId = waiting.data?.items[index]?.id;
+        for (const request of list.data?.items ?? [])
+          if (sessionId && (!first || request.created_at < first.at))
+            first = { sessionId, at: request.created_at };
+      });
+      return first;
+    },
+  });
   const agentItems = agents.data?.items ?? [];
   const activeAgents = agentItems.filter(
     (agent) => agentState(agent) === "active",
@@ -159,14 +169,14 @@ export function HomeScreen() {
                   {t("home.overview.oldest")}{" "}
                   <Link
                     to="/sessions/$id"
-                    params={{ id: oldest.id }}
+                    params={{ id: oldest.sessionId }}
                     className="font-mono text-primary underline-offset-2 hover:underline"
-                    title={oldest.id}
+                    title={oldest.sessionId}
                   >
-                    {oldest.id.slice(0, 8)}
+                    {oldest.sessionId.slice(0, 8)}
                   </Link>
                   {" · "}
-                  {formatTimestamp(oldest.updated_at, locale)}
+                  {formatTimestamp(oldest.at, locale)}
                 </>
               ) : null
             }
