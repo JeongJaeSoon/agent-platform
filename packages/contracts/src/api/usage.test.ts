@@ -29,6 +29,7 @@ describe("usageSummaryQuerySchema", () => {
       {},
       { since: "2026-10-01T00:00:00" },
       { since: "2026-02-30" },
+      { since: "0000-01-01", until: "2000-01-01" },
       { since: "yesterday" },
       { since: "2026-10-01", until: "2026-10-01" },
       { since: "2026-10-02", until: "2026-10-01" },

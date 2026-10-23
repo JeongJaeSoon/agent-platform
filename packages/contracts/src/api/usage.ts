@@ -102,8 +102,8 @@ const periodBoundSchema = z
   .transform(
     (value) => new Date(value.length === 10 ? `${value}T00:00:00Z` : value),
   )
-  // An impossible day such as 2026-02-30 is no date.
-  .pipe(z.date());
+  // An impossible day such as 2026-02-30 is no date; PostgreSQL has no year 0.
+  .pipe(z.date().min(new Date("0001-01-01T00:00:00Z")));
 
 /**
  * GET /v1/usage/summary. `installation` sums every owner's sessions and is
