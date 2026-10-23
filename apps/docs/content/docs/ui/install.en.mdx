@@ -28,7 +28,7 @@ You need the following. Other packages in this repository already use all of the
 
 ## Create the app
 
-Create a `ui-demo` directory at the repository root and put two files in it. Do not add `ui-demo` to the workspace. Its imports climb up and resolve from the root `node_modules`.
+Create a `ui-demo` directory at the repository root and put two files in it. Do not add `ui-demo` to the workspace. Module resolution walks up the parent directories, so its imports resolve from the root `node_modules`.
 
 ```html title="ui-demo/index.html"
 <!doctype html>

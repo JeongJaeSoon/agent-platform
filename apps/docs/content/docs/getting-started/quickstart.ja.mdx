@@ -1,11 +1,11 @@
 ---
 title: "Quickstart"
-description: API key を取得し、curl で最初のセッションを作成する
+description: API キーを取得し、curl で最初のセッションを作成する
 ---
 
-[インストール](/getting-started/install)の手順で立ち上げたローカルスタックで API key を取得し、セッションを 1 つ作成して最初の turn が終わるところまで確認する。同じターミナルで順番に実行する。
+[インストール](/getting-started/install)の手順で立ち上げたローカルスタックで API キーを取得し、セッションを 1 つ作成して最初のターンが終わるところまで確認する。同じターミナルで順番に実行する。
 
-## API key を取得する
+## API キーを取得する
 
 ```bash
 API=http://127.0.0.1:3000
@@ -19,9 +19,9 @@ key_id …
 csp_…
 ```
 
-`key_id` は stderr に出力される key の id である。key 本体は stdout に一度だけ出力される。再び見ることはできないので、変数にだけ保持する。`quickstart` は key の owner 名で、この key で作成したセッションはこの owner のものになる。scope は [API key](/api-keys) にある。
+`key_id` は stderr に出力されるキーの id である。キー本体は stdout に一度だけ出力される。再び見ることはできないので、変数にだけ保持する。`quickstart` はキーの owner 名で、このキーで作成したセッションはこの owner のものになる。scope は [API キー](/api-keys) にある。
 
-key が正しいか確認する。
+キーが正しいか確認する。
 
 ```bash
 curl -sS -w '\n' "$API/v1" -H "Authorization: Bearer $KEY"
@@ -74,12 +74,12 @@ SID=$(echo "$created" | jq -r .session_id)
 ```
 
 - `repository_id` はセッションが clone するリポジトリである。ローカルスタックの Gitea には `sample-app` が入っている。
-- `message` は最初の turn の入力である。fake モデルは `GATE-SPEC {…}` の台本を読み、そのとおりに答える。この台本はツールを呼び出さず、`hello from Werft` で終わる。実際の Claude スタックでは普通の文章を使う。
-- セッション API の POST には `Idempotency-Key` が必要である。同じ key で再送すると、最初の応答がそのまま返る。
+- `message` は最初のターンの入力である。fake モデルは `GATE-SPEC {…}` のスクリプトを読み、そのとおりに答える。このスクリプトはツールを呼び出さず、`hello from Werft` で終わる。実際の Claude スタックでは普通の文章を使う。
+- セッション API の POST には `Idempotency-Key` が必要である。同じキーで再送すると、最初の応答がそのまま返る。
 
-## turn の終了を待つ
+## ターンの終了を待つ
 
-scheduler が worker を起動し、worker がリポジトリを clone してから turn 1 を実行する。初回は数十秒かかる。
+scheduler が worker を起動し、worker がリポジトリを clone してからターン 1 を実行する。初回は数十秒かかる。
 
 ```bash
 until [ "$(curl -sS "$API/v1/sessions/$SID/turns/1" -H "Authorization: Bearer $KEY" | jq -r .status)" = completed ]; do
@@ -95,7 +95,7 @@ curl -sS "$API/v1/sessions/$SID/turns/1" -H "Authorization: Bearer $KEY" | jq '{
 }
 ```
 
-turn が終わったかどうかは、turn 取得の `status` だけで判断する。`completed`・`failed`・`interrupted`・`cancelled`・`outcome_unknown` が終了状態である。
+ターンが終わったかどうかは、ターン取得の `status` だけで判断する。`completed`・`failed`・`interrupted`・`cancelled`・`outcome_unknown` が終了状態である。
 
 ## モデルの応答を見る
 
