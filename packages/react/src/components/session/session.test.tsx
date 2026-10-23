@@ -297,6 +297,7 @@ const SESSION: SessionSummary = {
     permission_mode: "default",
   },
   repository_id: null,
+  repository: null,
   current_turn_id: null,
   queued_turn_count: 2,
   last_event_at: null,

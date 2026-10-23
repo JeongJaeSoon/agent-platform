@@ -134,7 +134,7 @@ export function Stepper({
                   onClick={() => onStepSelect(step.id)}
                   className={cn(
                     itemClass,
-                    "w-full outline-none transition-[color,box-shadow] hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none",
+                    "w-full transition-[color,box-shadow] hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none",
                   )}
                 >
                   {body}
@@ -174,7 +174,7 @@ function StepIndicator({
       )}
     >
       {state === "complete" ? (
-        <Check className="size-3.5" strokeWidth={2} aria-hidden="true" />
+        <Check className="size-3.5" strokeWidth={1.5} aria-hidden="true" />
       ) : (
         number
       )}

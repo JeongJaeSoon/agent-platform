@@ -2559,6 +2559,11 @@ export interface components {
                 permission_mode: "default" | "acceptEdits" | "dontAsk" | "plan" | "bypassPermissions" | "auto";
             } | null;
             repository_id: string | null;
+            /**
+             * @description The repository the session was created against, as the session recorded it then: a later catalog change or removal does not alter it. Null for a session created without a repository.
+             * @default null
+             */
+            repository: components["schemas"]["SessionRepository"] | null;
             current_turn_id: string | null;
             queued_turn_count: number;
             last_event_at: string | null;
@@ -2566,6 +2571,14 @@ export interface components {
             created_at: string;
             /** Format: date-time */
             updated_at: string;
+        };
+        SessionRepository: {
+            /** @description The catalog key, as `repository_id`. Null for a session created before the catalog existed. */
+            id: string | null;
+            /** @description A name to show: the path of the repository's http(s) URL without host, credentials, query or `.git` (`owner/name`, or `group/sub/name`), or else the catalog key; null when neither exists. Never the URL itself, which may embed a credential. */
+            full_name: string | null;
+            /** @description The branch the session's workspace was cloned from. Not the branch a push writes to (`agent/<session-id>`). */
+            branch: string;
         };
         SessionDetail: {
             /** Format: uuid */
@@ -2618,6 +2631,11 @@ export interface components {
                 permission_mode: "default" | "acceptEdits" | "dontAsk" | "plan" | "bypassPermissions" | "auto";
             } | null;
             repository_id: string | null;
+            /**
+             * @description The repository the session was created against, as the session recorded it then: a later catalog change or removal does not alter it. Null for a session created without a repository.
+             * @default null
+             */
+            repository: components["schemas"]["SessionRepository"] | null;
             current_turn_id: string | null;
             queued_turn_count: number;
             last_event_at: string | null;
@@ -6542,6 +6560,11 @@ export interface operations {
                      *             "permission_mode": "default"
                      *           },
                      *           "repository_id": "sample-app",
+                     *           "repository": {
+                     *             "id": "sample-app",
+                     *             "full_name": "acme/sample-app",
+                     *             "branch": "main"
+                     *           },
                      *           "current_turn_id": "3",
                      *           "queued_turn_count": 1,
                      *           "last_event_at": "2026-10-11T08:15:42Z",
@@ -6968,6 +6991,11 @@ export interface operations {
                      *         "permission_mode": "default"
                      *       },
                      *       "repository_id": "sample-app",
+                     *       "repository": {
+                     *         "id": "sample-app",
+                     *         "full_name": "acme/sample-app",
+                     *         "branch": "main"
+                     *       },
                      *       "current_turn_id": "3",
                      *       "queued_turn_count": 1,
                      *       "last_event_at": "2026-10-11T08:15:42Z",
@@ -7115,6 +7143,11 @@ export interface operations {
                      *         "permission_mode": "default"
                      *       },
                      *       "repository_id": "sample-app",
+                     *       "repository": {
+                     *         "id": "sample-app",
+                     *         "full_name": "acme/sample-app",
+                     *         "branch": "main"
+                     *       },
                      *       "current_turn_id": "3",
                      *       "queued_turn_count": 1,
                      *       "last_event_at": "2026-10-11T08:15:42Z",

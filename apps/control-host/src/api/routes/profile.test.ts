@@ -76,6 +76,7 @@ const record: SessionDetailRecord = {
   admission_state: "active",
   status: "idle",
   repository_id: "app",
+  repository: { id: "app", full_name: "app", branch: "main" },
   current_turn_id: null,
   queued_turn_count: 0,
   last_event_at: null,

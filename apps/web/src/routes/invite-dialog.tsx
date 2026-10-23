@@ -31,6 +31,7 @@ import {
   NativeSelectOption,
   Stepper,
 } from "@werft-ai/ui";
+import { Plus } from "lucide-react";
 import { type RefObject, useEffect, useRef, useState } from "react";
 import { queryKeys } from "../api/queries.ts";
 import {
@@ -92,7 +93,8 @@ export function InviteDialog({
           className={buttonVariants()}
           reason={reason}
         >
-          {t("members.invite.submit")}
+          <Plus aria-hidden="true" />
+          {t("members.invite.open")}
         </ReasonButton>
       </DialogTrigger>
       <DialogContent>

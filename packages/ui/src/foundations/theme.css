@@ -12,6 +12,7 @@
 
 /* biome-ignore lint/suspicious/noUnknownAtRules: a Tailwind 4 directive */
 @theme inline {
+  --text-2xs: var(--ap-text-2xs);
   --text-caption: var(--ap-text-xs);
   --text-control: var(--ap-text-sm);
   --text-body: var(--ap-text-label);
@@ -39,7 +40,7 @@
   --color-accent: var(--ap-tone-neutral-bg);
   --color-accent-foreground: var(--ap-color-foreground);
   --color-destructive: var(--ap-tone-danger-fg);
-  --color-destructive-foreground: var(--ap-color-surface);
+  --color-destructive-foreground: var(--ap-color-destructive-foreground);
   --color-border: var(--ap-color-border);
   --color-input: var(--ap-color-border-input);
   --color-ring: var(--ap-color-focus-ring);
@@ -48,6 +49,10 @@
   --color-sidebar: var(--ap-color-sidebar);
   --color-sidebar-hover: var(--ap-color-sidebar-hover);
   --color-sidebar-accent: var(--ap-color-sidebar-accent);
+  --color-hover: var(--ap-color-hover);
+  --color-active: var(--ap-color-active);
+  --color-skeleton: var(--ap-color-skeleton);
+  --color-destructive-solid: var(--ap-color-destructive-solid);
   --color-surface: var(--ap-color-surface);
   --color-subtle-foreground: var(--ap-color-subtle-foreground);
   --color-surface-sunken: var(--ap-color-surface-sunken);
