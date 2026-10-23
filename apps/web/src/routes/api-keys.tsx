@@ -124,11 +124,11 @@ const KIND_NAME: Record<KeyKind, MessageKey> = {
   agent: "apiKeys.kind.agent",
 };
 
-// Three kinds that sit side by side, so three looks; none of them is a state.
+// A kind is not a state, so no state tone; the badge's words tell them apart.
 const KIND_BADGE: Record<KeyKind, BadgeProps["variant"]> = {
   personal: "gray",
   service: "blue",
-  agent: "outline",
+  agent: "gray",
 };
 
 // Who it acts as, what its issuer leaving does, which sessions it reaches,
@@ -350,50 +350,47 @@ function KeysScreen({ kind }: { readonly kind: ApiKeyKind }) {
   const reason = useCreateReason(kind);
 
   return (
-    <div className={PAGE}>
+    // The head comes first, as on every page; the two key screens' tabs open
+    // its body.
+    <Page
+      title={t(screen.title)}
+      description={t(screen.intro)}
+      actions={
+        <ReasonButton
+          className={buttonVariants()}
+          reason={reason}
+          onClick={() => void navigate({ to: screen.create })}
+        >
+          <Plus aria-hidden="true" className="size-4" />
+          {t("apiKeys.new")}
+        </ReasonButton>
+      }
+    >
       <KeyScreenNav current={kind} />
-      <Page
-        title={t(screen.title)}
-        description={t(screen.intro)}
-        actions={
-          <ReasonButton
-            className={buttonVariants()}
-            reason={reason}
-            onClick={() => void navigate({ to: screen.create })}
-          >
-            <Plus aria-hidden="true" className="size-4" />
-            {t("apiKeys.new")}
-          </ReasonButton>
-        }
-      >
-        {outcome ? (
-          outcome.kind === "error" ? (
-            <FormError>{outcome.text}</FormError>
-          ) : (
-            <output className={NOTICE}>{outcome.text}</output>
-          )
-        ) : null}
-        {keys.isPending ? (
-          <StatusScreen kind="loading" />
-        ) : keys.error ? (
-          isApiError(keys.error, "FORBIDDEN") ? (
-            <StatusScreen kind="forbidden" />
-          ) : (
-            <LoadFailure
-              error={keys.error}
-              onRetry={() => void keys.refetch()}
-            />
-          )
+      {outcome ? (
+        outcome.kind === "error" ? (
+          <FormError>{outcome.text}</FormError>
         ) : (
-          <KeyList
-            items={keys.data.items.filter((key) => key.kind === kind)}
-            empty={t(screen.empty)}
-            onOutcome={setOutcome}
-          />
-        )}
-        <KeyKindGuide kinds={screen.kinds} />
-      </Page>
-    </div>
+          <output className={NOTICE}>{outcome.text}</output>
+        )
+      ) : null}
+      {keys.isPending ? (
+        <StatusScreen kind="loading" />
+      ) : keys.error ? (
+        isApiError(keys.error, "FORBIDDEN") ? (
+          <StatusScreen kind="forbidden" />
+        ) : (
+          <LoadFailure error={keys.error} onRetry={() => void keys.refetch()} />
+        )
+      ) : (
+        <KeyList
+          items={keys.data.items.filter((key) => key.kind === kind)}
+          empty={t(screen.empty)}
+          onOutcome={setOutcome}
+        />
+      )}
+      <KeyKindGuide kinds={screen.kinds} />
+    </Page>
   );
 }
 
