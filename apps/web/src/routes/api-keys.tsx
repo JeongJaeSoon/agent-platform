@@ -256,7 +256,7 @@ function expiryOf(day: string): string | undefined {
 
 const SOON_MS = 7 * 24 * 60 * 60 * 1000;
 
-function expiryState(
+export function expiryState(
   expiresAt: string | null,
 ): "none" | "later" | "soon" | "expired" {
   if (expiresAt === null) return "none";
