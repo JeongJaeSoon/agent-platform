@@ -8,11 +8,13 @@ import type {
   CheckpointCodec,
   CheckpointManifest,
   CheckpointObjectStore,
+  CheckpointOutput,
   CheckpointPreparation,
   CompatibilityMismatch,
   ObjectHead,
   ObjectRef,
   RuntimeFingerprint,
+  StoredOutput,
   TranscriptLimits,
   TranscriptSizeProblem,
   WorkspaceArtifact,
@@ -197,6 +199,17 @@ export type RestorePlanResult =
 export type PushSourceResult =
   | { gitCommit: string; revision: number; status: "ready" }
   | { status: "none" }
+  | { reason: string; status: "unavailable" };
+
+export type SessionOutputsResult =
+  | { outputs: readonly CheckpointOutput[]; revision: number; status: "ready" }
+  | { status: "none" }
+  | { reason: string; status: "unavailable" };
+
+export type SessionOutputBodyResult =
+  | { body: AsyncIterable<Uint8Array>; output: StoredOutput; status: "ready" }
+  /** No checkpoint, no such path, or a path listed without its bytes. */
+  | { status: "missing" }
   | { reason: string; status: "unavailable" };
 
 export type PushBundlesResult =
@@ -1277,6 +1290,25 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     }
   }
 
+  async function committedOutputs(
+    sessionId: string,
+  ): Promise<SessionOutputsResult> {
+    const pointer = await store.readPointer(sessionId);
+    if (pointer === null) return { status: "none" };
+    const manifest = await committedManifest(pointer);
+    if (manifest === undefined) {
+      return {
+        status: "unavailable",
+        reason: `the manifest of checkpoint revision ${pointer.revision} is missing, damaged or unreadable`,
+      };
+    }
+    return {
+      status: "ready",
+      revision: pointer.revision,
+      outputs: manifest.outputs ?? [],
+    };
+  }
+
   /**
    * Holds every version a verified checkpoint names that is not held yet.
    * The ones finalize skipped as the pointer's are not among them: a
@@ -1532,6 +1564,42 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
         revision: pointer.revision,
         gitCommit: verdict.manifest.workspace.gitCommit,
       };
+    },
+
+    /**
+     * The `out/` files the pointer's own checkpoint lists. Finalize verified
+     * and held every stored one before the pointer could name it, so only
+     * the manifest is read again here, by its pinned version and digest.
+     */
+    readOutputs: committedOutputs,
+
+    /**
+     * One stored output of the pointer's checkpoint, matched by its exact
+     * manifest path: the key and version come from the manifest, never from
+     * `path`.
+     */
+    async openOutput(
+      sessionId: string,
+      path: string,
+    ): Promise<SessionOutputBodyResult> {
+      const listed = await committedOutputs(sessionId);
+      if (listed.status === "none") return { status: "missing" };
+      if (listed.status === "unavailable") return listed;
+      const output = storedOutputs(listed.outputs).find(
+        (candidate) => candidate.path === path,
+      );
+      if (output === undefined) return { status: "missing" };
+      const chunks = await objects.stream(
+        output.key,
+        pinnedVersion(output.version),
+      );
+      if (chunks === undefined) {
+        return {
+          status: "unavailable",
+          reason: `output ${output.key} is not stored`,
+        };
+      }
+      return { status: "ready", output, body: verifiedBody(chunks, output) };
     },
 
     /**
@@ -1847,6 +1915,38 @@ async function digestObject(
     await sink?.(chunk);
   }
   return { bytes, sha256: hash.digest("hex"), status: "read" };
+}
+
+/**
+ * Passes `chunks` through while holding them to `ref`'s size and digest.
+ * The last chunk is held back until the digest matches, so a reader counting
+ * on `Content-Length` never receives a complete body of the wrong bytes: a
+ * mismatch ends the stream with an error one chunk short. In `locked` the
+ * pinned version cannot differ; an `unversioned` key can be overwritten.
+ */
+async function* verifiedBody(
+  chunks: AsyncIterable<Uint8Array>,
+  ref: ObjectRef,
+): AsyncGenerator<Uint8Array> {
+  const hash = createHash("sha256");
+  let bytes = 0;
+  let held: Uint8Array | undefined;
+  for await (const chunk of chunks) {
+    bytes += chunk.byteLength;
+    if (bytes > ref.bytes) {
+      throw new Error(`${ref.key} holds more than its ${ref.bytes} bytes`);
+    }
+    hash.update(chunk);
+    if (held !== undefined) yield held;
+    held = chunk;
+  }
+  const digest = hash.digest("hex");
+  if (bytes !== ref.bytes || digest !== ref.sha256) {
+    throw new Error(
+      `${ref.key} holds ${bytes} bytes hashing to ${digest}, not ${ref.bytes} hashing to ${ref.sha256}`,
+    );
+  }
+  if (held !== undefined) yield held;
 }
 
 /** `FileHandle.write` may take less than it was handed. */

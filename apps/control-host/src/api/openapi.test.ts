@@ -335,6 +335,8 @@ describe("OpenAPI document", () => {
         "/v1/sessions/{id}/events",
         "/v1/sessions/{id}/interrupt",
         "/v1/sessions/{id}/messages",
+        "/v1/sessions/{id}/outputs",
+        "/v1/sessions/{id}/outputs/{path}",
         "/v1/sessions/{id}/pause",
         "/v1/sessions/{id}/pending-requests",
         "/v1/sessions/{id}/profile",
@@ -619,7 +621,7 @@ describe("OpenAPI document", () => {
         parsed += 1;
       }
       const success = route.success;
-      if (success.status !== 204 && success.example !== undefined) {
+      if ("schema" in success && success.example !== undefined) {
         OPENAPI_COMPONENT_SCHEMAS[success.schema].parse(success.example);
         parsed += 1;
       }
@@ -632,7 +634,7 @@ describe("OpenAPI document", () => {
       Boolean(route.description) &&
       (route.body === undefined || route.requestExample !== undefined) &&
       Boolean(route.success.description) &&
-      (route.success.status === 204 || route.success.example !== undefined);
+      (!("schema" in route.success) || route.success.example !== undefined);
     const incomplete = ROUTES.filter(
       (route) => route.path.startsWith("/v1") && !complete(route),
     ).map((route) => route.operationId);
