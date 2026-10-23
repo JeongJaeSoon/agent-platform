@@ -2,13 +2,17 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { isApiError } from "@werft-ai/client";
 import { useAgentPlatform } from "@werft-ai/react";
-import { EmptyState, Link as TextLink } from "@werft-ai/ui";
+import {
+  EmptyState,
+  RowList,
+  RowListItem,
+  Link as TextLink,
+} from "@werft-ai/ui";
 import { useId } from "react";
 import { myTeamsQuery } from "../api/queries.ts";
 import { useHasPermission } from "../auth/guard.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 import { LoadFailure } from "./load-failure.tsx";
-import { RowList, RowListItem } from "./table.tsx";
 
 export const SECTION = "flex flex-col gap-[var(--ap-space-block)]";
 export const SECTION_TITLE = "m-0 font-semibold text-body";
