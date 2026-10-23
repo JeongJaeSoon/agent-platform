@@ -52,23 +52,32 @@ describe("ui-release.yml", () => {
     // the first run, unprotected.
     expect(publish?.environment).toBe("release");
     expect(publish?.needs).toBe("build");
-    // Runs unconditionally, fails the job, and comes before the publish.
-    const onMain = publish?.steps.findIndex((step) =>
+    for (const s of publish?.steps ?? [])
+      expect(s["continue-on-error"]).toBeUndefined();
+    // It publishes the artifact `build` tested and checks nothing out.
+    expect(
+      publish?.steps.some((s) => s.uses?.startsWith("actions/checkout@")),
+    ).toBe(false);
+  });
+
+  // In `build`, which has no package write: a tag off main must fail before a
+  // job holding it starts.
+  test("build fails a ui-v* tag whose commit is not on main", () => {
+    const steps = build?.steps ?? [];
+    const onMain = steps.findIndex((step) =>
       step.run?.includes(
         'if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then',
       ),
     );
-    const step = publish?.steps[onMain ?? -1];
+    const step = steps[onMain];
     expect(step?.run).toContain("exit 1");
-    expect(step?.if).toBeUndefined();
+    expect(step?.if).toBe("startsWith(github.ref, 'refs/tags/ui-v')");
     expect(step?.["continue-on-error"]).toBeUndefined();
-    const publishAt = publish?.steps.findIndex((s) =>
-      s.run?.includes("npm publish"),
+    const packAt = steps.findIndex((s) =>
+      s.run?.includes("npm pack ./packages/ui/dist"),
     );
     expect(onMain).toBeGreaterThanOrEqual(0);
-    expect(publishAt).toBeGreaterThan(onMain ?? Infinity);
-    for (const s of publish?.steps ?? [])
-      expect(s["continue-on-error"]).toBeUndefined();
+    expect(packAt).toBeGreaterThan(onMain);
   });
 
   test("only publish holds package write, and only publish publishes", () => {
