@@ -32,16 +32,16 @@ const SCOPED_PREFLIGHT = `@layer base {
   ${KIT}, ${KIT}::before, ${KIT}::after {
     box-sizing: border-box; border-width: 0; border-style: solid; margin: 0; padding: 0;
   }
-  ${KIT}:is(h1, h2, h3, h4, h5, h6) { font-size: inherit; font-weight: inherit; }
-  ${KIT}:is(a) { color: inherit; text-decoration: inherit; }
-  ${KIT}:is(ol, ul, menu) { list-style: none; }
-  ${KIT}:is(img, svg, video, canvas, audio, iframe, embed, object) { display: block; vertical-align: middle; }
-  ${KIT}:is(img, video) { max-width: 100%; height: auto; }
-  ${KIT}:is(button, input, select, optgroup, textarea) {
+  ${KIT}:where(h1, h2, h3, h4, h5, h6) { font-size: inherit; font-weight: inherit; }
+  ${KIT}:where(a) { color: inherit; text-decoration: inherit; }
+  ${KIT}:where(ol, ul, menu) { list-style: none; }
+  ${KIT}:where(img, svg, video, canvas, audio, iframe, embed, object) { display: block; vertical-align: middle; }
+  ${KIT}:where(img, video) { max-width: 100%; height: auto; }
+  ${KIT}:where(button, input, select, optgroup, textarea) {
     font: inherit; font-feature-settings: inherit; font-variation-settings: inherit;
     letter-spacing: inherit; color: inherit; border-radius: 0; background-color: transparent; opacity: 1;
   }
-  ${KIT}:is(textarea) { resize: vertical; }
+  ${KIT}:where(textarea) { resize: vertical; }
 }`;
 
 type Manifest = {
