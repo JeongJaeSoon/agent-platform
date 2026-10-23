@@ -123,6 +123,7 @@ flushSync(() =>
     <div style={{ display: "flex", gap: 8 }}>
       <Button id="probe">저장</Button>
       <Button id="probe-outline" variant="outline">취소</Button>
+      <Button id="probe-ghost" variant="ghost">더보기</Button>
       <Card id="probe-card" className="px-4">카드</Card>
     </div>,
   ),
@@ -131,15 +132,20 @@ flushSync(() =>
 // Chrome's --dump-dom prints markup only, so the computed style rides on it.
 const button = document.getElementById("probe");
 const outline = document.getElementById("probe-outline");
+const ghost = document.getElementById("probe-ghost");
 const card = document.getElementById("probe-card");
-if (!button || !outline || !card) throw new Error("kit did not render");
+if (!button || !outline || !ghost || !card) throw new Error("kit did not render");
 const style = getComputedStyle(button);
 document.body.dataset.background = style.backgroundColor;
 document.body.dataset.color = style.color;
 document.body.dataset.height = style.height;
 document.body.dataset.border = style.borderTopWidth;
 document.body.dataset.outlineBorder = \`\${getComputedStyle(outline).borderTopWidth} \${getComputedStyle(outline).borderTopStyle}\`;
-document.body.dataset.cardBorder = \`\${getComputedStyle(card).borderTopWidth} \${getComputedStyle(card).borderTopColor}\`;
+document.body.dataset.ghostBackground = getComputedStyle(ghost).backgroundColor;
+document.body.dataset.fontInherited = String(
+  style.fontFamily === getComputedStyle(document.body).fontFamily,
+);
+document.body.dataset.cardBorder =\`\${getComputedStyle(card).borderTopWidth} \${getComputedStyle(card).borderTopColor}\`;
 `,
   // Type-checked only: the published types are real, not \`any\`.
   "src/types.tsx": `import { Button, type ButtonProps } from "@werft-ai/ui";
@@ -292,6 +298,11 @@ try {
       "outline variant border 1px solid": body.includes(
         'data-outline-border="1px solid"',
       ),
+      // Without preflight, a UA buttonface background and system font would show.
+      "ghost variant background transparent": body.includes(
+        'data-ghost-background="rgba(0, 0, 0, 0)"',
+      ),
+      "button font inherited": body.includes('data-font-inherited="true"'),
       // A bare `border` class takes theme.css's colour, not currentColor.
       [`card border 1px ${border}`]: body.includes(
         `data-card-border="1px ${border}"`,
