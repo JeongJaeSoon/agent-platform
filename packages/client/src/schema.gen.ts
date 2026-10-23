@@ -6919,6 +6919,7 @@ export interface operations {
                      *         "model": "claude-sonnet-5",
                      *         "permission_mode": "default"
                      *       },
+                     *       "model": "claude-sonnet-5",
                      *       "repository_id": "sample-app",
                      *       "repository": {
                      *         "id": "sample-app",

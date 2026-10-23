@@ -1063,6 +1063,7 @@ describe("session titles (94S-804)", () => {
       context_reset_turn_id: null,
     },
     profile_id: "claude-coding-v1",
+    model: "claude-sonnet-5",
     cost_usd: 0,
     provider_tokens: 0,
     repo_url: "https://example.invalid/app.git",
