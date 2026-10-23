@@ -470,7 +470,7 @@ describe("홈 요약", () => {
     );
   });
 
-  test("대기 세션이 한 페이지를 넘으면 가장 오래된 요청을 짐작하지 않는다", async () => {
+  test("대기 세션이 한 페이지를 넘으면 가장 오래된 요청도, 오래 기다린 수도 짐작하지 않는다", async () => {
     renderAt("/", {
       ...homeRoutes(),
       "GET /v1/sessions?status=needs_input": () =>
@@ -480,6 +480,14 @@ describe("홈 요약", () => {
     await waitFor(() =>
       expect(cards(overview)[1]?.rows[0]).toEqual(["답변 대기", "1+"]),
     );
+    // The keys answered; the waiting count is what stays unknown.
+    await waitFor(() =>
+      expect(
+        within(overview).getByRole("link", { name: "결제 담당" }),
+      ).toBeDefined(),
+    );
+    expect(cards(overview)[1]?.value).toBe("—");
+    expect(cards(overview)[1]?.rows[1]).toEqual(["30분 넘게 대기", "—"]);
     expect(
       within(overview).queryByRole("link", {
         name: waitingSession.id.slice(0, 8),

@@ -164,7 +164,8 @@ export function HomeScreen() {
         )
       : [],
     combine: (lists) => {
-      if (!lists.every((list) => list.isSuccess)) return undefined;
+      // No queries also passes every(): only a complete read may count zero.
+      if (!complete || !lists.every((list) => list.isSuccess)) return undefined;
       let first: { sessionId: string; at: string } | undefined;
       // A session counts as waiting long once its oldest request is.
       let stale = 0;
