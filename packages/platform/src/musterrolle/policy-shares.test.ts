@@ -435,6 +435,43 @@ describe("session.approve (94S-798)", () => {
     });
   }
 
+  test("a key from before workspaces still answers what it sees", async () => {
+    const legacy = callerFor(
+      {
+        kind: "api_key",
+        id: "legacy",
+        owner_id: WORKSPACE,
+        workspace_id: null,
+        scopes: [...SESSION_SCOPE_VALUES],
+      },
+      { kind: "api" },
+      "r",
+    );
+    const decision = await createAuthorizationPolicy({
+      identity: {
+        reread: async (s) => ({ status: "ok", principal: s.principal }),
+      },
+      agents,
+      sessions,
+    }).authorize({
+      subject: legacy.subject,
+      action: "session.approve",
+      resource: { kind: "session", id: CREATORS_OPEN, owner_scope: WORKSPACE },
+      request_id: "r",
+    });
+    expect(decision.reason_code).toBe("ok");
+  });
+
+  test("a session link is not resolved to its session yet, so only a manager answers through one", async () => {
+    const link = {
+      kind: "session_link",
+      id: "019a0000-0000-7000-8000-00000000f0a1",
+    } as const;
+    expect(await reason("creator", "session.approve", link)).toBe("role");
+    expect(await reason("member", "session.approve", link)).toBe("role");
+    expect(await reason("admin", "session.approve", link)).toBe("ok");
+  });
+
   test("a refused answer still holds the scope: only this session is not theirs", async () => {
     const decision = await decide(
       "member",
