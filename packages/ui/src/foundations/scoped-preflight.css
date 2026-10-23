@@ -1,0 +1,104 @@
+/*
+ * Tailwind's preflight rules the kit's classes assume, on the kit's elements
+ * and what they render inside only, at zero specificity. Without them a host's
+ * UA styles show through: a 2px outset border and buttonface background on
+ * <button>, an underlined blue <a>, list markers, heading sizes. Not the
+ * `border` shorthand: it would also reset theme.css's border colour.
+ *
+ * Only the prebuilt styles.css (scripts/build-package.ts) and the Storybook
+ * "No preflight" story load this. The workspace's styles.css does not: apps
+ * here run Tailwind's own preflight.
+ */
+@layer base {
+  :where(
+      [class^="ap-"],
+      [class*=" ap-"],
+      [data-slot],
+      :where([class^="ap-"], [class*=" ap-"], [data-slot]) *
+    ),
+  :where(
+      [class^="ap-"],
+      [class*=" ap-"],
+      [data-slot],
+      :where([class^="ap-"], [class*=" ap-"], [data-slot]) *
+    )::before,
+  :where(
+      [class^="ap-"],
+      [class*=" ap-"],
+      [data-slot],
+      :where([class^="ap-"], [class*=" ap-"], [data-slot]) *
+    )::after {
+    box-sizing: border-box;
+    border-width: 0;
+    border-style: solid;
+    margin: 0;
+    padding: 0;
+  }
+  :where(
+      [class^="ap-"],
+      [class*=" ap-"],
+      [data-slot],
+      :where([class^="ap-"], [class*=" ap-"], [data-slot]) *
+    ):where(h1, h2, h3, h4, h5, h6) {
+    font-size: inherit;
+    font-weight: inherit;
+  }
+  :where(
+      [class^="ap-"],
+      [class*=" ap-"],
+      [data-slot],
+      :where([class^="ap-"], [class*=" ap-"], [data-slot]) *
+    ):where(a) {
+    color: inherit;
+    text-decoration: inherit;
+  }
+  :where(
+      [class^="ap-"],
+      [class*=" ap-"],
+      [data-slot],
+      :where([class^="ap-"], [class*=" ap-"], [data-slot]) *
+    ):where(ol, ul, menu) {
+    list-style: none;
+  }
+  :where(
+      [class^="ap-"],
+      [class*=" ap-"],
+      [data-slot],
+      :where([class^="ap-"], [class*=" ap-"], [data-slot]) *
+    ):where(img, svg, video, canvas, audio, iframe, embed, object) {
+    display: block;
+    vertical-align: middle;
+  }
+  :where(
+      [class^="ap-"],
+      [class*=" ap-"],
+      [data-slot],
+      :where([class^="ap-"], [class*=" ap-"], [data-slot]) *
+    ):where(img, video) {
+    max-width: 100%;
+    height: auto;
+  }
+  :where(
+      [class^="ap-"],
+      [class*=" ap-"],
+      [data-slot],
+      :where([class^="ap-"], [class*=" ap-"], [data-slot]) *
+    ):where(button, input, select, optgroup, textarea) {
+    font: inherit;
+    font-feature-settings: inherit;
+    font-variation-settings: inherit;
+    letter-spacing: inherit;
+    color: inherit;
+    border-radius: 0;
+    background-color: transparent;
+    opacity: 1;
+  }
+  :where(
+      [class^="ap-"],
+      [class*=" ap-"],
+      [data-slot],
+      :where([class^="ap-"], [class*=" ap-"], [data-slot]) *
+    ):where(textarea) {
+    resize: vertical;
+  }
+}

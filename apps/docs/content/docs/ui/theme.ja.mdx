@@ -28,7 +28,7 @@ body {
 | import | 役割 |
 | --- | --- |
 | `tailwindcss` | Tailwind 4 |
-| `@werft-ai/ui/styles.css` | トークン(`tokens.css`)、フォント、キット要素の基本ルール。フォント(Geist, Pretendard)はパッケージ内のファイルを使う。CDN からは取得しない |
+| `@werft-ai/ui/styles.css` | トークン(`tokens.css`)、フォント、キット要素の基本ルール。リポジトリ内の workspace パッケージは、フォント(Geist, Pretendard)をパッケージ内のファイルとリポジトリがインストールした `pretendard` から読み込み、CDN からは取得しない。[リポジトリ外のアプリにインストール](/ui/package)したパッケージの `styles.css` はビルド済みの CSS で、フォントは入っていない |
 | `@werft-ai/ui/theme.css` | トークンを Tailwind のユーティリティにつなぐ。`bg-canvas`, `bg-primary`, `text-control`, `font-sans`, `rounded-md`, `shadow-sm` といったユーティリティクラスは、このファイルで定義される |
 
 `@source` の二行は、Tailwind が `node_modules` 配下にリンクされたパッケージのソースからクラス名を探せるようにする。Tailwind の自動検出は `node_modules` をスキップするため、Web コンソール(`apps/web/src/styles.css`)にも同じ二行がある。パスはこの CSS ファイルが基準である。
