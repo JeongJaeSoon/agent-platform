@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Composer } from "@werft-ai/react/components";
 
 const meta = {
-  title: "Patterns/Session/Composer",
+  title: "Domain/Session/Composer",
   globals: { locale: "en" },
   component: Composer,
   args: {
@@ -29,6 +29,7 @@ export const Empty: Story = { args: { queued: [] } };
 export const Loading: Story = { args: { pending: true } };
 
 export const Failed: Story = {
+  name: "Error",
   args: {
     queued: [],
     error: "The message was not sent. Try again.",

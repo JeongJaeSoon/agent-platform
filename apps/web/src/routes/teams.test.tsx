@@ -211,7 +211,7 @@ describe("팀 화면", () => {
       "이 화면을 볼 권한이 없습니다",
     );
     expect(screen.getByRole("heading", { level: 1, name: "팀" })).toBeDefined();
-    expect(screen.getByRole("link", { name: "← 팀 목록" })).toBeDefined();
+    expect(screen.getByRole("link", { name: "팀 목록" })).toBeDefined();
   });
 
   test("팀을 관리하는 사람의 팀 화면에는 전체 목록만 있다", async () => {

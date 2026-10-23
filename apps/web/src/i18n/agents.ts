@@ -14,7 +14,6 @@ export const agentsKo = {
   "agent.notFound.back": "에이전트 목록으로",
   "agents.empty": "아직 에이전트가 없습니다.",
   "agents.updated": "{at} 수정",
-  "agents.slugLine": "식별자 {slug}",
   "agents.state.notReleased": "아직 쓸 수 없음",
   "agents.state.draft": "초안",
   "agents.status.active": "활성",
@@ -73,7 +72,6 @@ export const agentsKo = {
   "agent.created":
     "에이전트를 만들었습니다(version 1). 세션에서 쓰려면 아래 release에서 version과 프로필을 골라 release를 만들고 활성화하세요.",
   "agent.noActive": "없음",
-  "agent.activeRelease": "활성 release: {release}",
   "agent.releaseLabel": "version {version} · {profile}",
   "agent.versionLabel": "version {version}",
   "agent.saved":
@@ -226,7 +224,6 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.notFound.back": "Back to agents",
   "agents.empty": "No agents yet.",
   "agents.updated": "updated {at}",
-  "agents.slugLine": "identifier {slug}",
   "agents.state.notReleased": "Not usable yet",
   "agents.state.draft": "Draft",
   "agents.status.active": "Active",
@@ -285,7 +282,6 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.created":
     "Agent created as version 1. To use it in sessions, pick a version and a profile under Releases below, create the release and activate it.",
   "agent.noActive": "none",
-  "agent.activeRelease": "Active release: {release}",
   "agent.releaseLabel": "version {version} · {profile}",
   "agent.versionLabel": "version {version}",
   "agent.saved":
@@ -430,7 +426,6 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.notFound.back": "エージェント一覧へ",
   "agents.empty": "エージェントはまだありません。",
   "agents.updated": "{at}に更新",
-  "agents.slugLine": "識別子 {slug}",
   "agents.state.notReleased": "未公開",
   "agents.state.draft": "下書き",
   "agents.status.active": "有効",
@@ -490,7 +485,6 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.created":
     "エージェントを作成しました（バージョン 1）。セッションで使うには、下の「リリース」でバージョンとプロファイルを選んでリリースを作成し、有効化してください。",
   "agent.noActive": "なし",
-  "agent.activeRelease": "有効なリリース: {release}",
   "agent.releaseLabel": "バージョン {version} · {profile}",
   "agent.versionLabel": "バージョン {version}",
   "agent.saved":

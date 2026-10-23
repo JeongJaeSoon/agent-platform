@@ -14,7 +14,7 @@ export const teamsKo = {
   "teams.mine.intro":
     "소유자나 관리자가 넣은 팀입니다. 팀이 에이전트 관리자로 지정되면 그 에이전트를 관리합니다.",
   "teams.mine.empty": "아직 속한 팀이 없습니다.",
-  "teams.back": "← 팀 목록",
+  "teams.back": "팀 목록",
   "teams.settings": "팀 설정",
   "teams.rename": "이름 바꾸기",
   "teams.renamed": "팀 이름을 {name}(으)로 바꿨습니다.",
@@ -58,7 +58,7 @@ export const teamsEn: Record<keyof typeof teamsKo, string> = {
   "teams.mine.intro":
     "An owner or admin put you in these teams. When a team is named an agent's admin, you manage that agent.",
   "teams.mine.empty": "You are not in any team yet.",
-  "teams.back": "← All teams",
+  "teams.back": "All teams",
   "teams.settings": "Team settings",
   "teams.rename": "Rename",
   "teams.renamed": "Renamed the team to {name}.",
@@ -103,7 +103,7 @@ export const teamsJa: Record<keyof typeof teamsKo, string> = {
   "teams.mine.intro":
     "オーナーまたは管理者が追加したチームです。チームがエージェントの管理者に指定されると、そのエージェントを管理できます。",
   "teams.mine.empty": "所属しているチームはまだありません。",
-  "teams.back": "← チーム一覧",
+  "teams.back": "チーム一覧",
   "teams.settings": "チーム設定",
   "teams.rename": "名前を変更",
   "teams.renamed": "チーム名を「{name}」に変更しました。",

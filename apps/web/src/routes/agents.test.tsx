@@ -839,10 +839,14 @@ describe("에이전트 상세", () => {
       release_id: server.releases[0]?.id,
       expected_revision: -1,
     });
+    const summary = screen.getByRole("complementary", {
+      name: "에이전트 요약",
+    });
     await waitFor(() =>
       expect(
-        screen.getByText(new RegExp(`활성 release: version 1 · ${PROFILE}`)),
-      ).toBeDefined(),
+        within(summary).getByText("활성 release").nextElementSibling
+          ?.textContent,
+      ).toBe(`version 1 · ${PROFILE}`),
     );
     expect(agentDetailSchema.safeParse(server.detail()).success).toBe(true);
   });
@@ -1317,11 +1321,16 @@ describe("식별자와 상태 문구", () => {
     expect(slug.value).toBe("pay");
   });
 
-  test("상세는 활성 release가 없을 때 배지로만 말하고 version 해시를 보이지 않는다", async () => {
+  test("상세 머리는 상태 배지만 두고 식별자·활성 release는 요약 카드에만 둔다", async () => {
     renderAt(DETAIL, { ...meOk, ...agentServer().routes });
-    expect(await screen.findByText("아직 쓸 수 없음")).toBeDefined();
-    expect(screen.getByText("식별자 billing")).toBeDefined();
-    expect(screen.queryByText(/활성 release: 없음/)).toBeNull();
+    const heading = await screen.findByRole("heading", { level: 1 });
+    const head = heading.closest("[data-slot=page-header]") as HTMLElement;
+    expect(within(head).getByText("아직 쓸 수 없음")).toBeDefined();
+    expect(within(head).queryByText(/billing/)).toBeNull();
+    const summary = screen.getByRole("complementary", {
+      name: "에이전트 요약",
+    });
+    expect(within(summary).getByText("billing")).toBeDefined();
     expect(screen.queryByText(/000000000001/)).toBeNull();
   });
 });

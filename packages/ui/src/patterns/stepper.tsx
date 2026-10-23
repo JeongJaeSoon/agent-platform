@@ -80,7 +80,8 @@ export function Stepper({
 
   return (
     <nav aria-label={label} data-slot="stepper" className={className}>
-      <ol className="flex flex-col gap-3 sm:flex-row sm:gap-4">
+      {/* -mx-1 takes back the items' hover padding: the first circle sits on the page's left edge. */}
+      <ol className="-mx-1 flex flex-col gap-3 sm:flex-row sm:gap-4">
         {steps.map((step, index) => {
           const state: StepState =
             index < currentIndex

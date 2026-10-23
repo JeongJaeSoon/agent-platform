@@ -24,7 +24,16 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const Playground: Story = {};
+// The toolbar's Language picks the label, so each catalog's width shows.
+const LABEL: Record<string, string> = { ko: "저장", ja: "保存", en: "Save" };
+
+export const Default: Story = {
+  render: (args, { globals }) => (
+    <Button {...args}>{LABEL[globals.locale] ?? LABEL.ko}</Button>
+  ),
+};
+
+export const Disabled: Story = { ...Default, args: { disabled: true } };
 
 export const Variants: Story = {
   render: () => (

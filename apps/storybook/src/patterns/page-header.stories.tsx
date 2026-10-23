@@ -49,11 +49,12 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const Korean: Story = { globals: { locale: "ko" } };
+/** Follows the toolbar's Language; the stories below pin each one. */
+export const Default: Story = {};
 
-export const KoreanDark: Story = {
-  name: "Korean (dark)",
-  globals: { locale: "ko", theme: "dark" },
+export const DefaultDark: Story = {
+  name: "Default (dark)",
+  globals: { theme: "dark" },
 };
 
 export const Japanese: Story = { globals: { locale: "ja" } };

@@ -91,12 +91,18 @@ function LocaleSwitch() {
   );
 }
 
+// Lists, though they sit under settings.
+const KEY_LISTS = new Set(["/settings/api-keys", "/settings/api-keys/service"]);
+
 /**
  * One width per screen, which every block on it shares (console v35): forms
  * and settings read in one narrow column, lists take the wide one.
  */
 function contentWidth(pathname: string) {
-  if (pathname === "/agents/new" || pathname.startsWith("/settings/")) {
+  if (
+    pathname === "/agents/new" ||
+    (pathname.startsWith("/settings/") && !KEY_LISTS.has(pathname))
+  ) {
     return "max-w-[calc(var(--ap-w-narrow)+2*var(--ap-gutter))]";
   }
   return "max-w-[calc(var(--ap-w-wide)+2*var(--ap-gutter))]";

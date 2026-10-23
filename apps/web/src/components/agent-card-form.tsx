@@ -145,7 +145,7 @@ export function modelOptions(
  * control to hint, so a long hint does not open a wider gap than a short one.
  */
 export const AGENT_FORM =
-  "flex w-full max-w-2xl flex-col gap-6 rounded-card border bg-card p-4 [&_[data-slot=field-description]]:mt-0! [&_[data-slot=field-description]]:text-caption [&_[data-slot=field-label]]:text-control [&_[data-slot=field][data-orientation=vertical]]:gap-2";
+  "flex w-full flex-col gap-4 rounded-card border bg-card p-4 [&_[data-slot=field-description]]:mt-0! [&_[data-slot=field-description]]:text-caption [&_[data-slot=field-label]]:text-control [&_[data-slot=field][data-orientation=vertical]]:gap-2";
 
 /** The fields that show an error: language and tools mode cannot be wrong. */
 export const CARD_ERROR_FIELDS = [

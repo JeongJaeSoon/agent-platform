@@ -70,10 +70,10 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
+export const Default: Story = { args: { state: "ready" } };
 export const Loading: Story = {};
 export const Empty: Story = { args: { state: "empty" } };
 export const Failed: Story = { name: "Error", args: { state: "error" } };
-export const Ready: Story = { args: { state: "ready" } };
 
 const MOBILE = { viewport: { value: "mobile390", isRotated: false } };
 

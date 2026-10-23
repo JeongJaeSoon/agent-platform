@@ -22,7 +22,7 @@ const REQUEST: PermissionRequest = {
 };
 
 const meta = {
-  title: "Patterns/Session/ApprovalCard",
+  title: "Domain/Session/ApprovalCard",
   // The example copy is English; the page language should say so.
   globals: { locale: "en" },
   component: ApprovalCard,
@@ -60,6 +60,7 @@ export const Empty: Story = {
 export const Loading: Story = { args: { pending: true } };
 
 export const Failed: Story = {
+  name: "Error",
   args: { error: "The answer was refused: the request already expired." },
 };
 

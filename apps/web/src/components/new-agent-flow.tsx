@@ -360,7 +360,7 @@ export function NewAgentFlow({
   };
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-[var(--ap-space-block)]">
       <FunnelResetNotice funnel={funnel} />
       <Stepper label={t("agents.flow.label")} {...stepper} steps={steps} />
       <funnel.Render
@@ -642,7 +642,7 @@ function ReleaseForm({
   };
   return (
     <form
-      className="flex flex-col gap-6"
+      className="flex flex-col gap-4"
       noValidate
       onSubmit={submitStep(form, release, refuse)}
     >

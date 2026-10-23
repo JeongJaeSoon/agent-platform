@@ -5,7 +5,7 @@ import { StageIndicator } from "@werft-ai/react/components";
 import { formatMessage } from "./session-fixtures.ts";
 
 const meta = {
-  title: "Patterns/Session/StageIndicator",
+  title: "Domain/Session/StageIndicator",
   globals: { locale: "en" },
   component: StageIndicator,
   args: {
@@ -47,6 +47,7 @@ export const Loading: Story = {
 };
 
 export const Failed: Story = {
+  name: "Error",
   args: {
     presentation: presentTurnEvent({
       event: "error",

@@ -95,6 +95,21 @@ const preview: Preview = {
   initialGlobals: { theme: "light", locale: "ko" },
   parameters: {
     layout: "padded",
+    // The packages' layers, top down; a title's first part is its layer.
+    options: {
+      storySort: {
+        order: [
+          "Foundations",
+          ["Introduction", "Tokens", "Light and dark", "No preflight"],
+          "Primitives",
+          "Patterns",
+          "Domain",
+          ["Session", "Status", "Receipt", "Feedback"],
+          "Blocks",
+          "Screens",
+        ],
+      },
+    },
     // `error` fails the story's test on any axe violation, so CI's a11y
     // check is the story run itself.
     a11y: { test: "error" },
