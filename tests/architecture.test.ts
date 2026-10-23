@@ -522,7 +522,7 @@ export async function webUiViolations(
         add(
           name,
           "raw-destructive",
-          classes(/(?:^|:)!?text-destructive(?:\/\d+)?!?$/),
+          classes(/(?:^|:)!?text-destructive(?:\/[^\s!]+)?!?$/),
         );
       }
       if (
@@ -1289,6 +1289,7 @@ describe("architecture", () => {
           'const lazy = () => import("web-lazy");',
           'export const docsUrl = "https://example.com/web-api";',
           'const tone = cn("hover:text-destructive/80", "web-old!");',
+          'const Faint = () => <p className="text-destructive/[0.5]">x</p>;',
           "const MIXED_LINK = `text-primary ${extra} underline`;",
           'const DOCS_LINK: string = "https://tailwindcss.com/docs/text-decoration-line";',
           "const NAV_LINK = `",
@@ -1317,7 +1318,7 @@ describe("architecture", () => {
           "shadow-component": 2,
           "legacy-class": 1,
           "link-constant": 8,
-          "raw-destructive": 1,
+          "raw-destructive": 2,
         },
         "styles.css": { "legacy-class": 1 },
       });
