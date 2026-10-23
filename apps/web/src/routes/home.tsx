@@ -114,8 +114,9 @@ export function HomeScreen() {
   // Answering happens on the session screen; home names only the oldest
   // request, read from the same per-session lists the session screen reads.
   // It shows nothing unless the one page holds every waiting session and
-  // every list answered: a partial read would name the wrong request.
-  const complete = waiting.data?.next_cursor === null;
+  // every list answered: a partial read would name the wrong request. A failed
+  // refetch keeps the old page in data, so the last read must have succeeded.
+  const complete = waiting.isSuccess && waiting.data.next_cursor === null;
   const oldest = useQueries({
     queries: complete
       ? (waiting.data?.items ?? []).map((session) =>

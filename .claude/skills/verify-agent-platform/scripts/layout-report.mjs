@@ -190,7 +190,10 @@ function checks(m, width) {
       );
   }
   if (!auth) {
-    const lefts = m.lines.filter((l) => l.dx !== null && !l.column);
+    // Measurements taken before `column` existed fall back to the old cut-off.
+    const lefts = m.lines.filter(
+      (l) => l.dx !== null && (l.column === undefined ? l.dx < 40 : !l.column),
+    );
     for (const l of lefts)
       if (Math.abs(l.dx) > 1)
         add("align.left", l.el, l.dx, 0, false, `box ${l.box}, ink ${l.ink}`);

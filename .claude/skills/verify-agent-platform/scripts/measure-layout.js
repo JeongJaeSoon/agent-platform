@@ -403,15 +403,31 @@
       /block|flex|grid/.test(s.display)
     );
   }
+  // An empty-state frame centres its words on purpose; its border owes the line.
+  const placeholders = [];
   for (const el of root.querySelectorAll("*")) {
     if (hidden(el) || el.closest("[data-slot=page-header] [data-slot]"))
       continue;
-    const covered = cards.some((c) => c.el.contains(el));
+    const covered = [...cards.map((c) => c.el), ...placeholders].some((c) =>
+      c.contains(el),
+    );
     if (isCard(el) && !covered) {
       cards.push({ el });
       continue;
     }
     if (covered) continue;
+    if (getComputedStyle(el).borderTopStyle === "dashed") {
+      placeholders.push(el);
+      const b = rect(el);
+      lines.push({
+        el: name(el),
+        box: b.x,
+        ink: b.x,
+        dx: r(b.x - contentLeft),
+        column: sideColumn(el),
+      });
+      continue;
+    }
     const tag = el.tagName;
     const role = el.getAttribute("role");
     if (
@@ -449,6 +465,7 @@
       ink: b.x,
       dx: r(b.x - contentLeft),
       card: true,
+      column: sideColumn(c.el),
     });
   }
   out.lines = lines;

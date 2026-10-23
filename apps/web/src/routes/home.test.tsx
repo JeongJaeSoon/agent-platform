@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { queryKeys } from "@werft-ai/core";
 import { AGENT_ID, agentServer } from "../test-support/fake-agents.ts";
 import {
   apiError,
@@ -9,7 +10,7 @@ import {
 } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
-const { renderAt, screen, waitFor, within } = await appHarness();
+const { act, renderAt, screen, waitFor, within } = await appHarness();
 
 const owner = {
   user_id: USER_ID,
@@ -299,6 +300,29 @@ describe("홈 요약", () => {
     });
     expect(oldest.getAttribute("href")).toBe(`/sessions/${askedEarly.id}`);
     expect(oldest.parentElement?.textContent).toContain("2026. 10. 23. 18:00");
+  });
+
+  test("대기 세션 목록을 다시 읽다 실패하면 전에 고른 가장 오래된 요청을 내린다", async () => {
+    let fail = false;
+    const { services } = renderAt("/", {
+      ...homeRoutes(),
+      "GET /v1/sessions?status=needs_input": () =>
+        fail
+          ? json(500, { error: { code: "INTERNAL" } })
+          : json(200, { items: [waitingSession], next_cursor: null }),
+    });
+    const overview = await screen.findByRole("region", { name: "한눈에 보기" });
+    const name = waitingSession.id.slice(0, 8);
+    await within(overview).findByRole("link", { name });
+    fail = true;
+    await act(() =>
+      services.queryClient.refetchQueries({
+        queryKey: queryKeys.waitingSessions,
+      }),
+    );
+    await waitFor(() =>
+      expect(within(overview).queryByRole("link", { name })).toBeNull(),
+    );
   });
 
   test("대기 세션이 한 페이지를 넘으면 가장 오래된 요청을 짐작하지 않는다", async () => {
