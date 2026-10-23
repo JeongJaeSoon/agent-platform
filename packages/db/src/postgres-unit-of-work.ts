@@ -247,6 +247,7 @@ export function createPostgresSessionUnitOfWork(
           ...repository,
           profileId: input.profileId,
           profileFingerprint: input.profileFingerprint ?? null,
+          model: input.model ?? null,
           unmetered: input.unmetered ?? false,
           agentReleaseId: input.agentReleaseId ?? null,
           workspaceId: actor?.workspaceId ?? null,
@@ -643,6 +644,7 @@ export function createPostgresSessionReader(
         status: publicStatus(row.status, awaitingInput),
         profile_id: row.profileId,
         profile_fingerprint: row.profileFingerprint,
+        model: row.model,
         repository_id: row.repositoryId,
         current_turn_id: current ? String(current.sequence) : null,
         queued_turn_count: mine.filter((turn) => turn.status === "queued")

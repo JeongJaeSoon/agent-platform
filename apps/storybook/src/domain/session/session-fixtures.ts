@@ -181,6 +181,7 @@ export const SESSION: SessionSummary = {
     model: "claude-sonnet-4-5",
     permission_mode: "default",
   },
+  model: "claude-sonnet-4-5",
   repository_id: "agent-platform",
   current_turn_id: "turn_01",
   queued_turn_count: 1,

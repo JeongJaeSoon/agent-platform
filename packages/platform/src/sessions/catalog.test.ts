@@ -10,9 +10,12 @@ import {
   isUnmetered,
   mcpBinding,
   mcpUpstreamOf,
+  fingerprintModel,
   pinnedMcpTools,
   profileFingerprint,
   profileModels,
+  profilePinned,
+  profilePins,
   profileWithModel,
   providerUpstreamOf,
   repositoryBinding,
@@ -667,7 +670,8 @@ describe("repository mode", () => {
     const optional = load(config(withMode("optional"))).profiles
       .p as CatalogProfile;
     expect(repositoryModeOf(optional)).toBe("optional");
-    expect(profileFingerprint(optional)).not.toBe(profileFingerprint(omitted));
+    // The session's repository_mode keeps it; the fingerprint does not.
+    expect(profileFingerprint(optional)).toBe(profileFingerprint(omitted));
     expect(() => load(config(withMode("sometimes")))).toThrow(
       /^profiles\.p\.repository: /,
     );
@@ -710,20 +714,19 @@ describe("profile fingerprint and catalog revision", () => {
   const base = () => load(config()).profiles.p as CatalogProfile;
 
   test("a profile without billing, or with per_token, keeps the fingerprint it had before the field", () => {
-    // What main computed for this profile before `billing` existed.
+    const perToken = load(
+      config({
+        ...configured,
+        provider: { ...configured.provider, billing: "per_token" },
+      }),
+    ).profiles.p as CatalogProfile;
+    expect(profileFingerprint(perToken)).toBe(profileFingerprint(base()));
+    // The version 1 fingerprint main computed before `billing` existed
+    // still names both.
     const before =
       "sha256:99f5f59a41e3bc02be1f2ffd7af4b0a4fae68ca567dc05368cab9285f5ffd983";
-    expect(profileFingerprint(base())).toBe(before);
-    expect(
-      profileFingerprint(
-        load(
-          config({
-            ...configured,
-            provider: { ...configured.provider, billing: "per_token" },
-          }),
-        ).profiles.p as CatalogProfile,
-      ),
-    ).toBe(before);
+    expect(profilePinned(base(), before)).toBe(true);
+    expect(profilePinned(perToken, before)).toBe(true);
     // Declaring none is a new profile.
     const local = (billing?: string) =>
       profileFingerprint(
@@ -753,7 +756,6 @@ describe("profile fingerprint and catalog revision", () => {
     expect(profileFingerprint(rotated)).toBe(fingerprint);
     // Any setting, or a different place to find the key, is.
     for (const changed of [
-      { ...configured, model: "claude-opus-5-5" },
       { ...configured, tools: ["Read", "Edit"] },
       { ...configured, project_settings: { claude_md: true } },
       {
@@ -778,6 +780,35 @@ describe("profile fingerprint and catalog revision", () => {
       Object.entries(profile).reverse(),
     ) as CatalogProfile;
     expect(profileFingerprint(reordered)).toBe(profileFingerprint(profile));
+  });
+
+  test("leaves out the model, the model list and the repository mode", () => {
+    const fingerprint = profileFingerprint(base());
+    for (const changed of [
+      { ...configured, model: "claude-opus-5-5" },
+      { ...configured, models: ["claude-opus-5-5"] },
+      { ...configured, repository: "optional" },
+    ]) {
+      expect(
+        profileFingerprint(load(config(changed)).profiles.p as CatalogProfile),
+      ).toBe(fingerprint);
+    }
+  });
+
+  test("a repository binding and the catalog revision are the values main computed before version 2", () => {
+    // Pending pushes and pull requests hold the binding and compare it
+    // when they run, so it must not move with the profile fingerprint.
+    const catalog = load(
+      config({ ...configured, models: ["claude-opus-5-5"] }),
+    );
+    expect(
+      repositoryBinding("app", catalog.repositories.app as never),
+    ).toBe(
+      "sha256:c8954e2d28652f1630adf031f84b8446160fc6fc9712c7d5fe153d8998feacce",
+    );
+    expect(catalogRevision(catalog)).toBe(
+      "sha256:920c69094709f4acdff2c9d7e0215957d59190a289e312b7c719eb339ab0a529",
+    );
   });
 
   test("the revision moves with any repository and never with a credential value", () => {
@@ -890,21 +921,83 @@ describe("models a session may name", () => {
     expect(profileWithModel(listed)).toEqual(bare());
   });
 
-  test("a session runs only a model the profile offers, under its own fingerprint", () => {
+  test("a session runs only a model the profile offers, named on its row", () => {
     const listed = offering(["claude-opus-5-5"]);
     const opus = profileWithModel(listed, "claude-opus-5-5");
     expect(opus?.model).toBe("claude-opus-5-5");
     expect(opus && "models" in opus).toBe(false);
     expect(profileWithModel(listed, "claude-fable-5-1")).toBeNull();
     expect(profileWithModel(bare(), "claude-opus-5-5")).toBeNull();
-    if (!opus) throw new Error("unreachable");
-    const pinned = profileFingerprint(opus);
-    expect(pinned).not.toBe(profileFingerprint(bare()));
-    expect(sessionProfile(listed, pinned)).toEqual(opus);
+    const fingerprint = profileFingerprint(listed);
+    expect(
+      sessionProfile(listed, { fingerprint, model: "claude-opus-5-5" }),
+    ).toEqual(opus);
     // Off the list, the session's model is no longer there to run.
-    expect(sessionProfile(bare(), pinned)).toBeNull();
+    expect(
+      sessionProfile(bare(), { fingerprint, model: "claude-opus-5-5" }),
+    ).toBeNull();
+    // A version 2 pin says nothing without the row's model.
+    expect(sessionProfile(listed, { fingerprint, model: null })).toBeNull();
     // A row from before the pin runs the default.
-    expect(sessionProfile(listed, null)).toEqual(bare());
+    expect(
+      sessionProfile(listed, { fingerprint: null, model: null }),
+    ).toEqual(bare());
+  });
+
+  test("a version 1 pin still names the model it was taken with, whatever the row says", () => {
+    const listed = offering(["claude-opus-5-5"]);
+    // What main pinned a session that named the second model to.
+    const v1Opus =
+      "sha256:c1810e0b388cb79421095745e83356f1a1e03aee8858fbe4ce65d63f3aa90d5f";
+    const opus = profileWithModel(listed, "claude-opus-5-5");
+    expect(sessionProfile(listed, { fingerprint: v1Opus, model: null })).toEqual(
+      opus,
+    );
+    expect(
+      sessionProfile(listed, { fingerprint: v1Opus, model: "claude-sonnet-5" }),
+    ).toEqual(opus);
+    expect(profilePinned(listed, v1Opus)).toBe(true);
+    // Taken off the list, it runs nowhere.
+    expect(
+      sessionProfile(bare(), { fingerprint: v1Opus, model: null }),
+    ).toBeNull();
+    expect(profilePinned(bare(), v1Opus)).toBe(false);
+    expect(
+      fingerprintModel(load(config({ ...configured, models: ["claude-opus-5-5"] })), "p", v1Opus),
+    ).toBe("claude-opus-5-5");
+  });
+
+  test("the pins a claim offers: version 2 per model with the default first, then each model's version 1", () => {
+    const listed = offering(["claude-opus-5-5"]);
+    const current = profileFingerprint(listed);
+    expect(profilePins(listed)).toEqual([
+      { fingerprint: current, model: "claude-sonnet-5" },
+      { fingerprint: current, model: "claude-opus-5-5" },
+      {
+        fingerprint:
+          "sha256:99f5f59a41e3bc02be1f2ffd7af4b0a4fae68ca567dc05368cab9285f5ffd983",
+        model: null,
+      },
+      {
+        fingerprint:
+          "sha256:c1810e0b388cb79421095745e83356f1a1e03aee8858fbe4ce65d63f3aa90d5f",
+        model: null,
+      },
+    ]);
+  });
+
+  test("the model a fingerprint names, for the backfill", () => {
+    const catalog = load(config({ ...configured, models: ["claude-opus-5-5"] }));
+    const v1Default =
+      "sha256:99f5f59a41e3bc02be1f2ffd7af4b0a4fae68ca567dc05368cab9285f5ffd983";
+    expect(fingerprintModel(catalog, "p", v1Default)).toBe("claude-sonnet-5");
+    // Version 2 leaves the model to the row; an unknown id or a moved
+    // profile says nothing.
+    expect(
+      fingerprintModel(catalog, "p", profileFingerprint(catalog.profiles.p as CatalogProfile)),
+    ).toBeNull();
+    expect(fingerprintModel(catalog, "gone", v1Default)).toBeNull();
+    expect(fingerprintModel(catalog, "p", `sha256:${"0".repeat(64)}`)).toBeNull();
   });
 });
 

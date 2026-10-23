@@ -34,6 +34,7 @@ export * from "./scheduler-store.ts";
 export * from "./schema.ts";
 export * from "./secret-values.ts";
 export * from "./session-events.ts";
+export * from "./session-model-backfill.ts";
 export * from "./session-shares.ts";
 export * from "./slack-apps.ts";
 export * from "./slack-config-tokens.ts";

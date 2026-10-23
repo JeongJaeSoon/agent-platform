@@ -19,6 +19,7 @@ import {
   type CatalogProfile,
   type CatalogRepository,
   profileFingerprint,
+  profilePins,
   repositoryBinding,
   type SessionCatalog,
 } from "../sessions/catalog.ts";
@@ -565,6 +566,7 @@ describe("WorkerGateway", () => {
       leaseRemainingMs: 29_950,
       profileId: "claude-coding-v1",
       profileFingerprint: null,
+      model: null,
       unmetered: false,
       ownerScope: "owner-a",
       repository: {
@@ -648,31 +650,37 @@ describe("WorkerGateway", () => {
     // The claim may bind only what the catalog pairs, at the URL and branch
     // it registers now, with the profile's settings as hashed now
     // one entry per allowed pair, nothing else.
-    const fingerprint = profileFingerprint(profile);
+    // Each pair once under the current fingerprint and the default model,
+    // then under the version 1 fingerprint a row from before may hold.
+    const [current, v1] = profilePins(profile);
+    expect(current).toEqual({
+      fingerprint: profileFingerprint(profile),
+      model: "claude-sonnet-5",
+    });
+    expect(v1?.model).toBeNull();
+    const app = {
+      repositoryId: "sample-app",
+      url: "https://example.invalid/app.git",
+      branch: "main",
+    };
+    const docs = {
+      repositoryId: "docs",
+      url: "https://example.invalid/docs.git",
+      branch: "trunk",
+    };
     expect(runnable).toEqual([
       [
-        {
-          profileId: "claude-coding-v1",
-          profileFingerprint: fingerprint,
-          repositoryId: "sample-app",
-          url: "https://example.invalid/app.git",
-          branch: "main",
-        },
-        {
-          profileId: "other",
-          profileFingerprint: fingerprint,
-          repositoryId: "sample-app",
-          url: "https://example.invalid/app.git",
-          branch: "main",
-        },
-        {
-          profileId: "other",
-          profileFingerprint: fingerprint,
-          repositoryId: "docs",
-          url: "https://example.invalid/docs.git",
-          branch: "trunk",
-        },
-      ],
+        ["claude-coding-v1", app] as const,
+        ["other", app] as const,
+        ["other", docs] as const,
+      ].flatMap(([profileId, repository]) =>
+        [current, v1].map((pin) => ({
+          profileId,
+          profileFingerprint: pin?.fingerprint,
+          model: pin?.model,
+          ...repository,
+        })),
+      ),
     ]);
     // The row's owner partition, not anything from the shared catalog: it is
     // the checkpoint principal the worker hashes.
@@ -714,6 +722,7 @@ describe("WorkerGateway", () => {
         id: "s-1",
         profileId: "claude-coding-v1",
         profileFingerprint: null,
+        model: null,
         repositoryMode: "repository",
         repositoryId: "sample-app",
       }),
@@ -828,7 +837,12 @@ describe("WorkerGateway", () => {
       repository: "optional" as const,
       project_settings: { claude_md: true },
     };
-    const general = { ...base, tools: ["Write"], repository: "none" as const };
+    const general = {
+      ...base,
+      tools: ["Write"],
+      models: ["claude-opus-5-5"],
+      repository: "none" as const,
+    };
     const binding = {
       sessionId: scope.session_id,
       attemptId: "att_1",
@@ -839,6 +853,7 @@ describe("WorkerGateway", () => {
       leaseRemainingMs: 29_950,
       profileId: "general",
       profileFingerprint: profileFingerprint(general),
+      model: "claude-sonnet-5" as string | null,
       unmetered: false,
       ownerScope: "owner-a",
       repository: null,
@@ -847,6 +862,7 @@ describe("WorkerGateway", () => {
         {
           profileId: "optional",
           profileFingerprint: profileFingerprint(optional),
+          model: "claude-sonnet-5" as string | null,
         },
       ],
       costUsd: 0,
@@ -897,19 +913,30 @@ describe("WorkerGateway", () => {
     );
     expect(bootstrapClaimResponseSchema.safeParse(claimed).success).toBe(true);
     expect(runnable[0]).toEqual([
-      expect.objectContaining({ profileId: "required", repositoryId: "app" }),
-      expect.objectContaining({ profileId: "optional", repositoryId: "app" }),
-      {
+      ...["required", "optional"].flatMap((profileId) =>
+        [0, 1].map(() =>
+          expect.objectContaining({ profileId, repositoryId: "app" }),
+        ),
+      ),
+      ...profilePins(optional).map((pin) => ({
         profileId: "optional",
-        profileFingerprint: profileFingerprint(optional),
+        profileFingerprint: pin.fingerprint,
+        model: pin.model,
         repositoryId: null,
-      },
-      {
+      })),
+      ...profilePins(general).map((pin) => ({
         profileId: "general",
-        profileFingerprint: profileFingerprint(general),
+        profileFingerprint: pin.fingerprint,
+        model: pin.model,
         repositoryId: null,
-      },
+      })),
     ]);
+    // Version 2 once per offered model, then each model's version 1.
+    expect(
+      runnable[0]
+        ?.filter((pair) => pair.profileId === "general")
+        .map((pair) => pair.model),
+    ).toEqual(["claude-sonnet-5", "claude-opus-5-5", null, null]);
     const [egress] = issued;
     if (!egress) throw new Error("claim was not asked to issue egress tokens");
     expect(
@@ -917,6 +944,7 @@ describe("WorkerGateway", () => {
         id: "s-1",
         profileId: "general",
         profileFingerprint: profileFingerprint(general),
+        model: "claude-sonnet-5",
         repositoryMode: "none",
         repositoryId: null,
       }),
@@ -933,6 +961,38 @@ describe("WorkerGateway", () => {
     });
     expect(optionalClaim.runtime_config).not.toHaveProperty("project_settings");
     expect(optionalClaim.workspace).toEqual({ repository: null });
+
+    // A version 2 pin runs the row's model.
+    const opus = await claimWith({ ...binding, model: "claude-opus-5-5" });
+    expect(opus.runtime_config.model).toBe("claude-opus-5-5");
+    // A session pinned before version 2, its model never backfilled, runs
+    // the model its fingerprint names, and so does its checkpoint.
+    const v1Opus = profilePins(general)[3]?.fingerprint;
+    if (!v1Opus) throw new Error("no version 1 pin for the second model");
+    const legacy = await claimWith({
+      ...binding,
+      profileFingerprint: v1Opus,
+      model: null,
+      restoreProfiles: [
+        { profileId: "general", profileFingerprint: v1Opus, model: null },
+      ],
+    });
+    expect(legacy.runtime_config.model).toBe("claude-opus-5-5");
+    expect(legacy.restore_runtime_configs).toBeUndefined();
+    expect(
+      issued.at(-1)?.bindingsOf({
+        id: "s-1",
+        profileId: "general",
+        profileFingerprint: v1Opus,
+        model: null,
+        repositoryMode: "none",
+        repositoryId: null,
+      }).provider,
+    ).toBe(profileFingerprint(general));
+    // A version 2 pin whose model left the list is not run on a guess.
+    await expect(
+      claimWith({ ...binding, model: "claude-fable-5-1" }),
+    ).rejects.toMatchObject({ status: 503, code: "BACKEND_UNAVAILABLE" });
   });
 
   test("bootstrapClaim answers a launch whose session was failed for a catalog mismatch with a final 409", async () => {
@@ -2198,6 +2258,7 @@ describe("unmetered sessions", () => {
               leaseRemainingMs: 30_000,
               profileId: "local",
               profileFingerprint: null,
+              model: null,
               unmetered,
               ownerScope: "owner-a",
               repository: {

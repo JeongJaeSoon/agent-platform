@@ -1,6 +1,7 @@
 import { REQUEST_BODY_MAX_BYTES } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
+  backfillSessionModels,
   createDatabaseAgentAuthority,
   createDatabaseIdentityReader,
   createPostgresAgentAdminStore,
@@ -62,6 +63,7 @@ import {
   createTeamService,
   createUsageService,
   createWorkerGateway,
+  fingerprintModel,
   InstallationConfigError,
   installationLimitsFromEnv,
 } from "@werft-ai/platform";
@@ -227,6 +229,13 @@ if (checkpointStorage !== "disabled") {
 
 const pool = createApiPool(databaseUrl, logger);
 const db = drizzle(pool, { schema });
+// Sessions from before `sessions.model` get the model their fingerprint
+// names under this catalog; a row it cannot tell stays null.
+logger.info("Session models backfilled", {
+  sessions: await backfillSessionModels(db, ({ profileId, fingerprint }) =>
+    fingerprintModel(catalog, profileId, fingerprint),
+  ),
+});
 if (checkpointStorage !== "disabled") {
   await assertCheckpointObjectsPresent(checkpointStorage, {
     hasUncollectedCheckpoint: () => hasUncollectedCheckpoint(db),

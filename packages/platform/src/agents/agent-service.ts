@@ -14,7 +14,7 @@ import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
 import type { AgentStore } from "../ports/agent-store.ts";
 import type { CredentialBindingStore } from "../ports/credential-binding-store.ts";
 import {
-  profileFingerprint,
+  profilePinned,
   type SessionCatalog,
 } from "../sessions/catalog.ts";
 import {
@@ -86,7 +86,7 @@ export function createAgentService(deps: {
     const profile = Object.hasOwn(catalog.profiles, release.runtime_profile_id)
       ? catalog.profiles[release.runtime_profile_id]
       : undefined;
-    if (!profile || profileFingerprint(profile) !== release.profile_digest) {
+    if (!profile || !profilePinned(profile, release.profile_digest)) {
       throw new SessionServiceError(
         "PROFILE_DIGEST_MISMATCH",
         `Runtime profile ${release.runtime_profile_id} changed since this release; release the version again`,

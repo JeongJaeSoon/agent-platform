@@ -107,7 +107,8 @@ export function changeProfileAtomic(
 
     const unchanged =
       session.profileId === profile.id &&
-      session.profileFingerprint === profile.fingerprint;
+      session.profileFingerprint === profile.fingerprint &&
+      session.model === profile.model;
     if (!unchanged) {
       // Rows an older build wrote during a rollout name no profile, and rows
       // 0147 copied from a session older than its fingerprint name no
@@ -116,6 +117,7 @@ export function changeProfileAtomic(
       const was = {
         profileId: session.profileId,
         profileFingerprint: session.profileFingerprint,
+        model: session.model,
       };
       const ranProfile = (
         column: typeof attempts.profileId | typeof checkpoints.profileId,
@@ -148,6 +150,7 @@ export function changeProfileAtomic(
         .set({
           profileId: profile.id,
           profileFingerprint: profile.fingerprint,
+          model: profile.model,
           revision: sql`${sessions.revision} + 1`,
           updatedAt: now,
         })

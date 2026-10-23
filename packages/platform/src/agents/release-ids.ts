@@ -13,6 +13,7 @@ import {
   type CatalogProfile,
   pinnedMcpTools,
   profileFingerprint,
+  profileModels,
   type SessionCatalog,
 } from "../sessions/catalog.ts";
 
@@ -91,11 +92,12 @@ export function resolveReleaseContent(
       content: Omit<ReleaseIdentity, "agent_id" | "card_sha256">;
     }
   | { ok: false; error: ReleaseCompatibilityError } {
-  if (card.model !== profile.model) {
+  if (!profileModels(profile).includes(card.model)) {
     return {
       ok: false,
       error: {
         field: "card.model",
+        // apps/web parses this wording; it now means none of the models.
         message: `model ${card.model} is not the model of runtime profile ${profileId}`,
       },
     };
@@ -135,7 +137,8 @@ export function resolveReleaseContent(
       // No credential here, not even the attempt's egress token: the worker
       // gets that at claim.
       runtime_config_snapshot: {
-        model: profile.model,
+        // What a session of the release runs unless it names another.
+        model: card.model,
         tools,
         permission_mode: profile.permission_mode,
         provider: {

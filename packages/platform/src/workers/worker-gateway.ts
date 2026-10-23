@@ -71,13 +71,13 @@ import type {
 } from "../ports/worker-unit-of-work.ts";
 import {
   allowedPair,
-  type CatalogProfile,
   catalogRevision,
   type EgressUpstream,
   mcpBinding,
+  type ProfilePin,
   profileFingerprint,
-  profileModels,
-  profileWithModel,
+  profilePinned,
+  profilePins,
   providerUpstreamOf,
   repositoryBinding,
   repositoryModeOf,
@@ -466,14 +466,6 @@ export function createWorkerGateway(deps: {
   const pollIntervalMs =
     deps.options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
 
-  // One pair per model the profile offers, its default first: a row
-  // from before the pin binds to the first pair that matches it.
-  function fingerprintsOf(profile: CatalogProfile): string[] {
-    return profileModels(profile).flatMap((model) => {
-      const runs = profileWithModel(profile, model);
-      return runs ? [profileFingerprint(runs)] : [];
-    });
-  }
   // Only sessions this host can actually run are claimable. Letting a
   // session whose profile left the catalog start anyway would hand it a
   // guessed runtime, and the worker would run the wrong agent or crash-loop
@@ -485,10 +477,13 @@ export function createWorkerGateway(deps: {
       ([repositoryId, repository]) =>
         repository.profiles.flatMap((profileId) => {
           const profile = own(catalog.profiles, profileId);
+          // A row from before the pin binds to the first pair that
+          // matches it: the current fingerprint and the default model.
           return profile
-            ? fingerprintsOf(profile).map((fingerprint) => ({
+            ? profilePins(profile).map((pin) => ({
                 profileId,
-                profileFingerprint: fingerprint,
+                profileFingerprint: pin.fingerprint,
+                model: pin.model,
                 repositoryId,
                 url: repository.url,
                 branch: repository.branch,
@@ -499,9 +494,10 @@ export function createWorkerGateway(deps: {
     ...Object.entries(catalog.profiles).flatMap(([profileId, profile]) =>
       repositoryModeOf(profile) === "required"
         ? []
-        : fingerprintsOf(profile).map((fingerprint) => ({
+        : profilePins(profile).map((pin) => ({
             profileId,
-            profileFingerprint: fingerprint,
+            profileFingerprint: pin.fingerprint,
+            model: pin.model,
             repositoryId: null,
           })),
     ),
@@ -539,7 +535,7 @@ export function createWorkerGateway(deps: {
   // repository — comes from the row (WorkerBinding.repository).
   function resolveProfile(
     profileId: string | null,
-    fingerprint: string | null,
+    pin: ProfilePin,
     providerToken: string,
     hasRepository: boolean,
   ): {
@@ -548,7 +544,7 @@ export function createWorkerGateway(deps: {
     runtime_config: RuntimeConfig;
   } {
     const listed = profileId ? own(catalog.profiles, profileId) : undefined;
-    const profile = listed ? sessionProfile(listed, fingerprint) : null;
+    const profile = listed ? sessionProfile(listed, pin) : null;
     if (!profile || !profileId) {
       throw new WorkerGatewayError(
         503,
@@ -576,23 +572,28 @@ export function createWorkerGateway(deps: {
   function restoreRuntimesOf(
     binding: Pick<
       WorkerBinding,
-      "profileId" | "restoreProfiles" | "repository"
+      "profileId" | "profileFingerprint" | "model" | "restoreProfiles" | "repository"
     >,
-    profileFingerprintNow: string,
     providerToken: string,
     mcp: ReturnType<typeof claimedMcp>,
     mcpToken: string,
   ): { restore_runtime_configs?: RuntimeConfig[] } {
     const configs = binding.restoreProfiles.flatMap((made) => {
+      // A checkpoint with no model was pinned by a version 1 fingerprint,
+      // which names the model itself.
       if (
         made.profileId === binding.profileId &&
-        made.profileFingerprint === profileFingerprintNow
+        made.profileFingerprint === binding.profileFingerprint &&
+        (made.model === null || made.model === binding.model)
       ) {
         return [];
       }
       const listed = own(catalog.profiles, made.profileId);
       const profile = listed
-        ? sessionProfile(listed, made.profileFingerprint)
+        ? sessionProfile(listed, {
+            fingerprint: made.profileFingerprint,
+            model: made.model,
+          })
         : null;
       return profile
         ? [
@@ -623,11 +624,16 @@ export function createWorkerGateway(deps: {
       ? own(catalog.profiles, session.profileId)
       : undefined;
     const profile = listed
-      ? sessionProfile(listed, session.profileFingerprint)
+      ? sessionProfile(listed, {
+          fingerprint: session.profileFingerprint,
+          model: session.model,
+        })
       : null;
     if (!profile) {
       throw new Error("A claimed session has no runnable profile");
     }
+    // The provider route takes no model of its own, so its token is held to
+    // the settings alone.
     const provider = profileFingerprint(profile);
     const object_store = sessionObjectPrefix(session.id);
     const mcp = claimedMcp(session.mcp);
@@ -901,7 +907,7 @@ export function createWorkerGateway(deps: {
           const mcp = claimedMcp(binding.mcp);
           const profile = resolveProfile(
             binding.profileId,
-            binding.profileFingerprint,
+            { fingerprint: binding.profileFingerprint, model: binding.model },
             providerToken,
             binding.repository !== null,
           );
@@ -922,7 +928,6 @@ export function createWorkerGateway(deps: {
             ...resolved,
             ...restoreRuntimesOf(
               binding,
-              resolved.profile_fingerprint,
               providerToken,
               mcp,
               mcpToken,
@@ -1044,11 +1049,11 @@ export function createWorkerGateway(deps: {
         const listed = result.profileId
           ? own(catalog.profiles, result.profileId)
           : undefined;
-        const profile = listed ? sessionProfile(listed, result.binding) : null;
-        if (!profile) {
+        // A token from before version 2 holds a version 1 fingerprint.
+        if (!listed || !profilePinned(listed, result.binding)) {
           moved("session's profile");
         }
-        return grant(providerUpstreamOf(profile));
+        return grant(providerUpstreamOf(listed));
       }
       if (result.repository === null) moved("session's repository");
       const { id, url, branch } = result.repository;

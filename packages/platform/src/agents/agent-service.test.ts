@@ -6,9 +6,15 @@ import {
 } from "@werft-ai/contracts";
 import { callerFor, createAuthorizationPolicy } from "../musterrolle/policy.ts";
 import type { AgentStore } from "../ports/agent-store.ts";
-import type { CatalogProfile, SessionCatalog } from "../sessions/catalog.ts";
+import {
+  type CatalogProfile,
+  profileFingerprint,
+  profilePins,
+  type SessionCatalog,
+} from "../sessions/catalog.ts";
 import { SessionServiceError } from "../sessions/session-service.ts";
 import { createAgentService } from "./agent-service.ts";
+import { deriveReleaseId } from "./release-ids.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
 const OWNER = "019a0000-0000-7000-8000-0000000000b1";
@@ -248,6 +254,51 @@ describe("agent service", () => {
       ),
     ).toBe("NOT_FOUND");
     expect(memory.activations()).toBe(0);
+  });
+
+  test("a release's digest leaves the models out, and one from before version 2 still activates", async () => {
+    const memory = memoryStore();
+    const { release: made } = await serviceOver(memory.store).createRelease(
+      owner,
+      AGENT,
+      release,
+    );
+    expect(made.profile_digest).toBe(profileFingerprint(PROFILE));
+    // Offering another model is not a profile change for the release.
+    const listed = serviceOver(memory.store, {
+      ...PROFILE,
+      models: ["claude-opus-5-5"],
+    });
+    await listed.activateAgent(owner, AGENT, {
+      release_id: made.id,
+      expected_revision: -1,
+    });
+    expect(memory.activations()).toBe(1);
+    // What main stored: the version 1 fingerprint of the profile's default.
+    const v1 = profilePins(PROFILE)[1]?.fingerprint;
+    if (!v1) throw new Error("no version 1 pin");
+    const legacy: AgentRelease = {
+      ...made,
+      profile_digest: v1,
+      id: deriveReleaseId({ ...made, profile_digest: v1 }),
+    };
+    memory.releases.set(legacy.id, legacy);
+    await listed.activateAgent(owner, AGENT, {
+      release_id: legacy.id,
+      expected_revision: -1,
+    });
+    expect(memory.activations()).toBe(2);
+    expect(
+      await codeOf(
+        serviceOver(memory.store, {
+          ...PROFILE,
+          permission_mode: "acceptEdits",
+        }).activateAgent(owner, AGENT, {
+          release_id: legacy.id,
+          expected_revision: -1,
+        }),
+      ),
+    ).toBe("PROFILE_DIGEST_MISMATCH");
   });
 
   test("activation names the credentials not bound to the agent, without reaching the store", async () => {

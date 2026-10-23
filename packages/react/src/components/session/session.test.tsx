@@ -292,6 +292,7 @@ const SESSION: SessionSummary = {
     model: "model-claude-default",
     permission_mode: "default",
   },
+  model: "model-claude-default",
   repository_id: null,
   current_turn_id: null,
   queued_turn_count: 2,

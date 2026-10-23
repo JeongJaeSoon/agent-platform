@@ -6,6 +6,7 @@ import {
   createAuthorizationPolicy,
   createSessionService,
   profileFingerprint,
+  profilePins,
   profileWithModel,
   type SessionCatalog,
   type SessionControl,
@@ -71,6 +72,7 @@ const record: SessionDetailRecord = {
   revision: 7,
   admission_state: "active",
   status: "idle",
+  model: "claude-sonnet-5",
   repository_id: "app",
   current_turn_id: null,
   queued_turn_count: 0,
@@ -192,6 +194,7 @@ describe("POST /v1/sessions/{id}/profile", () => {
       profile: {
         id: "coding-haiku",
         fingerprint: profileFingerprint(haiku),
+        model: "claude-haiku-5",
         unmetered: false,
       },
     });
@@ -209,14 +212,49 @@ describe("POST /v1/sessions/{id}/profile", () => {
       atomic,
       {},
       path,
-      { ...record, profile_fingerprint: profileFingerprint(onOpus) },
+      {
+        ...record,
+        profile_fingerprint: profileFingerprint(onOpus),
+        model: "claude-opus-5",
+      },
     );
     expect(response.status).toBe(200);
     expect(seen[0]?.profile).toEqual({
       id: "coding-haiku",
       fingerprint: profileFingerprint(haiku),
+      model: "claude-haiku-5",
       unmetered: false,
     });
+  });
+
+  test("the same profile again keeps a version 1 pin on its default model, and moves one on another model to the default", async () => {
+    const listed = catalog.profiles[
+      "coding-sonnet"
+    ] as SessionCatalog["profiles"][string];
+    // What main pinned: [v2 sonnet, v2 opus, v1 sonnet, v1 opus].
+    const [, , v1Sonnet, v1Opus] = profilePins(listed);
+    if (!v1Sonnet || !v1Opus) throw new Error("no version 1 pins");
+    for (const [pinned, fingerprint] of [
+      [v1Sonnet.fingerprint, v1Sonnet.fingerprint],
+      [v1Opus.fingerprint, profileFingerprint(listed)],
+    ] as const) {
+      const { seen, atomic } = capturing(settled(crypto.randomUUID()));
+      const response = await change(
+        { expected_revision: 7, profile_id: "coding-sonnet" },
+        atomic,
+        {},
+        path,
+        // A row the backfill has not reached yet.
+        { ...record, profile_fingerprint: pinned, model: null },
+      );
+      expect(response.status).toBe(200);
+      expect(seen[0]?.profile).toEqual({
+        id: "coding-sonnet",
+        fingerprint,
+        model: "claude-sonnet-5",
+        unmetered: false,
+      });
+    }
   });
 
   test("hands a billing: none profile over as unmetered, for the transaction to compare", async () => {
