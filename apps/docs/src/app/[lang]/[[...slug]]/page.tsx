@@ -36,32 +36,33 @@ export default async function Page(props: Props) {
   const page = source.getPage(slug, lang);
   if (!page) notFound();
 
-  // A fallback page shows Korean text; screen readers need to know.
-  const fallback = isUntranslated(page);
-  const contentLang = fallback ? i18n.defaultLanguage : lang;
-  const untranslated = fallback ? (
-    <Callout type="info">{messages[lang].untranslated}</Callout>
-  ) : null;
-
+  // The generated reference is English in every language: the spec is.
   if (page.type === "openapi") {
     return (
       <DocsPage full>
-        <DocsTitle lang={contentLang}>{page.data.title}</DocsTitle>
+        <DocsTitle lang="en">{page.data.title}</DocsTitle>
         {/* The operation repeats its description, rendered as Markdown. */}
-        <DocsBody>
-          {untranslated}
-          <div lang={contentLang}>
-            <OpenAPIPage {...page.data.getOpenAPIPageProps()} />
-          </div>
+        <DocsBody lang="en">
+          <OpenAPIPage {...page.data.getOpenAPIPageProps()} />
         </DocsBody>
       </DocsPage>
     );
   }
 
+  // A fallback page shows Korean text; screen readers need to know.
+  const fallback = isUntranslated(page);
+  const contentLang = fallback ? i18n.defaultLanguage : lang;
+  const toc = fallback
+    ? page.data.toc.map((item) => ({
+        ...item,
+        title: <span lang={contentLang}>{item.title}</span>,
+      }))
+    : page.data.toc;
+
   const MDX = page.data.body;
   const isHome = page.slugs.length === 0;
   return (
-    <DocsPage toc={page.data.toc} full={page.data.full ?? isHome}>
+    <DocsPage toc={toc} full={page.data.full ?? isHome}>
       {isHome ? null : (
         <>
           <DocsTitle lang={contentLang}>{page.data.title}</DocsTitle>
@@ -74,7 +75,9 @@ export default async function Page(props: Props) {
         </>
       )}
       <DocsBody>
-        {untranslated}
+        {fallback ? (
+          <Callout type="info">{messages[lang].untranslated}</Callout>
+        ) : null}
         <div lang={contentLang}>
           <MDX
             components={getMDXComponents({

@@ -76,7 +76,7 @@ export const docsLlms = llms(source, {
   },
 });
 
-/** A page in another language whose own translation does not exist yet. */
+/** A content page in another language whose own translation does not exist yet. */
 export function isUntranslated(page: { path: string; locale?: string }) {
   return (
     page.locale !== i18n.defaultLanguage &&
