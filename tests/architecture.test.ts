@@ -416,7 +416,7 @@ function isLinkClasses(value: ts.Expression): boolean {
     text
       .split(/\s+/)
       // Any variant prefix, data-[active=true]: included; a URL's "//" is not one.
-      .some((token) => /(?:^|:)(?:text-|underline$)/.test(token))
+      .some((token) => /(?:^|:)!?(?:text-|underline!?$)/.test(token))
   );
 }
 
@@ -1262,6 +1262,7 @@ describe("architecture", () => {
           'const OTHER = 0, ROW_LINK = "hover:underline text-primary";',
           'const CONST_LINK = "text-primary underline" as const;',
           'const ACTIVE_LINK = "data-[active=true]:text-primary";',
+          'const LOUD_LINK = "hover:underline!";',
           "const MIXED_LINK = `text-primary ${extra} underline`;",
           'const DOCS_LINK: string = "https://tailwindcss.com/docs/text-decoration-line";',
           "const NAV_LINK = `",
@@ -1288,7 +1289,7 @@ describe("architecture", () => {
         "dirty.tsx": {
           "raw-anchor": 4,
           "shadow-component": 2,
-          "link-constant": 6,
+          "link-constant": 7,
         },
         "styles.css": { "legacy-class": 1 },
       });
