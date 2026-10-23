@@ -12,7 +12,11 @@ describe("Steps", () => {
         completedLabel="done"
         items={[
           { id: "account", title: "연동 계정 연결", done: true },
-          { id: "session", title: "첫 세션 시작", description: "할 일을 적습니다." },
+          {
+            id: "session",
+            title: "첫 세션 시작",
+            description: "할 일을 적습니다.",
+          },
         ]}
       />,
     );

@@ -78,10 +78,12 @@ describe("Stepper", () => {
   });
 
   test("끝난 단계 원에 기호 없이 번호가 남는다", () => {
-    render(<Stepper label="만들기 단계" steps={STEPS} currentStepId="review" />);
-    const circles = [...document.querySelectorAll("li > div > span:first-child")].map(
-      (node) => node.textContent,
+    render(
+      <Stepper label="만들기 단계" steps={STEPS} currentStepId="review" />,
     );
+    const circles = [
+      ...document.querySelectorAll("li > div > span:first-child"),
+    ].map((node) => node.textContent);
     expect(circles).toEqual(["1", "2", "3", "4"]);
     expect(document.querySelector("svg")).toBeNull();
   });
