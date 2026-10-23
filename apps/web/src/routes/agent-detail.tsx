@@ -310,7 +310,7 @@ function AgentView({
       key="body"
       value={tab}
       onValueChange={(next) => openTab(next as AgentTab)}
-      className="min-w-0"
+      className="min-w-0 gap-[var(--ap-space-block)]"
     >
       <div className="border-b">
         <TabsList
@@ -323,7 +323,7 @@ function AgentView({
               key={name}
               value={name}
               ref={name === "release" ? releaseTab : undefined}
-              className="h-9 px-3 text-control after:bottom-0"
+              className="h-9 text-control after:bottom-0"
             >
               {tabLabel(name)}
             </TabsTrigger>

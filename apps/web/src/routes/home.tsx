@@ -159,6 +159,7 @@ export function HomeScreen() {
             link={
               <Link to="/sessions" className={LINK}>
                 {t("home.overview.toSessions")}
+                <ArrowRight className="size-3.5" aria-hidden="true" />
               </Link>
             }
           />
@@ -173,6 +174,7 @@ export function HomeScreen() {
             link={
               <Link to="/sessions" className={LINK}>
                 {t("home.overview.toSessions")}
+                <ArrowRight className="size-3.5" aria-hidden="true" />
               </Link>
             }
           />
@@ -190,6 +192,7 @@ export function HomeScreen() {
             link={
               <Link to="/agents" className={LINK}>
                 {t("home.overview.toAgents")}
+                <ArrowRight className="size-3.5" aria-hidden="true" />
               </Link>
             }
           />
@@ -268,19 +271,23 @@ function SummaryCard({
   readonly link: ReactNode;
 }) {
   const { t } = useI18n();
+  // Every tile reads the same way: what it counts and where to go on one
+  // line, then the number, then what the number is.
   return (
     <li className="min-w-0">
       <Card className="h-full gap-3 p-4">
-        <h3 className="m-0 font-medium text-control text-muted-foreground">
-          {title}
-        </h3>
+        <div className="flex min-h-5 items-center justify-between gap-3">
+          <h3 className="m-0 font-medium text-control text-muted-foreground">
+            {title}
+          </h3>
+          {link}
+        </div>
         <div>
           <p className="m-0 font-semibold text-number tabular-nums">
             {value ?? t("home.overview.unknown")}
           </p>
           <p className="m-0 text-caption text-muted-foreground">{note}</p>
         </div>
-        <div className="mt-auto flex justify-end border-t pt-3">{link}</div>
       </Card>
     </li>
   );

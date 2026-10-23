@@ -228,9 +228,8 @@ describe("홈 요약", () => {
 
   test("답이 필요한 세션을 먼저, 이어서 세 요약 카드와 최근 세션을 보인다", async () => {
     renderAt("/", homeRoutes());
-    const waiting = await screen.findByRole("region", {
-      name: /답이 필요한 요청/,
-    });
+    // The same words as the session list's inbox above its cards.
+    const waiting = await screen.findByRole("region", { name: /^답변 대기/ });
     await waitFor(() =>
       expect(
         within(waiting).getByRole("link", { name: waitingSession.id }),
@@ -249,12 +248,13 @@ describe("홈 요약", () => {
           .getAllByRole("listitem")
           .map((card) => [
             card.querySelector("h3")?.textContent,
-            card.querySelector("h3 + div > p")?.textContent,
+            card.querySelector("h3 + a")?.textContent,
+            card.querySelector("div:has(> h3) + div > p")?.textContent,
           ]),
       ).toEqual([
-        ["답변 대기", "1"],
-        ["세션", "2+"],
-        ["에이전트", "2"],
+        ["답변 대기", "세션 목록", "1"],
+        ["세션", "세션 목록", "2+"],
+        ["에이전트", "에이전트 목록", "2"],
       ]),
     );
     expect(within(overview).getByText("켜짐 1 · 초안 1")).toBeDefined();

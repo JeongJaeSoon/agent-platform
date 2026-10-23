@@ -15,6 +15,7 @@
 //   browser.mjs <run> click <text|css> | type <css|@N> <text> | select <css|@N> <value>
 //   browser.mjs <run> press <text|css> [Key]      focus it, then a real key (Enter): click leaves focus where it was
 //   browser.mjs <run> key <Key> [count] | eval <expr>   @N: the Nth field in <main>, from 0
+//   browser.mjs <run> measure <name>              evidence/layout/<name>.json for layout-report.mjs
 //
 // Every page command takes W (default 1280), H (900) and THEME (light|dark)
 // from the environment, e.g. W=390 THEME=dark browser.mjs <run> shot home-390-dark.
@@ -469,6 +470,21 @@ switch (cmd) {
       await sleep(120);
       console.log(JSON.stringify(await focused()));
     }
+    break;
+  }
+  case "measure": {
+    // Geometry for layout-report.mjs; see measure-layout.js for the fields.
+    await settle();
+    const m = await evaluate(
+      readFileSync(new URL("./measure-layout.js", import.meta.url), "utf8"),
+    );
+    if (typeof m === "string") throw new Error(m);
+    const file = join(run, "evidence", "layout", `${args[0]}.json`);
+    mkdirSync(join(run, "evidence", "layout"), { recursive: true });
+    writeFileSync(file, `${JSON.stringify(m, null, 1)}\n`);
+    console.log(
+      `${file} ${m.path} ${W}px ${THEME} gaps=${m.gaps.length} cards=${m.cards.length} scrollWidth=${m.scrollWidth}`,
+    );
     break;
   }
   case "eval":
