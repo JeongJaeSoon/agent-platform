@@ -180,9 +180,12 @@ describe("LinkTabs", () => {
     // Link's own colour and weight would change the tab's look.
     expect(classes).not.toContain("text-link");
     expect(classes).not.toContain("font-medium");
-    expect(getByRole("navigation").className.split(" ")).toContain(
-      "overflow-x-auto",
-    );
+    // Room for the outline inside the scroll clip, but no negative right
+    // margin: that would widen the page past a parent with no padding.
+    const nav = getByRole("navigation").className.split(" ");
+    expect(nav).toContain("overflow-x-auto");
+    expect(nav.filter((name) => /^-m[rx]?-/.test(name))).toEqual([]);
+    expect(list).toContain("pr-1");
   });
 
   test("탭 순서는 링크 순서다", async () => {
