@@ -190,7 +190,7 @@ function NameButton({
       type="button"
       className={cn(
         linkVariants(),
-        "block max-w-full truncate text-left font-medium focus-visible:underline",
+        "block max-w-full truncate text-left font-medium text-foreground focus-visible:underline",
       )}
       onClick={onClick}
     >
