@@ -9,7 +9,10 @@ import {
   type SpawnedProcess,
   type SpawnOptions,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { RuntimeCapabilities } from "@werft-ai/runtime-core";
+import {
+  evaluateToolPolicy,
+  type RuntimeCapabilities,
+} from "@werft-ai/runtime-core";
 
 import {
   CLAUDE_RUNTIME_CAPABILITIES,
@@ -100,7 +103,9 @@ export function buildSdkOptions(
   abortController = new AbortController(),
   processObserver?: RuntimeProcessObserver,
 ): Options {
-  const permittedTools = new Set(config.tools);
+  // The platform verdict; only its allowlist exists yet, so `ask` never comes.
+  const refused = (tool: string) =>
+    evaluateToolPolicy({ tools: config.tools }, tool) === "deny";
   const bypass = config.permissionMode === "bypassPermissions";
   // Neither mode calls canUseTool for a call it lets through.
   const unattended = bypass || config.permissionMode === "auto";
@@ -122,7 +127,7 @@ export function buildSdkOptions(
           toolUseID: options.toolUseID,
         };
       };
-      if (!permittedTools.has(tool)) {
+      if (refused(tool)) {
         return deny("Tool is outside the server allowlist");
       }
       const admission = ledger.permissionStarting();
@@ -168,7 +173,7 @@ export function buildSdkOptions(
               if (
                 unattended &&
                 "tool_name" in input &&
-                !permittedTools.has(input.tool_name)
+                refused(input.tool_name)
               ) {
                 return deny("Tool is outside the server allowlist");
               }
