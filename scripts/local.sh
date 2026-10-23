@@ -4,7 +4,7 @@
 # lists.
 #
 #   scripts/local.sh up [--fake-model]   check Docker, ports and the key, build, start, wait for /readyz,
-#                                        add the web console's demo accounts
+#                                        add the web console's demo accounts and, with --fake-model, their data
 #   scripts/local.sh down                delete the stack AND ALL ITS DATA
 #   scripts/local.sh reset [--fake-model]
 #                                        down, then up
@@ -13,7 +13,7 @@
 #                                        print a new API key once (same CLI as `bun run keys create`)
 #   scripts/local.sh forget-lost-checkpoints
 #                                        after a Docker restart: give up the lost checkpoints, keep the rest
-#   scripts/local.sh demo-accounts       add whichever demo account is missing to a running stack
+#   scripts/local.sh demo-accounts       add whichever demo account, agent or session is missing to a running stack
 #
 # A local installation is volatile: LocalStack keeps S3 in memory, so any
 # `down` or Docker restart loses every checkpoint object while postgres keeps
@@ -38,7 +38,9 @@
 # `up` ends by adding the demo owner and member (docs/quickstart.md "웹 콘솔
 # 데모 계정"), skipping any that exist; LOCAL_DEMO_ACCOUNTS=0 leaves them
 # out. Only a stack on this machine's Docker whose api listens on loopback
-# gets them: their password is in the repository.
+# gets them: their password is in the repository. On a --fake-model stack
+# the demo agents and sessions follow (LOCAL_DEMO_DATA=0 leaves them out);
+# their CLI refuses any profile that would call a real provider.
 #
 # COMPOSE_PROJECT_NAME, COMPOSE_FILE and EXECUTION_INSTALLATION_ID are
 # compose's to resolve: the ports checked, the /readyz waited on
@@ -254,6 +256,18 @@ demo_accounts() {
   fi
   compose exec -T -e DEMO_ACCOUNTS=local api bun run apps/control-host/src/api/demo-accounts.ts >&2 ||
     die "adding the demo accounts failed; the stack itself is up"
+  [ "${LOCAL_DEMO_DATA:-1}" = 0 ] || demo_data
+}
+
+# Exit 2 is the CLI's refusal, a real-model stack's included: said, not fatal.
+demo_data() {
+  local code=0
+  compose exec -T -e DEMO_ACCOUNTS=local api bun run apps/control-host/src/api/demo-data.ts >&2 || code=$?
+  case "$code" in
+    0) ;;
+    2) echo "local.sh: demo data not added" >&2 ;;
+    *) die "adding the demo data failed; the stack and the demo accounts are up" ;;
+  esac
 }
 
 status() {

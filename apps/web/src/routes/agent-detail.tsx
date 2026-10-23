@@ -20,13 +20,13 @@ import {
   TabsContent,
   TabsList,
   TabsTrigger,
-  useDetailLayout,
 } from "@werft-ai/ui";
 import { ArrowLeft } from "lucide-react";
 import { useRef, useState } from "react";
 import { agentQuery, queryKeys } from "../api/queries.ts";
-import { useRole } from "../auth/guard.tsx";
+import { ReasonButton, useRole } from "../auth/guard.tsx";
 import { AgentAdmins } from "../components/agent-admins.tsx";
+import { AgentAvatar } from "../components/agent-cards.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { Page } from "../components/page.tsx";
@@ -40,7 +40,12 @@ import {
   CredentialUnbound,
   unboundRefs,
 } from "./agent-detail/credentials.tsx";
-import { CardSummary, Overview } from "./agent-detail/overview.tsx";
+import {
+  AgentGlance,
+  AgentReadiness,
+  AgentRecentSessions,
+  CardSummary,
+} from "./agent-detail/overview.tsx";
 import {
   type Place,
   type Placed,
@@ -52,7 +57,8 @@ import { VersionHistory } from "./agent-detail/version-history.tsx";
 import { latestVersion } from "./agent-detail/versions.tsx";
 import { agentRefusal } from "./agents.tsx";
 
-const PANEL = "flex flex-col gap-8 pt-4";
+// Console v4: 24px under the tabs, sections 32px apart.
+const PANEL = "@container flex flex-col gap-8 pt-2";
 
 export const AGENT_TABS = ["overview", "card", "release", "admins"] as const;
 export type AgentTab = (typeof AGENT_TABS)[number];
@@ -192,7 +198,6 @@ function AgentView({
   const [releaseVersion, setReleaseVersion] = useState<string | null>(null);
   const { client } = useAgentPlatform();
   const queryClient = useQueryClient();
-  const layout = useDetailLayout();
   const role = useRole();
   const [conflict, setConflict] = useState<Conflict | null>(null);
   // The names the last refused activation found unbound.
@@ -294,20 +299,8 @@ function AgentView({
     </Button>
   );
 
-  const panel = (
-    <aside
-      key="panel"
-      aria-label={t("agent.panel.label")}
-      className="flex min-w-0 flex-col gap-4"
-    >
-      <Overview detail={detail} releaseLabel={releaseLabel}>
-        {toRelease}
-      </Overview>
-    </aside>
-  );
   const body = (
     <Tabs
-      key="body"
       value={tab}
       onValueChange={(next) => openTab(next as AgentTab)}
       className="min-w-0 gap-[var(--ap-space-block)]"
@@ -331,9 +324,12 @@ function AgentView({
         </TabsList>
       </div>
       <TabsContent {...tabPanel("overview")}>
-        <CardSummary detail={detail} />
+        <AgentGlance detail={detail} />
+        <AgentReadiness detail={detail} toRelease={toRelease} />
+        <AgentRecentSessions />
       </TabsContent>
       <TabsContent {...tabPanel("card")}>
+        <CardSummary detail={detail} />
         <CardEditor
           detail={detail}
           result={
@@ -444,41 +440,55 @@ function AgentView({
     </Tabs>
   );
 
+  const cardRole = latestVersion(detail)?.card.role;
   return (
     <Page
-      title={<span className="[overflow-wrap:anywhere]">{agent.name}</span>}
-      // Identifier and release are the summary card's; the head keeps the state.
+      title={
+        <span className="flex min-w-0 items-center gap-3">
+          <AgentAvatar name={agent.name} />
+          <span className="min-w-0 [overflow-wrap:anywhere]">{agent.name}</span>
+        </span>
+      }
+      // Identifier and release are the overview's; the head keeps the state.
+      // The badge sits on the description line: the page header has no slot
+      // beside the title that stays out of the heading's name.
       description={
-        <Badge
-          variant={
-            agent.active_release_id && agent.status === "active"
-              ? "green"
-              : "gray"
-          }
-        >
-          {agent.active_release_id
-            ? t(`agents.status.${agent.status}`)
-            : t("agents.state.notReleased")}
-        </Badge>
+        <span className="flex flex-wrap items-center gap-2">
+          <Badge
+            variant={
+              agent.active_release_id && agent.status === "active"
+                ? "green"
+                : "gray"
+            }
+          >
+            {agent.active_release_id
+              ? t(`agents.status.${agent.status}`)
+              : t("agents.state.notReleased")}
+          </Badge>
+          {cardRole ? (
+            <span className="[overflow-wrap:anywhere]">{cardRole}</span>
+          ) : null}
+        </span>
       }
       actions={
-        <Link
-          to="/agents"
-          className={buttonVariants({ variant: "outline", size: "sm" })}
-        >
-          <ArrowLeft className="size-3.5" aria-hidden="true" />
-          {t("agent.back")}
-        </Link>
+        // Narrow screens stack the buttons and wrap the reason under its
+        // button, so the title keeps the width of the row.
+        <div className="flex items-start gap-2 max-sm:w-min max-sm:flex-col max-sm:items-end">
+          <Link to="/agents" className={buttonVariants({ variant: "outline" })}>
+            <ArrowLeft aria-hidden="true" />
+            {t("agent.back")}
+          </Link>
+          <ReasonButton
+            className={buttonVariants()}
+            reason={t("sessionList.newUnavailable")}
+          >
+            {t("agent.newSession")}
+          </ReasonButton>
+        </div>
       }
     >
       <OutcomeLine outcome={placed?.at === "page" ? placed.outcome : null} />
-      <div
-        ref={layout.ref}
-        data-slot="agent-detail-layout"
-        className={layout.className}
-      >
-        {layout.narrow ? [panel, body] : [body, panel]}
-      </div>
+      {body}
     </Page>
   );
 }

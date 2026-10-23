@@ -120,7 +120,7 @@ function KeyTabs(context: Globals) {
   );
 }
 
-// Demo counts; "ended" has none, so tabs with and without a badge share a row.
+// Demo counts; "ended" has none, so tabs with and without a count share a row.
 const STATUSES = [
   { id: "", key: "all", count: 128 },
   { id: "running", key: "running", count: 3 },

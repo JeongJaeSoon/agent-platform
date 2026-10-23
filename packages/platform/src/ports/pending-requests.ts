@@ -29,7 +29,10 @@ export type AnswerRequestResult =
   // gone even if the row is still open.
   | { outcome: "stale" }
   // The answer names something the request never offered.
-  | { outcome: "invalid"; reason: string };
+  | { outcome: "invalid"; reason: string }
+  // Re-judged inside the write: the requester is gone, or no longer answers
+  // for this session.
+  | { outcome: "actor_inactive" | "role" };
 
 /** The public half: what clients see and how they answer it. */
 export interface PendingRequestStore {

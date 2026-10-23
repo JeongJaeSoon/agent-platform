@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link, Outlet, useLocation } from "@tanstack/react-router";
 import { type ApiError, isApiError, unwrap } from "@werft-ai/client";
 import type { Invite, MemberView, WorkspaceRole } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
@@ -20,6 +21,8 @@ import {
   FieldLegend,
   FieldSet,
   formatTimestamp,
+  LinkTab,
+  LinkTabs,
   linkVariants,
   RadioGroup,
   RadioGroupItem,
@@ -108,28 +111,28 @@ function refusal(
   return t(errorKey(error.code));
 }
 
-export function MembersScreen() {
+/**
+ * The 구성원 page: its head and the 구성원 · 팀 · 초대 tabs (v3 M-01), each an
+ * address of its own. A tab the viewer may not manage is not offered; 팀
+ * always is, since anyone sees the teams they are in there.
+ */
+export function MembersLayout() {
   const { t } = useI18n();
   const { client } = useAgentPlatform();
+  const { pathname } = useLocation();
   const manages = useHasPermission("member.manage");
   const members = useQuery({ ...membersQuery(client), enabled: manages });
   const reason = usePermissionReason("member.manage", members);
   // The list is also the permission probe: when it failed, nobody knows.
   const failed = members.isError && !isApiError(members.error, "FORBIDDEN");
-  const [outcome, setOutcome] = useState<Outcome | null>(null);
-
-  if (!manages) {
-    return (
-      <Page title={t("members.title")} description={t("members.withheld")} />
-    );
-  }
+  const onTeams = pathname.startsWith("/members/teams");
 
   return (
     <Page
       title={t("members.title")}
-      description={t("members.description")}
+      description={t(manages ? "members.description" : "members.withheld")}
       actions={
-        failed ? undefined : (
+        !manages || failed || onTeams ? undefined : (
           <InviteDialog
             reason={reason}
             members={members.data?.items ?? []}
@@ -138,13 +141,46 @@ export function MembersScreen() {
         )
       }
     >
-      {outcome ? (
-        outcome.kind === "error" ? (
-          <FormError>{outcome.text}</FormError>
-        ) : (
-          <output className={NOTICE}>{outcome.text}</output>
-        )
-      ) : null}
+      <div className="flex flex-col gap-[var(--ap-space-block)]">
+        <LinkTabs aria-label={t("members.tabs")}>
+          {manages ? (
+            <LinkTab asChild current={pathname === "/members"}>
+              <Link to="/members" activeOptions={{ exact: true }}>
+                {t("members.tab.members")}
+              </Link>
+            </LinkTab>
+          ) : null}
+          <LinkTab asChild current={onTeams}>
+            <Link to="/members/teams" activeOptions={{ exact: true }}>
+              {t("members.tab.teams")}
+            </Link>
+          </LinkTab>
+          {manages ? (
+            <LinkTab asChild current={pathname === "/members/invites"}>
+              <Link to="/members/invites" activeOptions={{ exact: true }}>
+                {t("members.tab.invites")}
+              </Link>
+            </LinkTab>
+          ) : null}
+        </LinkTabs>
+        <Outlet />
+      </div>
+    </Page>
+  );
+}
+
+/** The 구성원 tab. Without member.manage the page head already says why. */
+export function MembersScreen() {
+  const { client } = useAgentPlatform();
+  const manages = useHasPermission("member.manage");
+  const members = useQuery({ ...membersQuery(client), enabled: manages });
+  const [outcome, setOutcome] = useState<Outcome | null>(null);
+
+  if (!manages) return null;
+
+  return (
+    <div className="flex flex-col gap-[var(--ap-space-block)]">
+      <OutcomeNote outcome={outcome} />
       {members.isPending ? (
         <StatusScreen kind="loading" />
       ) : members.error ? (
@@ -159,8 +195,40 @@ export function MembersScreen() {
       ) : (
         <MemberTable items={members.data.items} onOutcome={setOutcome} />
       )}
-      {members.isSuccess ? <InviteList onOutcome={setOutcome} /> : null}
-    </Page>
+    </div>
+  );
+}
+
+/** The 초대 tab: invites still waiting to be accepted. */
+export function InvitesScreen() {
+  const { client } = useAgentPlatform();
+  const manages = useHasPermission("member.manage");
+  const members = useQuery({ ...membersQuery(client), enabled: manages });
+  const [outcome, setOutcome] = useState<Outcome | null>(null);
+
+  if (!manages) return null;
+
+  return (
+    <div className="flex flex-col gap-[var(--ap-space-block)]">
+      {/* The invite button in the head waits on this list; say why it is gone. */}
+      {members.isError && !isApiError(members.error, "FORBIDDEN") ? (
+        <LoadFailure
+          error={members.error}
+          onRetry={() => void members.refetch()}
+        />
+      ) : null}
+      <OutcomeNote outcome={outcome} />
+      <InviteList onOutcome={setOutcome} />
+    </div>
+  );
+}
+
+function OutcomeNote({ outcome }: { readonly outcome: Outcome | null }) {
+  if (!outcome) return null;
+  return outcome.kind === "error" ? (
+    <FormError>{outcome.text}</FormError>
+  ) : (
+    <output className={NOTICE}>{outcome.text}</output>
   );
 }
 
@@ -346,8 +414,9 @@ function MemberTable({
                         type="button"
                         className={cn(
                           linkVariants(),
-                          // v4 .strong: weight 500, not the list's 600.
-                          "flex min-w-0 max-w-full text-left font-medium group-data-[disabled=true]:text-muted-foreground",
+                          // v4 .strong: body text at weight 500, not link blue;
+                          // blue stays for links that move (→).
+                          "flex min-w-0 max-w-full text-left font-medium text-foreground group-data-[disabled=true]:text-muted-foreground",
                         )}
                         aria-label={t("members.editFor", {
                           name: member.display_name,

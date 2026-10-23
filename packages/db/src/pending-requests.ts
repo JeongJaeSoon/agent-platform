@@ -32,6 +32,7 @@ import {
 } from "./control-shared.ts";
 import { DB_NOW, dbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
+import { lockRequester, lockSessionReach } from "./requester-locks.ts";
 import {
   attempts,
   idempotencyKeys,
@@ -318,6 +319,12 @@ export function createPostgresPendingRequests(
           };
         }
 
+        const requester = await lockRequester(
+          tx,
+          input.principal,
+          "sessions:approve",
+        );
+        if (!requester) return { outcome: "actor_inactive" };
         // Session before pending row, the order the gateway paths take.
         const [session] = await tx
           .select()
@@ -331,6 +338,12 @@ export function createPostgresPendingRequests(
           .limit(1)
           .for("update");
         if (!session) return { outcome: "not_found" };
+        // D26 5: a key bound to an agent never answers.
+        if (requester.keyAgentId !== null) return { outcome: "role" };
+        const reach = await lockSessionReach(tx, requester, session, {
+          answer: true,
+        });
+        if (reach !== "ok") return { outcome: reach };
         const [pending] = await tx
           .select()
           .from(pendingRequests)

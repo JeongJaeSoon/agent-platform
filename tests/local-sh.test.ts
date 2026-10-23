@@ -65,6 +65,7 @@ case "$*" in
   "inspect --format "*) echo "$STUB_STARTED_ID" ;;
   *" down -v --remove-orphans") exit "\${STUB_DOWN_EXIT:-0}" ;;
   "context inspect --format "*) echo "$STUB_CONTEXT" ;;
+  *" exec -T -e DEMO_ACCOUNTS=local api bun run apps/control-host/src/api/demo-data.ts") exit "\${STUB_DATA_EXIT:-0}" ;;
   *" exec -T -e DEMO_ACCOUNTS=local api "*) exit "\${STUB_SEED_EXIT:-0}" ;;
 esac
 `,
@@ -246,10 +247,12 @@ echo '{"status":"ready"}'
 
   const seed = (prefix: string) =>
     `${prefix} exec -T -e DEMO_ACCOUNTS=local api bun run apps/control-host/src/api/demo-accounts.ts`;
+  const data = (prefix: string) =>
+    `${prefix} exec -T -e DEMO_ACCOUNTS=local api bun run apps/control-host/src/api/demo-data.ts`;
   const fakeUp =
     "compose --profile apps -f compose.yaml -f infra/compose.fake-model.yml";
 
-  test("up adds the demo accounts once the api is ready, and stdout stays /readyz", async () => {
+  test("up adds the demo accounts and then their data once the api is ready, and stdout stays /readyz", async () => {
     await writeFile(config, rendered("local"));
     const result = await run(["up", "--fake-model"], {
       STUB_API: "127.0.0.1:43123",
@@ -259,8 +262,46 @@ echo '{"status":"ready"}'
       stdout: '{"status":"ready"}\n',
     });
     const docker = await calls("docker-calls");
-    expect(docker.at(-1)).toBe(seed(fakeUp));
+    expect(docker.slice(-2)).toEqual([seed(fakeUp), data(fakeUp)]);
     expect(docker).toContain(`${fakeUp} up -d --build`);
+  });
+
+  test("LOCAL_DEMO_DATA=0 adds the accounts alone", async () => {
+    await writeFile(config, rendered("local"));
+    const result = await run(["up", "--fake-model"], {
+      STUB_API: "127.0.0.1:43123",
+      LOCAL_DEMO_DATA: "0",
+    });
+    expect(result.exitCode).toBe(0);
+    const docker = await calls("docker-calls");
+    expect(docker.at(-1)).toBe(seed(fakeUp));
+    expect(docker).not.toContain(data(fakeUp));
+  });
+
+  test("a refused data seed, as on a real-model stack, still ends up", async () => {
+    await writeFile(config, rendered("local"));
+    const result = await run(["up", "--fake-model"], {
+      STUB_API: "127.0.0.1:43123",
+      STUB_DATA_EXIT: "2",
+    });
+    expect(result).toMatchObject({
+      exitCode: 0,
+      stdout: '{"status":"ready"}\n',
+    });
+    expect(result.stderr).toContain("local.sh: demo data not added");
+  });
+
+  test("a failed data seed fails up and says the accounts are up", async () => {
+    await writeFile(config, rendered("local"));
+    const result = await run(["up", "--fake-model"], {
+      STUB_API: "127.0.0.1:43123",
+      STUB_DATA_EXIT: "1",
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(
+      "adding the demo data failed; the stack and the demo accounts are up",
+    );
+    expect(result.stdout).toBe("");
   });
 
   test("demo-accounts adds them to a running stack of either mode", async () => {
@@ -269,6 +310,7 @@ echo '{"status":"ready"}'
     const docker = await calls("docker-calls");
     expect(docker).toContain(`${noMode} ps -q api`);
     expect(docker).toContain(seed(noMode));
+    expect(docker).toContain(data(noMode));
   });
 
   test.each([
@@ -306,7 +348,9 @@ echo '{"status":"ready"}'
     });
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toContain(message);
-    expect(await calls("docker-calls")).not.toContain(seed(fakeUp));
+    const docker = await calls("docker-calls");
+    expect(docker).not.toContain(seed(fakeUp));
+    expect(docker).not.toContain(data(fakeUp));
   });
 
   test("a failed seed fails up and says the stack is up", async () => {

@@ -46,6 +46,7 @@ const DETAIL: SessionDetail = {
   status: "running",
   runtime: null,
   repository_id: null,
+  repository: null,
   current_turn_id: null,
   queued_turn_count: 0,
   last_event_at: null,
