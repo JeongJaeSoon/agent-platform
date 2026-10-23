@@ -392,6 +392,25 @@ describe("authorize contract", () => {
     expect(
       authorizationResourceSchema.safeParse({ ...starting, id: "s-1" }).success,
     ).toBe(false);
+    // A stored binding starts a session on a release, and is read for its
+    // agent all the same.
+    const inBinding = {
+      kind: "surface_binding",
+      id: "019a0000-0000-7000-8000-00000000b0b1",
+      owner_scope: "owner-a",
+    };
+    expect(
+      authorizationResourceSchema.safeParse({
+        ...inBinding,
+        release_id: "rel-1",
+      }).success,
+    ).toBe(true);
+    expect(
+      authorizationResourceSchema.safeParse({
+        ...inBinding,
+        agent_id: resource.agent_id,
+      }).success,
+    ).toBe(false);
   });
 
   test("allow is always ok and deny never is", () => {
