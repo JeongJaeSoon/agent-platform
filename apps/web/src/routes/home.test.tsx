@@ -10,6 +10,7 @@ import {
   WORKSPACE_ID,
 } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
+import { waitedFor } from "./home.tsx";
 
 const { act, renderAt, screen, waitFor, within } = await appHarness();
 
@@ -243,9 +244,10 @@ describe("홈 요약", () => {
       .filter((item) => item.querySelector("h3"))
       .map((card) => ({
         title: card.querySelector("h3")?.textContent,
-        value:
+        badge:
           card.querySelector("h3")?.parentElement?.nextElementSibling
-            ?.firstElementChild?.textContent,
+            ?.textContent,
+        value: card.querySelector("p.text-number")?.textContent,
         rows: [...card.querySelectorAll("dl > div")].map((row) => [
           row.querySelector("dt")?.textContent,
           row.querySelector("dd")?.textContent,
@@ -254,6 +256,7 @@ describe("홈 요약", () => {
   const waitingSession = {
     ...oneSession,
     id: "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+    title: "hello.txt 만들고 commit",
     status: "needs_input",
   };
   const request = (created_at: string) => ({
@@ -302,6 +305,7 @@ describe("홈 요약", () => {
       expect(cards(overview)).toEqual([
         {
           title: "전체 사용량",
+          badge: undefined,
           value: "—미계측",
           rows: [
             ["세션", "—미계측"],
@@ -311,6 +315,7 @@ describe("홈 요약", () => {
         },
         {
           title: "확인할 항목",
+          badge: "운영",
           value: "2",
           rows: [
             ["답변 대기", "1"],
@@ -323,6 +328,7 @@ describe("홈 요약", () => {
         },
         {
           title: "내 세션 기준",
+          badge: undefined,
           value: "—미계측",
           rows: [
             ["세션", "2+"],
@@ -332,8 +338,12 @@ describe("홈 요약", () => {
         },
       ]),
     );
-    // The request list and its answers live on the session screen only.
-    expect(screen.queryByRole("region", { name: /^답변 대기/ })).toBeNull();
+    // The waiting request is answerable from home, above the cards.
+    const inbox = screen.getByRole("region", { name: /^답변 대기/ });
+    expect(
+      inbox.compareDocumentPosition(overview) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     const oldest = await within(overview).findByRole("link", {
       name: waitingSession.id.slice(0, 8),
     });
@@ -352,8 +362,8 @@ describe("홈 요약", () => {
     ).toEqual([
       ["세션", "작업 상태", "에이전트", "저장소", "최근 활동"],
       [
-        waitingSession.id.slice(0, 8),
-        "작업: 답변 대기",
+        `${waitingSession.title}${waitingSession.id.slice(0, 8)}`,
+        expect.stringMatching(/^작업: 답변 대기\d+(분|시간|일)$/),
         "—",
         "demo",
         expect.any(String),
@@ -371,6 +381,12 @@ describe("홈 요약", () => {
         .getAllByRole("link")
         .map((l) => l.getAttribute("href")),
     ).toEqual([`/sessions/${waitingSession.id}`, `/sessions/${oneSession.id}`]);
+    // A titled session links by its title; one without a title, by its id.
+    expect(
+      within(recent)
+        .getAllByRole("link")
+        .map((l) => l.textContent),
+    ).toEqual([waitingSession.title, oneSession.id.slice(0, 8)]);
   });
 
   test("한도를 읽을 수 없는 사람에게는 설치 전체 카드를 숨긴다", async () => {
@@ -523,6 +539,39 @@ describe("홈 요약", () => {
     expect(order.indexOf("시작하기")).toBeGreaterThan(
       order.findIndex((title) => title?.startsWith("최근 세션")),
     );
+  });
+
+  test("설명은 역할에 따라 고르고, 새 세션 버튼은 세션 목록처럼 사유와 함께 막혀 있다", async () => {
+    renderAt("/", {
+      ...homeRoutes(),
+      "GET /v1/auth/me": () => json(200, memberMe()),
+    });
+    expect(
+      await screen.findByText(
+        "내 세션과 관리하는 에이전트, 워크스페이스 점검 항목입니다.",
+      ),
+    ).toBeDefined();
+    const button = screen.getByRole("button", { name: "새 세션" });
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      document.getElementById(button.getAttribute("aria-describedby") ?? "")
+        ?.textContent,
+    ).toBe("웹에서는 아직 세션을 시작할 수 없습니다. API로 시작하세요.");
+  });
+});
+
+describe("waitedFor", () => {
+  const at = "2026-10-23T09:00:00.000Z";
+  const after = (ms: number) => new Date(at).getTime() + ms;
+  test("가장 큰 단위의 정수로 적는다", () => {
+    expect(waitedFor(at, "ko", after(12 * 60_000 + 59_000))).toBe("12분");
+    expect(waitedFor(at, "ko", after(2 * 3_600_000 + 5 * 60_000))).toBe(
+      "2시간",
+    );
+    expect(waitedFor(at, "en", after(30_000))).toBe("0 min");
+  });
+  test("시계가 어긋나 미래 시각이어도 음수로 적지 않는다", () => {
+    expect(waitedFor(at, "ko", after(-60_000))).toBe("0분");
   });
 });
 

@@ -1,5 +1,7 @@
 export const homeKo = {
-  "home.signedInAs": "{name}({email}) 계정으로 로그인했습니다",
+  "home.intro.owner": "설치 전체 현황과 워크스페이스 점검 항목입니다.",
+  "home.intro.other":
+    "내 세션과 관리하는 에이전트, 워크스페이스 점검 항목입니다.",
   "home.checklist.title": "시작하기",
   "home.checklist.admin": "소유자 계정 만들기",
   "home.checklist.adminHint": "워크스페이스를 만든 계정입니다.",
@@ -30,6 +32,7 @@ export const homeKo = {
   "home.glance.refreshed": "{at} 기준",
   "home.glance.workspace": "워크스페이스 점검",
   "home.glance.workspaceTitle": "확인할 항목",
+  "home.glance.operations": "운영",
   "home.glance.attentionNote": "지금 확인이 필요한 항목",
   "home.glance.staleWait": "30분 넘게 대기",
   "home.glance.sessionCount": "{count}개 세션",
@@ -49,7 +52,10 @@ export const homeKo = {
 };
 
 export const homeEn: Record<keyof typeof homeKo, string> = {
-  "home.signedInAs": "Logged in as {name} ({email})",
+  "home.intro.owner":
+    "How the whole installation is doing, and what the workspace needs checked.",
+  "home.intro.other":
+    "Your sessions, the agents you manage, and what the workspace needs checked.",
   "home.checklist.title": "Getting started",
   "home.checklist.admin": "Create the owner account",
   "home.checklist.adminHint": "The account that created the workspace.",
@@ -80,6 +86,7 @@ export const homeEn: Record<keyof typeof homeKo, string> = {
   "home.glance.refreshed": "As of {at}",
   "home.glance.workspace": "Workspace check",
   "home.glance.workspaceTitle": "Needs attention",
+  "home.glance.operations": "Operations",
   "home.glance.attentionNote": "Items to check now",
   "home.glance.staleWait": "Waiting over 30 minutes",
   "home.glance.sessionCount": "{count} sessions",
@@ -99,7 +106,10 @@ export const homeEn: Record<keyof typeof homeKo, string> = {
 };
 
 export const homeJa: Record<keyof typeof homeKo, string> = {
-  "home.signedInAs": "{name}（{email}）でログインしています",
+  "home.intro.owner":
+    "インストール全体の状況と、ワークスペースで確認する項目です。",
+  "home.intro.other":
+    "自分のセッションと管理するエージェント、ワークスペースで確認する項目です。",
   "home.checklist.title": "はじめに",
   "home.checklist.admin": "オーナーアカウントを作成",
   "home.checklist.adminHint": "ワークスペースを作成したアカウントです。",
@@ -131,6 +141,7 @@ export const homeJa: Record<keyof typeof homeKo, string> = {
   "home.glance.refreshed": "{at} 時点",
   "home.glance.workspace": "ワークスペース点検",
   "home.glance.workspaceTitle": "確認する項目",
+  "home.glance.operations": "運用",
   "home.glance.attentionNote": "今確認が必要な項目",
   "home.glance.staleWait": "30分以上待機",
   "home.glance.sessionCount": "{count} セッション",

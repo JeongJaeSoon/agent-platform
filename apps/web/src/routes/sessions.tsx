@@ -59,7 +59,7 @@ import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
 import { SessionOutputs } from "./session-outputs.tsx";
 
-function loadError(error: unknown, onRetry: () => void) {
+export function loadError(error: unknown, onRetry: () => void) {
   if (isApiError(error, "FORBIDDEN")) {
     return <StatusScreen kind="forbidden" />;
   }
@@ -90,6 +90,24 @@ export function sessionsSearch(
   return status ? { status } : {};
 }
 
+/** The console cannot start a session yet; the button says why. */
+export function NewSessionButton() {
+  const { t } = useI18n();
+  return (
+    // Narrow screens wrap the reason under the button, so the title keeps
+    // the width of the row.
+    <div className="max-sm:w-min">
+      <ReasonButton
+        className={buttonVariants()}
+        reason={t("sessionList.newUnavailable")}
+      >
+        <Plus aria-hidden="true" />
+        {t("sessionList.new")}
+      </ReasonButton>
+    </div>
+  );
+}
+
 export function SessionsScreen() {
   const { t } = useI18n();
   const unavailable = useUnavailable();
@@ -102,19 +120,7 @@ export function SessionsScreen() {
     <Page
       title={t("sessions.title")}
       description={t("sessions.intro")}
-      actions={
-        // Narrow screens wrap the reason under the button, so the title keeps
-        // the width of the row.
-        <div className="max-sm:w-min">
-          <ReasonButton
-            className={buttonVariants()}
-            reason={t("sessionList.newUnavailable")}
-          >
-            <Plus aria-hidden="true" />
-            {t("sessionList.new")}
-          </ReasonButton>
-        </div>
-      }
+      actions={<NewSessionButton />}
     >
       <div className="flex flex-col gap-[var(--ap-space-block)]">
         <ApprovalInbox
@@ -305,7 +311,7 @@ function SessionsInStatus({ status }: { readonly status: SessionFilter }) {
 }
 
 /** Why the signed-in credential may not take each session action. */
-function useUnavailable(): SessionActionProps["unavailable"] {
+export function useUnavailable(): SessionActionProps["unavailable"] {
   const { t } = useI18n();
   const missing = (scope: string) => t("guard.missingScope", { scope });
   const canAnswer = useCan("sessions:approve");

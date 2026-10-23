@@ -12,6 +12,7 @@ import {
   waitingSessionsQuery,
 } from "@werft-ai/core";
 import { useAgentPlatform, useSessions } from "@werft-ai/react";
+import { ApprovalInbox } from "@werft-ai/react/blocks";
 import { SessionStatusLabel } from "@werft-ai/react/components";
 import {
   Badge,
@@ -30,15 +31,21 @@ import {
 import { ArrowRight, Check } from "lucide-react";
 import { type ReactNode, useId } from "react";
 import { agentsQuery, invitesQuery, membersQuery } from "../api/queries.ts";
-import { useMe } from "../auth/guard.tsx";
+import { useRole } from "../auth/guard.tsx";
 import { AdministeredAgents } from "../components/agent-admins.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { MyTeams } from "../components/my-teams.tsx";
 import { Page } from "../components/page.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
-import { type Locale, type MessageKey, useI18n } from "../i18n/i18n.tsx";
+import {
+  errorKey,
+  type Locale,
+  type MessageKey,
+  useI18n,
+} from "../i18n/i18n.tsx";
 import { agentState } from "./agents.tsx";
 import { expiryState } from "./api-keys.tsx";
+import { loadError, NewSessionButton, useUnavailable } from "./sessions.tsx";
 
 /** Done, not yet, or not knowable here (the list refused this viewer, or failed). */
 type StepState = "done" | "pending" | "unknown";
@@ -70,8 +77,9 @@ const RECENT_LIMIT = 5;
 const STALE_WAIT_MS = 30 * 60 * 1000;
 
 /**
- * Counts with the session that waited longest, the newest sessions and the
- * bootstrap checklist; answering a request is the session screen's job. Each checklist step is read from the server: someone
+ * The requests waiting on the viewer, answerable in place, then counts with
+ * the session that waited longest, the newest sessions and the bootstrap
+ * checklist. Each checklist step is read from the server: someone
  * was invited once an invite exists or a second member joined, an agent is
  * ready once one has an active release, and a session started once the
  * viewer's own session list has one.
@@ -82,7 +90,8 @@ const STALE_WAIT_MS = 30 * 60 * 1000;
  */
 export function HomeScreen() {
   const { t, locale } = useI18n();
-  const me = useMe();
+  const role = useRole();
+  const unavailable = useUnavailable();
   const { client } = useAgentPlatform();
   const members = useQuery({
     ...membersQuery(client),
@@ -151,11 +160,11 @@ export function HomeScreen() {
   const waitingCount = waiting.data
     ? count(waiting.data.items.length, waiting.data.next_cursor !== null)
     : null;
-  // Answering happens on the session screen; home names only the oldest
-  // request, read from the same per-session lists the session screen reads.
-  // It shows nothing unless the one page holds every waiting session and
-  // every list answered: a partial read would name the wrong request. A failed
-  // refetch keeps the old page in data, so the last read must have succeeded.
+  // The oldest request and each session's wait are read from the same
+  // per-session lists the session screen reads. They show nothing unless the
+  // one page holds every waiting session and every list answered: a partial
+  // read would name the wrong request. A failed refetch keeps the old page in
+  // data, so the last read must have succeeded.
   const complete = waiting.isSuccess && waiting.data.next_cursor === null;
   const requests = useQueries({
     queries: complete
@@ -169,6 +178,7 @@ export function HomeScreen() {
       let first: { sessionId: string; at: string } | undefined;
       // A session counts as waiting long once its oldest request is.
       let stale = 0;
+      const since: Record<string, string> = {};
       const staleBefore = new Date(Date.now() - STALE_WAIT_MS).toISOString();
       lists.forEach((list, index) => {
         const sessionId = waiting.data?.items[index]?.id;
@@ -179,9 +189,10 @@ export function HomeScreen() {
           if (sessionId && (!first || request.created_at < first.at))
             first = { sessionId, at: request.created_at };
         }
+        if (sessionId && sessionFirst) since[sessionId] = sessionFirst;
         if (sessionFirst && sessionFirst < staleBefore) stale += 1;
       });
-      return { oldest: first, stale };
+      return { oldest: first, stale, since };
     },
   });
   const oldest = requests?.oldest;
@@ -202,18 +213,19 @@ export function HomeScreen() {
   return (
     <Page
       title={t("nav.home")}
-      description={
-        me?.user ? (
-          <span className="[overflow-wrap:anywhere]">
-            {t("home.signedInAs", {
-              name: me.user.display_name,
-              email: me.user.email,
-            })}
-          </span>
-        ) : undefined
-      }
+      description={t(
+        role === "owner" ? "home.intro.owner" : "home.intro.other",
+      )}
+      actions={<NewSessionButton />}
     >
       {allDone ? null : checklist}
+      <ApprovalInbox
+        layout="row"
+        loading={<StatusScreen kind="loading" />}
+        renderError={loadError}
+        unavailable={unavailable}
+        refusal={(error) => t(errorKey(error.code))}
+      />
       <HomeSection title={t("home.overview.title")}>
         <ul className="m-0 grid list-none grid-cols-1 items-stretch gap-4 p-0 @[720px]:grid-cols-3">
           {/* Everyone who reads sessions may read the limits; the card
@@ -249,6 +261,7 @@ export function HomeScreen() {
           <GlanceCard
             eyebrow={t("home.glance.workspace")}
             title={t("home.glance.workspaceTitle")}
+            badge={t("home.glance.operations")}
             value={attention === null ? t("home.overview.unknown") : attention}
             note={t("home.glance.attentionNote")}
             rows={[
@@ -356,7 +369,7 @@ export function HomeScreen() {
         title={t("home.recent.title")}
         action={<ArrowLink to="/sessions">{t("home.recent.all")}</ArrowLink>}
       >
-        <RecentSessionTable />
+        <RecentSessionTable waitingSince={requests?.since} />
       </HomeSection>
       {allDone ? checklist : null}
       <AdministeredAgents showEmpty={false} />
@@ -389,6 +402,25 @@ export function relativeTime(
     if (Math.abs(delta) >= ms)
       return format.format(Math.trunc(delta / ms), unit);
   return format.format(0, "second");
+}
+
+/** How long since `iso`, in its largest whole unit: "12분", "2 hr". */
+export function waitedFor(
+  iso: string,
+  locale: Locale,
+  now: number = Date.now(),
+): string {
+  const elapsed = Math.max(0, now - new Date(iso).getTime());
+  if (Number.isNaN(elapsed)) return iso;
+  const [unit, ms] = RELATIVE_UNITS.find(([, size]) => elapsed >= size) ?? [
+    "minute",
+    60 * 1000,
+  ];
+  return new Intl.NumberFormat(locale, {
+    style: "unit",
+    unit,
+    unitDisplay: "short",
+  }).format(Math.trunc(elapsed / ms));
 }
 
 function HomeSection({
@@ -500,6 +532,7 @@ interface GlanceRow {
 function GlanceCard({
   eyebrow,
   title,
+  badge,
   value,
   note,
   rows,
@@ -508,6 +541,7 @@ function GlanceCard({
 }: {
   readonly eyebrow: string;
   readonly title: string;
+  readonly badge?: string;
   readonly value: ReactNode;
   readonly note: string;
   readonly rows: readonly GlanceRow[];
@@ -519,9 +553,12 @@ function GlanceCard({
   return (
     <li className="min-w-0">
       <Card className="h-full gap-3 p-4">
-        <div className="flex flex-col gap-0.5">
-          <p className="m-0 text-caption text-muted-foreground">{eyebrow}</p>
-          <h3 className="m-0 font-semibold text-body">{title}</h3>
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <p className="m-0 text-caption text-muted-foreground">{eyebrow}</p>
+            <h3 className="m-0 font-semibold text-body">{title}</h3>
+          </div>
+          {badge ? <Badge className="shrink-0">{badge}</Badge> : null}
         </div>
         <div>
           <p className="m-0 font-semibold text-number tabular-nums">{value}</p>
@@ -574,7 +611,12 @@ function GlanceCard({
 }
 
 /** The newest of the viewer's sessions, in the design's columns. */
-function RecentSessionTable() {
+function RecentSessionTable({
+  waitingSince,
+}: {
+  /** When each waiting session's oldest request came in, once every list is read. */
+  readonly waitingSince: Readonly<Record<string, string>> | undefined;
+}) {
   const { t, locale } = useI18n();
   const sessions = useSessions();
   const items = sessions.data?.pages[0]?.items ?? [];
@@ -609,7 +651,12 @@ function RecentSessionTable() {
         </TableHeader>
         <TableBody>
           {items.slice(0, RECENT_LIMIT).map((session) => (
-            <RecentRow key={session.id} session={session} locale={locale} />
+            <RecentRow
+              key={session.id}
+              session={session}
+              locale={locale}
+              waitingSince={waitingSince?.[session.id]}
+            />
           ))}
         </TableBody>
       </Table>
@@ -620,35 +667,66 @@ function RecentSessionTable() {
 function RecentRow({
   session,
   locale,
+  waitingSince,
 }: {
   readonly session: SessionSummary;
   readonly locale: Locale;
+  readonly waitingSince: string | undefined;
 }) {
   const { t } = useI18n();
   const at = session.last_event_at ?? session.created_at;
   return (
     <TableRow data-status={session.status}>
       <TableCell>
-        <TextLink asChild className="font-mono">
-          <Link
-            to="/sessions/$id"
-            params={{ id: session.id }}
-            aria-label={session.id}
-            title={session.id}
-          >
-            {session.id.slice(0, 8)}
-          </Link>
-        </TextLink>
+        {session.title ? (
+          <div className="flex max-w-80 flex-col">
+            <TextLink asChild className="truncate">
+              <Link
+                to="/sessions/$id"
+                params={{ id: session.id }}
+                title={session.title}
+              >
+                {session.title}
+              </Link>
+            </TextLink>
+            <span
+              className="font-mono text-caption text-muted-foreground"
+              title={session.id}
+            >
+              {session.id.slice(0, 8)}
+            </span>
+          </div>
+        ) : (
+          <TextLink asChild className="font-mono">
+            <Link
+              to="/sessions/$id"
+              params={{ id: session.id }}
+              aria-label={session.id}
+              title={session.id}
+            >
+              {session.id.slice(0, 8)}
+            </Link>
+          </TextLink>
+        )}
       </TableCell>
       <TableCell>
         {/* flex, not a line box: an inline badge sits on the baseline and
             leaves the row's centers a pixel apart. */}
-        <div className="flex">
+        <div className="flex items-center gap-1.5 whitespace-nowrap">
           <SessionStatusLabel
             className="whitespace-nowrap"
             status={session.status}
             label={t(`sessions.status.${session.status}`)}
           />
+          {session.status === "needs_input" && waitingSince ? (
+            <time
+              className="text-caption text-muted-foreground"
+              dateTime={waitingSince}
+              title={formatTimestamp(waitingSince, locale)}
+            >
+              {waitedFor(waitingSince, locale)}
+            </time>
+          ) : null}
         </div>
       </TableCell>
       {/* Sessions do not name their agent yet. */}
