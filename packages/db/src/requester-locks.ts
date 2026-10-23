@@ -1,17 +1,8 @@
 import type { SessionScope, WorkspaceRole } from "@werft-ai/contracts";
 import type { Principal } from "@werft-ai/platform";
-import {
-  and,
-  arrayContains,
-  asc,
-  eq,
-  gt,
-  inArray,
-  isNull,
-  or,
-} from "drizzle-orm";
+import { and, arrayContains, asc, eq, inArray, isNull } from "drizzle-orm";
 import { lockActorAccount } from "./control-shared.ts";
-import { DB_NOW } from "./db-clock.ts";
+import { dbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import {
   agentAdmins,
@@ -114,20 +105,25 @@ export async function lockRequester(
         kind: apiKeys.kind,
         createdByUserId: apiKeys.createdByUserId,
         agentId: apiKeys.agentId,
+        revokedAt: apiKeys.revokedAt,
+        expiresAt: apiKeys.expiresAt,
+        holds: arrayContains(apiKeys.scopes, [scope]),
       })
       .from(apiKeys)
       .where(
         and(
           eq(apiKeys.id, requester.apiKeyId),
           eq(apiKeys.workspaceId, workspaceId),
-          isNull(apiKeys.revokedAt),
-          or(isNull(apiKeys.expiresAt), gt(apiKeys.expiresAt, DB_NOW)),
-          arrayContains(apiKeys.scopes, [scope]),
         ),
       )
       .limit(1)
       .for("share");
-    if (!key) return null;
+    if (!key || key.revokedAt !== null || !key.holds) return null;
+    // Expiry against the clock after the lock: a lock wait on a row nobody
+    // changed does not re-check the WHERE, and the key may lapse meanwhile.
+    if (key.expiresAt !== null && key.expiresAt <= (await dbNow(tx))) {
+      return null;
+    }
     const personal = key.kind === "personal";
     if (personal !== (requester.userId !== null)) return null;
     if (personal && key.createdByUserId !== requester.userId) return null;
