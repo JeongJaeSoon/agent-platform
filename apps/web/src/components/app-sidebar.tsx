@@ -309,7 +309,9 @@ function UserBar({
   readonly onNavigate: () => void;
 }) {
   return (
-    <div className="flex shrink-0 items-center justify-between gap-2 border-t pt-2">
+    // Below md the account menu takes this bar's width, the screen's less the
+    // gutters; from md it sits on the pill at the sidebar's width.
+    <div className="relative flex shrink-0 items-center justify-between gap-2 border-t pt-2">
       <UserMenu logout={logout} onNavigate={onNavigate} />
       <WaitingBell onNavigate={onNavigate} />
     </div>
@@ -534,7 +536,7 @@ function UserMenu({
     <section
       ref={sectionRef}
       aria-label={t("shell.account")}
-      className="relative min-w-0"
+      className="min-w-0 md:relative"
       onKeyDown={(event) => {
         if (event.key !== "Escape" || !open) return;
         setOpen(false);
@@ -546,10 +548,10 @@ function UserMenu({
           id={menuId}
           role="menu"
           aria-labelledby={triggerId}
-          // The menu is as wide as the sidebar, not the pill it opens from.
+          // As wide as the sidebar, not the pill it opens from.
           className={cn(
             MENU_CARD,
-            "bottom-full left-0 mb-1 w-[calc(var(--ap-layout-sidebar-width)-1rem)] max-w-[calc(100vw-2rem)]",
+            "inset-x-0 bottom-full mb-1 md:right-auto md:w-[calc(var(--ap-layout-sidebar-width)-1rem)]",
           )}
           onKeyDown={onAccountKey}
         >

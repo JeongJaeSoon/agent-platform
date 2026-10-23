@@ -271,6 +271,24 @@ describe("app shell", () => {
     expect(document.activeElement?.id).toBe("main");
   });
 
+  // happy-dom has no layout; the width at 390px is measured in the browser.
+  test("below md the account menu spans the whole user bar, not the pill", async () => {
+    renderAt("/", signedIn);
+    const region = await screen.findByRole("region", { name: "사용자 메뉴" });
+    const user = await setupUser();
+    await user.click(within(region).getByRole("button", { name: /Owner/ }));
+    const menu = screen.getByRole("menu", { name: /Owner/ });
+    expect(menu.classList.contains("inset-x-0")).toBe(true);
+    let anchor = menu.parentElement;
+    while (anchor && !anchor.classList.contains("relative")) {
+      anchor = anchor.parentElement;
+    }
+    expect(anchor?.contains(region)).toBe(true);
+    expect(
+      anchor?.querySelector('a[href="/sessions"][aria-label]'),
+    ).not.toBeNull();
+  });
+
   test("the account menu works from the keyboard", async () => {
     renderAt("/", signedIn);
     const region = await screen.findByRole("region", { name: "사용자 메뉴" });
