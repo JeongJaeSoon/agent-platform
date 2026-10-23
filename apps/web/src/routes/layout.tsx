@@ -1,7 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   type ErrorComponentProps,
-  Link,
   Outlet,
   useNavigate,
   useRouter,
@@ -12,25 +11,13 @@ import { useAgentPlatform } from "@werft-ai/react";
 import {
   Button,
   cn,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
   Field,
   FieldLabel,
   NativeSelect,
   NativeSelectOption,
 } from "@werft-ai/ui";
-import { Bot, ChevronDown, List, Plus, Users, UsersRound } from "lucide-react";
-import {
-  type ReactNode,
-  useId,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
-import { useHasPermission, useMe } from "../auth/guard.tsx";
+import { type ReactNode, useId, useLayoutEffect, useState } from "react";
+import { useMe } from "../auth/guard.tsx";
 import {
   AppSidebar,
   type NavGroup,
@@ -119,18 +106,10 @@ function contentWidth(pathname: string) {
   return "max-w-[calc(var(--ap-w-wide)+2*var(--ap-gutter))]";
 }
 
-// The top bar's "new" lives only on the screens that list what it makes.
-const NEW_ON = new Set(["/", "/sessions", "/agents"]);
-
 export function AuthedLayout() {
   const { t } = useI18n();
   const me = useMe();
   const groups = useNavGroups();
-  const can: CreatePermissions = {
-    agent: useHasPermission("agent.create"),
-    invite: useHasPermission("member.manage"),
-    team: useHasPermission("team.manage"),
-  };
   const { client } = useAgentPlatform();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -171,7 +150,6 @@ export function AuthedLayout() {
           groups={groups}
           fallback={me?.workspace?.name ?? t("common.appName")}
         />
-        {can.agent || can.invite || can.team ? <NewMenu can={can} /> : null}
       </header>
       <AppSidebar
         id={sidebarId}
@@ -215,98 +193,6 @@ function PageTrail({
     <p className="m-0 min-w-0 truncate font-medium text-control">
       {here ? t(here.item.label) : fallback}
     </p>
-  );
-}
-
-interface CreatePermissions {
-  readonly agent: boolean;
-  readonly invite: boolean;
-  readonly team: boolean;
-}
-
-/**
- * Making something starts here on the screens that list it. Items the viewer
- * may not make are left out, as their screens leave out the form. Sessions
- * start from the API, Slack or the SDK, so that item stays, inert, to say
- * so. It re-renders on every navigation, so it must not read the signed-in
- * user itself: after logout that read would fetch them again into the
- * cleared cache.
- */
-function NewMenu({ can }: { readonly can: CreatePermissions }) {
-  const { t } = useI18n();
-  const pathname = usePathname();
-  const reasonId = useId();
-  const followed = useRef(false);
-  if (!NEW_ON.has(pathname)) return null;
-  // Every item leads off the screens that show this button, so the trigger
-  // focus would go back to is about to unmount: the page takes it instead,
-  // as it does after a sidebar link. Escape still returns to the trigger.
-  const follow = () => {
-    followed.current = true;
-  };
-  // The agent list's own thing to make names the button there.
-  const label =
-    pathname === "/agents" && can.agent ? t("agents.new") : t("shell.new");
-  return (
-    <DropdownMenu modal={false}>
-      <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" className="ml-auto">
-          <Plus aria-hidden="true" />
-          {label}
-          <ChevronDown aria-hidden="true" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="end"
-        onCloseAutoFocus={(event) => {
-          if (!followed.current) return;
-          followed.current = false;
-          event.preventDefault();
-          document.getElementById(MAIN_CONTENT_ID)?.focus();
-        }}
-      >
-        {can.agent ? (
-          <DropdownMenuItem asChild onSelect={follow}>
-            <Link to="/agents/new">
-              <Bot aria-hidden="true" />
-              {t("agents.new")}
-            </Link>
-          </DropdownMenuItem>
-        ) : null}
-        {can.invite ? (
-          <DropdownMenuItem asChild onSelect={follow}>
-            <Link to="/members">
-              <Users aria-hidden="true" />
-              {t("shell.new.invite")}
-            </Link>
-          </DropdownMenuItem>
-        ) : null}
-        {can.team ? (
-          <DropdownMenuItem asChild onSelect={follow}>
-            <Link to="/teams">
-              <UsersRound aria-hidden="true" />
-              {t("teams.create")}
-            </Link>
-          </DropdownMenuItem>
-        ) : null}
-        <DropdownMenuSeparator />
-        {/* aria-disabled, not disabled: Radix skips a disabled item, and the
-            reason would never reach a keyboard or screen reader. */}
-        <DropdownMenuItem
-          aria-disabled="true"
-          aria-describedby={reasonId}
-          onSelect={(event) => event.preventDefault()}
-        >
-          <List aria-hidden="true" />
-          <span className="flex min-w-0 flex-col">
-            {t("shell.new.session")}
-            <span id={reasonId} className="text-caption">
-              {t("shell.new.sessionUnavailable")}
-            </span>
-          </span>
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
   );
 }
 

@@ -98,81 +98,12 @@ describe("app shell", () => {
     );
   });
 
-  test("new opens a menu of what the viewer may make, and says sessions start elsewhere", async () => {
-    const { history } = renderAt("/sessions", signedIn);
+  test("the top bar makes nothing; each list offers its own", async () => {
+    renderAt("/sessions", signedIn);
     const [header] = await screen.findAllByRole("banner");
-    const trigger = await within(header as HTMLElement).findByRole("button", {
-      name: "새로 만들기",
-    });
-    expect(trigger.getAttribute("aria-haspopup")).toBe("menu");
-    const user = await setupUser();
-    await user.click(trigger);
-    const menu = await screen.findByRole("menu");
-    const items = within(menu).getAllByRole("menuitem");
-    expect(items.map((item) => item.textContent)).toEqual([
-      "새 에이전트",
-      "구성원 초대",
-      "팀 만들기",
-      "새 세션웹에서는 아직 시작할 수 없습니다",
-    ]);
-    expect(items.slice(0, 3).map((item) => item.getAttribute("href"))).toEqual([
-      "/agents/new",
-      "/members",
-      "/teams",
-    ]);
-    // Reachable, so a screen reader hears why it does nothing.
-    const session = items[3] as HTMLElement;
-    expect(session.getAttribute("aria-disabled")).toBe("true");
-    expect(
-      document.getElementById(session.getAttribute("aria-describedby") ?? "")
-        ?.textContent,
-    ).toBe("웹에서는 아직 시작할 수 없습니다");
-    await user.click(session);
-    expect(screen.getByRole("menu")).toBeDefined();
-    expect(history.location.pathname).toBe("/sessions");
-
-    await user.click(within(menu).getByRole("menuitem", { name: "팀 만들기" }));
-    await waitFor(() => expect(history.location.pathname).toBe("/teams"));
-  });
-
-  test("the new menu works from the keyboard and hands focus back", async () => {
-    const { history } = renderAt("/", signedIn);
-    const trigger = await screen.findByRole("button", { name: "새로 만들기" });
-    const user = await setupUser();
-    trigger.focus();
-    await user.keyboard("{Enter}");
-    const menu = await screen.findByRole("menu");
-    await waitFor(() =>
-      expect(document.activeElement?.textContent).toBe("새 에이전트"),
-    );
-    await user.keyboard("{ArrowDown}");
-    expect(document.activeElement?.textContent).toBe("구성원 초대");
-    await user.keyboard("{Escape}");
-    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
-    expect(document.activeElement).toBe(trigger);
-    expect(menu.isConnected).toBe(false);
-
-    await user.keyboard("{Enter}");
-    await screen.findByRole("menu");
-    await user.keyboard("{ArrowDown}{Enter}");
-    await waitFor(() => expect(history.location.pathname).toBe("/members"));
-    // The trigger is gone with the screen; focus lands on the page, not body.
-    await waitFor(() => expect(document.activeElement?.id).toBe("main"));
-  });
-
-  test("a member's new menu leaves out invites and teams", async () => {
-    renderAt("/agents", { "GET /v1/auth/me": () => json(200, memberMe()) });
-    // The agent list names the button after what it makes.
-    const user = await setupUser();
-    await user.click(
-      await screen.findByRole("button", { name: "새 에이전트" }),
-    );
-    const menu = await screen.findByRole("menu");
-    expect(
-      within(menu)
-        .getAllByRole("menuitem")
-        .map((item) => item.textContent),
-    ).toEqual(["새 에이전트", "새 세션웹에서는 아직 시작할 수 없습니다"]);
+    await within(header as HTMLElement).findByText("세션");
+    expect(within(header as HTMLElement).queryByRole("link")).toBeNull();
+    expect(within(header as HTMLElement).queryByText("새로 만들기")).toBeNull();
   });
 
   test("the sessions item counts the sessions waiting for an answer", async () => {

@@ -204,21 +204,17 @@ describe("에이전트 목록", () => {
     expect(
       await screen.findByText(/전체 에이전트 목록은 소유자와 관리자만 봅니다/),
     ).toBeDefined();
-    // Whoever may create is offered it once, in the top bar's menu, which
-    // the agent list names after what it makes.
-    const [trigger, ...others] = screen.getAllByRole("button", {
+    // Whoever may create is offered it once, at the head of the list.
+    const [button, ...others] = screen.getAllByRole("button", {
       name: "새 에이전트",
     });
     expect(others).toEqual([]);
-    expect(trigger?.getAttribute("aria-haspopup")).toBe("menu");
+    expect((button as HTMLButtonElement).disabled).toBe(false);
     expect(screen.queryByRole("alert")).toBeNull();
     expect(document.body.textContent).not.toContain("agent.manage");
     expect(document.body.textContent).not.toContain("does not hold");
     const user = await setupUser();
-    await user.click(trigger as HTMLElement);
-    await user.click(
-      await screen.findByRole("menuitem", { name: "새 에이전트" }),
-    );
+    await user.click(button as HTMLElement);
     await waitFor(() => expect(history.location.pathname).toBe("/agents/new"));
   });
 
@@ -1360,9 +1356,6 @@ describe("새 에이전트: 브라우저 history", () => {
     await user.click(
       await screen.findByRole("button", { name: "새 에이전트" }),
     );
-    await user.click(
-      await screen.findByRole("menuitem", { name: "새 에이전트" }),
-    );
     await toJobStep(user);
     await fillJob(user);
     await atStep("배포 판");
@@ -1410,9 +1403,6 @@ describe("새 에이전트: 브라우저 history", () => {
     const user = await setupUser();
     await user.click(
       await screen.findByRole("button", { name: "새 에이전트" }),
-    );
-    await user.click(
-      await screen.findByRole("menuitem", { name: "새 에이전트" }),
     );
     await toJobStep(user);
     await user.type(screen.getByLabelText("역할"), CARD.role);
