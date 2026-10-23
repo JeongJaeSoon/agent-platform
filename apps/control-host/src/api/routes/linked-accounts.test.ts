@@ -15,6 +15,7 @@ import {
   type LinkedAccountRecord,
   type LinkedAccountService,
   type LinkedAccountStore,
+  SessionServiceError,
 } from "@werft-ai/platform";
 import {
   type MockSlackOidc,
@@ -22,7 +23,10 @@ import {
 } from "@werft-ai/testkit/mock-slack-oidc";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { SLACK_LINK_COOKIE_NAME, type SlackOidcConfig } from "../slack-link.ts";
-import { registerLinkedAccountRoutes } from "./linked-accounts.ts";
+import {
+  type LinkedAccountRouteDeps,
+  registerLinkedAccountRoutes,
+} from "./linked-accounts.ts";
 
 const createApiApp = recordRouteErrors("routes/linked-accounts.test.ts");
 
@@ -109,14 +113,33 @@ afterAll(async () => {
   await idp.stop();
 });
 
+type SlackLinkClients = NonNullable<LinkedAccountRouteDeps["slack"]>["clients"];
+
+/** One client for every workspace, as a fallback OIDC app is. */
+function fixedClients(config: SlackOidcConfig): SlackLinkClients {
+  const client = {
+    source: "env" as const,
+    clientId: config.clientId,
+    clientSecret: config.clientSecret,
+    redirectUri: config.redirectUri,
+    slackAppId: null,
+  };
+  return {
+    clientFor: async () => client,
+    clientForStart: async () => client,
+  };
+}
+
 function app(
   linkedStore: LinkedAccountStore = store(),
   options: {
     authorization?: AuthorizationPolicy;
     person?: boolean;
     slack?: SlackOidcConfig | null;
+    clients?: Partial<SlackLinkClients>;
   } = {},
 ) {
+  const config = options.slack === undefined ? slack : options.slack;
   const service = createLinkedAccountService({
     authorization: options.authorization ?? allowing,
     store: linkedStore,
@@ -139,7 +162,13 @@ function app(
     registerRoutes: (router) =>
       registerLinkedAccountRoutes(router, {
         service: routed,
-        slack: options.slack === undefined ? slack : options.slack,
+        slack:
+          config === null
+            ? null
+            : {
+                issuer: config.issuer,
+                clients: { ...fixedClients(config), ...options.clients },
+              },
       }),
   });
 }
@@ -246,6 +275,67 @@ describe("POST /v1/linked-accounts/slack/start", () => {
     expect(response.status).toBe(503);
     expect((await errorOf(response)).code).toBe("BACKEND_UNAVAILABLE");
   });
+
+  test("sends the person to the workspace's own client", async () => {
+    const response = await start(
+      app(store(), {
+        clients: {
+          clientForStart: async (caller) => ({
+            source: "link_app",
+            clientId: `link-${caller.ownerId}`,
+            clientSecret: "unused",
+            redirectUri:
+              "https://console.example/settings/linked-accounts/slack",
+            slackAppId: crypto.randomUUID(),
+          }),
+        },
+      }),
+    );
+    const url = new URL(
+      startSlackLinkResponseSchema.parse(await response.json()).authorize_url,
+    );
+    expect(url.searchParams.get("client_id")).toBe("link-owner-a");
+    expect(url.searchParams.get("redirect_uri")).toBe(
+      "https://console.example/settings/linked-accounts/slack",
+    );
+  });
+
+  test("nothing to link with is a typed 409 with guidance, not 503", async () => {
+    const response = await start(
+      app(store(), {
+        clients: {
+          clientForStart: async () => {
+            throw new SessionServiceError(
+              "SLACK_LINK_NOT_CONFIGURED",
+              "Slack account linking is not set up for this workspace",
+              undefined,
+              { reason_code: "config_token" },
+            );
+          },
+        },
+      }),
+    );
+    expect(response.status).toBe(409);
+    expect(await errorOf(response)).toMatchObject({
+      code: "SLACK_LINK_NOT_CONFIGURED",
+      details: { reason_code: "config_token" },
+    });
+  });
+
+  test("no client is resolved, nor app made, for someone who may not link", async () => {
+    let asked = 0;
+    const clientForStart = async () => {
+      asked += 1;
+      throw new Error("must not be reached");
+    };
+    const refused = await start(
+      app(store({ installedSlackTeams: async () => [] }), {
+        clients: { clientForStart },
+      }),
+    );
+    expect(refused.status).toBe(409);
+    expect(asked).toBe(0);
+  });
 });
 
 describe("POST /v1/linked-accounts/slack/callback", () => {
@@ -276,6 +366,46 @@ describe("POST /v1/linked-accounts/slack/callback", () => {
     expect(response.headers.get("Set-Cookie")).toContain(
       `${SLACK_LINK_COOKIE_NAME}=;`,
     );
+  });
+
+  test("exchanges the code with the workspace's client and never makes one", async () => {
+    const asked: string[] = [];
+    const fixed = fixedClients(slack);
+    const api = app(store(), {
+      clients: {
+        clientFor: async (workspaceId) => {
+          asked.push(workspaceId);
+          return fixed.clientFor(workspaceId);
+        },
+        clientForStart: fixed.clientForStart,
+      },
+    });
+    const { code, state, cookie } = await consented(api);
+    const response = await callback(
+      api,
+      { code, state },
+      { ...owner, Cookie: cookie },
+    );
+    expect(response.status).toBe(201);
+    expect(asked).toEqual(["owner-a"]);
+  });
+
+  test("a workspace that lost its client since the start is told to start over", async () => {
+    const fixed = fixedClients(slack);
+    const api = app(store(), {
+      clients: {
+        clientFor: async () => null,
+        clientForStart: fixed.clientForStart,
+      },
+    });
+    const { code, state, cookie } = await consented(api);
+    const response = await callback(
+      api,
+      { code, state },
+      { ...owner, Cookie: cookie },
+    );
+    expect(response.status).toBe(400);
+    expect((await errorOf(response)).message).toBe(LINK_MESSAGES.expired);
   });
 
   test("hands the store exactly the team and user from the id_token", async () => {

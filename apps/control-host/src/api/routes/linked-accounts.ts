@@ -8,7 +8,11 @@ import {
   unlinkAccountResponseSchema,
 } from "@werft-ai/contracts";
 import type { StructuredLogger } from "@werft-ai/observability";
-import type { LinkedAccountService } from "@werft-ai/platform";
+import type {
+  LinkedAccountService,
+  SlackLinkAppService,
+  SlackLinkClient,
+} from "@werft-ai/platform";
 import {
   ApiHttpError,
   type ApiRouter,
@@ -23,6 +27,7 @@ import {
   SLACK_LINK_TTL_MS,
   type SlackOidcConfig,
   SlackOidcRejectedError,
+  type SlackOidcSettings,
   SlackOidcUnavailableError,
   slackAuthorizeUrl,
 } from "../slack-link.ts";
@@ -31,11 +36,15 @@ import { mapped, requireParams } from "./errors.ts";
 export interface LinkedAccountRouteDeps {
   service: LinkedAccountService;
   /** Null: Sign in with Slack is not configured on this installation. */
-  slack: SlackOidcConfig | null;
+  slack: {
+    issuer: SlackOidcSettings["issuer"];
+    /** Each workspace's OIDC client: its link app, else the fallback. */
+    clients: Pick<SlackLinkAppService, "clientFor" | "clientForStart">;
+  } | null;
   logger?: StructuredLogger;
 }
 
-function slackConfigured(deps: LinkedAccountRouteDeps): SlackOidcConfig {
+function slackConfigured(deps: LinkedAccountRouteDeps) {
   if (!deps.slack) {
     throw new ApiHttpError(
       503,
@@ -45,6 +54,16 @@ function slackConfigured(deps: LinkedAccountRouteDeps): SlackOidcConfig {
   }
   return deps.slack;
 }
+
+const oidcConfig = (
+  slack: NonNullable<LinkedAccountRouteDeps["slack"]>,
+  client: SlackLinkClient,
+): SlackOidcConfig => ({
+  clientId: client.clientId,
+  clientSecret: client.clientSecret,
+  redirectUri: client.redirectUri,
+  issuer: slack.issuer,
+});
 
 export function registerLinkedAccountRoutes(
   router: ApiRouter,
@@ -56,11 +75,13 @@ export function registerLinkedAccountRoutes(
     const { userId, teams } = await mapped(() =>
       deps.service.beginSlackLink(caller),
     );
+    // May make the workspace's link app, so only after the caller may link.
+    const client = await mapped(() => slack.clients.clientForStart(caller));
     const expiresAt = new Date(Date.now() + SLACK_LINK_TTL_MS);
     const issued = issueSlackLinkState(context, userId, expiresAt);
     return jsonWithSchema(context, startSlackLinkResponseSchema, {
       authorize_url: slackAuthorizeUrl(
-        slack,
+        oidcConfig(slack, client),
         issued,
         teams.length === 1 ? (teams[0] ?? null) : null,
       ),
@@ -74,12 +95,20 @@ export function registerLinkedAccountRoutes(
     const body = await parseJsonBody(context, slackLinkCallbackRequestSchema);
     const userId = await mapped(() => deps.service.personFor(caller));
     const issued = consumeSlackLinkState(context, body.state, userId);
-    if (!issued) {
+    // The client the start used, unless the workspace has lost it since.
+    const client = issued
+      ? await mapped(() => slack.clients.clientFor(caller.ownerId))
+      : null;
+    if (!issued || !client) {
       throw new ApiHttpError(400, "BAD_REQUEST", LINK_MESSAGES.expired);
     }
     let verified: Awaited<ReturnType<typeof exchangeSlackCode>>;
     try {
-      verified = await exchangeSlackCode(slack, body.code, issued.nonce);
+      verified = await exchangeSlackCode(
+        oidcConfig(slack, client),
+        body.code,
+        issued.nonce,
+      );
     } catch (error) {
       if (error instanceof SlackOidcRejectedError) {
         deps.logger?.warn("Slack link refused by the IdP", {
