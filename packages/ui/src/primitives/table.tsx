@@ -22,7 +22,7 @@ const CELL_PADDING_X =
 const CELL_VARIANT = {
   default: "",
   actions:
-    "w-px whitespace-nowrap [&_[data-slot=button]:not([data-size=icon])]:min-w-[var(--ap-row-action-min-width)]",
+    "w-px whitespace-nowrap [&_[data-slot=button]:not([data-size^=icon])]:min-w-[var(--ap-row-action-min-width)]",
 } as const;
 
 export type TableCellVariant = keyof typeof CELL_VARIANT;

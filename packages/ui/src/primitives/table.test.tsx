@@ -88,7 +88,7 @@ describe("Table", () => {
       expect(el?.className).toContain("w-px");
       expect(el?.className).toContain("whitespace-nowrap");
       expect(el?.className).toContain(
-        "[&_[data-slot=button]:not([data-size=icon])]:min-w-[var(--ap-row-action-min-width)]",
+        "[&_[data-slot=button]:not([data-size^=icon])]:min-w-[var(--ap-row-action-min-width)]",
       );
     }
     expect(button.getAttribute("data-slot")).toBe("button");
@@ -105,6 +105,9 @@ describe("Table", () => {
               <Button type="button" size="icon" aria-label="이유">
                 i
               </Button>
+              <Button type="button" size="icon-sm" aria-label="복사">
+                c
+              </Button>
               <Button type="button" size="sm">
                 비활성화
               </Button>
@@ -113,11 +116,16 @@ describe("Table", () => {
         </tbody>
       </table>,
     );
-    const icon = getByRole("button", { name: "이유" });
     const labelled = getByRole("button", { name: "비활성화" });
-    const selector = "[data-slot=button]:not([data-size=icon])";
-    expect(icon.matches(selector)).toBe(false);
-    expect(labelled.matches(selector)).toBe(true);
+    // The selector the cell's class actually carries, not a copy of it.
+    const selector = /\[&_(.+)\]:min-w-/.exec(
+      labelled.closest("td")?.className ?? "",
+    )?.[1];
+    expect(selector).toBeDefined();
+    for (const name of ["이유", "복사"]) {
+      expect(getByRole("button", { name }).matches(selector ?? "")).toBe(false);
+    }
+    expect(labelled.matches(selector ?? "")).toBe(true);
   });
 
   test("기본 셀에는 actions 클래스가 붙지 않는다", () => {
