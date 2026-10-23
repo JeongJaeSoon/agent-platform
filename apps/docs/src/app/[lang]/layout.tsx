@@ -1,4 +1,6 @@
 import { DocsLayout } from "fumadocs-ui/layouts/notebook";
+import { LanguageSelect } from "fumadocs-ui/layouts/shared/slots/language-select";
+import { Languages } from "lucide-react";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { Provider } from "@/components/provider";
@@ -43,7 +45,16 @@ export default async function Layout({ children, params }: Props) {
           <DocsLayout
             tree={source.getPageTree(lang)}
             {...base}
-            nav={{ ...nav, mode: "top" }}
+            nav={{
+              ...nav,
+              mode: "top",
+              // Below md the built-in selector sits in the sidebar only.
+              children: (
+                <LanguageSelect className="ms-auto md:hidden">
+                  <Languages className="size-4.5 text-fd-muted-foreground" />
+                </LanguageSelect>
+              ),
+            }}
           >
             {children}
           </DocsLayout>

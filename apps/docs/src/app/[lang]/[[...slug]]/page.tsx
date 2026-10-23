@@ -36,18 +36,23 @@ export default async function Page(props: Props) {
   const page = source.getPage(slug, lang);
   if (!page) notFound();
 
-  const untranslated = isUntranslated(page) ? (
+  // A fallback page shows Korean text; screen readers need to know.
+  const fallback = isUntranslated(page);
+  const contentLang = fallback ? i18n.defaultLanguage : lang;
+  const untranslated = fallback ? (
     <Callout type="info">{messages[lang].untranslated}</Callout>
   ) : null;
 
   if (page.type === "openapi") {
     return (
       <DocsPage full>
-        <DocsTitle>{page.data.title}</DocsTitle>
+        <DocsTitle lang={contentLang}>{page.data.title}</DocsTitle>
         {/* The operation repeats its description, rendered as Markdown. */}
         <DocsBody>
           {untranslated}
-          <OpenAPIPage {...page.data.getOpenAPIPageProps()} />
+          <div lang={contentLang}>
+            <OpenAPIPage {...page.data.getOpenAPIPageProps()} />
+          </div>
         </DocsBody>
       </DocsPage>
     );
@@ -59,8 +64,8 @@ export default async function Page(props: Props) {
     <DocsPage toc={page.data.toc} full={page.data.full ?? isHome}>
       {isHome ? null : (
         <>
-          <DocsTitle>{page.data.title}</DocsTitle>
-          <DocsDescription className="mb-0">
+          <DocsTitle lang={contentLang}>{page.data.title}</DocsTitle>
+          <DocsDescription className="mb-0" lang={contentLang}>
             {page.data.description}
           </DocsDescription>
           <div className="flex flex-row items-center gap-2 border-b pb-6">
@@ -70,13 +75,15 @@ export default async function Page(props: Props) {
       )}
       <DocsBody>
         {untranslated}
-        <MDX
-          components={getMDXComponents({
-            a: createRelativeLink(source, page, localized(Link, lang)),
-            Card: localized(Card, lang),
-            HomeHero: localizedHomeHero(lang),
-          })}
-        />
+        <div lang={contentLang}>
+          <MDX
+            components={getMDXComponents({
+              a: createRelativeLink(source, page, localized(Link, lang)),
+              Card: localized(Card, lang),
+              HomeHero: localizedHomeHero(lang),
+            })}
+          />
+        </div>
       </DocsBody>
     </DocsPage>
   );

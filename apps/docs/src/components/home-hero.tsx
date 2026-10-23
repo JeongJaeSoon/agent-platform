@@ -6,7 +6,10 @@ const button =
 
 export function HomeHero({ lang }: { lang: Locale }) {
   return (
-    <div className="not-prose mb-10 flex flex-col items-start gap-4 border-b pb-10">
+    <div
+      lang={lang}
+      className="not-prose mb-10 flex flex-col items-start gap-4 border-b pb-10"
+    >
       <span className="rounded-full border px-2.5 py-0.5 text-xs font-medium text-fd-muted-foreground">
         private alpha
       </span>

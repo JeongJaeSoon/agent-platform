@@ -103,7 +103,9 @@ export function Provider({
             // Blocked storage: the switch still works, it is just not remembered.
           }
           // Same page in the other language: swap the first path segment.
-          router.push(`/${next}${pathname.slice(lang.length + 1)}`);
+          router.push(
+            `/${next}${pathname.slice(lang.length + 1)}${location.search}${location.hash}`,
+          );
         },
       }}
       // tokens.css switches on data-theme; Fumadocs' own styles on .dark.
