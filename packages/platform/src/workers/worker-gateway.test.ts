@@ -988,7 +988,7 @@ describe("WorkerGateway", () => {
         repositoryMode: "none",
         repositoryId: null,
       }).provider,
-    ).toBe(profileFingerprint(general));
+    ).toBe(v1Opus);
     // A version 2 pin whose model left the list is not run on a guess.
     await expect(
       claimWith({ ...binding, model: "claude-fable-5-1" }),

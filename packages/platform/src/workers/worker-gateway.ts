@@ -636,9 +636,11 @@ export function createWorkerGateway(deps: {
     if (!profile) {
       throw new Error("A claimed session has no runnable profile");
     }
-    // The provider route takes no model of its own, so its token is held to
-    // the settings alone.
-    const provider = profileFingerprint(profile);
+    // The provider route takes no model of its own, so a version 2 token is
+    // held to the settings alone. A session pinned under version 1 keeps
+    // that pin in its token: an API replica from before version 2, still up
+    // during a rollout, accepts only that.
+    const provider = session.profileFingerprint ?? profileFingerprint(profile);
     const object_store = sessionObjectPrefix(session.id);
     const mcp = claimedMcp(session.mcp);
     const mcpBinding = mcp === null ? {} : { mcp: mcp.binding };
