@@ -8,7 +8,11 @@ const meta = {
   argTypes: {
     variant: {
       control: "select",
-      options: ["gray", "blue", "green", "amber", "red"],
+      options: ["gray", "blue", "green", "amber", "red", "mono"],
+    },
+    dot: {
+      control: "select",
+      options: [undefined, "wait", "run", "idle", "done", "failed"],
     },
   },
 } satisfies Meta<typeof Badge>;
@@ -42,4 +46,72 @@ export const TonesDark: Story = {
   ...Tones,
   name: "Tones (dark)",
   globals: { theme: "dark" },
+};
+
+/** Identifiers such as model names, as a chip list (mockup v4). */
+export const Mono: Story = {
+  render: () => (
+    <ul className="m-0 flex list-none flex-wrap gap-1 p-0">
+      {["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"].map(
+        (model) => (
+          <li key={model}>
+            <Badge variant="mono">{model}</Badge>
+          </li>
+        ),
+      )}
+    </ul>
+  ),
+};
+
+export const MonoDark: Story = {
+  ...Mono,
+  name: "Mono (dark)",
+  globals: { theme: "dark" },
+};
+
+const STATUS_LABEL = {
+  ko: ["답변 대기", "실행 중", "쉬는 중", "끝남", "실패"],
+  ja: ["回答待ち", "実行中", "待機中", "完了", "失敗"],
+  en: ["Waiting", "Running", "Idle", "Done", "Failed"],
+} as const;
+
+const DOTS = [
+  { dot: "wait", variant: "amber" },
+  { dot: "run", variant: "blue" },
+  { dot: "idle", variant: "gray" },
+  { dot: "done", variant: "green" },
+  { dot: "failed", variant: "red" },
+] as const;
+
+/** A session's status in its page head: the dot, then the status's name. */
+export const Dots: Story = {
+  render: (_args, { globals }) => {
+    const locale: string = globals.locale;
+    const labels =
+      STATUS_LABEL[locale === "ja" || locale === "en" ? locale : "ko"];
+    return (
+      <div className="story-row">
+        {DOTS.map(({ dot, variant }, index) => (
+          <Badge key={dot} variant={variant} dot={dot}>
+            {labels[index]}
+          </Badge>
+        ))}
+      </div>
+    );
+  },
+};
+
+export const DotsDark: Story = {
+  ...Dots,
+  name: "Dots (dark)",
+  globals: { theme: "dark" },
+};
+
+export const DotsMobile: Story = {
+  ...Dots,
+  name: "Dots (390px)",
+  globals: {
+    locale: "ja",
+    viewport: { value: "mobile390", isRotated: false },
+  },
 };
