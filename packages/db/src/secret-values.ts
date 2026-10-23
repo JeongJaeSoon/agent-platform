@@ -25,6 +25,13 @@ import { receipts, secretValues, users, workspaces } from "./schema.ts";
 
 type Row = typeof secretValues.$inferSelect;
 
+// Postgres returns uuids in lowercase and the AAD and lock key are built from
+// the slot, so a slot named in another case would seal what it cannot open.
+const canonical = (slot: SecretSlot): SecretSlot => ({
+  ...slot,
+  workspaceId: slot.workspaceId.toLowerCase(),
+});
+
 const bySlot = (slot: SecretSlot) =>
   and(
     eq(secretValues.workspaceId, slot.workspaceId),
@@ -183,14 +190,18 @@ export function createPostgresSecretStore(
   }
 
   return {
-    describe: (slot) => summaryOf(db, bySlot(slot)),
+    describe: (slot) => summaryOf(db, bySlot(canonical(slot))),
 
     async get(slot) {
-      const [row] = await db.select().from(secretValues).where(bySlot(slot));
+      const [row] = await db
+        .select()
+        .from(secretValues)
+        .where(bySlot(canonical(slot)));
       return row ? open(row) : null;
     },
 
-    put(slot, value, options) {
+    put(named, value, options) {
+      const slot = canonical(named);
       return db.transaction(async (tx): Promise<PutSecretResult> => {
         const audit = options?.audit;
         if (audit) {
@@ -223,7 +234,8 @@ export function createPostgresSecretStore(
       });
     },
 
-    rotate(slot, next) {
+    rotate(named, next) {
+      const slot = canonical(named);
       return db.transaction(async (tx) => {
         const current = await lockedRow(tx, slot);
         if (!current) return null;
@@ -232,7 +244,8 @@ export function createPostgresSecretStore(
       });
     },
 
-    delete(slot, options) {
+    delete(named, options) {
+      const slot = canonical(named);
       return db.transaction(async (tx) => {
         const audit = options?.audit;
         if (audit) {

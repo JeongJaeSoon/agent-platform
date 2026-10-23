@@ -130,6 +130,20 @@ integration("secret values on PostgreSQL", () => {
     expect(dumped.rows[0].json).not.toContain(value);
   });
 
+  test("a workspace id in any case names the same slot", async () => {
+    const store = createPostgresSecretStore(db, key);
+    const lower = configToken(await workspace());
+    const upper = { ...lower, workspaceId: lower.workspaceId.toUpperCase() };
+    const value = fakeToken();
+    expect(await store.put(upper, value)).toMatchObject({ outcome: "stored" });
+    expect(await store.get(lower)).toBe(value);
+    expect(await store.get(upper)).toBe(value);
+    expect(await store.rotate(lower, async () => fakeToken())).toMatchObject({
+      secretVersion: 2,
+    });
+    expect(await store.delete(upper)).toMatchObject({ outcome: "deleted" });
+  });
+
   test("a replace keeps the row and bumps its version", async () => {
     const store = createPostgresSecretStore(db, key);
     const slot = configToken(await workspace());

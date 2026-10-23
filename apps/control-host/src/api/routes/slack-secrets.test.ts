@@ -146,6 +146,7 @@ function appWith(secretStore: SecretStore | null) {
       csrf?: boolean;
       body?: string;
       workspaceId?: string;
+      headers?: Record<string, string>;
     } = {},
   ) => {
     const response = await app.request(
@@ -163,6 +164,7 @@ function appWith(secretStore: SecretStore | null) {
           ...(options.body === undefined
             ? {}
             : { "Content-Type": "application/json" }),
+          ...options.headers,
         },
         ...(options.body === undefined ? {} : { body: options.body }),
       },
@@ -260,6 +262,19 @@ describe("the Slack config token API", () => {
       });
       expect(response.status).toBe(403);
       expect(code(response.json).message).toContain(CSRF_HEADER_NAME);
+    }
+    const foreign = [
+      { "Sec-Fetch-Site": "cross-site" },
+      { Origin: "https://attacker.example" },
+    ];
+    for (const headers of foreign) {
+      const response = await call("PUT", {
+        cookie: owner,
+        headers,
+        body: put(),
+      });
+      expect(response.status).toBe(403);
+      expect(code(response.json).code).toBe("FORBIDDEN");
     }
     expect(values.size).toBe(0);
   });
