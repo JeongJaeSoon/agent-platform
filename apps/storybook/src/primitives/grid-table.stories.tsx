@@ -446,7 +446,8 @@ export const ClickableRows: Story = {
     // centre, the row's opener over the plain cells.
     const row = canvasElement.querySelectorAll("[role=row]")[1];
     const button = row?.querySelector("button");
-    const plain = row?.querySelectorAll("[role=cell]")[2];
+    // The last cell: never hidden when narrow.
+    const plain = row?.querySelector("[role=cell]:last-child");
     if (!(button && plain)) throw new Error("no row");
     const hit = (element: Element) => {
       const box = element.getBoundingClientRect();
