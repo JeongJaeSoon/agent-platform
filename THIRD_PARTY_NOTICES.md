@@ -119,11 +119,9 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | @radix-ui/react-dialog | 1.1.23 | MIT | worker |
 | @radix-ui/react-direction | 1.1.4 | MIT | worker |
 | @radix-ui/react-dismissable-layer | 1.1.19 | MIT | worker |
-| @radix-ui/react-dropdown-menu | 2.1.24 | MIT | worker |
 | @radix-ui/react-focus-guards | 1.1.6 | MIT | worker |
 | @radix-ui/react-focus-scope | 1.1.16 | MIT | worker |
 | @radix-ui/react-id | 1.1.4 | MIT | worker |
-| @radix-ui/react-menu | 2.1.24 | MIT | worker |
 | @radix-ui/react-popover | 1.1.23 | MIT | worker |
 | @radix-ui/react-popper | 1.3.7 | MIT | worker |
 | @radix-ui/react-portal | 1.1.17 | MIT | worker |

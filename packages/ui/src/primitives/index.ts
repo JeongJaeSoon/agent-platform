@@ -21,13 +21,6 @@ export {
   DialogTrigger,
 } from "./dialog.tsx";
 export {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "./dropdown-menu.tsx";
-export {
   Field,
   FieldContent,
   FieldDescription,
