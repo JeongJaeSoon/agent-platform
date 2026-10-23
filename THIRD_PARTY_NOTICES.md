@@ -83,6 +83,10 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | @aws/lambda-invoke-store | 0.3.0 | Apache-2.0 | control-host, worker |
 | @babel/runtime | 7.29.7 | MIT | worker |
 | @electric-sql/pglite | 0.3.10 | Apache-2.0 | control-host, worker |
+| @floating-ui/core | 1.8.0 | MIT | worker |
+| @floating-ui/dom | 1.8.0 | MIT | worker |
+| @floating-ui/react-dom | 2.1.9 | MIT | worker |
+| @floating-ui/utils | 0.2.12 | MIT | worker |
 | @hono/node-server | 2.1.1 | MIT | worker |
 | @hono/zod-openapi | 1.6.3 | MIT | control-host, worker |
 | @hono/zod-validator | 0.9.1 | MIT | control-host, worker |
@@ -107,6 +111,7 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | @octokit/types | 18.0.0 | MIT | control-host, worker |
 | @opentelemetry/api | 1.9.0 | Apache-2.0 | control-host, worker |
 | @radix-ui/primitive | 1.1.7 | MIT | worker |
+| @radix-ui/react-arrow | 1.1.15 | MIT | worker |
 | @radix-ui/react-checkbox | 1.3.11 | MIT | worker |
 | @radix-ui/react-collection | 1.1.15 | MIT | worker |
 | @radix-ui/react-compose-refs | 1.1.5 | MIT | worker |
@@ -117,6 +122,8 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | @radix-ui/react-focus-guards | 1.1.6 | MIT | worker |
 | @radix-ui/react-focus-scope | 1.1.16 | MIT | worker |
 | @radix-ui/react-id | 1.1.4 | MIT | worker |
+| @radix-ui/react-popover | 1.1.23 | MIT | worker |
+| @radix-ui/react-popper | 1.3.7 | MIT | worker |
 | @radix-ui/react-portal | 1.1.17 | MIT | worker |
 | @radix-ui/react-presence | 1.1.10 | MIT | worker |
 | @radix-ui/react-primitive | 2.1.10 | MIT | worker |
@@ -129,7 +136,9 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | @radix-ui/react-use-effect-event | 0.0.5 | MIT | worker |
 | @radix-ui/react-use-is-hydrated | 0.1.3 | MIT | worker |
 | @radix-ui/react-use-layout-effect | 1.1.4 | MIT | worker |
+| @radix-ui/react-use-rect | 1.1.4 | MIT | worker |
 | @radix-ui/react-use-size | 1.1.4 | MIT | worker |
+| @radix-ui/rect | 1.1.3 | MIT | worker |
 | @smithy/core | 3.34.1 | Apache-2.0 | control-host, worker |
 | @smithy/core | 3.35.0 | Apache-2.0 | control-host, worker |
 | @smithy/credential-provider-imds | 4.5.2 | Apache-2.0 | control-host, worker |

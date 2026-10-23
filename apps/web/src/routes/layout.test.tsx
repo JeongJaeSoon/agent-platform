@@ -98,16 +98,12 @@ describe("app shell", () => {
     );
   });
 
-  test("new is offered on the list screens to whoever may create agents", async () => {
+  test("the top bar makes nothing; each list offers its own", async () => {
     renderAt("/sessions", signedIn);
     const [header] = await screen.findAllByRole("banner");
-    expect(
-      (
-        await within(header as HTMLElement).findByRole("link", {
-          name: "새로 만들기",
-        })
-      ).getAttribute("href"),
-    ).toBe("/agents/new");
+    await within(header as HTMLElement).findByText("세션");
+    expect(within(header as HTMLElement).queryByRole("link")).toBeNull();
+    expect(within(header as HTMLElement).queryByText("새로 만들기")).toBeNull();
   });
 
   test("the sessions item counts the sessions waiting for an answer", async () => {

@@ -136,18 +136,25 @@ describe("구성원 화면", () => {
     expect(patch?.headers.get("x-requested-with")).toBe("agent-platform-web");
   });
 
-  test("마지막 소유자(409 LAST_OWNER)는 그 이유를 보인다", async () => {
+  test("마지막 소유자(409 LAST_OWNER)는 행이 미리 막는 이유와 같은 말로 보인다", async () => {
+    // The list still showed two owners when the other one left.
+    const boss = member({
+      user_id: GONE_ID,
+      email: "boss@example.com",
+      display_name: "Boss",
+      role: "owner",
+    });
     renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner, teammate] }),
+      "GET /v1/members": () => json(200, { items: [owner, boss, teammate] }),
       ...noInvites,
-      [`PATCH /v1/members/${USER_ID}`]: () =>
+      [`PATCH /v1/members/${GONE_ID}`]: () =>
         apiError(409, "LAST_OWNER", "The last owner cannot be demoted"),
     });
     const user = await setupUser();
-    await changeRole(user, "Owner의 역할", "member");
-    expect((await screen.findByRole("alert")).textContent).toContain(
-      "마지막 소유자는 역할을 바꾸거나 비활성화할 수 없습니다",
+    await changeRole(user, "Boss의 역할", "member");
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "하나뿐인 소유자의 역할은 바꿀 수 없습니다 — 다른 사람을 먼저 소유자로 정하세요.",
     );
   });
 
@@ -440,10 +447,86 @@ describe("되돌리기 어려운 동작의 확인", () => {
     });
     expect(await reasonOf("Boss")).toEqual({
       disabled: true,
-      reason:
-        "하나뿐인 소유자는 비활성화할 수 없습니다 — 다른 사람을 먼저 소유자로 정하세요.",
+      reason: "소유자는 관리자가 비활성화할 수 없습니다.",
     });
     expect((await reasonOf("Mate")).disabled).toBe(false);
+  });
+
+  test("비활성 소유자의 역할 select는 그리지 않은 이유를 가리키지 않는다", async () => {
+    renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me(undefined, "admin")),
+      "GET /v1/members": () =>
+        json(200, {
+          items: [
+            { ...owner, role: "admin" },
+            {
+              ...gone,
+              display_name: "Boss",
+              role: "owner",
+            },
+          ],
+        }),
+      ...noInvites,
+    });
+    const select = await screen.findByLabelText("Boss의 역할");
+    expect((select as HTMLSelectElement).disabled).toBe(true);
+    const describedBy = select.getAttribute("aria-describedby");
+    expect(
+      describedBy === null || document.getElementById(describedBy) !== null,
+    ).toBe(true);
+  });
+
+  test("역할도 같은 규칙으로 막고, 이유는 행 높이를 바꾸지 않는 안내 버튼 뒤에 둔다", async () => {
+    const boss = member({
+      user_id: GONE_ID,
+      email: "boss@example.com",
+      display_name: "Boss",
+      role: "owner",
+    });
+    renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me(undefined, "admin")),
+      "GET /v1/members": () =>
+        json(200, { items: [{ ...owner, role: "admin" }, boss, teammate] }),
+      ...noInvites,
+    });
+    const roleOf = async (name: string) => {
+      const select = (await screen.findByLabelText(
+        `${name}의 역할`,
+      )) as HTMLSelectElement;
+      return {
+        disabled: select.disabled,
+        reason: document.getElementById(
+          select.getAttribute("aria-describedby") ?? "",
+        )?.textContent,
+      };
+    };
+    expect(await roleOf("Owner")).toEqual({
+      disabled: true,
+      reason: "자기 자신의 역할은 바꿀 수 없습니다.",
+    });
+    expect(await roleOf("Boss")).toEqual({
+      disabled: true,
+      reason: "소유자의 역할은 관리자가 바꿀 수 없습니다.",
+    });
+    expect((await roleOf("Mate")).disabled).toBe(false);
+
+    // Nothing under the control: the reason opens from the keyboard.
+    const why = screen.getByRole("button", {
+      name: "Boss을(를) 비활성화할 수 없는 이유",
+    });
+    expect(why.closest("td")?.textContent).toBe(
+      "비활성화소유자는 관리자가 비활성화할 수 없습니다.",
+    );
+    const user = await setupUser();
+    why.focus();
+    await user.keyboard("{Enter}");
+    const note = await screen.findByRole("dialog", {
+      name: "Boss을(를) 비활성화할 수 없는 이유",
+    });
+    expect(note.textContent).toBe("소유자는 관리자가 비활성화할 수 없습니다.");
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(document.activeElement).toBe(why);
   });
 });
 

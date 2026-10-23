@@ -83,9 +83,8 @@ export function AgentsScreen() {
     <Page
       title={t("agents.title")}
       description={t("agents.intro")}
-      // The top bar's "new" makes an agent; who may not, sees why here.
       actions={
-        failed || reason === undefined ? undefined : (
+        failed ? undefined : (
           <ReasonButton
             className={buttonVariants()}
             reason={reason}

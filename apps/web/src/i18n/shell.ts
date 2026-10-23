@@ -13,7 +13,6 @@ export const shellKo = {
   "shell.waiting": "답변 대기 {count}개",
   "shell.waitingMore": "답변 대기 {count}개 이상",
   "shell.waitingNone": "답변 대기 없음",
-  "shell.new": "새로 만들기",
 };
 
 export const shellEn: Record<keyof typeof shellKo, string> = {
@@ -31,7 +30,6 @@ export const shellEn: Record<keyof typeof shellKo, string> = {
   "shell.waiting": "{count} waiting for an answer",
   "shell.waitingMore": "{count}+ waiting for an answer",
   "shell.waitingNone": "Nothing waiting for an answer",
-  "shell.new": "New",
 };
 
 export const shellJa: Record<keyof typeof shellKo, string> = {
@@ -49,5 +47,4 @@ export const shellJa: Record<keyof typeof shellKo, string> = {
   "shell.waiting": "回答待ち {count}件",
   "shell.waitingMore": "回答待ち {count}件以上",
   "shell.waitingNone": "回答待ちはありません",
-  "shell.new": "新規作成",
 };
