@@ -52,6 +52,11 @@ describe("ApprovalCard", () => {
         now={NOW}
       />,
     );
+    // The scrollable input is the first stop, then the actions.
+    await user.tab();
+    expect(document.activeElement?.getAttribute("data-slot")).toBe(
+      "approval-input",
+    );
     await user.tab();
     expect(document.activeElement?.textContent).toBe("Allow");
     await user.keyboard("{Enter}");

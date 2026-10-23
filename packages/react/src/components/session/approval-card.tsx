@@ -159,11 +159,12 @@ export function ApprovalCard({
         </span>
       </div>
       <p className="sr-only">{messages.input}</p>
-      {/* Browsers that scroll it also let the keyboard reach it; -1 lets a
-          screen hand focus here while the buttons are off. */}
       <pre
         data-slot="approval-input"
-        tabIndex={-1}
+        // A long input scrolls; the keyboard must reach all of it before
+        // the answer, as the folded view used to let it.
+        // biome-ignore lint/a11y/noNoninteractiveTabindex: a scrollable region
+        tabIndex={0}
         className="m-0 max-h-60 overflow-auto whitespace-pre-wrap rounded-control border bg-card px-3 py-2 font-mono text-caption leading-[1.6] [overflow-wrap:anywhere]"
       >
         {inputText(request.input)}
