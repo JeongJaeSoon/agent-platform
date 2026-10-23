@@ -36,7 +36,7 @@ export function shownVersion(detail: AgentDetail) {
   );
 }
 
-/** The overview's three figures: what runs, what is newest, what waits. */
+/** The overview's figures: what runs and what is newest. */
 export function AgentGlance({ detail }: { readonly detail: AgentDetail }) {
   const { t, locale } = useI18n();
   const { agent } = detail;
@@ -47,7 +47,7 @@ export function AgentGlance({ detail }: { readonly detail: AgentDetail }) {
   return (
     <ul
       aria-label={t("agent.glance.label")}
-      className="m-0 grid list-none grid-cols-1 items-stretch gap-4 p-0 @[720px]:grid-cols-3"
+      className="m-0 grid list-none grid-cols-1 items-stretch gap-4 p-0 @[720px]:grid-cols-2"
     >
       <Figure
         label={t("agent.glance.active")}
@@ -88,26 +88,17 @@ export function AgentGlance({ detail }: { readonly detail: AgentDetail }) {
             : t("agent.noActive")
         }
       />
-      <Figure
-        label={t("agent.glance.waiting")}
-        tag={t("agents.cards.unmeasured")}
-        value="—"
-        muted
-        note={t("agent.glance.waitingNote")}
-      />
     </ul>
   );
 }
 
 function Figure({
   label,
-  tag,
   value,
   muted,
   note,
 }: {
   readonly label: string;
-  readonly tag?: string;
   readonly value: string;
   readonly muted: boolean;
   readonly note: string;
@@ -117,7 +108,6 @@ function Figure({
       <Card className="h-full gap-3 p-4">
         <p className="m-0 flex items-center gap-2 text-control text-muted-foreground">
           {label}
-          {tag ? <Badge variant="gray">{tag}</Badge> : null}
         </p>
         <p
           className={cn(

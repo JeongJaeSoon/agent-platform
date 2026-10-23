@@ -471,7 +471,9 @@ function AgentView({
         </span>
       }
       actions={
-        <>
+        // Narrow screens stack the buttons and wrap the reason under its
+        // button, so the title keeps the width of the row.
+        <div className="flex items-start gap-2 max-sm:w-min max-sm:flex-col max-sm:items-end">
           <Link to="/agents" className={buttonVariants({ variant: "outline" })}>
             <ArrowLeft aria-hidden="true" />
             {t("agent.back")}
@@ -482,7 +484,7 @@ function AgentView({
           >
             {t("agent.newSession")}
           </ReasonButton>
-        </>
+        </div>
       }
     >
       <OutcomeLine outcome={placed?.at === "page" ? placed.outcome : null} />

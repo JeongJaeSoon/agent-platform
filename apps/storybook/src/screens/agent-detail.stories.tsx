@@ -93,7 +93,7 @@ function Head({
       description={
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant={agent.released ? "green" : "gray"}>
-            {agent.released ? "사용 중" : "아직 쓸 수 없음"}
+            {agent.released ? "활성" : "아직 쓸 수 없음"}
           </Badge>
           {CARD.role}
           <PartRequest name="Avatar" />
@@ -250,7 +250,7 @@ function Overview({ agent }: { readonly agent: Agent }) {
     <div className="@container flex flex-col gap-8">
       <div className="flex flex-col gap-3">
         <PartRequest name="StatCard" />
-        <div className="grid grid-cols-1 gap-4 @[720px]:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 @[720px]:grid-cols-2">
           <Figure
             label="배포된 버전"
             value={agent.released ? "version 2" : "없음"}
@@ -269,13 +269,6 @@ function Overview({ agent }: { readonly agent: Agent }) {
                 ? "2026. 10. 22. 오후 2:00 · 새 세션은 최신 version으로 시작합니다."
                 : "2026. 10. 22. 오후 2:00 · 아직 배포하지 않았습니다."
             }
-          />
-          <Figure
-            label="답변 대기"
-            tag={API_CHANGE}
-            value="답변 대기: API 변경 필요"
-            muted
-            note="이 에이전트의 세션을 세는 API가 아직 없습니다."
           />
         </div>
       </div>

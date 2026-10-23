@@ -137,7 +137,7 @@ describe("에이전트 상세 탭", () => {
     expect(document.activeElement === releaseTab).toBe(true);
   });
 
-  test("개요는 버전 두 장과 답변 대기의 이유를 보이고, 최근 세션은 API가 없다고 한다", async () => {
+  test("개요는 값이 있는 버전 카드 두 장만 보이고, 최근 세션은 API가 없다고 한다", async () => {
     renderAt(DETAIL, { ...meOk, ...agentServer().routes });
     const glance = await screen.findByRole("list", { name: "에이전트 현황" });
     const figures = within(glance)
@@ -146,9 +146,7 @@ describe("에이전트 상세 탭", () => {
     expect(figures[0]).toContain("배포된 버전");
     expect(figures[0]).toContain("없음");
     expect(figures[1]).toContain("version 1");
-    expect(figures[2]).toContain(
-      "이 에이전트의 세션을 세는 API가 아직 없습니다.",
-    );
+    expect(figures).toHaveLength(2);
     const recent = screen
       .getByRole("heading", { name: "최근 세션" })
       .closest("section") as HTMLElement;
