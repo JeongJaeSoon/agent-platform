@@ -36,13 +36,13 @@ agent-platform 콘솔이 쓰는 UI 키트다. 사이드바는 패키지의 층�
 
 ## 쓰는 쪽이 갖출 의존성
 
-지금 `package.json` 기준이다. 두 패키지 모두 `peerDependencies`를 아직 선언하지 않는다.
+지금 `package.json` 기준이다.
 
-`@werft-ai/ui`는 `react`·`react-dom`(`^19.3.0`)과 Radix·`class-variance-authority`·`clsx`·`tailwind-merge`를 `dependencies`로 함께 설치한다.
-앱의 React와 사본이 둘이 되면 hook이 깨지므로 앱의 React 버전을 맞춘다. 키트가 import하지만 선언하지 않아 쓰는 쪽이 설치할 것은 다음과 같다.
+`@werft-ai/ui`는 `react`·`react-dom`(`^19.3.0`)을 `peerDependencies`로 받는다. 앱의 React를 그대로 쓰며, 사본이 둘이 되면 hook이 깨진다.
+Radix·`class-variance-authority`·`clsx`·`tailwind-merge`·`lucide-react`는 `dependencies`로 함께 설치된다. 쓰는 쪽이 따로 설치할 것은 다음과 같다.
 
-- `lucide-react` — `Checkbox`·`RadioGroup`·`NativeSelect`·`Stepper`의 아이콘.
-- `pretendard` — `styles.css`가 import하는 `fonts.css`의 한글 글꼴.
+- `react`·`react-dom` 19 — peer.
+- `pretendard` — `styles.css`가 import하는 `fonts.css`의 한글 글꼴(아직 `devDependencies`에 있다).
 - `tailwindcss` 4 — 아래 CSS 경로 1.
 
 `@werft-ai/react`는 런타임 의존성을 하나도 선언하지 않는다(모두 `devDependencies`). 쓰는 쪽이 설치할 것은
