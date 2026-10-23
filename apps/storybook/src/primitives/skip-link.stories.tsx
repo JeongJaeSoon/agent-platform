@@ -48,6 +48,7 @@ export const Focused: Story = {
     // Unfocused it sits -200% of its own height up.
     await expect(shown.top - hidden.top).toBeCloseTo(2 * shown.height, 0);
     await expect(shown.top).toBeGreaterThanOrEqual(0);
+    await expect(getComputedStyle(link).outlineStyle).toBe("solid");
   },
 };
 

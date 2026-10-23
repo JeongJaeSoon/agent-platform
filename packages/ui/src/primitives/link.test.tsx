@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { type ComponentProps, createRef, type JSX } from "react";
+import {
+  type ComponentProps,
+  createRef,
+  type JSX,
+  type ReactNode,
+} from "react";
 
 import { setupDom, setupUser } from "../test-support/dom.ts";
 
@@ -7,19 +12,28 @@ const { render } = await setupDom();
 const { Link, SkipLink } = await import("./link.tsx");
 
 // The shape of TanStack Router's <Link>: `to` becomes href, it adds its own
-// class and attributes, and it forwards the ref to its <a>.
+// class and attributes, forwards the ref to its <a>, and its children may be
+// a function of the link's state.
 function RouterLink({
   to,
   className,
+  children,
   ...props
-}: Omit<ComponentProps<"a">, "href"> & { readonly to: string }): JSX.Element {
+}: Omit<ComponentProps<"a">, "href" | "children"> & {
+  readonly to: string;
+  readonly children?:
+    | ReactNode
+    | ((state: { readonly isActive: boolean }) => ReactNode);
+}): JSX.Element {
   return (
     <a
       href={to}
       className={["router-link", className].filter(Boolean).join(" ")}
       data-status="active"
       {...props}
-    />
+    >
+      {typeof children === "function" ? children({ isActive: true }) : children}
+    </a>
   );
 }
 
@@ -97,6 +111,47 @@ describe("Link", () => {
     const rel = container.querySelector("a")?.getAttribute("rel") ?? "";
     expect(rel.split(" ").sort()).toEqual([
       "external",
+      "noopener",
+      "noreferrer",
+    ]);
+  });
+
+  test("asChild 라우터 링크의 함수형 children을 그대로 넘긴다", () => {
+    const { getByRole } = render(
+      <Link asChild={true}>
+        <RouterLink to="/teams">
+          {({ isActive }) => (isActive ? "현재 팀" : "팀")}
+        </RouterLink>
+      </Link>,
+    );
+    expect(getByRole("link").textContent).toBe("현재 팀");
+  });
+
+  test("함수형 children 뒤에도 새 탭 안내 문구가 붙는다", () => {
+    const { getByRole } = render(
+      <Link asChild={true} newTabLabel="(새 탭에서 열림)">
+        <RouterLink to="/docs" target="_blank" rel="noreferrer">
+          {({ isActive }) => (isActive ? "현재 문서" : "문서")}
+        </RouterLink>
+      </Link>,
+    );
+    expect(
+      getByRole("link", { name: "현재 문서 (새 탭에서 열림)" }),
+    ).toBeTruthy();
+  });
+
+  test("asChild에서 Link와 자식의 rel 토큰을 모두 지킨다", () => {
+    const { getByRole } = render(
+      <Link asChild={true} target="_blank" rel="nofollow">
+        <a href="https://example.com" rel="external">
+          문서
+        </a>
+      </Link>,
+    );
+    const rel = getByRole("link").getAttribute("rel") ?? "";
+    expect(rel.split(" ").sort()).toEqual([
+      "external",
+      "nofollow",
       "noopener",
       "noreferrer",
     ]);

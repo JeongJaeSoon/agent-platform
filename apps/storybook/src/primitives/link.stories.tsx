@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Link } from "@werft-ai/ui";
 import type { ComponentProps, JSX } from "react";
+import { expect, userEvent, within } from "storybook/test";
 
 const meta = {
   title: "Primitives/Link",
@@ -57,6 +58,15 @@ export const Default: Story = {
   render: (args, { globals }) => (
     <Link {...args}>{copyFor(globals.locale).team}</Link>
   ),
+  play: async ({ canvasElement }) => {
+    await userEvent.tab();
+    const link = within(canvasElement).getByRole("link");
+    await expect(link).toHaveFocus();
+    const style = getComputedStyle(link);
+    await expect(style.outlineStyle).toBe("solid");
+    await expect(style.outlineWidth).toBe("2px");
+    await expect(style.outlineOffset).toBe("2px");
+  },
 };
 
 export const Japanese: Story = { ...Default, globals: { locale: "ja" } };

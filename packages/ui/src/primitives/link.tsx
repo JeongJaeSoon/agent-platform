@@ -1,4 +1,4 @@
-import { Slot, Slottable } from "@radix-ui/react-slot";
+import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
 import {
   type ComponentProps,
@@ -11,9 +11,10 @@ import {
 import { cn } from "../foundations/cn.ts";
 
 // The focus outline apps/web draws on every focusable element, kept on the
-// part so a host without that global rule still shows it.
+// part so a host without that global rule still shows it. No `outline-none`:
+// Tailwind 4 carries its `none` into `outline-2`.
 const FOCUS_OUTLINE =
-  "outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring";
+  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring";
 
 /*
  * Console v35 links: `hover` is the standalone link (a name in a list, a
@@ -33,11 +34,17 @@ export const linkVariants = cva(
   },
 );
 
-type AnchorAttributes = Pick<ComponentProps<"a">, "rel" | "target">;
+// A router link's children may be a function of its state.
+type ChildProps = Pick<ComponentProps<"a">, "rel" | "target"> & {
+  readonly children?: unknown;
+};
 
 export type LinkProps = ComponentProps<"a"> &
   VariantProps<typeof linkVariants> & {
-    /** Render the single child (a router link) with the link's look. */
+    /**
+     * Render the single child (a router link) with the link's look. A rel the
+     * router adds later, such as TanStack's `activeProps`, is out of reach.
+     */
     readonly asChild?: boolean;
     /**
      * Screen-reader text appended when the link opens a new tab, e.g.
@@ -48,12 +55,30 @@ export type LinkProps = ComponentProps<"a"> &
 
 // A new tab must not get `window.opener` or the referrer, whatever rel the
 // caller passed.
-function safeRel(target: string | undefined, rel: string | undefined) {
-  if (target !== "_blank") return rel;
-  const tokens = new Set((rel ?? "").split(/\s+/).filter(Boolean));
-  tokens.add("noopener");
-  tokens.add("noreferrer");
-  return [...tokens].join(" ");
+function safeRel(target: string | undefined, ...rels: (string | undefined)[]) {
+  const tokens = new Set(rels.join(" ").split(/\s+/).filter(Boolean));
+  if (target === "_blank") {
+    tokens.add("noopener");
+    tokens.add("noreferrer");
+  }
+  return tokens.size > 0 ? [...tokens].join(" ") : undefined;
+}
+
+function withLabel(children: unknown, label: ReactNode): unknown {
+  if (typeof children !== "function") {
+    return (
+      <>
+        {children as ReactNode}
+        {label}
+      </>
+    );
+  }
+  return (...args: unknown[]) => (
+    <>
+      {children(...args)}
+      {label}
+    </>
+  );
 }
 
 export function Link({
@@ -64,27 +89,40 @@ export function Link({
   children,
   ...props
 }: LinkProps): JSX.Element {
-  // With asChild the child's own target and rel win the prop merge, so the
-  // rel fix goes onto the child itself.
+  // Slot lets the child's own target and rel win, and would turn a router
+  // link's function children into an array, so the child is rewritten here
+  // and handed to Slot whole.
   const child =
-    asChild && isValidElement<AnchorAttributes>(children) ? children : null;
+    asChild && isValidElement<ChildProps>(children) ? children : null;
   const target = child?.props.target ?? props.target;
-  const rel = safeRel(target, child?.props.rel ?? props.rel);
+  const rel = safeRel(target, props.rel, child?.props.rel);
   const label =
     target === "_blank" && newTabLabel != null ? (
       <span className="sr-only">{newTabLabel}</span>
     ) : null;
-  const Comp = asChild ? Slot : "a";
+  const shared = {
+    "data-slot": "link",
+    className: cn(linkVariants({ underline }), className),
+    ...props,
+    rel,
+  };
+  if (child) {
+    return (
+      <Slot {...shared}>
+        {cloneElement(
+          child,
+          label
+            ? { rel, children: withLabel(child.props.children, label) }
+            : { rel },
+        )}
+      </Slot>
+    );
+  }
   return (
-    <Comp
-      data-slot="link"
-      className={cn(linkVariants({ underline }), className)}
-      {...props}
-      rel={rel}
-    >
-      <Slottable>{child ? cloneElement(child, { rel }) : children}</Slottable>
+    <a {...shared}>
+      {children}
       {label}
-    </Comp>
+    </a>
   );
 }
 
