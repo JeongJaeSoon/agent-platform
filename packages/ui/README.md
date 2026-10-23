@@ -12,7 +12,7 @@
 - 런타임 의존성은 shadcn/ui가 쓰는
   `@radix-ui/react-checkbox`·`@radix-ui/react-dialog`·`@radix-ui/react-radio-group`·`@radix-ui/react-slot`·`@radix-ui/react-tabs`·`class-variance-authority`·`clsx`·`tailwind-merge`,
   아이콘 `lucide-react`뿐이다. 런타임에 import하는 패키지는 devDependencies가 아니라 여기에 둔다.
-  예외는 `fonts.css`가 `@import`하는 `pretendard`다. 폰트를 배포물에 어떻게 실을지 정할 때까지 devDependencies에 둔다.
+  예외는 `fonts.css`가 `@import`하는 `pretendard`다. 배포물에는 폰트를 싣지 않으므로(아래 "배포 산출물") devDependencies에 둔다.
 - Radix는 `src/primitives/` 안에서만 import한다. Dialog 구현이 둘이 되지 않게 하려는 것이다.
 - `src/package.test.ts`가 이 경계를 검사한다. 새 의존성을 넣으려면 그 테스트를 먼저 고쳐야 한다.
   worker 이미지는 모든 workspace의 dependencies를 설치하므로, 새 의존성은 `bun scripts/third-party-notices.ts`로
@@ -66,6 +66,27 @@ Tailwind의 `dark:`는 수동 전환(`data-theme`)을 보지 못하기 때문이
 - `./test-support/dom`·`./test-support/html`은 이 저장소의 테스트(`apps/*`·`packages/*`)만 쓰는 도우미다. 공개 API가 아니고,
   배포용 package.json에서는 뺀다.
 - 패키지는 아직 `private`다. exports가 `src`를 가리켜 워크스페이스는 빌드 없이 소스를 읽는다.
+
+## 배포 산출물
+
+```bash
+bun run --cwd packages/ui build:package   # → packages/ui/dist
+npm pack --dry-run ./packages/ui/dist     # tarball에 들어갈 파일
+bun scripts/ui-pack-smoke.ts              # 빈 Vite+React 앱에 설치해 렌더 (node·npm·Chrome 필요)
+```
+
+`scripts/build-package.ts`가 `dist/`를 처음부터 다시 만든다. 게시는 하지 않는다. 레지스트리 설정이 없고, 게시는 사람이 정한다.
+
+- JS·d.ts: tsdown(unbundle)이 소스 파일마다 `.js`·`.d.ts` 하나씩 만든다. `__fixtures__`·`test-support`·테스트는 빠진다.
+- `styles.css`: Tailwind CLI로 미리 빌드한 CSS. 토큰·`ap-*` 규칙·키트가 쓰는 유틸리티가 들어 있어 Tailwind 없는 앱도
+  `import "@werft-ai/ui/styles.css"` 한 줄로 그려진다. preflight는 넣지 않는다(쓰는 쪽 앱의 전역 스타일을 바꾸지 않는다).
+  대신 키트 요소(`[data-slot]`)에만 `box-sizing: border-box; border: 0 solid`를 건다. 이게 없으면 브라우저 기본 스타일이
+  `<button>`에 2px outset 테두리를 그린다.
+- `tokens.css`·`theme.css`: 소스 그대로. Tailwind v4 앱은 `styles.css` 뒤에 `theme.css`를 import하면 같은 유틸리티 이름을 쓸 수 있다.
+- 폰트는 싣지 않는다. `styles.css`의 `fonts.css` import를 빼고 빌드하므로 `--ap-font-sans`·`--ap-font-mono`는 쓰는 쪽 앱이
+  Geist·Pretendard를 로드하지 않으면 시스템 폰트로 떨어진다. `pretendard`도 배포 package.json의 의존성이 아니다.
+- `package.json`: 저장소 것에서 만든다. exports는 `dist` 파일을 가리키고 `./test-support/*`는 뺀다. `react`·`react-dom`은 peer 그대로다.
+- `LICENSE`: 저장소 루트 것을 복사한다.
 
 ## 토큰
 
