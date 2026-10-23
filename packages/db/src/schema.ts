@@ -3,10 +3,17 @@ import {
   AGENT_IDENTITY_PROVIDER_VALUES,
   AGENT_IDENTITY_STATUS_VALUES,
   AGENT_STATUS_VALUES,
+  BINDING_MODE_VALUES,
+  MEMORY_WRITE_POLICY_VALUES,
   OPEN_PUSH_REQUEST_STATES,
   PUSH_REQUEST_STATE_VALUES,
   RECEIPT_STATUS_VALUES,
   SESSION_STATUS_VALUES,
+  SLACK_SURFACE_ACTION_VALUES,
+  SURFACE_BINDING_STATUS_VALUES,
+  SURFACE_CHANNEL_KIND_VALUES,
+  SURFACE_DISCLOSURE_VALUES,
+  SURFACE_KIND_VALUES,
 } from "@werft-ai/contracts";
 import { sql } from "drizzle-orm";
 import {
@@ -1942,6 +1949,113 @@ export const agentIdentities = pgTable(
       "agent_identities_credential_ref_check",
       sql`${table.credentialRef} ~ '^[a-z0-9][a-z0-9._:/-]{0,127}$'`,
     ),
+  ],
+);
+
+// How an agent answers in one place of a chat surface (03 §5, 94S-177): a
+// Slack channel of its app's install, or that install's DMs, which share one
+// row with no channel id. Rows are revoked, never deleted; a write replaces
+// the row and bumps `revision`. The install is the agent's own: the store
+// takes it from the agent's live identity.
+export const surfaceBindings = pgTable(
+  "surface_bindings",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id").notNull(),
+    agentId: uuid("agent_id").notNull(),
+    surface: text().$type<"web" | "slack" | "api">().notNull().default("slack"),
+    installationId: uuid("installation_id"),
+    externalSurfaceId: text("external_surface_id"),
+    surfaceKind: text("surface_kind").$type<
+      "public_channel" | "private_channel" | "dm"
+    >(),
+    mode: text().$type<"off" | "mention" | "ambient">().notNull(),
+    /** The channel's ceiling; `surfaceCeilingSchema` split in two columns. */
+    ceilingActions: text("ceiling_actions").array().notNull(),
+    ceilingDisclosure: text("ceiling_disclosure")
+      .$type<"full" | "summary">()
+      .notNull(),
+    home: boolean().notNull().default(false),
+    memoryWritePolicy: text("memory_write_policy")
+      .$type<"deny" | "allow_explicit">()
+      .notNull()
+      .default("deny"),
+    status: text()
+      .$type<"ready" | "partial" | "failed" | "revoked">()
+      .notNull()
+      .default("ready"),
+    muted: boolean().notNull().default(false),
+    revision: integer().notNull().default(1),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (table) => [
+    foreignKey({
+      name: "surface_bindings_agent_fk",
+      columns: [table.workspaceId, table.agentId],
+      foreignColumns: [agents.workspaceId, agents.id],
+    }),
+    foreignKey({
+      name: "surface_bindings_installation_fk",
+      columns: [table.workspaceId, table.installationId],
+      foreignColumns: [slackInstallations.workspaceId, slackInstallations.id],
+    }),
+    // One live binding per channel of an install, and one DM row.
+    uniqueIndex("surface_bindings_channel_live_uniq")
+      .on(table.installationId, table.externalSurfaceId)
+      .where(sql`${table.revokedAt} IS NULL`),
+    uniqueIndex("surface_bindings_dm_live_uniq")
+      .on(table.installationId)
+      .where(sql`${table.surfaceKind} = 'dm' AND ${table.revokedAt} IS NULL`),
+    uniqueIndex("surface_bindings_home_live_uniq")
+      .on(table.agentId)
+      .where(sql`${table.home} AND ${table.revokedAt} IS NULL`),
+    index("surface_bindings_agent_idx").on(table.agentId),
+    check(
+      "surface_bindings_surface_check",
+      sql`${table.surface} IN (${sql.raw(sqlList(SURFACE_KIND_VALUES))})`,
+    ),
+    check(
+      "surface_bindings_surface_kind_check",
+      sql`${table.surfaceKind} IN (${sql.raw(sqlList(SURFACE_CHANNEL_KIND_VALUES))})`,
+    ),
+    check(
+      "surface_bindings_mode_check",
+      sql`${table.mode} IN (${sql.raw(sqlList(BINDING_MODE_VALUES))})`,
+    ),
+    check(
+      "surface_bindings_ceiling_check",
+      sql`${table.ceilingActions} <@ ${textArrayLiteral(SLACK_SURFACE_ACTION_VALUES)} AND ${table.ceilingDisclosure} IN (${sql.raw(sqlList(SURFACE_DISCLOSURE_VALUES))})`,
+    ),
+    check(
+      "surface_bindings_memory_write_policy_check",
+      sql`${table.memoryWritePolicy} IN (${sql.raw(sqlList(MEMORY_WRITE_POLICY_VALUES))})`,
+    ),
+    check(
+      "surface_bindings_status_check",
+      sql`${table.status} IN (${sql.raw(sqlList(SURFACE_BINDING_STATUS_VALUES))})`,
+    ),
+    check(
+      "surface_bindings_revoked_check",
+      sql`(${table.status} = 'revoked') = (${table.revokedAt} IS NOT NULL)`,
+    ),
+    // The DM row covers every DM, so it names no channel; a DM is never home.
+    check(
+      "surface_bindings_dm_check",
+      sql`${table.surfaceKind} IS DISTINCT FROM 'dm' OR (${table.externalSurfaceId} IS NULL AND NOT ${table.home})`,
+    ),
+    // `ready` claims routing works: a slack row then has what routing reads.
+    check(
+      "surface_bindings_ready_check",
+      sql`${table.surface} <> 'slack' OR ${table.status} <> 'ready' OR (${table.installationId} IS NOT NULL AND ${table.surfaceKind} IS NOT NULL AND (${table.externalSurfaceId} IS NOT NULL OR ${table.surfaceKind} = 'dm'))`,
+    ),
+    check("surface_bindings_revision_check", sql`${table.revision} >= 1`),
   ],
 );
 

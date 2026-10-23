@@ -22,6 +22,7 @@ import {
   createPostgresSessionShareStore,
   createPostgresSessionUnitOfWork,
   createPostgresSlackGuestSetting,
+  createPostgresSurfaceBindingStore,
   createPostgresTeamStore,
   createPostgresTurnInterrupts,
   createPostgresUsageReader,
@@ -51,6 +52,7 @@ import {
   createSessionService,
   createSessionShareService,
   createSlackSecretService,
+  createSurfaceBindingService,
   createTeamService,
   createUsageService,
   createWorkerGateway,
@@ -121,6 +123,7 @@ import { registerPushRequestRoutes } from "./routes/push-requests.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
 import { registerSessionShareRoutes } from "./routes/session-shares.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
+import { registerSlackBindingRoutes } from "./routes/slack-bindings.ts";
 import { registerSlackSecretRoutes } from "./routes/slack-secrets.ts";
 import { registerTeamRoutes } from "./routes/teams.ts";
 import { registerUsageRoutes } from "./routes/usage.ts";
@@ -280,6 +283,10 @@ const members = createMemberService({
 const agentIdentities = createAgentIdentityService({
   authorization,
   store: createPostgresAgentIdentityStore(db),
+});
+const slackBindings = createSurfaceBindingService({
+  authorization,
+  store: createPostgresSurfaceBindingStore(db),
 });
 const linkedAccounts = createLinkedAccountService({
   authorization,
@@ -487,6 +494,7 @@ const app = createApiApp({
       service: agentIdentities,
       logger,
     });
+    registerSlackBindingRoutes(router, { service: slackBindings, logger });
     registerApiKeyRoutes(router, apiKeys);
     registerTeamRoutes(router, teams, agentAdmins);
     registerCredentialBindingRoutes(router, credentialBindingService);

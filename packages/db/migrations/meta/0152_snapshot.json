@@ -1,5 +1,5 @@
 {
-  "id": "7b9dc25f-8139-4daa-842f-56103fb024a0",
+  "id": "e5aa36f6-6931-4d1a-8dbf-2709efd7642c",
   "prevId": "c0ee8350-6582-4829-83db-dae23f0e3931",
   "version": "7",
   "dialect": "postgresql",
@@ -5498,6 +5498,280 @@
       },
       "isRLSEnabled": false
     },
+    "public.surface_bindings": {
+      "name": "surface_bindings",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "agent_id": {
+          "name": "agent_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "surface": {
+          "name": "surface",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'slack'"
+        },
+        "installation_id": {
+          "name": "installation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "external_surface_id": {
+          "name": "external_surface_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "surface_kind": {
+          "name": "surface_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "mode": {
+          "name": "mode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ceiling_actions": {
+          "name": "ceiling_actions",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ceiling_disclosure": {
+          "name": "ceiling_disclosure",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "home": {
+          "name": "home",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "memory_write_policy": {
+          "name": "memory_write_policy",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'deny'"
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'ready'"
+        },
+        "muted": {
+          "name": "muted",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "revoked_at": {
+          "name": "revoked_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "surface_bindings_channel_live_uniq": {
+          "name": "surface_bindings_channel_live_uniq",
+          "columns": [
+            {
+              "expression": "installation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "external_surface_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"surface_bindings\".\"revoked_at\" IS NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "surface_bindings_dm_live_uniq": {
+          "name": "surface_bindings_dm_live_uniq",
+          "columns": [
+            {
+              "expression": "installation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"surface_bindings\".\"surface_kind\" = 'dm' AND \"surface_bindings\".\"revoked_at\" IS NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "surface_bindings_home_live_uniq": {
+          "name": "surface_bindings_home_live_uniq",
+          "columns": [
+            {
+              "expression": "agent_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"surface_bindings\".\"home\" AND \"surface_bindings\".\"revoked_at\" IS NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "surface_bindings_agent_idx": {
+          "name": "surface_bindings_agent_idx",
+          "columns": [
+            {
+              "expression": "agent_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "surface_bindings_created_by_users_id_fk": {
+          "name": "surface_bindings_created_by_users_id_fk",
+          "tableFrom": "surface_bindings",
+          "tableTo": "users",
+          "columnsFrom": ["created_by"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "surface_bindings_agent_fk": {
+          "name": "surface_bindings_agent_fk",
+          "tableFrom": "surface_bindings",
+          "tableTo": "agents",
+          "columnsFrom": ["workspace_id", "agent_id"],
+          "columnsTo": ["workspace_id", "id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "surface_bindings_installation_fk": {
+          "name": "surface_bindings_installation_fk",
+          "tableFrom": "surface_bindings",
+          "tableTo": "slack_installations",
+          "columnsFrom": ["workspace_id", "installation_id"],
+          "columnsTo": ["workspace_id", "id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "surface_bindings_surface_check": {
+          "name": "surface_bindings_surface_check",
+          "value": "\"surface_bindings\".\"surface\" IN ('web','slack','api')"
+        },
+        "surface_bindings_surface_kind_check": {
+          "name": "surface_bindings_surface_kind_check",
+          "value": "\"surface_bindings\".\"surface_kind\" IN ('public_channel','private_channel','dm')"
+        },
+        "surface_bindings_mode_check": {
+          "name": "surface_bindings_mode_check",
+          "value": "\"surface_bindings\".\"mode\" IN ('off','mention','ambient')"
+        },
+        "surface_bindings_ceiling_check": {
+          "name": "surface_bindings_ceiling_check",
+          "value": "\"surface_bindings\".\"ceiling_actions\" <@ ARRAY['session.read','session.submit','session.control','session.approve']::text[] AND \"surface_bindings\".\"ceiling_disclosure\" IN ('full','summary')"
+        },
+        "surface_bindings_memory_write_policy_check": {
+          "name": "surface_bindings_memory_write_policy_check",
+          "value": "\"surface_bindings\".\"memory_write_policy\" IN ('deny','allow_explicit')"
+        },
+        "surface_bindings_status_check": {
+          "name": "surface_bindings_status_check",
+          "value": "\"surface_bindings\".\"status\" IN ('ready','partial','failed','revoked')"
+        },
+        "surface_bindings_revoked_check": {
+          "name": "surface_bindings_revoked_check",
+          "value": "(\"surface_bindings\".\"status\" = 'revoked') = (\"surface_bindings\".\"revoked_at\" IS NOT NULL)"
+        },
+        "surface_bindings_dm_check": {
+          "name": "surface_bindings_dm_check",
+          "value": "\"surface_bindings\".\"surface_kind\" IS DISTINCT FROM 'dm' OR (\"surface_bindings\".\"external_surface_id\" IS NULL AND NOT \"surface_bindings\".\"home\")"
+        },
+        "surface_bindings_ready_check": {
+          "name": "surface_bindings_ready_check",
+          "value": "\"surface_bindings\".\"surface\" <> 'slack' OR \"surface_bindings\".\"status\" <> 'ready' OR (\"surface_bindings\".\"installation_id\" IS NOT NULL AND \"surface_bindings\".\"surface_kind\" IS NOT NULL AND (\"surface_bindings\".\"external_surface_id\" IS NOT NULL OR \"surface_bindings\".\"surface_kind\" = 'dm'))"
+        },
+        "surface_bindings_revision_check": {
+          "name": "surface_bindings_revision_check",
+          "value": "\"surface_bindings\".\"revision\" >= 1"
+        }
+      },
+      "isRLSEnabled": false
+    },
     "public.turns": {
       "name": "turns",
       "schema": "",
@@ -5943,7 +6217,7 @@
       "checkConstraints": {
         "worker_credentials_purpose_check": {
           "name": "worker_credentials_purpose_check",
-          "value": "\"worker_credentials\".\"purpose\" IN ('gateway', 'provider', 'repository', 'object_store', 'mcp')"
+          "value": "\"worker_credentials\".\"purpose\" IN ('gateway', 'provider', 'repository', 'object_store')"
         },
         "worker_credentials_binding_check": {
           "name": "worker_credentials_binding_check",
