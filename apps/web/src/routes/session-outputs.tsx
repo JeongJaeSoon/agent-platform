@@ -65,7 +65,10 @@ export function SessionOutputs({
   const items = outputs.data?.items ?? [];
   if (items.length === 0) return null;
   return (
-    <section className="flex flex-col gap-3" aria-labelledby={titleId}>
+    <section
+      className="flex flex-col gap-[var(--ap-space-block)]"
+      aria-labelledby={titleId}
+    >
       <h2 id={titleId} className="m-0 font-semibold text-body">
         {t("session.outputs.title")}
       </h2>
