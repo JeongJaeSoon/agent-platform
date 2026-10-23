@@ -92,7 +92,7 @@ describe("패키지 경계", () => {
       if (/\.test\.|__fixtures__|test-support/.test(file)) continue;
       const source = await Bun.file(`${PACKAGE_ROOT}/${file}`).text();
       const specifiers = source.matchAll(
-        /\b(?:from|import)\s*\(?\s*["']([^"'.][^"']*)["']/g,
+        /\b(?:from|import)\s*\(?\s*(?:url\(\s*)?["'`]([^"'`.][^"'`]*)["'`]/g,
       );
       for (const [, specifier = ""] of specifiers) {
         const [scope = "", name = ""] = specifier.split("/");
