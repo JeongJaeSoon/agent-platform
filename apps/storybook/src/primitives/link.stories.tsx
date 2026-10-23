@@ -18,7 +18,7 @@ const meta = {
   args: { href: "#teams" },
   argTypes: {
     underline: { control: "select", options: ["hover", "always"] },
-    variant: { control: "select", options: ["default", "table"] },
+    variant: { control: "select", options: ["default", "table", "more"] },
   },
 } satisfies Meta<typeof Link>;
 
@@ -226,5 +226,45 @@ export const InTableDark: Story = { ...InTable, globals: { theme: "dark" } };
 
 export const InTableMobile390: Story = {
   ...InTable,
+  globals: { viewport: { value: "mobile390", isRotated: false } },
+};
+
+const MORE = { ko: "전체 보기", ja: "すべて表示", en: "View all" };
+
+/**
+ * `variant="more"`: a section's "view all", 13px with a trailing 14px arrow
+ * (console v4 L534).
+ */
+export const More: Story = {
+  render: (_args, { globals }) => (
+    <div className="flex items-center justify-between gap-4">
+      <h2 className="m-0 text-body font-semibold">
+        {copyFor(globals.locale).teams}
+      </h2>
+      <Link asChild={true} variant="more">
+        <RouterLink to="#teams">
+          {MORE[globals.locale as Locale] ?? MORE.ko}
+        </RouterLink>
+      </Link>
+    </div>
+  ),
+  play: async ({ canvasElement }) => {
+    const link = within(canvasElement).getByRole("link");
+    const icon = link.querySelector("svg") as SVGElement;
+    await expect(icon.getAttribute("aria-hidden")).toBe("true");
+    await expect(icon.getBoundingClientRect().width).toBe(14);
+    await expect(getComputedStyle(link).columnGap).toBe("4px");
+    await expect(getComputedStyle(link).fontSize).toBe("13px");
+  },
+};
+
+export const MoreJapanese: Story = { ...More, globals: { locale: "ja" } };
+
+export const MoreEnglish: Story = { ...More, globals: { locale: "en" } };
+
+export const MoreDark: Story = { ...More, globals: { theme: "dark" } };
+
+export const MoreMobile390: Story = {
+  ...More,
   globals: { viewport: { value: "mobile390", isRotated: false } },
 };

@@ -21,3 +21,22 @@ export const DefaultDark: Story = {
   name: "Default (dark)",
   globals: { theme: "dark" },
 };
+
+/** The three shapes side by side, as one card stands in for a list. */
+export const Shapes: Story = {
+  render: () => (
+    <div className="flex items-start gap-4">
+      <Skeleton shape="circle" />
+      <div className="flex min-w-0 flex-1 flex-col gap-4">
+        <Skeleton lines={3} />
+        <Skeleton shape="block" height="4rem" />
+      </div>
+    </div>
+  ),
+};
+
+export const ShapesDark: Story = {
+  ...Shapes,
+  name: "Shapes (dark)",
+  globals: { theme: "dark" },
+};

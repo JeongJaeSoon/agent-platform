@@ -169,6 +169,145 @@ export const FAILED_EVENTS: readonly RawEvent[] = [
   ["status", { phase: "failed" }],
 ];
 
+/** The clock the turn stories count relative times from. */
+export const TIMELINE_NOW = START + 12 * 60_000;
+
+/**
+ * Like `timelineEntries`, with each tool call and result carrying the
+ * tool_use id (as session-detail.tsx would fill `toolCallId`) and the events
+ * `stepMs` apart, so relative times and same-minute runs both show.
+ */
+export function pairedTimelineEntries(
+  events: readonly RawEvent[],
+  stepMs = 20_000,
+): TimelineEntry[] {
+  return timelineEntries(events).map((entry, index) => {
+    const data = events[index]?.[1] as {
+      tool_use_id?: string;
+      message?: { content?: unknown };
+    } | null;
+    const blocks = data?.message?.content;
+    const call = Array.isArray(blocks)
+      ? (blocks as { type?: string; id?: string }[]).find(
+          (block) => block?.type === "tool_use",
+        )?.id
+      : undefined;
+    const toolCallId = data?.tool_use_id ?? call;
+    return {
+      ...entry,
+      occurredAt: new Date(START + index * stepMs).toISOString(),
+      ...(toolCallId ? { toolCallId } : {}),
+    };
+  });
+}
+
+const inTurn = (events: readonly RawEvent[], turnId: string | null) =>
+  events.map(([event, data]): RawEvent => [event, data, turnId]);
+
+const toolUse = (id: string, input: Record<string, unknown>): RawEvent => [
+  "tool_use",
+  { message: { content: [{ type: "tool_use", id, name: "Bash", input }] } },
+];
+
+/** A second turn: a permission wait, then a tool call that fails. */
+export const WAIT_FAIL_EVENTS: readonly RawEvent[] = inTurn(
+  [
+    ["status", { phase: "running" }],
+    ["question", { kind: "permission", tool: "Bash", input: {} }],
+    toolUse("call_3", { command: "bun run build", description: "Build" }),
+    [
+      "tool_result",
+      {
+        tool_use_id: "call_3",
+        is_error: true,
+        content: "error: Could not resolve './missing.ts'",
+      },
+    ],
+    [
+      "assistant",
+      {
+        message: {
+          content: [{ type: "text", text: "The build cannot find a file." }],
+        },
+      },
+    ],
+    ["result", { subtype: "error_during_execution" }],
+    ["status", { phase: "failed" }],
+  ],
+  "turn_02",
+);
+
+/** Two turns covering every kind: what the user's capture asked for. */
+export const TWO_TURN_EVENTS: readonly RawEvent[] = [
+  ...TURN_EVENTS,
+  ...WAIT_FAIL_EVENTS,
+];
+
+/** A call still waiting for its result. */
+export const RUNNING_EVENTS: readonly RawEvent[] = inTurn(
+  [
+    ["status", { phase: "running" }],
+    toolUse("call_4", { command: "bun test", description: "Run the tests" }),
+  ],
+  "turn_03",
+);
+
+/** Events from before the first turn carry no turn id. */
+export const NO_TURN_EVENTS: readonly RawEvent[] = [
+  ...inTurn(
+    [
+      ["system", { subtype: "init" }],
+      ["status", { phase: "queued" }],
+    ],
+    null,
+  ),
+  ...inTurn(
+    [
+      [
+        "assistant",
+        { message: { content: [{ type: "text", text: "Starting." }] } },
+      ],
+      ["result", { subtype: "success" }],
+    ],
+    "turn_01",
+  ),
+];
+
+/** A long thought and a long tool output, both folded under one line. */
+export const LONG_DETAIL_EVENTS: readonly RawEvent[] = inTurn(
+  [
+    [
+      "assistant",
+      {
+        message: {
+          content: [
+            {
+              type: "thinking",
+              thinking: Array.from(
+                { length: 6 },
+                (_, line) =>
+                  `Step ${line + 1}: read the failing test, then the module it imports, and check whether the fixture path changed in the last commit.`,
+              ).join("\n"),
+            },
+          ],
+        },
+      },
+    ],
+    toolUse("call_5", { command: "bun test packages/react" }),
+    [
+      "tool_result",
+      {
+        tool_use_id: "call_5",
+        content: Array.from(
+          { length: 14 },
+          (_, line) => `(pass) Timeline > case ${line + 1} [${line + 2}ms]`,
+        ).join("\n"),
+      },
+    ],
+  ],
+  "turn_01",
+);
+
 export const SESSION: SessionSummary = {
   id: "0192f0c4-7d3a-7b4e-9f00-00000000a001",
   title: null,
