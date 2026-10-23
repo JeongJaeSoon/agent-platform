@@ -158,15 +158,12 @@ export function PendingAnswers({
     answered.current = null;
     if (!focusLost(listRef.current)) return;
     // While another answer is on its way the buttons are off; the next
-    // card's input still takes focus.
+    // card's folded input still takes focus.
     const root = listRef.current;
     const next =
       root?.querySelector<HTMLElement>(
         "li button:not(:disabled), li input:not(:disabled)",
-      ) ??
-      root?.querySelector<HTMLElement>(
-        "li summary, li [data-slot=approval-input]",
-      );
+      ) ?? root?.querySelector<HTMLElement>("li summary");
     (next ?? noticeRef.current)?.focus();
   }, [items]);
 

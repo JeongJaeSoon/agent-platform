@@ -9,7 +9,7 @@ import {
   Textarea,
   type TimestampLocale,
 } from "@werft-ai/ui";
-import { Check, Hourglass, X } from "lucide-react";
+import { Hourglass } from "lucide-react";
 import {
   type FormEvent,
   type JSX,
@@ -26,7 +26,7 @@ export type PermissionRequest = Extract<PendingRequest, { kind: "permission" }>;
 
 export interface ApprovalCardMessages {
   readonly title: (tool: string) => string;
-  /** Names the view of the tool input. */
+  /** Names the folded view of the tool input. */
   readonly input: string;
   /** Takes the formatted expiry time. */
   readonly expires: (at: string) => string;
@@ -118,10 +118,9 @@ export function ApprovalCard({
       )}
       {...within}
     >
-      {/* Console v4 `.ask`: the tool input in full, the answers below it. */}
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <Hourglass
-          className="size-4 shrink-0 text-[var(--ap-tone-attention-fg)]"
+          className="size-4 shrink-0"
           strokeWidth={1.5}
           aria-hidden="true"
         />
@@ -158,37 +157,33 @@ export function ApprovalCard({
           </p>
         </span>
       </div>
-      <p className="sr-only">{messages.input}</p>
-      <pre
-        data-slot="approval-input"
-        // A long input scrolls; the keyboard must reach all of it before
-        // the answer, as the folded view used to let it.
-        // biome-ignore lint/a11y/noNoninteractiveTabindex: a scrollable region
-        tabIndex={0}
-        className="m-0 max-h-60 overflow-auto whitespace-pre-wrap rounded-control border bg-card px-3 py-2 font-mono text-caption leading-[1.6] [overflow-wrap:anywhere]"
-      >
-        {inputText(request.input)}
-      </pre>
-      {expired || denying ? null : (
-        <div className="flex flex-wrap gap-2 [&>button]:flex-[1_1_0]">
-          <Button type="button" disabled={blocked} onClick={onAllow}>
-            <Check strokeWidth={1.5} aria-hidden="true" />
-            {messages.allow}
-          </Button>
-          <Button
-            ref={denyRef}
-            type="button"
-            variant="outline"
-            // Console v4 `.btn.danger`: an outline in the danger tone.
-            className="border-[var(--ap-tone-danger-border)] text-destructive hover:bg-[var(--ap-tone-danger-bg)] hover:text-destructive"
-            disabled={blocked}
-            onClick={() => setDenying(true)}
-          >
-            <X strokeWidth={1.5} aria-hidden="true" />
-            {messages.deny}
-          </Button>
-        </div>
-      )}
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <details className="min-w-0 flex-1 basis-40">
+          {/* As tall as the buttons beside it, so the two read as one line. */}
+          <summary className="cursor-pointer text-muted-foreground text-caption leading-[var(--ap-control-height)]">
+            {messages.input}
+          </summary>
+          <pre className="mt-2 max-h-60 overflow-auto rounded-control bg-card p-2 font-mono text-caption">
+            {inputText(request.input)}
+          </pre>
+        </details>
+        {expired || denying ? null : (
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" disabled={blocked} onClick={onAllow}>
+              {messages.allow}
+            </Button>
+            <Button
+              ref={denyRef}
+              type="button"
+              variant="outline"
+              disabled={blocked}
+              onClick={() => setDenying(true)}
+            >
+              {messages.deny}
+            </Button>
+          </div>
+        )}
+      </div>
       <FieldError>{error}</FieldError>
       {expired || !denying ? null : (
         <form className="flex flex-col gap-3" onSubmit={submitDenial}>
