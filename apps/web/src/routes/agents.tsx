@@ -120,8 +120,6 @@ export function AgentsScreen() {
             onRetry={() => void agents.refetch()}
           />
         )
-      ) : agents.data.items.length === 0 ? (
-        <EmptyState title={t("agents.empty")} />
       ) : (
         <AgentList agents={agents.data.items} />
       )}
@@ -176,7 +174,11 @@ function AgentList({ agents }: { readonly agents: readonly Agent[] }) {
         </fieldset>
       </div>
       <TabsContent value="all">
-        <AgentsIn view={view} agents={agents} />
+        {agents.length === 0 ? (
+          <EmptyState title={t("agents.empty")} />
+        ) : (
+          <AgentsIn view={view} agents={agents} />
+        )}
       </TabsContent>
       <TabsContent value="administered">
         {administered.isPending ? (

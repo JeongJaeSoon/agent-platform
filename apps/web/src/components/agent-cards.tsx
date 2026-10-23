@@ -126,16 +126,18 @@ function AgentCard({
         <Detail query={detail} lines={2}>
           {card ? <p className="m-0 text-body">{card.role}</p> : null}
         </Detail>
-        {card ? (
-          <div className="flex flex-col gap-1 rounded-control bg-muted px-3 py-2">
-            <span className="text-caption text-muted-foreground">
-              {t("agentCard.instructions")}
-            </span>
-            <p className="m-0 line-clamp-2 text-control [overflow-wrap:anywhere]">
-              {card.instructions}
-            </p>
-          </div>
-        ) : null}
+        <div className="flex flex-col gap-1 rounded-control bg-muted px-3 py-2">
+          <span className="text-caption text-muted-foreground">
+            {t("agentCard.instructions")}
+          </span>
+          <Detail query={detail} lines={2}>
+            {card ? (
+              <p className="m-0 line-clamp-2 text-control [overflow-wrap:anywhere]">
+                {card.instructions}
+              </p>
+            ) : null}
+          </Detail>
+        </div>
         <dl className="m-0 grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-4 gap-y-2 text-control">
           <Fact term={t("agents.cards.profile")}>
             <Detail query={detail}>
@@ -159,7 +161,8 @@ function AgentCard({
             <Unmeasured />
           </Fact>
           <Fact term={t("agents.cards.credentials")}>
-            <Detail query={bindings}>
+            {/* What the card asks for and what is bound: both must answer. */}
+            <Detail query={[detail, bindings]}>
               {bindings?.data && card ? (
                 <CredentialNeed
                   refs={card.capabilities.credential_refs ?? []}
@@ -196,6 +199,8 @@ function AgentCard({
   );
 }
 
+type Read = UseQueryResult<unknown> | undefined;
+
 /**
  * One value read per agent: a placeholder while it loads, a dash when it
  * failed or past the limit, so a slow or refused answer never breaks the card.
@@ -205,19 +210,20 @@ function Detail({
   lines = 1,
   children,
 }: {
-  readonly query: UseQueryResult<unknown> | undefined;
+  readonly query: Read | readonly Read[];
   readonly lines?: number;
   readonly children: ReactNode;
 }) {
   const { t } = useI18n();
-  if (query?.isPending) return <Skeleton lines={lines} />;
-  if (query === undefined || query.isError)
+  const queries: readonly Read[] = Array.isArray(query) ? query : [query];
+  if (queries.some((q) => q === undefined || q.isError))
     return (
       <span className="text-muted-foreground">
         <span aria-hidden="true">—</span>
         <span className="sr-only">{t("agents.cards.unavailable")}</span>
       </span>
     );
+  if (queries.some((q) => q?.isPending)) return <Skeleton lines={lines} />;
   return <>{children}</>;
 }
 

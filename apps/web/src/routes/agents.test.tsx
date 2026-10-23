@@ -418,6 +418,35 @@ describe("에이전트 카드", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
+  test("카드 내용을 못 불러오면 지시 사항·자격 증명 칸도 비우지 않고 그렇다고 적는다", async () => {
+    const routes = releasedServer();
+    renderAt("/agents", {
+      ...meOk,
+      ...routes,
+      [`GET /v1/agents/${AGENT_ID}`]: () =>
+        apiError(503, "UNAVAILABLE", "down"),
+    });
+    const card = await cardFor("결제 담당");
+    await waitFor(() => expect(fact(card, "자격 증명")).toBe("—불러오지 못함"));
+    expect(card.textContent).toContain("지시 사항—불러오지 못함");
+  });
+
+  test("카드 내용이 늦으면 자격 증명 칸은 연결 목록이 먼저 와도 기다린다", async () => {
+    renderAt("/agents", {
+      ...meOk,
+      ...releasedServer(),
+      [`GET /v1/agents/${AGENT_ID}`]: () => new Promise<Response>(() => {}),
+    });
+    const card = await cardFor("결제 담당");
+    await waitFor(() =>
+      expect(fact(card, "관리자") ?? card.textContent).toContain("Owner"),
+    );
+    const cell = [...card.querySelectorAll("dt")].find(
+      (dt) => dt.textContent === "자격 증명",
+    )?.nextElementSibling;
+    expect(cell?.querySelector("[aria-busy=true]")).not.toBeNull();
+  });
+
   test("에이전트가 많으면 앞의 12개만 추가로 불러오고 그렇다고 알린다", async () => {
     const base = agentServer().detail().agent;
     const items = Array.from({ length: 14 }, (_, n) => ({
@@ -449,6 +478,20 @@ describe("에이전트 카드", () => {
 
 describe("에이전트 목록 탭과 보기", () => {
   beforeEach(() => localStorage.clear());
+
+  test("에이전트가 없어도 탭과 보기 전환은 남고 전체 탭이 비었다고 알린다", async () => {
+    renderAt("/agents", {
+      ...meOk,
+      "GET /v1/agents": () => json(200, { items: [] }),
+      "GET /v1/administered-agents": () => json(200, { items: [] }),
+    });
+    expect(await screen.findByRole("tab", { name: "전체 0" })).toBeDefined();
+    expect(
+      await screen.findByRole("tab", { name: "관리하는 에이전트 0" }),
+    ).toBeDefined();
+    expect(screen.getByRole("button", { name: "카드" })).toBeDefined();
+    expect(screen.getByText("아직 에이전트가 없습니다.")).toBeDefined();
+  });
 
   test("관리하는 에이전트 탭은 개수와 그 목록만 보인다", async () => {
     const server = agentServer();
