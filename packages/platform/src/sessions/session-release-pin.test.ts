@@ -121,6 +121,7 @@ function setup(
     },
     reader: {
       listSessions: unreached,
+      countSessions: unreached,
       getSession: unreached,
       listTurns: unreached,
       getTurn: unreached,

@@ -68,6 +68,16 @@ curl -sS "$API/v1/sessions?limit=5" -H "Authorization: Bearer $KEY" | jq -c '.it
 
 Filter with `limit`, `cursor` (the response's `next_cursor`), and `status`. Only the sessions the key can see are returned.
 
+`relation` narrows those further and never widens them. `started` is the sessions you started (for a key, the ones the key or its creator started), `shared` the ones someone else started and shared with you by name or through a team you belong to, and `administered` the sessions of agents you administer, directly or through a team. Someone else's session that the whole workspace sees appears only under `all`, the default. `q` finds sessions whose title contains it, ignoring case, or whose id starts with it.
+
+Each item's `agent` (`id`, `name`, `release_version_no`) is the agent the session is pinned to; it is `null` for a session created without an agent release. `created_by` (`user_id`, `display_name`) is who started it; for a key's session, the person who created the key. `channel` is where the creating request came from (`web`, `api` or `slack`). An older session whose starter or channel the record cannot tell reads `null`.
+
+```bash
+curl -sS "$API/v1/sessions/counts?relation=started" -H "Authorization: Bearer $KEY" | jq -c
+```
+
+`GET /v1/sessions/counts` returns how many sessions the list would hold per status, read to its last page with the same `relation` and `q`, and their `total`. A session you cannot see is never counted.
+
 ## Title
 
 A `title` you send is stored with runs of whitespace and line breaks collapsed to one space and the ends trimmed. If that leaves nothing or more than 80 characters (an emoji or a combined character counts as one), the answer is 400. Without one, the title is derived from the first `message` by the same rule, cut to 79 characters and `…` past 80. No model is called, so the same message always gives the same title. A message of only whitespace, and a session created before titles existed, read `title: null`.

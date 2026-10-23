@@ -80,6 +80,16 @@ console.table({
       { userId: null, apiKeyId: null },
     ),
   ),
+  "listSessions(q, limit 100)": await timed(() =>
+    reader.listSessions(
+      OWNER,
+      { limit: PAGE, q: "fix" },
+      { userId: null, apiKeyId: null },
+    ),
+  ),
+  countSessions: await timed(() =>
+    reader.countSessions(OWNER, {}, { userId: null, apiKeyId: null }),
+  ),
   getSession: await timed(() => reader.getSession(OWNER, detailId)),
 });
 

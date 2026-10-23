@@ -32,7 +32,7 @@ const requiredEnv = ["DATABASE_URL", "AUTH_MODE"];
 
 describe("readiness probe", () => {
   test("journal head is the last migration tag", () => {
-    expect(expectedMigrationHead().tag).toBe("0156_slack_install_states");
+    expect(expectedMigrationHead().tag).toBe("0157_session_channel");
   });
 
   test("passes on a migrated database with the required configuration", async () => {
@@ -95,7 +95,7 @@ describe("readiness probe", () => {
     })();
     expect(result).toMatchObject({ ready: false, check: "schema" });
     expect(result.ready === false && result.reason).toContain(
-      "0156_slack_install_states",
+      "0157_session_channel",
     );
 
     // Same timestamp, different SQL behind it: not the schema this build ships.

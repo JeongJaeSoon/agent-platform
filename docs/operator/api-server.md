@@ -555,6 +555,8 @@ curl -s -b jar -X POST "http://127.0.0.1:3000/v1/agents/$AGENT_ID/admins" \
 
 세션 이름을 바꾸는 것(`PATCH /v1/sessions/{id}`, `session.rename`)도 답하는 사람과 같은 사람만 한다. scope는 `sessions:write`이고, 응답이 세션 상세라 `sessions:read`도 함께 본다. 공유로 보기만 하는 사람은 `403`(`reason_code: role`, "holds sessions:write but may not use it on this session"), 볼 수 없는 사람은 `404`다. 거절은 판정 행으로 남고, 허용은 남지 않는다. 이름은 제어가 아니어서 세션 `revision`도 receipt도 바뀌지 않는다. 바뀐 이름은 `status` 이벤트의 `title`로 스트림에 실린다. 생성 때 `title`이 없으면 첫 메시지에서 결정적 규칙으로 만들고, 이 기능 전의 세션은 `sessions.title`이 `NULL`이다(backfill 없음, migration 0155).
 
+세션 목록의 `relation`(`started`·`shared`·`administered`)과 `q`, 그리고 `GET /v1/sessions/counts`는 위의 공유 범위 판정과 AND로만 묶인다. 그래서 어느 값도 볼 수 있는 범위를 넓히지 않고, 공유 밖 세션은 목록에도 개수에도 잡히지 않는다. `administered`는 지금 `agent_admins`와 admin 팀의 살아 있는 구성원을 읽을 때마다 다시 본다. 에이전트 관리자라는 이유만으로 공유 밖 세션을 보게 하는 규칙은 아직 없다. 목록·상세의 `channel`은 세션을 만든 요청의 surface(`web`·`api`·`slack`)를 `sessions.channel`에 적은 값이다. migration 0157은 이 열 전의 세션을 행이 증명하는 만큼만 채운다. `created_by_api_key_id`가 있으면 `api`(API key 호출만 이 열을 쓴다), 없고 `created_by_user_id`가 있으면 `web`(사람은 웹 로그인으로만 들어온다)이고, 둘 다 없으면 `NULL`이다.
+
 범위를 바꾸는 것(`session.share`)은 사람의 세션이면 만든 사람만, key가 만든 세션이면 owner·admin과 그 에이전트의 관리자만 한다. 세션을 볼 수 있지만 바꿀 수 없는 사람은 `403`, 볼 수 없는 사람은 `404`다. API key는 바꾸지 못한다. 바꾼 경우에만 `share_session` receipt(`result.scope`)와 판정 행이 남는다.
 
 owner·admin은 범위 밖 세션을 두 길로만 다룬다. 둘 다 사유(`justification`, 1000자까지)가 필요하고, 사유는 `authz_decisions.justification`에 남는다.

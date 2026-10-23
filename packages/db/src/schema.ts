@@ -18,6 +18,7 @@ import {
   SURFACE_CHANNEL_KIND_VALUES,
   SURFACE_DISCLOSURE_VALUES,
   SURFACE_KIND_VALUES,
+  type SurfaceKind,
 } from "@werft-ai/contracts";
 import type { SecretOwnerRef } from "@werft-ai/platform";
 import { sql } from "drizzle-orm";
@@ -842,6 +843,9 @@ export const sessions = pgTable(
     createdByApiKeyId: uuid("created_by_api_key_id").references(
       () => apiKeys.id,
     ),
+    // The surface the creating request came from. Rows from before it got
+    // it from their creator columns where those prove it (0157), else null.
+    channel: text().$type<SurfaceKind>(),
     takeoverRequiredAt: timestamp("takeover_required_at", {
       withTimezone: true,
     }),
@@ -895,6 +899,10 @@ export const sessions = pgTable(
   },
   (table) => [
     check("sessions_cost_usd_nonneg", sql`${table.costUsd} >= 0`),
+    check(
+      "sessions_channel_check",
+      sql`${table.channel} IN (${sql.raw(sqlList(SURFACE_KIND_VALUES))})`,
+    ),
     check(
       "sessions_restore_failure_count_check",
       sql`${table.restoreFailureCount} >= 0`,
