@@ -38,6 +38,7 @@ import type {
 import {
   InvalidCursorError,
   projectDurability,
+  sessionRepositoryOf,
   storedPendingReasonHoldsWork,
   transcriptLimitAttention,
 } from "@werft-ai/platform";
@@ -671,6 +672,7 @@ export function createPostgresSessionReader(
         profile_id: row.profileId,
         profile_fingerprint: row.profileFingerprint,
         repository_id: row.repositoryId,
+        repository: sessionRepositoryOf(row),
         current_turn_id: current ? String(current.sequence) : null,
         queued_turn_count: mine.filter((turn) => turn.status === "queued")
           .length,

@@ -1042,6 +1042,7 @@ describe("session titles (94S-804)", () => {
     admission_state: "active",
     status: "idle",
     repository_id: "sample-app",
+    repository: { id: "sample-app", full_name: "sample-app", branch: "main" },
     current_turn_id: null,
     queued_turn_count: 0,
     last_event_at: null,
