@@ -16,7 +16,6 @@ import {
 } from "@werft-ai/core";
 import { useAgentPlatform, useSessions } from "@werft-ai/react";
 import { ApprovalInbox } from "@werft-ai/react/blocks";
-import { SessionStatusLabel } from "@werft-ai/react/components";
 import {
   Badge,
   Card,
@@ -294,13 +293,10 @@ export function HomeScreen() {
         },
         {
           label: t("home.glance.staleWait"),
-          value: requests ? (
-            <Caution on={requests.stale > 0}>
-              {t("home.glance.sessionCount", { count: requests.stale })}
-            </Caution>
-          ) : (
-            t("home.overview.unknown")
-          ),
+          dot: requests && requests.stale > 0 ? "wait" : undefined,
+          value: requests
+            ? t("home.glance.sessionCount", { count: requests.stale })
+            : t("home.overview.unknown"),
         },
         ...(oldest
           ? [
@@ -339,13 +335,10 @@ export function HomeScreen() {
               }
             />
           ),
-          value: (
-            <Caution on>
-              {t("home.glance.keyExpires", {
-                when: relativeTime(key.expires_at ?? "", locale, now),
-              })}
-            </Caution>
-          ),
+          dot: "wait" as const,
+          value: t("home.glance.keyExpires", {
+            when: relativeTime(key.expires_at ?? "", locale, now),
+          }),
         })),
         { label: t("home.glance.linkedExpiry"), value: unmeasured },
         {
@@ -401,10 +394,19 @@ export function HomeScreen() {
       rows={[
         {
           label: t("home.overview.waiting"),
+          dot: "wait",
           value: waitingCount ?? t("home.overview.unknown"),
         },
-        { label: t("home.glance.running"), value: pageCount(running.data) },
-        { label: t("home.glance.idle"), value: pageCount(idle.data) },
+        {
+          label: t("home.glance.running"),
+          dot: "run",
+          value: pageCount(running.data),
+        },
+        {
+          label: t("home.glance.idle"),
+          dot: "idle",
+          value: pageCount(idle.data),
+        },
       ]}
       footer={t("home.overview.sessionsNote")}
       link={<ArrowLink to="/sessions">{t("home.glance.toSessions")}</ArrowLink>}
@@ -427,15 +429,16 @@ export function HomeScreen() {
       }
       note={t("home.glance.linkedNote")}
       rows={[
-        { label: "GitHub", value: t("linked.soon") },
+        { label: "GitHub", dot: "idle", value: t("linked.soon") },
         {
           label: "Slack",
+          dot: slackLinked ? "ok" : slackLinked === false ? "idle" : undefined,
           value:
             slackLinked === undefined
               ? t("home.overview.unknown")
               : t(slackLinked ? "linked.connected" : "linked.notLinked"),
         },
-        { label: "Google Workspace", value: t("linked.soon") },
+        { label: "Google Workspace", dot: "idle", value: t("linked.soon") },
       ]}
       footer={t("home.glance.accountsFooter")}
       link={
@@ -461,7 +464,7 @@ export function HomeScreen() {
       link={
         <TextLink
           asChild
-          className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-control"
+          className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-(color:--home-link) text-control"
         >
           <Link to="/agents/$id" params={{ id: agent.id }}>
             {t("home.glance.toAgent")}
@@ -497,7 +500,17 @@ export function HomeScreen() {
         unavailable={unavailable}
         refusal={(error) => t(errorKey(error.code))}
       />
-      <HomeSection title={t("home.overview.title")}>
+      <HomeSection
+        title={t("home.overview.title")}
+        action={
+          // The design's "last 30 days" basis waits for a usage period (94S-814).
+          reader === "owner" ? (
+            <p className="m-0 text-caption text-muted-foreground">
+              {t("home.overview.ownerBasis")}
+            </p>
+          ) : undefined
+        }
+      >
         {cards ? (
           <ul className="m-0 grid list-none grid-cols-1 items-stretch gap-4 p-0 @[720px]:grid-cols-3">
             {cards}
@@ -655,7 +668,7 @@ function ArrowLink({
   return (
     <TextLink
       asChild
-      className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-control"
+      className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-(color:--home-link) text-control"
     >
       <Link to={to}>
         {children}
@@ -674,16 +687,6 @@ function Unmeasured() {
       <Badge>{t("home.glance.unmeasured")}</Badge>
     </span>
   );
-}
-
-function Caution({
-  on,
-  children,
-}: {
-  readonly on: boolean;
-  readonly children: ReactNode;
-}) {
-  return on ? <Badge variant="amber">{children}</Badge> : children;
 }
 
 /** Keys carry no name: an agent's key goes by its agent, others by kind. */
@@ -723,6 +726,38 @@ interface GlanceRow {
   readonly value: ReactNode;
   /** A label from data (an agent's name) wraps; fixed labels stay on one line. */
   readonly wraps?: boolean;
+  readonly dot?: Dot | undefined;
+}
+
+type Dot = "wait" | "run" | "idle" | "ok" | "bad";
+
+const SESSION_DOT = {
+  queued: "idle",
+  running: "run",
+  needs_input: "wait",
+  idle: "idle",
+  failed: "bad",
+  stopped: "idle",
+} as const satisfies Record<SessionSummary["status"], Dot>;
+
+// Console.dc.html .dot: 8px, the running one a 10px ring turning every 0.9s.
+const DOT_CLASS = {
+  wait: "size-2 bg-(--home-dot-wait)",
+  ok: "size-2 bg-(--home-dot-ok)",
+  bad: "size-2 bg-(--home-dot-bad)",
+  idle: "size-2 bg-(--home-dot-idle)",
+  run: "size-2.5 animate-spin border-[1.5px] border-(--home-dot-run) border-r-transparent [animation-duration:0.9s] motion-reduce:size-2 motion-reduce:animate-none motion-reduce:border-r-(--home-dot-run) motion-reduce:bg-(--home-dot-run)",
+} as const satisfies Record<Dot, string>;
+
+/** The design's status dot; the text beside it carries the meaning. */
+function StatusDot({ dot }: { readonly dot: Dot }) {
+  return (
+    <span
+      className={cn("shrink-0 rounded-full", DOT_CLASS[dot])}
+      data-dot={dot}
+      aria-hidden="true"
+    />
+  );
 }
 
 function GlanceCard({
@@ -781,10 +816,11 @@ function GlanceCard({
               </dt>
               <dd
                 className={cn(
-                  "m-0 min-w-0 text-right tabular-nums",
+                  "m-0 inline-flex min-w-0 items-center justify-end gap-2 text-right tabular-nums",
                   row.wraps && "shrink-0",
                 )}
               >
+                {row.dot ? <StatusDot dot={row.dot} /> : null}
                 {row.value}
               </dd>
             </div>
@@ -911,23 +947,26 @@ function RecentRow({
         )}
       </TableCell>
       <TableCell>
-        {/* flex, not a line box: an inline badge sits on the baseline and
-            leaves the row's centers a pixel apart. */}
-        <div className="flex items-center gap-1.5 whitespace-nowrap">
-          <SessionStatusLabel
-            className="whitespace-nowrap"
-            status={session.status}
-            label={t(`sessions.status.${session.status}`)}
-          />
-          {session.status === "needs_input" && waitingSince ? (
-            <time
-              className="text-caption text-muted-foreground"
-              dateTime={waitingSince}
-              title={formatTimestamp(waitingSince, locale)}
-            >
-              {waitedFor(waitingSince, locale, now)}
-            </time>
-          ) : null}
+        <div
+          className="flex items-center gap-2 whitespace-nowrap text-control"
+          data-state={session.status}
+        >
+          <StatusDot dot={SESSION_DOT[session.status]} />
+          <span>
+            <span className="sr-only">{t("home.recent.statusAxis")} </span>
+            {t(`sessions.status.${session.status}`)}
+            {session.status === "needs_input" && waitingSince ? (
+              <>
+                {" · "}
+                <time
+                  dateTime={waitingSince}
+                  title={formatTimestamp(waitingSince, locale)}
+                >
+                  {waitedFor(waitingSince, locale, now)}
+                </time>
+              </>
+            ) : null}
+          </span>
         </div>
       </TableCell>
       {/* Sessions do not name their agent yet. */}

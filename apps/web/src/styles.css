@@ -241,6 +241,36 @@ select:focus-visible,
   white-space: nowrap;
 }
 
+/*
+ * Console.dc.html's status-dot and link colours. packages/ui has no dot part
+ * yet and its link and attention colours differ from the design, so home
+ * reads these until ui-kit ships them (94S-826).
+ */
+:root {
+  --home-dot-wait: #9a4f00;
+  --home-dot-run: #0060d1;
+  --home-dot-ok: var(--ap-tone-success-fg);
+  --home-dot-bad: #c4282d;
+  --home-dot-idle: #8f8f8f;
+  --home-link: #0060d1;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --home-dot-wait: #f1a33b;
+    --home-dot-run: #52a8ff;
+    --home-dot-bad: #ff6b6f;
+    --home-dot-idle: #6f6f6f;
+    --home-link: #52a8ff;
+  }
+}
+:root[data-theme="dark"] {
+  --home-dot-wait: #f1a33b;
+  --home-dot-run: #52a8ff;
+  --home-dot-bad: #ff6b6f;
+  --home-dot-idle: #6f6f6f;
+  --home-link: #52a8ff;
+}
+
 @media (min-width: 48rem) {
   .web-auth {
     padding: var(--ap-space-8) var(--ap-space-6);

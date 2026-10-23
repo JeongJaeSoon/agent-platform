@@ -355,7 +355,16 @@ describe("홈 요약", () => {
         .getAttribute("href"),
     ).toBe("/settings/api-keys/service");
 
+    expect(
+      screen.getByText("설치 전체 수치는 설치 운영자에게만 보입니다"),
+    ).toBeTruthy();
     const recent = screen.getByRole("table", { name: "최근 세션" });
+    // The design's dot, not a pill: amber for waiting, the text says which.
+    expect(
+      [...recent.querySelectorAll("[data-dot]")].map((dot) =>
+        dot.getAttribute("data-dot"),
+      ),
+    ).toEqual(["wait", "idle"]);
     expect(
       [...recent.querySelectorAll("tr")].map((row) =>
         [...row.children].map((cell) => cell.textContent),
@@ -364,7 +373,7 @@ describe("홈 요약", () => {
       ["세션", "작업 상태", "에이전트", "저장소", "최근 활동"],
       [
         `${waitingSession.title}${waitingSession.id.slice(0, 8)}`,
-        expect.stringMatching(/^작업: 답변 대기\d+(분|시간|일)$/),
+        expect.stringMatching(/^작업: 답변 대기 · \d+(분|시간|일)$/),
         "—",
         "demo",
         expect.any(String),
@@ -609,6 +618,15 @@ describe("홈 요약", () => {
       ]),
     );
     expect(cards(overview)[0]?.title).toBe("내가 시작한 세션 기준");
+    expect(
+      [...overview.querySelectorAll("[data-dot]")].map((dot) =>
+        dot.getAttribute("data-dot"),
+      ),
+    ).toEqual(["wait", "run", "idle", "idle", "idle", "idle"]);
+    // The "last 30 days" basis waits for a usage period; only the owner's shows.
+    expect(
+      screen.queryByText("설치 전체 수치는 설치 운영자에게만 보입니다"),
+    ).toBeNull();
     expect(
       within(overview)
         .getByRole("link", { name: /연동 계정 보기/ })
