@@ -11,6 +11,7 @@ import {
 } from "@werft-ai/contracts";
 import type { DecisionLog } from "../ports/decision-log.ts";
 import type { LinkedSubject } from "../ports/linked-account-store.ts";
+import type { SurfaceBindingRecord } from "../ports/surface-binding-store.ts";
 import { createAuthorizationPolicy, type IdentityReader } from "./policy.ts";
 import { authorizeSlackInput, type SlackInput } from "./slack-decision.ts";
 
@@ -23,6 +24,7 @@ const OTHER_AGENT = "019a0000-0000-7000-8000-0000000000a6";
 const OTHER_SESSION = "019a0000-0000-7000-8000-0000000000a7";
 // Shared with its creator, userId(1), alone.
 const PRIVATE_SESSION = "019a0000-0000-7000-8000-0000000000a8";
+const CHANNEL = "C0OPS";
 const APP = "A0RESEARCH";
 const TEAM = "T0OPS";
 const CONNECT_URL = "https://app.example/settings/accounts";
@@ -40,6 +42,8 @@ let accounts: Map<string, Account>;
 let guestsEnabled: boolean;
 let recorded: Parameters<DecisionLog["record"]>[0][];
 let recordFails: boolean;
+// Channel id (null for the DM row) → the live binding the store resolves.
+let stored: Map<string | null, SurfaceBindingRecord>;
 
 const userId = (n: number) =>
   `019a0000-0000-7000-8000-0000000001${String(n).padStart(2, "0")}`;
@@ -59,6 +63,7 @@ beforeEach(() => {
   guestsEnabled = false;
   recorded = [];
   recordFails = false;
+  stored = new Map();
 });
 
 // What the database reader does with a linked account: read it again by
@@ -134,6 +139,16 @@ const deps = () => ({
         : { status: "dropped" as const, reason: "not_installed" as const };
     },
   },
+  bindings: {
+    async resolveSlackChannel(
+      installationId: string,
+      channelId: string | null,
+    ) {
+      return installationId === INSTALLATION
+        ? (stored.get(channelId) ?? null)
+        : null;
+    },
+  },
   links: {
     async resolveLinkedSubject(ref: {
       externalUserId: string;
@@ -169,20 +184,43 @@ const slackUser = (id: string, extra: Partial<SlackUser> = {}): SlackUser => ({
   ...extra,
 });
 
+// The channel's binding as the store holds it; `null` stores none.
+type Binding = Partial<
+  Pick<SurfaceBindingRecord, "channelKind" | "ceiling" | "mode" | "agentId">
+>;
+
+function bind(channelId: string | null, binding: Binding) {
+  stored.set(channelId, {
+    id: BINDING,
+    workspaceId: WORKSPACE,
+    agentId: AGENT,
+    installationId: INSTALLATION,
+    channelId,
+    channelKind: channelId === null ? "dm" : "public_channel",
+    mode: "mention",
+    ceiling: everything,
+    home: false,
+    memoryWritePolicy: "deny",
+    status: "ready",
+    muted: false,
+    revision: 1,
+    createdAt: new Date(0),
+    revokedAt: null,
+    ...binding,
+  });
+}
+
 function input(
   user: SlackUser,
-  overrides: Partial<SlackInput> = {},
+  { binding, ...overrides }: Partial<SlackInput> & { binding?: Binding } = {},
 ): SlackInput {
+  bind(CHANNEL, binding ?? {});
   return {
     event: { appId: APP, teamId: TEAM, agentId: AGENT },
     user,
     action: "session.submit",
-    resource: { kind: "surface_binding", id: null },
-    binding: {
-      id: BINDING,
-      channelKind: "public_channel",
-      ceiling: everything,
-    },
+    channel: { id: CHANNEL, dm: false },
+    resource: { kind: "surface_binding" },
     requestId: crypto.randomUUID(),
     connectUrl: CONNECT_URL,
     ...overrides,
@@ -200,7 +238,7 @@ const pressing = (user: SlackUser, ceiling: SurfaceCeiling = everything) =>
   input(user, {
     action: "session.approve",
     resource: { kind: "session", id: SESSION },
-    binding: { id: BINDING, channelKind: "public_channel", ceiling },
+    binding: { ceiling },
   });
 
 describe("design 3.2, a mention and its approval", () => {
@@ -277,6 +315,70 @@ describe("design 3.2, a mention and its approval", () => {
     );
     expect(misrouted).toEqual({ status: "dropped", reason: "agent_mismatch" });
     expect(recorded).toEqual([]);
+  });
+});
+
+describe("the channel's stored binding (94S-177)", () => {
+  test("a mention is asked of the stored binding, which carries its ceiling", async () => {
+    link("U0B", 1);
+    const asked = await judge(
+      input(slackUser("U0B"), {
+        resource: { kind: "surface_binding", releaseId: "rel-1" },
+      }),
+    );
+    expect(asked.decision.outcome).toBe("allow");
+    expect(recorded[0]?.request).toMatchObject({
+      resource: { kind: "surface_binding", id: BINDING, release_id: "rel-1" },
+      subject: {
+        surface: {
+          binding_id: BINDING,
+          channel_kind: "public_channel",
+          ceiling: everything,
+        },
+      },
+    });
+  });
+
+  test("an unbound, switched-off or other agent's channel is refused, not dropped", async () => {
+    link("U0B", 1);
+    const unbound = input(slackUser("U0B"), {
+      channel: { id: "C0ELSEWHERE", dm: false },
+    });
+    for (const arrange of [
+      () => unbound,
+      () => input(slackUser("U0B"), { binding: { mode: "off" } }),
+      () => input(slackUser("U0B"), { binding: { agentId: OTHER_AGENT } }),
+    ]) {
+      expect(await judge(arrange())).toMatchObject({
+        decision: { outcome: "deny", reason_code: "surface_ceiling" },
+        actorUserId: null,
+        notice: { text: SLACK_NOTICE_MESSAGES.noRequestRight },
+      });
+    }
+    // A follow-up in a channel switched off since is refused too.
+    expect(
+      await judge(
+        input(slackUser("U0B"), {
+          binding: { mode: "off" },
+          resource: { kind: "session", id: SESSION },
+        }),
+      ),
+    ).toMatchObject({ decision: { reason_code: "surface_ceiling" } });
+    expect(recorded).toHaveLength(4);
+  });
+
+  test("every DM reads the install's one DM binding", async () => {
+    link("U0B", 1);
+    const dm = input(slackUser("U0B"), { channel: { id: "D0ANY", dm: true } });
+    expect((await judge(dm)).decision.reason_code).toBe("surface_ceiling");
+    bind(null, {});
+    expect(await judge(dm)).toMatchObject({
+      decision: { outcome: "allow" },
+      actorUserId: userId(1),
+    });
+    expect(recorded[1]?.request.subject.surface).toMatchObject({
+      channel_kind: "dm",
+    });
   });
 });
 
