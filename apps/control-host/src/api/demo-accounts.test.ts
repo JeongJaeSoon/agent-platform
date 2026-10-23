@@ -38,7 +38,7 @@ describe("demoAccountsRefusal", () => {
         DATABASE_URL:
           "postgresql://postgres:dev@postgres:5432/sessions?host=db.prod.internal",
       },
-      "DATABASE_URL names its host in the query",
+      "DATABASE_URL carries query options",
     ],
     [
       {
@@ -46,7 +46,15 @@ describe("demoAccountsRefusal", () => {
         DATABASE_URL:
           "postgresql://postgres:dev@localhost/sessions?hostaddr=10.0.0.9",
       },
-      "DATABASE_URL names its host in the query",
+      "DATABASE_URL carries query options",
+    ],
+    [
+      {
+        ...local,
+        DATABASE_URL:
+          "postgresql://postgres@postgres/sessions?connectionString=postgresql%3A%2F%2Fpostgres%40db.prod.internal%2Fsessions",
+      },
+      "DATABASE_URL carries query options",
     ],
     [
       { ...local, DATABASE_URL: "socket://postgres/var/run/postgresql" },

@@ -222,18 +222,20 @@ down() {
 # Why this stack must not get the demo accounts, or nothing. The CLI checks
 # its own side too (apps/control-host/src/api/demo-accounts.ts).
 demo_accounts_refusal() {
-  local endpoint bindings ip
+  local endpoint api bindings ip
   # The endpoint the CLI resolves, DOCKER_HOST and DOCKER_CONTEXT included.
   endpoint=$(docker context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null) || true
   case "$endpoint" in
     unix://* | npipe://*) ;;
     *) echo "Docker is not this machine's (${endpoint:-unknown endpoint})"; return ;;
   esac
-  # Every binding the api publishes, not only the first `compose port` names.
-  # An ephemeral binding (127.0.0.1::3000) renders without .published.
-  bindings=$(rendered | jq -r '.services.api.ports[]?
-    | if (.host_ip // "") == "" then "0.0.0.0" else .host_ip end') ||
-    { echo "compose cannot render the stack"; return; }
+  # The running api's bindings, not the render: a container started from
+  # other compose files keeps what it was started with.
+  api=$(compose ps -q api 2>/dev/null) || true
+  [ -n "$api" ] || { echo "the api is not running"; return; }
+  bindings=$(docker inspect --format '{{json .NetworkSettings.Ports}}' "$api" |
+    jq -r '[.[]? | select(. != null) | .[] | .HostIp | if . == "" then "0.0.0.0" else . end] | unique | .[]') ||
+    { echo "cannot read the api's port bindings"; return; }
   [ -n "$bindings" ] || { echo "the api publishes no port"; return; }
   for ip in $bindings; do
     case "$ip" in

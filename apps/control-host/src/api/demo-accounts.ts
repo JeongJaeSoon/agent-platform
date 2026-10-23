@@ -72,9 +72,10 @@ export function demoAccountsRefusal(
   } catch {
     return "DATABASE_URL is missing or not a URL";
   }
-  // pg connects to ?host= or ?hostaddr= over the URL's own host.
-  if (url.searchParams.has("host") || url.searchParams.has("hostaddr")) {
-    return "DATABASE_URL names its host in the query";
+  // pg lets the query (host, hostaddr, connectionString) override the
+  // URL's own host; the compose DSN has no query at all.
+  if (url.search !== "") {
+    return "DATABASE_URL carries query options";
   }
   const host = url.hostname;
   if (
