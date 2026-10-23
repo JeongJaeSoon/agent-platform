@@ -90,6 +90,17 @@ SID=$(echo "$created" | jq -r .session_id)
 
 **기대 응답.** 201과 함께 `session_id`, `turn_id: "1"`, `receipt_id`, `receipt_status: "accepted"`, `status: "queued"`가 온다. 실제 완료 결과는 생성 receipt의 옛 acceptance body가 아니라 turn 조회로 판정한다.
 
+### 세션 제목
+
+선택 필드 `title`로 세션 이름을 줄 수 있다. 주면 공백·줄바꿈 연속을 공백 하나로 줄이고 앞뒤를 자른 값이 그대로 저장된다. 그 뒤로 비거나 80자(grapheme cluster, 이모지·결합 문자 하나가 1자)를 넘으면 400이다. 생략하면 첫 `message`에서 모델을 부르지 않고 같은 규칙으로 만든다. 공백을 줄인 결과가 80자 이하면 그대로 쓰고, 넘으면 앞 79자에서 끝 공백을 떼고 `…`를 붙인다. 같은 메시지는 늘 같은 제목이 된다. 공백만 있는 메시지면 `title`은 `null`이다. 이 필드가 생기기 전 세션도 backfill하지 않고 `null`로 읽힌다. 화면은 이때 세션 id를 보여 준다.
+
+`title`은 `GET /v1/sessions` 목록 항목과 `GET /v1/sessions/{id}` 상세에 있다. 이름을 바꾸려면 `PATCH /v1/sessions/{id}`(`updateSession`)에 `{"title": "..."}`를 보낸다. Idempotency-Key는 필요 없고, 같은 규칙으로 정리해 저장하며, 응답은 200과 상세 본문이다. 세션 `revision`은 오르지 않고 receipt도 남지 않는다. 제목이 실제로 바뀌면 SSE에 `status` 이벤트가 하나 생기고 `data.data.title`에 새 제목이 실린다(`phase`는 그때의 세션 status). 같은 제목이면 이벤트가 없다. 바꿀 수 있는 사람은 권한 요청에 답하는 사람과 같다. 만든 사람(key가 만든 세션이면 그 key), 그 에이전트의 관리자, owner·admin이고 `sessions:write` scope가 있어야 한다. 공유로 보기만 하는 사람은 403(`reason_code: role`), 볼 수 없는 사람은 404다.
+
+```bash
+curl -sS -X PATCH "$API/v1/sessions/$SID" "${AUTH[@]}" \
+  --data '{"title":"권한 요청 예시 세션"}' | jq '{id, title, revision}'
+```
+
 **흔한 오류.** 422 `UNSUPPORTED_CAPABILITY`는 profile 또는 repository 선택이 유효하지 않다는 뜻이다. `required` profile에 `repository_id`가 없으면 메시지가 `Profile <id> needs a repository: send repository_id`이고, `none` profile에 보내면 `Profile <id> runs without a repository: omit repository_id`다. `repository_id: null`은 생략이 아니라 400이다. `createSession`은 계약상 429 `RATE_LIMITED`를 반환할 수 있으므로 나중에 재시도한다. 입력 queue 상한은 메시지 추가에 적용된다(4절). 저장소 상한은 413 `STORAGE_LIMIT_EXCEEDED`로 나타나며 `/v1/limits`를 본다. 실행 slot이 모자라면 세션은 거절되지 않고 `queued`로 기다린다. 세션 비용·token 상한은 요청을 거절하지 않고, 넘은 뒤 세션 `attention`의 `BUDGET_EXCEEDED`와 `/usage`의 `budget_exceeded: true`로 나타난다(8절). 409 `IDEMPOTENCY_CONFLICT`면 같은 key에 다른 본문을 보냈다.
 
 ## 3. pending-requests의 승인·질문에 답하기
