@@ -34,6 +34,11 @@ import type { ReactNode } from "react";
  */
 
 const API_CHANGE = <Badge variant="red">API 변경 필요</Badge>;
+const TEXT_REQUEST = (
+  <Badge variant="amber" data-part-request="Text">
+    부품 요청 중: Text
+  </Badge>
+);
 
 type PanelState =
   | "loading"
@@ -193,10 +198,8 @@ function VariablesTable({ rows }: { readonly rows: readonly Variable[] }) {
           <RowListItem key={variable.name}>
             <RowLines>
               <code>{variable.name}</code>
-              <code className="text-muted-foreground text-caption">
-                {variable.value}
-              </code>
-              <span className="text-muted-foreground text-caption">
+              <code>{variable.value}</code>
+              <span>
                 {variable.grant} · {variable.updated}
               </span>
             </RowLines>
@@ -212,7 +215,10 @@ function WorkspaceVariablesScreen({ state }: { readonly state: PanelState }) {
   const listed = state === "ready" || state === "delete" || state === "deleted";
   return (
     <div className="story-stack">
-      {API_CHANGE}
+      <div className="story-row">
+        {API_CHANGE}
+        {TEXT_REQUEST}
+      </div>
       {state === "deleted" ? (
         <AlertStandIn tone="info" role="status">
           LOG_LEVEL을 삭제했습니다.

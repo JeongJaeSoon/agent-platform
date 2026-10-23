@@ -5,7 +5,7 @@ import {
   QuestionCard,
   type QuestionRequest,
 } from "@werft-ai/react/components";
-import { Badge, formatTimestamp } from "@werft-ai/ui";
+import { Badge } from "@werft-ai/ui";
 
 /*
  * S-A1 (approval card) and S-A2 (question card) through each stage of a
@@ -35,7 +35,6 @@ type Stage =
 const NOW = Date.parse("2026-10-21T01:00:00.000Z");
 const EXPIRES_AT = "2026-10-22T01:00:00.000Z";
 const AFTER_EXPIRY = Date.parse("2026-10-22T01:00:01.000Z");
-const PARK_AT = formatTimestamp("2026-10-21T01:30:00.000Z", "ko");
 
 type Tone = "gray" | "blue" | "amber" | "red";
 
@@ -59,8 +58,7 @@ const PARKED_DETAIL = (at: string) =>
 
 const STAGES: Record<Stage, StageCopy> = {
   waiting: {
-    detail: (at) =>
-      `${PARK_AT}까지 답이 없으면 일시정지합니다 · ${at}까지 답할 수 있습니다`,
+    detail: (at) => `일시정지 예정: API 변경 필요 · ${at}까지 답할 수 있습니다`,
   },
   parking: {
     head: { label: "일시정지하는 중", tone: "amber" },
@@ -71,7 +69,7 @@ const STAGES: Record<Stage, StageCopy> = {
   answeredSiblings: {
     head: { label: "답을 저장했습니다", tone: "blue" },
     detail: (at) =>
-      `나머지 요청 2개에 답하면 이어서 진행합니다. ${at}까지 답이 없으면 답한 것만으로 이어갑니다.`,
+      `나머지 요청에 답하면 이어서 진행합니다(남은 요청 수: API 변경 필요). ${at}까지 답이 없으면 답한 것만으로 이어갑니다.`,
     answered: true,
   },
   resuming: {

@@ -6,9 +6,13 @@ import {
   CardHeader,
   CardTitle,
   ErrorState,
-  RowLines,
-  RowList,
-  RowListItem,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableHeader,
+  TableRow,
 } from "@werft-ai/ui";
 
 /*
@@ -48,18 +52,24 @@ function SessionStoppedByVariablesScreen({
           <CardTitle>에이전트 관리자</CardTitle>
         </CardHeader>
         <CardContent>
-          <RowList variant="joined" aria-label="에이전트 관리자">
-            {ADMINS.map((admin) => (
-              <RowListItem key={admin.email}>
-                <RowLines>
-                  <span>{admin.name}</span>
-                  <span className="text-muted-foreground text-caption">
-                    {admin.email}
-                  </span>
-                </RowLines>
-              </RowListItem>
-            ))}
-          </RowList>
+          <TableContainer label="에이전트 관리자">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead scope="col">이름</TableHead>
+                  <TableHead scope="col">이메일</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {ADMINS.map((admin) => (
+                  <TableRow key={admin.email}>
+                    <TableCell>{admin.name}</TableCell>
+                    <TableCell>{admin.email}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
         </CardContent>
       </Card>
     </div>

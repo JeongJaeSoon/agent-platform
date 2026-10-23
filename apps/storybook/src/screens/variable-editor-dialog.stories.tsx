@@ -132,11 +132,11 @@ function VariableEditorDialogScreen({
         <Field>
           <FieldLabel>값</FieldLabel>
           <Textarea name="value" defaultValue={draft.value} />
+          {draft.grant ? (
+            <FieldDescription>{draft.grant}</FieldDescription>
+          ) : null}
           <FieldError>{draft.valueError}</FieldError>
         </Field>
-        {draft.grant ? (
-          <p className="text-muted-foreground text-caption">{draft.grant}</p>
-        ) : null}
         <FieldError>{draft.formError}</FieldError>
       </FieldGroup>
     </ConfirmDialog>

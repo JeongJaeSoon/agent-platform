@@ -13,7 +13,6 @@ import {
   CardHeader,
   CardTitle,
   EmptyState,
-  formatTimestamp,
   Link,
 } from "@werft-ai/ui";
 
@@ -29,7 +28,6 @@ type GroupState = "waiting" | "parked" | "empty";
 
 const NOW = Date.parse("2026-10-21T01:00:00.000Z");
 const EXPIRES_AT = "2026-10-22T01:00:00.000Z";
-const PARK_AT = formatTimestamp("2026-10-21T01:30:00.000Z", "ko");
 const SESSION_ID = "819f21a8-2c1e-4f0b-9a3d-000000000b07";
 
 const REQUESTS: readonly PermissionRequest[] = [
@@ -98,7 +96,7 @@ function ApprovalInboxGroupsBody({ state }: { readonly state: GroupState }) {
             onAllow={() => {}}
             onDeny={() => {}}
             subject={
-              <Link href={`#/sessions/${SESSION_ID}`} className="font-mono">
+              <Link href={`#/sessions/${SESSION_ID}`}>
                 {SESSION_ID.slice(0, 8)} <span aria-hidden="true">›</span>
               </Link>
             }
@@ -108,7 +106,7 @@ function ApprovalInboxGroupsBody({ state }: { readonly state: GroupState }) {
                 ? (at) =>
                     `${at}까지 답할 수 있습니다. 답하면 작업을 다시 띄웁니다(1분 안팎 걸립니다).`
                 : (at) =>
-                    `${PARK_AT}까지 답이 없으면 일시정지합니다 · ${at}까지 답할 수 있습니다`,
+                    `일시정지 예정: API 변경 필요 · ${at}까지 답할 수 있습니다`,
             }}
           />
         ))}

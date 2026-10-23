@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { SessionStatusLabel } from "@werft-ai/react/components";
-import { Badge, Link, RowLines, RowList, RowListItem } from "@werft-ai/ui";
+import { Badge, Link, RowList, RowListItem } from "@werft-ai/ui";
 
 /*
  * S-A4: a session row whose requests wait. SessionRow has no place for a
@@ -17,17 +17,9 @@ function SessionListParkedBadgeBody({ state }: { readonly state: RowState }) {
   return (
     <RowList variant="joined" aria-label="세션">
       <RowListItem>
-        <RowLines>
-          <Link
-            href={`#/sessions/${SESSION_ID}`}
-            className="font-mono text-caption"
-          >
-            {SESSION_ID.slice(0, 8)} <span aria-hidden="true">›</span>
-          </Link>
-          <span className="text-muted-foreground text-caption">
-            claude-default · 결제 담당
-          </span>
-        </RowLines>
+        <Link href={`#/sessions/${SESSION_ID}`}>
+          {SESSION_ID.slice(0, 8)} <span aria-hidden="true">›</span>
+        </Link>
         <span className="story-row items-center">
           {state === "expired" ? null : (
             <SessionStatusLabel

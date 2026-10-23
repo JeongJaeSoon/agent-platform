@@ -61,11 +61,7 @@ function CardEditorVariableNamesScreen({
         {API_CHANGE}
         <Field>
           <FieldLabel>받을 변수 이름</FieldLabel>
-          <Textarea
-            name="variable-names"
-            className="font-mono"
-            defaultValue={draft.names}
-          />
+          <Textarea name="variable-names" defaultValue={draft.names} />
           <FieldDescription>
             여기 적은 이름만 세션에 들어갑니다. 값은 에이전트 상세나
             워크스페이스 설정에서 넣습니다.

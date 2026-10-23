@@ -34,6 +34,11 @@ import type { ReactNode } from "react";
  */
 
 const API_CHANGE = <Badge variant="red">API 변경 필요</Badge>;
+const TEXT_REQUEST = (
+  <Badge variant="amber" data-part-request="Text">
+    부품 요청 중: Text
+  </Badge>
+);
 
 type PanelState = "loading" | "error" | "none" | "ready" | "warnings";
 
@@ -137,6 +142,13 @@ const AGENT_VALUES = [
 
 const ACTIONS = ["수정", "삭제"];
 
+// The API returns no total, so the sum and the verdict on it wait for it.
+const TOTAL = (
+  <div className="story-row items-center">
+    합계 용량: <Badge variant="red">API 변경 필요</Badge>
+  </div>
+);
+
 function VariableRows({ rows }: { readonly rows: readonly Row[] }) {
   return (
     <RowList variant="joined" aria-label="선언한 변수">
@@ -144,20 +156,12 @@ function VariableRows({ rows }: { readonly rows: readonly Row[] }) {
         <RowListItem key={row.name}>
           <RowLines>
             <code>{row.name}</code>
-            {row.value ? (
-              <code className="text-muted-foreground text-caption">
-                {row.value}
-              </code>
-            ) : null}
-            {row.shadows ? (
-              <span className="text-muted-foreground text-caption">
-                워크스페이스 값을 가립니다
-              </span>
-            ) : null}
+            {row.value ? <code>{row.value}</code> : null}
           </RowLines>
           {row.source === "agent" ? (
             <Badge variant="blue">에이전트 값</Badge>
           ) : null}
+          {row.shadows ? <Badge>워크스페이스 값을 가립니다</Badge> : null}
           {row.source === "workspace" ? (
             <>
               <Badge>워크스페이스 값</Badge>
@@ -265,12 +269,8 @@ function AgentValuesTable() {
           <RowListItem key={variable.name}>
             <RowLines>
               <code>{variable.name}</code>
-              <code className="text-muted-foreground text-caption">
-                {variable.value}
-              </code>
-              <span className="text-muted-foreground text-caption">
-                {variable.updated}
-              </span>
+              <code>{variable.value}</code>
+              <span>{variable.updated}</span>
             </RowLines>
             <RowMenu name={variable.name} />
           </RowListItem>
@@ -283,7 +283,10 @@ function AgentValuesTable() {
 function AgentVariablesScreen({ state }: { readonly state: PanelState }) {
   return (
     <div className="story-stack">
-      {API_CHANGE}
+      <div className="story-row">
+        {API_CHANGE}
+        {TEXT_REQUEST}
+      </div>
       <Card>
         <CardHeader>
           <CardTitle>변수</CardTitle>
@@ -313,26 +316,27 @@ function AgentVariablesScreen({ state }: { readonly state: PanelState }) {
           {state === "ready" ? (
             <>
               <VariableRows rows={READY} />
-              <p className="text-muted-foreground text-caption">
-                지금 값으로 시작하면 합계 3 KB
-              </p>
-              <h3 className="font-semibold text-body">에이전트 값</h3>
-              <AgentValuesTable />
+              {TOTAL}
             </>
           ) : null}
           {state === "warnings" ? (
             <>
               <VariableRows rows={WARNINGS} />
-              <p className="text-muted-foreground text-caption">
-                지금 값으로 시작하면 합계 131 KB
-              </p>
-              <AlertStandIn tone="warning">
-                합계가 128 KB를 넘어 세션이 시작되지 않습니다.
-              </AlertStandIn>
+              {TOTAL}
             </>
           ) : null}
         </CardContent>
       </Card>
+      {state === "ready" ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>에이전트 값</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <AgentValuesTable />
+          </CardContent>
+        </Card>
+      ) : null}
     </div>
   );
 }
