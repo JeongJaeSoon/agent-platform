@@ -8,6 +8,7 @@ import {
   type ReactNode,
   type Ref,
   useContext,
+  useEffect,
   useId,
   useRef,
   useState,
@@ -65,15 +66,21 @@ export function Tooltip({
   const content = useRef<HTMLElement | null>(null);
   const descriptionId = useId();
 
+  // However it closed, a controlling parent included, the next opening
+  // starts without an opener.
+  useEffect(() => {
+    if (!open) openedBy.current = null;
+  }, [open]);
+
   const setOpen = (next: boolean) => {
     if (!next) openedBy.current = null;
     if (openProp === undefined) setUncontrolled(next);
     if (next !== open) onOpenChange?.(next);
   };
   const show = (by: OpenedBy) => {
-    // A note already open (defaultOpen, controlled) keeps no opener, so the
-    // next press closes it.
-    if (!open) openedBy.current ??= by;
+    // A note already open (defaultOpen, a parent's `open`) keeps no opener,
+    // so the next press closes it.
+    if (!open) openedBy.current = by;
     setOpen(true);
   };
   const hide = () => setOpen(false);

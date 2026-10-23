@@ -188,6 +188,33 @@ describe("Tooltip", () => {
     expect(changes.at(-1)).toBe(false);
   });
 
+  test("부모가 닫았다 다시 연 툴팁은 첫 누르기로 닫힌다", async () => {
+    const user = await setupUser();
+    const changes: boolean[] = [];
+    const view = (open: boolean) => (
+      <Tooltip
+        open={open}
+        onOpenChange={(next) => {
+          changes.push(next);
+        }}
+      >
+        <TooltipTrigger asChild={true}>
+          <button type="button">부모</button>
+        </TooltipTrigger>
+        <TooltipContent>부모가 연 설명</TooltipContent>
+      </Tooltip>
+    );
+    const { getByRole, rerender } = render(view(false));
+    const button = getByRole("button", { name: "부모" });
+    await user.hover(button);
+    expect(changes).toEqual([true]);
+    rerender(view(true));
+    rerender(view(false));
+    rerender(view(true));
+    await user.click(button);
+    expect(changes.at(-1)).toBe(false);
+  });
+
   test("open을 넘기면 그 값대로 열려 있다", () => {
     render(
       <Tooltip open={true}>
