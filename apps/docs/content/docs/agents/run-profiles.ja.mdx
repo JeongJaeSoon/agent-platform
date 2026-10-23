@@ -1,0 +1,97 @@
+---
+title: "実行プロファイルを選ぶ"
+description: セッションがどのモデル・ツール・権限モードで動くかを決める実行プロファイル
+---
+
+実行プロファイル (profile) は、セッションの動作方式を決める。runtime とそのバージョン、モデル、ツール一覧、権限モード、モデル provider、リポジトリを使うかどうかである。プロファイルは運用者がインストールのカタログ (`config/profiles.yaml`) に登録し、ユーザーは id で選ぶ。リポジトリごとに動作できるプロファイルの一覧もカタログ (`config/repositories.yaml`) にある。
+
+## 一覧を見る
+
+```bash
+curl -sS "$API/v1/profiles" -H "Authorization: Bearer $KEY" | jq '.items[]'
+```
+
+```text
+{
+  "id": "claude-coding-local",
+  "model": "claude-sonnet-5",
+  "tools": [
+    "Read",
+    "Edit",
+    "Write",
+    "Glob",
+    "Grep",
+    "Bash",
+    "AskUserQuestion"
+  ],
+  "runtime_kind": "claude_agent_sdk",
+  "runtime_version": "0.3.270",
+  "billing": "metered",
+  "repository_mode": "required"
+}
+```
+
+| フィールド | 意味 |
+| --- | --- |
+| `model` | デフォルトのモデル |
+| `tools` | セッションで使えるツール。これ以外のツールは実行されない ([権限](/agents/permissions)) |
+| `billing` | `metered` ならコストをセッションの上限に計上する。`none` なら計上しない |
+| `repository_mode` | `required` (リポジトリ必須)、`optional`、`none` (リポジトリなし) |
+
+provider のアドレスと認証情報は一覧に表示されない。その値は worker にも渡されない。
+
+## セッションで選ぶ
+
+セッションを作成するとき、`profile_id` で選ぶ。プロファイルが複数のモデルを許可している場合は `model` でその中の 1 つを選び、省略するとデフォルトのモデルで動く。
+
+```bash
+created=$(curl -sS "$API/v1/sessions" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg m 'GATE-SPEC {"id":"profile","steps":[],"final":"ok"}' \
+    '{profile_id: "claude-coding-local", model: "claude-sonnet-5", repository_id: "sample-app", message: $m}')")
+SID=$(echo "$created" | jq -r .session_id)
+curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq .runtime
+```
+
+```text
+{
+  "kind": "claude_agent_sdk",
+  "version": "0.3.270",
+  "profile_id": "claude-coding-local",
+  "model": "claude-sonnet-5",
+  "permission_mode": "default"
+}
+```
+
+カタログにないプロファイル、そのリポジトリで動作できないプロファイル、プロファイルが許可していないモデルは 422 になる。
+
+エージェントのリリースを作成するときは、`runtime_profile_id` で選ぶ。カードの `model` がそのプロファイルのモデルと同じで、カードのツールがすべてプロファイルにある必要がある ([作成](/agents/create#リリースの作成))。
+
+## 進行中のセッションのプロファイルを変更する
+
+`POST /v1/sessions/{id}/profile` で変更する。実行中の turn は開始時のプロファイルで終わり、その次の入力から新しいプロファイルで動く。会話と作業ツリーは最後の checkpoint から引き継がれる。同じプロファイルに変更しても何も変わらず、receipt だけが残る。
+
+```bash
+until [ "$(curl -sS "$API/v1/sessions/$SID/turns/1" -H "Authorization: Bearer $KEY" | jq -r .status)" = completed ]; do
+  sleep 2
+done
+REV=$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq .revision)
+curl -sS "$API/v1/sessions/$SID/profile" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --argjson r "$REV" '{expected_revision: $r, profile_id: "claude-coding-local"}')" | jq -c .
+```
+
+```text
+{"receipt_id":"…","receipt_status":"succeeded"}
+```
+
+新しいプロファイルの runtime の種類・バージョンや課金方式が異なる場合、またはそのリポジトリと組み合わせられない場合は 422 `UNSUPPORTED_CAPABILITY` になる。エージェントのリリースで作成したセッションは、リリースがプロファイルを決めるため 409 `RELEASE_PROFILE_MISMATCH` になる。scope は `sessions:control` である。
+
+## 次のステップ
+
+- [権限](/agents/permissions): ツール一覧と権限モードの役割
+- [開始](/sessions/start): セッション作成リクエスト

@@ -1,0 +1,101 @@
+---
+title: "権限"
+description: エージェントが使えるツール、人による承認、エージェントを管理する人と認証情報の紐付け
+---
+
+エージェントの権限は 3 つの層からなる。実行プロファイルが定めるツールと権限モード、人が答える権限リクエスト、そしてエージェントを管理し認証情報の名前を紐付ける人である。
+
+## ツール: 実行プロファイルが決める
+
+セッションは、実行プロファイルの `tools` に含まれるツールだけを使う。それ以外のツールは権限リクエストなしで拒否され、モデルはエラーの `tool_result` を受け取る。次の台本は、ローカルプロファイルにない `WebFetch` を呼び出す。
+
+```bash
+created=$(curl -sS "$API/v1/sessions" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg m 'GATE-SPEC {"id":"outside","steps":[{"tool":"WebFetch","input":{"url":"https://example.com","prompt":"summarize"}}],"final":"done"}' \
+    '{profile_id: "claude-coding-local", repository_id: "sample-app", message: $m}')")
+SID=$(echo "$created" | jq -r .session_id)
+until [ "$(curl -sS "$API/v1/sessions/$SID/turns/1" -H "Authorization: Bearer $KEY" | jq -r .status)" = completed ]; do
+  sleep 2
+done
+curl -sSN --max-time 5 "$API/v1/sessions/$SID/events" -H "Authorization: Bearer $KEY" \
+  | awk '/^event: tool_result/ { getline; sub(/^data: /, ""); print }' \
+  | jq -c '.data | {is_error, content}' || true
+```
+
+```text
+curl: (28) Operation timed out after 5006 milliseconds with 4482 bytes received
+{"is_error":true,"content":"<tool_use_error>Error: No such tool available: WebFetch. WebFetch is disabled for this session, in subagents as well as here.</tool_use_error>"}
+```
+
+`curl: (28)` は `--max-time` がストリームを切断したものである。
+
+<Callout type="warn">
+エージェントカードの `capabilities.tools`・`forbidden`・`tool_policy` はリリースに固定されるが、まだ実行には適用されない。カードに `Read` だけを書いても、セッションはプロファイルのツールをすべて使う。
+</Callout>
+
+## 権限モード
+
+プロファイルの `permission_mode` が、ツールを実行する前に人へ尋ねるかどうかを決める。セッション詳細の `runtime.permission_mode` に表示される。
+
+| モード | 動作 |
+| --- | --- |
+| `default` | ファイルを変更するツール (Write、Edit、ファイルを書く Bash コマンドなど) は、実行前に権限リクエストを作成する。読み取りコマンドは尋ねない。ローカルプロファイルのモードである |
+| `acceptEdits`, `dontAsk`, `plan` | Claude Code の同名のモードで動く |
+| `bypassPermissions`, `auto` | 人の承認なしに実行する。カタログにこのモードのプロファイルがある場合、API は `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS=true` なしでは起動しない |
+
+モードはカタログにのみ存在し、セッションのリクエストで変更することはできない。
+
+## 承認: 人だけが行う
+
+権限リクエストと質問に答えるには `sessions:approve` scope が必要である。worker 内のエージェントが持つ認証情報は `/v1` で 401 になるため、自分で承認することはできない。エージェント専用 key は `sessions:approve` を持てない。答え方は [承認待ちと再開](/sessions/waiting-and-resume) にある。
+
+## エージェント管理者
+
+エージェントを作成した人が、そのエージェントの管理者になる。管理者は member であっても、そのエージェントのカード修正、リリース、有効化、認証情報の紐付け、管理者の指定、エージェント専用 key の発行を行える。人やチームを管理者として追加でき、チームの場合はそのチームのメンバー全員が管理者になる。[作成](/agents/create)の `AID` と `WEB` を引き続き使う。
+
+```bash
+curl -sS "$API/v1/agents/$AID/admins" "${WEB[@]}" | jq '{users: [.users[].email], teams}'
+```
+
+```text
+{
+  "users": [
+    "owner@example.test"
+  ],
+  "teams": []
+}
+```
+
+| リクエスト | 内容 |
+| --- | --- |
+| `POST /v1/agents/{id}/admins` `{"user_id"}` または `{"team_id"}` | 管理者の指定 |
+| `DELETE /v1/agents/{id}/admins/users/{user_id}`, `…/teams/{team_id}` | 解除 |
+| `GET /v1/administered-agents` | 自分が管理しているエージェント |
+
+## 認証情報の紐付け
+
+カードには、使う認証情報の名前だけを `capabilities.credential_refs` に書く。値は Werft の外 (secret store、remote MCP server の接続) にある。その名前をこのエージェントが使ってよいという紐付けは、管理者が別途作成する。カードに書かれた名前のうち紐付けられていないものがあると、有効化は 409 `CREDENTIAL_UNBOUND` になる。
+
+```bash
+curl -sS "$API/v1/agents/$AID/credential-bindings" "${WEB[@]}" -d '{"credential_ref": "notion-token"}' \
+  | jq '{credential_ref: .binding.credential_ref, created}'
+curl -sS "$API/v1/agents/$AID/credential-bindings" "${WEB[@]}" | jq -c '[.items[].credential_ref]'
+```
+
+```text
+{
+  "credential_ref": "notion-token",
+  "created": true
+}
+["notion-token"]
+```
+
+解除 (`DELETE /v1/agents/{id}/credential-bindings/{binding_id}`) は、動作中のセッションを止めない。次のセッションから遮断される。すぐに遮断するには、外部サービスでその認証情報を失効させる。
+
+## 次のステップ
+
+- [承認待ちと再開](/sessions/waiting-and-resume): 権限リクエストに答える
+- [API key](/api-keys): 個人 key、サービス key、エージェント専用 key
