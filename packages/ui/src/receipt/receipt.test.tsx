@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { RECEIPT_STATUS_VALUES } from "@werft-ai/contracts";
 
+import { formatTimestamp } from "../foundations/format-timestamp.ts";
 import { describeStatus } from "../status/vocabulary.ts";
 import { setupDom } from "../test-support/dom.ts";
-import { formatTimestamp } from "./format-timestamp.ts";
 import { ReceiptLink } from "./receipt-link.tsx";
 import { ReceiptSummary } from "./receipt-summary.tsx";
 

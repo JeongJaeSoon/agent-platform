@@ -1,6 +1,6 @@
 import type { JSX } from "react";
 
-import { cn } from "../lib/cn.ts";
+import { cn } from "../foundations/cn.ts";
 import { guidanceFor } from "./error-guidance.ts";
 
 export interface ErrorStateProps {

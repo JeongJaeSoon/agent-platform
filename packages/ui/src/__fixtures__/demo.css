@@ -1,7 +1,7 @@
 /* What apps/web/src/styles.css does for the console, for the gallery alone. */
 @import "tailwindcss";
-@import "../styles.css";
-@import "../theme.css";
+@import "../foundations/styles.css";
+@import "../foundations/theme.css";
 
 /* biome-ignore lint/suspicious/noUnknownAtRules: a Tailwind 4 directive */
 @source "..";

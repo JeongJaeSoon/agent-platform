@@ -5,7 +5,7 @@
   "tsx": true,
   "tailwind": {
     "config": "",
-    "css": "src/theme.css",
+    "css": "src/foundations/theme.css",
     "baseColor": "neutral",
     "cssVariables": true,
     "prefix": ""
@@ -13,8 +13,8 @@
   "aliases": {
     "components": "@werft-ai/ui/src",
     "ui": "@werft-ai/ui/src/primitives",
-    "utils": "@werft-ai/ui/src/lib/cn",
-    "lib": "@werft-ai/ui/src/lib",
-    "hooks": "@werft-ai/ui/src/lib"
+    "utils": "@werft-ai/ui/src/foundations/cn",
+    "lib": "@werft-ai/ui/src/foundations",
+    "hooks": "@werft-ai/ui/src/foundations"
   }
 }

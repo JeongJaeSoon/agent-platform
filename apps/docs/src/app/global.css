@@ -1,0 +1,55 @@
+@import "tailwindcss";
+/* tokens.css and the self-hosted fonts, as the web console takes them. */
+@import "@werft-ai/ui/styles.css";
+@import "fumadocs-ui/css/shadcn.css";
+@import "fumadocs-ui/css/preset.css";
+@import "fumadocs-openapi/css/preset.css";
+
+/*
+ * Colours and type come from the console's tokens. shadcn.css maps Fumadocs'
+ * --color-fd-* onto shadcn's semantic names; tokens.css no longer defines
+ * those at runtime, so they point at the --ap-* tokens here, along with the
+ * few names shadcn.css leaves out.
+ */
+:root {
+  --background: var(--ap-color-canvas);
+  --foreground: var(--ap-color-foreground);
+  --card: var(--ap-color-surface);
+  --card-foreground: var(--ap-color-foreground);
+  --popover: var(--ap-color-surface);
+  --popover-foreground: var(--ap-color-foreground);
+  --primary: var(--ap-color-accent);
+  --primary-foreground: var(--ap-color-accent-foreground);
+  --secondary: var(--ap-tone-neutral-bg);
+  --secondary-foreground: var(--ap-tone-neutral-fg);
+  --muted: var(--ap-color-surface-sunken);
+  --muted-foreground: var(--ap-color-muted-foreground);
+  --accent: var(--ap-tone-neutral-bg);
+  --accent-foreground: var(--ap-color-foreground);
+  --destructive: var(--ap-tone-danger-fg);
+  --border: var(--ap-color-border);
+  --input: var(--ap-color-border-input);
+  --ring: var(--ap-color-focus-ring);
+  --sidebar: var(--ap-color-canvas);
+  --sidebar-foreground: var(--ap-color-foreground);
+  --sidebar-border: var(--ap-color-border);
+  --sidebar-accent: var(--ap-tone-neutral-bg);
+  --sidebar-accent-foreground: var(--ap-color-foreground);
+  --sidebar-ring: var(--ap-color-focus-ring);
+  --sidebar-primary-foreground: var(--ap-color-accent-foreground);
+  --color-fd-overlay: var(--ap-color-overlay);
+}
+
+/* biome-ignore lint/suspicious/noUnknownAtRules: a Tailwind 4 directive */
+@theme inline {
+  --font-sans: var(--ap-font-sans);
+  --font-mono: var(--ap-font-mono);
+}
+
+html {
+  scrollbar-gutter: stable;
+}
+
+body {
+  font-family: var(--ap-font-sans);
+}

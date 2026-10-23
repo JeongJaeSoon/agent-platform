@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { API_ERROR_CODE_VALUES } from "@werft-ai/contracts";
 
+import { EmptyState } from "../patterns/empty-state.tsx";
+import { Skeleton } from "../primitives/skeleton.tsx";
 import { setupDom, stubPrefersReducedMotion } from "../test-support/dom.ts";
 import { htmlOf } from "../test-support/html.ts";
-import { EmptyState } from "./empty-state.tsx";
 import { ERROR_GUIDANCE, guidanceFor } from "./error-guidance.ts";
 import { ErrorState } from "./error-state.tsx";
-import { Skeleton } from "./skeleton.tsx";
 
 const { render } = await setupDom();
 

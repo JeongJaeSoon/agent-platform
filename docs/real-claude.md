@@ -69,7 +69,7 @@ docker image rm "agent-platform-control-host:$P" "agent-platform-worker:$P" "age
 
 ## B. 실제 Claude와 직접 대화하기
 
-스택을 띄워 두고 대본 없이 자유 문장을 보낸다. quickstart의 `--fake-model` 스택과 같은 project(`agent-platform`)와 포트를 쓰므로 둘을 동시에 띄울 수 없다. fake 스택이 떠 있을 때 `up`을 실행하면 api와 scheduler가 real 카탈로그로 다시 만들어진다. 그 전에 만든 fake 세션은 카탈로그에 profile이 없으므로 다음 메시지부터 `CATALOG_MISMATCH`로 실패한다([operations.md](operations.md#운영자-카탈로그-agent-profile--repository)). 처음부터 하려면 `up` 대신 `scripts/local.sh reset`을 쓴다(기존 세션과 데이터가 지워진다). `scripts/local.sh up --fake-model`을 다시 실행하면 fake 카탈로그로 돌아간다.
+스택을 띄워 두고 대본 없이 자유 문장을 보낸다. quickstart의 `--fake-model` 스택과 같은 project(`agent-platform`)와 포트를 쓰므로 둘을 동시에 띄울 수 없다. fake 스택이 떠 있을 때 `up`을 실행하면 api와 scheduler가 real 카탈로그로 다시 만들어진다. 그 전에 만든 fake 세션은 카탈로그에 profile이 없으므로 다음 메시지부터 `CATALOG_MISMATCH`로 실패한다([api-server.md](operator/api-server.md#운영자-카탈로그-agent-profile--repository)). 처음부터 하려면 `up` 대신 `scripts/local.sh reset`을 쓴다(기존 세션과 데이터가 지워진다). `scripts/local.sh up --fake-model`을 다시 실행하면 fake 카탈로그로 돌아간다.
 
 **1. 스택 띄우기.** key 입력 세 줄 뒤에 이어서 붙여 넣는다.
 
@@ -159,7 +159,7 @@ scripts/local.sh down
 
 ## 자율 모드 세션
 
-승인 없이 끝까지 도는 세션은 자율 모드 profile로 만든다. 켜는 조건과 남는 경계는 [operations.md](operations.md)의 '자율 모드' 절에 있다. 저장소의 `config/`에는 그런 profile이 없으므로, 먼저 `config/profiles.yaml`의 `profiles:` 아래에 하나를 더한다. `claude-coding-real`과 `permission_mode`·id만 다르다.
+승인 없이 끝까지 도는 세션은 자율 모드 profile로 만든다. 켜는 조건과 남는 경계는 [api-server.md](operator/api-server.md#자율-모드-bypasspermissionsauto)의 '자율 모드' 절에 있다. 저장소의 `config/`에는 그런 profile이 없으므로, 먼저 `config/profiles.yaml`의 `profiles:` 아래에 하나를 더한다. `claude-coding-real`과 `permission_mode`·id만 다르다.
 
 ```yaml
   claude-coding-real-unattended:

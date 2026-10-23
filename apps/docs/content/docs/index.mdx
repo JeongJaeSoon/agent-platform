@@ -1,0 +1,21 @@
+---
+title: 홈
+description: Werft 개발자 문서
+---
+
+import { HomeHero } from "@/components/home-hero";
+
+<HomeHero />
+
+<Cards>
+  <Card title="시작하기" href="/getting-started/install" description="설치, Quickstart, 첫 세션" />
+  <Card title="에이전트" href="/agents/create" description="만들기, 지시문과 역할, 실행 프로필, 권한" />
+  <Card title="세션" href="/sessions/start" description="시작, 상태와 수명, 승인 대기와 재개, 닫기" />
+  <Card title="메시지" href="/messages/send" description="보내기, 스트리밍 받기, 첨부" />
+  <Card title="승인과 push" href="/approvals/request" description="요청, 승인, 거부, receipt" />
+  <Card title="연동" href="/integrations/github" description="GitHub, Slack" />
+  <Card title="API key" href="/api-keys" description="발급과 scope" />
+  <Card title="관측 (OTel)" href="/observability" description="trace와 메트릭" />
+  <Card title="TypeScript SDK (API 클라이언트)" href="/sdk" description="@werft-ai/sdk로 API 호출하기" />
+  <Card title="레퍼런스" href="/reference" description="HTTP API, UI 컴포넌트 (Storybook)" />
+</Cards>

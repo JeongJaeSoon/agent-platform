@@ -53,13 +53,13 @@ worker의 `EventPublisher`(`apps/worker/src/event-publisher.ts`)가 이벤트에
 
 1. **엔진 메시지.** Claude adapter의 `sanitizeNativeMessage`(`packages/adapters/runtimes/claude/src/mapper.ts`)가 엔진 메시지마다 민감한 키의 값, `Bearer …` 같은 비밀 모양의 값, `password=…` 같은 이름 붙은 값을 `[REDACTED]`로 바꾼다. 이벤트는 이 결과로 만든다.
 2. **claim이 준 비밀값.** worker의 `SecretScrubber`(`apps/worker/src/secret-scrubber.ts`)가 이 attempt에 받은 비밀값 자체를 찾아 `<redacted>`로 바꾼다. `scrubbingGateway`가 `appendEvents`와 `registerPending`에 이 처리를 건다. 엔진이 base64처럼 다시 인코딩한 값은 잡지 못한다.
-3. **프로세스 로그.** `packages/observability/src/redaction.ts`의 `sanitizeText`·`sanitizeFields`가 API·worker의 stdout 로그를 가린다. egress proxy는 같은 파일의 사본 `apps/egress-proxy/src/redaction.ts`를 쓴다. 규칙 목록은 [operations.md](../operations.md)의 'provider 키와 저장소 자격 증명은 worker에 가지 않는다' 절에 있다. 이 규칙은 로그용이고 이벤트에는 걸리지 않는다.
+3. **프로세스 로그.** `packages/observability/src/redaction.ts`의 `sanitizeText`·`sanitizeFields`가 API·worker의 stdout 로그를 가린다. egress proxy는 같은 파일의 사본 `apps/egress-proxy/src/redaction.ts`를 쓴다. 규칙 목록은 [api-server.md](api-server.md)의 'provider 키와 저장소 자격 증명은 worker에 가지 않는다' 절에 있다. 이 규칙은 로그용이고 이벤트에는 걸리지 않는다.
 
 1과 3의 패턴 규칙은 가리는 범위가 다르다. 로그 규칙 `sanitizeText`는 비밀 모양이나 `token=` 같은 조각을 하나라도 보면 문자열 전체를 `[REDACTED]`로 바꾼다. mapper는 대부분 일치한 구간만 바꾸고, `name=value` 꼴에서 값의 끝이 분명하면 값만 가린다. 그러나 mapper의 `hideNamedValues`도 `password: …`처럼 콜론으로 이어지는 값이나 끝을 가를 수 없는 값을 보면 텍스트 전체를 가린다. 그래서 `password:`가 든 YAML 파일을 Read한 도구 결과는 이벤트에서 통째로 사라진다. 두 파일의 패턴 목록도 서로 다르다.
 
 ## 누가 내용을 보나
 
-세션 이벤트는 `sessions:read` scope를 가진 주체가 그 세션을 볼 수 있을 때만 읽는다(`apps/control-host/src/api/routes/events.ts`, `packages/platform/src/musterrolle/policy.ts`). 먼저 세션이 주체와 같은 범위에 있어야 한다. 사람은 자기 workspace, API key는 그 key의 owner다(`packages/contracts/src/musterrolle/authorization.ts`의 `ownerScopeOf`). 그 안에서 세션의 공유 범위가 `workspace`(한 번도 바꾸지 않은 세션의 기본값)이면 workspace 구성원 모두가 읽고, `people`·`team`이면 만든 사람과 지정된 사람·팀 구성원만 읽는다. 개인 key는 그 key를 만든 사람으로 판정한다. service key는 구성원이 아니라서 key 자신으로 판정하고, 자기가 만든 세션(만든 사람이 없는 세션)에서는 만든 사람 자리에 선다(`packages/platform/src/musterrolle/policy.ts`의 `viewerOf`, `packages/db/src/session-shares.ts`의 `sessionVisibleTo`). 볼 수 없는 세션은 404다. 공유 범위를 바꾸는 법과 owner·admin의 감사 열람은 [operations.md](../operations.md)의 '세션 공유 범위와 감사 열람' 절에 있다. scope는 HTTP 경계에서 `apps/control-host/src/api/scope-policy.ts`가 검사한다.
+세션 이벤트는 `sessions:read` scope를 가진 주체가 그 세션을 볼 수 있을 때만 읽는다(`apps/control-host/src/api/routes/events.ts`, `packages/platform/src/musterrolle/policy.ts`). 먼저 세션이 주체와 같은 범위에 있어야 한다. 사람은 자기 workspace, API key는 그 key의 owner다(`packages/contracts/src/musterrolle/authorization.ts`의 `ownerScopeOf`). 그 안에서 세션의 공유 범위가 `workspace`(한 번도 바꾸지 않은 세션의 기본값)이면 workspace 구성원 모두가 읽고, `people`·`team`이면 만든 사람과 지정된 사람·팀 구성원만 읽는다. 개인 key는 그 key를 만든 사람으로 판정한다. service key는 구성원이 아니라서 key 자신으로 판정하고, 자기가 만든 세션(만든 사람이 없는 세션)에서는 만든 사람 자리에 선다(`packages/platform/src/musterrolle/policy.ts`의 `viewerOf`, `packages/db/src/session-shares.ts`의 `sessionVisibleTo`). 볼 수 없는 세션은 404다. 공유 범위를 바꾸는 법과 owner·admin의 감사 열람은 [api-server.md](api-server.md)의 '세션 공유 범위와 감사 열람' 절에 있다. scope는 HTTP 경계에서 `apps/control-host/src/api/scope-policy.ts`가 검사한다.
 
 ## 보존 기간
 
