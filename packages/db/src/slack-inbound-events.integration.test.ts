@@ -194,6 +194,57 @@ integration("slack_inbound_events on PostgreSQL", () => {
     }
   });
 
+  test("racing claimers take only each thread's head while it is in flight", async () => {
+    const app = await agentApp();
+    const inbox = createPostgresSlackInboundEventStore(db);
+    const team = slackId("T");
+    const threads = 6;
+    const perThread = 8;
+    for (let n = 0; n < perThread; n += 1) {
+      for (let thread = 0; thread < threads; thread += 1) {
+        await inbox.record({
+          ...event(app, team, `EvHEAD${thread}-${n}`),
+          eventTime: new Date(Date.parse("2026-10-24T10:00:00Z") + n * 1000),
+          status: "received",
+          payload: {},
+          conversationKey: `${app.slackAppId}:C2:${thread}`,
+        });
+      }
+    }
+    const second = new Pool({ connectionString: database.url, max: 6 });
+    try {
+      const stores = [
+        inbox,
+        createPostgresSlackInboundEventStore(drizzle(second, { schema })),
+      ];
+      const taken: string[] = [];
+      // Nobody completes, so each thread's head stays leased throughout.
+      const worker = async (store: (typeof stores)[number]) => {
+        for (;;) {
+          const batch = await store.claim({
+            limit: 3,
+            leaseMs: 60_000,
+            maxAttempts: 5,
+          });
+          if (batch.length === 0) return;
+          taken.push(...batch.map((claim) => claim.eventId));
+        }
+      };
+      await Promise.all(
+        stores.flatMap((store) => [1, 2, 3].map(() => worker(store))),
+      );
+      const mine = taken.filter((id) => id.startsWith("EvHEAD")).sort();
+      console.log(
+        `thread heads (PostgreSQL): ${mine.length} claimed of ${threads * perThread} rows in ${threads} threads`,
+      );
+      expect(mine).toEqual(
+        Array.from({ length: threads }, (_, thread) => `EvHEAD${thread}-0`),
+      );
+    } finally {
+      await second.end();
+    }
+  });
+
   test("the table refuses a dropped row with a payload or a reason on a kept one", async () => {
     const app = await agentApp();
     const base = {

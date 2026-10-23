@@ -97,7 +97,11 @@ export function createPostgresSlackInboundEventStore(
                   SELECT 1 FROM slack_inbound_events o
                   WHERE o.status = 'received'
                     AND o.conversation_key = c.conversation_key
-                    AND ${order("o")} < ${order("c")}
+                    AND o.id <> c.id
+                    -- A late retry of an older event must not run beside
+                    -- the one its thread already has in flight.
+                    AND (${order("o")} < ${order("c")}
+                      OR (o.claim_token IS NOT NULL AND o.lease_expires_at > now()))
                 )
               ORDER BY ${order("c")}
               LIMIT ${limit}

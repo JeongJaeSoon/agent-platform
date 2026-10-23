@@ -191,6 +191,26 @@ describe("claiming the Slack inbox", () => {
     );
   });
 
+  test("a late retry of an older event waits while its thread has one in flight", async () => {
+    await settle();
+    const app = await agentApp();
+    const later = await mention(app, { ts: "1792800001.000500", at: 101 });
+    const [inFlight] = await inbox.claim({ limit: 10, ...LEASE });
+    expect(inFlight?.eventId).toBe(later);
+
+    const older = await mention(app, {
+      ts: "1792800000.000600",
+      thread: "1792800001.000500",
+      at: 100,
+    });
+    expect(await inbox.claim({ limit: 10, ...LEASE })).toEqual([]);
+
+    if (!inFlight) throw new Error("not claimed");
+    expect(await inbox.complete(inFlight)).toBe(true);
+    const next = await inbox.claim({ limit: 10, ...LEASE });
+    expect(next.map((claim) => claim.eventId)).toEqual([older]);
+  });
+
   test("an expired lease is claimed again with attempts + 1, and the late owner writes nothing", async () => {
     await settle();
     const app = await agentApp();
@@ -453,6 +473,16 @@ describe("migration 0158 over 0157 rows", () => {
         event: { type: "app_uninstalled" },
       });
       await insert("Ev4", "T1", "dropped", null);
+      // Read the way slackConversationKey reads them.
+      await insert("Ev5", "T1", "received", {
+        event: { channel: "C1", ts: "5.0", thread_ts: "" },
+      });
+      await insert("Ev6", "T1", "received", {
+        event: { channel: "", ts: "6.0" },
+      });
+      await insert("Ev7", "T1", "received", {
+        event: { channel: "C1", ts: 7 },
+      });
 
       await apply(files[target] as string);
 
@@ -494,7 +524,28 @@ describe("migration 0158 over 0157 rows", () => {
           attempts: 0,
           claim_token: null,
         },
+        ...(
+          [
+            ["Ev5", `${app}:C1:5.0`],
+            ["Ev6", null],
+            ["Ev7", null],
+          ] as const
+        ).map(([event_id, conversation_key]) => ({
+          event_id,
+          status: "received",
+          conversation_key,
+          attempts: 0,
+          claim_token: null,
+        })),
       ]);
+      for (const [eventId, event] of [
+        ["Ev5", { channel: "C1", ts: "5.0", thread_ts: "" }],
+        ["Ev6", { channel: "", ts: "6.0" }],
+        ["Ev7", { channel: "C1", ts: 7 }],
+      ] as const) {
+        const [stored] = rows.rows.filter((row) => row.event_id === eventId);
+        expect(stored?.conversation_key).toBe(slackConversationKey(app, event));
+      }
       // (app_id, event_id) now, not (team_id, event_id); and `failed` is a status.
       await expect(insert("Ev1", "T2", "received", {})).rejects.toThrow();
       await pg.query(

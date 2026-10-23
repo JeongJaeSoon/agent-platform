@@ -804,13 +804,13 @@ scripts/slack-funnel.sh off                  # on과 같은 --https·--set-path�
 
 prefix가 `SLACK_`가 아니라 `SLACK_ROLE_`인 것은 `SLACK_API_URL`·`SLACK_OIDC_*`·`SLACK_EVENTS_PUBLIC_URL`이 api의 설정이기 때문이다.
 
-- claim(한 transaction): `received`이고, lease가 없거나 끝났고, `next_attempt_at`이 없거나 지났고, 같은 `conversation_key`에 더 이른 `received` 행이 없는 행을 `(event_time, received_at, id)` 순서로 `FOR UPDATE SKIP LOCKED`로 잡는다. 잡으면 `claim_token`을 새로 쓰고 `lease_expires_at = now() + lease`, `attempts + 1`이다. 그래서 한 스레드에서는 앞 이벤트가 끝나야 다음 이벤트를 잡고, 다른 스레드는 함께 처리한다.
+- claim(한 transaction): `received`이고, lease가 없거나 끝났고, `next_attempt_at`이 없거나 지났고, 같은 `conversation_key`에 더 이른 `received` 행도, lease가 살아 있는 행도 없는 행을 `(event_time, received_at, id)` 순서로 `FOR UPDATE SKIP LOCKED`로 잡는다. 잡으면 `claim_token`을 새로 쓰고 `lease_expires_at = now() + lease`, `attempts + 1`이다. 그래서 한 스레드에서는 앞 이벤트가 끝나야 다음 이벤트를 잡고(뒤늦게 온 더 이른 이벤트도 처리 중인 이벤트를 기다린다), 다른 스레드는 함께 처리한다.
 - 끝내기·실패 쓰기는 `id`·`claim_token`이 같고 `lease_expires_at > now()`일 때만 쓴다. lease를 잃은 쪽은 아무것도 쓰지 않고 `Slack event lease lost` 한 줄만 남긴다. lease 판정은 모두 DB의 `now()`다(앱 해제의 superseded 판정과 같은 시계).
 - 실패하면 lease를 풀고 `next_attempt_at = now() + backoff`(30초에서 두 배씩, 상한 5분)다. lease 만료로 다시 잡힌 것도 시도로 센다. 5번째 시도가 실패하거나 5번째 lease가 끝나면 `failed`다.
 - 처리 전에 그 설치가 지금 `revoked`이면(이벤트가 기다리는 사이 앱이 해제됨) 처리하지 않고 `dropped`·`installation_revoked`로 끝내며 본문과 `conversation_key`를 지운다.
 - 처리기는 아직 no-op이라 claim한 행은 `processed`가 된다(세션 연결은 뒤 티켓). 로그는 `Slack event claimed`(id·event_id·종류·시도 횟수)와 pass 요약 `Slack inbox pass`다.
 - 기동할 때 api와 같은 catalog(`PLATFORM_CONFIG_DIR`)를 같은 규칙으로 읽는다. 무인 profile이 있는데 `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS=true`가 없으면 api와 같은 이유로 기동을 거부한다. catalog의 credential은 풀지 않는다. provider key와 Secrets Manager 접근은 api에만 있다.
-- master key(`PLATFORM_SECRET_KEY`)는 api와 이 역할에만 간다(bot token으로 Slack에 보내는 일이 이 역할에 붙는다). 값이 64 hex가 아니면 기동하지 않는다. worker·scheduler·reconciler에는 없다(`tests/images.test.ts`, `deploy/helm/render-check.ts`가 검사한다).
+- master key(`PLATFORM_SECRET_KEY`)는 api와 이 역할에만 간다(bot token으로 Slack에 보내는 일이 이 역할에 붙는다). 값이 64 hex가 아니면 기동하지 않는다. compose는 이 역할에 Secrets Manager endpoint와 AWS 자격을 주지 않으므로 `platform.yaml`의 master key는 `value_env`로 적어야 이 역할이 뜬다(`secret_id`면 기동하지 못하고 재시작을 반복한다). worker·scheduler·reconciler에는 없다(`tests/images.test.ts`, `deploy/helm/render-check.ts`가 검사한다).
 - 0158 이전에 쌓인 `received`·`processed` 행은 migration이 같은 규칙으로 `conversation_key`를 채운다.
 
 ### 에이전트의 Slack 채널 설정
