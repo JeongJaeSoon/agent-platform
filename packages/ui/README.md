@@ -30,9 +30,9 @@ Tailwind의 `dark:`는 수동 전환(`data-theme`)을 보지 못하기 때문이
   (`--color-primary` 등)가 `--ap-*` 토큰을 바로 가리킨다. 그래서 키트는 접두사 없는 `--primary`·`--border`를 선언하지
   않고, 같은 이름을 쓰는 앱(shadcn을 쓰는 앱 등)의 변수와 부딪치지 않는다. shadcn의 `accent`는 hover용 조용한 바탕이고, 우리 브랜드 색은
   `primary`(= `--ap-color-accent`)다. 상태 색처럼 도메인 전용 색은 `--ap-tone-*`을 직접 쓴다.
-- **Tailwind 연결.** `src/foundations/theme.css`가 토큰을 유틸리티에 잇는 유일한 곳이다. 색(`bg-primary`·`bg-canvas`…),
+- **Tailwind 연결.** `src/foundations/theme.css`가 토큰을 유틸리티에 잇는 유일한 곳이다. 색(`bg-primary`·`bg-sidebar`…),
   글자 크기(`text-control`·`text-description`·`text-title` 등), `font-sans`·`font-mono`, `rounded-control|card`, `shadow-pop`이
-  여기서 나온다(`rounded-sm|md|lg`·`shadow-sm|md|lg`는 apps/web이 옮겨 갈 때까지 둔 옛 이름이다). 쓰는 쪽 CSS는
+  여기서 나온다. 쓰는 쪽 CSS는
   `tailwindcss`·`styles.css`·`theme.css` 순으로 import하고 `@source`로 이 패키지의 `src`를 스캔해야 한다
   (`apps/web/src/styles.css`가 예다). Tailwind 없이 쓰면 primitive는 모양 없이 그려진다.
 - **cascade layer.** `tokens.css`와 `styles.css`의 규칙은 모두 `@layer ap` 안에 있다. `tokens.css`가
@@ -74,12 +74,12 @@ Tailwind의 `dark:`는 수동 전환(`data-theme`)을 보지 못하기 때문이
 
 값은 콘솔 디자인 캔버스 v35 규칙표를 따른다. 간격은 4·8·12·16·24·32, 글자는 12·13·14·20·24, 반경은 컨트롤 6·카드 8·pill,
 그림자는 떠 있는 요소용 `--ap-shadow-pop` 하나다. 바탕은 사이드바 `--ap-color-sidebar`와 메인·카드 `--ap-color-surface` 둘이다. 사이드바 nav 행은 hover에 `bg-sidebar-hover`, 현재 페이지에 `bg-sidebar-accent`를 쓴다.
-값이 다른 토큰을 가리키는(`var(--ap-…)`) 이름은 apps/web이 옮겨 갈 때까지 둔 옛 이름이니 새 코드에서 쓰지 않는다.
+`--ap-color-canvas`는 `--ap-color-surface`의 옛 이름으로, apps/docs가 읽어서 남겨 두었다. 새 코드에서 쓰지 않는다.
 
 Tailwind 4의 `@theme` 블록 대신 `--ap-` 접두사를 붙인 평범한 커스텀 프로퍼티를 쓴다.
 `@theme`는 Tailwind 컴파일러를 거쳐야만 살아남는데, 이 패키지는 Tailwind 없이도 렌더돼야 하기 때문이다.
-Tailwind에는 `theme.css`가 이어 붙인다(`--color-canvas: var(--ap-color-canvas)` 식). 접두사가 없으면
-`--color-canvas: var(--color-canvas)`가 되어 순환한다. 접두사는 그것을 막는다.
+Tailwind에는 `theme.css`가 이어 붙인다(`--color-surface: var(--ap-color-surface)` 식). 접두사가 없으면
+`--color-surface: var(--color-surface)`가 되어 순환한다. 접두사는 그것을 막는다.
 
 ## 화면 구성 원칙
 

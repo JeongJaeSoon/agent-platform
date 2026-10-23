@@ -52,7 +52,7 @@ export const Empty: Story = {
 /** What a list shows in a row's place while it loads. */
 function LoadingRow() {
   return (
-    <div className="flex flex-col gap-2 rounded-md border p-3">
+    <div className="flex flex-col gap-2 rounded-control border p-3">
       <Skeleton width="30%" label="Loading session" />
       <Skeleton width="70%" />
     </div>
