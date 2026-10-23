@@ -1,16 +1,11 @@
 export const membersKo = {
   "members.title": "구성원",
-  "members.listTitle": "구성원 목록",
   "members.empty": "아직 구성원이 없습니다.",
-  "members.column.name": "이름",
+  "members.column.name": "구성원",
   "members.column.role": "역할",
-  "members.column.state": "상태",
   "members.column.actions": "관리",
   "members.tableLabel": "구성원 표",
-  "members.state.active": "활성",
   "members.state.disabled": "비활성",
-  "members.enableHint": "다시 들어오게 하려면 초대하지 말고 다시 활성화하세요.",
-  "members.roleFor": "{name}의 역할",
   "members.roleChanged": "{name}의 역할을 {role}(으)로 바꿨습니다.",
   "members.roleChangeTitle": "{name}의 역할을 {role}(으)로 바꿀까요?",
   "members.roleChangeConsequence":
@@ -30,7 +25,6 @@ export const membersKo = {
   "members.roleLastOwner":
     "하나뿐인 소유자의 역할은 바꿀 수 없습니다 — 다른 사람을 먼저 소유자로 정하세요.",
   "members.roleOwnerProtected": "소유자의 역할은 관리자가 바꿀 수 없습니다.",
-  "members.roleWhy": "{name}의 역할을 바꿀 수 없는 이유",
   "members.disable": "비활성화",
   "members.disableFor": "{name} 비활성화",
   "members.disableTitle": "{name} 계정을 비활성화할까요?",
@@ -77,22 +71,26 @@ export const membersKo = {
   "members.invites.revoked": "{email} 초대를 회수했습니다.",
   "members.withheld":
     "구성원 초대와 관리는 워크스페이스 소유자나 관리자가 합니다.",
+  "members.description": "워크스페이스에 속한 사람과 역할입니다.",
+  "members.editFor": "{name} 편집",
+  "members.edit.title": "구성원 편집",
+  "members.edit.save": "저장",
+  "members.edit.disabledNote":
+    "비활성 구성원의 역할은 다시 활성화한 뒤 바꿀 수 있습니다.",
+  "members.roleHelp.owner": "워크스페이스 설정과 소유자까지 모두 바꿉니다.",
+  "members.roleHelp.admin": "구성원·팀·초대를 관리합니다.",
+  "members.roleHelp.member": "자기 세션과 맡은 에이전트만 다룹니다.",
+  "members.invite.open": "구성원 초대",
 };
 
 export const membersEn: Record<keyof typeof membersKo, string> = {
   "members.title": "Members",
-  "members.listTitle": "Member list",
   "members.empty": "No members yet.",
-  "members.column.name": "Name",
+  "members.column.name": "Member",
   "members.column.role": "Role",
-  "members.column.state": "Status",
   "members.column.actions": "Manage",
   "members.tableLabel": "Members table",
-  "members.state.active": "Active",
   "members.state.disabled": "Disabled",
-  "members.enableHint":
-    "To let them back in, re-enable them instead of inviting them again.",
-  "members.roleFor": "Role of {name}",
   "members.roleChanged": "{name} is now {role}.",
   "members.roleChangeTitle": "Make {name} {role}?",
   "members.roleChangeConsequence":
@@ -111,7 +109,6 @@ export const membersEn: Record<keyof typeof membersKo, string> = {
   "members.roleLastOwner":
     "The only owner's role cannot change — make someone else an owner first.",
   "members.roleOwnerProtected": "An admin cannot change an owner's role.",
-  "members.roleWhy": "Why {name}'s role cannot change",
   "members.disable": "Disable",
   "members.disableFor": "Disable {name}",
   "members.disableTitle": "Disable {name}?",
@@ -156,22 +153,28 @@ export const membersEn: Record<keyof typeof membersKo, string> = {
     "The link you sent stops working. To invite them again, create and send a new link.",
   "members.invites.revoked": "The invite for {email} is revoked.",
   "members.withheld": "Workspace owners and admins invite and manage members.",
+  "members.description": "The people in this workspace and their roles.",
+  "members.editFor": "Edit {name}",
+  "members.edit.title": "Edit member",
+  "members.edit.save": "Save",
+  "members.edit.disabledNote":
+    "Re-enable this member before changing their role.",
+  "members.roleHelp.owner":
+    "Changes workspace settings and every role, owners included.",
+  "members.roleHelp.admin": "Manages members, teams and invites.",
+  "members.roleHelp.member":
+    "Works with their own sessions and the agents they manage.",
+  "members.invite.open": "Invite member",
 };
 
 export const membersJa: Record<keyof typeof membersKo, string> = {
   "members.title": "メンバー",
-  "members.listTitle": "メンバー一覧",
   "members.empty": "メンバーはまだいません。",
-  "members.column.name": "名前",
+  "members.column.name": "メンバー",
   "members.column.role": "ロール",
-  "members.column.state": "状態",
   "members.column.actions": "管理",
   "members.tableLabel": "メンバー一覧表",
-  "members.state.active": "有効",
   "members.state.disabled": "無効",
-  "members.enableHint":
-    "再び参加させるには、招待し直さずに再有効化してください。",
-  "members.roleFor": "{name}のロール",
   "members.roleChanged": "{name}のロールを{role}に変更しました。",
   "members.roleChangeTitle": "{name}のロールを{role}に変更しますか？",
   "members.roleChangeConsequence":
@@ -190,7 +193,6 @@ export const membersJa: Record<keyof typeof membersKo, string> = {
   "members.roleLastOwner":
     "唯一のオーナーのロールは変更できません。先にほかの人をオーナーにしてください。",
   "members.roleOwnerProtected": "管理者はオーナーのロールを変更できません。",
-  "members.roleWhy": "{name}のロールを変更できない理由",
   "members.disable": "無効化",
   "members.disableFor": "{name}を無効化",
   "members.disableTitle": "{name}のアカウントを無効化しますか？",
@@ -237,4 +239,16 @@ export const membersJa: Record<keyof typeof membersKo, string> = {
   "members.invites.revoked": "{email}への招待を取り消しました。",
   "members.withheld":
     "メンバーの招待と管理は、ワークスペースのオーナーまたは管理者が行います。",
+  "members.description": "このワークスペースに所属する人とロールです。",
+  "members.editFor": "{name}を編集",
+  "members.edit.title": "メンバーを編集",
+  "members.edit.save": "保存",
+  "members.edit.disabledNote":
+    "無効のメンバーのロールは、再有効化してから変更できます。",
+  "members.roleHelp.owner":
+    "ワークスペース設定とオーナーを含むすべてのロールを変更します。",
+  "members.roleHelp.admin": "メンバー・チーム・招待を管理します。",
+  "members.roleHelp.member":
+    "自分のセッションと管理するエージェントだけを扱います。",
+  "members.invite.open": "メンバーを招待",
 };
