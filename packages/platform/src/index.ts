@@ -67,5 +67,6 @@ export * from "./sessions/pull-request-text.ts";
 export * from "./sessions/push-executor.ts";
 export * from "./sessions/push-request-service.ts";
 export * from "./sessions/session-service.ts";
+export * from "./sessions/session-title.ts";
 export * from "./usage/usage-service.ts";
 export * from "./workers/worker-gateway.ts";

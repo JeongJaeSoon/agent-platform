@@ -1,5 +1,15 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type ApiError, isApiError, unwrap } from "@werft-ai/client";
+import {
+  queryOptions,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import {
+  type ApiClient,
+  type ApiError,
+  isApiError,
+  unwrap,
+} from "@werft-ai/client";
 import type {
   ActivationCredentialUnboundDetails,
   AgentDetail,
@@ -8,14 +18,21 @@ import type {
   RevokeCredentialBindingResponse,
 } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
-import { Button, ConfirmDialog, cn, EmptyState } from "@werft-ai/ui";
+import {
+  Button,
+  ConfirmDialog,
+  cn,
+  EmptyState,
+  RowLines,
+  RowList,
+  RowListItem,
+} from "@werft-ai/ui";
 import { type ReactNode, type RefObject, useId, useState } from "react";
 import { queryKeys } from "../../api/queries.ts";
 import { permissionReason, useRole } from "../../auth/guard.tsx";
 import { LoadFailure } from "../../components/load-failure.tsx";
 import type { Outcome } from "../../components/outcome.tsx";
 import { StatusScreen } from "../../components/status-screen.tsx";
-import { RowLines, RowList, RowListItem } from "../../components/table.tsx";
 import { type Translate, useI18n } from "../../i18n/i18n.tsx";
 import { agentRefusal } from "../agents.tsx";
 import {
@@ -33,6 +50,19 @@ import { latestVersion } from "./versions.tsx";
 /** Under the agent's key, so whatever refreshes the agent refreshes these. */
 const bindingsKey = (agentId: string) =>
   [...queryKeys.agent(agentId), "credential-bindings"] as const;
+
+export function credentialBindingsQuery(client: ApiClient, agentId: string) {
+  return queryOptions({
+    queryKey: bindingsKey(agentId),
+    queryFn: () =>
+      unwrap(
+        client.GET("/v1/agents/{id}/credential-bindings", {
+          params: { path: { id: agentId } },
+        }),
+      ),
+    retry: false,
+  });
+}
 
 /**
  * The credential names an agent may use (design 4.4, D11). There is no
@@ -63,16 +93,7 @@ export function Credentials({
   const agentId = detail.agent.id;
   const [revoking, setRevoking] = useState<CredentialBindingView | null>(null);
 
-  const bindings = useQuery({
-    queryKey: bindingsKey(agentId),
-    queryFn: () =>
-      unwrap(
-        client.GET("/v1/agents/{id}/credential-bindings", {
-          params: { path: { id: agentId } },
-        }),
-      ),
-    retry: false,
-  });
+  const bindings = useQuery(credentialBindingsQuery(client, agentId));
 
   const refused = (error: ApiError) =>
     error.code === "CREDENTIAL_REF_IN_USE"

@@ -6,6 +6,7 @@ import { type ReactNode, useId, useLayoutEffect, useRef } from "react";
 import { useAgentPlatform } from "../provider.tsx";
 import { usePendingRequests } from "../sessions.ts";
 import {
+  type ApprovalLayout,
   focusLost,
   PendingAnswers,
   type SessionActionProps,
@@ -17,6 +18,8 @@ export interface ApprovalInboxProps extends SessionActionProps {
   readonly loading: ReactNode;
   /** The host's words for a read that failed, with the way to ask again. */
   readonly renderError: (error: unknown, retry: () => void) => ReactNode;
+  /** "row" draws each permission request as one line instead of a card. */
+  readonly layout?: ApprovalLayout | undefined;
 }
 
 /**
@@ -28,6 +31,7 @@ export function ApprovalInbox({
   renderError,
   unavailable,
   refusal,
+  layout,
 }: ApprovalInboxProps) {
   const { t } = useBlockText();
   const { client } = useAgentPlatform();
@@ -85,6 +89,7 @@ export function ApprovalInbox({
               unavailable={unavailable}
               refusal={refusal}
               renderError={renderError}
+              layout={layout}
             />
           ))}
         </ul>
@@ -116,9 +121,11 @@ function WaitingSession({
   unavailable,
   refusal,
   renderError,
+  layout,
 }: SessionActionProps & {
   readonly session: SessionSummary;
   readonly renderError: ApprovalInboxProps["renderError"];
+  readonly layout: ApprovalInboxProps["layout"];
 }) {
   const { t } = useBlockText();
   const { renderLink, client } = useAgentPlatform();
@@ -143,6 +150,7 @@ function WaitingSession({
           items={pending.data.items}
           answerable={pending.data.answerable}
           subject={link}
+          layout={layout}
           unavailable={unavailable}
           refusal={refusal}
           // No event stream is open here; the badge and this list learn the

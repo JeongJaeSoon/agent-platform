@@ -11,7 +11,9 @@ import {
   TableHeader,
   TableRow,
 } from "@werft-ai/ui";
+import { Info } from "lucide-react";
 import type { CSSProperties } from "react";
+import { expect, within } from "storybook/test";
 
 type Locale = "ko" | "ja" | "en";
 
@@ -28,6 +30,7 @@ const COPY = {
     enable: "다시 사용",
     disableFor: (name: string) => `${name} 비활성화`,
     enableFor: (name: string) => `${name} 다시 사용`,
+    whyFor: (name: string) => `${name}: 바꿀 수 없는 이유`,
   },
   ja: {
     label: "メンバー",
@@ -41,6 +44,7 @@ const COPY = {
     enable: "再び有効化",
     disableFor: (name: string) => `${name}を無効化`,
     enableFor: (name: string) => `${name}を再び有効化`,
+    whyFor: (name: string) => `${name}: 変更できない理由`,
   },
   en: {
     label: "Members",
@@ -54,6 +58,7 @@ const COPY = {
     enable: "Enable again",
     disableFor: (name: string) => `Disable ${name}`,
     enableFor: (name: string) => `Enable again: ${name}`,
+    whyFor: (name: string) => `Why ${name} can't be changed`,
   },
 } satisfies Record<Locale, unknown>;
 
@@ -89,6 +94,8 @@ interface MembersProps {
   readonly locale: unknown;
   readonly twoLine?: boolean;
   readonly actions?: boolean;
+  /** An icon button beside the admin's row button, as ReasonHint draws it. */
+  readonly hint?: boolean;
   readonly style?: CSSProperties;
 }
 
@@ -97,7 +104,7 @@ interface MembersProps {
  * button whose accessible name carries the row — the caller's job, since the
  * table cannot know what a button does.
  */
-function Members({ locale, twoLine, actions, style }: MembersProps) {
+function Members({ locale, twoLine, actions, hint, style }: MembersProps) {
   const t = copyOf(locale);
   return (
     <TableContainer label={t.label} style={style}>
@@ -139,18 +146,31 @@ function Members({ locale, twoLine, actions, style }: MembersProps) {
               </TableCell>
               {actions ? (
                 <TableCell variant="actions">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    aria-label={
-                      person.disabled
-                        ? t.enableFor(person.name)
-                        : t.disableFor(person.name)
-                    }
-                  >
-                    {person.disabled ? t.enable : t.disable}
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      aria-label={
+                        person.disabled
+                          ? t.enableFor(person.name)
+                          : t.disableFor(person.name)
+                      }
+                    >
+                      {person.disabled ? t.enable : t.disable}
+                    </Button>
+                    {hint && person.admin ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-[var(--ap-control-height-sm)]"
+                        aria-label={t.whyFor(person.name)}
+                      >
+                        <Info aria-hidden="true" />
+                      </Button>
+                    ) : null}
+                  </div>
                 </TableCell>
               ) : null}
             </TableRow>
@@ -245,4 +265,42 @@ export const English: Story = {
   ...Actions,
   name: "Actions (en)",
   globals: { locale: "en" },
+};
+
+/**
+ * An icon button in the actions column keeps its square size; only labelled
+ * buttons take the --ap-row-action-min-width floor.
+ */
+export const ActionsWithIconButton: Story = {
+  name: "Actions with an icon button",
+  render: (_, { globals }) => (
+    <Members
+      locale={globals.locale}
+      twoLine={true}
+      actions={true}
+      hint={true}
+    />
+  ),
+  play: async ({ canvasElement }) => {
+    const icon = canvasElement.querySelector("[data-size=icon]");
+    const labelled = canvasElement.querySelector("[data-size=sm]");
+    if (icon === null || labelled === null) throw new Error("no buttons");
+    await expect(within(canvasElement).getAllByRole("button").length).toBe(4);
+    await expect(icon.getBoundingClientRect().width).toBe(28);
+    await expect(labelled.getBoundingClientRect().width).toBeGreaterThanOrEqual(
+      96,
+    );
+  },
+};
+
+export const ActionsWithIconButtonDark: Story = {
+  ...ActionsWithIconButton,
+  name: "Actions with an icon button (dark)",
+  globals: { theme: "dark" },
+};
+
+export const ActionsWithIconButton390: Story = {
+  ...ActionsWithIconButton,
+  name: "Actions with an icon button (390px)",
+  globals: { viewport: { value: "mobile390", isRotated: false } },
 };

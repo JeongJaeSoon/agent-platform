@@ -12,6 +12,8 @@ import {
   Button,
   cn,
   formatTimestamp,
+  RowLines,
+  RowListItem,
   Link as TextLink,
 } from "@werft-ai/ui";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -22,17 +24,16 @@ import { LoadFailure } from "../components/load-failure.tsx";
 import type { Outcome } from "../components/outcome.tsx";
 import { Page } from "../components/page.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
-import { RowLines, RowListItem } from "../components/table.tsx";
 import { errorKey, type Translate, useI18n } from "../i18n/i18n.tsx";
 import { useAppServices } from "../services.tsx";
 
-// One row per service (console v35): 64px tall, its button at least 88px.
+// One row per service (console v35): 64px tall, its button as wide as a row action.
 const SERVICES =
   "m-0 flex list-none flex-col overflow-hidden rounded-card border bg-card p-0 [&>li+li]:border-t";
 const SERVICE_ROW =
   "flex min-h-16 flex-wrap items-center gap-x-3 gap-y-2 px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)]";
 const SERVICE_NAME = "m-0 font-semibold text-body";
-const SERVICE_BUTTON = "ml-auto min-w-22";
+const SERVICE_BUTTON = "ml-auto min-w-[var(--ap-row-action-min-width)]";
 // Lines under a service start where its name does: inset, mark, gap.
 const SERVICE_INDENT = "pl-[calc(var(--ap-row-padding-x)+1.5rem+0.75rem)]";
 const SERVICE_DETAIL = cn(

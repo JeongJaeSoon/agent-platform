@@ -11,6 +11,12 @@ const DEDUPE = [
   "@tanstack/query-core",
 ];
 
+// Storybook answers 403 "Invalid host" to a Host header it does not know, so a
+// tailnet preview names its hostnames here, comma-separated. Unset keeps the
+// default.
+const ALLOWED_HOSTS =
+  process.env.STORYBOOK_ALLOWED_HOSTS?.split(",").filter(Boolean);
+
 const config: StorybookConfig = {
   framework: "@storybook/react-vite",
   stories: ["../src/**/*.mdx", "../src/**/*.stories.tsx"],
@@ -19,7 +25,10 @@ const config: StorybookConfig = {
     "@storybook/addon-docs",
     "@storybook/addon-vitest",
   ],
-  core: { disableTelemetry: true },
+  core: {
+    disableTelemetry: true,
+    ...(ALLOWED_HOSTS ? { allowedHosts: ALLOWED_HOSTS } : {}),
+  },
   viteFinal: (vite) =>
     mergeConfig(vite, {
       plugins: [tailwindcss()],

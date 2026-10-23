@@ -245,6 +245,7 @@ export function createPostgresSessionUnitOfWork(
           id: sessionId,
           ownerId: scope.principal,
           ...repository,
+          title: input.title ?? null,
           profileId: input.profileId,
           profileFingerprint: input.profileFingerprint ?? null,
           unmetered: input.unmetered ?? false,
@@ -638,6 +639,7 @@ export function createPostgresSessionReader(
         .sort((a, b) => b.sequence - a.sequence)[0];
       return {
         id: row.id,
+        title: row.title,
         revision: row.revision,
         admission_state: row.admissionState,
         status: publicStatus(row.status, awaitingInput),
