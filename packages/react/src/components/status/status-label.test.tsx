@@ -115,6 +115,21 @@ describe("StatusLabel", () => {
     }
   });
 
+  test("점 모양도 prefers-reduced-motion이면 도는 링 대신 멈춘 점이다", () => {
+    const restore = stubPrefersReducedMotion(true);
+    try {
+      const { container } = render(
+        <StatusLabel appearance="dot" axis="session" state="running" />,
+      );
+      const mark = container.querySelector('[aria-hidden="true"]');
+      expect(mark?.getAttribute("data-animated")).toBeNull();
+      expect(mark?.className).not.toContain("animate-");
+      expect(mark?.className).toContain("size-2");
+    } finally {
+      restore();
+    }
+  });
+
   test("모션 허용이면 스피너가 축 아이콘 자리를 대신한다", () => {
     const restore = stubPrefersReducedMotion(false);
     try {
