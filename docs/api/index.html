@@ -1007,6 +1007,33 @@
         },
         "additionalProperties": false
       },
+      "CompleteSlackInstallRequest": {
+        "type": "object",
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "state": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,512}$"
+          },
+          "code": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._-]{1,2048}$"
+          },
+          "error": {
+            "type": "string",
+            "pattern": "^[a-z_]{1,64}$"
+          }
+        },
+        "required": [
+          "agent_id",
+          "state"
+        ],
+        "additionalProperties": false
+      },
       "CreateAgentRequest": {
         "type": "object",
         "properties": {
@@ -1795,6 +1822,10 @@
                   "CONFIG_TOKEN_INVALID",
                   "SLACK_APP_CREATING",
                   "AGENT_NOT_ACTIVE",
+                  "SLACK_INSTALL_STATE_INVALID",
+                  "SLACK_INSTALL_DENIED",
+                  "SLACK_INSTALL_REJECTED",
+                  "SLACK_INSTALL_CONFLICT",
                   "INVITE_EXPIRED",
                   "INVITE_USED",
                   "LAST_OWNER",
@@ -5568,6 +5599,10 @@
                       "CONFIG_TOKEN_INVALID",
                       "SLACK_APP_CREATING",
                       "AGENT_NOT_ACTIVE",
+                      "SLACK_INSTALL_STATE_INVALID",
+                      "SLACK_INSTALL_DENIED",
+                      "SLACK_INSTALL_REJECTED",
+                      "SLACK_INSTALL_CONFLICT",
                       "INVITE_EXPIRED",
                       "INVITE_USED",
                       "LAST_OWNER",
@@ -6450,22 +6485,10 @@
                 "type": "null"
               }
             ]
-          },
-          "authorize_url": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "uri"
-              },
-              {
-                "type": "null"
-              }
-            ]
           }
         },
         "required": [
-          "slack_app",
-          "authorize_url"
+          "slack_app"
         ],
         "additionalProperties": false
       },
@@ -6599,10 +6622,6 @@
             ],
             "additionalProperties": false
           },
-          "authorize_url": {
-            "type": "string",
-            "format": "uri"
-          },
           "created": {
             "type": "boolean"
           },
@@ -6639,7 +6658,6 @@
         },
         "required": [
           "slack_app",
-          "authorize_url",
           "created",
           "warnings"
         ],
@@ -6778,6 +6796,319 @@
         },
         "required": [
           "slack_app"
+        ],
+        "additionalProperties": false
+      },
+      "StartSlackInstallResponse": {
+        "type": "object",
+        "properties": {
+          "authorize_url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          }
+        },
+        "required": [
+          "authorize_url",
+          "expires_at"
+        ],
+        "additionalProperties": false
+      },
+      "CompleteSlackInstallResponse": {
+        "type": "object",
+        "properties": {
+          "slack_app": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "agent",
+                  "link",
+                  "manual"
+                ]
+              },
+              "agent_id": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "creating",
+                  "created",
+                  "failed",
+                  "abandoned",
+                  "deleting",
+                  "deleted"
+                ]
+              },
+              "app_id": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "pattern": "^[A-Z0-9]+$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "client_id": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "redirect_url": {
+                "type": "string",
+                "format": "uri"
+              },
+              "created_by_token_user": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "pattern": "^[A-Z0-9]+$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              "secrets": {
+                "type": "object",
+                "properties": {
+                  "slack_signing_secret": {
+                    "$ref": "#/components/schemas/SlackSecretSummary"
+                  },
+                  "slack_client_secret": {
+                    "$ref": "#/components/schemas/SlackSecretSummary"
+                  },
+                  "slack_bot_token": {
+                    "$ref": "#/components/schemas/SlackSecretSummary"
+                  }
+                },
+                "required": [
+                  "slack_signing_secret",
+                  "slack_client_secret",
+                  "slack_bot_token"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "id",
+              "kind",
+              "agent_id",
+              "state",
+              "app_id",
+              "client_id",
+              "redirect_url",
+              "created_by_token_user",
+              "created_at",
+              "updated_at",
+              "secrets"
+            ],
+            "additionalProperties": false
+          },
+          "installation": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "app_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[A-Z0-9]+$"
+              },
+              "team_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[A-Z0-9]+$"
+              },
+              "bot_user_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[A-Z0-9]+$"
+              },
+              "status": {
+                "type": "string",
+                "const": "verified"
+              }
+            },
+            "required": [
+              "id",
+              "app_id",
+              "team_id",
+              "bot_user_id",
+              "status"
+            ],
+            "additionalProperties": false
+          },
+          "agent_identity": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "agent_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "provider": {
+                "type": "string",
+                "enum": [
+                  "slack_bot"
+                ]
+              },
+              "app_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[A-Z0-9]+$"
+              },
+              "team_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[A-Z0-9]+$"
+              },
+              "bot_user_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[A-Z0-9]+$"
+              },
+              "credential_ref": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9._:/-]{0,127}$"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "active",
+                  "revoked"
+                ]
+              },
+              "revision": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 2147483647
+              },
+              "created_by": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              "revoked_at": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "agent_id",
+              "provider",
+              "app_id",
+              "team_id",
+              "bot_user_id",
+              "credential_ref",
+              "status",
+              "revision",
+              "created_by",
+              "created_at",
+              "revoked_at"
+            ],
+            "additionalProperties": false
+          },
+          "receipt_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "finalized": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "slack_app",
+          "installation",
+          "agent_identity",
+          "receipt_id",
+          "finalized"
         ],
         "additionalProperties": false
       },
@@ -33640,7 +33971,7 @@
           "Agents"
         ],
         "summary": "The agent's Slack app, if the platform made one",
-        "description": "The agent's live Slack app (`creating`, `created` or `deleting`) and the URL where a Slack workspace admin approves installing it, or nulls when it has none. Secrets appear only as whether each is stored. Owners, admins and the agent's admins; API keys are refused.\n\n**Auth:** cookie session only; no scope.",
+        "description": "The agent's live Slack app (`creating`, `created` or `deleting`), or null when it has none. Secrets appear only as whether each is stored; `secrets.slack_bot_token.configured` says whether it was installed. The install link comes from `POST /v1/agents/{id}/slack/install/start`. Owners, admins and the agent's admins; API keys are refused.\n\n**Auth:** cookie session only; no scope.",
         "security": [
           {
             "cookieSession": []
@@ -33660,7 +33991,7 @@
         ],
         "responses": {
           "200": {
-            "description": "The agent's app and install URL, or nulls.",
+            "description": "The agent's app, or null.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -33700,8 +34031,7 @@
                         "updated_by": null
                       }
                     }
-                  },
-                  "authorize_url": "https://slack.com/oauth/v2/authorize?client_id=1234567890.9876543210&scope=assistant%3Awrite%2Capp_mentions%3Aread%2Cchat%3Awrite%2Cim%3Ahistory%2Cchannels%3Ahistory%2Cgroups%3Ahistory%2Cchannels%3Aread%2Cgroups%3Aread%2Cusers%3Aread%2Cchannels%3Ajoin%2Cgroups%3Awrite&redirect_uri=https%3A%2F%2Fconsole.example.ts.net%2Fagents%2F8d2c4f1a-6b3e-4a9d-b7c5-2e1f0a9b8c7d%2Fslack%2Fcallback"
+                  }
                 },
                 "schema": {
                   "$ref": "#/components/schemas/GetSlackAppResponse"
@@ -33862,8 +34192,8 @@
         "tags": [
           "Agents"
         ],
-        "summary": "Create the agent's Slack app and get its install URL",
-        "description": "Creates one Slack app for the agent with the workspace's App Configuration Token (`apps.manifest.create`): the agent's name, its bot, the agent view and the bot scopes, with no event subscriptions yet. The app is recorded as `creating` before Slack is asked; its signing and client secrets are stored by the server under the app and never returned. Asking again for an agent that has its app returns the same app with `created: false`. If Slack's answer was lost the app stays `creating` and the next request answers 409 SLACK_APP_CREATING; once `uncertain`, check api.slack.com/apps, delete any app made then, and retry with `replace_uncertain: true`. `warnings` says when the config token now belongs to another Slack user than the one who made the workspace's previous app. The agent needs an active release. Owners, admins and the agent's admins from a signed-in console; API keys are refused.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "summary": "Create the agent's Slack app",
+        "description": "Creates one Slack app for the agent with the workspace's App Configuration Token (`apps.manifest.create`): the agent's name, its bot, the agent view and the bot scopes, with no event subscriptions yet. The app is recorded as `creating` before Slack is asked; its signing and client secrets are stored by the server under the app and never returned. Asking again for an agent that has its app returns the same app with `created: false`. If Slack's answer was lost the app stays `creating` and the next request answers 409 SLACK_APP_CREATING; once `uncertain`, check api.slack.com/apps, delete any app made then, and retry with `replace_uncertain: true`. `warnings` says when the config token now belongs to another Slack user than the one who made the workspace's previous app. The agent needs an active release. Installing it into Slack starts at `POST /v1/agents/{id}/slack/install/start`. Owners, admins and the agent's admins from a signed-in console; API keys are refused.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -33908,7 +34238,7 @@
         },
         "responses": {
           "200": {
-            "description": "The agent's app, whether this request created it, the install URL and any warnings.",
+            "description": "The agent's app, whether this request created it, and any warnings.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -33949,7 +34279,6 @@
                       }
                     }
                   },
-                  "authorize_url": "https://slack.com/oauth/v2/authorize?client_id=1234567890.9876543210&scope=assistant%3Awrite%2Capp_mentions%3Aread%2Cchat%3Awrite%2Cim%3Ahistory%2Cchannels%3Ahistory%2Cgroups%3Ahistory%2Cchannels%3Aread%2Cgroups%3Aread%2Cusers%3Aread%2Cchannels%3Ajoin%2Cgroups%3Awrite&redirect_uri=https%3A%2F%2Fconsole.example.ts.net%2Fagents%2F8d2c4f1a-6b3e-4a9d-b7c5-2e1f0a9b8c7d%2Fslack%2Fcallback",
                   "created": true,
                   "warnings": []
                 },
@@ -34212,6 +34541,694 @@
           },
           "503": {
             "description": "- `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. Also when the API runs without a master key (PLATFORM_SECRET_KEY) or SLACK_OIDC_REDIRECT_URI, when Slack refused the manifest (`error.details.slack_error`; nothing was created) or could not be reached.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BACKEND_UNAVAILABLE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/agents/{id}/slack/install/start": {
+      "post": {
+        "operationId": "startSlackInstall",
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Get a single-use link that installs the agent's Slack app",
+        "description": "Returns Slack's consent URL for the agent's app with a new OAuth `state`, valid 10 minutes; every call makes another. The state is bound to the caller, the workspace, the agent and the app, and only that caller can complete it (`POST /v1/slack/install/complete`). The app must be `created`: none answers 404, one still being created 409 SLACK_APP_CREATING, one being deleted 409 REVISION_CONFLICT. The Slack team it must be installed in is the one the workspace's App Configuration Token belongs to (409 CONFIG_TOKEN_INVALID when none is set). Owners, admins and the agent's admins from a signed-in console; API keys are refused.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "security": [
+          {
+            "cookieSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "required": false,
+            "description": "Required with a cookie session: the literal `agent-platform-web`.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "agent-platform-web"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Where the browser goes next, and when the link expires.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "example": {
+                  "authorize_url": "https://slack.com/oauth/v2/authorize?client_id=1234567890.9876543210&scope=assistant%3Awrite%2Capp_mentions%3Aread%2Cchat%3Awrite%2Cim%3Ahistory%2Cchannels%3Ahistory%2Cgroups%3Ahistory%2Cchannels%3Aread%2Cgroups%3Aread%2Cusers%3Aread%2Cchannels%3Ajoin%2Cgroups%3Awrite&redirect_uri=https%3A%2F%2Fconsole.example.ts.net%2Fagents%2F8d2c4f1a-6b3e-4a9d-b7c5-2e1f0a9b8c7d%2Fslack%2Fcallback&state=\u003csingle-use>",
+                  "expires_at": "2026-10-24T09:10:00Z"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/StartSlackInstallResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "- `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "UNAUTHORIZED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "- `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "FORBIDDEN"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "- `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "NOT_FOUND"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "- `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`).",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "REQUEST_TIMEOUT"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "- `SLACK_APP_CREATING`: The agent's Slack app is still being created. `error.details.uncertain: true` means Slack's answer was lost: check api.slack.com/apps for an app made at that time, delete it, then retry with `replace_uncertain: true`.\n- `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. Here: the agent's app is being deleted.\n- `CONFIG_TOKEN_INVALID`: The workspace's Slack App Configuration Token cannot be used. `error.details.reason_code` is `not_set` (none stored), `rejected` (Slack refused it; paste another) or `needs_reentry` (Slack no longer takes the stored token, or a rotation's answer was lost; an owner or admin pastes a new one).",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "SLACK_APP_CREATING",
+                                "REVISION_CONFLICT",
+                                "CONFIG_TOKEN_INVALID"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "description": "- `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. Also when the API runs without a master key (PLATFORM_SECRET_KEY).",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BACKEND_UNAVAILABLE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/slack/install/complete": {
+      "post": {
+        "operationId": "completeSlackInstall",
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Finish installing an agent's Slack app with what Slack returned",
+        "description": "The console's callback page sends the `state` and the `code` (or Slack's `error`) from Slack's redirect, with the agent it is for. The state is spent first, whatever happens next: unknown, spent, expired, or issued to another caller, workspace, agent or app answers 409 SLACK_INSTALL_STATE_INVALID with `error.details.reason_code`. An `error` from Slack (e.g. `access_denied`) answers 409 SLACK_INSTALL_DENIED. The code is exchanged with `oauth.v2.access`; unless the answer names the agent's app, the workspace's Slack team, no enterprise install and every bot scope, nothing is stored (409 SLACK_INSTALL_REJECTED). Then the bot token is sealed under the app (never returned), the install is verified with the token itself (`auth.test` and `bots.info`), the agent's identity is linked, and the steps after an install run; `finalized: false` says those failed and the install stands. Installing again with a new link replaces the bot token and keeps the one install. Every answer carries `Referrer-Policy: no-referrer`. Owners, admins and the agent's admins from a signed-in console; API keys are refused. A new identity writes a `link_agent_identity` receipt.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "security": [
+          {
+            "cookieSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "required": false,
+            "description": "Required with a cookie session: the literal `agent-platform-web`.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "agent-platform-web"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "agent_id": "8d2c4f1a-6b3e-4a9d-b7c5-2e1f0a9b8c7d",
+                "state": "state-from-the-redirect",
+                "code": "code-from-the-redirect"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/CompleteSlackInstallRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The app, its verified install, the agent's identity and whether the steps after the install ran.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "example": {
+                  "slack_app": {
+                    "id": "6a1d3e5f-2b4c-4d8e-9f0a-1b2c3d4e5f60",
+                    "kind": "agent",
+                    "agent_id": "8d2c4f1a-6b3e-4a9d-b7c5-2e1f0a9b8c7d",
+                    "state": "created",
+                    "app_id": "A0B1C2D3E4F",
+                    "client_id": "1234567890.9876543210",
+                    "redirect_url": "https://console.example.ts.net/agents/8d2c4f1a-6b3e-4a9d-b7c5-2e1f0a9b8c7d/slack/callback",
+                    "created_by_token_user": "U0ISSUER",
+                    "created_at": "2026-10-23T09:00:00Z",
+                    "updated_at": "2026-10-23T09:00:00Z",
+                    "secrets": {
+                      "slack_signing_secret": {
+                        "configured": true,
+                        "last4": "c3d4",
+                        "updated_at": "2026-10-23T09:00:00Z",
+                        "updated_by": null
+                      },
+                      "slack_client_secret": {
+                        "configured": true,
+                        "last4": "e5f6",
+                        "updated_at": "2026-10-23T09:00:00Z",
+                        "updated_by": null
+                      },
+                      "slack_bot_token": {
+                        "configured": true,
+                        "last4": "a1b2",
+                        "updated_at": "2026-10-24T09:05:00Z",
+                        "updated_by": null
+                      }
+                    }
+                  },
+                  "installation": {
+                    "id": "3c5e7a9b-1d2f-4a6b-8c0d-2e4f6a8b0c1d",
+                    "app_id": "A0B1C2D3E4F",
+                    "team_id": "T0A1B2C3D",
+                    "bot_user_id": "U0B1C2D3E",
+                    "status": "verified"
+                  },
+                  "agent_identity": {
+                    "id": "5e7a9c1b-3d4f-4b6c-8d0e-4f6a8b0c2d3e",
+                    "agent_id": "8d2c4f1a-6b3e-4a9d-b7c5-2e1f0a9b8c7d",
+                    "provider": "slack_bot",
+                    "app_id": "A0B1C2D3E4F",
+                    "team_id": "T0A1B2C3D",
+                    "bot_user_id": "U0B1C2D3E",
+                    "credential_ref": "slack_app:6a1d3e5f-2b4c-4d8e-9f0a-1b2c3d4e5f60/slack_bot_token",
+                    "status": "active",
+                    "revision": 1,
+                    "created_by": "7a9c1e3b-5d6f-4c8d-9e0f-6a8b0c2d4e5f",
+                    "created_at": "2026-10-24T09:05:00Z",
+                    "revoked_at": null
+                  },
+                  "receipt_id": "9c1e3a5b-7d8f-4e0a-8b1c-8b0c2d4e6f7a",
+                  "finalized": true
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/CompleteSlackInstallResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "- `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BAD_REQUEST"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "- `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "UNAUTHORIZED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "- `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "FORBIDDEN"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "- `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "NOT_FOUND"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "- `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`).",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "REQUEST_TIMEOUT"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "- `SLACK_INSTALL_STATE_INVALID`: The install link's state cannot be used: `error.details.reason_code` is `not_found` (unknown or already spent), `expired`, or `workspace`, `actor`, `agent` or `app` (issued to another workspace, person or agent, or for an app the agent no longer has). Start the install again.\n- `SLACK_INSTALL_DENIED`: Slack sent the admin back without approving (`error.details.slack_error`, e.g. `access_denied`). Start the install again to retry.\n- `SLACK_INSTALL_REJECTED`: Slack's answer was not stored: `error.details.reason_code` is `app` or `team` (another app or Slack team than expected), `enterprise` (an org-wide install), `scope` (`error.details.missing_scopes` lists the bot scopes not granted) or `slack_error` (Slack refused; `error.details.slack_error`).\n- `SLACK_INSTALL_CONFLICT`: This Slack app is already installed in that Slack team for another workspace.\n- `AGENT_IDENTITY_TAKEN`: The Slack app and team are already pinned to another agent; revoke that identity first.\n- `CREDENTIAL_REF_IN_USE`: The credential name is already held by an agent identity, or bound to an agent an identity would take it from.\n- `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. Here: the agent's app changed, or the install was revoked, while it was being installed; start again.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "SLACK_INSTALL_STATE_INVALID",
+                                "SLACK_INSTALL_DENIED",
+                                "SLACK_INSTALL_REJECTED",
+                                "SLACK_INSTALL_CONFLICT",
+                                "AGENT_IDENTITY_TAKEN",
+                                "CREDENTIAL_REF_IN_USE",
+                                "REVISION_CONFLICT"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "- `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "PAYLOAD_TOO_LARGE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "description": "- `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. Also when the API runs without a master key (PLATFORM_SECRET_KEY), or Slack could not be reached; start again.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"

@@ -220,6 +220,14 @@ export const ERROR_CODE_WHEN: Partial<Record<ApiErrorCode, When>> = {
   SLACK_APP_CREATING:
     "The agent's Slack app is still being created. `error.details.uncertain: true` means Slack's answer was lost: check api.slack.com/apps for an app made at that time, delete it, then retry with `replace_uncertain: true`.",
   AGENT_NOT_ACTIVE: "The agent has no active release; activate one first.",
+  SLACK_INSTALL_STATE_INVALID:
+    "The install link's state cannot be used: `error.details.reason_code` is `not_found` (unknown or already spent), `expired`, or `workspace`, `actor`, `agent` or `app` (issued to another workspace, person or agent, or for an app the agent no longer has). Start the install again.",
+  SLACK_INSTALL_DENIED:
+    "Slack sent the admin back without approving (`error.details.slack_error`, e.g. `access_denied`). Start the install again to retry.",
+  SLACK_INSTALL_REJECTED:
+    "Slack's answer was not stored: `error.details.reason_code` is `app` or `team` (another app or Slack team than expected), `enterprise` (an org-wide install), `scope` (`error.details.missing_scopes` lists the bot scopes not granted) or `slack_error` (Slack refused; `error.details.slack_error`).",
+  SLACK_INSTALL_CONFLICT:
+    "This Slack app is already installed in that Slack team for another workspace.",
 };
 
 function when(

@@ -191,8 +191,8 @@ export async function runSlackApp(
           app_id: result.slack_app.app_id,
           agent_id: result.slack_app.agent_id,
           created_by_token_user: result.slack_app.created_by_token_user,
-          authorize_url: result.authorize_url,
           warnings: result.warnings,
+          next: `Install it from the agent's page in the console, or with a signed-in console session: POST /v1/agents/${result.slack_app.agent_id}/slack/install/start`,
         }),
       );
       return SLACK_APP_EXIT.created;

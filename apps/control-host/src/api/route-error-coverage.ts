@@ -151,6 +151,10 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "DELETE /v1/workspaces/{id}/slack/apps/{app_id}",
     "PUT /v1/workspaces/{id}/slack/apps/{app_id}/secrets/{purpose}",
   ],
+  "routes/slack-install.test.ts": [
+    "POST /v1/agents/{id}/slack/install/start",
+    "POST /v1/slack/install/complete",
+  ],
 };
 
 // Declared for clients but produced by nothing yet: alpha never trims
