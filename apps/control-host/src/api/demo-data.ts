@@ -319,6 +319,14 @@ class DemoClient {
         .find((value) => value.startsWith("__Host-ap_session="))
         ?.split(";")[0] ?? "";
   }
+
+  // Ends the web session login made: left behind, each run's would push a
+  // person's own sign-in past the per-user limit.
+  async logout() {
+    if (this.cookie === "") return;
+    await this.request("POST", "/v1/auth/logout");
+    this.cookie = "";
+  }
 }
 
 type AgentRow = {
@@ -412,18 +420,18 @@ async function alreadySeeded(
   client: DemoClient,
   rows: readonly SessionRow[],
   session: DemoSession,
-): Promise<boolean> {
+): Promise<SessionRow | null> {
   if (session.title !== null) {
-    return rows.some((row) => row.title === session.title);
+    return rows.find((row) => row.title === session.title) ?? null;
   }
   for (const row of rows.filter((candidate) => candidate.title === null)) {
     const turn = await client.request<{ message?: string }>(
       "GET",
       `/v1/sessions/${row.id}/turns/1`,
     );
-    if (turn.body?.message === session.message) return true;
+    if (turn.body?.message === session.message) return row;
   }
-  return false;
+  return null;
 }
 
 const SETTLE_TIMEOUT_MS = 180_000;
@@ -527,7 +535,9 @@ async function drive(
 export type DemoDataOutcome = {
   kind: "agent" | "session";
   name: string;
-  outcome: "created" | "exists";
+  // incomplete: an earlier run made the session and failed before sharing
+  // it as asked; a rerun leaves it alone, so only a reset repairs it.
+  outcome: "created" | "exists" | "incomplete";
 };
 
 /**
@@ -539,8 +549,20 @@ export async function seedDemoData(base: string): Promise<DemoDataOutcome[]> {
   const clients = {} as Record<Role, DemoClient>;
   for (const account of DEMO_ACCOUNTS) {
     clients[account.role] = new DemoClient(base);
-    await clients[account.role].login(account.email);
   }
+  try {
+    for (const account of DEMO_ACCOUNTS) {
+      await clients[account.role].login(account.email);
+    }
+    return await seedAs(clients);
+  } finally {
+    for (const client of Object.values(clients)) await client.logout();
+  }
+}
+
+async function seedAs(
+  clients: Record<Role, DemoClient>,
+): Promise<DemoDataOutcome[]> {
   const outcomes: DemoDataOutcome[] = [];
   const releases = new Map<string, string>();
   for (const agent of DEMO_AGENTS) {
@@ -561,8 +583,24 @@ export async function seedDemoData(base: string): Promise<DemoDataOutcome[]> {
   for (const session of DEMO_SESSIONS) {
     const name = session.title ?? "(제목 없음)";
     const client = clients[session.creator];
-    if (await alreadySeeded(client, visible[session.creator], session)) {
-      outcomes.push({ kind: "session", name, outcome: "exists" });
+    const existing = await alreadySeeded(
+      client,
+      visible[session.creator],
+      session,
+    );
+    if (existing) {
+      const share = session.private
+        ? await client.expect<{ scope: string }>(
+            200,
+            "GET",
+            `/v1/sessions/${existing.id}/share`,
+          )
+        : null;
+      outcomes.push({
+        kind: "session",
+        name,
+        outcome: share && share.scope !== "private" ? "incomplete" : "exists",
+      });
       continue;
     }
     const agent = DEMO_AGENTS.find((row) => row.slug === session.agent);
@@ -616,8 +654,15 @@ async function main(): Promise<void> {
     return;
   }
   const base = `http://127.0.0.1:${process.env.PORT ?? 3000}`;
-  for (const { kind, name, outcome } of await seedDemoData(base)) {
+  const outcomes = await seedDemoData(base);
+  for (const { kind, name, outcome } of outcomes) {
     console.log(`${outcome} ${kind} ${name}`);
+  }
+  if (outcomes.some(({ outcome }) => outcome === "incomplete")) {
+    console.error(
+      "demo data incomplete: a session above was left as an earlier run failed; `scripts/local.sh reset --fake-model` seeds it again",
+    );
+    process.exitCode = 1;
   }
 }
 
