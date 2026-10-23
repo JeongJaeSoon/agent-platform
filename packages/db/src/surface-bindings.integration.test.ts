@@ -1,0 +1,345 @@
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { randomUUID } from "node:crypto";
+import {
+  DEFAULT_SURFACE_CEILING,
+  type SurfaceChannelKind,
+  scopesForRole,
+  type WorkspaceRole,
+} from "@werft-ai/contracts";
+import { type Caller, callerFor } from "@werft-ai/platform";
+import {
+  createTempDatabase,
+  type TempDatabase,
+  testDatabaseUrl,
+} from "@werft-ai/testkit/postgres";
+import { eq } from "drizzle-orm";
+import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
+import { createDatabaseAgentAuthority } from "./agent-authority.ts";
+import { createPostgresAgentIdentityStore } from "./agent-identities.ts";
+import * as schema from "./schema.ts";
+import {
+  agents,
+  memberships,
+  receipts,
+  surfaceBindings,
+  users,
+  workspaces,
+} from "./schema.ts";
+import {
+  registerSlackInstallation,
+  verifySlackInstallation,
+} from "./slack-installations.ts";
+import { createPostgresSurfaceBindingStore } from "./surface-bindings.ts";
+
+const integration = testDatabaseUrl() ? describe : describe.skip;
+
+const MANAGERS: readonly WorkspaceRole[] = ["owner", "admin"];
+
+async function refusal(query: PromiseLike<unknown>): Promise<string> {
+  try {
+    await query;
+  } catch (error) {
+    return String((error as { cause?: Error }).cause?.message ?? error);
+  }
+  return "accepted";
+}
+
+integration("surface bindings on PostgreSQL", () => {
+  let database: TempDatabase;
+  let pool: Pool;
+  let db: NodePgDatabase<typeof schema>;
+
+  beforeAll(async () => {
+    database = await createTempDatabase({ prefix: "surface_bindings_it" });
+    pool = new Pool({ connectionString: database.url, max: 8 });
+    db = drizzle(pool, { schema });
+  }, 60_000);
+
+  afterAll(async () => {
+    await pool.end();
+    await database.drop();
+  }, 60_000);
+
+  const store = () => createPostgresSurfaceBindingStore(db);
+
+  async function workspace() {
+    const workspaceId = randomUUID();
+    const slug = `ws-${workspaceId.slice(0, 8)}`;
+    await db.insert(workspaces).values({ id: workspaceId, slug, name: slug });
+    return workspaceId;
+  }
+
+  async function person(
+    workspaceId: string,
+    role: WorkspaceRole,
+  ): Promise<Caller> {
+    const userId = randomUUID();
+    await db.insert(users).values({
+      id: userId,
+      email: `${userId}@example.invalid`,
+      passwordHash: "argon2id$placeholder",
+      displayName: role,
+    });
+    await db.insert(memberships).values({ workspaceId, userId, role });
+    return callerFor(
+      {
+        kind: "user",
+        id: userId,
+        workspace_id: workspaceId,
+        role,
+        scopes: [...scopesForRole(role)],
+      },
+      { kind: "web" },
+      randomUUID(),
+    );
+  }
+
+  // An agent linked to its own Slack app; fixture ids shaped like Slack's.
+  async function slackAgent(owner: Caller) {
+    const workspaceId = owner.ownerId;
+    const agentId = randomUUID();
+    await db.insert(agents).values({
+      id: agentId,
+      workspaceId,
+      slug: `a-${agentId.slice(0, 8)}`,
+      name: "bot",
+    });
+    const key = {
+      appId: `A${randomUUID().slice(0, 8).toUpperCase()}`,
+      teamId: `T${randomUUID().slice(0, 8).toUpperCase()}`,
+    };
+    await registerSlackInstallation(db, { ...key, workspaceId });
+    await verifySlackInstallation(db, { ...key, botUserId: "B0BOT" });
+    const linked = await createPostgresAgentIdentityStore(db).link({
+      principal: owner,
+      workspaceId,
+      agentId,
+      key,
+      credentialRef: `slack-bot-${agentId.slice(0, 8)}`,
+      managerRoles: MANAGERS,
+    });
+    if (linked.outcome !== "linked") throw new Error(linked.outcome);
+    return { agentId, installationId: linked.identity.installationId };
+  }
+
+  const setAs = (
+    caller: Caller,
+    agentId: string,
+    channel: {
+      channelId: string | null;
+      channelKind?: SurfaceChannelKind;
+      mode?: "off" | "mention";
+      home?: boolean;
+    },
+  ) =>
+    store().set({
+      principal: caller,
+      workspaceId: caller.ownerId,
+      agentId,
+      channelId: channel.channelId,
+      channelKind:
+        channel.channelKind ??
+        (channel.channelId === null ? "dm" : "public_channel"),
+      mode: channel.mode ?? "mention",
+      home: channel.home ?? false,
+      ceiling: DEFAULT_SURFACE_CEILING,
+      managerRoles: MANAGERS,
+    });
+
+  test("a channel's binding is stored, resolved and replaced in place", async () => {
+    const owner = await person(await workspace(), "owner");
+    const { agentId, installationId } = await slackAgent(owner);
+
+    const first = await setAs(owner, agentId, {
+      channelId: "C0TEST",
+      home: true,
+    });
+    expect(first.outcome).toBe("set");
+    if (first.outcome !== "set") return;
+    expect(first.binding).toMatchObject({
+      agentId,
+      installationId,
+      channelId: "C0TEST",
+      channelKind: "public_channel",
+      mode: "mention",
+      home: true,
+      ceiling: DEFAULT_SURFACE_CEILING,
+      status: "ready",
+      revision: 1,
+    });
+    expect(await store().resolveSlackChannel(installationId, "C0TEST")).toEqual(
+      first.binding,
+    );
+
+    const off = await setAs(owner, agentId, {
+      channelId: "C0TEST",
+      mode: "off",
+    });
+    expect(off).toMatchObject({
+      outcome: "set",
+      binding: { id: first.binding.id, mode: "off", home: false, revision: 2 },
+    });
+    const [receipt] = await db
+      .select()
+      .from(receipts)
+      .where(eq(receipts.id, off.outcome === "set" ? off.receiptId : ""));
+    expect(receipt).toMatchObject({
+      operation: "set_surface_binding",
+      targetRef: {
+        resource: { kind: "surface_binding", id: first.binding.id },
+      },
+      result: { mode: "off", channel_id: "C0TEST", revision: 2 },
+    });
+  });
+
+  test("agentOf a binding is its agent, and nobody's from another workspace", async () => {
+    const owner = await person(await workspace(), "owner");
+    const { agentId } = await slackAgent(owner);
+    const set = await setAs(owner, agentId, { channelId: "C0AGENT" });
+    if (set.outcome !== "set") throw new Error(set.outcome);
+    const authority = createDatabaseAgentAuthority(db);
+    const resource = { kind: "surface_binding" as const, id: set.binding.id };
+
+    expect(await authority.agentOf(owner.ownerId, resource)).toBe(agentId);
+    expect(await authority.agentOf(await workspace(), resource)).toBeNull();
+    expect(
+      await authority.agentOf(owner.ownerId, {
+        kind: "surface_binding",
+        id: randomUUID(),
+      }),
+    ).toBeNull();
+  });
+
+  test("a channel and an install's DMs have one live binding each", async () => {
+    const owner = await person(await workspace(), "owner");
+    const { agentId, installationId } = await slackAgent(owner);
+    const row = (externalSurfaceId: string | null) => ({
+      id: randomUUID(),
+      workspaceId: owner.ownerId,
+      agentId,
+      installationId,
+      externalSurfaceId,
+      surfaceKind: (externalSurfaceId === null
+        ? "dm"
+        : "private_channel") as SurfaceChannelKind,
+      mode: "mention" as const,
+      ceilingActions: ["session.read"],
+      ceilingDisclosure: "full" as const,
+    });
+
+    await db.insert(surfaceBindings).values(row("C0DUP"));
+    expect(
+      await refusal(db.insert(surfaceBindings).values(row("C0DUP"))),
+    ).toContain("surface_bindings_channel_live_uniq");
+    await db.insert(surfaceBindings).values(row(null));
+    expect(
+      await refusal(db.insert(surfaceBindings).values(row(null))),
+    ).toContain("surface_bindings_dm_live_uniq");
+    // Through the store the DM row is found again, not added twice.
+    const dm = await setAs(owner, agentId, { channelId: null });
+    expect(dm).toMatchObject({
+      outcome: "set",
+      binding: { channelId: null, channelKind: "dm", revision: 2 },
+    });
+    // A revoked row frees its channel for a new one.
+    await db
+      .update(surfaceBindings)
+      .set({ status: "revoked", revokedAt: new Date() })
+      .where(eq(surfaceBindings.externalSurfaceId, "C0DUP"));
+    await db.insert(surfaceBindings).values(row("C0DUP"));
+  });
+
+  test("an agent has one home: setting another moves it", async () => {
+    const owner = await person(await workspace(), "owner");
+    const { agentId, installationId } = await slackAgent(owner);
+    const first = await setAs(owner, agentId, {
+      channelId: "C0HOME1",
+      home: true,
+    });
+    const second = await setAs(owner, agentId, {
+      channelId: "C0HOME2",
+      home: true,
+    });
+    expect(second).toMatchObject({ outcome: "set", binding: { home: true } });
+    expect(
+      await store().resolveSlackChannel(installationId, "C0HOME1"),
+    ).toMatchObject({ home: false, revision: 2 });
+    const listed = await store().list(owner.ownerId, agentId, 10);
+    expect(listed.map((b) => [b.channelId, b.home])).toEqual([
+      ["C0HOME2", true],
+      ["C0HOME1", false],
+    ]);
+    // Written around the store, a second home is a unique violation.
+    expect(
+      await refusal(
+        db
+          .update(surfaceBindings)
+          .set({ home: true })
+          .where(
+            eq(
+              surfaceBindings.id,
+              first.outcome === "set" ? first.binding.id : "",
+            ),
+          ),
+      ),
+    ).toContain("surface_bindings_home_live_uniq");
+    // A DM is nobody's channel, so never home.
+    expect(
+      await refusal(
+        db.insert(surfaceBindings).values({
+          id: randomUUID(),
+          workspaceId: owner.ownerId,
+          agentId: (await slackAgent(owner)).agentId,
+          installationId,
+          surfaceKind: "dm",
+          mode: "mention",
+          home: true,
+          ceilingActions: [],
+          ceilingDisclosure: "full",
+        }),
+      ),
+    ).toContain("surface_bindings_dm_check");
+  });
+
+  test("a binding needs the agent's live identity and the caller's right", async () => {
+    const workspaceId = await workspace();
+    const owner = await person(workspaceId, "owner");
+    const member = await person(workspaceId, "member");
+    const { agentId } = await slackAgent(owner);
+    const unlinked = randomUUID();
+    await db.insert(agents).values({
+      id: unlinked,
+      workspaceId,
+      slug: `a-${unlinked.slice(0, 8)}`,
+      name: "bot",
+    });
+
+    expect(await setAs(member, agentId, { channelId: "C0X" })).toEqual({
+      outcome: "outranked",
+    });
+    expect(await setAs(owner, unlinked, { channelId: "C0X" })).toEqual({
+      outcome: "not_installed",
+    });
+    const stranger = await person(await workspace(), "owner");
+    expect(await setAs(stranger, agentId, { channelId: "C0X" })).toEqual({
+      outcome: "agent_not_found",
+    });
+  });
+
+  test("a revoked or off binding is not what a channel resolves to", async () => {
+    const owner = await person(await workspace(), "owner");
+    const { agentId, installationId } = await slackAgent(owner);
+    await setAs(owner, agentId, { channelId: "C0GONE" });
+    await db
+      .update(surfaceBindings)
+      .set({ status: "revoked", revokedAt: new Date() })
+      .where(eq(surfaceBindings.externalSurfaceId, "C0GONE"));
+
+    expect(
+      await store().resolveSlackChannel(installationId, "C0GONE"),
+    ).toBeNull();
+    expect(await store().resolveSlackChannel(installationId, null)).toBeNull();
+    expect(await store().list(owner.ownerId, agentId, 10)).toEqual([]);
+  });
+});

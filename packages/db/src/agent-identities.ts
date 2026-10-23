@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { WorkspaceRole } from "@werft-ai/contracts";
 import type {
   AgentIdentityRecord,
   AgentIdentityStore,
@@ -101,12 +102,12 @@ async function writeReceipt(
 
 // The caller's role and right as they stand under the share locks, so a
 // demotion committed after the policy's decision is seen here.
-async function callerHoldsRight(
+export async function callerHoldsRight(
   tx: Database,
   principal: Principal,
   workspaceId: string,
   agentId: string,
-  managerRoles: Parameters<AgentIdentityStore["link"]>[0]["managerRoles"],
+  managerRoles: readonly WorkspaceRole[],
 ): Promise<{ userId: string } | { outcome: "actor_inactive" | "outranked" }> {
   const userId = principal.actor?.userId;
   if (!userId) return { outcome: "actor_inactive" };
