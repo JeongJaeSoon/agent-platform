@@ -82,6 +82,29 @@ describe("ApprovalRow", () => {
     expect(line.className).toContain("justify-end");
   });
 
+  test("입력은 펼칠 때만 줄 아래에 보이고, 입력 보기는 줄에 남는다", async () => {
+    const user = await setupUser();
+    const view = render(
+      <ApprovalRow
+        request={REQUEST}
+        messages={MESSAGES}
+        onAllow={() => {}}
+        onDeny={() => {}}
+        now={NOW}
+      />,
+    );
+    expect(view.container.querySelector("pre")).toBeNull();
+    const summary = view.getByText("input");
+    await user.click(summary);
+    const pre = (await view.findByText(/echo alpha/)) as HTMLElement;
+    expect(pre.tagName).toBe("PRE");
+    const line = view.getByRole("button", { name: ALLOW }).parentElement
+      ?.parentElement as HTMLElement;
+    expect(line.contains(summary)).toBe(true);
+    expect(line.contains(pre)).toBe(false);
+    expect(summary.getAttribute("aria-controls")).toBe(pre.id);
+  });
+
   test("키보드만으로 허용한다", async () => {
     const user = await setupUser();
     const onAllow = mock(() => {});

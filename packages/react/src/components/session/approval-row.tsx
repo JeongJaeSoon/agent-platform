@@ -63,6 +63,8 @@ export function ApprovalRow({
   className,
 }: ApprovalRowProps): JSX.Element {
   const titleId = useId();
+  const inputId = useId();
+  const [inputOpen, setInputOpen] = useState(false);
   const [denying, setDenying] = useState(false);
   const [reason, setReason] = useState("");
   const reasonRef = useRef<HTMLTextAreaElement>(null);
@@ -144,14 +146,18 @@ export function ApprovalRow({
               </p>
             </span>
           </div>
-          {/* Opened, it takes the text's full width below the title. */}
-          <details className="min-w-0 open:basis-full">
-            <summary className="cursor-pointer text-muted-foreground text-caption">
+          {/* The input opens below the whole line, so the summary stays put. */}
+          <details
+            className="min-w-0"
+            onToggle={(event) => setInputOpen(event.currentTarget.open)}
+          >
+            <summary
+              // Only while open: a closed input is not in the DOM to name.
+              aria-controls={inputOpen ? inputId : undefined}
+              className="cursor-pointer text-muted-foreground text-caption"
+            >
               {messages.input}
             </summary>
-            <pre className="mb-2 max-h-60 overflow-auto rounded-control bg-card p-2 font-mono text-caption leading-normal">
-              {inputText(request.input)}
-            </pre>
           </details>
         </div>
         {expired || denying ? null : (
@@ -177,6 +183,14 @@ export function ApprovalRow({
           </div>
         )}
       </div>
+      {inputOpen ? (
+        <pre
+          id={inputId}
+          className="m-0 max-h-60 overflow-auto rounded-control bg-card p-2 font-mono text-caption"
+        >
+          {inputText(request.input)}
+        </pre>
+      ) : null}
       <FieldError>{error}</FieldError>
       {expired || !denying ? null : (
         <form className="flex flex-col gap-3" onSubmit={submitDenial}>
