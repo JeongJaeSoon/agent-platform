@@ -22,6 +22,9 @@ export const membersKo = {
   "members.disableLastOwner":
     "하나뿐인 소유자는 비활성화할 수 없습니다 — 다른 사람을 먼저 소유자로 정하세요.",
   "members.disableOwnerProtected": "소유자는 관리자가 비활성화할 수 없습니다.",
+  "members.enableOwnerProtected":
+    "소유자는 관리자가 다시 활성화할 수 없습니다.",
+  "members.enableWhy": "{name}을(를) 다시 활성화할 수 없는 이유",
   "members.disableWhy": "{name}을(를) 비활성화할 수 없는 이유",
   "members.roleSelf": "자기 자신의 역할은 바꿀 수 없습니다.",
   "members.roleLastOwner":
@@ -101,6 +104,8 @@ export const membersEn: Record<keyof typeof membersKo, string> = {
   "members.disableLastOwner":
     "The only owner cannot be disabled — make someone else an owner first.",
   "members.disableOwnerProtected": "An admin cannot disable an owner.",
+  "members.enableOwnerProtected": "An admin cannot re-enable an owner.",
+  "members.enableWhy": "Why {name} cannot be re-enabled",
   "members.disableWhy": "Why {name} cannot be disabled",
   "members.roleSelf": "You cannot change your own role.",
   "members.roleLastOwner":
@@ -178,6 +183,8 @@ export const membersJa: Record<keyof typeof membersKo, string> = {
   "members.disableLastOwner":
     "唯一のオーナーは無効化できません。先にほかの人をオーナーにしてください。",
   "members.disableOwnerProtected": "管理者はオーナーを無効化できません。",
+  "members.enableOwnerProtected": "管理者はオーナーを再有効化できません。",
+  "members.enableWhy": "{name}を再有効化できない理由",
   "members.disableWhy": "{name}を無効化できない理由",
   "members.roleSelf": "自分自身のロールは変更できません。",
   "members.roleLastOwner":
