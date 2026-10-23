@@ -116,9 +116,21 @@ export const usageSummaryQuerySchema = z
     // Omitted: the moment the database reads the figures.
     until: periodBoundSchema.optional(),
   })
-  .refine((query) => query.until === undefined || query.since < query.until, {
-    message: "until must be after since",
-    path: ["until"],
+  .superRefine((query, ctx) => {
+    if (query.since < (query.until ?? new Date())) return;
+    ctx.addIssue(
+      query.until === undefined
+        ? {
+            code: "custom",
+            message: "since must be in the past",
+            path: ["since"],
+          }
+        : {
+            code: "custom",
+            message: "until must be after since",
+            path: ["until"],
+          },
+    );
   });
 
 /**

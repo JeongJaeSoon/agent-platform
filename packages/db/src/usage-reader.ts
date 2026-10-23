@@ -121,9 +121,12 @@ export function createPostgresUsageReader(db: Database): UsageReader {
     },
 
     async usageSummary(filter, period) {
+      const since = sql`${period.since.toISOString()}::timestamptz`;
+      // The API's clock passed since; the database's may be a moment behind,
+      // and a period must not end before it starts.
       const until = period.until
         ? sql`${period.until.toISOString()}::timestamptz`
-        : sql`now()`;
+        : sql`greatest(now(), ${since})`;
       const picked = db.$with("picked").as(
         db
           .select({
@@ -134,7 +137,7 @@ export function createPostgresUsageReader(db: Database): UsageReader {
           .from(sessions)
           .where(
             and(
-              sql`${sessions.createdAt} >= ${period.since.toISOString()}::timestamptz`,
+              sql`${sessions.createdAt} >= ${since}`,
               sql`${sessions.createdAt} < ${until}`,
               startedBy(filter),
             ),

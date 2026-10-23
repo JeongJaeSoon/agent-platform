@@ -32,6 +32,8 @@ describe("usageSummaryQuerySchema", () => {
       { since: "yesterday" },
       { since: "2026-10-01", until: "2026-10-01" },
       { since: "2026-10-02", until: "2026-10-01" },
+      // Without until the period ends now, so a future since is empty.
+      { since: "2099-01-01" },
     ]) {
       expect(
         usageSummaryQuerySchema.safeParse({ scope: "me", ...query }).success,

@@ -225,6 +225,36 @@ describe("usage service", () => {
     expect((error as SessionServiceError).code).toBe("FORBIDDEN");
   });
 
+  // The rule GET /v1/sessions applies: a key bound to an agent reaches that
+  // agent's sessions one by one, never a read across them.
+  test("a key bound to an agent is refused scope=me, as it is the session list", async () => {
+    const bound = createUsageService({
+      authorization: createAuthorizationPolicy({
+        identity: {
+          reread: async (subject) => ({
+            status: "ok",
+            principal: subject.principal,
+            keyAgentId: crypto.randomUUID(),
+          }),
+        },
+      }),
+      limits,
+      reader: {
+        installationUsage: async () => {
+          throw new Error("not read");
+        },
+        sessionUsage: async () => null,
+        usageSummary: async () => {
+          throw new Error("not read");
+        },
+      },
+    });
+    const error = await bound
+      .getUsageSummary(serviceKey(), query("me"))
+      .catch((caught: unknown) => caught);
+    expect((error as SessionServiceError).code).toBe("FORBIDDEN");
+  });
+
   test("the summary echoes the period on UTC and is incomplete while any turn is", async () => {
     const complete = usageSummaryResponseSchema.parse(
       await service().getUsageSummary(user("member"), query("me")),
