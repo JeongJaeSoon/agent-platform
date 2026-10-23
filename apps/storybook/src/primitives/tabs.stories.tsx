@@ -49,3 +49,37 @@ export const DefaultMobile: Story = {
   name: "Default (390px)",
   globals: { viewport: { value: "mobile390", isRotated: false } },
 };
+
+/** Session detail tabs (v4 L597): a count after the label, 0 included. */
+export const LineWithCounts: Story = {
+  render: (args) => (
+    <Tabs {...args} defaultValue="timeline">
+      <TabsList variant="line" aria-label="세션 보기">
+        <TabsTrigger value="timeline">타임라인</TabsTrigger>
+        <TabsTrigger value="artifacts" count={4}>
+          결과물
+        </TabsTrigger>
+        <TabsTrigger value="requests" count={0} countLabel="열린 요청 없음">
+          요청
+        </TabsTrigger>
+        <TabsTrigger value="info">정보</TabsTrigger>
+      </TabsList>
+      <TabsContent value="timeline">이벤트 목록</TabsContent>
+      <TabsContent value="artifacts">결과물 목록</TabsContent>
+      <TabsContent value="requests">요청 목록</TabsContent>
+      <TabsContent value="info">세션 정보</TabsContent>
+    </Tabs>
+  ),
+};
+
+export const LineWithCountsDark: Story = {
+  ...LineWithCounts,
+  name: "LineWithCounts (dark)",
+  globals: { theme: "dark" },
+};
+
+export const LineWithCountsMobile: Story = {
+  ...LineWithCounts,
+  name: "LineWithCounts (390px)",
+  globals: { viewport: { value: "mobile390", isRotated: false } },
+};
