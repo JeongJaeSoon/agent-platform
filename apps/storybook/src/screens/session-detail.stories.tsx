@@ -339,7 +339,7 @@ function Danger({
   );
 }
 
-function Progress() {
+function Progress({ viewer }: { readonly viewer: Viewer }) {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-4">
@@ -371,6 +371,8 @@ function Progress() {
           hint: "Ctrl+Enter(⌘+Enter)로도 보냅니다. 지금 turn이 끝나면 다음 turn으로 이어집니다.",
           queued: "지금 turn 뒤에 보냄",
         }}
+        disabled={viewer === "viewer"}
+        disabledReason="공유받은 세션은 볼 수만 있어 지시를 보낼 수 없습니다."
         onSend={() => {}}
       />
     </div>
@@ -507,7 +509,11 @@ function SessionDetailScreen({
       <Header named={named} />
       <div className="grid items-start gap-6 md:grid-cols-[minmax(0,1fr)_340px]">
         <div className="order-2 flex min-w-0 flex-col gap-4 md:order-1">
-          {tab === "info" ? <Info viewer={viewer} /> : <Progress />}
+          {tab === "info" ? (
+            <Info viewer={viewer} />
+          ) : (
+            <Progress viewer={viewer} />
+          )}
         </div>
         <aside
           aria-label="세션 패널"
