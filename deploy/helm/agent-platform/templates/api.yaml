@@ -38,6 +38,14 @@ spec:
             {{- range .Values.secrets.catalogEnv }}
             {{- include "ap.secretEnv" (dict "root" $ "key" .) | nindent 12 }}
             {{- end }}
+            # The master key Slack secrets are encrypted under; without the
+            # Secret key the api starts with the secret store off.
+            - name: PLATFORM_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.name }}
+                  key: PLATFORM_SECRET_KEY
+                  optional: true
             - name: AUTH_MODE
               value: {{ .Values.config.authMode | quote }}
             {{- range $name, $value := .Values.config.limits }}
