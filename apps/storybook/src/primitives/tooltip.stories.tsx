@@ -83,7 +83,7 @@ export const IconButtons: Story = {
             <Button
               type="button"
               variant="outline"
-              size="icon"
+              size="icon-sm"
               aria-label={label?.pause}
             >
               <Pause aria-hidden="true" size={16} strokeWidth={1.5} />
@@ -96,7 +96,7 @@ export const IconButtons: Story = {
             <Button
               type="button"
               variant="outline"
-              size="icon"
+              size="icon-sm"
               aria-label={label?.stop}
             >
               <Square aria-hidden="true" size={16} strokeWidth={1.5} />
