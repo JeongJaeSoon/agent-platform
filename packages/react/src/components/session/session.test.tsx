@@ -1,11 +1,11 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, jest, test } from "bun:test";
 import {
   presentTurnEvent,
   type SessionSummary,
   type TurnEventMessage,
 } from "@werft-ai/contracts";
-
 import { setupDom } from "@werft-ai/ui/test-support/dom";
+import { act } from "react";
 import type { SessionRowMessages } from "./session-row.tsx";
 import type { TimelineEntry, TimelineMessages } from "./timeline.tsx";
 
@@ -471,6 +471,55 @@ describe("SessionOverviewRow", () => {
     expect(
       heads.filter((head) => head.className.includes("hidden")),
     ).toHaveLength(1);
+  });
+});
+
+describe("rows' relative time", () => {
+  afterEach(() => jest.useRealTimers());
+
+  const at = "2026-10-21T01:00:00.000Z";
+  const shown = (container: HTMLElement) =>
+    container.querySelector("time")?.textContent;
+
+  test("now가 없으면 행이 분마다 다시 읽어 'N분 전'이 늘어난다", () => {
+    jest.useFakeTimers({ now: new Date(at) });
+    const overview = render(
+      <SessionOverviewRow
+        session={{ ...SESSION, last_event_at: at }}
+        renderLink={(link) => <a href="/sessions/abc" {...link} />}
+        messages={OVERVIEW_MESSAGES}
+      />,
+    );
+    const row = render(
+      <SessionRow
+        session={{ ...SESSION, last_event_at: at }}
+        renderLink={(link) => <a href="/sessions/abc" {...link} />}
+        messages={ROW_MESSAGES}
+      />,
+    );
+    expect(shown(overview.container)).toBe("방금");
+    expect(shown(row.container)).toBe("방금");
+    act(() => jest.advanceTimersByTime(3 * 60_000));
+    expect(shown(overview.container)).toBe("3분 전");
+    expect(shown(row.container)).toBe("3분 전");
+  });
+
+  test("now를 주면 그 시각부터 세고 정확한 시각은 툴팁 설명으로 둔다", () => {
+    const { container } = render(
+      <SessionOverviewRow
+        session={{ ...SESSION, last_event_at: at }}
+        renderLink={(link) => <a href="/sessions/abc" {...link} />}
+        messages={OVERVIEW_MESSAGES}
+        now={Date.parse(at) + 12 * 60_000}
+      />,
+    );
+    const time = container.querySelector("time") as HTMLElement;
+    expect(time.textContent).toBe("12분 전");
+    expect(time.tabIndex).toBe(0);
+    expect(
+      document.getElementById(time.getAttribute("aria-describedby") ?? "")
+        ?.textContent,
+    ).toBe("2026년 10월 21일 10:00:00 GMT+9");
   });
 });
 

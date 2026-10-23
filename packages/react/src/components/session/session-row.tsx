@@ -10,6 +10,7 @@ import type { JSX, ReactNode } from "react";
 
 import { StatusLabel } from "../status/status-label.tsx";
 import { SessionStatusLabel } from "./session-status-label.tsx";
+import { useMinute } from "./use-minute.ts";
 
 /**
  * Shared by the header row and every session row, which are separate grids.
@@ -49,6 +50,8 @@ export interface SessionRowProps {
   readonly renderLink: (link: SessionRowLink) => ReactNode;
   readonly messages: SessionRowMessages;
   readonly locale?: TimestampLocale | undefined;
+  /** The instant "N분 전" counts from; a clock of its own if unset. */
+  readonly now?: number | undefined;
   readonly className?: string | undefined;
 }
 
@@ -57,8 +60,10 @@ export function SessionRow({
   renderLink,
   messages,
   locale = "ko",
+  now,
   className,
 }: SessionRowProps): JSX.Element {
+  const clock = useMinute(now === undefined);
   const { runtime } = session;
   const timestamp = (
     <>
@@ -69,6 +74,7 @@ export function SessionRow({
       <RelativeTime
         value={session.last_event_at ?? session.created_at}
         locale={locale}
+        now={now ?? clock}
         // The narrow layout's cell cuts what overflows; the ring stays inside.
         // Important: apps/web's unlayered focus rule sets a 2px offset.
         className="relative focus-visible:-outline-offset-2!"

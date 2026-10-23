@@ -484,10 +484,12 @@ describe("홈 요약", () => {
     });
     expect(oldest.getAttribute("href")).toBe(`/sessions/${askedEarly.id}`);
     const time = oldest.parentElement?.querySelector("time");
-    expect(
-      document.getElementById(time?.getAttribute("aria-describedby") ?? "")
-        ?.textContent,
-    ).toMatch(/^2026년 10월 23일 18:00/);
+    act(() => time?.focus());
+    await waitFor(() =>
+      expect(document.querySelector('[role="tooltip"]')?.textContent).toMatch(
+        /^2026년 10월 23일 18:00/,
+      ),
+    );
   });
 
   test("답이 필요한 요청은 세션 이름 줄로 보이고, 전체 보기는 답변 대기 목록으로 간다", async () => {

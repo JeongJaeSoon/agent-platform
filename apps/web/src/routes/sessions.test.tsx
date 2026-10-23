@@ -482,11 +482,15 @@ describe("sessions list", () => {
     expect(within(row).getByText("Working")).toBeTruthy();
     expect(screen.getByRole("searchbox", { name: "Find by title or ID" }));
     expect(screen.queryByText(/세션/)).toBeNull();
-    const time = row.querySelector("time");
-    expect(
-      document.getElementById(time?.getAttribute("aria-describedby") ?? "")
-        ?.textContent,
-    ).toMatch(/^October 11, 2026/);
+    // Focus opens the exact time in a Tooltip; no title attribute is left.
+    const time = row.querySelector("time") as HTMLElement;
+    expect(time.hasAttribute("title")).toBe(false);
+    act(() => time.focus());
+    await waitFor(() =>
+      expect(document.querySelector('[role="tooltip"]')?.textContent).toMatch(
+        /^October 11, 2026/,
+      ),
+    );
   });
 
   test("a row's link opens the session inside the app", async () => {

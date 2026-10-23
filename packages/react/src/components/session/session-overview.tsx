@@ -4,10 +4,10 @@ import type { SessionStatus, SessionSummary } from "@werft-ai/contracts";
 import { cn, RelativeTime, type TimestampLocale } from "@werft-ai/ui";
 import { Folder } from "lucide-react";
 import type { JSX, ReactNode } from "react";
-
 import { GitBranch } from "../console-icons.ts";
 import { StatusLabel } from "../status/status-label.tsx";
 import type { SessionRowLink } from "./session-row.tsx";
+import { useMinute } from "./use-minute.ts";
 
 /**
  * The console's session list columns, shared by the header and every row.
@@ -107,7 +107,7 @@ export interface SessionOverviewRowProps {
    */
   readonly renderTime?: ((iso: string) => ReactNode) | undefined;
   readonly locale?: TimestampLocale | undefined;
-  /** The instant the default time counts from; the time of render if unset. */
+  /** The instant the default time counts from; a clock of its own if unset. */
   readonly now?: number | undefined;
   readonly className?: string | undefined;
 }
@@ -122,6 +122,7 @@ export function SessionOverviewRow({
   now,
   className,
 }: SessionOverviewRowProps): JSX.Element {
+  const clock = useMinute(!renderTime && now === undefined);
   const shortId = shortSessionId(session.id);
   const at = session.last_event_at ?? session.created_at;
   // A server older than the repository field sends only the catalog key.
@@ -219,7 +220,7 @@ export function SessionOverviewRow({
             <RelativeTime
               value={at}
               locale={locale}
-              {...(now === undefined ? {} : { now })}
+              now={now ?? clock}
               // Important: apps/web's unlayered focus rule sets a 2px offset.
               className="truncate focus-visible:-outline-offset-2!"
             />
