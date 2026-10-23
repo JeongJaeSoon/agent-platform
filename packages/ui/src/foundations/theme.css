@@ -23,7 +23,7 @@
   --text-number: var(--ap-text-number);
   --text-number--line-height: var(--ap-leading-number);
 
-  --color-background: var(--ap-color-canvas);
+  --color-background: var(--ap-color-surface);
   --color-foreground: var(--ap-color-foreground);
   --color-card: var(--ap-color-surface);
   --color-card-foreground: var(--ap-color-foreground);
@@ -45,16 +45,12 @@
   --color-ring: var(--ap-color-focus-ring);
 
   /* Tokens with no shadcn name. */
-  --color-canvas: var(--ap-color-canvas);
   --color-sidebar: var(--ap-color-sidebar);
   --color-sidebar-hover: var(--ap-color-sidebar-hover);
   --color-sidebar-accent: var(--ap-color-sidebar-accent);
   --color-surface: var(--ap-color-surface);
   --color-subtle-foreground: var(--ap-color-subtle-foreground);
   --color-surface-sunken: var(--ap-color-surface-sunken);
-  --color-rail: var(--ap-color-rail);
-  --color-rail-foreground: var(--ap-color-rail-foreground);
-  --color-rail-muted-foreground: var(--ap-color-rail-muted-foreground);
   --color-border-strong: var(--ap-color-border-strong);
   --color-focus-ring: var(--ap-color-focus-ring);
   --font-sans: var(--ap-font-sans);
@@ -62,14 +58,6 @@
   --radius-control: var(--ap-radius-control);
   --radius-card: var(--ap-radius-card);
   --shadow-pop: var(--ap-shadow-pop);
-
-  /* Old names apps/web still uses; the kit itself uses the ones above. */
-  --radius-sm: var(--ap-radius-sm);
-  --radius-md: var(--ap-radius-md);
-  --radius-lg: var(--ap-radius-lg);
-  --shadow-sm: var(--ap-shadow-sm);
-  --shadow-md: var(--ap-shadow-md);
-  --shadow-lg: var(--ap-shadow-lg);
 }
 
 /*

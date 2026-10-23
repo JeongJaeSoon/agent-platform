@@ -10,18 +10,20 @@ import {
   FieldLabel,
   formatTimestamp,
   PageHeader,
-  SessionStatusLabel,
-  StatusLabel,
   Tabs,
   TabsContent,
   TabsList,
   TabsTrigger,
-  Timeline,
-  type TimelineEntry,
-  turnSummaryText,
   useDetailLayout,
 } from "@werft-ai/ui";
 import { type ReactNode, useId, useMemo, useState } from "react";
+import {
+  SessionStatusLabel,
+  StatusLabel,
+  Timeline,
+  type TimelineEntry,
+  turnSummaryText,
+} from "../components/index.ts";
 import {
   type EventStreamState,
   type SessionEventFrame,
@@ -398,7 +400,7 @@ function Usage({
         ]}
       />
       {usage.budget_exceeded ? (
-        <output className="rounded-md border border-[var(--ap-tone-attention-border)] bg-card px-3 py-2 text-body">
+        <output className="rounded-control border border-[var(--ap-tone-attention-border)] bg-card px-3 py-2 text-body">
           {t("session.usage.budgetExceeded")}
         </output>
       ) : null}

@@ -1,13 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { RECEIPT_STATUS_VALUES } from "@werft-ai/contracts";
 
-import { formatTimestamp } from "../foundations/format-timestamp.ts";
+import { setupDom } from "@werft-ai/ui/test-support/dom";
 import { describeStatus } from "../status/vocabulary.ts";
-import { setupDom } from "../test-support/dom.ts";
-import { ReceiptLink } from "./receipt-link.tsx";
-import { ReceiptSummary } from "./receipt-summary.tsx";
 
 const { render } = await setupDom();
+// After setupDom: these load @werft-ai/ui, whose Radix decides at import time
+// whether a DOM exists.
+const { formatTimestamp } = await import("@werft-ai/ui");
+const { ReceiptLink } = await import("./receipt-link.tsx");
+const { ReceiptSummary } = await import("./receipt-summary.tsx");
 
 const TARGET = {
   session_id: "01J8Z5T7Q0000000000000000A",

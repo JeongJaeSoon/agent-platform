@@ -1,14 +1,16 @@
 import { describe, expect, mock, test } from "bun:test";
 
-import { setupDom, setupUser } from "../test-support/dom.ts";
-import {
-  type QuestionAnswer,
-  QuestionCard,
-  type QuestionCardMessages,
-  type QuestionRequest,
+import { setupDom, setupUser } from "@werft-ai/ui/test-support/dom";
+import type {
+  QuestionAnswer,
+  QuestionCardMessages,
+  QuestionRequest,
 } from "./question-card.tsx";
 
 const { render, waitFor } = await setupDom();
+// After setupDom: the card loads @werft-ai/ui, whose Radix decides at import
+// time whether a DOM exists.
+const { QuestionCard } = await import("./question-card.tsx");
 
 const NOW = Date.parse("2026-10-21T01:00:00.000Z");
 

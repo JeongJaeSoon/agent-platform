@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Composer } from "@werft-ai/ui";
+import { Composer } from "@werft-ai/react/components";
 
 const meta = {
   title: "Patterns/Session/Composer",

@@ -7,7 +7,8 @@
 이 패키지는 **서버가 준 상태를 그리는 일만 한다**.
 
 - fetch·권한 판정·상태 전이 정책을 넣지 않는다. URL도 만들지 않는다(`href`는 화면이 준다).
-- 런타임 의존성은 `react`·`react-dom`·`@werft-ai/contracts`(타입 전용)와 shadcn/ui가 쓰는
+- API 계약 패키지를 모른다. 계약 타입을 받는 조각은 `@werft-ai/react/components`에 있다.
+- 런타임 의존성은 `react`·`react-dom`과 shadcn/ui가 쓰는
   `@radix-ui/react-checkbox`·`@radix-ui/react-dialog`·`@radix-ui/react-radio-group`·`@radix-ui/react-slot`·`@radix-ui/react-tabs`·`class-variance-authority`·`clsx`·`tailwind-merge`뿐이다.
 - Radix는 `src/primitives/` 안에서만 import한다. Dialog 구현이 둘이 되지 않게 하려는 것이다.
 - `src/package.test.ts`가 이 경계를 검사한다. 새 의존성을 넣으려면 그 테스트를 먼저 고쳐야 한다.
@@ -26,9 +27,9 @@ Tailwind의 `dark:`는 수동 전환(`data-theme`)을 보지 못하기 때문이
   (`--color-primary` 등)가 `--ap-*` 토큰을 바로 가리킨다. 그래서 키트는 접두사 없는 `--primary`·`--border`를 선언하지
   않고, 같은 이름을 쓰는 앱(shadcn을 쓰는 앱 등)의 변수와 부딪치지 않는다. shadcn의 `accent`는 hover용 조용한 바탕이고, 우리 브랜드 색은
   `primary`(= `--ap-color-accent`)다. 상태 색처럼 도메인 전용 색은 `--ap-tone-*`을 직접 쓴다.
-- **Tailwind 연결.** `src/foundations/theme.css`가 토큰을 유틸리티에 잇는 유일한 곳이다. 색(`bg-primary`·`bg-canvas`…),
+- **Tailwind 연결.** `src/foundations/theme.css`가 토큰을 유틸리티에 잇는 유일한 곳이다. 색(`bg-primary`·`bg-sidebar`…),
   글자 크기(`text-control`·`text-description`·`text-title` 등), `font-sans`·`font-mono`, `rounded-control|card`, `shadow-pop`이
-  여기서 나온다(`rounded-sm|md|lg`·`shadow-sm|md|lg`는 apps/web이 옮겨 갈 때까지 둔 옛 이름이다). 쓰는 쪽 CSS는
+  여기서 나온다. 쓰는 쪽 CSS는
   `tailwindcss`·`styles.css`·`theme.css` 순으로 import하고 `@source`로 이 패키지의 `src`를 스캔해야 한다
   (`apps/web/src/styles.css`가 예다). Tailwind 없이 쓰면 primitive는 모양 없이 그려진다.
 - **cascade layer.** `tokens.css`와 `styles.css`의 규칙은 모두 `@layer ap` 안에 있다. `tokens.css`가
@@ -36,7 +37,7 @@ Tailwind의 `dark:`는 수동 전환(`data-theme`)을 보지 못하기 때문이
   규칙은 Tailwind 유틸리티를 이기고 쓰는 쪽 앱의 layer 밖 규칙에는 진다. 쓰는 쪽 앱이 이 파일보다 먼저 layer 순서를
   선언하면 그 순서가 이긴다. 그때도 `ap`는 `utilities` 뒤에 두어야 한다. `ConfirmDialog`는 앞의 성질로 shadcn Dialog 위에서 기존 모양과
   reduced-motion 규칙을 유지한다. 그래서 `ap-*` 클래스를 그리는 컴포넌트(`ConfirmDialog`·`DestructiveActionDialog`·
-  `EmptyState`·`ErrorState`·`Skeleton`·`StatusLabel`·`ReceiptSummary`·`ReceiptLink`)에 `className`으로 넘긴 유틸리티는
+  `EmptyState`·`ErrorState`·`Skeleton`, 그리고 `@werft-ai/react/components`의 `StatusLabel`·`ReceiptSummary`·`ReceiptLink`)에 `className`으로 넘긴 유틸리티는
   BEM 규칙과 같은 속성이면 적용되지 않는다. 바꾸려면 쓰는 쪽 앱의 layer 밖 CSS로 덮는다. BEM 클래스는 화면을 옮기면서
   (W11·W17) 지운다.
 - **box-sizing.** `styles.css`가 키트 요소(`ap-*` 클래스와 `data-slot`)에만 `border-box`를 건다. Tailwind preflight가 없는
@@ -49,12 +50,12 @@ Tailwind의 `dark:`는 수동 전환(`data-theme`)을 보지 못하기 때문이
 
 값은 콘솔 디자인 캔버스 v35 규칙표를 따른다. 간격은 4·8·12·16·24·32, 글자는 12·13·14·20·24, 반경은 컨트롤 6·카드 8·pill,
 그림자는 떠 있는 요소용 `--ap-shadow-pop` 하나다. 바탕은 사이드바 `--ap-color-sidebar`와 메인·카드 `--ap-color-surface` 둘이다. 사이드바 nav 행은 hover에 `bg-sidebar-hover`, 현재 페이지에 `bg-sidebar-accent`를 쓴다.
-값이 다른 토큰을 가리키는(`var(--ap-…)`) 이름은 apps/web이 옮겨 갈 때까지 둔 옛 이름이니 새 코드에서 쓰지 않는다.
+`--ap-color-canvas`는 `--ap-color-surface`의 옛 이름으로, apps/docs가 읽어서 남겨 두었다. 새 코드에서 쓰지 않는다.
 
 Tailwind 4의 `@theme` 블록 대신 `--ap-` 접두사를 붙인 평범한 커스텀 프로퍼티를 쓴다.
 `@theme`는 Tailwind 컴파일러를 거쳐야만 살아남는데, 이 패키지는 Tailwind 없이도 렌더돼야 하기 때문이다.
-Tailwind에는 `theme.css`가 이어 붙인다(`--color-canvas: var(--ap-color-canvas)` 식). 접두사가 없으면
-`--color-canvas: var(--color-canvas)`가 되어 순환한다. 접두사는 그것을 막는다.
+Tailwind에는 `theme.css`가 이어 붙인다(`--color-surface: var(--ap-color-surface)` 식). 접두사가 없으면
+`--color-surface: var(--color-surface)`가 되어 순환한다. 접두사는 그것을 막는다.
 
 ## 화면 구성 원칙
 
@@ -99,10 +100,9 @@ Tailwind에는 `theme.css`가 이어 붙인다(`--color-canvas: var(--ap-color-c
 |---|---|---|
 | foundations · `src/foundations/` | 없음 | `tokens.css`·`styles.css`·`theme.css`·`fonts.css`(+`fonts/`), `cn`, `useReducedMotion`, `formatTimestamp` |
 | primitives · `src/primitives/` | foundations | shadcn 항목 `Button`·`Badge`·`Card*`·`Input`·`Textarea`·`NativeSelect*`·`Checkbox`·`RadioGroup*`·`Tabs*`·`Dialog*`·`Field*`, 그리고 `Skeleton`. 도메인을 모른다. 의미 있는 상태는 `Badge`가 아니라 `StatusLabel`로 |
-| patterns · `src/patterns/` | primitives | `ConfirmDialog`·`DestructiveActionDialog`(결과 설명이 필수이고, 파괴적 동작은 이름을 입력해야 열린다), `EmptyState`, 페이지 머리 `PageHeader`(h1 + 설명 + 동작), `Stepper`, 상세 화면 두 칸 배치 `useDetailLayout` |
-| (도메인) `src/session/`·`src/status/`·`src/receipt/`·`src/feedback/` | `@werft-ai/contracts` 타입 | `StatusLabel`(admission·turn·receipt·execution **네 축**을 따로 그린다), `ReceiptSummary`·`ReceiptLink`(`unknown`은 성공으로 그리지 않는다), `ErrorState`(`error.code`별 "할 일"을 원문보다 먼저), `Session*`·`Timeline`·`Message`·`Composer`·`ApprovalCard`·`QuestionCard`·`StageIndicator` |
+| patterns · `src/patterns/` | primitives | `ConfirmDialog`·`DestructiveActionDialog`(결과 설명이 필수이고, 파괴적 동작은 이름을 입력해야 열린다), `EmptyState`, `ErrorState`(제목·할 일·원문·재시도·증거 링크. 할 일 문구는 쓰는 쪽이 준다), 페이지 머리 `PageHeader`(h1 + 설명 + 동작), `Stepper`, 상세 화면 두 칸 배치 `useDetailLayout` |
 
-도메인 파일은 `packages/react`로 옮길 예정이라 층 디렉터리에 넣지 않았다. 루트 index가 이름을 직접 내보낸다.
+계약 타입을 받는 도메인 조각은 `packages/react/src/components`(`@werft-ai/react/components`)에 있다: `StatusLabel`(admission·turn·receipt·execution **네 축**을 따로 그린다), `ReceiptSummary`·`ReceiptLink`(`unknown`은 성공으로 그리지 않는다), `ApiErrorState`(`error.code`별 "할 일"을 채운 `ErrorState`), `Session*`·`Timeline`·`Message`·`Composer`·`ApprovalCard`·`QuestionCard`·`StageIndicator`.
 
 ## 테스트
 

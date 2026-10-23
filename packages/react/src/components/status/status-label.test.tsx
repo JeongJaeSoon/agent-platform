@@ -6,14 +6,19 @@ import {
   TURN_STATUS_VALUES,
 } from "@werft-ai/contracts";
 
-import { setupDom, stubPrefersReducedMotion } from "../test-support/dom.ts";
-import { StatusLabel } from "./status-label.tsx";
+import {
+  setupDom,
+  stubPrefersReducedMotion,
+} from "@werft-ai/ui/test-support/dom";
 import { describeStatus, STATUS_VOCABULARY } from "./vocabulary.ts";
 
 // Queries come from `render()`, never from `screen`: the DOM is registered
 // after this module's imports are evaluated, and `screen` binds document.body
 // at import time.
 const { render } = await setupDom();
+// After setupDom: the label loads @werft-ai/ui, whose Radix decides at import
+// time whether a DOM exists.
+const { StatusLabel } = await import("./status-label.tsx");
 
 describe("StatusLabel", () => {
   test("축이 다르면 같은 화면에서 서로 다른 라벨로 그려진다", () => {

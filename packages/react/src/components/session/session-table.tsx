@@ -1,8 +1,8 @@
 /* biome-ignore-all lint/a11y/useSemanticElements: container-responsive columns use a div-grid table. */
 /* biome-ignore-all lint/a11y/useFocusableInteractive: static table rows delegate keyboard navigation to their cell links. */
+import { cn } from "@werft-ai/ui";
 import type { ReactNode } from "react";
 
-import { cn } from "../foundations/cn.ts";
 import { SESSION_COLUMNS } from "./session-row.tsx";
 
 export interface SessionTableProps {

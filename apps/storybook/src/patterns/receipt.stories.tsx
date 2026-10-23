@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { ReceiptLink, ReceiptSummary } from "@werft-ai/ui";
+import { ReceiptLink, ReceiptSummary } from "@werft-ai/react/components";
 
 // Fixed ids and times, as in the packages/ui gallery: no clocks, no randomness.
 const SESSION_ID = "01J8Z5T7Q0000000000000000A";

@@ -30,21 +30,16 @@
      * and #a1a1a1 are under 3:1 on white).
      *
      * Console v35: the sidebar sits on `sidebar`, the main column and its
-     * cards on one `surface`. `canvas` is the main background's old name.
-     * A sidebar nav row takes `sidebar-hover` under the pointer and
-     * `sidebar-accent` when it is the current page.
+     * cards on one `surface`. A sidebar nav row takes `sidebar-hover` under
+     * the pointer and `sidebar-accent` when it is the current page.
      */
     --ap-color-sidebar: #fafafa;
     --ap-color-sidebar-hover: #f2f2f2;
     --ap-color-sidebar-accent: #ebebeb;
     --ap-color-surface: #ffffff;
+    /* The main background's old name, still read by apps/docs. */
     --ap-color-canvas: var(--ap-color-surface);
     --ap-color-surface-sunken: #f5f5f5;
-    /* Legacy dark sidebar, kept at its old values until apps/web moves to
-     `sidebar`: its light text would vanish on the new light value. */
-    --ap-color-rail: #171717;
-    --ap-color-rail-foreground: #fafafa;
-    --ap-color-rail-muted-foreground: #a1a1a1;
 
     --ap-color-border: #e5e5e5;
     --ap-color-border-strong: #d4d4d4;
@@ -114,13 +109,11 @@
 
     /*
      * Console v35 sizes only: 12 meta, 13 body, 14 section, 20 page title,
-     * 24 figures. `lg` and `xl` are old names apps/web still reads.
+     * 24 figures.
      */
     --ap-text-xs: 0.75rem;
     --ap-text-sm: 0.8125rem;
     --ap-text-label: 0.875rem;
-    --ap-text-lg: var(--ap-text-label);
-    --ap-text-xl: var(--ap-text-title);
 
     --ap-leading-tight: 1.35;
     --ap-leading-normal: 1.7;
@@ -139,7 +132,6 @@
     --ap-space-4: 1rem;
     --ap-space-6: 1.5rem;
     --ap-space-8: 2rem;
-    --ap-space-10: var(--ap-space-8);
 
     /* Vertical rhythm of a page: above the content, under the page header,
      between sections and between blocks inside one. */
@@ -148,21 +140,13 @@
     --ap-space-section: var(--ap-space-8);
     --ap-space-block: var(--ap-space-4);
 
-    /* Controls 6px; cards, menus and dialogs 8px; pills. sm/md/lg are old
-     names. */
+    /* Controls 6px; cards, menus and dialogs 8px; pills. */
     --ap-radius-control: 0.375rem;
     --ap-radius-card: 0.5rem;
     --ap-radius-pill: 999px;
-    --ap-radius-sm: var(--ap-radius-control);
-    --ap-radius-md: var(--ap-radius-control);
-    --ap-radius-lg: var(--ap-radius-card);
 
-    /* One shadow, for what floats (menus, dialogs, toasts); sm/md/lg are old
-     names. */
+    /* One shadow, for what floats (menus, dialogs, toasts). */
     --ap-shadow-pop: 0 2px 8px rgb(0 0 0 / 0.08);
-    --ap-shadow-sm: var(--ap-shadow-pop);
-    --ap-shadow-md: var(--ap-shadow-pop);
-    --ap-shadow-lg: var(--ap-shadow-pop);
     --ap-color-overlay: rgb(0 0 0 / 0.5);
 
     /*
@@ -185,13 +169,6 @@
     --ap-layout-reading-width: 48rem;
     --ap-layout-sidebar-width: 14.75rem;
     --ap-layout-detail-panel-width: 21.25rem;
-    /* Old names apps/web still reads: the content widths plus 24px gutters. */
-    --ap-layout-content-width: calc(var(--ap-w-wide) + 2 * var(--ap-space-6));
-    --ap-layout-settings-width: calc(
-      var(--ap-w-narrow) +
-      2 *
-      var(--ap-space-6)
-    );
     /*
      * Table and list rows (console design v30): a row is at least 48px and a
      * header row 40px. Lines stacked in one cell sit 2px apart.
@@ -222,9 +199,6 @@
       --ap-color-sidebar-accent: #232323;
       --ap-color-surface: #0a0a0a;
       --ap-color-surface-sunken: #1a1a1a;
-      --ap-color-rail: #111111;
-      --ap-color-rail-foreground: #ededed;
-      --ap-color-rail-muted-foreground: #a1a1a1;
 
       --ap-color-border: #2e2e2e;
       --ap-color-border-strong: #454545;
@@ -287,9 +261,6 @@
     --ap-color-sidebar-accent: #232323;
     --ap-color-surface: #0a0a0a;
     --ap-color-surface-sunken: #1a1a1a;
-    --ap-color-rail: #111111;
-    --ap-color-rail-foreground: #ededed;
-    --ap-color-rail-muted-foreground: #a1a1a1;
 
     --ap-color-border: #2e2e2e;
     --ap-color-border-strong: #454545;

@@ -1,4 +1,14 @@
 import type { PendingRequest } from "@werft-ai/contracts";
+import {
+  Button,
+  cn,
+  Field,
+  FieldError,
+  FieldLabel,
+  formatTimestamp,
+  Textarea,
+  type TimestampLocale,
+} from "@werft-ai/ui";
 import { Hourglass } from "lucide-react";
 import {
   type FormEvent,
@@ -10,14 +20,6 @@ import {
   useState,
 } from "react";
 
-import { cn } from "../foundations/cn.ts";
-import {
-  formatTimestamp,
-  type TimestampLocale,
-} from "../foundations/format-timestamp.ts";
-import { Button } from "../primitives/button.tsx";
-import { Field, FieldError, FieldLabel } from "../primitives/field.tsx";
-import { Textarea } from "../primitives/textarea.tsx";
 import { useExpired, useExpiryFocus } from "./expiry.ts";
 
 export type PermissionRequest = Extract<PendingRequest, { kind: "permission" }>;

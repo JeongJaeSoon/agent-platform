@@ -246,10 +246,6 @@ describe("tokens.css", () => {
       "--ap-color-muted-foreground",
       "--ap-color-subtle-foreground",
     ];
-    const RAIL_TEXT = [
-      "--ap-color-rail-foreground",
-      "--ap-color-rail-muted-foreground",
-    ];
 
     const failures: string[] = [];
     // A token this test cannot read is a hole in it, not a pass. Every pair
@@ -269,7 +265,6 @@ describe("tokens.css", () => {
       expect(palette.size).toBeGreaterThan(0);
       const pairs: [string[], string[]][] = [
         [TEXT, SURFACES],
-        [RAIL_TEXT, ["--ap-color-rail"]],
         [
           ["--ap-color-foreground", "--ap-color-muted-foreground"],
           ["--ap-color-sidebar-hover", "--ap-color-sidebar-accent"],
