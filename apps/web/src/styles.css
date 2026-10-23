@@ -242,11 +242,13 @@ select:focus-visible,
 }
 
 /*
- * temporary until @werft-ai/ui tokens land: ui-kit T1/T2's names and values
- * (Console.dc.html), ahead of their release. Delete this block once T1 lands.
+ * temporary until @werft-ai/ui tokens land: the status-dot tokens under
+ * ui-kit T1/T2's names and values (Console.dc.html), and the colour of home's
+ * links to other screens, which alone take the design's blue. Delete this
+ * block once T1 lands.
  */
 :root {
-  --ap-color-link: #0060d1;
+  --home-link: #0060d1;
   --ap-color-status-dot-wait: #9a4f00;
   --ap-color-status-dot-run: #0060d1;
   --ap-color-status-dot-idle: #8f8f8f;
@@ -255,7 +257,7 @@ select:focus-visible,
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --ap-color-link: #52a8ff;
+    --home-link: #52a8ff;
     --ap-color-status-dot-wait: #f1a33b;
     --ap-color-status-dot-run: #52a8ff;
     --ap-color-status-dot-idle: #6f6f6f;
@@ -264,7 +266,7 @@ select:focus-visible,
   }
 }
 :root[data-theme="dark"] {
-  --ap-color-link: #52a8ff;
+  --home-link: #52a8ff;
   --ap-color-status-dot-wait: #f1a33b;
   --ap-color-status-dot-run: #52a8ff;
   --ap-color-status-dot-idle: #6f6f6f;

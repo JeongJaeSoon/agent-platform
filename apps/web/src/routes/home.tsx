@@ -304,10 +304,7 @@ export function HomeScreen() {
                 label: t("home.overview.oldest"),
                 value: (
                   <>
-                    <TextLink
-                      asChild
-                      className="font-mono font-normal text-foreground"
-                    >
+                    <TextLink asChild className="font-mono font-normal">
                       <Link
                         to="/sessions/$id"
                         params={{ id: oldest.sessionId }}
@@ -475,7 +472,7 @@ export function HomeScreen() {
       link={
         <TextLink
           asChild
-          className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-control"
+          className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-(color:--home-link) text-control"
         >
           <Link to="/agents/$id" params={{ id: agent.id }}>
             {t("home.glance.toAgent")}
@@ -706,7 +703,7 @@ function ArrowLink({
   return (
     <TextLink
       asChild
-      className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-control"
+      className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-(color:--home-link) text-control"
     >
       <Link to={to}>
         {children}
@@ -745,7 +742,7 @@ function KeyName({
             : "apiKeys.kind.service",
         );
   return (
-    <TextLink asChild className="text-foreground">
+    <TextLink asChild>
       <Link
         to={
           apiKey.kind === "personal"
@@ -962,7 +959,7 @@ function RecentRow({
       <TableCell>
         {session.title ? (
           <div className="flex max-w-80 flex-col">
-            <TextLink asChild className="truncate text-foreground">
+            <TextLink asChild className="truncate">
               <Link
                 to="/sessions/$id"
                 params={{ id: session.id }}
@@ -979,7 +976,7 @@ function RecentRow({
             </span>
           </div>
         ) : (
-          <TextLink asChild className="font-mono text-foreground">
+          <TextLink asChild className="font-mono">
             <Link
               to="/sessions/$id"
               params={{ id: session.id }}
