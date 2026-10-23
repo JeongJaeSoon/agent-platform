@@ -47,7 +47,7 @@ import "@werft-ai/ui/styles.css";
 import { Button, Card } from "@werft-ai/ui";
 ```
 
-`styles.css` does not include Tailwind's preflight (its global reset). It sets one global rule: every element's default `border-color` is `--ap-color-border`, so an element the app gives only `border: 1px solid`, with no colour, draws in that colour. The resets the kit expects (borders, margins, button backgrounds, link underlines, and so on) apply only to the kit's elements and what is inside them, at zero specificity. App markup you put inside a kit component also loses the browser's default margins and underlines. The kit's rules sit in a cascade layer, so the app's CSS outside any layer always wins.
+`styles.css` does not include Tailwind's preflight (its global reset). It sets one global rule: every element's default `border-color` is `--ap-color-border`, so an element the app gives a `border-width` and `border-style` but no colour draws in that colour (the `border` shorthand sets a colour too, so it is not affected). The resets the kit expects (borders, margins, button backgrounds, link underlines, and so on) apply only to the kit's elements and what is inside them, at zero specificity. App markup you put inside a kit component also loses the browser's default margins and underlines. The kit's rules sit in a cascade layer, so the app's CSS outside any layer always wins.
 
 ### Tailwind v4 apps
 

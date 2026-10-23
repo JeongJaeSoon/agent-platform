@@ -47,7 +47,7 @@ import "@werft-ai/ui/styles.css";
 import { Button, Card } from "@werft-ai/ui";
 ```
 
-`styles.css` には Tailwind の preflight(グローバルなリセット)が入っていない。グローバルに適用されるルールは一つだけで、すべての要素の既定の `border-color` を `--ap-color-border` にする。そのため、アプリが色を指定せずに `border: 1px solid` だけを与えた要素もこの色で描画される。キットが前提とするリセット(枠線、margin、ボタンの背景、リンクの下線など)は、キット要素とその内側にだけ specificity 0 で適用される。そのため、キットの中に置いたアプリのマークアップもブラウザ既定の margin と下線が外れる。キットのルールは cascade layer の中にあるので、layer の外に書いたアプリの CSS が常に勝つ。
+`styles.css` には Tailwind の preflight(グローバルなリセット)が入っていない。グローバルに適用されるルールは一つだけで、すべての要素の既定の `border-color` を `--ap-color-border` にする。そのため、アプリが `border-width` と `border-style` だけを与えて色を決めていない要素は、この色で描画される(`border` ショートハンドは色も決めるので該当しない)。キットが前提とするリセット(枠線、margin、ボタンの背景、リンクの下線など)は、キット要素とその内側にだけ specificity 0 で適用される。そのため、キットの中に置いたアプリのマークアップもブラウザ既定の margin と下線が外れる。キットのルールは cascade layer の中にあるので、layer の外に書いたアプリの CSS が常に勝つ。
 
 ### Tailwind v4 のアプリ
 
