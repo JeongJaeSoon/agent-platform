@@ -301,6 +301,35 @@ describe("agent service", () => {
     ).toBe("PROFILE_DIGEST_MISMATCH");
   });
 
+  test("a release whose card model left the profile's list no longer activates", async () => {
+    const memory = memoryStore();
+    const offers = serviceOver(memory.store, {
+      ...PROFILE,
+      model: "claude-opus-5-5",
+      models: ["claude-sonnet-5"],
+    });
+    const { release: made } = await offers.createRelease(owner, AGENT, release);
+    expect(made.runtime_config_snapshot.model).toBe("claude-sonnet-5");
+    await offers.activateAgent(owner, AGENT, {
+      release_id: made.id,
+      expected_revision: -1,
+    });
+    expect(memory.activations()).toBe(1);
+    // The version 2 digest is the same without the models; the card's
+    // model is what moved.
+    const dropped = { ...PROFILE, model: "claude-opus-5-5" };
+    expect(profileFingerprint(dropped)).toBe(made.profile_digest);
+    expect(
+      await codeOf(
+        serviceOver(memory.store, dropped).activateAgent(owner, AGENT, {
+          release_id: made.id,
+          expected_revision: -1,
+        }),
+      ),
+    ).toBe("PROFILE_DIGEST_MISMATCH");
+    expect(memory.activations()).toBe(1);
+  });
+
   test("activation names the credentials not bound to the agent, without reaching the store", async () => {
     const memory = memoryStore();
     const { release: made } = await serviceOver(memory.store).createRelease(

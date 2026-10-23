@@ -13,7 +13,11 @@ import type {
 import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
 import type { AgentStore } from "../ports/agent-store.ts";
 import type { CredentialBindingStore } from "../ports/credential-binding-store.ts";
-import { profilePinned, type SessionCatalog } from "../sessions/catalog.ts";
+import {
+  profileModels,
+  profilePinned,
+  type SessionCatalog,
+} from "../sessions/catalog.ts";
 import {
   requirePermitted,
   SessionServiceError,
@@ -22,6 +26,7 @@ import {
   assertReleaseIdentity,
   cardContentSha256,
   deriveReleaseId,
+  releaseModel,
   resolveReleaseContent,
 } from "./release-ids.ts";
 
@@ -83,7 +88,14 @@ export function createAgentService(deps: {
     const profile = Object.hasOwn(catalog.profiles, release.runtime_profile_id)
       ? catalog.profiles[release.runtime_profile_id]
       : undefined;
-    if (!profile || !profilePinned(profile, release.profile_digest)) {
+    // A version 2 digest leaves the models out, so the card's model is
+    // checked against the list on its own.
+    const model = releaseModel(release);
+    if (
+      !profile ||
+      !profilePinned(profile, release.profile_digest) ||
+      (model !== undefined && !profileModels(profile).includes(model))
+    ) {
       throw new SessionServiceError(
         "PROFILE_DIGEST_MISMATCH",
         `Runtime profile ${release.runtime_profile_id} changed since this release; release the version again`,

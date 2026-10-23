@@ -17,6 +17,14 @@ import {
   type SessionCatalog,
 } from "../sessions/catalog.ts";
 
+// The model a release's sessions run unless they name another: its card's.
+export function releaseModel(
+  release: Pick<AgentRelease, "runtime_config_snapshot"> | null,
+): string | undefined {
+  const model = release?.runtime_config_snapshot.model;
+  return typeof model === "string" ? model : undefined;
+}
+
 // Ported from Kollegium v1 `packages/core/src/ids.ts` (Apache-2.0,
 // JeongJaeSoon/kollegium @ d711706).
 

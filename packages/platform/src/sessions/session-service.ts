@@ -30,6 +30,7 @@ import type {
   TurnDetail,
 } from "@werft-ai/contracts";
 import { CREDENTIAL_UNBOUND_GUIDANCE } from "@werft-ai/contracts";
+import { releaseModel } from "../agents/release-ids.ts";
 import {
   budgetExceeded,
   type SessionSpend,
@@ -101,13 +102,6 @@ function own<T>(record: Record<string, T>, key: string): T | undefined {
 
 // The card's model a release was resolved with; a release's snapshot is
 // typed loosely, and one that names none leaves the profile's default.
-function releaseModel(
-  release: Pick<AgentRelease, "runtime_config_snapshot"> | null,
-): string | undefined {
-  const model = release?.runtime_config_snapshot.model;
-  return typeof model === "string" ? model : undefined;
-}
-
 function pinOf(record: {
   profile_fingerprint: string | null;
   model: string | null;
