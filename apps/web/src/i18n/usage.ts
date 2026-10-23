@@ -1,0 +1,168 @@
+export const usageKo = {
+  "usage.title": "사용량·한도",
+  "usage.description.owner": "내 사용량과 설치 전체 사용량을 봅니다.",
+  "usage.description.member":
+    "내가 시작한 세션 기준 사용량입니다. 설치 전체 수치는 설치 운영자만 볼 수 있습니다.",
+  "usage.scope.label": "집계 범위",
+  "usage.scope.me": "내 사용량",
+  "usage.scope.installation": "설치 전체",
+  "usage.basis.meTitle": "내가 시작한 세션 기준 · {period} (UTC)",
+  "usage.basis.installationTitle": "설치 전체 · {period} (UTC)",
+  "usage.basis.me":
+    "이 기간에 내가 웹이나 내 key로 시작한 세션만 셉니다. 공유받은 세션은 빠집니다. {at}에 읽은 값입니다.",
+  "usage.basis.installation":
+    "이 기간에 시작한 모든 세션을 합산합니다. 이 범위는 설치 운영자만 볼 수 있습니다. {at}에 읽은 값입니다.",
+  "usage.kpi.sessions": "세션",
+  "usage.kpi.sessionsNote": "이 기간에 시작한 세션",
+  "usage.kpi.runTime": "실행 시간",
+  "usage.kpi.runTimeNote": "세션이 실제로 돈 시간",
+  "usage.kpi.cost": "비용",
+  "usage.kpi.estimated": "추정",
+  "usage.kpi.costNote": "provider 청구액과 다를 수 있음",
+  "usage.kpi.costIncomplete":
+    "진행 중이거나 비용을 보고하지 않은 turn이 있어 실제보다 적을 수 있음",
+  "usage.kpi.tokens": "토큰",
+  "usage.kpi.tokensNote": "비용을 센 호출의 토큰",
+  "usage.duration.hours": "{h}시간 {m}분",
+  "usage.duration.minutes": "{m}분",
+  "usage.empty.title": "아직 사용 기록이 없습니다",
+  "usage.empty.body": "이 기간에 시작한 세션이 생기면 여기에 나옵니다.",
+  "usage.limits.title": "한도",
+  "usage.limits.meta": "설치 전체에 적용됩니다 · {at} 기준",
+  "usage.limits.item": "항목",
+  "usage.limits.current": "현재",
+  "usage.limits.limit": "한도",
+  "usage.limits.note": "설명",
+  "usage.limits.perSession": "세션마다 셉니다",
+  "usage.limits.notSet": "설정 안 됨",
+  "usage.limits.slots": "동시 실행 slot",
+  "usage.limits.slotsNote":
+    "설치 설정의 상한. 빈 slot이 없으면 세션이 대기합니다",
+  "usage.limits.storage": "입력 메시지 저장",
+  "usage.limits.storageNote":
+    "세션에 보낸 입력 메시지만 셉니다. 결과물 용량은 아직 세지 않습니다",
+  "usage.limits.sessionCost": "세션당 비용",
+  "usage.limits.sessionCostNote":
+    "추정 비용이 넘은 세션은 새 turn을 시작하지 않습니다",
+  "usage.limits.sessionTokens": "세션당 토큰",
+  "usage.limits.sessionTokensNote":
+    "토큰이 넘은 세션은 새 turn을 시작하지 않습니다",
+  "usage.limits.queuedInput": "세션당 대기 입력",
+  "usage.limits.queuedInputValue": "{count}건",
+  "usage.limits.queuedInputNote": "세션 하나에 쌓아 둘 수 있는 입력 수",
+  "usage.limits.maxTurn": "turn 최대 시간",
+  "usage.limits.maxTurnNote": "turn 하나가 돌 수 있는 시간",
+};
+
+export const usageEn: Record<keyof typeof usageKo, string> = {
+  "usage.title": "Usage & limits",
+  "usage.description.owner": "See your usage and whole-install usage.",
+  "usage.description.member":
+    "Usage of the sessions you started. Only the install operator sees whole-install figures.",
+  "usage.scope.label": "Scope",
+  "usage.scope.me": "My usage",
+  "usage.scope.installation": "Whole install",
+  "usage.basis.meTitle": "Sessions you started · {period} (UTC)",
+  "usage.basis.installationTitle": "Whole install · {period} (UTC)",
+  "usage.basis.me":
+    "Counts only the sessions you started on the web or with your keys in this period. Shared sessions are left out. Read at {at}.",
+  "usage.basis.installation":
+    "Adds up every session started in this period. Only the install operator sees this scope. Read at {at}.",
+  "usage.kpi.sessions": "Sessions",
+  "usage.kpi.sessionsNote": "Sessions started in this period",
+  "usage.kpi.runTime": "Run time",
+  "usage.kpi.runTimeNote": "Time sessions actually ran",
+  "usage.kpi.cost": "Cost",
+  "usage.kpi.estimated": "Est.",
+  "usage.kpi.costNote": "May differ from the provider's bill",
+  "usage.kpi.costIncomplete":
+    "A turn is still running or did not report its cost, so the total may be low",
+  "usage.kpi.tokens": "Tokens",
+  "usage.kpi.tokensNote": "Tokens of the calls the cost counts",
+  "usage.duration.hours": "{h}h {m}m",
+  "usage.duration.minutes": "{m}m",
+  "usage.empty.title": "No usage yet",
+  "usage.empty.body": "Sessions started in this period show up here.",
+  "usage.limits.title": "Limits",
+  "usage.limits.meta": "Apply to the whole install · as of {at}",
+  "usage.limits.item": "Item",
+  "usage.limits.current": "Current",
+  "usage.limits.limit": "Limit",
+  "usage.limits.note": "Description",
+  "usage.limits.perSession": "Counted per session",
+  "usage.limits.notSet": "Not set",
+  "usage.limits.slots": "Concurrent run slots",
+  "usage.limits.slotsNote":
+    "Cap from install settings. With no free slot a session waits",
+  "usage.limits.storage": "Stored input messages",
+  "usage.limits.storageNote":
+    "Counts only the input messages sent to sessions. Output size is not counted yet",
+  "usage.limits.sessionCost": "Cost per session",
+  "usage.limits.sessionCostNote":
+    "A session past its estimated cost starts no new turn",
+  "usage.limits.sessionTokens": "Tokens per session",
+  "usage.limits.sessionTokensNote":
+    "A session past its token limit starts no new turn",
+  "usage.limits.queuedInput": "Queued input per session",
+  "usage.limits.queuedInputValue": "{count}",
+  "usage.limits.queuedInputNote": "Inputs one session can hold in its queue",
+  "usage.limits.maxTurn": "Longest turn",
+  "usage.limits.maxTurnNote": "How long one turn may run",
+};
+
+export const usageJa: Record<keyof typeof usageKo, string> = {
+  "usage.title": "使用量・上限",
+  "usage.description.owner":
+    "自分の使用量とインストール全体の使用量を確認します。",
+  "usage.description.member":
+    "自分が開始したセッションの使用量です。インストール全体の数値はインストール運用者だけが見られます。",
+  "usage.scope.label": "集計範囲",
+  "usage.scope.me": "自分の使用量",
+  "usage.scope.installation": "インストール全体",
+  "usage.basis.meTitle": "自分が開始したセッション · {period} (UTC)",
+  "usage.basis.installationTitle": "インストール全体 · {period} (UTC)",
+  "usage.basis.me":
+    "この期間に Web か自分の key で開始したセッションだけを数えます。共有されたセッションは含みません。{at} に読んだ値です。",
+  "usage.basis.installation":
+    "この期間に開始したすべてのセッションを合計します。この範囲はインストール運用者だけが見られます。{at} に読んだ値です。",
+  "usage.kpi.sessions": "セッション",
+  "usage.kpi.sessionsNote": "この期間に開始したセッション",
+  "usage.kpi.runTime": "実行時間",
+  "usage.kpi.runTimeNote": "セッションが実際に動いた時間",
+  "usage.kpi.cost": "コスト",
+  "usage.kpi.estimated": "推定",
+  "usage.kpi.costNote": "provider の請求額と異なる場合あり",
+  "usage.kpi.costIncomplete":
+    "実行中かコストを報告していない turn があり、実際より少ない場合あり",
+  "usage.kpi.tokens": "トークン",
+  "usage.kpi.tokensNote": "コストを数えた呼び出しのトークン",
+  "usage.duration.hours": "{h}時間{m}分",
+  "usage.duration.minutes": "{m}分",
+  "usage.empty.title": "まだ使用記録がありません",
+  "usage.empty.body": "この期間にセッションを開始するとここに表示されます。",
+  "usage.limits.title": "上限",
+  "usage.limits.meta": "インストール全体に適用 · {at} 時点",
+  "usage.limits.item": "項目",
+  "usage.limits.current": "現在",
+  "usage.limits.limit": "上限",
+  "usage.limits.note": "説明",
+  "usage.limits.perSession": "セッションごとに数えます",
+  "usage.limits.notSet": "未設定",
+  "usage.limits.slots": "同時実行 slot",
+  "usage.limits.slotsNote":
+    "インストール設定の上限。空き slot がないとセッションは待機します",
+  "usage.limits.storage": "入力メッセージの保存",
+  "usage.limits.storageNote":
+    "セッションに送った入力メッセージだけを数えます。成果物の容量はまだ数えません",
+  "usage.limits.sessionCost": "セッションあたりのコスト",
+  "usage.limits.sessionCostNote":
+    "推定コストを超えたセッションは新しい turn を始めません",
+  "usage.limits.sessionTokens": "セッションあたりのトークン",
+  "usage.limits.sessionTokensNote":
+    "トークン上限を超えたセッションは新しい turn を始めません",
+  "usage.limits.queuedInput": "セッションあたりの待機入力",
+  "usage.limits.queuedInputValue": "{count}件",
+  "usage.limits.queuedInputNote": "1 つのセッションに溜めておける入力の数",
+  "usage.limits.maxTurn": "turn の最大時間",
+  "usage.limits.maxTurnNote": "1 つの turn が動ける時間",
+};
