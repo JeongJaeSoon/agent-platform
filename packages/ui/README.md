@@ -7,7 +7,7 @@
 이 패키지는 **서버가 준 상태를 그리는 일만 한다**.
 
 - fetch·권한 판정·상태 전이 정책을 넣지 않는다. URL도 만들지 않는다(`href`는 화면이 준다).
-- API 계약(`@werft-ai/contracts`)을 모른다. 계약 타입을 받는 조각은 `@werft-ai/react/components`에 있다.
+- API 계약 패키지를 모른다. 계약 타입을 받는 조각은 `@werft-ai/react/components`에 있다.
 - 런타임 의존성은 `react`·`react-dom`과 shadcn/ui가 쓰는
   `@radix-ui/react-checkbox`·`@radix-ui/react-dialog`·`@radix-ui/react-radio-group`·`@radix-ui/react-slot`·`@radix-ui/react-tabs`·`class-variance-authority`·`clsx`·`tailwind-merge`뿐이다.
 - Radix는 `src/primitives/` 안에서만 import한다. Dialog 구현이 둘이 되지 않게 하려는 것이다.
