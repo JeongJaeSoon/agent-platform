@@ -37,7 +37,11 @@ import {
   slackLinkSearch,
 } from "./routes/linked-accounts.tsx";
 import { LoginScreen, type LoginSearch, loginSearch } from "./routes/login.tsx";
-import { MembersScreen } from "./routes/members.tsx";
+import {
+  InvitesScreen,
+  MembersLayout,
+  MembersScreen,
+} from "./routes/members.tsx";
 import { PreferencesScreen } from "./routes/preferences.tsx";
 import {
   SessionDetailScreen,
@@ -120,22 +124,57 @@ const home = createRoute({
   component: HomeScreen,
 });
 
+// 구성원, 팀 and 초대 are tabs of one page (v3 M-01); a team opens inside
+// the 팀 tab (M-03).
 const members = createRoute({
   getParentRoute: () => authed,
   path: "/members",
+  component: MembersLayout,
+});
+
+const memberList = createRoute({
+  getParentRoute: () => members,
+  path: "/",
   component: MembersScreen,
 });
 
 const teams = createRoute({
-  getParentRoute: () => authed,
-  path: "/teams",
+  getParentRoute: () => members,
+  path: "teams",
   component: TeamsScreen,
 });
 
 const team = createRoute({
+  getParentRoute: () => members,
+  path: "teams/$teamId",
+  component: TeamDetailScreen,
+});
+
+const invites = createRoute({
+  getParentRoute: () => members,
+  path: "invites",
+  component: InvitesScreen,
+});
+
+// Where teams lived before they joined 구성원: bookmarks still land.
+const oldTeams = createRoute({
+  getParentRoute: () => authed,
+  path: "/teams",
+  beforeLoad: () => {
+    throw redirect({ to: "/members/teams", replace: true });
+  },
+});
+
+const oldTeam = createRoute({
   getParentRoute: () => authed,
   path: "/teams/$teamId",
-  component: TeamDetailScreen,
+  beforeLoad: ({ params }) => {
+    throw redirect({
+      to: "/members/teams/$teamId",
+      params: { teamId: params.teamId },
+      replace: true,
+    });
+  },
 });
 
 const sessions = createRoute({
@@ -230,9 +269,9 @@ const routeTree = root.addChildren([
   invite,
   authed.addChildren([
     home,
-    members,
-    teams,
-    team,
+    members.addChildren([memberList, teams, team, invites]),
+    oldTeams,
+    oldTeam,
     agents,
     newAgent,
     agent,

@@ -24,6 +24,8 @@ import {
   FieldSet,
   Input,
   Link,
+  LinkTab,
+  LinkTabs,
   linkVariants,
   PageHeader,
   RadioGroup,
@@ -39,9 +41,6 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-  Tabs,
-  TabsList,
-  TabsTrigger,
 } from "@werft-ai/ui";
 import { Plus } from "lucide-react";
 import { type ReactNode, useId, useState } from "react";
@@ -244,24 +243,20 @@ function Head({
         description="워크스페이스에 들어온 사람과 팀, 보낸 초대를 관리합니다."
         actions={action}
       />
-      <div className="flex flex-wrap items-center gap-2">
-        <Tabs value={tab}>
-          {/* Navigation tabs with no TabsContent (LinkTabs requested): drop the
-              aria-controls Radix points at a panel that is never rendered. */}
-          <TabsList variant="line" aria-label="구성원 보기">
-            <TabsTrigger value="members" aria-controls={undefined}>
-              구성원 5
-            </TabsTrigger>
-            <TabsTrigger value="teams" aria-controls={undefined}>
-              팀 3
-            </TabsTrigger>
-            <TabsTrigger value="invites" aria-controls={undefined}>
-              초대 2
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
-        <PartRequest name="LinkTabs" />
-      </div>
+      {/* Each tab is an address (/members, /members/teams, /members/invites),
+          so they are LinkTabs, not Tabs. No counts: the console does not
+          fetch every list just to number its tabs. */}
+      <LinkTabs aria-label="구성원 보기">
+        <LinkTab href="#members" current={tab === "members"}>
+          구성원
+        </LinkTab>
+        <LinkTab href="#teams" current={tab === "teams"}>
+          팀
+        </LinkTab>
+        <LinkTab href="#invites" current={tab === "invites"}>
+          초대
+        </LinkTab>
+      </LinkTabs>
     </>
   );
 }

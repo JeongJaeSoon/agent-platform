@@ -23,7 +23,7 @@ import {
   Link as TextLink,
 } from "@werft-ai/ui";
 import { ArrowLeft } from "lucide-react";
-import { type FormEvent, useId, useState } from "react";
+import { type FormEvent, type ReactNode, useId, useState } from "react";
 import {
   membersQuery,
   queryKeys,
@@ -45,7 +45,6 @@ import {
   SECTION_TITLE,
 } from "../components/my-teams.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
-import { Page } from "../components/page.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 
@@ -133,14 +132,14 @@ export function TeamsScreen() {
 
   if (!manages) {
     return (
-      <Page title={t("teams.title")} description={t("teams.intro")}>
+      <TeamsTab>
         <MyTeams showEmpty />
-      </Page>
+      </TeamsTab>
     );
   }
 
   return (
-    <Page title={t("teams.title")} description={t("teams.intro")}>
+    <TeamsTab>
       <OutcomeLine outcome={outcome} />
       {failed ? null : (
         <form className={FORM} onSubmit={submit}>
@@ -170,7 +169,10 @@ export function TeamsScreen() {
             {teams.data.items.map((team) => (
               <RowListItem key={team.id}>
                 <TextLink asChild className="[overflow-wrap:anywhere]">
-                  <Link to="/teams/$teamId" params={{ teamId: team.id }}>
+                  <Link
+                    to="/members/teams/$teamId"
+                    params={{ teamId: team.id }}
+                  >
                     {team.name}
                   </Link>
                 </TextLink>
@@ -183,12 +185,23 @@ export function TeamsScreen() {
         )}
       </section>
       {isApiError(teams.error, "FORBIDDEN") ? <MyTeams showEmpty /> : null}
-    </Page>
+    </TeamsTab>
+  );
+}
+
+/** The 팀 tab of 구성원: what teams are for, then the tab's own sections. */
+function TeamsTab({ children }: { readonly children: ReactNode }) {
+  const { t } = useI18n();
+  return (
+    <div className="flex flex-col gap-[var(--ap-space-section)]">
+      <p className={`${MUTED} m-0 text-sm`}>{t("teams.intro")}</p>
+      {children}
+    </div>
   );
 }
 
 export function TeamDetailScreen() {
-  const { teamId } = useParams({ from: "/authed/teams/$teamId" });
+  const { teamId } = useParams({ from: "/authed/members/teams/$teamId" });
   return <TeamPage key={teamId} id={teamId} />;
 }
 
@@ -197,11 +210,9 @@ function TeamPage({ id }: { readonly id: string }) {
   const { client } = useAgentPlatform();
   const team = useQuery(teamQuery(client, id));
   const [outcome, setOutcome] = useState<Outcome | null>(null);
-  // In the head's action slot, as on an agent: the title stays where every
-  // other screen has it.
   const back = (
     <Link
-      to="/teams"
+      to="/members/teams"
       className={buttonVariants({ variant: "outline", size: "sm" })}
     >
       <ArrowLeft className="size-3.5" aria-hidden="true" />
@@ -210,22 +221,26 @@ function TeamPage({ id }: { readonly id: string }) {
   );
 
   if (team.isPending) return <StatusScreen kind="loading" />;
-  if (team.error) {
-    return (
-      <Page title={t("teams.title")} actions={back}>
-        <ListError error={team.error} onRetry={() => void team.refetch()} />
-      </Page>
-    );
-  }
+  // Inside the 팀 tab (v3 M-03): the page head stays 구성원, the team's name
+  // heads the tab with the way back beside it.
   return (
-    <Page
-      title={<span className="[overflow-wrap:anywhere]">{team.data.name}</span>}
-      actions={back}
-    >
-      <OutcomeLine outcome={outcome} />
-      <TeamSettings team={team.data} onOutcome={setOutcome} />
-      <TeamMembers team={team.data} onOutcome={setOutcome} />
-    </Page>
+    <div className="flex flex-col gap-[var(--ap-space-section)]">
+      <div className="flex items-start justify-between gap-4">
+        <h2 className="m-0 min-w-0 font-semibold text-body [overflow-wrap:anywhere]">
+          {team.error ? t("teams.title") : team.data.name}
+        </h2>
+        {back}
+      </div>
+      {team.error ? (
+        <ListError error={team.error} onRetry={() => void team.refetch()} />
+      ) : (
+        <>
+          <OutcomeLine outcome={outcome} />
+          <TeamSettings team={team.data} onOutcome={setOutcome} />
+          <TeamMembers team={team.data} onOutcome={setOutcome} />
+        </>
+      )}
+    </div>
   );
 }
 
@@ -281,7 +296,7 @@ function TeamSettings({
       setConfirming(false);
       queryClient.removeQueries({ queryKey: queryKeys.team(team.id) });
       await queryClient.invalidateQueries({ queryKey: queryKeys.teams });
-      await navigate({ to: "/teams" });
+      await navigate({ to: "/members/teams" });
     },
     onError: (error) => {
       setConfirming(false);
@@ -296,9 +311,9 @@ function TeamSettings({
 
   return (
     <section className={SECTION} aria-labelledby={titleId}>
-      <h2 id={titleId} className={SECTION_TITLE}>
+      <h3 id={titleId} className={SECTION_TITLE}>
         {t("teams.settings")}
-      </h2>
+      </h3>
       <form className={FORM} onSubmit={submit}>
         <TeamNameField value={name} onChange={setName} />
         <Button
@@ -418,9 +433,9 @@ function TeamMembers({
 
   return (
     <section className={SECTION} aria-labelledby={titleId}>
-      <h2 id={titleId} className={SECTION_TITLE}>
+      <h3 id={titleId} className={SECTION_TITLE}>
         {t("teams.members")}
-      </h2>
+      </h3>
       <p className={`${MUTED} text-sm`}>{t("teams.addHint")}</p>
       <form
         className={FORM}
