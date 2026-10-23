@@ -7,14 +7,14 @@ import {
 } from "react";
 
 import { cn } from "../foundations/cn.ts";
-import { Badge } from "../primitives/badge.tsx";
 import { Link } from "../primitives/link.tsx";
+import { ItemCount } from "../primitives/segmented-control.tsx";
 
 /*
  * Route tabs: each tab is an address, so they are links in a `nav`, the one
  * the screen is on marked `aria-current="page"`. Panels switched inside one
- * screen are Tabs (role=tab) instead. The look is the console's API keys
- * screen nav: an underline under the current tab, 24px between tabs.
+ * screen are Tabs (role=tab) instead. The look is Tabs' line variant, console
+ * v4 `.tabs`/`.tab`.
  */
 
 export type LinkTabsProps = Omit<ComponentProps<"nav">, "aria-label"> & {
@@ -40,7 +40,7 @@ export function LinkTabs({
       className={cn("-my-1 -ml-1 overflow-x-auto py-1 pl-1", className)}
       {...props}
     >
-      <ul className="m-0 flex w-max min-w-full list-none gap-6 border-b py-0 pr-1 pl-0">
+      <ul className="m-0 flex w-max min-w-full list-none gap-1 border-border border-b py-0 pr-1 pl-0">
         {children}
       </ul>
     </nav>
@@ -57,7 +57,7 @@ export type LinkTabProps = ComponentProps<"a"> & {
    * for a parent path too), so give such a link exact matching.
    */
   readonly current?: boolean | undefined;
-  /** Drawn in a badge after the label, 0 included; omit for no badge. */
+  /** Drawn after the label, 0 included; omit for no count. */
   readonly count?: number | undefined;
   /**
    * Screen-reader text for the count, e.g. "3개 실행 중". Without it the
@@ -94,16 +94,9 @@ export function LinkTab({
   children,
   ...props
 }: LinkTabProps): JSX.Element {
-  const hasLabel = countLabel !== undefined && countLabel !== null;
-  // The space keeps the label and the number apart in the accessible name;
-  // flex drops it from the layout.
-  const badge =
+  const countNode =
     count === undefined ? null : (
-      <>
-        {" "}
-        <Badge aria-hidden={hasLabel ? "true" : undefined}>{count}</Badge>
-        {hasLabel ? <span className="sr-only">{countLabel}</span> : null}
-      </>
+      <ItemCount count={count} countLabel={countLabel} />
     );
   const child =
     asChild && isValidElement<ChildProps>(children) ? children : null;
@@ -116,17 +109,18 @@ export function LinkTab({
         aria-current={current ? "page" : undefined}
         asChild={child !== null}
         className={cn(
-          "-mb-px flex items-center gap-2 border-transparent border-b-2 py-2 font-normal text-control text-muted-foreground no-underline!",
+          "relative flex h-9 items-center gap-2 whitespace-nowrap px-2 font-medium text-control text-muted-foreground no-underline!",
           "hover:text-foreground",
-          "aria-[current=page]:border-foreground aria-[current=page]:font-semibold aria-[current=page]:text-foreground",
+          "aria-[current=page]:text-foreground",
+          "after:absolute after:inset-x-2 after:bottom-[-1px] after:h-0.5 after:rounded-[1px] after:bg-foreground after:opacity-0 aria-[current=page]:after:opacity-100",
           className,
         )}
         {...props}
       >
         {child ? (
-          badge ? (
+          countNode ? (
             cloneElement(child, {
-              children: append(child.props.children, badge),
+              children: append(child.props.children, countNode),
             })
           ) : (
             child
@@ -134,7 +128,7 @@ export function LinkTab({
         ) : (
           <>
             {children}
-            {badge}
+            {countNode}
           </>
         )}
       </Link>
