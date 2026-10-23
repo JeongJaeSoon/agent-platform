@@ -1,0 +1,94 @@
+---
+title: "저장소 밖 앱에 설치"
+description: "@werft-ai/ui를 tarball로 묶어 다른 React 앱에 설치한다"
+---
+
+`@werft-ai/ui`를 이 저장소 밖의 React 앱에서 쓰는 방법이다. 저장소에서 패키지를 빌드해 tarball로 묶고, 앱에서 그 파일을 `npm install`한다. 앱에 Tailwind는 없어도 된다.
+
+<Callout type="warn">
+아직 레지스트리에 게시하지 않았다. 그래서 지금은 아래처럼 tarball 파일로만 설치할 수 있다. `@werft-ai/react`(hook과 세션 블록)는 배포 대상이 아니라서 저장소 밖 앱에서는 쓸 수 없다.
+</Callout>
+
+<Callout type="info">
+이 저장소는 source-available이다. 패키지에도 저장소의 `LICENSE`가 함께 들어 있고, 저작권자의 서면 허락 없이는 사용·배포할 수 없다.
+</Callout>
+
+## tarball 만들기
+
+저장소 루트에서 실행한다. 저장소가 고정한 Bun 1.3.14(루트 `package.json`의 `packageManager`)와 npm이 필요하다.
+
+```sh
+bun install
+bun run --cwd packages/ui build:package
+npm pack ./packages/ui/dist
+```
+
+`build:package`가 `packages/ui/dist`에 빌드된 JavaScript와 타입 선언, CSS, 배포용 `package.json`, `LICENSE`를 만든다. `npm pack`은 그 디렉터리를 묶어 현재 디렉터리에 `werft-ai-ui-<버전>.tgz`를 둔다. 버전은 `packages/ui/package.json`의 `version`이다.
+
+## 앱에 설치하기
+
+Vite + React + TypeScript 앱을 예로 든다. 앱이 없으면 `npm create vite@latest my-app -- --template react-ts`로 만든다.
+
+`@werft-ai/ui`는 `react`와 `react-dom` `^19.3.0`을 peer dependency로 받는다. 앱의 React가 이보다 낮으면 먼저 올리고, 만든 tarball을 설치한다.
+
+```sh
+npm install react@^19.3.0 react-dom@^19.3.0
+npm install <저장소 경로>/werft-ai-ui-0.0.0.tgz
+```
+
+Radix, `class-variance-authority`, `clsx`, `tailwind-merge`, `lucide-react`는 패키지의 dependency라서 함께 설치된다.
+
+## CSS 가져오기
+
+미리 빌드한 `styles.css`를 한 번 import한다. 토큰, 키트 요소의 규칙, 키트가 쓰는 유틸리티 클래스가 모두 들어 있어서 Tailwind 없이 그려진다.
+
+```tsx title="src/main.tsx"
+import "@werft-ai/ui/styles.css";
+import { Button, Card } from "@werft-ai/ui";
+```
+
+`styles.css`에는 Tailwind의 preflight(전역 리셋)가 없어서 앱의 전역 스타일을 바꾸지 않는다. 키트가 기대하는 리셋(테두리, margin, 버튼 배경, 링크 밑줄 등)은 키트 요소와 그 안쪽에만 specificity 0으로 걸린다. 그래서 키트 안에 넣은 앱 마크업도 브라우저 기본 margin과 밑줄이 빠진다. 키트 규칙은 cascade layer 안에 있어서 layer 밖에 쓴 앱의 CSS가 항상 이긴다.
+
+### Tailwind v4 앱
+
+앱의 마크업에서도 키트의 유틸리티 이름(`bg-primary`, `text-control`, `rounded-control` 등)을 쓰려면 앱 CSS에서 `styles.css` 뒤에 `theme.css`를 import한다. `theme.css`가 토큰을 Tailwind 유틸리티에 잇는다.
+
+```css title="src/index.css"
+@import "tailwindcss";
+@import "@werft-ai/ui/styles.css";
+@import "@werft-ai/ui/theme.css";
+```
+
+키트 컴포넌트가 쓰는 클래스는 `styles.css`에 이미 있어서 `node_modules`를 `@source`로 스캔하지 않아도 된다.
+
+## 폰트
+
+패키지는 폰트를 싣지 않는다. 글꼴은 `--ap-font-sans`(Geist, Pretendard Variable 순)와 `--ap-font-mono`(Geist Mono부터)가 고르고, 앱이 그 글꼴을 로드하지 않으면 각 목록 끝의 시스템 폰트로 그려진다. 한글을 Pretendard로 보이려면 앱이 직접 로드한다. 이 저장소의 웹 콘솔은 `pretendard` 패키지의 dynamic subset을 쓴다.
+
+```sh
+npm install pretendard
+```
+
+```tsx title="src/main.tsx"
+import "pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css";
+```
+
+## 테마
+
+라이트가 기본이다. 어두운 테마를 켜는 방법은 [테마 적용](/ui/theme)과 같다.
+
+## 가져올 수 있는 경로
+
+| 경로 | 내용 |
+| --- | --- |
+| `@werft-ai/ui` | 아래 두 층과 foundations(`cn` 등) 전부 |
+| `@werft-ai/ui/primitives` | `Button`, `Card`, `Dialog`, `Tabs`, `Input`, `Skeleton` 등 |
+| `@werft-ai/ui/patterns` | `ConfirmDialog`, `EmptyState`, `ErrorState`, `PageHeader`, `Stepper` 등 |
+| `@werft-ai/ui/styles.css` | 미리 빌드한 CSS. 보통 이것 하나만 import한다 |
+| `@werft-ai/ui/theme.css` | Tailwind v4 앱용 토큰 연결 |
+| `@werft-ai/ui/tokens.css` | `--ap-*` 변수만 |
+
+## 다음 단계
+
+- [테마 적용](/ui/theme): 어두운 테마와 덮어쓰기 규칙
+- <SiblingLink href="/storybook/">Storybook</SiblingLink>: 컴포넌트마다 상태와 props

@@ -1,0 +1,94 @@
+---
+title: "リポジトリ外のアプリにインストール"
+description: "@werft-ai/ui を tarball にまとめ、別の React アプリにインストールする"
+---
+
+`@werft-ai/ui` をこのリポジトリの外にある React アプリで使う方法である。リポジトリでパッケージをビルドして tarball にまとめ、アプリでそのファイルを `npm install` する。アプリに Tailwind はなくてもよい。
+
+<Callout type="warn">
+まだレジストリには公開していない。そのため、今は以下のように tarball ファイルからしかインストールできない。`@werft-ai/react`(hook とセッションブロック)は配布対象ではないため、リポジトリ外のアプリでは使えない。
+</Callout>
+
+<Callout type="info">
+このリポジトリは source-available である。パッケージにもリポジトリの `LICENSE` が同梱されており、著作権者の書面による許可なしに使用・配布することはできない。
+</Callout>
+
+## tarball を作る
+
+リポジトリのルートで実行する。リポジトリが固定している Bun 1.3.14(ルートの `package.json` の `packageManager`)と npm が必要である。
+
+```sh
+bun install
+bun run --cwd packages/ui build:package
+npm pack ./packages/ui/dist
+```
+
+`build:package` は `packages/ui/dist` に、ビルド済みの JavaScript と型宣言、CSS、配布用の `package.json`、`LICENSE` を作る。`npm pack` はそのディレクトリをまとめ、カレントディレクトリに `werft-ai-ui-<バージョン>.tgz` を置く。バージョンは `packages/ui/package.json` の `version` である。
+
+## アプリにインストールする
+
+Vite + React + TypeScript のアプリを例にする。アプリがなければ `npm create vite@latest my-app -- --template react-ts` で作る。
+
+`@werft-ai/ui` は `react` と `react-dom` の `^19.3.0` を peer dependency として受け取る。アプリの React がこれより古ければ先に上げてから、作った tarball をインストールする。
+
+```sh
+npm install react@^19.3.0 react-dom@^19.3.0
+npm install <リポジトリのパス>/werft-ai-ui-0.0.0.tgz
+```
+
+Radix、`class-variance-authority`、`clsx`、`tailwind-merge`、`lucide-react` はパッケージの dependency なので一緒にインストールされる。
+
+## CSS を読み込む
+
+ビルド済みの `styles.css` を一度 import する。トークン、キット要素のルール、キットが使うユーティリティクラスがすべて入っているので、Tailwind なしで描画される。
+
+```tsx title="src/main.tsx"
+import "@werft-ai/ui/styles.css";
+import { Button, Card } from "@werft-ai/ui";
+```
+
+`styles.css` には Tailwind の preflight(グローバルなリセット)が入っていないので、アプリのグローバルスタイルを変えない。キットが前提とするリセット(枠線、margin、ボタンの背景、リンクの下線など)は、キット要素とその内側にだけ specificity 0 で適用される。そのため、キットの中に置いたアプリのマークアップもブラウザ既定の margin と下線が外れる。キットのルールは cascade layer の中にあるので、layer の外に書いたアプリの CSS が常に勝つ。
+
+### Tailwind v4 のアプリ
+
+アプリのマークアップでもキットのユーティリティ名(`bg-primary`、`text-control`、`rounded-control` など)を使うには、アプリの CSS で `styles.css` の後に `theme.css` を import する。`theme.css` がトークンを Tailwind のユーティリティにつなぐ。
+
+```css title="src/index.css"
+@import "tailwindcss";
+@import "@werft-ai/ui/styles.css";
+@import "@werft-ai/ui/theme.css";
+```
+
+キットのコンポーネントが使うクラスは `styles.css` にすでに入っているので、`node_modules` を `@source` でスキャンする必要はない。
+
+## フォント
+
+パッケージにフォントは含まれていない。書体は `--ap-font-sans`(Geist、Pretendard Variable の順)と `--ap-font-mono`(Geist Mono から)が選び、アプリがそのフォントを読み込まなければ各リストの末尾にあるシステムフォントで描画される。ハングルを Pretendard で表示するには、アプリが自分で読み込む。このリポジトリの Web コンソールは `pretendard` パッケージの dynamic subset を使っている。
+
+```sh
+npm install pretendard
+```
+
+```tsx title="src/main.tsx"
+import "pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css";
+```
+
+## テーマ
+
+ライトが既定である。ダークテーマの有効化は[テーマの適用](/ui/theme)と同じである。
+
+## import できるパス
+
+| パス | 内容 |
+| --- | --- |
+| `@werft-ai/ui` | 下の二つの層と foundations(`cn` など)すべて |
+| `@werft-ai/ui/primitives` | `Button`、`Card`、`Dialog`、`Tabs`、`Input`、`Skeleton` など |
+| `@werft-ai/ui/patterns` | `ConfirmDialog`、`EmptyState`、`ErrorState`、`PageHeader`、`Stepper` など |
+| `@werft-ai/ui/styles.css` | ビルド済みの CSS。通常はこれだけを import する |
+| `@werft-ai/ui/theme.css` | Tailwind v4 アプリ向けのトークン接続 |
+| `@werft-ai/ui/tokens.css` | `--ap-*` 変数のみ |
+
+## 次のステップ
+
+- [テーマの適用](/ui/theme): ダークテーマと上書きのルール
+- <SiblingLink href="/storybook/">Storybook</SiblingLink>: コンポーネントごとの状態と props
