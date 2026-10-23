@@ -111,9 +111,15 @@ function Members({ locale, twoLine, actions, hint, style }: MembersProps) {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead scope="col">{t.name}</TableHead>
-            <TableHead scope="col">{t.role}</TableHead>
-            <TableHead scope="col">{t.joined}</TableHead>
+            <TableHead scope="col" variant="text">
+              {t.name}
+            </TableHead>
+            <TableHead scope="col" variant="nowrap">
+              {t.role}
+            </TableHead>
+            <TableHead scope="col" variant="nowrap">
+              {t.joined}
+            </TableHead>
             {actions ? (
               <TableHead scope="col" variant="actions">
                 {t.manage}
@@ -124,11 +130,14 @@ function Members({ locale, twoLine, actions, hint, style }: MembersProps) {
         <TableBody>
           {PEOPLE.map((person) => (
             <TableRow key={person.email}>
-              <TableCell>
+              <TableCell variant="text">
                 {twoLine ? (
                   <RowLines>
                     <span className="font-semibold">{person.name}</span>
-                    <span className="text-muted-foreground text-xs">
+                    <span
+                      className="text-muted-foreground text-xs"
+                      title={person.email}
+                    >
                       {person.email}
                     </span>
                   </RowLines>
@@ -136,14 +145,12 @@ function Members({ locale, twoLine, actions, hint, style }: MembersProps) {
                   person.name
                 )}
               </TableCell>
-              <TableCell>
+              <TableCell variant="nowrap">
                 <Badge variant={person.admin ? "blue" : "gray"}>
                   {person.admin ? t.admin : t.member}
                 </Badge>
               </TableCell>
-              <TableCell className="whitespace-nowrap">
-                {person.joined}
-              </TableCell>
+              <TableCell variant="nowrap">{person.joined}</TableCell>
               {actions ? (
                 <TableCell variant="actions">
                   <div className="flex items-center gap-1">
@@ -204,17 +211,37 @@ export const Actions: Story = {
   ),
 };
 
-/** RowLines in a cell: a 20px first line, then 16px lines 2px apart. */
+// Every body row one height, and each email one line whose title is the
+// full address. Rounded: the last row has no bottom border, which a collapsed
+// border makes half a pixel.
+async function expectOneLineRows(canvasElement: HTMLElement) {
+  const rows = [...canvasElement.querySelectorAll("tbody tr")].map((row) =>
+    Math.round(row.getBoundingClientRect().height),
+  );
+  await expect(new Set(rows).size).toBe(1);
+  for (const email of canvasElement.querySelectorAll("td [title]")) {
+    await expect(email.getBoundingClientRect().height).toBe(16);
+    await expect(email.getAttribute("title")).toBe(email.textContent);
+  }
+}
+
+/**
+ * RowLines in a `text` cell: a 20px first line, then 16px lines 2px apart
+ * that end in "…" when the column is narrower than they are.
+ */
 export const TwoLineCells: Story = {
   name: "Two-line cells",
   render: (_, { globals }) => (
     <Members locale={globals.locale} twoLine={true} />
   ),
+  play: ({ canvasElement }) => expectOneLineRows(canvasElement),
 };
 
 /**
- * A table wider than its frame scrolls sideways inside it. The frame is a tab
- * stop with a name, so a keyboard reaches it and scrolls with the arrow keys.
+ * When the columns' floors (the `text` column's --ap-row-text-min-width and
+ * the content width of the others) add up to more than the frame, the table
+ * scrolls sideways inside it. The frame is a tab stop with a name, so a
+ * keyboard reaches it and scrolls with the arrow keys.
  */
 export const HorizontalScroll: Story = {
   name: "Horizontal scroll",
@@ -223,6 +250,26 @@ export const HorizontalScroll: Story = {
       <Members locale={globals.locale} twoLine={true} actions={true} />
     </div>
   ),
+  play: async ({ canvasElement }) => {
+    await expectOneLineRows(canvasElement);
+    const long = canvasElement.querySelector(
+      "td [title='alex.rivera.long-address@example.com']",
+    ) as HTMLElement;
+    await expect(long.scrollWidth).toBeGreaterThan(long.clientWidth);
+    const style = getComputedStyle(long);
+    await expect([
+      style.textOverflow,
+      style.overflowX,
+      style.whiteSpace,
+    ]).toEqual(["ellipsis", "hidden", "nowrap"]);
+    // A nowrap column grows to its content, so a date is never cut inside its
+    // cell; past the frame it is reached by scrolling.
+    for (const cell of canvasElement.querySelectorAll(
+      "td[data-variant=nowrap]",
+    )) {
+      await expect(cell.scrollWidth).toBe(cell.clientWidth);
+    }
+  },
 };
 
 /** The actions column follows the token: here it is set to 8rem. */

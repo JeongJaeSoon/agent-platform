@@ -53,6 +53,13 @@ export type BeginAgentAppResult =
         | "outranked";
     };
 
+/** As for an agent's app; the name is what the link app is called after. */
+export type BeginLinkAppResult =
+  | { outcome: "begun"; app: SlackAppRecord; workspaceName: string }
+  | { outcome: "exists"; app: SlackAppRecord }
+  | { outcome: "creating"; app: SlackAppRecord; uncertain: boolean }
+  | { outcome: "workspace_not_found" | "actor_inactive" | "outranked" };
+
 /**
  * `begun`: the app is now `deleting` and Slack must be asked. `settled`:
  * no Slack app to delete (it failed, was abandoned or is gone already).
@@ -78,12 +85,31 @@ export interface SlackAppStore {
     /** Mark a lost `creating` row `abandoned` and begin a new one. */
     replaceUncertain: boolean;
   }): Promise<BeginAgentAppResult>;
+  /** The workspace's one live link app, begun as `beginAgentApp` begins. */
+  beginLinkApp(input: {
+    workspaceId: string;
+    actor: SlackAppActor;
+    redirectUrl: string;
+    newId: string;
+    staleBefore: Date;
+    replaceUncertain: boolean;
+  }): Promise<BeginLinkAppResult>;
   finishCreate(input: {
     workspaceId: string;
     slackAppId: string;
     created: CreatedSlackApp;
     tokenUserId: string;
   }): Promise<SlackAppRecord>;
+  /**
+   * Seals the bot token an install returned under the app, replacing an
+   * earlier one, and sets `bot_token_ref`. Null when the app is no longer
+   * `created`.
+   */
+  storeBotToken(input: {
+    workspaceId: string;
+    slackAppId: string;
+    botToken: string;
+  }): Promise<SlackAppRecord | null>;
   /** Slack refused the creation: no app exists. */
   failCreate(workspaceId: string, slackAppId: string): Promise<void>;
   find(workspaceId: string, slackAppId: string): Promise<SlackAppRecord | null>;
@@ -92,6 +118,13 @@ export interface SlackAppStore {
     workspaceId: string,
     agentId: string,
   ): Promise<SlackAppRecord | null>;
+  /**
+   * The workspace's `created` link app with its client secret opened, for
+   * the server's own code exchange; null when there is none.
+   */
+  linkAppClient(
+    workspaceId: string,
+  ): Promise<{ app: SlackAppRecord; clientSecret: string } | null>;
   /** The Slack user whose token made the workspace's newest app. */
   lastTokenUser(workspaceId: string): Promise<string | null>;
   beginDelete(input: {

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { useState } from "react";
 
 import { setupDom, setupUser } from "../test-support/dom.ts";
+import { buttonVariants } from "./button.tsx";
 import {
   Field,
   FieldDescription,
@@ -207,6 +208,41 @@ describe("Field", () => {
     expect(select.getAttribute("aria-invalid")).toBe("true");
     const form = container.querySelector("form") as HTMLFormElement;
     expect(new FormData(form).get("model")).toBe("deep");
+  });
+
+  // happy-dom computes no layout, so the height is pinned by class; the px
+  // values are measured in Storybook.
+  test("NativeSelect 기본·sm은 Input·Button과 같은 컨트롤 높이 토큰을 쓴다", () => {
+    const { getByRole } = render(
+      <>
+        <NativeSelect aria-label="기본">
+          <NativeSelectOption>멤버</NativeSelectOption>
+        </NativeSelect>
+        <NativeSelect aria-label="작게" size="sm">
+          <NativeSelectOption>멤버</NativeSelectOption>
+        </NativeSelect>
+        <Input aria-label="입력" />
+      </>,
+    );
+    const base = getByRole("combobox", { name: "기본" });
+    const small = getByRole("combobox", { name: "작게" });
+    expect(base.dataset.size).toBe("default");
+    expect(small.dataset.size).toBe("sm");
+    expect(base.classList.contains("h-[var(--ap-control-height)]")).toBe(true);
+    expect(
+      small.classList.contains(
+        "data-[size=sm]:h-[var(--ap-control-height-sm)]",
+      ),
+    ).toBe(true);
+    expect(
+      getByRole("textbox", { name: "입력" }).classList.contains(
+        "h-[var(--ap-control-height)]",
+      ),
+    ).toBe(true);
+    expect(buttonVariants()).toContain("h-[var(--ap-control-height)]");
+    expect(buttonVariants({ size: "sm" })).toContain(
+      "h-[var(--ap-control-height-sm)]",
+    );
   });
 
   test("RadioGroupItem은 각자 자기 Field의 label로 이름을 얻는다", async () => {

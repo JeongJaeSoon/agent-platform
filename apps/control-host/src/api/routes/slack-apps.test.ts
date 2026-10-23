@@ -244,7 +244,7 @@ describe("the agent Slack app API", () => {
     expect([...apps.rows.values()].map((row) => row.state)).toEqual(["failed"]);
   });
 
-  test("the agent's admin creates its app once and gets the install URL", async () => {
+  test("the agent's admin creates its app once, and no install URL comes with it", async () => {
     await pasteConfigToken();
     const admin = cookieFor("member", { userId: AGENT_ADMIN });
     const first = await create(AGENT, admin);
@@ -268,19 +268,21 @@ describe("the agent Slack app API", () => {
         },
       },
     });
-    const url = new URL(created.authorize_url);
-    expect(Object.fromEntries(url.searchParams)).toEqual({
-      client_id: "1000.1",
-      scope: BOT_SCOPES.join(","),
-      redirect_uri: `${ORIGIN}/agents/${AGENT}/slack/callback`,
+    expect(first.json).not.toHaveProperty("authorize_url");
+    expect(
+      (slack.state.apps.get("A0FAKE1")?.manifest as { oauth_config: object })
+        .oauth_config,
+    ).toEqual({
+      redirect_urls: [`${ORIGIN}/agents/${AGENT}/slack/callback`],
+      scopes: { bot: [...BOT_SCOPES] },
     });
 
     const again = await create(AGENT, cookieFor("owner"));
     expect(again.json).toMatchObject({
       created: false,
       slack_app: { id: created.slack_app.id, app_id: "A0FAKE1" },
-      authorize_url: created.authorize_url,
     });
+    expect(again.json).not.toHaveProperty("authorize_url");
     expect(
       slack.state.calls.filter((c) => c.method === "apps.manifest.create"),
     ).toHaveLength(1);
@@ -288,11 +290,11 @@ describe("the agent Slack app API", () => {
     const read = await call("GET", appPath(AGENT), { cookie: admin });
     expect(getSlackAppResponseSchema.parse(read.json)).toMatchObject({
       slack_app: { id: created.slack_app.id },
-      authorize_url: created.authorize_url,
     });
+    expect(read.json).not.toHaveProperty("authorize_url");
     expect(
       (await call("GET", appPath(IDLE_AGENT), { cookie: admin })).json,
-    ).toEqual({ slack_app: null, authorize_url: null });
+    ).toEqual({ slack_app: null });
   });
 
   test("a member who is not the agent's admin, an API key, or a write without CSRF is refused", async () => {
