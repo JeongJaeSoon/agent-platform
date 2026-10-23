@@ -8,8 +8,11 @@
 
 - fetch·권한 판정·상태 전이 정책을 넣지 않는다. URL도 만들지 않는다(`href`는 화면이 준다).
 - API 계약 패키지를 모른다. 계약 타입을 받는 조각은 `@werft-ai/react/components`에 있다.
-- 런타임 의존성은 `react`·`react-dom`과 shadcn/ui가 쓰는
-  `@radix-ui/react-checkbox`·`@radix-ui/react-dialog`·`@radix-ui/react-radio-group`·`@radix-ui/react-slot`·`@radix-ui/react-tabs`·`class-variance-authority`·`clsx`·`tailwind-merge`뿐이다.
+- `react`·`react-dom`은 쓰는 쪽 앱의 것을 쓴다(peerDependencies). 두 벌이 되면 hook이 깨진다.
+- 런타임 의존성은 shadcn/ui가 쓰는
+  `@radix-ui/react-checkbox`·`@radix-ui/react-dialog`·`@radix-ui/react-radio-group`·`@radix-ui/react-slot`·`@radix-ui/react-tabs`·`class-variance-authority`·`clsx`·`tailwind-merge`,
+  아이콘 `lucide-react`뿐이다. 런타임에 import하는 패키지는 devDependencies가 아니라 여기에 둔다.
+  예외는 `fonts.css`가 `@import`하는 `pretendard`다. 폰트를 배포물에 어떻게 실을지 정할 때까지 devDependencies에 둔다.
 - Radix는 `src/primitives/` 안에서만 import한다. Dialog 구현이 둘이 되지 않게 하려는 것이다.
 - `src/package.test.ts`가 이 경계를 검사한다. 새 의존성을 넣으려면 그 테스트를 먼저 고쳐야 한다.
   worker 이미지는 모든 workspace의 dependencies를 설치하므로, 새 의존성은 `bun scripts/third-party-notices.ts`로
@@ -42,6 +45,27 @@ Tailwind의 `dark:`는 수동 전환(`data-theme`)을 보지 못하기 때문이
   (W11·W17) 지운다.
 - **box-sizing.** `styles.css`가 키트 요소(`ap-*` 클래스와 `data-slot`)에만 `border-box`를 건다. Tailwind preflight가 없는
   앱에서도 `Input` 높이가 콘솔과 같다.
+
+## 공개 API
+
+`package.json`의 `exports`가 경계다. 여기 없는 경로(`src/primitives/button.tsx` 같은 파일 경로)는 import하지 않는다.
+
+| 진입점 | 내용 |
+|---|---|
+| `@werft-ai/ui` | 세 층 전부. 지금 import는 대부분 이것이다 |
+| `@werft-ai/ui/primitives` | primitives 층만 |
+| `@werft-ai/ui/patterns` | patterns 층만 |
+| `@werft-ai/ui/styles.css` | 폰트·토큰·`ap-*` 규칙 |
+| `@werft-ai/ui/theme.css` | Tailwind v4가 토큰을 유틸리티로 쓰게 잇는 `@theme inline` |
+| `@werft-ai/ui/tokens.css` | `--ap-*` 변수만 |
+
+- 층 index에 없는 이름은 내부다. shadcn 파일이 export해도(`badgeVariants`·`DialogPortal` 등) index에 올리지 않았으면 공개 API가 아니다.
+  쓰는 곳이 생기면 그때 index에 올린다.
+- `"sideEffects": ["*.css"]`: JS 모듈은 import만으로 하는 일이 없어 번들러가 쓰지 않는 것을 버린다. CSS는 import 자체가 일이라 남긴다.
+  모듈 최상위에서 무언가를 등록하는 코드를 넣으면 이 선언이 그 모듈을 버리게 하니 넣지 않는다.
+- `./test-support/dom`·`./test-support/html`은 이 저장소의 테스트(`apps/*`·`packages/*`)만 쓰는 도우미다. 공개 API가 아니고,
+  배포용 package.json에서는 뺀다.
+- 패키지는 아직 `private`다. exports가 `src`를 가리켜 워크스페이스는 빌드 없이 소스를 읽는다.
 
 ## 토큰
 
