@@ -47,10 +47,11 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const Open: Story = {};
+/** Open, as a screen shows it once triggered. */
+export const Default: Story = {};
 
-export const OpenDark: Story = {
-  name: "Open (dark)",
+export const DefaultDark: Story = {
+  name: "Default (dark)",
   globals: { theme: "dark" },
 };
 

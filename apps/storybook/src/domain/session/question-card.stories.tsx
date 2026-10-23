@@ -36,7 +36,7 @@ const REQUEST: QuestionRequest = {
 };
 
 const meta = {
-  title: "Patterns/Session/QuestionCard",
+  title: "Domain/Session/QuestionCard",
   // The example copy is English; the page language should say so.
   globals: { locale: "en" },
   component: QuestionCard,
@@ -70,6 +70,7 @@ export const Empty: Story = {
 export const Loading: Story = { args: { pending: true } };
 
 export const Failed: Story = {
+  name: "Error",
   args: { error: "This request was already answered, expired or closed." },
 };
 

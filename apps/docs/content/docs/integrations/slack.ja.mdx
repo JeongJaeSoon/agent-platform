@@ -54,6 +54,33 @@ curl -sS -o /dev/null -w '%{http_code}\n' -X POST "$API/v1/linked-accounts/slack
 | 409 `LINK_TAKEN` | その Slack アカウントは別の人に連携されている |
 | 409 `LINK_EXISTS` | 同じチームに自分の連携がすでにある |
 
+## Slack インストールの登録
+
+運用者がターミナルで使う経路である。Slack ワークスペースにインストール済みの Slack アプリがあれば、そのアプリの bot token でインストールを登録する。コンソールで Slack アプリを自動で作成・インストールする流れは次のバージョンで入る。CLI が Slack の `auth.test`·`bots.info` でチーム、bot ユーザー、アプリを確認し、確認済み(`verified`)のインストールを残す。アプリには bot scope `users:read` が必要である。token は環境変数 `SLACK_BOT_TOKEN` でのみ渡す。CLI は token を引数で受け取らず、出力もしない。
+
+```bash
+read -rs SLACK_BOT_TOKEN && export SLACK_BOT_TOKEN
+bun run slack-install register --workspace "$WS" --app-id A0123ABCD
+unset SLACK_BOT_TOKEN
+```
+
+```text
+{"outcome":"verified","registration":"registered","installation_id":"…","workspace_id":"…","app_id":"A0123ABCD","team_id":"T0123ABCD","bot_user_id":"U0123ABCD"}
+```
+
+同じコマンドをもう一度実行すると、同じインストールを確認し直す(`registration: existing`)。失敗すると stderr に 1 行を書き、次の終了コードで終わる。
+
+| 終了コード | 意味 |
+| --- | --- |
+| 0 | 確認済みのインストールがある |
+| 2 | 引数または環境変数が正しくない |
+| 3 | Slack が token を拒否した、または Slack に届かない |
+| 4 | そのアプリとチームは別のワークスペースのものである(`workspace_conflict`)。そこで解除されていても、そのワークスペースだけが再登録できる |
+| 5 | 登録中にインストールが解除された(`revoked`)。もう一度実行すると再び開く |
+| 6 | ワークスペースが存在しない(`workspace_not_found`) |
+| 7 | token が `--app-id` とは別のアプリのものである(`app_mismatch`) |
+| 1 | その他のエラー |
+
 ## エージェントの Slack アプリ
 
 エージェントごとに自分の Slack アプリを持つ。接続には、アプリ id、チーム id、bot token が入った認証情報への参照の名前(`credential_ref`、値ではない)を送る。
@@ -63,7 +90,7 @@ curl -sS "$API/v1/agents/$AID/identities" "${WEB[@]}" \
   -d '{"provider": "slack_bot", "app_id": "A0APP", "team_id": "T0TEAM", "credential_ref": "slack/research-bot-token"}'
 ```
 
-確認済みの Slack インストールがない場合は 409 `SLACK_NOT_INSTALLED` になる。インストールは今のところ、運用者がリポジトリ関数でのみ作成できる。
+確認済みの Slack インストールがない場合は 409 `SLACK_NOT_INSTALLED` になる。インストールは運用者が上の登録 CLI で作成する。
 
 ## 次のステップ
 

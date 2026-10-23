@@ -174,17 +174,32 @@ export function AppSidebar({
       // Only the nav scrolls, so the user block stays in view at any height;
       // below md the open menu is capped to the screen under the header.
       // z-10: the language submenu opens past the sidebar, over the page.
-      className="hidden max-h-[calc(100dvh-var(--ap-topbar-h))] flex-col gap-2 border-b bg-sidebar px-2 py-3 text-foreground data-[open=true]:flex md:sticky md:top-0 md:z-10 md:col-start-1 md:row-span-2 md:row-start-1 md:flex md:h-dvh md:max-h-none md:border-r md:border-b-0"
+      className="hidden max-h-[calc(100dvh-var(--ap-topbar-h))] flex-col gap-2 border-b bg-sidebar px-2 py-3 text-foreground data-[open=true]:flex md:sticky md:top-0 md:z-10 md:col-start-1 md:row-span-2 md:row-start-1 md:flex md:h-dvh md:max-h-none md:border-r md:border-b-0 md:pt-0"
     >
-      <div className="hidden h-11 shrink-0 flex-col justify-center px-2 md:flex">
-        <p className="m-0 truncate font-semibold text-control leading-5">
-          {t("common.appName")}
-        </p>
+      {/* The top bar's height and lower line, so one rule runs across the shell. */}
+      <div className="-mx-2 hidden h-[var(--ap-topbar-h)] shrink-0 items-center gap-2 border-b px-4 md:flex">
         {me?.workspace ? (
-          <p className="m-0 truncate text-caption text-muted-foreground leading-5">
-            {me.workspace.name}
+          <>
+            <span
+              aria-hidden="true"
+              className="flex size-6 shrink-0 items-center justify-center rounded-control bg-primary font-semibold text-caption text-primary-foreground"
+            >
+              {initial(me.workspace.name)}
+            </span>
+            <p className="m-0 min-w-0 truncate text-control leading-5">
+              <span className="sr-only">{t("shell.group.workspace")}: </span>
+              <span className="font-semibold">{me.workspace.name}</span>
+              <span className="text-muted-foreground">
+                {" · "}
+                {t("common.appName")}
+              </span>
+            </p>
+          </>
+        ) : (
+          <p className="m-0 truncate font-semibold text-control leading-5">
+            {t("common.appName")}
           </p>
-        ) : null}
+        )}
       </div>
       <nav
         aria-label={t("nav.label")}

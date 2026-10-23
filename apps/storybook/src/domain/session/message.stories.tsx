@@ -3,7 +3,7 @@ import { Message } from "@werft-ai/react/components";
 import { Skeleton } from "@werft-ai/ui";
 
 const meta = {
-  title: "Patterns/Session/Message",
+  title: "Domain/Session/Message",
   globals: { locale: "en" },
   component: Message,
   args: {
@@ -41,6 +41,7 @@ export const Loading: Story = {
 };
 
 export const Failed: Story = {
+  name: "Error",
   args: {
     ...Sent.args,
     receipt: { status: "failed", label: "Not sent" },

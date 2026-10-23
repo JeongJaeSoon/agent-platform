@@ -9,7 +9,8 @@ import { cn } from "../foundations/cn.ts";
  * idle trigger uses `text-muted-foreground` instead of `text-foreground/60`,
  * the active trigger sits on the card surface with an input border (canvas on
  * sunken barely differs, worst in dark) without a shadow, and transitions,
- * the line variant's underline included, stop under reduced motion.
+ * the line variant's underline included, stop under reduced motion. Line
+ * triggers have no side padding, so the first label starts on the left edge.
  */
 export function Tabs({
   className,
@@ -36,7 +37,7 @@ export const tabsListVariants = cva(
     variants: {
       variant: {
         default: "bg-muted",
-        line: "gap-1 bg-transparent",
+        line: "gap-6 bg-transparent",
       },
     },
     defaultVariants: { variant: "default" },
@@ -69,6 +70,7 @@ export function TabsTrigger({
       className={cn(
         "relative inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-control border border-transparent px-2 py-1 font-medium text-control text-muted-foreground transition-all hover:text-foreground focus-visible:border-ring focus-visible:outline-1 focus-visible:outline-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none group-data-[orientation=vertical]/tabs:w-full group-data-[orientation=vertical]/tabs:justify-start [&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0",
         "group-data-[variant=line]/tabs-list:bg-transparent group-data-[variant=line]/tabs-list:data-[state=active]:bg-transparent",
+        "group-data-[variant=line]/tabs-list:flex-none group-data-[variant=line]/tabs-list:border-x-0 group-data-[variant=line]/tabs-list:px-0",
         "data-[state=active]:bg-card data-[state=active]:text-foreground group-data-[variant=default]/tabs-list:data-[state=active]:border-input",
         "after:absolute after:bg-foreground after:opacity-0 after:transition-opacity motion-reduce:after:transition-none group-data-[orientation=horizontal]/tabs:after:inset-x-0 group-data-[orientation=horizontal]/tabs:after:bottom-[-5px] group-data-[orientation=horizontal]/tabs:after:h-0.5 group-data-[orientation=vertical]/tabs:after:inset-y-0 group-data-[orientation=vertical]/tabs:after:-right-1 group-data-[orientation=vertical]/tabs:after:w-0.5 group-data-[variant=line]/tabs-list:data-[state=active]:after:opacity-100",
         className,

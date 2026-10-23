@@ -16,7 +16,14 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const Playground: Story = {};
+// The toolbar's Language picks the label, so each catalog's width shows.
+const LABEL: Record<string, string> = { ko: "초안", ja: "下書き", en: "Draft" };
+
+export const Default: Story = {
+  render: (args, { globals }) => (
+    <Badge {...args}>{LABEL[globals.locale] ?? LABEL.ko}</Badge>
+  ),
+};
 
 /** Console v35's five badge tones. */
 export const Tones: Story = {
