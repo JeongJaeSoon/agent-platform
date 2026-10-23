@@ -162,6 +162,8 @@ worker 로그의 `worker.turn.interrupt.stage`를 같은 `session_id`·`turn_id`
 
 세션마다 `ap-ws-<installationId>-<sessionId>-<접미사>` volume 하나가 `/workspace`에 붙는다. 이 volume은 세대(generation)를 넘어 살아남는다 — 컨테이너를 교체해도 세션의 작업 트리는 그대로여야 하기 때문이다. 그래서 **컨테이너를 지우는 `terminate`는 volume을 건드리지 않고**, 회수는 pass의 ④단계가 따로 한다.
 
+volume이 없어져도 세션은 마지막으로 commit된 checkpoint에서 이어 간다. 무엇이 남고 무엇이 사라지는지는 [workspace volume을 잃었을 때 남는 것](api-server.md#workspace-volume을-잃었을-때-남는-것)에 있다.
+
 volume은 이제 backend가 `POST /volumes/create`로 **명시적으로** 만든다. mount spec에 이름만 적으면 Docker가 label도 상한도 없는 volume을 알아서 만들어 버리기 때문이다. 만들 때 `agent-platform.managed`·`.installation`·`.session-id`·`.workspace-quota` label을 찍고, GC는 이름을 파싱하지 않고 이 label만 본다.
 
 **volume 이름은 1회용이다.** `local` 드라이버는 이미 quota를 걸었던 이름을 다시 만들면 `Options.size`는 그대로 돌려주면서 실제 project quota는 걸지 않는다. xfs+prjquota(Docker 27.5.1)에서 측정한 결과 — 처음 만든 이름은 컨테이너 안 `df` 총량이 설정값(64MiB)이지만, 같은 이름을 지웠다 다시 만들면 `Options.size`가 같은데도 `df`는 파일시스템 전체(8GiB)를 보고한다. Engine API로는 둘을 구분할 수 없으므로, 세션의 workspace는 이름으로 유도하지 않고 무작위 접미사를 붙여 만든 뒤 **label로 조회한다.** GC나 운영자가 volume을 지워도 다음 것은 새 이름을 받으므로 상한이 다시 선다. 한 세션에 workspace가 둘 보이면 어느 쪽이 작업 트리인지 판단하지 않고 보고만 한다. preflight probe도 같은 이유로 매번 새 이름을 쓰고, 이전 실행이 남긴 probe는 label로 회수하되 만든 지 10분과 `EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC`의 20배 중 긴 쪽이 지난 것만 지운다. preflight는 pass lock 밖에서 돌기 때문에, 더 젊은 probe는 동시에 도는 다른 preflight(루프 옆의 단독 `--once`, scheduler 둘)가 쓰는 중일 수 있다.
