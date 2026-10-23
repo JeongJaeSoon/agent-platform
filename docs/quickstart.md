@@ -72,6 +72,22 @@ scripts/local.sh status
 
 `status`는 컨테이너 목록과 `/readyz` 응답을 보여 준다. api·scheduler·reconciler가 running이면 다음 장으로 넘어간다.
 
+### 웹 콘솔 데모 계정
+
+`up`은 `/readyz`가 ready가 된 뒤 웹 콘솔(`http://127.0.0.1:3000/login`)에 로그인할 데모 계정 둘을 만든다. 값은 모든 머신에서 같고 저장소에 공개돼 있다. 다른 곳에서 쓰지 않는다.
+
+| 역할 | 이메일 | 비밀번호 |
+|---|---|---|
+| owner | `demo-owner@example.test` | `demo-local-only` |
+| member | `demo-member@example.test` | `demo-local-only` |
+
+- 사용자가 없는 설치에서는 데모 owner가 첫 owner가 되고 workspace `demo`(이름 `Demo`)가 생긴다. 이미 owner가 있는 설치에서는 살아 있는 owner가 그 workspace로 초대하고 수락한 것과 같게 더한다.
+- 같은 이메일의 사용자가 이미 있으면 건드리지 않는다. 비밀번호나 역할을 바꿨어도 그대로 둔다. 그래서 `up`을 다시 돌려도 중복이나 데이터 변화가 없다.
+- 이미 떠 있는 스택에는 `scripts/local.sh demo-accounts`가 빠진 계정만 더한다. `LOCAL_DEMO_ACCOUNTS=0 scripts/local.sh up --fake-model`은 계정을 만들지 않는다. bootstrap token으로 첫 owner를 직접 만들 때는 이렇게 띄운다(데모 owner가 있으면 bootstrap은 409 `BOOTSTRAP_DONE`이다).
+- 만들지 않는 조건: Docker가 이 머신의 것이 아니거나(`DOCKER_HOST`나 지금 docker context의 주소가 `unix://`·`npipe://`가 아님) api가 loopback(`127.0.0.1`·`[::1]`) 밖에 열려 있으면 `local.sh: demo accounts not added: …`를 출력하고 계정 없이 `up`을 마친다.
+- 계정을 쓰는 CLI(`apps/control-host/src/api/demo-accounts.ts`)도 스스로 거부한다. `DEMO_ACCOUNTS=local`(`local.sh`만 넘긴다)이 없거나, Kubernetes 안(`KUBERNETES_SERVICE_HOST`)이거나, `DATABASE_URL`의 host가 compose의 `postgres`나 이 머신(`localhost`·`127.0.0.1`·`[::1]`)이 아니면 아무것도 쓰지 않고 exit 2로 끝난다. Helm 설치에는 이 경로가 없다.
+- 사용자는 있는데 살아 있는 owner가 없는 설치도 거부한다. 그 상태의 bootstrap은 복구여서 모든 세션을 끝낸다.
+
 로컬 스택은 머신마다 하나로 쓴다. project 이름 `agent-platform`, 0장의 포트, worker label `agent-platform.installation=local`이 기본값이다. `local.sh`는 이 값을 스스로 정하지 않고 `COMPOSE_PROJECT_NAME`·`COMPOSE_FILE`·`EXECUTION_INSTALLATION_ID`를 compose가 해석한 그대로의 스택(`docker compose config`)을 따른다. `up`은 그 스택이 여는 포트를 점검하고 `docker compose port api 3000`이 알려 주는 주소의 `/readyz`를 기다린다. `down`은 떠 있는 스택의 egress proxy가 가진 installation id(컨테이너가 하나도 없으면 compose가 해석한 `EXECUTION_INSTALLATION_ID`)의 label이 붙은 worker 자원을 지운다. `up`과 `reset`은 환경 변수 `COMPOSE_FILE`의 파일들(없으면 `compose.yaml`) 위에 overlay를 얹는다. 옵션이 없으면 `infra/compose.real-model.yml`(세션 비용 상한), `--fake-model`이면 `infra/compose.fake-model.yml`이다. 이 문서의 명령(`API=http://127.0.0.1:3000`, 3장의 `installation=local` label)은 기본값 기준이다. compose의 포트는 `infra/`에 고정돼 있어서, project만 바꾼 두 번째 스택은 `up`의 포트 점검에서 멈춘다. 다른 스택 옆에서 돌려야 하면 자기 project와 임시 포트로 뜨는 `tests/e2e/run.sh`를 쓴다(4장).
 
 코드를 새로 pull했으면 `scripts/local.sh up --fake-model`을 다시 실행한다. 매번 이미지를 이 checkout에서 다시 빌드한다.
