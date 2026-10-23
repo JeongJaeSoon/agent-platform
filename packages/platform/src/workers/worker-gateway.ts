@@ -572,7 +572,11 @@ export function createWorkerGateway(deps: {
   function restoreRuntimesOf(
     binding: Pick<
       WorkerBinding,
-      "profileId" | "profileFingerprint" | "model" | "restoreProfiles" | "repository"
+      | "profileId"
+      | "profileFingerprint"
+      | "model"
+      | "restoreProfiles"
+      | "repository"
     >,
     providerToken: string,
     mcp: ReturnType<typeof claimedMcp>,
@@ -926,12 +930,7 @@ export function createWorkerGateway(deps: {
             lease_expires_at: binding.leaseExpiresAt.toISOString(),
             lease_remaining_ms: binding.leaseRemainingMs,
             ...resolved,
-            ...restoreRuntimesOf(
-              binding,
-              providerToken,
-              mcp,
-              mcpToken,
-            ),
+            ...restoreRuntimesOf(binding, providerToken, mcp, mcpToken),
             workspace: {
               repository: binding.repository && {
                 ...binding.repository,

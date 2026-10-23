@@ -7,10 +7,10 @@ import {
   catalogRevision,
   describeConfigError,
   environmentCredentials,
+  fingerprintModel,
   isUnmetered,
   mcpBinding,
   mcpUpstreamOf,
-  fingerprintModel,
   pinnedMcpTools,
   profileFingerprint,
   profileModels,
@@ -801,9 +801,7 @@ describe("profile fingerprint and catalog revision", () => {
     const catalog = load(
       config({ ...configured, models: ["claude-opus-5-5"] }),
     );
-    expect(
-      repositoryBinding("app", catalog.repositories.app as never),
-    ).toBe(
+    expect(repositoryBinding("app", catalog.repositories.app as never)).toBe(
       "sha256:c8954e2d28652f1630adf031f84b8446160fc6fc9712c7d5fe153d8998feacce",
     );
     expect(catalogRevision(catalog)).toBe(
@@ -939,9 +937,9 @@ describe("models a session may name", () => {
     // A version 2 pin says nothing without the row's model.
     expect(sessionProfile(listed, { fingerprint, model: null })).toBeNull();
     // A row from before the pin runs the default.
-    expect(
-      sessionProfile(listed, { fingerprint: null, model: null }),
-    ).toEqual(bare());
+    expect(sessionProfile(listed, { fingerprint: null, model: null })).toEqual(
+      bare(),
+    );
   });
 
   test("a version 1 pin still names the model it was taken with, whatever the row says", () => {
@@ -950,9 +948,9 @@ describe("models a session may name", () => {
     const v1Opus =
       "sha256:c1810e0b388cb79421095745e83356f1a1e03aee8858fbe4ce65d63f3aa90d5f";
     const opus = profileWithModel(listed, "claude-opus-5-5");
-    expect(sessionProfile(listed, { fingerprint: v1Opus, model: null })).toEqual(
-      opus,
-    );
+    expect(
+      sessionProfile(listed, { fingerprint: v1Opus, model: null }),
+    ).toEqual(opus);
     expect(
       sessionProfile(listed, { fingerprint: v1Opus, model: "claude-sonnet-5" }),
     ).toEqual(opus);
@@ -963,7 +961,11 @@ describe("models a session may name", () => {
     ).toBeNull();
     expect(profilePinned(bare(), v1Opus)).toBe(false);
     expect(
-      fingerprintModel(load(config({ ...configured, models: ["claude-opus-5-5"] })), "p", v1Opus),
+      fingerprintModel(
+        load(config({ ...configured, models: ["claude-opus-5-5"] })),
+        "p",
+        v1Opus,
+      ),
     ).toBe("claude-opus-5-5");
   });
 
@@ -987,17 +989,25 @@ describe("models a session may name", () => {
   });
 
   test("the model a fingerprint names, for the backfill", () => {
-    const catalog = load(config({ ...configured, models: ["claude-opus-5-5"] }));
+    const catalog = load(
+      config({ ...configured, models: ["claude-opus-5-5"] }),
+    );
     const v1Default =
       "sha256:99f5f59a41e3bc02be1f2ffd7af4b0a4fae68ca567dc05368cab9285f5ffd983";
     expect(fingerprintModel(catalog, "p", v1Default)).toBe("claude-sonnet-5");
     // Version 2 leaves the model to the row; an unknown id or a moved
     // profile says nothing.
     expect(
-      fingerprintModel(catalog, "p", profileFingerprint(catalog.profiles.p as CatalogProfile)),
+      fingerprintModel(
+        catalog,
+        "p",
+        profileFingerprint(catalog.profiles.p as CatalogProfile),
+      ),
     ).toBeNull();
     expect(fingerprintModel(catalog, "gone", v1Default)).toBeNull();
-    expect(fingerprintModel(catalog, "p", `sha256:${"0".repeat(64)}`)).toBeNull();
+    expect(
+      fingerprintModel(catalog, "p", `sha256:${"0".repeat(64)}`),
+    ).toBeNull();
   });
 });
 

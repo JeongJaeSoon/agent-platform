@@ -760,7 +760,9 @@ export function profilePins(
     ...models.map((model) => ({ fingerprint: current, model })),
     ...models.flatMap((model) => {
       const runs = profileWithModel(profile, model);
-      return runs ? [{ fingerprint: profileFingerprintV1(runs), model: null }] : [];
+      return runs
+        ? [{ fingerprint: profileFingerprintV1(runs), model: null }]
+        : [];
     }),
   ];
 }

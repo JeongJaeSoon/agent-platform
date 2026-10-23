@@ -13,10 +13,7 @@ import type {
 import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
 import type { AgentStore } from "../ports/agent-store.ts";
 import type { CredentialBindingStore } from "../ports/credential-binding-store.ts";
-import {
-  profilePinned,
-  type SessionCatalog,
-} from "../sessions/catalog.ts";
+import { profilePinned, type SessionCatalog } from "../sessions/catalog.ts";
 import {
   requirePermitted,
   SessionServiceError,
