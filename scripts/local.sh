@@ -222,18 +222,24 @@ down() {
 # Why this stack must not get the demo accounts, or nothing. The CLI checks
 # its own side too (apps/control-host/src/api/demo-accounts.ts).
 demo_accounts_refusal() {
-  local endpoint address
-  endpoint=${DOCKER_HOST:-$(docker context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null || true)}
+  local endpoint bindings ip
+  # The endpoint the CLI resolves, DOCKER_HOST and DOCKER_CONTEXT included.
+  endpoint=$(docker context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null) || true
   case "$endpoint" in
     unix://* | npipe://*) ;;
     *) echo "Docker is not this machine's (${endpoint:-unknown endpoint})"; return ;;
   esac
-  address=$(compose port api 3000 2>/dev/null | head -n 1) || true
-  case "$address" in
-    127.0.0.1:* | "[::1]:"*) ;;
-    "") echo "the api publishes no port" ;;
-    *) echo "the api listens on $address, not loopback alone" ;;
-  esac
+  # Every binding the api publishes, not only the first `compose port` names.
+  bindings=$(rendered | jq -r '.services.api.ports[]? | select(.published)
+    | if (.host_ip // "") == "" then "0.0.0.0" else .host_ip end') ||
+    { echo "compose cannot render the stack"; return; }
+  [ -n "$bindings" ] || { echo "the api publishes no port"; return; }
+  for ip in $bindings; do
+    case "$ip" in
+      127.0.0.1 | ::1) ;;
+      *) echo "the api listens on $ip, not loopback alone"; return ;;
+    esac
+  done
 }
 
 demo_accounts() {

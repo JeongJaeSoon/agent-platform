@@ -32,6 +32,26 @@ describe("demoAccountsRefusal", () => {
       "DATABASE_URL points at db.prod.internal",
     ],
     [{ ...local, DATABASE_URL: undefined }, "DATABASE_URL is missing"],
+    [
+      {
+        ...local,
+        DATABASE_URL:
+          "postgresql://postgres:dev@postgres:5432/sessions?host=db.prod.internal",
+      },
+      "DATABASE_URL names its host in the query",
+    ],
+    [
+      {
+        ...local,
+        DATABASE_URL:
+          "postgresql://postgres:dev@localhost/sessions?hostaddr=10.0.0.9",
+      },
+      "DATABASE_URL names its host in the query",
+    ],
+    [
+      { ...local, DATABASE_URL: "socket://postgres/var/run/postgresql" },
+      "not the local compose postgres",
+    ],
   ])("refuses %p", (env, reason) => {
     expect(demoAccountsRefusal(env)).toContain(reason);
   });

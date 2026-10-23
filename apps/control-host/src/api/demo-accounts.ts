@@ -66,13 +66,21 @@ export function demoAccountsRefusal(
   if (env.KUBERNETES_SERVICE_HOST) {
     return "this is a Kubernetes installation";
   }
-  let host: string;
+  let url: URL;
   try {
-    host = new URL(env.DATABASE_URL ?? "").hostname;
+    url = new URL(env.DATABASE_URL ?? "");
   } catch {
     return "DATABASE_URL is missing or not a URL";
   }
-  if (!LOCAL_DATABASE_HOSTS.has(host)) {
+  // pg connects to ?host= or ?hostaddr= over the URL's own host.
+  if (url.searchParams.has("host") || url.searchParams.has("hostaddr")) {
+    return "DATABASE_URL names its host in the query";
+  }
+  const host = url.hostname;
+  if (
+    !["postgres:", "postgresql:"].includes(url.protocol) ||
+    !LOCAL_DATABASE_HOSTS.has(host)
+  ) {
     return `DATABASE_URL points at ${host}, not the local compose postgres`;
   }
   return null;
