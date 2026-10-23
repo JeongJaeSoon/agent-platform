@@ -406,7 +406,7 @@ function Usage({
         ]}
       />
       {usage.budget_exceeded ? (
-        <output className="rounded-md border border-[var(--ap-tone-attention-border)] bg-card px-3 py-2 text-body">
+        <output className="rounded-control border border-[var(--ap-tone-attention-border)] bg-card px-3 py-2 text-body">
           {t("session.usage.budgetExceeded")}
         </output>
       ) : null}

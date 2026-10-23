@@ -56,7 +56,7 @@ describe("Badge · Card", () => {
     const { container } = render(
       <Card>
         <CardTitle>결제 담당</CardTitle>
-        <Badge variant="outline">초안</Badge>
+        <Badge variant="gray">초안</Badge>
       </Card>,
     );
     expect(

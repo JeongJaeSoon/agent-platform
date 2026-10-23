@@ -86,10 +86,11 @@ export function Gallery({ openDialog }: GalleryProps = {}): JSX.Element {
         </Button>
       </div>
       <div className="gallery__row">
-        <Badge>기본</Badge>
-        <Badge variant="secondary">보조</Badge>
-        <Badge variant="destructive">위험</Badge>
-        <Badge variant="outline">테두리</Badge>
+        <Badge variant="gray">초안</Badge>
+        <Badge variant="blue">진행 중</Badge>
+        <Badge variant="green">연결됨</Badge>
+        <Badge variant="amber">확인 필요</Badge>
+        <Badge variant="red">실패</Badge>
       </div>
       <Card>
         <CardHeader>
@@ -98,7 +99,7 @@ export function Gallery({ openDialog }: GalleryProps = {}): JSX.Element {
             청구서 문의에 답하고 환불을 접수합니다.
           </CardDescription>
           <CardAction>
-            <Badge variant="outline">초안</Badge>
+            <Badge variant="gray">초안</Badge>
           </CardAction>
         </CardHeader>
         <CardContent>
