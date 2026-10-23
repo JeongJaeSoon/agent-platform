@@ -210,14 +210,16 @@ function checks(m, width) {
           );
         // Centred in the row's box: an icon button inside a text line keeps the ink centre off by its own padding.
         const rowCenter = row.y + row.h / 2;
-        if (row.button)
+        if (row.button) {
+          const y = row.button.groupCenterY ?? row.button.centerY;
           add(
             "card.row-button-y",
             `${row.el} ${row.button.label}`,
-            row.button.centerY - rowCenter,
+            y - rowCenter,
             0,
-            near(row.button.centerY, rowCenter, 1),
+            near(y, rowCenter, 1),
           );
+        }
       }
     } else {
       // No padding: a frame around rows (a table); a bordered row: 12 16.

@@ -479,6 +479,16 @@
                 scrollY +
                 btn.getBoundingClientRect().height / 2,
             ),
+            // A button with a hint under it is centred as that group.
+            groupCenterY: [...btn.parentElement.childNodes].some(
+              (n) => n !== btn && n.textContent.trim(),
+            )
+              ? r(
+                  btn.parentElement.getBoundingClientRect().top +
+                    scrollY +
+                    btn.parentElement.getBoundingClientRect().height / 2,
+                )
+              : null,
           }
         : null,
       firstLine: firstText ? { el: name(firstText), ...rect(firstText) } : null,
