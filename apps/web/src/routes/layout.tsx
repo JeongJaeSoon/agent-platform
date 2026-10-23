@@ -180,8 +180,9 @@ function usePathname() {
   return useRouterState({ select: (state) => state.location.pathname });
 }
 
-const SESSION_PATH = /^\/sessions\/([^/]+)$/;
-const AGENT_PATH = /^\/agents\/([^/]+)$/;
+// The router opens these with a trailing slash too.
+const SESSION_PATH = /^\/sessions\/([^/]+)\/?$/;
+const AGENT_PATH = /^\/agents\/([^/]+)\/?$/;
 
 /**
  * What a screen under a sidebar item is called after it, when it is not the

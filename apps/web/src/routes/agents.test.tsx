@@ -1814,8 +1814,8 @@ describe("에이전트 머리 경로", () => {
     ).toBe("/agents");
   });
 
-  test("새 에이전트는 화면 제목을 쓴다", async () => {
-    renderAt("/agents/new", { ...meOk, ...agentServer().routes });
+  test("새 에이전트는 주소 끝에 /가 붙어도 화면 제목을 쓴다", async () => {
+    renderAt("/agents/new/", { ...meOk, ...agentServer().routes });
     const bar = await trail();
     expect(await bar.findByText("새 에이전트")).toBeDefined();
   });

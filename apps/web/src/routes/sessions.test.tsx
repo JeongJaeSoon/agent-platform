@@ -1979,6 +1979,16 @@ describe("세션 상세 머리 경로", () => {
     );
   });
 
+  test("주소 끝에 /가 붙어도 세션 제목을 보인다", async () => {
+    renderAt(`/sessions/${SESSION_ID}/`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () =>
+        json(200, { ...detail, title: "결제 오류 고치기" }),
+    });
+    const bar = await trail();
+    expect(await bar.findByText("결제 오류 고치기")).toBeTruthy();
+  });
+
   test("제목이 없으면 머리글처럼 짧은 id를 보인다", async () => {
     renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
     const bar = await trail();
