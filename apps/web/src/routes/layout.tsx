@@ -43,7 +43,7 @@ export function RootLayout() {
   });
   useLayoutEffect(() => applyTheme(storedTheme()), []);
   return (
-    <div className="flex min-h-dvh flex-col">
+    <div className={`flex min-h-dvh flex-col ${authed ? "" : "relative"}`}>
       <a
         className="absolute top-2 left-2 z-50 -translate-y-[200%] rounded-sm bg-card px-3 py-2 focus:translate-y-0"
         href={`#${MAIN_CONTENT_ID}`}
@@ -52,7 +52,8 @@ export function RootLayout() {
       </a>
       <Outlet />
       {authed ? null : (
-        <footer className="mt-auto flex justify-end p-4">
+        // Out of flow so AuthPage centres on the viewport, not above it.
+        <footer className="absolute right-0 bottom-0 flex justify-end p-4">
           <LocaleSwitch />
         </footer>
       )}
