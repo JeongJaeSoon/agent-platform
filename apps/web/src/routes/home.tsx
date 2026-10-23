@@ -624,11 +624,15 @@ function RecentRow({
         </TextLink>
       </TableCell>
       <TableCell>
-        <SessionStatusLabel
-          className="whitespace-nowrap"
-          status={session.status}
-          label={t(`sessions.status.${session.status}`)}
-        />
+        {/* flex, not a line box: an inline badge sits on the baseline and
+            leaves the row's centers a pixel apart. */}
+        <div className="flex">
+          <SessionStatusLabel
+            className="whitespace-nowrap"
+            status={session.status}
+            label={t(`sessions.status.${session.status}`)}
+          />
+        </div>
       </TableCell>
       {/* Sessions do not name their agent yet. */}
       <TableCell className="text-muted-foreground">
