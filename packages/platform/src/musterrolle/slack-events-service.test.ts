@@ -222,7 +222,6 @@ describe("Slack events service", () => {
     }
     expect(w.inbox.rows.size).toBe(0);
     expect(w.inbox.calls.record).toBe(0);
-    // 300 seconds either way is still inside the window.
     expect(
       (await w.service.receive(w.signed(body, { at: NOW_SECONDS - 300 }))).kind,
     ).toBe("ack");
@@ -249,18 +248,13 @@ describe("Slack events service", () => {
   test("no app, no secret or an unknown agent answer as a bad signature; misses are not cached", async () => {
     const w = world({ withSecret: false });
     const body = w.event(MENTION);
-    for (const agentId of [
-      AGENT,
-      BARE_AGENT,
-      crypto.randomUUID(),
-      "not-a-uuid",
-    ]) {
+    const uuids = [AGENT, BARE_AGENT, crypto.randomUUID()];
+    for (const agentId of [...uuids, "not-a-uuid"]) {
       expect(await w.service.receive(w.signed(body, { agentId }))).toEqual({
         kind: "unauthorized",
       });
     }
-    // The non-UUID never reached the store.
-    expect(w.lookups.findAgentApp).toBe(3);
+    expect(w.lookups.findAgentApp).toBe(uuids.length);
     await w.service.receive(w.signed(body));
     expect(w.lookups.findAgentApp).toBe(4);
   });
@@ -295,7 +289,6 @@ describe("Slack events service", () => {
     expect(w.inbox.rows.size).toBe(1);
     const row = [...w.inbox.rows.values()][0];
     expect(row?.status).toBe("received");
-    // The envelope's legacy verification token is not kept.
     expect(row && "payload" in row ? row.payload.token : "none").toBe(
       undefined,
     );
@@ -332,7 +325,6 @@ describe("Slack events service", () => {
       expect(row.status).toBe("dropped");
       expect("payload" in row).toBe(false);
     }
-    // A dropped event is deduplicated as well.
     const [body] = cases[0];
     expect(await w.service.receive(w.signed(body))).toMatchObject({
       result: "duplicate",
@@ -404,7 +396,6 @@ describe("Slack events service", () => {
       expect(w.installs.installations.get(`${APP_ID}|${TEAM}`)?.status).toBe(
         "revoked",
       );
-      // What follows the revoke is dropped.
       expect(await w.service.receive(w.signed(w.event(MENTION)))).toMatchObject(
         { status: "dropped", reason: "installation_revoked" },
       );

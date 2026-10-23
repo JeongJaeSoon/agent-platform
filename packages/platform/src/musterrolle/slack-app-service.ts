@@ -129,7 +129,6 @@ export function createSlackAppService(deps: {
   api: SlackConfigApi;
   /** The console's origin, from SLACK_OIDC_REDIRECT_URI; null when unset. */
   consoleOrigin: string | null;
-  /** After an agent's app is created or deleted: drops its cached secret. */
   onAgentAppChanged?: (agentId: string) => void;
   now?: () => Date;
   newId?: () => string;

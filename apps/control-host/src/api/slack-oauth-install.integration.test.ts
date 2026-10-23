@@ -79,7 +79,6 @@ integration(
       await database?.drop();
     });
 
-    /** `publicUrl` given: Finalize ① runs after the recording step. */
     function services(publicUrl?: string | null) {
       const api = createSlackConfigApi({ apiUrl: slack.url });
       const tokens = createSlackConfigTokens({
@@ -449,7 +448,7 @@ integration(
         bot_events: [...SLACK_AGENT_BOT_EVENTS],
       });
       expect(manifest.settings.event_subscriptions.bot_events).toHaveLength(7);
-      // The update is the whole document, scopes included.
+      // apps.manifest.update replaces the whole manifest, scopes included.
       expect(manifest.oauth_config).toMatchObject({
         scopes: { bot: [...BOT_SCOPES] },
       });

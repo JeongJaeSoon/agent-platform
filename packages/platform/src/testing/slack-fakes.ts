@@ -818,7 +818,6 @@ export function createMemoryAgentIdentityStore(
   return { store, identities, receipts, archived };
 }
 
-/** The Slack inbox, unique on (team_id, event_id) as the table is. */
 export function createMemorySlackInboundEventStore() {
   const rows = new Map<string, SlackInboundEventInput>();
   const calls = { seen: 0, record: 0 };

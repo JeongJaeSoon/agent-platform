@@ -576,10 +576,8 @@ export const slackInstallStates = pgTable(
   (table) => [index("slack_install_states_expires_idx").on(table.expiresAt)],
 );
 
-// Events Slack delivered to an agent's events route, verified and checked
-// against the path agent's app and install. One row per (team_id,
-// event_id): Slack keeps `event_id` across its retries. A dropped row keeps
-// its reason and no payload. The claim columns are 94S-790's.
+// One row per (team_id, event_id): Slack keeps `event_id` across its
+// retries. 94S-790 adds the claim columns.
 export const slackInboundEvents = pgTable(
   "slack_inbound_events",
   {

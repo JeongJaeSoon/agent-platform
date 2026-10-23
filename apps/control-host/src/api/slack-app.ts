@@ -171,7 +171,6 @@ const EXIT_BY_CODE: Partial<Record<string, number>> = {
   BACKEND_UNAVAILABLE: SLACK_APP_EXIT.slack_error,
 };
 
-/** Finalize ① by hand, through the same step an install runs. */
 async function finalize(
   agentId: string,
   deps: Parameters<typeof createSlackAppService>[0] & { apps: SlackAppStore },

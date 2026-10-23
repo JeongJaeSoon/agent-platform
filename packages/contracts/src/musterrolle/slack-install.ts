@@ -74,7 +74,7 @@ export const completeSlackInstallResponseSchema = z
     agent_identity: agentIdentitySchema,
     /** Null when the agent already held this identity. */
     receipt_id: receiptIdSchema.nullable(),
-    /** False when the steps after the install failed; the install stands. */
+    /** False when a step after the install failed or could not run. */
     finalized: z.boolean(),
     /** What those steps left for a person to do. */
     warnings: z.array(slackFinalizeWarningSchema),

@@ -406,11 +406,6 @@ export async function ingestThenStopClock(
   return undefined;
 }
 
-/**
- * ingestThenStopClock with the route's own body limit, for a public route
- * whose caller sends more than the API's default allows (Slack events). The
- * limit is checked on the bytes as they arrive, before the handler runs.
- */
 export function ingestThenStopClockWithin(maxBytes: number) {
   return async (
     context: Context<ApiEnvironment>,

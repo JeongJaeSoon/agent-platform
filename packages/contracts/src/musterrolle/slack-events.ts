@@ -55,7 +55,6 @@ export const SLACK_INBOUND_EVENT_TYPES = [
   "tokens_revoked",
 ] as const;
 
-/** The agent whose app's events the request URL is for. */
 export const slackEventsParamsSchema = z
   .object({ agent_id: agentIdSchema })
   .strict();

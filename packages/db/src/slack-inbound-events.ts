@@ -40,7 +40,6 @@ export function createPostgresSlackInboundEventStore(
           dropReason: event.status === "dropped" ? event.dropReason : null,
           payload: event.status === "dropped" ? null : event.payload,
         })
-        // A retry that raced the first delivery past `seen`.
         .onConflictDoNothing({
           target: [slackInboundEvents.teamId, slackInboundEvents.eventId],
         })

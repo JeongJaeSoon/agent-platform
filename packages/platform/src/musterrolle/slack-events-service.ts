@@ -25,10 +25,7 @@ export const SLACK_SIGNING_SECRET_TTL_MS = 60_000;
 
 export type SlackSignatureCheck = "ok" | "bad_signature" | "stale";
 
-/**
- * Slack's `v0` request signature over the raw bytes, then the timestamp
- * window. A missing or malformed header is a bad signature.
- */
+/** Slack's `v0` request signature, then the timestamp window. */
 export function verifySlackSignature(input: {
   signingSecret: string;
   timestamp: string | null;
@@ -60,7 +57,6 @@ export function verifySlackSignature(input: {
     : "ok";
 }
 
-/** The path agent's app as the events route checks requests against it. */
 export type SlackEventsApp = {
   workspaceId: string;
   slackAppId: string;
@@ -70,11 +66,6 @@ export type SlackEventsApp = {
 
 export type SlackSigningSecrets = ReturnType<typeof createSlackSigningSecrets>;
 
-/**
- * Signing secrets by agent id. Only a found secret is kept, so an app made
- * after a miss answers its first challenge; `invalidate` is called when the
- * agent's app is created or deleted in this process, the TTL covers others.
- */
 export function createSlackSigningSecrets(deps: {
   apps: Pick<SlackAppStore, "findAgentApp">;
   secrets: Pick<SecretStore, "get">;
@@ -115,7 +106,6 @@ export function createSlackSigningSecrets(deps: {
 }
 
 export type SlackEventsOutcome =
-  /** Unknown agent, no app or secret, bad or stale signature: one answer. */
   | { kind: "unauthorized" }
   | { kind: "bad_request" }
   | { kind: "challenge"; challenge: string }
@@ -142,12 +132,6 @@ function hasBotTokens(event: SlackEventCallback["event"]): boolean {
 
 export type SlackEventsService = ReturnType<typeof createSlackEventsService>;
 
-/**
- * The public events route's work, in the order the program fixed: secret,
- * signature over the raw bytes, timestamp, parse, challenge, dedupe, then
- * the app and team checks and the inbox. Nothing here logs; a store error
- * is thrown so the route answers 5xx and Slack sends the event again.
- */
 export function createSlackEventsService(deps: {
   signingSecrets: Pick<SlackSigningSecrets, "forAgent">;
   inbox: SlackInboundEventStore;
@@ -171,8 +155,6 @@ export function createSlackEventsService(deps: {
     }
     const key = { appId: envelope.api_app_id, teamId: envelope.team_id };
     if (event.type === "app_uninstalled" || event.type === "tokens_revoked") {
-      // Agent apps hold no user scopes, but a revoked user token must not
-      // take the bot's install down with it.
       if (event.type === "tokens_revoked" && !hasBotTokens(event)) {
         return { status: "dropped", dropReason: "user_tokens_only" };
       }
@@ -265,8 +247,6 @@ export function createSlackEventsService(deps: {
             ? null
             : new Date(envelope.event_time * 1000),
       };
-      // The legacy verification token rides in every envelope; it is a
-      // credential, so it is not stored.
       const { token: _token, ...payload } = envelope;
       const row: SlackInboundEventInput =
         classified.status === "dropped"

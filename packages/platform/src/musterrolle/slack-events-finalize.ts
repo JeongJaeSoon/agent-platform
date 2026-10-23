@@ -6,7 +6,6 @@ import type {
   SlackInstalled,
 } from "./slack-install-service.ts";
 
-/** The events route Slack is told to call for the agent's app. */
 export function slackEventsUrl(publicUrl: string, agentId: string): string {
   return `${publicUrl.replace(/\/+$/, "")}/v1/slack/events/${agentId.toLowerCase()}`;
 }

@@ -30,9 +30,8 @@ export function slackApiUrlFrom(
 }
 
 /**
- * SLACK_EVENTS_PUBLIC_URL: the public base Slack reaches the events route
- * on (the funnel's), without `/v1/slack/events/...`; null when unset, and
- * then Finalize registers no event subscription. Slack takes https only.
+ * SLACK_EVENTS_PUBLIC_URL: the base Slack reaches the events route under,
+ * without `/v1/slack/events/...`. Slack calls https request URLs only.
  */
 export function slackEventsPublicUrlFrom(
   env: Record<string, string | undefined>,

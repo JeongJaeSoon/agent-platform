@@ -267,7 +267,6 @@ describe("POST /v1/slack/events/{agent_id}", () => {
       seenBefore,
       receivesBefore,
     ]);
-    // Over the overall limit, any agent waits.
     const global = appWith(
       createSlackEventsLimiter({ globalPerMinute: 0, agentPerMinute: 100 }),
     );

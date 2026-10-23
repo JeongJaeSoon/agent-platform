@@ -407,7 +407,6 @@ export function createPostgresSlackAppStore(
             eq(slackApps.state, "created"),
           ),
         )
-        // Agent ids are unique across workspaces; the limit only guards it.
         .limit(1);
       return row ? recordOf(db, row) : null;
     },

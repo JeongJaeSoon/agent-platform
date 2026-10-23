@@ -344,8 +344,6 @@ const slackSecrets = createSlackSecretService({
 });
 const slackAppStore =
   secretKey === null ? null : createPostgresSlackAppStore(db, secretKey);
-// Without a master key no app has a readable secret, so every events
-// request answers 401.
 const slackSigningSecrets =
   secretKey === null || slackAppStore === null
     ? null

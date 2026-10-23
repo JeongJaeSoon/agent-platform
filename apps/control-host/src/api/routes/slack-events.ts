@@ -13,19 +13,11 @@ import {
 } from "../app.ts";
 import type { SlackEventsLimiter } from "../rate-limit.ts";
 
-// One answer for every request that is not provably from the agent's app:
-// unknown agent, no app, no secret, bad or stale signature.
 const REFUSED = "Request signature is not valid";
 
 const retryNumOf = (header: string | undefined) =>
   header !== undefined && /^\d{1,4}$/.test(header) ? Number(header) : null;
 
-/**
- * Slack's events for one agent's app (public: Slack signs, nobody logs in).
- * The limiter runs before the body is read and before any database read;
- * the body bound is Slack's, not the API's. Logged: ids, outcome and drop
- * reason only, never the body, the text or a header value.
- */
 export function registerSlackEventRoutes(
   router: ApiRouter,
   deps: {
@@ -40,14 +32,14 @@ export function registerSlackEventRoutes(
     router,
     "receiveSlackEvent",
     async (context, next) => {
-      const retryAfter = limiter.admit(context.req.param("agent_id") ?? "");
-      if (retryAfter !== null) {
+      const admitted = limiter.admit(context.req.param("agent_id") ?? "");
+      if (!admitted.ok) {
         throw new ApiHttpError(
           429,
           "RATE_LIMITED",
           "Too many Slack events, try again later",
           true,
-          retryAfter,
+          admitted.retryAfter,
         );
       }
       return ingestThenStopClockWithin(SLACK_EVENTS_BODY_MAX_BYTES)(

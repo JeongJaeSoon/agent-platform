@@ -40,7 +40,6 @@ integration("slack_inbound_events on PostgreSQL", () => {
     await database?.drop();
   });
 
-  // Fixture ids shaped like Slack's; no Slack app is involved.
   const slackId = (prefix: string) =>
     `${prefix}${randomBytes(4).toString("hex").toUpperCase()}`;
 
@@ -113,7 +112,6 @@ integration("slack_inbound_events on PostgreSQL", () => {
         payload: {},
       }),
     ).toBe("duplicate");
-    // Another team may reuse the id.
     expect(await inbox.record({ ...received, teamId: slackId("T") })).toBe(
       "recorded",
     );

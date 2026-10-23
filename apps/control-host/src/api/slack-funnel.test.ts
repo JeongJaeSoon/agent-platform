@@ -3,8 +3,6 @@ import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-// scripts/slack-funnel.sh against a fake `tailscale` that records its argv;
-// the real one is never run here.
 const script = join(import.meta.dir, "../../../../scripts/slack-funnel.sh");
 
 let bin: string;
