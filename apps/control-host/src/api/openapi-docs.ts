@@ -246,7 +246,7 @@ export function errorResponseDescription(
 /** Who may call the operation and how it treats Idempotency-Key. */
 export function accessNote(
   context: ErrorContext,
-  method: "get" | "post" | "patch" | "delete",
+  method: "get" | "post" | "put" | "patch" | "delete",
 ): string {
   const who = context.scope
     ? `**Scope:** \`${context.scope}\` (API key or cookie session).`

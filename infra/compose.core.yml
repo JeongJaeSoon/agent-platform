@@ -248,6 +248,11 @@ services:
       HEARTBEAT_TTL_SEC: ${HEARTBEAT_TTL_SEC:-30}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       PORT: "3000"
+      # The master key Slack secrets are encrypted under (64 hex characters,
+      # docs/operator/api-server.md), passed through by name from the
+      # caller's environment so its value is in no file. Unset leaves the
+      # secret store off. Never given to the worker or the scheduler.
+      PLATFORM_SECRET_KEY:
       # Sign in with Slack, for linking a person's Slack account
       # (docs/operator/api-server.md). Unset keeps linking off; the three are set
       # together. SLACK_OIDC_ISSUER is for a mock IdP only.

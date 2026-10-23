@@ -183,7 +183,14 @@ export const workspaceWideSessions: SessionAccess = {
 export const POLICY_VERSION = "m15";
 
 export interface AuthorizationPolicy {
-  authorize(request: AuthorizationRequest): Promise<AuthorizationDecision>;
+  /**
+   * `record: false` decides without keeping the decision: for what a screen
+   * offers, never for an act.
+   */
+  authorize(
+    request: AuthorizationRequest,
+    options?: { record?: false },
+  ): Promise<AuthorizationDecision>;
 }
 
 // The scope each session action needs. Actions with no scope have no rule
@@ -375,6 +382,44 @@ export function createAuthorizationPolicy(
       (await agents.isAdmin(workspaceId, agentId.toLowerCase(), principal.id))
     );
   }
+  // 94S-798: seeing a session through its share is not answering for it.
+  // Its creator answers (a key's session: that key), as do its agent's
+  // admins and the workspace's managers.
+  async function mayAnswer(
+    reading: Extract<IdentityReading, { status: "ok" }>,
+    workspaceId: string,
+    sessionId: string,
+  ): Promise<boolean> {
+    // A caller from before workspaces (a legacy key, AUTH_MODE=none) has no
+    // members beside it to answer for.
+    if (reading.principal.workspace_id === null) return true;
+    const viewer = viewerOf(reading);
+    const role =
+      reading.principal.kind === "user"
+        ? reading.principal.role
+        : reading.keyCreator?.role;
+    if (role !== undefined && WORKSPACE_MANAGERS.includes(role)) return true;
+    const origin = await sessions.originOf(workspaceId, sessionId);
+    if (origin === null) return false;
+    const same = (a: string | null, b: string | null) =>
+      a !== null && b !== null && a.toLowerCase() === b.toLowerCase();
+    if (
+      origin.creatorUserId !== null
+        ? same(origin.creatorUserId, viewer.userId)
+        : same(origin.creatorApiKeyId, viewer.apiKeyId)
+    ) {
+      return true;
+    }
+    if (viewer.userId === null) return false;
+    const agentId = await agents.agentOf(workspaceId, {
+      kind: "session",
+      id: sessionId,
+    });
+    return (
+      agentId !== null &&
+      (await agents.isAdmin(workspaceId, agentId.toLowerCase(), viewer.userId))
+    );
+  }
   const decisions = deps.decisions;
   const newDecisionId = deps.newDecisionId ?? (() => crypto.randomUUID());
 
@@ -518,6 +563,13 @@ export function createAuthorizationPolicy(
       redact =
         action === "session.read" && surface.ceiling?.disclosure === "summary";
     }
+    if (
+      action === "session.approve" &&
+      (resource.id === null ||
+        !(await mayAnswer(reading, resource.owner_scope, resource.id)))
+    ) {
+      return ["role", scopes];
+    }
     // No agent identity has a ceiling to multiply by yet.
     if (subject.agent !== undefined) return ["agent_ceiling", scopes];
     // Re-read at every start: a binding revoked since activation stops the
@@ -535,7 +587,7 @@ export function createAuthorizationPolicy(
   }
 
   return {
-    async authorize(request) {
+    async authorize(request, options) {
       const decision_id = newDecisionId();
       let reason: AuthorizationReason;
       let effective_scopes: SessionScope[];
@@ -562,7 +614,12 @@ export function createAuthorizationPolicy(
             decision_id,
           };
       const parsed = authorizationRequestSchema.safeParse(request);
-      if (!decisions || !parsed.success || !mustRecord(parsed.data, decision)) {
+      if (
+        !decisions ||
+        options?.record === false ||
+        !parsed.success ||
+        !mustRecord(parsed.data, decision)
+      ) {
         return decision;
       }
       try {

@@ -1,5 +1,5 @@
 {
-  "id": "b40d4f88-9f8a-487f-b711-ea76ceffd8ba",
+  "id": "c0ee8350-6582-4829-83db-dae23f0e3931",
   "prevId": "d8f1413b-2d55-41c3-a749-a5c9e5ad1a26",
   "version": "7",
   "dialect": "postgresql",
@@ -4537,6 +4537,118 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.secret_values": {
+      "name": "secret_values",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "owner_ref": {
+          "name": "owner_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "purpose": {
+          "name": "purpose",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "secret_version": {
+          "name": "secret_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "key_version": {
+          "name": "key_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "nonce": {
+          "name": "nonce",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ciphertext": {
+          "name": "ciphertext",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "last4": {
+          "name": "last4",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "updated_by": {
+          "name": "updated_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "secret_values_workspace_id_workspaces_id_fk": {
+          "name": "secret_values_workspace_id_workspaces_id_fk",
+          "tableFrom": "secret_values",
+          "tableTo": "workspaces",
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "secret_values_slot_uniq": {
+          "name": "secret_values_slot_uniq",
+          "nullsNotDistinct": false,
+          "columns": ["workspace_id", "owner_ref", "purpose"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "secret_values_versions_check": {
+          "name": "secret_values_versions_check",
+          "value": "\"secret_values\".\"secret_version\" > 0 AND \"secret_values\".\"key_version\" > 0"
+        },
+        "secret_values_last4_check": {
+          "name": "secret_values_last4_check",
+          "value": "length(\"secret_values\".\"last4\") = 4"
+        }
+      },
+      "isRLSEnabled": false
+    },
     "public.session_share_targets": {
       "name": "session_share_targets",
       "schema": "",
@@ -5831,7 +5943,7 @@
       "checkConstraints": {
         "worker_credentials_purpose_check": {
           "name": "worker_credentials_purpose_check",
-          "value": "\"worker_credentials\".\"purpose\" IN ('gateway', 'provider', 'repository', 'object_store', 'mcp')"
+          "value": "\"worker_credentials\".\"purpose\" IN ('gateway', 'provider', 'repository', 'object_store')"
         },
         "worker_credentials_binding_check": {
           "name": "worker_credentials_binding_check",

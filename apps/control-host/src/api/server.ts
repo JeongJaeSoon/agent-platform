@@ -16,6 +16,7 @@ import {
   createPostgresPendingRequests,
   createPostgresPullRequests,
   createPostgresPushRequests,
+  createPostgresSecretStore,
   createPostgresSessionControl,
   createPostgresSessionReader,
   createPostgresSessionShareStore,
@@ -49,6 +50,7 @@ import {
   createSessionOutputService,
   createSessionService,
   createSessionShareService,
+  createSlackSecretService,
   createTeamService,
   createUsageService,
   createWorkerGateway,
@@ -71,7 +73,9 @@ import {
 } from "./auth.ts";
 import {
   DEFAULT_CONFIG_DIR,
+  loadSecretKey,
   loadSessionCatalog,
+  SECRET_KEY_SETTING,
   secretsManagerReader,
   unattendedProfiles,
 } from "./catalog-config.ts";
@@ -117,6 +121,7 @@ import { registerPushRequestRoutes } from "./routes/push-requests.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
 import { registerSessionShareRoutes } from "./routes/session-shares.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
+import { registerSlackSecretRoutes } from "./routes/slack-secrets.ts";
 import { registerTeamRoutes } from "./routes/teams.ts";
 import { registerUsageRoutes } from "./routes/usage.ts";
 import { registerWorkerRoutes } from "./routes/worker.ts";
@@ -161,11 +166,19 @@ const settings = (() => {
     throw error;
   }
 })();
-const catalog = await loadSessionCatalog({
+const catalogSource = {
   dir: process.env.PLATFORM_CONFIG_DIR ?? DEFAULT_CONFIG_DIR,
   env: process.env,
   readSecret: secretsManagerReader(process.env),
-});
+};
+const catalog = await loadSessionCatalog(catalogSource);
+const secretKey = await loadSecretKey(catalogSource);
+if (secretKey === null) {
+  logger.warn(
+    `Secret store is off (${SECRET_KEY_SETTING} unset); Slack secrets cannot be set`,
+    {},
+  );
+}
 logger.info("Session catalog loaded", {
   revision: catalogRevision(catalog),
   profiles: Object.keys(catalog.profiles).length,
@@ -279,6 +292,10 @@ if (slackOidc === null) {
     {},
   );
 }
+const slackSecrets = createSlackSecretService({
+  authorization,
+  store: secretKey === null ? null : createPostgresSecretStore(db, secretKey),
+});
 const credentialBindingService = createCredentialBindingService({
   authorization,
   store: credentialBindings,
@@ -446,6 +463,7 @@ const app = createApiApp({
       retention: createPostgresAuditRetention(db),
       slackGuests,
     });
+    registerSlackSecretRoutes(router, slackSecrets);
     registerSessionRoutes(router, sessions);
     registerSessionOutputRoutes(router, sessionOutputs);
     registerSessionShareRoutes(router, shares, sessions);

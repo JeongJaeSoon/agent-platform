@@ -182,6 +182,7 @@ const usage: SessionUsageResponse = {
 };
 
 const pending: ListPendingRequestsResponse = {
+  answerable: true,
   items: [
     {
       kind: "permission",
@@ -234,9 +235,12 @@ describe("approval inbox", () => {
     "GET /v1/sessions?status=needs_input": () =>
       json(200, { items, next_cursor }),
     [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
-      json(200, { items: [{ ...pending.items[0], expires_at: LATER }] }),
+      json(200, {
+        answerable: true,
+        items: [{ ...pending.items[0], expires_at: LATER }],
+      }),
     [`GET /v1/sessions/${OTHER_ID}/pending-requests`]: () =>
-      json(200, { items: [] }),
+      json(200, { answerable: true, items: [] }),
   });
 
   test("gathers the waiting sessions under the same count as the sidebar badge", async () => {
@@ -692,7 +696,7 @@ describe("session detail", () => {
       [`GET /v1/sessions/${OTHER_ID}/usage`]: () =>
         json(200, { ...usage, session_id: OTHER_ID }),
       [`GET /v1/sessions/${OTHER_ID}/pending-requests`]: () =>
-        json(200, { items: [] }),
+        json(200, { answerable: true, items: [] }),
       [`GET /v1/sessions/${OTHER_ID}/events`]: (request: Request) =>
         next.route(request),
     });
@@ -897,7 +901,7 @@ describe("session profile", () => {
     const { api } = renderAt(`/sessions/${SESSION_ID}`, {
       ...detailRoutes,
       [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
-        json(200, { items: open }),
+        json(200, { answerable: true, items: open }),
       [`POST /v1/sessions/${SESSION_ID}/answers`]: () => {
         open = [];
         return json(202, {
@@ -944,7 +948,7 @@ describe("session profile", () => {
     renderAt(`/sessions/${SESSION_ID}`, {
       ...detailRoutes,
       [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
-        json(200, { items: open }),
+        json(200, { answerable: true, items: open }),
       [`POST /v1/sessions/${SESSION_ID}/answers`]: () => {
         open = [second];
         return json(202, {
@@ -983,7 +987,7 @@ describe("session profile", () => {
     renderAt(`/sessions/${SESSION_ID}`, {
       ...detailRoutes,
       [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
-        json(200, { items: open }),
+        json(200, { answerable: true, items: open }),
       [`POST /v1/sessions/${SESSION_ID}/answers`]: () => {
         posted = true;
         return held;
@@ -1022,7 +1026,7 @@ describe("session profile", () => {
     renderAt(`/sessions/${SESSION_ID}`, {
       ...detailRoutes,
       [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
-        json(200, { items: open }),
+        json(200, { answerable: true, items: open }),
       [`POST /v1/sessions/${SESSION_ID}/answers`]: () => {
         posted = true;
         return held;
@@ -1052,7 +1056,10 @@ describe("session profile", () => {
     const { api } = renderAt(`/sessions/${SESSION_ID}`, {
       ...detailRoutes,
       [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
-        json(200, { items: [{ ...pending.items[0], expires_at: LATER }] }),
+        json(200, {
+          answerable: true,
+          items: [{ ...pending.items[0], expires_at: LATER }],
+        }),
       [`POST /v1/sessions/${SESSION_ID}/answers`]: () =>
         apiError(409, "REQUEST_EXPIRED", "request expired"),
     });
@@ -1076,6 +1083,7 @@ describe("session profile", () => {
       ...detailRoutes,
       [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
         json(200, {
+          answerable: true,
           items: [
             {
               kind: "question",
@@ -1502,7 +1510,10 @@ describe("session profile", () => {
       ...detailRoutes,
       "GET /v1/auth/me": () => json(200, me(["sessions:read"], "member")),
       [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
-        json(200, { items: [{ ...pending.items[0], expires_at: LATER }] }),
+        json(200, {
+          answerable: true,
+          items: [{ ...pending.items[0], expires_at: LATER }],
+        }),
     });
     const allow = await screen.findByRole("button", { name: "허용" });
     expect(allow.hasAttribute("disabled")).toBe(true);
@@ -1522,6 +1533,32 @@ describe("session profile", () => {
     expect(
       screen.getByText("sessions:write 권한이 있어야 할 수 있습니다."),
     ).toBeTruthy();
+  });
+
+  test("someone who only sees the session through its share sees allow and deny disabled and why (94S-798)", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+        json(200, {
+          answerable: false,
+          items: [{ ...pending.items[0], expires_at: LATER }],
+        }),
+    });
+    const allow = await screen.findByRole("button", { name: "허용" });
+    expect(allow.hasAttribute("disabled")).toBe(true);
+    expect(
+      screen.getByRole("button", { name: "거부" }).hasAttribute("disabled"),
+    ).toBe(true);
+    expect(
+      screen.getByText(
+        "이 세션을 만든 사람, 에이전트 관리자, 워크스페이스 owner·admin만 답할 수 있습니다.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen
+        .getByRole("textbox", { name: "다음 지시" })
+        .hasAttribute("disabled"),
+    ).toBe(false);
   });
 
   test("says so when the current profile left the catalog", async () => {
@@ -1617,7 +1654,7 @@ describe("세션 상세 레이아웃", () => {
       renderAt(`/sessions/${SESSION_ID}`, {
         ...detailRoutes,
         [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
-          json(200, { items: open }),
+          json(200, { answerable: true, items: open }),
         [`POST /v1/sessions/${SESSION_ID}/answers`]: () => {
           open = [];
           return json(202, {
@@ -1678,7 +1715,7 @@ describe("세션 상세 레이아웃", () => {
       [`GET /v1/sessions/${OTHER_ID}/usage`]: () =>
         json(200, { ...usage, session_id: OTHER_ID }),
       [`GET /v1/sessions/${OTHER_ID}/pending-requests`]: () =>
-        json(200, { items: [] }),
+        json(200, { answerable: true, items: [] }),
       [`GET /v1/sessions/${OTHER_ID}/events`]: () =>
         new Promise<Response>(() => {}),
     });
@@ -1736,7 +1773,7 @@ describe("세션 상세 레이아웃", () => {
       renderAt(`/sessions/${SESSION_ID}`, {
         ...detailRoutes,
         [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
-          json(200, { items: [] }),
+          json(200, { answerable: true, items: [] }),
       });
       await screen.findByText("답을 기다리는 요청이 없습니다.");
       const composer = screen.getByRole("textbox", { name: "다음 지시" });

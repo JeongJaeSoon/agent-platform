@@ -17,6 +17,7 @@ import type {
   SessionOutputService,
   SessionService,
   SessionShareService,
+  SlackSecretService,
   TeamService,
   UsageService,
 } from "@werft-ai/platform";
@@ -47,6 +48,7 @@ import { registerPushRequestRoutes } from "./routes/push-requests.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
 import { registerSessionShareRoutes } from "./routes/session-shares.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
+import { registerSlackSecretRoutes } from "./routes/slack-secrets.ts";
 import { registerTeamRoutes } from "./routes/teams.ts";
 import { registerUsageRoutes } from "./routes/usage.ts";
 import {
@@ -108,6 +110,7 @@ function apiApp() {
       registerSessionOutputRoutes(router, {} as SessionOutputService);
       registerProfileRoutes(router, { profiles: {}, repositories: {} });
       registerWorkspaceRoutes(router, {} as WorkspaceRouteDeps);
+      registerSlackSecretRoutes(router, {} as SlackSecretService);
       registerEventRoutes(router, {} as SessionService, {
         wakeup: { wait: async () => {} },
       });

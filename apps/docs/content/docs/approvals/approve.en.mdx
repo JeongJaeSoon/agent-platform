@@ -69,7 +69,7 @@ The platform sends only that one commit to that branch. It does not force push. 
 | --- | --- |
 | 409 `CHECKPOINT_MOVED` | `git_commit` differs from the pinned commit, or the session saved a checkpoint again after the request. [Reject](/approvals/reject) this request and make a new one |
 | 409 `PUSH_REQUEST_DECIDED` | The request was already decided |
-| 403 `FORBIDDEN` | The key lacks `sessions:approve` |
+| 403 `FORBIDDEN` | The key lacks `sessions:approve`, or the caller only sees the session and is not one who approves (its creator, its agent's admins, owners and admins) |
 
 A refused attempt also leaves a receipt. Read it with `error.details.receipt_id` in the error body.
 

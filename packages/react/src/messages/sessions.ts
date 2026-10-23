@@ -88,6 +88,8 @@ export const sessionsKo = {
   "session.answer.input": "요청 내용 보기",
   "session.answer.allow": "허용",
   "session.answer.deny": "거부",
+  "session.answer.notAnswerer":
+    "이 세션을 만든 사람, 에이전트 관리자, 워크스페이스 owner·admin만 답할 수 있습니다.",
   "session.answer.denyReason": "거부하는 이유",
   "session.answer.denySubmit": "거부 보내기",
   "session.answer.cancel": "취소",
@@ -268,6 +270,8 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "session.answer.input": "Show request",
   "session.answer.allow": "Allow",
   "session.answer.deny": "Deny",
+  "session.answer.notAnswerer":
+    "Only the session's creator, its agent's admins and the workspace's owners and admins can answer.",
   "session.answer.denyReason": "Why deny?",
   "session.answer.denySubmit": "Send denial",
   "session.answer.cancel": "Cancel",
@@ -449,6 +453,8 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
   "session.answer.input": "リクエスト内容を表示",
   "session.answer.allow": "許可",
   "session.answer.deny": "拒否",
+  "session.answer.notAnswerer":
+    "このセッションを作った人、エージェントの管理者、ワークスペースの owner・admin だけが答えられます。",
   "session.answer.denyReason": "拒否する理由",
   "session.answer.denySubmit": "拒否を送信",
   "session.answer.cancel": "キャンセル",
