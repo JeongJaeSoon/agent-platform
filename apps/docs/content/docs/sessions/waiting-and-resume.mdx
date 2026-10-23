@@ -1,5 +1,144 @@
 ---
 title: "승인 대기와 재개"
+description: 권한 요청과 질문에 답하고, 세션을 pause했다가 resume한다
 ---
 
-작성 중
+turn이 도구를 실행하기 전에 사람의 허락을 기다리거나 사람에게 질문하면 세션이 `needs_input`이 된다. 답하면 turn이 이어진다. 세션을 한동안 쉬게 하려면 pause하고, 나중에 resume한다. [시작](/sessions/start)에서 만든 `SID`를 이어 쓴다. 답하려면 key에 `sessions:approve`가, pause·resume에는 `sessions:control`이 필요하다.
+
+## 대기 중인 요청
+
+```bash
+curl -sS "$API/v1/sessions/$SID/messages" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg m 'GATE-SPEC {"id":"deny","steps":[{"tool":"Bash","input":{"command":"rm -rf build","description":"clean build"}}],"final":"cleaned"}' '{message: $m}')" \
+  | jq -r .turn_id
+until [ "$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq -r .status)" = needs_input ]; do
+  sleep 2
+done
+curl -sS "$API/v1/sessions/$SID/pending-requests" -H "Authorization: Bearer $KEY" \
+  | jq '.items[] | {request_id, kind, tool, input, expires_at}'
+```
+
+요청은 둘 중 하나다.
+
+- `kind: "permission"`: 도구 실행 허락. `tool`과 `input`이 무엇을 실행할지 보여 준다.
+- `kind: "question"`: 모델이 `AskUserQuestion`으로 묻는 질문. `questions[]`마다 `question_id`, 질문 문장 `prompt`, 고를 `options[]`가 있다.
+
+요청은 30분 안에 답하지 않으면 거절로 끝난다. 그 뒤에 답하면 409 `REQUEST_EXPIRED`다.
+
+## 거절하기
+
+```bash
+REQ=$(curl -sS "$API/v1/sessions/$SID/pending-requests" -H "Authorization: Bearer $KEY" | jq -r '.items[0].request_id')
+curl -sS "$API/v1/sessions/$SID/answers" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg r "$REQ" '{request_id: $r, kind: "permission", decision: "deny", reason: "Do not delete build output."}')" \
+  | jq '{receipt_status, surface: .approval.surface}'
+```
+
+```text
+{
+  "receipt_status": "accepted",
+  "surface": "api"
+}
+```
+
+허락은 `"decision": "allow"`다. `reason`은 거절에서만 쓰고 선택이다. 모델은 그 이유를 도구 결과로 받고 turn을 이어 간다. 응답의 `approval`에는 누가(`answered_by`), 어디서(`surface`: `api`·`web`·`slack`) 답했는지가 남는다.
+
+## 질문에 답하기
+
+```bash
+curl -sS "$API/v1/sessions/$SID/messages" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg m 'GATE-SPEC {"id":"ask","steps":[{"tool":"AskUserQuestion","input":{"questions":[{"question":"Which environment?","header":"Environment","options":[{"label":"staging","description":"safe"},{"label":"production","description":"live"}],"multiSelect":false}]}}],"final":"selected"}' '{message: $m}')" \
+  > /dev/null
+until [ "$(curl -sS "$API/v1/sessions/$SID/pending-requests" -H "Authorization: Bearer $KEY" | jq -r '.items[0].kind // empty')" = question ]; do
+  sleep 2
+done
+pending=$(curl -sS "$API/v1/sessions/$SID/pending-requests" -H "Authorization: Bearer $KEY")
+echo "$pending" | jq -c '.items[0].questions[0] | {prompt, options: [.options[] | {option_id, label}]}'
+answer=$(echo "$pending" | jq -c '.items[0] | {
+  request_id,
+  kind: "question",
+  answers: [{question_id: .questions[0].question_id, selected_option_ids: [.questions[0].options[0].option_id]}]
+}')
+curl -sS "$API/v1/sessions/$SID/answers" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$answer" | jq '{receipt_status}'
+```
+
+```text
+{"prompt":"Which environment?","options":[{"option_id":"q0o0","label":"staging"},{"option_id":"q0o1","label":"production"}]}
+{
+  "receipt_status": "accepted"
+}
+```
+
+고르는 대신 글로 답하려면 `selected_option_ids: []`와 `free_text`를 보낸다.
+
+## pause와 resume
+
+pause는 진행 중인 일을 마무리하고 checkpoint(작업 트리와 대화 기록)를 남긴 뒤 worker를 내린다. resume은 새 worker가 그 checkpoint에서 같은 작업 트리와 같은 대화를 복원한다. 둘 다 지금 `revision`을 `expected_revision`으로 보낸다. 그 사이 세션이 바뀌었으면 409 `REVISION_CONFLICT`다.
+
+```bash
+until [ "$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq -r .status)" = idle ]; do
+  sleep 2
+done
+REV=$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq .revision)
+curl -sS "$API/v1/sessions/$SID/pause" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --argjson r "$REV" '{expected_revision: $r, reason: "lunch"}')" | jq '{receipt_status}'
+until [ "$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq -r .admission_state)" = paused ]; do
+  sleep 2
+done
+curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq '{admission_state, checkpoint_revision}'
+```
+
+```text
+{
+  "receipt_status": "accepted"
+}
+{
+  "admission_state": "paused",
+  "checkpoint_revision": 3
+}
+```
+
+paused 동안 보낸 메시지는 409 `SESSION_PAUSED`다. 60초 안에 drain하지 못하면 `attention`이 `PAUSE_BLOCKED`가 된다. 열린 요청이 있으면 답하거나 interrupt한다.
+
+```bash
+REV=$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq .revision)
+curl -sS "$API/v1/sessions/$SID/resume" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --argjson r "$REV" '{expected_revision: $r}')" | jq '{receipt_status}'
+until [ "$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq -r .admission_state)" = active ]; do
+  sleep 2
+done
+curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq '{admission_state}'
+```
+
+```text
+{
+  "receipt_status": "accepted"
+}
+{
+  "admission_state": "active"
+}
+```
+
+## 다음 단계
+
+- [닫기](/sessions/close): 끝난 세션을 닫거나 멈춘다
+- [receipt](/approvals/receipt): 접수한 명령의 결과 확인
