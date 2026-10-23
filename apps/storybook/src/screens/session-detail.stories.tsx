@@ -121,6 +121,7 @@ type Option = 1 | 2;
 function Header({ named = false }: { readonly named?: boolean }) {
   return (
     <PageHeader
+      className="flex-wrap"
       title={
         named ? (
           <>
