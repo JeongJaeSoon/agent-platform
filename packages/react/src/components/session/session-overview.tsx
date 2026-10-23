@@ -213,7 +213,9 @@ export function SessionOverviewRow({
         {/* Above the row link's overlay, so hovering and focus reach the
             time. A longer word than the column ("yesterday 15:14") is cut,
             not spilled over the repository; the ring sits inside the cut. */}
-        <span className="relative flex min-w-0">
+        <span
+          className={cn("relative min-w-0", renderTime ? "truncate" : "flex")}
+        >
           {renderTime ? (
             renderTime(at)
           ) : (

@@ -200,7 +200,6 @@ function SessionListV4Body({
       <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center gap-2">
           <PartRequest name="SegmentedControl" />
-          <PartRequest name="RelativeTime + Tooltip" />
           <Badge variant="red">
             탭 개수·에이전트·시작한 사람 열: API 변경 필요 (94S-811)
           </Badge>

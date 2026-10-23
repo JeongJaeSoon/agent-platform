@@ -400,6 +400,10 @@ describe("SessionOverviewRow", () => {
     const row = link.closest('[role="row"]') as HTMLElement;
     expect(row.textContent).toContain("work: status:running · 12분");
     expect(row.querySelector("time")?.textContent).toBe("12분 전");
+    // A caller's time keeps the ellipsis the column has always given it.
+    expect(row.querySelector("time")?.parentElement?.className).toContain(
+      "truncate",
+    );
   });
 
   test("저장소는 표시 이름 · branch로, 이름이 없으면 —로, 옛 서버면 catalog key로 보인다", () => {
