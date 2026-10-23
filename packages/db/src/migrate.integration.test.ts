@@ -124,7 +124,7 @@ integrationTest(
           "pending_requests",
           "receipts",
         ]);
-        expect(journal.rows[0]?.count).toBe("63");
+        expect(journal.rows[0]?.count).toBe("64");
       } finally {
         await verified.end();
       }
@@ -181,7 +181,7 @@ integrationTest(
         const journal = await verified.query<{ count: string }>(
           'SELECT count(*)::text AS count FROM "drizzle"."__drizzle_migrations"',
         );
-        expect(journal.rows[0]?.count).toBe("63");
+        expect(journal.rows[0]?.count).toBe("64");
       } finally {
         await verified.end();
       }

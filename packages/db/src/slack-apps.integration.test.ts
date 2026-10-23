@@ -137,13 +137,11 @@ integration("Slack apps and the config token on PostgreSQL", () => {
     return agentId;
   }
 
-  // App ids are unique across the table, as Slack's are everywhere.
   const fakeSlack = () =>
     createFakeSlackConfigApi({
       appIdPrefix: `A${randomBytes(4).toString("hex").toUpperCase()}X`,
     });
 
-  // Slack that answers after `delayMs`, so overlapping callers really overlap.
   function slowSlack(delayMs: number) {
     const slack = fakeSlack();
     const rotate = slack.api.rotateConfigToken;
@@ -179,7 +177,6 @@ integration("Slack apps and the config token on PostgreSQL", () => {
         new Date(),
       );
       slack.state.calls.length = 0;
-      // Two stores, as two API processes would have.
       const first = createSlackConfigTokens({
         store: createPostgresSlackConfigTokenStore(db, key),
         api: slack.api,
@@ -285,7 +282,6 @@ integration("Slack apps and the config token on PostgreSQL", () => {
       const { workspaceId } = await registered(store, slack);
       const at = new Date();
       const later = (ms: number) => new Date(at.getTime() + ms);
-      // Past the access token's expiry, so a rotation is due.
       const due = later(13 * 3600_000);
       expect(
         await store.claim(workspaceId, {

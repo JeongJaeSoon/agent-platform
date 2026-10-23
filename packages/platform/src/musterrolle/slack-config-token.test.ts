@@ -7,7 +7,7 @@ import {
   createMemorySecretStore,
 } from "../testing/slack-fakes.ts";
 import { callerFor } from "./policy.ts";
-import { SlackApiError } from "./slack-config-api.ts";
+import { SLACK_HTTP_TIMEOUT_MS, SlackApiError } from "./slack-config-api.ts";
 import {
   CONFIG_TOKEN_LEASE_MS,
   CONFIG_TOKEN_REFRESH_MARGIN_MS,
@@ -177,7 +177,6 @@ describe("Slack config token rotation", () => {
     await tokens.register(WORKSPACE, slack.issueRefresh(), audit());
     advance(12 * HOUR);
     const at = new Date();
-    // A process took the lease and died after Slack may have answered.
     await memory.store.claim(WORKSPACE, {
       now: at,
       freshUntil: at,
@@ -233,6 +232,6 @@ describe("Slack config token rotation", () => {
   });
 
   test("the lease outlives the Slack call's timeout", () => {
-    expect(CONFIG_TOKEN_LEASE_MS).toBeGreaterThan(10_000);
+    expect(CONFIG_TOKEN_LEASE_MS).toBeGreaterThan(SLACK_HTTP_TIMEOUT_MS);
   });
 });

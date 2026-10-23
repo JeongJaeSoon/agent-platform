@@ -5,9 +5,6 @@ import {
 } from "@werft-ai/testkit/fake-slack-api";
 import { startMockSlackOidc } from "@werft-ai/testkit/mock-slack-oidc";
 
-// The mock-slack service of infra/compose.mock-slack.yml as the local stack
-// reaches it.
-
 const post = async (
   url: string,
   body: Record<string, string>,

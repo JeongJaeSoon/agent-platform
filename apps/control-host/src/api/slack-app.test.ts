@@ -38,6 +38,19 @@ const ENV = {
 const ARGS = ["create", "--workspace", WORKSPACE, "--agent", AGENT];
 
 describe("slack-app command line", () => {
+  test("exit codes stay as documented", () => {
+    expect(SLACK_APP_EXIT).toEqual({
+      created: 0,
+      unexpected: 1,
+      usage: 2,
+      config_token_invalid: 3,
+      agent_not_found: 4,
+      agent_not_active: 5,
+      app_busy: 6,
+      slack_error: 7,
+    });
+  });
+
   test("parses create with lowercased ids", () => {
     expect(
       parseSlackAppCommand([

@@ -34,9 +34,7 @@ import {
 } from "./slack-manifest.ts";
 import { slackSecretSummaryOf } from "./slack-secret-service.ts";
 
-// Making or removing an agent's Slack app is installing Slack for that
-// agent: `binding.manage` on it, which owner, admin and its admins hold.
-const AGENT_ACTION = "binding.manage" as const;
+const SLACK_INSTALL_ACTION = "binding.manage" as const;
 const WORKSPACE_ACTION = "workspace.manage" as const;
 /** Longer than the create call's timeout plus the write after it. */
 export const SLACK_APP_CREATE_STALE_MS = 60_000;
@@ -162,7 +160,7 @@ export function createSlackAppService(deps: {
   }
 
   async function permitAgent(caller: Caller, agentId: string) {
-    await requirePermitted(authorization, caller, AGENT_ACTION, {
+    await requirePermitted(authorization, caller, SLACK_INSTALL_ACTION, {
       kind: "agent",
       id: agentId,
     });
@@ -171,7 +169,7 @@ export function createSlackAppService(deps: {
 
   const actorOf = (
     caller: Caller,
-    action: typeof AGENT_ACTION | typeof WORKSPACE_ACTION,
+    action: typeof SLACK_INSTALL_ACTION | typeof WORKSPACE_ACTION,
   ): SlackAppActor => ({
     principal: caller,
     managerRoles: MANAGEMENT_ROLES[action] ?? [],
@@ -185,8 +183,6 @@ export function createSlackAppService(deps: {
       try {
         return await apps.finishCreate(input);
       } catch {
-        // The app exists in Slack and its secrets are only in memory; the
-        // row stays `creating`, which a retry reports as uncertain.
         if (attempt >= FINISH_ATTEMPTS)
           throw answerLost("apps.manifest.create");
       }
@@ -304,7 +300,7 @@ export function createSlackAppService(deps: {
       return create(
         caller.ownerId,
         agentId,
-        actorOf(caller, AGENT_ACTION),
+        actorOf(caller, SLACK_INSTALL_ACTION),
         request,
       );
     },
@@ -340,7 +336,8 @@ export function createSlackAppService(deps: {
       const { apps, tokens } = ready();
       const found = await apps.find(workspaceId, slackAppId);
       if (found === null) throw NOT_FOUND();
-      const action = found.agentId === null ? WORKSPACE_ACTION : AGENT_ACTION;
+      const action =
+        found.agentId === null ? WORKSPACE_ACTION : SLACK_INSTALL_ACTION;
       await requirePermitted(
         authorization,
         caller,

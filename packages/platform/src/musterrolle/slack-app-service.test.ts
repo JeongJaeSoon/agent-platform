@@ -17,8 +17,12 @@ import {
   createSlackAppService,
   SLACK_APP_CREATE_STALE_MS,
 } from "./slack-app-service.ts";
-import { SlackApiError } from "./slack-config-api.ts";
+import { SLACK_HTTP_TIMEOUT_MS, SlackApiError } from "./slack-config-api.ts";
 import { createSlackConfigTokens } from "./slack-config-token.ts";
+
+test("a creation is uncertain only after the Slack call could have ended", () => {
+  expect(SLACK_APP_CREATE_STALE_MS).toBeGreaterThan(SLACK_HTTP_TIMEOUT_MS);
+});
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
 const AGENT = "019a0000-0000-7000-8000-0000000000c1";
@@ -154,7 +158,6 @@ describe("Slack app service", () => {
     });
     const url = new URL(out.authorize_url);
     expect(url.searchParams.get("client_id")).toBe("1000.1");
-    // The secrets went to the store and nowhere in the answer.
     const stored = [...secrets.values.values()].map(({ value }) => value);
     expect(stored).toHaveLength(3);
     for (const value of stored) {
@@ -331,7 +334,6 @@ describe("Slack app service", () => {
       replace_uncertain: false,
     });
     expect(first.warnings).toEqual([]);
-    // Another person's token now: the next rotation reports them.
     slack.state.userId = "U0SECOND";
     const meta = tokenStore.meta.get(WORKSPACE);
     if (meta) meta.accessExpiresAt = new Date(0);

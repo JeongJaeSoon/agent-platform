@@ -178,7 +178,6 @@ integration("slack-app create on PostgreSQL against a fake Slack", () => {
       scope: BOT_SCOPES.join(","),
       redirect_uri: `${CONSOLE}/agents/${agentId}/slack/callback`,
     });
-    // The manifest Slack got: no event subscriptions at creation.
     expect(
       Object.keys((app.manifest as { settings: object }).settings),
     ).not.toContain("event_subscriptions");

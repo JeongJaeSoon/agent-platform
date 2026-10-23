@@ -27,11 +27,6 @@ import {
   slackApiUrlFrom,
 } from "./slack-config.ts";
 
-// Creates an agent's Slack app as the operator, the same way the console's
-// button does, and prints the URL where a Slack admin approves installing
-// it. The app's secrets go straight to the secret store and are never
-// printed.
-
 /** Part of the CLI contract: scripts and the verify skill branch on these. */
 export const SLACK_APP_EXIT = {
   created: 0,

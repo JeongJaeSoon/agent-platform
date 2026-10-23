@@ -452,10 +452,7 @@ export const secretValues = pgTable(
 
 // What the console and the rotator know about a workspace's App
 // Configuration Token without opening it; the token pair itself is the
-// workspace's `slack_config_token` secret. A rotation takes the lease in one
-// transaction, asks Slack with none open and stores the answer in another;
-// a lease found expired means a rotation's answer may be lost, and the
-// single-use refresh token with it.
+// workspace's `slack_config_token` secret.
 export const slackConfigTokens = pgTable(
   "slack_config_tokens",
   {
@@ -486,10 +483,6 @@ export const slackConfigTokens = pgTable(
   ],
 );
 
-// One Slack app the platform made or was told about. The row is written in
-// `creating` before Slack is asked, so a lost answer is noticed instead of
-// making a second app. Manifest updates and deletes go only to `app_id`s
-// found here for the caller's workspace.
 export const slackApps = pgTable(
   "slack_apps",
   {

@@ -44,7 +44,6 @@ export function registerSlackAppRoutes(
     const created = await mapped(() =>
       apps.createAgentApp(context.get("caller"), params.id, body),
     );
-    // Ids only: the create answer's secrets never leave the service.
     logger?.info("Slack app created", {
       agent_id: params.id,
       slack_app_id: created.slack_app.id,
@@ -72,8 +71,6 @@ export function registerSlackAppRoutes(
   });
 
   apiRoute(router, "putSlackAppSecret", async (context) => {
-    // 400, not the usual 404: a purpose outside the app's three (the config
-    // token above all) is a malformed request, refused before any lookup.
     const parsed = slackAppSecretParamsSchema.safeParse(context.req.param());
     if (!parsed.success) {
       throw new ApiHttpError(

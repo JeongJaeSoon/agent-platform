@@ -86,8 +86,6 @@ export function createSlackConfigTokens(deps: {
           rotated,
           audit,
         );
-        // Another process found the lease expired and gave up on it: the
-        // pair Slack just issued has nowhere safe to go.
         if (result.outcome === "lease_lost") {
           throw configTokenInvalid("needs_reentry");
         }
@@ -138,7 +136,6 @@ export function createSlackConfigTokens(deps: {
               await store.invalidate(workspaceId, claim.leaseId);
               throw configTokenInvalid("needs_reentry");
             }
-            // Slack may not have seen the call; the old pair is tried again.
             await store.release(workspaceId, claim.leaseId);
             throw slackUnavailable("tooling.tokens.rotate");
           }

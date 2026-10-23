@@ -87,11 +87,10 @@ const keyStore = {
 const secrets = createMemorySecretStore();
 const tokenStore = createMemoryConfigTokenStore(secrets);
 const slack = createFakeSlackConfigApi();
-/** Every config token value this file handed the API, to scan outputs for. */
-const pasted: string[] = [];
+const pastedTokens: string[] = [];
 const paste = () => {
   const value = slack.issueRefresh();
-  pasted.push(value);
+  pastedTokens.push(value);
   return value;
 };
 
@@ -159,10 +158,9 @@ function appWith(enabled: boolean) {
 
 const call = appWith(true);
 const put = (value: unknown) => JSON.stringify({ value });
-// Shaped like a config token, but Slack never issued it.
 const unknownToken = () => {
   const value = `xoxe-1-${randomBytes(24).toString("hex")}`;
-  pasted.push(value);
+  pastedTokens.push(value);
   return value;
 };
 
@@ -176,7 +174,6 @@ describe("the Slack config token API", () => {
     const first = paste();
     const set = await call("PUT", { cookie: owner, body: put(first) });
     expect(set.status).toBe(200);
-    // What is stored is the pair Slack returned for it, not the paste.
     const stored = tokenStore.pair(WORKSPACE);
     expect(stored?.refresh_token).not.toBe(first);
     expect(putSlackConfigTokenResponseSchema.parse(set.json)).toMatchObject({
@@ -193,7 +190,6 @@ describe("the Slack config token API", () => {
       issuer: { user_id: "U0ISSUER", team_id: "T0FAKE" },
     });
 
-    // Another Slack user's token: stored, with a warning.
     slack.state.userId = "U0OTHER";
     const replaced = await call("PUT", {
       cookie: cookieFor("admin"),
@@ -362,7 +358,7 @@ describe("the Slack config token API", () => {
 afterAll(() => {
   const seen = [...responses, ...logs.records.map((r) => JSON.stringify(r))];
   const tokens = [
-    ...pasted,
+    ...pastedTokens,
     ...slack.state.accessTokens,
     ...slack.state.refreshTokens,
   ];

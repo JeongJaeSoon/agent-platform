@@ -1,10 +1,8 @@
 import { randomBytes } from "node:crypto";
 
 // Slack's Web API over HTTP, for tests and the local stack: whatever reads
-// SLACK_API_URL can be pointed at `<url>/api`. Methods live in one table
-// keyed by Slack's method name, so another (conversations.*,
-// chat.postMessage) is one entry. Every token it hands out is made here at
-// runtime; none is a real credential.
+// SLACK_API_URL can be pointed at `<url>/api`. Every token it hands out is
+// made here at runtime; none is a real credential.
 
 export type FakeSlackApp = {
   appId: string;
@@ -80,8 +78,6 @@ export function createFakeSlackWebApi(
     return app;
   };
 
-  // A method answering null leaves the request to whoever serves beside
-  // the fake (the mock IdP's own bot), or to a 404.
   const methods: Record<string, (context: Context) => object | null> = {
     "auth.test"(context) {
       if (context.token && accessTokens.has(context.token)) {

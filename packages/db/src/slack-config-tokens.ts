@@ -57,7 +57,6 @@ async function summaryOf(
     .from(slackConfigTokens)
     .where(eq(slackConfigTokens.workspaceId, workspaceId));
   const secret = await describeSecret(db, slotOf(workspaceId));
-  // A row with no issuer is a first paste that never got through.
   if (!row || (row.issuerUserId === null && secret === null)) {
     return { state: "unset", secret: null, expiresAt: null, issuer: null };
   }
@@ -126,7 +125,6 @@ export function createPostgresSlackConfigTokenStore(
           if (row.leaseUntil > clock.now) {
             return { outcome: "busy" as const, until: row.leaseUntil };
           }
-          // Its holder may have spent the refresh token and lost the answer.
           await markNeedsReentry(tx, workspaceId);
           return { outcome: "needs_reentry" as const };
         }

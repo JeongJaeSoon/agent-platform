@@ -124,12 +124,11 @@ const apps = createMemorySlackAppStore({
     agent(NEXT_AGENT, WORKSPACE, true),
   ]),
 });
-/** Every secret Slack handed back on a create, to scan outputs for. */
-const issued: string[] = [];
+const issuedAppSecrets: string[] = [];
 const createApp = slack.api.createApp;
 slack.api.createApp = async (token, manifest) => {
   const created = await createApp(token, manifest);
-  issued.push(created.signingSecret, created.clientSecret);
+  issuedAppSecrets.push(created.signingSecret, created.clientSecret);
   return created;
 };
 const LIVE = new Set(["creating", "created", "deleting"]);
@@ -351,7 +350,6 @@ describe("the agent Slack app API", () => {
       (candidate) => candidate.agentId === LOST_AGENT,
     );
     expect(row?.state).toBe("creating");
-    // Deleting it is refused too: Slack may hold the app.
     const deleting = await call("DELETE", deletePath(row?.id ?? ""), {
       cookie: owner,
     });
@@ -537,10 +535,10 @@ test("without a master key every route answers 503", async () => {
 afterAll(() => {
   const seen = [...responses, ...logs.records.map((r) => JSON.stringify(r))];
   const values = [
-    ...issued,
+    ...issuedAppSecrets,
     ...[...secrets.values.values()].flatMap(({ value }) => value.split("\n")),
   ];
-  expect(issued.length).toBeGreaterThan(0);
+  expect(issuedAppSecrets.length).toBeGreaterThan(0);
   for (const text of seen) {
     for (const value of values) {
       expect(text).not.toContain(value);

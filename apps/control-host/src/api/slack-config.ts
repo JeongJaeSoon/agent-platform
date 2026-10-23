@@ -1,8 +1,5 @@
 import { SLACK_API_URL } from "@werft-ai/platform";
 
-// Where the API and the operator CLIs reach Slack, and where Slack sends a
-// person back to the console, read from the environment once.
-
 const PLAIN_HTTP_HOSTS = new Set([
   "localhost",
   "127.0.0.1",
@@ -23,8 +20,6 @@ export function slackApiUrlFrom(
   } catch {
     throw new SlackConfigError("SLACK_API_URL must be an absolute URL");
   }
-  // Plain HTTP only to a mock on this host or the compose network's
-  // mock-slack service.
   const local = PLAIN_HTTP_HOSTS.has(url.hostname);
   if (url.protocol !== "https:" && !(url.protocol === "http:" && local)) {
     throw new SlackConfigError(
