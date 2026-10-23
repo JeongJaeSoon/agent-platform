@@ -12,7 +12,10 @@ import {
   type WorkspaceRole,
 } from "@werft-ai/contracts";
 import type { DecisionLog } from "../ports/decision-log.ts";
+import type { PendingRequestStore } from "../ports/pending-requests.ts";
 import type { SessionViewer } from "../ports/session-share-store.ts";
+import { createPendingRequestService } from "../sessions/pending-service.ts";
+import { SessionServiceError } from "../sessions/session-service.ts";
 import {
   type AgentAuthority,
   type Caller,
@@ -43,18 +46,35 @@ const USERS = {
 const PERSONS = "019a0000-0000-7000-8000-00000000e0a1";
 const KEYS = "019a0000-0000-7000-8000-00000000e0b1";
 const OPEN = "019a0000-0000-7000-8000-00000000e0c1";
+// The creator's sessions shared with the workspace and with a team of the
+// member, the agent admin and the admin; a service key's shared with the
+// workspace.
+const CREATORS_OPEN = "019a0000-0000-7000-8000-00000000e0d1";
+const CREATORS_TEAM = "019a0000-0000-7000-8000-00000000e0e1";
+const KEYS_OPEN = "019a0000-0000-7000-8000-00000000e0f1";
+const TEAM: readonly string[] = [USERS.member, USERS.agent_admin, USERS.admin];
 
 const ORIGIN: Record<string, { creatorUserId: string | null; key: string }> = {
   [PERSONS]: { creatorUserId: USERS.creator, key: KEY },
   [KEYS]: { creatorUserId: null, key: KEY },
   [OPEN]: { creatorUserId: USERS.member, key: KEY },
+  [CREATORS_OPEN]: { creatorUserId: USERS.creator, key: KEY },
+  [CREATORS_TEAM]: { creatorUserId: USERS.creator, key: KEY },
+  [KEYS_OPEN]: { creatorUserId: null, key: KEY },
 };
 
 const sessions: SessionAccess = {
   async visibleTo(_ownerId, sessionId, viewer: SessionViewer) {
     const origin = ORIGIN[sessionId];
     if (!origin) return false;
-    if (sessionId === OPEN) return true;
+    if ([OPEN, CREATORS_OPEN, KEYS_OPEN].includes(sessionId)) return true;
+    if (
+      sessionId === CREATORS_TEAM &&
+      viewer.userId !== null &&
+      TEAM.includes(viewer.userId)
+    ) {
+      return true;
+    }
     if (origin.creatorUserId !== null) {
       return viewer.userId === origin.creatorUserId;
     }
@@ -373,6 +393,177 @@ describe("session.share (D21)", () => {
       request_id: "r",
     });
     expect(decision.reason_code).toBe("error");
+  });
+});
+
+describe("session.approve (94S-798)", () => {
+  // Seeing a session through its share is not answering for its creator.
+  // o allowed, r refused (403), n not found (404). Columns: owner, admin,
+  // creator, member, agent admin, service key, the creator's personal key.
+  const WHO: Who[] = [
+    "owner",
+    "admin",
+    "creator",
+    "member",
+    "agent_admin",
+    "service_key",
+    "creators_key",
+  ];
+  const TABLE: [string, string, string][] = [
+    ["a person's session shared with the workspace", CREATORS_OPEN, "ooororo"],
+    ["a person's session shared with a team", CREATORS_TEAM, "noorono"],
+    ["a person's private session", PERSONS, "nnonnno"],
+    ["a service key's session shared with the workspace", KEYS_OPEN, "oorroor"],
+    ["a service key's private session", KEYS, "nnnnnon"],
+  ];
+  const cell = (decision: AuthorizationDecision) =>
+    decision.outcome === "allow"
+      ? "o"
+      : decision.reason_code === "not_found"
+        ? "n"
+        : decision.reason_code === "role"
+          ? "r"
+          : decision.reason_code;
+  for (const [row, id, cells] of TABLE) {
+    test(row, async () => {
+      const got = await Promise.all(
+        WHO.map(async (who) =>
+          cell(await decide(who, "session.approve", on(id))),
+        ),
+      );
+      expect(got.join("")).toBe(cells);
+    });
+  }
+
+  test("a key from before workspaces still answers what it sees", async () => {
+    const legacy = callerFor(
+      {
+        kind: "api_key",
+        id: "legacy",
+        owner_id: WORKSPACE,
+        workspace_id: null,
+        scopes: [...SESSION_SCOPE_VALUES],
+      },
+      { kind: "api" },
+      "r",
+    );
+    const decision = await createAuthorizationPolicy({
+      identity: {
+        reread: async (s) => ({ status: "ok", principal: s.principal }),
+      },
+      agents,
+      sessions,
+    }).authorize({
+      subject: legacy.subject,
+      action: "session.approve",
+      resource: { kind: "session", id: CREATORS_OPEN, owner_scope: WORKSPACE },
+      request_id: "r",
+    });
+    expect(decision.reason_code).toBe("ok");
+  });
+
+  test("a session link is not resolved to its session yet, so only a manager answers through one", async () => {
+    const link = {
+      kind: "session_link",
+      id: "019a0000-0000-7000-8000-00000000f0a1",
+    } as const;
+    expect(await reason("creator", "session.approve", link)).toBe("role");
+    expect(await reason("member", "session.approve", link)).toBe("role");
+    expect(await reason("admin", "session.approve", link)).toBe("ok");
+  });
+
+  test("a refused answer still holds the scope: only this session is not theirs", async () => {
+    const decision = await decide(
+      "member",
+      "session.approve",
+      on(CREATORS_OPEN),
+    );
+    expect(decision.effective_scopes).toContain("sessions:approve");
+  });
+
+  test("seeing and sending stay the share's", async () => {
+    for (const action of ["session.read", "session.submit"] as const) {
+      expect(await reason("member", action, on(CREATORS_OPEN))).toBe("ok");
+      expect(await reason("member", action, on(CREATORS_TEAM))).toBe("ok");
+    }
+  });
+});
+
+describe("the pending requests a viewer is offered (94S-798)", () => {
+  function service(who: Who) {
+    const rows: string[] = [];
+    let answered = 0;
+    const { caller, identity } = subject(who);
+    const store: PendingRequestStore = {
+      async listOpen() {
+        return [];
+      },
+      async answerAtomic() {
+        answered += 1;
+        throw new Error("never reached");
+      },
+    };
+    const pending = createPendingRequestService({
+      authorization: createAuthorizationPolicy({
+        identity,
+        agents,
+        sessions,
+        decisions: {
+          async record({ request }) {
+            rows.push(request.action);
+          },
+        },
+      }),
+      store,
+    });
+    return { pending, caller, rows, answered: () => answered };
+  }
+
+  test("say whether they may answer, and keep no decision for saying so", async () => {
+    for (const [who, answerable] of [
+      ["member", false],
+      ["creator", true],
+      ["agent_admin", true],
+      ["owner", true],
+      ["admin", true],
+    ] as const) {
+      const { pending, caller, rows } = service(who);
+      expect(await pending.listPendingRequests(caller, CREATORS_OPEN)).toEqual({
+        items: [],
+        answerable,
+      });
+      expect(rows).toEqual([]);
+    }
+  });
+
+  test("a viewer's answer is refused as 403 before the store is touched, and kept", async () => {
+    const { pending, caller, rows, answered } = service("member");
+    const error = await pending
+      .answer(caller, CREATORS_OPEN, {
+        idempotencyKey: "k",
+        body: { request_id: "req_1", kind: "permission", decision: "allow" },
+      })
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(SessionServiceError);
+    expect(error).toMatchObject({
+      code: "FORBIDDEN",
+      message:
+        "This principal holds sessions:approve but may not use it on this session",
+      details: { reason_code: "role" },
+    });
+    expect(answered()).toBe(0);
+    expect(rows).toEqual(["session.approve"]);
+  });
+
+  test("out of the share it is still not found", async () => {
+    const { pending, caller } = service("member");
+    const error = await pending
+      .answer(caller, PERSONS, {
+        idempotencyKey: "k",
+        body: { request_id: "req_1", kind: "permission", decision: "allow" },
+      })
+      .catch((caught: unknown) => caught);
+    expect(error).toMatchObject({ code: "NOT_FOUND" });
   });
 });
 

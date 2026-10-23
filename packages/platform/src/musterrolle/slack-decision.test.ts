@@ -101,8 +101,9 @@ const deps = () => ({
       async visibleTo(_ownerId, sessionId, viewer) {
         return sessionId !== PRIVATE_SESSION || viewer.userId === userId(1);
       },
+      // B (user 1) made every session here.
       async originOf() {
-        return null;
+        return { creatorUserId: userId(1), creatorApiKeyId: null };
       },
     },
     agents: {
@@ -242,9 +243,9 @@ const pressing = (user: SlackUser, ceiling: SurfaceCeiling = everything) =>
   });
 
 describe("design 3.2, a mention and its approval", () => {
-  test("a linked member asks, another approves, and an unlinked one is told to link", async () => {
+  test("a linked member asks, an admin approves, and an unlinked one is told to link", async () => {
     link("U0B", 1);
-    link("U0C", 2);
+    link("U0C", 2, "admin");
 
     // Steps 2–5: the app is this agent's, B is linked, the channel allows it.
     const asked = await judge(input(slackUser("U0B")));
@@ -257,6 +258,7 @@ describe("design 3.2, a mention and its approval", () => {
     });
 
     // Steps 7–8: C presses approve and C is who is judged, not B.
+    // (94S-798: C answers for B as the workspace's admin.)
     const approved = await judge(pressing(slackUser("U0C")));
     expect(approved.actorUserId).toBe(userId(2));
     expect(approved.decision.outcome).toBe("allow");
@@ -551,6 +553,24 @@ describe("a session outside the share", () => {
       notice: { text: SLACK_NOTICE_MESSAGES.outOfShare },
     });
     expect((await judge(onPrivate(slackUser("U0B")))).decision.outcome).toBe(
+      "allow",
+    );
+  });
+
+  test("a member who only sees it may not answer for its creator (94S-798)", async () => {
+    link("U0B", 1);
+    link("U0C", 2);
+    const pressing = (user: SlackUser) =>
+      input(user, {
+        action: "session.approve",
+        resource: { kind: "session", id: SESSION },
+      });
+    expect(await judge(pressing(slackUser("U0C")))).toMatchObject({
+      actorUserId: null,
+      decision: { outcome: "deny", reason_code: "role" },
+      notice: { text: SLACK_NOTICE_MESSAGES.noApproveRight },
+    });
+    expect((await judge(pressing(slackUser("U0B")))).decision.outcome).toBe(
       "allow",
     );
   });
