@@ -317,7 +317,9 @@ function MemberTable({
                   data-disabled={disabled}
                 >
                   <TableCell>
-                    <RowLines>
+                    {/* One line per cell: below the table's width the container scrolls,
+                        so every row keeps two lines. */}
+                    <RowLines className="whitespace-nowrap">
                       <span className={PRIMARY}>{member.display_name}</span>
                       <span className={SECONDARY}>{member.email}</span>
                     </RowLines>
@@ -359,7 +361,7 @@ function MemberTable({
                   </TableCell>
                   <TableCell>
                     {disabled ? (
-                      <RowLines className="items-start">
+                      <RowLines className="items-start whitespace-nowrap">
                         <Badge variant="gray">
                           {t("members.state.disabled")}
                         </Badge>
