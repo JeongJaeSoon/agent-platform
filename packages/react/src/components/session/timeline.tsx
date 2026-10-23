@@ -5,7 +5,7 @@ import type {
 } from "@werft-ai/contracts";
 import {
   cn,
-  formatExactTime,
+  formatRelativeTime,
   RelativeTime,
   type TimestampLocale,
 } from "@werft-ai/ui";
@@ -268,33 +268,18 @@ function turnTokens(group: TurnGroup): TurnEventMessage | undefined {
   return undefined;
 }
 
-const minuteOf = (at: string): number => Math.floor(Date.parse(at) / 60_000);
-
 interface TimeContext {
   readonly locale: TimestampLocale;
   readonly now: number | Date | undefined;
 }
 
-/**
- * A relative time a keyboard can reach, or, when the line above already
- * says this minute, the exact time for screen readers only.
- */
-function Stamp({
-  at,
-  shown,
-  time,
-}: {
+interface StampProps {
   readonly at: string;
-  readonly shown: boolean;
   readonly time: TimeContext;
-}): JSX.Element {
-  if (!shown) {
-    return (
-      <time dateTime={at} className="sr-only">
-        {formatExactTime(at, time.locale)}
-      </time>
-    );
-  }
+}
+
+/** A relative time a keyboard can reach, its exact time in a tooltip. */
+function Stamp({ at, time }: StampProps): JSX.Element {
   return (
     <RelativeTime
       value={at}
@@ -302,6 +287,25 @@ function Stamp({
       {...(time.now === undefined ? {} : { now: time.now })}
       className={TIME}
     />
+  );
+}
+
+/**
+ * Where the line above already reads the same: unseen until it takes focus,
+ * so keyboard and screen reader users still reach this row's exact time. It
+ * sits inside the text it follows and takes no place of its own.
+ */
+function HiddenStamp({ at, time }: StampProps): JSX.Element {
+  return (
+    <>
+      {" "}
+      <RelativeTime
+        value={at}
+        locale={time.locale}
+        {...(time.now === undefined ? {} : { now: time.now })}
+        className={cn(TIME, "sr-only focus-visible:not-sr-only")}
+      />
+    </>
   );
 }
 
@@ -355,13 +359,14 @@ export function Timeline({
   const groups = turnGroups(rows, messages.folded !== undefined);
   const time: TimeContext = { locale, now };
 
-  // Same-minute repeats drop their visible time, in reading order.
+  // A time that would read the same as the one above it is not repeated,
+  // in reading order.
   const shown = new Set<string>();
-  let minute: number | undefined;
+  let said: string | undefined;
   const see = (key: string, at: string) => {
-    const next = minuteOf(at);
-    if (next !== minute) shown.add(key);
-    minute = next;
+    const next = formatRelativeTime(at, locale, now);
+    if (next !== said) shown.add(key);
+    said = next;
   };
   for (const group of groups) {
     if (group.turnId !== null) see(headKey(group), group.startedAt);
@@ -370,9 +375,11 @@ export function Timeline({
         see(item.row.key, item.row.occurredAt);
         continue;
       }
-      const before = minute;
+      // Folded lines may be out of sight, so the line after the fold
+      // compares with what stood before it.
+      const before = said;
       for (const row of item.rows) see(row.key, row.occurredAt);
-      minute = before;
+      said = before;
     }
   }
 
@@ -507,12 +514,13 @@ export function Timeline({
                 >
                   <span className="font-medium">
                     {messages.turn(group.turnId)}
+                    {shown.has(headKey(group)) ? null : (
+                      <HiddenStamp at={group.startedAt} time={time} />
+                    )}
                   </span>
-                  <Stamp
-                    at={group.startedAt}
-                    shown={shown.has(headKey(group))}
-                    time={time}
-                  />
+                  {shown.has(headKey(group)) ? (
+                    <Stamp at={group.startedAt} time={time} />
+                  ) : null}
                   {tokens ? (
                     <span className="text-subtle-foreground">
                       {formatMessage(tokens)}
@@ -626,8 +634,11 @@ function EventItem({
       <KindIcon kind={kind} messages={messages} />
       <div className="flex min-w-0 flex-col gap-1">
         <div className="flex flex-wrap items-center gap-2 text-control font-medium">
-          <span>{formatMessage(presentation.label)}</span>
-          <Stamp at={row.occurredAt} shown={shown} time={time} />
+          <span>
+            {formatMessage(presentation.label)}
+            {shown ? null : <HiddenStamp at={row.occurredAt} time={time} />}
+          </span>
+          {shown ? <Stamp at={row.occurredAt} time={time} /> : null}
           {running ? (
             <span className="text-caption font-normal text-[var(--ap-tone-progress-fg)]">
               {running}
@@ -669,8 +680,9 @@ function NoiseItem({
         <span className="font-medium">{formatMessage(presentation.label)}</span>
         <span className="min-w-0 [overflow-wrap:anywhere]">
           {turnSummaryText(presentation.summary, formatMessage)}
+          {shown ? null : <HiddenStamp at={row.occurredAt} time={time} />}
         </span>
-        <Stamp at={row.occurredAt} shown={shown} time={time} />
+        {shown ? <Stamp at={row.occurredAt} time={time} /> : null}
       </div>
     </li>
   );
