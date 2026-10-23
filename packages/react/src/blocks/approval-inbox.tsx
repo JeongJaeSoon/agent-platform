@@ -180,13 +180,16 @@ function WaitingSession({
         children: session.title ?? short,
       })
     : undefined;
-  const meta = (request: PendingRequest) =>
-    `${short} · ${t("inbox.waited", {
+  const meta = (request: PendingRequest) => {
+    const waited = t("inbox.waited", {
       minutes: Math.max(
         0,
         Math.floor((now - Date.parse(request.created_at)) / 60_000),
       ),
-    })}`;
+    });
+    // Untitled, the name line already is the short id.
+    return session.title ? `${short} · ${waited}` : waited;
+  };
   return (
     <li className={cn("flex min-w-0 flex-col", summary ? null : "gap-2")}>
       {/* Without a card to carry it, the session still needs its way in. */}

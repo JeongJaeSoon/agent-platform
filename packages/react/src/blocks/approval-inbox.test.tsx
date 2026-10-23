@@ -272,6 +272,8 @@ describe("ApprovalInbox", () => {
       name: `Open session ${SESSION_ID}`,
     });
     expect(link.textContent).toBe(SHORT);
+    const row = view.container.querySelector("[data-slot='approval-row']");
+    expect(row?.textContent?.split(SHORT)).toHaveLength(2);
   });
 
   test("요약 배치에서 답할 수 없으면 이유가 줄 안에 한 번 붙고 버튼은 막힌다", async () => {
