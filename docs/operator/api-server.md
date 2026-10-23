@@ -536,7 +536,7 @@ curl -s -b jar -X POST http://127.0.0.1:3000/v1/agents/<agent_id>/credential-bin
 - 거절: 설치가 없거나 아직 확인 전이거나 회수됐으면 `409 SLACK_NOT_INSTALLED`, 그 앱이 다른 에이전트에 연결돼 있으면 `409 AGENT_IDENTITY_TAKEN`, 이미 이 에이전트에 연결돼 있으면 `409 ALREADY_EXISTS`. 보관된 에이전트는 `404`다.
 - `credential_ref`는 그 신원만 쓴다. 에이전트에 연결된 이름이나 다른 신원의 이름이면 `409 CREDENTIAL_REF_IN_USE`다. 신원을 회수하면 이름이 풀린다(위 "자격 연결"과 같은 `credential_bindings` 행).
 - 목록: `GET /v1/agents/{id}/identities`(살아 있는 것 먼저, 최근 것 먼저, 50개).
-- 회수: `DELETE /v1/agents/{id}/identities/{identity_id}` → `revoked`, `revision` +1, `revoke_agent_identity` receipt. 이미 회수한 것은 아무것도 바꾸지 않고 `receipt_id: null`이다. 행은 지우거나 되살리지 않는다. 다시 연결하면 새 행이 생긴다.
+- 회수: `DELETE /v1/agents/{id}/identities/{identity_id}` → `revoked`, `revision` +1, `revoke_agent_identity` receipt. 이미 회수한 것은 아무것도 바꾸지 않고 `receipt_id: null`이다. 행은 지우거나 되살리지 않는다. 다시 연결하면 새 행이 생긴다. 그 설치에 있던 이 에이전트의 채널 설정(아래 "에이전트의 Slack 채널 설정")도 함께 회수된다. 같은 앱을 다른 에이전트에 연결하면 채널 설정은 빈 상태에서 시작한다.
 
 Slack ingress는 이벤트를 받을 때 `agentForSlackEvent(store, {appId, teamId, agentId?})`(`@werft-ai/platform`, 저장소 쪽은 `resolveSlackEventAgent`)로 에이전트를 정한다. `resolved`면 `{workspaceId, agentId, identity: {id, revision}, botUserId, credentialRef}`이고, 아니면 `dropped`와 이유다. 버려진 이벤트는 받았다고만 답하고 아무것도 실행하지 않는다.
 

@@ -9,7 +9,7 @@ import type {
   SlackEventAgent,
   SlackEventKey,
 } from "@werft-ai/platform";
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { holdsRight, lockedRole } from "./api-keys.ts";
 import { receiptActorOf } from "./control-shared.ts";
 import {
@@ -23,11 +23,12 @@ import {
   agents,
   receipts,
   slackInstallations,
+  surfaceBindings,
 } from "./schema.ts";
 
 // Lock order: the actor's membership, the agent, the install, the identity
-// rows, then the credential name, as the api key and credential binding
-// stores take theirs.
+// rows, the agent's surface bindings, then the credential name, as the api
+// key, surface binding and credential binding stores take theirs.
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -262,6 +263,24 @@ async function revoke(
         revision: sql`${agentIdentities.revision} + 1`,
       })
       .where(eq(agentIdentities.id, current.id));
+    // The agent's channels in that install go with it: the next agent the
+    // install is linked to starts from none, and cannot write these.
+    await tx
+      .update(surfaceBindings)
+      .set({
+        status: "revoked",
+        home: false,
+        revokedAt: DB_NOW,
+        updatedAt: DB_NOW,
+        revision: sql`${surfaceBindings.revision} + 1`,
+      })
+      .where(
+        and(
+          eq(surfaceBindings.agentId, agentId),
+          eq(surfaceBindings.installationId, current.installationId),
+          isNull(surfaceBindings.revokedAt),
+        ),
+      );
     await releaseCredentialRefs(tx, {
       workspaceId,
       target: "agent_identity",

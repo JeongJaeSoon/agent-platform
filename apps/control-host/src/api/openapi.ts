@@ -2391,7 +2391,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "Revoke an agent identity",
     description:
-      "Events from that app and team are dropped from then on, including events already waiting to be processed. Revoking one already revoked changes nothing and answers a null `receipt_id`; otherwise writes a `revoke_agent_identity` receipt. Linking again makes a new identity.",
+      "Events from that app and team are dropped from then on, including events already waiting to be processed. Revoking one already revoked changes nothing and answers a null `receipt_id`; otherwise writes a `revoke_agent_identity` receipt. The agent's Slack channel bindings in that install are revoked with it. Linking again makes a new identity.",
     auth: "session",
     success: { status: 200, schema: "RevokeAgentIdentityResponse" },
     errors: [401, 403, 404, 503],

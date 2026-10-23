@@ -120,7 +120,12 @@ integration("surface bindings on PostgreSQL", () => {
       managerRoles: MANAGERS,
     });
     if (linked.outcome !== "linked") throw new Error(linked.outcome);
-    return { agentId, installationId: linked.identity.installationId };
+    return {
+      agentId,
+      key,
+      identityId: linked.identity.id,
+      installationId: linked.identity.installationId,
+    };
   }
 
   const setAs = (
@@ -324,6 +329,58 @@ integration("surface bindings on PostgreSQL", () => {
     const stranger = await person(await workspace(), "owner");
     expect(await setAs(stranger, agentId, { channelId: "C0X" })).toEqual({
       outcome: "agent_not_found",
+    });
+  });
+
+  test("an install linked to another agent starts with none of the old agent's channels", async () => {
+    const owner = await person(await workspace(), "owner");
+    const first = await slackAgent(owner);
+    await setAs(owner, first.agentId, { channelId: "C0X", home: true });
+    await setAs(owner, first.agentId, { channelId: null });
+    const identities = createPostgresAgentIdentityStore(db);
+    await identities.revoke({
+      principal: owner,
+      workspaceId: owner.ownerId,
+      agentId: first.agentId,
+      identityId: first.identityId,
+      managerRoles: MANAGERS,
+    });
+    expect(
+      await store().resolveSlackChannel(first.installationId, "C0X"),
+    ).toBeNull();
+    expect(await store().list(owner.ownerId, first.agentId, 10)).toEqual([]);
+
+    const next = randomUUID();
+    await db.insert(agents).values({
+      id: next,
+      workspaceId: owner.ownerId,
+      slug: `a-${next.slice(0, 8)}`,
+      name: "bot",
+    });
+    const relinked = await identities.link({
+      principal: owner,
+      workspaceId: owner.ownerId,
+      agentId: next,
+      key: first.key,
+      credentialRef: `slack-bot-${next.slice(0, 8)}`,
+      managerRoles: MANAGERS,
+    });
+    expect(relinked.outcome).toBe("linked");
+    const set = await setAs(owner, next, { channelId: "C0X", mode: "off" });
+    expect(set).toMatchObject({
+      outcome: "set",
+      binding: { agentId: next, mode: "off", revision: 1 },
+    });
+
+    // A live row another agent kept from before is never rewritten.
+    await db
+      .update(surfaceBindings)
+      .set({ agentId: first.agentId })
+      .where(
+        eq(surfaceBindings.id, set.outcome === "set" ? set.binding.id : ""),
+      );
+    expect(await setAs(owner, next, { channelId: "C0X" })).toEqual({
+      outcome: "conflict",
     });
   });
 

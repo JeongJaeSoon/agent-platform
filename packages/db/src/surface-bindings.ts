@@ -161,17 +161,25 @@ async function set(
             eq(agentIdentities.status, "active"),
           ),
         )
+        // Several live installs have no selector in the request yet; the
+        // newest is the one written, every time.
+        .orderBy(desc(agentIdentities.createdAt), desc(agentIdentities.id))
         .limit(1)
         .for("share");
       if (!identity) return { outcome: "not_installed" };
       const { installationId } = identity;
 
       const [current] = await tx
-        .select({ id: surfaceBindings.id })
+        .select({ id: surfaceBindings.id, agentId: surfaceBindings.agentId })
         .from(surfaceBindings)
         .where(channelOf(installationId, input.channelId))
         .limit(1)
         .for("update");
+      // Revoking an identity revokes its bindings, so a live row of another
+      // agent is one written before that rule; it is never this caller's.
+      if (current && current.agentId !== agentId) {
+        return { outcome: "conflict" };
+      }
       if (input.home) {
         await tx
           .update(surfaceBindings)
