@@ -103,13 +103,17 @@ export function SessionsScreen() {
       title={t("sessions.title")}
       description={t("sessions.intro")}
       actions={
-        <ReasonButton
-          className={buttonVariants()}
-          reason={t("sessionList.newUnavailable")}
-        >
-          <Plus aria-hidden="true" />
-          {t("sessionList.new")}
-        </ReasonButton>
+        // Narrow screens wrap the reason under the button, so the title keeps
+        // the width of the row.
+        <div className="max-sm:w-min">
+          <ReasonButton
+            className={buttonVariants()}
+            reason={t("sessionList.newUnavailable")}
+          >
+            <Plus aria-hidden="true" />
+            {t("sessionList.new")}
+          </ReasonButton>
+        </div>
       }
     >
       <div className="flex flex-col gap-[var(--ap-space-block)]">
@@ -131,11 +135,13 @@ export function SessionsScreen() {
           }
           className="min-w-0 gap-[var(--ap-space-block)]"
         >
-          <div className="overflow-x-auto border-b">
+          <div className="border-b">
             <TabsList
               variant="line"
               aria-label={t("sessionList.filter.label")}
-              className="h-9 p-0"
+              // English names overflow 390px; the tabs wrap rather than scroll,
+              // since a scroll box clips the active tab's underline.
+              className="h-auto flex-wrap justify-start gap-y-0 p-0"
             >
               <TabsTrigger
                 value="all"
