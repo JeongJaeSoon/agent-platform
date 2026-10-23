@@ -226,22 +226,9 @@ describe("홈 요약", () => {
     };
   };
 
-  test("답이 필요한 세션을 먼저, 이어서 세 요약 카드와 최근 세션을 보인다", async () => {
+  test("세 요약 카드와 최근 세션을 보이고, 답변 대기는 가장 오래 기다린 세션 하나만 가리킨다", async () => {
     renderAt("/", homeRoutes());
-    // The same words as the session list's inbox above its cards.
-    const waiting = await screen.findByRole("region", { name: /^답변 대기/ });
-    await waitFor(() =>
-      expect(
-        within(waiting).getByRole("link", { name: waitingSession.id }),
-      ).toBeDefined(),
-    );
-    expect(
-      within(waiting)
-        .getByRole("link", { name: "전체 보기" })
-        .getAttribute("href"),
-    ).toBe("/sessions");
-
-    const overview = screen.getByRole("region", { name: "한눈에 보기" });
+    const overview = await screen.findByRole("region", { name: "한눈에 보기" });
     await waitFor(() =>
       expect(
         within(overview)
@@ -258,6 +245,13 @@ describe("홈 요약", () => {
       ]),
     );
     expect(within(overview).getByText("켜짐 1 · 초안 1")).toBeDefined();
+    // The request list and its answers live on the session screen only.
+    expect(screen.queryByRole("region", { name: /^답변 대기/ })).toBeNull();
+    expect(
+      within(overview)
+        .getByRole("link", { name: waitingSession.id.slice(0, 8) })
+        .getAttribute("href"),
+    ).toBe(`/sessions/${waitingSession.id}`);
 
     const recent = screen.getByRole("table", { name: "최근 세션" });
     expect(
