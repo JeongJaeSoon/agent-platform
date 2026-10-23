@@ -222,6 +222,63 @@ describe("에이전트 상세 탭", () => {
     expect(within(summary).queryByText(/새 세션에 쓰이는/)).toBeNull();
   });
 
+  for (const [status, label] of [
+    ["paused", "일시정지"],
+    ["archived", "보관됨"],
+  ] as const) {
+    test(`${label} 에이전트는 최신 version이 더 새로워도 새 세션이 활성 version으로 시작한다고 하지 않는다`, async () => {
+      const server = agentServer();
+      const path = `/v1/agents/${AGENT_ID}`;
+      const post = (route: string, body: unknown) =>
+        (server.routes as Record<string, (request: Request) => unknown>)[
+          `POST ${path}/${route}`
+        ]?.(
+          new Request(`http://test${path}/${route}`, {
+            method: "POST",
+            body: JSON.stringify(body),
+          }),
+        );
+      const first = server.detail().versions[0];
+      await post("releases", {
+        version_id: first?.id,
+        runtime_profile_id: "claude-coding-local",
+      });
+      await post("activate", {
+        release_id: server.detail().releases[0]?.id,
+        expected_revision: -1,
+      });
+      const released = server.detail();
+      if (!first) throw new Error("fake agent has no version");
+      const second = {
+        ...first,
+        id: "00000000-0000-4000-8000-000000000002",
+        version_no: first.version_no + 1,
+        created_at: new Date(
+          Date.parse(first.created_at) + 60_000,
+        ).toISOString(),
+      };
+      renderAt(DETAIL, {
+        ...meOk,
+        ...server.routes,
+        [`GET ${path}`]: () =>
+          json(200, {
+            ...released,
+            agent: { ...released.agent, status },
+            versions: [...released.versions, second],
+          }),
+      });
+      const glance = await screen.findByRole("list", { name: "에이전트 현황" });
+      await waitFor(() =>
+        expect(
+          within(glance).getAllByRole("listitem")[1]?.textContent,
+        ).toContain(`version ${second.version_no}`),
+      );
+      const latest = within(glance).getAllByRole("listitem")[1]?.textContent;
+      expect(latest).toContain(`${label} 상태라 새 세션이`);
+      expect(latest).not.toContain("로 시작합니다");
+    });
+  }
+
   test("release만 만들고 켜지 않은 version은 배포하지 않았다고 하지 않는다", async () => {
     const server = agentServer();
     const path = `/v1/agents/${AGENT_ID}`;

@@ -79,20 +79,20 @@ export function AgentGlance({ detail }: { readonly detail: AgentDetail }) {
         note={
           latest
             ? `${formatTimestamp(latest.created_at, locale)} · ${
-                active && latest.id !== active.id
-                  ? t("agent.overview.newerVersion", {
-                      latest: latest.version_no,
-                      active: active.version_no,
-                    })
-                  : !active
-                    ? releasedVersion(detail, latest)
-                      ? t("agent.glance.latestReleased")
-                      : t("agent.glance.latestDraft")
-                    : agent.status === "active"
-                      ? t("agent.overview.upToDate")
-                      : t("agent.ready.notRunnable", {
-                          status: t(`agents.status.${agent.status}`),
+                !active
+                  ? releasedVersion(detail, latest)
+                    ? t("agent.glance.latestReleased")
+                    : t("agent.glance.latestDraft")
+                  : agent.status !== "active"
+                    ? t("agent.ready.notRunnable", {
+                        status: t(`agents.status.${agent.status}`),
+                      })
+                    : latest.id !== active.id
+                      ? t("agent.overview.newerVersion", {
+                          latest: latest.version_no,
+                          active: active.version_no,
                         })
+                      : t("agent.overview.upToDate")
               }`
             : t("agent.noActive")
         }
