@@ -168,7 +168,7 @@ integration("sessions.repository_mode", () => {
     expect(await db.select({ id: sessions.id }).from(sessions)).toHaveLength(2);
   });
 
-  test('accepting a session is still unsupported both for "none" and for a refused pair', async () => {
+  test('"none" is accepted as a session without a repository, a refused pair is not', async () => {
     await migrate(db, { migrationsFolder: MIGRATIONS });
     const inputs = createPostgresSessionUnitOfWork(db);
     const accept = (repository: AcceptSessionInput["repository"]) =>
@@ -182,9 +182,26 @@ integration("sessions.repository_mode", () => {
         limits: LIMITS,
       });
 
-    expect(await accept("none")).toEqual({ outcome: "unsupported" });
     expect(await accept(null)).toEqual({ outcome: "unsupported" });
     expect(await db.select().from(sessions)).toEqual([]);
+
+    const without = await accept("none");
+    if (without.outcome !== "accepted") throw new Error(without.outcome);
+    const [none] = await db
+      .select({
+        repositoryMode: sessions.repositoryMode,
+        repositoryId: sessions.repositoryId,
+        repoUrl: sessions.repoUrl,
+        branch: sessions.branch,
+      })
+      .from(sessions)
+      .where(eq(sessions.id, without.response.session_id));
+    expect(none).toEqual({
+      repositoryMode: "none",
+      repositoryId: null,
+      repoUrl: null,
+      branch: null,
+    });
 
     const accepted = await accept({
       id: "repo-a",

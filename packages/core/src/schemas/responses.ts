@@ -38,6 +38,7 @@ import {
   listPendingRequestsResponseSchema,
   listProfilesResponseSchema,
   listPushRequestsResponseSchema,
+  listSessionOutputsResponseSchema,
   listSessionsResponseSchema,
   listTakeoversResponseSchema,
   listTeamsResponseSchema,
@@ -107,6 +108,7 @@ export const responseSchemas = {
   "POST /v1/admin/sessions/{id}/recovery-decisions":
     receiptAcceptedResponseSchema,
   "GET /v1/sessions/{id}/usage": sessionUsageResponseSchema,
+  "GET /v1/sessions/{id}/outputs": listSessionOutputsResponseSchema,
   "POST /v1/sessions/{id}/messages": postSessionMessageResponseSchema,
   "GET /v1/sessions/{id}/turns": listTurnsResponseSchema,
   "GET /v1/sessions/{id}/turns/{turn_id}": getTurnResponseSchema,

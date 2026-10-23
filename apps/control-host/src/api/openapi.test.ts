@@ -335,6 +335,8 @@ describe("OpenAPI document", () => {
         "/v1/sessions/{id}/events",
         "/v1/sessions/{id}/interrupt",
         "/v1/sessions/{id}/messages",
+        "/v1/sessions/{id}/outputs",
+        "/v1/sessions/{id}/outputs/{path}",
         "/v1/sessions/{id}/pause",
         "/v1/sessions/{id}/pending-requests",
         "/v1/sessions/{id}/profile",
@@ -620,7 +622,7 @@ describe("OpenAPI document", () => {
         parsed += 1;
       }
       const success = route.success;
-      if (success.status !== 204 && success.example !== undefined) {
+      if ("schema" in success && success.example !== undefined) {
         OPENAPI_COMPONENT_SCHEMAS[success.schema].parse(success.example);
         parsed += 1;
       }
@@ -633,7 +635,7 @@ describe("OpenAPI document", () => {
       Boolean(route.description) &&
       (route.body === undefined || route.requestExample !== undefined) &&
       Boolean(route.success.description) &&
-      (route.success.status === 204 || route.success.example !== undefined);
+      (!("schema" in route.success) || route.success.example !== undefined);
     const incomplete = ROUTES.filter(
       (route) => route.path.startsWith("/v1") && !complete(route),
     ).map((route) => route.operationId);
@@ -659,5 +661,24 @@ describe("OpenAPI document", () => {
       "workspace_id",
     ]);
     expect(receipt.required).not.toContain("actor");
+  });
+
+  test("a session's repository_id is optional, and when it is refused is documented", () => {
+    const request = buildOpenApiDocument().components.schemas
+      .CreateSessionRequest as {
+      required: string[];
+      properties: Record<string, { description?: string }>;
+    };
+    expect(request.required).not.toContain("repository_id");
+    expect(request.properties.repository_id?.description).toContain(
+      "`repository_mode`",
+    );
+    const create = JSON.stringify(operation("post", "/v1/sessions"));
+    expect(create).toContain(
+      "Profile <id> needs a repository: send repository_id",
+    );
+    expect(create).toContain(
+      "Profile <id> runs without a repository: omit repository_id",
+    );
   });
 });

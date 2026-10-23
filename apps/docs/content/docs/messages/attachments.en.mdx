@@ -4,7 +4,7 @@ description: The current state of attaching files to a message
 ---
 
 <Callout type="warn">
-Attaching files to a message is not available yet. A message body is a single UTF-8 text of up to 32,768 bytes.
+Attaching files to a message is not available yet. A message body is a single UTF-8 text string of up to 32,768 bytes.
 </Callout>
 
 The only required field of `POST /v1/sessions/{id}/messages` is the text `message`. There is no field to carry a file. If the length is exceeded, the response is 413.

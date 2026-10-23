@@ -1215,6 +1215,137 @@ describe("outputs", () => {
   });
 });
 
+describe("reading outputs", () => {
+  const tooLarge: CheckpointOutput = {
+    bytes: 70_000_000,
+    omitted: "too_large",
+    path: "out/video.mp4",
+  };
+
+  async function commitReport(body = "# report\n") {
+    const part = await upload(`${prefix}mirror/part-0.jsonl`, encode("a\n"));
+    const bytes = encode(body);
+    const report = {
+      ...(await upload(
+        `${attemptDirectory(0)}outputs/${sha256(bytes)}`,
+        bytes,
+      )),
+      path: "out/report.md",
+    };
+    const { checkpoint } = await publish(0, [part], (manifest) => ({
+      ...manifest,
+      outputs: [report, tooLarge],
+    }));
+    expect(await finalize(checkpoint)).toMatchObject({ outcome: "committed" });
+    return { checkpoint, report };
+  }
+
+  async function drain(body: AsyncIterable<Uint8Array>): Promise<string> {
+    let text = "";
+    const decoder = new TextDecoder();
+    for await (const chunk of body) text += decoder.decode(chunk);
+    return text;
+  }
+
+  test("a session without a committed checkpoint has none", async () => {
+    expect(await service.readOutputs(sessionId)).toEqual({ status: "none" });
+    expect(await service.openOutput(sessionId, "out/report.md")).toEqual({
+      status: "missing",
+    });
+  });
+
+  test("lists the pointer's stored and omitted outputs", async () => {
+    const { report } = await commitReport();
+    expect(await service.readOutputs(sessionId)).toEqual({
+      status: "ready",
+      revision: 0,
+      outputs: [report, tooLarge],
+    });
+  });
+
+  test("streams a listed output by the version the checkpoint pinned", async () => {
+    const { report } = await commitReport();
+    // An overwrite after the commit changes what the key reads, not the version.
+    await objects.put(report.key, encode("# swapped\n"));
+
+    const opened = await service.openOutput(sessionId, "out/report.md");
+    expect(opened).toMatchObject({ status: "ready", output: report });
+    if (opened.status !== "ready") return;
+    expect(await drain(opened.body)).toBe("# report\n");
+  });
+
+  test.each([
+    ["omitted", "out/video.mp4"],
+    ["not listed", "out/other.md"],
+    ["a climbing spelling of a listed path", "out/../out/report.md"],
+    ["the storage key", "outputs/report.md"],
+  ])("a path %s is missing", async (_, path) => {
+    await commitReport();
+    expect(await service.openOutput(sessionId, path)).toEqual({
+      status: "missing",
+    });
+  });
+
+  test("a manifest that no longer matches the pointer is unavailable", async () => {
+    const { checkpoint } = await commitReport();
+    objects.remove(checkpoint.manifest_ref);
+    const unversioned = createCheckpointService({
+      codecs: { [runtime.engine]: codec },
+      objectProtection: "unversioned",
+      objects,
+      store: checkpoints.store,
+      workspaceBundles: structuralBundleVerifier,
+    });
+
+    expect(await unversioned.readOutputs(sessionId)).toMatchObject({
+      status: "unavailable",
+      reason: expect.stringMatching(/revision 0 is missing, damaged/),
+    });
+    expect(
+      await unversioned.openOutput(sessionId, "out/report.md"),
+    ).toMatchObject({ status: "unavailable" });
+  });
+
+  test("an unversioned key overwritten with other bytes ends the stream with an error before its last chunk", async () => {
+    const { report } = await commitReport();
+    const unversioned = createCheckpointService({
+      codecs: { [runtime.engine]: codec },
+      objectProtection: "unversioned",
+      objects,
+      store: checkpoints.store,
+      workspaceBundles: structuralBundleVerifier,
+    });
+    // Same length, so only the digest can tell.
+    await objects.put(report.key, encode("# Report\n"));
+
+    const opened = await unversioned.openOutput(sessionId, "out/report.md");
+    expect(opened.status).toBe("ready");
+    if (opened.status !== "ready") return;
+    const received: Uint8Array[] = [];
+    const reading = (async () => {
+      for await (const chunk of opened.body) received.push(chunk);
+    })();
+    await expect(reading).rejects.toThrow(/hashing to [0-9a-f]{64}, not/);
+    expect(received).toEqual([]);
+  });
+
+  test("an unversioned key gone after the commit is unavailable", async () => {
+    const { report } = await commitReport();
+    objects.remove(report.key);
+    const unversioned = createCheckpointService({
+      codecs: { [runtime.engine]: codec },
+      objectProtection: "unversioned",
+      objects,
+      store: checkpoints.store,
+      workspaceBundles: structuralBundleVerifier,
+    });
+    expect(await unversioned.openOutput(sessionId, "out/report.md")).toEqual({
+      status: "unavailable",
+      reason: `output ${report.key} is not stored`,
+    });
+  });
+});
+
 function encode(value: string): Uint8Array {
   return new TextEncoder().encode(value);
 }

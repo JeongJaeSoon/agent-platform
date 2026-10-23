@@ -219,19 +219,20 @@ async function plans(
     store: createPostgresCheckpointStore(drizzle(pool, { schema })),
   });
   const { rows: pointers } = await pool.query<{
-    branch: string;
+    branch: string | null;
     id: string;
     manifest_ref: string | null;
     manifest_version: string | null;
     owner_id: string;
     profile_fingerprint: string | null;
     profile_id: string | null;
-    repo_url: string;
+    repo_url: string | null;
     repository_id: string | null;
+    repository_mode: "repository" | "none";
     revision: number;
   }>(
     `SELECT s.id, s.checkpoint_revision AS revision, c.manifest_ref, c.manifest_version,
-            s.owner_id, s.profile_id, s.profile_fingerprint, s.repository_id, s.repo_url, s.branch
+            s.owner_id, s.profile_id, s.profile_fingerprint, s.repository_id, s.repository_mode, s.repo_url, s.branch
      FROM sessions s LEFT JOIN checkpoints c
        ON c.session_id = s.id AND c.revision = s.checkpoint_revision
      WHERE s.checkpoint_revision IS NOT NULL ORDER BY s.id`,
@@ -274,6 +275,7 @@ async function plans(
             profileId: pointer.profile_id,
             repoUrl: pointer.repo_url,
             repositoryId: pointer.repository_id,
+            repositoryMode: pointer.repository_mode,
           },
           catalog,
         );
@@ -283,7 +285,11 @@ async function plans(
     }
     for (const pointer of pointers) {
       const made = earlierProfileClaims(
-        { id: pointer.id, ownerId: pointer.owner_id },
+        {
+          id: pointer.id,
+          ownerId: pointer.owner_id,
+          repositoryMode: pointer.repository_mode,
+        },
         earlier
           .filter((row) => row.session_id === pointer.id)
           .map((row) => ({

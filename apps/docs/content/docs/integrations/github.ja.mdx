@@ -11,10 +11,10 @@ GitHub との間でやることは三つある。セッション開始時にリ�
 
 | 方式 | 必要な権限 |
 | --- | --- |
-| GitHub App(既定) | Repository permissions: Contents Read and write, Pull requests Read and write |
+| GitHub App(デフォルト) | Repository permissions: Contents Read and write, Pull requests Read and write |
 | fine-grained PAT | 同じ二つの権限 |
 
-`Workflows` 権限は与えない。push される commit はエージェントが書いたものなので、この権限があるとエージェントが書き換えた `.github/workflows/` のファイルも push され、CI で実行される。既定ブランチはリポジトリの ruleset でも保護しておく。設定方法は運用ドキュメントにある。
+`Workflows` 権限は与えない。push される commit はエージェントが書いたものなので、この権限があるとエージェントが書き換えた `.github/workflows/` のファイルも push され、CI で実行される。デフォルトブランチはリポジトリの ruleset でも保護しておく。設定方法は運用ドキュメントにある。
 
 ## ユーザーがやること
 
@@ -33,7 +33,7 @@ curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/pull-request" \
 
 head は `agent/<session-id>`、base はカタログに書いたブランチである。リクエスト一つにつき PR は一つである。そのブランチの PR がすでに開いている場合は、新しく開かずにその PR を返す(`created: false`)。プラットフォームは PR を承認・マージせず、レビュアーやラベルも決めない。
 
-4. コメントを付ける。同じ `marker`(既定は `status`)のコメントがすでにある場合は、新しく付けずにそのコメントを書き換える。
+4. コメントを付ける。同じ `marker`(デフォルトは `status`)のコメントがすでにある場合は、新しく付けずにそのコメントを書き換える。
 
 ```sh
 curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/pull-request/comments" \
