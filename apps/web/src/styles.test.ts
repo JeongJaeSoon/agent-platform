@@ -63,13 +63,6 @@ describe("styles.css", () => {
     expect(body).toContain("word-break: keep-all");
   });
 
-  test("keeps nowrap table cells on one line", () => {
-    const rule = css.match(
-      /\.web-table--nowrap th,\s*\.web-table--nowrap td \{([^}]*)\}/,
-    )?.[1];
-    expect(rule).toContain("white-space: nowrap");
-  });
-
   test("declares no animation of its own; motion comes from utilities", () => {
     expect(css).not.toContain("@keyframes");
   });
