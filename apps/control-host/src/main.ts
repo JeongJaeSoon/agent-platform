@@ -1,10 +1,10 @@
 // The control host's one executable
 //
 //   bun run src/main.ts api
-//   bun run src/main.ts <scheduler|reconciler> [--once|--health]
+//   bun run src/main.ts <scheduler|reconciler|slack> [--once|--health]
 //
 // The role is named, never defaulted, so a container runs what its command
-// says. `scheduler` and `reconciler` alone are services: a supervised loop
+// says. `scheduler`, `reconciler` and `slack` are services: a supervised loop
 // running one pass per child (pass-loop/). `--once` is that one pass, and
 // `--health` judges the status file the loop writes. Each role module is
 // imported only when chosen: a process reads and validates only its own
@@ -13,13 +13,13 @@ import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { PassLoopRoleName } from "./pass-loop/loop.ts";
 
-const ROLES = ["api", "scheduler", "reconciler"] as const;
+const ROLES = ["api", "scheduler", "reconciler", "slack"] as const;
 const MODES = ["--once", "--health"] as const;
 type Role = (typeof ROLES)[number];
 type Mode = (typeof MODES)[number] | undefined;
 
 const USAGE =
-  "usage: bun run src/main.ts api | <scheduler|reconciler> [--once|--health]";
+  "usage: bun run src/main.ts api | <scheduler|reconciler|slack> [--once|--health]";
 
 function parse(args: readonly string[]): { role: Role; mode: Mode } | string {
   const [role, mode, ...rest] = args;
@@ -67,6 +67,13 @@ async function runOnce(role: PassLoopRoleName): Promise<number> {
     await main();
     return 0;
   }
+  if (role === "slack") {
+    // No SIGTERM handler either: an event claimed by a pass that ends early
+    // is claimed again once its lease runs out.
+    const { main } = await import("./slack/main.ts");
+    await main();
+    return 0;
+  }
   const { exitCodeFor, main } = await import("./scheduler/main.ts");
   // A signal stops the pass at its next safe point, the checks it makes for
   // a lost pass lock, so no reservation starts after it; a second one is
@@ -105,6 +112,9 @@ async function supervise(role: PassLoopRoleName): Promise<number> {
     const marker = `${config.statusFile}.quota-verified`;
     await rm(marker, { force: true });
     passEnv = { [QUOTA_PREFLIGHT_MARKER_ENV]: marker };
+  } else if (role === "slack") {
+    const { slackRoleStartup } = await import("./slack/main.ts");
+    await slackRoleStartup(process.env);
   } else {
     const { reconcilerDatabaseUrl } = await import("./reconciler/main.ts");
     const { reconcilerSettings } = await import("./reconciler/reconcile.ts");
@@ -121,7 +131,11 @@ async function supervise(role: PassLoopRoleName): Promise<number> {
       shutdown.abort();
     });
   }
-  const name = role === "scheduler" ? "Scheduler" : "Reconciler";
+  const name = {
+    scheduler: "Scheduler",
+    reconciler: "Reconciler",
+    slack: "Slack",
+  }[role];
   logger.info(`${name} loop started`, {
     interval_ms: config.intervalMs,
     kill_grace_ms: config.killGraceMs,

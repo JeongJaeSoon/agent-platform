@@ -41,7 +41,7 @@ describe("control host executable", () => {
         const { exitCode, stderr } = await run(args);
         expect(exitCode, args.join(" ")).toBe(2);
         expect(stderr).toContain(
-          "usage: bun run src/main.ts api | <scheduler|reconciler> [--once|--health]",
+          "usage: bun run src/main.ts api | <scheduler|reconciler|slack> [--once|--health]",
         );
       }
     },
@@ -62,6 +62,8 @@ describe("control host executable", () => {
         ["reconciler", "--once"],
         ["scheduler"],
         ["scheduler", "--once"],
+        ["slack"],
+        ["slack", "--once"],
       ]) {
         const { exitCode, stderr } = await run(args);
         expect(exitCode, args.join(" ")).not.toBe(0);
