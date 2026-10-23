@@ -15,10 +15,17 @@ import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { holdsRight, lockedRole } from "./api-keys.ts";
 import { DB_NOW } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
-import { agentReleases, agents, agentVersions, slackApps } from "./schema.ts";
+import {
+  agentReleases,
+  agents,
+  agentVersions,
+  slackApps,
+  workspaces,
+} from "./schema.ts";
 import {
   deleteSecretInTx,
   describeSecret,
+  readSecretInTx,
   writeSecretInTx,
 } from "./secret-values.ts";
 
@@ -227,6 +234,71 @@ export function createPostgresSlackAppStore(
       });
     },
 
+    beginLinkApp(input) {
+      const workspaceId = input.workspaceId.toLowerCase();
+      if (!UUID.test(workspaceId)) {
+        return Promise.resolve({ outcome: "workspace_not_found" as const });
+      }
+      return db.transaction(async (tx) => {
+        // Starts and the operator's CLI queue here, so two never both find
+        // no link app and both begin one.
+        const [workspace] = await tx
+          .select({ name: workspaces.name })
+          .from(workspaces)
+          .where(eq(workspaces.id, workspaceId))
+          .for("no key update");
+        if (!workspace) return { outcome: "workspace_not_found" as const };
+        const refused = await actorRefusal(tx, workspaceId, null, input.actor);
+        if (refused) return { outcome: refused };
+        const [live] = await tx
+          .select()
+          .from(slackApps)
+          .where(
+            and(
+              eq(slackApps.workspaceId, workspaceId),
+              eq(slackApps.kind, "link"),
+              inArray(slackApps.state, [...LIVE_STATES]),
+            ),
+          )
+          .for("update");
+        if (live && live.state !== "creating") {
+          return { outcome: "exists" as const, app: await recordOf(tx, live) };
+        }
+        if (live) {
+          const uncertain = live.createdAt < input.staleBefore;
+          if (!(uncertain && input.replaceUncertain)) {
+            return {
+              outcome: "creating" as const,
+              app: await recordOf(tx, live),
+              uncertain,
+            };
+          }
+          await tx
+            .update(slackApps)
+            .set({ state: "abandoned", updatedAt: DB_NOW })
+            .where(eq(slackApps.id, live.id));
+        }
+        const [row] = await tx
+          .insert(slackApps)
+          .values({
+            id: input.newId,
+            workspaceId,
+            kind: "link",
+            agentId: null,
+            state: "creating",
+            redirectUrl: input.redirectUrl,
+            createdBy: input.actor?.principal.actor?.userId ?? null,
+          })
+          .returning();
+        if (!row) throw new Error("slack_apps insert returned no row");
+        return {
+          outcome: "begun" as const,
+          app: await recordOf(tx, row),
+          workspaceName: workspace.name,
+        };
+      });
+    },
+
     finishCreate(input) {
       const workspaceId = input.workspaceId.toLowerCase();
       return db.transaction(async (tx) => {
@@ -336,6 +408,31 @@ export function createPostgresSlackAppStore(
           ),
         );
       return row ? recordOf(db, row) : null;
+    },
+
+    linkAppClient(workspaceId) {
+      if (!UUID.test(workspaceId)) return Promise.resolve(null);
+      return db.transaction(async (tx) => {
+        const [row] = await tx
+          .select()
+          .from(slackApps)
+          .where(
+            and(
+              eq(slackApps.workspaceId, workspaceId.toLowerCase()),
+              eq(slackApps.kind, "link"),
+              eq(slackApps.state, "created"),
+            ),
+          );
+        if (!row) return null;
+        const clientSecret = await readSecretInTx(
+          tx,
+          key,
+          secretSlot(row, "slack_client_secret"),
+        );
+        return clientSecret === null
+          ? null
+          : { app: await recordOf(tx, row), clientSecret };
+      });
     },
 
     async lastTokenUser(workspaceId) {

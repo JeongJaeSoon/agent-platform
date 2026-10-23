@@ -64,6 +64,9 @@ export const API_ERROR_CODE_VALUES = [
   "SLACK_INSTALL_DENIED",
   "SLACK_INSTALL_REJECTED",
   "SLACK_INSTALL_CONFLICT",
+  // Linking a Slack account: the workspace has no link app, no usable
+  // config token to make one with, and no hand-made OIDC app to fall back on.
+  "SLACK_LINK_NOT_CONFIGURED",
   // An invite that was revoked, replaced by a newer one, or has expired.
   "INVITE_EXPIRED",
   "INVITE_USED",

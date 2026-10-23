@@ -218,7 +218,7 @@ export const ERROR_CODE_WHEN: Partial<Record<ApiErrorCode, When>> = {
   CONFIG_TOKEN_INVALID:
     "The workspace's Slack App Configuration Token cannot be used. `error.details.reason_code` is `not_set` (none stored), `rejected` (Slack refused it; paste another) or `needs_reentry` (Slack no longer takes the stored token, or a rotation's answer was lost; an owner or admin pastes a new one).",
   SLACK_APP_CREATING:
-    "The agent's Slack app is still being created. `error.details.uncertain: true` means Slack's answer was lost: check api.slack.com/apps for an app made at that time, delete it, then retry with `replace_uncertain: true`.",
+    "The Slack app (the agent's, or the workspace's link app) is still being created. `error.details.uncertain: true` means Slack's answer was lost: check api.slack.com/apps for an app made at that time, delete it, then retry with `replace_uncertain: true`.",
   AGENT_NOT_ACTIVE: "The agent has no active release; activate one first.",
   SLACK_INSTALL_STATE_INVALID:
     "The install link's state cannot be used: `error.details.reason_code` is `not_found` (unknown or already spent), `expired`, or `workspace`, `actor`, `agent` or `app` (issued to another workspace, person or agent, or for an app the agent no longer has). Start the install again.",
@@ -228,6 +228,8 @@ export const ERROR_CODE_WHEN: Partial<Record<ApiErrorCode, When>> = {
     "Slack's answer was not stored: `error.details.reason_code` is `app` or `team` (another app or Slack team than expected), `enterprise` (an org-wide install), `scope` (`error.details.missing_scopes` lists the bot scopes not granted) or `slack_error` (Slack refused; `error.details.slack_error`).",
   SLACK_INSTALL_CONFLICT:
     "This Slack app is already installed in that Slack team for another workspace.",
+  SLACK_LINK_NOT_CONFIGURED:
+    "Slack account linking cannot start: the workspace has no link app, nothing to make one with (no usable App Configuration Token, or the API runs without its master key) and no fallback OIDC app. `error.details.reason_code` is `config_token`, `store_off` or `no_console`. Ask an owner or admin to set up the Slack connection.",
 };
 
 function when(

@@ -251,6 +251,8 @@ export function createMemoryConfigTokenStore(secrets: MemorySecrets) {
 export function createMemorySlackAppStore(input: {
   secrets: MemorySecrets;
   agents: Map<string, SlackAppAgent & { workspaceId: string; active: boolean }>;
+  /** Workspace names by id, for link apps. */
+  workspaces?: Map<string, string>;
   now?: () => Date;
 }) {
   const clock = input.now ?? (() => new Date());
@@ -323,6 +325,44 @@ export function createMemorySlackAppStore(input: {
       rows.set(row.id, row);
       return { outcome: "begun", app: record(row), agent };
     },
+    async beginLinkApp(begin) {
+      const workspaceName = input.workspaces?.get(begin.workspaceId);
+      if (workspaceName === undefined) {
+        return { outcome: "workspace_not_found" };
+      }
+      const existing = [...rows.values()].find(
+        (row) =>
+          row.workspaceId === begin.workspaceId &&
+          row.kind === "link" &&
+          LIVE.has(row.state),
+      );
+      if (existing?.state === "created" || existing?.state === "deleting") {
+        return { outcome: "exists", app: record(existing) };
+      }
+      if (existing?.state === "creating") {
+        const uncertain = existing.createdAt < begin.staleBefore;
+        if (!(uncertain && begin.replaceUncertain)) {
+          return { outcome: "creating", app: record(existing), uncertain };
+        }
+        touch(existing, { state: "abandoned" });
+      }
+      const now = clock();
+      const row = {
+        id: begin.newId,
+        workspaceId: begin.workspaceId,
+        kind: "link" as const,
+        agentId: null,
+        state: "creating" as const,
+        appId: null,
+        clientId: null,
+        redirectUrl: begin.redirectUrl,
+        createdByTokenUser: null,
+        createdAt: now,
+        updatedAt: now,
+      };
+      rows.set(row.id, row);
+      return { outcome: "begun", app: record(row), workspaceName };
+    },
     async finishCreate(finish) {
       if (faults.finishCreate > 0) {
         faults.finishCreate -= 1;
@@ -366,6 +406,22 @@ export function createMemorySlackAppStore(input: {
     async findForAgent(workspaceId, agentId) {
       const row = live(workspaceId, agentId);
       return row ? record(row) : null;
+    },
+    async linkAppClient(workspaceId) {
+      const row = [...rows.values()].find(
+        (candidate) =>
+          candidate.workspaceId === workspaceId &&
+          candidate.kind === "link" &&
+          candidate.state === "created",
+      );
+      const clientSecret = row
+        ? input.secrets.values.get(
+            input.secrets.slotKey(slot(row, "slack_client_secret")),
+          )?.value
+        : undefined;
+      return row && clientSecret !== undefined
+        ? { app: record(row), clientSecret }
+        : null;
     },
     async lastTokenUser(workspaceId) {
       const made = [...rows.values()]
