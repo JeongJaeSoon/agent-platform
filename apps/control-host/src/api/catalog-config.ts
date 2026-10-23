@@ -8,13 +8,16 @@ import {
   CatalogCredentialError,
   type CredentialRef,
   catalogCredentialRefs,
+  credentialRefOf,
   describeConfigError,
   resolveSessionCatalog,
+  SecretKey,
   type SessionCatalog,
   type SessionCatalogConfig,
   sessionCatalogConfigSchema,
 } from "@werft-ai/platform";
 import { parse as parseYaml } from "yaml";
+import { z } from "zod";
 
 // The operator's catalog: two YAML files in one directory, read
 // once at startup. Anything wrong — a missing file, a schema error, a
@@ -29,6 +32,8 @@ export const DEFAULT_CONFIG_DIR = resolve(
 export const PROFILES_FILE = "profiles.yaml";
 export const REPOSITORIES_FILE = "repositories.yaml";
 export const ALLOW_UNATTENDED_SETTING = "PLATFORM_ALLOW_UNATTENDED_PERMISSIONS";
+export const PLATFORM_FILE = "platform.yaml";
+export const SECRET_KEY_SETTING = "PLATFORM_SECRET_KEY";
 // One bounded read per secret at startup; the API does not start without
 // them, so a hung endpoint must fail the boot rather than hold it.
 const SECRET_READ_TIMEOUT_MS = 10_000;
@@ -157,6 +162,70 @@ export async function loadSessionCatalog(options: {
     "value_env" in ref
       ? options.env[ref.value_env]
       : secrets.get(ref.secret_id),
+  );
+}
+
+const platformConfigSchema = z
+  .object({
+    secret_key: z
+      .object({
+        value_env: z.string().min(1).optional(),
+        secret_id: z.string().min(1).optional(),
+      })
+      .strict()
+      .refine(
+        (ref) =>
+          (ref.value_env === undefined) !== (ref.secret_id === undefined),
+        { message: "name exactly one of value_env or secret_id" },
+      ),
+  })
+  .strict();
+
+/**
+ * The master key runtime secrets are encrypted under, or null when the
+ * store is off. With `platform.yaml` in the catalog its `secret_key`
+ * reference must resolve; without it, PLATFORM_SECRET_KEY is read if set.
+ * Either way a value that is not 64 hex characters stops the API, and no
+ * message carries the value.
+ */
+export async function loadSecretKey(options: {
+  dir: string;
+  env: Record<string, string | undefined>;
+  readSecret: SecretReader;
+}): Promise<SecretKey | null> {
+  const path = resolve(options.dir, PLATFORM_FILE);
+  if (!(await Bun.file(path).exists())) {
+    const value = options.env[SECRET_KEY_SETTING];
+    // Compose passes an unset variable through as empty.
+    if (value === undefined || value === "") return null;
+    return SecretKey.fromHex(value, SECRET_KEY_SETTING);
+  }
+  const parsed = platformConfigSchema.safeParse(
+    section(await readYaml(path), "platform", path),
+  );
+  if (!parsed.success) {
+    throw new Error(`${path} is invalid: ${describeConfigError(parsed.error)}`);
+  }
+  const at = "platform.secret_key";
+  const ref = credentialRefOf(parsed.data.secret_key);
+  let value: string | undefined;
+  if ("value_env" in ref) {
+    value = options.env[ref.value_env];
+  } else {
+    try {
+      value = await options.readSecret(ref.secret_id);
+    } catch (error) {
+      throw new CatalogCredentialError(
+        at,
+        ref,
+        `could not be read (${error instanceof Error ? error.name : "error"})`,
+      );
+    }
+  }
+  if (!value) throw new CatalogCredentialError(at, ref);
+  return SecretKey.fromHex(
+    value,
+    `${at} (${"value_env" in ref ? ref.value_env : ref.secret_id})`,
   );
 }
 

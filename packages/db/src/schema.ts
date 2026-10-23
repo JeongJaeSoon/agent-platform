@@ -399,6 +399,45 @@ export const slackInstallations = pgTable(
   ],
 );
 
+// Runtime secrets (Slack config token, app secrets), AES-256-GCM under the
+// API's master key.
+export const secretValues = pgTable(
+  "secret_values",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    ownerRef: text("owner_ref").notNull(),
+    purpose: text().notNull(),
+    secretVersion: integer("secret_version").notNull(),
+    keyVersion: integer("key_version").notNull(),
+    nonce: bytea().notNull(),
+    ciphertext: bytea().notNull(),
+    last4: text().notNull(),
+    /** No foreign key: the row outlives the account; null for a server write. */
+    updatedBy: uuid("updated_by"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    unique("secret_values_slot_uniq").on(
+      table.workspaceId,
+      table.ownerRef,
+      table.purpose,
+    ),
+    check(
+      "secret_values_versions_check",
+      sql`${table.secretVersion} > 0 AND ${table.keyVersion} > 0`,
+    ),
+    check("secret_values_last4_check", sql`length(${table.last4}) = 4`),
+  ],
+);
+
 // A person's account on another service (design A.2): today a Slack user,
 // linked through Sign in with Slack. Rows are revoked, never deleted, so the
 // receipts that name one keep their target; every status change bumps

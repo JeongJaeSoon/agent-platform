@@ -558,6 +558,62 @@ curl -s -b jar -X POST "http://127.0.0.1:3000/v1/agents/$AGENT_ID/identities" \
   -d '{"provider":"slack_bot","app_id":"A0APP","team_id":"T0TEAM","credential_ref":"slack/research-bot-token"}'
 ```
 
+### Slack 비밀값과 master key
+
+플랫폼이 Slack을 부를 때 쓰는 비밀값은 Postgres `secret_values`에 암호문으로만 둔다. App Configuration Token, 앱별 signing secret·client secret·bot token이 여기에 들어간다. 암호는 AES-256-GCM이고, 암호문은 `id|workspace_id|owner_ref|purpose|secret_version|key_version`에 묶인다. 그래서 다른 행, 다른 workspace, 다른 앱으로 옮긴 암호문은 복호화되지 않는다. 키(master key)는 API 프로세스만 갖는다.
+
+**master key**
+
+- 32바이트를 16진수 64자로 쓴다. `openssl rand -hex 32`로 만든다.
+- catalog 디렉터리(`PLATFORM_CONFIG_DIR`)에 `platform.yaml`이 있으면 그 참조를 읽는다. 다른 catalog 자격 증명처럼 `value_env`와 `secret_id` 중 하나만 쓴다.
+
+  ```yaml
+  platform:
+    secret_key:
+      secret_id: agent-platform/secret-key   # 또는 value_env: PLATFORM_SECRET_KEY
+  ```
+
+- `platform.yaml`이 없으면 `PLATFORM_SECRET_KEY` 환경 변수를 읽는다. 비어 있으면 저장소를 끈다. 이때 기동 로그에 `Secret store is off` 경고가 남고, 아래 API는 `503`으로 답한다.
+- 64 hex가 아니면 API가 뜨지 않는다. `platform.yaml`이 있는데 값을 읽지 못해도 뜨지 않는다. 오류에는 변수 이름이나 secret id만 나오고 값은 나오지 않는다.
+- compose는 이 키를 `api`에만 넘긴다. Helm도 api Deployment에만 Secret의 `PLATFORM_SECRET_KEY`를 optional로 넘긴다. scheduler와 worker는 받지 않는다(`deploy/helm/render-check.ts`가 검사한다).
+- 키를 잃으면 저장된 값을 읽을 수 없다. 새 키로 띄운 뒤 config token을 다시 넣고, 자동 생성한 앱은 다시 만든다. 키 회전 도구는 아직 없고 `key_version`은 1이다.
+
+로컬 스택에서는 키를 macOS Keychain에 두고 기동할 때마다 꺼낸다. 처음 한 번만 1–3을 한다.
+
+1. `openssl rand -hex 32 | pbcopy`
+2. `security add-generic-password -a "$USER" -s agent-platform-secret-key -w`를 실행하고 프롬프트에 붙여 넣는다.
+3. `pbcopy </dev/null`로 클립보드를 비운다.
+4. 기동할 때마다 `PLATFORM_SECRET_KEY`를 Keychain 항목 `agent-platform-secret-key`에서 export한 뒤 `scripts/local.sh up`을 실행한다.
+
+   ```bash
+   export PLATFORM_SECRET_KEY="$(security find-generic-password -a "$USER" -s agent-platform-secret-key -w)"
+   scripts/local.sh up
+   ```
+
+**App Configuration Token API**
+
+owner·admin이 콘솔 세션(cookie)으로만 쓴다. 값은 돌려주지 않는다.
+
+| 요청 | 하는 일 |
+|---|---|
+| `GET /v1/workspaces/{id}/slack/config-token` | `{configured, last4, updated_at, updated_by}`. 값은 없다 |
+| `PUT /v1/workspaces/{id}/slack/config-token` `{"value":"…"}` | 저장하거나 교체한다. 교체하면 같은 행의 `secret_version`이 오른다. 응답은 GET과 같은 요약과 `receipt_id` |
+| `DELETE /v1/workspaces/{id}/slack/config-token` | 지운다. 설정된 값이 없으면 `404` |
+
+- 쓰기에는 `X-Requested-With` 헤더가 필요하다. 없거나 다른 사이트에서 온 요청은 `403`이다(`csrfViolation`).
+- member는 `403`이다. API key는 역할과 관계없이 `403`이다(`reason_code: web_session_required` 또는 `role`). 다른 workspace의 경로는 `404`다.
+- `value`는 공백 없는 출력 가능 ASCII 8–4096자다. 어긋나면 `400 Request body is invalid`이고, 응답에도 로그에도 값은 남지 않는다.
+- 저장·교체는 `set_slack_secret`, 삭제는 `delete_slack_secret` receipt를 남긴다. `result`는 `{purpose, last4}`뿐이다. 쓰는 transaction 안에서 쓰는 사람의 역할을 다시 읽는다.
+- 앱별 비밀값은 사람이 넣지 않는다. 플랫폼이 만든 앱의 signing secret·client secret·bot token은 서버가 Slack 응답에서 바로 저장하고, API로 덮어쓸 수 없다. signing secret을 아는 관리자는 서명된 가짜 이벤트를 보내 아무 member로 행세할 수 있기 때문이다. 손으로 만든 앱(kind `manual`)만 그 앱의 값을 넣는 경로가 열린다(앱 목록과 함께 다음 버전).
+
+값은 repo 밖 파일에 두고 셸에서 읽어 보낸다. 값이 명령 인자나 셸 기록에 남지 않게 한다.
+
+```bash
+printf '{"value":"%s"}' "$(cat ~/.config/agent-platform/slack-config-token)" |
+  curl -s -b jar -X PUT "http://127.0.0.1:3000/v1/workspaces/$WORKSPACE_ID/slack/config-token" \
+    -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' --data-binary @-
+```
+
 ### Slack 멘션·승인 판정과 guest 설정
 
 Slack 채널은 멘션·스레드 답글·승인 버튼마다 `authorizeSlackInput(deps, input)`(`@werft-ai/platform`) 하나를 부른다. 이 함수가 판정을 끝까지 한다: 에이전트 해석(`agentForSlackEvent`), 말하거나 누른 Slack 계정의 연결 해석(`resolveLinkedSubject`), `authorize`, 거절 안내 문구. 승인 버튼은 요청자가 아니라 **누른 사람**의 Slack user로 같은 함수를 부른다(`action: "session.approve"`).
