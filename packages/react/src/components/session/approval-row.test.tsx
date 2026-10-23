@@ -69,8 +69,11 @@ describe("ApprovalRow", () => {
         subject={<a href="#s">s-1…</a>}
       />,
     );
-    const text = view.getByText("Bash asks").parentElement as HTMLElement;
-    expect(text.textContent).toMatch(/^Bash asks·s-1…·expires .+input/);
+    // The title line reads as the card's does.
+    const title = view.getByText("Bash asks").parentElement as HTMLElement;
+    expect(title.textContent).toMatch(/^Bash asks·s-1…·expires [^·]+$/);
+    const text = title.parentElement as HTMLElement;
+    expect(text.contains(view.getByText("input"))).toBe(true);
     const buttons = view.getByRole("button", { name: ALLOW })
       .parentElement as HTMLElement;
     const line = buttons.parentElement as HTMLElement;

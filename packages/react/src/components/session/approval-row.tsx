@@ -101,44 +101,48 @@ export function ApprovalRow({
     >
       <div className="flex flex-wrap items-start justify-end gap-x-4 gap-y-2">
         {/* The line's text, at the buttons' height so the two read as one line. */}
-        <div className="flex min-w-0 flex-1 basis-60 flex-wrap items-center gap-x-2 leading-[var(--ap-control-height)]">
-          <Hourglass
-            className="size-4 shrink-0"
-            strokeWidth={1.5}
-            aria-hidden="true"
-          />
-          {/* Not a heading: the level depends on the screen around the row. */}
-          <p
-            id={titleId}
-            className="font-semibold text-body [overflow-wrap:anywhere]"
-          >
-            {messages.title(request.tool)}
-          </p>
-          {/* Each separator wraps with the item after it, never left trailing. */}
-          {subject === undefined ? null : (
-            <span className="flex min-w-0 items-center gap-2">
+        <div className="flex min-w-0 flex-1 basis-60 flex-wrap items-center gap-x-4 leading-[var(--ap-control-height)]">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2">
+            <Hourglass
+              className="size-4 shrink-0"
+              strokeWidth={1.5}
+              aria-hidden="true"
+            />
+            {/* Not a heading: the level depends on the screen around the row. */}
+            <p
+              id={titleId}
+              className="font-semibold text-body [overflow-wrap:anywhere]"
+            >
+              {messages.title(request.tool)}
+            </p>
+            {/* Each separator wraps with the item after it, never left trailing. */}
+            {subject === undefined ? null : (
+              <span className="flex min-w-0 items-center gap-2">
+                <span aria-hidden="true" className="text-muted-foreground">
+                  ·
+                </span>
+                <span className="min-w-0 text-caption [overflow-wrap:anywhere]">
+                  {subject}
+                </span>
+              </span>
+            )}
+            <span className="flex items-center gap-2">
               <span aria-hidden="true" className="text-muted-foreground">
                 ·
               </span>
-              <span className="min-w-0 text-caption [overflow-wrap:anywhere]">
-                {subject}
-              </span>
+              <p
+                ref={noticeRef}
+                tabIndex={expired ? -1 : undefined}
+                className="text-muted-foreground text-caption"
+              >
+                {expired
+                  ? messages.expired
+                  : messages.expires(
+                      formatTimestamp(request.expires_at, locale),
+                    )}
+              </p>
             </span>
-          )}
-          <span className="flex items-center gap-2">
-            <span aria-hidden="true" className="text-muted-foreground">
-              ·
-            </span>
-            <p
-              ref={noticeRef}
-              tabIndex={expired ? -1 : undefined}
-              className="text-muted-foreground text-caption"
-            >
-              {expired
-                ? messages.expired
-                : messages.expires(formatTimestamp(request.expires_at, locale))}
-            </p>
-          </span>
+          </div>
           {/* Opened, it takes the text's full width below the title. */}
           <details className="min-w-0 open:basis-full">
             <summary className="cursor-pointer text-muted-foreground text-caption">
