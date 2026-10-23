@@ -5,7 +5,7 @@ import type { Agent } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
 import {
   Badge,
-  type BadgeProps,
+  Button,
   buttonVariants,
   cn,
   EmptyState,
@@ -17,15 +17,28 @@ import {
   TableHead,
   TableHeader,
   TableRow,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
 } from "@werft-ai/ui";
-import { agentsQuery } from "../api/queries.ts";
+import { LayoutGrid, List } from "lucide-react";
+import { administeredAgentsQuery, agentsQuery } from "../api/queries.ts";
 import {
   permissionReason,
   ReasonButton,
   useHasPermission,
+  useMe,
   useRole,
 } from "../auth/guard.tsx";
 import { AdministeredAgents } from "../components/agent-admins.tsx";
+import { AgentCards } from "../components/agent-cards.tsx";
+import { AgentStateBadge } from "../components/agent-state.tsx";
+import {
+  AGENT_VIEWS,
+  type AgentView,
+  useAgentView,
+} from "../components/agent-view.ts";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { NewAgentFlow } from "../components/new-agent-flow.tsx";
 import { Page } from "../components/page.tsx";
@@ -65,7 +78,7 @@ export function agentRefusal(
 }
 
 export function AgentsScreen() {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   const { client } = useAgentPlatform();
   const navigate = useNavigate();
   const role = useRole();
@@ -110,63 +123,151 @@ export function AgentsScreen() {
       ) : agents.data.items.length === 0 ? (
         <EmptyState title={t("agents.empty")} />
       ) : (
-        <div className="@container overflow-hidden rounded-card border bg-card">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead scope="col">{t("agents.column.agent")}</TableHead>
-                <TableHead scope="col" className={cn(FIT, LAST_WHEN_NARROW)}>
-                  {t("agents.column.state")}
-                </TableHead>
-                <TableHead scope="col" className={cn(FIT, WIDE, "text-right")}>
-                  {t("agents.column.updated")}
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {agents.data.items.map((agent) => (
-                <TableRow key={agent.id}>
-                  <TableCell>
-                    <RowLines>
-                      <Link
-                        to="/agents/$id"
-                        params={{ id: agent.id }}
-                        className="font-medium text-primary underline-offset-2 hover:underline [overflow-wrap:anywhere]"
-                      >
-                        {agent.name}
-                      </Link>
-                      <span className="font-mono text-caption text-muted-foreground [overflow-wrap:anywhere]">
-                        <span className="sr-only">{t("agents.slug")} </span>
-                        {agent.slug}
-                      </span>
-                      <span className="text-caption text-muted-foreground @[480px]:hidden">
-                        {t("agents.updated", {
-                          at: formatTimestamp(agent.updated_at, locale),
-                        })}
-                      </span>
-                    </RowLines>
-                  </TableCell>
-                  <TableCell className={cn(FIT, LAST_WHEN_NARROW)}>
-                    <AgentStateBadge agent={agent} />
-                  </TableCell>
-                  <TableCell
-                    className={cn(
-                      FIT,
-                      WIDE,
-                      "text-right text-caption text-muted-foreground",
-                    )}
-                  >
-                    <time dateTime={agent.updated_at}>
-                      {formatTimestamp(agent.updated_at, locale)}
-                    </time>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+        <AgentList agents={agents.data.items} />
       )}
     </Page>
+  );
+}
+
+const VIEW_ICON = { cards: LayoutGrid, table: List } as const;
+
+/** The design's two tabs, each shown as cards or as the table. */
+function AgentList({ agents }: { readonly agents: readonly Agent[] }) {
+  const { t } = useI18n();
+  const { client } = useAgentPlatform();
+  const principal = useMe()?.principal;
+  const [view, setView] = useAgentView(
+    principal?.kind === "user" ? principal.id : undefined,
+  );
+  const administered = useQuery(administeredAgentsQuery(client));
+  return (
+    <Tabs defaultValue="all" className="gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <TabsList>
+          <TabsTrigger value="all">
+            {t("agents.tabs.all")}
+            <Badge variant="gray">{agents.length}</Badge>
+          </TabsTrigger>
+          <TabsTrigger value="administered">
+            {t("agents.tabs.administered")}
+            {administered.data ? (
+              <Badge variant="gray">{administered.data.items.length}</Badge>
+            ) : null}
+          </TabsTrigger>
+        </TabsList>
+        <fieldset className="m-0 inline-flex min-w-0 gap-1 border-0 p-0">
+          <legend className="sr-only">{t("agents.view.label")}</legend>
+          {AGENT_VIEWS.map((option) => {
+            const Icon = VIEW_ICON[option];
+            return (
+              <Button
+                key={option}
+                type="button"
+                size="sm"
+                variant={view === option ? "secondary" : "ghost"}
+                aria-pressed={view === option}
+                onClick={() => setView(option)}
+              >
+                <Icon aria-hidden="true" />
+                {t(`agents.view.${option}`)}
+              </Button>
+            );
+          })}
+        </fieldset>
+      </div>
+      <TabsContent value="all">
+        <AgentsIn view={view} agents={agents} />
+      </TabsContent>
+      <TabsContent value="administered">
+        {administered.isPending ? (
+          <StatusScreen kind="loading" />
+        ) : administered.error ? (
+          <LoadFailure
+            error={administered.error}
+            onRetry={() => void administered.refetch()}
+          />
+        ) : administered.data.items.length === 0 ? (
+          <EmptyState title={t("agentAdmins.mine.empty")} />
+        ) : (
+          <AgentsIn view={view} agents={administered.data.items} />
+        )}
+      </TabsContent>
+    </Tabs>
+  );
+}
+
+function AgentsIn({
+  view,
+  agents,
+}: {
+  readonly view: AgentView;
+  readonly agents: readonly Agent[];
+}) {
+  return view === "cards" ? (
+    <AgentCards agents={agents} />
+  ) : (
+    <AgentTable agents={agents} />
+  );
+}
+
+function AgentTable({ agents }: { readonly agents: readonly Agent[] }) {
+  const { t, locale } = useI18n();
+  return (
+    <div className="@container overflow-hidden rounded-card border bg-card">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead scope="col">{t("agents.column.agent")}</TableHead>
+            <TableHead scope="col" className={cn(FIT, LAST_WHEN_NARROW)}>
+              {t("agents.column.state")}
+            </TableHead>
+            <TableHead scope="col" className={cn(FIT, WIDE, "text-right")}>
+              {t("agents.column.updated")}
+            </TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {agents.map((agent) => (
+            <TableRow key={agent.id}>
+              <TableCell>
+                <RowLines>
+                  <Link
+                    to="/agents/$id"
+                    params={{ id: agent.id }}
+                    className="font-medium text-primary underline-offset-2 hover:underline [overflow-wrap:anywhere]"
+                  >
+                    {agent.name}
+                  </Link>
+                  <span className="font-mono text-caption text-muted-foreground [overflow-wrap:anywhere]">
+                    <span className="sr-only">{t("agents.slug")} </span>
+                    {agent.slug}
+                  </span>
+                  <span className="text-caption text-muted-foreground @[480px]:hidden">
+                    {t("agents.updated", {
+                      at: formatTimestamp(agent.updated_at, locale),
+                    })}
+                  </span>
+                </RowLines>
+              </TableCell>
+              <TableCell className={cn(FIT, LAST_WHEN_NARROW)}>
+                <AgentStateBadge agent={agent} />
+              </TableCell>
+              <TableCell
+                className={cn(
+                  FIT,
+                  WIDE,
+                  "text-right text-caption text-muted-foreground",
+                )}
+              >
+                <time dateTime={agent.updated_at}>
+                  {formatTimestamp(agent.updated_at, locale)}
+                </time>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
   );
 }
 
@@ -178,37 +279,7 @@ const WIDE = "hidden @[480px]:table-cell";
 const LAST_WHEN_NARROW =
   "pr-[var(--ap-row-padding-x)] @[480px]:pr-[calc(var(--ap-row-padding-x)/2)]";
 
-type AgentState = "draft" | Agent["status"];
-type AgentSummary = Pick<Agent, "status" | "active_release_id">;
-
-/** An agent never released is a draft, whatever its status; archived wins. */
-export function agentState(agent: AgentSummary): AgentState {
-  if (agent.status === "archived") return "archived";
-  return agent.active_release_id === null ? "draft" : agent.status;
-}
-
-const STATE_VARIANT = {
-  draft: "gray",
-  active: "green",
-  paused: "gray",
-  archived: "gray",
-} as const satisfies Record<AgentState, BadgeProps["variant"]>;
-
-function AgentStateBadge({ agent }: { readonly agent: AgentSummary }) {
-  const { t } = useI18n();
-  const state = agentState(agent);
-  return (
-    <Badge
-      variant={STATE_VARIANT[state]}
-      data-state={state}
-      className={state === "archived" ? "text-muted-foreground" : undefined}
-    >
-      {state === "draft"
-        ? t("agents.state.draft")
-        : t(`agents.status.${state}`)}
-    </Badge>
-  );
-}
+export { agentState } from "../components/agent-state.tsx";
 
 /**
  * A blank card, made in steps. One-line hiring (a model drafting the card)
