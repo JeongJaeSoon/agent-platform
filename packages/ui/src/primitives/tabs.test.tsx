@@ -60,6 +60,29 @@ describe("Tabs", () => {
     }
   });
 
+  test("asChild는 넘긴 요소 하나를 탭으로 그리고, 개수가 있으면 그 요소 안 글자 뒤에 둔다", () => {
+    const { getByRole } = render(
+      <Tabs defaultValue="a">
+        <TabsList variant="line">
+          <TabsTrigger value="a" asChild>
+            <button type="button">개요</button>
+          </TabsTrigger>
+          <TabsTrigger value="b" asChild count={2}>
+            <button type="button">결과물</button>
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>,
+    );
+    const plain = getByRole("tab", { name: "개요" });
+    expect(plain.tagName).toBe("BUTTON");
+    expect(plain.querySelector('[data-slot="item-count"]')).toBeNull();
+    const counted = getByRole("tab", { name: "결과물 2" });
+    expect(counted.getAttribute("data-slot")).toBe("tabs-trigger");
+    expect(counted.querySelector('[data-slot="item-count"]')?.textContent).toBe(
+      "2",
+    );
+  });
+
   test("기본 variant 목록은 그대로다", () => {
     const { getByRole } = render(
       <Tabs defaultValue="a">

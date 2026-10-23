@@ -1,6 +1,12 @@
 import * as TabsPrimitive from "@radix-ui/react-tabs";
 import { cva, type VariantProps } from "class-variance-authority";
-import type { ComponentProps, JSX, ReactNode } from "react";
+import {
+  type ComponentProps,
+  cloneElement,
+  isValidElement,
+  type JSX,
+  type ReactNode,
+} from "react";
 
 import { cn } from "../foundations/cn.ts";
 import { ItemCount } from "./segmented-control.tsx";
@@ -81,6 +87,30 @@ export function TabsTrigger({
   children,
   ...props
 }: TabsTriggerProps): JSX.Element {
+  const number =
+    count === undefined ? null : (
+      <ItemCount count={count} countLabel={countLabel} />
+    );
+  // Under asChild the Slot takes exactly one element, so the count goes
+  // inside it, after its own children.
+  const content =
+    number === null ? (
+      children
+    ) : props.asChild && isValidElement<{ children?: ReactNode }>(children) ? (
+      cloneElement(children, {
+        children: (
+          <>
+            {children.props.children}
+            {number}
+          </>
+        ),
+      })
+    ) : (
+      <>
+        {children}
+        {number}
+      </>
+    );
   return (
     <TabsPrimitive.Trigger
       data-slot="tabs-trigger"
@@ -94,8 +124,7 @@ export function TabsTrigger({
       )}
       {...props}
     >
-      {children}
-      <ItemCount count={count} countLabel={countLabel} />
+      {content}
     </TabsPrimitive.Trigger>
   );
 }
