@@ -5,13 +5,9 @@ import type {
   SessionStatus,
   SessionSummary,
 } from "@werft-ai/contracts";
+import { cn, formatTimestamp, type TimestampLocale } from "@werft-ai/ui";
 import type { JSX, ReactNode } from "react";
 
-import { cn } from "../foundations/cn.ts";
-import {
-  formatTimestamp,
-  type TimestampLocale,
-} from "../foundations/format-timestamp.ts";
 import { StatusLabel } from "../status/status-label.tsx";
 import { SessionStatusLabel } from "./session-status-label.tsx";
 

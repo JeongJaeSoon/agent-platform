@@ -5,20 +5,16 @@ import {
   type TurnEventMessage,
 } from "@werft-ai/contracts";
 
-import { setupDom } from "../test-support/dom.ts";
-import {
-  SESSION_COLUMNS,
-  SessionRow,
-  type SessionRowMessages,
-} from "./session-row.tsx";
-import { StageIndicator } from "./stage-indicator.tsx";
-import {
-  Timeline,
-  type TimelineEntry,
-  type TimelineMessages,
-} from "./timeline.tsx";
+import { setupDom } from "@werft-ai/ui/test-support/dom";
+import type { SessionRowMessages } from "./session-row.tsx";
+import type { TimelineEntry, TimelineMessages } from "./timeline.tsx";
 
 const { render } = await setupDom();
+// After setupDom: these load @werft-ai/ui, whose Radix decides at import time
+// whether a DOM exists.
+const { SESSION_COLUMNS, SessionRow } = await import("./session-row.tsx");
+const { StageIndicator } = await import("./stage-indicator.tsx");
+const { Timeline } = await import("./timeline.tsx");
 
 test("세션 표 열 정의는 폭마다 떨어진 class 하나씩이다", () => {
   // Two classes run together are one unknown class, and Tailwind drops both.

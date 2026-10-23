@@ -1,7 +1,6 @@
+import { cn, useReducedMotion } from "@werft-ai/ui";
 import type { JSX } from "react";
 
-import { cn } from "../foundations/cn.ts";
-import { useReducedMotion } from "../foundations/use-reduced-motion.ts";
 import { AxisIcon } from "./axis-icon.tsx";
 import {
   describeStatus,

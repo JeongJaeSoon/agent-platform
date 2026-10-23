@@ -1,23 +1,22 @@
 import type { PendingRequest } from "@werft-ai/contracts";
-import { Hourglass } from "lucide-react";
-import { type FormEvent, type JSX, useId, useState } from "react";
-
-import { cn } from "../foundations/cn.ts";
 import {
-  formatTimestamp,
-  type TimestampLocale,
-} from "../foundations/format-timestamp.ts";
-import { Button } from "../primitives/button.tsx";
-import { Checkbox } from "../primitives/checkbox.tsx";
-import {
+  Button,
+  Checkbox,
+  cn,
   Field,
   FieldError,
   FieldLabel,
   FieldLegend,
   FieldSet,
-} from "../primitives/field.tsx";
-import { RadioGroup, RadioGroupItem } from "../primitives/radio-group.tsx";
-import { Textarea } from "../primitives/textarea.tsx";
+  formatTimestamp,
+  RadioGroup,
+  RadioGroupItem,
+  Textarea,
+  type TimestampLocale,
+} from "@werft-ai/ui";
+import { Hourglass } from "lucide-react";
+import { type FormEvent, type JSX, useId, useState } from "react";
+
 import { useExpired, useExpiryFocus } from "./expiry.ts";
 
 export type QuestionRequest = Extract<PendingRequest, { kind: "question" }>;

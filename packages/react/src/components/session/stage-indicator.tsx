@@ -1,7 +1,7 @@
 import type { TurnEventPresentation } from "@werft-ai/contracts";
+import { cn } from "@werft-ai/ui";
 import type { JSX } from "react";
 
-import { cn } from "../foundations/cn.ts";
 import { type FormatTurnMessage, turnSummaryText } from "./turn-text.ts";
 
 export interface StageIndicatorProps {

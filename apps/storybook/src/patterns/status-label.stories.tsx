@@ -5,7 +5,7 @@ import {
   type StatusAxis,
   StatusLabel,
   type StatusStateOf,
-} from "@werft-ai/ui";
+} from "@werft-ai/react/components";
 
 const meta = {
   title: "Patterns/StatusLabel",

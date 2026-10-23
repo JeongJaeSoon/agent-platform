@@ -1,15 +1,18 @@
 import { describe, expect, mock, test } from "bun:test";
 
-import { setupDom, setupUser } from "../test-support/dom.ts";
-import {
-  ApprovalCard,
-  type ApprovalCardMessages,
-  type PermissionRequest,
+import { setupDom, setupUser } from "@werft-ai/ui/test-support/dom";
+import type {
+  ApprovalCardMessages,
+  PermissionRequest,
 } from "./approval-card.tsx";
-import { Composer, type ComposerMessages } from "./composer.tsx";
-import { Message } from "./message.tsx";
+import type { ComposerMessages } from "./composer.tsx";
 
 const { render, waitFor } = await setupDom();
+// After setupDom: these load @werft-ai/ui, whose Radix decides at import time
+// whether a DOM exists, for every later file in the run too.
+const { ApprovalCard } = await import("./approval-card.tsx");
+const { Composer } = await import("./composer.tsx");
+const { Message } = await import("./message.tsx");
 
 const NOW = Date.parse("2026-10-21T01:00:00.000Z");
 

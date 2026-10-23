@@ -1,11 +1,6 @@
 import type { ReceiptStatus } from "@werft-ai/contracts";
+import { cn, formatTimestamp, type TimestampLocale } from "@werft-ai/ui";
 import type { JSX } from "react";
-
-import { cn } from "../foundations/cn.ts";
-import {
-  formatTimestamp,
-  type TimestampLocale,
-} from "../foundations/format-timestamp.ts";
 
 export interface MessageProps {
   readonly from: "user" | "assistant";

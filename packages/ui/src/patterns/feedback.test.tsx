@@ -1,11 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { API_ERROR_CODE_VALUES } from "@werft-ai/contracts";
 
-import { EmptyState } from "../patterns/empty-state.tsx";
 import { Skeleton } from "../primitives/skeleton.tsx";
 import { setupDom, stubPrefersReducedMotion } from "../test-support/dom.ts";
 import { htmlOf } from "../test-support/html.ts";
-import { ERROR_GUIDANCE, guidanceFor } from "./error-guidance.ts";
+import { EmptyState } from "./empty-state.tsx";
 import { ErrorState } from "./error-state.tsx";
 
 const { render } = await setupDom();
@@ -37,7 +35,13 @@ describe("EmptyState", () => {
 describe("ErrorState", () => {
   test("EmptyState와 다른 모양·다른 역할로 그려진다", () => {
     const empty = render(<EmptyState title="비어 있습니다" />);
-    const error = render(<ErrorState message="boom" code="INTERNAL_ERROR" />);
+    const error = render(
+      <ErrorState
+        guidance="서버에서 처리하지 못했습니다 — 잠시 뒤 다시 시도하세요."
+        message="boom"
+        code="INTERNAL_ERROR"
+      />,
+    );
 
     const emptyRoot = empty.container.querySelector(".ap-state");
     const errorRoot = error.container.querySelector(".ap-state");
@@ -51,16 +55,23 @@ describe("ErrorState", () => {
     expect(htmlOf(errorRoot)).toMatchSnapshot();
   });
 
-  test("코드별 할 일을 원문보다 먼저 보여준다", () => {
+  test("할 일을 원문보다 먼저 보여준다", () => {
     const { container } = render(
-      <ErrorState code="UNAUTHORIZED" message="token expired" />,
+      <ErrorState guidance="다시 로그인하세요." message="token expired" />,
     );
-    expect(container.querySelector(".ap-state__guidance")?.textContent).toBe(
-      "로그인이 만료됐습니다 — 다시 로그인하세요.",
+    const lines = [...container.querySelectorAll(".ap-state > p")].map(
+      (line) => line.className,
     );
-    expect(container.querySelector(".ap-state__description")?.textContent).toBe(
-      "token expired",
-    );
+    expect(lines).toEqual([
+      "ap-state__title",
+      "ap-state__guidance",
+      "ap-state__description",
+    ]);
+  });
+
+  test("할 일을 받지 않으면 안내 줄이 없다", () => {
+    const { container } = render(<ErrorState message="boom" code="X" />);
+    expect(container.querySelector(".ap-state__guidance")).toBeNull();
   });
 
   test("retry와 증거 링크를 준 만큼만 그린다", () => {
@@ -84,35 +95,6 @@ describe("ErrorState", () => {
   test("retry가 없으면 버튼도 없다", () => {
     const { container } = render(<ErrorState code="FORBIDDEN" />);
     expect(container.querySelector("button")).toBeNull();
-  });
-});
-
-describe("오류 문구", () => {
-  test("contracts의 모든 error code에 할 일이 있다", () => {
-    expect(Object.keys(ERROR_GUIDANCE).sort()).toEqual(
-      [...API_ERROR_CODE_VALUES].sort(),
-    );
-  });
-
-  test("모르는 코드도 영문 원문 대신 할 일로 말한다", () => {
-    expect(guidanceFor("SOMETHING_NEW")).toBe(
-      "처리하지 못했습니다 — 잠시 뒤 다시 시도하세요.",
-    );
-    expect(guidanceFor(undefined)).toBeUndefined();
-  });
-
-  test("Object.prototype의 이름을 코드로 받아도 문자열만 돌려준다", () => {
-    // A plain lookup hands these back as objects, and React throws on render.
-    for (const code of [
-      "__proto__",
-      "constructor",
-      "toString",
-      "hasOwnProperty",
-    ]) {
-      expect(guidanceFor(code)).toBe(
-        "처리하지 못했습니다 — 잠시 뒤 다시 시도하세요.",
-      );
-    }
   });
 });
 
