@@ -75,6 +75,78 @@ export const Failed: Story = {
   },
 };
 
+const OTHER = "0192f0c4-7d3a-7b4e-9f00-0000000000a2";
+
+/**
+ * `layout="row"`: each permission request is one line with its answers at
+ * the end; a question stays a card.
+ */
+export const Rows: Story = {
+  render: (_args, context) => (
+    <ApprovalInbox {...shared(hostFor(context))} layout="row" />
+  ),
+  parameters: {
+    api: {
+      "GET /v1/sessions": () =>
+        page([
+          { ...SESSION, status: "needs_input" },
+          { ...SESSION, id: OTHER, status: "needs_input" },
+        ]),
+      [`GET ${base}/pending-requests`]: () =>
+        json(200, {
+          ...PENDING,
+          items: [
+            PENDING.items[0],
+            {
+              ...PENDING.items[0],
+              request_id: "req_3",
+              tool: "Write",
+              input: { file_path: "src/billing/notify.ts" },
+            },
+            PENDING.items[1],
+          ],
+        }),
+      [`GET /v1/sessions/${OTHER}/pending-requests`]: () =>
+        json(200, {
+          answerable: true,
+          items: [
+            {
+              ...PENDING.items[0],
+              request_id: "req_4",
+              tool: "mcp__github__create_pull_request",
+            },
+          ],
+        }),
+      [`POST ${base}/answers`]: accepted,
+      [`POST /v1/sessions/${OTHER}/answers`]: accepted,
+    } satisfies FakeRoutes,
+  },
+};
+
+export const RowsDark: Story = {
+  ...Rows,
+  name: "Rows (dark)",
+  globals: { theme: "dark" },
+};
+
+export const RowsMobile: Story = {
+  ...Rows,
+  name: "Rows (390px)",
+  globals: { viewport: { value: "mobile390", isRotated: false } },
+};
+
+export const RowsJapanese: Story = {
+  ...Rows,
+  name: "Rows (日本語)",
+  globals: { locale: "ja" },
+};
+
+export const RowsEnglish: Story = {
+  ...Rows,
+  name: "Rows (English)",
+  globals: { locale: "en" },
+};
+
 export const DefaultDark: Story = {
   ...Default,
   name: "Default (dark)",
