@@ -213,6 +213,8 @@ export const agentsKo = {
   "agent.ready.releaseTodo":
     "배포 탭에서 version과 실행 프로필로 release를 만듭니다.",
   "agent.ready.activate": "활성화",
+  "agent.ready.notRunnable":
+    "에이전트가 {status} 상태라 새 세션이 이 에이전트를 쓰지 않습니다.",
   "agent.sessions.title": "최근 세션",
   "agent.sessions.unavailable":
     "이 에이전트의 세션을 고르는 API가 아직 없습니다.",
@@ -472,6 +474,8 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.ready.releaseTodo":
     "On the Release tab, create a release from a version and a runtime profile.",
   "agent.ready.activate": "Activate",
+  "agent.ready.notRunnable":
+    "The agent is {status}, so new sessions do not use it.",
   "agent.sessions.title": "Recent sessions",
   "agent.sessions.unavailable": "No API picks this agent's sessions yet.",
   "agent.sessions.unavailableBody":
@@ -727,6 +731,8 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.ready.releaseTodo":
     "リリースタブで、バージョンと実行プロファイルからリリースを作成します。",
   "agent.ready.activate": "有効化",
+  "agent.ready.notRunnable":
+    "エージェントが「{status}」のため、新しいセッションはこのエージェントを使いません。",
   "agent.sessions.title": "最近のセッション",
   "agent.sessions.unavailable":
     "このエージェントのセッションを選ぶAPIはまだありません。",

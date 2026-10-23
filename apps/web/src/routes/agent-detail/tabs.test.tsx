@@ -163,6 +163,51 @@ describe("에이전트 상세 탭", () => {
     expect(screen.queryByRole("complementary")).toBeNull();
   });
 
+  test("일시정지된 에이전트는 최신 release가 켜져 있어도 켜짐이라 하지 않는다", async () => {
+    const server = agentServer();
+    const path = `/v1/agents/${AGENT_ID}`;
+    const post = (route: string, body: unknown) =>
+      (server.routes as Record<string, (request: Request) => unknown>)[
+        `POST ${path}/${route}`
+      ]?.(
+        new Request(`http://test${path}/${route}`, {
+          method: "POST",
+          body: JSON.stringify(body),
+        }),
+      );
+    const version = server.detail().versions[0];
+    await post("releases", {
+      version_id: version?.id,
+      runtime_profile_id: "claude-coding-local",
+    });
+    const release = server.detail().releases[0];
+    await post("activate", { release_id: release?.id, expected_revision: -1 });
+    const released = server.detail();
+    expect(released.agent.active_release_id).toBe(release?.id ?? "");
+    renderAt(DETAIL, {
+      ...meOk,
+      ...server.routes,
+      [`GET ${path}`]: () =>
+        json(200, {
+          ...released,
+          agent: { ...released.agent, status: "paused" },
+        }),
+    });
+    const section = (
+      await screen.findByRole("heading", { name: "켜기까지" })
+    ).closest("section") as HTMLElement;
+    expect(await within(section).findByText("할 일 있음")).toBeDefined();
+    expect(within(section).queryByText("켜짐")).toBeNull();
+    expect(
+      within(section).getByText(
+        "에이전트가 일시정지 상태라 새 세션이 이 에이전트를 쓰지 않습니다.",
+      ),
+    ).toBeDefined();
+    expect(
+      within(section).queryByRole("button", { name: "배포 탭으로" }),
+    ).toBeNull();
+  });
+
   test("머리의 새 세션 버튼은 꺼져 있고 이유를 읽어 준다", async () => {
     renderAt(DETAIL, { ...meOk, ...agentServer().routes });
     const button = (await screen.findByRole("button", {

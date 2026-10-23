@@ -191,6 +191,9 @@ export function AgentReadiness({
     latest !== undefined &&
     active !== undefined &&
     latest.id === active.id;
+  // A paused or archived agent starts no session whatever its release, and
+  // no screen changes the status, so its step offers nothing to press.
+  const runnable = agent.status === "active";
   const steps = [
     {
       key: "credentials",
@@ -209,9 +212,12 @@ export function AgentReadiness({
     {
       key: "activate",
       title: t("agent.ready.activate"),
-      state: upToDate ? "done" : "todo",
-      desc:
-        agent.active_release_id === null
+      state: upToDate && runnable ? "done" : "todo",
+      desc: !runnable
+        ? t("agent.ready.notRunnable", {
+            status: t(`agents.status.${agent.status}`),
+          })
+        : agent.active_release_id === null
           ? t("agent.overview.notActive")
           : latest && active && latest.id !== active.id
             ? t("agent.overview.newerVersion", {
@@ -271,7 +277,9 @@ export function AgentReadiness({
                 </span>
                 <span className={META}>{step.desc}</span>
               </div>
-              {index === firstOpen ? toRelease : null}
+              {index === firstOpen && (step.key !== "activate" || runnable)
+                ? toRelease
+                : null}
             </li>
           ))}
         </ol>
