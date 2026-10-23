@@ -128,7 +128,7 @@ export function TableHead({
       data-variant={variant}
       className={cn(
         CELL_PADDING_X,
-        "py-[var(--ap-row-head-padding-y)] text-left align-middle font-medium text-caption text-muted-foreground",
+        "py-[var(--ap-row-head-padding-y)] text-left align-middle font-medium text-caption text-subtle-foreground",
         CELL_VARIANT[variant],
         className,
       )}
