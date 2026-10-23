@@ -6,6 +6,8 @@ import type {
   WorkspaceRole,
 } from "@werft-ai/contracts";
 import { useMe as useMeQuery } from "@werft-ai/react";
+import { Button, Popover, PopoverContent, PopoverTrigger } from "@werft-ai/ui";
+import { Info } from "lucide-react";
 import { type ButtonHTMLAttributes, useId } from "react";
 import {
   errorKey,
@@ -134,6 +136,44 @@ export type ManagedPermission = Extract<
  * /v1/auth/me only names who is asking in the reason. A refused mutation
  * shows the same sentence through `permissionReason`.
  */
+/**
+ * A withheld action's reason behind an info button, for table rows that must
+ * keep one height: the reason under the control would stretch its row. The
+ * hidden copy carries `id`, so the disabled control can be described by it.
+ */
+export function ReasonHint({
+  id,
+  label,
+  reason,
+}: {
+  readonly id: string;
+  /** What the button opens, e.g. why the action is unavailable. */
+  readonly label: string;
+  readonly reason: string;
+}) {
+  return (
+    <>
+      <span id={id} className="ap-visually-hidden">
+        {reason}
+      </span>
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-[var(--ap-control-height-sm)]"
+            aria-label={label}
+          >
+            <Info aria-hidden="true" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent>{reason}</PopoverContent>
+      </Popover>
+    </>
+  );
+}
+
 export function usePermissionReason(
   permission: ManagedPermission,
   probe: { readonly isSuccess: boolean; readonly error: unknown },
