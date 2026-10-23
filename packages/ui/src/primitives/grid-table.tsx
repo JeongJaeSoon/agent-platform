@@ -84,6 +84,7 @@ export function GridTable({
       <div
         role="table"
         data-slot="grid-table"
+        data-narrow-at={narrowAt}
         className={cn("@container flex min-w-0 flex-col", className)}
         style={
           {
@@ -184,6 +185,7 @@ export function GridTableColumnHeader({
     <div
       role="columnheader"
       data-slot="grid-table-column-header"
+      data-hide-narrow={hideNarrow || undefined}
       className={cn(cellClasses(narrow, { align, hideNarrow }), className)}
       {...props}
     />
@@ -218,6 +220,7 @@ export function GridTableCell({
     <div
       role="cell"
       data-slot="grid-table-cell"
+      data-hide-narrow={hideNarrow || undefined}
       data-lines={lines || undefined}
       className={cn(
         cellClasses(narrow, { align, hideNarrow }),

@@ -360,8 +360,10 @@ function Members({ locale, clickable = false }: MembersProps) {
   );
 }
 
-// Every row shows as many cells as the header shows column headers, and the
-// table never scrolls sideways, at whatever width the story runs.
+// At whatever width the story runs: the hideNarrow columns are gone exactly
+// when the table is at or below its narrowAt width, the template has one track
+// per column header left, every row as many cells, and nothing scrolls
+// sideways.
 async function expectAlignedColumns(canvasElement: HTMLElement) {
   const shown = (row: Element, role: string) =>
     [...row.querySelectorAll(`[role=${role}]`)].filter(
@@ -370,7 +372,15 @@ async function expectAlignedColumns(canvasElement: HTMLElement) {
   for (const table of canvasElement.querySelectorAll("[role=table]")) {
     const [head, ...rows] = table.querySelectorAll("[role=row]");
     if (head === undefined) throw new Error("no header row");
+    const narrowAt = Number(table.getAttribute("data-narrow-at"));
+    const narrow = table.clientWidth <= narrowAt;
+    for (const header of head.querySelectorAll("[data-hide-narrow]")) {
+      await expect(getComputedStyle(header).display === "none").toBe(narrow);
+    }
     const headers = shown(head, "columnheader");
+    await expect(
+      getComputedStyle(head).gridTemplateColumns.split(" ").length,
+    ).toBe(headers);
     for (const row of rows) await expect(shown(row, "cell")).toBe(headers);
     await expect(table.scrollWidth).toBeLessThanOrEqual(table.clientWidth);
   }
@@ -430,6 +440,26 @@ export const ClickableRows: Story = {
   render: (_, { globals }) => (
     <Members locale={globals.locale} clickable={true} />
   ),
+  play: async ({ canvasElement }) => {
+    await expectAlignedColumns(canvasElement);
+    // What a pointer hits: the button in the raised cell over its own
+    // centre, the row's opener over the plain cells.
+    const row = canvasElement.querySelectorAll("[role=row]")[1];
+    const button = row?.querySelector("button");
+    const plain = row?.querySelectorAll("[role=cell]")[2];
+    if (!(button && plain)) throw new Error("no row");
+    const hit = (element: Element) => {
+      const box = element.getBoundingClientRect();
+      return document.elementFromPoint(
+        box.x + box.width / 2,
+        box.y + box.height / 2,
+      );
+    };
+    await expect(hit(button)?.closest("button") === button).toBe(true);
+    await expect(hit(plain)?.matches("[data-slot=grid-table-row-opener]")).toBe(
+      true,
+    );
+  },
 };
 
 /** Long text ends in "…" inside its column instead of widening the table. */
