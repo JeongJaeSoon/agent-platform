@@ -3,7 +3,6 @@ import {
   Api,
   bash,
   e2eEnv,
-  poll,
   type SessionDetail,
   scripted,
   type Turn,
@@ -21,42 +20,11 @@ const TIMEOUT = 600_000;
 /** pause-control.ts PAUSE_DRAIN_DEADLINE_MS, plus a few reconciler passes. */
 const PAUSE_BLOCKED_WITHIN = 60_000 + 60_000;
 
-const TERMINAL = [
-  "completed",
-  "failed",
-  "interrupted",
-  "cancelled",
-  "outcome_unknown",
-];
-
-/** Settles a turn, allowing every permission request it raises. */
-async function settleAllowing(
-  sessionId: string,
-  turnId: string,
-): Promise<Turn> {
-  const answered = new Set<string>();
-  return poll(`turn ${turnId} of ${sessionId}`, 180_000, async () => {
-    const turn = await api.turn(sessionId, turnId);
-    if (TERMINAL.includes(turn.status)) return turn;
-    for (const request of await api.pending(sessionId)) {
-      if (request.turn_id !== turnId || answered.has(request.request_id)) {
-        continue;
-      }
-      if (request.kind !== "permission") {
-        throw new Error(`turn ${turnId} asked: ${JSON.stringify(request)}`);
-      }
-      answered.add(request.request_id);
-      await api.allow(sessionId, request.request_id);
-    }
-    return null;
-  });
-}
-
 async function completed(
   sessionId: string,
   turnId: string,
 ): Promise<Turn & { checkpoint_revision: number | null }> {
-  const turn = await settleAllowing(sessionId, turnId);
+  const turn = await api.settleAllowing(sessionId, turnId);
   expect(turn.status).toBe("completed");
   return turn as Turn & { checkpoint_revision: number | null };
 }

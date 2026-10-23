@@ -15,6 +15,7 @@ import {
   FieldLabel,
   NativeSelect,
   NativeSelectOption,
+  SkipLink,
 } from "@werft-ai/ui";
 import { type ReactNode, useId, useLayoutEffect, useState } from "react";
 import { useMe } from "../auth/guard.tsx";
@@ -44,12 +45,9 @@ export function RootLayout() {
   useLayoutEffect(() => applyTheme(storedTheme()), []);
   return (
     <div className="group/root flex min-h-dvh flex-col">
-      <a
-        className="absolute top-2 left-2 z-50 -translate-y-[200%] rounded-control bg-card px-3 py-2 focus:translate-y-0"
-        href={`#${MAIN_CONTENT_ID}`}
-      >
+      <SkipLink href={`#${MAIN_CONTENT_ID}`}>
         {t("common.skipToContent")}
-      </a>
+      </SkipLink>
       {/* On an AuthPage this spacer and the footer split the spare height,
           so the page sits in the middle of the viewport and, once taller,
           scrolls from its top. Other public screens keep to the top. Both

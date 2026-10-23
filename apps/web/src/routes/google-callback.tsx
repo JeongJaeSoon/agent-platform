@@ -2,8 +2,9 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { type ApiError, CSRF_HEADER_VALUE, unwrap } from "@werft-ai/client";
 import { useAgentPlatform } from "@werft-ai/react";
+import { Link as TextLink } from "@werft-ai/ui";
 import { useEffect, useRef } from "react";
-import { ASIDE, AuthPage, FormError, LINK } from "../components/auth-page.tsx";
+import { ASIDE, AuthPage, FormError } from "../components/auth-page.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, type MessageKey, useI18n } from "../i18n/i18n.tsx";
 import { POST_LOGIN_PATH_KEY, safeRedirect } from "./login.tsx";
@@ -86,9 +87,9 @@ export function GoogleCallbackScreen() {
             {t(failure ?? refusalKey(finish.error as ApiError))}
           </FormError>
           <p className={ASIDE}>
-            <Link className={LINK} to="/login">
-              {t("login.google.backToLogin")}
-            </Link>
+            <TextLink asChild underline="always">
+              <Link to="/login">{t("login.google.backToLogin")}</Link>
+            </TextLink>
           </p>
         </>
       ) : (

@@ -66,6 +66,9 @@ function app(getReceipt: SessionReader["getReceipt"]) {
       changeProfileAtomic: async () => {
         throw new Error("not reached");
       },
+      renameAtomic: async () => {
+        throw new Error("not reached");
+      },
     },
     reader: {
       listSessions: async () => ({ items: [], next_cursor: null }),

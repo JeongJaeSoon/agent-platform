@@ -6,10 +6,21 @@ import {
   Badge,
   Button,
   ConfirmDialog,
+  cn,
   EmptyState,
   formatTimestamp,
   NativeSelect,
   NativeSelectOption,
+  RowLines,
+  RowList,
+  RowListItem,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableHeader,
+  TableRow,
 } from "@werft-ai/ui";
 import { useId, useState } from "react";
 import { invitesQuery, membersQuery, queryKeys } from "../api/queries.ts";
@@ -28,18 +39,6 @@ import { Page } from "../components/page.tsx";
 import { ReasonHint } from "../components/reason-hint.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import {
-  RowLines,
-  RowList,
-  RowListItem,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "../components/table.tsx";
-import {
   errorKey,
   type MessageKey,
   type Translate,
@@ -53,8 +52,7 @@ const PRIMARY =
   "block break-words font-semibold group-data-[disabled=true]:text-muted-foreground";
 const SECONDARY =
   "block text-muted-foreground text-xs [overflow-wrap:anywhere]";
-// One width for "disable" and "enable again", so the column does not jump.
-const ACTION = "min-w-24";
+const NOWRAP = "whitespace-nowrap";
 
 type Outcome =
   | { readonly kind: "notice"; readonly text: string }
@@ -297,7 +295,9 @@ function MemberTable({
               <TableHead scope="col">{t("members.column.name")}</TableHead>
               <TableHead scope="col">{t("members.column.role")}</TableHead>
               <TableHead scope="col">{t("members.column.state")}</TableHead>
-              <TableHead scope="col">{t("members.column.actions")}</TableHead>
+              <TableHead scope="col" variant="actions">
+                {t("members.column.actions")}
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -325,9 +325,13 @@ function MemberTable({
                   <TableCell>
                     {/* One line per cell: below the table's width the container scrolls,
                         so every row keeps two lines. */}
-                    <RowLines className="whitespace-nowrap">
-                      <span className={PRIMARY}>{member.display_name}</span>
-                      <span className={SECONDARY}>{member.email}</span>
+                    <RowLines>
+                      <span className={cn(PRIMARY, NOWRAP)}>
+                        {member.display_name}
+                      </span>
+                      <span className={cn(SECONDARY, NOWRAP)}>
+                        {member.email}
+                      </span>
                     </RowLines>
                   </TableCell>
                   <TableCell>
@@ -369,11 +373,14 @@ function MemberTable({
                   </TableCell>
                   <TableCell>
                     {disabled ? (
-                      <RowLines className="items-start whitespace-nowrap">
-                        <Badge variant="gray">
-                          {t("members.state.disabled")}
-                        </Badge>
-                        <span className={SECONDARY}>
+                      <RowLines>
+                        {/* A flex line keeps the badge at its own width. */}
+                        <span className="flex">
+                          <Badge variant="gray">
+                            {t("members.state.disabled")}
+                          </Badge>
+                        </span>
+                        <span className={cn(SECONDARY, NOWRAP)}>
                           {t("members.enableHint")}
                         </span>
                       </RowLines>
@@ -381,14 +388,13 @@ function MemberTable({
                       <Badge variant="green">{t("members.state.active")}</Badge>
                     )}
                   </TableCell>
-                  <TableCell>
+                  <TableCell variant="actions">
                     <div className="flex items-center gap-1">
                       {disabled ? (
                         <Button
                           type="button"
                           variant="outline"
                           size="sm"
-                          className={ACTION}
                           disabled={busy || keepWhy !== undefined}
                           aria-describedby={keepWhy ? ids.keep : undefined}
                           onClick={() =>
@@ -402,7 +408,6 @@ function MemberTable({
                           type="button"
                           variant="outline"
                           size="sm"
-                          className={ACTION}
                           disabled={busy || keepWhy !== undefined}
                           aria-describedby={keepWhy ? ids.keep : undefined}
                           aria-label={t("members.disableFor", {

@@ -55,7 +55,7 @@ Tailwind의 `dark:`는 수동 전환(`data-theme`)을 보지 못하기 때문이
 | `@werft-ai/ui` | 세 층 전부. 지금 import는 대부분 이것이다 |
 | `@werft-ai/ui/primitives` | primitives 층만 |
 | `@werft-ai/ui/patterns` | patterns 층만 |
-| `@werft-ai/ui/styles.css` | 폰트·토큰·`ap-*` 규칙 |
+| `@werft-ai/ui/styles.css` | 워크스페이스에서는 소스 그대로 폰트·토큰·`ap-*` 규칙. 배포물에서는 미리 빌드한 CSS(폰트 없음, 전역 `border-color` 포함. 아래 "배포 산출물") |
 | `@werft-ai/ui/theme.css` | Tailwind v4가 토큰을 유틸리티로 쓰게 잇는 `@theme inline` |
 | `@werft-ai/ui/tokens.css` | `--ap-*` 변수만 |
 
@@ -79,7 +79,9 @@ bun scripts/ui-pack-smoke.ts              # 빈 Vite+React 앱에 설치해 렌�
 
 - JS·d.ts: tsdown(unbundle)이 소스 파일마다 `.js`·`.d.ts` 하나씩 만든다. `__fixtures__`·`test-support`·테스트는 빠진다.
 - `styles.css`: Tailwind CLI로 미리 빌드한 CSS. 토큰·`ap-*` 규칙·키트가 쓰는 유틸리티가 들어 있어 Tailwind 없는 앱도
-  `import "@werft-ai/ui/styles.css"` 한 줄로 그려진다. preflight는 넣지 않는다(쓰는 쪽 앱의 전역 스타일을 바꾸지 않는다).
+  `import "@werft-ai/ui/styles.css"` 한 줄로 그려진다. preflight는 넣지 않는다. 다만 함께 빌드되는 `theme.css`의
+  `@layer base` 규칙이 모든 요소(`*`·`::before`·`::after`)의 `border-color`를 `--ap-color-border`로 정한다. 쓰는 쪽 앱의
+  전역 스타일 중 이것 하나는 바뀌며, 앱의 layer 밖 CSS는 이 규칙을 이긴다.
   대신 키트가 기대하는 preflight 규칙(box-sizing·border 너비와 모양·margin·padding, 링크·목록·제목·미디어, 폼 요소의
   font·color·배경·radius)을 키트 요소(`ap-*` 클래스와 `[data-slot]`)와 그 안쪽에만 specificity 0으로 건다. 이게 없으면
   브라우저 기본 스타일이 `<button>`에 2px outset 테두리나 회색 배경을, `asChild` 링크에 밑줄을 그린다. 키트 안에 넣은
@@ -184,7 +186,14 @@ Tailwind에는 `theme.css`가 이어 붙인다(`--color-surface: var(--ap-color-
 | primitives · `src/primitives/` | foundations | shadcn 항목 `Button`·`Badge`·`Card*`·`Input`·`Textarea`·`NativeSelect*`·`Checkbox`·`RadioGroup*`·`Tabs*`·`Dialog*`·`Field*`, 그리고 `Skeleton`. 도메인을 모른다. 의미 있는 상태는 `Badge`가 아니라 `StatusLabel`로 |
 | patterns · `src/patterns/` | primitives | `ConfirmDialog`·`DestructiveActionDialog`(결과 설명이 필수이고, 파괴적 동작은 이름을 입력해야 열린다), `EmptyState`, `ErrorState`(제목·할 일·원문·재시도·증거 링크. 할 일 문구는 쓰는 쪽이 준다), 페이지 머리 `PageHeader`(h1 + 설명 + 동작), `Stepper`, 상세 화면 두 칸 배치 `useDetailLayout` |
 
-계약 타입을 받는 도메인 조각은 `packages/react/src/components`(`@werft-ai/react/components`)에 있다: `StatusLabel`(admission·turn·receipt·execution **네 축**을 따로 그린다), `ReceiptSummary`·`ReceiptLink`(`unknown`은 성공으로 그리지 않는다), `ApiErrorState`(`error.code`별 "할 일"을 채운 `ErrorState`), `Session*`·`Timeline`·`Message`·`Composer`·`ApprovalCard`·`QuestionCard`·`StageIndicator`.
+계약 타입을 받는 도메인 조각은 `packages/react/src/components`(`@werft-ai/react/components`)에 있다: `StatusLabel`(admission·turn·receipt·execution **네 축**을 따로 그린다), `ReceiptSummary`·`ReceiptLink`(`unknown`은 성공으로 그리지 않는다), `ApiErrorState`(`error.code`별 "할 일"을 채운 `ErrorState`), `Session*`·`Timeline`·`Message`·`Composer`·`ApprovalCard`·`ApprovalRow`·`QuestionCard`·`StageIndicator`.
+
+### 시안은 Storybook screens 스토리로만 만든다
+
+- 시안은 `apps/storybook/src/screens/*`의 스토리다. 실제 `@werft-ai/ui`·`@werft-ai/react` 부품을 조립하고 데모 데이터를 넣는다.
+- 따로 그린 HTML 캔버스 시안은 만들지 않는다.
+- 시안에서 고른 모양은 먼저 부품에 넣고(ui-kit), 화면은 그 부품으로 조립한다(web-ui).
+- 시안에 필요한 모양이 부품에 없으면 부품 추가 요청이다. 시안 안에서 따로 그리지 않는다.
 
 ## 테스트
 

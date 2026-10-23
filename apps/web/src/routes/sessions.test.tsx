@@ -325,6 +325,24 @@ describe("approval inbox", () => {
     await waitFor(() => expect(waitingReads()).toBeGreaterThan(before));
   });
 
+  test("an answer from the inbox reads the waiting tab again", async () => {
+    const user = await setupUser();
+    const { api } = renderAt("/sessions?status=needs_input", {
+      ...waitingRoutes([summary(SESSION_ID, { status: "needs_input" })], null),
+      [`POST /v1/sessions/${SESSION_ID}/answers`]: () =>
+        json(202, { receipt_id: RECEIPT_ID, receipt_status: "accepted" }),
+    });
+    const tab = await screen.findByRole("tabpanel");
+    await within(tab).findByRole("link", { name: SESSION_ID });
+    const waitingReads = () =>
+      api.calls.filter((call) => call.search === "?status=needs_input").length;
+    await waitFor(() => expect(waitingReads()).toBe(2));
+    await user.click(await screen.findByRole("button", { name: "허용" }));
+    expect(await screen.findByText("답을 보냈습니다.")).toBeTruthy();
+    // The inbox's page and the tab's list are separate queries: both read again.
+    await waitFor(() => expect(waitingReads()).toBeGreaterThanOrEqual(4));
+  });
+
   test("a session answered from the keyboard leaves and hands focus to the inbox heading", async () => {
     const user = await setupUser();
     let waiting = [summary(SESSION_ID, { status: "needs_input" })];
@@ -377,10 +395,10 @@ describe("sessions list", () => {
 
     const link = await screen.findByRole("link", { name: SESSION_ID });
     expect(link.getAttribute("href")).toBe(`/sessions/${SESSION_ID}`);
-    expect(screen.getByText("쉬는 중")).toBeTruthy();
+    const row = link.closest('[role="row"]') as HTMLElement;
+    expect(within(row).getByText("쉬는 중")).toBeTruthy();
     expect(screen.getByText("default · claude_agent_sdk 1.0.0")).toBeTruthy();
     // An idle session that still takes input: "작업 상태" and "세션 상태" differ.
-    const row = link.closest('[role="row"]') as HTMLElement;
     expect(row.textContent).toContain("작업 상태: 쉬는 중");
     expect(row.textContent).toContain("세션 상태: 열림");
     expect(screen.getByText("열림")).toBeTruthy();
@@ -483,6 +501,129 @@ describe("sessions list", () => {
       "GET /v1/sessions": () => json(200, { items: [], next_cursor: null }),
     });
     expect(await screen.findByText("아직 세션이 없습니다.")).toBeTruthy();
+  });
+
+  test("a status tab reads only that status and keeps it in the address", async () => {
+    const user = await setupUser();
+    const { api, history } = renderAt("/sessions", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": (request) => {
+        const status = new URL(request.url).searchParams.get("status");
+        if (status === "failed") {
+          return json(200, {
+            items: [summary(OTHER_ID, { status: "failed" })],
+            next_cursor: null,
+          });
+        }
+        if (status === null) {
+          return json(200, { items: [summary(SESSION_ID)], next_cursor: null });
+        }
+        return json(200, { items: [], next_cursor: null });
+      },
+    });
+
+    const tabs = await screen.findByRole("tablist", { name: "상태로 보기" });
+    expect(
+      within(tabs)
+        .getAllByRole("tab")
+        .map((tab) => tab.textContent),
+    ).toEqual(["전체", "답변 대기", "작업 중", "쉬는 중", "멈춤", "실패"]);
+    expect(
+      within(tabs)
+        .getByRole("tab", { name: "전체" })
+        .getAttribute("aria-selected"),
+    ).toBe("true");
+    await screen.findByRole("link", { name: SESSION_ID });
+
+    await user.click(within(tabs).getByRole("tab", { name: "실패" }));
+    await screen.findByRole("link", { name: OTHER_ID });
+    expect(screen.queryByRole("link", { name: SESSION_ID })).toBeNull();
+    expect(history.location.search).toContain("status=failed");
+    expect(
+      api.calls.some(
+        (call) =>
+          call.path === "/v1/sessions" && call.search === "?status=failed",
+      ),
+    ).toBe(true);
+
+    await user.click(within(tabs).getByRole("tab", { name: "멈춤" }));
+    expect(await screen.findByText("이 상태의 세션이 없습니다.")).toBeTruthy();
+
+    await user.click(within(tabs).getByRole("tab", { name: "전체" }));
+    await screen.findByRole("link", { name: SESSION_ID });
+    expect(history.location.search).not.toContain("status=");
+  });
+
+  test("every refresh of the full list reaches the status tab, not just the first", async () => {
+    const user = await setupUser();
+    const { api, services } = renderAt("/sessions", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": (request) =>
+        new URL(request.url).searchParams.get("status") === "failed"
+          ? json(200, {
+              items: [summary(OTHER_ID, { status: "failed" })],
+              next_cursor: null,
+            })
+          : json(200, { items: [summary(SESSION_ID)], next_cursor: null }),
+    });
+    await screen.findByRole("link", { name: SESSION_ID });
+    // The full list stays cached, unmounted, behind the status tab.
+    await user.click(screen.getByRole("tab", { name: "실패" }));
+    await screen.findByRole("link", { name: OTHER_ID });
+    const failedReads = () =>
+      api.calls.filter((call) => call.search === "?status=failed").length;
+    await waitFor(() => expect(failedReads()).toBe(1));
+    for (const expected of [2, 3]) {
+      await act(() =>
+        services.queryClient.invalidateQueries({
+          queryKey: ["sessions"],
+          exact: true,
+        }),
+      );
+      await waitFor(() => expect(failedReads()).toBe(expected));
+    }
+  });
+
+  test("an address with a status opens on that tab", async () => {
+    renderAt("/sessions?status=idle", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": (request) =>
+        new URL(request.url).searchParams.get("status") === "idle"
+          ? json(200, {
+              items: [summary(OTHER_ID, { status: "idle" })],
+              next_cursor: null,
+            })
+          : json(200, { items: [summary(SESSION_ID)], next_cursor: null }),
+    });
+    const tab = await screen.findByRole("tab", { name: "쉬는 중" });
+    expect(tab.getAttribute("aria-selected")).toBe("true");
+    await screen.findByRole("link", { name: OTHER_ID });
+  });
+
+  test("an unknown status in the address opens every session", async () => {
+    renderAt("/sessions?status=bogus", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": () =>
+        json(200, { items: [summary(SESSION_ID)], next_cursor: null }),
+    });
+    const tab = await screen.findByRole("tab", { name: "전체" });
+    expect(tab.getAttribute("aria-selected")).toBe("true");
+    await screen.findByRole("link", { name: SESSION_ID });
+  });
+
+  test("the new session button is off and says why", async () => {
+    renderAt("/sessions", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": () => json(200, { items: [], next_cursor: null }),
+    });
+    const button = await screen.findByRole("button", { name: "새 세션" });
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    const reason = document.getElementById(
+      button.getAttribute("aria-describedby") ?? "",
+    );
+    expect(reason?.textContent).toBe(
+      "웹에서는 아직 세션을 시작할 수 없습니다. API로 시작하세요.",
+    );
   });
 
   test("the menu links to it", async () => {

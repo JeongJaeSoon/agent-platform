@@ -1,13 +1,16 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import {
+  Button,
   Field,
   FieldDescription,
   FieldError,
   FieldLabel,
+  Input,
   NativeSelect,
   NativeSelectOptGroup,
   NativeSelectOption,
 } from "@werft-ai/ui";
+import { expect } from "storybook/test";
 
 const DefaultField = () => (
   <>
@@ -23,7 +26,7 @@ const DefaultField = () => (
     </Field>
     <Field>
       <FieldLabel>모델</FieldLabel>
-      <NativeSelect size="sm" defaultValue="fast">
+      <NativeSelect defaultValue="fast">
         <NativeSelectOptGroup label="일반">
           <NativeSelectOption value="fast">빠른 모델</NativeSelectOption>
         </NativeSelectOptGroup>
@@ -70,7 +73,55 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const Default: Story = { render: () => <DefaultField /> };
+export const Default: Story = {
+  render: () => <DefaultField />,
+  play: async ({ canvasElement }) => {
+    const heights = [...canvasElement.querySelectorAll("select")].map(
+      (select) => select.getBoundingClientRect().height,
+    );
+    await expect(heights).toEqual([32, 32]);
+  },
+};
+
+/**
+ * One form uses one size. `sm` is the 28px control height shared with
+ * Button sm, for a dense row such as a table toolbar; Input has no sm.
+ */
+export const Sizes: Story = {
+  render: () => (
+    <>
+      <div className="story-row items-center">
+        <span className="w-16 text-caption text-muted-foreground">default</span>
+        <NativeSelect aria-label="역할 (default)" defaultValue="member">
+          <NativeSelectOption value="member">멤버</NativeSelectOption>
+        </NativeSelect>
+        <Input aria-label="이름 (default)" className="w-32" />
+        <Button type="button">저장</Button>
+      </div>
+      <div className="story-row items-center">
+        <span className="w-16 text-caption text-muted-foreground">sm</span>
+        <NativeSelect aria-label="역할 (sm)" size="sm" defaultValue="member">
+          <NativeSelectOption value="member">멤버</NativeSelectOption>
+        </NativeSelect>
+        <Button type="button" size="sm">
+          저장
+        </Button>
+      </div>
+    </>
+  ),
+  play: async ({ canvasElement }) => {
+    const heights = [...canvasElement.querySelectorAll(".story-row")].map(
+      (row) =>
+        [...row.querySelectorAll("select, input, button")].map(
+          (control) => control.getBoundingClientRect().height,
+        ),
+    );
+    await expect(heights).toEqual([
+      [32, 32, 32],
+      [28, 28],
+    ]);
+  },
+};
 
 export const Disabled: Story = { render: () => <DisabledField /> };
 

@@ -149,6 +149,7 @@ import {
   turnSummarySchema,
   updateAgentRequestSchema,
   updateMemberRequestSchema,
+  updateSessionRequestSchema,
   updateTeamRequestSchema,
   WEB_SESSION_COOKIE_NAME,
   workspaceParamsSchema,
@@ -197,6 +198,7 @@ const requestComponents = {
   CreateInviteRequest: createInviteRequestSchema,
   AcceptInviteRequest: acceptInviteRequestSchema,
   UpdateMemberRequest: updateMemberRequestSchema,
+  UpdateSessionRequest: updateSessionRequestSchema,
   SetAccessRequest: setAccessRequestSchema,
   GoogleLoginCallbackRequest: googleLoginCallbackRequestSchema,
   AuditRetentionRequest: auditRetentionRequestSchema,
@@ -547,6 +549,7 @@ const ALL_SCOPES = [
 ];
 const EXAMPLE_SESSION_SUMMARY = {
   id: EXAMPLE_SESSION_ID,
+  title: "Fix the flaky checkout test",
   revision: 7,
   admission_state: "active",
   status: "running",
@@ -563,6 +566,27 @@ const EXAMPLE_SESSION_SUMMARY = {
   last_event_at: "2026-10-11T08:15:42Z",
   created_at: "2026-10-11T08:00:00Z",
   updated_at: "2026-10-11T08:15:40Z",
+};
+const EXAMPLE_SESSION_DETAIL = {
+  ...EXAMPLE_SESSION_SUMMARY,
+  execution: {
+    backend: "local_docker",
+    state: "running",
+    observed_at: "2026-10-11T08:15:38Z",
+  },
+  checkpoint_revision: 2,
+  pending_request_count: 0,
+  attention: null,
+  durability: {
+    last_transcript_persisted_at: "2026-10-11T08:15:41Z",
+    checkpoint_committed_at: "2026-10-11T08:10:02Z",
+    checkpoint_revision: 2,
+    last_completed_turn_id: "2",
+    last_checkpointed_turn_id: "2",
+    checkpoint_pending_reason: null,
+    checkpoint_fallback_revision: null,
+    context_reset_turn_id: null,
+  },
 };
 const EXAMPLE_TURN_SUMMARY = {
   turn_id: "1",
@@ -1190,29 +1214,29 @@ export const API_ROUTE_DECLARATIONS = [
       status: 200,
       schema: "SessionDetail",
       description: "The session as it stands now.",
-      example: {
-        ...EXAMPLE_SESSION_SUMMARY,
-        execution: {
-          backend: "local_docker",
-          state: "running",
-          observed_at: "2026-10-11T08:15:38Z",
-        },
-        checkpoint_revision: 2,
-        pending_request_count: 0,
-        attention: null,
-        durability: {
-          last_transcript_persisted_at: "2026-10-11T08:15:41Z",
-          checkpoint_committed_at: "2026-10-11T08:10:02Z",
-          checkpoint_revision: 2,
-          last_completed_turn_id: "2",
-          last_checkpointed_turn_id: "2",
-          checkpoint_pending_reason: null,
-          checkpoint_fallback_revision: null,
-          context_reset_turn_id: null,
-        },
-      },
+      example: EXAMPLE_SESSION_DETAIL,
     },
     errors: [401, 404, 503],
+  },
+  {
+    method: "patch",
+    path: "/v1/sessions/{id}",
+    operationId: "updateSession",
+    tag: "Sessions",
+    summary: "Rename the session",
+    description:
+      "Sets `title`, in any admission state; the session's `revision` does not change and no receipt is written. Allowed to the session's creator (for a session an API key made, that key), the workspace's owners and admins, and the admins of its agent; since the answer is the session's detail, a key also needs `sessions:read`. Anyone else the session is visible to, through its share, gets 403; anyone it is not visible to, 404. A changed title is a `status` event on the stream carrying `title`; naming the title the session already has writes none. Answers with the session as `GET /v1/sessions/{id}` reads it.",
+    scope: "write",
+    body: "UpdateSessionRequest",
+    requestExample: { title: "Fix the flaky checkout test" },
+    success: {
+      status: 200,
+      schema: "SessionDetail",
+      description: "The session with its new title.",
+      example: EXAMPLE_SESSION_DETAIL,
+    },
+    errors: [400, 401, 403, 404, 413, 503],
+    idempotent: false,
   },
   {
     method: "get",
@@ -2319,11 +2343,18 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Linked accounts",
     summary: "Start linking the caller's Slack account",
     description:
-      "Returns Slack's consent URL and sets a one-time state cookie for the callback, valid ten minutes. Scopes are `openid profile`; no email is requested. Refused with 409 when the workspace has no verified Slack install. API keys are refused.",
+      "Returns Slack's consent URL and sets a one-time state cookie for the callback, valid ten minutes. Scopes are `openid profile`; no email is requested. The consent is for the workspace's link app; a workspace without one gets it made now with its App Configuration Token (once: concurrent starts share it), unless the installation names a fallback OIDC app. Refused with 409 when the workspace has no verified Slack install, or nothing to link with. API keys are refused.",
     auth: "session",
     success: { status: 200, schema: "StartSlackLinkResponse" },
     errors: [401, 403, 409, 503],
-    errorCodes: { 409: ["SLACK_NOT_INSTALLED"] },
+    errorCodes: {
+      409: [
+        "SLACK_NOT_INSTALLED",
+        "SLACK_LINK_NOT_CONFIGURED",
+        "SLACK_APP_CREATING",
+        "REVISION_CONFLICT",
+      ],
+    },
     idempotent: false,
   },
   {

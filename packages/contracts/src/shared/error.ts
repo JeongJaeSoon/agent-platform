@@ -56,6 +56,9 @@ export const API_ERROR_CODE_VALUES = [
   "CONFIG_TOKEN_INVALID",
   "SLACK_APP_CREATING",
   "AGENT_NOT_ACTIVE",
+  // Linking a Slack account: the workspace has no link app, no usable
+  // config token to make one with, and no hand-made OIDC app to fall back on.
+  "SLACK_LINK_NOT_CONFIGURED",
   // An invite that was revoked, replaced by a newer one, or has expired.
   "INVITE_EXPIRED",
   "INVITE_USED",
