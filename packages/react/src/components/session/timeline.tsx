@@ -219,15 +219,17 @@ function timelineRows(
 function turnGroups(rows: readonly TimelineRow[], fold: boolean): TurnGroup[] {
   // A line with no turn between two lines of one turn belongs to that turn,
   // so a turn is not split in two around it.
+  const nextTurn: (string | null)[] = [];
+  let next: string | null = null;
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    nextTurn[index] = next;
+    next = rows[index]?.turnId ?? next;
+  }
   const turnOf = rows.map((row) => row.turnId);
   let previous: string | null = null;
   rows.forEach((row, index) => {
-    if (row.turnId !== null) {
-      previous = row.turnId;
-      return;
-    }
-    const next = rows.slice(index + 1).find((later) => later.turnId !== null);
-    if (previous !== null && next?.turnId === previous) {
+    if (row.turnId !== null) previous = row.turnId;
+    else if (previous !== null && nextTurn[index] === previous) {
       turnOf[index] = previous;
     }
   });
