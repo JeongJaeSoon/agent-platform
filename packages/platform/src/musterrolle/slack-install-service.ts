@@ -422,6 +422,7 @@ export function createSlackInstallService(deps: {
         }));
       } catch {
         finalized = false;
+        warnings = [{ code: "finalize_failed" }];
       }
       return {
         slack_app: slackAppView(stored),

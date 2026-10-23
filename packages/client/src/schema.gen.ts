@@ -3498,7 +3498,7 @@ export interface components {
             finalized: boolean;
             warnings: {
                 /** @enum {string} */
-                code: "events_url_unset" | "reinstall_required";
+                code: "events_url_unset" | "reinstall_required" | "finalize_failed";
             }[];
         };
         SlackEventsResponse: {

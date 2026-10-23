@@ -7257,7 +7257,8 @@
                   "type": "string",
                   "enum": [
                     "events_url_unset",
-                    "reinstall_required"
+                    "reinstall_required",
+                    "finalize_failed"
                   ]
                 }
               },

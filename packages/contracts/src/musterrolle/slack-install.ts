@@ -17,6 +17,7 @@ import { slackAppSchema } from "./slack-apps.ts";
 export const SLACK_FINALIZE_WARNING_VALUES = [
   "events_url_unset",
   "reinstall_required",
+  "finalize_failed",
 ] as const;
 export const slackFinalizeWarningSchema = z
   .object({ code: z.enum(SLACK_FINALIZE_WARNING_VALUES) })
