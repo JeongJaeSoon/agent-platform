@@ -5,6 +5,7 @@ import {
   DEMO_SESSIONS,
   DemoClient,
   demoDataRefusal,
+  finished,
   signOutAll,
 } from "./demo-data.ts";
 
@@ -160,5 +161,58 @@ describe("signOutAll", () => {
       }
     },
     { timeout: 15_000 },
+  );
+});
+
+describe("finished", () => {
+  const spec = (outcome: string, isPrivate = false) => {
+    const found = DEMO_SESSIONS.find(
+      (session) => session.outcome === outcome && session.private === isPrivate,
+    );
+    if (!found) throw new Error(`no demo session ${outcome}`);
+    return found;
+  };
+
+  test.each([
+    ["stopped", false, { status: "stopped" }, true],
+    ["stopped", false, { status: "idle" }, false],
+    ["approve-then-idle", false, { outputs: 1 }, true],
+    ["approve-then-idle", false, { outputs: 0 }, false],
+    ["permission", true, { scope: "private" }, true],
+    ["permission", true, { scope: "workspace" }, false],
+    // Changes on its own once seeded, so a rerun does not judge it.
+    ["question", false, { status: "failed" }, true],
+  ] as const)(
+    "%p (private %p) with %p is finished: %p",
+    async (outcome, isPrivate, state, expected) => {
+      const server = Bun.serve({
+        port: 0,
+        fetch(request) {
+          const path = new URL(request.url).pathname;
+          if (path.endsWith("/share")) {
+            return Response.json({
+              scope: "scope" in state ? state.scope : "workspace",
+            });
+          }
+          if (path.endsWith("/outputs")) {
+            const count = "outputs" in state ? state.outputs : 0;
+            return Response.json({
+              items: Array.from({ length: count }, () => ({})),
+            });
+          }
+          return Response.json({
+            status: "status" in state ? state.status : "idle",
+          });
+        },
+      });
+      try {
+        const client = new DemoClient(`http://127.0.0.1:${server.port}`, "c=1");
+        expect(await finished(client, "s", spec(outcome, isPrivate))).toBe(
+          expected,
+        );
+      } finally {
+        server.stop(true);
+      }
+    },
   );
 });

@@ -549,11 +549,48 @@ async function drive(
   }
 }
 
+/**
+ * Whether an earlier run got through what it does to a session after making
+ * it: the share, the allowed write's output, the terminate. Idle, waiting and
+ * running are left out: they change on their own once seeded.
+ */
+export async function finished(
+  client: DemoClient,
+  sessionId: string,
+  session: DemoSession,
+): Promise<boolean> {
+  if (session.private) {
+    const share = await client.expect<{ scope: string }>(
+      200,
+      "GET",
+      `/v1/sessions/${sessionId}/share`,
+    );
+    if (share.scope !== "private") return false;
+  }
+  if (session.outcome === "approve-then-idle") {
+    const outputs = await client.expect<{ items: unknown[] }>(
+      200,
+      "GET",
+      `/v1/sessions/${sessionId}/outputs`,
+    );
+    return outputs.items.length > 0;
+  }
+  if (session.outcome === "stopped") {
+    const row = await client.expect<SessionRow>(
+      200,
+      "GET",
+      `/v1/sessions/${sessionId}`,
+    );
+    return row.status === "stopped";
+  }
+  return true;
+}
+
 export type DemoDataOutcome = {
   kind: "agent" | "session";
   name: string;
-  // incomplete: an earlier run made the session and failed before sharing
-  // it as asked; a rerun leaves it alone, so only a reset repairs it.
+  // incomplete: an earlier run made the session and failed before finishing
+  // it (see finished); a rerun leaves it alone, so only a reset repairs it.
   outcome: "created" | "exists" | "incomplete";
 };
 
@@ -629,17 +666,12 @@ async function seedAs(
       session,
     );
     if (existing) {
-      const share = session.private
-        ? await client.expect<{ scope: string }>(
-            200,
-            "GET",
-            `/v1/sessions/${existing.id}/share`,
-          )
-        : null;
       outcomes.push({
         kind: "session",
         name,
-        outcome: share && share.scope !== "private" ? "incomplete" : "exists",
+        outcome: (await finished(client, existing.id, session))
+          ? "exists"
+          : "incomplete",
       });
       continue;
     }
