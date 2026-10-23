@@ -92,7 +92,8 @@ export function sessionRelationIs(
     case "started":
       return anyOf(startedBy(viewer));
     case "shared":
-      return sql`(${anyOf(sharedWith(viewer))} AND NOT ${anyOf(startedBy(viewer))})`;
+      // IS NOT TRUE: a session no person started compares NULL, not false.
+      return sql`(${anyOf(sharedWith(viewer))} AND ${anyOf(startedBy(viewer))} IS NOT TRUE)`;
     case "administered": {
       const userId = uuidOrNull(viewer.userId);
       if (userId === null) return sql`false`;

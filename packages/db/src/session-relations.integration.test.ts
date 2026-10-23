@@ -262,6 +262,11 @@ integration("session list relations, search and counts on PostgreSQL", () => {
       share: { scope: "team", teams: [former] },
     });
     await session("serviceKey", { by: "service", status: "stopped" });
+    // No person started it, so the creator comparison is NULL, not false.
+    await session("keyToAlice", {
+      by: "service",
+      share: { scope: "people", users: [people.alice.id] },
+    });
   }, 60_000);
 
   afterAll(async () => {
@@ -277,6 +282,7 @@ integration("session list relations, search and counts on PostgreSQL", () => {
       alice: {
         all: [
           "bobWorkspaceX",
+          "keyToAlice",
           "mine",
           "minePrivate",
           "serviceKey",
@@ -284,7 +290,7 @@ integration("session list relations, search and counts on PostgreSQL", () => {
           "toReviewers",
         ],
         started: ["mine", "minePrivate"],
-        shared: ["toAlice", "toReviewers"],
+        shared: ["keyToAlice", "toAlice", "toReviewers"],
         // bobPrivateX is X's too, but outside its share.
         administered: ["bobWorkspaceX", "mine"],
       },
@@ -312,6 +318,7 @@ integration("session list relations, search and counts on PostgreSQL", () => {
   test("a key no person stands behind starts only its own and is shared or administers nothing", async () => {
     const key = { userId: null, apiKeyId: serviceKey };
     expect(named(await readAll(key, { relation: "started" }))).toEqual([
+      "keyToAlice",
       "serviceKey",
     ]);
     expect(await readAll(key, { relation: "shared" })).toEqual([]);
@@ -365,11 +372,11 @@ integration("session list relations, search and counts on PostgreSQL", () => {
         queued: 0,
         running: 1,
         needs_input: 0,
-        idle: 2,
+        idle: 3,
         failed: 2,
         stopped: 1,
       },
-      total: 6,
+      total: 7,
     });
   });
 
