@@ -12,9 +12,12 @@ import {
   createSlackAppService,
   createSlackConfigApi,
   createSlackConfigTokens,
+  createSlackEventsFinalize,
   createSlackLinkAppService,
   type SecretKey,
   SessionServiceError,
+  type SlackAppStore,
+  slackEventsUrl,
 } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import {
@@ -26,6 +29,7 @@ import {
   consoleOriginFrom,
   SlackConfigError,
   slackApiUrlFrom,
+  slackEventsPublicUrlFrom,
 } from "./slack-config.ts";
 
 /** Part of the CLI contract: scripts and the verify skill branch on these. */
@@ -38,33 +42,43 @@ export const SLACK_APP_EXIT = {
   agent_not_active: 5,
   app_busy: 6,
   slack_error: 7,
+  events_url_unset: 8,
 } as const;
 
 const USAGE = `Usage: bun run apps/control-host/src/api/slack-app.ts create --workspace <workspace_id> --agent <agent_id> [--replace-uncertain]
        bun run apps/control-host/src/api/slack-app.ts create --kind link --workspace <workspace_id> [--replace-uncertain]
+       bun run apps/control-host/src/api/slack-app.ts finalize --agent <agent_id>
   --kind agent (default) makes the agent's app; --kind link makes the
   workspace's account-linking app (Sign in with Slack), which a first
   "Slack 연결" in the console would otherwise make.
+  finalize sends the agent app's manifest again with its event subscription
+  (<SLACK_EVENTS_PUBLIC_URL>/v1/slack/events/<agent_id>), as an install does;
+  running it again changes nothing.
 Environment: DATABASE_URL (required), the master key as the API reads it
              (PLATFORM_SECRET_KEY or platform.yaml in PLATFORM_CONFIG_DIR),
-             SLACK_OIDC_REDIRECT_URI (required: its origin is the console's),
+             SLACK_OIDC_REDIRECT_URI (create: its origin is the console's),
+             SLACK_EVENTS_PUBLIC_URL (finalize: the funnel's https base),
              SLACK_API_URL (default https://slack.com/api; http only for a local mock)
-Exit codes: 0 created, or the agent or workspace already had it; 1 unexpected error; 2 usage;
+Exit codes: 0 created, or the agent or workspace already had it, or finalized; 1 unexpected error; 2 usage;
             3 the config token is missing or Slack no longer takes it (paste a new one);
-            4 agent or workspace not found; 5 the agent has no active release;
+            4 agent or workspace not found, or the agent has no created app;
+            5 the agent has no active release;
             6 the app is still being created or is being deleted (after checking
               api.slack.com/apps, --replace-uncertain gives up on a lost creation);
-            7 Slack refused or could not be reached`;
+            7 Slack refused or could not be reached;
+            8 finalize: SLACK_EVENTS_PUBLIC_URL is unset (events_url_unset), nothing was sent`;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export class SlackAppUsageError extends Error {}
 
-export type SlackAppCommand = {
-  command: "create";
-  workspaceId: string;
-  replaceUncertain: boolean;
-} & ({ kind: "agent"; agentId: string } | { kind: "link" });
+export type SlackAppCommand =
+  | ({
+      command: "create";
+      workspaceId: string;
+      replaceUncertain: boolean;
+    } & ({ kind: "agent"; agentId: string } | { kind: "link" }))
+  | { command: "finalize"; agentId: string };
 
 export function parseSlackAppCommand(argv: string[]): SlackAppCommand {
   let parsed: ReturnType<typeof parse>;
@@ -78,6 +92,21 @@ export function parseSlackAppCommand(argv: string[]): SlackAppCommand {
     );
   }
   const { workspace, agent } = parsed.values;
+  if (parsed.positionals[0] === "finalize") {
+    if (
+      parsed.positionals.length !== 1 ||
+      agent === undefined ||
+      workspace !== undefined ||
+      parsed.values.kind !== undefined ||
+      parsed.values["replace-uncertain"] !== undefined
+    ) {
+      throw new SlackAppUsageError(USAGE);
+    }
+    if (!UUID.test(agent)) {
+      throw new SlackAppUsageError(`--agent must be a UUID\n${USAGE}`);
+    }
+    return { command: "finalize", agentId: agent.toLowerCase() };
+  }
   const kind = parsed.values.kind ?? "agent";
   if (
     parsed.positionals.length !== 1 ||
@@ -142,6 +171,44 @@ const EXIT_BY_CODE: Partial<Record<string, number>> = {
   BACKEND_UNAVAILABLE: SLACK_APP_EXIT.slack_error,
 };
 
+/** Finalize ① by hand, through the same step an install runs. */
+async function finalize(
+  agentId: string,
+  deps: Parameters<typeof createSlackAppService>[0] & { apps: SlackAppStore },
+  io: SlackAppIo,
+): Promise<number> {
+  const app = await deps.apps.findAgentApp(agentId);
+  if (app === null) {
+    io.err("slack-app: NOT_FOUND: the agent has no created Slack app");
+    return SLACK_APP_EXIT.agent_not_found;
+  }
+  const publicUrl = slackEventsPublicUrlFrom(io.env);
+  const result = await createSlackEventsFinalize({
+    apps: createSlackAppService(deps),
+    agents: deps.apps,
+    publicUrl,
+  })({ workspaceId: app.workspaceId, agentId, slackAppId: app.id });
+  const warnings = result.warnings.map((warning) => warning.code);
+  if (!result.finalized) {
+    io.err(
+      `slack-app: ${warnings.join(",")}: set SLACK_EVENTS_PUBLIC_URL to the funnel's https base; nothing was sent`,
+    );
+    return SLACK_APP_EXIT.events_url_unset;
+  }
+  io.out(
+    JSON.stringify({
+      outcome: "finalized",
+      slack_app_id: app.id,
+      app_id: app.appId,
+      agent_id: agentId,
+      request_url:
+        publicUrl === null ? null : slackEventsUrl(publicUrl, agentId),
+      warnings,
+    }),
+  );
+  return SLACK_APP_EXIT.created;
+}
+
 /** Returns the exit code. Nothing it writes carries a secret. */
 export async function runSlackApp(
   argv: string[],
@@ -158,7 +225,7 @@ export async function runSlackApp(
       return fail(SLACK_APP_EXIT.usage, "DATABASE_URL is required");
     }
     const consoleOrigin = consoleOriginFrom(io.env);
-    if (consoleOrigin === null) {
+    if (consoleOrigin === null && command.command === "create") {
       return fail(
         SLACK_APP_EXIT.usage,
         "SLACK_OIDC_REDIRECT_URI is required: the app's OAuth redirect is on the console's origin",
@@ -188,6 +255,9 @@ export async function runSlackApp(
         api,
         consoleOrigin,
       };
+      if (command.command === "finalize") {
+        return await finalize(command.agentId, deps, io);
+      }
       if (command.kind === "link") {
         const result = await createSlackLinkAppService({
           ...deps,

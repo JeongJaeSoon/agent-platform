@@ -24,6 +24,7 @@ import {
   createPostgresSlackAppStore,
   createPostgresSlackConfigTokenStore,
   createPostgresSlackGuestSetting,
+  createPostgresSlackInboundEventStore,
   createPostgresSlackInstallStore,
   createPostgresSurfaceBindingStore,
   createPostgresTeamStore,
@@ -55,12 +56,16 @@ import {
   createSessionOutputService,
   createSessionService,
   createSessionShareService,
+  composeSlackFinalize,
   createSlackAppService,
   createSlackConfigApi,
   createSlackConfigTokens,
+  createSlackEventsFinalize,
+  createSlackEventsService,
   createSlackInstallService,
   createSlackLinkAppService,
   createSlackSecretService,
+  createSlackSigningSecrets,
   createSurfaceBindingService,
   createTeamService,
   createUsageService,
@@ -108,6 +113,7 @@ import { createGitPusher } from "./git-push.ts";
 import { createGoogleLogin, googleLoginConfigFromEnv } from "./google-login.ts";
 import { DatabaseApiKeyStore, generateApiKey, hashApiKey } from "./keys.ts";
 import { createApiPool, createProbePool } from "./pool.ts";
+import { createSlackEventsLimiter } from "./rate-limit.ts";
 import { createReadinessProbe } from "./readiness.ts";
 import { registerAgentIdentityRoutes } from "./routes/agent-identities.ts";
 import { registerAgentRoutes } from "./routes/agents.ts";
@@ -134,6 +140,7 @@ import { registerSessionShareRoutes } from "./routes/session-shares.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
 import { registerSlackAppRoutes } from "./routes/slack-apps.ts";
 import { registerSlackBindingRoutes } from "./routes/slack-bindings.ts";
+import { registerSlackEventRoutes } from "./routes/slack-events.ts";
 import { registerSlackInstallRoutes } from "./routes/slack-install.ts";
 import { registerSlackSecretRoutes } from "./routes/slack-secrets.ts";
 import { registerTeamRoutes } from "./routes/teams.ts";
@@ -142,7 +149,11 @@ import { registerWorkerRoutes } from "./routes/worker.ts";
 import { registerWorkspaceRoutes } from "./routes/workspaces.ts";
 import { PostgresSessionNotifier } from "./session-notifier.ts";
 import { createShutdown } from "./shutdown.ts";
-import { consoleOriginFrom, slackApiUrlFrom } from "./slack-config.ts";
+import {
+  consoleOriginFrom,
+  slackApiUrlFrom,
+  slackEventsPublicUrlFrom,
+} from "./slack-config.ts";
 import { signInWithSlackOff, slackOidcSettingsFromEnv } from "./slack-link.ts";
 
 const authMode = process.env.AUTH_MODE;
@@ -333,21 +344,58 @@ const slackSecrets = createSlackSecretService({
 });
 const slackAppStore =
   secretKey === null ? null : createPostgresSlackAppStore(db, secretKey);
+// Without a master key no app has a readable secret, so every events
+// request answers 401.
+const slackSigningSecrets =
+  secretKey === null || slackAppStore === null
+    ? null
+    : createSlackSigningSecrets({
+        apps: slackAppStore,
+        secrets: createPostgresSecretStore(db, secretKey),
+      });
 const slackApps = createSlackAppService({
   authorization,
   apps: slackAppStore,
   tokens: slackConfigTokens,
   api: slackConfigApi,
   consoleOrigin,
+  onAgentAppChanged: (agentId) => slackSigningSecrets?.invalidate(agentId),
+});
+const slackEventsPublicUrl = slackEventsPublicUrlFrom(process.env);
+if (slackEventsPublicUrl === null) {
+  logger.warn(
+    "Slack apps get no event subscription (SLACK_EVENTS_PUBLIC_URL unset): installs finish with events_url_unset",
+    {},
+  );
+}
+const slackInstallStore =
+  secretKey === null ? null : createPostgresSlackInstallStore(db);
+const slackEvents = createSlackEventsService({
+  signingSecrets: slackSigningSecrets ?? { forAgent: async () => null },
+  inbox: createPostgresSlackInboundEventStore(db),
+  identities: createPostgresAgentIdentityStore(db),
+  installs: createPostgresSlackInstallStore(db),
 });
 const slackInstall = createSlackInstallService({
   authorization,
   apps: slackAppStore,
-  states: secretKey === null ? null : createPostgresSlackInstallStore(db),
+  states: slackInstallStore,
   secrets: secretKey === null ? null : createPostgresSecretStore(db, secretKey),
   tokens: slackConfigTokens,
   identities: createPostgresAgentIdentityStore(db),
   api: slackConfigApi,
+  // 94S-794 appends the home channel and welcome step here.
+  ...(slackAppStore === null
+    ? {}
+    : {
+        finalize: composeSlackFinalize(
+          createSlackEventsFinalize({
+            apps: slackApps,
+            agents: slackAppStore,
+            publicUrl: slackEventsPublicUrl,
+          }),
+        ),
+      }),
 });
 const slackLinkApps = createSlackLinkAppService({
   authorization,
@@ -511,6 +559,11 @@ const app = createApiApp({
   authorization,
   registerPublicRoutes: (router) => {
     registerPublicAuthRoutes(router, auth);
+    registerSlackEventRoutes(router, {
+      events: slackEvents,
+      limiter: createSlackEventsLimiter(),
+      logger,
+    });
     registerPublicInviteRoutes(router, {
       invites: inviteStore,
       identity,

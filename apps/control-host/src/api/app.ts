@@ -345,6 +345,7 @@ function setHandlerClock(context: Context<ApiEnvironment>): void {
 // the 408 or 413 to send, or null.
 async function ingestBody(
   context: Context<ApiEnvironment>,
+  maxBytes = REQUEST_BODY_MAX_BYTES,
 ): Promise<Response | null> {
   if (BODYLESS_METHODS.has(context.req.method)) {
     return null;
@@ -354,7 +355,7 @@ async function ingestBody(
   const read = await readBodyWithin(
     context.req.raw,
     BODY_DEADLINE_MS,
-    REQUEST_BODY_MAX_BYTES,
+    maxBytes,
   );
   if (read.kind === "timeout") {
     // The rest of the body may still be on its way; close rather than keep
@@ -371,7 +372,7 @@ async function ingestBody(
       true,
     );
   }
-  if (read.size > REQUEST_BODY_MAX_BYTES) {
+  if (read.size > maxBytes) {
     return errorResponse(
       context,
       413,
@@ -403,6 +404,26 @@ export async function ingestThenStopClock(
   setHandlerClock(context);
   await next();
   return undefined;
+}
+
+/**
+ * ingestThenStopClock with the route's own body limit, for a public route
+ * whose caller sends more than the API's default allows (Slack events). The
+ * limit is checked on the bytes as they arrive, before the handler runs.
+ */
+export function ingestThenStopClockWithin(maxBytes: number) {
+  return async (
+    context: Context<ApiEnvironment>,
+    next: () => Promise<void>,
+  ): Promise<Response | undefined> => {
+    const rejected = await ingestBody(context, maxBytes);
+    if (rejected) {
+      return rejected;
+    }
+    setHandlerClock(context);
+    await next();
+    return undefined;
+  };
 }
 
 export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {

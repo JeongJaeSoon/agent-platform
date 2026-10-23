@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { agentIdSchema } from "../shared/index.ts";
 import { SLACK_EVENT_DROP_REASON_VALUES } from "./agent-identities.ts";
 
 /**
@@ -53,6 +54,11 @@ export const SLACK_INBOUND_EVENT_TYPES = [
   "app_uninstalled",
   "tokens_revoked",
 ] as const;
+
+/** The agent whose app's events the request URL is for. */
+export const slackEventsParamsSchema = z
+  .object({ agent_id: agentIdSchema })
+  .strict();
 
 const slackRequestIdSchema = z
   .string()

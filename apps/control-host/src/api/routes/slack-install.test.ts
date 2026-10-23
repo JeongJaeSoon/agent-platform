@@ -169,6 +169,7 @@ function appWith(enabled: boolean) {
               finalizeFaults.next -= 1;
               throw new Error("finalize failed");
             }
+            return { finalized: true, warnings: [] };
           },
           now: () => clock,
         }),

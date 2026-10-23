@@ -26,6 +26,8 @@ export type FakeSlackWebApi = {
   authorize(authorizeUrl: string): { code: string; state: string | null };
   apps: Map<string, FakeSlackApp>;
   calls: FakeSlackCall[];
+  /** Fields merged into every apps.manifest.update answer. */
+  manifestUpdateAnswer: Record<string, unknown>;
   /**
    * Posts an event to `url` as Slack would, signed with the app's secret:
    * `ageSeconds` backdates the timestamp (negative: from the future),
@@ -84,6 +86,7 @@ export function createFakeSlackWebApi(
   /** The scopes each pending code's authorize URL asked for. */
   const scopesOf = new Map<string, string>();
   const installAnswer: Record<string, unknown> = {};
+  const manifestUpdateAnswer: Record<string, unknown> = {};
   let appCounter = 0;
 
   const issueConfigToken = () => {
@@ -189,7 +192,11 @@ export function createFakeSlackWebApi(
       configToken(context);
       const app = appOf(context.params.app_id);
       app.manifest = JSON.parse(context.params.manifest ?? "null");
-      return { app_id: app.appId, permissions_updated: false };
+      return {
+        app_id: app.appId,
+        permissions_updated: false,
+        ...manifestUpdateAnswer,
+      };
     },
 
     "apps.manifest.delete"(context) {
@@ -307,6 +314,7 @@ export function createFakeSlackWebApi(
     issueConfigToken,
 
     installAnswer,
+    manifestUpdateAnswer,
     authorize,
     sendEvent,
 
