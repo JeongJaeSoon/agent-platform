@@ -442,7 +442,9 @@ describe("홈 요약", () => {
       name: askedEarly.id.slice(0, 8),
     });
     expect(oldest.getAttribute("href")).toBe(`/sessions/${askedEarly.id}`);
-    expect(oldest.parentElement?.textContent).toContain("2026. 10. 23. 18:00");
+    expect(
+      oldest.parentElement?.querySelector("time")?.getAttribute("title"),
+    ).toBe("2026. 10. 23. 18:00");
   });
 
   test("대기 세션 목록을 다시 읽다 실패하면 전에 고른 가장 오래된 요청을 내린다", async () => {

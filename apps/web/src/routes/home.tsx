@@ -282,7 +282,12 @@ export function HomeScreen() {
                             </Link>
                           </TextLink>
                           {" · "}
-                          {formatTimestamp(oldest.at, locale)}
+                          <time
+                            dateTime={oldest.at}
+                            title={formatTimestamp(oldest.at, locale)}
+                          >
+                            {relativeTime(oldest.at, locale)}
+                          </time>
                         </>
                       ),
                     },
@@ -424,7 +429,10 @@ function ArrowLink({
   readonly children: ReactNode;
 }) {
   return (
-    <TextLink asChild className="inline-flex items-center gap-1 text-control">
+    <TextLink
+      asChild
+      className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-control"
+    >
       <Link to={to}>
         {children}
         <ArrowRight className="size-3.5" aria-hidden="true" />
@@ -577,7 +585,7 @@ function RecentSessionTable() {
             <TableHead>{t("sessions.column.status")}</TableHead>
             <TableHead>{t("home.recent.agent")}</TableHead>
             <TableHead>{t("home.recent.repository")}</TableHead>
-            <TableHead className="text-right">
+            <TableHead className="whitespace-nowrap text-right">
               {t("home.recent.activity")}
             </TableHead>
           </TableRow>
@@ -626,7 +634,7 @@ function RecentRow({
       <TableCell className="text-muted-foreground">
         {t("home.overview.unknown")}
       </TableCell>
-      <TableCell className="text-muted-foreground">
+      <TableCell className="whitespace-nowrap text-muted-foreground">
         {session.repository_id ?? t("home.overview.unknown")}
       </TableCell>
       <TableCell className="whitespace-nowrap text-right text-muted-foreground">
