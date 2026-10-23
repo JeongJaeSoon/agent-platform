@@ -9,8 +9,8 @@ Slack에서 에이전트를 멘션해 세션을 시작하거나, Slack 버튼으
 
 | 지금 있는 것 | API | 누가 |
 | --- | --- | --- |
-| 내 Slack 계정을 웹 계정에 연결 | `POST /v1/linked-accounts/slack/start`, `…/callback`, `GET`·`DELETE /v1/linked-accounts` | 로그인한 본인 |
-| 에이전트에 Slack 앱(bot) 연결 | `POST`·`GET`·`DELETE /v1/agents/{id}/identities` | owner·admin·그 에이전트 관리자 |
+| 내 Slack 계정을 웹 계정에 연결 | `POST /v1/linked-accounts/slack/start`, `…/callback`, `GET /v1/linked-accounts`, `DELETE /v1/linked-accounts/{id}` | 로그인한 본인 |
+| 에이전트에 Slack 앱(bot) 연결 | `POST`·`GET /v1/agents/{id}/identities`, `DELETE …/identities/{identity_id}` | owner·admin·그 에이전트 관리자 |
 | guest의 에이전트 사용 허용 | `POST /v1/workspaces/{id}/slack-guest` | owner·admin |
 
 셋 다 웹 로그인 cookie로만 부른다. API key는 403이다. 아래 예제는 [만들기](/agents/create#로그인)의 `WEB` 헤더와 `WS`를 쓴다.

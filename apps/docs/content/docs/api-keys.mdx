@@ -10,9 +10,9 @@ API key는 `/v1` 세션 API를 부르는 Bearer 토큰이다. 요청마다 `Auth
 | scope | 하는 일 |
 | --- | --- |
 | `sessions:read` | 세션·turn·이벤트·사용량·receipt 읽기 |
-| `sessions:write` | 세션 만들기, 메시지 보내기, 권한 요청과 질문에 답하기, push 요청 |
+| `sessions:write` | 세션 만들기, 메시지 보내기, push 요청 |
 | `sessions:control` | interrupt, pause, resume, close, terminate, 프로필 변경 |
-| `sessions:approve` | push 요청의 승인·거부, PR 열기와 코멘트 |
+| `sessions:approve` | 권한 요청과 질문에 답하기, push 요청의 승인·거부, PR 열기와 코멘트 |
 | `sessions:recover` | 복구 결정. `write`나 `control`에 포함되지 않는다 |
 
 scope가 없는 요청은 본문을 읽기 전에 403 `FORBIDDEN`이다. `sessions:approve`는 사람만 갖게 발급한다.
