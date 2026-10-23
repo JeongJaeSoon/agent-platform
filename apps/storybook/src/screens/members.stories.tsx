@@ -1,0 +1,901 @@
+import type { Meta, StoryObj } from "@storybook/react-vite";
+import {
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  ConfirmDialog,
+  DestructiveActionDialog,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  EmptyState,
+  ErrorState,
+  Field,
+  FieldDescription,
+  FieldLabel,
+  FieldLegend,
+  FieldSet,
+  Input,
+  PageHeader,
+  RadioGroup,
+  RadioGroupItem,
+  RowLines,
+  RowList,
+  RowListItem,
+  Skeleton,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableHeader,
+  TableRow,
+  Tabs,
+  TabsList,
+  TabsTrigger,
+} from "@werft-ai/ui";
+import type { ReactNode } from "react";
+import { fn } from "storybook/test";
+
+import {
+  DangerArea,
+  LockedButton,
+  MOBILE,
+  PartRequest,
+  ScreenShell,
+} from "./screen-kit.tsx";
+
+/*
+ * v3 members screen: 구성원·팀·초대 as tabs of one page (M-01), rows that
+ * only disable (M-02), team detail inside the 팀 tab (M-03). Rules in
+ * .design/v3-members/plan.md §9.
+ */
+
+type Role = "owner" | "admin" | "member";
+type Tab = "members" | "teams" | "invites";
+
+const ROLE_LABEL: Record<Role, string> = {
+  owner: "소유자",
+  admin: "관리자",
+  member: "구성원",
+};
+
+interface Member {
+  readonly id: string;
+  readonly name: string;
+  readonly email: string;
+  readonly role: Role;
+  readonly active: boolean;
+  readonly joined: string;
+}
+
+const MEMBERS: readonly Member[] = [
+  {
+    id: "u1",
+    name: "Verify Owner",
+    email: "owner@example.test",
+    role: "owner",
+    active: true,
+    joined: "2026. 10. 02.",
+  },
+  {
+    id: "u2",
+    name: "Verify Dana",
+    email: "dana@example.test",
+    role: "admin",
+    active: true,
+    joined: "2026. 10. 05.",
+  },
+  {
+    id: "u3",
+    name: "Verify Minji",
+    email: "minji@example.test",
+    role: "member",
+    active: true,
+    joined: "2026. 10. 12.",
+  },
+  {
+    id: "u4",
+    name: "Verify Hoon",
+    email: "hoon@example.test",
+    role: "member",
+    active: true,
+    joined: "2026. 10. 15.",
+  },
+  {
+    id: "u5",
+    name: "Verify Sora",
+    email: "sora@example.test",
+    role: "member",
+    active: false,
+    joined: "2026. 10. 18.",
+  },
+];
+const ME: Record<Role, string> = { owner: "u1", admin: "u2", member: "u3" };
+
+const TEAMS = [
+  {
+    id: "t1",
+    name: "플랫폼팀",
+    members: 2,
+    agents: ["release-bot", "triage", "research"],
+    created: "2026. 10. 15.",
+  },
+  {
+    id: "t2",
+    name: "리서치",
+    members: 1,
+    agents: ["research"],
+    created: "2026. 10. 16.",
+  },
+  {
+    id: "t3",
+    name: "디자인",
+    members: 0,
+    agents: [],
+    created: "2026. 10. 20.",
+  },
+] as const;
+
+const TEAM_MEMBERS = MEMBERS.filter((member) =>
+  ["u3", "u4"].includes(member.id),
+);
+const TEAM_AGENTS = [
+  { name: "release-bot", state: ["green", "활성"], at: "2026. 10. 16." },
+  { name: "triage", state: ["amber", "일시정지"], at: "2026. 10. 17." },
+  { name: "research", state: ["gray", "초안"], at: "2026. 10. 20." },
+] as const;
+
+const INVITES = [
+  {
+    email: "new@example.test",
+    role: "member",
+    by: "Verify Owner",
+    state: ["blue", "대기 중"],
+    expires: "2026. 10. 30. 09:00",
+  },
+  {
+    email: "soon@example.test",
+    role: "admin",
+    by: "Verify Dana",
+    state: ["amber", "곧 만료"],
+    expires: "2026. 10. 24. 09:00",
+  },
+] as const;
+
+/** Name that opens 구성원 편집 (role lives there, not in the row). */
+function NameLink({ children }: { readonly children: ReactNode }) {
+  return (
+    <Button asChild variant="link" className="h-auto justify-start px-0">
+      <a href="#edit">{children} ›</a>
+    </Button>
+  );
+}
+
+function access(member: Member, viewer: Role) {
+  const self = member.id === ME[viewer];
+  const guarded = viewer === "admin" && member.role === "owner";
+  const label = member.active ? "비활성화" : "다시 활성화";
+  if (self)
+    return (
+      <LockedButton
+        label={label}
+        reason="자기 자신은 비활성화할 수 없습니다."
+      />
+    );
+  if (guarded)
+    return (
+      <LockedButton
+        label={label}
+        reason="소유자는 소유자만 바꿀 수 있습니다."
+      />
+    );
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      aria-label={`${member.name} ${label}`}
+    >
+      {label}
+    </Button>
+  );
+}
+
+function Head({
+  tab,
+  action,
+}: {
+  readonly tab: Tab;
+  readonly action?: ReactNode;
+}) {
+  return (
+    <>
+      <PageHeader
+        title="구성원"
+        description="워크스페이스에 들어온 사람과 팀, 보낸 초대를 관리합니다."
+        actions={action}
+      />
+      <div className="flex flex-wrap items-center gap-2">
+        <Tabs value={tab}>
+          <TabsList variant="line" aria-label="구성원 보기">
+            <TabsTrigger value="members">구성원 5</TabsTrigger>
+            <TabsTrigger value="teams">팀 3</TabsTrigger>
+            <TabsTrigger value="invites">초대 2</TabsTrigger>
+          </TabsList>
+        </Tabs>
+        <PartRequest name="LinkTabs" />
+        <PartRequest name="Link" />
+      </div>
+    </>
+  );
+}
+
+const inviteButton = <Button type="button">초대 링크 만들기</Button>;
+const teamButton = <Button type="button">팀 만들기</Button>;
+
+type ListState = "ready" | "loading" | "error";
+
+function ListBody({
+  state,
+  label,
+  children,
+}: {
+  readonly state: ListState;
+  readonly label: string;
+  readonly children: ReactNode;
+}) {
+  if (state === "loading") return <Skeleton lines={5} label={label} />;
+  if (state === "error")
+    return (
+      <ErrorState
+        title={`${label}을 불러오지 못했습니다`}
+        message="서버에 연결하지 못했습니다 — 네트워크 연결을 확인하세요."
+        retry={() => {}}
+        retryLabel="다시 시도"
+      />
+    );
+  return <>{children}</>;
+}
+
+function MembersTab({
+  viewer = "owner",
+  state = "ready",
+}: {
+  readonly viewer?: Role;
+  readonly state?: ListState;
+}) {
+  return (
+    <div className="flex flex-col gap-4 pt-4">
+      <div className="flex items-center justify-between gap-4">
+        <Input
+          className="max-w-[280px]"
+          placeholder="이름이나 이메일로 찾기"
+          aria-label="구성원 찾기"
+        />
+        <span className="whitespace-nowrap text-caption text-muted-foreground">
+          활성 4명 · 비활성 1명
+        </span>
+      </div>
+      <ListBody state={state} label="구성원 목록">
+        <TableContainer label="구성원" className="hidden md:block">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>이름</TableHead>
+                <TableHead>역할</TableHead>
+                <TableHead>상태</TableHead>
+                <TableHead>가입일</TableHead>
+                <TableHead variant="actions">관리</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {MEMBERS.map((member) => (
+                <TableRow key={member.id}>
+                  <TableCell>
+                    <RowLines>
+                      <NameLink>
+                        {member.name}
+                        {member.id === ME[viewer] ? " (나)" : ""}
+                      </NameLink>
+                      <span className="text-caption text-muted-foreground">
+                        {member.email}
+                      </span>
+                    </RowLines>
+                  </TableCell>
+                  <TableCell>{ROLE_LABEL[member.role]}</TableCell>
+                  <TableCell>
+                    <Badge variant={member.active ? "green" : "gray"}>
+                      {member.active ? "활성" : "비활성"}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {member.joined}
+                  </TableCell>
+                  <TableCell variant="actions">
+                    {access(member, viewer)}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+        <div className="flex flex-col gap-2 md:hidden">
+          <PartRequest name="DropdownMenu" />
+          <RowList aria-label="구성원">
+            {MEMBERS.map((member) => (
+              <RowListItem
+                key={member.id}
+                className="flex items-start justify-between gap-2"
+              >
+                <RowLines>
+                  <NameLink>{member.name}</NameLink>
+                  <span className="text-caption text-muted-foreground">
+                    {member.email}
+                  </span>
+                  <span className="text-caption text-muted-foreground">
+                    {ROLE_LABEL[member.role]} ·{" "}
+                    {member.active ? "활성" : "비활성"}
+                  </span>
+                </RowLines>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="size-11"
+                  aria-label={`${member.name} 동작`}
+                >
+                  ⋯
+                </Button>
+              </RowListItem>
+            ))}
+          </RowList>
+        </div>
+      </ListBody>
+    </div>
+  );
+}
+
+function TeamsTab({
+  state = "ready",
+  empty = false,
+}: {
+  readonly state?: ListState;
+  readonly empty?: boolean;
+}) {
+  return (
+    <div className="flex flex-col gap-4 pt-4">
+      <ListBody state={state} label="팀 목록">
+        {empty ? (
+          <EmptyState
+            title="아직 팀이 없습니다"
+            description="팀을 만들고 에이전트 상세에서 관리자로 지정하면 팀원 모두가 그 에이전트를 관리합니다."
+            action={teamButton}
+          />
+        ) : (
+          <TableContainer label="팀">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>이름</TableHead>
+                  <TableHead>구성원</TableHead>
+                  <TableHead>관리하는 에이전트</TableHead>
+                  <TableHead>만든 날</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {TEAMS.map((team) => (
+                  <TableRow key={team.id}>
+                    <TableCell>
+                      <Button
+                        asChild
+                        variant="link"
+                        className="h-auto justify-start px-0"
+                      >
+                        <a href="#team">{team.name} ›</a>
+                      </Button>
+                    </TableCell>
+                    <TableCell>{team.members}명</TableCell>
+                    <TableCell>
+                      {team.agents.length === 0 ? (
+                        <span className="text-muted-foreground">없음</span>
+                      ) : (
+                        <span className="flex flex-wrap gap-1">
+                          {team.agents.slice(0, 2).map((agent) => (
+                            <Badge key={agent}>{agent}</Badge>
+                          ))}
+                          {team.agents.length > 2 ? (
+                            <span className="text-caption text-muted-foreground">
+                              외 {team.agents.length - 2}
+                            </span>
+                          ) : null}
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {team.created}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        )}
+      </ListBody>
+    </div>
+  );
+}
+
+function TeamDetailView({
+  emptyMembers = false,
+}: {
+  readonly emptyMembers?: boolean;
+}) {
+  return (
+    <div className="flex flex-col gap-6 pt-4">
+      <Button asChild variant="ghost" size="sm" className="self-start">
+        <a href="#teams">← 팀 목록</a>
+      </Button>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex flex-col gap-1">
+          <h2 className="m-0 font-semibold text-title">플랫폼팀</h2>
+          <p className="m-0 text-muted-foreground">
+            팀이 관리자로 지정된 에이전트는 팀원 모두가 관리합니다.
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <Button type="button" variant="outline">
+            이름 바꾸기
+          </Button>
+          <Button type="button">구성원 추가</Button>
+        </div>
+      </div>
+      <div className="flex flex-col gap-2">
+        <PartRequest name="StatStrip" />
+        <div className="grid gap-4 md:grid-cols-3">
+          {[
+            ["구성원", emptyMembers ? "0명" : "2명"],
+            ["관리하는 에이전트", "3개"],
+            ["만든 날", "2026. 10. 15."],
+          ].map(([label, value]) => (
+            <Card key={label}>
+              <CardContent className="flex flex-col gap-1">
+                <span className="text-caption text-muted-foreground">
+                  {label}
+                </span>
+                <span className="font-semibold text-title">{value}</span>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+      <section aria-label="플랫폼팀 구성원" className="flex flex-col gap-3">
+        <h3 className="m-0 font-semibold">구성원</h3>
+        {emptyMembers ? (
+          <EmptyState
+            title="이 팀에 구성원이 없습니다"
+            description="구성원을 넣으면 이 팀이 관리하는 에이전트 3개를 함께 관리합니다."
+            action={<Button type="button">구성원 추가</Button>}
+          />
+        ) : (
+          <TableContainer label="플랫폼팀 구성원">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>이름</TableHead>
+                  <TableHead>추가한 날</TableHead>
+                  <TableHead variant="actions">관리</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {TEAM_MEMBERS.map((member) => (
+                  <TableRow key={member.id}>
+                    <TableCell>
+                      <RowLines>
+                        <span className="font-medium">{member.name}</span>
+                        <span className="text-caption text-muted-foreground">
+                          {member.email}
+                        </span>
+                      </RowLines>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {member.joined}
+                    </TableCell>
+                    <TableCell variant="actions">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        aria-label={`${member.name} 팀에서 빼기`}
+                      >
+                        빼기
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        )}
+      </section>
+      <section
+        aria-label="플랫폼팀이 관리하는 에이전트"
+        className="flex flex-col gap-3"
+      >
+        <h3 className="m-0 font-semibold">관리하는 에이전트</h3>
+        <TableContainer label="플랫폼팀이 관리하는 에이전트">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>에이전트</TableHead>
+                <TableHead>상태</TableHead>
+                <TableHead>관리자로 지정한 날</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {TEAM_AGENTS.map((agent) => (
+                <TableRow key={agent.name}>
+                  <TableCell>
+                    <Button
+                      asChild
+                      variant="link"
+                      className="h-auto justify-start px-0"
+                    >
+                      <a href="#agent">{agent.name} ›</a>
+                    </Button>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={agent.state[0]}>{agent.state[1]}</Badge>
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {agent.at}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </section>
+      <DangerArea
+        rows={[
+          {
+            title: "팀 삭제",
+            body: "팀을 지우면 이 팀이 관리자로 있던 에이전트 3개의 관리에서 빠집니다. 구성원 계정은 그대로입니다.",
+            action: "팀 삭제",
+          },
+        ]}
+      />
+    </div>
+  );
+}
+
+function InvitesTab({ empty = false }: { readonly empty?: boolean }) {
+  return (
+    <div className="flex flex-col gap-4 pt-4">
+      {empty ? (
+        <EmptyState
+          title="대기 중인 초대가 없습니다"
+          description="초대 링크를 만들어 보내면 수락하기 전까지 여기에 남습니다."
+          action={inviteButton}
+        />
+      ) : (
+        <TableContainer label="초대">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>이메일</TableHead>
+                <TableHead>역할</TableHead>
+                <TableHead>상태</TableHead>
+                <TableHead>만료</TableHead>
+                <TableHead variant="actions">관리</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {INVITES.map((invite) => (
+                <TableRow key={invite.email}>
+                  <TableCell>
+                    <RowLines>
+                      <span>{invite.email}</span>
+                      <span className="text-caption text-muted-foreground">
+                        보낸 사람: {invite.by}
+                      </span>
+                    </RowLines>
+                  </TableCell>
+                  <TableCell>{ROLE_LABEL[invite.role]}</TableCell>
+                  <TableCell>
+                    <Badge variant={invite.state[0]}>{invite.state[1]}</Badge>
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {invite.expires}
+                  </TableCell>
+                  <TableCell variant="actions">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      aria-label={`${invite.email} 초대 회수`}
+                    >
+                      회수
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      )}
+    </div>
+  );
+}
+
+/** 구성원 편집: where the role changes now that rows only disable (M-02). */
+function MemberEditDialog({ viewer = "owner" }: { readonly viewer?: Role }) {
+  return (
+    <Dialog open>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>구성원 편집</DialogTitle>
+          <DialogDescription>
+            Verify Minji · minji@example.test
+          </DialogDescription>
+        </DialogHeader>
+        <FieldSet>
+          <FieldLegend variant="label">역할</FieldLegend>
+          <RadioGroup name="role" defaultValue="member" aria-label="역할">
+            {(
+              [
+                [
+                  "owner",
+                  "소유자",
+                  "워크스페이스 설정과 소유자까지 모두 바꿉니다.",
+                ],
+                [
+                  "admin",
+                  "관리자",
+                  "구성원·팀·초대를 관리합니다. 소유자는 바꾸지 못합니다.",
+                ],
+                ["member", "구성원", "자기 세션과 맡은 에이전트만 다룹니다."],
+              ] as const
+            ).map(([value, label, help]) => (
+              <Field key={value} orientation="horizontal">
+                <RadioGroupItem
+                  value={value}
+                  disabled={viewer === "admin" && value === "owner"}
+                />
+                <FieldLabel>{label}</FieldLabel>
+                <FieldDescription>
+                  {viewer === "admin" && value === "owner"
+                    ? "소유자만 소유자를 지정할 수 있습니다."
+                    : help}
+                </FieldDescription>
+              </Field>
+            ))}
+          </RadioGroup>
+        </FieldSet>
+        <DialogFooter>
+          <Button type="button" variant="outline">
+            취소
+          </Button>
+          <Button type="button">저장</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function TeamCreateDialog() {
+  return (
+    <Dialog open>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>팀 만들기</DialogTitle>
+          <DialogDescription>
+            팀을 만든 뒤 구성원을 넣고, 에이전트 상세에서 이 팀을 관리자로
+            지정합니다.
+          </DialogDescription>
+        </DialogHeader>
+        <Field>
+          <FieldLabel>팀 이름</FieldLabel>
+          <Input name="team" maxLength={100} />
+          <FieldDescription>
+            100자까지. 워크스페이스 안에서 겹치지 않아야 합니다.
+          </FieldDescription>
+        </Field>
+        <DialogFooter>
+          <Button type="button" variant="outline">
+            취소
+          </Button>
+          <Button type="button">팀 만들기</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function MyTeams() {
+  return (
+    <>
+      <PageHeader
+        title="구성원"
+        description="내가 속한 팀입니다. 구성원·팀 관리는 소유자와 관리자가 합니다."
+      />
+      <Card>
+        <CardHeader>
+          <CardTitle>내 팀</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-wrap gap-2">
+          <Badge>플랫폼팀</Badge>
+        </CardContent>
+      </Card>
+    </>
+  );
+}
+
+type Screen =
+  | "members"
+  | "members-admin"
+  | "members-loading"
+  | "members-error"
+  | "member-edit"
+  | "member-edit-admin"
+  | "member-disable"
+  | "teams"
+  | "teams-empty"
+  | "team-create"
+  | "team"
+  | "team-empty"
+  | "team-delete"
+  | "invites"
+  | "invites-empty"
+  | "member-view";
+
+const DETAIL_SCREENS: readonly Screen[] = ["team", "team-empty", "team-delete"];
+
+function MembersScreen({ screen }: { readonly screen: Screen }) {
+  const viewer: Role = screen.endsWith("-admin")
+    ? "admin"
+    : screen === "member-view"
+      ? "member"
+      : "owner";
+  const tab: Tab = screen.startsWith("team")
+    ? "teams"
+    : screen.startsWith("invites")
+      ? "invites"
+      : "members";
+  const crumb =
+    tab === "teams"
+      ? DETAIL_SCREENS.includes(screen)
+        ? ["구성원", "팀", "플랫폼팀"]
+        : ["구성원", "팀"]
+      : tab === "invites"
+        ? ["구성원", "초대"]
+        : ["구성원"];
+  let body: ReactNode;
+  if (screen === "member-view") body = <MyTeams />;
+  else {
+    const action =
+      tab === "teams"
+        ? DETAIL_SCREENS.includes(screen)
+          ? undefined
+          : teamButton
+        : inviteButton;
+    const content =
+      tab === "members" ? (
+        <MembersTab
+          viewer={viewer}
+          state={
+            screen === "members-loading"
+              ? "loading"
+              : screen === "members-error"
+                ? "error"
+                : "ready"
+          }
+        />
+      ) : tab === "invites" ? (
+        <InvitesTab empty={screen === "invites-empty"} />
+      ) : screen === "team" ||
+        screen === "team-empty" ||
+        screen === "team-delete" ? (
+        <TeamDetailView emptyMembers={screen === "team-empty"} />
+      ) : (
+        <TeamsTab empty={screen === "teams-empty"} />
+      );
+    body = (
+      <>
+        <Head tab={tab} action={action} />
+        {content}
+      </>
+    );
+  }
+  return (
+    <ScreenShell current="members" crumb={crumb} role={viewer}>
+      {body}
+      {screen === "member-edit" || screen === "member-edit-admin" ? (
+        <MemberEditDialog viewer={viewer} />
+      ) : null}
+      {screen === "member-disable" ? (
+        <ConfirmDialog
+          open
+          onOpenChange={fn()}
+          onConfirm={fn()}
+          tone="danger"
+          title="Verify Hoon을 비활성화할까요?"
+          consequence="로그인과 이 사람의 개인 key가 바로 끊깁니다. 이 사람이 만든 서비스 key는 계속 동작합니다."
+          confirmLabel="비활성화"
+        />
+      ) : null}
+      {screen === "team-create" ? <TeamCreateDialog /> : null}
+      {screen === "team-delete" ? (
+        <DestructiveActionDialog
+          open
+          onOpenChange={fn()}
+          onConfirm={fn()}
+          title="플랫폼팀을 삭제할까요?"
+          consequence="삭제 전에 확인한 관계: 이 팀이 관리자로 있던 에이전트 3개(release-bot, triage, research)의 관리에서 빠집니다."
+          resourceName="플랫폼팀"
+        />
+      ) : null}
+    </ScreenShell>
+  );
+}
+
+const meta = {
+  title: "Screens/Members (v3)",
+  component: MembersScreen,
+  parameters: { layout: "fullscreen" },
+  args: { screen: "members" },
+} satisfies Meta<typeof MembersScreen>;
+
+export default meta;
+type Story = StoryObj<typeof meta>;
+
+export const Members: Story = {};
+export const MembersAsAdmin: Story = {
+  name: "Members (admin: owner rows locked)",
+  args: { screen: "members-admin" },
+};
+export const MembersLoading: Story = { args: { screen: "members-loading" } };
+export const MembersError: Story = { args: { screen: "members-error" } };
+export const MemberEdit: Story = {
+  name: "Member edit (role)",
+  args: { screen: "member-edit" },
+};
+export const MemberEditAsAdmin: Story = {
+  name: "Member edit (admin)",
+  args: { screen: "member-edit-admin" },
+};
+export const MemberDisable: Story = { args: { screen: "member-disable" } };
+export const Teams: Story = { args: { screen: "teams" } };
+export const TeamsEmpty: Story = { args: { screen: "teams-empty" } };
+export const TeamCreate: Story = { args: { screen: "team-create" } };
+export const TeamDetail: Story = {
+  name: "Team detail (A: inside 팀 tab)",
+  args: { screen: "team" },
+};
+export const TeamDetailEmpty: Story = { args: { screen: "team-empty" } };
+export const TeamDelete: Story = { args: { screen: "team-delete" } };
+export const Invites: Story = { args: { screen: "invites" } };
+export const InvitesEmpty: Story = { args: { screen: "invites-empty" } };
+export const MemberView: Story = {
+  name: "As member (내 팀)",
+  args: { screen: "member-view" },
+};
+
+export const MembersDark: Story = {
+  name: "Members (dark)",
+  globals: { theme: "dark" },
+};
+export const MembersMobile: Story = {
+  name: "Members (390px)",
+  globals: MOBILE,
+};
+export const TeamDetailMobileDark: Story = {
+  name: "Team detail (390px, dark)",
+  args: { screen: "team" },
+  globals: { ...MOBILE, theme: "dark" },
+};
