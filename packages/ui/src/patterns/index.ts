@@ -14,4 +14,4 @@ export {
   type StepperProps,
   type StepperStep,
 } from "./stepper.tsx";
-export { DETAIL_NARROW_WIDTH, useDetailLayout } from "./use-detail-layout.ts";
+export { useDetailLayout } from "./use-detail-layout.ts";

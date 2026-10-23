@@ -209,6 +209,7 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | json-schema-traverse | 1.0.0 | MIT | worker |
 | json-schema-typed | 8.0.2 | BSD-2-Clause | worker |
 | json-with-bigint | 3.5.12 | MIT | control-host, worker |
+| lucide-react | 1.53.0 | ISC | worker |
 | math-intrinsics | 1.1.0 | MIT | worker |
 | media-typer | 1.1.1 | MIT | worker |
 | merge-descriptors | 2.0.0 | MIT | worker |

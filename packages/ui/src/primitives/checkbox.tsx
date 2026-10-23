@@ -7,8 +7,8 @@ import { useFieldControl } from "./field.tsx";
 
 /*
  * shadcn/ui new-york Checkbox. Changed from upstream: Field wiring (put each
- * checkbox in its own horizontal Field with its FieldLabel), an inline check
- * instead of lucide-react, card background, no `dark:` variants, and the box
+ * checkbox in its own horizontal Field with its FieldLabel), card
+ * background, no `dark:` variants, and the box
  * drawn in `muted-foreground`: the outline is all that shows an unchecked box,
  * and `border-input` is under 3:1 against the canvas in both themes.
  */
