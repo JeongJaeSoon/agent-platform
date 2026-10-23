@@ -367,20 +367,25 @@
   out.gaps = gaps;
 
   // (a) left lines: where the outer blocks start, box and ink, outside cards.
-  // A block that sits beside a sibling in a row (an icon, a second column)
-  // starts its own line; every other block owes the content line.
+  // A block with a sibling to its left on the same row (an icon, a first
+  // column) starts its own line; every other block, an indented first column
+  // too, owes the content line.
   function sideColumn(el) {
     for (let n = el; n && n !== root; n = n.parentElement) {
       const p = n.parentElement;
       if (!p) break;
-      const ps = getComputedStyle(p);
-      const row =
-        (ps.display.includes("flex") &&
-          !ps.flexDirection.startsWith("column")) ||
-        (ps.display.includes("grid") &&
-          ps.gridTemplateColumns.trim().split(/\s+/).length > 1);
-      if (row && n.getBoundingClientRect().left + scrollX > contentLeft + 1)
-        return true;
+      const b = n.getBoundingClientRect();
+      const besideLeft = [...p.children].some((s) => {
+        if (s === n || hidden(s)) return false;
+        const sb = s.getBoundingClientRect();
+        return (
+          sb.width > 0 &&
+          sb.right <= b.left + 1 &&
+          sb.top < b.bottom &&
+          sb.bottom > b.top
+        );
+      });
+      if (besideLeft) return true;
     }
     return false;
   }
