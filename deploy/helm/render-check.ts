@@ -301,8 +301,6 @@ function checkObjectStoreKeys(
 
 const SECRET_KEY = "PLATFORM_SECRET_KEY";
 
-// Containers that may read the master key, each exactly once: the api, and
-// the slack role while its Deployment renders.
 const SECRET_KEY_HOLDERS = ["api", "slack"];
 
 function checkSecretKey(
@@ -343,15 +341,8 @@ function checkSecretKey(
 }
 
 const SLACK_EGRESS = ["UDP/53", "TCP/53", "TCP/443", "TCP/5432"];
-// The slack role reads the catalog but never its credentials: no
-// secrets.catalogEnv key, no AWS key.
 const SLACK_SECRETS = ["DATABASE_URL", SECRET_KEY];
 
-/**
- * The slack role renders exactly when enabled: one Deployment on the shared
- * workload ServiceAccount holding no Secret key but SLACK_SECRETS, and an
- * Egress policy held to DNS, HTTPS and the database.
- */
 function checkSlack(
   label: string,
   manifests: Manifest[],
@@ -374,7 +365,6 @@ function checkSlack(
   for (const m of ofSlack("Deployment")) {
     const where = `${label}: ${m.kind}/${m.metadata.name}`;
     const pod = podSpecOf(m);
-    // Not the api's, which may carry an IRSA role.
     const workload = m.metadata.name.replace(/-slack$/, "-workload");
     if (pod.serviceAccountName !== workload) {
       errors.push(

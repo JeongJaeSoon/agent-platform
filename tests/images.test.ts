@@ -425,7 +425,6 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     );
     // The developer's .env is the api's, HEARTBEAT_TTL_SEC and all.
     expect(slack?.env_file).toBeUndefined();
-    // It reads the catalog, never its credentials or where they are kept.
     for (const files of [LOCAL_LAYERS, [...LOCAL_LAYERS, FAKE_MODEL]])
       expect(
         Object.keys(
@@ -994,8 +993,6 @@ describe("compose layers", () => {
               new RegExp(`^\\$\\{${variable || "[A-Z_]+"}:\\?[^}]+\\}$`),
             ),
           });
-        // The one mount a layer may set: the API's catalog, read-only, on
-        // the api and the slack role that reads it too.
         expect({ name, volumes: service.volumes }).toEqual({
           name,
           volumes:
@@ -1291,8 +1288,6 @@ describe("compose layers", () => {
     COMPOSE_RENDER_TIMEOUT_MS,
   );
 
-  // The master key Slack secrets are encrypted under: the api stores them,
-  // the slack role will send with them (94S-792), nothing else holds it.
   test.each([
     ["the local stack", [...LOCAL_LAYERS]],
     ["the fake-model stack", [...LOCAL_LAYERS, FAKE_MODEL]],

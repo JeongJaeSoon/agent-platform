@@ -130,9 +130,8 @@ export function secretsManagerReader(
 }
 
 /**
- * The catalog's files under every rule but its credentials. Only the api
- * resolves those; the slack role, which holds no provider key, stops here
- * for the same reasons the api would.
+ * The catalog's files under every rule but its credentials, which only
+ * loadSessionCatalog resolves.
  */
 export async function loadCatalogConfig(options: {
   dir: string;

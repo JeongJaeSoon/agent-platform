@@ -97,7 +97,6 @@ export async function drainSlackInbox(deps: {
         drain.lost += 1;
         deps.logger.warn("Slack event lease lost; left to its next claim", ids);
       };
-      // An uninstall that arrived while the event waited here.
       if (event.installationStatus === "revoked") {
         if (await deps.inbox.drop(event, "installation_revoked")) {
           drain.dropped += 1;

@@ -33,7 +33,6 @@ export function slackDatabaseUrl(environment: Environment): string {
 export function slackRoleSettings(environment: Environment): {
   batchSize: number;
   leaseMs: number;
-  /** How long one pass keeps claiming; half its timeout. */
   passBudgetMs: number;
 } {
   const { passTimeoutMs } = passLoopConfigFromEnv(
@@ -55,11 +54,8 @@ export function slackRoleSettings(environment: Environment): {
 }
 
 /**
- * What the loop checks once before its first pass: its settings, the
- * database URL, the catalog under the api's own rules (a catalog the api
- * would refuse stops this role for the same reason) and the master key.
- * Not the catalog's credentials: the provider keys stay the api's alone.
- * The sessions 94S-791 opens from Slack come from this catalog.
+ * Checked once before the first pass: settings, database URL, the catalog
+ * under the api's rules but without its credentials, and the master key.
  */
 export async function slackRoleStartup(
   environment: Environment,
@@ -73,7 +69,6 @@ export async function slackRoleStartup(
   return { catalog, secretKeySet: secretKey !== null };
 }
 
-/** One pass: claim, act, until nothing is due or the budget is spent. */
 export async function main(
   environment: Environment = process.env,
 ): Promise<SlackInboxDrain> {

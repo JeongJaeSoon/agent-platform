@@ -65,13 +65,10 @@ export const PASS_LOOP_ROLES = {
   // SLACK_ROLE, not SLACK: SLACK_API_URL and SLACK_OIDC_* are the api's.
   slack: {
     prefix: "SLACK_ROLE",
-    // How long a received event can wait for its first claim.
     intervalSec: 2,
     passTimeoutSec: 60,
     maxConsecutiveFailures: 3,
     healthStaleSec: 90,
-    // A claimed event left by a stopped pass waits out its lease
-    // (SLACK_ROLE_LEASE_SEC); stopping early loses nothing else.
     stopGraceSec: 10,
     statusFile: "/tmp/slack-status.json",
   },

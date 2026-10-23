@@ -607,8 +607,6 @@ export const slackInboundEvents = pgTable(
      * Null on dropped rows and on events outside a channel message.
      */
     conversationKey: text("conversation_key"),
-    // The `slack` role's lease on a received row; set together, judged
-    // against the database clock only.
     claimToken: uuid("claim_token"),
     leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
     /** Claims so far, lease expiries included. */

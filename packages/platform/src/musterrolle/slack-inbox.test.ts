@@ -103,7 +103,6 @@ describe("drainSlackInbox", () => {
       logger,
       batchSize: 1,
       leaseMs: 60_000,
-      // One claim only: the row is claimable again once the lease is gone.
       deadline: 1_000_001,
       now: () => clock,
     });

@@ -110,9 +110,6 @@ spec:
   ingress: []
 {{- if .Values.slack.enabled }}
 ---
-# The one control pod whose egress is held: it handles Slack's input, so
-# it reaches DNS, HTTPS (the Slack Web API) and the database alone. The
-# other control pods' egress stays open.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -128,6 +125,7 @@ spec:
     - ports:
         - {protocol: UDP, port: 53}
         - {protocol: TCP, port: 53}
+    # The Slack Web API.
     - ports:
         - {protocol: TCP, port: 443}
     - ports:

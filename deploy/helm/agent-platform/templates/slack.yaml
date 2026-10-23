@@ -1,9 +1,6 @@
 {{- if .Values.slack.enabled }}
 {{- $health := list "bun" "run" "apps/control-host/src/main.ts" "slack" "--health" -}}
 {{- $unattended := "PLATFORM_ALLOW_UNATTENDED_PERMISSIONS" -}}
-# Drains the Slack inbox. It loads the api's catalog (not its credentials)
-# and master key at boot, so it gets the catalog mount and the secret key
-# but no provider key or AWS access.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -57,15 +54,11 @@ spec:
               value: {{ .Values.config.logLevel | quote }}
             - name: PLATFORM_CONFIG_DIR
               value: /app/config
-            {{- /* The same catalog passes the same gate: follow the api's
-            setting unless slack.extraEnv names its own. */}}
             {{- if and (hasKey .Values.api.extraEnv $unattended) (not (hasKey .Values.slack.extraEnv $unattended)) }}
             - name: {{ $unattended }}
               value: {{ index .Values.api.extraEnv $unattended | toString | quote }}
             {{- end }}
             {{- include "ap.extraEnv" .Values.slack.extraEnv | nindent 12 }}
-          # Healthy only once a pass has finished, which may take a whole
-          # pass timeout after the first interval; 30s on top for startup.
           startupProbe:
             exec:
               command: {{ toJson $health }}

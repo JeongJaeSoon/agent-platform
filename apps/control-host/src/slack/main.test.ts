@@ -50,7 +50,6 @@ async function catalogDir(mode: string): Promise<string> {
   return dir;
 }
 
-// No PROVIDER_KEY: the role reads the catalog, not its credentials.
 const base = { DATABASE_URL: "postgres://nobody@127.0.0.1:1/none" };
 
 const failure = (promise: Promise<unknown>) =>
@@ -70,7 +69,6 @@ describe("slack role startup", () => {
     );
     expect(Object.keys(catalog.profiles)).toEqual(["coding"]);
     expect(secretKeySet).toBe(false);
-    // The api, by contrast, needs the key to load the same catalog.
     expect(
       await failure(
         loadSessionCatalog({ dir, env: base, readSecret: noSecrets }),
