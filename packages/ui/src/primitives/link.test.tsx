@@ -61,6 +61,54 @@ describe("Link", () => {
     expect(classes).not.toContain("font-medium");
   });
 
+  test("기본 variant에는 chevron이 없다", () => {
+    const { getByRole } = render(<Link href="/teams/1">운영팀</Link>);
+    expect(getByRole("link").querySelector("svg")).toBeNull();
+  });
+
+  test("table은 평소 밑줄 없이 chevron을 붙이고 hover·focus에 밑줄을 긋는다", () => {
+    const { getByRole } = render(
+      <Link href="/teams/1" variant="table">
+        운영팀
+      </Link>,
+    );
+    const link = getByRole("link", { name: "운영팀" });
+    const classes = link.className.split(" ");
+    expect(classes).toContain("no-underline");
+    expect(classes).toContain("hover:underline");
+    expect(classes).toContain("focus-visible:underline");
+    expect(classes).toContain("font-medium");
+    expect(classes).toContain("text-link");
+    const icon = link.querySelector("svg");
+    expect(icon?.getAttribute("aria-hidden")).toBe("true");
+    expect(icon?.getAttribute("class")).toContain("size-4");
+    expect(link.lastElementChild === icon).toBe(true);
+  });
+
+  test("table은 underline=always를 주어도 평소 밑줄이 없다", () => {
+    const { getByRole } = render(
+      <Link href="/teams/1" variant="table" underline="always">
+        운영팀
+      </Link>,
+    );
+    const classes = getByRole("link").className.split(" ");
+    expect(classes).not.toContain("underline");
+    expect(classes).toContain("no-underline");
+  });
+
+  test("asChild 라우터 링크에서도 chevron과 새 탭 문구가 <a> 하나 안에 들어간다", () => {
+    const { container, getByRole } = render(
+      <Link asChild={true} variant="table" newTabLabel="(새 탭)">
+        <RouterLink to="/teams/1" target="_blank" rel="noreferrer">
+          {({ isActive }) => (isActive ? "현재 팀" : "팀")}
+        </RouterLink>
+      </Link>,
+    );
+    expect(container.querySelectorAll("a").length).toBe(1);
+    const link = getByRole("link", { name: "현재 팀 (새 탭)" });
+    expect(link.querySelectorAll("svg").length).toBe(1);
+  });
+
   test("focus-visible 윤곽선을 부품 클래스로 갖는다", () => {
     const { getByRole } = render(<Link href="/">홈</Link>);
     const classes = getByRole("link").className.split(" ");

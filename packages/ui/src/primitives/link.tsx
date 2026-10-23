@@ -1,5 +1,6 @@
 import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
+import { ChevronRight } from "lucide-react";
 import {
   type ComponentProps,
   cloneElement,
@@ -19,7 +20,8 @@ const FOCUS_OUTLINE =
 /*
  * Console v35 links: `hover` is the standalone link (a name in a list, a
  * "view all"), `always` the link inside a sentence, which keeps the text's
- * weight.
+ * weight. `variant="table"` is a row's name link: a trailing chevron says it
+ * opens the row, and it underlines on keyboard focus too.
  */
 export const linkVariants = cva(
   `text-link underline-offset-2 ${FOCUS_OUTLINE}`,
@@ -29,8 +31,13 @@ export const linkVariants = cva(
         hover: "font-medium hover:underline",
         always: "underline",
       },
+      variant: {
+        default: "",
+        table:
+          "inline-flex items-center gap-1 font-medium no-underline hover:underline focus-visible:underline",
+      },
     },
-    defaultVariants: { underline: "hover" },
+    defaultVariants: { underline: "hover", variant: "default" },
   },
 );
 
@@ -64,19 +71,19 @@ function safeRel(newTab: boolean, ...rels: (string | undefined)[]) {
   return tokens.size > 0 ? [...tokens].join(" ") : undefined;
 }
 
-function withLabel(children: unknown, label: ReactNode): unknown {
+function withTrailing(children: unknown, trailing: ReactNode): unknown {
   if (typeof children !== "function") {
     return (
       <>
         {children as ReactNode}
-        {label}
+        {trailing}
       </>
     );
   }
   return (...args: unknown[]) => (
     <>
       {children(...args)}
-      {label}
+      {trailing}
     </>
   );
 }
@@ -84,6 +91,7 @@ function withLabel(children: unknown, label: ReactNode): unknown {
 export function Link({
   className,
   underline,
+  variant,
   asChild = false,
   newTabLabel,
   children,
@@ -98,13 +106,24 @@ export function Link({
   const newTab =
     (child?.props.target ?? props.target)?.toLowerCase() === "_blank";
   const rel = safeRel(newTab, props.rel, child?.props.rel);
+  const chevron =
+    variant === "table" ? (
+      <ChevronRight aria-hidden="true" className="size-4 shrink-0" />
+    ) : null;
   const label =
     newTab && newTabLabel != null ? (
       <span className="sr-only">{newTabLabel}</span>
     ) : null;
+  const trailing =
+    chevron || label ? (
+      <>
+        {chevron}
+        {label}
+      </>
+    ) : null;
   const shared = {
     "data-slot": "link",
-    className: cn(linkVariants({ underline }), className),
+    className: cn(linkVariants({ underline, variant }), className),
     ...props,
     rel,
   };
@@ -113,8 +132,8 @@ export function Link({
       <Slot {...shared}>
         {cloneElement(
           child,
-          label
-            ? { rel, children: withLabel(child.props.children, label) }
+          trailing
+            ? { rel, children: withTrailing(child.props.children, trailing) }
             : { rel },
         )}
       </Slot>
@@ -123,7 +142,7 @@ export function Link({
   return (
     <a {...shared}>
       {children}
-      {label}
+      {trailing}
     </a>
   );
 }
