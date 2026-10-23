@@ -240,6 +240,41 @@ integration("slack_inbound_events on PostgreSQL", () => {
       expect(mine).toEqual(
         Array.from({ length: threads }, (_, thread) => `EvHEAD${thread}-0`),
       );
+
+      // Late retries of older events land while claimers keep racing; the
+      // heads are still in flight, so none may run beside them.
+      const late = await Promise.all([
+        ...Array.from({ length: threads }, (_, thread) =>
+          inbox.record({
+            ...event(app, team, `EvLATE${thread}`),
+            eventTime: new Date("2026-10-24T09:59:00Z"),
+            status: "received",
+            payload: {},
+            conversationKey: `${app.slackAppId}:C2:${thread}`,
+          }),
+        ),
+        ...stores.flatMap((store) =>
+          [1, 2, 3].map(async () => {
+            const got: string[] = [];
+            for (let round = 0; round < 20; round += 1) {
+              const batch = await store.claim({
+                limit: 3,
+                leaseMs: 60_000,
+                maxAttempts: 5,
+              });
+              got.push(...batch.map((claim) => claim.eventId));
+            }
+            return got;
+          }),
+        ),
+      ]);
+      const lateTaken = late
+        .flat()
+        .filter((id) => id.startsWith("EvHEAD") || id.startsWith("EvLATE"));
+      console.log(
+        `late retries (PostgreSQL): ${lateTaken.length} claimed beside ${threads} in-flight heads`,
+      );
+      expect(lateTaken).toEqual([]);
     } finally {
       await second.end();
     }

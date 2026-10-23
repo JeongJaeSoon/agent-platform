@@ -68,6 +68,11 @@ export function createPostgresSlackInboundEventStore(
 
     claim({ limit, leaseMs, maxAttempts }) {
       return db.transaction(async (tx) => {
+        // One claimer at a time: the thread rule reads other rows' leases,
+        // and a lease another claimer has not committed yet is invisible.
+        await tx.execute(
+          sql`SELECT pg_advisory_xact_lock(hashtext('slack_inbound_events.claim'))`,
+        );
         // A lease that ran out on its last attempt: crashed every time.
         await tx
           .update(t)
