@@ -41,7 +41,7 @@ done
 
 ## Request
 
-Send the body empty (`{}`). The requester does not choose what is sent or where. The platform pins the session's latest checkpoint and its commit at that moment, the session's repository, and the branch `agent/<session-id>`.
+Send an empty JSON object (`{}`) as the request body. The requester does not choose what is sent or where. The platform pins the session's latest checkpoint and its commit at that moment, the session's repository, and the branch `agent/<session-id>`.
 
 ```bash
 push=$(curl -sS "$API/v1/sessions/$SID/push-requests" \

@@ -44,7 +44,7 @@ The tokens default to the light theme. The dark theme turns on in two ways.
 document.documentElement.dataset.theme = "dark";
 ```
 
-The components do not use Tailwind's `dark:` variant. `dark:` cannot see the `data-theme` switch, so if the app's own CSS also uses tokens (`var(--ap-color-…)`) when it changes colors, it follows both ways.
+The components do not use Tailwind's `dark:` variant. `dark:` cannot see the `data-theme` switch, so if the app's own CSS also uses tokens (`var(--ap-color-…)`) for its colors, it follows both the system setting and the `data-theme` switch.
 
 ## Overriding
 

@@ -23,13 +23,14 @@ const ALLOWED_RUNTIME_DEPENDENCIES = [
   "@radix-ui/react-radio-group",
   "@radix-ui/react-slot",
   "@radix-ui/react-tabs",
-  "@werft-ai/contracts",
   "class-variance-authority",
   "clsx",
-  "react",
-  "react-dom",
+  "lucide-react",
   "tailwind-merge",
 ];
+
+// The consumer's own React: a second copy breaks hooks.
+const PEER_DEPENDENCIES = ["react", "react-dom"];
 
 async function sourceFiles(): Promise<string[]> {
   const glob = new Glob("src/**/*.{ts,tsx}");
@@ -77,6 +78,37 @@ describe("패키지 경계", () => {
     expect(Object.keys(manifest.dependencies).sort()).toEqual(
       ALLOWED_RUNTIME_DEPENDENCIES,
     );
+    expect(Object.keys(manifest.peerDependencies).sort()).toEqual(
+      PEER_DEPENDENCIES,
+    );
+  });
+
+  test("런타임에 import하는 패키지가 dependencies·peerDependencies와 같다", async () => {
+    // A runtime import listed only in devDependencies works here, where the
+    // workspace installs everything, and breaks for a consumer of the package.
+    const runtime = new Glob("src/**/*.{ts,tsx,css}");
+    const imported = new Set<string>();
+    for await (const file of runtime.scan({ cwd: PACKAGE_ROOT })) {
+      if (/\.test\.|__fixtures__|test-support/.test(file)) continue;
+      const source = await Bun.file(`${PACKAGE_ROOT}/${file}`).text();
+      const specifiers = source.matchAll(
+        /\b(?:from|import)\s*\(?\s*(?:url\(\s*)?["'`]([^"'`.][^"'`]*)["'`]/g,
+      );
+      for (const [, specifier = ""] of specifiers) {
+        const [scope = "", name = ""] = specifier.split("/");
+        imported.add(scope.startsWith("@") ? `${scope}/${name}` : scope);
+      }
+    }
+    const manifest = await Bun.file(`${PACKAGE_ROOT}/package.json`).json();
+    const declared = [
+      ...Object.keys(manifest.dependencies),
+      ...Object.keys(manifest.peerDependencies),
+      // react-dom is never imported by name; Radix needs it beside react.
+    ].filter((name) => name !== "react-dom");
+    // fonts.css imports pretendard, which stays a devDependency until the
+    // published build decides how fonts ship: as a dependency every image
+    // would install it, and its OFL-1.1 licence is not reviewed for that.
+    expect([...imported].sort()).toEqual([...declared, "pretendard"].sort());
   });
 
   test("Radix primitive는 primitives/ 안에서만 import한다", async () => {
@@ -91,36 +123,39 @@ describe("패키지 경계", () => {
     expect(offenders).toEqual([]);
   });
 
-  test("contracts는 타입으로만 쓴다", async () => {
+  test("contracts를 import하지 않는다", async () => {
+    // The kit ships without the API's contracts; whatever takes their types
+    // lives in @werft-ai/react/components. Tests included: a test reaching for
+    // contracts means the component under it belongs there too.
+    // Spelled in pieces so this file does not match its own search.
+    const contracts = ["@werft-ai", "contracts"].join("/");
+    const manifest = await Bun.file(`${PACKAGE_ROOT}/package.json`).json();
+    expect(
+      Object.keys({
+        ...manifest.dependencies,
+        ...manifest.devDependencies,
+      }),
+    ).not.toContain(contracts);
+    // Any quoted specifier, subpaths included: static, dynamic, side-effect
+    // and re-export forms all name the package in quotes.
+    const specifier = new RegExp(`["'\`]${contracts}["'\`/]`);
+    // The whole package, not only src/: a test or script added beside it
+    // would otherwise bring contracts back unseen.
+    const scripts = new Glob("**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}");
+    const files: string[] = [];
+    for await (const file of scripts.scan({ cwd: PACKAGE_ROOT })) {
+      if (!file.split("/").includes("node_modules")) files.push(file);
+    }
+    expect(files).toContain("src/index.ts");
     const offenders: string[] = [];
-    for (const file of await sourceFiles()) {
-      if (file.endsWith(".test.ts") || file.endsWith(".test.tsx")) continue;
+    for (const file of files) {
       const source = await Bun.file(`${PACKAGE_ROOT}/${file}`).text();
-      const imports = source.matchAll(
-        /import\s+(type\s+)?[^;]*?from\s+["']@werft-ai\/contracts["']/g,
-      );
-      for (const match of imports) {
-        // A value import would drag zod into the browser bundle for nothing.
-        if (!match[1]) offenders.push(file);
-      }
-      // Forms with no `type` to look for: a dynamic import, a bare
-      // side-effect import, and a re-export. Each pulls zod in at runtime.
-      const RUNTIME_FORMS: [RegExp, string][] = [
-        [/\bimport\s*\(\s*["'`]@werft-ai\/contracts["'`]/, "dynamic"],
-        [/\bimport\s+["']@werft-ai\/contracts["']/, "side effect"],
-        [
-          /\bexport\s+(?:\*|\{[^}]*\})\s*(?:as\s+\w+\s*)?from\s+["']@werft-ai\/contracts["']/,
-          "re-export",
-        ],
-      ];
-      for (const [pattern, kind] of RUNTIME_FORMS) {
-        if (pattern.test(source)) offenders.push(`${file} (${kind})`);
-      }
+      if (specifier.test(source)) offenders.push(file);
     }
     expect(offenders).toEqual([]);
   });
 
-  test("모든 컴포넌트가 index.ts로 나간다", async () => {
+  test("모든 컴포넌트가 층 index.ts로 나간다", async () => {
     const index = await Bun.file(`${PACKAGE_ROOT}/src/index.ts`).text();
     const LAYERS = ["foundations", "primitives", "patterns"];
     const components = (await sourceFiles()).filter(
@@ -128,22 +163,17 @@ describe("패키지 경계", () => {
         file.endsWith(".tsx") &&
         !file.includes("__fixtures__") &&
         !file.includes("test-support") &&
-        !file.endsWith(".test.tsx") &&
-        // Internal to StatusLabel; exporting it would invite a second icon set.
-        !file.endsWith("axis-icon.tsx"),
+        !file.endsWith(".test.tsx"),
     );
     expect(components.length).toBeGreaterThan(0);
     for (const file of components) {
-      const [, dir, name] = file.match(/^src\/([^/]+)\/(.+)$/) ?? [];
-      if (dir && name && LAYERS.includes(dir)) {
-        const layerIndex = await Bun.file(
-          `${PACKAGE_ROOT}/src/${dir}/index.ts`,
-        ).text();
-        expect(layerIndex).toContain(`from "./${name}"`);
-        expect(index).toContain(`export * from "./${dir}/index.ts"`);
-      } else {
-        expect(index).toContain(`from "${file.replace(/^src\//, "./")}"`);
-      }
+      const [, dir = "", name] = file.match(/^src\/([^/]+)\/(.+)$/) ?? [];
+      expect(LAYERS).toContain(dir);
+      const layerIndex = await Bun.file(
+        `${PACKAGE_ROOT}/src/${dir}/index.ts`,
+      ).text();
+      expect(layerIndex).toContain(`from "./${name}"`);
+      expect(index).toContain(`export * from "./${dir}/index.ts"`);
     }
   });
 });

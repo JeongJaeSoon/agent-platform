@@ -9,18 +9,21 @@ import {
   Field,
   FieldLabel,
   formatTimestamp,
-  SessionStatusLabel,
-  StatusLabel,
+  PageHeader,
   Tabs,
   TabsContent,
   TabsList,
   TabsTrigger,
-  Timeline,
-  type TimelineEntry,
-  turnSummaryText,
   useDetailLayout,
 } from "@werft-ai/ui";
 import { type ReactNode, useId, useMemo, useState } from "react";
+import {
+  SessionStatusLabel,
+  StatusLabel,
+  Timeline,
+  type TimelineEntry,
+  turnSummaryText,
+} from "../components/index.ts";
 import {
   type EventStreamState,
   type SessionEventFrame,
@@ -105,7 +108,7 @@ export function SessionDetail({
     <Tabs
       value={tab}
       onValueChange={setTab}
-      className="min-w-0 gap-4"
+      className="min-w-0 gap-[var(--ap-space-block)]"
       key="body"
     >
       <div className="flex flex-wrap items-center justify-between gap-2 border-b">
@@ -116,14 +119,11 @@ export function SessionDetail({
         >
           <TabsTrigger
             value="timeline"
-            className="h-9 px-3 text-control after:bottom-0"
+            className="h-9 text-control after:bottom-0"
           >
             {t("session.tabs.timeline")}
           </TabsTrigger>
-          <TabsTrigger
-            value="info"
-            className="h-9 px-3 text-control after:bottom-0"
-          >
+          <TabsTrigger value="info" className="h-9 text-control after:bottom-0">
             {t("session.tabs.info")}
           </TabsTrigger>
         </TabsList>
@@ -211,20 +211,16 @@ export function SessionDetail({
     </aside>
   );
   return (
-    <div className="flex min-w-0 flex-col gap-6">
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="m-0 font-mono font-semibold text-title [overflow-wrap:anywhere]">
-              {id}
-            </h1>
+    <div className="flex min-w-0 flex-col">
+      <PageHeader
+        title={<span className="font-mono [overflow-wrap:anywhere]">{id}</span>}
+        description={
+          <span className="flex flex-wrap items-center gap-x-4 gap-y-1">
             <SessionStatusLabel
               status={detail.status}
               label={t(`sessions.status.${detail.status}`)}
               axisLabel={t("sessions.column.status")}
             />
-          </div>
-          <div className="mt-1 flex flex-wrap gap-x-4 gap-y-2 text-muted-foreground text-control">
             <span className="[overflow-wrap:anywhere]">
               {detail.runtime
                 ? `${detail.runtime.profile_id} · ${detail.runtime.kind} ${detail.runtime.version}`
@@ -238,10 +234,10 @@ export function SessionDetail({
               {t("session.updated")}:{" "}
               {formatTimestamp(detail.updated_at, locale)}
             </span>
-          </div>
-        </div>
-        {back}
-      </header>
+          </span>
+        }
+        actions={back}
+      />
       <div
         ref={layout.ref}
         data-slot="session-detail-layout"
@@ -404,7 +400,7 @@ function Usage({
         ]}
       />
       {usage.budget_exceeded ? (
-        <output className="rounded-md border border-[var(--ap-tone-attention-border)] bg-card px-3 py-2 text-body">
+        <output className="rounded-control border border-[var(--ap-tone-attention-border)] bg-card px-3 py-2 text-body">
           {t("session.usage.budgetExceeded")}
         </output>
       ) : null}

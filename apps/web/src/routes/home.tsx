@@ -1,10 +1,10 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { isApiError } from "@werft-ai/client";
-import { waitingSessionsQuery } from "@werft-ai/core";
+import { pendingRequestsQuery, waitingSessionsQuery } from "@werft-ai/core";
 import { useAgentPlatform, useSessions } from "@werft-ai/react";
-import { RecentSessions, WaitingSessions } from "@werft-ai/react/blocks";
-import { Badge, Card, cn } from "@werft-ai/ui";
+import { RecentSessions } from "@werft-ai/react/blocks";
+import { Card, cn, formatTimestamp } from "@werft-ai/ui";
 import { ArrowRight, Check } from "lucide-react";
 import { type ReactNode, useId } from "react";
 import { agentsQuery, invitesQuery, membersQuery } from "../api/queries.ts";
@@ -51,14 +51,14 @@ function loadError(error: unknown, onRetry: () => void) {
 }
 
 /**
- * What waits on the viewer first, then counts, the newest sessions and the
- * bootstrap checklist. Each checklist step is read from the server: someone
+ * Counts with the session that waited longest, the newest sessions and the
+ * bootstrap checklist; answering a request is the session screen's job. Each checklist step is read from the server: someone
  * was invited once an invite exists or a second member joined, an agent is
  * ready once one has an active release, and a session started once the
  * viewer's own session list has one.
  */
 export function HomeScreen() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const me = useMe();
   const { client } = useAgentPlatform();
   const members = useQuery({
@@ -111,6 +111,30 @@ export function HomeScreen() {
   const waitingCount = waiting.data
     ? count(waiting.data.items.length, waiting.data.next_cursor !== null)
     : null;
+  // Answering happens on the session screen; home names only the oldest
+  // request, read from the same per-session lists the session screen reads.
+  // It shows nothing unless the one page holds every waiting session and
+  // every list answered: a partial read would name the wrong request. A failed
+  // refetch keeps the old page in data, so the last read must have succeeded.
+  const complete = waiting.isSuccess && waiting.data.next_cursor === null;
+  const oldest = useQueries({
+    queries: complete
+      ? (waiting.data?.items ?? []).map((session) =>
+          pendingRequestsQuery(client, session.id),
+        )
+      : [],
+    combine: (lists) => {
+      if (!lists.every((list) => list.isSuccess)) return undefined;
+      let first: { sessionId: string; at: string } | undefined;
+      lists.forEach((list, index) => {
+        const sessionId = waiting.data?.items[index]?.id;
+        for (const request of list.data?.items ?? [])
+          if (sessionId && (!first || request.created_at < first.at))
+            first = { sessionId, at: request.created_at };
+      });
+      return first;
+    },
+  });
   const agentItems = agents.data?.items ?? [];
   const activeAgents = agentItems.filter(
     (agent) => agentState(agent) === "active",
@@ -134,31 +158,33 @@ export function HomeScreen() {
       }
     >
       {allDone ? null : checklist}
-      <HomeSection
-        title={t("home.waiting.title")}
-        count={waitingCount}
-        more={
-          <Link to="/sessions" className={LINK}>
-            {t("home.waiting.all")}
-            <ArrowRight className="size-3.5" aria-hidden="true" />
-          </Link>
-        }
-      >
-        <WaitingSessions
-          label={t("home.waiting.table")}
-          loading={<StatusScreen kind="loading" />}
-          renderError={loadError}
-        />
-      </HomeSection>
       <HomeSection title={t("home.overview.title")}>
         <ul className="m-0 grid list-none grid-cols-1 items-stretch gap-4 p-0 @[640px]:grid-cols-3">
           <SummaryCard
             title={t("home.overview.waiting")}
             value={waitingCount}
             note={t("home.overview.waitingNote")}
+            detail={
+              oldest ? (
+                <>
+                  {t("home.overview.oldest")}{" "}
+                  <Link
+                    to="/sessions/$id"
+                    params={{ id: oldest.sessionId }}
+                    className="font-mono text-primary underline-offset-2 hover:underline"
+                    title={oldest.sessionId}
+                  >
+                    {oldest.sessionId.slice(0, 8)}
+                  </Link>
+                  {" · "}
+                  {formatTimestamp(oldest.at, locale)}
+                </>
+              ) : null
+            }
             link={
               <Link to="/sessions" className={LINK}>
                 {t("home.overview.toSessions")}
+                <ArrowRight className="size-3.5" aria-hidden="true" />
               </Link>
             }
           />
@@ -173,6 +199,7 @@ export function HomeScreen() {
             link={
               <Link to="/sessions" className={LINK}>
                 {t("home.overview.toSessions")}
+                <ArrowRight className="size-3.5" aria-hidden="true" />
               </Link>
             }
           />
@@ -190,20 +217,13 @@ export function HomeScreen() {
             link={
               <Link to="/agents" className={LINK}>
                 {t("home.overview.toAgents")}
+                <ArrowRight className="size-3.5" aria-hidden="true" />
               </Link>
             }
           />
         </ul>
       </HomeSection>
-      <HomeSection
-        title={t("home.recent.title")}
-        more={
-          <Link to="/sessions" className={LINK}>
-            {t("home.recent.all")}
-            <ArrowRight className="size-3.5" aria-hidden="true" />
-          </Link>
-        }
-      >
+      <HomeSection title={t("home.recent.title")}>
         <RecentSessions
           label={t("home.recent.title")}
           limit={RECENT_LIMIT}
@@ -225,13 +245,9 @@ function count(items: number, more: boolean) {
 
 function HomeSection({
   title,
-  count: badge,
-  more,
   children,
 }: {
   readonly title: string;
-  readonly count?: string | null | undefined;
-  readonly more?: ReactNode;
   readonly children: ReactNode;
 }) {
   const titleId = useId();
@@ -241,14 +257,9 @@ function HomeSection({
       aria-labelledby={titleId}
     >
       <div className="flex min-h-7 items-center justify-between gap-3">
-        <h2
-          id={titleId}
-          className="m-0 flex items-center gap-2 font-semibold text-body"
-        >
+        <h2 id={titleId} className="m-0 font-semibold text-body">
           {title}
-          {badge ? <Badge variant="amber">{badge}</Badge> : null}
         </h2>
-        {more}
       </div>
       {children}
     </section>
@@ -259,28 +270,39 @@ function SummaryCard({
   title,
   value,
   note,
+  detail,
   link,
 }: {
   readonly title: string;
   /** null until the count is known. */
   readonly value: string | null;
   readonly note: string;
+  readonly detail?: ReactNode;
   readonly link: ReactNode;
 }) {
   const { t } = useI18n();
+  // Every tile reads the same way: what it counts and where to go on one
+  // line, then the number, then what the number is.
   return (
     <li className="min-w-0">
       <Card className="h-full gap-3 p-4">
-        <h3 className="m-0 font-medium text-control text-muted-foreground">
-          {title}
-        </h3>
+        <div className="flex min-h-5 items-center justify-between gap-3">
+          <h3 className="m-0 font-medium text-control text-muted-foreground">
+            {title}
+          </h3>
+          {link}
+        </div>
         <div>
           <p className="m-0 font-semibold text-number tabular-nums">
             {value ?? t("home.overview.unknown")}
           </p>
           <p className="m-0 text-caption text-muted-foreground">{note}</p>
         </div>
-        <div className="mt-auto flex justify-end border-t pt-3">{link}</div>
+        {detail ? (
+          <p className="m-0 border-t pt-3 text-caption text-muted-foreground">
+            {detail}
+          </p>
+        ) : null}
       </Card>
     </li>
   );

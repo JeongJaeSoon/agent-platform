@@ -82,9 +82,17 @@ describe("app shell", () => {
     );
   });
 
-  test("the key screens share the settings width", async () => {
+  test("the key lists take the list width", async () => {
     renderAt("/settings/api-keys", signedIn);
     await screen.findByRole("heading", { level: 1, name: "내 key" });
+    expect(document.getElementById("main")?.className).toContain(
+      "max-w-[calc(var(--ap-w-wide)+2*var(--ap-gutter))]",
+    );
+  });
+
+  test("making a key takes the form width", async () => {
+    renderAt("/settings/api-keys/new", signedIn);
+    await screen.findByRole("heading", { level: 1, name: "새 개인 key" });
     expect(document.getElementById("main")?.className).toContain(
       "max-w-[calc(var(--ap-w-narrow)+2*var(--ap-gutter))]",
     );

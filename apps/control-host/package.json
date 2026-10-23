@@ -12,6 +12,7 @@
     "reconciler": "bun run src/main.ts reconciler --once",
     "keys": "bun run src/api/keys.ts",
     "grants": "bun run src/api/grants.ts",
+    "slack-install": "bun run src/api/slack-install.ts",
     "openapi:generate": "bun run scripts/generate-openapi.ts",
     "migrate-workspace": "bun run src/scheduler/migrate-workspace.ts"
   },

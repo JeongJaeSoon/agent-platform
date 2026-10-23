@@ -29,13 +29,13 @@ body {
 | --- | --- |
 | `tailwindcss` | Tailwind 4 |
 | `@werft-ai/ui/styles.css` | トークン(`tokens.css`)、フォント、キット要素の基本ルール。フォント(Geist, Pretendard)はパッケージ内のファイルを使う。CDN からは取得しない |
-| `@werft-ai/ui/theme.css` | トークンを Tailwind のユーティリティにつなぐ。`bg-canvas`, `bg-primary`, `text-control`, `font-sans`, `rounded-md`, `shadow-sm` といった名前はここから生まれる |
+| `@werft-ai/ui/theme.css` | トークンを Tailwind のユーティリティにつなぐ。`bg-canvas`, `bg-primary`, `text-control`, `font-sans`, `rounded-md`, `shadow-sm` といったユーティリティクラスは、このファイルで定義される |
 
 `@source` の二行は、Tailwind が `node_modules` 配下にリンクされたパッケージのソースからクラス名を探せるようにする。Tailwind の自動検出は `node_modules` をスキップするため、Web コンソール(`apps/web/src/styles.css`)にも同じ二行がある。パスはこの CSS ファイルが基準である。
 
 ## ダークテーマ
 
-トークンはライトテーマが既定である。ダークテーマは二通りの方法で有効になる。
+トークンはライトテーマがデフォルトである。ダークテーマは二通りの方法で有効になる。
 
 - システム設定: オペレーティングシステムがダークモードなら(`prefers-color-scheme: dark`)、何もしなくてよい。
 - 手動で切り替え: `<html>` の `data-theme` を変更する。`"dark"` はシステム設定に関係なく暗く、`"light"` は明るく固定する。

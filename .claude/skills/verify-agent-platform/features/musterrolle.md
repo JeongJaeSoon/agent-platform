@@ -54,17 +54,16 @@ Preconditions:
   7. owner가 다시 넣고(`200`) member 카드 수정 `200`, admin이 `ap_web DELETE "/v1/teams/$TID"` → `200`, member 카드 수정 → `403` `role`.
   8. `SELECT operation, target_ref->>'user_id' IS NOT NULL, result FROM receipts WHERE operation IN ('create_team','add_team_member','remove_team_member','add_agent_admin','delete_team') ORDER BY created_at` → `add_team_member`·`remove_team_member`는 그 사람이 대상이고 `result`에 `team_id`·`team_name`, `delete_team`의 `result.agent_ids`에 에이전트. `SELECT action, outcome, reason_code, count(*) FROM authz_decisions WHERE action IN ('team.manage','agent.manage','agent.admin.manage') GROUP BY 1,2,3` → `team.manage allow`(owner·admin의 변경 다섯), `team.manage deny role`(member의 셋), `agent.manage deny role`(2·6·7의 셋), `agent.manage allow`(5·7의 둘), `agent.admin.manage allow` 하나. 모두 `policy_version` `m15`.
   - 2026-10-11 run `20261011-210547-1353`에서 이 순서대로 확인했다(`evidence/musterrolle-b.txt`). 2026-10-12 run `20261012-022045-88049`에서 다시 확인했다.
-- **c.** mock IdP overlay를 붙여 띄운다: `up.sh infra/compose.mock-slack.yml`(Orca에서는 `orch heavy <program> -- …`로 감싼다). Slack 설치가 있어야 연결이 시작되므로, 설치 행 하나는 repository로 만든다(설치 흐름은 아직 사용자 경로가 없다. 다른 상태는 API로만 만든다). owner cookie는 web-login.md로 만든다. `ap_slack_link` cookie도 `Secure`라 curl이 저장하지 않으니 직접 나른다.
+- **c.** mock IdP overlay를 붙여 띄운다: `up.sh infra/compose.mock-slack.yml`(Orca에서는 `orch heavy <program> -- …`로 감싼다). Slack 설치가 있어야 연결이 시작되므로, 설치 행 하나는 설치 등록 CLI(`slack-install register`)로 만든다. mock은 bot token `mock-bot-token`에 `auth.test`(team `T0MOCK`, bot 사용자 `U0MOCKBOT`)와 `bots.info`(app `A0MOCK`)로 답하므로 CLI가 api 컨테이너에서 `SLACK_API_URL=http://mock-slack:4020/api`로 mock에 묻는다. stdout은 JSON 한 줄(`outcome: verified`), 종료 코드 `0`이다. owner cookie는 web-login.md로 만든다. `ap_slack_link` cookie도 `Secure`라 curl이 저장하지 않으니 직접 나른다.
 
   ```sh
   . .claude/skills/verify-agent-platform/scripts/lib.sh <run id>
   # owner bootstrap + login: web-login.md. WS·ME는 login 응답의 workspace_id·user_id
   DB='import { Pool } from "pg"; import { drizzle } from "drizzle-orm/node-postgres"; import * as schema from "@werft-ai/db";
   const pool = new Pool({ connectionString: process["env"]["DATABASE_URL"] }); const db = drizzle(pool, { schema });'
-  ap_compose exec -T -w /app/apps/control-host api bun -e "$DB
-  const ids = { appId: \"A0VERIFY\", teamId: \"T0MOCK\" };
-  await schema.registerSlackInstallation(db, { ...ids, workspaceId: process.argv[1] });
-  console.log((await schema.verifySlackInstallation(db, { ...ids, botUserId: \"B0VERIFY\" })).outcome); await pool.end();" "$WS"
+  # The mock's bot token is a fixed test value, not a credential.
+  SLACK_BOT_TOKEN=mock-bot-token ap_compose exec -T -e SLACK_BOT_TOKEN -e SLACK_API_URL=http://mock-slack:4020/api api \
+    bun run /app/apps/control-host/src/api/slack-install.ts register --workspace "$WS" --app-id A0MOCK; echo "exit $?"
   H=$(mktemp)
   START=$(curl -sS -D "$H" -X POST "$API/v1/linked-accounts/slack/start" -H 'x-requested-with: agent-platform-web' -H "Cookie: $(cat "$VERIFY_RUN/cookie")")
   LINK=$(sed -n 's/^[Ss]et-[Cc]ookie: \(ap_slack_link=[^;]*\).*/\1/p' "$H" | tr -d '\r')
@@ -81,7 +80,7 @@ Preconditions:
   ```
 
   기대: callback `201`과 `receipt_id`, 목록에 `active` 한 줄, 해제 `200`(`receipt_status: succeeded`) 뒤 목록이 비고 DB는 `revoked | unlinked | 2`. `mock_team=T0OTHER`를 붙인 authorize URL로 다시 하면 `409 LINK_TEAM_MISMATCH`. 해제 뒤 `resolveLinkedSubject`는 `{"status":"unlinked"}`다. 대기 중이던 입력의 처리 시점 재판정(`createDatabaseIdentityReader(db).reread`에 `linked_account: {id, revision}`)도 `unlinked`로 거절한다. Slack 입력(M9) 전까지는 사용자 경로가 없어 위처럼 api 컨테이너에서 부른다. 초대(`POST /v1/invites`)·수락한 member가 같은 방법으로 연결한 뒤 owner가 `POST /v1/members/{user_id}/disable`로 비활성화하면 receipt `result.revoked_linked_accounts`가 `1`이고 DB 행은 `revoked | offboarded`다. 2026-10-11 run `20261011-184057-50543`에서 이 순서대로 확인했다.
-- **c. 멘션·승인 판정.** 위 c처럼 mock overlay로 띄운다. owner bootstrap·login, member 초대·수락(d의 1), 설치 행(c), owner가 에이전트(`research`→`AID`)를 만들고 `POST /v1/agents/$AID/identities '{"provider":"slack_bot","app_id":"A0VERIFY","team_id":"T0MOCK","credential_ref":"slack/research-bot-token"}'`로 그 앱을 연결한다. owner가 d의 2처럼 다른 에이전트(`finance`→`BID`)도 만들고, 두 에이전트의 release(`REL`·`BREL`)로 owner cookie로 세션을 만든다. `POST /v1/sessions`는 `Idempotency-Key`가 필요한데 `ap_web`은 붙이지 않으니 curl로 부른다: `curl -sS -w '\n%{http_code}\n' -X POST "$API/v1/sessions" -H 'x-requested-with: agent-platform-web' -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" -H "Cookie: $(cat "$VERIFY_RUN/cookie")" -d "{\"profile_id\":\"claude-coding-local\",\"repository_id\":\"sample-app\",\"message\":\"verify\",\"agent_release_id\":\"$REL\"}"` → `201`, 세션 id를 `S`(`BREL`로 만든 것은 `OS`)로 둔다. Slack 판정은 세션이 어느 에이전트 것인지 다시 읽으므로 실제 세션이어야 한다. member가 위 c의 시작·callback으로 `U0MOCK`을 연결한다(`LAID` = `linked_account.id`). 판정은 Slack 채널이 할 호출을 그대로 한다. 채널 상한은 binding 테이블이 생기기 전까지 입력으로 넘긴다.
+- **c. 멘션·승인 판정.** 위 c처럼 mock overlay로 띄운다. owner bootstrap·login, member 초대·수락(d의 1), 설치 행(c), owner가 에이전트(`research`→`AID`)를 만들고 `POST /v1/agents/$AID/identities '{"provider":"slack_bot","app_id":"A0MOCK","team_id":"T0MOCK","credential_ref":"slack/research-bot-token"}'`로 그 앱을 연결한다. owner가 d의 2처럼 다른 에이전트(`finance`→`BID`)도 만들고, 두 에이전트의 release(`REL`·`BREL`)로 owner cookie로 세션을 만든다. `POST /v1/sessions`는 `Idempotency-Key`가 필요한데 `ap_web`은 붙이지 않으니 curl로 부른다: `curl -sS -w '\n%{http_code}\n' -X POST "$API/v1/sessions" -H 'x-requested-with: agent-platform-web' -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" -H "Cookie: $(cat "$VERIFY_RUN/cookie")" -d "{\"profile_id\":\"claude-coding-local\",\"repository_id\":\"sample-app\",\"message\":\"verify\",\"agent_release_id\":\"$REL\"}"` → `201`, 세션 id를 `S`(`BREL`로 만든 것은 `OS`)로 둔다. Slack 판정은 세션이 어느 에이전트 것인지 다시 읽으므로 실제 세션이어야 한다. member가 위 c의 시작·callback으로 `U0MOCK`을 연결한다(`LAID` = `linked_account.id`). 판정은 Slack 채널이 할 호출을 그대로 한다. 채널 상한은 binding 테이블이 생기기 전까지 입력으로 넘긴다.
 
   ```sh
   DECIDE='import { Pool } from "pg"; import { drizzle } from "drizzle-orm/node-postgres"; import * as schema from "@werft-ai/db"; import * as platform from "@werft-ai/platform";
@@ -92,7 +91,7 @@ Preconditions:
     sessions: schema.createPostgresSessionShareStore(db), decisions: schema.createPostgresDecisionLog(db) });
   const i = JSON.parse(process.argv[1]); const all = ["session.read","session.submit","session.control","session.approve"];
   const r = await platform.authorizeSlackInput({ authorization, agents: schema.createPostgresAgentIdentityStore(db), links: schema.createPostgresLinkedAccountStore(db) }, {
-    event: { appId: "A0VERIFY", teamId: "T0MOCK", agentId: process.argv[2] }, user: { id: i.user, team_id: "T0MOCK", ...(i.flags ?? {}) },
+    event: { appId: "A0MOCK", teamId: "T0MOCK", agentId: process.argv[2] }, user: { id: i.user, team_id: "T0MOCK", ...(i.flags ?? {}) },
     action: i.action ?? "session.submit", resource: i.session ? { kind: "session", id: i.session } : { kind: "surface_binding", id: null },
     binding: { channelKind: "public_channel", ceiling: { actions: i.actions ?? all, disclosure: i.disclosure ?? "full" } },
     requestId: crypto.randomUUID(), connectUrl: "http://127.0.0.1:3000/settings/linked-accounts" });
@@ -129,11 +128,15 @@ Preconditions:
   11. `SELECT action, outcome, reason_code, principal_kind, count(*) FROM authz_decisions WHERE action LIKE 'api_key.%' OR reason_code = 'agent_ceiling' GROUP BY 1,2,3,4` → `api_key.manage allow`(3의 발급과 8의 두 요청), `api_key.manage deny role user`(5의 둘), `api_key.manage_own allow`, `api_key.manage_own deny role api_key`(7의 둘), `session.submit deny agent_ceiling api_key`(4의 둘), `session.read deny agent_ceiling api_key`(4의 읽기들). `SELECT operation, result FROM receipts WHERE operation IN ('create_api_key','revoke_api_key')` → 발급마다 `create_api_key`, 폐기 한 번에 `revoke_api_key`, `result`에는 kind·agent_id·scopes만.
   - 증거는 `| tee "$EVIDENCE/musterrolle-d.txt"`. 남기기 전에 `csp_`·`apv_` 값을 가린다.
   - 2026-10-12 run `20261012-022045-88049`에서 1–9와 11을 확인했다(10의 발급자 비활성화는 a의 6에서 같은 결과).
-- **g. 에이전트의 Slack 앱 연결.** owner bootstrap·login은 [web-login.md](./web-login.md). 에이전트는 d의 2처럼 `ap_web POST /v1/agents`로 둘(`research`→`AID`, `finance`→`BID`) 만든다. 설치 행은 c처럼 repository로 만든다(`A0VERIFY`·`T0VERIFY`·bot `B0VERIFY`). 해석은 이벤트 수신 경로가 없어 함수로 부른다.
+- **g. 에이전트의 Slack 앱 연결.** owner bootstrap·login은 [web-login.md](./web-login.md). 에이전트는 d의 2처럼 `ap_web POST /v1/agents`로 둘(`research`→`AID`, `finance`→`BID`) 만든다. 설치 행(`A0VERIFY`·`T0VERIFY`·bot `B0VERIFY`)은 저장소 함수로 만든다. 설치 등록 CLI는 mock이 답하는 team(`T0MOCK`)만 확인하고, g는 bot을 바꿔 다시 확인하는 경우(`bot_mismatch`)까지 본다. 해석은 이벤트 수신 경로가 없어 함수로 부른다.
 
   ```sh
   DB='import { Pool } from "pg"; import { drizzle } from "drizzle-orm/node-postgres"; import * as schema from "@werft-ai/db"; import * as platform from "@werft-ai/platform";
   const pool = new Pool({ connectionString: process["env"]["DATABASE_URL"] }); const db = drizzle(pool, { schema });'
+  ap_compose exec -T -w /app/apps/control-host api bun -e "$DB
+  const ids = { appId: \"A0VERIFY\", teamId: \"T0VERIFY\" };
+  await schema.registerSlackInstallation(db, { ...ids, workspaceId: process.argv[1] });
+  console.log((await schema.verifySlackInstallation(db, { ...ids, botUserId: \"B0VERIFY\" })).outcome); await pool.end();" "$WS"
   resolve() { ap_compose exec -T -w /app/apps/control-host api bun -e "$DB
   console.log(JSON.stringify(await platform.agentForSlackEvent(schema.createPostgresAgentIdentityStore(db), JSON.parse(process.argv[1])))); await pool.end();" "$1"; }
   LINK='{"provider":"slack_bot","app_id":"A0VERIFY","team_id":"T0VERIFY","credential_ref":"slack/research-bot-token"}'
@@ -157,7 +160,7 @@ Preconditions:
   - 거절: `KEY=$(ap_key verify --scopes sessions:read 2>/dev/null)`로 `POST /v1/sessions` → `403`. `ap_compose exec -T postgres psql -U postgres -d sessions -c "SELECT action, outcome, reason_code, principal_kind, request_id FROM authz_decisions WHERE request_id = '$RID'"` → `session.submit | deny | role | api_key` 한 행.
   - 승인: [sessions.md](./sessions.md)의 권한 요청 대본으로 `needs_input`을 만들고 `sessions:approve` key로 `POST /v1/sessions/$SID/answers`. `... FROM authz_decisions d JOIN receipts r ON r.request_id = d.request_id WHERE d.request_id = '$RID'` → `session.approve | allow` 한 행과 `answer` receipt.
   - 허용된 API 생성(`POST /v1/sessions` 201)은 행을 남기지 않는다.
-- **e. 보존 기간.** bootstrap 뒤 `web-user.mjs login owner`로 cookie를 받은 owner가 `ap_web POST "/v1/workspaces/$WS/audit-retention" '{"audit_retention_days":45}'` → `200`, `29` → `400`, 다른 workspace id → `404`. API key는 `404`. `workspaces.settings->'audit_retention_days'`가 45. member 403은 초대 경로가 없어 route 테스트로만 본다.
+- **e. 보존 기간.** bootstrap 뒤 `web-user.mjs login owner`로 cookie를 받은 owner가 `ap_web POST "/v1/workspaces/$WS/audit-retention" '{"audit_retention_days":45}'` → `200`, `29` → `400`, 다른 workspace id → `404`. API key는 `404`. `workspaces.settings->'audit_retention_days'`가 45. member cookie(`web-user.mjs invite`·`accept`·`login` 뒤 `ap_as member`)로 같은 POST → `403` `Only an owner can change audit retention`(2026-10-23 run `20261023-160737-96495`).
 - **e. 공유 범위·감사 열람·관리 목록.** owner bootstrap·login, member `a`·`b`·`c`를 초대·수락으로 만들고(d의 1, `ap_as <who>`로 바꾼다), owner가 팀 `research`를 만들어 `b`만 넣는다(b의 3). 세션 생성·메시지·종료·관리 종료는 `Idempotency-Key`를 더한 curl로 보내고(위 Preconditions), 공유·감사 열람·관리 목록은 `ap_web`으로 된다.
   1. `a`가 `POST /v1/sessions` `{"profile_id":"claude-coding-local","repository_id":"sample-app","message":"GATE-SPEC {\"id\":\"e1\",\"steps\":[],\"final\":\"confidential minutes\",\"finalDelayMs\":300000}"}` → `201`, `SID`. `ap_web POST "/v1/sessions/$SID/share" '{"scope":"private"}'` → `200`, `share.revision: 1`, `receipt_id`.
   2. `b`와 owner 각각 `ap_web GET /v1/sessions`에 `SID`가 없고, `GET /v1/sessions/$SID` → `404`, `GET /v1/sessions/$SID/events`(curl) → `404`. `a`는 `200`.

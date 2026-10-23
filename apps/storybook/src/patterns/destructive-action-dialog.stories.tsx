@@ -19,13 +19,17 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
+/** The confirm stays disabled until the resource name is typed. */
 export const Default: Story = {};
+
+export const Loading: Story = { args: { busy: true } };
 
 export const DefaultDark: Story = {
   name: "Default (dark)",
   globals: { theme: "dark" },
 };
 
-export const Mobile: Story = {
+export const DefaultMobile: Story = {
+  name: "Default (390px)",
   globals: { viewport: { value: "mobile390", isRotated: false } },
 };

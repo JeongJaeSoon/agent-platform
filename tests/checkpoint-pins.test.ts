@@ -728,6 +728,7 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
       profileId: PROFILE_ID,
       repoUrl: repository.url,
       repositoryId: REPOSITORY_ID,
+      repositoryMode: "repository" as const,
       ...overrides,
     };
   };
@@ -868,7 +869,11 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
         switched.profiles[id] as CatalogProfile,
       ),
     });
-    const session = { id: "s1", ownerId: "owner-1" };
+    const session = {
+      id: "s1",
+      ownerId: "owner-1",
+      repositoryMode: "repository" as const,
+    };
 
     const unpaired = earlierProfileClaims(
       session,
@@ -986,6 +991,58 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
     expect(() => sessionClaim(edited, resolved)).toThrow(
       `profile ${PROFILE_ID} has other settings in the catalog than the session was created with`,
     );
+    expect(claim).not.toHaveProperty("workspace");
+  });
+
+  test("a session without a repository is asked with its workspace, as the worker's claim carries it", async () => {
+    const resolved = await catalog();
+    const base = resolved.profiles[PROFILE_ID] as CatalogProfile;
+    const general: CatalogProfile = {
+      ...base,
+      repository: "optional",
+      project_settings: { claude_md: true },
+    };
+    const withGeneral = {
+      ...resolved,
+      profiles: { ...resolved.profiles, general },
+    };
+    const session = {
+      branch: null,
+      ownerId: "owner-a",
+      profileFingerprint: profileFingerprint(general),
+      profileId: "general",
+      repoUrl: null,
+      repositoryId: null,
+      repositoryMode: "none" as const,
+    };
+    const claim = sessionClaim(session, withGeneral);
+    expect(claim.workspace).toEqual({ repository: null });
+    expect(claim.runtime_config).not.toHaveProperty("project_settings");
+    const { workspace: _workspace, ...asRepository } = claim;
+    expect(imageClaimFingerprint(claim).profileSha256).not.toBe(
+      imageClaimFingerprint(asRepository).profileSha256,
+    );
+    const [earlier] = earlierProfileClaims(
+      { id: "s1", ownerId: "owner-a", repositoryMode: "none" },
+      [
+        {
+          profileId: "general",
+          profileFingerprint: profileFingerprint(general),
+        },
+      ],
+      withGeneral,
+    );
+    expect(earlier?.[1]).toEqual(claim);
+    expect(() =>
+      sessionClaim(
+        {
+          ...session,
+          profileId: PROFILE_ID,
+          profileFingerprint: profileFingerprint(base),
+        },
+        withGeneral,
+      ),
+    ).toThrow(`profile ${PROFILE_ID} may not run without a repository`);
   });
 
   test("a session the image computed no digest for is not asked; no image asks with the sealed runtime", () => {

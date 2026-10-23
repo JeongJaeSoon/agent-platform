@@ -71,6 +71,12 @@ OpenAPI: [`createSession`](api/index.html), [`getSession`](api/index.html)
 
 **순서.** 고를 수 있는 profile과 그 모델은 `GET /v1/profiles`(`listProfiles`)로 본다. `profile_id`, `repository_id`, 첫 `message`를 보내고, 응답의 `session_id`와 `turn_id`를 저장한다. 이 예시는 다음 절에서 승인 요청을 보여 주기 위해 파일 쓰기 도구를 호출하는 fake 대본을 쓴다. 실제 Claude 스택(`scripts/local.sh up`)에서는 `profile_id`가 `claude-coding-real`이고 `message`는 자유 문장이다. 선택 필드 `model`로 profile이 허용한 모델(카탈로그의 `model`이나 `models`) 중 하나를 고를 수 있다. 생략하면 profile의 기본 `model`로 돌고, 고른 모델은 `GET /v1/sessions/{id}`의 `runtime.model`에 나온다. 세션의 profile을 바꾸면(`POST /v1/sessions/{id}/profile`) 그 뒤로는 새 profile의 기본 `model`로 돈다.
 
+`repository_id`를 보낼지는 profile의 `repository_mode`(`GET /v1/profiles`)가 정한다. `required`면 꼭 보내고, `none`이면 보내지 않으며, `optional`이면 둘 다 된다. `repository_id` 없이 만든 세션은 빈 작업 디렉터리에서 시작하고, 세션 조회의 `repository_id`가 `null`이다. 저장소가 없으므로 push 요청은 409 `PUSH_SOURCE_MISSING`이고, `optional` profile이 저장소의 CLAUDE.md를 읽게 해 두었어도 이 세션에서는 읽지 않는다. fake-model 스택에서는 `general` profile이 저장소 없이 돈다. 그 생성 body는 다음과 같다.
+
+```json
+{ "profile_id": "general", "message": "회의 메모를 세 줄로 요약해 줘." }
+```
+
 ```bash
 CREATE_BODY=$(jq -nc --arg message 'GATE-SPEC {"id":"guide-permission","steps":[{"tool":"Bash","input":{"command":"echo guide > api-guide.txt","description":"write api-guide.txt"}}],"final":"wrote api-guide.txt"}' \
   '{profile_id:"claude-coding-local", repository_id:"sample-app", message:$message}')
@@ -84,7 +90,7 @@ SID=$(echo "$created" | jq -r .session_id)
 
 **기대 응답.** 201과 함께 `session_id`, `turn_id: "1"`, `receipt_id`, `receipt_status: "accepted"`, `status: "queued"`가 온다. 실제 완료 결과는 생성 receipt의 옛 acceptance body가 아니라 turn 조회로 판정한다.
 
-**흔한 오류.** 422는 profile 또는 repository 선택이 유효하지 않다는 뜻이다. `createSession`은 계약상 429 `RATE_LIMITED`를 반환할 수 있으므로 나중에 재시도한다. 입력 queue 상한은 메시지 추가에 적용된다(4절). 저장소 상한은 413 `STORAGE_LIMIT_EXCEEDED`로 나타나며 `/v1/limits`를 본다. 실행 slot이 모자라면 세션은 거절되지 않고 `queued`로 기다린다. 세션 비용·token 상한은 요청을 거절하지 않고, 넘은 뒤 세션 `attention`의 `BUDGET_EXCEEDED`와 `/usage`의 `budget_exceeded: true`로 나타난다(8절). 409 `IDEMPOTENCY_CONFLICT`면 같은 key에 다른 본문을 보냈다.
+**흔한 오류.** 422 `UNSUPPORTED_CAPABILITY`는 profile 또는 repository 선택이 유효하지 않다는 뜻이다. `required` profile에 `repository_id`가 없으면 메시지가 `Profile <id> needs a repository: send repository_id`이고, `none` profile에 보내면 `Profile <id> runs without a repository: omit repository_id`다. `repository_id: null`은 생략이 아니라 400이다. `createSession`은 계약상 429 `RATE_LIMITED`를 반환할 수 있으므로 나중에 재시도한다. 입력 queue 상한은 메시지 추가에 적용된다(4절). 저장소 상한은 413 `STORAGE_LIMIT_EXCEEDED`로 나타나며 `/v1/limits`를 본다. 실행 slot이 모자라면 세션은 거절되지 않고 `queued`로 기다린다. 세션 비용·token 상한은 요청을 거절하지 않고, 넘은 뒤 세션 `attention`의 `BUDGET_EXCEEDED`와 `/usage`의 `budget_exceeded: true`로 나타난다(8절). 409 `IDEMPOTENCY_CONFLICT`면 같은 key에 다른 본문을 보냈다.
 
 ## 3. pending-requests의 승인·질문에 답하기
 
@@ -252,7 +258,7 @@ curl -sS "$API/v1/sessions/$SID/profile" "${AUTH[@]}" \
 
 이미 돌고 있는 turn은 시작한 프로필로 끝난다. 그 뒤 들어오는 입력은 새 프로필의 worker가 마지막 checkpoint에서 같은 engine 대화를 복원해 처리한다. 어느 turn이 어떤 프로필로 돌았는지는 turn 조회의 `attempts[].profile_id`로 본다. 같은 프로필로 바꾸면 아무것도 바뀌지 않고 receipt만 남는다.
 
-**흔한 오류.** 422 `UNSUPPORTED_CAPABILITY`는 새 프로필이 카탈로그에 없거나, 세션의 repository와 짝이 아니거나, runtime 종류·버전이 다르거나(checkpoint를 복원할 수 없다), 과금 방식(`provider.billing`)이 다를 때, 또는 세션의 지금 프로필이 카탈로그에서 빠졌거나 다른 설정으로 바뀌어 runtime을 비교할 수 없을 때다. 409 `RELEASE_PROFILE_MISMATCH`는 agent release로 만든 세션이라 프로필을 release가 정한다는 뜻이다. 409 `REVISION_CONFLICT`면 세션을 다시 읽는다.
+**흔한 오류.** 422 `UNSUPPORTED_CAPABILITY`는 새 프로필이 카탈로그에 없거나, 세션의 repository와 짝이 아니거나(저장소 없이 만든 세션이면 새 프로필의 `repository_mode`가 `required`이거나), runtime 종류·버전이 다르거나(checkpoint를 복원할 수 없다), 과금 방식(`provider.billing`)이 다를 때, 또는 세션의 지금 프로필이 카탈로그에서 빠졌거나 다른 설정으로 바뀌어 runtime을 비교할 수 없을 때다. 409 `RELEASE_PROFILE_MISMATCH`는 agent release로 만든 세션이라 프로필을 release가 정한다는 뜻이다. 409 `REVISION_CONFLICT`면 세션을 다시 읽는다.
 
 ### 세션 끝내기: close·terminate·recovery close
 

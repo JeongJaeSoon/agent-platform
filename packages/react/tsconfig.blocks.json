@@ -4,5 +4,10 @@
     "jsx": "react-jsx",
     "lib": ["ES2022", "DOM", "DOM.Iterable"]
   },
-  "include": ["src/blocks/**/*.ts", "src/blocks/**/*.tsx"]
+  "include": [
+    "src/blocks/**/*.ts",
+    "src/blocks/**/*.tsx",
+    "src/components/**/*.ts",
+    "src/components/**/*.tsx"
+  ]
 }

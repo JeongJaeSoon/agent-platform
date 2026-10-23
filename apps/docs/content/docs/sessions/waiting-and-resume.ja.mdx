@@ -3,7 +3,7 @@ title: "承認待ちと再開"
 description: 権限リクエストと質問に応答し、セッションを pause して resume する
 ---
 
-turn がツールを実行する前に人の許可を待つ、または人に質問すると、セッションは `needs_input` になる。応答すると turn が続行する。セッションをしばらく休ませたいときは pause し、後で resume する。[開始](/sessions/start)で作った `SID` を引き続き使う。応答するには key に `sessions:approve` が、pause・resume には `sessions:control` が必要である。
+ターンがツールを実行する前に人の許可を待つ、または人に質問すると、セッションは `needs_input` になる。応答するとターンが続行する。セッションをしばらく休ませたいときは pause し、後で resume する。[開始](/sessions/start)で作った `SID` を引き続き使う。応答するにはキーに `sessions:approve` が、pause・resume には `sessions:control` が必要である。
 
 ## 待機中のリクエスト
 
@@ -47,7 +47,7 @@ curl -sS "$API/v1/sessions/$SID/answers" \
 }
 ```
 
-許可は `"decision": "allow"` である。`reason` は拒否の場合だけ使い、省略できる。モデルはその理由をツールの結果として受け取り、turn を続ける。レスポンスの `approval` には、誰が(`answered_by`)、どこから(`surface`: `api`・`web`・`slack`)応答したかが残る。
+許可は `"decision": "allow"` である。`reason` は拒否の場合だけ使い、省略できる。モデルはその理由をツールの結果として受け取り、ターンを続ける。レスポンスの `approval` には、誰が(`answered_by`)、どこから(`surface`: `api`・`web`・`slack`)応答したかが残る。
 
 ## 質問に答える
 

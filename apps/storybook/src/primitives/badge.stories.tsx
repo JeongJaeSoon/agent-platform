@@ -8,17 +8,7 @@ const meta = {
   argTypes: {
     variant: {
       control: "select",
-      options: [
-        "gray",
-        "blue",
-        "green",
-        "amber",
-        "red",
-        "default",
-        "secondary",
-        "destructive",
-        "outline",
-      ],
+      options: ["gray", "blue", "green", "amber", "red"],
     },
   },
 } satisfies Meta<typeof Badge>;
@@ -26,7 +16,14 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const Playground: Story = {};
+// The toolbar's Language picks the label, so each catalog's width shows.
+const LABEL: Record<string, string> = { ko: "초안", ja: "下書き", en: "Draft" };
+
+export const Default: Story = {
+  render: (args, { globals }) => (
+    <Badge {...args}>{LABEL[globals.locale] ?? LABEL.ko}</Badge>
+  ),
+};
 
 /** Console v35's five badge tones. */
 export const Tones: Story = {
@@ -44,22 +41,5 @@ export const Tones: Story = {
 export const TonesDark: Story = {
   ...Tones,
   name: "Tones (dark)",
-  globals: { theme: "dark" },
-};
-
-export const Variants: Story = {
-  render: () => (
-    <div className="story-row">
-      <Badge>기본</Badge>
-      <Badge variant="secondary">보조</Badge>
-      <Badge variant="destructive">위험</Badge>
-      <Badge variant="outline">테두리</Badge>
-    </div>
-  ),
-};
-
-export const VariantsDark: Story = {
-  ...Variants,
-  name: "Variants (dark)",
   globals: { theme: "dark" },
 };
