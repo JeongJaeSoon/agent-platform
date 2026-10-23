@@ -139,7 +139,7 @@ function ReadOnlyMark() {
   );
 }
 
-/** No API renames a workspace yet, so the name only reads. */
+/** No API renames a workspace yet (94S-817), so the name only reads. */
 function WorkspaceName() {
   const { t } = useI18n();
   const name = useMe()?.workspace?.name ?? "";
@@ -280,7 +280,8 @@ function ReadOnlySettings() {
 /**
  * How long refused and allowed decisions are kept. Only an owner changes it;
  * the floor is the server's, so a short value goes there and comes back as
- * the refusal.
+ * the refusal. The mockup's output retention (7/30/90 days) has no API yet
+ * (94S-817); this card is the audit retention, a different value.
  */
 function AuditRetention({ onOutcome }: { readonly onOutcome: OnOutcome }) {
   const { t } = useI18n();

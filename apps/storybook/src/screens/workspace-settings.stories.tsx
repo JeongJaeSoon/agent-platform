@@ -20,7 +20,7 @@ import { MOBILE, PartRequest, ScreenShell } from "./screen-kit.tsx";
  * `card flush` cards 16px apart, a 16px body with 12px gaps, and a
  * `form-foot` strip. The name and model cards only read (no API changes
  * them); the retention card is the audit retention the API has, not the
- * mockup's output retention, which has no API.
+ * mockup's output retention, which has no API. Both gaps are 94S-817.
  */
 
 type Viewer = "owner" | "admin" | "member";
@@ -165,7 +165,10 @@ function WorkspaceSettingsScreen({
           description="콘솔과 알림에 보이는 이름입니다."
           foot={
             <>
-              <div className={META}>콘솔에서는 아직 바꿀 수 없습니다.</div>
+              <div className="flex flex-wrap items-center gap-2">
+                <div className={META}>콘솔에서는 아직 바꿀 수 없습니다.</div>
+                <Badge variant="red">API 변경 필요: 94S-817</Badge>
+              </div>
               <ReadOnlyMark />
             </>
           }
