@@ -104,9 +104,9 @@ function SummaryLine({
   return (
     <div className="flex min-w-0 flex-col gap-0.5 px-[var(--ap-row-padding-x)] pt-[var(--ap-row-padding-y)] pb-2">
       <p className="m-0 flex min-w-0 items-center gap-2 font-medium text-control leading-5">
-        <span className="min-w-0 truncate">{heading}</span>
-        <Badge variant="amber" className="shrink-0">
-          {badge}
+        <span className="min-w-16 truncate">{heading}</span>
+        <Badge variant="amber" className="min-w-0 max-w-max shrink">
+          <span className="truncate">{badge}</span>
         </Badge>
       </p>
       {meta === undefined ? null : (
@@ -174,6 +174,8 @@ export function PendingAnswers({
   const summary = layout === "summary";
   const Approval = layout === "card" ? ApprovalCard : ApprovalRow;
   const short = sessionId.slice(0, 8);
+  // A summary line always names its session, given a heading or not.
+  const lineHeading = heading ?? subject ?? short;
   const answer = useAnswer(sessionId);
   const refused = useRefusal(refusal);
   const [outcome, setOutcome] = useState<
@@ -191,7 +193,9 @@ export function PendingAnswers({
       reason
     ) : (
       <>
-        {lead} · {reason}
+        {lead}
+        <span aria-hidden="true"> · </span>
+        {reason}
       </>
     );
   };
@@ -292,7 +296,7 @@ export function PendingAnswers({
                   request={request}
                   subject={subject}
                   {...(summary
-                    ? { heading, meta: metaFor(request) }
+                    ? { heading: lineHeading, meta: metaFor(request) }
                     : undefined)}
                   locale={locale}
                   pending={busyId === request.request_id}
@@ -333,7 +337,7 @@ export function PendingAnswers({
                 <>
                   {summary ? (
                     <SummaryLine
-                      heading={heading}
+                      heading={lineHeading}
                       badge={t("session.pending.question")}
                       meta={metaFor(request)}
                     />

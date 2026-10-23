@@ -2,7 +2,14 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { PendingRequest, SessionSummary } from "@werft-ai/contracts";
 import { waitingSessionsQuery } from "@werft-ai/core";
 import { Badge, cn } from "@werft-ai/ui";
-import { type ReactNode, useId, useLayoutEffect, useRef } from "react";
+import {
+  type ReactNode,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { useAgentPlatform } from "../provider.tsx";
 import { usePendingRequests } from "../sessions.ts";
 import {
@@ -35,6 +42,20 @@ export interface ApprovalInboxProps extends SessionActionProps {
 }
 
 /**
+ * The time, moved on every minute while `ticking`: a poll that returns the
+ * same data does not re-render, and the waits would stay as first drawn.
+ */
+function useMinute(ticking: boolean): number {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    if (!ticking) return;
+    const id = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(id);
+  }, [ticking]);
+  return now;
+}
+
+/**
  * The reader's sessions waiting on an answer, each request answerable here.
  * It reads the same first page as the shell's badge, so the two counts agree.
  */
@@ -47,12 +68,13 @@ export function ApprovalInbox({
   title,
   action,
   empty,
-  now,
+  now: givenNow,
 }: ApprovalInboxProps) {
   const { t } = useBlockText();
   const { client } = useAgentPlatform();
   const titleId = useId();
   const waiting = useQuery(waitingSessionsQuery(client));
+  const now = useMinute(layout === "summary" && givenNow === undefined);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const shown = useRef<readonly string[]>([]);
 
@@ -115,7 +137,7 @@ export function ApprovalInbox({
               refusal={refusal}
               renderError={renderError}
               layout={layout}
-              now={now}
+              now={givenNow ?? now}
             />
           ))}
         </ul>
@@ -151,12 +173,12 @@ function WaitingSession({
   refusal,
   renderError,
   layout,
-  now = Date.now(),
+  now,
 }: SessionActionProps & {
   readonly session: SessionSummary;
   readonly renderError: ApprovalInboxProps["renderError"];
   readonly layout: ApprovalInboxProps["layout"];
-  readonly now: ApprovalInboxProps["now"];
+  readonly now: number;
 }) {
   const { t } = useBlockText();
   const { renderLink, client } = useAgentPlatform();
@@ -188,7 +210,15 @@ function WaitingSession({
       ),
     });
     // Untitled, the name line already is the short id.
-    return session.title ? `${short} · ${waited}` : waited;
+    return session.title ? (
+      <span className="whitespace-nowrap">
+        {short}
+        <span aria-hidden="true"> · </span>
+        {waited}
+      </span>
+    ) : (
+      waited
+    );
   };
   return (
     <li className={cn("flex min-w-0 flex-col", summary ? null : "gap-2")}>

@@ -1,15 +1,17 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, setSystemTime, spyOn, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { type ApiClientOptions, createApiClient } from "@werft-ai/client";
 import type { PendingRequest } from "@werft-ai/contracts";
 import { setupDom, setupUser } from "@werft-ai/ui/test-support/dom";
+import type { ReactNode } from "react";
 import type { ApprovalLayout } from "./session-actions.tsx";
 
-const { render, waitFor } = await setupDom();
+const { render, waitFor, act } = await setupDom();
 // After setupDom: these load @werft-ai/ui, whose Radix decides at import time
 // whether a DOM exists, for every later file in the run too.
 const { AgentPlatformProvider } = await import("../provider.tsx");
 const { ApprovalInbox } = await import("./approval-inbox.tsx");
+const { PendingAnswers } = await import("./session-actions.tsx");
 type ApprovalInboxProps = import("./approval-inbox.tsx").ApprovalInboxProps;
 
 const SESSION_ID = "0192f0c4-3d1e-4c7a-9b2f-5e6d7c8a9b01";
@@ -67,6 +69,7 @@ function renderInbox({
   answerable = true,
   title = null,
   extra,
+  body,
 }: {
   open: PendingRequest[];
   layout?: ApprovalLayout;
@@ -74,6 +77,8 @@ function renderInbox({
   answerable?: boolean;
   title?: string | null;
   extra?: Partial<ApprovalInboxProps>;
+  /** Drawn in place of the inbox, inside the same providers. */
+  body?: ReactNode;
 }) {
   const posted: Posted[] = [];
   let items = open;
@@ -116,13 +121,15 @@ function renderInbox({
           </a>
         )}
       >
-        <ApprovalInbox
-          loading={<p>loading</p>}
-          renderError={() => <p>failed</p>}
-          layout={layout}
-          unavailable={unavailable}
-          {...extra}
-        />
+        {body ?? (
+          <ApprovalInbox
+            loading={<p>loading</p>}
+            renderError={() => <p>failed</p>}
+            layout={layout}
+            unavailable={unavailable}
+            {...extra}
+          />
+        )}
       </AgentPlatformProvider>
     </QueryClientProvider>,
   );
@@ -302,5 +309,52 @@ describe("ApprovalInbox", () => {
     given.unmount();
     const plain = renderInbox({ open: [], layout: "summary" });
     await plain.findByText("No session is waiting for an answer.");
+  });
+  test("요약 배치를 heading 없이 써도 줄은 세션을 짧은 ID로 부르고 이유를 붙인다", async () => {
+    const view = renderInbox({
+      open: [],
+      body: (
+        <PendingAnswers
+          sessionId={SESSION_ID}
+          items={[permission("req_1", "Bash")]}
+          answerable={false}
+          layout="summary"
+          meta={() => "waited"}
+        />
+      ),
+    });
+    const row = await view.findByRole("article");
+    expect(row.textContent).toContain(SHORT);
+    expect(row.textContent).toContain("waited");
+    expect(row.textContent).toContain("can answer.");
+  });
+
+  test("now를 넘기지 않은 요약 배치는 분마다 대기 시간을 다시 센다", async () => {
+    const start = Date.parse("2026-10-21T01:02:30.000Z");
+    setSystemTime(new Date(start));
+    const ticks: (() => void)[] = [];
+    const interval = spyOn(globalThis, "setInterval").mockImplementation(((
+      tick: () => void,
+    ) => {
+      ticks.push(tick);
+      return 0;
+    }) as unknown as typeof setInterval);
+    try {
+      const view = renderInbox({
+        open: [permission("req_1", "Bash")],
+        layout: "summary",
+        title: "Fix README",
+      });
+      const row = await view.findByRole("article");
+      expect(row.textContent).toContain("Waiting 3 min");
+      setSystemTime(new Date(start + 2 * 60_000));
+      await act(async () => {
+        for (const tick of ticks) tick();
+      });
+      expect(row.textContent).toContain("Waiting 5 min");
+    } finally {
+      interval.mockRestore();
+      setSystemTime();
+    }
   });
 });

@@ -192,9 +192,11 @@ export function ApprovalRow({
               id={titleId}
               className="flex min-w-0 items-center gap-2 font-medium text-control leading-5"
             >
-              <span className="min-w-0 truncate">{heading}</span>
-              <Badge variant="amber" className="shrink-0">
-                {messages.title(request.tool)}
+              {/* Both give way on a narrow line; a long tool name is cut,
+                  never pushed past the frame. */}
+              <span className="min-w-16 truncate">{heading}</span>
+              <Badge variant="amber" className="min-w-0 max-w-max shrink">
+                <span className="truncate">{messages.title(request.tool)}</span>
               </Badge>
             </p>
             {/* A space either side of each dot, as inside `meta`; each dot
