@@ -156,6 +156,8 @@ describe("app shell", () => {
     await screen.findByRole("menu");
     await user.keyboard("{ArrowDown}{Enter}");
     await waitFor(() => expect(history.location.pathname).toBe("/members"));
+    // The trigger is gone with the screen; focus lands on the page, not body.
+    await waitFor(() => expect(document.activeElement?.id).toBe("main"));
   });
 
   test("a member's new menu leaves out invites and teams", async () => {

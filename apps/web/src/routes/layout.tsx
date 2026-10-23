@@ -23,7 +23,13 @@ import {
   NativeSelectOption,
 } from "@werft-ai/ui";
 import { Bot, ChevronDown, List, Plus, Users, UsersRound } from "lucide-react";
-import { type ReactNode, useId, useLayoutEffect, useState } from "react";
+import {
+  type ReactNode,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { useHasPermission, useMe } from "../auth/guard.tsx";
 import {
   AppSidebar,
@@ -230,7 +236,14 @@ function NewMenu({ can }: { readonly can: CreatePermissions }) {
   const { t } = useI18n();
   const pathname = usePathname();
   const reasonId = useId();
+  const followed = useRef(false);
   if (!NEW_ON.has(pathname)) return null;
+  // Every item leads off the screens that show this button, so the trigger
+  // focus would go back to is about to unmount: the page takes it instead,
+  // as it does after a sidebar link. Escape still returns to the trigger.
+  const follow = () => {
+    followed.current = true;
+  };
   // The agent list's own thing to make names the button there.
   const label =
     pathname === "/agents" && can.agent ? t("agents.new") : t("shell.new");
@@ -243,9 +256,17 @@ function NewMenu({ can }: { readonly can: CreatePermissions }) {
           <ChevronDown aria-hidden="true" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
+      <DropdownMenuContent
+        align="end"
+        onCloseAutoFocus={(event) => {
+          if (!followed.current) return;
+          followed.current = false;
+          event.preventDefault();
+          document.getElementById(MAIN_CONTENT_ID)?.focus();
+        }}
+      >
         {can.agent ? (
-          <DropdownMenuItem asChild>
+          <DropdownMenuItem asChild onSelect={follow}>
             <Link to="/agents/new">
               <Bot aria-hidden="true" />
               {t("agents.new")}
@@ -253,7 +274,7 @@ function NewMenu({ can }: { readonly can: CreatePermissions }) {
           </DropdownMenuItem>
         ) : null}
         {can.invite ? (
-          <DropdownMenuItem asChild>
+          <DropdownMenuItem asChild onSelect={follow}>
             <Link to="/members">
               <Users aria-hidden="true" />
               {t("shell.new.invite")}
@@ -261,7 +282,7 @@ function NewMenu({ can }: { readonly can: CreatePermissions }) {
           </DropdownMenuItem>
         ) : null}
         {can.team ? (
-          <DropdownMenuItem asChild>
+          <DropdownMenuItem asChild onSelect={follow}>
             <Link to="/teams">
               <UsersRound aria-hidden="true" />
               {t("teams.create")}

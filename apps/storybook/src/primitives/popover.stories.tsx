@@ -23,7 +23,10 @@ const meta = {
             <Info aria-hidden="true" />
           </Button>
         </PopoverTrigger>
-        <PopoverContent>자기 자신은 비활성화할 수 없습니다.</PopoverContent>
+        {/* Focus moves into the note, so it carries the button's name. */}
+        <PopoverContent aria-label="비활성화할 수 없는 이유">
+          자기 자신은 비활성화할 수 없습니다.
+        </PopoverContent>
       </Popover>
     </div>
   ),
