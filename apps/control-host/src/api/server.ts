@@ -229,11 +229,23 @@ if (checkpointStorage !== "disabled") {
 
 const pool = createApiPool(databaseUrl, logger);
 const db = drizzle(pool, { schema });
-logger.info("Session models backfilled", {
-  sessions: await backfillSessionModels(db, ({ profileId, fingerprint }) =>
+// Not awaited: the API starts without its database, and a version 1
+// fingerprint names its model, so nothing waits on the column being filled.
+const MODEL_BACKFILL_RETRY_MS = 30_000;
+const backfillModels = (): void => {
+  backfillSessionModels(db, ({ profileId, fingerprint }) =>
     fingerprintModel(catalog, profileId, fingerprint),
-  ),
-});
+  ).then(
+    (sessions) => logger.info("Session models backfilled", { sessions }),
+    (error: unknown) => {
+      logger.warn("Session models could not be backfilled; retrying", {
+        error_name: error instanceof Error ? error.name : typeof error,
+      });
+      setTimeout(backfillModels, MODEL_BACKFILL_RETRY_MS).unref();
+    },
+  );
+};
+backfillModels();
 if (checkpointStorage !== "disabled") {
   await assertCheckpointObjectsPresent(checkpointStorage, {
     hasUncollectedCheckpoint: () => hasUncollectedCheckpoint(db),
