@@ -9,7 +9,35 @@ import {
 } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
-const { renderAt, screen, waitFor } = await appHarness();
+const harness = await appHarness();
+const { screen, waitFor } = harness;
+
+const PROFILES = {
+  items: [
+    profile("claude-coding-fast", "claude-haiku-5"),
+    profile("claude-coding-local", "claude-sonnet-5"),
+    profile("claude-general", "claude-sonnet-5"),
+  ],
+};
+// Every settings page reads the profile catalog for its model card.
+const renderAt: typeof harness.renderAt = (path, routes, locale) =>
+  harness.renderAt(
+    path,
+    { "GET /v1/profiles": () => json(200, PROFILES), ...routes },
+    locale,
+  );
+
+function profile(id: string, model: string) {
+  return {
+    id,
+    model,
+    tools: ["Read"],
+    runtime_kind: "claude_agent_sdk",
+    runtime_version: "0.3.270",
+    billing: "metered",
+    repository_mode: "required",
+  } as const;
+}
 
 const RETENTION = `/v1/workspaces/${WORKSPACE_ID}/audit-retention`;
 const GUEST = `/v1/workspaces/${WORKSPACE_ID}/slack-guest`;
@@ -274,6 +302,68 @@ describe("워크스페이스 설정", () => {
     expect((await screen.findByRole("alert")).textContent).toBe(
       "워크스페이스 설정 변경 권한이 있어야 할 수 있습니다. 지금 역할: 관리자.",
     );
+  });
+
+  test("이름과 ID는 읽기만 하고, 모델 허용 목록은 프로필의 모델을 한 번씩 보인다", async () => {
+    renderAt("/settings/workspace", {
+      "GET /v1/auth/me": () => json(200, me()),
+    });
+    const name = (await screen.findByRole("textbox", {
+      name: "워크스페이스 이름",
+    })) as HTMLInputElement;
+    expect(name.value).toBe("Acme");
+    expect(name.readOnly).toBe(true);
+    expect(screen.getByText(WORKSPACE_ID).className).toContain("font-mono");
+    const models = screen.getByRole("region", { name: "모델 허용 목록" });
+    await waitFor(() =>
+      expect(
+        [...models.querySelectorAll("li")].map((li) => li.textContent),
+      ).toEqual(["claude-haiku-5", "claude-sonnet-5"]),
+    );
+    // Only the retention card saves; the name and models have no API to.
+    expect(screen.getAllByRole("button", { name: "저장" })).toHaveLength(1);
+    expect(screen.getAllByText("읽기 전용")).toHaveLength(2);
+  });
+
+  test("ID를 복사하면 복사했다고 알린다", async () => {
+    renderAt("/settings/workspace", {
+      "GET /v1/auth/me": () => json(200, me()),
+    });
+    const user = await setupUser();
+    const written: string[] = [];
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async (text: string) => void written.push(text) },
+    });
+    await user.click(await screen.findByRole("button", { name: "복사" }));
+    expect((await screen.findByRole("status")).textContent).toBe(
+      "워크스페이스 ID를 복사했습니다.",
+    );
+    expect(written).toEqual([WORKSPACE_ID]);
+  });
+
+  test("프로필을 읽지 못하면 모델 카드에 다시 시도를 둔다", async () => {
+    renderAt("/settings/workspace", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/profiles": () => apiError(500, "INTERNAL_ERROR", "boom"),
+    });
+    const models = await screen.findByRole("region", {
+      name: "모델 허용 목록",
+    });
+    await waitFor(() =>
+      expect(models.querySelector("[role=alert]")).not.toBeNull(),
+    );
+    expect(models.textContent).toContain("다시 시도");
+  });
+
+  test("등록된 모델이 없으면 없다고 말한다", async () => {
+    renderAt("/settings/workspace", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/profiles": () => json(200, { items: [] }),
+    });
+    expect(
+      await screen.findByText("이 설치에 등록된 모델이 없습니다."),
+    ).toBeDefined();
   });
 
   test("메뉴는 소유자·관리자에게만 보인다", async () => {

@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ApiError, unwrap } from "@werft-ai/client";
 import type {
   AuditRetentionRequest,
@@ -6,14 +6,18 @@ import type {
 } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
 import {
+  Badge,
+  Button,
   buttonVariants,
-  Field,
-  FieldDescription,
-  FieldLabel,
+  Card,
+  CardDescription,
+  CardTitle,
   Input,
+  Skeleton,
 } from "@werft-ai/ui";
-import { type FormEvent, useId, useState } from "react";
-import { queryKeys } from "../api/queries.ts";
+import { Check, Copy, Lock } from "lucide-react";
+import { type FormEvent, type ReactNode, useId, useState } from "react";
+import { profilesQuery, queryKeys } from "../api/queries.ts";
 import {
   permissionReason,
   ReasonButton,
@@ -23,6 +27,8 @@ import {
   useRole,
 } from "../auth/guard.tsx";
 import { FormError, NOTICE } from "../components/auth-page.tsx";
+import { copyText } from "../components/copy.ts";
+import { LoadFailure } from "../components/load-failure.tsx";
 import type { Outcome } from "../components/outcome.tsx";
 import { Page } from "../components/page.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
@@ -31,10 +37,17 @@ import { useI18n } from "../i18n/i18n.tsx";
 // keeps this equal to the contract's value.
 export const AUDIT_RETENTION_MAX_DAYS = 3650;
 
-const SECTION = "flex flex-col gap-[var(--ap-space-block)]";
-const SECTION_TITLE = "m-0 font-semibold text-body";
-const HINT = "m-0 text-muted-foreground text-sm";
-const FORM = "flex max-w-xl flex-col items-start gap-4";
+// Console v4 settings (Console.dc.html L853-867): `card flush` cards 16px
+// apart, a 16px body with 12px gaps, and a `form-foot` strip under it.
+const CARDS = "flex flex-col gap-4";
+const CARD_BODY = "flex flex-col gap-3 p-4";
+const SUB = "text-description";
+const FOOT =
+  "flex items-center justify-between gap-3 rounded-b-card border-t bg-muted px-4 py-3";
+const META = "text-caption text-subtle-foreground";
+const ICON = "size-3.5 shrink-0";
+
+type OnOutcome = (outcome: Outcome | null) => void;
 
 /** Workspace-wide settings an owner or admin opens from the menu. */
 export function WorkspaceSettingsScreen() {
@@ -42,9 +55,12 @@ export function WorkspaceSettingsScreen() {
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const workspaceManage = useHasPermission("workspace.manage");
   const retentionManage = useHasPermission("audit_retention.manage");
-  if (!workspaceManage && !retentionManage) return <ReadOnlySettings />;
+  const editable = workspaceManage || retentionManage;
   return (
-    <Page title={t("workspace.title")}>
+    <Page
+      title={t("workspace.title")}
+      description={t(editable ? "workspace.description" : "workspace.readOnly")}
+    >
       {outcome ? (
         outcome.kind === "error" ? (
           <FormError>{outcome.text}</FormError>
@@ -52,9 +68,178 @@ export function WorkspaceSettingsScreen() {
           <output className={NOTICE}>{outcome.text}</output>
         )
       ) : null}
-      <AuditRetention onOutcome={setOutcome} />
-      <SlackGuest onOutcome={setOutcome} />
+      <div className={CARDS}>
+        <WorkspaceName />
+        <WorkspaceId onOutcome={setOutcome} />
+        <AllowedModels />
+        {editable ? (
+          <>
+            <AuditRetention onOutcome={setOutcome} />
+            <SlackGuest onOutcome={setOutcome} />
+          </>
+        ) : (
+          <ReadOnlySettings />
+        )}
+      </div>
     </Page>
+  );
+}
+
+function SettingsCard({
+  title,
+  description,
+  descriptionId,
+  foot,
+  onSubmit,
+  children,
+}: {
+  readonly title: string;
+  readonly description: string;
+  readonly descriptionId?: string;
+  readonly foot?: ReactNode;
+  readonly onSubmit?: (event: FormEvent) => void;
+  readonly children?: ReactNode;
+}) {
+  const titleId = useId();
+  const content = (
+    <>
+      <div className={CARD_BODY}>
+        <CardTitle id={titleId} role="heading" aria-level={2}>
+          {title}
+        </CardTitle>
+        <CardDescription id={descriptionId} className={SUB}>
+          {description}
+        </CardDescription>
+        {children}
+      </div>
+      {foot ? <div className={FOOT}>{foot}</div> : null}
+    </>
+  );
+  return (
+    <Card role="region" aria-labelledby={titleId} className="gap-0 py-0">
+      {onSubmit ? (
+        // noValidate: the server owns the limits and says why it refused.
+        <form onSubmit={onSubmit} noValidate>
+          {content}
+        </form>
+      ) : (
+        content
+      )}
+    </Card>
+  );
+}
+
+function ReadOnlyMark() {
+  const { t } = useI18n();
+  return (
+    <div className="inline-flex shrink-0 items-center gap-1 text-caption text-subtle-foreground">
+      <Lock aria-hidden="true" className={ICON} strokeWidth={1.5} />
+      {t("workspace.readOnlyMark")}
+    </div>
+  );
+}
+
+/** No API renames a workspace yet, so the name only reads. */
+function WorkspaceName() {
+  const { t } = useI18n();
+  const name = useMe()?.workspace?.name ?? "";
+  const inputId = useId();
+  return (
+    <SettingsCard
+      title={t("workspace.name")}
+      description={t("workspace.nameHint")}
+      foot={
+        <>
+          <div className={META}>{t("workspace.nameFoot")}</div>
+          <ReadOnlyMark />
+        </>
+      }
+    >
+      <label className="sr-only" htmlFor={inputId}>
+        {t("workspace.name")}
+      </label>
+      <Input id={inputId} className="max-w-80" value={name} readOnly />
+    </SettingsCard>
+  );
+}
+
+function WorkspaceId({ onOutcome }: { readonly onOutcome: OnOutcome }) {
+  const { t } = useI18n();
+  const id = useMe()?.workspace?.id ?? "";
+  const [copied, setCopied] = useState(false);
+  return (
+    <SettingsCard title={t("workspace.id")} description={t("workspace.idHint")}>
+      <div className="flex max-w-105 items-center gap-2 rounded-control border bg-muted px-3 py-2">
+        <div className="min-w-0 flex-1 font-mono text-caption [overflow-wrap:anywhere]">
+          {id}
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={id === ""}
+          onClick={() => {
+            void copyText(id, { current: null }).then((ok) => {
+              setCopied(ok);
+              onOutcome(
+                ok
+                  ? { kind: "notice", text: t("workspace.idCopied") }
+                  : { kind: "error", text: t("apiKeys.copyIdFailed") },
+              );
+            });
+          }}
+        >
+          {copied ? (
+            <Check aria-hidden="true" className={ICON} strokeWidth={1.5} />
+          ) : (
+            <Copy aria-hidden="true" className={ICON} strokeWidth={1.5} />
+          )}
+          {t(copied ? "apiKeys.copied" : "apiKeys.copy")}
+        </Button>
+      </div>
+    </SettingsCard>
+  );
+}
+
+/**
+ * The models this installation's profiles run: the ceiling a session picks
+ * under. The operator's catalog sets it, so the console only reads it.
+ */
+function AllowedModels() {
+  const { t } = useI18n();
+  const { client } = useAgentPlatform();
+  const profiles = useQuery(profilesQuery(client));
+  const models = [...new Set(profiles.data?.items.map((p) => p.model))];
+  return (
+    <SettingsCard
+      title={t("workspace.models")}
+      description={t("workspace.modelsHint")}
+      foot={
+        <>
+          <div className={META}>{t("workspace.modelsFoot")}</div>
+          <ReadOnlyMark />
+        </>
+      }
+    >
+      {profiles.isPending ? (
+        <Skeleton width="50%" />
+      ) : profiles.isError ? (
+        <LoadFailure
+          error={profiles.error}
+          onRetry={() => void profiles.refetch()}
+        />
+      ) : models.length === 0 ? (
+        <div className={META}>{t("workspace.modelsEmpty")}</div>
+      ) : (
+        <ul className="m-0 flex list-none flex-wrap gap-1 p-0">
+          {models.map((model) => (
+            <li key={model}>
+              <Badge className="font-mono font-normal">{model}</Badge>
+            </li>
+          ))}
+        </ul>
+      )}
+    </SettingsCard>
   );
 }
 
@@ -63,28 +248,32 @@ function ReadOnlySettings() {
   const { t } = useI18n();
   const settings = useMe()?.workspace?.settings;
   return (
-    <Page title={t("workspace.title")} description={t("workspace.readOnly")}>
-      <section className={SECTION}>
-        <h2 className={SECTION_TITLE}>{t("workspace.retention")}</h2>
-        <p className="m-0">
+    <>
+      <SettingsCard
+        title={t("workspace.retention")}
+        description={t("workspace.retentionHint")}
+      >
+        <div>
           {settings
             ? t("workspace.retentionValue", {
                 days: settings.audit_retention_days,
               })
             : "—"}
-        </p>
-      </section>
-      <section className={SECTION}>
-        <h2 className={SECTION_TITLE}>{t("workspace.guest")}</h2>
-        <p className="m-0">
+        </div>
+      </SettingsCard>
+      <SettingsCard
+        title={t("workspace.guest")}
+        description={t("workspace.guestHint")}
+      >
+        <div>
           {t(
             settings?.slack_guest_enabled
               ? "workspace.guestValueOn"
               : "workspace.guestValueOff",
           )}
-        </p>
-      </section>
-    </Page>
+        </div>
+      </SettingsCard>
+    </>
   );
 }
 
@@ -93,11 +282,7 @@ function ReadOnlySettings() {
  * the floor is the server's, so a short value goes there and comes back as
  * the refusal.
  */
-function AuditRetention({
-  onOutcome,
-}: {
-  readonly onOutcome: (outcome: Outcome | null) => void;
-}) {
+function AuditRetention({ onOutcome }: { readonly onOutcome: OnOutcome }) {
   const { t } = useI18n();
   const { client } = useAgentPlatform();
   const queryClient = useQueryClient();
@@ -108,7 +293,7 @@ function AuditRetention({
   // Untouched, the field follows the server's value as it refreshes.
   const [draft, setDraft] = useState<string | null>(null);
   const days = draft ?? (current === undefined ? "" : `${current}`);
-  const titleId = useId();
+  const inputId = useId();
   const reason = useHasPermission("audit_retention.manage")
     ? undefined
     : permissionReason(t, "audit_retention.manage", role);
@@ -153,35 +338,38 @@ function AuditRetention({
   };
 
   return (
-    <section className={SECTION} aria-labelledby={titleId}>
-      <h2 id={titleId} className={SECTION_TITLE}>
-        {t("workspace.retention")}
-      </h2>
-      {/* noValidate: the server owns the floor and says why it refused. */}
-      <form className={FORM} onSubmit={submit} noValidate>
-        <Field>
-          <FieldLabel>{t("workspace.retentionDays")}</FieldLabel>
-          <Input
-            className="max-w-40"
-            type="number"
-            inputMode="numeric"
-            step={1}
-            value={days}
-            disabled={reason !== undefined}
-            onChange={(event) => setDraft(event.target.value)}
-          />
-          <FieldDescription>{t("workspace.retentionHint")}</FieldDescription>
-        </Field>
-        <ReasonButton
-          type="submit"
-          className={buttonVariants({ className: "self-start" })}
-          reason={reason}
-          disabled={save.isPending || days.trim() === ""}
-        >
-          {t("workspace.save")}
-        </ReasonButton>
-      </form>
-    </section>
+    <SettingsCard
+      title={t("workspace.retention")}
+      description={t("workspace.retentionHint")}
+      onSubmit={submit}
+      foot={
+        <>
+          <div className={META}>{t("workspace.retentionFoot")}</div>
+          <ReasonButton
+            type="submit"
+            className={buttonVariants({ size: "sm" })}
+            reason={reason}
+            disabled={save.isPending || days.trim() === ""}
+          >
+            {t("workspace.save")}
+          </ReasonButton>
+        </>
+      }
+    >
+      <label className="sr-only" htmlFor={inputId}>
+        {t("workspace.retentionDays")}
+      </label>
+      <Input
+        id={inputId}
+        className="max-w-50"
+        type="number"
+        inputMode="numeric"
+        step={1}
+        value={days}
+        disabled={reason !== undefined}
+        onChange={(event) => setDraft(event.target.value)}
+      />
+    </SettingsCard>
   );
 }
 
@@ -190,11 +378,7 @@ function AuditRetention({
  * sends the opposite of what the server last said, so a stale screen cannot
  * undo a change it never saw.
  */
-function SlackGuest({
-  onOutcome,
-}: {
-  readonly onOutcome: (outcome: Outcome | null) => void;
-}) {
+function SlackGuest({ onOutcome }: { readonly onOutcome: OnOutcome }) {
   const { t } = useI18n();
   const { client } = useAgentPlatform();
   const queryClient = useQueryClient();
@@ -202,7 +386,6 @@ function SlackGuest({
   const role = useRole();
   const workspaceId = me?.workspace?.id ?? "";
   const enabled = me?.workspace?.settings.slack_guest_enabled ?? false;
-  const titleId = useId();
   const labelId = useId();
   const hintId = useId();
   const reason = useHasPermission("workspace.manage")
@@ -237,12 +420,13 @@ function SlackGuest({
   });
 
   return (
-    <section className={SECTION} aria-labelledby={titleId}>
-      <h2 id={titleId} className={SECTION_TITLE}>
-        {t("workspace.guest")}
-      </h2>
+    <SettingsCard
+      title={t("workspace.guest")}
+      description={t("workspace.guestHint")}
+      descriptionId={hintId}
+    >
       <div className="flex flex-wrap items-baseline gap-2">
-        <span id={labelId}>{t("workspace.guestLabel")}</span>
+        <div id={labelId}>{t("workspace.guestLabel")}</div>
         <ReasonButton
           className={buttonVariants({
             variant: enabled ? "default" : "outline",
@@ -259,9 +443,6 @@ function SlackGuest({
           {t(enabled ? "workspace.guestOn" : "workspace.guestOff")}
         </ReasonButton>
       </div>
-      <p id={hintId} className={HINT}>
-        {t("workspace.guestHint")}
-      </p>
-    </section>
+    </SettingsCard>
   );
 }
