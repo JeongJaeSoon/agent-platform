@@ -2112,7 +2112,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Members",
     summary: "Suspend an account",
     description:
-      "Allowed only when every live membership of the account is in a workspace the caller owns or administers; otherwise 403 FORBIDDEN. An account that is an owner in any workspace the caller only administers answers 403 OWNER_PROTECTED first. The account cannot sign in anywhere, and the same cut-off as disabling a member applies in each of its workspaces. Suspending yourself answers 409 LAST_OWNER. Writes a `disable_user` receipt unless the account was already suspended (`receipt_id` null).",
+      "Allowed only when every live membership of the account is in a workspace the caller owns or administers; otherwise 403 FORBIDDEN. An account that is an owner in any workspace the caller only administers, even with that membership disabled, answers 403 OWNER_PROTECTED first. The account cannot sign in anywhere, and the same cut-off as disabling a member applies in each of its workspaces. Suspending yourself answers 409 LAST_OWNER. Writes a `disable_user` receipt unless the account was already suspended (`receipt_id` null).",
     auth: "session",
     body: "SetAccessRequest",
     success: { status: 200, schema: "SetAccessResponse" },
