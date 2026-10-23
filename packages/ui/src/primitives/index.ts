@@ -44,6 +44,7 @@ export {
   NativeSelectOptGroup,
   NativeSelectOption,
 } from "./native-select.tsx";
+export { Popover, PopoverContent, PopoverTrigger } from "./popover.tsx";
 export { RadioGroup, RadioGroupItem } from "./radio-group.tsx";
 export { Skeleton, type SkeletonProps } from "./skeleton.tsx";
 export { Tabs, TabsContent, TabsList, TabsTrigger } from "./tabs.tsx";

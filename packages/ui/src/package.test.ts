@@ -21,6 +21,7 @@ const ALLOWED_RUNTIME_DEPENDENCIES = [
   "@radix-ui/react-checkbox",
   "@radix-ui/react-dialog",
   "@radix-ui/react-dropdown-menu",
+  "@radix-ui/react-popover",
   "@radix-ui/react-radio-group",
   "@radix-ui/react-slot",
   "@radix-ui/react-tabs",
