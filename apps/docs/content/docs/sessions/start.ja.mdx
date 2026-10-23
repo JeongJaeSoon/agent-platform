@@ -81,7 +81,7 @@ curl -sS "$API/v1/sessions?limit=5" -H "Authorization: Bearer $KEY" | jq -c '.it
 | 401 | key がない、誤っている、または失効している |
 | 403 | key に `sessions:write` がない |
 | 409 `IDEMPOTENCY_CONFLICT` | 同じ key で本文が異なる |
-| 413 | メッセージが 32,768 バイトを超えている。リポジトリの上限なら `STORAGE_LIMIT_EXCEEDED` |
+| 413 | メッセージが 32,768 バイトを超えている。ストレージ容量の上限なら `STORAGE_LIMIT_EXCEEDED` |
 | 422 `UNSUPPORTED_CAPABILITY` | プロファイルまたはリポジトリが存在しない、その組み合わせが許可されていない、またはプロファイルがそのモデルを許可していない |
 | 429 `RATE_LIMITED` | 少し待ってからもう一度送る |
 
