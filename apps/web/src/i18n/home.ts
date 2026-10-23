@@ -73,7 +73,9 @@ export const homeKo = {
   "home.recent.noRepository": "저장소 없음",
   "home.recent.statusAxis": "작업:",
   "home.glance.relink": "다시 연결",
-  "home.overview.ownerBasis": "설치 전체 수치는 설치 운영자에게만 보입니다",
+  "home.overview.basis": "최근 30일 · UTC 기준",
+  "home.glance.costPartial":
+    "추정 비용 · 진행 중이거나 비용을 보고하지 않은 turn은 빠짐",
   "home.recent.activity": "최근 활동",
 };
 
@@ -154,8 +156,9 @@ export const homeEn: Record<keyof typeof homeKo, string> = {
   "home.recent.noRepository": "No repository",
   "home.recent.statusAxis": "Work:",
   "home.glance.relink": "Reconnect",
-  "home.overview.ownerBasis":
-    "Whole-install figures are visible to install operators only",
+  "home.overview.basis": "Last 30 days · UTC",
+  "home.glance.costPartial":
+    "Estimated cost · leaves out turns still running or without a reported cost",
   "home.recent.activity": "Last activity",
 };
 
@@ -236,7 +239,8 @@ export const homeJa: Record<keyof typeof homeKo, string> = {
   "home.recent.noRepository": "リポジトリなし",
   "home.recent.statusAxis": "作業:",
   "home.glance.relink": "再接続",
-  "home.overview.ownerBasis":
-    "インストール全体の数値はインストール運用者にだけ表示されます",
+  "home.overview.basis": "直近30日 · UTC 基準",
+  "home.glance.costPartial":
+    "推定コスト · 実行中またはコスト未報告の turn は含まない",
   "home.recent.activity": "最近のアクティビティ",
 };

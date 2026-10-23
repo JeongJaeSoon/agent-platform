@@ -38,7 +38,7 @@ const META = "m-0 text-caption text-subtle-foreground";
 
 const MONTH_START = (now: Date) => `${now.toISOString().slice(0, 8)}01`;
 
-function usageSummaryQuery(
+export function usageSummaryQuery(
   client: ApiClient,
   scope: UsageSummaryScope,
   since: string,
@@ -241,7 +241,7 @@ function KpiSkeleton() {
   );
 }
 
-function duration(seconds: number, t: Translate): string {
+export function duration(seconds: number, t: Translate): string {
   // A fake-model or short run lasts seconds; "0분" would read as nothing ran.
   if (seconds < 60) return t("usage.duration.seconds", { s: seconds });
   const minutes = Math.floor(seconds / 60);
