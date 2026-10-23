@@ -2,12 +2,7 @@ import { Card } from "@werft-ai/ui";
 import type { ReactNode } from "react";
 import { Main } from "./main.tsx";
 
-/**
- * Title and card are one block in the middle of the viewport. Auto margins,
- * unlike justify-center, fall to zero when the block outgrows the screen, so
- * it scrolls from its top instead of losing it. py-16 keeps clear of the
- * language footer RootLayout pins to the bottom of public screens.
- */
+/** Title and card as one block; RootLayout centres it in the viewport. */
 export function AuthPage({
   title,
   children,
@@ -16,8 +11,8 @@ export function AuthPage({
   readonly children: ReactNode;
 }) {
   return (
-    <Main className="flex min-h-dvh flex-col px-4 py-16">
-      <div className="m-auto flex w-full max-w-[25rem] flex-col gap-6">
+    <Main className="min-w-0 px-4 py-8">
+      <div className="mx-auto flex w-full max-w-[25rem] flex-col gap-6">
         <h1 className="m-0 text-center font-semibold text-xl">{title}</h1>
         <Card className="gap-4 px-4">{children}</Card>
       </div>

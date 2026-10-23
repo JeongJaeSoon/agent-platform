@@ -43,17 +43,26 @@ export function RootLayout() {
   });
   useLayoutEffect(() => applyTheme(storedTheme()), []);
   return (
-    <div className={`flex min-h-dvh flex-col ${authed ? "" : "relative"}`}>
+    // Public screens: the empty first row and the footer's row share the
+    // spare height equally, so the page sits in the middle of the viewport;
+    // once the page outgrows it the first row is gone and it scrolls from the top.
+    <div
+      className={
+        authed
+          ? "flex min-h-dvh flex-col"
+          : "grid min-h-dvh grid-rows-[1fr_auto_1fr]"
+      }
+    >
       <a
         className="absolute top-2 left-2 z-50 -translate-y-[200%] rounded-sm bg-card px-3 py-2 focus:translate-y-0"
         href={`#${MAIN_CONTENT_ID}`}
       >
         {t("common.skipToContent")}
       </a>
+      {authed ? null : <div />}
       <Outlet />
       {authed ? null : (
-        // Out of flow so AuthPage centres on the viewport, not above it.
-        <footer className="absolute right-0 bottom-0 flex justify-end p-4">
+        <footer className="flex justify-end self-end p-4">
           <LocaleSwitch />
         </footer>
       )}
