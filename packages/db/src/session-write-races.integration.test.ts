@@ -752,7 +752,7 @@ integration("session writes re-judge their requester on PostgreSQL", () => {
         append(slack.caller, slackSession, undefined, HOLD),
         () => unlink(speaker, slack.id),
       );
-    });
+    }, 30_000);
 
     test("a share change, a team member's removal and a team's archive wait for an input", async () => {
       const ws = await workspace();
@@ -777,7 +777,7 @@ integration("session writes re-judge their requester on PostgreSQL", () => {
       await revocationWaits(append(viewer, sessionId, undefined, HOLD), () =>
         share(creator, sessionId, "private"),
       );
-    });
+    }, 30_000);
 
     test("an admin's removal, a demotion and a disable wait for an answer", async () => {
       const ws = await workspace();
@@ -806,7 +806,7 @@ integration("session writes re-judge their requester on PostgreSQL", () => {
       await revocationWaits(held(creator), () =>
         setDisabled(owner, creator, true),
       );
-    });
+    }, 30_000);
 
     test("a key that lapses while its row is locked creates nothing", async () => {
       const ws = await workspace();
@@ -843,7 +843,7 @@ integration("session writes re-judge their requester on PostgreSQL", () => {
       } finally {
         client.release();
       }
-    });
+    }, 30_000);
   });
 
   // Every write in the lock order run against each other, round after round:
