@@ -161,10 +161,12 @@ export function OutcomeStandIn({
 export function AlertCard({
   title,
   tone = "attention",
+  level = 3,
   children,
 }: {
   readonly title: ReactNode;
   readonly tone?: "attention" | "danger";
+  readonly level?: 2 | 3;
   readonly children: ReactNode;
 }) {
   const titleId = useId();
@@ -174,7 +176,7 @@ export function AlertCard({
       aria-labelledby={titleId}
       className={`items-start gap-2 p-4 ${tone === "danger" ? "border-(color:--ap-tone-danger-border)" : "border-(color:--ap-tone-attention-border)"}`}
     >
-      <Heading id={titleId} level={3}>
+      <Heading id={titleId} level={level}>
         {title}
       </Heading>
       {children}

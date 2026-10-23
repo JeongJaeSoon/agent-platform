@@ -287,7 +287,7 @@ function ReviewDialog({
         <PartRequest name="Review dialog" />
         <Card
           role="note"
-          className="border-(color:--ap-tone-attention-border) p-3"
+          className="border-(color:--ap-tone-attention-border) p-3 text-control"
         >
           {VISIBILITY}
         </Card>
@@ -564,6 +564,7 @@ function AgentDetailScreen(props: ScreenProps) {
       </RowList>
       {todo.length > 0 ? (
         <AlertCard
+          level={2}
           tone={slack === "error" ? "danger" : "attention"}
           title={`할 일 ${todo.length}건`}
         >
