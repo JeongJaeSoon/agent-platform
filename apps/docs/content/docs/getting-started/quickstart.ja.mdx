@@ -1,0 +1,120 @@
+---
+title: "Quickstart"
+description: API key を取得し、curl で最初のセッションを作成する
+---
+
+[インストール](/getting-started/install)の手順で立ち上げたローカルスタックで API key を取得し、セッションを 1 つ作成して最初の turn が終わるところまで確認する。同じターミナルで順番に実行する。
+
+## API key を取得する
+
+```bash
+API=http://127.0.0.1:3000
+KEY=$(scripts/local.sh key quickstart \
+  --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover)
+echo "${KEY:0:4}…"
+```
+
+```text
+key_id …
+csp_…
+```
+
+`key_id` は stderr に出力される key の id である。key 本体は stdout に一度だけ出力される。再び見ることはできないので、変数にだけ保持する。`quickstart` は key の owner 名で、この key で作成したセッションはこの owner のものになる。scope は [API key](/api-keys) にある。
+
+key が正しいか確認する。
+
+```bash
+curl -sS -w '\n' "$API/v1" -H "Authorization: Bearer $KEY"
+```
+
+```text
+{"status":"ok","owner_id":"quickstart"}
+```
+
+## 実行プロファイルを選ぶ
+
+セッションは、運用者が登録した実行プロファイル (profile) のいずれかで動く。ローカルの fake スタックには `claude-coding-local` が 1 つある。
+
+```bash
+curl -sS "$API/v1/profiles" -H "Authorization: Bearer $KEY" | jq '.items[] | {id, model, repository_mode}'
+```
+
+```text
+{
+  "id": "claude-coding-local",
+  "model": "claude-sonnet-5",
+  "repository_mode": "required"
+}
+```
+
+## セッションを作成する
+
+```bash
+created=$(curl -sS "$API/v1/sessions" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d '{
+    "profile_id": "claude-coding-local",
+    "repository_id": "sample-app",
+    "message": "GATE-SPEC {\"id\":\"hello\",\"steps\":[],\"final\":\"hello from Werft\"}"
+  }')
+echo "$created" | jq .
+SID=$(echo "$created" | jq -r .session_id)
+```
+
+```text
+{
+  "session_id": "…",
+  "turn_id": "1",
+  "receipt_id": "…",
+  "receipt_status": "accepted",
+  "status": "queued"
+}
+```
+
+- `repository_id` はセッションが clone するリポジトリである。ローカルスタックの Gitea には `sample-app` が入っている。
+- `message` は最初の turn の入力である。fake モデルは `GATE-SPEC {…}` の台本を読み、そのとおりに答える。この台本はツールを呼び出さず、`hello from Werft` で終わる。実際の Claude スタックでは普通の文章を使う。
+- セッション API の POST には `Idempotency-Key` が必要である。同じ key で再送すると、最初の応答がそのまま返る。
+
+## turn の終了を待つ
+
+scheduler が worker を起動し、worker がリポジトリを clone してから turn 1 を実行する。初回は数十秒かかる。
+
+```bash
+until [ "$(curl -sS "$API/v1/sessions/$SID/turns/1" -H "Authorization: Bearer $KEY" | jq -r .status)" = completed ]; do
+  sleep 2
+done
+curl -sS "$API/v1/sessions/$SID/turns/1" -H "Authorization: Bearer $KEY" | jq '{turn_id, status}'
+```
+
+```text
+{
+  "turn_id": "1",
+  "status": "completed"
+}
+```
+
+turn が終わったかどうかは、turn 取得の `status` だけで判断する。`completed`・`failed`・`interrupted`・`cancelled`・`outcome_unknown` が終了状態である。
+
+## モデルの応答を見る
+
+セッションで起きたことはイベントストリーム (SSE) で届く。ストリームはサーバーが閉じないため、ここでは 5 秒後に切断する。
+
+```bash
+curl -sSN --max-time 5 "$API/v1/sessions/$SID/events" -H "Authorization: Bearer $KEY" \
+  | awk '/^event: assistant/ { getline; sub(/^data: /, ""); print }' \
+  | jq -r '.data.message.content[] | select(.type == "text") | .text' || true
+```
+
+```text
+curl: (28) Operation timed out after 5002 milliseconds with 3362 bytes received
+hello from Werft
+```
+
+イベントは 1 つにつき `event:` 行 (種類) と `data:` 行 (JSON) からなる。assistant イベントの `data.message` がモデルの送ったメッセージである。`curl: (28) Operation timed out` は `--max-time` による切断なので正常である。
+
+## 次のステップ
+
+- [最初のセッション](/getting-started/first-session): 権限リクエストに答え、メッセージを続けて送り、セッションを閉じる
+- [ストリーミングの受信](/messages/streaming): イベントの種類と再接続
