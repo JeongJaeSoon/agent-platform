@@ -14,10 +14,11 @@ Sessions currently run with the run profile named by `profile_id`. The release's
 The web console of the local stack is at `http://127.0.0.1:3000/`.
 
 1. The first time only, create the first owner and workspace at `/bootstrap`. The API logs the bootstrap token once when it first starts: `docker compose logs api | grep BOOTSTRAP_TOKEN=`
-2. After logging in, go to "Agents" in the top bar → "New agent".
-3. Enter the name, address (slug), role, instructions, model, and tools, then press "Create agent". Version 1 is created.
-4. On the detail screen, choose a version and a runtime profile, then press "Create release".
-5. Press "Activate" on the release.
+2. After logging in, open "Agents" in the left sidebar and click "New" at the top. The "New agent" screen opens with four steps: Name → What it does → Release → Turn on.
+3. In the "Name" step, enter a name. The identifier (slug) is filled in from the name, and you can change it. Click "Next".
+4. In the "What it does" step, enter the role, instructions, reply language, model, tools it may use, and blocked tools, then click "Save draft and continue". The agent is saved as a draft and version 1 is created.
+5. In the "Release" step, choose a run profile and click "Create release". The profile must use the same model as the card.
+6. In the "Turn on" step, click "Turn the agent on". New sessions now start with this release. "Do this later" leaves the agent as a draft and opens its detail screen.
 
 Owners, admins, and members can all create agents, and the person who creates one becomes that agent's administrator.
 
