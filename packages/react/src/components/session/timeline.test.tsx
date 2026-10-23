@@ -186,7 +186,8 @@ describe("Timeline 도구 호출과 결과", () => {
 });
 
 describe("Timeline 시각", () => {
-  test("now에서 센 상대 시간을 보이고, 같은 분이 이어지면 글자를 생략해도 정확한 시각은 남는다", () => {
+  test("now에서 센 상대 시간을 보이고, 같은 글자가 이어지면 숨겨도 정확한 시각은 키보드로 닿는다", async () => {
+    const user = await setupUser();
     const { getByRole } = render(
       <Timeline
         entries={[
@@ -197,27 +198,39 @@ describe("Timeline 시각", () => {
         formatMessage={formatMessage}
         messages={MESSAGES}
         locale="en"
-        now={START + 5 * 60_000}
+        now={START + 5 * 60_000 + 30_000}
       />,
     );
-    const head = getByRole("list", { name: /^turn t1/ });
-    // The turn's head says the minute, so its first row need not.
-    const [a, b, c] = rows(head);
-    for (const row of [a, b]) {
-      const time = row?.querySelector("time");
-      expect(time?.className).toContain("sr-only");
-      expect(time?.getAttribute("tabindex")).toBeNull();
-      expect(time?.textContent).toBe(
-        formatExactTime(time?.getAttribute("dateTime") ?? "", "en"),
-      );
-    }
-    const shown = c?.querySelector("time");
-    expect(shown?.getAttribute("tabindex")).toBe("0");
-    expect(shown?.textContent).toBe("3 min ago");
     expect(
       document.querySelector('[data-slot="timeline-turn"] time')?.textContent,
     ).toBe("5 min ago");
-    expect(document.querySelectorAll('time[tabindex="0"]')).toHaveLength(2);
+    const head = getByRole("list", { name: /^turn t1/ });
+    // a and b read "5 min ago" as the head does; c reads differently.
+    const [a, b, c] = rows(head);
+    const shown = c?.querySelector("time");
+    expect(shown?.className).not.toContain("sr-only");
+    expect(shown?.textContent).toBe("4 min ago");
+    const hidden = [a, b].map((row) => row?.querySelector("time"));
+    for (const time of hidden) {
+      expect(time?.className).toContain("sr-only");
+      expect(time?.className).toContain("focus-visible:not-sr-only");
+      const note = document.getElementById(
+        time?.getAttribute("aria-describedby") ?? "",
+      );
+      expect(note?.textContent).toBe(
+        formatExactTime(time?.getAttribute("dateTime") ?? "", "en"),
+      );
+    }
+    // Every time is one Tab stop, the hidden ones included.
+    await user.tab();
+    expect(document.activeElement?.textContent).toBe("5 min ago");
+    await user.tab();
+    expect(document.activeElement === hidden[0]).toBe(true);
+    await user.tab();
+    expect(document.activeElement === hidden[1]).toBe(true);
+    await user.tab();
+    expect(document.activeElement === shown).toBe(true);
+    await user.tab();
   });
 });
 
