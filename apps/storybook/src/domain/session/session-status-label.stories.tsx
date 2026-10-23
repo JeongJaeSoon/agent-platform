@@ -29,3 +29,9 @@ export const AllStatuses: Story = {
     </div>
   ),
 };
+
+export const AllStatusesDark: Story = {
+  ...AllStatuses,
+  name: "All statuses (dark)",
+  globals: { theme: "dark" },
+};
