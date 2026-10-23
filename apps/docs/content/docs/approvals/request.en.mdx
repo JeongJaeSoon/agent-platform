@@ -1,0 +1,77 @@
+---
+title: "Request"
+description: Ask to push the commit a session made to the repository's agent/<session-id> branch
+---
+
+A session does not push to the repository directly. The session's work is saved as a commit in a checkpoint, and to send that commit to the repository you create a push request. The platform (API) pushes only after a person with `sessions:approve` [approves](/approvals/approve) it. Requesting needs `sessions:write`.
+
+| State | Meaning |
+| --- | --- |
+| `requested` | Waiting for a decision |
+| `approved` → `pushing` | Approved, and the platform is pushing |
+| `pushed` | The branch was created or updated in the repository |
+| `rejected` | Rejected |
+| `failed` | The push could not be done. The reason is in the [receipt](/approvals/receipt) |
+
+## Prepare a session that changes files
+
+Use `API` and `KEY` from the [Quickstart](/getting-started/quickstart). This script appends a line to the repository's `README.md`, and the turn ends once you allow the permission request.
+
+```bash
+SID=$(curl -sS "$API/v1/sessions" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg m 'GATE-SPEC {"id":"note","steps":[{"tool":"Bash","input":{"command":"echo tested >> README.md","description":"append to README.md"}}],"final":"updated README.md"}' \
+    '{profile_id: "claude-coding-local", repository_id: "sample-app", message: $m}')" \
+  | jq -r .session_id)
+until [ "$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq -r .status)" = needs_input ]; do
+  sleep 2
+done
+REQ=$(curl -sS "$API/v1/sessions/$SID/pending-requests" -H "Authorization: Bearer $KEY" | jq -r '.items[0].request_id')
+curl -sS "$API/v1/sessions/$SID/answers" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg r "$REQ" '{request_id: $r, kind: "permission", decision: "allow"}')" > /dev/null
+until [ "$(curl -sS "$API/v1/sessions/$SID/turns/1" -H "Authorization: Bearer $KEY" | jq -r .status)" = completed ]; do
+  sleep 2
+done
+```
+
+## Request
+
+Send the body empty (`{}`). The requester does not choose what is sent or where. The platform pins the session's latest checkpoint and its commit at that moment, the session's repository, and the branch `agent/<session-id>`.
+
+```bash
+push=$(curl -sS "$API/v1/sessions/$SID/push-requests" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d '{}')
+echo "$push" | jq '{state, repository_id, checkpoint_revision, git_commit, target_branch}'
+PUSH_ID=$(echo "$push" | jq -r .id)
+PUSH_COMMIT=$(echo "$push" | jq -r .git_commit)
+```
+
+```text
+{
+  "state": "requested",
+  "repository_id": "sample-app",
+  "checkpoint_revision": 0,
+  "git_commit": "…",
+  "target_branch": "agent/…"
+}
+```
+
+The response is 201. Use `GET /v1/sessions/{id}/push-requests` for the session's list of requests and `GET …/push-requests/{push_request_id}` for one request.
+
+| Response | Meaning |
+| --- | --- |
+| 409 `PUSH_SOURCE_MISSING` | The session has no repository or checkpoint yet |
+| 409 `PUSH_REQUEST_OPEN` | An open request (`requested`, `approved`, `pushing`) already exists. One per session |
+
+## Next steps
+
+- [Approve](/approvals/approve): check the pinned commit and approve
+- [Reject](/approvals/reject)

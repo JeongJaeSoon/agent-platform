@@ -1,0 +1,79 @@
+---
+title: "Send"
+description: Send a message to a session to create the next turn, and read that turn's result
+---
+
+One message is one turn. Messages in the same session run one after another in the same worker, the same working tree, and the same Claude Code conversation. The scope is `sessions:write`. Use `API` and `KEY` from the [Quickstart](/getting-started/quickstart).
+
+## Prepare a session
+
+```bash
+SID=$(curl -sS "$API/v1/sessions" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg m 'GATE-SPEC {"id":"m1","steps":[],"final":"ready"}' \
+    '{profile_id: "claude-coding-local", repository_id: "sample-app", message: $m}')" \
+  | jq -r .session_id)
+```
+
+## Send
+
+```bash
+sent=$(curl -sS "$API/v1/sessions/$SID/messages" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg m 'GATE-SPEC {"id":"m2","steps":[{"tool":"Bash","input":{"command":"ls","description":"list files"}}],"final":"listed"}' '{message: $m}')")
+echo "$sent" | jq .
+TURN=$(echo "$sent" | jq -r .turn_id)
+```
+
+```text
+{
+  "turn_id": "2",
+  "receipt_id": "…",
+  "receipt_status": "accepted"
+}
+```
+
+The response is 202. If the previous turn is still running, the new turn waits as `queued` and runs when its turn comes.
+
+- `message` is up to 32,768 UTF-8 bytes. Over that is 413.
+- A session can hold 20 queued inputs by default. Over that is 429.
+- `Idempotency-Key` is required. If you did not receive a response, send it again with the same key and the same body. The turn is created only once.
+
+## Read the result
+
+```bash
+until curl -sS "$API/v1/sessions/$SID/turns/$TURN" -H "Authorization: Bearer $KEY" \
+  | jq -e '.status | IN("completed", "failed", "interrupted", "cancelled", "outcome_unknown")' >/dev/null; do
+  sleep 2
+done
+curl -sS "$API/v1/sessions/$SID/turns/$TURN" -H "Authorization: Bearer $KEY" | jq '{turn_id, status}'
+```
+
+```text
+{
+  "turn_id": "2",
+  "status": "completed"
+}
+```
+
+Judge whether a turn has finished by this `status` alone. If it is one of the five values, it has finished. `completed` means the engine ended the turn normally, not that the requested work was done. It is `completed` even if the model calls only one tool and ends its answer, or if a tool receives an error. Decide whether the work was done by reading the `assistant` and `tool_result` events in [Streaming](/messages/streaming), and if it is not done enough, send the next message to the same session.
+
+## When you cannot send
+
+| Response | Meaning |
+| --- | --- |
+| 409 `SESSION_PAUSED` | The session is paused. Resume it first ([Waiting for approval and resuming](/sessions/waiting-and-resume)) |
+| 409 `RECOVERY_REQUIRED` | A recovery decision comes first ([Close](/sessions/close)) |
+| 409 `SESSION_CLOSING`, `SESSION_CLOSED` | The session is closing or closed |
+| 409 `CHECKPOINT_UNAVAILABLE` | A checkpoint problem prevents accepting a new turn. The cause is in the response's `message`. If the transcript is over its limit, open a new session |
+| 413 | The message is too long |
+| 429 | Queued inputs reached the limit |
+
+## Next steps
+
+- [Receiving a stream](/messages/streaming): watch progress while a turn runs
+- [Attachments](/messages/attachments)

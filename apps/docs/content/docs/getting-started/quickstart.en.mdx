@@ -1,0 +1,120 @@
+---
+title: "Quickstart"
+description: Get an API key and create your first session with curl
+---
+
+On the local stack you brought up as described in [Install](/getting-started/install), get an API key, create a session, and watch the first turn finish. Run the steps in order in the same terminal.
+
+## Get an API key
+
+```bash
+API=http://127.0.0.1:3000
+KEY=$(scripts/local.sh key quickstart \
+  --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover)
+echo "${KEY:0:4}…"
+```
+
+```text
+key_id …
+csp_…
+```
+
+`key_id` is the id of the key, printed to stderr. The key itself is printed to stdout only once. You cannot see it again, so keep it only in a variable. `quickstart` is the key's owner name, and sessions created with this key belong to that owner. Scopes are described in [API key](/api-keys).
+
+Check that the key works.
+
+```bash
+curl -sS -w '\n' "$API/v1" -H "Authorization: Bearer $KEY"
+```
+
+```text
+{"status":"ok","owner_id":"quickstart"}
+```
+
+## Choose a run profile
+
+A session runs with one of the run profiles (profile) that the operator registered. The local fake stack has one, `claude-coding-local`.
+
+```bash
+curl -sS "$API/v1/profiles" -H "Authorization: Bearer $KEY" | jq '.items[] | {id, model, repository_mode}'
+```
+
+```text
+{
+  "id": "claude-coding-local",
+  "model": "claude-sonnet-5",
+  "repository_mode": "required"
+}
+```
+
+## Create a session
+
+```bash
+created=$(curl -sS "$API/v1/sessions" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d '{
+    "profile_id": "claude-coding-local",
+    "repository_id": "sample-app",
+    "message": "GATE-SPEC {\"id\":\"hello\",\"steps\":[],\"final\":\"hello from Werft\"}"
+  }')
+echo "$created" | jq .
+SID=$(echo "$created" | jq -r .session_id)
+```
+
+```text
+{
+  "session_id": "…",
+  "turn_id": "1",
+  "receipt_id": "…",
+  "receipt_status": "accepted",
+  "status": "queued"
+}
+```
+
+- `repository_id` is the repository the session clones. The local stack's Gitea contains `sample-app`.
+- `message` is the input of the first turn. The fake model reads the `GATE-SPEC {…}` script and answers exactly as written. This script calls no tools and ends with `hello from Werft`. On a real Claude stack, use an ordinary sentence.
+- POST requests to the session API need an `Idempotency-Key`. Sending again with the same key returns the original response unchanged.
+
+## Wait for the turn to finish
+
+The scheduler starts a worker, the worker clones the repository, and then it runs turn 1. The first time takes tens of seconds.
+
+```bash
+until [ "$(curl -sS "$API/v1/sessions/$SID/turns/1" -H "Authorization: Bearer $KEY" | jq -r .status)" = completed ]; do
+  sleep 2
+done
+curl -sS "$API/v1/sessions/$SID/turns/1" -H "Authorization: Bearer $KEY" | jq '{turn_id, status}'
+```
+
+```text
+{
+  "turn_id": "1",
+  "status": "completed"
+}
+```
+
+Judge whether a turn has finished only by the `status` of the turn lookup. `completed`, `failed`, `interrupted`, `cancelled`, and `outcome_unknown` are the finished states.
+
+## See the model's answer
+
+What happens in a session arrives as an event stream (SSE). The server does not close the stream, so here we cut it after 5 seconds.
+
+```bash
+curl -sSN --max-time 5 "$API/v1/sessions/$SID/events" -H "Authorization: Bearer $KEY" \
+  | awk '/^event: assistant/ { getline; sub(/^data: /, ""); print }' \
+  | jq -r '.data.message.content[] | select(.type == "text") | .text' || true
+```
+
+```text
+curl: (28) Operation timed out after 5002 milliseconds with 3362 bytes received
+hello from Werft
+```
+
+Each event is an `event:` line (the kind) and a `data:` line (JSON). The `data.message` of an assistant event is the message the model sent. `curl: (28) Operation timed out` is `--max-time` cutting the stream, so it is normal.
+
+## Next steps
+
+- [First session](/getting-started/first-session): Answer a permission request, send follow-up messages, and close the session
+- [Streaming](/messages/streaming): Event types and reconnecting

@@ -1,0 +1,83 @@
+---
+title: "Observability (OTel)"
+description: Where to watch session progress, and how to start an example OTLP collector
+---
+
+<Callout type="warn">
+Werft does not export OpenTelemetry traces yet. Running a session produces no traces in the collector. The example collectors below are for bringing up the OTLP-receiving side ahead of time.
+</Callout>
+
+## Where you can look today
+
+| What | Where |
+| --- | --- |
+| What happened in a session (model replies, tool calls and results, permission requests, state changes) | The event stream `GET /v1/sessions/{id}/events` ([Receive a stream](/messages/streaming)) |
+| The result of one command | The receipt `GET /v1/receipts/{id}` ([receipt](/approvals/receipt)) |
+| Cost and tokens | `GET /v1/sessions/{id}/usage` ([State and lifecycle](/sessions/lifecycle#usage)) |
+| Server health | `GET /readyz`, and the stdout JSON logs of the API and worker |
+
+Events are the canonical record stored in the DB. Values in engine messages that look like secrets are masked as `[REDACTED]` before they are stored. Events can be read only by principals with `sessions:read` who can see that session.
+
+```bash
+curl -sS -w '\n' "$API/readyz"
+```
+
+```text
+{"status":"ready","checks":{"database":"ok","schema":"ok","config":"ok"}}
+```
+
+## Start an example collector
+
+The `infra/observability/` directory of the repository has two collector examples. Both run as compose projects separate from the Werft stack, and both put an OpenTelemetry Collector in front to receive OTLP/HTTP. They are for checking on a single computer and are not a production setup. All ports are opened on loopback only.
+
+| Example | Where it receives OTLP/HTTP | UI | Signals received |
+| --- | --- | --- | --- |
+| Grafana LGTM (`infra/observability/lgtm/`) | `http://127.0.0.1:26318` | `http://localhost:26000` | trace, logs, metrics |
+| Langfuse (`infra/observability/langfuse/`) | `http://127.0.0.1:25318` | `http://localhost:25000` | trace |
+
+Below is Grafana LGTM. Run it from the repository root.
+
+```bash
+docker compose -p werft-obs-lgtm -f infra/observability/lgtm/compose.yml up -d --wait
+```
+
+## Send a test trace
+
+`send-test-span.sh` sends one fake trace shaped like what Werft will send in the future. Under `werft.turn` there is a model call (`werft.llm_request`) and a tool call (`werft.tool`). `--with-log` also sends one log line tied to the same trace.
+
+```bash
+infra/observability/send-test-span.sh http://127.0.0.1:26318 --with-log | tee span.txt
+TRACE_ID=$(sed -n 's/^trace_id=\([0-9a-f]*\) .*/\1/p' span.txt)
+```
+
+```text
+trace_id=… session_id=ses_test_…
+```
+
+In Grafana (`http://localhost:26000`, no login), find the trace by its id under Explore → Tempo. To see all turns of one session, search with the TraceQL `{ span.werft.session_id = "<session_id>" }`. Find logs under Explore → Loki with `{service_name="werft-api"}`. You can also check through the API.
+
+```bash
+until curl -sf "http://127.0.0.1:26000/api/datasources/proxy/uid/tempo/api/traces/$TRACE_ID" -o trace.json; do
+  sleep 2
+done
+jq -r '[.batches[].scopeSpans[].spans[].name] | sort | join(" ")' trace.json
+```
+
+```text
+werft.llm_request werft.tool werft.turn
+```
+
+## Shut down
+
+`-v` also deletes the stored traces.
+
+```bash
+docker compose -p werft-obs-lgtm -f infra/observability/lgtm/compose.yml down -v
+```
+
+The account and keys of the Langfuse example, and where to find them in its UI, are in the operations docs.
+
+## Next steps
+
+- [Receive a stream](/messages/streaming): receive session events
+- [TypeScript SDK](/sdk)

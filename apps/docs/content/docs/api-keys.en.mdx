@@ -1,0 +1,89 @@
+---
+title: "API key"
+description: The kinds of API key and their scopes, and how to issue and revoke them with a web login
+---
+
+An API key is a Bearer token for calling the `/v1` session API. Send it with every request as `Authorization: Bearer <key>`. What a key can do is decided by its scope. Management APIs such as agents, members, and keys cannot be called with a key (403); they are called only with the web login cookie.
+
+## scope
+
+| scope | What it does |
+| --- | --- |
+| `sessions:read` | Read sessions, turns, events, usage, and receipts |
+| `sessions:write` | Create sessions, send messages, and request pushes |
+| `sessions:control` | interrupt, pause, resume, close, terminate, and change the profile |
+| `sessions:approve` | Answer permission requests and questions, approve or reject push requests, open PRs and comment on them |
+| `sessions:recover` | Recovery decisions. Not included in `write` or `control` |
+
+A request without the scope gets 403 `FORBIDDEN` before the body is read. Issue `sessions:approve` only to people.
+
+## Kinds
+
+| Kind | Issued by | How it behaves |
+| --- | --- | --- |
+| Personal key (`personal`) | Any member, their own only | Acts as the person who created it. Its scopes are the intersection of the key's scopes and the scopes that person's current role allows. If that person is deactivated, 401 |
+| Service key (`service`) | owner, admin | Acts as a service of the workspace. It keeps working after the person who issued it leaves |
+| Agent-specific service key (`service` + `agent_id`) | owner, admin, and that agent's manager | Creates and sees only sessions created from that agent's release. It cannot have `sessions:approve` |
+
+## Issue a key
+
+Issue it in the web console, or call `POST /v1/api-keys` with the web login cookie. The example below uses the `WEB` header from [Create](/agents/create#log-in). The secret (`secret`) appears only once, in this response. Keep it in a variable and do not print it.
+
+```bash
+issued=$(curl -sS "$API/v1/api-keys" "${WEB[@]}" \
+  -d '{"kind": "personal", "scopes": ["sessions:read", "sessions:write"]}')
+MY_KEY=$(echo "$issued" | jq -r .secret)
+KEY_ID=$(echo "$issued" | jq -r .key.id)
+echo "$issued" | jq '{kind: .key.kind, scopes: .key.scopes, receipt: (.receipt_id != null)}'
+curl -sS -w '\n' "$API/v1" -H "Authorization: Bearer $MY_KEY"
+```
+
+```text
+{
+  "kind": "personal",
+  "scopes": [
+    "sessions:read",
+    "sessions:write"
+  ],
+  "receipt": true
+}
+{"status":"ok","owner_id":"…"}
+```
+
+Requesting a scope beyond the issuer's own scopes returns 403 `SCOPE_NOT_GRANTABLE`.
+
+## List and revoke
+
+The list shows only your own personal keys and the service keys you manage. Secrets are not shown.
+
+```bash
+curl -sS "$API/v1/api-keys" "${WEB[@]}" | jq -c --arg id "$KEY_ID" '.items[] | select(.id == $id) | {kind, scopes, revoked_at}'
+curl -sS -X DELETE "$API/v1/api-keys/$KEY_ID" "${WEB[@]}" | jq '{receipt: (.receipt_id != null)}'
+curl -sS -o /dev/null -w '%{http_code}\n' "$API/v1" -H "Authorization: Bearer $MY_KEY"
+```
+
+```text
+{"kind":"personal","scopes":["sessions:read","sessions:write"],"revoked_at":null}
+{
+  "receipt": true
+}
+401
+```
+
+A revoked key gets 401 from the next request. Revoking a key that is already revoked changes nothing and returns `receipt_id: null`.
+
+## Operator CLI
+
+An operator can issue a key directly on the server. On the local stack it is `scripts/local.sh key` ([Quickstart](/getting-started/quickstart#get-an-api-key)). This path does not go through the permission checks above.
+
+```sh
+scripts/local.sh key <owner> --scopes sessions:read,sessions:write
+scripts/local.sh key --workspace <workspace-id> --scopes sessions:read,sessions:write
+```
+
+A key made for `<owner>` uses that name as its owner. A key made with `--workspace` is a service key of that workspace. It sees sessions shared with the whole workspace and sessions it created itself. It cannot see a web user's private sessions or sessions shared only with specific people or teams.
+
+## Next steps
+
+- [Observability (OTel)](/observability)
+- [Quickstart](/getting-started/quickstart)
