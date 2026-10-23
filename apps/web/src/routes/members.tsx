@@ -10,6 +10,16 @@ import {
   formatTimestamp,
   NativeSelect,
   NativeSelectOption,
+  RowLines,
+  RowList,
+  RowListItem,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableHeader,
+  TableRow,
 } from "@werft-ai/ui";
 import { useId, useState } from "react";
 import { invitesQuery, membersQuery, queryKeys } from "../api/queries.ts";
@@ -28,18 +38,6 @@ import { Page } from "../components/page.tsx";
 import { ReasonHint } from "../components/reason-hint.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import {
-  RowLines,
-  RowList,
-  RowListItem,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "../components/table.tsx";
-import {
   errorKey,
   type MessageKey,
   type Translate,
@@ -53,8 +51,6 @@ const PRIMARY =
   "block break-words font-semibold group-data-[disabled=true]:text-muted-foreground";
 const SECONDARY =
   "block text-muted-foreground text-xs [overflow-wrap:anywhere]";
-// One width for "disable" and "enable again", so the column does not jump.
-const ACTION = "min-w-24";
 
 type Outcome =
   | { readonly kind: "notice"; readonly text: string }
@@ -297,7 +293,9 @@ function MemberTable({
               <TableHead scope="col">{t("members.column.name")}</TableHead>
               <TableHead scope="col">{t("members.column.role")}</TableHead>
               <TableHead scope="col">{t("members.column.state")}</TableHead>
-              <TableHead scope="col">{t("members.column.actions")}</TableHead>
+              <TableHead scope="col" variant="actions">
+                {t("members.column.actions")}
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -381,14 +379,13 @@ function MemberTable({
                       <Badge variant="green">{t("members.state.active")}</Badge>
                     )}
                   </TableCell>
-                  <TableCell>
+                  <TableCell variant="actions">
                     <div className="flex items-center gap-1">
                       {disabled ? (
                         <Button
                           type="button"
                           variant="outline"
                           size="sm"
-                          className={ACTION}
                           disabled={busy || keepWhy !== undefined}
                           aria-describedby={keepWhy ? ids.keep : undefined}
                           onClick={() =>
@@ -402,7 +399,6 @@ function MemberTable({
                           type="button"
                           variant="outline"
                           size="sm"
-                          className={ACTION}
                           disabled={busy || keepWhy !== undefined}
                           aria-describedby={keepWhy ? ids.keep : undefined}
                           aria-label={t("members.disableFor", {
