@@ -67,6 +67,9 @@ function summary(
         }
       : null,
     repository_id: repository,
+    repository: repository
+      ? { id: repository, full_name: `agent/${repository}`, branch: "main" }
+      : null,
     current_turn_id: null,
     queued_turn_count: 0,
     last_event_at: at,

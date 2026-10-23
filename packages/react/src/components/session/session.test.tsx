@@ -399,6 +399,29 @@ describe("SessionOverviewRow", () => {
     expect(row.querySelector("time")?.textContent).toBe("12분 전");
   });
 
+  test("저장소는 표시 이름 · branch로, 이름이 없으면 —로, 옛 서버면 catalog key로 보인다", () => {
+    const cases = [
+      [
+        { id: "demo", full_name: "agent/sample-app", branch: "main" },
+        "demo",
+        "agent/sample-app · main",
+      ],
+      [{ id: null, full_name: null, branch: "dev" }, null, "— · dev"],
+      [null, "demo", "demo"],
+    ] as const;
+    for (const [repository, repository_id, shown] of cases) {
+      const { getByTitle, unmount } = render(
+        <SessionOverviewRow
+          session={{ ...SESSION, repository, repository_id }}
+          renderLink={(link) => <a href="/sessions/abc" {...link} />}
+          messages={OVERVIEW_MESSAGES}
+        />,
+      );
+      expect(getByTitle(shown).textContent).toBe(shown);
+      unmount();
+    }
+  });
+
   test("제목이 없으면 짧은 ID를 mono로 보이고 링크 이름은 전체 ID다", () => {
     const { getByRole, queryAllByText } = render(
       <SessionOverviewRow

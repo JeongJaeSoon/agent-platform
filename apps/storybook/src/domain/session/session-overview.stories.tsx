@@ -54,7 +54,9 @@ export const Default: Story = {};
 
 /** Created before titles existed: the id's head, and no repository. */
 export const Untitled: Story = {
-  args: { session: { ...SESSION, title: null, repository_id: null } },
+  args: {
+    session: { ...SESSION, title: null, repository_id: null, repository: null },
+  },
 };
 
 /** The wait comes from the oldest pending request's created_at. */

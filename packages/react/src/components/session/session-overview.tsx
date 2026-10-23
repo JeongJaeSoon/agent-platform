@@ -118,7 +118,11 @@ export function SessionOverviewRow({
 }: SessionOverviewRowProps): JSX.Element {
   const shortId = shortSessionId(session.id);
   const at = session.last_event_at ?? session.created_at;
-  const RepositoryIcon = session.repository_id ? GitBranch : Folder;
+  // A server older than the repository field sends only the catalog key.
+  const repository = session.repository
+    ? `${session.repository.full_name ?? messages.unknown} · ${session.repository.branch}`
+    : session.repository_id;
+  const RepositoryIcon = repository ? GitBranch : Folder;
   return (
     <div
       role="row"
@@ -174,12 +178,12 @@ export function SessionOverviewRow({
           strokeWidth={1.5}
           aria-hidden="true"
         />
-        {session.repository_id ? (
+        {repository ? (
           <span
             className="relative truncate font-mono text-caption"
-            title={session.repository_id}
+            title={repository}
           >
-            {session.repository_id}
+            {repository}
           </span>
         ) : (
           <span className="truncate text-caption text-subtle-foreground">
