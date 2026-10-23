@@ -49,6 +49,8 @@ function useMinute(ticking: boolean): number {
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
     if (!ticking) return;
+    // Switched on late (another layout, a dropped `now`): start from now.
+    setNow(Date.now());
     const id = setInterval(() => setNow(Date.now()), 60_000);
     return () => clearInterval(id);
   }, [ticking]);
