@@ -5,6 +5,7 @@ export * from "./authorization.ts";
 export * from "./credential-bindings.ts";
 export * from "./linked-accounts.ts";
 export * from "./session-shares.ts";
+export * from "./slack-apps.ts";
 export * from "./slack-bindings.ts";
 export * from "./slack-notices.ts";
 export * from "./slack-secrets.ts";

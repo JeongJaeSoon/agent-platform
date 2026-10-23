@@ -1,7 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   type ErrorComponentProps,
-  Link,
   Outlet,
   useNavigate,
   useRouter,
@@ -16,10 +15,10 @@ import {
   FieldLabel,
   NativeSelect,
   NativeSelectOption,
+  SkipLink,
 } from "@werft-ai/ui";
-import { Plus } from "lucide-react";
 import { type ReactNode, useId, useLayoutEffect, useState } from "react";
-import { useHasPermission, useMe } from "../auth/guard.tsx";
+import { useMe } from "../auth/guard.tsx";
 import {
   AppSidebar,
   type NavGroup,
@@ -46,12 +45,9 @@ export function RootLayout() {
   useLayoutEffect(() => applyTheme(storedTheme()), []);
   return (
     <div className="group/root flex min-h-dvh flex-col">
-      <a
-        className="absolute top-2 left-2 z-50 -translate-y-[200%] rounded-control bg-card px-3 py-2 focus:translate-y-0"
-        href={`#${MAIN_CONTENT_ID}`}
-      >
+      <SkipLink href={`#${MAIN_CONTENT_ID}`}>
         {t("common.skipToContent")}
-      </a>
+      </SkipLink>
       {/* On an AuthPage this spacer and the footer split the spare height,
           so the page sits in the middle of the viewport and, once taller,
           scrolls from its top. Other public screens keep to the top. Both
@@ -108,14 +104,10 @@ function contentWidth(pathname: string) {
   return "max-w-[calc(var(--ap-w-wide)+2*var(--ap-gutter))]";
 }
 
-// The top bar's "new" lives only on the screens that list what it makes.
-const NEW_ON = new Set(["/", "/sessions", "/agents"]);
-
 export function AuthedLayout() {
   const { t } = useI18n();
   const me = useMe();
   const groups = useNavGroups();
-  const canCreate = useHasPermission("agent.create");
   const { client } = useAgentPlatform();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -156,7 +148,6 @@ export function AuthedLayout() {
           groups={groups}
           fallback={me?.workspace?.name ?? t("common.appName")}
         />
-        {canCreate ? <NewButton /> : null}
       </header>
       <AppSidebar
         id={sidebarId}
@@ -200,25 +191,6 @@ function PageTrail({
     <p className="m-0 min-w-0 truncate font-medium text-control">
       {here ? t(here.item.label) : fallback}
     </p>
-  );
-}
-
-/**
- * Making something starts here on the screens that list it. The console makes
- * agents only; sessions start from the API, Slack or the SDK. It re-renders on
- * every navigation, so it must not read the signed-in user itself: after
- * logout that read would fetch them again into the cleared cache.
- */
-function NewButton() {
-  const { t } = useI18n();
-  if (!NEW_ON.has(usePathname())) return null;
-  return (
-    <Button asChild variant="outline" size="sm" className="ml-auto">
-      <Link to="/agents/new">
-        <Plus aria-hidden="true" />
-        {t("shell.new")}
-      </Link>
-    </Button>
   );
 }
 

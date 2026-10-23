@@ -8,10 +8,11 @@ import {
   FieldDescription,
   FieldLabel,
   Input,
+  Link as TextLink,
 } from "@werft-ai/ui";
 import { type FormEvent, useState } from "react";
 import { PASSWORD_MIN_LENGTH } from "../auth/limits.ts";
-import { ASIDE, AuthPage, FormError, LINK } from "../components/auth-page.tsx";
+import { ASIDE, AuthPage, FormError } from "../components/auth-page.tsx";
 import { errorKey, type MessageKey, useI18n } from "../i18n/i18n.tsx";
 
 const FIELDS = [
@@ -158,9 +159,9 @@ export function BootstrapScreen() {
             {create.error?.code === "BOOTSTRAP_DONE" ? (
               <>
                 {" "}
-                <Link className={LINK} to="/login">
-                  {t("bootstrap.ownerExistsLogin")}
-                </Link>
+                <TextLink asChild underline="always">
+                  <Link to="/login">{t("bootstrap.ownerExistsLogin")}</Link>
+                </TextLink>
               </>
             ) : null}
           </FormError>
@@ -170,9 +171,9 @@ export function BootstrapScreen() {
         </Button>
       </form>
       <p className={ASIDE}>
-        <Link className={LINK} to="/login">
-          {t("bootstrap.loginLink")}
-        </Link>
+        <TextLink asChild underline="always">
+          <Link to="/login">{t("bootstrap.loginLink")}</Link>
+        </TextLink>
       </p>
     </AuthPage>
   );

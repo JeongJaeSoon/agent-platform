@@ -91,6 +91,11 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
   PUSH_NOT_PUSHED:
     "아직 push되지 않은 요청입니다 — push가 끝난 뒤 PR을 여세요.",
   PULL_REQUEST_MISSING: "이 요청으로 연 PR이 없습니다 — PR을 먼저 여세요.",
+  CONFIG_TOKEN_INVALID:
+    "Slack App Configuration Token을 쓸 수 없어요 — owner·admin이 새 token을 붙여 넣으세요.",
+  SLACK_APP_CREATING: "Slack 앱을 만드는 중이에요 — 잠시 뒤 다시 확인하세요.",
+  AGENT_NOT_ACTIVE:
+    "활성 release가 없는 에이전트예요 — release를 활성화한 뒤 다시 시도하세요.",
 };
 
 /** Unknown codes fall back to a neutral instruction rather than raw English. */

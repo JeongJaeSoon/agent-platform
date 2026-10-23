@@ -442,6 +442,20 @@
       "when": 1792761098312,
       "tag": "0153_worker_credentials_mcp",
       "breakpoints": true
+    },
+    {
+      "idx": 154,
+      "version": "7",
+      "when": 1792764661793,
+      "tag": "0154_slack_apps",
+      "breakpoints": true
+    },
+    {
+      "idx": 155,
+      "version": "7",
+      "when": 1792771669292,
+      "tag": "0155_session_title",
+      "breakpoints": true
     }
   ]
 }

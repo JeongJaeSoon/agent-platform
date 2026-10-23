@@ -297,14 +297,14 @@ export interface paths {
         };
         /**
          * Whether the Slack App Configuration Token is set (owner or admin)
-         * @description Says whether a token is set, its last four characters, when it was last set and by whom. The token itself is never returned. API keys are refused.
+         * @description Says whether a token is set, its last four characters, when it was last set and by whom, when the current access token expires and which Slack user issued it. `state` is `unset`, `active`, or `needs_reentry` when Slack no longer takes the stored token or a rotation's answer was lost: paste a new one. The token itself is never returned. API keys are refused.
          *
          *     **Auth:** cookie session only; no scope.
          */
         get: operations["getSlackConfigToken"];
         /**
          * Set or replace the Slack App Configuration Token (owner or admin)
-         * @description Stores the token encrypted; a replace keeps one value under a new version. The response and the `set_slack_secret` receipt carry the last four characters only, and the value is in no log or error. API keys are refused.
+         * @description Paste the refresh token from api.slack.com/apps. It is rotated with Slack at once (`tooling.tokens.rotate`), which proves Slack takes it; the new access and refresh tokens are stored encrypted together and the pasted one is spent. A token Slack refuses changes nothing stored (409 CONFIG_TOKEN_INVALID, `rejected`). When the token belongs to another Slack user than before, `warnings` says so: that user becomes the collaborator of every app made from now on. The response and the `set_slack_secret` receipt carry the last four characters only, and the value is in no log or error. API keys are refused.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -317,6 +317,50 @@ export interface paths {
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         delete: operations["deleteSlackConfigToken"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workspaces/{id}/slack/apps/{app_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete one of the workspace's Slack apps in Slack
+         * @description Deletes the app in Slack (`apps.manifest.delete` with the config token) and its stored secrets; the row stays as `deleted`. Only an app recorded in this workspace's Slack apps can be named. An agent's app takes an owner, an admin or that agent's admin; any other app an owner or admin. An app Slack no longer has counts as deleted. One still being created answers 409 SLACK_APP_CREATING. API keys are refused.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        delete: operations["deleteSlackApp"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workspaces/{id}/slack/apps/{app_id}/secrets/{purpose}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set a secret of a Slack app made by hand (owner or admin)
+         * @description `purpose` is `slack_signing_secret`, `slack_client_secret` or `slack_bot_token`. Only an app of kind `manual` takes values from a person: the platform writes the secrets of the apps it created (403 `server_managed_secret`), since whoever knew an app's signing secret could sign events as Slack. The value is stored encrypted under the app; the response and the `set_slack_secret` receipt carry its last four characters only. API keys are refused.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        put: operations["putSlackAppSecret"];
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -413,7 +457,13 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Rename the session
+         * @description Sets `title`, in any admission state; the session's `revision` does not change and no receipt is written. Allowed to the session's creator (for a session an API key made, that key), the workspace's owners and admins, and the admins of its agent; since the answer is the session's detail, a key also needs `sessions:read`. Anyone else the session is visible to, through its share, gets 403; anyone it is not visible to, 404. A changed title is a `status` event on the stream carrying `title`; naming the title the session already has writes none. Answers with the session as `GET /v1/sessions/{id}` reads it.
+         *
+         *     **Scope:** `sessions:write` (API key or cookie session). **Idempotency-Key:** ignored.
+         */
+        patch: operations["updateSession"];
         trace?: never;
     };
     "/v1/sessions/{id}/share": {
@@ -1599,6 +1649,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agents/{id}/slack/app": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The agent's Slack app, if the platform made one
+         * @description The agent's live Slack app (`creating`, `created` or `deleting`) and the URL where a Slack workspace admin approves installing it, or nulls when it has none. Secrets appear only as whether each is stored. Owners, admins and the agent's admins; API keys are refused.
+         *
+         *     **Auth:** cookie session only; no scope.
+         */
+        get: operations["getSlackApp"];
+        put?: never;
+        /**
+         * Create the agent's Slack app and get its install URL
+         * @description Creates one Slack app for the agent with the workspace's App Configuration Token (`apps.manifest.create`): the agent's name, its bot, the agent view and the bot scopes, with no event subscriptions yet. The app is recorded as `creating` before Slack is asked; its signing and client secrets are stored by the server under the app and never returned. Asking again for an agent that has its app returns the same app with `created: false`. If Slack's answer was lost the app stays `creating` and the next request answers 409 SLACK_APP_CREATING; once `uncertain`, check api.slack.com/apps, delete any app made then, and retry with `replace_uncertain: true`. `warnings` says when the config token now belongs to another Slack user than the one who made the workspace's previous app. The agent needs an active release. Owners, admins and the agent's admins from a signed-in console; API keys are refused.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        post: operations["createSlackApp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/api-keys": {
         parameters: {
             query?: never;
@@ -1930,6 +2008,8 @@ export interface components {
     schemas: {
         CreateSessionRequest: {
             profile_id: string;
+            /** @description The session's name. Omitted, it is derived from `message`: whitespace and line breaks collapsed to one space, the ends trimmed, and text longer than 80 characters cut to 79 and an ellipsis (…). Rename it later with `PATCH /v1/sessions/{id}`. */
+            title?: string;
             /** @description The catalog repository the session works on. Required when the profile's `repository_mode` is `required`, refused when it is `none`, either when it is `optional`; omitted, the session starts in an empty workspace with no repository to push to. */
             repository_id?: string;
             /** @description At most 32768 bytes of UTF-8 */
@@ -2103,6 +2183,10 @@ export interface components {
             /** @enum {string} */
             role: "owner" | "admin" | "member";
         };
+        UpdateSessionRequest: {
+            /** @description Stored with runs of whitespace and line breaks collapsed to one space and the ends trimmed; at most 80 characters (grapheme clusters) after that. */
+            title: string;
+        };
         SetAccessRequest: {
             /** @description At most 1024 bytes of UTF-8 */
             reason?: string;
@@ -2119,6 +2203,10 @@ export interface components {
         };
         PutSlackSecretRequest: {
             value: string;
+        };
+        CreateSlackAppRequest: {
+            /** @default false */
+            replace_uncertain: boolean;
         };
         CreateAgentRequest: {
             slug: string;
@@ -2281,7 +2369,7 @@ export interface components {
         ApiErrorResponse: {
             error: {
                 /** @enum {string} */
-                code: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "BOOTSTRAP_DONE" | "NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "REQUEST_TIMEOUT" | "UNSUPPORTED_CAPABILITY" | "RATE_LIMITED" | "STORAGE_LIMIT_EXCEEDED" | "BUDGET_EXCEEDED" | "INTERNAL_ERROR" | "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_CLOSED" | "SESSION_CLOSING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE" | "PAUSE_COMMITTING" | "PAUSE_CANCELLED" | "CONTROL_SUPERSEDED" | "TURN_NOT_STARTED" | "BACKEND_UNAVAILABLE" | "LAUNCH_FAILED" | "CATALOG_MISMATCH" | "TAKEOVER_REQUIRED" | "SLACK_NOT_INSTALLED" | "LINK_TEAM_MISMATCH" | "LINK_TAKEN" | "LINK_EXISTS" | "AGENT_IDENTITY_TAKEN" | "INVITE_EXPIRED" | "INVITE_USED" | "LAST_OWNER" | "OWNER_PROTECTED" | "SCOPE_NOT_GRANTABLE" | "RELEASE_PROFILE_MISMATCH" | "CREDENTIAL_UNBOUND" | "CREDENTIAL_REF_IN_USE" | "LOGIN_LINK_REQUIRED" | "PROFILE_DIGEST_MISMATCH" | "ALREADY_EXISTS" | "NOT_READY" | "CURSOR_EXPIRED" | "LEASE_EXPIRED" | "STALE_EPOCH" | "PUSH_SOURCE_MISSING" | "PUSH_REQUEST_OPEN" | "PUSH_REQUEST_DECIDED" | "CHECKPOINT_MOVED" | "PUSH_NOT_PUSHED" | "PULL_REQUEST_MISSING";
+                code: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "BOOTSTRAP_DONE" | "NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "REQUEST_TIMEOUT" | "UNSUPPORTED_CAPABILITY" | "RATE_LIMITED" | "STORAGE_LIMIT_EXCEEDED" | "BUDGET_EXCEEDED" | "INTERNAL_ERROR" | "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_CLOSED" | "SESSION_CLOSING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE" | "PAUSE_COMMITTING" | "PAUSE_CANCELLED" | "CONTROL_SUPERSEDED" | "TURN_NOT_STARTED" | "BACKEND_UNAVAILABLE" | "LAUNCH_FAILED" | "CATALOG_MISMATCH" | "TAKEOVER_REQUIRED" | "SLACK_NOT_INSTALLED" | "LINK_TEAM_MISMATCH" | "LINK_TAKEN" | "LINK_EXISTS" | "AGENT_IDENTITY_TAKEN" | "CONFIG_TOKEN_INVALID" | "SLACK_APP_CREATING" | "AGENT_NOT_ACTIVE" | "INVITE_EXPIRED" | "INVITE_USED" | "LAST_OWNER" | "OWNER_PROTECTED" | "SCOPE_NOT_GRANTABLE" | "RELEASE_PROFILE_MISMATCH" | "CREDENTIAL_UNBOUND" | "CREDENTIAL_REF_IN_USE" | "LOGIN_LINK_REQUIRED" | "PROFILE_DIGEST_MISMATCH" | "ALREADY_EXISTS" | "NOT_READY" | "CURSOR_EXPIRED" | "LEASE_EXPIRED" | "STALE_EPOCH" | "PUSH_SOURCE_MISSING" | "PUSH_REQUEST_OPEN" | "PUSH_REQUEST_DECIDED" | "CHECKPOINT_MOVED" | "PUSH_NOT_PUSHED" | "PULL_REQUEST_MISSING";
                 message: string;
                 retryable: boolean;
                 request_id: string;
@@ -2322,6 +2410,11 @@ export interface components {
         SessionSummary: {
             /** Format: uuid */
             id: string;
+            /**
+             * @description The session's name: the `title` it was created or renamed with, or else one derived from its first message (whitespace collapsed, cut to 80 characters with a trailing ellipsis). Null for sessions created before titles existed and for a first message with no text.
+             * @default null
+             */
+            title: string | null;
             revision: number;
             /** @enum {string} */
             admission_state: "active" | "pausing" | "paused" | "resuming" | "stopping" | "stopped" | "recovery_required" | "closing" | "closed";
@@ -2352,6 +2445,11 @@ export interface components {
         SessionDetail: {
             /** Format: uuid */
             id: string;
+            /**
+             * @description The session's name: the `title` it was created or renamed with, or else one derived from its first message (whitespace collapsed, cut to 80 characters with a trailing ellipsis). Null for sessions created before titles existed and for a first message with no text.
+             * @default null
+             */
+            title: string | null;
             revision: number;
             /** @enum {string} */
             admission_state: "active" | "pausing" | "paused" | "resuming" | "stopping" | "stopped" | "recovery_required" | "closing" | "closed";
@@ -2643,6 +2741,7 @@ export interface components {
                     phase: "queued" | "running" | "needs_input" | "idle" | "failed" | "stopped" | "interrupting" | "engine_stopped";
                     /** @enum {string} */
                     admission_state?: "active" | "pausing" | "paused" | "resuming" | "stopping" | "stopped" | "recovery_required" | "closing" | "closed";
+                    title?: string;
                 } & {
                     [key: string]: unknown;
                 };
@@ -3016,7 +3115,7 @@ export interface components {
             result: unknown | null;
             error: {
                 /** @enum {string} */
-                code: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "BOOTSTRAP_DONE" | "NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "REQUEST_TIMEOUT" | "UNSUPPORTED_CAPABILITY" | "RATE_LIMITED" | "STORAGE_LIMIT_EXCEEDED" | "BUDGET_EXCEEDED" | "INTERNAL_ERROR" | "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_CLOSED" | "SESSION_CLOSING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE" | "PAUSE_COMMITTING" | "PAUSE_CANCELLED" | "CONTROL_SUPERSEDED" | "TURN_NOT_STARTED" | "BACKEND_UNAVAILABLE" | "LAUNCH_FAILED" | "CATALOG_MISMATCH" | "TAKEOVER_REQUIRED" | "SLACK_NOT_INSTALLED" | "LINK_TEAM_MISMATCH" | "LINK_TAKEN" | "LINK_EXISTS" | "AGENT_IDENTITY_TAKEN" | "INVITE_EXPIRED" | "INVITE_USED" | "LAST_OWNER" | "OWNER_PROTECTED" | "SCOPE_NOT_GRANTABLE" | "RELEASE_PROFILE_MISMATCH" | "CREDENTIAL_UNBOUND" | "CREDENTIAL_REF_IN_USE" | "LOGIN_LINK_REQUIRED" | "PROFILE_DIGEST_MISMATCH" | "ALREADY_EXISTS" | "NOT_READY" | "CURSOR_EXPIRED" | "LEASE_EXPIRED" | "STALE_EPOCH" | "PUSH_SOURCE_MISSING" | "PUSH_REQUEST_OPEN" | "PUSH_REQUEST_DECIDED" | "CHECKPOINT_MOVED" | "PUSH_NOT_PUSHED" | "PULL_REQUEST_MISSING";
+                code: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "BOOTSTRAP_DONE" | "NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "REQUEST_TIMEOUT" | "UNSUPPORTED_CAPABILITY" | "RATE_LIMITED" | "STORAGE_LIMIT_EXCEEDED" | "BUDGET_EXCEEDED" | "INTERNAL_ERROR" | "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_CLOSED" | "SESSION_CLOSING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE" | "PAUSE_COMMITTING" | "PAUSE_CANCELLED" | "CONTROL_SUPERSEDED" | "TURN_NOT_STARTED" | "BACKEND_UNAVAILABLE" | "LAUNCH_FAILED" | "CATALOG_MISMATCH" | "TAKEOVER_REQUIRED" | "SLACK_NOT_INSTALLED" | "LINK_TEAM_MISMATCH" | "LINK_TAKEN" | "LINK_EXISTS" | "AGENT_IDENTITY_TAKEN" | "CONFIG_TOKEN_INVALID" | "SLACK_APP_CREATING" | "AGENT_NOT_ACTIVE" | "INVITE_EXPIRED" | "INVITE_USED" | "LAST_OWNER" | "OWNER_PROTECTED" | "SCOPE_NOT_GRANTABLE" | "RELEASE_PROFILE_MISMATCH" | "CREDENTIAL_UNBOUND" | "CREDENTIAL_REF_IN_USE" | "LOGIN_LINK_REQUIRED" | "PROFILE_DIGEST_MISMATCH" | "ALREADY_EXISTS" | "NOT_READY" | "CURSOR_EXPIRED" | "LEASE_EXPIRED" | "STALE_EPOCH" | "PUSH_SOURCE_MISSING" | "PUSH_REQUEST_OPEN" | "PUSH_REQUEST_DECIDED" | "CHECKPOINT_MOVED" | "PUSH_NOT_PUSHED" | "PULL_REQUEST_MISSING";
                 message: string;
             } | null;
             /** Format: date-time */
@@ -3112,6 +3211,133 @@ export interface components {
             /** Format: uuid */
             receipt_id: string;
         };
+        SlackConfigTokenSummary: {
+            configured: boolean;
+            last4: string | null;
+            updated_at: string | null;
+            updated_by: {
+                /** Format: uuid */
+                user_id: string;
+                display_name: string;
+            } | null;
+            /** @enum {string} */
+            state: "unset" | "active" | "needs_reentry";
+            expires_at: string | null;
+            issuer: {
+                user_id: string;
+                team_id: string;
+            } | null;
+        };
+        PutSlackConfigTokenResponse: {
+            configured: boolean;
+            last4: string | null;
+            updated_at: string | null;
+            updated_by: {
+                /** Format: uuid */
+                user_id: string;
+                display_name: string;
+            } | null;
+            /** @enum {string} */
+            state: "unset" | "active" | "needs_reentry";
+            expires_at: string | null;
+            issuer: {
+                user_id: string;
+                team_id: string;
+            } | null;
+            /** Format: uuid */
+            receipt_id: string;
+            warnings: {
+                /** @constant */
+                code: "config_token_issuer_changed";
+                previous_user_id: string;
+                user_id: string;
+            }[];
+        };
+        GetSlackAppResponse: {
+            slack_app: {
+                /** Format: uuid */
+                id: string;
+                /** @enum {string} */
+                kind: "agent" | "link" | "manual";
+                agent_id: string | null;
+                /** @enum {string} */
+                state: "creating" | "created" | "failed" | "abandoned" | "deleting" | "deleted";
+                app_id: string | null;
+                client_id: string | null;
+                /** Format: uri */
+                redirect_url: string;
+                created_by_token_user: string | null;
+                /** Format: date-time */
+                created_at: string;
+                /** Format: date-time */
+                updated_at: string;
+                secrets: {
+                    slack_signing_secret: components["schemas"]["SlackSecretSummary"];
+                    slack_client_secret: components["schemas"]["SlackSecretSummary"];
+                    slack_bot_token: components["schemas"]["SlackSecretSummary"];
+                };
+            } | null;
+            authorize_url: string | null;
+        };
+        CreateSlackAppResponse: {
+            slack_app: {
+                /** Format: uuid */
+                id: string;
+                /** @enum {string} */
+                kind: "agent" | "link" | "manual";
+                agent_id: string | null;
+                /** @enum {string} */
+                state: "creating" | "created" | "failed" | "abandoned" | "deleting" | "deleted";
+                app_id: string | null;
+                client_id: string | null;
+                /** Format: uri */
+                redirect_url: string;
+                created_by_token_user: string | null;
+                /** Format: date-time */
+                created_at: string;
+                /** Format: date-time */
+                updated_at: string;
+                secrets: {
+                    slack_signing_secret: components["schemas"]["SlackSecretSummary"];
+                    slack_client_secret: components["schemas"]["SlackSecretSummary"];
+                    slack_bot_token: components["schemas"]["SlackSecretSummary"];
+                };
+            };
+            /** Format: uri */
+            authorize_url: string;
+            created: boolean;
+            warnings: {
+                /** @constant */
+                code: "config_token_issuer_changed";
+                previous_user_id: string;
+                user_id: string;
+            }[];
+        };
+        DeleteSlackAppResponse: {
+            slack_app: {
+                /** Format: uuid */
+                id: string;
+                /** @enum {string} */
+                kind: "agent" | "link" | "manual";
+                agent_id: string | null;
+                /** @enum {string} */
+                state: "creating" | "created" | "failed" | "abandoned" | "deleting" | "deleted";
+                app_id: string | null;
+                client_id: string | null;
+                /** Format: uri */
+                redirect_url: string;
+                created_by_token_user: string | null;
+                /** Format: date-time */
+                created_at: string;
+                /** Format: date-time */
+                updated_at: string;
+                secrets: {
+                    slack_signing_secret: components["schemas"]["SlackSecretSummary"];
+                    slack_client_secret: components["schemas"]["SlackSecretSummary"];
+                    slack_bot_token: components["schemas"]["SlackSecretSummary"];
+                };
+            };
+        };
         PasswordResetResponse: {
             /** Format: uuid */
             user_id: string;
@@ -3176,7 +3402,7 @@ export interface components {
                 created_at: string;
             } | null;
             scopes: ("sessions:read" | "sessions:write" | "sessions:approve" | "sessions:control" | "sessions:recover")[];
-            permissions: ("workspace.read" | "workspace.manage" | "audit_retention.manage" | "member.manage" | "team.manage" | "api_key.manage" | "api_key.manage_own" | "account.link" | "agent.create" | "agent.manage" | "agent.restore" | "agent.admin.manage" | "credential.bind" | "binding.manage" | "routine.manage" | "session.read" | "session.submit" | "session.approve" | "session.control" | "session.recover" | "session.share" | "session.audit_read" | "session.admin_list" | "memory.read" | "memory.write" | "artifact.read" | "delivery.send")[];
+            permissions: ("workspace.read" | "workspace.manage" | "audit_retention.manage" | "member.manage" | "team.manage" | "api_key.manage" | "api_key.manage_own" | "account.link" | "agent.create" | "agent.manage" | "agent.restore" | "agent.admin.manage" | "credential.bind" | "binding.manage" | "routine.manage" | "session.read" | "session.submit" | "session.approve" | "session.control" | "session.recover" | "session.share" | "session.rename" | "session.audit_read" | "session.admin_list" | "memory.read" | "memory.write" | "artifact.read" | "delivery.send")[];
         };
         InstallationLimitsResponse: {
             /** @constant */
@@ -5159,7 +5385,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Whether a token is set; the last four characters and who set it when it is. */
+            /** @description The token's state; never its value. */
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -5174,10 +5400,16 @@ export interface operations {
                      *       "updated_by": {
                      *         "user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
                      *         "display_name": "Jae"
+                     *       },
+                     *       "state": "active",
+                     *       "expires_at": "2026-10-23T21:00:00Z",
+                     *       "issuer": {
+                     *         "user_id": "U0ISSUER",
+                     *         "team_id": "T0TEAM"
                      *       }
                      *     }
                      */
-                    "application/json": components["schemas"]["SlackSecretSummary"];
+                    "application/json": components["schemas"]["SlackConfigTokenSummary"];
                 };
             };
             /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
@@ -5267,7 +5499,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Stored; the summary as GET now answers it, and the receipt. */
+            /** @description Stored; the summary as GET now answers it, the receipt and any warnings. */
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -5283,10 +5515,17 @@ export interface operations {
                      *         "user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
                      *         "display_name": "Jae"
                      *       },
-                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
+                     *       "state": "active",
+                     *       "expires_at": "2026-10-23T21:00:00Z",
+                     *       "issuer": {
+                     *         "user_id": "U0ISSUER",
+                     *         "team_id": "T0TEAM"
+                     *       },
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c",
+                     *       "warnings": []
                      *     }
                      */
-                    "application/json": components["schemas"]["PutSlackSecretResponse"];
+                    "application/json": components["schemas"]["PutSlackConfigTokenResponse"];
                 };
             };
             /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
@@ -5364,6 +5603,21 @@ export interface operations {
                     };
                 };
             };
+            /** @description - `CONFIG_TOKEN_INVALID`: The workspace's Slack App Configuration Token cannot be used. `error.details.reason_code` is `not_set` (none stored), `rejected` (Slack refused it; paste another) or `needs_reentry` (Slack no longer takes the stored token, or a rotation's answer was lost; an owner or admin pastes a new one). */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "CONFIG_TOKEN_INVALID";
+                        };
+                    };
+                };
+            };
             /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8. */
             413: {
                 headers: {
@@ -5380,7 +5634,7 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. Also when the API runs without a master key (PLATFORM_SECRET_KEY). */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. Also when the API runs without a master key (PLATFORM_SECRET_KEY), or Slack could not be reached; nothing stored changed. */
             503: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -5483,6 +5737,320 @@ export interface operations {
                         error?: {
                             /** @enum {string} */
                             code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. Also when the API runs without a master key (PLATFORM_SECRET_KEY). */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    deleteSlackApp: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `agent-platform-web`. */
+                "X-Requested-With"?: "agent-platform-web";
+            };
+            path: {
+                id: string;
+                app_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted in Slack, or already gone there; the app as now stored, its secrets dropped. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "slack_app": {
+                     *         "id": "6a1d3e5f-2b4c-4d8e-9f0a-1b2c3d4e5f60",
+                     *         "kind": "agent",
+                     *         "agent_id": "8d2c4f1a-6b3e-4a9d-b7c5-2e1f0a9b8c7d",
+                     *         "state": "deleted",
+                     *         "app_id": "A0B1C2D3E4F",
+                     *         "client_id": "1234567890.9876543210",
+                     *         "redirect_url": "https://console.example.ts.net/agents/8d2c4f1a-6b3e-4a9d-b7c5-2e1f0a9b8c7d/slack/callback",
+                     *         "created_by_token_user": "U0ISSUER",
+                     *         "created_at": "2026-10-23T09:00:00Z",
+                     *         "updated_at": "2026-10-23T09:00:00Z",
+                     *         "secrets": {
+                     *           "slack_signing_secret": {
+                     *             "configured": false,
+                     *             "last4": null,
+                     *             "updated_at": null,
+                     *             "updated_by": null
+                     *           },
+                     *           "slack_client_secret": {
+                     *             "configured": false,
+                     *             "last4": null,
+                     *             "updated_at": null,
+                     *             "updated_by": null
+                     *           },
+                     *           "slack_bot_token": {
+                     *             "configured": false,
+                     *             "last4": null,
+                     *             "updated_at": null,
+                     *             "updated_by": null
+                     *           }
+                     *         }
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DeleteSlackAppResponse"];
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /**
+             * @description - `CONFIG_TOKEN_INVALID`: The workspace's Slack App Configuration Token cannot be used. `error.details.reason_code` is `not_set` (none stored), `rejected` (Slack refused it; paste another) or `needs_reentry` (Slack no longer takes the stored token, or a rotation's answer was lost; an owner or admin pastes a new one).
+             *     - `SLACK_APP_CREATING`: The agent's Slack app is still being created. `error.details.uncertain: true` means Slack's answer was lost: check api.slack.com/apps for an app made at that time, delete it, then retry with `replace_uncertain: true`.
+             */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "CONFIG_TOKEN_INVALID" | "SLACK_APP_CREATING";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. Also when the API runs without a master key (PLATFORM_SECRET_KEY), or Slack could not be reached or refused; the app stays `deleting` and the same request retries it. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    putSlackAppSecret: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `agent-platform-web`. */
+                "X-Requested-With"?: "agent-platform-web";
+            };
+            path: {
+                id: string;
+                app_id: string;
+                purpose: "slack_signing_secret" | "slack_client_secret" | "slack_bot_token";
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "value": "<value-from-api.slack.com>"
+                 *     }
+                 */
+                "application/json": components["schemas"]["PutSlackSecretRequest"];
+            };
+        };
+        responses: {
+            /** @description Stored; its summary and the receipt. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "configured": true,
+                     *       "last4": "a9f3",
+                     *       "updated_at": "2026-10-23T09:00:00Z",
+                     *       "updated_by": {
+                     *         "user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *         "display_name": "Jae"
+                     *       },
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["PutSlackSecretResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. Also when `app_id` is not a UUID or `purpose` is not one of the three, `slack_config_token` included. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8. */
+            413: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "PAYLOAD_TOO_LARGE";
                         };
                     };
                 };
@@ -5743,6 +6311,7 @@ export interface operations {
                      *       "items": [
                      *         {
                      *           "id": "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01",
+                     *           "title": "Fix the flaky checkout test",
                      *           "revision": 7,
                      *           "admission_state": "active",
                      *           "status": "running",
@@ -6059,6 +6628,7 @@ export interface operations {
                     /**
                      * @example {
                      *       "id": "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01",
+                     *       "title": "Fix the flaky checkout test",
                      *       "revision": 7,
                      *       "admission_state": "active",
                      *       "status": "running",
@@ -6139,6 +6709,188 @@ export interface operations {
                         error?: {
                             /** @enum {string} */
                             code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    updateSession: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `agent-platform-web`. */
+                "X-Requested-With"?: "agent-platform-web";
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "title": "Fix the flaky checkout test"
+                 *     }
+                 */
+                "application/json": components["schemas"]["UpdateSessionRequest"];
+            };
+        };
+        responses: {
+            /** @description The session with its new title. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01",
+                     *       "title": "Fix the flaky checkout test",
+                     *       "revision": 7,
+                     *       "admission_state": "active",
+                     *       "status": "running",
+                     *       "runtime": {
+                     *         "kind": "claude_agent_sdk",
+                     *         "version": "0.2.1",
+                     *         "profile_id": "claude-coding-real",
+                     *         "model": "claude-sonnet-5",
+                     *         "permission_mode": "default"
+                     *       },
+                     *       "repository_id": "sample-app",
+                     *       "current_turn_id": "3",
+                     *       "queued_turn_count": 1,
+                     *       "last_event_at": "2026-10-11T08:15:42Z",
+                     *       "created_at": "2026-10-11T08:00:00Z",
+                     *       "updated_at": "2026-10-11T08:15:40Z",
+                     *       "execution": {
+                     *         "backend": "local_docker",
+                     *         "state": "running",
+                     *         "observed_at": "2026-10-11T08:15:38Z"
+                     *       },
+                     *       "checkpoint_revision": 2,
+                     *       "pending_request_count": 0,
+                     *       "attention": null,
+                     *       "durability": {
+                     *         "last_transcript_persisted_at": "2026-10-11T08:15:41Z",
+                     *         "checkpoint_committed_at": "2026-10-11T08:10:02Z",
+                     *         "checkpoint_revision": 2,
+                     *         "last_completed_turn_id": "2",
+                     *         "last_checkpointed_turn_id": "2",
+                     *         "checkpoint_pending_reason": null,
+                     *         "checkpoint_fallback_revision": null,
+                     *         "context_reset_turn_id": null
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["SessionDetail"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:write`, checked before the body or the resource is read. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8. */
+            413: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "PAYLOAD_TOO_LARGE";
                         };
                     };
                 };
@@ -14045,6 +14797,329 @@ export interface operations {
             };
             500: components["responses"]["InternalError"];
             /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    getSlackApp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The agent's app and install URL, or nulls. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "slack_app": {
+                     *         "id": "6a1d3e5f-2b4c-4d8e-9f0a-1b2c3d4e5f60",
+                     *         "kind": "agent",
+                     *         "agent_id": "8d2c4f1a-6b3e-4a9d-b7c5-2e1f0a9b8c7d",
+                     *         "state": "created",
+                     *         "app_id": "A0B1C2D3E4F",
+                     *         "client_id": "1234567890.9876543210",
+                     *         "redirect_url": "https://console.example.ts.net/agents/8d2c4f1a-6b3e-4a9d-b7c5-2e1f0a9b8c7d/slack/callback",
+                     *         "created_by_token_user": "U0ISSUER",
+                     *         "created_at": "2026-10-23T09:00:00Z",
+                     *         "updated_at": "2026-10-23T09:00:00Z",
+                     *         "secrets": {
+                     *           "slack_signing_secret": {
+                     *             "configured": true,
+                     *             "last4": "c3d4",
+                     *             "updated_at": "2026-10-23T09:00:00Z",
+                     *             "updated_by": null
+                     *           },
+                     *           "slack_client_secret": {
+                     *             "configured": true,
+                     *             "last4": "e5f6",
+                     *             "updated_at": "2026-10-23T09:00:00Z",
+                     *             "updated_by": null
+                     *           },
+                     *           "slack_bot_token": {
+                     *             "configured": false,
+                     *             "last4": null,
+                     *             "updated_at": null,
+                     *             "updated_by": null
+                     *           }
+                     *         }
+                     *       },
+                     *       "authorize_url": "https://slack.com/oauth/v2/authorize?client_id=1234567890.9876543210&scope=assistant%3Awrite%2Capp_mentions%3Aread%2Cchat%3Awrite%2Cim%3Ahistory%2Cchannels%3Ahistory%2Cgroups%3Ahistory%2Cchannels%3Aread%2Cgroups%3Aread%2Cusers%3Aread%2Cchannels%3Ajoin%2Cgroups%3Awrite&redirect_uri=https%3A%2F%2Fconsole.example.ts.net%2Fagents%2F8d2c4f1a-6b3e-4a9d-b7c5-2e1f0a9b8c7d%2Fslack%2Fcallback"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["GetSlackAppResponse"];
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. Also when the API runs without a master key (PLATFORM_SECRET_KEY). */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    createSlackApp: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `agent-platform-web`. */
+                "X-Requested-With"?: "agent-platform-web";
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "replace_uncertain": false
+                 *     }
+                 */
+                "application/json": components["schemas"]["CreateSlackAppRequest"];
+            };
+        };
+        responses: {
+            /** @description The agent's app, whether this request created it, the install URL and any warnings. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "slack_app": {
+                     *         "id": "6a1d3e5f-2b4c-4d8e-9f0a-1b2c3d4e5f60",
+                     *         "kind": "agent",
+                     *         "agent_id": "8d2c4f1a-6b3e-4a9d-b7c5-2e1f0a9b8c7d",
+                     *         "state": "created",
+                     *         "app_id": "A0B1C2D3E4F",
+                     *         "client_id": "1234567890.9876543210",
+                     *         "redirect_url": "https://console.example.ts.net/agents/8d2c4f1a-6b3e-4a9d-b7c5-2e1f0a9b8c7d/slack/callback",
+                     *         "created_by_token_user": "U0ISSUER",
+                     *         "created_at": "2026-10-23T09:00:00Z",
+                     *         "updated_at": "2026-10-23T09:00:00Z",
+                     *         "secrets": {
+                     *           "slack_signing_secret": {
+                     *             "configured": true,
+                     *             "last4": "c3d4",
+                     *             "updated_at": "2026-10-23T09:00:00Z",
+                     *             "updated_by": null
+                     *           },
+                     *           "slack_client_secret": {
+                     *             "configured": true,
+                     *             "last4": "e5f6",
+                     *             "updated_at": "2026-10-23T09:00:00Z",
+                     *             "updated_by": null
+                     *           },
+                     *           "slack_bot_token": {
+                     *             "configured": false,
+                     *             "last4": null,
+                     *             "updated_at": null,
+                     *             "updated_by": null
+                     *           }
+                     *         }
+                     *       },
+                     *       "authorize_url": "https://slack.com/oauth/v2/authorize?client_id=1234567890.9876543210&scope=assistant%3Awrite%2Capp_mentions%3Aread%2Cchat%3Awrite%2Cim%3Ahistory%2Cchannels%3Ahistory%2Cgroups%3Ahistory%2Cchannels%3Aread%2Cgroups%3Aread%2Cusers%3Aread%2Cchannels%3Ajoin%2Cgroups%3Awrite&redirect_uri=https%3A%2F%2Fconsole.example.ts.net%2Fagents%2F8d2c4f1a-6b3e-4a9d-b7c5-2e1f0a9b8c7d%2Fslack%2Fcallback",
+                     *       "created": true,
+                     *       "warnings": []
+                     *     }
+                     */
+                    "application/json": components["schemas"]["CreateSlackAppResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /**
+             * @description - `AGENT_NOT_ACTIVE`: The agent has no active release; activate one first.
+             *     - `CONFIG_TOKEN_INVALID`: The workspace's Slack App Configuration Token cannot be used. `error.details.reason_code` is `not_set` (none stored), `rejected` (Slack refused it; paste another) or `needs_reentry` (Slack no longer takes the stored token, or a rotation's answer was lost; an owner or admin pastes a new one).
+             *     - `SLACK_APP_CREATING`: The agent's Slack app is still being created. `error.details.uncertain: true` means Slack's answer was lost: check api.slack.com/apps for an app made at that time, delete it, then retry with `replace_uncertain: true`.
+             *     - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. Here: the agent's app is being deleted.
+             */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "AGENT_NOT_ACTIVE" | "CONFIG_TOKEN_INVALID" | "SLACK_APP_CREATING" | "REVISION_CONFLICT";
+                        };
+                    };
+                };
+            };
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8. */
+            413: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "PAYLOAD_TOO_LARGE";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. Also when the API runs without a master key (PLATFORM_SECRET_KEY) or SLACK_OIDC_REDIRECT_URI, when Slack refused the manifest (`error.details.slack_error`; nothing was created) or could not be reached. */
             503: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];

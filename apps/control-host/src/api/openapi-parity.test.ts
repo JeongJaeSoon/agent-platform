@@ -17,6 +17,7 @@ import type {
   SessionOutputService,
   SessionService,
   SessionShareService,
+  SlackAppService,
   SlackSecretService,
   SurfaceBindingService,
   TeamService,
@@ -49,6 +50,7 @@ import { registerPushRequestRoutes } from "./routes/push-requests.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
 import { registerSessionShareRoutes } from "./routes/session-shares.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
+import { registerSlackAppRoutes } from "./routes/slack-apps.ts";
 import { registerSlackBindingRoutes } from "./routes/slack-bindings.ts";
 import { registerSlackSecretRoutes } from "./routes/slack-secrets.ts";
 import { registerTeamRoutes } from "./routes/teams.ts";
@@ -116,6 +118,10 @@ function apiApp() {
       registerProfileRoutes(router, { profiles: {}, repositories: {} });
       registerWorkspaceRoutes(router, {} as WorkspaceRouteDeps);
       registerSlackSecretRoutes(router, {} as SlackSecretService);
+      registerSlackAppRoutes(router, {
+        apps: {} as SlackAppService,
+        secrets: {} as SlackSecretService,
+      });
       registerEventRoutes(router, {} as SessionService, {
         wakeup: { wait: async () => {} },
       });

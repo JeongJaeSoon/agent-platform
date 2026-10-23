@@ -27,6 +27,8 @@ export function e2eEnv({ needsMessages = true } = {}): E2eEnv {
 
 export const PROFILE_ID = "claude-coding-local";
 export const REPOSITORY_ID = "sample-app";
+/** config/fake-model/profiles.yaml's profile with `repository: none`. */
+export const NO_REPOSITORY_PROFILE_ID = "general";
 
 export type Step = {
   delayMs?: number;
@@ -59,10 +61,20 @@ export const bash = (command: string): Step => ({
   input: { command, description: command },
 });
 
+export const write = (path: string, content: string): Step => ({
+  tool: "Write",
+  input: { file_path: path, content },
+});
+
 export type ApiResponse<T> = { body: T; headers: Headers; status: number };
 
 export type ErrorBody = {
-  error: { code: string; message: string; retryable: boolean };
+  error: {
+    code: string;
+    details?: Record<string, unknown>;
+    message: string;
+    retryable: boolean;
+  };
 };
 
 export type SessionDetail = {
@@ -79,6 +91,7 @@ export type SessionDetail = {
   id: string;
   pending_request_count: number;
   queued_turn_count: number;
+  repository_id: string | null;
   revision: number;
   status: string;
 };
@@ -155,10 +168,12 @@ export class Api {
     return response.body;
   }
 
+  /** `repositoryId: null` leaves `repository_id` out of the body. */
   createSession(
     message: string,
     idempotencyKey?: string,
     profileId = PROFILE_ID,
+    repositoryId: string | null = REPOSITORY_ID,
   ) {
     return this.request<{
       receipt_id: string;
@@ -168,7 +183,11 @@ export class Api {
     }>(
       "POST",
       "/v1/sessions",
-      { profile_id: profileId, repository_id: REPOSITORY_ID, message },
+      {
+        profile_id: profileId,
+        ...(repositoryId === null ? {} : { repository_id: repositoryId }),
+        message,
+      },
       idempotencyKey,
     );
   }
@@ -230,12 +249,25 @@ export class Api {
    */
   async modelCallSeen(specId: string, step: number): Promise<void> {
     await poll(`model call ${specId}#${step}`, 180_000, async () => {
-      const response = await fetch(
-        `${this.env.messagesUrl}/requests?spec=${encodeURIComponent(specId)}`,
-      );
-      const calls = (await response.json()) as Array<{ step: number }>;
+      const calls = await this.modelCalls(specId);
       return calls.some((call) => call.step === step) ? true : null;
     });
+  }
+
+  /**
+   * Every call the fake Messages API recorded for the script `specId`, with
+   * the ids of the earlier prompts the engine sent along as history.
+   */
+  async modelCalls(
+    specId: string,
+  ): Promise<Array<{ history: string[]; step: number | null }>> {
+    const response = await fetch(
+      `${this.env.messagesUrl}/requests?spec=${encodeURIComponent(specId)}`,
+    );
+    return (await response.json()) as Array<{
+      history: string[];
+      step: number | null;
+    }>;
   }
 
   /** Polls until the turn reaches a terminal status and returns it. */
@@ -252,6 +284,33 @@ export class Api {
         return TERMINAL_TURN.has(turn.status) ? turn : null;
       },
     );
+  }
+
+  /**
+   * Settles a turn, allowing every permission request it raises; any other
+   * question fails it.
+   */
+  async settleAllowing(
+    sessionId: string,
+    turnId: string,
+    timeoutMs = 180_000,
+  ): Promise<Turn> {
+    const answered = new Set<string>();
+    return poll(`turn ${turnId} of ${sessionId}`, timeoutMs, async () => {
+      const turn = await this.turn(sessionId, turnId);
+      if (TERMINAL_TURN.has(turn.status)) return turn;
+      for (const request of await this.pending(sessionId)) {
+        if (request.turn_id !== turnId || answered.has(request.request_id)) {
+          continue;
+        }
+        if (request.kind !== "permission") {
+          throw new Error(`turn ${turnId} asked: ${JSON.stringify(request)}`);
+        }
+        answered.add(request.request_id);
+        await this.allow(sessionId, request.request_id);
+      }
+      return null;
+    });
   }
 
   /** Polls the session until `accept` holds for its detail. */

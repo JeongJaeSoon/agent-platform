@@ -40,6 +40,7 @@ const SHARE: SessionShareView = {
 
 const DETAIL: SessionDetail = {
   id: SESSION,
+  title: null,
   revision: 3,
   admission_state: "active",
   status: "running",

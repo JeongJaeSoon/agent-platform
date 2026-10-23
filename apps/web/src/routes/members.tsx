@@ -5,30 +5,12 @@ import { useAgentPlatform } from "@werft-ai/react";
 import {
   Badge,
   Button,
-  buttonVariants,
   ConfirmDialog,
+  cn,
   EmptyState,
   formatTimestamp,
   NativeSelect,
   NativeSelectOption,
-} from "@werft-ai/ui";
-import { useId, useState } from "react";
-import { invitesQuery, membersQuery, queryKeys } from "../api/queries.ts";
-import {
-  permissionReason,
-  ReasonButton,
-  roleLabel,
-  useHasPermission,
-  useMe,
-  usePermissionReason,
-  useRole,
-  WORKSPACE_ROLE_VALUES,
-} from "../auth/guard.tsx";
-import { FormError, NOTICE } from "../components/auth-page.tsx";
-import { LoadFailure } from "../components/load-failure.tsx";
-import { Page } from "../components/page.tsx";
-import { StatusScreen } from "../components/status-screen.tsx";
-import {
   RowLines,
   RowList,
   RowListItem,
@@ -39,8 +21,29 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "../components/table.tsx";
-import { errorKey, type Translate, useI18n } from "../i18n/i18n.tsx";
+} from "@werft-ai/ui";
+import { useId, useState } from "react";
+import { invitesQuery, membersQuery, queryKeys } from "../api/queries.ts";
+import {
+  permissionReason,
+  roleLabel,
+  useHasPermission,
+  useMe,
+  usePermissionReason,
+  useRole,
+  WORKSPACE_ROLE_VALUES,
+} from "../auth/guard.tsx";
+import { FormError, NOTICE } from "../components/auth-page.tsx";
+import { LoadFailure } from "../components/load-failure.tsx";
+import { Page } from "../components/page.tsx";
+import { ReasonHint } from "../components/reason-hint.tsx";
+import { StatusScreen } from "../components/status-screen.tsx";
+import {
+  errorKey,
+  type MessageKey,
+  type Translate,
+  useI18n,
+} from "../i18n/i18n.tsx";
 import { InviteDialog } from "./invite-dialog.tsx";
 
 const SECTION = "flex flex-col gap-[var(--ap-space-block)]";
@@ -49,6 +52,7 @@ const PRIMARY =
   "block break-words font-semibold group-data-[disabled=true]:text-muted-foreground";
 const SECONDARY =
   "block text-muted-foreground text-xs [overflow-wrap:anywhere]";
+const NOWRAP = "whitespace-nowrap";
 
 type Outcome =
   | { readonly kind: "notice"; readonly text: string }
@@ -59,9 +63,32 @@ type Outcome =
  * disabled button, so the page and the server never describe the same
  * refusal in two ways; the server's own sentence follows it.
  */
-function refusal(t: Translate, error: ApiError, role: string | undefined) {
+function refusal(
+  t: Translate,
+  error: ApiError,
+  role: string | undefined,
+  target?: {
+    readonly action: "role" | "disable" | "enable";
+    readonly member: MemberView;
+    readonly self: boolean;
+  },
+) {
   if (error.code === "FORBIDDEN")
     return permissionReason(t, "member.manage", role);
+  // The same words as the reason beside the control the row withholds.
+  if (target?.action === "role" && error.code === "LAST_OWNER")
+    return t("members.roleLastOwner");
+  if (target?.action === "disable" && error.code === "LAST_OWNER")
+    return t(target.self ? "members.disableSelf" : "members.disableLastOwner");
+  if (target?.member.role === "owner" && error.code === "OWNER_PROTECTED") {
+    return t(
+      target.action === "role"
+        ? "members.roleOwnerProtected"
+        : target.action === "disable"
+          ? "members.disableOwnerProtected"
+          : "members.enableOwnerProtected",
+    );
+  }
   return t(errorKey(error.code));
 }
 
@@ -145,23 +172,59 @@ function MemberTable({
     role: WorkspaceRole;
   } | null>(null);
   const self = useMe()?.user?.id;
+  const reasonId = useId();
   const activeOwners = items.filter(
     (member) => member.role === "owner" && member.disabled_at === null,
   ).length;
-  // The server refuses both; the button says so before anyone asks.
-  const keepReason = (member: MemberView) =>
+  // What the server refuses, or keeps for an owner, the row withholds and
+  // says why before anyone asks.
+  const withheld = (
+    member: MemberView,
+    reasons: { self: MessageKey; owner: MessageKey; lastOwner: MessageKey },
+  ) =>
     member.user_id === self
-      ? t("members.disableSelf")
-      : member.role === "owner" && activeOwners === 1
-        ? t("members.disableLastOwner")
-        : undefined;
+      ? t(reasons.self)
+      : role === "admin" && member.role === "owner"
+        ? t(reasons.owner)
+        : member.role === "owner" && activeOwners === 1
+          ? t(reasons.lastOwner)
+          : undefined;
+  const roleReason = (member: MemberView) =>
+    withheld(member, {
+      self: "members.roleSelf",
+      owner: "members.roleOwnerProtected",
+      lastOwner: "members.roleLastOwner",
+    });
+  const keepReason = (member: MemberView) =>
+    withheld(member, {
+      self: "members.disableSelf",
+      owner: "members.disableOwnerProtected",
+      lastOwner: "members.disableLastOwner",
+    });
+  // A disabled row is never the viewer, and owners never run out while one
+  // is live, so only the owner rule applies to bringing it back.
+  const enableReason = (member: MemberView) =>
+    role === "admin" && member.role === "owner"
+      ? t("members.enableOwnerProtected")
+      : undefined;
 
   const settle = async (text: string) => {
     onOutcome({ kind: "notice", text });
     await queryClient.invalidateQueries({ queryKey: queryKeys.members });
   };
-  const fail = (error: ApiError) =>
-    onOutcome({ kind: "error", text: refusal(t, error, role) });
+  const fail = (
+    error: ApiError,
+    action: "role" | "disable" | "enable",
+    member: MemberView,
+  ) =>
+    onOutcome({
+      kind: "error",
+      text: refusal(t, error, role, {
+        action,
+        member,
+        self: member.user_id === self,
+      }),
+    });
 
   const changeRole = useMutation<
     MemberView,
@@ -184,7 +247,7 @@ function MemberTable({
           role: roleLabel(t, updated.role),
         }),
       ),
-    onError: fail,
+    onError: (error, { member }) => fail(error, "role", member),
   });
 
   const setAccess = useMutation<
@@ -213,9 +276,9 @@ function MemberTable({
           : t("members.disabled", { name }),
       );
     },
-    onError: (error) => {
+    onError: (error, { member, enable }) => {
       setConfirming(null);
-      fail(error);
+      fail(error, enable ? "enable" : "disable", member);
     },
   });
 
@@ -232,12 +295,22 @@ function MemberTable({
               <TableHead scope="col">{t("members.column.name")}</TableHead>
               <TableHead scope="col">{t("members.column.role")}</TableHead>
               <TableHead scope="col">{t("members.column.state")}</TableHead>
-              <TableHead scope="col">{t("members.column.actions")}</TableHead>
+              <TableHead scope="col" variant="actions">
+                {t("members.column.actions")}
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {items.map((member) => {
               const disabled = member.disabled_at !== null;
+              const roleWhy = roleReason(member);
+              const keepWhy = disabled
+                ? enableReason(member)
+                : keepReason(member);
+              const ids = {
+                role: `${reasonId}-${member.user_id}-role`,
+                keep: `${reasonId}-${member.user_id}-keep`,
+              };
               const busy =
                 (changeRole.isPending &&
                   changeRole.variables?.member.user_id === member.user_id) ||
@@ -250,41 +323,64 @@ function MemberTable({
                   data-disabled={disabled}
                 >
                   <TableCell>
+                    {/* One line per cell: below the table's width the container scrolls,
+                        so every row keeps two lines. */}
                     <RowLines>
-                      <span className={PRIMARY}>{member.display_name}</span>
-                      <span className={SECONDARY}>{member.email}</span>
+                      <span className={cn(PRIMARY, NOWRAP)}>
+                        {member.display_name}
+                      </span>
+                      <span className={cn(SECONDARY, NOWRAP)}>
+                        {member.email}
+                      </span>
                     </RowLines>
                   </TableCell>
                   <TableCell>
-                    <NativeSelect
-                      size="sm"
-                      className="w-auto"
-                      aria-label={t("members.roleFor", {
-                        name: member.display_name,
-                      })}
-                      value={member.role}
-                      disabled={busy || disabled}
-                      onChange={(event) =>
-                        setRoleChange({
-                          member,
-                          role: event.target.value as WorkspaceRole,
-                        })
-                      }
-                    >
-                      {WORKSPACE_ROLE_VALUES.map((value) => (
-                        <NativeSelectOption key={value} value={value}>
-                          {roleLabel(t, value)}
-                        </NativeSelectOption>
-                      ))}
-                    </NativeSelect>
+                    <div className="flex items-center gap-1">
+                      <NativeSelect
+                        size="sm"
+                        className="w-auto"
+                        aria-label={t("members.roleFor", {
+                          name: member.display_name,
+                        })}
+                        aria-describedby={
+                          roleWhy && !disabled ? ids.role : undefined
+                        }
+                        value={member.role}
+                        disabled={busy || disabled || roleWhy !== undefined}
+                        onChange={(event) =>
+                          setRoleChange({
+                            member,
+                            role: event.target.value as WorkspaceRole,
+                          })
+                        }
+                      >
+                        {WORKSPACE_ROLE_VALUES.map((value) => (
+                          <NativeSelectOption key={value} value={value}>
+                            {roleLabel(t, value)}
+                          </NativeSelectOption>
+                        ))}
+                      </NativeSelect>
+                      {roleWhy && !disabled ? (
+                        <ReasonHint
+                          id={ids.role}
+                          label={t("members.roleWhy", {
+                            name: member.display_name,
+                          })}
+                          reason={roleWhy}
+                        />
+                      ) : null}
+                    </div>
                   </TableCell>
                   <TableCell>
                     {disabled ? (
-                      <RowLines className="items-start">
-                        <Badge variant="gray">
-                          {t("members.state.disabled")}
-                        </Badge>
-                        <span className={SECONDARY}>
+                      <RowLines>
+                        {/* A flex line keeps the badge at its own width. */}
+                        <span className="flex">
+                          <Badge variant="gray">
+                            {t("members.state.disabled")}
+                          </Badge>
+                        </span>
+                        <span className={cn(SECONDARY, NOWRAP)}>
                           {t("members.enableHint")}
                         </span>
                       </RowLines>
@@ -292,35 +388,49 @@ function MemberTable({
                       <Badge variant="green">{t("members.state.active")}</Badge>
                     )}
                   </TableCell>
-                  <TableCell>
-                    {disabled ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        disabled={busy}
-                        onClick={() =>
-                          setAccess.mutate({ member, enable: true })
-                        }
-                      >
-                        {t("members.enable")}
-                      </Button>
-                    ) : (
-                      <ReasonButton
-                        className={buttonVariants({
-                          variant: "outline",
-                          size: "sm",
-                        })}
-                        reason={keepReason(member)}
-                        disabled={busy}
-                        aria-label={t("members.disableFor", {
-                          name: member.display_name,
-                        })}
-                        onClick={() => setConfirming(member)}
-                      >
-                        {t("members.disable")}
-                      </ReasonButton>
-                    )}
+                  <TableCell variant="actions">
+                    <div className="flex items-center gap-1">
+                      {disabled ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={busy || keepWhy !== undefined}
+                          aria-describedby={keepWhy ? ids.keep : undefined}
+                          onClick={() =>
+                            setAccess.mutate({ member, enable: true })
+                          }
+                        >
+                          {t("members.enable")}
+                        </Button>
+                      ) : (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={busy || keepWhy !== undefined}
+                          aria-describedby={keepWhy ? ids.keep : undefined}
+                          aria-label={t("members.disableFor", {
+                            name: member.display_name,
+                          })}
+                          onClick={() => setConfirming(member)}
+                        >
+                          {t("members.disable")}
+                        </Button>
+                      )}
+                      {keepWhy ? (
+                        <ReasonHint
+                          id={ids.keep}
+                          label={t(
+                            disabled
+                              ? "members.enableWhy"
+                              : "members.disableWhy",
+                            { name: member.display_name },
+                          )}
+                          reason={keepWhy}
+                        />
+                      ) : null}
+                    </div>
                   </TableCell>
                 </TableRow>
               );

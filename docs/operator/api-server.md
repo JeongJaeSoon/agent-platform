@@ -56,6 +56,32 @@ API는 기동 시 `PLATFORM_CONFIG_DIR`(기본: 저장소의 `config/`)에서 `p
 - profile마다 `sha256:` fingerprint(설정과 참조의 정규 JSON 해시, 값 제외)가 worker claim의 `profile_fingerprint`로 가고, 카탈로그 전체의 revision은 기동 로그 `Session catalog loaded`에 남는다. 같은 참조 뒤의 값만 회전하면 fingerprint는 바뀌지 않는다.
 - 세션은 만들 때의 profile fingerprint를 저장하고, claim은 카탈로그의 같은 id가 그 fingerprint로 해시될 때만 세션을 묶는다. 설정을 바꾸려면 **새 profile id**를 등록하고 새 세션을 그 id로 만든다. 기존 id를 고치면 그 id로 만든 세션은 모두 위의 `CATALOG_MISMATCH`가 되고, 되돌리면 다시 돈다. 자격 증명 값은 claim 때 카탈로그에서 읽으므로 같은 참조 뒤의 값 회전(그리고 API 재기동)은 기존 세션을 막지 않는다. 이 컬럼 전에 만든 세션은 fingerprint가 비어 있고 다음 claim이 그때의 fingerprint로 고정한다.
 
+### 저장소 모드 (`repository`)
+
+profile의 `repository`는 그 profile로 만든 세션이 저장소를 갖는지 정한다. `GET /v1/profiles`는 이 값을 `repository_mode`로 보여 준다.
+
+| 값 | `POST /v1/sessions`의 `repository_id` | 세션 |
+|---|---|---|
+| `required`(생략하면 이 값) | 꼭 보낸다. 빼면 `422 UNSUPPORTED_CAPABILITY`(`Profile <id> needs a repository: send repository_id`) | 카탈로그 저장소를 clone한 작업 디렉터리에서 시작한다 |
+| `none` | 보내지 않는다. 보내면 `422 UNSUPPORTED_CAPABILITY`(`Profile <id> runs without a repository: omit repository_id`) | 빈 작업 디렉터리에서 시작한다. 세션 상세의 `repository_id`는 `null`이고 push 요청은 `409 PUSH_SOURCE_MISSING`이다 |
+| `optional` | 보내도 되고 빼도 된다 | 보내면 `required`처럼, 빼면 `none`처럼 돈다 |
+
+- `repository_id`를 보냈으면 `optional`이어도 위의 쌍 allowlist를 지나야 한다. 없는 쌍은 `422`다.
+- `none` profile을 `repositories.<id>.profiles`에 적거나, `none` profile에 `project_settings.claude_md: true`를 주면 API가 기동하지 않는다. 저장소가 없으니 읽을 CLAUDE.md도 없다. `optional` profile의 `claude_md`는 저장소 없이 만든 세션에서는 읽지 않는다.
+- 모든 profile이 `required`일 때만 `repositories`에 저장소가 하나 이상 있어야 한다.
+- 저장소 없이 만든 세션의 profile을 `required` profile로 바꾸는 요청(`POST /v1/sessions/{id}/profile`)은 `422 UNSUPPORTED_CAPABILITY`다.
+
+### workspace volume을 잃었을 때 남는 것
+
+worker의 작업 디렉터리는 세션의 workspace volume(Kubernetes backend에서는 PVC)에 있지만, 세션을 이어 가는 데 필요한 정본은 volume이 아니다. worker는 turn이 끝날 때마다 작업 디렉터리와 엔진 대화를 checkpoint로 object store(S3)에 올리고, DB의 checkpoint pointer가 그 revision을 가리킨다([checkpoint object store](#checkpoint-object-store)). volume이 없어진 세션을 resume하면 scheduler가 빈 volume을 새로 만들어 worker를 띄우고(Docker backend는 새 이름으로, Kubernetes backend는 같은 이름의 PVC를 다시 만든다), worker가 pointer의 checkpoint를 복원해 대화를 이어 간다. 저장소 모드와 상관없이 같은 경로다.
+
+**보장 범위:** 마지막으로 commit된 checkpoint까지는 S3 + DB에 있다. 그 뒤의 작업, 추적되지 않은 ignored·exclude 파일, 작업 디렉터리 밖 상태는 volume을 잃으면 없다.
+
+- 마지막 checkpoint가 어느 turn까지인지는 세션 상세의 `checkpoint_revision`과 `durability.last_checkpointed_turn_id`로 본다. `durability.last_checkpointed_turn_id`가 `durability.last_completed_turn_id`와 같으면 마지막으로 완료된 turn까지 checkpoint에 들었다. `durability.checkpoint_pending_reason`은 앞서 checkpoint가 거절된 사유이고, 뒤의 checkpoint가 그 turn을 덮은 뒤에도 남을 수 있으므로 이것만으로 마지막 turn이 빠졌다고 보지 않는다.
+- 추적되지 않은 파일 중 `.gitignore`·`.git/info/exclude`에 걸린 것은 checkpoint에 들어가지 않는다. 빌드 결과, 의존성, ignore된 `.env`도 마찬가지다. 이미 추적되는 파일은 ignore 규칙에 걸려도 checkpoint에 든다. 남겨야 하는 결과물은 ignore되지 않은 경로(예: `out/`)에 쓴다.
+- 작업 디렉터리 밖(tmpfs HOME의 `git config --global` 등)은 volume과 상관없이 worker가 바뀌면 사라진다.
+- `tests/e2e/workspace-loss.e2e.ts`가 CI `e2e` job에서 Docker backend로 이 경로를 확인한다(Kubernetes backend는 이 e2e가 다루지 않는다). 저장소 없는 세션과 있는 세션 각각에서 파일을 쓰고 pause한 뒤 workspace volume을 지우고 resume한다. 그다음 turn이 파일 내용과 이전 대화를 읽는지, volume 이름이 바뀌었는지 본다.
+
 ### 원격 MCP 서버
 
 `PLATFORM_CONFIG_DIR`에 `mcp-servers.yaml`(최상위 키 `mcp_servers`)이 있으면 에이전트가 원격 MCP 서버 하나를 쓸 수 있다. 파일이 없으면 어떤 에이전트도 MCP 서버를 이름으로 가리키지 못한다. 서버는 streamable HTTP 하나뿐이고, 자격 증명은 에이전트의 서비스 계정 하나다(요청자 자격·OAuth는 없다).
@@ -499,13 +525,15 @@ curl -s -b jar -X POST "http://127.0.0.1:3000/v1/agents/$AGENT_ID/admins" \
 | `team` | 만든 사람과 지정한 팀의 지금 구성원 |
 | `workspace` | workspace 멤버 모두(기본값) |
 
-- 판정 순서는 workspace 일치 → 공유 범위 → key scope → agent_id → (`session.approve`만) 답할 사람인가다. 범위 밖이면 owner·admin도 목록·검색(`?status=`)·상세·turn·SSE·usage·pending·receipt·메시지·응답·interrupt·종료 어디서나 `404`다. 있는지조차 알리지 않는다.
+- 판정 순서는 workspace 일치 → 공유 범위 → key scope → agent_id → (`session.approve`·`session.rename`만) 답할 사람인가다. 범위 밖이면 owner·admin도 목록·검색(`?status=`)·상세·turn·SSE·usage·pending·receipt·메시지·응답·이름 바꾸기·interrupt·종료 어디서나 `404`다. 있는지조차 알리지 않는다.
 - 팀 범위는 판정 때마다 지금 구성원을 읽는다. 팀에서 빠지거나 팀이 지워지면 다음 요청부터 `404`다.
 - service key는 멤버가 아니다. `workspace` 범위의 세션과 자기가 만든 세션만 본다. key가 만든 세션에서는 그 key가 만든 사람 자리에 선다.
 - 범위를 좁히면 그 세션의 열린 SSE가 바로 깨어나 다시 판정되고, 더는 볼 수 없는 연결은 끊긴다(로그 `SSE stream closed`, `reason: not_visible`). 다시 연결하면 `404`다.
 - 아직 한 번도 바꾸지 않은 세션은 `session_shares` 행 없이 `workspace`로 읽힌다(`revision` 0).
 
 보는 것과 대신 답하는 것은 다르다. 권한 요청·질문에 답하고 push·PR을 결정하는 것(`session.approve`)은 세션을 볼 수 있는 사람 가운데 만든 사람(key가 만든 세션이면 그 key), 그 에이전트의 관리자, owner·admin만 한다. 공유로 보기만 하는 사람(member, 남이 만든 세션을 보는 service key)은 `403`(`reason_code: role`, "holds sessions:approve but may not use it on this session")이고 요청은 열린 채 세션은 `needs_input`에 머문다. 볼 수 없는 사람은 지금처럼 `404`다. 개인 key는 만든 사람으로, 그 사람의 지금 역할로 판정한다. workspace가 없는 호출자(legacy key, `AUTH_MODE=none`)는 곁에 대신 답할 멤버가 없으므로 지금처럼 답한다. `GET /v1/sessions/{id}/pending-requests`의 `answerable`이 같은 판정을 미리 알려 준다. 이 미리보기는 판정 행을 남기지 않는다.
+
+세션 이름을 바꾸는 것(`PATCH /v1/sessions/{id}`, `session.rename`)도 답하는 사람과 같은 사람만 한다. scope는 `sessions:write`이고, 응답이 세션 상세라 `sessions:read`도 함께 본다. 공유로 보기만 하는 사람은 `403`(`reason_code: role`, "holds sessions:write but may not use it on this session"), 볼 수 없는 사람은 `404`다. 거절은 판정 행으로 남고, 허용은 남지 않는다. 이름은 제어가 아니어서 세션 `revision`도 receipt도 바뀌지 않는다. 바뀐 이름은 `status` 이벤트의 `title`로 스트림에 실린다. 생성 때 `title`이 없으면 첫 메시지에서 결정적 규칙으로 만들고, 이 기능 전의 세션은 `sessions.title`이 `NULL`이다(backfill 없음, migration 0155).
 
 범위를 바꾸는 것(`session.share`)은 사람의 세션이면 만든 사람만, key가 만든 세션이면 owner·admin과 그 에이전트의 관리자만 한다. 세션을 볼 수 있지만 바꿀 수 없는 사람은 `403`, 볼 수 없는 사람은 `404`다. API key는 바꾸지 못한다. 바꾼 경우에만 `share_session` receipt(`result.scope`)와 판정 행이 남는다.
 
@@ -622,15 +650,54 @@ owner·admin이 콘솔 세션(cookie)으로만 쓴다. 값은 돌려주지 않�
 
 | 요청 | 하는 일 |
 |---|---|
-| `GET /v1/workspaces/{id}/slack/config-token` | `{configured, last4, updated_at, updated_by}`. 값은 없다 |
-| `PUT /v1/workspaces/{id}/slack/config-token` `{"value":"…"}` | 저장하거나 교체한다. 교체하면 같은 행의 `secret_version`이 오른다. 응답은 GET과 같은 요약과 `receipt_id` |
+| `GET /v1/workspaces/{id}/slack/config-token` | `{configured, last4, updated_at, updated_by, state, expires_at, issuer}`. 값은 없다 |
+| `PUT /v1/workspaces/{id}/slack/config-token` `{"value":"…"}` | 붙여 넣은 refresh token을 바로 Slack에서 회전(`tooling.tokens.rotate`)하고, 받은 access·refresh token 한 쌍을 저장한다. 응답은 GET과 같은 요약, `receipt_id`, `warnings` |
 | `DELETE /v1/workspaces/{id}/slack/config-token` | 지운다. 설정된 값이 없으면 `404` |
 
 - 쓰기에는 `X-Requested-With` 헤더가 필요하다. 없거나 다른 사이트에서 온 요청은 `403`이다(`csrfViolation`).
 - member는 `403`이다. API key는 역할과 관계없이 `403`이다(`reason_code: web_session_required` 또는 `role`). 다른 workspace의 경로는 `404`다.
 - `value`는 공백 없는 출력 가능 ASCII 8–4096자다. 어긋나면 `400 Request body is invalid`이고, 응답에도 로그에도 값은 남지 않는다.
+- 붙여 넣는 값은 api.slack.com/apps의 **Your App Configuration Tokens**에서 만든 refresh token이다. 붙여 넣은 값은 저장 즉시 회전으로 소모된다. Slack이 받지 않으면 `409 CONFIG_TOKEN_INVALID`(`reason_code: rejected`)이고 저장된 값은 그대로다. Slack에 닿지 못하면 `503`이고 역시 그대로다.
 - 저장·교체는 `set_slack_secret`, 삭제는 `delete_slack_secret` receipt를 남긴다. `result`는 `{purpose, last4}`뿐이다. 쓰는 transaction 안에서 쓰는 사람의 역할을 다시 읽는다.
-- 앱별 비밀값은 사람이 넣지 않는다. 플랫폼이 만든 앱의 signing secret·client secret·bot token은 서버가 Slack 응답에서 바로 저장하고, API로 덮어쓸 수 없다. signing secret을 아는 관리자는 서명된 가짜 이벤트를 보내 아무 member로 행세할 수 있기 때문이다. 손으로 만든 앱(kind `manual`)만 그 앱의 값을 넣는 경로가 열린다(앱 목록과 함께 다음 버전).
+- `state`는 `unset`·`active`·`needs_reentry`다. access token은 12시간짜리이고, 만료 5분 전부터 다음 Slack 호출이 먼저 회전한다. 회전은 `slack_config_tokens` 행의 lease(30초)로 프로세스 사이에서 한 번만 일어나고, Slack 호출 중에는 transaction을 열어 두지 않는다. Slack이 refresh token을 거절하거나(`invalid_refresh_token`·`token_revoked` 등) 회전 응답을 받고도 저장에 세 번 실패하면, 또는 lease가 끝난 회전이 발견되면 저장된 쌍을 지우고 `needs_reentry`가 된다. 그때는 owner·admin이 새 token을 붙여 넣는다. refresh token의 수명과 일회성은 Slack 문서에 적혀 있지 않아 이렇게 다룬다.
+- token을 만든 Slack 사용자가 바뀌면 `warnings`에 `config_token_issuer_changed`가 온다. 이후 만드는 앱의 collaborator가 그 사용자가 된다.
+
+**에이전트의 Slack 앱 만들기**
+
+활성 release가 있는 에이전트마다 Slack 앱을 하나 만든다. 앱 이름은 에이전트 이름, bot 이름은 slug, agent view 설명은 활성 release의 role이다. bot scope는 `assistant:write`·`app_mentions:read`·`chat:write`·`im:history`·`channels:history`·`groups:history`·`channels:read`·`groups:read`·`users:read`·`channels:join`·`groups:write`이고 user scope는 없다. 생성 manifest에는 event subscription이 없다(이벤트는 events route가 생긴 뒤 manifest 갱신으로 붙인다). OAuth redirect는 `<콘솔 origin>/agents/{id}/slack/callback`이고, 콘솔 origin은 `SLACK_OIDC_REDIRECT_URI`의 origin이다. 이 값이 없으면 앱을 만들지 않는다(`503`).
+
+| 요청 | 하는 일 |
+|---|---|
+| `GET /v1/agents/{id}/slack/app` | 에이전트의 앱(`creating`·`created`·`deleting`)과 설치 URL. 없으면 둘 다 `null` |
+| `POST /v1/agents/{id}/slack/app` `{"replace_uncertain": false}` | 앱을 만들고 `{slack_app, authorize_url, created, warnings}`를 돌려준다. 이미 있으면 같은 앱을 `created: false`로 |
+| `DELETE /v1/workspaces/{id}/slack/apps/{app_id}` | 그 workspace의 `slack_apps`에 있는 앱만 Slack에서 지우고(`apps.manifest.delete`) 비밀값을 지운다. 행은 `deleted`로 남는다 |
+| `PUT /v1/workspaces/{id}/slack/apps/{app_id}/secrets/{purpose}` `{"value":"…"}` | 손으로 만든 앱(kind `manual`)의 값만 넣는다. 플랫폼이 만든 앱은 `403 server_managed_secret`. `purpose`가 셋(`slack_signing_secret`·`slack_client_secret`·`slack_bot_token`) 밖이거나 `app_id`가 UUID가 아니면 `400` |
+
+- 만들기·조회는 owner·admin·그 에이전트의 관리자, 콘솔 세션(cookie)과 `X-Requested-With`로만 한다. API key는 `403`이다. 활성 release가 없으면 `409 AGENT_NOT_ACTIVE`, config token이 없거나 쓸 수 없으면 `409 CONFIG_TOKEN_INVALID`다.
+- `slack_apps` 행은 Slack을 부르기 전에 `creating`으로 쓴다. Slack 응답에서 받은 signing secret·client secret은 서버가 `slack_app:<id>` 아래에 저장하고 응답·로그·receipt에는 남기지 않는다. 응답의 `secrets`는 저장 여부와 끝 네 글자뿐이다.
+- Slack 응답을 잃으면(시간 초과, 연결 끊김, 저장 실패) 행이 `creating`으로 남고 `503`이다. 다음 요청은 `409 SLACK_APP_CREATING`이고, 60초가 지나면 `details.uncertain: true`가 붙는다. 그때 api.slack.com/apps에서 그 시각에 만들어진 앱을 지운 뒤 `replace_uncertain: true`로 다시 요청하면 옛 행을 `abandoned`로 두고 새로 만든다. Slack이 manifest를 거절하면 행은 `failed`가 되고 `503`(`details.slack_error`)이다.
+- 만들기·지우기는 아직 receipt를 남기지 않는다.
+
+운영자는 CLI로도 만든다. API 컨테이너 안에서(DB, master key, `SLACK_OIDC_REDIRECT_URI`, `SLACK_API_URL`이 이미 있다) 실행하고, 출력은 JSON 한 줄이다. 비밀값은 출력하지 않는다.
+
+```bash
+docker compose --profile apps exec -T api \
+  bun run apps/control-host/src/api/slack-app.ts create --workspace "$WORKSPACE_ID" --agent "$AGENT_ID"
+# {"outcome":"created","slack_app_id":"…","app_id":"A…","agent_id":"…","created_by_token_user":"U…","authorize_url":"https://slack.com/oauth/v2/authorize?…","warnings":[]}
+```
+
+| 종료 코드 | 뜻 |
+|---|---|
+| `0` | 만들었거나 이미 있다(`outcome: created`·`exists`) |
+| `1` | 예상하지 못한 오류 |
+| `2` | 인자·env가 잘못됐다(`DATABASE_URL`·`SLACK_OIDC_REDIRECT_URI`·master key 없음, `SLACK_API_URL`이 https가 아님) |
+| `3` | config token이 없거나 Slack이 더는 받지 않는다. 콘솔에서 새로 붙여 넣는다 |
+| `4` | 에이전트나 workspace가 없다 |
+| `5` | 에이전트에 활성 release가 없다 |
+| `6` | 앱이 아직 만들어지는 중이거나 지워지는 중이다. Slack에서 확인한 뒤 `--replace-uncertain`으로 잃어버린 생성을 포기한다 |
+| `7` | Slack이 거절했거나 닿지 않는다 |
+
+로컬 스택의 mock overlay(`infra/compose.mock-slack.yml`)는 `SLACK_API_URL=http://mock-slack:4020/api`로 Slack Web API의 가짜(`packages/testkit/src/fake-slack-api.ts`)를 가리킨다. `POST http://mock-slack:4020/fake/config-tokens`가 그 가짜가 받는 config token을 하나 돌려준다. 실제 Slack은 부르지 않는다.
 
 값은 repo 밖 파일에 두고 셸에서 읽어 보낸다. 값이 명령 인자나 셸 기록에 남지 않게 한다.
 

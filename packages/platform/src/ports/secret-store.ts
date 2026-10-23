@@ -17,7 +17,9 @@ export type SecretSlot = {
 };
 
 /** The owner as stored and bound into the ciphertext's AAD. */
-export function secretOwnerRef(owner: SecretOwner): string {
+export type SecretOwnerRef = "workspace" | `slack_app:${string}`;
+
+export function secretOwnerRef(owner: SecretOwner): SecretOwnerRef {
   return owner.kind === "workspace"
     ? "workspace"
     : `slack_app:${owner.id.toLowerCase()}`;
@@ -65,15 +67,6 @@ export interface SecretStore {
     value: string,
     options?: { audit?: SecretAudit },
   ): Promise<PutSecretResult>;
-  /**
-   * Replaces the value with what `next` makes of the current one, holding
-   * the row locked meanwhile so two rotations never both use one refresh
-   * token. Null when no value is set.
-   */
-  rotate(
-    slot: SecretSlot,
-    next: (current: string) => Promise<string>,
-  ): Promise<SecretSummary | null>;
   delete(
     slot: SecretSlot,
     options?: { audit?: SecretAudit },

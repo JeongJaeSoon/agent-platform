@@ -9,6 +9,7 @@ import type {
   CloseSessionInput,
   PauseSessionInput,
   RecoveryDecisionInput,
+  RenameSessionInput,
   ResumeSessionInput,
   SessionControl,
   TerminateSessionInput,
@@ -39,6 +40,7 @@ import { publicStatus } from "./pending-requests.ts";
 import { changeProfileAtomic } from "./profile-control.ts";
 import type { Database } from "./queries.ts";
 import { decideRecoveryAtomic, resumeAtomic } from "./recovery-control.ts";
+import { renameAtomic } from "./rename-control.ts";
 import { openResumeReceipt } from "./resume-control.ts";
 import * as schema from "./schema.ts";
 import {
@@ -656,6 +658,9 @@ export function createPostgresSessionControl(
     },
     changeProfileAtomic(input: ChangeProfileInput) {
       return changeProfileAtomic(db, input);
+    },
+    renameAtomic(input: RenameSessionInput) {
+      return renameAtomic(db, input);
     },
   };
 }

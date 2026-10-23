@@ -39,7 +39,12 @@ import {
 import { LoginScreen, type LoginSearch, loginSearch } from "./routes/login.tsx";
 import { MembersScreen } from "./routes/members.tsx";
 import { PreferencesScreen } from "./routes/preferences.tsx";
-import { SessionDetailScreen, SessionsScreen } from "./routes/sessions.tsx";
+import {
+  SessionDetailScreen,
+  SessionsScreen,
+  type SessionsSearch,
+  sessionsSearch,
+} from "./routes/sessions.tsx";
 import { TeamDetailScreen, TeamsScreen } from "./routes/teams.tsx";
 import { WorkspaceSettingsScreen } from "./routes/workspace-settings.tsx";
 import type { Services } from "./services.tsx";
@@ -136,6 +141,8 @@ const team = createRoute({
 const sessions = createRoute({
   getParentRoute: () => authed,
   path: "/sessions",
+  validateSearch: (search: Record<string, unknown>): SessionsSearch =>
+    sessionsSearch(search),
   component: SessionsScreen,
 });
 
