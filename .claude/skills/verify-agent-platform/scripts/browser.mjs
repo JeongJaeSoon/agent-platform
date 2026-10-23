@@ -330,16 +330,28 @@ switch (cmd) {
   case "accept": {
     const token = readFileSync(`${userFile(args[0])}.invite`, "utf8");
     const c = JSON.parse(readFileSync(userFile(args[0]), "utf8"));
+    // The invite screens other than the form (signed in, used, ended, bad
+    // token) carry no secret; print their heading and fail.
+    const refused = async () => {
+      console.log(
+        `accept ${args[0]} -> ${await here()} | ${await evaluate(
+          "(document.querySelector('main [data-status] h2') ?? document.querySelector('main [role=alert]') ?? document.querySelector('main'))?.innerText.replace(/\\s+/g, ' ').slice(0, 80)",
+        )}`,
+      );
+      process.exit(1);
+    };
     await navigate(`/invite/${token}`);
     // Step 1 asks whether the account exists; the second button is "new".
-    await evaluate(
-      `document.querySelector('main section[aria-labelledby] button:last-of-type')?.click()`,
-    );
+    const picked = await evaluate(`(() => {
+      const b = document.querySelector('main section[aria-labelledby] button:last-of-type');
+      b?.click(); return !!b; })()`);
+    if (!picked) await refused();
     await settle();
     await fill("input[name=display_name]", `Verify ${args[0]}`);
     await fill("input[name=password]", c.password);
     await submit();
-    console.log(`accept ${args[0]} -> ${await here()}`);
+    if ((await here()) !== "/") await refused();
+    console.log(`accept ${args[0]} -> /`);
     break;
   }
   case "bootstrap": {

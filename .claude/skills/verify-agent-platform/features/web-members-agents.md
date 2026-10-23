@@ -40,7 +40,7 @@ node $U <run id> login member                  # 같은 비밀번호로 API 로�
 - API로만 수락하려면 `node $U <run id> accept member` → `200` `{user_id, workspace, role: "member"}`, cookie가 생긴다.
 - 브라우저는 cookie를 하나만 가진다. 다른 사람으로 화면을 보려면 사이드바 아래 사용자 메뉴를 열고 로그아웃한 뒤(`node $B <run id> click "Verify Owner"`, `click 로그아웃`. [web-console.md](./web-console.md) `logout`) `node $B <run id> login <who>`. 이미 로그인한 브라우저로 초대 링크를 열면 `invite-signed-in` 화면이 나온다.
 - 초대 대화상자(`invite-create`)는 `<main>` 밖에 그려져 `@N`이 닿지 않는다. CSS로 몬다: `open /members` → `click "초대 링크 만들기"` → `type '[role=dialog] input[type=email]' invitee@example.test` → `click '[role=dialog] form button[type=submit]'`(같은 글자의 바깥 버튼이 먼저 잡히므로 글자로 누르지 않는다) → `?invite.step=link`. 그 링크의 token은 출력하지 않는다(`eval`로 읽지 말고 대화상자 버튼 이름이나 목록의 "대기 중인 초대"로 확인한다). 끝내려면 `click 닫기` → `click "복사하지 않고 나가기"`.
-- 쓴 링크·잘못된 링크 화면: 로그아웃한 브라우저로 `open "/invite/$(cat "$VERIFY_RUN/users/member.invite")"`(token은 명령 글자에 들어가지 않고, `open` 출력은 `/invite/(token)`으로 가린다) → `click "아니요, 처음입니다"` → `type 'input[name=password]' <아무 12자 이상>` → `click "초대 수락"` → "이미 수락한 초대입니다". `open /invite/not-a-real-token` → "초대 링크가 올바르지 않습니다". zsh에서는 `[...]`가 든 CSS를 따옴표로 감싼다.
+- `accept`는 `/`에 닿아야 exit 0이다. 폼 대신 안내 화면이 나오면 그 제목을 출력하고 exit 1로 끝난다. 그래서 다른 상태 화면도 `accept`로 본다(token을 `open` 인자로 넘기지 않는다. 명령줄 인자는 `ps`에 보인다): 로그인한 브라우저로 `accept member` → `| 이미 이 워크스페이스의 구성원입니다`, 이미 수락한 뒤 로그아웃한 브라우저로 다시 `accept member` → `| 이미 수락한 초대입니다`. 모양이 틀린 token은 `open /invite/not-a-real-token` → "초대 링크가 올바르지 않습니다". zsh에서는 `[...]`가 든 CSS를 따옴표로 감싼다.
 
 역할 변경·비활성은 owner 화면에서 몬다. 확인 대화상자 둘이 동시에 열리지 않도록 하나씩 끝낸다(`click`은 `el.click()`이라 열린 modal 뒤의 버튼도 누른다).
 
