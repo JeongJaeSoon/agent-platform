@@ -1,0 +1,93 @@
+---
+title: "Start"
+description: The fields, response, retries, and errors of a session create request
+---
+
+A session is a conversation that runs against one repository and one run profile. When you create a session, the first message is accepted as turn 1, and the scheduler starts a worker container for that session. The scope is `sessions:write`.
+
+## Create
+
+```bash
+created=$(curl -sS "$API/v1/sessions" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg m 'GATE-SPEC {"id":"start","steps":[],"final":"started"}' \
+    '{profile_id: "claude-coding-local", repository_id: "sample-app", message: $m}')")
+echo "$created" | jq .
+SID=$(echo "$created" | jq -r .session_id)
+```
+
+```text
+{
+  "session_id": "…",
+  "turn_id": "1",
+  "receipt_id": "…",
+  "receipt_status": "accepted",
+  "status": "queued"
+}
+```
+
+| Field | Required | Description |
+| --- | --- | --- |
+| `profile_id` | Yes | The run profile id ([Choose a run profile](/agents/run-profiles)) |
+| `repository_id` | Yes | A repository id in the catalog. The worker clones this repository |
+| `message` | Yes | The input of the first turn. Up to 32,768 UTF-8 bytes |
+| `model` | | One of the models the profile allows. If omitted, the default model |
+| `agent_release_id` | | Binds this session to an agent release ([Create](/agents/create#bind-to-a-session)) |
+
+The response is 201. The request is only accepted; read the result by fetching the turn ([Status and lifecycle](/sessions/lifecycle)).
+
+## Idempotency-Key
+
+Every POST in the session API requires an `Idempotency-Key` header. Without it the response is 400. If you did not receive a response, send it again with **the same key and the same body**. The server runs the command only once. Session creation and messages return the original response as is, and controls such as interrupt return the current state of that receipt. The same key with a different body is 409 `IDEMPOTENCY_CONFLICT`.
+
+```bash
+IDEM=$(uuidgen)
+BODY=$(jq -nc --arg m 'GATE-SPEC {"id":"retry","steps":[],"final":"once"}' \
+  '{profile_id: "claude-coding-local", repository_id: "sample-app", message: $m}')
+first=$(curl -sS "$API/v1/sessions" -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $IDEM" -d "$BODY")
+second=$(curl -sS "$API/v1/sessions" -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $IDEM" -d "$BODY")
+[ "$(echo "$first" | jq -r .session_id)" = "$(echo "$second" | jq -r .session_id)" ] && echo "same session"
+```
+
+```text
+same session
+```
+
+Use a new key for a new intent. If you send with a new key after a timeout, you may end up with two sessions.
+
+## List
+
+```bash
+curl -sS "$API/v1/sessions?limit=5" -H "Authorization: Bearer $KEY" | jq -c '.items[] | {id, status}'
+```
+
+Filter with `limit`, `cursor` (the response's `next_cursor`), and `status`. Only the sessions the key can see are returned.
+
+## Errors
+
+The error body has the same shape in every API. Resend with the same key only when `retryable` is `true`.
+
+```text
+{"error":{"code":"UNSUPPORTED_CAPABILITY","message":"Profile claude-coding-local does not offer model claude-opus-9","retryable":false,"request_id":"…","details":null}}
+```
+
+| Response | Meaning |
+| --- | --- |
+| 400 | The body does not match the schema, or `Idempotency-Key` is missing |
+| 401 | The key is missing, wrong, or revoked |
+| 403 | The key lacks `sessions:write` |
+| 409 `IDEMPOTENCY_CONFLICT` | The same key with a different body |
+| 413 | The message exceeds 32,768 bytes. `STORAGE_LIMIT_EXCEEDED` if the storage limit is exceeded |
+| 422 `UNSUPPORTED_CAPABILITY` | The profile or repository does not exist, the pair is not allowed, or the profile does not allow the model |
+| 429 `RATE_LIMITED` | Send again after a short wait |
+
+When execution slots run short, the request is not rejected. The session waits as `queued`.
+
+## Next steps
+
+- [Status and lifecycle](/sessions/lifecycle): the states of sessions and turns
+- [Send](/messages/send): send more messages to the same session

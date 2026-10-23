@@ -1,0 +1,92 @@
+---
+title: "Receiving a stream"
+description: Receive session events over SSE, and resume with Last-Event-ID after a disconnect
+---
+
+`GET /v1/sessions/{id}/events` sends the session's events as Server-Sent Events. It first replays the events already stored from the beginning, then continues with new events as they are created. The scope is `sessions:read`. Use the `SID` from [Send](/messages/send).
+
+## Receive
+
+The stream sends a keepalive every 15 seconds, so it does not close even when everything is normal. The example below cuts it off with `--max-time`. That is why `curl: (28) Operation timed out` appears.
+
+```bash
+curl -sSN --max-time 5 "$API/v1/sessions/$SID/events" -H "Authorization: Bearer $KEY" \
+  -o events.txt || true
+grep '^event:' events.txt | sort | uniq -c
+```
+
+```text
+curl: (28) Operation timed out after 5005 milliseconds with 8000 bytes received
+   2 event: assistant
+   2 event: result
+   4 event: status
+   8 event: system
+   1 event: tool_result
+   1 event: tool_use
+```
+
+All events of this session's two turns (the preparation message and `ls`) arrived. One frame is three lines, `event:`, `data:`, and `id:`, plus a blank line.
+
+```text
+event: tool_use
+data: {"schema_version":1,"session_id":"…","turn_id":"2","attempt_id":"att_…","occurred_at":"…","data":{…}}
+id: ev_3m
+```
+
+`data` is JSON. It has which session, turn, and attempt the event belongs to and the time, and the content is in the inner `data`.
+
+| event | Inner `data` |
+| --- | --- |
+| `system` | Start and configuration information from the engine |
+| `assistant` | A model message. The text is in the `type: "text"` blocks of `message.content[]` |
+| `tool_use` | The tool the model called and its input |
+| `tool_result` | The tool's result. `is_error: true` on failure |
+| `question` | A permission request or question was raised. How to answer: [Waiting for approval and resuming](/sessions/waiting-and-resume) |
+| `result` | The engine finished the turn. This is not a completion verdict |
+| `status` | The session state changed (`phase`: `running`, `idle`, and so on) |
+| `error` | An execution error |
+
+## Extract text and tool results
+
+```bash
+awk '/^event: assistant/ { getline; sub(/^data: /, ""); print }' events.txt \
+  | jq -r '.data.message.content[] | select(.type == "text") | .text'
+awk '/^event: tool_result/ { getline; sub(/^data: /, ""); print }' events.txt \
+  | jq -c '.data | {is_error}'
+```
+
+```text
+ready
+listed
+{"is_error":false}
+```
+
+Check whether a turn has finished with the turn's `status`, not with events ([Send](/messages/send#read-the-result)). Judge whether the work was done from the contents of `assistant` and `tool_result`.
+
+## Resume after a disconnect
+
+Send the last `id` you received in the `Last-Event-ID` header to receive from the next event on. Events you already received do not come again.
+
+```bash
+LAST=$(awk '/^id: / { id = $2 } END { sub(/\r$/, "", id); print id }' events.txt)
+curl -sSN --max-time 3 "$API/v1/sessions/$SID/events" \
+  -H "Authorization: Bearer $KEY" -H "Last-Event-ID: $LAST" > more.txt || true
+grep -c '^event:' more.txt || true
+```
+
+```text
+curl: (28) Operation timed out after 3005 milliseconds with 0 bytes received
+0
+```
+
+No new events came after that, so nothing arrived. If you sent the next message in the meantime, that turn's events would arrive.
+
+| Response | Meaning |
+| --- | --- |
+| 410 `CURSOR_EXPIRED` | That `id` is outside the retention range. Re-read the session and turns over HTTP and connect anew. The server currently does not delete events and so does not send this response, but clients should handle it |
+| 429 | Too many streams are open at the same time |
+
+## Next steps
+
+- [Attachments](/messages/attachments)
+- [Request](/approvals/request): send the commit a session made to the repository

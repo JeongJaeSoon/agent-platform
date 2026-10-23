@@ -1,0 +1,101 @@
+---
+title: "Permissions"
+description: The tools an agent can use, human approval, and the people who administer an agent and its credential bindings
+---
+
+An agent's permissions have three layers: the tools and permission mode set by the run profile, the permission requests that a person answers, and the people who administer the agent and connect credential names.
+
+## Tools: set by the run profile
+
+A session uses only the tools in the run profile's `tools`. Tools outside it are denied without a permission request, and the model receives an error `tool_result`. The script below calls `WebFetch`, which the local profile does not have.
+
+```bash
+created=$(curl -sS "$API/v1/sessions" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg m 'GATE-SPEC {"id":"outside","steps":[{"tool":"WebFetch","input":{"url":"https://example.com","prompt":"summarize"}}],"final":"done"}' \
+    '{profile_id: "claude-coding-local", repository_id: "sample-app", message: $m}')")
+SID=$(echo "$created" | jq -r .session_id)
+until [ "$(curl -sS "$API/v1/sessions/$SID/turns/1" -H "Authorization: Bearer $KEY" | jq -r .status)" = completed ]; do
+  sleep 2
+done
+curl -sSN --max-time 5 "$API/v1/sessions/$SID/events" -H "Authorization: Bearer $KEY" \
+  | awk '/^event: tool_result/ { getline; sub(/^data: /, ""); print }' \
+  | jq -c '.data | {is_error, content}' || true
+```
+
+```text
+curl: (28) Operation timed out after 5006 milliseconds with 4482 bytes received
+{"is_error":true,"content":"<tool_use_error>Error: No such tool available: WebFetch. WebFetch is disabled for this session, in subagents as well as here.</tool_use_error>"}
+```
+
+`curl: (28)` is `--max-time` cutting the stream.
+
+<Callout type="warn">
+An agent card's `capabilities.tools`, `forbidden`, and `tool_policy` are pinned to the release but are not applied to execution yet. Even if the card lists only `Read`, the session can use all of the profile's tools.
+</Callout>
+
+## Permission mode
+
+The profile's `permission_mode` decides whether a person is asked before a tool runs. It appears in `runtime.permission_mode` of the session detail.
+
+| Mode | Behavior |
+| --- | --- |
+| `default` | Tools that change files (Write, Edit, Bash commands that write files, and so on) create a permission request before running. Read commands do not ask. This is the local profile's mode |
+| `acceptEdits`, `dontAsk`, `plan` | Runs in the Claude Code mode of the same name |
+| `bypassPermissions`, `auto` | Runs without human approval. If the catalog has a profile with this mode, the API does not start without `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS=true` |
+
+The mode exists only in the catalog and cannot be changed by a session request.
+
+## Approval: only a person does it
+
+Answering permission requests and questions needs the `sessions:approve` scope. The credential held by the agent inside the worker gets 401 on `/v1`, so it cannot approve for itself. An agent-only key cannot have `sessions:approve`. How to answer is described in [Waiting for approval and resuming](/sessions/waiting-and-resume).
+
+## Agent administrators
+
+The person who creates an agent becomes that agent's administrator. An administrator, even if only a member, can edit the agent's card, create releases, activate, connect credentials, assign administrators, and issue agent-only keys. You can add a person or a team as an administrator, and for a team, every member of that team is an administrator. This continues with `AID` and `WEB` from [Create](/agents/create).
+
+```bash
+curl -sS "$API/v1/agents/$AID/admins" "${WEB[@]}" | jq '{users: [.users[].email], teams}'
+```
+
+```text
+{
+  "users": [
+    "owner@example.test"
+  ],
+  "teams": []
+}
+```
+
+| Request | What it does |
+| --- | --- |
+| `POST /v1/agents/{id}/admins` `{"user_id"}` or `{"team_id"}` | Assign an administrator |
+| `DELETE /v1/agents/{id}/admins/users/{user_id}`, `…/teams/{team_id}` | Remove |
+| `GET /v1/administered-agents` | Agents I administer |
+
+## Credential bindings
+
+The card lists only the names of the credentials to use, in `capabilities.credential_refs`. The values live outside Werft (a secret store, a remote MCP server connection). The binding that says this agent may use that name is created separately by an administrator. If any name listed on the card is not bound, activation returns 409 `CREDENTIAL_UNBOUND`.
+
+```bash
+curl -sS "$API/v1/agents/$AID/credential-bindings" "${WEB[@]}" -d '{"credential_ref": "notion-token"}' \
+  | jq '{credential_ref: .binding.credential_ref, created}'
+curl -sS "$API/v1/agents/$AID/credential-bindings" "${WEB[@]}" | jq -c '[.items[].credential_ref]'
+```
+
+```text
+{
+  "credential_ref": "notion-token",
+  "created": true
+}
+["notion-token"]
+```
+
+Removing a binding (`DELETE /v1/agents/{id}/credential-bindings/{binding_id}`) does not stop running sessions. It blocks starting with the next session. To block immediately, revoke that credential at the external service.
+
+## Next steps
+
+- [Waiting for approval and resuming](/sessions/waiting-and-resume): Answer a permission request
+- [API key](/api-keys): Personal keys, service keys, and agent-only keys
