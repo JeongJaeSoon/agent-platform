@@ -6,7 +6,7 @@ workspace 멤버 초대·관리, 팀, Slack 계정 연동, 권한별 API key와 
 
 - `a-member-lifecycle` owner 웹 로그인 → 초대 → 수락·로그인 → 역할 변경(admin 포함. admin은 owner 역할을 주거나 owner를 바꾸지 못해 `403 OWNER_PROTECTED`, 마지막 owner는 내리거나 비활성하지 못해 `409 LAST_OWNER`) → 비활성화하면 그 사람의 cookie와 개인 key는 401, 그 사람이 발급한 서비스 key는 계속 200 → 재활성화해도 끊긴 cookie·개인 key는 돌아오지 않고 다시 로그인한다.
 - `b-teams` 팀 생성 → 구성원 추가·제거(수락 없이, 그 사람을 대상으로 한 receipt가 알림 기록) → 팀을 에이전트 관리자로 지정 → 팀원은 그 에이전트를 관리하고, 팀에서 빠지거나 팀이 지워지면 다음 요청부터 403. owner·admin만 팀을 바꾼다.
-- `c-slack-signin` Sign in with Slack 연결·목록·해제와 처리 시점 재판정. 실제 Slack 동의는 사람이 하고(`docs/operations.md` § Slack 계정 연결의 확인 절차), 자동 확인은 mock IdP로 한다.
+- `c-slack-signin` Sign in with Slack 연결·목록·해제와 처리 시점 재판정. 실제 Slack 동의는 사람이 하고(`docs/operator/api-server.md` § Slack 계정 연결의 확인 절차), 자동 확인은 mock IdP로 한다.
 - `c-slack-decision` 연결한 사람만 Slack에서 쓴다: 멘션·승인 버튼의 판정(`authorizeSlackInput`), 거절 안내 문구, guest 사용 설정(`POST /v1/workspaces/{id}/slack-guest`), Slack Connect 거절, 요약 상한 채널의 `redact`. Slack 채널(이벤트 수신)이 없어 판정은 api 컨테이너에서 함수로 부른다.
 - `d-scoped-keys` member는 개인 key만, owner·admin은 서비스 key, 에이전트 관리자(그 에이전트를 만든 사람)는 그 에이전트 전용 서비스 key를 `POST /v1/api-keys`로 발급한다. 권한이 없으면 403과 `details.reason_code`. 에이전트 전용 key는 그 에이전트의 세션만 만들고 읽는다. 발급자의 지금 scope를 넘는 key는 403 `SCOPE_NOT_GRANTABLE`. API key로는 발급하지 못한다. 발급자를 내보내면 개인 key는 멈추고 서비스 key는 계속 동작한다.
 - `f-credential-bindings` 에이전트 관리자가 card의 `credential_refs` 이름을 그 에이전트에 연결(`POST /v1/agents/{id}/credential-bindings`)해야 활성화가 된다. 해제하면 실행 중 세션은 그대로 두고(`running_sessions`, `revoke_notice`) 다음 세션 생성이 `409 CREDENTIAL_UNBOUND`(안내 문구·관리자·`mailto:` 링크)다.

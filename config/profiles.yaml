@@ -23,7 +23,7 @@
 # model served on your own hardware): its sessions are recorded at no cost
 # and run with no dollar limit. Only a private address or a name public DNS
 # does not serve is accepted; that the endpoint really is unbilled is yours
-# to make sure of (docs/operations.md).
+# to make sure of (docs/operator/configuration.md).
 #
 # The example below is the real Messages API with the caller's
 # ANTHROPIC_API_KEY, which the local stack hands to the API alone

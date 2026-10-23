@@ -1,0 +1,77 @@
+---
+title: "요청"
+description: 세션이 만든 commit을 저장소의 agent/<session-id> 브랜치로 내보내 달라고 요청한다
+---
+
+세션은 저장소에 직접 push하지 않는다. 세션의 작업은 checkpoint에 commit으로 남고, 그 commit을 저장소로 내보내려면 push 요청을 만든다. `sessions:approve`를 가진 사람이 [승인](/approvals/approve)해야 플랫폼(API)이 push한다. 요청에는 `sessions:write`가 필요하다.
+
+| 상태 | 뜻 |
+| --- | --- |
+| `requested` | 결정을 기다린다 |
+| `approved` → `pushing` | 승인됐고 플랫폼이 push하고 있다 |
+| `pushed` | 저장소에 브랜치가 생겼거나 갱신됐다 |
+| `rejected` | 거부됐다 |
+| `failed` | push하지 못했다. 이유는 [receipt](/approvals/receipt)에 있다 |
+
+## 파일을 바꾸는 세션 준비
+
+[Quickstart](/getting-started/quickstart)의 `API`와 `KEY`를 쓴다. 이 대본은 저장소의 `README.md`에 한 줄을 더하고, 권한 요청을 허락하면 turn이 끝난다.
+
+```bash
+SID=$(curl -sS "$API/v1/sessions" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg m 'GATE-SPEC {"id":"note","steps":[{"tool":"Bash","input":{"command":"echo tested >> README.md","description":"append to README.md"}}],"final":"updated README.md"}' \
+    '{profile_id: "claude-coding-local", repository_id: "sample-app", message: $m}')" \
+  | jq -r .session_id)
+until [ "$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq -r .status)" = needs_input ]; do
+  sleep 2
+done
+REQ=$(curl -sS "$API/v1/sessions/$SID/pending-requests" -H "Authorization: Bearer $KEY" | jq -r '.items[0].request_id')
+curl -sS "$API/v1/sessions/$SID/answers" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg r "$REQ" '{request_id: $r, kind: "permission", decision: "allow"}')" > /dev/null
+until [ "$(curl -sS "$API/v1/sessions/$SID/turns/1" -H "Authorization: Bearer $KEY" | jq -r .status)" = completed ]; do
+  sleep 2
+done
+```
+
+## 요청하기
+
+본문은 비워서(`{}`) 보낸다. 무엇을 어디로 보낼지는 요청하는 사람이 고르지 않는다. 플랫폼이 그때 세션의 최신 checkpoint와 그 commit, 세션의 저장소, 브랜치 `agent/<session-id>`를 고정한다.
+
+```bash
+push=$(curl -sS "$API/v1/sessions/$SID/push-requests" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d '{}')
+echo "$push" | jq '{state, repository_id, checkpoint_revision, git_commit, target_branch}'
+PUSH_ID=$(echo "$push" | jq -r .id)
+PUSH_COMMIT=$(echo "$push" | jq -r .git_commit)
+```
+
+```text
+{
+  "state": "requested",
+  "repository_id": "sample-app",
+  "checkpoint_revision": 0,
+  "git_commit": "…",
+  "target_branch": "agent/…"
+}
+```
+
+응답은 201이다. `GET /v1/sessions/{id}/push-requests`로 세션의 요청 목록을, `GET …/push-requests/{push_request_id}`로 요청 하나를 본다.
+
+| 응답 | 뜻 |
+| --- | --- |
+| 409 `PUSH_SOURCE_MISSING` | 세션에 저장소나 checkpoint가 아직 없다 |
+| 409 `PUSH_REQUEST_OPEN` | 열린 요청(`requested`·`approved`·`pushing`)이 이미 있다. 세션마다 하나다 |
+
+## 다음 단계
+
+- [승인](/approvals/approve): 고정된 commit을 확인하고 승인한다
+- [거부](/approvals/reject)

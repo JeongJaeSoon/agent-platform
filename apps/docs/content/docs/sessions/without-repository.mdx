@@ -1,0 +1,24 @@
+---
+title: "저장소 없는 세션"
+description: 저장소 없이 도는 세션의 지금 상태
+---
+
+<Callout type="warn">
+저장소 없이 도는 세션은 아직 API로 만들 수 없다. `POST /v1/sessions`는 `repository_id`가 필수이고, 빈 값은 400이다.
+</Callout>
+
+실행 프로필에는 저장소를 쓰는지가 이미 적혀 있다. `GET /v1/profiles`의 `repository_mode`가 `required`(저장소 필수), `optional`, `none`(저장소 없음) 중 하나다.
+
+```bash
+curl -sS "$API/v1/profiles" -H "Authorization: Bearer $KEY" | jq -c '.items[] | {id, repository_mode}'
+```
+
+```text
+{"id":"claude-coding-local","repository_mode":"required"}
+```
+
+로컬 스택의 프로필은 모두 `required`다. 지금은 세션마다 저장소를 하나 고른다([시작](/sessions/start)).
+
+## 다음 단계
+
+- [보내기](/messages/send): 세션에 메시지 보내기

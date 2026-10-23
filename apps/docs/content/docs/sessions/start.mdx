@@ -1,0 +1,93 @@
+---
+title: "시작"
+description: 세션 생성 요청의 필드, 응답, 재시도와 오류
+---
+
+세션은 저장소 하나와 실행 프로필 하나로 도는 대화다. 세션을 만들면 첫 메시지가 turn 1로 접수되고, scheduler가 그 세션의 worker 컨테이너를 띄운다. scope는 `sessions:write`다.
+
+## 만들기
+
+```bash
+created=$(curl -sS "$API/v1/sessions" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg m 'GATE-SPEC {"id":"start","steps":[],"final":"started"}' \
+    '{profile_id: "claude-coding-local", repository_id: "sample-app", message: $m}')")
+echo "$created" | jq .
+SID=$(echo "$created" | jq -r .session_id)
+```
+
+```text
+{
+  "session_id": "…",
+  "turn_id": "1",
+  "receipt_id": "…",
+  "receipt_status": "accepted",
+  "status": "queued"
+}
+```
+
+| 필드 | 필수 | 내용 |
+| --- | --- | --- |
+| `profile_id` | 예 | 실행 프로필 id([실행 프로필 고르기](/agents/run-profiles)) |
+| `repository_id` | 예 | 카탈로그의 저장소 id. worker가 이 저장소를 clone한다 |
+| `message` | 예 | 첫 turn의 입력. UTF-8 32,768바이트까지 |
+| `model` | | 프로필이 허용한 모델 중 하나. 빼면 기본 모델 |
+| `agent_release_id` | | 이 세션을 에이전트 release에 묶는다([만들기](/agents/create#세션에-묶기)) |
+
+응답은 201이다. 접수만 된 것이고 결과는 turn 조회로 본다([상태와 수명](/sessions/lifecycle)).
+
+## Idempotency-Key
+
+세션 API의 모든 POST에는 `Idempotency-Key` 헤더가 필요하다. 없으면 400이다. 응답을 받지 못했으면 **같은 key와 같은 본문**으로 다시 보낸다. 서버는 명령을 한 번만 실행한다. 세션 생성과 메시지는 처음 응답을 그대로 돌려주고, interrupt 같은 제어는 그 receipt의 지금 상태를 돌려준다. 같은 key에 다른 본문이면 409 `IDEMPOTENCY_CONFLICT`다.
+
+```bash
+IDEM=$(uuidgen)
+BODY=$(jq -nc --arg m 'GATE-SPEC {"id":"retry","steps":[],"final":"once"}' \
+  '{profile_id: "claude-coding-local", repository_id: "sample-app", message: $m}')
+first=$(curl -sS "$API/v1/sessions" -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $IDEM" -d "$BODY")
+second=$(curl -sS "$API/v1/sessions" -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $IDEM" -d "$BODY")
+[ "$(echo "$first" | jq -r .session_id)" = "$(echo "$second" | jq -r .session_id)" ] && echo "same session"
+```
+
+```text
+same session
+```
+
+새 의도에는 새 key를 쓴다. timeout 뒤 새 key로 보내면 세션이 둘 생길 수 있다.
+
+## 목록 보기
+
+```bash
+curl -sS "$API/v1/sessions?limit=5" -H "Authorization: Bearer $KEY" | jq -c '.items[] | {id, status}'
+```
+
+`limit`, `cursor`(응답의 `next_cursor`), `status`로 거른다. key가 볼 수 있는 세션만 나온다.
+
+## 오류
+
+오류 본문은 모든 API가 같은 모양이다. `retryable`이 `true`일 때만 같은 key로 다시 보낼 만하다.
+
+```text
+{"error":{"code":"UNSUPPORTED_CAPABILITY","message":"Profile claude-coding-local does not offer model claude-opus-9","retryable":false,"request_id":"…","details":null}}
+```
+
+| 응답 | 뜻 |
+| --- | --- |
+| 400 | 본문이 schema와 다르거나 `Idempotency-Key`가 없다 |
+| 401 | key가 없거나 틀렸거나 폐기됐다 |
+| 403 | key에 `sessions:write`가 없다 |
+| 409 `IDEMPOTENCY_CONFLICT` | 같은 key에 다른 본문 |
+| 413 | 메시지가 32,768바이트를 넘는다. 저장소 상한이면 `STORAGE_LIMIT_EXCEEDED` |
+| 422 `UNSUPPORTED_CAPABILITY` | 프로필이나 저장소가 없거나, 그 짝이 허용되지 않았거나, 모델을 프로필이 허용하지 않는다 |
+| 429 `RATE_LIMITED` | 잠시 뒤 다시 보낸다 |
+
+실행 slot이 모자라면 거절하지 않는다. 세션이 `queued`로 기다린다.
+
+## 다음 단계
+
+- [상태와 수명](/sessions/lifecycle): 세션과 turn의 상태
+- [보내기](/messages/send): 같은 세션에 메시지 더 보내기

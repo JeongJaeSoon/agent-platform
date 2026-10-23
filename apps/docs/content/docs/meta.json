@@ -1,0 +1,18 @@
+{
+  "pages": [
+    "index",
+    "getting-started",
+    "agents",
+    "sessions",
+    "messages",
+    "approvals",
+    "integrations",
+    "api-keys",
+    "observability",
+    "sdk",
+    "ui",
+    "reference",
+    "operations",
+    "contributing"
+  ]
+}
