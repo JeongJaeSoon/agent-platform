@@ -395,6 +395,42 @@ export function createPostgresSlackAppStore(
       return row ? recordOf(db, row) : null;
     },
 
+    async findAgentApp(agentId) {
+      if (!UUID.test(agentId)) return null;
+      const [row] = await db
+        .select()
+        .from(slackApps)
+        .where(
+          and(
+            eq(slackApps.agentId, agentId.toLowerCase()),
+            eq(slackApps.kind, "agent"),
+            eq(slackApps.state, "created"),
+          ),
+        )
+        // Agent ids are unique across workspaces; the limit only guards it.
+        .limit(1);
+      return row ? recordOf(db, row) : null;
+    },
+
+    manifestAgent(workspaceId, agentId) {
+      if (!UUID.test(agentId)) return Promise.resolve(null);
+      return db.transaction(async (tx) => {
+        const agent = await agentForApp(
+          tx,
+          workspaceId.toLowerCase(),
+          agentId.toLowerCase(),
+        );
+        return agent === null
+          ? null
+          : {
+              id: agent.id,
+              name: agent.name,
+              slug: agent.slug,
+              role: agent.role,
+            };
+      });
+    },
+
     async findForAgent(workspaceId, agentId) {
       if (!UUID.test(agentId)) return null;
       const [row] = await db

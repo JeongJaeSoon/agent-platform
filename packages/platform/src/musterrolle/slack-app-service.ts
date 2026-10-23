@@ -129,6 +129,8 @@ export function createSlackAppService(deps: {
   api: SlackConfigApi;
   /** The console's origin, from SLACK_OIDC_REDIRECT_URI; null when unset. */
   consoleOrigin: string | null;
+  /** After an agent's app is created or deleted: drops its cached secret. */
+  onAgentAppChanged?: (agentId: string) => void;
   now?: () => Date;
   newId?: () => string;
 }) {
@@ -259,6 +261,7 @@ export function createSlackAppService(deps: {
       created: created.app,
       tokenUserId: created.tokenUserId,
     });
+    deps.onAgentAppChanged?.(agentId);
     const warnings: SlackWarning[] =
       previousTokenUser !== null && previousTokenUser !== created.tokenUserId
         ? [
@@ -361,11 +364,9 @@ export function createSlackAppService(deps: {
             : answerLost("apps.manifest.delete");
         }
       }
-      return {
-        slack_app: slackAppView(
-          await apps.finishDelete(workspaceId, slackAppId),
-        ),
-      };
+      const deleted = await apps.finishDelete(workspaceId, slackAppId);
+      if (deleted.agentId !== null) deps.onAgentAppChanged?.(deleted.agentId);
+      return { slack_app: slackAppView(deleted) };
     },
 
     /**

@@ -8,6 +8,21 @@ import {
 import { agentIdentitySchema, slackIdSchema } from "./agent-identities.ts";
 import { slackAppSchema } from "./slack-apps.ts";
 
+/**
+ * `events_url_unset`: SLACK_EVENTS_PUBLIC_URL is not set, so the app's event
+ * subscription was not registered. `reinstall_required`: Slack answered the
+ * manifest update with `permissions_updated`, so the app must be installed
+ * again before the new scopes apply.
+ */
+export const SLACK_FINALIZE_WARNING_VALUES = [
+  "events_url_unset",
+  "reinstall_required",
+] as const;
+export const slackFinalizeWarningSchema = z
+  .object({ code: z.enum(SLACK_FINALIZE_WARNING_VALUES) })
+  .strict();
+export type SlackFinalizeWarning = z.infer<typeof slackFinalizeWarningSchema>;
+
 /** How long an install link's `state` can be completed. */
 export const SLACK_INSTALL_STATE_TTL_SECONDS = 600;
 
@@ -61,6 +76,8 @@ export const completeSlackInstallResponseSchema = z
     receipt_id: receiptIdSchema.nullable(),
     /** False when the steps after the install failed; the install stands. */
     finalized: z.boolean(),
+    /** What those steps left for a person to do. */
+    warnings: z.array(slackFinalizeWarningSchema),
   })
   .strict();
 

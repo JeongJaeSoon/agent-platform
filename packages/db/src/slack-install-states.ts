@@ -4,6 +4,7 @@ import type { Database } from "./queries.ts";
 import { slackInstallStates } from "./schema.ts";
 import {
   registerSlackInstallation,
+  revokeSlackInstallation,
   verifySlackInstallation,
 } from "./slack-installations.ts";
 
@@ -65,6 +66,10 @@ export function createPostgresSlackInstallStore(
       }
       if (verified.outcome === "revoked") return { outcome: "revoked" };
       return { outcome: "verified", installationId: verified.installation.id };
+    },
+
+    async revokeInstallation(key) {
+      return (await revokeSlackInstallation(db, key)).outcome;
     },
   };
 }
