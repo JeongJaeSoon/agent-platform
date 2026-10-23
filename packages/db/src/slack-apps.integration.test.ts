@@ -614,5 +614,84 @@ integration("Slack apps and the config token on PostgreSQL", () => {
         clientSecretRef: null,
       });
     });
+
+    const beginLink = (
+      workspaceId: string,
+      actor: Parameters<
+        ReturnType<typeof store>["beginLinkApp"]
+      >[0]["actor"] = null,
+    ) =>
+      store().beginLinkApp({
+        workspaceId,
+        actor,
+        redirectUrl: `${ORIGIN}/settings/linked-accounts/slack`,
+        newId: randomUUID(),
+        staleBefore: new Date(Date.now() - 60_000),
+        replaceUncertain: false,
+      });
+
+    test("two link app requests at once begin one creation, named after the workspace", async () => {
+      const workspaceId = await workspace();
+      const results = await Promise.all([
+        beginLink(workspaceId),
+        beginLink(workspaceId),
+      ]);
+      expect(results.map((result) => result.outcome).sort()).toEqual([
+        "begun",
+        "creating",
+      ]);
+      const begun = results.find((result) => result.outcome === "begun");
+      expect(begun).toMatchObject({
+        workspaceName: "Acme",
+        app: { kind: "link", agentId: null, state: "creating" },
+      });
+      expect(await beginLink(randomUUID())).toEqual({
+        outcome: "workspace_not_found",
+      });
+    });
+
+    test("an explicit link app request reads the actor's role again: a member is outranked", async () => {
+      const workspaceId = await workspace();
+      const member = await person(workspaceId, "member");
+      expect(
+        await beginLink(workspaceId, {
+          principal: member.principal,
+          managerRoles: MANAGERS,
+        }),
+      ).toEqual({ outcome: "outranked" });
+      const admin = await person(workspaceId, "admin");
+      expect(
+        await beginLink(workspaceId, {
+          principal: admin.principal,
+          managerRoles: MANAGERS,
+        }),
+      ).toMatchObject({ outcome: "begun" });
+    });
+
+    test("the link app's client is opened only once it is created", async () => {
+      const slack = fakeSlack();
+      const { workspaceId } = await withToken(slack);
+      const begun = await beginLink(workspaceId);
+      if (begun.outcome !== "begun") throw new Error("not begun");
+      expect(await store().linkAppClient(workspaceId)).toBeNull();
+      const created = {
+        appId: `${slack.state.userId}LINK`,
+        clientId: "1000.9",
+        clientSecret: randomBytes(16).toString("hex"),
+        signingSecret: randomBytes(16).toString("hex"),
+      };
+      await store().finishCreate({
+        workspaceId,
+        slackAppId: begun.app.id,
+        created,
+        tokenUserId: "U0ISSUER",
+      });
+      expect(await store().linkAppClient(workspaceId)).toMatchObject({
+        app: { id: begun.app.id, kind: "link", clientId: "1000.9" },
+        clientSecret: created.clientSecret,
+      });
+      expect(await store().linkAppClient(await workspace())).toBeNull();
+      expect(await slackAppKind(db, workspaceId, begun.app.id)).toBe("link");
+    });
   });
 });
