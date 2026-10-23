@@ -367,6 +367,8 @@ describe("OpenAPI document", () => {
         "/v1/agents/{id}/releases",
         "/v1/agents/{id}/slack-bindings",
         "/v1/agents/{id}/slack/app",
+        "/v1/agents/{id}/slack/install/start",
+        "/v1/slack/install/complete",
         "/v1/api-keys",
         "/v1/api-keys/{id}",
         "/v1/agents/{id}/admins",

@@ -46,9 +46,7 @@ function renderMembers(invite: () => Response = created) {
 
 async function open() {
   const user = await setupUser();
-  await user.click(
-    await screen.findByRole("button", { name: "초대 링크 만들기" }),
-  );
+  await user.click(await screen.findByRole("button", { name: "구성원 초대" }));
   const dialog = await screen.findByRole("dialog");
   return { user, dialog };
 }
@@ -154,7 +152,7 @@ describe("초대 보내기 대화상자", () => {
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(document.activeElement).toBe(
-      screen.getByRole("button", { name: "초대 링크 만들기" }),
+      screen.getByRole("button", { name: "구성원 초대" }),
     );
   });
 
@@ -272,7 +270,7 @@ describe("복사하지 않은 링크를 두고 나가기", () => {
     );
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(document.activeElement).toBe(
-      screen.getByRole("button", { name: "초대 링크 만들기" }),
+      screen.getByRole("button", { name: "구성원 초대" }),
     );
   });
 

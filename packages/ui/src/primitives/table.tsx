@@ -18,11 +18,21 @@ const CELL_PADDING_X =
  * wrapped, and every labelled button in it at least --ap-row-action-min-width
  * wide so the column does not jump when a label changes ("disable" ↔
  * "enable"). An icon button keeps its own square size.
+ *
+ * `nowrap` is a date, number or badge column: as narrow as its content and
+ * never wrapped. `text` is the long-text column: it takes the width the other
+ * columns leave, down to --ap-row-text-min-width, and the lines after the
+ * first in its RowLines end in "…" instead of wrapping, so every row keeps one
+ * height. `max-w-0` stops auto layout from widening the column to the text,
+ * which is what lets the ellipsis appear. The ellipsis is visual only; give
+ * the line a `title` with the full text (until Tooltip lands).
  */
 const CELL_VARIANT = {
   default: "",
   actions:
-    "w-px whitespace-nowrap [&_[data-slot=button]:not([data-size=icon])]:min-w-[var(--ap-row-action-min-width)]",
+    "w-px whitespace-nowrap [&_[data-slot=button]:not([data-size^=icon])]:min-w-[var(--ap-row-action-min-width)]",
+  nowrap: "w-px whitespace-nowrap",
+  text: "w-full min-w-[var(--ap-row-text-min-width)] max-w-0 [&_[data-slot=row-lines]>*:not(:first-child)]:truncate",
 } as const;
 
 export type TableCellVariant = keyof typeof CELL_VARIANT;
@@ -128,7 +138,7 @@ export function TableHead({
       data-variant={variant}
       className={cn(
         CELL_PADDING_X,
-        "py-[var(--ap-row-head-padding-y)] text-left align-middle font-medium text-caption text-muted-foreground",
+        "py-[var(--ap-row-head-padding-y)] text-left align-middle font-medium text-caption text-subtle-foreground",
         CELL_VARIANT[variant],
         className,
       )}

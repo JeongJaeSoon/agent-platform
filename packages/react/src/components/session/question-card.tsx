@@ -14,8 +14,15 @@ import {
   Textarea,
   type TimestampLocale,
 } from "@werft-ai/ui";
-import { Hourglass } from "lucide-react";
-import { type FormEvent, type JSX, useId, useState } from "react";
+import { ChevronDown, Hourglass } from "lucide-react";
+import {
+  type FormEvent,
+  type JSX,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
 
 import { useExpired, useExpiryFocus } from "./expiry.ts";
 
@@ -121,7 +128,7 @@ export function QuestionCard({
       data-slot="question-card"
       data-expired={expired || undefined}
       className={cn(
-        "flex min-w-0 flex-col gap-3 rounded-card border border-[var(--ap-tone-attention-border)] bg-[var(--ap-tone-attention-bg)] p-4 text-control",
+        "flex min-w-0 max-w-[var(--ap-w-narrow)] flex-col gap-3 rounded-card border border-[var(--ap-tone-attention-border)] bg-[var(--ap-tone-attention-bg)] p-4 text-control",
         className,
       )}
       {...within}
@@ -146,7 +153,7 @@ export function QuestionCard({
             : messages.expires(formatTimestamp(request.expires_at, locale))}
         </p>
       </div>
-      <form className="flex flex-col gap-3" onSubmit={submit} noValidate>
+      <form className="flex flex-col gap-4" onSubmit={submit} noValidate>
         {request.questions.map((question) => (
           <QuestionFields
             key={question.question_id}
@@ -166,7 +173,7 @@ export function QuestionCard({
         {expired ? null : (
           <Button
             type="submit"
-            className="w-full"
+            className="self-end"
             disabled={pending || disabled}
           >
             {messages.submit}
@@ -195,22 +202,18 @@ function QuestionFields({
   const legendId = useId();
   const options = question.options;
   return (
-    <FieldSet className="m-0 gap-3 border-0 p-0">
+    <FieldSet className="m-0 gap-2 border-0 p-0">
       <FieldLegend
         id={legendId}
         variant="label"
-        className="mb-3 text-body [overflow-wrap:anywhere]"
+        className="mb-2 text-body [overflow-wrap:anywhere]"
       >
         {question.prompt}
       </FieldLegend>
       {options.length === 0 ? null : question.multi_select ? (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-wrap gap-2">
           {options.map((option) => (
-            <Field
-              key={option.option_id}
-              orientation="horizontal"
-              className="min-h-8 text-control"
-            >
+            <FieldLabel key={option.option_id} className={CHIP}>
               <Checkbox
                 disabled={disabled}
                 checked={draft.selected.includes(option.option_id)}
@@ -225,31 +228,27 @@ function QuestionFields({
                   })
                 }
               />
-              <FieldLabel className="text-control">{option.label}</FieldLabel>
-            </Field>
+              {option.label}
+            </FieldLabel>
           ))}
         </div>
       ) : (
         <RadioGroup
           aria-labelledby={legendId}
-          className="gap-2"
+          className="flex flex-wrap gap-2"
           disabled={disabled}
           value={draft.selected[0] ?? ""}
           onValueChange={(value) => onChange({ selected: [value] })}
         >
           {options.map((option) => (
-            <Field
-              key={option.option_id}
-              orientation="horizontal"
-              className="min-h-8 text-control"
-            >
+            <FieldLabel key={option.option_id} className={CHIP}>
               <RadioGroupItem value={option.option_id} />
-              <FieldLabel className="text-control">{option.label}</FieldLabel>
-            </Field>
+              {option.label}
+            </FieldLabel>
           ))}
         </RadioGroup>
       )}
-      {question.allow_free_text ? (
+      {!question.allow_free_text ? null : options.length === 0 ? (
         <Field>
           <FieldLabel>{freeTextLabel}</FieldLabel>
           <Textarea
@@ -258,8 +257,88 @@ function QuestionFields({
             onChange={(event) => onChange({ text: event.target.value })}
           />
         </Field>
-      ) : null}
+      ) : (
+        <FreeText
+          label={freeTextLabel}
+          text={draft.text}
+          onChange={(text) => onChange({ text })}
+          disabled={disabled}
+          unanswered={unanswered !== undefined}
+        />
+      )}
       <FieldError>{unanswered}</FieldError>
     </FieldSet>
+  );
+}
+
+// The label wraps its control, so the whole chip toggles it; `relative` keeps
+// Radix's hidden form input inside the chip.
+const CHIP =
+  "relative min-h-[var(--ap-control-height)] max-w-full cursor-pointer rounded-control border border-input bg-card px-3 py-1 text-control [overflow-wrap:anywhere] has-disabled:cursor-not-allowed has-disabled:opacity-50";
+
+/** Free text beside options starts folded; folding keeps what was written. */
+function FreeText({
+  label,
+  text,
+  onChange,
+  disabled,
+  unanswered,
+}: {
+  readonly label: string;
+  readonly text: string;
+  readonly onChange: (text: string) => void;
+  readonly disabled: boolean;
+  readonly unanswered: boolean;
+}) {
+  const toggleId = useId();
+  const textId = useId();
+  const textRef = useRef<HTMLTextAreaElement>(null);
+  const focusOnOpen = useRef(false);
+  const [open, setOpen] = useState(text !== "");
+  // The way to answer an unanswered question has to be in sight.
+  if (unanswered && !open) setOpen(true);
+
+  useEffect(() => {
+    if (open && focusOnOpen.current) textRef.current?.focus();
+    focusOnOpen.current = false;
+  }, [open]);
+
+  return (
+    <>
+      <Button
+        id={toggleId}
+        type="button"
+        variant="link"
+        size="sm"
+        className="self-start px-0 text-muted-foreground hover:text-foreground"
+        aria-expanded={open}
+        aria-controls={textId}
+        disabled={disabled}
+        onClick={() => {
+          focusOnOpen.current = !open;
+          setOpen(!open);
+        }}
+      >
+        <ChevronDown
+          className={cn(
+            "transition-transform motion-reduce:transition-none",
+            open && "rotate-180",
+          )}
+          aria-hidden="true"
+        />
+        {label}
+      </Button>
+      <Textarea
+        ref={textRef}
+        id={textId}
+        aria-labelledby={toggleId}
+        hidden={!open}
+        // The textarea's own `flex` would beat the attribute.
+        className={cn(!open && "hidden")}
+        disabled={disabled}
+        value={text}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </>
   );
 }

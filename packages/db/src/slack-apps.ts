@@ -340,6 +340,34 @@ export function createPostgresSlackAppStore(
       });
     },
 
+    storeBotToken(input) {
+      return db.transaction(async (tx) => {
+        const row = await lockedApp(
+          tx,
+          input.workspaceId.toLowerCase(),
+          input.slackAppId.toLowerCase(),
+        );
+        if (!row || row.state !== "created") return null;
+        await writeSecretInTx(
+          tx,
+          key,
+          secretSlot(row, "slack_bot_token"),
+          input.botToken,
+          null,
+        );
+        const [updated] = await tx
+          .update(slackApps)
+          .set({
+            botTokenRef: slackAppSecretRef(row.id, "slack_bot_token"),
+            updatedAt: DB_NOW,
+          })
+          .where(eq(slackApps.id, row.id))
+          .returning();
+        if (!updated) throw new Error("slack_apps update returned no row");
+        return recordOf(tx, updated);
+      });
+    },
+
     async failCreate(workspaceId, slackAppId) {
       await db
         .update(slackApps)
