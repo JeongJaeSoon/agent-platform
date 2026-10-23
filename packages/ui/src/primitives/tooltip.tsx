@@ -10,6 +10,7 @@ import {
   useContext,
   useEffect,
   useId,
+  useReducer,
   useRef,
   useState,
 } from "react";
@@ -25,7 +26,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "./popover.tsx";
  * hidden copy that is there while the note is closed too.
  */
 
-type OpenedBy = "hover" | "focus" | "press";
+type OpenedBy = "hover" | "focus";
 
 interface TooltipContextValue {
   readonly show: (by: OpenedBy) => void;
@@ -59,28 +60,36 @@ export function Tooltip({
   children,
 }: TooltipProps): JSX.Element {
   const [uncontrolled, setUncontrolled] = useState(defaultOpen);
+  const [, rerender] = useReducer((count: number) => count + 1, 0);
   const open = openProp ?? uncontrolled;
+  // What opened the note now showing; null when it opened any other way
+  // (defaultOpen, a parent's `open`, a press), so the next press closes it.
   const openedBy = useRef<OpenedBy | null>(null);
+  // What asked to open it, kept only until the render that answers: a
+  // controlling parent may decline, or open it later for its own reasons.
+  const requestedBy = useRef<OpenedBy | null>(null);
+  const wasOpen = useRef(open);
   const pressed = useRef(false);
   const trigger = useRef<HTMLElement | null>(null);
   const content = useRef<HTMLElement | null>(null);
   const descriptionId = useId();
 
-  // However it closed, a controlling parent included, the next opening
-  // starts without an opener.
   useEffect(() => {
-    if (!open) openedBy.current = null;
-  }, [open]);
+    if (open !== wasOpen.current)
+      openedBy.current = open ? requestedBy.current : null;
+    wasOpen.current = open;
+    requestedBy.current = null;
+  });
 
   const setOpen = (next: boolean) => {
-    if (!next) openedBy.current = null;
     if (openProp === undefined) setUncontrolled(next);
+    // A parent that declines re-renders nothing; this render lets the effect
+    // above drop the request.
+    else rerender();
     if (next !== open) onOpenChange?.(next);
   };
   const show = (by: OpenedBy) => {
-    // A note already open (defaultOpen, a parent's `open`) keeps no opener,
-    // so the next press closes it.
-    if (!open) openedBy.current = by;
+    if (!open) requestedBy.current = by;
     setOpen(true);
   };
   const hide = () => setOpen(false);
@@ -91,14 +100,10 @@ export function Tooltip({
     pressed.current = false;
     // A press on a note that hover or focus opened pins it rather than
     // closing it: a mouse hovers before it clicks, and a tap focuses first.
-    if (
-      open &&
-      (openedBy.current === "hover" || openedBy.current === "focus")
-    ) {
-      openedBy.current = "press";
+    if (open && openedBy.current !== null) {
+      openedBy.current = null;
       return;
     }
-    if (next) openedBy.current = "press";
     setOpen(next);
   };
 
@@ -120,9 +125,23 @@ function within(
   return target instanceof Node && (element.current?.contains(target) ?? false);
 }
 
-function assignRef<T>(ref: Ref<T> | undefined, node: T | null): void {
-  if (typeof ref === "function") ref(node);
-  else if (ref) ref.current = node;
+// Keeps a React 19 callback ref's returned cleanup, which runs instead of
+// the ref being called with null.
+function mergeRef<T>(
+  local: { current: T | null },
+  ref: Ref<T> | undefined,
+): (node: T | null) => () => void {
+  return (node) => {
+    local.current = node;
+    const cleanup = typeof ref === "function" ? ref(node) : undefined;
+    if (ref && typeof ref !== "function") ref.current = node;
+    return () => {
+      local.current = null;
+      if (typeof cleanup === "function") cleanup();
+      else if (typeof ref === "function") ref(null);
+      else if (ref) ref.current = null;
+    };
+  };
 }
 
 function describedBy(...ids: unknown[]): string {
@@ -157,10 +176,7 @@ export function TooltipTrigger({
     <PopoverTrigger
       {...props}
       asChild={asChild === true}
-      ref={(node) => {
-        tooltip.trigger.current = node;
-        assignRef(ref, node);
-      }}
+      ref={mergeRef(tooltip.trigger, ref)}
       // A description, not a popup the trigger controls.
       aria-haspopup={false}
       aria-expanded={undefined}
@@ -217,10 +233,7 @@ export function TooltipContent({
       </span>
       <PopoverContent
         {...props}
-        ref={(node) => {
-          tooltip.content.current = node;
-          assignRef(ref, node);
-        }}
+        ref={mergeRef(tooltip.content, ref)}
         // A transparent rim over PopoverContent's 4px sideOffset, so a pointer
         // crossing the gap from the trigger is already on the note. One pixel
         // more than the gap: at exactly 4px the subpixel seam hit <body>.

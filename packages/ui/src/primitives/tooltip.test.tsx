@@ -215,6 +215,49 @@ describe("Tooltip", () => {
     expect(changes.at(-1)).toBe(false);
   });
 
+  test("부모가 거절한 hover 뒤 부모가 직접 연 툴팁은 첫 누르기로 닫힌다", async () => {
+    const user = await setupUser();
+    const changes: boolean[] = [];
+    const view = (open: boolean) => (
+      <Tooltip
+        open={open}
+        onOpenChange={(next) => {
+          changes.push(next);
+        }}
+      >
+        <TooltipTrigger asChild={true}>
+          <button type="button">거절</button>
+        </TooltipTrigger>
+        <TooltipContent>부모가 연 설명</TooltipContent>
+      </Tooltip>
+    );
+    const { getByRole, rerender } = render(view(false));
+    const button = getByRole("button", { name: "거절" });
+    await user.hover(button);
+    expect(changes).toEqual([true]);
+    rerender(view(true));
+    await user.click(button);
+    expect(changes.at(-1)).toBe(false);
+  });
+
+  test("ref가 돌려준 cleanup을 unmount 때 부른다", () => {
+    const calls: string[] = [];
+    const ref = (node: HTMLElement | null) => {
+      calls.push(node ? "attach" : "null");
+      return () => {
+        calls.push("cleanup");
+      };
+    };
+    const { unmount } = render(
+      <Tooltip>
+        <TooltipTrigger ref={ref}>설명</TooltipTrigger>
+        <TooltipContent>내용</TooltipContent>
+      </Tooltip>,
+    );
+    unmount();
+    expect(calls).toEqual(["attach", "cleanup"]);
+  });
+
   test("open을 넘기면 그 값대로 열려 있다", () => {
     render(
       <Tooltip open={true}>
