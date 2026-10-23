@@ -100,7 +100,6 @@ const slackUnavailable = (method: string) =>
   new SessionServiceError(
     "BACKEND_UNAVAILABLE",
     `Slack did not answer ${method}; start the install again`,
-    { afterSeconds: 5 },
   );
 const unsettled = (what: string) =>
   new SessionServiceError(
@@ -159,8 +158,8 @@ export function createSlackInstallService(deps: {
     };
   }
 
-  // The state is spent only after this, so no one without the right to
-  // install this agent's app can use up someone else's link.
+  // The state is spent only after this, so a member, an API key or a
+  // cross-site request cannot use up a link.
   async function permitAgent(caller: Caller, agentId: string) {
     await requirePermitted(authorization, caller, ACTION, {
       kind: "agent",
@@ -370,8 +369,8 @@ export function createSlackInstallService(deps: {
             undefined,
             { reason_code: "role" },
           );
-        default:
-          throw new Error(`identity link answered ${linked.outcome}`);
+        case "not_installed":
+          throw unsettled("The install was revoked while it was linked");
       }
 
       let finalized = true;

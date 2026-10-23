@@ -747,6 +747,24 @@ describe("completing an install", () => {
     ]);
   });
 
+  test("an install revoked before the link is a declared conflict, not a 500", async () => {
+    await setup;
+    const { code: grant, state } = approve(await start(AGENT, owner()));
+    const link = identities.store.link;
+    identities.store.link = async () => ({ outcome: "not_installed" });
+    const response = await complete(owner(), {
+      agent_id: AGENT,
+      state,
+      code: grant,
+    });
+    identities.store.link = link;
+    handled.push(...slack.install.botTokens.keys());
+    expect([response.status, code(response.json).code]).toEqual([
+      409,
+      "REVISION_CONFLICT",
+    ]);
+  });
+
   test("Slack out of reach is a 503 and nothing is stored", async () => {
     await setup;
     const app = appOf(REJECTED_AGENT);
