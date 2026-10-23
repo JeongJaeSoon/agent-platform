@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import type { ReceiptActor } from "@werft-ai/contracts";
 import type {
   AgentContact,
   CredentialBinding,
@@ -12,6 +14,7 @@ import { DB_NOW } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import {
   agentAdmins,
+  agentReleases,
   agents,
   credentialBindings,
   memberships,
@@ -226,6 +229,54 @@ export async function lockUnboundRefs(
       AND b.revoked_at IS NULL
     FOR SHARE OF b`);
   return unboundRefsOn(tx, input.workspaceId, input.releaseId);
+}
+
+/**
+ * The failed receipt of an input refused because the release lost a
+ * binding: on the agent for a session that never started, on the session
+ * for a message it was refused. No credential name: the requester reading
+ * it is told whom to ask, not what is missing.
+ */
+export async function recordUnboundRefusal(
+  tx: Database,
+  input: {
+    ownerId: string;
+    actor: ReceiptActor | null;
+    requestId: string | null;
+    operation: "create_session" | "append_message";
+    releaseId: string;
+    sessionId: string | null;
+  },
+): Promise<{ agentId: string; receiptId: string }> {
+  const [release] = await tx
+    .select({ agentId: agentReleases.agentId })
+    .from(agentReleases)
+    .where(eq(agentReleases.id, input.releaseId))
+    .limit(1);
+  if (!release) throw new Error("A refused input names no stored release");
+  const receiptId = randomUUID();
+  await tx.insert(receipts).values({
+    id: receiptId,
+    ownerId: input.ownerId,
+    actor: input.actor,
+    requestId: input.requestId,
+    operation: input.operation,
+    targetRef:
+      input.sessionId === null
+        ? {
+            resource: { kind: "agent", id: release.agentId },
+            workspace_id: input.ownerId,
+          }
+        : { session_id: input.sessionId, turn_id: null, request_id: null },
+    status: "failed",
+    result: { agent_id: release.agentId, release_id: input.releaseId },
+    error: {
+      code: "CREDENTIAL_UNBOUND",
+      message:
+        "A credential this agent's release uses is no longer bound to the agent",
+    },
+  });
+  return { agentId: release.agentId, receiptId };
 }
 
 export function createPostgresCredentialBindingStore(

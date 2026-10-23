@@ -165,8 +165,24 @@ describe("AgentCard", () => {
     expect(cardHash(all)).not.toBe(cardHash(none));
   });
 
-  test("names no MCP server, since a worker's runtime config has none", () => {
-    for (const mcp of [[], ["notion"]]) {
+  test("names at most one catalog MCP server, and null for none", () => {
+    expect(
+      agentCardSchema.safeParse({
+        ...card,
+        capabilities: {
+          tools: null,
+          mcp: [{ server: "notion" }],
+          forbidden: [],
+        },
+      }).success,
+    ).toBe(true);
+    for (const mcp of [
+      [],
+      ["notion"],
+      [{ server: "notion" }, { server: "fake" }],
+      [{ server: "a__b" }],
+      [{ server: "notion", url: "https://x.test" }],
+    ]) {
       expect(
         agentCardSchema.safeParse({
           ...card,

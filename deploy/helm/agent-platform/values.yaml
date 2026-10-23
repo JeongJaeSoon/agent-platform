@@ -40,6 +40,8 @@ images:
 #   AWS_ACCESS_KEY_ID,
 #   AWS_SECRET_ACCESS_KEY   api, checkpoint GC (the checkpoint object store),
 #                           only while objectStoreKeys is true
+#   PLATFORM_SECRET_KEY     api alone, optional: the master key Slack secrets
+#                           are encrypted under (`openssl rand -hex 32`)
 secrets:
   name: agent-platform
   # Hand the two AWS keys above to the api and the checkpoint GC. false

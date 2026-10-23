@@ -66,7 +66,7 @@ function routes(answer: () => Response) {
     "GET /v1/profiles": () => json(200, { items: [] }),
     [`GET /v1/sessions/${SESSION_ID}`]: () => json(200, detail),
     [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
-      json(200, { items: [] }),
+      json(200, { answerable: true, items: [] }),
     [`GET /v1/sessions/${SESSION_ID}/outputs`]: answer,
     // Held open until the screen lets go, so it does not reconnect.
     [`GET /v1/sessions/${SESSION_ID}/events`]: (request: Request) =>

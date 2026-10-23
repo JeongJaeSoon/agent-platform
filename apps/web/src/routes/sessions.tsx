@@ -12,6 +12,7 @@ import {
 } from "@werft-ai/react/blocks";
 import {
   buttonVariants,
+  EmptyState,
   Field,
   FieldDescription,
   FieldLabel,
@@ -186,9 +187,11 @@ function SessionProfile({ session }: { readonly session: SessionDetailData }) {
       ) : profiles.error ? (
         loadError(profiles.error, () => void profiles.refetch())
       ) : choices.length === 0 ? (
-        <p className="m-0 text-muted-foreground text-body">
-          {current ? t("session.profile.none") : t("session.profile.unknown")}
-        </p>
+        <EmptyState
+          title={
+            current ? t("session.profile.none") : t("session.profile.unknown")
+          }
+        />
       ) : (
         <form className="flex flex-col items-start gap-3" onSubmit={submit}>
           <Field className="w-full [&_[data-slot=native-select-wrapper]]:w-full">

@@ -8,6 +8,7 @@ import {
   type BadgeProps,
   buttonVariants,
   cn,
+  EmptyState,
   formatTimestamp,
 } from "@werft-ai/ui";
 import { agentsQuery } from "../api/queries.ts";
@@ -82,9 +83,8 @@ export function AgentsScreen() {
     <Page
       title={t("agents.title")}
       description={t("agents.intro")}
-      // The top bar's "new" makes an agent; who may not, sees why here.
       actions={
-        failed || reason === undefined ? undefined : (
+        failed ? undefined : (
           <ReasonButton
             className={buttonVariants()}
             reason={reason}
@@ -110,7 +110,7 @@ export function AgentsScreen() {
           />
         )
       ) : agents.data.items.length === 0 ? (
-        <p className="web-page__empty">{t("agents.empty")}</p>
+        <EmptyState title={t("agents.empty")} />
       ) : (
         <div className="@container overflow-hidden rounded-card border bg-card">
           <Table>

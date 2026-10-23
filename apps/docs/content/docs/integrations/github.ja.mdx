@@ -70,7 +70,7 @@ curl -sS "$API/v1/sessions/$SID/push-requests/$FAILED/pull-request" \
 | 409 `PUSH_NOT_PUSHED` | リクエストがまだ `pushed` ではない |
 | 409 `PULL_REQUEST_MISSING` | コメントの前に PR を先に開く必要がある |
 | 409 `CATALOG_MISMATCH` | リクエストの後に運用者がリポジトリ設定を変更した |
-| 403 `FORBIDDEN` | `sessions:approve` がない、または GitHub ではないリポジトリである(`no_forge`) |
+| 403 `FORBIDDEN` | `sessions:approve` がない、セッションを見ているだけで承認する人ではない、または GitHub ではないリポジトリである(`no_forge`) |
 | 503 `BACKEND_UNAVAILABLE` | GitHub 呼び出しがリトライの後も失敗した |
 
 ## 次のステップ

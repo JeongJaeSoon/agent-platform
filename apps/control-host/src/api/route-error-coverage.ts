@@ -99,6 +99,11 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/workspaces/{id}/audit-retention",
     "POST /v1/workspaces/{id}/slack-guest",
   ],
+  "routes/slack-secrets.test.ts": [
+    "GET /v1/workspaces/{id}/slack/config-token",
+    "PUT /v1/workspaces/{id}/slack/config-token",
+    "DELETE /v1/workspaces/{id}/slack/config-token",
+  ],
   "routes/api-keys.test.ts": [
     "POST /v1/api-keys",
     "GET /v1/api-keys",
@@ -135,6 +140,10 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/agents/{id}/identities",
     "GET /v1/agents/{id}/identities",
     "DELETE /v1/agents/{id}/identities/{identity_id}",
+  ],
+  "routes/slack-bindings.test.ts": [
+    "GET /v1/agents/{id}/slack-bindings",
+    "PUT /v1/agents/{id}/slack-bindings",
   ],
 };
 

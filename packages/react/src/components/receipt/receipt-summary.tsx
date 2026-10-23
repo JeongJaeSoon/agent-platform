@@ -53,12 +53,16 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   unbind_credential: "자격 연결 해제",
   link_agent_identity: "에이전트 Slack 앱 연결",
   revoke_agent_identity: "에이전트 Slack 앱 연결 회수",
+  set_surface_binding: "에이전트 Slack 채널 설정",
   share_session: "공유 범위 변경",
   request_push: "push 요청",
   decide_push: "push 승인·거부",
   push: "push",
   open_pull_request: "PR 열기",
   comment_pull_request: "PR 코멘트",
+  call_mcp: "원격 MCP 호출",
+  set_slack_secret: "Slack 비밀값 설정",
+  delete_slack_secret: "Slack 비밀값 삭제",
 };
 
 export type ReceiptTimestamps = Pick<Receipt, "created_at" | "updated_at">;

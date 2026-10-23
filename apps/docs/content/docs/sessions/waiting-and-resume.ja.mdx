@@ -3,7 +3,7 @@ title: "承認待ちと再開"
 description: 権限リクエストと質問に応答し、セッションを pause して resume する
 ---
 
-ターンがツールを実行する前に人の許可を待つ、または人に質問すると、セッションは `needs_input` になる。応答するとターンが続行する。セッションをしばらく休ませたいときは pause し、後で resume する。[開始](/sessions/start)で作った `SID` を引き続き使う。応答するにはキーに `sessions:approve` が、pause・resume には `sessions:control` が必要である。
+ターンがツールを実行する前に人の許可を待つ、または人に質問すると、セッションは `needs_input` になる。応答するとターンが続行する。セッションをしばらく休ませたいときは pause し、後で resume する。[開始](/sessions/start)で作った `SID` を引き続き使う。応答するにはキーに `sessions:approve` が、pause・resume には `sessions:control` が必要である。応答するのは、セッションを作った人、エージェントの管理者、owner・admin だけである([権限](/agents/permissions))。
 
 ## 待機中のリクエスト
 

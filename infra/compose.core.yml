@@ -140,10 +140,10 @@ services:
       # On the forward proxy each would be a way round its route: the
       # provider with a key of the worker's own, outside cost accounting;
       # Gitea without a token; LocalStack, which takes any signature, into
-      # every session's prefix. fake-messages:4010 is config/fake-model's
-      # Messages API.
+      # every session's prefix. fake-messages:4010 and fake-mcp:4020 are
+      # config/fake-model's Messages API and remote MCP server.
       EGRESS_CREDENTIAL_ALLOWLIST: ${EGRESS_CREDENTIAL_ALLOWLIST:-api.anthropic.com:443}
-      EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: ${EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST:-gitea:3000,fake-messages:4010,localstack:4566}
+      EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: ${EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST:-gitea:3000,fake-messages:4010,fake-mcp:4020,localstack:4566}
       EGRESS_AUTHORIZER_TOKEN: *egress-authorizer-token
       LOG_LEVEL: ${LOG_LEVEL:-info}
     extra_hosts:
@@ -248,6 +248,11 @@ services:
       HEARTBEAT_TTL_SEC: ${HEARTBEAT_TTL_SEC:-30}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       PORT: "3000"
+      # The master key Slack secrets are encrypted under (64 hex characters,
+      # docs/operator/api-server.md), passed through by name from the
+      # caller's environment so its value is in no file. Unset leaves the
+      # secret store off. Never given to the worker or the scheduler.
+      PLATFORM_SECRET_KEY:
       # Sign in with Slack, for linking a person's Slack account
       # (docs/operator/api-server.md). Unset keeps linking off; the three are set
       # together. SLACK_OIDC_ISSUER is for a mock IdP only.

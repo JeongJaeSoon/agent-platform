@@ -44,6 +44,7 @@ import {
   createTeamRequestSchema,
   credentialBindingParamsSchema,
   decidePushRequestRequestSchema,
+  deleteSlackSecretResponseSchema,
   deleteTeamResponseSchema,
   getReceiptResponseSchema,
   getSessionResponseSchema,
@@ -74,6 +75,7 @@ import {
   listSessionOutputsResponseSchema,
   listSessionsQuerySchema,
   listSessionsResponseSchema,
+  listSlackBindingsResponseSchema,
   listTakeoversResponseSchema,
   listTeamsResponseSchema,
   listTurnsQuerySchema,
@@ -95,6 +97,10 @@ import {
   postSessionMessageResponseSchema,
   pushRequestParamsSchema,
   pushRequestSchema,
+  putSlackBindingRequestSchema,
+  putSlackBindingResponseSchema,
+  putSlackSecretRequestSchema,
+  putSlackSecretResponseSchema,
   readyResponseSchema,
   receiptAcceptedResponseSchema,
   receiptIdParamsSchema,
@@ -119,6 +125,7 @@ import {
   slackGuestResponseSchema,
   slackLinkCallbackRequestSchema,
   slackLinkCallbackResponseSchema,
+  slackSecretSummarySchema,
   sseEventSchema,
   startGoogleLoginResponseSchema,
   startSlackLinkResponseSchema,
@@ -185,6 +192,7 @@ const requestComponents = {
   GoogleLoginCallbackRequest: googleLoginCallbackRequestSchema,
   AuditRetentionRequest: auditRetentionRequestSchema,
   SlackGuestRequest: slackGuestRequestSchema,
+  PutSlackSecretRequest: putSlackSecretRequestSchema,
   CreateAgentRequest: createAgentRequestSchema,
   UpdateAgentRequest: updateAgentRequestSchema,
   CreateAgentReleaseRequest: createAgentReleaseRequestSchema,
@@ -199,6 +207,7 @@ const requestComponents = {
   AddTeamMemberRequest: addTeamMemberRequestSchema,
   AddAgentAdminRequest: addAgentAdminRequestSchema,
   LinkAgentIdentityRequest: linkAgentIdentityRequestSchema,
+  PutSlackBindingRequest: putSlackBindingRequestSchema,
 } satisfies Record<string, z.ZodType>;
 const responseComponents = {
   ApiErrorResponse: apiErrorResponseSchema,
@@ -245,6 +254,9 @@ const responseComponents = {
   IssuePasswordResetResponse: issuePasswordResetResponseSchema,
   AuditRetentionResponse: auditRetentionResponseSchema,
   SlackGuestResponse: slackGuestResponseSchema,
+  SlackSecretSummary: slackSecretSummarySchema,
+  PutSlackSecretResponse: putSlackSecretResponseSchema,
+  DeleteSlackSecretResponse: deleteSlackSecretResponseSchema,
   PasswordResetResponse: passwordResetResponseSchema,
   AuthMeResponse: authMeResponseSchema,
   InstallationLimitsResponse: installationLimitsResponseSchema,
@@ -275,6 +287,8 @@ const responseComponents = {
   LinkAgentIdentityResponse: linkAgentIdentityResponseSchema,
   ListAgentIdentitiesResponse: listAgentIdentitiesResponseSchema,
   RevokeAgentIdentityResponse: revokeAgentIdentityResponseSchema,
+  ListSlackBindingsResponse: listSlackBindingsResponseSchema,
+  PutSlackBindingResponse: putSlackBindingResponseSchema,
   OpenApiDocument: openApiDocumentResponseSchema,
 } satisfies Record<string, z.ZodType>;
 
@@ -390,7 +404,7 @@ export const OPENAPI_TAG_GROUPS = [
 ] as const satisfies readonly { name: string; tags: readonly ApiTagName[] }[];
 
 export type RouteDeclaration = {
-  method: "get" | "post" | "patch" | "delete";
+  method: "get" | "post" | "put" | "patch" | "delete";
   path: string;
   operationId: string;
   tag: ApiTagName;
@@ -798,6 +812,88 @@ export const API_ROUTE_DECLARATIONS = [
     body: "SlackGuestRequest",
     success: { status: 200, schema: "SlackGuestResponse" },
     errors: [400, 401, 403, 404, 413, 503],
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/workspaces/{id}/slack/config-token",
+    operationId: "getSlackConfigToken",
+    tag: "Workspace settings",
+    summary:
+      "Whether the Slack App Configuration Token is set (owner or admin)",
+    description:
+      "Says whether a token is set, its last four characters, when it was last set and by whom. The token itself is never returned. API keys are refused.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "SlackSecretSummary",
+      description:
+        "Whether a token is set; the last four characters and who set it when it is.",
+      example: {
+        configured: true,
+        last4: "a9f3",
+        updated_at: "2026-10-23T09:00:00Z",
+        updated_by: { user_id: EXAMPLE_USER_ID, display_name: "Jae" },
+      },
+    },
+    errors: [401, 403, 404, 503],
+    errorNotes: {
+      BACKEND_UNAVAILABLE:
+        "Also when the API runs without a master key (PLATFORM_SECRET_KEY).",
+    },
+  },
+  {
+    method: "put",
+    path: "/v1/workspaces/{id}/slack/config-token",
+    operationId: "putSlackConfigToken",
+    tag: "Workspace settings",
+    summary:
+      "Set or replace the Slack App Configuration Token (owner or admin)",
+    description:
+      "Stores the token encrypted; a replace keeps one value under a new version. The response and the `set_slack_secret` receipt carry the last four characters only, and the value is in no log or error. API keys are refused.",
+    auth: "session",
+    body: "PutSlackSecretRequest",
+    requestExample: { value: "<refresh-token-from-api.slack.com>" },
+    success: {
+      status: 200,
+      schema: "PutSlackSecretResponse",
+      description:
+        "Stored; the summary as GET now answers it, and the receipt.",
+      example: {
+        configured: true,
+        last4: "a9f3",
+        updated_at: "2026-10-23T09:00:00Z",
+        updated_by: { user_id: EXAMPLE_USER_ID, display_name: "Jae" },
+        receipt_id: EXAMPLE_RECEIPT_ID,
+      },
+    },
+    errors: [400, 401, 403, 404, 413, 503],
+    errorNotes: {
+      BACKEND_UNAVAILABLE:
+        "Also when the API runs without a master key (PLATFORM_SECRET_KEY).",
+    },
+    idempotent: false,
+  },
+  {
+    method: "delete",
+    path: "/v1/workspaces/{id}/slack/config-token",
+    operationId: "deleteSlackConfigToken",
+    tag: "Workspace settings",
+    summary: "Delete the Slack App Configuration Token (owner or admin)",
+    description:
+      "Deletes the stored token and writes a `delete_slack_secret` receipt with its last four characters. 404 when none is set. API keys are refused.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "DeleteSlackSecretResponse",
+      description: "Deleted; the receipt.",
+      example: { receipt_id: EXAMPLE_RECEIPT_ID },
+    },
+    errors: [401, 403, 404, 503],
+    errorNotes: {
+      BACKEND_UNAVAILABLE:
+        "Also when the API runs without a master key (PLATFORM_SECRET_KEY).",
+    },
     idempotent: false,
   },
   {
@@ -1355,6 +1451,7 @@ export const API_ROUTE_DECLARATIONS = [
             input: { command: "npm test", description: "Run the tests" },
           },
         ],
+        answerable: true,
       },
     },
     errors: [401, 404, 503],
@@ -1366,7 +1463,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Pending requests",
     summary: "Answer a pending permission or question request",
     description:
-      "Answers one pending request by `request_id`: a permission with `allow` or `deny` (a denial needs a `reason` the model can act on), a question with one answer per question, by option ids or free text where the question allows it. The answer is stored and the request closes at once: the pending list drops it and a `status` event ends the wait. The worker then hands the answer to the engine, and the receipt settles when it reports: `succeeded` once delivered, `failed` if the request expired (`REQUEST_EXPIRED`) or was cancelled (`REQUEST_STALE`) first, `unknown` if the execution ended before it reported.",
+      "Answers one pending request by `request_id`: a permission with `allow` or `deny` (a denial needs a `reason` the model can act on), a question with one answer per question, by option ids or free text where the question allows it. The answer is stored and the request closes at once: the pending list drops it and a `status` event ends the wait. The worker then hands the answer to the engine, and the receipt settles when it reports: `succeeded` once delivered, `failed` if the request expired (`REQUEST_EXPIRED`) or was cancelled (`REQUEST_STALE`) first, `unknown` if the execution ended before it reported. Seeing a session is not answering for it: only its creator (for a session an API key made, that key), its agent's admins and the workspace's owners and admins answer. Anyone else the session is visible to gets 403 (`reason_code: role`) and the request stays open; anyone it is not visible to, 404.",
     scope: "approve",
     body: "PostSessionAnswerRequest",
     requestExample: {
@@ -1991,12 +2088,12 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Members",
     summary: "Disable a member of the workspace",
     description:
-      "In the same transaction: the membership is disabled, every web session of the person is revoked (open event streams end), their personal keys in the workspace are revoked, and the sessions they asked for wait for an owner's takeover. Service keys are untouched. Disabling yourself, or the last live owner, answers 409 LAST_OWNER. Writes a `disable_member` receipt unless the membership was already disabled (`receipt_id` null).",
+      "In the same transaction: the membership is disabled, every web session of the person is revoked (open event streams end), their personal keys in the workspace are revoked, and the sessions they asked for wait for an owner's takeover. Service keys are untouched. Only an owner disables an owner: an admin targeting one answers 403 OWNER_PROTECTED and nothing changes. Disabling yourself, or the last live owner, answers 409 LAST_OWNER. When several apply, the first answers: no `member.manage` (403 FORBIDDEN), yourself (409), no such member (404), an owner targeted by an admin (403 OWNER_PROTECTED), the last live owner (409). Writes a `disable_member` receipt unless the membership was already disabled (`receipt_id` null).",
     auth: "session",
     body: "SetAccessRequest",
     success: { status: 200, schema: "SetAccessResponse" },
     errors: [400, 401, 403, 404, 409, 413, 503],
-    errorCodes: { 409: ["LAST_OWNER"] },
+    errorCodes: { 403: ["FORBIDDEN", "OWNER_PROTECTED"], 409: ["LAST_OWNER"] },
     idempotent: false,
   },
   {
@@ -2006,11 +2103,12 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Members",
     summary: "Enable a disabled member again",
     description:
-      "Revoked web sessions and personal keys stay revoked: the person signs in again. Sessions no owner took over go back to them. Writes an `enable_member` receipt unless the membership was already live (`receipt_id` null).",
+      "Revoked web sessions and personal keys stay revoked: the person signs in again. Sessions no owner took over go back to them. An admin enabling an owner answers 403 OWNER_PROTECTED. Writes an `enable_member` receipt unless the membership was already live (`receipt_id` null).",
     auth: "session",
     body: "SetAccessRequest",
     success: { status: 200, schema: "SetAccessResponse" },
     errors: [400, 401, 403, 404, 413, 503],
+    errorCodes: { 403: ["FORBIDDEN", "OWNER_PROTECTED"] },
     idempotent: false,
   },
   {
@@ -2020,12 +2118,12 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Members",
     summary: "Suspend an account",
     description:
-      "Allowed only when every live membership of the account is in a workspace the caller owns; otherwise 403. The account cannot sign in anywhere, and the same cut-off as disabling a member applies in each of its workspaces. Suspending yourself answers 409 LAST_OWNER. Writes a `disable_user` receipt unless the account was already suspended (`receipt_id` null).",
+      "Allowed only when every live membership of the account is in a workspace the caller owns or administers; otherwise 403 FORBIDDEN. An account that is an owner, even with that membership disabled, in any workspace the caller is not a live owner of answers 403 OWNER_PROTECTED first. The account cannot sign in anywhere, and the same cut-off as disabling a member applies in each of its workspaces. Suspending yourself answers 409 LAST_OWNER. Writes a `disable_user` receipt unless the account was already suspended (`receipt_id` null).",
     auth: "session",
     body: "SetAccessRequest",
     success: { status: 200, schema: "SetAccessResponse" },
     errors: [400, 401, 403, 404, 409, 413, 503],
-    errorCodes: { 409: ["LAST_OWNER"] },
+    errorCodes: { 403: ["FORBIDDEN", "OWNER_PROTECTED"], 409: ["LAST_OWNER"] },
     idempotent: false,
   },
   {
@@ -2035,11 +2133,12 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Members",
     summary: "Lift an account suspension",
     description:
-      "The same ownership rule as suspending. Revoked web sessions and personal keys stay revoked. Writes an `enable_user` receipt unless the account was not suspended (`receipt_id` null).",
+      "The same rules as suspending, OWNER_PROTECTED included. Revoked web sessions and personal keys stay revoked. Writes an `enable_user` receipt unless the account was not suspended (`receipt_id` null).",
     auth: "session",
     body: "SetAccessRequest",
     success: { status: 200, schema: "SetAccessResponse" },
     errors: [400, 401, 403, 404, 413, 503],
+    errorCodes: { 403: ["FORBIDDEN", "OWNER_PROTECTED"] },
     idempotent: false,
   },
   {
@@ -2221,7 +2320,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "The credential names bound to an agent",
     description:
-      "Owners, admins and the agent's admins. Each binding carries `running_sessions`, the sessions of this agent that name it and have not closed, with the `revoke_notice` the unbind screen shows: unbinding stops the next session, not a running one (D11). Names only; no value is ever stored.",
+      "Owners, admins and the agent's admins. Each binding carries `running_sessions`, the sessions of this agent that name it and have not closed, with the `revoke_notice` the unbind screen shows: unbinding stops the next session and the next message of a running one, and cuts its remote MCP calls within 30 seconds. Names only; no value is ever stored.",
     auth: "session",
     success: { status: 200, schema: "ListCredentialBindingsResponse" },
     errors: [401, 403, 404, 503],
@@ -2248,7 +2347,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "Unbind a credential name from an agent",
     description:
-      "Takes what binding takes. The next session of a release naming it is refused 409 CREDENTIAL_UNBOUND; sessions already running keep it until they end, which the answer's `binding.running_sessions` and `revoke_notice` say. Writes an `unbind_credential` receipt; a binding already revoked is not found.",
+      "Takes what binding takes. The next session of a release naming it, and the next message to a running one, is refused 409 CREDENTIAL_UNBOUND with a failed receipt; a running session's remote MCP calls are refused from the next exchange and an open one is cut within 30 seconds, while a call already sent finishes. The answer's `binding.running_sessions` and `revoke_notice` say so. Writes an `unbind_credential` receipt; a binding already revoked is not found.",
     auth: "session",
     success: { status: 200, schema: "RevokeCredentialBindingResponse" },
     errors: [401, 403, 404, 503],
@@ -2295,10 +2394,37 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "Revoke an agent identity",
     description:
-      "Events from that app and team are dropped from then on, including events already waiting to be processed. Revoking one already revoked changes nothing and answers a null `receipt_id`; otherwise writes a `revoke_agent_identity` receipt. Linking again makes a new identity.",
+      "Events from that app and team are dropped from then on, including events already waiting to be processed. Revoking one already revoked changes nothing and answers a null `receipt_id`; otherwise writes a `revoke_agent_identity` receipt. The agent's Slack channel bindings in that install are revoked with it. Linking again makes a new identity.",
     auth: "session",
     success: { status: 200, schema: "RevokeAgentIdentityResponse" },
     errors: [401, 403, 404, 503],
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/agents/{id}/slack-bindings",
+    operationId: "listSlackBindings",
+    tag: "Agents",
+    summary: "The agent's Slack channel bindings",
+    description:
+      "Live bindings of the channels of the agent's Slack app, and its DM binding (`surface_kind: dm`, no `external_surface_id`): the home channel first, then oldest first; up to 500. Channel ids only; the console resolves names. Owners, admins and the agent's admins.",
+    auth: "session",
+    success: { status: 200, schema: "ListSlackBindingsResponse" },
+    errors: [401, 403, 404, 503],
+  },
+  {
+    method: "put",
+    path: "/v1/agents/{id}/slack-bindings",
+    operationId: "putSlackBinding",
+    tag: "Agents",
+    summary: "Set how the agent answers in one Slack channel or its DMs",
+    description:
+      "Replaces the binding of `channel_id` in the agent's Slack app install, or the install's one DM binding when `channel_kind` is `dm` and `channel_id` is null, creating it the first time. `mode` is `off` (the channel takes nothing; a mention there is refused) or `mention`. `home: true` makes this channel the agent's home and clears the previous one; a DM is never home. A missing `ceiling` is the default: every Slack action, shown in full. The agent needs a live Slack app identity (409 SLACK_NOT_INSTALLED); a concurrent change to the same channel or home answers 409 REVISION_CONFLICT. No Slack call is made: the bot does not join the channel here. Owners, admins and the agent's admins; API keys are refused. Writes a `set_surface_binding` receipt.",
+    auth: "session",
+    body: "PutSlackBindingRequest",
+    success: { status: 200, schema: "PutSlackBindingResponse" },
+    errors: [400, 401, 403, 404, 409, 413, 503],
+    errorCodes: { 409: ["SLACK_NOT_INSTALLED", "REVISION_CONFLICT"] },
     idempotent: false,
   },
   {
@@ -2580,7 +2706,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Limits & receipts",
     summary: "Current outcome of an accepted command",
     description:
-      "Reads the current outcome of a command by the `receipt_id` its response returned: `accepted` while it is in progress, then `succeeded`, `failed` (with `error`) or `unknown` (nobody can say; `error` explains). Poll until it leaves `accepted`. `result` depends on `operation`:\n\n- `create_session`, `append_message`: the acceptance response exactly as first returned, never rewritten. The turn's outcome is read from `GET /v1/sessions/{session_id}/turns/{turn_id}` using `target_ref`.\n- `interrupt`: `{turn_id, terminal, no_op}` once settled.\n- `pause`, `resume`: `{resulting_admission_state, checkpoint_revision, queued_turn_count}`.\n- `close`: `{resulting_admission_state, checkpoint_revision, cancelled_turn_count}`; `checkpoint_revision` is null only for a session that never ran a turn.\n- `terminate`: `{execution_gone, checkpoint_revision, unconfirmed_turn_id, external_effects_reverted}`.\n- `recovery_decision`: `{resulting_admission_state, checkpoint_revision, resumable}`.\n- `answer`: null; only `status` and `error` change.\n- `request_push`, `decide_push`, `push`: `{push_request_id, decision, verdict, refusal, repository_id, checkpoint_revision, git_commit, target_branch}`; `verdict` is `allow` or `refuse`, a refused attempt is `failed` with the reason in `refusal` and `error`, and fields the attempt never read are null. `actor` names who made it.\n- `open_pull_request`, `comment_pull_request`: `{push_request_id, verdict, refusal, repository_id, number, url, head, base, created}`, and for a comment also `{comment_id, comment_url, marker}`; `created` is false when the call answered an open pull request or edited the marked comment.\n\nAny credential of the same owner can read a receipt. It changes nothing.",
+      "Reads the current outcome of a command by the `receipt_id` its response returned: `accepted` while it is in progress, then `succeeded`, `failed` (with `error`) or `unknown` (nobody can say; `error` explains). Poll until it leaves `accepted`. `result` depends on `operation`:\n\n- `create_session`, `append_message`: the acceptance response exactly as first returned, never rewritten. The turn's outcome is read from `GET /v1/sessions/{session_id}/turns/{turn_id}` using `target_ref`.\n- `interrupt`: `{turn_id, terminal, no_op}` once settled.\n- `pause`, `resume`: `{resulting_admission_state, checkpoint_revision, queued_turn_count}`.\n- `close`: `{resulting_admission_state, checkpoint_revision, cancelled_turn_count}`; `checkpoint_revision` is null only for a session that never ran a turn.\n- `terminate`: `{execution_gone, checkpoint_revision, unconfirmed_turn_id, external_effects_reverted}`.\n- `recovery_decision`: `{resulting_admission_state, checkpoint_revision, resumable}`.\n- `answer`: null; only `status` and `error` change.\n- `request_push`, `decide_push`, `push`: `{push_request_id, decision, verdict, refusal, repository_id, checkpoint_revision, git_commit, target_branch}`; `verdict` is `allow` or `refuse`, a refused attempt is `failed` with the reason in `refusal` and `error`, and fields the attempt never read are null. `actor` names who made it.\n- `open_pull_request`, `comment_pull_request`: `{push_request_id, verdict, refusal, repository_id, number, url, head, base, created}`, and for a comment also `{comment_id, comment_url, marker}`; `created` is false when the call answered an open pull request or edited the marked comment.\n- `set_slack_secret`, `delete_slack_secret`: `{purpose, last4}`; the value itself is never in a receipt.\n\nAny credential of the same owner can read a receipt. It changes nothing.",
     scope: "read",
     success: {
       status: 200,

@@ -156,7 +156,6 @@ select:focus-visible,
   margin: 0;
   font-size: var(--ap-text-title);
 }
-.web-page__empty,
 .web-page__intro {
   margin: 0;
   color: var(--ap-color-muted-foreground);
@@ -240,10 +239,6 @@ select:focus-visible,
 }
 .web-form--wide {
   max-width: min(100%, 40rem);
-}
-.web-field__area {
-  min-height: 8rem;
-  resize: vertical;
 }
 .web-fieldset {
   margin: 0;

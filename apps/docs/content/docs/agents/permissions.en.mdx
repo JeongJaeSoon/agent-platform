@@ -52,6 +52,14 @@ The mode exists only in the catalog and cannot be changed by a session request.
 
 Answering permission requests and questions needs the `sessions:approve` scope. The credential held by the agent inside the worker gets 401 on `/v1`, so it cannot approve for itself. An agent-only key cannot have `sessions:approve`. How to answer is described in [Waiting for approval and resuming](/sessions/waiting-and-resume).
 
+Seeing a session does not mean answering for it. Only these people answer its permission requests and questions and approve its pushes and pull requests:
+
+- the person who created the session (for a session an API key created, that key)
+- the admins of the session's agent
+- the workspace's owners and admins
+
+Someone who only sees the session through its share gets `403 FORBIDDEN` (`reason_code: role`) when they answer; the request stays open and the session stays `needs_input`. A session they cannot see is still `404`. `answerable` in `GET /v1/sessions/{id}/pending-requests` says whether the caller may answer, and when it is `false` the console shows allow and deny disabled, with the reason.
+
 ## Agent administrators
 
 The person who creates an agent becomes that agent's administrator. An administrator, even if only a member, can edit the agent's card, create releases, activate, connect credentials, assign administrators, and issue agent-only keys. You can add a person or a team as an administrator, and for a team, every member of that team is an administrator. This continues with `AID` and `WEB` from [Create](/agents/create).

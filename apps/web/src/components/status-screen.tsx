@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { Button, cn } from "@werft-ai/ui";
+import { Button, cn, Skeleton } from "@werft-ai/ui";
 import { type MessageKey, useI18n } from "../i18n/i18n.tsx";
 
 export type StatusKind =
@@ -34,7 +34,12 @@ export function StatusScreen(props: StatusScreenProps) {
   const { kind } = props;
   const { redirect, action = true } = props.kind === "error" ? {} : props;
   const { detail, onRetry } = props.kind === "error" ? props : {};
-  if (kind === "loading" || kind === "checking-login") {
+  if (kind === "loading") {
+    return <Skeleton lines={3} label={t("status.loading.title")} />;
+  }
+  // Full-page wait before any layout exists; a placeholder of lines would
+  // mimic content that is not there. Waits for the ui FullPageState.
+  if (kind === "checking-login") {
     return (
       <section className={BOX} data-status={kind} aria-busy="true">
         <output className={TITLE}>
@@ -42,9 +47,7 @@ export function StatusScreen(props: StatusScreenProps) {
             className="size-4 animate-spin rounded-full border-2 border-input border-t-primary motion-reduce:animate-none"
             aria-hidden="true"
           />
-          {kind === "loading"
-            ? t("status.loading.title")
-            : t("status.checkingLogin.title")}
+          {t("status.checkingLogin.title")}
         </output>
       </section>
     );

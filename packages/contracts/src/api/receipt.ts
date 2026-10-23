@@ -82,6 +82,8 @@ export const RECEIPT_OPERATION_VALUES = [
   // Pinning an agent to its Slack app and bot, and taking that back (M8).
   "link_agent_identity",
   "revoke_agent_identity",
+  // Setting how an agent answers in one Slack channel or its DMs (94S-177).
+  "set_surface_binding",
   // Changing who sees a session (94S-584).
   "share_session",
   // A push request, a human's decision on one (or a refused attempt at
@@ -91,6 +93,13 @@ export const RECEIPT_OPERATION_VALUES = [
   "push",
   "open_pull_request",
   "comment_pull_request",
+  // A remote MCP exchange the egress proxy refused for the agent's
+  // credential: unbound, not for this workspace, or moved in the catalog.
+  "call_mcp",
+  // A Slack secret set, replaced or deleted through the API; the receipt
+  // names its purpose and last four characters, never the value.
+  "set_slack_secret",
+  "delete_slack_secret",
 ] as const;
 
 export const receiptStatusSchema = z.enum(RECEIPT_STATUS_VALUES);

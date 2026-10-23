@@ -180,7 +180,7 @@ export const ERROR_CODE_WHEN: Partial<Record<ApiErrorCode, When>> = {
     "The invite was revoked, replaced by a newer one, or has expired. Ask for a new invite.",
   LAST_OWNER: "The change would leave the workspace with no live owner.",
   OWNER_PROTECTED:
-    "Only an owner may grant the owner role or change an owner's membership.",
+    "Only an owner may grant the owner role or change an owner's role or access (disable, suspend, enable).",
   SCOPE_NOT_GRANTABLE:
     "The key asks for a scope its issuer does not hold now, or an agent's key asks for `sessions:approve`.",
   SLACK_NOT_INSTALLED:
@@ -246,7 +246,7 @@ export function errorResponseDescription(
 /** Who may call the operation and how it treats Idempotency-Key. */
 export function accessNote(
   context: ErrorContext,
-  method: "get" | "post" | "patch" | "delete",
+  method: "get" | "post" | "put" | "patch" | "delete",
 ): string {
   const who = context.scope
     ? `**Scope:** \`${context.scope}\` (API key or cookie session).`

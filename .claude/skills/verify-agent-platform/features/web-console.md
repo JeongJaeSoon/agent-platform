@@ -1,6 +1,6 @@
 # 웹 콘솔
 
-API가 `WEB_DIST_DIR`(control-host 이미지는 `/app/apps/web/dist`)의 웹 콘솔을 같은 origin에서 서빙한다. 사용자는 브라우저로 `/bootstrap`에서 첫 소유자(owner)를 만들고, `/login`에서 로그인해 `/`의 workspace shell(왼쪽 사이드바, 머리의 "새로 만들기"와 답변 대기 버튼)과 시작하기 checklist를 보고, 사이드바 아래 사용자 메뉴에서 로그아웃한다. `/v1`·`/internal` 밖의 경로는 모두 `index.html`이라 새로고침해도 화면이 열린다.
+API가 `WEB_DIST_DIR`(control-host 이미지는 `/app/apps/web/dist`)의 웹 콘솔을 같은 origin에서 서빙한다. 사용자는 브라우저로 `/bootstrap`에서 첫 소유자(owner)를 만들고, `/login`에서 로그인해 `/`의 workspace shell(왼쪽 사이드바, 머리의 답변 대기 버튼)과 시작하기 checklist를 보고, 사이드바 아래 사용자 메뉴에서 로그아웃한다. `/v1`·`/internal` 밖의 경로는 모두 `index.html`이라 새로고침해도 화면이 열린다.
 
 ## Sub-features
 
@@ -10,7 +10,7 @@ API가 `WEB_DIST_DIR`(control-host 이미지는 `/app/apps/web/dist`)의 웹 콘
 - `bootstrap` `/bootstrap`은 제목 "첫 소유자 만들기"로 열리고, 제출하면 `/login?notice=created`.
 - `bootstrap-done` 소유자가 이미 있으면 제출 결과가 409라 `/bootstrap`에 머문 채 폼 아래 오류 줄에 "이미 소유자가 있습니다. 로그인해 주세요. 로그인하기"(마지막 말이 `/login` 링크)가 보인다. `/login?notice=bootstrap_done` 안내는 그 주소로 직접 열 때만 나온다.
 - `login` 로그인하면 `/`에 workspace 이름, "<이름>(<이메일>) 계정으로 로그인했습니다", "시작하기 1 / 4 완료"와 항목 넷(소유자 계정 만들기·구성원 초대하기·에이전트 준비하기·첫 세션 확인하기, 첫째만 완료).
-- `shell` 사이드바는 업무(홈·세션·에이전트), 워크스페이스(구성원·팀·워크스페이스 설정, 권한 있을 때만), 내 설정(연동 계정·내 key·언어·테마). 머리의 "새로 만들기"는 `/agents/new` 링크다. 좁은 폭에서는 사이드바가 "메뉴 열기" 뒤에 숨는다.
+- `shell` 사이드바는 업무(홈·세션·에이전트), 워크스페이스(구성원·팀·워크스페이스 설정, 권한 있을 때만), 내 설정(연동 계정·내 key·언어·테마). 머리에는 만들기 버튼이 없고, 각 목록 머리의 주 버튼(에이전트 "새 에이전트", 구성원 "초대 링크 만들기", 팀 "팀 만들기")이 만든다. 좁은 폭에서는 사이드바가 "메뉴 열기" 뒤에 숨는다.
 - `logout` 사이드바 아래 사용자 버튼(글자 `<첫 글자><이름>`, `aria-label` "<이름> · <역할>")이 메뉴(연동 계정·언어·테마·내 key·로그아웃)를 연다. "로그아웃"하면 `/login?notice=logged_out`, 다시 `/`를 열면 로그인 화면.
 - `session-ended` 로그인한 채 다른 곳에서 세션이 끝나면(다른 탭 로그아웃), 다음 `me` 재조회가 401을 받아 `/login?redirect=…`로 간다.
 - `locale` 한국어·日本語·English. 로그인 전 화면(`/login`·`/bootstrap`·초대)은 오른쪽 아래 `<footer>`의 native select, 로그인 뒤에는 사용자 메뉴의 "언어"와 `/settings/preferences`("언어·테마")에서 고른다. 첫 방문 언어는 브라우저 언어를 따른다.

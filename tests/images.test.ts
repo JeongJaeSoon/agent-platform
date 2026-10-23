@@ -278,6 +278,7 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       "api.anthropic.com:443",
       "gitea:3000",
       "fake-messages:4010",
+      "fake-mcp:4020",
       "localstack:4566",
     ];
     const proxy = localStack()["egress-proxy"];

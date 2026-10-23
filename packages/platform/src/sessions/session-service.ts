@@ -251,9 +251,12 @@ export async function requireAllowed(
       { reason_code: "credential_unbound" },
     );
   }
+  const scope = ACTION_SCOPES[action];
   throw new SessionServiceError(
     "FORBIDDEN",
-    `This principal does not hold ${ACTION_SCOPES[action] ?? action}`,
+    scope !== undefined && decision?.effective_scopes.includes(scope)
+      ? `This principal holds ${scope} but may not use it on this session`
+      : `This principal does not hold ${scope ?? action}`,
     undefined,
     // The policy's reason, so a screen can say why (design 3.3).
     { reason_code: decision?.reason_code ?? "error" },
@@ -381,6 +384,7 @@ export function createSessionService(deps: {
   async function credentialUnbound(
     workspaceId: string,
     agentId: string,
+    receiptId: string,
   ): Promise<SessionServiceError> {
     const admins = (
       (await deps.credentials?.contacts(workspaceId, agentId)) ?? []
@@ -393,6 +397,7 @@ export function createSessionService(deps: {
       reason_code: "credential_unbound",
       guidance: CREDENTIAL_UNBOUND_GUIDANCE,
       agent_id: agentId,
+      receipt_id: receiptId,
       admins,
       admin_link:
         admins.length === 0
@@ -552,7 +557,11 @@ export function createSessionService(deps: {
           if (!release) {
             throw new Error("Only a pinned release names credentials");
           }
-          throw await credentialUnbound(actor.ownerId, release.agent_id);
+          throw await credentialUnbound(
+            actor.ownerId,
+            release.agent_id,
+            result.receiptId,
+          );
         case "queue_full":
         case "storage_exhausted":
           throw limitError(result);
@@ -613,6 +622,12 @@ export function createSessionService(deps: {
           throw new SessionServiceError(
             "FORBIDDEN",
             "This principal is no longer a member of the workspace",
+          );
+        case "credential_unbound":
+          throw await credentialUnbound(
+            actor.ownerId,
+            result.agentId,
+            result.receiptId,
           );
         case "queue_full":
         case "storage_exhausted":

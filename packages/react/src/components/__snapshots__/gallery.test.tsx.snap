@@ -4,9 +4,60 @@ exports[`도메인 컴포넌트 갤러리 360px 1`] = `
 "<div class="gallery">
   <h2>StatusLabel</h2>
   <section>
+    <h3>session</h3>
+    <div class="gallery__row">
+      <span class="ap-status" data-axis="session" data-state="queued" data-tone="neutral">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-circle-small ap-status__icon" aria-hidden="true" focusable="false">
+          <circle cx="12" cy="12" r="6">
+          </circle>
+        </svg>
+        <span class="ap-visually-hidden">작업: </span>
+        <span class="ap-status__text">대기 중</span>
+      </span>
+      <span class="ap-status" data-axis="session" data-state="running" data-tone="progress">
+        <span class="ap-status__spinner" data-animated="true" aria-hidden="true">
+        </span>
+        <span class="ap-visually-hidden">작업: </span>
+        <span class="ap-status__text">작업 중</span>
+      </span>
+      <span class="ap-status" data-axis="session" data-state="needs_input" data-tone="attention">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-circle-small ap-status__icon" aria-hidden="true" focusable="false">
+          <circle cx="12" cy="12" r="6">
+          </circle>
+        </svg>
+        <span class="ap-visually-hidden">작업: </span>
+        <span class="ap-status__text">답변 대기</span>
+      </span>
+      <span class="ap-status" data-axis="session" data-state="idle" data-tone="neutral">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-circle-small ap-status__icon" aria-hidden="true" focusable="false">
+          <circle cx="12" cy="12" r="6">
+          </circle>
+        </svg>
+        <span class="ap-visually-hidden">작업: </span>
+        <span class="ap-status__text">쉬는 중</span>
+      </span>
+      <span class="ap-status" data-axis="session" data-state="failed" data-tone="danger">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-circle-small ap-status__icon" aria-hidden="true" focusable="false">
+          <circle cx="12" cy="12" r="6">
+          </circle>
+        </svg>
+        <span class="ap-visually-hidden">작업: </span>
+        <span class="ap-status__text">실패</span>
+      </span>
+      <span class="ap-status" data-axis="session" data-state="stopped" data-tone="neutral">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-circle-small ap-status__icon" aria-hidden="true" focusable="false">
+          <circle cx="12" cy="12" r="6">
+          </circle>
+        </svg>
+        <span class="ap-visually-hidden">작업: </span>
+        <span class="ap-status__text">멈춤</span>
+      </span>
+    </div>
+  </section>
+  <section>
     <h3>admission</h3>
     <div class="gallery__row">
-      <span class="ap-status" data-axis="admission" data-state="active" data-tone="neutral">
+      <span class="ap-status" data-axis="admission" data-state="active" data-tone="positive">
         <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-square ap-status__icon" aria-hidden="true" focusable="false">
           <rect width="18" height="18" x="3" y="3" rx="2">
           </rect>

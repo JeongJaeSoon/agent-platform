@@ -18,6 +18,7 @@ import {
   Checkbox,
   ConfirmDialog,
   cn,
+  EmptyState,
   Field,
   FieldContent,
   FieldDescription,
@@ -36,7 +37,6 @@ import {
   Clock,
   Copy,
   Info,
-  KeyRound,
   Plus,
   TriangleAlert,
 } from "lucide-react";
@@ -563,12 +563,7 @@ function KeyList({
     id === null ? null : (agents.find((agent) => agent.id === id)?.name ?? id);
 
   if (items.length === 0) {
-    return (
-      <div className="flex flex-col items-center gap-2 rounded-card border px-4 py-8 text-center text-muted-foreground text-sm">
-        <KeyRound aria-hidden="true" className="size-5" />
-        <p className="m-0">{empty}</p>
-      </div>
-    );
+    return <EmptyState title={empty} />;
   }
 
   return (

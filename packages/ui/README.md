@@ -12,7 +12,7 @@
 - 런타임 의존성은 shadcn/ui가 쓰는
   `@radix-ui/react-checkbox`·`@radix-ui/react-dialog`·`@radix-ui/react-radio-group`·`@radix-ui/react-slot`·`@radix-ui/react-tabs`·`class-variance-authority`·`clsx`·`tailwind-merge`,
   아이콘 `lucide-react`뿐이다. 런타임에 import하는 패키지는 devDependencies가 아니라 여기에 둔다.
-  예외는 `fonts.css`가 `@import`하는 `pretendard`다. 폰트를 배포물에 어떻게 실을지 정할 때까지 devDependencies에 둔다.
+  예외는 `fonts.css`가 `@import`하는 `pretendard`다. 배포물에는 폰트를 싣지 않으므로(아래 "배포 산출물") devDependencies에 둔다.
 - Radix는 `src/primitives/` 안에서만 import한다. Dialog 구현이 둘이 되지 않게 하려는 것이다.
 - `src/package.test.ts`가 이 경계를 검사한다. 새 의존성을 넣으려면 그 테스트를 먼저 고쳐야 한다.
   worker 이미지는 모든 workspace의 dependencies를 설치하므로, 새 의존성은 `bun scripts/third-party-notices.ts`로
@@ -66,6 +66,64 @@ Tailwind의 `dark:`는 수동 전환(`data-theme`)을 보지 못하기 때문이
 - `./test-support/dom`·`./test-support/html`은 이 저장소의 테스트(`apps/*`·`packages/*`)만 쓰는 도우미다. 공개 API가 아니고,
   배포용 package.json에서는 뺀다.
 - 패키지는 아직 `private`다. exports가 `src`를 가리켜 워크스페이스는 빌드 없이 소스를 읽는다.
+
+## 배포 산출물
+
+```bash
+bun run --cwd packages/ui build:package   # → packages/ui/dist
+npm pack --dry-run ./packages/ui/dist     # tarball에 들어갈 파일
+bun scripts/ui-pack-smoke.ts              # 빈 Vite+React 앱에 설치해 렌더 (node·npm·Chrome 필요)
+```
+
+`scripts/build-package.ts`가 `dist/`를 처음부터 다시 만든다. 게시는 하지 않는다. 레지스트리 설정이 없고, 게시는 사람이 정한다.
+
+- JS·d.ts: tsdown(unbundle)이 소스 파일마다 `.js`·`.d.ts` 하나씩 만든다. `__fixtures__`·`test-support`·테스트는 빠진다.
+- `styles.css`: Tailwind CLI로 미리 빌드한 CSS. 토큰·`ap-*` 규칙·키트가 쓰는 유틸리티가 들어 있어 Tailwind 없는 앱도
+  `import "@werft-ai/ui/styles.css"` 한 줄로 그려진다. preflight는 넣지 않는다(쓰는 쪽 앱의 전역 스타일을 바꾸지 않는다).
+  대신 키트가 기대하는 preflight 규칙(box-sizing·border 너비와 모양·margin·padding, 링크·목록·제목·미디어, 폼 요소의
+  font·color·배경·radius)을 키트 요소(`ap-*` 클래스와 `[data-slot]`)와 그 안쪽에만 specificity 0으로 건다. 이게 없으면
+  브라우저 기본 스타일이 `<button>`에 2px outset 테두리나 회색 배경을, `asChild` 링크에 밑줄을 그린다. 키트 안에 넣은
+  앱 마크업도 브라우저 기본 margin·밑줄이 빠지지만, 앱 CSS는 레이어 밖이라 항상 이긴다. 테두리 색은 `theme.css` 기본값을 쓴다.
+- `tokens.css`·`theme.css`: 소스 그대로. Tailwind v4 앱은 `styles.css` 뒤에 `theme.css`를 import하면 같은 유틸리티 이름을 쓸 수 있다.
+- 폰트는 싣지 않는다. `styles.css`의 `fonts.css` import를 빼고 빌드하므로 `--ap-font-sans`·`--ap-font-mono`는 쓰는 쪽 앱이
+  Geist·Pretendard를 로드하지 않으면 시스템 폰트로 떨어진다. `pretendard`도 배포 package.json의 의존성이 아니다.
+- `package.json`: 저장소 것에서 만든다. exports는 `dist` 파일을 가리키고 `./test-support/*`는 뺀다. `react`·`react-dom`은 peer 그대로다.
+- `LICENSE`: 저장소 루트 것을 복사한다.
+
+키트 요소에 거는 preflight 대체 규칙은 `src/foundations/scoped-preflight.css` 한 곳에 있다. 빌드가 배포 `styles.css`에 넣고,
+Storybook의 Foundations/No preflight가 같은 파일을 읽는다. 워크스페이스 `styles.css`는 import하지 않는다(콘솔은 Tailwind preflight를 쓴다).
+
+저장소 밖 앱에서 tarball을 설치해 쓰는 법은 문서 사이트의 [저장소 밖 앱에 설치](../../apps/docs/content/docs/ui/package.mdx)에 있다.
+
+### 릴리스 절차
+
+`.github/workflows/ui-release.yml`이 빌드·smoke·pack을 하고 tarball을 artifact `ui-package`로 남긴다. pull request(이 패키지나
+워크플로를 바꿀 때)와 수동 실행은 여기서 멈춘다. 이것이 dry run이다. 게시(`publish` job)는 `ui-v*` 태그의 **push**이고 그 커밋이
+main에 있을 때만 돌고, `release` environment의 필수 승인자가 승인해야 시작한다. 그 job만 `packages: write`를 받고, 인증은 자동
+`GITHUB_TOKEN`이다.
+
+아직 게시하지 않는다. 첫 게시 전에 사람이 정할 것:
+
+1. **D-7a 라이선스.** 지금 `LICENSE`는 서면 허락 없는 사용·배포를 금지한다. 패키지에 붙일 문구를 소유자가 정한다.
+2. **D-7b 게시 위치와 토큰.** 스코프 `@werft-ai`는 GitHub 조직 `Werft-ai`의 것이고 저장소는 사용자 소유다. 이 저장소의
+   `GITHUB_TOKEN`이 조직 패키지에 쓸 수 있는지 확인하고, 안 되면 저장소를 조직으로 옮기거나 조직 범위 PAT를 등록한다.
+   PAT를 쓰면 `publish` job의 `NODE_AUTH_TOKEN` 한 줄만 바꾼다.
+3. **게시 승인.** 1·2가 끝난 뒤 소유자가 게시를 승인한다.
+
+그 뒤 한 번 게시하는 순서:
+
+1. `packages/ui/package.json`의 `version`을 올리는 PR을 land한다(`private: true`는 그대로다. 배포용 package.json은 빌드가 만든다).
+2. main의 그 커밋에 `ui-vX.Y.Z` 태그를 push한다. 태그 이름과 `version`이 다르면 build job이 실패한다.
+3. 처음 한 번: `release` environment의 deployment 정책에 태그 패턴 `ui-v*`를 더한다. 지금 정책은 `v*`뿐이라 그 전에는
+   `publish` job이 거부된다.
+4. ui-release 실행의 build 결과(smoke 로그, tarball 파일 목록)를 보고 `publish` job을 승인한다.
+
+`ui-v*` 태그는 `images.yml`(`v*` 태그)을 시작하지 않는다. `tests/ui-release.test.ts`가 이 게이트를 검사한다.
+
+이 게이트는 워크플로 파일 안의 조건이다. 이 저장소의 브랜치는 PR에서 워크플로를 고쳐 job에 `packages: write`를 직접 요청할 수
+있으므로(`images.yml`도 같다), 파일만으로는 머지 전 게시를 막지 못한다. 막는 것은 저장소 설정이다. 브랜치를 push할 수 있는
+사람(저장소 write 권한)을 좁게 두고 PR은 리뷰 뒤에 머지한다. 첫 게시 뒤에는 패키지 설정의 Manage Actions access를 이 저장소로
+한정한다. 모두 사람이 하는 설정이다.
 
 ## 토큰
 

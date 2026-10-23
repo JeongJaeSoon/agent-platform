@@ -52,6 +52,14 @@ curl: (28) Operation timed out after 5006 milliseconds with 4482 bytes received
 
 권한 요청과 질문에 답하려면 `sessions:approve` scope가 필요하다. worker 안의 에이전트가 가진 자격은 `/v1`에서 401이라 스스로 승인하지 못한다. 에이전트 전용 key는 `sessions:approve`를 가질 수 없다. 답하는 방법은 [승인 대기와 재개](/sessions/waiting-and-resume)에 있다.
 
+세션을 볼 수 있다고 그 세션의 요청에 답할 수 있는 것은 아니다. 권한 요청과 질문에 답하고 push·PR을 승인하는 것은 다음 사람만 한다.
+
+- 세션을 만든 사람(API key가 만든 세션이면 그 key)
+- 그 세션 에이전트의 관리자
+- 워크스페이스 owner·admin
+
+공유로 세션을 보기만 하는 사람이 답하면 `403 FORBIDDEN`(`reason_code: role`)이고, 요청은 열린 채로 남아 세션은 `needs_input`에 머문다. 볼 수 없는 세션은 지금처럼 `404`다. `GET /v1/sessions/{id}/pending-requests`의 `answerable`이 부르는 사람이 답할 수 있는지 알려 주고, 콘솔은 `false`이면 허용·거부를 이유와 함께 비활성으로 보인다.
+
 ## 에이전트 관리자
 
 에이전트를 만든 사람이 그 에이전트의 관리자가 된다. 관리자는 member여도 그 에이전트의 카드 수정, release, 활성화, 자격 연결, 관리자 지정, 에이전트 전용 key 발급을 할 수 있다. 사람이나 팀을 관리자로 더할 수 있고, 팀이면 그 팀 구성원 모두가 관리자다. [만들기](/agents/create)의 `AID`와 `WEB`을 이어 쓴다.

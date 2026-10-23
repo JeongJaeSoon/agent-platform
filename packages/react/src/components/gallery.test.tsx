@@ -47,6 +47,7 @@ function Gallery(): JSX.Element {
   return (
     <div className="gallery">
       <h2>StatusLabel</h2>
+      <AxisRow axis="session" />
       <AxisRow axis="admission" />
       <AxisRow axis="turn" />
       <AxisRow axis="receipt" />

@@ -11,6 +11,7 @@ import {
   Button,
   buttonVariants,
   ConfirmDialog,
+  EmptyState,
   Field,
   FieldLabel,
   formatTimestamp,
@@ -162,7 +163,7 @@ export function TeamsScreen() {
         ) : teams.error ? (
           <ListError error={teams.error} onRetry={() => void teams.refetch()} />
         ) : teams.data.items.length === 0 ? (
-          <p className={MUTED}>{t("teams.empty")}</p>
+          <EmptyState title={t("teams.empty")} />
         ) : (
           <RowList>
             {teams.data.items.map((team) => (
@@ -456,7 +457,7 @@ function TeamMembers({
         </ReasonButton>
       </form>
       {team.members.length === 0 ? (
-        <p className={MUTED}>{t("teams.noMembers")}</p>
+        <EmptyState title={t("teams.noMembers")} />
       ) : (
         <RowList>
           {team.members.map((member) => {

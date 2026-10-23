@@ -1,4 +1,5 @@
 import { createHash, timingSafeEqual } from "node:crypto";
+import { mcpServerIdSchema } from "@werft-ai/contracts";
 import { RequestDeadline, runWithDeadline } from "@werft-ai/db/pool";
 import type { StructuredLogger } from "@werft-ai/observability";
 import { type WorkerGateway, WorkerGatewayError } from "@werft-ai/platform";
@@ -94,6 +95,20 @@ const authorizeRequestSchema = z.union([
         .strict(),
     })
     .strict(),
+  z
+    .object({
+      token: tokenSchema,
+      purpose: z.literal("mcp"),
+      server: mcpServerIdSchema,
+      rpc: z
+        .object({
+          method: z.string().min(1).max(128).nullable(),
+          tool: z.string().min(1).max(128).nullable(),
+        })
+        .strict(),
+      regrant: z.boolean().default(false),
+    })
+    .strict(),
 ]);
 
 const tokenCount = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
@@ -158,7 +173,10 @@ function problem(status: number, code: string, message: string): Response {
 export function createEgressAuthorizer(deps: {
   gateway: Pick<
     WorkerGateway,
-    "authorizeEgress" | "authorizeObjectAccess" | "recordProviderUsage"
+    | "authorizeEgress"
+    | "authorizeMcpEgress"
+    | "authorizeObjectAccess"
+    | "recordProviderUsage"
   >;
   logger: StructuredLogger;
   /** Absent when the API runs without an object store: the route refuses. */
@@ -251,10 +269,16 @@ export function createEgressAuthorizer(deps: {
       );
     }
     return answerWithin(
-      () =>
-        body.purpose === "object_store"
-          ? authorizeObjectStore(body.token, body)
-          : deps.gateway.authorizeEgress(body),
+      () => {
+        switch (body.purpose) {
+          case "object_store":
+            return authorizeObjectStore(body.token, body);
+          case "mcp":
+            return deps.gateway.authorizeMcpEgress(body);
+          default:
+            return deps.gateway.authorizeEgress(body);
+        }
+      },
       {
         purpose: body.purpose,
         // Which object store request was refused and why; a key is not a
@@ -263,6 +287,13 @@ export function createEgressAuthorizer(deps: {
           ? {
               method: body.request.method,
               target: body.request.target.split("?")[0],
+            }
+          : {}),
+        ...(body.purpose === "mcp"
+          ? {
+              server: body.server,
+              method: body.rpc.method ?? undefined,
+              tool: body.rpc.tool ?? undefined,
             }
           : {}),
       },
@@ -337,6 +368,16 @@ export function createEgressAuthorizer(deps: {
             ? { reason: error.message }
             : {}),
         });
+        if (error.receiptId !== undefined) {
+          return Response.json(
+            {
+              code: error.code,
+              message: error.message,
+              receipt_id: error.receiptId,
+            },
+            { status: error.status },
+          );
+        }
         return problem(error.status, error.code, error.message);
       }
       if (!isStorageUnavailable(error)) {

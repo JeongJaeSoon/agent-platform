@@ -61,20 +61,7 @@ const splitList = (text: string) =>
     .map((item) => item.trim())
     .filter(Boolean);
 
-/**
- * The card as openapi-fetch's body types accept it. They turn a property
- * whose only type is null into `mcp?: never`, so a correct card (the server
- * requires `mcp: null`) does not type-check without this one cast.
- */
-export type ApiCard = Omit<
-  components["schemas"]["CreateAgentRequest"]["card"],
-  "capabilities"
-> & {
-  capabilities: Omit<
-    components["schemas"]["CreateAgentRequest"]["card"]["capabilities"],
-    "mcp"
-  >;
-};
+export type ApiCard = components["schemas"]["CreateAgentRequest"]["card"];
 
 export function draftFromCard(card: AgentCard): CardDraft {
   return {
@@ -104,7 +91,7 @@ export function cardFromDraft(draft: CardDraft, base?: AgentCard): ApiCard {
     capabilities: {
       ...base?.capabilities,
       tools: draft.toolsMode === "all" ? null : splitList(draft.tools),
-      mcp: null,
+      mcp: base?.capabilities.mcp ?? null,
       forbidden: splitList(draft.forbidden),
     },
   };
