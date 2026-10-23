@@ -124,6 +124,9 @@ flushSync(() =>
       <Button id="probe">저장</Button>
       <Button id="probe-outline" variant="outline">취소</Button>
       <Button id="probe-ghost" variant="ghost">더보기</Button>
+      <Button asChild variant="outline">
+        <a id="probe-link" href="#next">다음</a>
+      </Button>
       <Card id="probe-card" className="px-4">카드</Card>
     </div>,
   ),
@@ -133,8 +136,11 @@ flushSync(() =>
 const button = document.getElementById("probe");
 const outline = document.getElementById("probe-outline");
 const ghost = document.getElementById("probe-ghost");
+const link = document.getElementById("probe-link");
 const card = document.getElementById("probe-card");
-if (!button || !outline || !ghost || !card) throw new Error("kit did not render");
+if (!button || !outline || !ghost || !link || !card) {
+  throw new Error("kit did not render");
+}
 const style = getComputedStyle(button);
 document.body.dataset.background = style.backgroundColor;
 document.body.dataset.color = style.color;
@@ -145,7 +151,8 @@ document.body.dataset.ghostBackground = getComputedStyle(ghost).backgroundColor;
 document.body.dataset.fontInherited = String(
   style.fontFamily === getComputedStyle(document.body).fontFamily,
 );
-document.body.dataset.cardBorder =\`\${getComputedStyle(card).borderTopWidth} \${getComputedStyle(card).borderTopColor}\`;
+document.body.dataset.link = \`\${getComputedStyle(link).textDecorationLine} \${getComputedStyle(link).color === getComputedStyle(outline).color}\`;
+document.body.dataset.cardBorder = \`\${getComputedStyle(card).borderTopWidth} \${getComputedStyle(card).borderTopColor}\`;
 `,
   // Type-checked only: the published types are real, not \`any\`.
   "src/types.tsx": `import { Button, type ButtonProps } from "@werft-ai/ui";
@@ -256,7 +263,7 @@ try {
       "--no-first-run",
       "--no-default-browser-check",
       `--user-data-dir=${join(work, "chrome-profile")}`,
-      "--window-size=360,120",
+      "--window-size=480,120",
       "--virtual-time-budget=5000",
       // GitHub's Ubuntu runners block the user namespaces Chrome's sandbox needs.
       ...(process.platform === "linux" ? ["--no-sandbox"] : []),
@@ -303,6 +310,10 @@ try {
         'data-ghost-background="rgba(0, 0, 0, 0)"',
       ),
       "button font inherited": body.includes('data-font-inherited="true"'),
+      // Button asChild on <a>: no UA underline or link blue.
+      "link button no underline, button colour": body.includes(
+        'data-link="none true"',
+      ),
       // A bare `border` class takes theme.css's colour, not currentColor.
       [`card border 1px ${border}`]: body.includes(
         `data-card-border="1px ${border}"`,
