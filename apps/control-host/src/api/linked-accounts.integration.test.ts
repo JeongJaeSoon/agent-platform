@@ -25,6 +25,8 @@ import {
 import {
   createAuthorizationPolicy,
   createLinkedAccountService,
+  createSlackConfigApi,
+  createSlackLinkAppService,
 } from "@werft-ai/platform";
 import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import {
@@ -89,10 +91,20 @@ integration("Sign in with Slack over HTTP on PostgreSQL", () => {
         registerLinkedAccountRoutes(router, {
           service,
           slack: {
-            clientId: idp.clientId,
-            clientSecret: idp.clientSecret,
-            redirectUri: REDIRECT_URI,
             issuer: idp.url,
+            // No secret store: every workspace links with the fallback app.
+            clients: createSlackLinkAppService({
+              authorization,
+              apps: null,
+              tokens: null,
+              api: createSlackConfigApi({ apiUrl: `${idp.url}/api` }),
+              consoleOrigin: new URL(REDIRECT_URI).origin,
+              fallback: {
+                clientId: idp.clientId,
+                clientSecret: idp.clientSecret,
+                redirectUri: REDIRECT_URI,
+              },
+            }),
           },
         });
       },

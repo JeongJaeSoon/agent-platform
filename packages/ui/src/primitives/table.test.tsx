@@ -128,6 +128,78 @@ describe("Table", () => {
     expect(labelled.matches(selector ?? "")).toBe(true);
   });
 
+  test("text 열은 남는 폭을 갖되 하한이 있고, 보조 줄은 원문을 DOM에 둔 채 말줄임된다", () => {
+    const email = "alex.rivera.long-address@example.com";
+    const { getByRole, getByText } = render(
+      <table>
+        <thead>
+          <tr>
+            <TableHead variant="text">이름</TableHead>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <TableCell variant="text">
+              <RowLines>
+                <span>Alex Rivera</span>
+                <span title={email}>{email}</span>
+              </RowLines>
+            </TableCell>
+          </tr>
+        </tbody>
+      </table>,
+    );
+    const head = getByRole("columnheader", { name: "이름" });
+    const cell = getByRole("cell", { name: /Alex Rivera/ });
+    for (const el of [head, cell]) {
+      expect(el.getAttribute("data-variant")).toBe("text");
+      expect(el.classList.contains("w-full")).toBe(true);
+      expect(el.classList.contains("max-w-0")).toBe(true);
+      expect(
+        el.classList.contains("min-w-[var(--ap-row-text-min-width)]"),
+      ).toBe(true);
+    }
+    expect(
+      cell.classList.contains(
+        "[&_[data-slot=row-lines]>*:not(:first-child)]:truncate",
+      ),
+    ).toBe(true);
+    // The selector reaches the secondary line, not the first.
+    const selector =
+      "td[data-variant=text] [data-slot=row-lines]>*:not(:first-child)";
+    const line = getByText(email);
+    expect(line.matches(selector)).toBe(true);
+    expect(getByText("Alex Rivera").matches(selector)).toBe(false);
+    expect(line.getAttribute("title")).toBe(email);
+    expect(cell.textContent).toBe(`Alex Rivera${email}`);
+    expect(TOKENS).toContain("--ap-row-text-min-width: 10rem;");
+  });
+
+  test("nowrap 열은 내용 폭이고 줄을 바꾸지 않는다", () => {
+    const { getByRole } = render(
+      <table>
+        <thead>
+          <tr>
+            <TableHead variant="nowrap">가입일</TableHead>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <TableCell variant="nowrap">2026-09-30</TableCell>
+          </tr>
+        </tbody>
+      </table>,
+    );
+    for (const el of [
+      getByRole("columnheader", { name: "가입일" }),
+      getByRole("cell", { name: "2026-09-30" }),
+    ]) {
+      expect(el.getAttribute("data-variant")).toBe("nowrap");
+      expect(el.classList.contains("w-px")).toBe(true);
+      expect(el.classList.contains("whitespace-nowrap")).toBe(true);
+    }
+  });
+
   test("기본 셀에는 actions 클래스가 붙지 않는다", () => {
     const { getByRole } = render(<MembersTable />);
     const name = getByRole("cell", { name: /김하나/ });

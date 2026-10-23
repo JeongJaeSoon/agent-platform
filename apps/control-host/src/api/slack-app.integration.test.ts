@@ -158,7 +158,7 @@ integration("slack-app create on PostgreSQL against a fake Slack", () => {
     ...rest,
   ];
 
-  test("creates the app, prints the install URL, and the same agent again gets the same app", async () => {
+  test("creates the app, points at the console for the install, and the same agent again gets the same app", async () => {
     const workspaceId = await workspaceWithToken();
     const agentId = await agent(workspaceId);
     const first = await run(create(workspaceId, agentId));
@@ -170,13 +170,18 @@ integration("slack-app create on PostgreSQL against a fake Slack", () => {
       created_by_token_user: "U0CLI",
       warnings: [],
     });
+    expect(first.out).toHaveLength(1);
+    expect(first.out[0]).not.toContain("authorize");
+    expect(printedApp.next).toBe(
+      `Install it from the agent's page in the console, or with a signed-in console session: POST /v1/agents/${agentId}/slack/install/start`,
+    );
     const app = slack.apps.get(printedApp.app_id);
     if (!app) throw new Error("Slack holds no such app");
-    const url = new URL(printedApp.authorize_url);
-    expect(Object.fromEntries(url.searchParams)).toEqual({
-      client_id: app.clientId,
-      scope: BOT_SCOPES.join(","),
-      redirect_uri: `${CONSOLE}/agents/${agentId}/slack/callback`,
+    expect(
+      (app.manifest as { oauth_config: object }).oauth_config,
+    ).toMatchObject({
+      redirect_urls: [`${CONSOLE}/agents/${agentId}/slack/callback`],
+      scopes: { bot: [...BOT_SCOPES] },
     });
     expect(
       Object.keys((app.manifest as { settings: object }).settings),
@@ -240,6 +245,84 @@ integration("slack-app create on PostgreSQL against a fake Slack", () => {
       .where(eq(slackApps.agentId, agentId));
     expect(rows).toEqual([{ state: "creating" }]);
     const retry = await run(create(workspaceId, agentId));
+    expect(retry.code).toBe(SLACK_APP_EXIT.app_busy);
+    expect(retry.err.join("\n")).toContain("SLACK_APP_CREATING");
+  });
+
+  const createLink = (workspaceId: string) => [
+    "create",
+    "--kind",
+    "link",
+    "--workspace",
+    workspaceId,
+  ];
+
+  test("--kind link makes the workspace's link app once; again returns it", async () => {
+    const workspaceId = await workspaceWithToken();
+    const first = await run(createLink(workspaceId));
+    expect(first).toMatchObject({ code: SLACK_APP_EXIT.created, err: [] });
+    const printedApp = JSON.parse(first.out[0] ?? "{}");
+    expect(printedApp).toMatchObject({
+      outcome: "created",
+      kind: "link",
+      redirect_url: `${CONSOLE}/settings/linked-accounts/slack`,
+      created_by_token_user: "U0CLI",
+      warnings: [],
+    });
+    const app = slack.apps.get(printedApp.app_id);
+    expect(printedApp.client_id).toBe(app?.clientId);
+    expect(app?.manifest).toMatchObject({
+      display_information: { name: "ws 계정 연결" },
+      oauth_config: {
+        redirect_urls: [`${CONSOLE}/settings/linked-accounts/slack`],
+        scopes: { user: ["openid", "profile"] },
+      },
+    });
+    expect(app?.manifest).not.toHaveProperty("features");
+
+    const again = await run(createLink(workspaceId));
+    expect(again.code).toBe(SLACK_APP_EXIT.created);
+    expect(JSON.parse(again.out[0] ?? "{}")).toMatchObject({
+      outcome: "exists",
+      slack_app_id: printedApp.slack_app_id,
+      app_id: printedApp.app_id,
+    });
+    const rows = await db
+      .select({ kind: slackApps.kind, agentId: slackApps.agentId })
+      .from(slackApps)
+      .where(eq(slackApps.workspaceId, workspaceId));
+    expect(rows).toEqual([{ kind: "link", agentId: null }]);
+    const owners = await db
+      .select({ owner: secretValues.ownerRef, purpose: secretValues.purpose })
+      .from(secretValues)
+      .where(eq(secretValues.workspaceId, workspaceId));
+    expect(
+      owners
+        .filter(({ owner }) => owner !== "workspace")
+        .map(({ owner, purpose }) => `${owner}/${purpose}`)
+        .sort(),
+    ).toEqual([
+      `slack_app:${printedApp.slack_app_id}/slack_client_secret`,
+      `slack_app:${printedApp.slack_app_id}/slack_signing_secret`,
+    ]);
+  });
+
+  test("--kind link exit codes: no token 3, unknown workspace 4, Slack down 7 then 6", async () => {
+    const bare = randomUUID();
+    await db
+      .insert(workspaces)
+      .values({ id: bare, slug: `ws-${bare}`, name: "ws" });
+    expect((await run(createLink(bare))).code).toBe(
+      SLACK_APP_EXIT.config_token_invalid,
+    );
+    expect((await run(createLink(randomUUID()))).code).toBe(
+      SLACK_APP_EXIT.agent_not_found,
+    );
+    const workspaceId = await workspaceWithToken();
+    expect(
+      (await run(createLink(workspaceId), "http://127.0.0.1:9/api")).code,
+    ).toBe(SLACK_APP_EXIT.slack_error);
+    const retry = await run(createLink(workspaceId));
     expect(retry.code).toBe(SLACK_APP_EXIT.app_busy);
     expect(retry.err.join("\n")).toContain("SLACK_APP_CREATING");
   });
