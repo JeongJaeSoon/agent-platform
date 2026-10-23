@@ -899,7 +899,7 @@ export const sessions = pgTable(
       () => apiKeys.id,
     ),
     // The surface the creating request came from. Rows from before it got
-    // it from their creator columns where those prove it (0157), else null.
+    // it from their creator columns where those prove it (0158), else null.
     channel: text().$type<SurfaceKind>(),
     takeoverRequiredAt: timestamp("takeover_required_at", {
       withTimezone: true,

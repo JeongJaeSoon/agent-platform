@@ -611,7 +611,7 @@ integration("who started a session on PostgreSQL", () => {
 });
 
 integration(
-  "0157 fills a session's channel only where the row proves it",
+  "0158 fills a session's channel only where the row proves it",
   () => {
     let database: TempDatabase;
     let pool: Pool;
@@ -669,7 +669,7 @@ integration(
         });
       }
       const migration = await Bun.file(
-        new URL("../migrations/0157_session_channel.sql", import.meta.url),
+        new URL("../migrations/0158_session_channel.sql", import.meta.url),
       ).text();
       for (const statement of migration.split("--> statement-breakpoint")) {
         const update = statement
