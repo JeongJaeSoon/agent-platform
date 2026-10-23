@@ -2,9 +2,10 @@
 /* biome-ignore-all lint/a11y/useFocusableInteractive: static table rows delegate keyboard navigation to their cell links. */
 import type { SessionStatus, SessionSummary } from "@werft-ai/contracts";
 import { cn, formatTimestamp, type TimestampLocale } from "@werft-ai/ui";
-import { Folder, GitBranch } from "lucide-react";
+import { Folder } from "lucide-react";
 import type { JSX, ReactNode } from "react";
 
+import { GitBranch } from "../console-icons.ts";
 import { StatusLabel } from "../status/status-label.tsx";
 import type { SessionRowLink } from "./session-row.tsx";
 
