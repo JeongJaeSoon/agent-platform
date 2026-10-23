@@ -452,6 +452,30 @@ describe("되돌리기 어려운 동작의 확인", () => {
     expect((await reasonOf("Mate")).disabled).toBe(false);
   });
 
+  test("비활성 소유자의 역할 select는 그리지 않은 이유를 가리키지 않는다", async () => {
+    renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me(undefined, "admin")),
+      "GET /v1/members": () =>
+        json(200, {
+          items: [
+            { ...owner, role: "admin" },
+            {
+              ...gone,
+              display_name: "Boss",
+              role: "owner",
+            },
+          ],
+        }),
+      ...noInvites,
+    });
+    const select = await screen.findByLabelText("Boss의 역할");
+    expect((select as HTMLSelectElement).disabled).toBe(true);
+    const describedBy = select.getAttribute("aria-describedby");
+    expect(
+      describedBy === null || document.getElementById(describedBy) !== null,
+    ).toBe(true);
+  });
+
   test("역할도 같은 규칙으로 막고, 이유는 행 높이를 바꾸지 않는 안내 버튼 뒤에 둔다", async () => {
     const boss = member({
       user_id: GONE_ID,

@@ -332,7 +332,9 @@ function MemberTable({
                         aria-label={t("members.roleFor", {
                           name: member.display_name,
                         })}
-                        aria-describedby={roleWhy ? ids.role : undefined}
+                        aria-describedby={
+                          roleWhy && !disabled ? ids.role : undefined
+                        }
                         value={member.role}
                         disabled={busy || disabled || roleWhy !== undefined}
                         onChange={(event) =>
