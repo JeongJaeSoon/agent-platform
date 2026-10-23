@@ -10,6 +10,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
+import { webUiAllowlist } from "./web-ui-allowlist.ts";
 
 const root = join(import.meta.dir, "..");
 const testkit = "@werft-ai/testkit";
@@ -281,6 +282,159 @@ export async function webBoundaryViolations(
     }
   }
   return offenders.sort();
+}
+
+/**
+ * PascalCase value names a workspace package exports, read statically from
+ * each script entry of its manifest's `exports` and the `export *` chains
+ * behind them. Importing the packages instead would load React and
+ * happy-dom-sensitive modules into whatever process runs this file.
+ */
+export async function exportedComponentNames(
+  directory: string,
+): Promise<Set<string>> {
+  const names = new Set<string>();
+  const seen = new Set<string>();
+  const visit = async (file: string): Promise<void> => {
+    if (seen.has(file) || !existsSync(file)) return;
+    seen.add(file);
+    const source = await readFile(file, "utf8");
+    for (const match of source.matchAll(
+      /export\s*\*\s*from\s*["']([^"']+)["']/g,
+    ))
+      if (match[1]?.startsWith("."))
+        await visit(resolve(dirname(file), match[1]));
+    for (const match of source.matchAll(/export\s*(?:type\s*)?\{([^}]*)\}/g)) {
+      if (match[0].startsWith("export type")) continue;
+      for (const entry of (match[1] ?? "").split(",")) {
+        const name = entry.trim();
+        if (!name || name.startsWith("type ")) continue;
+        names.add(name.split(/\s+as\s+/).pop() ?? name);
+      }
+    }
+    for (const match of source.matchAll(
+      /export\s+(?:declare\s+)?(?:async\s+)?(?:function\*?|const|let|class)\s+([A-Za-z_$][\w$]*)/g,
+    ))
+      names.add(match[1] ?? "");
+  };
+  const exports = (
+    JSON.parse(await readFile(join(directory, "package.json"), "utf8")) as {
+      exports?: Record<string, string>;
+    }
+  ).exports;
+  for (const [entry, target] of Object.entries(exports ?? {}))
+    if (/\.tsx?$/.test(target) && !entry.includes("test-support"))
+      await visit(join(directory, target));
+  return new Set([...names].filter((name) => /^[A-Z][a-z]/.test(name)));
+}
+
+/** Count of each web UI rule's matches, per file relative to apps/web/src. */
+export type WebUiCounts = Record<string, Partial<Record<WebUiRule, number>>>;
+
+/** What each rule catches, and what to do instead. */
+const webUiRules = {
+  "raw-table":
+    "raw <table>: use a table from @werft-ai/ui (or SessionTable from @werft-ai/react/components); if none fits, ask ui-kit for one",
+  "raw-anchor":
+    "raw <a>: use the router's link or a link component from @werft-ai/ui; if none fits, ask ui-kit for one",
+  "shadow-component":
+    "a component named like a @werft-ai/ui or @werft-ai/react export: import that export instead of defining a second one; if it lacks what you need, ask ui-kit to extend it",
+  "legacy-class":
+    "legacy web-* / ap-input class: use the @werft-ai/ui component that draws it (Field, Input, PageHeader, EmptyState, ...); if none fits, ask ui-kit for one",
+  "link-constant":
+    "link className constant: use a link component from @werft-ai/ui; if none fits, ask ui-kit for one",
+  "raw-destructive":
+    "raw text-destructive status text: use ErrorState, FieldError or ApiErrorState; if none fits, ask ui-kit for one",
+} as const;
+
+export type WebUiRule = keyof typeof webUiRules;
+
+const legacyClass = /(?<![\w-])(?:web-[a-z0-9_-]+|ap-input[a-z0-9_-]*)/g;
+
+/**
+ * Where apps/web draws its own UI instead of composing packages/ui and
+ * packages/react. `components` are the names those packages export.
+ */
+export async function webUiViolations(
+  directory: string,
+  components: ReadonlySet<string>,
+): Promise<WebUiCounts> {
+  const counts: WebUiCounts = {};
+  const add = (file: string, rule: WebUiRule, n: number) => {
+    if (n === 0) return;
+    counts[file] = { ...counts[file], [rule]: (counts[file]?.[rule] ?? 0) + n };
+  };
+  const entries = await readdir(directory, {
+    recursive: true,
+    withFileTypes: true,
+  });
+  for (const entry of entries) {
+    if (!entry.isFile() || entry.parentPath.includes("node_modules")) continue;
+    const file = join(entry.parentPath, entry.name);
+    const name = relative(directory, file);
+    if (entry.name.endsWith(".css")) {
+      add(
+        name,
+        "legacy-class",
+        [
+          ...(await readFile(file, "utf8")).matchAll(
+            /\.(?:web-[a-z0-9_-]+|ap-input[a-z0-9_-]*)/g,
+          ),
+        ].length,
+      );
+      continue;
+    }
+    if (!/\.tsx?$/.test(entry.name) || isTestFile(file)) continue;
+    const source = await readFile(file, "utf8");
+    const count = (pattern: RegExp) => [...source.matchAll(pattern)].length;
+    add(name, "raw-table", count(/<table\b/g));
+    add(name, "raw-anchor", count(/<a(?=[\s>])/g));
+    add(
+      name,
+      "shadow-component",
+      [
+        ...source.matchAll(
+          /\b(?:function|const|let|class)\s+([A-Z][A-Za-z0-9_$]*)/g,
+        ),
+      ].filter((match) => components.has(match[1] ?? "")).length,
+    );
+    add(name, "legacy-class", count(legacyClass));
+    add(
+      name,
+      "link-constant",
+      count(/\bconst\s+[A-Z0-9_]*LINK[A-Z0-9_]*\s*=\s*["'`]/g),
+    );
+    add(name, "raw-destructive", count(/(?<![\w-])text-destructive(?![\w-])/g));
+  }
+  return counts;
+}
+
+/**
+ * The ratchet: `actual` may only shrink below `allowed`. A count above the
+ * list is new UI drawn in apps/web; a count below it is a fix whose entry
+ * must go, so the list never stays larger than what is there.
+ */
+export function webUiRatchet(
+  actual: WebUiCounts,
+  allowed: WebUiCounts,
+): string[] {
+  const problems: string[] = [];
+  const files = new Set([...Object.keys(actual), ...Object.keys(allowed)]);
+  for (const file of [...files].sort()) {
+    for (const rule of Object.keys(webUiRules) as WebUiRule[]) {
+      const found = actual[file]?.[rule] ?? 0;
+      const listed = allowed[file]?.[rule] ?? 0;
+      if (found > listed)
+        problems.push(
+          `${file} ${rule}: ${found} found, ${listed} allowed. ${webUiRules[rule]}`,
+        );
+      else if (found < listed)
+        problems.push(
+          `${file} ${rule}: ${found} found, ${listed} allowed. Lower this entry in tests/web-ui-allowlist.ts to ${found}${found === 0 ? " (remove it)" : ""}`,
+        );
+    }
+  }
+  return problems;
 }
 
 describe("architecture", () => {
@@ -825,6 +979,120 @@ describe("architecture", () => {
         "screen.tsx -> @werft-ai/platform",
         "screen.tsx -> contracts value import",
       ]);
+    } finally {
+      await rm(fixture, { recursive: true, force: true });
+    }
+  });
+
+  test("the web app draws no UI of its own beyond tests/web-ui-allowlist.ts", async () => {
+    const components = new Set([
+      ...(await exportedComponentNames(join(root, ui))),
+      ...(await exportedComponentNames(join(root, "packages", "react"))),
+    ]);
+    // A reader that found nothing would pass the shadow-component rule vacuously.
+    for (const name of ["Card", "EmptyState", "Input", "SessionTable"])
+      expect(components).toContain(name);
+    expect(
+      webUiRatchet(
+        await webUiViolations(join(root, web, "src"), components),
+        webUiAllowlist,
+      ),
+    ).toEqual([]);
+  });
+
+  test("the web UI ratchet fails on a new violation and on a list larger than the code", async () => {
+    const fixture = await mkdtemp(join(tmpdir(), "arch-web-ui-"));
+    try {
+      await mkdir(join(fixture, "ui", "src"), { recursive: true });
+      await writeFile(
+        join(fixture, "ui", "package.json"),
+        JSON.stringify({
+          exports: {
+            ".": "./src/index.ts",
+            "./styles.css": "./src/styles.css",
+          },
+        }),
+      );
+      await writeFile(
+        join(fixture, "ui", "src", "index.ts"),
+        [
+          'export * from "./card.tsx";',
+          "export { Badge, type BadgeProps, cn, LOCALES } from './badge.tsx';",
+        ].join("\n"),
+      );
+      await writeFile(
+        join(fixture, "ui", "src", "card.tsx"),
+        "export function Card() {}\nexport const EmptyState = () => null;",
+      );
+      const components = await exportedComponentNames(join(fixture, "ui"));
+      expect([...components].sort()).toEqual(["Badge", "Card", "EmptyState"]);
+
+      const web = join(fixture, "web");
+      await mkdir(join(web, "routes"), { recursive: true });
+      await writeFile(
+        join(web, "routes", "screen.tsx"),
+        [
+          "const LINK = 'text-primary underline';",
+          "export const PRIMARY_LINK =",
+          '  "text-primary";',
+          "const LINK_CODES = new Set([1]);",
+          "export function Card() {",
+          "  return (",
+          '    <table className="web-table">',
+          '      <a href="/x" className="ap-input web-field__hint">x</a>',
+          '      <p className="text-destructive">no</p>',
+          "    </table>",
+          "  );",
+          "}",
+          "function Cardboard() { return <abbr />; }",
+        ].join("\n"),
+      );
+      await writeFile(
+        join(web, "routes", "screen.test.tsx"),
+        '<table className="web-table"><a href="/">x</a></table>',
+      );
+      await writeFile(
+        join(web, "styles.css"),
+        ".web-field .ap-input { color: red; }\n.ap-button {}",
+      );
+      const counts = await webUiViolations(web, components);
+      expect(counts).toEqual({
+        [join("routes", "screen.tsx")]: {
+          "raw-table": 1,
+          "raw-anchor": 1,
+          "shadow-component": 1,
+          "legacy-class": 3,
+          "link-constant": 2,
+          "raw-destructive": 1,
+        },
+        "styles.css": { "legacy-class": 2 },
+      });
+
+      // Exactly what is listed passes.
+      expect(webUiRatchet(counts, counts)).toEqual([]);
+
+      // A violation the list does not have fails, saying what to use instead.
+      const added = webUiRatchet(counts, {
+        ...counts,
+        "styles.css": { "legacy-class": 1 },
+      });
+      expect(added).toHaveLength(1);
+      expect(added[0]).toContain("styles.css legacy-class: 2 found, 1 allowed");
+      expect(added[0]).toContain("@werft-ai/ui");
+      expect(added[0]).toContain("ask ui-kit");
+
+      // A fix whose entry stayed in the list fails until the entry goes.
+      const stale = webUiRatchet(
+        { "styles.css": { "legacy-class": 2 } },
+        { ...counts, "styles.css": { "legacy-class": 3 } },
+      );
+      expect(stale).toContain(
+        "styles.css legacy-class: 2 found, 3 allowed. Lower this entry in tests/web-ui-allowlist.ts to 2",
+      );
+      expect(stale).toContain(
+        `${join("routes", "screen.tsx")} raw-table: 0 found, 1 allowed. Lower this entry in tests/web-ui-allowlist.ts to 0 (remove it)`,
+      );
+      expect(stale).toHaveLength(7);
     } finally {
       await rm(fixture, { recursive: true, force: true });
     }
