@@ -27,7 +27,7 @@ export function NativeSelect({
         data-slot="native-select"
         data-size={size}
         className={cn(
-          "h-[var(--ap-control-height)] w-full min-w-0 appearance-none rounded-control border border-input bg-card px-3 py-1 pr-8 text-control outline-none transition-[color,box-shadow] disabled:pointer-events-none disabled:cursor-not-allowed data-[size=sm]:h-[var(--ap-control-height-sm)] data-[size=sm]:py-1 motion-reduce:transition-none",
+          "h-[var(--ap-control-height)] w-full min-w-0 appearance-none rounded-control border border-input bg-card px-3 py-0 pr-7 text-control outline-none transition-[color,box-shadow] disabled:pointer-events-none disabled:cursor-not-allowed data-[size=sm]:h-[var(--ap-control-height-sm)] data-[size=sm]:text-caption motion-reduce:transition-none",
           "focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50",
           "aria-invalid:border-destructive aria-invalid:ring-destructive/20",
           className,
@@ -36,7 +36,7 @@ export function NativeSelect({
       />
       <ChevronDown
         data-slot="native-select-icon"
-        className="pointer-events-none absolute top-1/2 right-3 size-4 -translate-y-1/2 select-none text-muted-foreground"
+        className="pointer-events-none absolute top-1/2 right-3 size-4 -translate-y-1/2 select-none text-subtle-foreground"
         strokeWidth={2}
         aria-hidden="true"
       />

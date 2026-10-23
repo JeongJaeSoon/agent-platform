@@ -1,0 +1,214 @@
+import { describe, expect, test } from "bun:test";
+import { LayoutGrid, Table2 } from "lucide-react";
+import { type JSX, useState } from "react";
+
+import { setupDom, setupUser } from "../test-support/dom.ts";
+
+const { render } = await setupDom();
+const { SegmentedControl, SegmentedControlItem } = await import(
+  "./segmented-control.tsx"
+);
+
+function StatusFilter({
+  initial = "all",
+}: {
+  readonly initial?: string;
+}): JSX.Element {
+  const [value, setValue] = useState(initial);
+  return (
+    <SegmentedControl
+      aria-label="세션 상태"
+      value={value}
+      onValueChange={setValue}
+    >
+      <SegmentedControlItem value="all" count={12}>
+        전체
+      </SegmentedControlItem>
+      <SegmentedControlItem value="running" count={3} countLabel="3개 실행 중">
+        실행 중
+      </SegmentedControlItem>
+      <SegmentedControlItem value="waiting" count={0}>
+        답변 대기
+      </SegmentedControlItem>
+      <SegmentedControlItem value="done">끝남</SegmentedControlItem>
+    </SegmentedControl>
+  );
+}
+
+function pressed(button: HTMLElement): string | null {
+  return button.getAttribute("aria-pressed");
+}
+
+describe("SegmentedControl", () => {
+  test("이름 있는 group 안의 버튼이고 선택한 하나만 aria-pressed=true다", () => {
+    const { getByRole, getAllByRole } = render(<StatusFilter />);
+    const group = getByRole("group", { name: "세션 상태" });
+    const buttons = getAllByRole("button");
+    expect(buttons).toHaveLength(4);
+    for (const button of buttons) {
+      expect(button.parentElement === group).toBe(true);
+      expect(button.getAttribute("type")).toBe("button");
+    }
+    expect(buttons.map(pressed)).toEqual(["true", "false", "false", "false"]);
+  });
+
+  test("누르면 선택이 옮겨 가고 이미 눌린 항목을 다시 눌러도 풀리지 않는다", async () => {
+    const { getByRole, getAllByRole } = render(<StatusFilter />);
+    const user = await setupUser();
+    await user.click(getByRole("button", { name: "끝남" }));
+    expect(getAllByRole("button").map(pressed)).toEqual([
+      "false",
+      "false",
+      "false",
+      "true",
+    ]);
+    await user.click(getByRole("button", { name: "끝남" }));
+    expect(pressed(getByRole("button", { name: "끝남" }))).toBe("true");
+  });
+
+  test("항목마다 Tab으로 가고 Enter·Space로 고른다", async () => {
+    const { getByRole } = render(<StatusFilter />);
+    const user = await setupUser();
+    await user.tab();
+    expect(
+      document.activeElement === getByRole("button", { name: "전체 12" }),
+    ).toBe(true);
+    await user.tab();
+    const running = getByRole("button", { name: "실행 중 3개 실행 중" });
+    expect(document.activeElement === running).toBe(true);
+    await user.keyboard("{Enter}");
+    expect(pressed(running)).toBe("true");
+    await user.tab();
+    const waiting = getByRole("button", { name: "답변 대기 0" });
+    expect(document.activeElement === waiting).toBe(true);
+    await user.keyboard(" ");
+    expect(pressed(waiting)).toBe("true");
+    expect(pressed(running)).toBe("false");
+  });
+
+  test("개수는 이름 뒤에 읽히고 0도 그리며 없으면 그리지 않는다", () => {
+    const { getByRole } = render(<StatusFilter />);
+    const all = getByRole("button", { name: "전체 12" });
+    expect(all.textContent).toBe("전체 12");
+    const number = all.querySelector('[data-slot="item-count"]');
+    expect(number?.className.split(" ")).toEqual(
+      expect.arrayContaining([
+        "text-caption",
+        "text-subtle-foreground",
+        "tabular-nums",
+      ]),
+    );
+    expect(
+      getByRole("button", { name: "답변 대기 0" }).querySelector(
+        '[data-slot="item-count"]',
+      )?.textContent,
+    ).toBe("0");
+    expect(
+      getByRole("button", { name: "실행 중 3개 실행 중" })
+        .querySelector('[data-slot="item-count"]')
+        ?.getAttribute("aria-hidden"),
+    ).toBe("true");
+    expect(
+      getByRole("button", { name: "끝남" }).querySelector(
+        '[data-slot="item-count"]',
+      ),
+    ).toBeNull();
+  });
+
+  test("아이콘만 있는 항목은 aria-label로 읽히고 아이콘은 숨는다", async () => {
+    function ViewToggle(): JSX.Element {
+      const [view, setView] = useState("cards");
+      return (
+        <SegmentedControl
+          aria-label="보기"
+          value={view}
+          onValueChange={setView}
+        >
+          <SegmentedControlItem value="cards" aria-label="카드">
+            <LayoutGrid aria-hidden="true" strokeWidth={1.5} />
+          </SegmentedControlItem>
+          <SegmentedControlItem value="table" aria-label="표">
+            <Table2 aria-hidden="true" strokeWidth={1.5} />
+          </SegmentedControlItem>
+        </SegmentedControl>
+      );
+    }
+    const { getByRole } = render(<ViewToggle />);
+    const table = getByRole("button", { name: "표" });
+    expect(pressed(table)).toBe("false");
+    expect(table.querySelector("svg")?.getAttribute("aria-hidden")).toBe(
+      "true",
+    );
+    await (await setupUser()).click(table);
+    expect(pressed(table)).toBe("true");
+    expect(pressed(getByRole("button", { name: "카드" }))).toBe("false");
+  });
+
+  test("onClick에서 preventDefault하면 선택을 바꾸지 않는다", async () => {
+    let calls = 0;
+    const { getByRole } = render(
+      <SegmentedControl
+        aria-label="범위"
+        value="mine"
+        onValueChange={() => {
+          calls += 1;
+        }}
+      >
+        <SegmentedControlItem value="mine">내 것</SegmentedControlItem>
+        <SegmentedControlItem
+          value="all"
+          onClick={(event) => event.preventDefault()}
+        >
+          전체
+        </SegmentedControlItem>
+      </SegmentedControl>,
+    );
+    await (await setupUser()).click(getByRole("button", { name: "전체" }));
+    expect(calls).toBe(0);
+  });
+
+  test("트랙과 항목은 v4 .seg 치수 클래스다", () => {
+    const { getByRole } = render(<StatusFilter />);
+    const track = getByRole("group").className.split(" ");
+    for (const name of [
+      "inline-flex",
+      "flex-wrap",
+      "gap-0.5",
+      "p-0.5",
+      "border",
+      "border-border",
+      "rounded-card",
+      "bg-card",
+    ]) {
+      expect(track).toContain(name);
+    }
+    const item = getByRole("button", { name: "끝남" }).className.split(" ");
+    for (const name of [
+      "h-[var(--ap-control-height-sm)]",
+      "px-2",
+      "gap-2",
+      "rounded-control",
+      "font-medium",
+      "text-control",
+      "whitespace-nowrap",
+      "text-muted-foreground",
+      "hover:text-foreground",
+      "aria-pressed:text-foreground",
+      "focus-visible:outline-2",
+      "focus-visible:outline-offset-2",
+      "focus-visible:outline-focus-ring",
+    ]) {
+      expect(item).toContain(name);
+    }
+    expect(item.some((name) => name.startsWith("aria-pressed:bg-"))).toBe(true);
+  });
+
+  test("두 진입점에서 같은 부품을 내보낸다", async () => {
+    const root = await import("../index.ts");
+    const primitives = await import("./index.ts");
+    expect(root.SegmentedControl === SegmentedControl).toBe(true);
+    expect(root.SegmentedControlItem === SegmentedControlItem).toBe(true);
+    expect(primitives.SegmentedControl === SegmentedControl).toBe(true);
+    expect(primitives.SegmentedControlItem === SegmentedControlItem).toBe(true);
+  });
+});
