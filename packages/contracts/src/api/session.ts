@@ -287,7 +287,10 @@ export const messageTextSchema = z
 export const createSessionRequestSchema = z
   .object({
     profile_id: z.string().min(1),
-    repository_id: z.string().min(1),
+    repository_id: z.string().min(1).optional().meta({
+      description:
+        "The catalog repository the session works on. Required when the profile's `repository_mode` is `required`, refused when it is `none`, either when it is `optional`; omitted, the session starts in an empty workspace with no repository to push to.",
+    }),
     message: messageTextSchema,
     // Pins the session to this release of an agent: the session then belongs
     // to that agent, and an agent's key may create it. The run itself still

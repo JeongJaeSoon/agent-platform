@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { generateKeyPairSync } from "node:crypto";
 import {
   allowedPair,
+  allowedRun,
   type CatalogProfile,
   catalogRevision,
   describeConfigError,
@@ -15,6 +16,7 @@ import {
   repositoryModeOf,
   repositoryUpstreamOf,
   resolveSessionCatalog,
+  runtimeConfigOf,
   runtimeProviderOf,
   sessionCatalogConfigSchema,
   sessionProfile,
@@ -470,6 +472,12 @@ describe("catalog config schema", () => {
     );
   });
 
+  test("a catalog of profiles that run without a repository needs no repository", () => {
+    const catalog = load(config({ ...configured, repository: "none" }, {}));
+    expect(catalog.repositories).toEqual({});
+    expect(repositoryModeOf(catalog.profiles.p as CatalogProfile)).toBe("none");
+  });
+
   test("a repository must name the profiles allowed against it, and only real ones", () => {
     expect(() =>
       load(config(configured, { app: { ...repository, profiles: [] } })),
@@ -806,6 +814,56 @@ describe("allowedPair", () => {
     // Prototype keys are not entries.
     expect(allowedPair(catalog, "p", "__proto__")).toBeNull();
     expect(allowedPair(catalog, "constructor", "app")).toBeNull();
+  });
+});
+
+describe("allowedRun", () => {
+  const catalog = load({
+    profiles: {
+      required: configured,
+      optional: { ...configured, repository: "optional" },
+      none: { ...configured, repository: "none" },
+    },
+    repositories: {
+      app: { ...repository, profiles: ["required", "optional"] },
+    },
+  });
+
+  test("without a repository, only a profile whose repository is optional or none runs", () => {
+    expect(allowedRun(catalog, "required", null)).toBeNull();
+    expect(allowedRun(catalog, "optional", null)).toEqual({
+      profile: catalog.profiles.optional as CatalogProfile,
+      repository: null,
+    });
+    expect(allowedRun(catalog, "none", null)?.repository).toBeNull();
+    expect(allowedRun(catalog, "missing", null)).toBeNull();
+    expect(allowedRun(catalog, "constructor", null)).toBeNull();
+  });
+
+  test("with a repository, it is the pair the repository allows", () => {
+    expect(allowedRun(catalog, "required", "app")?.repository?.url).toBe(
+      repository.url,
+    );
+    expect(allowedRun(catalog, "optional", "app")).not.toBeNull();
+    expect(allowedRun(catalog, "none", "app")).toBeNull();
+  });
+});
+
+describe("runtimeConfigOf", () => {
+  test("a session without a repository has no CLAUDE.md, whatever the profile allows", () => {
+    const profile = load(
+      config({
+        ...configured,
+        repository: "optional",
+        project_settings: { claude_md: true },
+      }),
+    ).profiles.p as CatalogProfile;
+    expect(runtimeConfigOf(profile, "t", true).project_settings).toEqual({
+      claude_md: true,
+    });
+    expect(runtimeConfigOf(profile, "t", false)).not.toHaveProperty(
+      "project_settings",
+    );
   });
 });
 

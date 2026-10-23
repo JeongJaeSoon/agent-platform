@@ -302,13 +302,23 @@ export const sessionCatalogConfigSchema = z
       z.record(z.string().min(1), catalogProfileConfigSchema),
       "profile",
     ),
-    repositories: nonEmpty(
-      z.record(z.string().min(1), catalogRepositorySchema),
-      "repository",
-    ),
+    repositories: z.record(z.string().min(1), catalogRepositorySchema),
   })
   .strict()
   .superRefine((config, ctx) => {
+    if (
+      Object.keys(config.repositories).length === 0 &&
+      Object.values(config.profiles).every(
+        (profile) => profile.repository === "required",
+      )
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["repositories"],
+        message:
+          "at least one repository is required unless a profile's repository is optional or none",
+      });
+    }
     for (const [id, repository] of Object.entries(config.repositories)) {
       repository.profiles.forEach((profileId, index) => {
         if (!Object.hasOwn(config.profiles, profileId)) {
@@ -403,18 +413,20 @@ export function runtimeProviderOf(
 /**
  * The profile as a claim hands it to the worker, which hashes it into the
  * checkpoint fingerprint; `scripts/lib/checkpoint-pins.ts` rebuilds it to ask
- * a target image for that digest.
+ * a target image for that digest. A session without a repository has no
+ * CLAUDE.md to read, whatever an `optional` profile says.
  */
 export function runtimeConfigOf(
   profile: CatalogProfile,
   providerToken: string,
+  hasRepository: boolean,
 ): RuntimeConfig {
   return {
     model: profile.model,
     tools: profile.tools,
     permission_mode: profile.permission_mode,
     provider: runtimeProviderOf(profile, providerToken),
-    ...(profile.project_settings?.claude_md === true
+    ...(hasRepository && profile.project_settings?.claude_md === true
       ? { project_settings: profile.project_settings }
       : {}),
   };
@@ -612,6 +624,27 @@ export function allowedPair(
     return null;
   }
   return { profile, repository };
+}
+
+/**
+ * What a session may run as: `allowedPair` for one with a repository, and
+ * for one without (`repositoryId` null) the profile alone, when its
+ * repository mode lets a session go without one. Null when the catalog
+ * forbids it.
+ */
+export function allowedRun(
+  catalog: SessionCatalog,
+  profileId: string,
+  repositoryId: string | null,
+): { profile: CatalogProfile; repository: CatalogRepository | null } | null {
+  if (repositoryId !== null)
+    return allowedPair(catalog, profileId, repositoryId);
+  const profile = Object.hasOwn(catalog.profiles, profileId)
+    ? catalog.profiles[profileId]
+    : undefined;
+  return profile && repositoryModeOf(profile) !== "required"
+    ? { profile, repository: null }
+    : null;
 }
 
 export function credentialRefOf(auth: {
