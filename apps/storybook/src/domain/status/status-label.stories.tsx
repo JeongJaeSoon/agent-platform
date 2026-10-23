@@ -77,3 +77,74 @@ export const Mobile: Story = {
   ...DetailStaleAndOverride,
   globals: { viewport: { value: "mobile390", isRotated: false } },
 };
+
+const SESSION_STATES = [
+  "needs_input",
+  "running",
+  "idle",
+  "stopped",
+  "failed",
+  "queued",
+] as const;
+
+// The sessions.status.* messages, so each locale's width shows here.
+const SESSION_WORDS = {
+  ko: ["답변 대기", "작업 중", "쉬는 중", "멈춤", "실패", "대기 중"],
+  en: [
+    "Waiting for an answer",
+    "Working",
+    "Idle",
+    "Stopped",
+    "Failed",
+    "Queued",
+  ],
+  ja: ["回答待ち", "作業中", "アイドル", "停止", "失敗", "待機中"],
+} as const;
+
+const WAITED = { ko: "12분", en: "12 min", ja: "12分" } as const;
+
+function DotColumn({ locale }: { locale: keyof typeof SESSION_WORDS }) {
+  return (
+    <section className="flex w-[116px] flex-col gap-3">
+      <h3>{locale}</h3>
+      {SESSION_STATES.map((state, index) => (
+        <StatusLabel
+          key={state}
+          appearance="dot"
+          axis="session"
+          state={state}
+          label={SESSION_WORDS[locale][index]}
+          detail={state === "needs_input" ? WAITED[locale] : undefined}
+        />
+      ))}
+    </section>
+  );
+}
+
+/**
+ * The session list's mark: a dot, a turning ring while running, the wait
+ * after a middle dot. Each column is the list's 116px status column, so a
+ * long word is cut and the wait stays. Reduced motion stops the ring; see
+ * status-label.test.tsx.
+ */
+export const Dot: Story = {
+  render: () => (
+    <div className="story-row items-start">
+      <DotColumn locale="ko" />
+      <DotColumn locale="en" />
+      <DotColumn locale="ja" />
+    </div>
+  ),
+};
+
+export const DotDark: Story = {
+  ...Dot,
+  name: "Dot (dark)",
+  globals: { theme: "dark" },
+};
+
+export const DotMobile: Story = {
+  ...Dot,
+  name: "Dot (390px)",
+  globals: { viewport: { value: "mobile390", isRotated: false } },
+};
