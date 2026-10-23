@@ -198,6 +198,7 @@ export const agentsKo = {
   "agent.glance.none": "없음",
   "agent.glance.latest": "최신 버전",
   "agent.glance.latestDraft": "아직 배포하지 않았습니다.",
+  "agent.glance.latestReleased": "release는 만들었지만 아직 켜지 않았습니다.",
   "agent.ready.title": "켜기까지",
   "agent.ready.on": "켜짐",
   "agent.ready.todo": "할 일 있음",
@@ -223,6 +224,8 @@ export const agentsKo = {
   "agent.card.summaryTitle": "에이전트 카드",
   "agent.card.subActive": "새 세션에 쓰이는 version입니다. 읽기 전용.",
   "agent.card.subDraft": "아직 배포하지 않은 최신 version입니다. 읽기 전용.",
+  "agent.card.subReleased":
+    "release는 만들었지만 아직 켜지 않은 version입니다. 읽기 전용.",
   "agent.card.subStopped":
     "활성 release의 version이지만 에이전트가 {status} 상태라 새 세션은 쓰지 않습니다. 읽기 전용.",
   "agent.card.raw": "카드 원문",
@@ -461,6 +464,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.glance.none": "None",
   "agent.glance.latest": "Latest version",
   "agent.glance.latestDraft": "Not released yet.",
+  "agent.glance.latestReleased": "Released but not activated yet.",
   "agent.ready.title": "Before it runs",
   "agent.ready.on": "On",
   "agent.ready.todo": "Steps left",
@@ -486,6 +490,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.card.summaryTitle": "Agent card",
   "agent.card.subActive": "The version new sessions use. Read-only.",
   "agent.card.subDraft": "The latest version, not released yet. Read-only.",
+  "agent.card.subReleased": "Released but not activated yet. Read-only.",
   "agent.card.subStopped":
     "The active release's version, but the agent is {status}, so new sessions do not use it. Read-only.",
   "agent.card.raw": "Card source",
@@ -720,6 +725,8 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.glance.none": "なし",
   "agent.glance.latest": "最新バージョン",
   "agent.glance.latestDraft": "まだリリースしていません。",
+  "agent.glance.latestReleased":
+    "リリースは作成済みですが、まだ有効にしていません。",
   "agent.ready.title": "有効にするまで",
   "agent.ready.on": "有効",
   "agent.ready.todo": "残りの手順あり",
@@ -748,6 +755,8 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
     "新しいセッションで使われるバージョンです。読み取り専用。",
   "agent.card.subDraft":
     "まだリリースしていない最新バージョンです。読み取り専用。",
+  "agent.card.subReleased":
+    "リリースは作成済みですが、まだ有効にしていないバージョンです。読み取り専用。",
   "agent.card.subStopped":
     "有効なリリースのバージョンですが、エージェントが「{status}」のため新しいセッションでは使われません。読み取り専用。",
   "agent.card.raw": "カードの原文",

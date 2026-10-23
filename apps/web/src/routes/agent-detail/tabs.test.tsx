@@ -206,6 +206,11 @@ describe("에이전트 상세 탭", () => {
     expect(
       within(section).queryByRole("button", { name: "배포 탭으로" }),
     ).toBeNull();
+    const latest = within(
+      screen.getByRole("list", { name: "에이전트 현황" }),
+    ).getAllByRole("listitem")[1]?.textContent;
+    expect(latest).toContain("일시정지 상태라 새 세션이");
+    expect(latest).not.toContain("새 세션은 최신 version으로 시작합니다");
     const user = await setupUser();
     await user.click(screen.getByRole("tab", { name: "카드" }));
     const summary = (
@@ -215,6 +220,32 @@ describe("에이전트 상세 탭", () => {
       within(summary).getByText(/일시정지 상태라 새 세션은 쓰지 않습니다/),
     ).toBeDefined();
     expect(within(summary).queryByText(/새 세션에 쓰이는/)).toBeNull();
+  });
+
+  test("release만 만들고 켜지 않은 version은 배포하지 않았다고 하지 않는다", async () => {
+    const server = agentServer();
+    const path = `/v1/agents/${AGENT_ID}`;
+    const version = server.detail().versions[0];
+    await (server.routes as Record<string, (request: Request) => unknown>)[
+      `POST ${path}/releases`
+    ]?.(
+      new Request(`http://test${path}/releases`, {
+        method: "POST",
+        body: JSON.stringify({
+          version_id: version?.id,
+          runtime_profile_id: "claude-coding-local",
+        }),
+      }),
+    );
+    expect(server.detail().releases).toHaveLength(1);
+    renderAt(`${DETAIL}?tab=card`, { ...meOk, ...server.routes });
+    const summary = (
+      await screen.findByRole("heading", { name: "에이전트 카드" })
+    ).closest("section") as HTMLElement;
+    expect(
+      await within(summary).findByText(/release는 만들었지만 아직 켜지 않은/),
+    ).toBeDefined();
+    expect(within(summary).queryByText(/아직 배포하지 않은/)).toBeNull();
   });
 
   test("version이 없는 에이전트도 카드 탭에 이름과 식별자를 보인다", async () => {

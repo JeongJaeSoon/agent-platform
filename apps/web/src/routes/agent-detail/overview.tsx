@@ -37,6 +37,9 @@ export function shownVersion(detail: AgentDetail) {
 }
 
 /** The overview's figures: what runs and what is newest. */
+const releasedVersion = (detail: AgentDetail, version: { id: string }) =>
+  detail.releases.some((release) => release.version_id === version.id);
+
 export function AgentGlance({ detail }: { readonly detail: AgentDetail }) {
   const { t, locale } = useI18n();
   const { agent } = detail;
@@ -81,9 +84,15 @@ export function AgentGlance({ detail }: { readonly detail: AgentDetail }) {
                       latest: latest.version_no,
                       active: active.version_no,
                     })
-                  : active
-                    ? t("agent.overview.upToDate")
-                    : t("agent.glance.latestDraft")
+                  : !active
+                    ? releasedVersion(detail, latest)
+                      ? t("agent.glance.latestReleased")
+                      : t("agent.glance.latestDraft")
+                    : agent.status === "active"
+                      ? t("agent.overview.upToDate")
+                      : t("agent.ready.notRunnable", {
+                          status: t(`agents.status.${agent.status}`),
+                        })
               }`
             : t("agent.noActive")
         }
@@ -350,13 +359,17 @@ export function CardSummary({ detail }: { readonly detail: AgentDetail }) {
               {t("agent.card.summaryTitle")}
             </h2>
             <span className={META}>
-              {!live
-                ? t("agent.card.subDraft")
-                : detail.agent.status === "active"
-                  ? t("agent.card.subActive")
-                  : t("agent.card.subStopped", {
-                      status: t(`agents.status.${detail.agent.status}`),
-                    })}
+              {!version
+                ? t("agent.noActive")
+                : !live
+                  ? releasedVersion(detail, version)
+                    ? t("agent.card.subReleased")
+                    : t("agent.card.subDraft")
+                  : detail.agent.status === "active"
+                    ? t("agent.card.subActive")
+                    : t("agent.card.subStopped", {
+                        status: t(`agents.status.${detail.agent.status}`),
+                      })}
             </span>
           </div>
           {version ? (
