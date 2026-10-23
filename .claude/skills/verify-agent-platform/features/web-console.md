@@ -1,18 +1,19 @@
 # 웹 콘솔
 
-API가 `WEB_DIST_DIR`(control-host 이미지는 `/app/apps/web/dist`)의 웹 콘솔을 같은 origin에서 서빙한다. 사용자는 브라우저로 `/bootstrap`에서 첫 소유자(owner)를 만들고, `/login`에서 로그인해 `/`의 workspace shell과 시작하기 checklist를 보고, 로그아웃한다. `/v1`·`/internal` 밖의 경로는 모두 `index.html`이라 새로고침해도 화면이 열린다.
+API가 `WEB_DIST_DIR`(control-host 이미지는 `/app/apps/web/dist`)의 웹 콘솔을 같은 origin에서 서빙한다. 사용자는 브라우저로 `/bootstrap`에서 첫 소유자(owner)를 만들고, `/login`에서 로그인해 `/`의 workspace shell(왼쪽 사이드바, 머리의 "새로 만들기"와 답변 대기 버튼)과 시작하기 checklist를 보고, 사이드바 아래 사용자 메뉴에서 로그아웃한다. `/v1`·`/internal` 밖의 경로는 모두 `index.html`이라 새로고침해도 화면이 열린다.
 
 ## Sub-features
 
 - `serving` 페이지 경로는 `index.html`(`no-cache`, `script-src 'self'` CSP), `/assets/*`는 `immutable`, 없는 asset은 404.
 - `api-404` `/v1/nope`는 fallback되지 않는다: 인증 없으면 JSON 401, 인증하면 JSON 404.
-- `login-required` 로그인 없이 `/`를 열면 `/login?redirect=%2F`로 가고 "다시 로그인하세요"가 보인다.
+- `login-required` 로그인 없이 `/`를 열면 `/login?redirect=%2F`로 가고 "로그인이 필요합니다"와 "로그인하면 열려던 화면으로 돌아갑니다."가 보인다.
 - `bootstrap` `/bootstrap`은 제목 "첫 소유자 만들기"로 열리고, 제출하면 `/login?notice=created`.
 - `bootstrap-done` 소유자가 이미 있으면 제출 결과가 409라 `/bootstrap`에 머문 채 폼 아래 오류 줄에 "이미 소유자가 있습니다. 로그인해 주세요. 로그인하기"(마지막 말이 `/login` 링크)가 보인다. `/login?notice=bootstrap_done` 안내는 그 주소로 직접 열 때만 나온다.
-- `login` 로그인하면 `/`에 workspace 이름, "<이름>(<이메일>) 계정으로 로그인했습니다", checklist 넷(첫째만 완료).
-- `logout` 로그아웃하면 `/login?notice=logged_out`, 다시 `/`를 열면 로그인 화면.
+- `login` 로그인하면 `/`에 workspace 이름, "<이름>(<이메일>) 계정으로 로그인했습니다", "시작하기 1 / 4 완료"와 항목 넷(소유자 계정 만들기·구성원 초대하기·에이전트 준비하기·첫 세션 확인하기, 첫째만 완료).
+- `shell` 사이드바는 업무(홈·세션·에이전트), 워크스페이스(구성원·팀·워크스페이스 설정, 권한 있을 때만), 내 설정(연동 계정·내 key·언어·테마). 머리의 "새로 만들기"는 `/agents/new` 링크다. 좁은 폭에서는 사이드바가 "메뉴 열기" 뒤에 숨는다.
+- `logout` 사이드바 아래 사용자 버튼(글자 `<첫 글자><이름>`, `aria-label` "<이름> · <역할>")이 메뉴(연동 계정·언어·테마·내 key·로그아웃)를 연다. "로그아웃"하면 `/login?notice=logged_out`, 다시 `/`를 열면 로그인 화면.
 - `session-ended` 로그인한 채 다른 곳에서 세션이 끝나면(다른 탭 로그아웃), 다음 `me` 재조회가 401을 받아 `/login?redirect=…`로 간다.
-- `locale` 오른쪽 아래 언어 선택(한국어·English).
+- `locale` 한국어·日本語·English. 로그인 전 화면(`/login`·`/bootstrap`·초대)은 오른쪽 아래 `<footer>`의 native select, 로그인 뒤에는 사용자 메뉴의 "언어"와 `/settings/preferences`("언어·테마")에서 고른다. 첫 방문 언어는 브라우저 언어를 따른다.
 - `google-callback` `/auth/google/callback`도 SPA 경로다. 로그인 화면의 Google 버튼은 `login-methods`에 `google`이 있을 때만 보인다([web-settings.md](./web-settings.md) `login-choice`).
 - `states` 화면마다 로딩("로그인 상태를 확인하는 중입니다" 등)·오류("서버에 연결하지 못했습니다 — 네트워크 연결을 확인하세요.")·빈 상태가 있고, 390px 폭과 다크 모드(`prefers-color-scheme: dark`)에서도 가로로 넘치지 않는다.
 
@@ -47,6 +48,9 @@ node $B <run id> blockshot /sessions '*/v1/sessions*' sessions-error   # 그 요
 node $B <run id> slowshot /sessions sessions-loading 3000              # 2.5초 지연 중 로딩 화면
 node $B <run id> key Tab 3               # 포커스가 간 요소와 outline
 node $B <run id> press "연결 해제"        # 그 버튼에 포커스를 두고 Enter → 경로와 그 뒤 포커스가 간 요소
+node $B <run id> click "Verify Owner"    # 사이드바 아래 사용자 메뉴를 연다(로그아웃은 그 안에만 있다)
+node $B <run id> click 로그아웃           # → /login?notice=logged_out
+node $B <run id> select "footer select" ja   # 로그인 전 화면의 언어. h1이 "ログイン"이 된다. 되돌릴 때 ko
 node $B <run id> stop                    # stopped pid N; profile removed
 ```
 
@@ -55,6 +59,7 @@ node $B <run id> stop                    # stopped pid N; profile removed
 - 다른 명령: `click <버튼 글자|css>`, `press <버튼 글자|css> [Key]`, `type <css|@N> <text>`, `select <css|@N> <value>`, `eval <expr>`, `shot <name> full`(페이지 전체). `@N`은 main 안 N번째 입력 칸(0부터)이다.
 - bootstrap 화면은 `node $B <run id> bootstrap <who>`로 몬다. `state.env`의 bootstrap token과 `users/<who>`(없으면 `web-user.mjs`와 같은 모양으로 만든다)로 폼 여섯 칸을 채워 제출하고, 값은 출력하지 않는다. 첫 제출은 `bootstrap owner -> /login?notice=created |`, 소유자가 이미 있으면(`web-user.mjs bootstrap owner` 뒤 등) `bootstrap owner -> /bootstrap | <오류 줄 글자>`다. token과 비밀번호를 `type`으로 명령에 쓰지 않는다.
 - 포커스 회복(대화상자를 닫은 뒤, 보내기·삭제 뒤 포커스가 어디로 가는지)은 `press <버튼 글자|css> [Key]`로 본다. `click`은 `el.click()`이라 버튼에 포커스를 주지 않아, 키보드 사용자가 겪는 포커스 이동을 재현하지 못한다. `press`는 그 요소에 `focus()`를 한 뒤 CDP로 실제 키(기본 `Enter`)를 보내고, 끝난 뒤 `document.activeElement`(태그·이름·outline)를 출력한다. 찾지 못하면 `not found`, 찾았지만 포커스가 가지 않으면(disabled·숨김·포커스 불가 요소) `not focusable <태그> <글자>`만 출력하고 키를 보내지 않는다.
+- 2026-10-23 run `20261023-160737-96495`(main `e7490124`, JeongJaeSoon/agent-platform#568 포함)에서 서빙 curl(페이지 200 `no-cache`, `/v1/nope` 401, 없는 asset 404), `open /` → "로그인이 필요합니다", footer 언어 select(한국어·日本語·English, `ja`로 "ログイン"), `bootstrap owner` 두 번, `login owner` → 홈 checklist 넷, 1280 light·390 dark·1440 스크린샷(`scrollWidth/innerWidth` 1280/1280, 390/390, 1440/1440), "새로 만들기" → `/agents/new`, 사용자 메뉴 → 로그아웃을 확인했다.
 - 2026-10-22 run `20261022-073051-53892`에서 `bootstrap owner` 두 번으로 `/login?notice=created`와 `/bootstrap`의 409 오류 줄을 봤고, 그 `users/owner`로 `web-user.mjs login owner`가 `200`이었다. 연결 계정 한 줄을 둔 `/settings/linked-accounts`에서 `click "연결 해제"` 뒤 포커스는 `BODY`였고, 다시 연결한 뒤 `press "연결 해제"`는 `focus {"tag":"H2","name":"Slack","outline":"solid 2px"}`였다(해제 뒤 목록 제목).
 - 2026-10-21 run `20261021-031642-23898`에서 member로 로그인해 `/sessions`를 1280·390 × light·dark로 찍었고(`scrollWidth/innerWidth` 1280/1280, 390/390), `blockshot`으로 "서버에 연결하지 못했습니다" 오류 화면, `slowshot`으로 로딩 화면을 찍었다.
 
@@ -67,3 +72,5 @@ Orca 브라우저(`orca tab`·`orca snapshot`)도 쓸 수 있다. 다른 스택�
 - `session-ended`를 몰려면 페이지에서 `fetch('/v1/auth/logout',{method:'POST',headers:{'x-requested-with':'agent-platform-web'}})`로 세션을 끝내고, 30초(`me`의 staleTime) 뒤 `window.dispatchEvent(new Event('visibilitychange'))`로 포커스 복귀를 흉내 낸다. `document`에 보내면 React Query가 듣지 않는다.
 - bootstrap 완료 여부를 읽는 공개 GET이 없다. `/bootstrap`은 소유자가 있어도 같은 폼("첫 소유자 만들기")으로 열리고, 제출해야 409로 안다.
 - `slowshot` 직후의 다음 명령은 페이지가 아직 불러오는 중일 수 있다. `open`으로 다시 연 뒤 이어 간다.
+- 화면 글자는 브라우저 언어를 따른다. `browser.mjs`의 Chrome은 OS 언어로 뜨므로(이 머신은 `navigator.languages` = `ko-KR,ko,…`) 이 map의 한국어 글자가 그대로 맞는다. 다른 언어로 첫 방문을 보려면 `start` 전에 `$VERIFY_RUN/browser/profile/Default/Preferences`를 `{"intl":{"accept_languages":"ja,en-US,en"}}`로 쓴다(Write 도구).
+- `click`은 보이는 글자만 맞춘다(`aria-label`은 보지 않는다). 글자 없는 버튼은 CSS로 누른다(예: `click '[aria-label="Slack 계정 연결"]'`).
