@@ -364,8 +364,18 @@ function withoutComments(source: string): string {
     .replace(/(^|\s)\/\/.*$/gm, "$1");
 }
 
-/** The second and later bindings of `const a = 1, Card = () => ...`. */
-const laterDeclarator = /,\s*([A-Z][\w$]*)\s*(?::[^=,;()]+)?=(?![=>])/g;
+/**
+ * The second and later bindings of `const a = 1, Card = () => ...`. Only a
+ * function value counts, so a destructured default (`{ Input = Default }`)
+ * that injects a component is not a definition.
+ */
+const laterDeclarator =
+  /,\s*([A-Z][\w$]*)\s*(?::[^=,;()]+)?=\s*(?:\(|async\b|function\b|[\w$.]*(?:memo|forwardRef)\()/g;
+
+/** Quoted strings blanked out, for rules that look for JSX rather than text. */
+function withoutStrings(source: string): string {
+  return source.replace(/"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'/g, '""');
+}
 
 /** Count of each web UI rule's matches, per file relative to apps/web/src. */
 export type WebUiCounts = Record<string, Partial<Record<WebUiRule, number>>>;
@@ -420,25 +430,27 @@ export async function webUiViolations(
     if (!/\.tsx?$/.test(entry.name) || isTestFile(file)) continue;
     const source = withoutComments(await readFile(file, "utf8"));
     const count = (pattern: RegExp) => [...source.matchAll(pattern)].length;
-    add(name, "raw-table", count(/<table(?=[\s>/])/g));
-    add(name, "raw-anchor", count(/<a(?=[\s>/])/g));
+    const code = withoutStrings(source);
+    const countCode = (pattern: RegExp) => [...code.matchAll(pattern)].length;
+    add(name, "raw-table", countCode(/<table(?=[\s>/])/g));
+    add(name, "raw-anchor", countCode(/<a(?=[\s>/])/g));
     add(
       name,
       "shadow-component",
       [
-        ...source.matchAll(
+        ...code.matchAll(
           /\b(?:function\*?|const|let|var|class)\s+([A-Z][\w$]*)/g,
         ),
-        ...source.matchAll(laterDeclarator),
+        ...code.matchAll(laterDeclarator),
       ].filter((match) => components.has(match[1] ?? "")).length,
     );
     add(name, "legacy-class", count(legacyClass));
-    // A URL constant (HELP_LINK = "https://...") is not a className.
+    // A string of link classes, not a URL constant (HELP_LINK = "#help").
     add(
       name,
       "link-constant",
       count(
-        /\bconst\s+[A-Z0-9_]*LINK[A-Z0-9_]*\s*(?::[^=]+)?=\s*["'`](?!\/|[a-z]+:)/g,
+        /(?:\bconst\s+|,\s*)[A-Z0-9_]*LINK[A-Z0-9_]*\s*(?::[^=]+)?=\s*(["'`])(?=(?:(?!\1).)*(?:\btext-|\bunderline\b))/g,
       ),
     );
     add(name, "raw-destructive", count(/(?<![\w-])text-destructive(?![\w-])/g));
@@ -1156,7 +1168,7 @@ describe("architecture", () => {
       );
       await writeFile(
         join(fixture, "ui", "src", "card.tsx"),
-        "export const First = () => null, Second = () => null;",
+        "export const First = () => null, Second = () => null;\nexport const Input = () => null;",
       );
       await writeFile(
         join(fixture, "ui", "src", "parts", "index.ts"),
@@ -1164,7 +1176,7 @@ describe("architecture", () => {
       );
       expect(
         [...(await exportedComponentNames(join(fixture, "ui")))].sort(),
-      ).toEqual(["APIError", "First", "Second"]);
+      ).toEqual(["APIError", "First", "Input", "Second"]);
 
       const web = join(fixture, "web");
       await mkdir(web);
@@ -1176,6 +1188,9 @@ describe("architecture", () => {
           "const identity = <table,>(value: table) => value;",
           'const HELP_LINK = "https://example.com/help";',
           'const HOME_LINK = "/home";',
+          'const HASH_LINK = "#help";',
+          'const help = "Use <a> or <table> for these";',
+          "function Screen({ title, Input = DefaultInput }) { return <Input />; }",
           "const CardProps = {};",
         ].join("\n"),
       );
@@ -1183,6 +1198,7 @@ describe("architecture", () => {
         join(web, "dirty.tsx"),
         [
           'const LINK: string = "underline";',
+          'const OTHER = 0, ROW_LINK = "hover:underline text-primary";',
           "const unrelated = 0, Second = () => <div />;",
           "function APIError() { return <a/>; }",
         ].join("\n"),
@@ -1200,7 +1216,7 @@ describe("architecture", () => {
         "dirty.tsx": {
           "raw-anchor": 1,
           "shadow-component": 2,
-          "link-constant": 1,
+          "link-constant": 2,
         },
         "styles.css": { "legacy-class": 1 },
       });
