@@ -844,8 +844,9 @@ describe("에이전트 상세", () => {
     });
     await waitFor(() =>
       expect(
-        within(summary).getAllByText(`version 1 · ${PROFILE}`).length,
-      ).toBeGreaterThan(0),
+        within(summary).getByText("활성 release").nextElementSibling
+          ?.textContent,
+      ).toBe(`version 1 · ${PROFILE}`),
     );
     expect(agentDetailSchema.safeParse(server.detail()).success).toBe(true);
   });
