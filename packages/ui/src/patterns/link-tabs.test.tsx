@@ -151,6 +151,53 @@ describe("LinkTabs", () => {
     expect(other.hasAttribute("aria-current")).toBe(false);
   });
 
+  test("라우터 링크가 스스로 매긴 aria-current가 이기므로 상위 경로 링크는 exact로 맞춘다", () => {
+    // TanStack's <Link> writes aria-current="page" over its props when it
+    // counts as active, and by default a parent path is active too.
+    function ActiveRouterLink({
+      to,
+      at,
+      exact = false,
+      ...props
+    }: Omit<ComponentProps<"a">, "href"> & {
+      readonly to: string;
+      readonly at: string;
+      readonly exact?: boolean;
+    }): JSX.Element {
+      const active = exact ? at === to : at.startsWith(to);
+      return (
+        <a
+          href={to}
+          {...props}
+          {...(active ? { "aria-current": "page" } : {})}
+        />
+      );
+    }
+    const tabs = (exact: boolean) => (
+      <LinkTabs aria-label="key 목록">
+        <LinkTab asChild current={false}>
+          <ActiveRouterLink to="/keys" at="/keys/service" exact={exact}>
+            내 key
+          </ActiveRouterLink>
+        </LinkTab>
+        <LinkTab asChild current>
+          <ActiveRouterLink to="/keys/service" at="/keys/service" exact={exact}>
+            서비스 key
+          </ActiveRouterLink>
+        </LinkTab>
+      </LinkTabs>
+    );
+    const marked = (container: HTMLElement) =>
+      [...container.querySelectorAll('a[aria-current="page"]')].map(
+        (link) => link.textContent,
+      );
+    expect(marked(render(tabs(false)).container)).toEqual([
+      "내 key",
+      "서비스 key",
+    ]);
+    expect(marked(render(tabs(true)).container)).toEqual(["서비스 key"]);
+  });
+
   test("KeyScreenNav와 같은 치수 클래스와 focus-visible 윤곽을 쓴다", () => {
     const { getByRole } = render(statusTabs("running"));
     const list = getByRole("list").className.split(" ");
