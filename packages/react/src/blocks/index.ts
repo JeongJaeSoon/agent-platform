@@ -4,7 +4,11 @@ export type {
   SessionAction,
   SessionActionProps,
 } from "./session-actions.tsx";
-export { SessionDetail, type SessionDetailProps } from "./session-detail.tsx";
+export {
+  SessionDetail,
+  type SessionDetailProps,
+  type SessionDetailTab,
+} from "./session-detail.tsx";
 export {
   type NamedSessionListProps,
   RecentSessions,

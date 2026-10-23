@@ -52,15 +52,13 @@ describe("ApprovalCard", () => {
         now={NOW}
       />,
     );
-    // The folded input is the first stop, then the actions.
-    await user.tab();
     await user.tab();
     expect(document.activeElement?.textContent).toBe("Allow");
     await user.keyboard("{Enter}");
     expect(onAllow).toHaveBeenCalledTimes(1);
   });
 
-  test("제목 줄에 대상과 기한을 함께 두고, 답 버튼은 입력 보기 옆에 내용 폭으로 둔다", () => {
+  test("제목 줄에 대상과 기한을 두고, 입력을 펼쳐 보이며, 답 버튼은 한 줄을 나눠 쓴다", () => {
     const view = render(
       <ApprovalCard
         request={REQUEST}
@@ -74,12 +72,13 @@ describe("ApprovalCard", () => {
     );
     const title = view.getByText("Bash asks").parentElement as HTMLElement;
     expect(title.textContent).toMatch(/^Bash asks·s-1…·expires /);
+    const input = view.container.querySelector("[data-slot=approval-input]");
+    expect(input?.tagName).toBe("PRE");
+    expect(input?.closest("details")).toBeNull();
     const allow = view.getByRole("button", { name: "Allow" });
     const deny = view.getByRole("button", { name: "Deny" });
-    expect(allow.className).not.toContain("flex-1");
-    expect(deny.className).not.toContain("flex-1");
-    const row = allow.parentElement?.parentElement as HTMLElement;
-    expect(row.contains(view.getByText("input"))).toBe(true);
+    expect(allow.parentElement).toBe(deny.parentElement);
+    expect(allow.parentElement?.className).toContain("[&>button]:flex-[1_1_0]");
   });
 
   test("거부는 이유를 적어야 보내지고, 취소하면 거부 버튼으로 돌아간다", async () => {

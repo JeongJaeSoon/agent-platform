@@ -4,6 +4,7 @@ import type {
   SessionDetail as SessionDetailData,
 } from "@werft-ai/contracts";
 import { Button, ConfirmDialog } from "@werft-ai/ui";
+import { type LucideIcon, Play, Power, Square } from "lucide-react";
 import {
   type Dispatch,
   type ReactNode,
@@ -14,6 +15,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { Pause } from "../components/console-icons.ts";
 import {
   ApprovalCard,
   ApprovalRow,
@@ -156,12 +158,15 @@ export function PendingAnswers({
     answered.current = null;
     if (!focusLost(listRef.current)) return;
     // While another answer is on its way the buttons are off; the next
-    // card's folded input still takes focus.
+    // card's input still takes focus.
     const root = listRef.current;
     const next =
       root?.querySelector<HTMLElement>(
         "li button:not(:disabled), li input:not(:disabled)",
-      ) ?? root?.querySelector<HTMLElement>("li summary");
+      ) ??
+      root?.querySelector<HTMLElement>(
+        "li summary, li [data-slot=approval-input]",
+      );
     (next ?? noticeRef.current)?.focus();
   }, [items]);
 
@@ -349,11 +354,31 @@ function commandFor(
   }
 }
 
+const CONTROL_ICON = {
+  interrupt: Square,
+  pause: Pause,
+  resume: Play,
+  terminate: Power,
+} as const satisfies Record<ControlAction, LucideIcon>;
+
+export interface SessionControlsProps extends SessionActionProps {
+  readonly session: SessionDetailData;
+  /**
+   * `icons` draws each command as a square icon button named by its label,
+   * for a page header; `buttons` (the default) draws labelled buttons.
+   */
+  readonly variant?: "buttons" | "icons";
+  /** Drawn before the icon buttons on their row, such as a back link. */
+  readonly leading?: ReactNode;
+}
+
 export function SessionControls({
   session,
   unavailable,
   refusal,
-}: SessionActionProps & { readonly session: SessionDetailData }) {
+  variant = "buttons",
+  leading,
+}: SessionControlsProps) {
   const { t } = useBlockText();
   const control = useSessionControl(session.id);
   const refused = useRefusal(refusal);
@@ -422,40 +447,71 @@ export function SessionControls({
     });
   };
 
+  const icons = variant === "icons";
+  const buttons = actions.map((action) => {
+    const label = t(`session.control.${action}`);
+    const Icon = CONTROL_ICON[action];
+    return (
+      <Button
+        key={action}
+        type="button"
+        data-action={action}
+        variant={action === "terminate" && !icons ? "destructive" : "outline"}
+        disabled={reason !== undefined}
+        // Not `disabled` while a command runs: Chrome takes focus off a
+        // disabled button, and the keyboard would lose its place.
+        aria-disabled={control.isPending || undefined}
+        size={icons ? "icon" : "sm"}
+        className={
+          icons && action === "terminate"
+            ? "text-destructive hover:text-destructive aria-disabled:opacity-50"
+            : "aria-disabled:opacity-50"
+        }
+        aria-label={icons ? label : undefined}
+        // Until @werft-ai/ui has a Tooltip, the native one names the icon.
+        title={icons ? label : undefined}
+        aria-describedby={reason === undefined ? undefined : reasonId}
+        onClick={() => {
+          if (control.isPending) return;
+          if (action === "terminate") setConfirming(true);
+          else run(action);
+        }}
+      >
+        {icons ? <Icon strokeWidth={1.5} aria-hidden="true" /> : label}
+      </Button>
+    );
+  });
+  const group = (
+    <div ref={groupRef} className="flex flex-wrap gap-2">
+      {buttons}
+    </div>
+  );
+
   return (
     <>
-      {actions.length === 0 ? (
-        <p className="m-0 text-muted-foreground text-body">
-          {t("session.control.none")}
-        </p>
-      ) : (
-        <div ref={groupRef} className="flex flex-wrap gap-2">
-          {actions.map((action) => (
-            <Button
-              key={action}
-              type="button"
-              data-action={action}
-              variant={action === "terminate" ? "destructive" : "outline"}
-              disabled={reason !== undefined}
-              // Not `disabled` while a command runs: Chrome takes focus off a
-              // disabled button, and the keyboard would lose its place.
-              aria-disabled={control.isPending || undefined}
-              size="sm"
-              className="aria-disabled:opacity-50"
-              aria-describedby={reason === undefined ? undefined : reasonId}
-              onClick={() => {
-                if (control.isPending) return;
-                if (action === "terminate") setConfirming(true);
-                else run(action);
-              }}
-            >
-              {t(`session.control.${action}`)}
-            </Button>
-          ))}
+      {icons ? (
+        // Wrapped under the title on a narrow page, the row starts at the left.
+        <div className="flex min-w-0 flex-col items-start gap-1 md:items-end">
+          <div className="flex flex-wrap items-center gap-2 md:justify-end">
+            {leading}
+            {actions.length === 0 ? null : group}
+          </div>
+          {reason === undefined ? null : <Reason id={reasonId} text={reason} />}
+          <OutcomeLine ref={outcomeRef} outcome={outcome} />
         </div>
+      ) : (
+        <>
+          {actions.length === 0 ? (
+            <p className="m-0 text-muted-foreground text-body">
+              {t("session.control.none")}
+            </p>
+          ) : (
+            group
+          )}
+          {reason === undefined ? null : <Reason id={reasonId} text={reason} />}
+          <OutcomeLine ref={outcomeRef} outcome={outcome} />
+        </>
       )}
-      {reason === undefined ? null : <Reason id={reasonId} text={reason} />}
-      <OutcomeLine ref={outcomeRef} outcome={outcome} />
       <ConfirmDialog
         open={confirming}
         onOpenChange={(open) => {

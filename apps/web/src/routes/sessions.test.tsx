@@ -653,8 +653,9 @@ describe("session detail", () => {
     renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
 
     expect(await screen.findByText("답변 대기")).toBeTruthy();
+    // Why no new turn starts sits above the composer it holds back.
     expect(
-      await within(screen.getByRole("complementary")).findByText(
+      await within(screen.getByRole("tabpanel")).findByText(
         "한도에 도달해 새 turn을 시작하지 않습니다.",
       ),
     ).toBeTruthy();
@@ -704,9 +705,9 @@ describe("session detail", () => {
     // Only the latest status is announced; the list itself is not live.
     const list = screen.getByText("Listing files").closest("ol");
     expect(list?.getAttribute("aria-live")).toBeNull();
-    expect(document.querySelector("output.sr-only")?.textContent).toBe(
-      "작업 중",
-    );
+    expect(
+      screen.getByRole("tabpanel").querySelector("output.sr-only")?.textContent,
+    ).toBe("작업 중");
     expect(
       screen.getByRole("complementary", { name: "답변과 승인" }),
     ).toBeTruthy();
@@ -912,6 +913,7 @@ describe("session detail", () => {
           cost: { ...usage.cost, open_turn_count: 0, unreported_turn_count: 1 },
         }),
     });
+    await setupInfo();
     expect(
       await screen.findByText(/비용을 보고하지 않고 끝난 turn이 있어/),
     ).toBeTruthy();
@@ -937,103 +939,19 @@ describe("session detail", () => {
 });
 
 describe("session profile", () => {
-  test("offers only profiles with the same runtime and billing, and moves the session", async () => {
-    const user = await setupUser();
-    let revision = 3;
-    const { api } = renderAt(`/sessions/${SESSION_ID}`, {
-      ...detailRoutes,
-      [`GET /v1/sessions/${SESSION_ID}`]: () =>
-        json(200, { ...detail, revision }),
-      [`POST /v1/sessions/${SESSION_ID}/profile`]: () => {
-        revision = 4;
-        return json(200, {
-          receipt_id: RECEIPT_ID,
-          receipt_status: "succeeded",
-        });
-      },
-    });
-
-    const select = await screen.findByRole("combobox", {
-      name: "다음 작업부터 쓸 프로필",
-    });
+  // The user's call (2026-10-24): a session picks its model only; the
+  // profile belongs to the agent, so the screen offers no change mid-session.
+  test("offers no profile change and shows the model the session runs instead", async () => {
+    const { api } = renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
+    const header = (
+      await screen.findByRole("button", { name: "일시 정지" })
+    ).closest("header") as HTMLElement;
+    expect(header.textContent).toContain("model-default");
+    expect(screen.queryByRole("button", { name: "프로필 바꾸기" })).toBeNull();
     expect(
-      Array.from(select.querySelectorAll("option")).map((o) => o.value),
-    ).toEqual(["fast"]);
-
-    const reads = () =>
-      api.calls.filter(
-        (call) =>
-          call.method === "GET" && call.path === `/v1/sessions/${SESSION_ID}`,
-      ).length;
-    const before = reads();
-    await user.click(screen.getByRole("button", { name: "프로필 바꾸기" }));
-    expect(
-      await screen.findByText("다음 작업부터 fast 프로필을 씁니다."),
-    ).toBeTruthy();
-    const [post] = api.calls.filter((call) => call.method === "POST");
-    expect(post?.body).toEqual({ expected_revision: 3, profile_id: "fast" });
-    expect(post?.headers.get("idempotency-key")).toMatch(/^[0-9a-f-]{36}$/);
-    await waitFor(() => expect(reads()).toBeGreaterThan(before));
-  });
-
-  // changeProfile answers all of these with UNSUPPORTED_CAPABILITY, so the
-  // sentence must hold for each.
-  for (const message of [
-    "Profile fast is not in this host's catalog or not allowed with the session's repository",
-    "The session's profile default is no longer in this host's catalog as the session runs it, so the runtime its checkpoints were taken on cannot be checked",
-    "Profile fast runs claude_agent_sdk 2.0.0; the session's checkpoints were taken on claude_agent_sdk 1.0.0",
-    "Profile fast is billed differently from the session's (billing: none on one side only), so the session's cost limit would change",
-  ]) {
-    test(`shows a refusal that holds for every reason, in Korean only: ${message.slice(0, 40)}`, async () => {
-      const user = await setupUser();
-      renderAt(`/sessions/${SESSION_ID}`, {
-        ...detailRoutes,
-        [`POST /v1/sessions/${SESSION_ID}/profile`]: () =>
-          apiError(422, "UNSUPPORTED_CAPABILITY", message),
-      });
-      await user.click(
-        await screen.findByRole("button", { name: "프로필 바꾸기" }),
-      );
-      expect(
-        await screen.findByText(
-          "이 프로필로 바꿀 수 없습니다. 이 세션의 저장소·런타임·과금 방식과 맞지 않는 프로필이거나, 지금 프로필의 설정이 바뀌었습니다.",
-        ),
-      ).toBeTruthy();
-      expect(screen.queryByText(message)).toBeNull();
-    });
-  }
-
-  test("a session from an agent release says why it keeps its profile", async () => {
-    const user = await setupUser();
-    renderAt(`/sessions/${SESSION_ID}`, {
-      ...detailRoutes,
-      [`POST /v1/sessions/${SESSION_ID}/profile`]: () =>
-        apiError(
-          409,
-          "RELEASE_PROFILE_MISMATCH",
-          "This session runs its agent release's profile",
-        ),
-    });
-    await user.click(
-      await screen.findByRole("button", { name: "프로필 바꾸기" }),
-    );
-    expect(
-      await screen.findByText(
-        "이 프로필로 바꿀 수 없습니다. 에이전트 release로 만든 세션은 그 release의 프로필만 씁니다.",
-      ),
-    ).toBeTruthy();
-  });
-
-  test("a key without sessions:control cannot change it", async () => {
-    renderAt(`/sessions/${SESSION_ID}`, {
-      ...detailRoutes,
-      "GET /v1/auth/me": () =>
-        json(200, me(["sessions:read", "sessions:write"], "member")),
-    });
-    const button = await screen.findByRole("button", {
-      name: "프로필 바꾸기",
-    });
-    expect(button.hasAttribute("disabled")).toBe(true);
+      screen.queryByRole("combobox", { name: "다음 작업부터 쓸 프로필" }),
+    ).toBeNull();
+    expect(api.calls.some((call) => call.path === "/v1/profiles")).toBe(false);
   });
 
   test("allows a permission request from the keyboard; the answered request leaves", async () => {
@@ -1064,11 +982,13 @@ describe("session profile", () => {
     });
     expect(post?.headers.get("idempotency-key")).toMatch(/^[0-9a-f-]{36}$/);
     expect(
-      await screen.findByText("답을 기다리는 요청이 없습니다."),
+      await screen.findByText(
+        "작업 중입니다. 요청이 생기면 여기에 먼저 나옵니다.",
+      ),
     ).toBeTruthy();
-    expect(screen.getAllByText("답을 기다리는 요청이 없습니다.")).toHaveLength(
-      1,
-    );
+    expect(
+      screen.getAllByText("작업 중입니다. 요청이 생기면 여기에 먼저 나옵니다."),
+    ).toHaveLength(1);
     expect(screen.getByText("답을 보냈습니다.").tagName).toBe("OUTPUT");
     expect(screen.getByText("답을 보냈습니다.").closest("aside")).toBeTruthy();
     // The answered card took focus with it; the visible notice holds it now.
@@ -1287,9 +1207,10 @@ describe("session profile", () => {
     await act(async () => stream.open());
     act(() => stream.emit("ev_1", "status", { phase: "interrupting" }));
     await waitFor(() =>
-      expect(document.querySelector("output.sr-only")?.textContent).toBe(
-        "멈추는 중",
-      ),
+      expect(
+        screen.getByRole("tabpanel").querySelector("output.sr-only")
+          ?.textContent,
+      ).toBe("멈추는 중"),
     );
   });
 
@@ -1319,7 +1240,9 @@ describe("session profile", () => {
       expect(screen.queryByRole("button", { name: "일시 정지" })).toBeNull(),
     );
     await waitFor(() =>
-      expect(document.activeElement?.textContent).toBe("다시 시작"),
+      expect(document.activeElement?.getAttribute("aria-label")).toBe(
+        "다시 시작",
+      ),
     );
   });
 
@@ -1360,7 +1283,9 @@ describe("session profile", () => {
     state = { ...detail, current_turn_id: null };
     act(() => stream.emit("ev_1", "status", { phase: "idle" }));
     await waitFor(() =>
-      expect(document.activeElement?.textContent).toBe("일시 정지"),
+      expect(document.activeElement?.getAttribute("aria-label")).toBe(
+        "일시 정지",
+      ),
     );
   });
 
@@ -1701,18 +1626,6 @@ describe("session profile", () => {
         .hasAttribute("disabled"),
     ).toBe(false);
   });
-
-  test("says so when the current profile left the catalog", async () => {
-    renderAt(`/sessions/${SESSION_ID}`, {
-      ...detailRoutes,
-      "GET /v1/profiles": () => json(200, { items: [profile("fast")] }),
-    });
-    expect(
-      await screen.findByText(
-        "지금 프로필이 카탈로그에 없어 다른 프로필로 바꿀 수 없습니다.",
-      ),
-    ).toBeTruthy();
-  });
 });
 
 async function setupInfo() {
@@ -1730,16 +1643,17 @@ describe("세션 상세 레이아웃", () => {
       within(list)
         .getAllByRole("tab")
         .map((tab) => tab.textContent),
-    ).toEqual(["진행", "정보"]);
+    ).toEqual(["진행", "결과물0", "정보"]);
     await user.click(screen.getByRole("tab", { name: "진행" }));
-    await user.keyboard("{ArrowRight}");
+    // The list wraps, so the last tab is one step left of the first.
+    await user.keyboard("{ArrowLeft}");
     await waitFor(() =>
       expect(
         screen.getByRole("tab", { name: "정보" }).getAttribute("aria-selected"),
       ).toBe("true"),
     );
     expect(screen.queryByLabelText("내부 이벤트도 보기")).toBeNull();
-    await user.keyboard("{ArrowLeft}");
+    await user.keyboard("{ArrowRight}");
     await waitFor(() =>
       expect(screen.getByLabelText("내부 이벤트도 보기")).toBeTruthy(),
     );
@@ -1749,7 +1663,7 @@ describe("세션 상세 레이아웃", () => {
   });
 
   test.each(["error", "loading"] as const)(
-    "pending %s keeps the composer in the panel",
+    "pending %s keeps the composer under the timeline",
     async (state) => {
       renderAt(`/sessions/${SESSION_ID}`, {
         ...detailRoutes,
@@ -1763,8 +1677,8 @@ describe("세션 상세 레이아웃", () => {
       const composer = await screen.findByRole("textbox", {
         name: "다음 지시",
       });
-      const aside = composer.closest("aside") as HTMLElement;
-      expect(aside).toBeTruthy();
+      expect(composer.closest('[role="tabpanel"]')).toBeTruthy();
+      const aside = screen.getByRole("complementary", { name: "답변과 승인" });
       if (state === "error")
         await within(aside).findByRole("button", { name: "다시 시도" });
       else expect(within(aside).getByText("불러오는 중…")).toBeTruthy();
@@ -1773,9 +1687,98 @@ describe("세션 상세 레이아웃", () => {
       ).toHaveLength(1);
       // Requests that could not be read are not reported as none.
       expect(aside.textContent).not.toContain("기다리는 요청 없음");
-      expect(aside.textContent).not.toContain("답을 기다리는 요청이 없습니다.");
+      expect(aside.textContent).not.toContain(
+        "작업 중입니다. 요청이 생기면 여기에 먼저 나옵니다.",
+      );
     },
   );
+
+  test("헤더는 세션 목록 뒤에 이름 붙은 제어 아이콘을, 메타 줄에 저장소·모델·사용량을 둔다", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
+    const pause = await screen.findByRole("button", { name: "일시 정지" });
+    const header = pause.closest("header") as HTMLElement;
+    expect(pause.getAttribute("title")).toBe("일시 정지");
+    expect(pause.textContent).toBe("");
+    const back = within(header).getByRole("link", { name: "세션 목록" });
+    // The keyboard reaches the way back before the commands.
+    expect(
+      back.compareDocumentPosition(pause) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      within(header).getByRole("button", { name: "세션 종료" }),
+    ).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toContain(
+      "답변 대기",
+    );
+    expect(header.textContent).toContain("demo");
+    expect(header.textContent).toContain("model-default");
+    await waitFor(() => expect(header.textContent).toContain("$0.4200"));
+
+    const panel = screen.getByRole("complementary", { name: "답변과 승인" });
+    expect(within(panel).getByText("답할 수 있는 사람")).toBeTruthy();
+    expect(
+      await within(panel).findByText("나는 이 세션의 요청에 답할 수 있습니다."),
+    ).toBeTruthy();
+    // The session's API carries no agent, starter or branch yet.
+    expect(header.textContent).toContain("에이전트 정보 없음");
+    expect(header.textContent).toContain("시작한 사람·경로 정보 없음");
+    await setupInfo();
+    expect(screen.getAllByText("아직 볼 수 없습니다")).toHaveLength(3);
+  });
+
+  test.each([
+    ["hello.txt 만들고 commit", "hello.txt 만들고 commit"],
+    [null, SESSION_ID.slice(0, 8)],
+  ])("제목 %p는 머리에 %p로 쓴다", async (title, shown) => {
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () => json(200, { ...detail, title }),
+    });
+    const heading = await screen.findByRole("heading", { level: 1 });
+    expect(heading.textContent?.startsWith(`${shown}작업 상태: `)).toBe(true);
+  });
+
+  test("ID 복사는 세션 ID 전체를 복사하고 그렇다고 알린다", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
+    const user = await setupUser();
+    // After setupUser, which installs a clipboard of its own.
+    const copied: string[] = [];
+    const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: async (text: string) => {
+          copied.push(text);
+        },
+      },
+    });
+    try {
+      await user.click(
+        await screen.findByRole("button", { name: "세션 ID 복사" }),
+      );
+      expect(copied).toEqual([SESSION_ID]);
+      expect(await screen.findByText("세션 ID를 복사했습니다.")).toBeTruthy();
+    } finally {
+      if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
+      else Reflect.deleteProperty(navigator, "clipboard");
+    }
+  });
+
+  test("공유받아 보기만 하는 사람에게는 답할 수 없다고 말한다", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+        json(200, { ...pending, answerable: false }),
+    });
+    const panel = await screen.findByRole("complementary", {
+      name: "답변과 승인",
+    });
+    expect(
+      await within(panel).findByText(
+        "공유받아 볼 수만 있어 요청에 답할 수 없습니다.",
+      ),
+    ).toBeTruthy();
+  });
 
   test("작성 중인 다음 지시는 요청이 생기고 사라져도, 폭이 바뀌어도 남는다", async () => {
     const original = globalThis.ResizeObserver;
@@ -1810,7 +1813,9 @@ describe("세션 상세 레이아웃", () => {
             name: "다음 지시",
           }) as HTMLTextAreaElement
         ).value;
-      await screen.findByText("답을 기다리는 요청이 없습니다.");
+      await screen.findByText(
+        "작업 중입니다. 요청이 생기면 여기에 먼저 나옵니다.",
+      );
       await user.click(screen.getByRole("textbox", { name: "다음 지시" }));
       await user.keyboard("next step draft");
       await waitFor(() => expect(stream.requests).toHaveLength(1));
@@ -1832,7 +1837,9 @@ describe("세션 상세 레이아웃", () => {
 
       allow.focus();
       await user.keyboard("{Enter}");
-      await screen.findByText("답을 기다리는 요청이 없습니다.");
+      await screen.findByText(
+        "작업 중입니다. 요청이 생기면 여기에 먼저 나옵니다.",
+      );
       expect(draft()).toBe("next step draft");
 
       act(() =>
@@ -1871,7 +1878,9 @@ describe("세션 상세 레이아웃", () => {
       ).value,
     ).toBe("for the first session");
     act(() => history.push(`/sessions/${OTHER_ID}`));
-    await screen.findByRole("heading", { name: OTHER_ID });
+    await screen.findByRole("heading", {
+      name: new RegExp(`^${OTHER_ID.slice(0, 8)}`),
+    });
     expect(
       (
         (await screen.findByRole("textbox", {
@@ -1881,7 +1890,7 @@ describe("세션 상세 레이아웃", () => {
     ).toBe("");
   });
 
-  test("요청이 있으면 진행 탭에 작성창을 두고 넓은 화면은 본문부터 읽는다", async () => {
+  test("작성창은 늘 진행 탭의 타임라인 아래에 있고 넓은 화면은 본문부터 읽는다", async () => {
     renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
     await screen.findByRole("textbox", { name: "다음 지시" });
     await waitFor(() =>
@@ -1898,7 +1907,7 @@ describe("세션 상세 레이아웃", () => {
     expect(layout?.lastElementChild?.tagName).toBe("ASIDE");
   });
 
-  test("900px 미만은 패널부터 읽고 요청이 없으면 그 안에 작성창을 둔다", async () => {
+  test("900px 미만은 패널부터 읽고, 요청이 없어도 작성창은 본문에 있다", async () => {
     const original = globalThis.ResizeObserver;
     let resize: ResizeObserverCallback | undefined;
     class Observer {
@@ -1916,15 +1925,21 @@ describe("세션 상세 레이아웃", () => {
         [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
           json(200, { answerable: true, items: [] }),
       });
-      await screen.findByText("답을 기다리는 요청이 없습니다.");
+      await screen.findByText(
+        "작업 중입니다. 요청이 생기면 여기에 먼저 나옵니다.",
+      );
       const composer = screen.getByRole("textbox", { name: "다음 지시" });
-      expect(composer.closest("aside")).toBeTruthy();
+      expect(composer.closest("aside")).toBeNull();
+      expect(composer.closest('[role="tabpanel"]')).toBeTruthy();
       expect(
-        screen.getAllByText("답을 기다리는 요청이 없습니다."),
+        screen.getAllByText(
+          "작업 중입니다. 요청이 생기면 여기에 먼저 나옵니다.",
+        ),
       ).toHaveLength(1);
       expect(
-        screen.getByText("답을 기다리는 요청이 없습니다.").closest("section")
-          ?.textContent,
+        screen
+          .getByText("작업 중입니다. 요청이 생기면 여기에 먼저 나옵니다.")
+          .closest("section")?.textContent,
       ).toContain("기다리는 요청 없음");
       await waitFor(() => expect(resize).toBeDefined());
       act(() =>

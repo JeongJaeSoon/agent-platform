@@ -1,15 +1,15 @@
 import type { TurnEventPart, TurnEventPresentation } from "@werft-ai/contracts";
 import { cn, formatTimestamp, type TimestampLocale } from "@werft-ai/ui";
 import {
-  Bot,
-  CircleAlert,
   CircleDot,
+  CircleX,
   Hourglass,
+  LoaderCircle,
   type LucideIcon,
-  Wrench,
 } from "lucide-react";
 import type { JSX } from "react";
 
+import { Sparkles } from "../console-icons.ts";
 import { type FormatTurnMessage, turnSummaryText } from "./turn-text.ts";
 
 export interface TimelineEntry {
@@ -55,20 +55,25 @@ export function timelineKind(
   }
 }
 
+// Console v4 `.ev .who`: the agent and its tools blue, what waits on a
+// person and what failed amber, the rest neutral.
+const AGENT_TONE =
+  "bg-[var(--ap-tone-progress-bg)] text-[var(--ap-tone-progress-fg)]";
+const WAIT_TONE =
+  "bg-[var(--ap-tone-attention-bg)] text-[var(--ap-tone-attention-fg)]";
 const KIND_TONE = {
-  agent: "bg-[var(--ap-tone-progress-bg)] text-[var(--ap-tone-progress-fg)]",
-  tool: "bg-muted text-foreground",
-  request:
-    "bg-[var(--ap-tone-attention-bg)] text-[var(--ap-tone-attention-fg)]",
-  error: "bg-[var(--ap-tone-danger-bg)] text-[var(--ap-tone-danger-fg)]",
-  system: "bg-muted text-muted-foreground",
+  agent: AGENT_TONE,
+  tool: AGENT_TONE,
+  request: WAIT_TONE,
+  error: WAIT_TONE,
+  system: "bg-accent text-muted-foreground",
 } as const satisfies Record<TimelineKind, string>;
 
 const KIND_ICON = {
-  agent: Bot,
-  tool: Wrench,
+  agent: Sparkles,
+  tool: LoaderCircle,
   request: Hourglass,
-  error: CircleAlert,
+  error: CircleX,
   system: CircleDot,
 } as const satisfies Record<TimelineKind, LucideIcon>;
 
@@ -186,7 +191,7 @@ function TimelineItem({
   const Icon = KIND_ICON[kind];
   const summary = turnSummaryText(presentation.summary, formatMessage);
   const summaryClass = cn(
-    "min-w-0 text-body [overflow-wrap:anywhere]",
+    "min-w-0 text-control leading-[1.5] [overflow-wrap:anywhere]",
     error && "text-destructive",
   );
   return (
@@ -206,8 +211,8 @@ function TimelineItem({
       >
         <Icon size={14} strokeWidth={1.5} aria-hidden="true" />
       </span>
-      <div className="min-w-0">
-        <div className="mb-1 flex flex-wrap items-baseline gap-2 text-control font-medium">
+      <div className="flex min-w-0 flex-col gap-1">
+        <div className="flex flex-wrap items-center gap-2 text-control font-medium">
           <span>{formatMessage(presentation.label)}</span>
           <span className="text-muted-foreground text-caption font-normal">
             <time dateTime={row.occurredAt}>
@@ -221,7 +226,7 @@ function TimelineItem({
             <summary className={cn(summaryClass, "cursor-pointer")}>
               {summary}
             </summary>
-            <p className="mt-2 whitespace-pre-wrap rounded-control bg-muted px-3 py-2 font-mono text-caption [overflow-wrap:anywhere]">
+            <p className="mt-1 whitespace-pre-wrap rounded-control border bg-muted px-3 py-2 font-mono text-caption leading-[1.6] [overflow-wrap:anywhere]">
               {presentation.detail}
             </p>
           </details>

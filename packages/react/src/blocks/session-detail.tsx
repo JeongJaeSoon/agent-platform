@@ -5,6 +5,7 @@ import {
   type SessionUsageResponse,
 } from "@werft-ai/contracts";
 import {
+  Button,
   Checkbox,
   Field,
   FieldLabel,
@@ -16,7 +17,17 @@ import {
   TabsTrigger,
   useDetailLayout,
 } from "@werft-ai/ui";
+import {
+  Bot,
+  Copy,
+  Folder,
+  Gauge,
+  Lock,
+  type LucideIcon,
+  UserRound,
+} from "lucide-react";
 import { type ReactNode, useId, useMemo, useState } from "react";
+import { CircleCheck, GitBranch } from "../components/console-icons.ts";
 import {
   SessionStatusLabel,
   StatusLabel,
@@ -40,6 +51,15 @@ import {
 } from "./session-actions.tsx";
 import { useBlockText } from "./text.ts";
 
+/** A tab a host adds between the timeline and the info tab. */
+export interface SessionDetailTab {
+  readonly value: string;
+  readonly label: ReactNode;
+  /** Drawn muted after the label, such as how many outputs there are. */
+  readonly count?: ReactNode;
+  readonly content: ReactNode;
+}
+
 export interface SessionDetailProps extends SessionActionProps {
   readonly id: string;
   readonly back?: ReactNode;
@@ -49,6 +69,8 @@ export interface SessionDetailProps extends SessionActionProps {
   readonly renderError: (error: unknown, retry: () => void) => ReactNode;
   /** What the host lets the reader change in the operations panel. */
   readonly controls?: (session: SessionDetailData) => ReactNode;
+  /** The host's own tabs, such as the session's outputs. */
+  readonly tabs?: (session: SessionDetailData) => readonly SessionDetailTab[];
 }
 
 export function SessionDetail({
@@ -57,10 +79,11 @@ export function SessionDetail({
   loading,
   renderError,
   controls,
+  tabs,
   unavailable,
   refusal,
 }: SessionDetailProps) {
-  const { t, locale } = useBlockText();
+  const { t } = useBlockText();
   const session = useSession(id);
   const [tab, setTab] = useState("timeline");
   const [debug, setDebug] = useState(false);
@@ -92,38 +115,34 @@ export function SessionDetail({
     return renderError(session.error, () => void session.refetch());
   }
   const pendingCount = pending.data?.items.length;
-  const hasPending = (pendingCount ?? 0) > 0;
-  // The composer moves between the tab and the panel as requests come and
-  // go; the draft lives here so the move does not wipe it.
-  const composer = (
-    <SessionComposer
-      session={detail}
-      unavailable={unavailable}
-      refusal={refusal}
-      draft={draft}
-      onDraftChange={setDraft}
-    />
-  );
+  const hostTabs = tabs?.(detail) ?? [];
   const body = (
     <Tabs
       value={tab}
       onValueChange={setTab}
-      className="min-w-0 gap-[var(--ap-space-block)]"
+      className="flex min-w-0 flex-col gap-6"
       key="body"
     >
       <div className="flex flex-wrap items-center justify-between gap-2 border-b">
         <TabsList
           variant="line"
           aria-label={t("session.tabs.label")}
-          className="h-9 p-0"
+          className="h-9 gap-1 p-0"
         >
-          <TabsTrigger
-            value="timeline"
-            className="h-9 text-control after:bottom-0"
-          >
+          <TabsTrigger value="timeline" className={TAB}>
             {t("session.tabs.timeline")}
           </TabsTrigger>
-          <TabsTrigger value="info" className="h-9 text-control after:bottom-0">
+          {hostTabs.map((extra) => (
+            <TabsTrigger key={extra.value} value={extra.value} className={TAB}>
+              {extra.label}
+              {extra.count === undefined ? null : (
+                <span className="text-caption text-muted-foreground tabular-nums">
+                  {extra.count}
+                </span>
+              )}
+            </TabsTrigger>
+          ))}
+          <TabsTrigger value="info" className={TAB}>
             {t("session.tabs.info")}
           </TabsTrigger>
         </TabsList>
@@ -139,16 +158,33 @@ export function SessionDetail({
           </Field>
         ) : null}
       </div>
-      <TabsContent value="timeline" className="flex flex-col gap-4">
-        <div className="min-w-0 rounded-card border bg-card">
+      <TabsContent value="timeline" className="flex flex-1 flex-col gap-4">
+        {/* Grows so the body ends where a taller panel does. */}
+        <div className="min-w-0 flex-1 rounded-card border bg-card">
           <Events events={events.events} state={events.state} debug={debug} />
         </div>
-        {hasPending ? composer : null}
+        {usage.data ? <BudgetExceeded usage={usage.data} /> : null}
+        <SessionComposer
+          session={detail}
+          unavailable={unavailable}
+          refusal={refusal}
+          draft={draft}
+          onDraftChange={setDraft}
+        />
       </TabsContent>
+      {hostTabs.map((extra) => (
+        <TabsContent key={extra.value} value={extra.value}>
+          {extra.content}
+        </TabsContent>
+      ))}
       <TabsContent value="info">
         <div className="flex flex-col gap-3 rounded-card border bg-card p-4">
           <Overview session={detail} />
-          {usage.data ? <Usage usage={usage.data} /> : null}
+          {usage.data ? (
+            <Usage usage={usage.data} />
+          ) : usage.error ? (
+            renderError(usage.error, () => void usage.refetch())
+          ) : null}
         </div>
       </TabsContent>
     </Tabs>
@@ -164,7 +200,8 @@ export function SessionDetail({
       className={
         layout.narrow
           ? "grid min-w-0 grid-cols-[repeat(auto-fill,minmax(min(100%,var(--ap-layout-detail-panel-width)),1fr))] items-start gap-4 [&>[data-slot=pending-answers]:not(:has(li,p,output:not(:empty)))]:absolute"
-          : "flex min-w-0 flex-col gap-4"
+          : // The last card grows so the panel ends where a taller body does.
+            "flex min-w-0 flex-col gap-4 [&>:last-child]:flex-1"
       }
     >
       {pending.data ? (
@@ -180,69 +217,88 @@ export function SessionDetail({
         renderError(pending.error, () => void pending.refetch())
       ) : null}
       {pendingCount === 0 ? (
-        <Section title={t("session.pending.emptyTitle")}>
-          <p className="m-0 text-caption text-muted-foreground">
-            {t("session.pending.empty")}
-          </p>
-          {composer}
-        </Section>
-      ) : pendingCount === undefined ? (
+        <Section
+          title={t("session.pending.emptyTitle")}
+          note={t(idleNote(detail.status))}
+          mark={
+            <CircleCheck
+              className="size-4 shrink-0 text-[var(--ap-tone-success-fg)]"
+              strokeWidth={1.5}
+              aria-hidden="true"
+            />
+          }
+        />
+      ) : pendingCount === undefined && !pending.error ? (
         <div className="flex min-w-0 flex-col gap-3 rounded-card border bg-card p-4">
-          {pending.error ? null : (
-            <output className="text-caption text-muted-foreground">
-              {t("sessions.loadingMore")}
-            </output>
-          )}
-          {composer}
+          <output className="text-caption text-muted-foreground">
+            {t("sessions.loadingMore")}
+          </output>
         </div>
       ) : null}
-      {usage.data ? (
-        <Usage usage={usage.data} compact />
-      ) : usage.error ? (
-        renderError(usage.error, () => void usage.refetch())
-      ) : null}
-      <Section title={t("session.control")}>
-        <SessionControls
-          session={detail}
-          unavailable={unavailable}
-          refusal={refusal}
-        />
-        {controls?.(detail)}
+      <Section
+        title={t("session.answerers")}
+        note={t("session.answerers.roles")}
+      >
+        {pending.data ? (
+          <p className="m-0 text-body">
+            {pending.data.answerable
+              ? t("session.answerers.you")
+              : t("session.answerers.viewOnly")}
+          </p>
+        ) : null}
       </Section>
+      {controls ? (
+        // A host's controls may draw nothing; the empty card then goes.
+        <div className="flex min-w-0 flex-col gap-3 rounded-card border bg-card p-4 empty:hidden">
+          {controls(detail)}
+        </div>
+      ) : null}
     </aside>
   );
   return (
     <div className="flex min-w-0 flex-col">
       <PageHeader
-        title={<span className="font-mono [overflow-wrap:anywhere]">{id}</span>}
-        description={
-          <span className="flex flex-wrap items-center gap-x-4 gap-y-1">
+        // Wide, the meta line wraps under the title and the commands stay
+        // top right (console v4 `.page-head`); narrow, the commands wrap below.
+        className="flex-wrap md:flex-nowrap"
+        title={
+          <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            {/* A server from before titles sends none at all. */}
+            {detail.title ? (
+              <span className="[overflow-wrap:anywhere]">{detail.title}</span>
+            ) : (
+              <span className="font-mono">{id.slice(0, 8)}</span>
+            )}
             <SessionStatusLabel
               status={detail.status}
               label={t(`sessions.status.${detail.status}`)}
               axisLabel={t("sessions.column.status")}
             />
-            <span className="[overflow-wrap:anywhere]">
-              {detail.runtime
-                ? `${detail.runtime.profile_id} · ${detail.runtime.kind} ${detail.runtime.version}`
-                : t("sessions.none")}
-            </span>
-            <span>
-              {t("session.currentTurn")}:{" "}
-              {detail.current_turn_id ?? t("sessions.none")}
-            </span>
-            <span>
-              {t("session.updated")}:{" "}
-              {formatTimestamp(detail.updated_at, locale)}
-            </span>
           </span>
         }
-        actions={back}
+        description={
+          <SessionMeta
+            session={detail}
+            usage={usage.data}
+            className="mt-1 flex flex-wrap items-center gap-x-6 gap-y-2 text-control text-muted-foreground"
+          />
+        }
+        actions={
+          <SessionControls
+            session={detail}
+            unavailable={unavailable}
+            refusal={refusal}
+            variant="icons"
+            leading={back}
+          />
+        }
       />
       <div
         ref={layout.ref}
         data-slot="session-detail-layout"
-        className={layout.className}
+        className={
+          layout.narrow ? layout.className : `${layout.className} items-stretch`
+        }
       >
         {layout.narrow ? [panel, body] : [body, panel]}
       </div>
@@ -250,12 +306,127 @@ export function SessionDetail({
   );
 }
 
+// Console v4 `.tab`: 36px, 8px each side, the underline inset to the text.
+const TAB =
+  "h-9 text-control group-data-[variant=line]/tabs-list:px-2 group-data-[orientation=horizontal]/tabs:after:inset-x-2 group-data-[orientation=horizontal]/tabs:after:bottom-[-1px]";
+
+function idleNote(status: SessionDetailData["status"]) {
+  switch (status) {
+    case "idle":
+      return "session.pending.note.idle";
+    case "queued":
+    case "running":
+    case "needs_input":
+      return "session.pending.note.running";
+    case "failed":
+    case "stopped":
+      return "session.pending.note.ended";
+  }
+}
+
+/**
+ * The header's one line: id to copy, agent, who started it, repository,
+ * model and cost so far. What the session's API does not carry yet says so.
+ */
+function SessionMeta({
+  session,
+  usage,
+  className,
+}: {
+  readonly session: SessionDetailData;
+  readonly usage: SessionUsageResponse | undefined;
+  readonly className: string;
+}) {
+  const { t } = useBlockText();
+  const [copied, setCopied] = useState(false);
+  const label = t("session.id.copy");
+  return (
+    <span className={className}>
+      <span className="inline-flex items-center gap-2">
+        <span className="font-mono text-caption">{session.id.slice(0, 8)}</span>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="size-7"
+          aria-label={label}
+          title={label}
+          onClick={() => {
+            void navigator.clipboard?.writeText(session.id).then(
+              () => setCopied(true),
+              () => setCopied(false),
+            );
+          }}
+        >
+          <Copy className="size-3.5" strokeWidth={1.5} aria-hidden="true" />
+        </Button>
+        <output className="sr-only">
+          {copied ? t("session.id.copied") : null}
+        </output>
+      </span>
+      <MetaItem icon={Bot}>
+        {t("session.meta.unknown", { label: t("session.info.agent") })}
+      </MetaItem>
+      <MetaItem icon={UserRound}>
+        {t("session.meta.unknown", { label: t("session.info.startedBy") })}
+      </MetaItem>
+      <MetaItem
+        icon={session.repository_id === null ? Folder : GitBranch}
+        label={t("session.meta.repository")}
+      >
+        {session.repository_id ?? t("session.repository.none")}
+      </MetaItem>
+      <MetaItem icon={Lock} label={t("session.meta.model")}>
+        <span className="font-mono text-caption">
+          {session.runtime?.model ?? t("sessions.none")}
+        </span>
+      </MetaItem>
+      {usage ? (
+        <MetaItem icon={Gauge} label={t("session.usage")}>
+          {usage.cost.kind === "unmetered"
+            ? t("session.usage.unmetered")
+            : `$${usage.cost.amount_usd}`}
+        </MetaItem>
+      ) : null}
+    </span>
+  );
+}
+
+function MetaItem({
+  icon: Icon,
+  label,
+  children,
+}: {
+  readonly icon: LucideIcon;
+  /** Read before the value; text that names itself needs none. */
+  readonly label?: string;
+  readonly children: ReactNode;
+}) {
+  return (
+    <span className="inline-flex min-w-0 items-center gap-2 [overflow-wrap:anywhere]">
+      <Icon
+        className="size-3.5 shrink-0"
+        strokeWidth={1.5}
+        aria-hidden="true"
+      />
+      {label ? <span className="sr-only">{label}: </span> : null}
+      {children}
+    </span>
+  );
+}
+
 function Section({
   title,
+  note,
+  mark,
   children,
 }: {
   readonly title: string;
-  readonly children: ReactNode;
+  /** The line under the title. */
+  readonly note?: string;
+  /** Drawn at the head's far end, such as a done mark. */
+  readonly mark?: ReactNode;
+  readonly children?: ReactNode;
 }) {
   const titleId = useId();
   return (
@@ -263,9 +434,19 @@ function Section({
       className="flex min-w-0 flex-col gap-3 rounded-card border bg-card p-4"
       aria-labelledby={titleId}
     >
-      <h2 id={titleId} className="m-0 font-semibold text-body leading-5">
-        {title}
-      </h2>
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <h2 id={titleId} className="m-0 font-semibold text-body leading-5">
+            {title}
+          </h2>
+          {note ? (
+            <p className="m-0 text-caption text-muted-foreground leading-[1.5]">
+              {note}
+            </p>
+          ) : null}
+        </div>
+        {mark}
+      </div>
       {children}
     </section>
   );
@@ -273,25 +454,13 @@ function Section({
 
 type Fact = readonly [label: string, value: ReactNode];
 
-function Facts({
-  rows,
-  compact = false,
-}: {
-  readonly rows: readonly (Fact | null)[];
-  readonly compact?: boolean;
-}) {
+function Facts({ rows }: { readonly rows: readonly (Fact | null)[] }) {
   return (
-    <dl
-      className={
-        compact
-          ? "m-0 grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)] gap-x-4 gap-y-1 text-control [&_dt]:min-h-6 [&_dd]:text-right"
-          : "m-0 grid grid-cols-[140px_minmax(0,1fr)] gap-x-4 gap-y-3 text-control"
-      }
-    >
+    <dl className="m-0 grid grid-cols-[140px_minmax(0,1fr)] items-baseline gap-x-4 gap-y-2 text-control">
       {rows.map((row) =>
         row ? (
           <div key={row[0]} className="contents">
-            <dt className="font-medium text-muted-foreground">{row[0]}</dt>
+            <dt className="text-muted-foreground">{row[0]}</dt>
             <dd className="m-0 [overflow-wrap:anywhere]">{row[1]}</dd>
           </div>
         ) : null,
@@ -299,7 +468,6 @@ function Facts({
     </dl>
   );
 }
-
 function Overview({ session }: { readonly session: SessionDetailData }) {
   const { t, locale } = useBlockText();
   const { attention, runtime } = session;
@@ -324,6 +492,20 @@ function Overview({ session }: { readonly session: SessionDetailData }) {
             label={t(`sessions.admission.${session.admission_state}`)}
             axisLabel={t("sessions.column.admission")}
           />,
+        ],
+        // Not in the session's API yet: said so rather than guessed.
+        [t("session.info.agent"), t("session.info.notProvided")],
+        [t("session.info.startedBy"), t("session.info.notProvided")],
+        [
+          t("session.meta.repository"),
+          session.repository_id ?? t("session.repository.none"),
+        ],
+        [t("session.info.branch"), t("session.info.notProvided")],
+        [
+          t("session.meta.model"),
+          <span key="model" className="font-mono">
+            {runtime?.model ?? t("sessions.none")}
+          </span>,
         ],
         [
           t("sessions.column.runtime"),
@@ -351,19 +533,12 @@ function Overview({ session }: { readonly session: SessionDetailData }) {
   );
 }
 
-function Usage({
-  usage,
-  compact = false,
-}: {
-  readonly usage: SessionUsageResponse;
-  readonly compact?: boolean;
-}) {
+function Usage({ usage }: { readonly usage: SessionUsageResponse }) {
   const { t } = useBlockText();
   const { cost } = usage;
-  const content = (
+  return (
     <>
       <Facts
-        compact={compact}
         rows={[
           [
             t("session.usage.amount"),
@@ -383,35 +558,31 @@ function Usage({
               )}
             </span>,
           ],
-          compact
-            ? null
-            : [
-                t("session.usage.costLimit"),
-                usage.cost_limit_usd === null
-                  ? t("session.usage.noLimit")
-                  : `$${usage.cost_limit_usd}`,
-              ],
+          [
+            t("session.usage.costLimit"),
+            usage.cost_limit_usd === null
+              ? t("session.usage.noLimit")
+              : `$${usage.cost_limit_usd}`,
+          ],
           [t("session.usage.tokens"), usage.token_count],
-          compact
-            ? null
-            : [
-                t("session.usage.tokenLimit"),
-                usage.token_limit ?? t("session.usage.noLimit"),
-              ],
+          [
+            t("session.usage.tokenLimit"),
+            usage.token_limit ?? t("session.usage.noLimit"),
+          ],
         ]}
       />
-      {usage.budget_exceeded ? (
-        <output className="rounded-control border border-[var(--ap-tone-attention-border)] bg-card px-3 py-2 text-body">
-          {t("session.usage.budgetExceeded")}
-        </output>
-      ) : null}
+      <BudgetExceeded usage={usage} />
     </>
   );
-  return compact ? (
-    <Section title={t("session.usage")}>{content}</Section>
-  ) : (
-    content
-  );
+}
+
+function BudgetExceeded({ usage }: { readonly usage: SessionUsageResponse }) {
+  const { t } = useBlockText();
+  return usage.budget_exceeded ? (
+    <output className="rounded-control border border-[var(--ap-tone-attention-border)] bg-card px-3 py-2 text-body">
+      {t("session.usage.budgetExceeded")}
+    </output>
+  ) : null;
 }
 
 function Events({
