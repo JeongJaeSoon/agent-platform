@@ -67,6 +67,7 @@ import { FormError, NOTICE } from "../components/auth-page.tsx";
 import { copyText } from "../components/copy.ts";
 import { LoadFailure } from "../components/load-failure.tsx";
 import type { Outcome } from "../components/outcome.tsx";
+import { Page } from "../components/page.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import {
   errorKey,
@@ -75,10 +76,7 @@ import {
   useI18n,
 } from "../i18n/i18n.tsx";
 
-const PAGE = "flex w-full flex-col gap-6";
-const HEAD = "flex flex-col gap-1";
-const INTRO = "m-0 text-control text-muted-foreground leading-5";
-const TITLE = "m-0 font-semibold text-title";
+const PAGE = "flex w-full flex-col gap-[var(--ap-space-block)]";
 const SECTION_TITLE = "m-0 font-semibold text-body";
 const META = "text-muted-foreground text-xs";
 const ICON = "size-3.5 shrink-0";
@@ -126,10 +124,11 @@ const KIND_NAME: Record<KeyKind, MessageKey> = {
   agent: "apiKeys.kind.agent",
 };
 
+// A kind is not a state, so no state tone; the badge's words tell them apart.
 const KIND_BADGE: Record<KeyKind, BadgeProps["variant"]> = {
-  personal: "default",
-  service: "secondary",
-  agent: "outline",
+  personal: "gray",
+  service: "blue",
+  agent: "gray",
 };
 
 // Who it acts as, what its issuer leaving does, which sessions it reaches,
@@ -203,7 +202,7 @@ function KeyKindGuide({ kinds }: { readonly kinds: readonly KeyKind[] }) {
   const titleId = useId();
   return (
     <section
-      className="flex flex-col gap-3 rounded-md border bg-muted p-4 text-sm"
+      className="flex flex-col gap-3 rounded-card border bg-muted p-4 text-sm"
       aria-labelledby={titleId}
     >
       <h2
@@ -351,22 +350,23 @@ function KeysScreen({ kind }: { readonly kind: ApiKeyKind }) {
   const reason = useCreateReason(kind);
 
   return (
-    <div className={PAGE}>
+    // The head comes first, as on every page; the two key screens' tabs open
+    // its body.
+    <Page
+      title={t(screen.title)}
+      description={t(screen.intro)}
+      actions={
+        <ReasonButton
+          className={buttonVariants()}
+          reason={reason}
+          onClick={() => void navigate({ to: screen.create })}
+        >
+          <Plus aria-hidden="true" className="size-4" />
+          {t("apiKeys.new")}
+        </ReasonButton>
+      }
+    >
       <KeyScreenNav current={kind} />
-      <div className={HEAD}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h1 className={TITLE}>{t(screen.title)}</h1>
-          <ReasonButton
-            className={buttonVariants()}
-            reason={reason}
-            onClick={() => void navigate({ to: screen.create })}
-          >
-            <Plus aria-hidden="true" className="size-4" />
-            {t("apiKeys.new")}
-          </ReasonButton>
-        </div>
-        <p className={INTRO}>{t(screen.intro)}</p>
-      </div>
       {outcome ? (
         outcome.kind === "error" ? (
           <FormError>{outcome.text}</FormError>
@@ -390,7 +390,7 @@ function KeysScreen({ kind }: { readonly kind: ApiKeyKind }) {
         />
       )}
       <KeyKindGuide kinds={screen.kinds} />
-    </div>
+    </Page>
   );
 }
 
@@ -564,7 +564,7 @@ function KeyList({
 
   if (items.length === 0) {
     return (
-      <div className="flex flex-col items-center gap-2 rounded-md border px-4 py-8 text-center text-muted-foreground text-sm">
+      <div className="flex flex-col items-center gap-2 rounded-card border px-4 py-8 text-center text-muted-foreground text-sm">
         <KeyRound aria-hidden="true" className="size-5" />
         <p className="m-0">{empty}</p>
       </div>
@@ -574,7 +574,7 @@ function KeyList({
   return (
     <>
       <ul
-        className="m-0 flex list-none flex-col rounded-md border p-0"
+        className="m-0 flex list-none flex-col rounded-card border p-0"
         aria-label={t("apiKeys.listTitle")}
       >
         {items.map((key) => {
@@ -600,7 +600,10 @@ function KeyList({
                     {agent === null ? scopes : `${agent} · ${scopes}`}
                   </span>
                   <KindBadge kind={kind} />
-                  <Badge variant="outline" data-approve={approves}>
+                  <Badge
+                    variant={approves ? "green" : "gray"}
+                    data-approve={approves}
+                  >
                     {t(approves ? "apiKeys.approveYes" : "apiKeys.approveNo")}
                   </Badge>
                 </div>
@@ -776,33 +779,31 @@ function NewKeyScreen({ kind }: { readonly kind: ApiKeyKind }) {
 
   return (
     <div className={PAGE}>
-      <div className={HEAD}>
-        <div className="flex flex-col items-start gap-2">
-          <Link
-            to={screen.list}
-            className="inline-flex items-center gap-1 text-muted-foreground text-sm no-underline! hover:text-foreground"
-          >
-            <ArrowLeft aria-hidden="true" className="size-4" />
-            {t(screen.title)}
-          </Link>
-          <h1 className={TITLE}>{t(screen.newTitle)}</h1>
-        </div>
-        <p className={INTRO}>{t(screen.intro)}</p>
-      </div>
-      {outcome?.kind === "error" ? <FormError>{outcome.text}</FormError> : null}
-      {issued ? (
-        <IssuedSecret issued={issued} listTo={screen.list} />
-      ) : kind === "personal" ? (
-        <PersonalKeyForm
-          busy={issue.isPending}
-          send={(body) => issue.mutate(body)}
-        />
-      ) : (
-        <ServiceKeyForm
-          busy={issue.isPending}
-          send={(body) => issue.mutate(body)}
-        />
-      )}
+      <Link
+        to={screen.list}
+        className="inline-flex items-center gap-1 self-start text-muted-foreground text-sm no-underline! hover:text-foreground"
+      >
+        <ArrowLeft aria-hidden="true" className="size-4" />
+        {t(screen.title)}
+      </Link>
+      <Page title={t(screen.newTitle)} description={t(screen.intro)}>
+        {outcome?.kind === "error" ? (
+          <FormError>{outcome.text}</FormError>
+        ) : null}
+        {issued ? (
+          <IssuedSecret issued={issued} listTo={screen.list} />
+        ) : kind === "personal" ? (
+          <PersonalKeyForm
+            busy={issue.isPending}
+            send={(body) => issue.mutate(body)}
+          />
+        ) : (
+          <ServiceKeyForm
+            busy={issue.isPending}
+            send={(body) => issue.mutate(body)}
+          />
+        )}
+      </Page>
     </div>
   );
 }
@@ -832,7 +833,7 @@ function IssuedSecret({
   }, []);
   return (
     <section
-      className="flex flex-col gap-4 rounded-md border p-4"
+      className="flex flex-col gap-4 rounded-card border p-4"
       data-status="secret"
       aria-label={t("apiKeys.secretTitle")}
     >
@@ -842,7 +843,7 @@ function IssuedSecret({
       </div>
       <div
         data-tone="caution"
-        className="flex items-start gap-2 rounded-md border border-[var(--ap-tone-border)] bg-[var(--ap-tone-bg)] px-4 py-3 text-[var(--ap-tone-fg)] text-sm"
+        className="flex items-start gap-2 rounded-card border border-[var(--ap-tone-border)] bg-[var(--ap-tone-bg)] px-4 py-3 text-[var(--ap-tone-fg)] text-sm"
       >
         <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
         <p className="m-0">{t("apiKeys.secretOnce")}</p>
@@ -922,7 +923,7 @@ interface FormProps {
   readonly send: (body: IssueRequest) => void;
 }
 
-const FORM = "flex flex-col items-start gap-4 rounded-md border p-4";
+const FORM = "flex flex-col items-start gap-4 rounded-card border p-4";
 
 function FormFoot({
   listTo,

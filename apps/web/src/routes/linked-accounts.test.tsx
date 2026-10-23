@@ -46,9 +46,7 @@ describe("연동 계정", () => {
           expires_at: "2026-10-11T00:10:00.000Z",
         }),
     });
-    expect(
-      await screen.findByText("연결된 Slack 계정이 없습니다."),
-    ).toBeDefined();
+    expect(await screen.findByText("연결 안 됨")).toBeDefined();
     const user = await setupUser();
     await user.click(screen.getByRole("button", { name: "Slack 계정 연결" }));
     await waitFor(() => expect(left).toEqual([AUTHORIZE]));
@@ -99,9 +97,7 @@ describe("연동 계정", () => {
     const user = await setupUser();
     screen.getByRole("button", { name: "연결 해제" }).focus();
     await user.keyboard("{Enter}");
-    expect(
-      await screen.findByText("연결된 Slack 계정이 없습니다."),
-    ).toBeDefined();
+    expect(await screen.findByText("연결 안 됨")).toBeDefined();
     expect(screen.getByRole("status")).toBe(status);
     expect(status.textContent).toBe("Slack 계정 연결을 해제했습니다.");
     // No row is left, so focus goes to the list's heading.
@@ -300,9 +296,7 @@ describe("연동 계정", () => {
       ).toBe(true),
     );
     releaseFirst();
-    expect(
-      await screen.findByText("연결된 Slack 계정이 없습니다."),
-    ).toBeDefined();
+    expect(await screen.findByText("연결 안 됨")).toBeDefined();
     await waitFor(() =>
       expect(
         document.activeElement ===
@@ -565,9 +559,7 @@ describe("연동 계정", () => {
     });
     const user = await setupUser();
     await user.click(await screen.findByRole("button", { name: "다시 시도" }));
-    expect(
-      await screen.findByText("연결된 Slack 계정이 없습니다."),
-    ).toBeTruthy();
+    expect(await screen.findByText("연결 안 됨")).toBeTruthy();
     expect(calls).toBe(2);
   });
 

@@ -12,7 +12,7 @@ export const agentsKo = {
   "agent.notFound.body":
     "지워졌거나, 주소가 틀렸거나, 볼 수 없는 에이전트입니다.",
   "agent.notFound.back": "에이전트 목록으로",
-  "agents.empty": "아직 에이전트가 없습니다. 새 에이전트를 눌러 만드세요.",
+  "agents.empty": "아직 에이전트가 없습니다.",
   "agents.updated": "{at} 수정",
   "agents.slugLine": "식별자 {slug}",
   "agents.state.notReleased": "아직 쓸 수 없음",
@@ -224,7 +224,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.notFound.body":
     "It was deleted, the address is wrong, or you cannot see it.",
   "agent.notFound.back": "Back to agents",
-  "agents.empty": "No agents yet. Select New agent to create one.",
+  "agents.empty": "No agents yet.",
   "agents.updated": "updated {at}",
   "agents.slugLine": "identifier {slug}",
   "agents.state.notReleased": "Not usable yet",
@@ -428,8 +428,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.notFound.body":
     "削除されたか、アドレスが間違っているか、閲覧できないエージェントです。",
   "agent.notFound.back": "エージェント一覧へ",
-  "agents.empty":
-    "エージェントはまだありません。「新規エージェント」から作成してください。",
+  "agents.empty": "エージェントはまだありません。",
   "agents.updated": "{at}に更新",
   "agents.slugLine": "識別子 {slug}",
   "agents.state.notReleased": "未公開",

@@ -20,6 +20,7 @@ import {
 import { AdministeredAgents } from "../components/agent-admins.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { NewAgentFlow } from "../components/new-agent-flow.tsx";
+import { Page } from "../components/page.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import {
   RowLines,
@@ -78,15 +79,12 @@ export function AgentsScreen() {
   const failed = agents.isError && !isApiError(agents.error, "FORBIDDEN");
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex min-w-0 flex-col gap-1">
-          <h1 className="m-0 font-semibold text-title">{t("agents.title")}</h1>
-          <p className="m-0 text-control text-muted-foreground">
-            {t("agents.intro")}
-          </p>
-        </div>
-        {failed ? null : (
+    <Page
+      title={t("agents.title")}
+      description={t("agents.intro")}
+      // The top bar's "new" makes an agent; who may not, sees why here.
+      actions={
+        failed || reason === undefined ? undefined : (
           <ReasonButton
             className={buttonVariants()}
             reason={reason}
@@ -94,8 +92,9 @@ export function AgentsScreen() {
           >
             {t("agents.new")}
           </ReasonButton>
-        )}
-      </div>
+        )
+      }
+    >
       {agents.isPending ? (
         <StatusScreen kind="loading" />
       ) : agents.error ? (
@@ -113,7 +112,7 @@ export function AgentsScreen() {
       ) : agents.data.items.length === 0 ? (
         <p className="web-page__empty">{t("agents.empty")}</p>
       ) : (
-        <div className="@container overflow-hidden rounded-lg border bg-card">
+        <div className="@container overflow-hidden rounded-card border bg-card">
           <Table>
             <TableHeader>
               <TableRow>
@@ -169,7 +168,7 @@ export function AgentsScreen() {
           </Table>
         </div>
       )}
-    </div>
+    </Page>
   );
 }
 
@@ -191,10 +190,10 @@ export function agentState(agent: AgentSummary): AgentState {
 }
 
 const STATE_VARIANT = {
-  draft: "outline",
-  active: "default",
-  paused: "secondary",
-  archived: "outline",
+  draft: "gray",
+  active: "green",
+  paused: "gray",
+  archived: "gray",
 } as const satisfies Record<AgentState, BadgeProps["variant"]>;
 
 function AgentStateBadge({ agent }: { readonly agent: AgentSummary }) {
@@ -223,14 +222,8 @@ export function NewAgentScreen() {
   const refuse = (error: unknown) =>
     isApiError(error) ? agentRefusal(t, error, role) : t(errorKey("UNKNOWN"));
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-1">
-        <h1 className="m-0 font-semibold text-title">{t("agents.newTitle")}</h1>
-        <p className="m-0 text-control text-muted-foreground">
-          {t("agents.newIntro")}
-        </p>
-      </div>
+    <Page title={t("agents.newTitle")} description={t("agents.newIntro")}>
       <NewAgentFlow refuse={refuse} />
-    </div>
+    </Page>
   );
 }

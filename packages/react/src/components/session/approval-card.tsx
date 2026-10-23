@@ -13,6 +13,7 @@ import { Hourglass } from "lucide-react";
 import {
   type FormEvent,
   type JSX,
+  type ReactNode,
   useEffect,
   useId,
   useRef,
@@ -52,6 +53,8 @@ export interface ApprovalCardProps {
   /** Epoch ms the expiry is compared against; the screen's clock. */
   readonly now?: number | undefined;
   readonly locale?: TimestampLocale | undefined;
+  /** What the request belongs to, such as a link to its session; shown on the title line. */
+  readonly subject?: ReactNode;
   readonly className?: string | undefined;
 }
 
@@ -73,6 +76,7 @@ export function ApprovalCard({
   error,
   now = Date.now(),
   locale = "ko",
+  subject,
   className,
 }: ApprovalCardProps): JSX.Element {
   const titleId = useId();
@@ -114,7 +118,7 @@ export function ApprovalCard({
       )}
       {...within}
     >
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <Hourglass
           className="size-4 shrink-0"
           strokeWidth={1.5}
@@ -127,26 +131,61 @@ export function ApprovalCard({
         >
           {messages.title(request.tool)}
         </p>
-        <p
-          ref={noticeRef}
-          tabIndex={expired ? -1 : undefined}
-          className="ml-auto text-right text-muted-foreground text-caption"
-        >
-          {expired
-            ? messages.expired
-            : messages.expires(formatTimestamp(request.expires_at, locale))}
-        </p>
+        {/* Each separator wraps with the item after it, never left trailing. */}
+        {subject === undefined ? null : (
+          <span className="flex min-w-0 items-center gap-2">
+            <span aria-hidden="true" className="text-muted-foreground">
+              ·
+            </span>
+            <span className="min-w-0 text-caption [overflow-wrap:anywhere]">
+              {subject}
+            </span>
+          </span>
+        )}
+        <span className="flex items-center gap-2">
+          <span aria-hidden="true" className="text-muted-foreground">
+            ·
+          </span>
+          <p
+            ref={noticeRef}
+            tabIndex={expired ? -1 : undefined}
+            className="text-muted-foreground text-caption"
+          >
+            {expired
+              ? messages.expired
+              : messages.expires(formatTimestamp(request.expires_at, locale))}
+          </p>
+        </span>
       </div>
-      <details>
-        <summary className="cursor-pointer text-muted-foreground text-caption">
-          {messages.input}
-        </summary>
-        <pre className="mt-2 max-h-60 overflow-auto rounded-control bg-card p-2 font-mono text-caption">
-          {inputText(request.input)}
-        </pre>
-      </details>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <details className="min-w-0 flex-1 basis-40">
+          {/* As tall as the buttons beside it, so the two read as one line. */}
+          <summary className="cursor-pointer text-muted-foreground text-caption leading-[var(--ap-control-height)]">
+            {messages.input}
+          </summary>
+          <pre className="mt-2 max-h-60 overflow-auto rounded-control bg-card p-2 font-mono text-caption">
+            {inputText(request.input)}
+          </pre>
+        </details>
+        {expired || denying ? null : (
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" disabled={blocked} onClick={onAllow}>
+              {messages.allow}
+            </Button>
+            <Button
+              ref={denyRef}
+              type="button"
+              variant="outline"
+              disabled={blocked}
+              onClick={() => setDenying(true)}
+            >
+              {messages.deny}
+            </Button>
+          </div>
+        )}
+      </div>
       <FieldError>{error}</FieldError>
-      {expired ? null : denying ? (
+      {expired || !denying ? null : (
         <form className="flex flex-col gap-3" onSubmit={submitDenial}>
           <Field>
             <FieldLabel>{messages.denyReason}</FieldLabel>
@@ -178,27 +217,6 @@ export function ApprovalCard({
             </Button>
           </div>
         </form>
-      ) : (
-        <div className="flex flex-wrap gap-2">
-          <Button
-            className="flex-1"
-            type="button"
-            disabled={blocked}
-            onClick={onAllow}
-          >
-            {messages.allow}
-          </Button>
-          <Button
-            className="flex-1"
-            ref={denyRef}
-            type="button"
-            variant="outline"
-            disabled={blocked}
-            onClick={() => setDenying(true)}
-          >
-            {messages.deny}
-          </Button>
-        </div>
       )}
     </article>
   );

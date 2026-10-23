@@ -1,0 +1,4 @@
+{
+  "title": "Approvals and push",
+  "pages": ["request", "approve", "reject", "receipt"]
+}

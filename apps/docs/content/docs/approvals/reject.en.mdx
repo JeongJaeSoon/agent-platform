@@ -1,0 +1,63 @@
+---
+title: "Reject"
+description: Reject a push request. You can make a new request after rejecting
+---
+
+Reject a commit that must not be sent out. It needs the same `sessions:approve` as approving. A session has only one open request, so if something needs fixing, reject, send the session its next message, and then make a new request. Use `SID` from the [Request](/approvals/request). Since the earlier request has ended, make a new one.
+
+## Reject
+
+```bash
+push=$(curl -sS "$API/v1/sessions/$SID/push-requests" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d '{}')
+PUSH_ID=$(echo "$push" | jq -r .id)
+PUSH_COMMIT=$(echo "$push" | jq -r .git_commit)
+curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/decision" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg c "$PUSH_COMMIT" '{decision: "reject", git_commit: $c, reason: "needs tests first"}')" \
+  | jq '{state, decision_reason}'
+```
+
+```text
+{
+  "state": "rejected",
+  "decision_reason": "needs tests first"
+}
+```
+
+`reason` is optional. A rejection does not check whether the commit changed.
+
+## One decision only
+
+Deciding again on an already decided request is 409 `PUSH_REQUEST_DECIDED`. That attempt is also kept as a receipt.
+
+```bash
+again=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/decision" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg c "$PUSH_COMMIT" '{decision: "approve", git_commit: $c}')")
+echo "$again" | jq '{code: .error.code}'
+curl -sS "$API/v1/receipts/$(echo "$again" | jq -r .error.details.receipt_id)" -H "Authorization: Bearer $KEY" \
+  | jq '{operation, status, refusal: .result.refusal}'
+```
+
+```text
+{
+  "code": "PUSH_REQUEST_DECIDED"
+}
+{
+  "operation": "decide_push",
+  "status": "failed",
+  "refusal": "already_decided"
+}
+```
+
+## Next steps
+
+- [receipt](/approvals/receipt): read the record of the request, decision, and push

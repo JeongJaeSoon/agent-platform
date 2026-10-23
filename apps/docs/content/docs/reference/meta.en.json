@@ -1,0 +1,9 @@
+{
+  "title": "Reference",
+  "pages": [
+    "index",
+    "http-api",
+    "external:[HTTP API (Scalar)](/api/)",
+    "external:[UI components (Storybook)](/storybook/)"
+  ]
+}
