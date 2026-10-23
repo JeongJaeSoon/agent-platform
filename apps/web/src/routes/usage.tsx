@@ -63,8 +63,9 @@ export function UsageScreen() {
   const operator = useHasPermission("usage.installation_read");
   const [picked, setPicked] = useState<UsageSummaryScope>("me");
   const scope = operator ? picked : "me";
-  // The design's period: this UTC month so far.
-  const [since] = useState(() => MONTH_START(new Date()));
+  // The design's period: this UTC month so far. Read on every render so a
+  // page left open across the month's end asks for the new month.
+  const since = MONTH_START(new Date());
   const summary = useQuery(usageSummaryQuery(client, scope, since));
   const limits = useQuery({
     queryKey: ["limits"],

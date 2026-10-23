@@ -254,7 +254,7 @@ function UsageScreen({
               <Kpi
                 label="실행 시간"
                 value={figures.runTime}
-                note="세션이 실제로 돈 시간"
+                note="turn 시작부터 끝까지, 답을 기다린 시간 포함"
               />
               <Kpi
                 label="비용"

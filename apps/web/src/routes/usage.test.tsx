@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
 import { apiError, json, me, memberMe } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
@@ -53,6 +53,10 @@ const summaryRoute = (scope: "me" | "installation") =>
   `GET /v1/usage/summary?scope=${scope}&since=${new Date().toISOString().slice(0, 8)}01`;
 
 describe("사용량·한도", () => {
+  afterEach(() => {
+    setSystemTime();
+  });
+
   test("구성원은 내 사용량만 보고, 설치 한도는 읽지 않는다", async () => {
     const { api } = renderAt("/usage", {
       "GET /v1/auth/me": () => json(200, memberMe()),
@@ -123,6 +127,28 @@ describe("사용량·한도", () => {
         json(200, { ...summary("me", 3), run_seconds: 2 }),
     });
     expect(await screen.findByText("2초")).toBeTruthy();
+  });
+
+  test("기간은 이번 UTC 달 1일부터이고, 달이 바뀌면 새 달을 읽는다", async () => {
+    // 09:00 on Nov 1 in Seoul is still Oct 31 in UTC.
+    setSystemTime(new Date("2026-10-31T23:59:00Z"));
+    const { api } = renderAt("/usage", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/usage/summary": () => json(200, summary("me", 12)),
+      "GET /v1/limits": () => json(200, LIMITS),
+    });
+    const group = await screen.findByRole("group", { name: "집계 범위" });
+    setSystemTime(new Date("2026-11-01T00:01:00Z"));
+    const user = await setupUser();
+    await user.click(within(group).getByRole("button", { name: "설치 전체" }));
+    await waitFor(() => {
+      const asked = api.calls
+        .filter((call) => call.path === "/v1/usage/summary")
+        .map((call) => call.search);
+      expect(asked[0]).toBe("?scope=me&since=2026-10-01");
+      expect(asked).toContain("?scope=installation&since=2026-11-01");
+      expect(asked).not.toContain("?scope=installation&since=2026-10-01");
+    });
   });
 
   test("합계를 읽지 못하면 다시 시도로 다시 읽는다", async () => {
