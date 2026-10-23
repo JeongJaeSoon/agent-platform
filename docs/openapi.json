@@ -162,6 +162,11 @@
             "type": "string",
             "minLength": 1
           },
+          "title": {
+            "description": "The session's name. Omitted, it is derived from `message`: whitespace and line breaks collapsed to one space, the ends trimmed, and text longer than 80 characters cut to 79 and an ellipsis (…). Rename it later with `PATCH /v1/sessions/{id}`.",
+            "type": "string",
+            "maxLength": 1024
+          },
           "repository_id": {
             "description": "The catalog repository the session works on. Required when the profile's `repository_mode` is `required`, refused when it is `none`, either when it is `optional`; omitted, the session starts in an empty workspace with no repository to push to.",
             "type": "string",
@@ -912,6 +917,20 @@
         },
         "required": [
           "role"
+        ],
+        "additionalProperties": false
+      },
+      "UpdateSessionRequest": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 1024,
+            "description": "Stored with runs of whitespace and line breaks collapsed to one space and the ends trimmed; at most 80 characters (grapheme clusters) after that."
+          }
+        },
+        "required": [
+          "title"
         ],
         "additionalProperties": false
       },
@@ -1990,6 +2009,19 @@
             "format": "uuid",
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           },
+          "title": {
+            "default": null,
+            "description": "The session's name: the `title` it was created or renamed with, or else one derived from its first message (whitespace collapsed, cut to 80 characters with a trailing ellipsis). Null for sessions created before titles existed and for a first message with no text.",
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "revision": {
             "type": "integer",
             "minimum": 0,
@@ -2125,6 +2157,7 @@
         },
         "required": [
           "id",
+          "title",
           "revision",
           "admission_state",
           "status",
@@ -2145,6 +2178,19 @@
             "type": "string",
             "format": "uuid",
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "title": {
+            "default": null,
+            "description": "The session's name: the `title` it was created or renamed with, or else one derived from its first message (whitespace collapsed, cut to 80 characters with a trailing ellipsis). Null for sessions created before titles existed and for a first message with no text.",
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "revision": {
             "type": "integer",
@@ -2590,6 +2636,7 @@
         },
         "required": [
           "id",
+          "title",
           "revision",
           "admission_state",
           "status",
@@ -3684,6 +3731,10 @@
                           "closing",
                           "closed"
                         ]
+                      },
+                      "title": {
+                        "type": "string",
+                        "minLength": 1
                       }
                     },
                     "required": [
@@ -7112,6 +7163,7 @@
                 "session.control",
                 "session.recover",
                 "session.share",
+                "session.rename",
                 "session.audit_read",
                 "session.admin_list",
                 "memory.read",
@@ -15689,6 +15741,7 @@
                   "items": [
                     {
                       "id": "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01",
+                      "title": "Fix the flaky checkout test",
                       "revision": 7,
                       "admission_state": "active",
                       "status": "running",
@@ -15909,6 +15962,7 @@
               "application/json": {
                 "example": {
                   "id": "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01",
+                  "title": "Fix the flaky checkout test",
                   "revision": 7,
                   "admission_state": "active",
                   "status": "running",
@@ -16044,6 +16098,370 @@
                               "type": "string",
                               "enum": [
                                 "NOT_FOUND"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "description": "- `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BACKEND_UNAVAILABLE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "operationId": "updateSession",
+        "tags": [
+          "Sessions"
+        ],
+        "summary": "Rename the session",
+        "description": "Sets `title`, in any admission state; the session's `revision` does not change and no receipt is written. Allowed to the session's creator (for a session an API key made, that key), the workspace's owners and admins, and the admins of its agent; since the answer is the session's detail, a key also needs `sessions:read`. Anyone else the session is visible to, through its share, gets 403; anyone it is not visible to, 404. A changed title is a `status` event on the stream carrying `title`; naming the title the session already has writes none. Answers with the session as `GET /v1/sessions/{id}` reads it.\n\n**Scope:** `sessions:write` (API key or cookie session). **Idempotency-Key:** ignored.",
+        "x-scope": "sessions:write",
+        "security": [
+          {
+            "bearerApiKey": [
+              "sessions:write"
+            ]
+          },
+          {
+            "cookieSession": [
+              "sessions:write"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "required": false,
+            "description": "Required with a cookie session: the literal `agent-platform-web`.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "agent-platform-web"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "title": "Fix the flaky checkout test"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSessionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The session with its new title.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "example": {
+                  "id": "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01",
+                  "title": "Fix the flaky checkout test",
+                  "revision": 7,
+                  "admission_state": "active",
+                  "status": "running",
+                  "runtime": {
+                    "kind": "claude_agent_sdk",
+                    "version": "0.2.1",
+                    "profile_id": "claude-coding-real",
+                    "model": "claude-sonnet-5",
+                    "permission_mode": "default"
+                  },
+                  "repository_id": "sample-app",
+                  "current_turn_id": "3",
+                  "queued_turn_count": 1,
+                  "last_event_at": "2026-10-11T08:15:42Z",
+                  "created_at": "2026-10-11T08:00:00Z",
+                  "updated_at": "2026-10-11T08:15:40Z",
+                  "execution": {
+                    "backend": "local_docker",
+                    "state": "running",
+                    "observed_at": "2026-10-11T08:15:38Z"
+                  },
+                  "checkpoint_revision": 2,
+                  "pending_request_count": 0,
+                  "attention": null,
+                  "durability": {
+                    "last_transcript_persisted_at": "2026-10-11T08:15:41Z",
+                    "checkpoint_committed_at": "2026-10-11T08:10:02Z",
+                    "checkpoint_revision": 2,
+                    "last_completed_turn_id": "2",
+                    "last_checkpointed_turn_id": "2",
+                    "checkpoint_pending_reason": null,
+                    "checkpoint_fallback_revision": null,
+                    "context_reset_turn_id": null
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/SessionDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "- `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BAD_REQUEST"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "- `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "UNAUTHORIZED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "- `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:write`, checked before the body or the resource is read.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "FORBIDDEN"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "- `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "NOT_FOUND"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "- `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`).",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "REQUEST_TIMEOUT"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "- `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "PAYLOAD_TOO_LARGE"
                               ]
                             }
                           }

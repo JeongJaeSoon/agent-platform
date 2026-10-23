@@ -715,6 +715,10 @@ export const sessions = pgTable(
     id: uuid().primaryKey(),
     claudeSessionId: text("claude_session_id"),
     ownerId: text("owner_id").notNull(),
+    // Given at create or rename, else derived from the first message.
+    // Null on rows from before it (not backfilled) and when the first
+    // message had no text to derive one from.
+    title: text(),
     // 'none' marks a session accepted without a repository. A null
     // repository_id alone cannot say that: it already means a row from
     // before the catalog, which no pair matches.

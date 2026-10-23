@@ -204,6 +204,13 @@ export const ACTION_SCOPES: Partial<Record<AuthorizationAction, SessionScope>> =
     "session.recover": "sessions:recover",
   };
 
+// The scope an action needs. Renaming needs what sending does, so it stays
+// out of ACTION_SCOPES, where each scope names one action (the edge records
+// a refusal under it).
+export function scopeOf(action: AuthorizationAction): SessionScope | undefined {
+  return action === "session.rename" ? "sessions:write" : ACTION_SCOPES[action];
+}
+
 // Design 4.1, the workspace and agent rows. An API key never holds one of
 // these, whatever its scopes.
 export const MANAGEMENT_ROLES: Partial<
@@ -382,9 +389,9 @@ export function createAuthorizationPolicy(
       (await agents.isAdmin(workspaceId, agentId.toLowerCase(), principal.id))
     );
   }
-  // 94S-798: seeing a session through its share is not answering for it.
-  // Its creator answers (a key's session: that key), as do its agent's
-  // admins and the workspace's managers.
+  // 94S-798: seeing a session through its share is not answering for it,
+  // nor renaming it (94S-804). Its creator answers (a key's session: that
+  // key), as do its agent's admins and the workspace's managers.
   async function mayAnswer(
     reading: Extract<IdentityReading, { status: "ok" }>,
     workspaceId: string,
@@ -427,7 +434,7 @@ export function createAuthorizationPolicy(
     const parsed = authorizationRequestSchema.safeParse(request);
     if (!parsed.success) return ["error", []];
     const { subject, action, resource } = parsed.data;
-    const scope = ACTION_SCOPES[action];
+    const scope = scopeOf(action);
     const roles = MANAGEMENT_ROLES[action];
     if (
       (scope === undefined &&
@@ -564,7 +571,7 @@ export function createAuthorizationPolicy(
         action === "session.read" && surface.ceiling?.disclosure === "summary";
     }
     if (
-      action === "session.approve" &&
+      (action === "session.approve" || action === "session.rename") &&
       (resource.id === null ||
         !(await mayAnswer(reading, resource.owner_scope, resource.id)))
     ) {

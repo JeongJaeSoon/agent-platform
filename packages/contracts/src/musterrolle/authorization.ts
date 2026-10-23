@@ -345,6 +345,9 @@ export const AUTHORIZATION_ACTION_VALUES = [
   // Changing who sees a session: its creator, or for a key's session the
   // workspace's managers and the agent's admins (D21).
   "session.share",
+  // Renaming a session: whoever answers its requests (94S-798) and nobody
+  // who only sees it through its share.
+  "session.rename",
   // Reading a session outside its share, read-only and with a reason (D22).
   "session.audit_read",
   // Every session's metadata, none of its content (design 4.6).
@@ -392,6 +395,7 @@ const ACTION_RESOURCE_KINDS: Record<
   "session.control": new Set(["session", "session_link"]),
   "session.recover": new Set(["session"]),
   "session.share": new Set(["session"]),
+  "session.rename": new Set(["session"]),
   "session.audit_read": new Set(["session"]),
   "session.admin_list": new Set(["workspace"]),
   "memory.read": new Set(["workspace", "agent", "memory"]),

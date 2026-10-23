@@ -18,7 +18,6 @@ export const webUiAllowlist: WebUiCounts = {
     "raw-destructive": 1,
   },
   "components/outcome.tsx": { "legacy-class": 2 },
-  "components/table.tsx": { "raw-table": 1, "shadow-component": 10 },
   "funnel/tanstack-funnel.tsx": { "legacy-class": 1 },
   "router.tsx": { "legacy-class": 1 },
   "routes/agent-detail/releases.tsx": { "raw-destructive": 1 },
