@@ -80,8 +80,8 @@ bun scripts/ui-pack-smoke.ts              # 빈 Vite+React 앱에 설치해 렌�
 - JS·d.ts: tsdown(unbundle)이 소스 파일마다 `.js`·`.d.ts` 하나씩 만든다. `__fixtures__`·`test-support`·테스트는 빠진다.
 - `styles.css`: Tailwind CLI로 미리 빌드한 CSS. 토큰·`ap-*` 규칙·키트가 쓰는 유틸리티가 들어 있어 Tailwind 없는 앱도
   `import "@werft-ai/ui/styles.css"` 한 줄로 그려진다. preflight는 넣지 않는다(쓰는 쪽 앱의 전역 스타일을 바꾸지 않는다).
-  대신 키트 요소(`[data-slot]`)에만 `box-sizing: border-box; border: 0 solid`를 건다. 이게 없으면 브라우저 기본 스타일이
-  `<button>`에 2px outset 테두리를 그린다.
+  대신 키트 요소(`[data-slot]`)에만 `box-sizing: border-box; border-width: 0; border-style: solid`를 건다. 이게 없으면
+  브라우저 기본 스타일이 `<button>`에 2px outset 테두리를 그린다. 테두리 색은 `theme.css`의 기본값을 그대로 쓴다.
 - `tokens.css`·`theme.css`: 소스 그대로. Tailwind v4 앱은 `styles.css` 뒤에 `theme.css`를 import하면 같은 유틸리티 이름을 쓸 수 있다.
 - 폰트는 싣지 않는다. `styles.css`의 `fonts.css` import를 빼고 빌드하므로 `--ap-font-sans`·`--ap-font-mono`는 쓰는 쪽 앱이
   Geist·Pretendard를 로드하지 않으면 시스템 폰트로 떨어진다. `pretendard`도 배포 package.json의 의존성이 아니다.

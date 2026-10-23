@@ -110,7 +110,7 @@ export default defineConfig({ plugins: [react()] });
     2,
   )}\n`,
   "src/css.d.ts": `declare module "*.css";\n`,
-  "src/main.tsx": `import { Button } from "@werft-ai/ui";
+  "src/main.tsx": `import { Button, Card } from "@werft-ai/ui";
 import "@werft-ai/ui/styles.css";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
@@ -123,6 +123,7 @@ flushSync(() =>
     <div style={{ display: "flex", gap: 8 }}>
       <Button id="probe">저장</Button>
       <Button id="probe-outline" variant="outline">취소</Button>
+      <Card id="probe-card" className="px-4">카드</Card>
     </div>,
   ),
 );
@@ -130,13 +131,15 @@ flushSync(() =>
 // Chrome's --dump-dom prints markup only, so the computed style rides on it.
 const button = document.getElementById("probe");
 const outline = document.getElementById("probe-outline");
-if (!button || !outline) throw new Error("Button did not render");
+const card = document.getElementById("probe-card");
+if (!button || !outline || !card) throw new Error("kit did not render");
 const style = getComputedStyle(button);
 document.body.dataset.background = style.backgroundColor;
 document.body.dataset.color = style.color;
 document.body.dataset.height = style.height;
 document.body.dataset.border = style.borderTopWidth;
 document.body.dataset.outlineBorder = \`\${getComputedStyle(outline).borderTopWidth} \${getComputedStyle(outline).borderTopStyle}\`;
+document.body.dataset.cardBorder = \`\${getComputedStyle(card).borderTopWidth} \${getComputedStyle(card).borderTopColor}\`;
 `,
   // Type-checked only: the published types are real, not \`any\`.
   "src/types.tsx": `import { Button, type ButtonProps } from "@werft-ai/ui";
@@ -265,23 +268,33 @@ try {
     console.log(body);
 
     const tokens = await Bun.file(join(PACKAGE_DIR, "tokens.css")).text();
-    const accent = tokens.match(/--ap-color-accent:\s*#([0-9a-f]{6});/i)?.[1];
-    if (!accent) fail("tokens.css has no light --ap-color-accent");
-    const [r, g, b] = [0, 2, 4].map((i) =>
-      Number.parseInt(accent.slice(i, i + 2), 16),
-    );
+    // The first match is the light theme's value.
+    const tokenRgb = (name: string): string => {
+      const hex = tokens.match(
+        new RegExp(`--${name}:\\s*#([0-9a-f]{6});`, "i"),
+      )?.[1];
+      if (!hex) fail(`tokens.css has no light --${name}`);
+      const [r, g, b] = [0, 2, 4].map((i) =>
+        Number.parseInt(hex.slice(i, i + 2), 16),
+      );
+      return `rgb(${r}, ${g}, ${b})`;
+    };
+    const accent = tokenRgb("ap-color-accent");
+    const border = tokenRgb("ap-color-border");
     const expected = {
       'data-slot="button"': button.includes('data-slot="button"'),
       "class bg-primary": /class="[^"]*\bbg-primary\b/.test(button),
-      [`background rgb(${r}, ${g}, ${b})`]: body.includes(
-        `data-background="rgb(${r}, ${g}, ${b})"`,
-      ),
+      [`background ${accent}`]: body.includes(`data-background="${accent}"`),
       // --ap-control-height is 2rem; unstyled, the button would be its text's height.
       "height 32px": body.includes('data-height="32px"'),
       // No preflight here: the user agent's 2px outset button border must not show.
       "border 0px": body.includes('data-border="0px"'),
       "outline variant border 1px solid": body.includes(
         'data-outline-border="1px solid"',
+      ),
+      // A bare `border` class takes theme.css's colour, not currentColor.
+      [`card border 1px ${border}`]: body.includes(
+        `data-card-border="1px ${border}"`,
       ),
     };
     for (const [check, ok] of Object.entries(expected)) {

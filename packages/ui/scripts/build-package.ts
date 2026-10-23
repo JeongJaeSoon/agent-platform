@@ -67,8 +67,9 @@ async function prebuiltStyles(): Promise<string> {
     '@import "tailwindcss/utilities.css" layer(utilities) source(none);',
     '@import "./theme.css";',
     // The one part of preflight the kit relies on, kept to its own elements:
-    // without it a host's UA styles give <button> a 2px outset border.
-    "@layer base { [data-slot], [data-slot]::before, [data-slot]::after { box-sizing: border-box; border: 0 solid; } }",
+    // without it a host's UA styles give <button> a 2px outset border. Not the
+    // `border` shorthand: it would also reset theme.css's border colour.
+    "@layer base { [data-slot], [data-slot]::before, [data-slot]::after { box-sizing: border-box; border-width: 0; border-style: solid; } }",
     styles.replace(FONTS_IMPORT, ""),
     '@source "..";',
     '@source not "../__fixtures__";',
