@@ -47,16 +47,18 @@ export function SessionsScreen() {
   const unavailable = useUnavailable();
   return (
     <Page title={t("sessions.title")} description={t("sessions.intro")}>
-      <ApprovalInbox
-        loading={<StatusScreen kind="loading" />}
-        renderError={loadError}
-        unavailable={unavailable}
-        refusal={(error) => t(errorKey(error.code))}
-      />
-      <SessionList
-        loading={<StatusScreen kind="loading" />}
-        renderError={loadError}
-      />
+      <div className="flex flex-col gap-[var(--ap-space-block)]">
+        <ApprovalInbox
+          loading={<StatusScreen kind="loading" />}
+          renderError={loadError}
+          unavailable={unavailable}
+          refusal={(error) => t(errorKey(error.code))}
+        />
+        <SessionList
+          loading={<StatusScreen kind="loading" />}
+          renderError={loadError}
+        />
+      </div>
     </Page>
   );
 }
