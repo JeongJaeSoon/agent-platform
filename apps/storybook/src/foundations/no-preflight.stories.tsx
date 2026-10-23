@@ -5,9 +5,10 @@ import { KitSample } from "./kit-sample.tsx";
 import css from "./no-preflight.css?inline";
 
 /*
- * The design's §4.2 risk: a host without Tailwind's preflight (a prebuilt
+ * The design's §4.2 risk: a host without Tailwind's preflight (the prebuilt
  * stylesheet ships without it) must still draw the kit as the console does.
- * A shadow root keeps the page's preflight out.
+ * A shadow root keeps the page's preflight out, and no-preflight.css loads
+ * what the prebuilt stylesheet carries instead.
  */
 function WithoutPreflight({ children }: { readonly children: ReactNode }) {
   const [root, setRoot] = useState<ShadowRoot | null>(null);
@@ -37,15 +38,8 @@ export const Default: Story = {
   ),
 };
 
-/*
- * Known gap, kept visible rather than hidden: without preflight a ghost Button
- * and an inactive TabsTrigger keep the browser's ButtonFace background, which
- * in dark fails contrast (2.06:1). The kit has to fix it before a prebuilt
- * stylesheet ships; until then axe reports it here without failing the run.
- */
 export const DefaultDark: Story = {
   ...Default,
   name: "Default (dark)",
   globals: { theme: "dark" },
-  parameters: { a11y: { test: "todo" } },
 };

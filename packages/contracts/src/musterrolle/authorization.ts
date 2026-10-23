@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import {
+  surfaceCeilingSchema,
   surfaceChannelKindSchema,
   surfaceKindSchema,
 } from "../kollegium/surfaces.ts";
@@ -565,43 +566,14 @@ export function slackUserKindOf(
   return "member";
 }
 
-/**
- * What a Slack installation can ever do: read, ask, steer and approve.
- * Recovery, sharing, audit reads, the admin list and deletion are web
- * actions, so no channel setting can hand them to Slack.
- */
-export const SLACK_SURFACE_ACTION_VALUES = [
-  "session.read",
-  "session.submit",
-  "session.control",
-  "session.approve",
-] as const;
-export const slackSurfaceActionSchema = z.enum(SLACK_SURFACE_ACTION_VALUES);
-
-/** `summary`: reads in this channel get a summary and a web link (D13). */
-export const SURFACE_DISCLOSURE_VALUES = ["full", "summary"] as const;
-export const surfaceDisclosureSchema = z.enum(SURFACE_DISCLOSURE_VALUES);
-
-/**
- * A channel's ceiling: the actions its binding allows — approvals only when
- * `session.approve` is listed — and how much of a session it may show.
- */
-export const surfaceCeilingSchema = z
-  .object({
-    actions: z.array(slackSurfaceActionSchema),
-    disclosure: surfaceDisclosureSchema,
-  })
-  .strict();
-
 export const authorizationSurfaceSchema = z
   .object({
     kind: surfaceKindSchema,
     binding_id: surfaceBindingIdSchema.optional(),
     channel_kind: surfaceChannelKindSchema.optional(),
     slack_user_kind: slackUserKindSchema.optional(),
-    // Until bindings are stored (94S-177) the Slack channel hands its
-    // binding's ceiling in. It can only narrow: a slack request without one
-    // is refused.
+    // The channel's stored binding's ceiling. It can only narrow: a slack
+    // request without one is refused.
     ceiling: surfaceCeilingSchema.optional(),
     // The agent whose Slack app received the input. An installation speaks
     // for that agent alone, so a slack request without one is refused.
@@ -664,13 +636,17 @@ export const authorizationResourceSchema = z
     agent_id: agentIdSchema.optional(),
     /**
      * The release that session is to run, so the decision sees the
-     * credentials it names are still bound (design 4.4).
+     * credentials it names are still bound (design 4.4). A stored binding
+     * is identified and still starts one.
      */
     release_id: agentReleaseIdSchema.optional(),
   })
   .strict()
   .superRefine((resource, ctx) => {
     for (const key of ["agent_id", "release_id"] as const) {
+      if (key === "release_id" && resource.kind === "surface_binding") {
+        continue;
+      }
       if (resource[key] !== undefined && resource.id !== null) {
         ctx.addIssue({
           code: "custom",
@@ -725,8 +701,6 @@ export type AuthorizationReason = z.infer<typeof authorizationReasonSchema>;
 export type AuthorizationSurface = z.infer<typeof authorizationSurfaceSchema>;
 export type SlackUserKind = z.infer<typeof slackUserKindSchema>;
 export type SlackUser = z.infer<typeof slackUserSchema>;
-export type SlackSurfaceAction = z.infer<typeof slackSurfaceActionSchema>;
-export type SurfaceCeiling = z.infer<typeof surfaceCeilingSchema>;
 export type AuthorizationSubject = z.infer<typeof authorizationSubjectSchema>;
 export type AuthorizationResource = z.infer<typeof authorizationResourceSchema>;
 export type AuthorizationRequest = z.infer<typeof authorizationRequestSchema>;

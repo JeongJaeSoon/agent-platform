@@ -1,0 +1,16 @@
+# The remote MCP servers an agent card may name (capabilities.mcp), for the
+# fake-model stack. The compose `fake-mcp` service answers `whoami` with
+# `ok:<marker>` to the service-account bearer seeded into the local Secrets
+# Manager (infra/localstack/secrets-init); the worker never holds that value,
+# only the egress proxy's /mcp/fake route does.
+#
+# `workspaces` lists slugs: `verify` is the one the verify-agent-platform
+# skill bootstraps.
+mcp_servers:
+  fake:
+    url: http://fake-mcp:4020/mcp
+    credential_ref: mcp/fake
+    auth:
+      kind: bearer
+      secret_id: agent-platform/local/fake-mcp
+    workspaces: [verify]

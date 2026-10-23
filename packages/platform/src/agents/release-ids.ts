@@ -11,7 +11,9 @@ import {
 } from "@werft-ai/contracts";
 import {
   type CatalogProfile,
+  pinnedMcpTools,
   profileFingerprint,
+  type SessionCatalog,
 } from "../sessions/catalog.ts";
 
 // Ported from Kollegium v1 `packages/core/src/ids.ts` (Apache-2.0,
@@ -82,6 +84,7 @@ export function resolveReleaseContent(
   card: AgentCard,
   profileId: string,
   profile: CatalogProfile,
+  mcpServers: SessionCatalog["mcp_servers"] = {},
 ):
   | {
       ok: true;
@@ -118,10 +121,12 @@ export function resolveReleaseContent(
   const tools = profile.tools.filter(
     (tool) => asked.has(tool) && !forbidden.has(tool),
   );
-  const effective_tools: EffectiveTools = { tools, mcp: [] };
   const policy = resolveToolPolicy(card, profileId, tools);
   if (!policy.ok) return policy;
   const policy_pins = policy.pins;
+  const mcp = resolveMcpServer(card, policy_pins, mcpServers);
+  if (!mcp.ok) return mcp;
+  const effective_tools: EffectiveTools = { tools, mcp: mcp.tools };
   return {
     ok: true,
     content: {
@@ -145,6 +150,65 @@ export function resolveReleaseContent(
       policy_pins,
     },
   };
+}
+
+function resolveMcpServer(
+  card: AgentCard,
+  pins: PolicyPins,
+  mcpServers: NonNullable<SessionCatalog["mcp_servers"]>,
+):
+  | { ok: true; tools: string[] }
+  | { ok: false; error: ReleaseCompatibilityError } {
+  const named = card.capabilities.mcp?.[0];
+  if (named === undefined) return { ok: true, tools: [] };
+  const server = Object.hasOwn(mcpServers, named.server)
+    ? mcpServers[named.server]
+    : undefined;
+  if (server === undefined) {
+    return {
+      ok: false,
+      error: {
+        field: "card.capabilities.mcp",
+        message: `MCP server ${named.server} is not in the catalog`,
+      },
+    };
+  }
+  if (
+    !(card.capabilities.credential_refs ?? []).includes(server.credential_ref)
+  ) {
+    return {
+      ok: false,
+      error: {
+        field: "card.capabilities.credential_refs",
+        message: `MCP server ${named.server} calls as ${server.credential_ref}, which the card must name`,
+      },
+    };
+  }
+  const tools = pinnedMcpTools(named.server, pins.tools?.per_tool ?? {});
+  // The pin is what the relay and the authorizer read, so a forbidden tool
+  // must never get one.
+  const forbidden = tools.filter((tool) =>
+    card.capabilities.forbidden.includes(tool),
+  );
+  if (forbidden.length > 0) {
+    return {
+      ok: false,
+      error: {
+        field: "card.capabilities.forbidden",
+        message: `${forbidden.join(", ")} is both forbidden and allowed`,
+      },
+    };
+  }
+  if (tools.length === 0) {
+    return {
+      ok: false,
+      error: {
+        field: "card.capabilities.tool_policy.per_tool",
+        message: `no ${MCP_TOOL_PREFIX}${named.server}__ tool is allowed`,
+      },
+    };
+  }
+  return { ok: true, tools };
 }
 
 /**

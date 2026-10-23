@@ -6,7 +6,11 @@ import {
   createPostgresWorkerUnitOfWork,
 } from "@werft-ai/db";
 import { createLogger } from "@werft-ai/observability";
-import { acceptAllCheckpoints, createWorkerGateway } from "@werft-ai/platform";
+import {
+  acceptAllCheckpoints,
+  createWorkerGateway,
+  WorkerGatewayError,
+} from "@werft-ai/platform";
 import { createObjectRouteSigner } from "@werft-ai/storage";
 import { eq } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
@@ -586,5 +590,92 @@ describe("the object store route's answers", () => {
       ).status,
     ).toBe(400);
     expect((await ask({ token, purpose: "object_store" })).status).toBe(400);
+  });
+});
+
+describe("egress authorizer: remote MCP", () => {
+  const RECEIPT = "0a1b2c3d-0000-5000-8000-000000000001";
+  function withMcp(
+    answer: (request: unknown) => Promise<unknown>,
+  ): (request: Request) => Promise<Response> {
+    const refuse = async () => {
+      throw new Error("not this route");
+    };
+    return createEgressAuthorizer({
+      gateway: {
+        authorizeEgress: refuse,
+        authorizeObjectAccess: refuse,
+        recordProviderUsage: refuse,
+        authorizeMcpEgress: answer as never,
+      },
+      logger: createLogger({ sinks: [] }),
+      token: AUTHORIZER_TOKEN,
+    });
+  }
+  const body = {
+    token: "wem_token",
+    purpose: "mcp",
+    server: "fake",
+    rpc: { method: "tools/call", tool: "whoami" },
+  };
+
+  test("passes the server and call through, a regrant flagged", async () => {
+    const asked: unknown[] = [];
+    authorize = withMcp(async (request) => {
+      asked.push(request);
+      return {
+        session_id: "s",
+        attempt_id: "a",
+        upstream: { url: "u", headers: [] },
+      };
+    });
+    expect((await ask(body)).status).toBe(200);
+    expect((await ask({ ...body, regrant: true })).status).toBe(200);
+    expect(asked).toEqual([
+      { ...body, regrant: false },
+      { ...body, regrant: true },
+    ]);
+  });
+
+  test("a refusal carries its receipt id, and only one with a receipt does", async () => {
+    authorize = withMcp(async (request) => {
+      const { rpc } = request as { rpc: { tool: string | null } };
+      throw rpc.tool === "whoami"
+        ? new WorkerGatewayError(
+            403,
+            "CREDENTIAL_UNBOUND",
+            "unbound",
+            false,
+            RECEIPT,
+          )
+        : new WorkerGatewayError(403, "FORBIDDEN", "not pinned");
+    });
+    const refused = await ask(body);
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toEqual({
+      code: "CREDENTIAL_UNBOUND",
+      message: "unbound",
+      receipt_id: RECEIPT,
+    });
+    const other = await ask({
+      ...body,
+      rpc: { method: "tools/call", tool: "x" },
+    });
+    expect(await other.json()).toEqual({
+      code: "FORBIDDEN",
+      message: "not pinned",
+    });
+  });
+
+  test("refuses a server name the route could not have sent", async () => {
+    authorize = withMcp(async () => ({}));
+    for (const bad of [
+      { ...body, server: "a__b" },
+      { ...body, server: "Fake" },
+      { ...body, rpc: { method: "tools/call" } },
+      { ...body, rpc: { method: "", tool: null } },
+    ]) {
+      expect((await ask(bad)).status).toBe(400);
+    }
   });
 });
