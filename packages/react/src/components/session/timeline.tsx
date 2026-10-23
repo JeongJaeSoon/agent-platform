@@ -250,9 +250,6 @@ function turnGroups(rows: readonly TimelineRow[], fold: boolean): TurnGroup[] {
   });
 }
 
-// The head's own key: the group's key is its first row's.
-const headKey = (group: TurnGroup): string => `head-${group.key}`;
-
 /** The turn's token count, read from its result event's summary. */
 function turnTokens(group: TurnGroup): TurnEventMessage | undefined {
   for (const item of group.items) {
@@ -369,7 +366,10 @@ export function Timeline({
     said = next;
   };
   for (const group of groups) {
-    if (group.turnId !== null) see(headKey(group), group.startedAt);
+    // A turn's head always says when it began.
+    if (group.turnId !== null) {
+      said = formatRelativeTime(group.startedAt, locale, now);
+    }
     for (const item of group.items) {
       if (!item.fold) {
         see(item.row.key, item.row.occurredAt);
@@ -514,13 +514,8 @@ export function Timeline({
                 >
                   <span className="font-medium">
                     {messages.turn(group.turnId)}
-                    {shown.has(headKey(group)) ? null : (
-                      <HiddenStamp at={group.startedAt} time={time} />
-                    )}
                   </span>
-                  {shown.has(headKey(group)) ? (
-                    <Stamp at={group.startedAt} time={time} />
-                  ) : null}
+                  <Stamp at={group.startedAt} time={time} />
                   {tokens ? (
                     <span className="text-subtle-foreground">
                       {formatMessage(tokens)}
