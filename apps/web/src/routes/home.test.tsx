@@ -577,6 +577,51 @@ describe("홈 요약", () => {
     },
   );
 
+  test("다시 읽기에 실패한 목록은 진행 상황 합계에 옛 값으로 남지 않는다", async () => {
+    const running = {
+      ...oneSession,
+      id: "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e",
+      status: "running",
+    };
+    let runningFails = false;
+    const { services } = renderAt("/", {
+      ...homeRoutes(),
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/administered-agents": () => json(200, { items: [] }),
+      "GET /v1/sessions?status=running": () =>
+        runningFails
+          ? json(500, { error: { code: "INTERNAL", message: "boom" } })
+          : json(200, { items: [running], next_cursor: null }),
+      "GET /v1/sessions?status=idle": () =>
+        json(200, { items: [], next_cursor: null }),
+      "GET /v1/linked-accounts": () => json(200, { items: [] }),
+    });
+    const overview = await screen.findByRole("region", { name: "한눈에 보기" });
+    const progress = () => cards(overview)[1];
+    await waitFor(() =>
+      expect(progress()).toMatchObject({
+        value: "2",
+        rows: [
+          ["답변 대기", "1"],
+          ["작업 중", "1"],
+          ["쉬는 중", "0"],
+        ],
+      }),
+    );
+    runningFails = true;
+    await act(() => services.queryClient.refetchQueries());
+    await waitFor(() =>
+      expect(progress()).toMatchObject({
+        value: "—",
+        rows: [
+          ["답변 대기", "1"],
+          ["작업 중", "—"],
+          ["쉬는 중", "0"],
+        ],
+      }),
+    );
+  });
+
   test("비활성으로 알려 온 Slack 계정은 연결로 세지 않고 다시 연결을 보인다", async () => {
     renderAt("/", {
       ...homeRoutes(),

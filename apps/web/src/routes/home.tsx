@@ -304,7 +304,10 @@ export function HomeScreen() {
                 label: t("home.overview.oldest"),
                 value: (
                   <>
-                    <TextLink asChild className="font-mono font-normal">
+                    <TextLink
+                      asChild
+                      className="font-mono font-normal text-foreground"
+                    >
                       <Link
                         to="/sessions/$id"
                         params={{ id: oldest.sessionId }}
@@ -372,13 +375,18 @@ export function HomeScreen() {
       ]}
     />
   );
+  // A failed refetch keeps the old page; added to fresh ones it would count a
+  // session that moved twice or not at all, so a failed list counts as unknown.
+  const [waitingNow, runningNow, idleNow] = [waiting, running, idle].map(
+    (query) => (query.isError ? undefined : query.data),
+  );
   const openCount =
-    waiting.data && running.data && idle.data
+    waitingNow && runningNow && idleNow
       ? count(
-          waiting.data.items.length +
-            running.data.items.length +
-            idle.data.items.length,
-          [waiting.data, running.data, idle.data].some(
+          waitingNow.items.length +
+            runningNow.items.length +
+            idleNow.items.length,
+          [waitingNow, runningNow, idleNow].some(
             (page) => page.next_cursor !== null,
           ),
         )
@@ -395,17 +403,17 @@ export function HomeScreen() {
         {
           label: t("home.overview.waiting"),
           dot: "wait",
-          value: waitingCount ?? t("home.overview.unknown"),
+          value: pageCount(waitingNow),
         },
         {
           label: t("home.glance.running"),
           dot: "run",
-          value: pageCount(running.data),
+          value: pageCount(runningNow),
         },
         {
           label: t("home.glance.idle"),
           dot: "idle",
-          value: pageCount(idle.data),
+          value: pageCount(idleNow),
         },
       ]}
       footer={t("home.overview.sessionsNote")}
@@ -738,7 +746,7 @@ function KeyName({
             : "apiKeys.kind.service",
         );
   return (
-    <TextLink asChild>
+    <TextLink asChild className="text-foreground">
       <Link
         to={
           apiKey.kind === "personal"
@@ -955,7 +963,7 @@ function RecentRow({
       <TableCell>
         {session.title ? (
           <div className="flex max-w-80 flex-col">
-            <TextLink asChild className="truncate">
+            <TextLink asChild className="truncate text-foreground">
               <Link
                 to="/sessions/$id"
                 params={{ id: session.id }}
@@ -972,7 +980,7 @@ function RecentRow({
             </span>
           </div>
         ) : (
-          <TextLink asChild className="font-mono">
+          <TextLink asChild className="font-mono text-foreground">
             <Link
               to="/sessions/$id"
               params={{ id: session.id }}
