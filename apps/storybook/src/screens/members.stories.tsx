@@ -7,6 +7,7 @@ import {
   CardHeader,
   CardTitle,
   ConfirmDialog,
+  cn,
   DestructiveActionDialog,
   Dialog,
   DialogContent,
@@ -22,6 +23,8 @@ import {
   FieldLegend,
   FieldSet,
   Input,
+  Link,
+  linkVariants,
   PageHeader,
   RadioGroup,
   RadioGroupItem,
@@ -40,7 +43,7 @@ import {
   TabsList,
   TabsTrigger,
 } from "@werft-ai/ui";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import { fn } from "storybook/test";
 
 import {
@@ -170,11 +173,21 @@ const INVITES = [
 ] as const;
 
 /** Name that opens 구성원 편집 (role lives there, not in the row). */
-function NameLink({ children }: { readonly children: ReactNode }) {
+function NameButton({
+  children,
+  onClick,
+}: {
+  readonly children: ReactNode;
+  readonly onClick: () => void;
+}) {
   return (
-    <Button asChild variant="link" className="h-auto justify-start px-0">
-      <a href="#edit">{children} ›</a>
-    </Button>
+    <button
+      type="button"
+      className={cn(linkVariants(), "text-left")}
+      onClick={onClick}
+    >
+      {children} ›
+    </button>
   );
 }
 
@@ -231,7 +244,6 @@ function Head({
           </TabsList>
         </Tabs>
         <PartRequest name="LinkTabs" />
-        <PartRequest name="Link" />
       </div>
     </>
   );
@@ -267,9 +279,11 @@ function ListBody({
 function MembersTab({
   viewer = "owner",
   state = "ready",
+  onEdit,
 }: {
   readonly viewer?: Role;
   readonly state?: ListState;
+  readonly onEdit: (member: Member) => void;
 }) {
   return (
     <div className="flex flex-col gap-4 pt-4">
@@ -284,6 +298,7 @@ function MembersTab({
         </span>
       </div>
       <ListBody state={state} label="구성원 목록">
+        <PartRequest name="LockedButton+Tooltip" />
         <TableContainer label="구성원" className="hidden md:block">
           <Table>
             <TableHeader>
@@ -300,10 +315,10 @@ function MembersTab({
                 <TableRow key={member.id}>
                   <TableCell>
                     <RowLines>
-                      <NameLink>
+                      <NameButton onClick={() => onEdit(member)}>
                         {member.name}
                         {member.id === ME[viewer] ? " (나)" : ""}
-                      </NameLink>
+                      </NameButton>
                       <span className="text-caption text-muted-foreground">
                         {member.email}
                       </span>
@@ -335,7 +350,9 @@ function MembersTab({
                 className="flex items-start justify-between gap-2"
               >
                 <RowLines>
-                  <NameLink>{member.name}</NameLink>
+                  <NameButton onClick={() => onEdit(member)}>
+                    {member.name}
+                  </NameButton>
                   <span className="text-caption text-muted-foreground">
                     {member.email}
                   </span>
@@ -392,13 +409,7 @@ function TeamsTab({
                 {TEAMS.map((team) => (
                   <TableRow key={team.id}>
                     <TableCell>
-                      <Button
-                        asChild
-                        variant="link"
-                        className="h-auto justify-start px-0"
-                      >
-                        <a href="#team">{team.name} ›</a>
-                      </Button>
+                      <Link href="#team">{team.name} ›</Link>
                     </TableCell>
                     <TableCell>{team.members}명</TableCell>
                     <TableCell>
@@ -483,7 +494,7 @@ function TeamDetailView({
             action={<Button type="button">구성원 추가</Button>}
           />
         ) : (
-          <TableContainer label="플랫폼팀 구성원">
+          <TableContainer label="플랫폼팀 구성원" className="hidden md:block">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -522,6 +533,15 @@ function TeamDetailView({
             </Table>
           </TableContainer>
         )}
+        {emptyMembers ? null : (
+          <MobileRows
+            label="플랫폼팀 구성원"
+            rows={TEAM_MEMBERS.map((member) => ({
+              key: member.id,
+              lines: [member.name, member.email, `${member.joined} 추가`],
+            }))}
+          />
+        )}
       </section>
       <section
         aria-label="플랫폼팀이 관리하는 에이전트"
@@ -541,13 +561,7 @@ function TeamDetailView({
               {TEAM_AGENTS.map((agent) => (
                 <TableRow key={agent.name}>
                   <TableCell>
-                    <Button
-                      asChild
-                      variant="link"
-                      className="h-auto justify-start px-0"
-                    >
-                      <a href="#agent">{agent.name} ›</a>
-                    </Button>
+                    <Link href="#agent">{agent.name} ›</Link>
                   </TableCell>
                   <TableCell>
                     <Badge variant={agent.state[0]}>{agent.state[1]}</Badge>
@@ -584,7 +598,7 @@ function InvitesTab({ empty = false }: { readonly empty?: boolean }) {
           action={inviteButton}
         />
       ) : (
-        <TableContainer label="초대">
+        <TableContainer label="초대" className="hidden md:block">
           <Table>
             <TableHeader>
               <TableRow>
@@ -629,24 +643,88 @@ function InvitesTab({ empty = false }: { readonly empty?: boolean }) {
           </Table>
         </TableContainer>
       )}
+      {empty ? null : (
+        <MobileRows
+          label="초대"
+          rows={INVITES.map((invite) => ({
+            key: invite.email,
+            lines: [
+              invite.email,
+              `${ROLE_LABEL[invite.role]} · ${invite.state[1]}`,
+              `만료 ${invite.expires}`,
+            ],
+          }))}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Below md a table becomes rows with one ⋯ menu each (C-10). */
+function MobileRows({
+  label,
+  rows,
+}: {
+  readonly label: string;
+  readonly rows: readonly {
+    readonly key: string;
+    readonly lines: readonly [string, ...string[]];
+  }[];
+}) {
+  return (
+    <div className="flex flex-col gap-2 md:hidden">
+      <PartRequest name="DropdownMenu" />
+      <RowList aria-label={label}>
+        {rows.map(({ key, lines: [first, ...rest] }) => (
+          <RowListItem
+            key={key}
+            className="flex items-start justify-between gap-2"
+          >
+            <RowLines>
+              <span className="font-medium">{first}</span>
+              {rest.map((line) => (
+                <span key={line} className="text-caption text-muted-foreground">
+                  {line}
+                </span>
+              ))}
+            </RowLines>
+            <Button
+              type="button"
+              variant="ghost"
+              className="size-11"
+              aria-label={`${first} 동작`}
+            >
+              ⋯
+            </Button>
+          </RowListItem>
+        ))}
+      </RowList>
     </div>
   );
 }
 
 /** 구성원 편집: where the role changes now that rows only disable (M-02). */
-function MemberEditDialog({ viewer = "owner" }: { readonly viewer?: Role }) {
+function MemberEditDialog({
+  member,
+  viewer,
+  onClose,
+}: {
+  readonly member: Member;
+  readonly viewer: Role;
+  readonly onClose: () => void;
+}) {
   return (
-    <Dialog open>
+    <Dialog open onOpenChange={(open) => (open ? undefined : onClose())}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>구성원 편집</DialogTitle>
           <DialogDescription>
-            Verify Minji · minji@example.test
+            {member.name} · {member.email}
           </DialogDescription>
         </DialogHeader>
         <FieldSet>
           <FieldLegend variant="label">역할</FieldLegend>
-          <RadioGroup name="role" defaultValue="member" aria-label="역할">
+          <RadioGroup name="role" defaultValue={member.role} aria-label="역할">
             {(
               [
                 [
@@ -678,10 +756,12 @@ function MemberEditDialog({ viewer = "owner" }: { readonly viewer?: Role }) {
           </RadioGroup>
         </FieldSet>
         <DialogFooter>
-          <Button type="button" variant="outline">
+          <Button type="button" variant="outline" onClick={onClose}>
             취소
           </Button>
-          <Button type="button">저장</Button>
+          <Button type="button" onClick={onClose}>
+            저장
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -756,7 +836,12 @@ type Screen =
 
 const DETAIL_SCREENS: readonly Screen[] = ["team", "team-empty", "team-delete"];
 
+const MINJI = MEMBERS.find((member) => member.id === "u3") ?? null;
+
 function MembersScreen({ screen }: { readonly screen: Screen }) {
+  const [editing, setEditing] = useState<Member | null>(
+    screen === "member-edit" || screen === "member-edit-admin" ? MINJI : null,
+  );
   const viewer: Role = screen.endsWith("-admin")
     ? "admin"
     : screen === "member-view"
@@ -788,6 +873,7 @@ function MembersScreen({ screen }: { readonly screen: Screen }) {
       tab === "members" ? (
         <MembersTab
           viewer={viewer}
+          onEdit={setEditing}
           state={
             screen === "members-loading"
               ? "loading"
@@ -815,8 +901,12 @@ function MembersScreen({ screen }: { readonly screen: Screen }) {
   return (
     <ScreenShell current="members" crumb={crumb} role={viewer}>
       {body}
-      {screen === "member-edit" || screen === "member-edit-admin" ? (
-        <MemberEditDialog viewer={viewer} />
+      {editing ? (
+        <MemberEditDialog
+          member={editing}
+          viewer={viewer}
+          onClose={() => setEditing(null)}
+        />
       ) : null}
       {screen === "member-disable" ? (
         <ConfirmDialog

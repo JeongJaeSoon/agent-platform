@@ -86,7 +86,7 @@ export function ScreenShell({
         </Card>
       </nav>
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-12 items-center gap-2 border-b px-4">
+        <header className="flex h-12 items-center gap-2 px-4">
           <nav aria-label="위치" className="text-muted-foreground">
             {crumb.join(" › ")}
           </nav>

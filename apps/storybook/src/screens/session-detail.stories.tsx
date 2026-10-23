@@ -158,15 +158,20 @@ function Header({ named = false }: { readonly named?: boolean }) {
 
 function Approval({ viewer }: { readonly viewer: Viewer }) {
   return (
-    <ApprovalCard
-      request={REQUEST}
-      messages={APPROVAL_MESSAGES}
-      onAllow={() => {}}
-      onDeny={() => {}}
-      disabled={viewer === "viewer"}
-      now={NOW}
-      locale="ko"
-    />
+    <>
+      {viewer === "viewer" ? (
+        <PartRequest name="ApprovalCard 잠금 상태(이유·aria-describedby)" />
+      ) : null}
+      <ApprovalCard
+        request={REQUEST}
+        messages={APPROVAL_MESSAGES}
+        onAllow={() => {}}
+        onDeny={() => {}}
+        disabled={viewer === "viewer"}
+        now={NOW}
+        locale="ko"
+      />
+    </>
   );
 }
 
@@ -201,7 +206,7 @@ function Answerers({ viewer }: { readonly viewer: Viewer }) {
             </div>
           ))}
         </dl>
-        <p className="m-0 border-t pt-2">
+        <p className="m-0 pt-2">
           {viewer === "owner"
             ? "나는 이 요청에 답할 수 있습니다."
             : VIEWER_REASON}
@@ -291,6 +296,7 @@ function Danger({
 }) {
   return (
     <div className="flex flex-col gap-4">
+      {takeoverWaiting ? null : <PartRequest name="LockedButton+Tooltip" />}
       <DangerArea
         rows={[
           {
@@ -389,32 +395,45 @@ function Info({ viewer }: { readonly viewer: Viewer }) {
   );
 }
 
-function TerminateDialog() {
+const REASON_DIALOG = {
+  terminate: {
+    title: "이 세션을 관리 종료할까요?",
+    body: "진행 중인 작업을 끝내고 세션을 닫습니다. 시작한 사람에게 사유가 보이고 감사 기록에 남습니다.",
+    sample: "권한 요청이 30분 넘게 답 없이 멈춰 있어 종료합니다.",
+    confirm: "관리 종료",
+  },
+  takeover: {
+    title: "이 세션을 이어받을까요?",
+    body: "인계 대기 중인 세션을 내가 이어받습니다. 사유는 감사 기록에 남습니다.",
+    sample: "시작한 사람이 퇴사해 운영팀이 이어받습니다.",
+    confirm: "인계받기",
+  },
+} as const;
+
+/** Both admin actions send a `justification` (terminate, takeover). */
+function ReasonDialog({ kind }: { readonly kind: keyof typeof REASON_DIALOG }) {
+  const copy = REASON_DIALOG[kind];
   return (
     <Dialog open>
       <DialogContent role="alertdialog">
         <DialogHeader>
-          <DialogTitle>이 세션을 관리 종료할까요?</DialogTitle>
-          <DialogDescription>
-            진행 중인 작업을 끝내고 세션을 닫습니다. 시작한 사람에게 사유가
-            보이고 감사 기록에 남습니다.
-          </DialogDescription>
+          <DialogTitle>{copy.title}</DialogTitle>
+          <DialogDescription>{copy.body}</DialogDescription>
         </DialogHeader>
         <Field>
           <FieldLabel>사유</FieldLabel>
-          <Textarea
-            required
-            maxLength={500}
-            defaultValue="권한 요청이 30분 넘게 답 없이 멈춰 있어 종료합니다."
-          />
+          <Textarea required maxLength={500} defaultValue={copy.sample} />
           <FieldDescription>필수. 500자까지.</FieldDescription>
         </Field>
         <DialogFooter>
           <Button type="button" variant="outline">
             취소
           </Button>
-          <Button type="button" variant="destructive">
-            관리 종료
+          <Button
+            type="button"
+            variant={kind === "terminate" ? "destructive" : "default"}
+          >
+            {copy.confirm}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -427,14 +446,14 @@ function SessionDetailScreen({
   viewer,
   tab = "progress",
   named = false,
-  terminate = false,
+  dialog,
   takeoverWaiting = false,
 }: {
   readonly option: Option;
   readonly viewer: Viewer;
   readonly tab?: "progress" | "info";
   readonly named?: boolean;
-  readonly terminate?: boolean;
+  readonly dialog?: keyof typeof REASON_DIALOG;
   readonly takeoverWaiting?: boolean;
 }) {
   let aside: ReactNode;
@@ -480,7 +499,7 @@ function SessionDetailScreen({
           {aside}
         </aside>
       </div>
-      {terminate ? <TerminateDialog /> : null}
+      {dialog ? <ReasonDialog kind={dialog} /> : null}
     </ScreenShell>
   );
 }
@@ -507,7 +526,11 @@ export const Option1TakeoverWaiting: Story = {
 };
 export const Option1Terminate: Story = {
   name: "안 1: 관리 종료 사유",
-  args: { terminate: true },
+  args: { dialog: "terminate" },
+};
+export const Option1Takeover: Story = {
+  name: "안 1: 인계 사유",
+  args: { takeoverWaiting: true, dialog: "takeover" },
 };
 export const Option2: Story = {
   name: "안 2: 요청 카드 아래 한 줄",
