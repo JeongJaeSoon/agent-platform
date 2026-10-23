@@ -522,6 +522,23 @@ describe("에이전트 목록 탭과 보기", () => {
     expect(screen.getByRole("link", { name: "결제 담당" })).toBeDefined();
   });
 
+  test("관리하는 에이전트가 서버 상한만큼 오면 개수에 +를 붙이고 일부만 보인다고 알린다", async () => {
+    const base = agentServer().detail().agent;
+    const items = Array.from({ length: 200 }, (_, n) => ({
+      ...base,
+      id: crypto.randomUUID(),
+      slug: `agent-${n}`,
+      name: `에이전트 ${n}`,
+    }));
+    renderAt("/agents", {
+      ...meOk,
+      "GET /v1/agents": () => json(200, { items: [base] }),
+      "GET /v1/administered-agents": () => json(200, { items }),
+    });
+    await showTab(await setupUser(), "관리하는 에이전트 200+");
+    expect(await screen.findByText("처음 200개만 보입니다.")).toBeDefined();
+  });
+
   test("보기 선택은 사용자마다 브라우저에 남고 처음은 카드다", async () => {
     const server = agentServer();
     // Another person's choice in the same browser is not this one's.

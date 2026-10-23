@@ -31,7 +31,10 @@ import {
   useMe,
   useRole,
 } from "../auth/guard.tsx";
-import { AdministeredAgents } from "../components/agent-admins.tsx";
+import {
+  ADMINISTERED_LIST_LIMIT,
+  AdministeredAgents,
+} from "../components/agent-admins.tsx";
 import { AgentCards } from "../components/agent-cards.tsx";
 import { AgentStateBadge } from "../components/agent-state.tsx";
 import {
@@ -138,6 +141,9 @@ function AgentList({ agents }: { readonly agents: readonly Agent[] }) {
     principal?.kind === "user" ? principal.id : undefined,
   );
   const administered = useQuery(administeredAgentsQuery(client));
+  // The server stops at this many, so a full page may have left some out.
+  const truncated =
+    (administered.data?.items.length ?? 0) >= ADMINISTERED_LIST_LIMIT;
   return (
     <Tabs defaultValue="all" className="gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -149,7 +155,11 @@ function AgentList({ agents }: { readonly agents: readonly Agent[] }) {
           <TabsTrigger value="administered">
             {t("agents.tabs.administered")}
             {administered.data ? (
-              <Badge variant="gray">{administered.data.items.length}</Badge>
+              <Badge variant="gray">
+                {truncated
+                  ? `${ADMINISTERED_LIST_LIMIT}+`
+                  : administered.data.items.length}
+              </Badge>
             ) : null}
           </TabsTrigger>
         </TabsList>
@@ -191,7 +201,16 @@ function AgentList({ agents }: { readonly agents: readonly Agent[] }) {
         ) : administered.data.items.length === 0 ? (
           <EmptyState title={t("agentAdmins.mine.empty")} />
         ) : (
-          <AgentsIn view={view} agents={administered.data.items} />
+          <>
+            {truncated ? (
+              <p className="m-0 mb-3 text-caption text-muted-foreground">
+                {t("agentAdmins.mine.truncated", {
+                  count: ADMINISTERED_LIST_LIMIT,
+                })}
+              </p>
+            ) : null}
+            <AgentsIn view={view} agents={administered.data.items} />
+          </>
         )}
       </TabsContent>
     </Tabs>

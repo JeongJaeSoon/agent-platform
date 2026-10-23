@@ -223,7 +223,8 @@ function Detail({
         <span className="sr-only">{t("agents.cards.unavailable")}</span>
       </span>
     );
-  if (queries.some((q) => q?.isPending)) return <Skeleton lines={lines} />;
+  if (queries.some((q) => q?.isPending))
+    return <Skeleton lines={lines} label={t("status.loading.title")} />;
   return <>{children}</>;
 }
 
