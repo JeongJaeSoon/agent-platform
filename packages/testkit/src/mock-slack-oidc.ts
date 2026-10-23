@@ -92,6 +92,21 @@ export async function startMockSlackOidc(
   };
   let issuer = "";
 
+  /**
+   * The fixed client, or one the Web API fake made with
+   * `apps.manifest.create` (a workspace's link app); with `secret`, only
+   * when it is that client's.
+   */
+  function knownClient(id: string, secret?: string): boolean {
+    if (id === clientId) return secret === undefined || secret === clientSecret;
+    const app = [...(options.webApi?.apps.values() ?? [])].find(
+      (candidate) => candidate.clientId === id,
+    );
+    return (
+      app !== undefined && (secret === undefined || secret === app.clientSecret)
+    );
+  }
+
   async function idToken(pending: PendingCode): Promise<string> {
     const now = Math.floor(Date.now() / 1000);
     const header = base64url(
@@ -168,8 +183,10 @@ export async function startMockSlackOidc(
         const redirectUri = query.get("redirect_uri");
         const state = query.get("state");
         const nonce = query.get("nonce");
+        const client = query.get("client_id");
         if (
-          query.get("client_id") !== clientId ||
+          client === null ||
+          !knownClient(client) ||
           query.get("response_type") !== "code" ||
           !redirectUri ||
           !state ||
@@ -179,7 +196,7 @@ export async function startMockSlackOidc(
         }
         const code = base64url(randomBytes(24));
         codes.set(code, {
-          clientId,
+          clientId: client,
           redirectUri,
           nonce,
           account: {
@@ -201,8 +218,11 @@ export async function startMockSlackOidc(
         const pending = codes.get(code);
         codes.delete(code);
         if (
-          form.get("client_id") !== clientId ||
-          form.get("client_secret") !== clientSecret
+          !knownClient(
+            form.get("client_id") ?? "",
+            form.get("client_secret") ?? "",
+          ) ||
+          (pending !== undefined && pending.clientId !== form.get("client_id"))
         ) {
           return Response.json({ ok: false, error: "invalid_client" });
         }
