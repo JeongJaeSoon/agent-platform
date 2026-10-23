@@ -143,9 +143,9 @@ describe("팀 화면", () => {
 
   test("목록을 보이고 만든다. 같은 이름은 그렇게 말한다", async () => {
     const server = teamServer();
-    const { api } = renderAt("/teams", server.routes);
+    const { api } = renderAt("/members/teams", server.routes);
     const link = await screen.findByRole("link", { name: "결제팀" });
-    expect(link.getAttribute("href")).toBe(`/teams/${TEAM_ID}`);
+    expect(link.getAttribute("href")).toBe(`/members/teams/${TEAM_ID}`);
     const user = await setupUser();
     await user.type(screen.getByLabelText("팀 이름"), "지원팀");
     await user.click(screen.getByRole("button", { name: "팀 만들기" }));
@@ -163,7 +163,7 @@ describe("팀 화면", () => {
   });
 
   test("구성원에게는 만들기 폼·전체 목록·권한 없음 화면이 없고 서버에 묻지 않는다", async () => {
-    const { api } = renderAt("/teams", {
+    const { api } = renderAt("/members/teams", {
       "GET /v1/auth/me": () => json(200, memberMe()),
       "GET /v1/teams": () =>
         apiError(403, "FORBIDDEN", "This principal does not hold team.manage"),
@@ -180,7 +180,7 @@ describe("팀 화면", () => {
   test("구성원은 자기가 속한 팀을 본다", async () => {
     const refused = () =>
       apiError(403, "FORBIDDEN", "This principal does not hold team.manage");
-    const joined = renderAt("/teams", {
+    const joined = renderAt("/members/teams", {
       "GET /v1/auth/me": () => json(200, memberMe()),
       "GET /v1/teams": refused,
       "GET /v1/my-teams": () =>
@@ -193,7 +193,7 @@ describe("팀 화면", () => {
     expect(within(section).queryByRole("link")).toBeNull();
     joined.container.remove();
 
-    renderAt("/teams", {
+    renderAt("/members/teams", {
       "GET /v1/auth/me": () => json(200, memberMe()),
       "GET /v1/teams": refused,
       "GET /v1/my-teams": () => json(200, { items: [] }),
@@ -202,7 +202,7 @@ describe("팀 화면", () => {
   });
 
   test("팀 상세를 볼 수 없는 사람에게도 화면 제목이 있다", async () => {
-    renderAt(`/teams/${TEAM_ID}`, {
+    renderAt(`/members/teams/${TEAM_ID}`, {
       "GET /v1/auth/me": () => json(200, memberMe()),
       [`GET /v1/teams/${TEAM_ID}`]: () =>
         apiError(403, "FORBIDDEN", "This principal does not hold team.manage"),
@@ -210,21 +210,47 @@ describe("팀 화면", () => {
     expect((await screen.findByRole("alert")).textContent).toContain(
       "이 화면을 볼 권한이 없습니다",
     );
-    expect(screen.getByRole("heading", { level: 1, name: "팀" })).toBeDefined();
+    expect(
+      screen.getByRole("heading", { level: 1, name: "구성원" }),
+    ).toBeDefined();
+    expect(screen.getByRole("heading", { level: 2, name: "팀" })).toBeDefined();
     expect(screen.getByRole("link", { name: "팀 목록" })).toBeDefined();
   });
 
   test("팀을 관리하는 사람의 팀 화면에는 전체 목록만 있다", async () => {
     const server = teamServer();
-    const { api } = renderAt("/teams", server.routes);
+    const { api } = renderAt("/members/teams", server.routes);
     await screen.findByRole("link", { name: "결제팀" });
     expect(screen.queryByRole("heading", { name: "내가 속한 팀" })).toBeNull();
     expect(api.calls.some((c) => c.path === "/v1/my-teams")).toBe(false);
   });
 
+  test("예전 팀 주소는 구성원의 팀 탭으로 옮겨 간다", async () => {
+    const server = teamServer();
+    const list = renderAt("/teams", server.routes);
+    await screen.findByRole("link", { name: "결제팀" });
+    expect(list.history.location.pathname).toBe("/members/teams");
+    const tab = screen.getByRole("link", { name: "팀", current: "page" });
+    expect(tab.getAttribute("href")).toBe("/members/teams");
+    list.container.remove();
+
+    const detail = renderAt(`/teams/${TEAM_ID}`, server.routes);
+    expect(
+      await screen.findByRole("heading", { level: 2, name: "결제팀" }),
+    ).toBeDefined();
+    expect(detail.history.location.pathname).toBe(`/members/teams/${TEAM_ID}`);
+    // The team opens inside the 팀 tab, which stays the current one.
+    expect(
+      screen.getByRole("link", { name: "팀", current: "page" }),
+    ).toBeDefined();
+  });
+
   test("구성원을 수락 없이 넣고 빼며, 이름을 바꾸고 지운다", async () => {
     const server = teamServer();
-    const { api, history } = renderAt(`/teams/${TEAM_ID}`, server.routes);
+    const { api, history } = renderAt(
+      `/members/teams/${TEAM_ID}`,
+      server.routes,
+    );
     const user = await setupUser();
     await screen.findByRole("option", { name: "Mate (mate@example.com)" });
     await user.selectOptions(screen.getByLabelText("추가할 사람"), MATE_ID);
@@ -287,7 +313,9 @@ describe("팀 화면", () => {
     await user.click(screen.getByRole("button", { name: "팀 삭제" }));
     const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getByRole("button", { name: "팀 삭제" }));
-    await waitFor(() => expect(history.location.pathname).toBe("/teams"));
+    await waitFor(() =>
+      expect(history.location.pathname).toBe("/members/teams"),
+    );
     expect(server.team).toBeNull();
     expect(await screen.findByText("아직 팀이 없습니다.")).toBeDefined();
   });
