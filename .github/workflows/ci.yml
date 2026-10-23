@@ -261,6 +261,7 @@ jobs:
               - tests/supply-chain.
               - tests/test-files.
               - tests/third-party-notices.
+              - tests/ui-release.
               - tests/unit-part.
             skips:
               # The Kubernetes backend's suites need a kind cluster

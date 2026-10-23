@@ -1,0 +1,110 @@
+name: ui-release
+
+# Builds, smokes and packs @werft-ai/ui, and keeps the tarball as an artifact.
+# Only a push of a `ui-v*` tag publishes it, and only after a person approves
+# the `release` environment. Pull requests and manual runs stop after the
+# pack; they are the dry run. The steps a person takes around a release are in
+# packages/ui/README.md (릴리스 절차).
+on:
+  push:
+    tags: ["ui-v*"]
+  pull_request:
+    paths:
+      - packages/ui/**
+      - scripts/ui-pack-smoke.ts
+      - LICENSE
+      - bun.lock
+      - .github/actions/bun-setup/**
+      - .github/workflows/ui-release.yml
+  workflow_dispatch:
+
+# Read-only for every job but `publish`: a pull request can edit this file,
+# so a token with package write in the PR job would let a branch publish
+# before merge.
+permissions:
+  contents: read
+
+concurrency:
+  group: ui-release-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  # A release run waiting on approval must not be cancelled by a second push.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/bun-setup
+      # The consumer's toolchain is npm's, as an outside app's would be.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - if: startsWith(github.ref, 'refs/tags/ui-v')
+        name: Tag names the package version
+        run: |
+          version=$(node -p 'require("./packages/ui/package.json").version')
+          if [ "${GITHUB_REF_NAME#ui-v}" != "$version" ]; then
+            echo "::error::${GITHUB_REF_NAME} does not match packages/ui version ${version}"
+            exit 1
+          fi
+      - run: bun install --frozen-lockfile
+      - run: bun test packages/ui
+      - name: Build the package
+        run: bun run --cwd packages/ui build:package
+      - name: Install, type-check, build and render in an empty app
+        run: bun scripts/ui-pack-smoke.ts
+      - name: Pack
+        run: |
+          mkdir -p "$RUNNER_TEMP/ui-package"
+          npm pack ./packages/ui/dist --pack-destination "$RUNNER_TEMP/ui-package"
+          tar -tzf "$RUNNER_TEMP"/ui-package/*.tgz
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ui-package
+          path: ${{ runner.temp }}/ui-package/*.tgz
+          if-no-files-found: error
+          # A release run may wait on approval for days.
+          retention-days: 30
+
+  # Only a `push` of a `ui-v*` tag qualifies: `workflow_dispatch` can name any
+  # ref, tags included, so the event is checked as well as the ref. The tagged
+  # commit must already be on main — a tag is not a review. `release` has a
+  # required reviewer and a deployment policy listing the tag patterns it
+  # accepts; a pattern not on it is refused, not run.
+  publish:
+    needs: build
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/ui-v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: release
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Tagged commit must be on main
+        run: |
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::${GITHUB_REF_NAME} points at ${GITHUB_SHA}, which is not on main"
+            exit 1
+          fi
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ui-package
+          path: pkg
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          registry-url: https://npm.pkg.github.com
+          scope: "@werft-ai"
+      - run: npm publish pkg/*.tgz
+        env:
+          # The scope belongs to the Werft-ai organization, and this
+          # repository's token may not write there (design F6, decision
+          # D-7b). If an organization PAT is chosen, a person registers it
+          # and changes this one line.
+          NODE_AUTH_TOKEN: ${{ github.token }}
