@@ -54,10 +54,11 @@ export function Avatar({
     <span
       data-slot="avatar"
       className={cn(avatarVariants({ size, shape, tone }), className)}
-      {...(named
-        ? { role: "img", "aria-label": label }
-        : { "aria-hidden": true })}
       {...props}
+      // After the rest, so a stray role or aria-* cannot undo the rule.
+      {...(named
+        ? { role: "img", "aria-label": label, "aria-hidden": undefined }
+        : { role: undefined, "aria-label": undefined, "aria-hidden": true })}
     >
       {initials}
     </span>

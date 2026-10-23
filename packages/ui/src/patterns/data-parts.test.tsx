@@ -174,6 +174,50 @@ describe("SecretField", () => {
     }
   });
 
+  test("A를 복사하고 B를 거쳐 A로 돌아오면 지난 결과를 다시 보이지 않는다", async () => {
+    const screen = render(<SecretField value={VALUE} {...COPY} />);
+    const { container, rerender } = screen;
+    const user = await setupUser();
+    const restore = stubClipboard(async () => {});
+    try {
+      await user.click(screen.getByRole("button", { name: "복사" }));
+      await screen.findByText(COPY.copiedMessage);
+      rerender(<SecretField value="ws_FAKE_OTHER" {...COPY} />);
+      rerender(<SecretField value={VALUE} {...COPY} />);
+      expect(container.querySelector("[aria-live=polite]")?.textContent).toBe(
+        "",
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  test("복사 중에 값이 바뀌면 늦게 온 실패는 알리지도 선택하지도 않는다", async () => {
+    const screen = render(<SecretField value={VALUE} {...COPY} />);
+    const { container, rerender } = screen;
+    const user = await setupUser();
+    let refuse: (error: Error) => void = () => {};
+    const restore = stubClipboard(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          refuse = reject;
+        }),
+    );
+    try {
+      globalThis.getSelection?.()?.removeAllRanges();
+      await user.click(screen.getByRole("button", { name: "복사" }));
+      rerender(<SecretField value="ws_FAKE_OTHER" {...COPY} />);
+      refuse(new Error("denied"));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(container.querySelector("[aria-live=polite]")?.textContent).toBe(
+        "",
+      );
+      expect(globalThis.getSelection?.()?.toString()).toBe("");
+    } finally {
+      restore();
+    }
+  });
+
   test("값이 바뀌면 지난 값의 결과를 지운다", async () => {
     const screen = render(<SecretField value={VALUE} {...COPY} />);
     const { container, rerender } = screen;

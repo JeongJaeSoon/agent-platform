@@ -1,5 +1,11 @@
 import { CircleAlert, Copy } from "lucide-react";
-import { type ComponentProps, type JSX, useRef, useState } from "react";
+import {
+  type ComponentProps,
+  type JSX,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 import { cn } from "../foundations/cn.ts";
 import { Button } from "../primitives/button.tsx";
@@ -31,22 +37,35 @@ export function SecretField({
 }: SecretFieldProps): JSX.Element {
   const valueRef = useRef<HTMLSpanElement>(null);
   const [result, setResult] = useState<Result | null>(null);
-  // A result belongs to the value it copied, not to a later one.
+  // A new value clears the old result, so A -> B -> A does not bring it back.
+  const [resultFor, setResultFor] = useState(value);
+  if (resultFor !== value) {
+    setResultFor(value);
+    setResult(null);
+  }
+  // A copy that settles after the value changed must not report or select.
+  const latest = useRef(value);
+  useEffect(() => {
+    latest.current = value;
+  }, [value]);
   const shown = result?.value === value ? result : null;
 
   const copy = async () => {
+    const copied = value;
+    let ok = true;
     try {
       const clipboard = globalThis.navigator?.clipboard;
       if (!clipboard) throw new Error("clipboard unavailable");
-      await clipboard.writeText(value);
-      setResult({ value, ok: true });
+      await clipboard.writeText(copied);
     } catch {
-      // Selected, the value is one keystroke from a manual copy.
-      if (valueRef.current) {
-        globalThis.getSelection?.()?.selectAllChildren(valueRef.current);
-      }
-      setResult({ value, ok: false });
+      ok = false;
     }
+    if (latest.current !== copied) return;
+    // Selected, the value is one keystroke from a manual copy.
+    if (!ok && valueRef.current) {
+      globalThis.getSelection?.()?.selectAllChildren(valueRef.current);
+    }
+    setResult({ value: copied, ok });
   };
 
   return (

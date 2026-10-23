@@ -14,6 +14,15 @@ describe("Avatar", () => {
     expect(avatar?.textContent).toBe("JS");
   });
 
+  test("aria 속성을 넘겨도 장식 규칙을 뒤집지 못한다", () => {
+    const { container } = render(
+      <Avatar initials="JS" aria-hidden={false} role="img" />,
+    );
+    const avatar = container.querySelector("[data-slot=avatar]");
+    expect(avatar?.getAttribute("aria-hidden")).toBe("true");
+    expect(avatar?.getAttribute("role")).toBeNull();
+  });
+
   test("label을 주면 그 이름의 이미지로 읽힌다", () => {
     const { getByRole } = render(<Avatar initials="JS" label="정재순" />);
     const avatar = getByRole("img", { name: "정재순" });
