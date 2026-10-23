@@ -27,7 +27,8 @@ import {
 } from "./schema.ts";
 
 // Session share scopes (94S-584, design 4.6). Lock order: the people
-// involved (users, then memberships), the named teams, then the share row.
+// involved (users, then memberships), the session, the named teams, then the
+// share row; the whole order is in requester-locks.ts.
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -132,6 +133,22 @@ async function setShare(
     if (!userIds.every((id) => live.has(id))) {
       return { outcome: "invalid_target" };
     }
+    // The session row before the teams and the share row, as an input
+    // takes it (requester-locks.ts), so an input is judged wholly before or
+    // wholly after this change, a first one with no share row included.
+    const [session] = await tx
+      .select({ id: sessions.id })
+      .from(sessions)
+      .where(
+        and(
+          eq(sessions.id, sessionId),
+          eq(sessions.ownerId, input.ownerId),
+          eq(sessions.workspaceId, input.workspaceId),
+        ),
+      )
+      .limit(1)
+      .for("update");
+    if (!session) return { outcome: "not_found" };
     if (teamIds.length > 0) {
       const teams = await tx
         .select({ id: memberTeams.id })
@@ -143,23 +160,12 @@ async function setShare(
             isNull(memberTeams.archivedAt),
           ),
         )
+        .orderBy(asc(memberTeams.id))
         .for("share");
       if (teams.length !== teamIds.length) {
         return { outcome: "invalid_target" };
       }
     }
-    const [session] = await tx
-      .select({ id: sessions.id })
-      .from(sessions)
-      .where(
-        and(
-          eq(sessions.id, sessionId),
-          eq(sessions.ownerId, input.ownerId),
-          eq(sessions.workspaceId, input.workspaceId),
-        ),
-      )
-      .limit(1);
-    if (!session) return { outcome: "not_found" };
     // Two first changes would otherwise both find no row to lock.
     await tx
       .insert(sessionShares)
