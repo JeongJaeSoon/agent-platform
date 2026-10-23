@@ -234,6 +234,28 @@ describe("Timeline 시각", () => {
   });
 });
 
+test("turn 머리는 앞 줄과 같은 글자여도 시각을 보인다", () => {
+  render(
+    <Timeline
+      entries={[
+        reply("a", { turnId: "a", at: 0 }),
+        reply("b", { turnId: "b", at: 10 }),
+      ]}
+      formatMessage={formatMessage}
+      messages={MESSAGES}
+      locale="en"
+      now={START + 5 * 60_000 + 30_000}
+    />,
+  );
+  const heads = [
+    ...document.querySelectorAll('[data-slot="timeline-turn"] > div'),
+  ];
+  expect(heads.map((head) => head.querySelector("time")?.className)).toEqual([
+    expect.not.stringContaining("sr-only"),
+    expect.not.stringContaining("sr-only"),
+  ]);
+});
+
 describe("Timeline 잡음 접기", () => {
   test("이어진 상태·시스템 줄은 N개 한 줄로 접히고 키보드로 펼친다", async () => {
     const user = await setupUser();
