@@ -24,6 +24,7 @@ import {
   createPostgresSlackAppStore,
   createPostgresSlackConfigTokenStore,
   createPostgresSlackGuestSetting,
+  createPostgresSlackInstallStore,
   createPostgresSurfaceBindingStore,
   createPostgresTeamStore,
   createPostgresTurnInterrupts,
@@ -57,6 +58,7 @@ import {
   createSlackAppService,
   createSlackConfigApi,
   createSlackConfigTokens,
+  createSlackInstallService,
   createSlackLinkAppService,
   createSlackSecretService,
   createSurfaceBindingService,
@@ -132,6 +134,7 @@ import { registerSessionShareRoutes } from "./routes/session-shares.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
 import { registerSlackAppRoutes } from "./routes/slack-apps.ts";
 import { registerSlackBindingRoutes } from "./routes/slack-bindings.ts";
+import { registerSlackInstallRoutes } from "./routes/slack-install.ts";
 import { registerSlackSecretRoutes } from "./routes/slack-secrets.ts";
 import { registerTeamRoutes } from "./routes/teams.ts";
 import { registerUsageRoutes } from "./routes/usage.ts";
@@ -336,6 +339,15 @@ const slackApps = createSlackAppService({
   tokens: slackConfigTokens,
   api: slackConfigApi,
   consoleOrigin,
+});
+const slackInstall = createSlackInstallService({
+  authorization,
+  apps: slackAppStore,
+  states: secretKey === null ? null : createPostgresSlackInstallStore(db),
+  secrets: secretKey === null ? null : createPostgresSecretStore(db, secretKey),
+  tokens: slackConfigTokens,
+  identities: createPostgresAgentIdentityStore(db),
+  api: slackConfigApi,
 });
 const slackLinkApps = createSlackLinkAppService({
   authorization,
@@ -548,6 +560,7 @@ const app = createApiApp({
       secrets: slackSecrets,
       logger,
     });
+    registerSlackInstallRoutes(router, { service: slackInstall, logger });
     registerApiKeyRoutes(router, apiKeys);
     registerTeamRoutes(router, teams, agentAdmins);
     registerCredentialBindingRoutes(router, credentialBindingService);

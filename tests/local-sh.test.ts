@@ -29,6 +29,16 @@ const rendered = (id: string | undefined, ports: string[] = []) =>
     },
   });
 
+// docker inspect's NetworkSettings.Ports for an api bound as given.
+const ports = (...hostIps: string[]) =>
+  JSON.stringify({
+    "3000/tcp": hostIps.map((HostIp, i) => ({
+      HostIp,
+      HostPort: String(43123 + i),
+    })),
+  });
+const loopbackPorts = ports("127.0.0.1");
+
 describe("scripts/local.sh", () => {
   let dir: string;
   let config: string;
@@ -50,8 +60,12 @@ case "$*" in
   *" ps -aq egress-proxy")
     [ -z "$STUB_PROXY" ] || echo "$STUB_PROXY"
     exit "\${STUB_PROXY_EXIT:-0}" ;;
+  *" ps -q api") echo "$STUB_API_ID" ;;
+  "inspect --format {{json .NetworkSettings.Ports}} "*) echo "$STUB_PORTS" ;;
   "inspect --format "*) echo "$STUB_STARTED_ID" ;;
   *" down -v --remove-orphans") exit "\${STUB_DOWN_EXIT:-0}" ;;
+  "context inspect --format "*) echo "$STUB_CONTEXT" ;;
+  *" exec -T -e DEMO_ACCOUNTS=local api "*) exit "\${STUB_SEED_EXIT:-0}" ;;
 esac
 `,
       { mode: 0o755 },
@@ -83,6 +97,10 @@ echo '{"status":"ready"}'
         STUB_OURS: "",
         STUB_PROXY: "",
         STUB_STARTED_ID: "",
+        STUB_CONTEXT: "unix:///var/run/docker.sock",
+        STUB_API_ID: "api-id",
+        STUB_PORTS: loopbackPorts,
+        LOCAL_DEMO_ACCOUNTS: "",
         ...env,
       },
       stderr: "pipe",
@@ -225,6 +243,84 @@ echo '{"status":"ready"}'
       );
     },
   );
+
+  const seed = (prefix: string) =>
+    `${prefix} exec -T -e DEMO_ACCOUNTS=local api bun run apps/control-host/src/api/demo-accounts.ts`;
+  const fakeUp =
+    "compose --profile apps -f compose.yaml -f infra/compose.fake-model.yml";
+
+  test("up adds the demo accounts once the api is ready, and stdout stays /readyz", async () => {
+    await writeFile(config, rendered("local"));
+    const result = await run(["up", "--fake-model"], {
+      STUB_API: "127.0.0.1:43123",
+    });
+    expect(result).toMatchObject({
+      exitCode: 0,
+      stdout: '{"status":"ready"}\n',
+    });
+    const docker = await calls("docker-calls");
+    expect(docker.at(-1)).toBe(seed(fakeUp));
+    expect(docker).toContain(`${fakeUp} up -d --build`);
+  });
+
+  test("demo-accounts adds them to a running stack of either mode", async () => {
+    const result = await run(["demo-accounts"], { STUB_PORTS: ports("::1") });
+    expect(result.exitCode).toBe(0);
+    const docker = await calls("docker-calls");
+    expect(docker).toContain(`${noMode} ps -q api`);
+    expect(docker).toContain(seed(noMode));
+  });
+
+  test.each([
+    [{ LOCAL_DEMO_ACCOUNTS: "0" }, ""],
+    [
+      { STUB_PORTS: ports("0.0.0.0") },
+      "demo accounts not added: the api listens on 0.0.0.0, not loopback alone",
+    ],
+    [
+      { STUB_PORTS: ports("") },
+      "demo accounts not added: the api listens on 0.0.0.0, not loopback alone",
+    ],
+    [
+      { STUB_PORTS: ports("127.0.0.1", "192.168.1.5") },
+      "demo accounts not added: the api listens on 192.168.1.5, not loopback alone",
+    ],
+    [
+      { STUB_PORTS: '{"3000/tcp":null}' },
+      "demo accounts not added: the api publishes no port",
+    ],
+    [{ STUB_API_ID: "" }, "demo accounts not added: the api is not running"],
+    [
+      { STUB_CONTEXT: "tcp://10.0.0.5:2376" },
+      "demo accounts not added: Docker is not this machine's (tcp://10.0.0.5:2376)",
+    ],
+    [
+      { STUB_CONTEXT: "ssh://dev@build-host" },
+      "demo accounts not added: Docker is not this machine's (ssh://dev@build-host)",
+    ],
+  ])("up leaves the demo accounts out for %p", async (vars, message) => {
+    await writeFile(config, rendered("local"));
+    const result = await run(["up", "--fake-model"], {
+      STUB_API: "127.0.0.1:43123",
+      ...vars,
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toContain(message);
+    expect(await calls("docker-calls")).not.toContain(seed(fakeUp));
+  });
+
+  test("a failed seed fails up and says the stack is up", async () => {
+    await writeFile(config, rendered("local"));
+    const result = await run(["up", "--fake-model"], {
+      STUB_API: "127.0.0.1:43123",
+      STUB_SEED_EXIT: "2",
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(
+      "adding the demo accounts failed; the stack itself is up",
+    );
+    expect(result.stdout).toBe("");
+  });
 
   test("up and reset without a key start nothing and name --fake-model", async () => {
     await writeFile(config, rendered("local"));

@@ -50,6 +50,34 @@ export interface SlackConfigApi {
   deleteApp(configToken: string, appId: string): Promise<void>;
 }
 
+/** What `oauth.v2.access` granted, before it is checked. */
+export type SlackInstallGrant = {
+  botToken: string;
+  appId: string;
+  /** Null for an enterprise-wide install, which names no team. */
+  teamId: string | null;
+  enterpriseInstall: boolean;
+  scopes: string[];
+};
+
+export type SlackBotIdentity = {
+  teamId: string;
+  botUserId: string;
+  appId: string;
+};
+
+/** The calls that install an app and check the bot token it returns. */
+export interface SlackInstallApi {
+  exchangeInstallCode(input: {
+    clientId: string;
+    clientSecret: string;
+    code: string;
+    redirectUri: string;
+  }): Promise<SlackInstallGrant>;
+  /** `auth.test` names the team and bot user; `bots.info` names the app. */
+  botIdentity(botToken: string): Promise<SlackBotIdentity>;
+}
+
 const slackId = z.string().regex(/^[A-Z0-9]{1,64}$/);
 const opaque = z.string().regex(/^[\x21-\x7e]{1,4096}$/);
 
@@ -70,6 +98,25 @@ const createAnswer = z.object({
   }),
 });
 
+const installAnswer = z.object({
+  access_token: opaque,
+  token_type: z.literal("bot"),
+  scope: z.string().max(4096),
+  app_id: slackId,
+  team: z.object({ id: slackId }).nullish(),
+  is_enterprise_install: z.boolean().optional(),
+});
+
+const authTestAnswer = z.object({
+  team_id: slackId,
+  user_id: slackId,
+  bot_id: slackId,
+});
+
+const botsInfoAnswer = z.object({
+  bot: z.object({ app_id: slackId }),
+});
+
 const updateAnswer = z.object({
   permissions_updated: z.boolean().optional(),
 });
@@ -80,7 +127,7 @@ export function createSlackConfigApi(options?: {
   apiUrl?: string;
   fetch?: typeof fetch;
   timeoutMs?: number;
-}): SlackConfigApi {
+}): SlackConfigApi & SlackInstallApi {
   const apiUrl = (options?.apiUrl ?? SLACK_API_URL).replace(/\/+$/, "");
   const fetchImpl = options?.fetch ?? fetch;
   const timeoutMs = options?.timeoutMs ?? SLACK_HTTP_TIMEOUT_MS;
@@ -184,6 +231,46 @@ export function createSlackConfigApi(options?: {
         { token: configToken, body: { app_id: appId } },
         z.object({}),
       );
+    },
+
+    async exchangeInstallCode(input) {
+      const answer = await call(
+        "oauth.v2.access",
+        {
+          body: new URLSearchParams({
+            client_id: input.clientId,
+            client_secret: input.clientSecret,
+            code: input.code,
+            redirect_uri: input.redirectUri,
+          }),
+        },
+        installAnswer,
+      );
+      return {
+        botToken: answer.access_token,
+        appId: answer.app_id,
+        teamId: answer.team?.id ?? null,
+        enterpriseInstall: answer.is_enterprise_install === true,
+        scopes: answer.scope.split(",").filter((scope) => scope.length > 0),
+      };
+    },
+
+    async botIdentity(botToken) {
+      const auth = await call(
+        "auth.test",
+        { token: botToken, body: new URLSearchParams() },
+        authTestAnswer,
+      );
+      const info = await call(
+        "bots.info",
+        { token: botToken, body: new URLSearchParams({ bot: auth.bot_id }) },
+        botsInfoAnswer,
+      );
+      return {
+        teamId: auth.team_id,
+        botUserId: auth.user_id,
+        appId: info.bot.app_id,
+      };
     },
   };
 }

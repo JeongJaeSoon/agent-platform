@@ -158,7 +158,7 @@ integration("slack-app create on PostgreSQL against a fake Slack", () => {
     ...rest,
   ];
 
-  test("creates the app, prints the install URL, and the same agent again gets the same app", async () => {
+  test("creates the app, points at the console for the install, and the same agent again gets the same app", async () => {
     const workspaceId = await workspaceWithToken();
     const agentId = await agent(workspaceId);
     const first = await run(create(workspaceId, agentId));
@@ -170,13 +170,18 @@ integration("slack-app create on PostgreSQL against a fake Slack", () => {
       created_by_token_user: "U0CLI",
       warnings: [],
     });
+    expect(first.out).toHaveLength(1);
+    expect(first.out[0]).not.toContain("authorize");
+    expect(printedApp.next).toBe(
+      `Install it from the agent's page in the console, or with a signed-in console session: POST /v1/agents/${agentId}/slack/install/start`,
+    );
     const app = slack.apps.get(printedApp.app_id);
     if (!app) throw new Error("Slack holds no such app");
-    const url = new URL(printedApp.authorize_url);
-    expect(Object.fromEntries(url.searchParams)).toEqual({
-      client_id: app.clientId,
-      scope: BOT_SCOPES.join(","),
-      redirect_uri: `${CONSOLE}/agents/${agentId}/slack/callback`,
+    expect(
+      (app.manifest as { oauth_config: object }).oauth_config,
+    ).toMatchObject({
+      redirect_urls: [`${CONSOLE}/agents/${agentId}/slack/callback`],
+      scopes: { bot: [...BOT_SCOPES] },
     });
     expect(
       Object.keys((app.manifest as { settings: object }).settings),
