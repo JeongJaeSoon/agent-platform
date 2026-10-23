@@ -3,6 +3,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import type { ComponentProps, JSX } from "react";
 
 import { cn } from "../foundations/cn.ts";
+import { StatusDot, type StatusDotStatus } from "./status-dot.tsx";
 
 /*
  * shadcn/ui new-york Badge, without `dark:` variants (see button.tsx). A badge
@@ -10,7 +11,7 @@ import { cn } from "../foundations/cn.ts";
  * The five colour variants are console v35's badge tones.
  */
 export const badgeVariants = cva(
-  "inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap h-5 rounded-full border px-2 font-medium text-caption transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 motion-reduce:transition-none [&>svg]:pointer-events-none [&>svg]:size-3",
+  "inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap h-5 rounded-full border px-2 font-medium text-caption transition-[color,box-shadow] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring motion-reduce:transition-none [&>svg]:pointer-events-none [&>svg]:size-3",
   {
     variants: {
       variant: {
@@ -21,6 +22,8 @@ export const badgeVariants = cva(
         amber:
           "border-(color:--ap-tone-caution-border) bg-(color:--ap-tone-caution-bg) text-(color:--ap-tone-caution-fg)",
         red: "border-(color:--ap-tone-danger-border) bg-(color:--ap-tone-danger-bg) text-(color:--ap-tone-danger-fg)",
+        // An identifier such as a model name; grey like `gray` (mockup v4).
+        mono: "border-(color:--ap-tone-neutral-border) bg-(color:--ap-tone-neutral-bg) font-mono font-normal text-(color:--ap-tone-neutral-fg)",
       },
     },
     defaultVariants: { variant: "gray" },
@@ -28,12 +31,21 @@ export const badgeVariants = cva(
 );
 
 export type BadgeProps = ComponentProps<"span"> &
-  VariantProps<typeof badgeVariants> & { readonly asChild?: boolean };
+  VariantProps<typeof badgeVariants> & {
+    readonly asChild?: boolean;
+    /**
+     * A status dot before the label (mockup v4's session head). Not drawn
+     * with `asChild`, whose one child is the badge.
+     */
+    readonly dot?: StatusDotStatus | undefined;
+  };
 
 export function Badge({
   className,
   variant,
   asChild = false,
+  dot,
+  children,
   ...props
 }: BadgeProps): JSX.Element {
   const Comp = asChild ? Slot : "span";
@@ -42,6 +54,15 @@ export function Badge({
       data-slot="badge"
       className={cn(badgeVariants({ variant }), className)}
       {...props}
-    />
+    >
+      {asChild ? (
+        children
+      ) : (
+        <>
+          {dot ? <StatusDot status={dot} /> : null}
+          {children}
+        </>
+      )}
+    </Comp>
   );
 }

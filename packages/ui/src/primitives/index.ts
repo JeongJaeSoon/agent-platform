@@ -1,3 +1,8 @@
+export {
+  Avatar,
+  type AvatarProps,
+  avatarVariants,
+} from "./avatar.tsx";
 export { Badge, type BadgeProps } from "./badge.tsx";
 export { Button, type ButtonProps, buttonVariants } from "./button.tsx";
 export {
@@ -6,7 +11,9 @@ export {
   CardContent,
   CardDescription,
   CardFooter,
+  type CardFooterProps,
   CardHeader,
+  type CardProps,
   CardTitle,
 } from "./card.tsx";
 export { Checkbox } from "./checkbox.tsx";
@@ -53,6 +60,11 @@ export {
   type RowListProps,
 } from "./row-list.tsx";
 export { Skeleton, type SkeletonProps } from "./skeleton.tsx";
+export {
+  StatusDot,
+  type StatusDotProps,
+  type StatusDotStatus,
+} from "./status-dot.tsx";
 export {
   Table,
   TableBody,
