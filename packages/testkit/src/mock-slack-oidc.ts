@@ -4,6 +4,8 @@ import { randomBytes } from "node:crypto";
 // (authorize, openid.connect.token, keys), with id_tokens signed by a key
 // made at start. Consent is automatic; which Slack account comes back is
 // the configured one, or `mock_team`/`mock_user` on the authorize URL.
+// It also answers the Web API calls the slack-install CLI makes
+// (`/api/auth.test`, `/api/bots.info`) for one bot in the configured team.
 
 export type MockSlackAccount = { teamId: string; userId: string };
 
@@ -19,6 +21,14 @@ export type MockSlackOidc = {
   /** Follows the authorize URL as a browser would; returns the callback query. */
   consent(authorizeUrl: string): Promise<{ code: string; state: string }>;
   stop(): Promise<void>;
+};
+
+/** The bot `auth.test` and `bots.info` answer for, when the token matches. */
+export type MockSlackBot = {
+  token: string;
+  appId: string;
+  botId: string;
+  botUserId: string;
 };
 
 type PendingCode = {
@@ -45,6 +55,7 @@ export async function startMockSlackOidc(
     clientId?: string;
     clientSecret?: string;
     account?: MockSlackAccount;
+    bot?: Partial<MockSlackBot>;
     /** Signs tokens for this audience instead of the client: a forged token. */
     audience?: string;
   } = {},
@@ -52,6 +63,13 @@ export async function startMockSlackOidc(
   const clientId = options.clientId ?? "mock-client-id";
   const clientSecret = options.clientSecret ?? "mock-client-secret";
   let account = options.account ?? { teamId: "T0MOCK", userId: "U0MOCK" };
+  const bot: MockSlackBot = {
+    token: "mock-bot-token",
+    appId: "A0MOCK",
+    botId: "B0MOCK",
+    botUserId: "U0MOCKBOT",
+    ...options.bot,
+  };
   const codes = new Map<string, PendingCode>();
   const keys = (await crypto.subtle.generateKey(
     {
@@ -102,6 +120,41 @@ export async function startMockSlackOidc(
     async fetch(request) {
       const url = new URL(request.url);
       if (url.pathname === "/healthz") return new Response("ok");
+      if (
+        url.pathname === "/api/auth.test" ||
+        url.pathname === "/api/bots.info"
+      ) {
+        // Slack answers HTTP 200 with ok:false for a bad token.
+        if (request.headers.get("authorization") !== `Bearer ${bot.token}`) {
+          return Response.json({ ok: false, error: "invalid_auth" });
+        }
+        if (url.pathname === "/api/auth.test") {
+          return Response.json({
+            ok: true,
+            url: "https://mock.slack.test/",
+            team: "mock",
+            user: "mock-bot",
+            team_id: account.teamId,
+            user_id: bot.botUserId,
+            bot_id: bot.botId,
+            is_enterprise_install: false,
+          });
+        }
+        const form = new URLSearchParams(await request.text());
+        if ((form.get("bot") ?? url.searchParams.get("bot")) !== bot.botId) {
+          return Response.json({ ok: false, error: "bot_not_found" });
+        }
+        return Response.json({
+          ok: true,
+          bot: {
+            id: bot.botId,
+            deleted: false,
+            name: "mock-bot",
+            app_id: bot.appId,
+            user_id: bot.botUserId,
+          },
+        });
+      }
       if (url.pathname === "/openid/connect/keys") {
         return Response.json({ keys: [publicJwk] });
       }
