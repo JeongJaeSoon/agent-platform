@@ -1,4 +1,11 @@
-import { Hexagon, type LucideIcon, Play, Receipt, Square } from "lucide-react";
+import {
+  CircleSmall,
+  Hexagon,
+  type LucideIcon,
+  Play,
+  Receipt,
+  Square,
+} from "lucide-react";
 import type { JSX } from "react";
 
 import type { StatusAxis } from "./vocabulary.ts";
@@ -8,6 +15,8 @@ import type { StatusAxis } from "./vocabulary.ts";
  * are still told apart without reading the colour (§4.1, §6 dual encoding).
  */
 const SHAPE: Record<StatusAxis, LucideIcon> = {
+  // A dot, not the turn's play mark: a session at rest must not read as playing.
+  session: CircleSmall,
   admission: Square,
   turn: Play,
   receipt: Receipt,
@@ -22,7 +31,7 @@ export function AxisIcon({ axis }: { axis: StatusAxis }): JSX.Element {
       size={12}
       strokeWidth={1.25}
       absoluteStrokeWidth
-      fill={axis === "turn" ? "currentColor" : "none"}
+      fill={axis === "turn" || axis === "session" ? "currentColor" : "none"}
       aria-hidden="true"
       focusable="false"
     />
