@@ -1,5 +1,14 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Link } from "@werft-ai/ui";
+import {
+  Link,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@werft-ai/ui";
 import type { ComponentProps, JSX } from "react";
 import { expect, userEvent, within } from "storybook/test";
 
@@ -9,6 +18,7 @@ const meta = {
   args: { href: "#teams" },
   argTypes: {
     underline: { control: "select", options: ["hover", "always"] },
+    variant: { control: "select", options: ["default", "table"] },
   },
 } satisfies Meta<typeof Link>;
 
@@ -22,6 +32,10 @@ const COPY = {
     signUp: "가입하기",
     docs: "API 문서",
     newTab: "(새 탭에서 열림)",
+    teams: "팀",
+    name: "이름",
+    members: "구성원",
+    rows: ["운영팀", "결제 플랫폼팀"],
   },
   ja: {
     team: "運用チーム",
@@ -29,6 +43,10 @@ const COPY = {
     signUp: "登録する",
     docs: "APIドキュメント",
     newTab: "(新しいタブで開きます)",
+    teams: "チーム",
+    name: "名前",
+    members: "メンバー",
+    rows: ["運用チーム", "決済プラットフォームチーム"],
   },
   en: {
     team: "Operations team",
@@ -36,6 +54,10 @@ const COPY = {
     signUp: "Sign up",
     docs: "API docs",
     newTab: "(opens in a new tab)",
+    teams: "Teams",
+    name: "Name",
+    members: "Members",
+    rows: ["Operations team", "Payments platform team"],
   },
 };
 type Locale = keyof typeof COPY;
@@ -145,5 +167,64 @@ export const Dark: Story = { ...All, globals: { theme: "dark" } };
 
 export const Mobile390: Story = {
   ...All,
+  globals: { viewport: { value: "mobile390", isRotated: false } },
+};
+
+/**
+ * `variant="table"`: a row's name link, no underline until hover or keyboard
+ * focus, with a chevron that says it opens the row.
+ */
+export const InTable: Story = {
+  render: (_args, { globals }) => {
+    const copy = copyFor(globals.locale);
+    return (
+      <TableContainer label={copy.teams}>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>{copy.name}</TableHead>
+              <TableHead>{copy.members}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {copy.rows.map((name, index) => (
+              <TableRow key={name}>
+                <TableCell>
+                  <Link asChild={true} variant="table">
+                    <RouterLink to={`#teams/${index + 1}`}>{name}</RouterLink>
+                  </Link>
+                </TableCell>
+                <TableCell>{(index + 1) * 4}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </TableContainer>
+    );
+  },
+  play: async ({ canvasElement }) => {
+    const link = within(canvasElement).getAllByRole("link")[0] as HTMLElement;
+    await expect(getComputedStyle(link).textDecorationLine).toBe("none");
+    await expect(link.querySelector("svg")).not.toBeNull();
+    // The first Tab stops on the scrollable table container.
+    await userEvent.tab();
+    await userEvent.tab();
+    await expect(link).toHaveFocus();
+    await expect(getComputedStyle(link).textDecorationLine).toBe("underline");
+    await expect(getComputedStyle(link).outlineStyle).toBe("solid");
+  },
+};
+
+export const InTableJapanese: Story = {
+  ...InTable,
+  globals: { locale: "ja" },
+};
+
+export const InTableEnglish: Story = { ...InTable, globals: { locale: "en" } };
+
+export const InTableDark: Story = { ...InTable, globals: { theme: "dark" } };
+
+export const InTableMobile390: Story = {
+  ...InTable,
   globals: { viewport: { value: "mobile390", isRotated: false } },
 };
