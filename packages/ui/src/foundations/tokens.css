@@ -56,6 +56,11 @@
     --ap-color-accent-hover: #2e2e2e;
     --ap-color-accent-foreground: #fafafa;
     --ap-color-focus-ring: #737373;
+    /*
+     * Text links. Resolved on :root, so it follows the dark accent without a
+     * dark entry of its own; give it a value here to tint links apart.
+     */
+    --ap-color-link: var(--ap-color-accent);
 
     /*
      * Status tones. A tone is a meaning, not a colour name: components pick a
