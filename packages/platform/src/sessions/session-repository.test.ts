@@ -32,6 +32,23 @@ describe("sessionRepositoryOf", () => {
     }
   });
 
+  test("names any forge's path, groups and underscores included", () => {
+    for (const [repoUrl, fullName] of [
+      ["https://git.example.com/team_name/app.git", "team_name/app"],
+      ["https://gitlab.example.com/group/sub/app.git/", "group/sub/app"],
+      ["http://gitea:3000/agent/sample-app.git", "agent/sample-app"],
+    ] as const) {
+      expect(
+        sessionRepositoryOf({
+          repositoryMode: "repository",
+          repositoryId: "app",
+          repoUrl,
+          branch: "main",
+        })?.full_name,
+      ).toBe(fullName);
+    }
+  });
+
   test("falls back to the catalog key for a URL that is not owner/name", () => {
     expect(
       sessionRepositoryOf({

@@ -279,7 +279,7 @@ export const sessionRepositorySchema = z.object({
   }),
   full_name: z.string().min(1).nullable().meta({
     description:
-      "A name to show: `owner/name` from the repository's URL, or else the catalog key; null when neither exists. Never the URL itself, which may embed a credential.",
+      "A name to show: the path of the repository's http(s) URL without host, credentials, query or `.git` (`owner/name`, or `group/sub/name`), or else the catalog key; null when neither exists. Never the URL itself, which may embed a credential.",
   }),
   branch: z.string().min(1).meta({
     description:

@@ -68,7 +68,7 @@ curl -sS "$API/v1/sessions?limit=5" -H "Authorization: Bearer $KEY" | jq -c '.it
 
 `limit`, `cursor`(응답의 `next_cursor`), `status`로 거른다. key가 볼 수 있는 세션만 나온다.
 
-목록과 상세의 `repository`는 세션을 만들 때의 저장소다. `id`는 카탈로그 키(`repository_id`와 같다), `full_name`은 화면에 보일 이름으로 저장소 URL의 `owner/name`이고 그렇게 읽히지 않는 URL이면 카탈로그 키다. `branch`는 worker가 clone한 브랜치이고, push가 쓰는 `agent/<session-id>`가 아니다. 세 값 모두 세션을 만들 때 적어 둔 것이라 운영자가 나중에 카탈로그를 바꾸거나 저장소를 빼도 바뀌지 않는다. 저장소 없이 만든 세션은 `repository`가 `null`이고, 카탈로그가 생기기 전에 만든 세션은 `id`가 `null`이다. 저장소 URL 자체는 어떤 응답에도 나오지 않는다.
+목록과 상세의 `repository`는 세션을 만들 때의 저장소다. `id`는 카탈로그 키(`repository_id`와 같다), `full_name`은 화면에 보일 이름으로 저장소 URL에서 host·인증 정보·query·`.git`을 뺀 경로(`owner/name`, 그룹이 있으면 `group/sub/name`)이고 그렇게 읽히지 않는 URL이면 카탈로그 키다. `branch`는 worker가 clone한 브랜치이고, push가 쓰는 `agent/<session-id>`가 아니다. 세 값 모두 세션을 만들 때 적어 둔 것이라 운영자가 나중에 카탈로그를 바꾸거나 저장소를 빼도 바뀌지 않는다. 저장소 없이 만든 세션은 `repository`가 `null`이고, 카탈로그가 생기기 전에 만든 세션은 `id`가 `null`이다. 저장소 URL 자체는 어떤 응답에도 나오지 않는다.
 
 ```bash
 curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq -c .repository

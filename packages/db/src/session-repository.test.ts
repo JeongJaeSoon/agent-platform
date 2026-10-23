@@ -188,7 +188,7 @@ describe("session repository (94S-822, 94S-820)", () => {
     await db
       .update(sessions)
       .set({
-        repoUrl: `https://agent:${USERINFO_MARK}@git.internal/${QUERY_MARK}/deep/app.git`,
+        repoUrl: `https://agent:${USERINFO_MARK}@git.internal/acme/app%20copy.git?access_token=${QUERY_MARK}`,
       })
       .where(eq(sessions.id, keyed));
     // The catalog loader refuses such a URL; a catalog built around it
@@ -218,7 +218,7 @@ describe("session repository (94S-822, 94S-820)", () => {
         full_name: "acme/app",
         branch: "release/1.2",
       });
-      // Not owner/name: the key stands in for the name.
+      // Not a plain path: the key stands in for the name.
       const { detail: keyedDetail } = await read(keyed, catalog);
       expect(keyedDetail.repository?.full_name).toBe("app");
     }

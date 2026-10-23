@@ -2450,7 +2450,7 @@ export interface components {
         SessionRepository: {
             /** @description The catalog key, as `repository_id`. Null for a session created before the catalog existed. */
             id: string | null;
-            /** @description A name to show: `owner/name` from the repository's URL, or else the catalog key; null when neither exists. Never the URL itself, which may embed a credential. */
+            /** @description A name to show: the path of the repository's http(s) URL without host, credentials, query or `.git` (`owner/name`, or `group/sub/name`), or else the catalog key; null when neither exists. Never the URL itself, which may embed a credential. */
             full_name: string | null;
             /** @description The branch the session's workspace was cloned from. Not the branch a push writes to (`agent/<session-id>`). */
             branch: string;
