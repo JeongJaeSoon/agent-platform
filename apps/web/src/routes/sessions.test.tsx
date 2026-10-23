@@ -982,12 +982,10 @@ describe("session profile", () => {
     });
     expect(post?.headers.get("idempotency-key")).toMatch(/^[0-9a-f-]{36}$/);
     expect(
-      await screen.findByText(
-        "작업 중입니다. 요청이 생기면 여기에 먼저 나옵니다.",
-      ),
+      await screen.findByText("답변 대기 · 요청이 오면 여기에 먼저 나옵니다."),
     ).toBeTruthy();
     expect(
-      screen.getAllByText("작업 중입니다. 요청이 생기면 여기에 먼저 나옵니다."),
+      screen.getAllByText("답변 대기 · 요청이 오면 여기에 먼저 나옵니다."),
     ).toHaveLength(1);
     expect(screen.getByText("답을 보냈습니다.").tagName).toBe("OUTPUT");
     expect(screen.getByText("답을 보냈습니다.").closest("aside")).toBeTruthy();
@@ -1688,7 +1686,7 @@ describe("세션 상세 레이아웃", () => {
       // Requests that could not be read are not reported as none.
       expect(aside.textContent).not.toContain("기다리는 요청 없음");
       expect(aside.textContent).not.toContain(
-        "작업 중입니다. 요청이 생기면 여기에 먼저 나옵니다.",
+        "답변 대기 · 요청이 오면 여기에 먼저 나옵니다.",
       );
     },
   );
@@ -1813,9 +1811,7 @@ describe("세션 상세 레이아웃", () => {
             name: "다음 지시",
           }) as HTMLTextAreaElement
         ).value;
-      await screen.findByText(
-        "작업 중입니다. 요청이 생기면 여기에 먼저 나옵니다.",
-      );
+      await screen.findByText("답변 대기 · 요청이 오면 여기에 먼저 나옵니다.");
       await user.click(screen.getByRole("textbox", { name: "다음 지시" }));
       await user.keyboard("next step draft");
       await waitFor(() => expect(stream.requests).toHaveLength(1));
@@ -1837,9 +1833,7 @@ describe("세션 상세 레이아웃", () => {
 
       allow.focus();
       await user.keyboard("{Enter}");
-      await screen.findByText(
-        "작업 중입니다. 요청이 생기면 여기에 먼저 나옵니다.",
-      );
+      await screen.findByText("답변 대기 · 요청이 오면 여기에 먼저 나옵니다.");
       expect(draft()).toBe("next step draft");
 
       act(() =>
@@ -1925,20 +1919,16 @@ describe("세션 상세 레이아웃", () => {
         [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
           json(200, { answerable: true, items: [] }),
       });
-      await screen.findByText(
-        "작업 중입니다. 요청이 생기면 여기에 먼저 나옵니다.",
-      );
+      await screen.findByText("답변 대기 · 요청이 오면 여기에 먼저 나옵니다.");
       const composer = screen.getByRole("textbox", { name: "다음 지시" });
       expect(composer.closest("aside")).toBeNull();
       expect(composer.closest('[role="tabpanel"]')).toBeTruthy();
       expect(
-        screen.getAllByText(
-          "작업 중입니다. 요청이 생기면 여기에 먼저 나옵니다.",
-        ),
+        screen.getAllByText("답변 대기 · 요청이 오면 여기에 먼저 나옵니다."),
       ).toHaveLength(1);
       expect(
         screen
-          .getByText("작업 중입니다. 요청이 생기면 여기에 먼저 나옵니다.")
+          .getByText("답변 대기 · 요청이 오면 여기에 먼저 나옵니다.")
           .closest("section")?.textContent,
       ).toContain("기다리는 요청 없음");
       await waitFor(() => expect(resize).toBeDefined());

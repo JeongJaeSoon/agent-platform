@@ -77,6 +77,8 @@ const KIND_ICON = {
   system: CircleDot,
 } as const satisfies Record<TimelineKind, LucideIcon>;
 
+const STATE_ALONE = "px-4 py-6 text-center";
+
 export interface TimelineProps {
   readonly entries: readonly TimelineEntry[];
   readonly formatMessage: FormatTurnMessage;
@@ -146,15 +148,30 @@ export function Timeline({
 }: TimelineProps): JSX.Element {
   const rows = timelineRows(entries, showDebug);
   return (
-    <div data-slot="timeline" className={cn("flex flex-col gap-2", className)}>
+    <div data-slot="timeline" className={cn("flex flex-col", className)}>
+      {/* One layer inside the screen's card: alone, the line stands where
+          the list would (console v4 `.empty.sm`); above rows, it is the
+          first line of the list. */}
       {state === "open" ? null : (
-        <output className="rounded-card bg-muted px-3 py-2 text-muted-foreground text-body">
+        <output
+          className={cn(
+            "text-control text-muted-foreground",
+            rows.length === 0 ? STATE_ALONE : "border-b py-3",
+          )}
+        >
           {state === "connecting" ? messages.connecting : messages.closed}
         </output>
       )}
       {rows.length === 0 ? (
         state === "open" ? (
-          <p className="text-muted-foreground text-body">{messages.empty}</p>
+          <p
+            className={cn(
+              "m-0 text-control text-muted-foreground",
+              STATE_ALONE,
+            )}
+          >
+            {messages.empty}
+          </p>
         ) : null
       ) : (
         <ol aria-label={messages.label} className="flex flex-col">

@@ -219,7 +219,9 @@ export function SessionDetail({
       {pendingCount === 0 ? (
         <Section
           title={t("session.pending.emptyTitle")}
-          note={t(idleNote(detail.status))}
+          note={t(idleNote(detail.status), {
+            status: t(`sessions.status.${detail.status}`),
+          })}
           mark={
             <CircleCheck
               className="size-4 shrink-0 text-[var(--ap-tone-success-fg)]"

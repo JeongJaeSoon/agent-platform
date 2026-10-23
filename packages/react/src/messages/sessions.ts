@@ -59,10 +59,10 @@ export const sessionsKo = {
   "session.meta.unknown": "{label} 정보 없음",
   "session.panel": "답변과 승인",
   "session.pending.emptyTitle": "기다리는 요청 없음",
-  "session.pending.note.idle": "다음 지시를 기다리고 있습니다.",
+  "session.pending.note.idle": "{status} · 다음 지시를 기다립니다.",
   "session.pending.note.running":
-    "작업 중입니다. 요청이 생기면 여기에 먼저 나옵니다.",
-  "session.pending.note.ended": "세션이 끝났습니다.",
+    "{status} · 요청이 오면 여기에 먼저 나옵니다.",
+  "session.pending.note.ended": "{status} · 더 올 요청이 없습니다.",
   "session.back": "세션 목록",
   "session.notFound":
     "이 세션을 찾을 수 없습니다. 지워졌거나 볼 권한이 없는 세션입니다.",
@@ -263,10 +263,9 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "session.meta.unknown": "{label}: not available",
   "session.panel": "Answers and approvals",
   "session.pending.emptyTitle": "No pending requests",
-  "session.pending.note.idle": "Waiting for your next instruction.",
-  "session.pending.note.running":
-    "Working. A request shows here first when one comes up.",
-  "session.pending.note.ended": "The session has ended.",
+  "session.pending.note.idle": "{status} · waiting for the next instruction.",
+  "session.pending.note.running": "{status} · a request shows here first.",
+  "session.pending.note.ended": "{status} · no more requests will come.",
   "session.back": "All sessions",
   "session.notFound":
     "This session cannot be found. It was removed, or you may not see it.",
@@ -467,10 +466,10 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
   "session.meta.unknown": "{label}情報なし",
   "session.panel": "回答と承認",
   "session.pending.emptyTitle": "保留中のリクエストなし",
-  "session.pending.note.idle": "次の指示を待っています。",
+  "session.pending.note.idle": "{status} · 次の指示を待っています。",
   "session.pending.note.running":
-    "作業中です。リクエストが来るとまずここに表示されます。",
-  "session.pending.note.ended": "セッションは終了しました。",
+    "{status} · リクエストはまずここに表示されます。",
+  "session.pending.note.ended": "{status} · これ以上リクエストは来ません。",
   "session.back": "セッション一覧",
   "session.notFound":
     "このセッションは見つかりません。削除されたか、閲覧権限がありません。",
