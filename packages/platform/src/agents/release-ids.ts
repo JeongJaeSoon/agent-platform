@@ -105,7 +105,7 @@ export function resolveReleaseContent(
       ok: false,
       error: {
         field: "card.model",
-        // apps/web parses this wording; it now means none of the models.
+        // apps/web parses this wording; it means none of the profile's models.
         message: `model ${card.model} is not the model of runtime profile ${profileId}`,
       },
     };
@@ -145,7 +145,6 @@ export function resolveReleaseContent(
       // No credential here, not even the attempt's egress token: the worker
       // gets that at claim.
       runtime_config_snapshot: {
-        // What a session of the release runs unless it names another.
         model: card.model,
         tools,
         permission_mode: profile.permission_mode,

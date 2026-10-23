@@ -650,8 +650,6 @@ describe("WorkerGateway", () => {
     // The claim may bind only what the catalog pairs, at the URL and branch
     // it registers now, with the profile's settings as hashed now
     // one entry per allowed pair, nothing else.
-    // Each pair once under the current fingerprint and the default model,
-    // then under the version 1 fingerprint a row from before may hold.
     const [current, v1] = profilePins(profile);
     expect(current).toEqual({
       fingerprint: profileFingerprint(profile),
@@ -931,7 +929,6 @@ describe("WorkerGateway", () => {
         repositoryId: null,
       })),
     ]);
-    // Version 2 once per offered model, then each model's version 1.
     expect(
       runnable[0]
         ?.filter((pair) => pair.profileId === "general")
@@ -962,11 +959,8 @@ describe("WorkerGateway", () => {
     expect(optionalClaim.runtime_config).not.toHaveProperty("project_settings");
     expect(optionalClaim.workspace).toEqual({ repository: null });
 
-    // A version 2 pin runs the row's model.
     const opus = await claimWith({ ...binding, model: "claude-opus-5-5" });
     expect(opus.runtime_config.model).toBe("claude-opus-5-5");
-    // A session pinned before version 2, its model never backfilled, runs
-    // the model its fingerprint names, and so does its checkpoint.
     const v1Opus = profilePins(general)[3]?.fingerprint;
     if (!v1Opus) throw new Error("no version 1 pin for the second model");
     const legacy = await claimWith({
@@ -989,7 +983,6 @@ describe("WorkerGateway", () => {
         repositoryId: null,
       }).provider,
     ).toBe(v1Opus);
-    // A version 2 pin whose model left the list is not run on a guess.
     await expect(
       claimWith({ ...binding, model: "claude-fable-5-1" }),
     ).rejects.toMatchObject({ status: 503, code: "BACKEND_UNAVAILABLE" });

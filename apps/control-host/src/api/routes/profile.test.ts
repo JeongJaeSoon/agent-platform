@@ -231,7 +231,6 @@ describe("POST /v1/sessions/{id}/profile", () => {
     const listed = catalog.profiles[
       "coding-sonnet"
     ] as SessionCatalog["profiles"][string];
-    // What main pinned: [v2 sonnet, v2 opus, v1 sonnet, v1 opus].
     const [, , v1Sonnet, v1Opus] = profilePins(listed);
     if (!v1Sonnet || !v1Opus) throw new Error("no version 1 pins");
     for (const [pinned, fingerprint] of [
@@ -244,7 +243,6 @@ describe("POST /v1/sessions/{id}/profile", () => {
         atomic,
         {},
         path,
-        // A row the backfill has not reached yet.
         { ...record, profile_fingerprint: pinned, model: null },
       );
       expect(response.status).toBe(200);

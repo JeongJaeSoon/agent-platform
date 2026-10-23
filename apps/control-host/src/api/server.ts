@@ -229,8 +229,6 @@ if (checkpointStorage !== "disabled") {
 
 const pool = createApiPool(databaseUrl, logger);
 const db = drizzle(pool, { schema });
-// Sessions from before `sessions.model` get the model their fingerprint
-// names under this catalog; a row it cannot tell stays null.
 logger.info("Session models backfilled", {
   sessions: await backfillSessionModels(db, ({ profileId, fingerprint }) =>
     fingerprintModel(catalog, profileId, fingerprint),

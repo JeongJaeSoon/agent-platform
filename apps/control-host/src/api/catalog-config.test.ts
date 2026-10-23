@@ -343,7 +343,6 @@ describe("readCatalogConfig", () => {
         if (profile === undefined) throw new Error(`${dir}: no profile ${id}`);
         return [id, profile] as const;
       });
-      // Version 1 values: sessions pinned with them still claim.
       for (const [id, profile] of pinned) {
         expect(
           profilePinned(profile, expected[id as keyof typeof expected]),

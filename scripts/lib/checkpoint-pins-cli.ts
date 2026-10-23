@@ -241,8 +241,7 @@ async function plans(
   // The profiles each session's restorable checkpoints were made under other
   // than its own, newest first, as a claim offers them
   // (worker-unit-of-work.ts withRestoreProfiles, worker-gateway.ts
-  // restoreRuntimesOf). A checkpoint with no model names it in its version 1
-  // fingerprint.
+  // restoreRuntimesOf).
   const { rows: earlier } = await pool.query<{
     model: string | null;
     profile_fingerprint: string;

@@ -88,8 +88,6 @@ export function createAgentService(deps: {
     const profile = Object.hasOwn(catalog.profiles, release.runtime_profile_id)
       ? catalog.profiles[release.runtime_profile_id]
       : undefined;
-    // A version 2 digest leaves the models out, so the card's model is
-    // checked against the list on its own.
     const model = releaseModel(release);
     if (
       !profile ||

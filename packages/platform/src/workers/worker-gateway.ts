@@ -583,8 +583,6 @@ export function createWorkerGateway(deps: {
     mcpToken: string,
   ): { restore_runtime_configs?: RuntimeConfig[] } {
     const configs = binding.restoreProfiles.flatMap((made) => {
-      // A checkpoint with no model was pinned by a version 1 fingerprint,
-      // which names the model itself.
       if (
         made.profileId === binding.profileId &&
         made.profileFingerprint === binding.profileFingerprint &&
@@ -636,10 +634,9 @@ export function createWorkerGateway(deps: {
     if (!profile) {
       throw new Error("A claimed session has no runnable profile");
     }
-    // The provider route takes no model of its own, so a version 2 token is
-    // held to the settings alone. A session pinned under version 1 keeps
-    // that pin in its token: an API replica from before version 2, still up
-    // during a rollout, accepts only that.
+    // A session pinned under version 1 keeps that pin in its token: an API
+    // replica from before version 2, still up during a rollout, accepts only
+    // that.
     const provider = session.profileFingerprint ?? profileFingerprint(profile);
     const object_store = sessionObjectPrefix(session.id);
     const mcp = claimedMcp(session.mcp);
@@ -1050,7 +1047,6 @@ export function createWorkerGateway(deps: {
         const listed = result.profileId
           ? own(catalog.profiles, result.profileId)
           : undefined;
-        // A token from before version 2 holds a version 1 fingerprint.
         if (!listed || !profilePinned(listed, result.binding)) {
           moved("session's profile");
         }

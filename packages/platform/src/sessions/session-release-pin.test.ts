@@ -80,7 +80,6 @@ function setup(
           id: "rel-1",
           agent_id: AGENT,
           runtime_profile_id: "coding-v1",
-          // The card's model, one of the profile's but not its default.
           runtime_config_snapshot: { model: "claude-opus-5-5" },
         };
       },
@@ -178,11 +177,8 @@ describe("a session pinned to an agent release", () => {
     expect(accepted[0]?.model).toBe("claude-opus-5-5");
     await create({ model: "claude-haiku-5-5" });
     expect(accepted[1]?.model).toBe("claude-haiku-5-5");
-    // Without a release, the profile's default.
     await service.createSession(caller, { idempotencyKey: "k", body });
     expect(accepted[2]?.model).toBe("claude-sonnet-5");
-    // A model off the list is refused like a pair the catalog does not
-    // allow: nothing is pinned, and the store answers it unknown.
     await create({ model: "claude-fable-5-1" });
     expect(accepted[3]).toMatchObject({ repository: null });
     expect(accepted[3]?.model).toBeUndefined();

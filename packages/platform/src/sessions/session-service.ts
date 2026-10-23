@@ -100,8 +100,6 @@ function own<T>(record: Record<string, T>, key: string): T | undefined {
   return Object.hasOwn(record, key) ? record[key] : undefined;
 }
 
-// The card's model a release was resolved with; a release's snapshot is
-// typed loosely, and one that names none leaves the profile's default.
 function pinOf(record: {
   profile_fingerprint: string | null;
   model: string | null;
@@ -538,8 +536,7 @@ export function createSessionService(deps: {
       const allowed = allowedRun(catalog, input.body.profile_id, repositoryId);
       // A model the profile does not offer is refused like a pair the
       // catalog does not allow; a replay of an earlier acceptance still
-      // succeeds. A release runs its card's model unless the request names
-      // another.
+      // succeeds.
       const runs = allowed
         ? profileWithModel(
             allowed.profile,
@@ -863,9 +860,8 @@ export function createSessionService(deps: {
           refusal === null && pair !== null
             ? {
                 id: wanted,
-                // The same profile and model kept under a version 1 pin
-                // stays as it is: rewriting it would move a running attempt
-                // off a profile it still runs.
+                // Rewriting a version 1 pin for the same profile and model
+                // would move a running attempt off a profile it still runs.
                 fingerprint:
                   wanted === record.profile_id &&
                   record.profile_fingerprint !== null &&

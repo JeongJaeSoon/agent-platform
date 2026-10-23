@@ -44,8 +44,6 @@ const MIGRATIONS = join(import.meta.dir, "../migrations");
 
 type Journal = { entries: Array<{ tag: string }> };
 
-// The packaged migrations up to and including `lastTag`, so a database can
-// hold rows written before the next one runs.
 async function migrationsThrough(lastTag: string): Promise<string> {
   const folder = await mkdtemp(join(tmpdir(), "session-model-migrations-"));
   await mkdir(join(folder, "meta"));
@@ -93,7 +91,6 @@ const catalog: SessionCatalog = {
     },
   },
 };
-// What main pinned sessions to: [v2 sonnet, v2 opus, v1 sonnet, v1 opus].
 const pins = profilePins(profile);
 const V1_SONNET = pins[2]?.fingerprint ?? "";
 const V1_OPUS = pins[3]?.fingerprint ?? "";
@@ -150,8 +147,6 @@ integration("sessions.model", () => {
     }
 
     await migrate(db, { migrationsFolder: MIGRATIONS });
-    // A version 2 row written by the new build before the backfill reached
-    // it keeps its own model.
     const written = randomUUID();
     await db.insert(sessions).values({
       id: written,
@@ -165,7 +160,6 @@ integration("sessions.model", () => {
     });
 
     expect(await backfillSessionModels(db, modelOf)).toBe(2);
-    // Run again, as every API start does: nothing left to write.
     expect(await backfillSessionModels(db, modelOf)).toBe(0);
     const models = Object.fromEntries(
       (
@@ -182,7 +176,6 @@ integration("sessions.model", () => {
       [unpinned.id]: null,
       [written]: "claude-opus-5-5",
     });
-    // The pin itself is left as it was.
     const [kept] = await db
       .select({ fingerprint: sessions.profileFingerprint })
       .from(sessions)
@@ -208,7 +201,6 @@ integration("sessions.model", () => {
       },
     });
 
-    // As main accepted it: a version 1 fingerprint and no model.
     async function queued(pin: { fingerprint: string; model?: string }) {
       const partition = `p-${randomUUID()}`;
       const result = await createPostgresSessionUnitOfWork(
@@ -285,7 +277,6 @@ integration("sessions.model", () => {
 
     const legacy = await queued({ fingerprint: V1_OPUS });
     expect(legacy.claimed.runtime_config.model).toBe("claude-opus-5-5");
-    // The claim keeps the version 1 pin rather than rewriting it.
     expect(legacy.row).toEqual({ fingerprint: V1_OPUS, model: null });
     expect(legacy.attempt).toEqual({ fingerprint: V1_OPUS, model: null });
 

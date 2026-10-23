@@ -264,7 +264,6 @@ describe("agent service", () => {
       release,
     );
     expect(made.profile_digest).toBe(profileFingerprint(PROFILE));
-    // Offering another model is not a profile change for the release.
     const listed = serviceOver(memory.store, {
       ...PROFILE,
       models: ["claude-opus-5-5"],
@@ -274,7 +273,6 @@ describe("agent service", () => {
       expected_revision: -1,
     });
     expect(memory.activations()).toBe(1);
-    // What main stored: the version 1 fingerprint of the profile's default.
     const v1 = profilePins(PROFILE)[1]?.fingerprint;
     if (!v1) throw new Error("no version 1 pin");
     const legacy: AgentRelease = {
@@ -315,8 +313,6 @@ describe("agent service", () => {
       expected_revision: -1,
     });
     expect(memory.activations()).toBe(1);
-    // The version 2 digest is the same without the models; the card's
-    // model is what moved.
     const dropped = { ...PROFILE, model: "claude-opus-5-5" };
     expect(profileFingerprint(dropped)).toBe(made.profile_digest);
     expect(

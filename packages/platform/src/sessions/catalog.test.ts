@@ -670,7 +670,6 @@ describe("repository mode", () => {
     const optional = load(config(withMode("optional"))).profiles
       .p as CatalogProfile;
     expect(repositoryModeOf(optional)).toBe("optional");
-    // The session's repository_mode keeps it; the fingerprint does not.
     expect(profileFingerprint(optional)).toBe(profileFingerprint(omitted));
     expect(() => load(config(withMode("sometimes")))).toThrow(
       /^profiles\.p\.repository: /,
@@ -934,7 +933,6 @@ describe("models a session may name", () => {
     expect(
       sessionProfile(bare(), { fingerprint, model: "claude-opus-5-5" }),
     ).toBeNull();
-    // A version 2 pin says nothing without the row's model.
     expect(sessionProfile(listed, { fingerprint, model: null })).toBeNull();
     // A row from before the pin runs the default.
     expect(sessionProfile(listed, { fingerprint: null, model: null })).toEqual(
@@ -955,7 +953,6 @@ describe("models a session may name", () => {
       sessionProfile(listed, { fingerprint: v1Opus, model: "claude-sonnet-5" }),
     ).toEqual(opus);
     expect(profilePinned(listed, v1Opus)).toBe(true);
-    // Taken off the list, it runs nowhere.
     expect(
       sessionProfile(bare(), { fingerprint: v1Opus, model: null }),
     ).toBeNull();
@@ -995,8 +992,6 @@ describe("models a session may name", () => {
     const v1Default =
       "sha256:99f5f59a41e3bc02be1f2ffd7af4b0a4fae68ca567dc05368cab9285f5ffd983";
     expect(fingerprintModel(catalog, "p", v1Default)).toBe("claude-sonnet-5");
-    // Version 2 leaves the model to the row; an unknown id or a moved
-    // profile says nothing.
     expect(
       fingerprintModel(
         catalog,

@@ -625,14 +625,11 @@ function sha256(value: unknown): string {
 }
 
 // Bumped when the hashed shape changes, so an old value can never equal a
-// new one by accident. A repository binding is stored on pending pushes and
-// pull requests and compared again when they run, so this moves only with
-// its own shape, never with the profile fingerprint's.
+// new one by accident.
 const BINDING_FINGERPRINT_VERSION = 1;
 
-// 2: the model and the repository mode left the hash. The model is the
-// row's own column; the repository mode is the session's repository_mode. A
-// row pinned under 1 is still judged by 1 (`profilePinned`).
+// 2: the model and the repository mode left the hash; they live in the
+// row's `model` and `repository_mode`.
 const PROFILE_FINGERPRINT_VERSION = 2;
 
 /**
@@ -655,8 +652,6 @@ export function profileFingerprint(profile: CatalogProfile): string {
   });
 }
 
-// The shape rows were pinned with before 2: the profile as a session that
-// named one model runs it, so the hash names that model.
 function profileFingerprintV1(profile: CatalogProfile): string {
   const { models: _models, ...runs } = withoutSecret(profile);
   return sha256({ fingerprint_version: 1, profile: runs });
@@ -687,11 +682,9 @@ export type ProfilePin = {
   model: string | null;
 };
 
-/**
- * The model `fingerprint` pins this profile to: the row's `model` for a
- * version 2 fingerprint, the one a version 1 fingerprint was taken with,
- * whatever the row says. Undefined when the profile no longer hashes to it.
- */
+// The model `fingerprint` pins this profile to: the row's for version 2, the
+// one a version 1 fingerprint was taken with. Undefined when the profile no
+// longer hashes to it.
 function pinnedModel(
   profile: CatalogProfile,
   pin: ProfilePin & { fingerprint: string },

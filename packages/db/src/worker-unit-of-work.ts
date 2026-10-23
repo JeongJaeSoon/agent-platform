@@ -779,8 +779,6 @@ export function runnableCondition(all: readonly RunnablePair[]): SQL {
   return sql`(${sql.join(conditions, sql` OR `)})`;
 }
 
-// A pinned row matches a pair on its columns and fingerprint, and on its
-// model too where the pair names one (version 2): `runnablePairOf` in SQL.
 function pinnedCondition<Pair extends RunnablePair>(
   all: readonly Pair[],
   values: (pair: Pair) => SQL,

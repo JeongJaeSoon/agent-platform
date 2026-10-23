@@ -20,8 +20,6 @@ import {
 // refuses is either never claimed or claimed against the catalog.
 
 const fingerprint = (c: string) => `sha256:${c.repeat(64)}`;
-// profile-a as a version 1 pin (its fingerprint names the model), profile-b
-// as a version 2 one (the row's model has to be the pair's).
 const RUNNABLE: RepositoryPair[] = [
   {
     profileId: "profile-a",
@@ -185,7 +183,6 @@ describe("runnable judgement", () => {
     expect(pick(RUNNABLE).some((id) => none.some((row) => row.id === id))).toBe(
       false,
     );
-    // A version 2 pair without a repository holds the row to its model too.
     await db.insert(sessions).values(
       [null, "model-b", "model-z"].map((model) => ({
         id: crypto.randomUUID(),
