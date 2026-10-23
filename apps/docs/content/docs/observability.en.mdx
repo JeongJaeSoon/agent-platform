@@ -11,9 +11,9 @@ Werft does not export OpenTelemetry traces yet. Running a session produces no tr
 
 | What | Where |
 | --- | --- |
-| What happened in a session (model replies, tool calls and results, permission requests, state changes) | The event stream `GET /v1/sessions/{id}/events` ([Receive a stream](/messages/streaming)) |
+| What happened in a session (model replies, tool calls and results, permission requests, state changes) | The event stream `GET /v1/sessions/{id}/events` ([Receiving a stream](/messages/streaming)) |
 | The result of one command | The receipt `GET /v1/receipts/{id}` ([receipt](/approvals/receipt)) |
-| Cost and tokens | `GET /v1/sessions/{id}/usage` ([State and lifecycle](/sessions/lifecycle#usage)) |
+| Cost and tokens | `GET /v1/sessions/{id}/usage` ([Status and lifecycle](/sessions/lifecycle#usage)) |
 | Server health | `GET /readyz`, and the stdout JSON logs of the API and worker |
 
 Events are the canonical record stored in the DB. Values in engine messages that look like secrets are masked as `[REDACTED]` before they are stored. Events can be read only by principals with `sessions:read` who can see that session.
@@ -79,5 +79,5 @@ The account and keys of the Langfuse example, and where to find them in its UI, 
 
 ## Next steps
 
-- [Receive a stream](/messages/streaming): receive session events
+- [Receiving a stream](/messages/streaming): receive session events
 - [TypeScript SDK](/sdk)

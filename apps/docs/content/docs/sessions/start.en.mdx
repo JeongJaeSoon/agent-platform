@@ -30,7 +30,7 @@ SID=$(echo "$created" | jq -r .session_id)
 
 | Field | Required | Description |
 | --- | --- | --- |
-| `profile_id` | Yes | The run profile id ([Choosing a run profile](/agents/run-profiles)) |
+| `profile_id` | Yes | The run profile id ([Choose a run profile](/agents/run-profiles)) |
 | `repository_id` | Yes | A repository id in the catalog. The worker clones this repository |
 | `message` | Yes | The input of the first turn. Up to 32,768 UTF-8 bytes |
 | `model` | | One of the models the profile allows. If omitted, the default model |
