@@ -29,7 +29,7 @@ import {
   Link as TextLink,
 } from "@werft-ai/ui";
 import { ArrowRight, Check } from "lucide-react";
-import { type ReactNode, useId } from "react";
+import { type ReactNode, useEffect, useId, useState } from "react";
 import { agentsQuery, invitesQuery, membersQuery } from "../api/queries.ts";
 import { useRole } from "../auth/guard.tsx";
 import { AdministeredAgents } from "../components/agent-admins.tsx";
@@ -75,6 +75,20 @@ const STATE_KEY = {
 
 const RECENT_LIMIT = 5;
 const STALE_WAIT_MS = 30 * 60 * 1000;
+const MINUTE_MS = 60 * 1000;
+
+/**
+ * The time, moved on every minute. Polls that return the same data do not
+ * re-render, so waits and "x ago" would otherwise stay as first drawn.
+ */
+export function useNow(): number {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), MINUTE_MS);
+    return () => clearInterval(id);
+  }, []);
+  return now;
+}
 
 /**
  * The requests waiting on the viewer, answerable in place, then counts with
@@ -91,6 +105,7 @@ const STALE_WAIT_MS = 30 * 60 * 1000;
 export function HomeScreen() {
   const { t, locale } = useI18n();
   const role = useRole();
+  const now = useNow();
   const unavailable = useUnavailable();
   const { client } = useAgentPlatform();
   const members = useQuery({
@@ -179,7 +194,7 @@ export function HomeScreen() {
       // A session counts as waiting long once its oldest request is.
       let stale = 0;
       const since: Record<string, string> = {};
-      const staleBefore = new Date(Date.now() - STALE_WAIT_MS).toISOString();
+      const staleBefore = new Date(now - STALE_WAIT_MS).toISOString();
       lists.forEach((list, index) => {
         const sessionId = waiting.data?.items[index]?.id;
         let sessionFirst: string | undefined;
@@ -299,7 +314,7 @@ export function HomeScreen() {
                             dateTime={oldest.at}
                             title={formatTimestamp(oldest.at, locale)}
                           >
-                            {relativeTime(oldest.at, locale)}
+                            {relativeTime(oldest.at, locale, now)}
                           </time>
                         </>
                       ),
@@ -320,7 +335,7 @@ export function HomeScreen() {
                 value: (
                   <Caution on>
                     {t("home.glance.keyExpires", {
-                      when: relativeTime(key.expires_at ?? "", locale),
+                      when: relativeTime(key.expires_at ?? "", locale, now),
                     })}
                   </Caution>
                 ),
@@ -369,7 +384,7 @@ export function HomeScreen() {
         title={t("home.recent.title")}
         action={<ArrowLink to="/sessions">{t("home.recent.all")}</ArrowLink>}
       >
-        <RecentSessionTable waitingSince={requests?.since} />
+        <RecentSessionTable waitingSince={requests?.since} now={now} />
       </HomeSection>
       {allDone ? checklist : null}
       <AdministeredAgents showEmpty={false} />
@@ -613,9 +628,11 @@ function GlanceCard({
 /** The newest of the viewer's sessions, in the design's columns. */
 function RecentSessionTable({
   waitingSince,
+  now,
 }: {
   /** When each waiting session's oldest request came in, once every list is read. */
   readonly waitingSince: Readonly<Record<string, string>> | undefined;
+  readonly now: number;
 }) {
   const { t, locale } = useI18n();
   const sessions = useSessions();
@@ -656,6 +673,7 @@ function RecentSessionTable({
               session={session}
               locale={locale}
               waitingSince={waitingSince?.[session.id]}
+              now={now}
             />
           ))}
         </TableBody>
@@ -668,10 +686,12 @@ function RecentRow({
   session,
   locale,
   waitingSince,
+  now,
 }: {
   readonly session: SessionSummary;
   readonly locale: Locale;
   readonly waitingSince: string | undefined;
+  readonly now: number;
 }) {
   const { t } = useI18n();
   const at = session.last_event_at ?? session.created_at;
@@ -724,7 +744,7 @@ function RecentRow({
               dateTime={waitingSince}
               title={formatTimestamp(waitingSince, locale)}
             >
-              {waitedFor(waitingSince, locale)}
+              {waitedFor(waitingSince, locale, now)}
             </time>
           ) : null}
         </div>
@@ -738,7 +758,7 @@ function RecentRow({
       </TableCell>
       <TableCell className="whitespace-nowrap text-right text-muted-foreground">
         <time dateTime={at} title={formatTimestamp(at, locale)}>
-          {relativeTime(at, locale)}
+          {relativeTime(at, locale, now)}
         </time>
       </TableCell>
     </TableRow>

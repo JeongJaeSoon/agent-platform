@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, jest, test } from "bun:test";
 import { queryKeys } from "@werft-ai/core";
 import { AGENT_ID, agentServer } from "../test-support/fake-agents.ts";
 import {
@@ -10,9 +10,10 @@ import {
   WORKSPACE_ID,
 } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
-import { waitedFor } from "./home.tsx";
+import { useNow, waitedFor } from "./home.tsx";
 
-const { act, renderAt, screen, waitFor, within } = await appHarness();
+const { act, renderAt, renderHook, screen, waitFor, within } =
+  await appHarness();
 
 const owner = {
   user_id: USER_ID,
@@ -572,6 +573,18 @@ describe("waitedFor", () => {
   });
   test("시계가 어긋나 미래 시각이어도 음수로 적지 않는다", () => {
     expect(waitedFor(at, "ko", after(-60_000))).toBe("0분");
+  });
+  test("홈의 시각은 응답이 그대로여도 분마다 움직인다", () => {
+    jest.useFakeTimers({ now: new Date(at) });
+    try {
+      const { result, unmount } = renderHook(() => useNow());
+      expect(waitedFor(at, "ko", result.current)).toBe("0분");
+      act(() => jest.advanceTimersByTime(12 * 60_000));
+      expect(waitedFor(at, "ko", result.current)).toBe("12분");
+      unmount();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
 
