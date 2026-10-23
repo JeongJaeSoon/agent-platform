@@ -517,6 +517,26 @@ describe("연동 계정", () => {
     );
   });
 
+  test("워크스페이스에 Slack 연결 설정이 없으면 관리자에게 요청하라고 한다", async () => {
+    renderAt("/settings/linked-accounts", {
+      ...meOk,
+      "GET /v1/linked-accounts": () => json(200, { items: [] }),
+      "POST /v1/linked-accounts/slack/start": () =>
+        apiError(
+          409,
+          "SLACK_LINK_NOT_CONFIGURED",
+          "Slack account linking is not set up for this workspace",
+        ),
+    });
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "Slack 계정 연결" }),
+    );
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "Slack 계정 연결을 아직 쓸 수 없습니다 — 워크스페이스 관리자에게 Slack 연결 설정을 요청하세요.",
+    );
+  });
+
   test("콜백 중 Slack에 닿지 못하면 다시 시도하라고 한다", async () => {
     renderAt("/settings/linked-accounts/slack?code=c1&state=s1", {
       ...meOk,
