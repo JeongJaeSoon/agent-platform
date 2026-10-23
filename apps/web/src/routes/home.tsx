@@ -342,7 +342,7 @@ function Checklist({ steps }: { readonly steps: readonly Step[] }) {
           {steps.map((step, index) => (
             <li
               key={step.key}
-              className="flex min-h-16 items-center gap-3 border-t py-3 first:border-t-0"
+              className="flex min-h-16 items-center gap-3 border-t py-3 first:border-t-transparent"
               data-done={step.state === "done"}
               data-state={step.state}
             >
