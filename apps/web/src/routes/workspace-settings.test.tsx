@@ -76,6 +76,14 @@ describe("워크스페이스 설정", () => {
       "보존 기간(일)",
     )) as HTMLInputElement;
     expect(input.value).toBe("90");
+    expect(
+      (input.getAttribute("aria-describedby") ?? "")
+        .split(" ")
+        .map((id) => document.getElementById(id)?.textContent),
+    ).toEqual([
+      "허용·거절한 요청 기록을 이 기간 동안 보관합니다.",
+      "30일보다 짧게 할 수 없고, 소유자만 바꿀 수 있습니다.",
+    ]);
     const user = await setupUser();
     await user.clear(input);
     await user.type(input, "180");
@@ -340,6 +348,26 @@ describe("워크스페이스 설정", () => {
       "워크스페이스 ID를 복사했습니다.",
     );
     expect(written).toEqual([WORKSPACE_ID]);
+  });
+
+  test("복사가 거절되면 직접 복사하라고 알리고 ID를 선택해 둔다", async () => {
+    renderAt("/settings/workspace", {
+      "GET /v1/auth/me": () => json(200, me()),
+    });
+    const user = await setupUser();
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: async () => {
+          throw new Error("denied");
+        },
+      },
+    });
+    await user.click(await screen.findByRole("button", { name: "복사" }));
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "복사하지 못했습니다. ID를 직접 선택해 복사하세요.",
+    );
+    expect(globalThis.getSelection?.()?.toString()).toBe(WORKSPACE_ID);
   });
 
   test("프로필을 읽지 못하면 모델 카드에 다시 시도를 둔다", async () => {

@@ -16,7 +16,7 @@ import {
   Skeleton,
 } from "@werft-ai/ui";
 import { Check, Copy, Lock } from "lucide-react";
-import { type FormEvent, type ReactNode, useId, useState } from "react";
+import { type FormEvent, type ReactNode, useId, useRef, useState } from "react";
 import { profilesQuery, queryKeys } from "../api/queries.ts";
 import {
   permissionReason,
@@ -167,10 +167,14 @@ function WorkspaceId({ onOutcome }: { readonly onOutcome: OnOutcome }) {
   const { t } = useI18n();
   const id = useMe()?.workspace?.id ?? "";
   const [copied, setCopied] = useState(false);
+  const value = useRef<HTMLDivElement>(null);
   return (
     <SettingsCard title={t("workspace.id")} description={t("workspace.idHint")}>
       <div className="flex max-w-105 items-center gap-2 rounded-control border bg-muted px-3 py-2">
-        <div className="min-w-0 flex-1 font-mono text-caption [overflow-wrap:anywhere]">
+        <div
+          ref={value}
+          className="min-w-0 flex-1 select-all font-mono text-caption [overflow-wrap:anywhere]"
+        >
           {id}
         </div>
         <Button
@@ -181,6 +185,10 @@ function WorkspaceId({ onOutcome }: { readonly onOutcome: OnOutcome }) {
           onClick={() => {
             void copyText(id, { current: null }).then((ok) => {
               setCopied(ok);
+              // Selected, the id is one keystroke from a manual copy.
+              if (!ok && value.current) {
+                globalThis.getSelection?.()?.selectAllChildren(value.current);
+              }
               onOutcome(
                 ok
                   ? { kind: "notice", text: t("workspace.idCopied") }
@@ -295,6 +303,8 @@ function AuditRetention({ onOutcome }: { readonly onOutcome: OnOutcome }) {
   const [draft, setDraft] = useState<string | null>(null);
   const days = draft ?? (current === undefined ? "" : `${current}`);
   const inputId = useId();
+  const hintId = useId();
+  const footId = useId();
   const reason = useHasPermission("audit_retention.manage")
     ? undefined
     : permissionReason(t, "audit_retention.manage", role);
@@ -342,10 +352,13 @@ function AuditRetention({ onOutcome }: { readonly onOutcome: OnOutcome }) {
     <SettingsCard
       title={t("workspace.retention")}
       description={t("workspace.retentionHint")}
+      descriptionId={hintId}
       onSubmit={submit}
       foot={
         <>
-          <div className={META}>{t("workspace.retentionFoot")}</div>
+          <div id={footId} className={META}>
+            {t("workspace.retentionFoot")}
+          </div>
           <ReasonButton
             type="submit"
             className={buttonVariants({ size: "sm" })}
@@ -367,6 +380,7 @@ function AuditRetention({ onOutcome }: { readonly onOutcome: OnOutcome }) {
         inputMode="numeric"
         step={1}
         value={days}
+        aria-describedby={`${hintId} ${footId}`}
         disabled={reason !== undefined}
         onChange={(event) => setDraft(event.target.value)}
       />
