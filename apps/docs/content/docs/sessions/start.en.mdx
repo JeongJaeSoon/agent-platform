@@ -68,6 +68,13 @@ curl -sS "$API/v1/sessions?limit=5" -H "Authorization: Bearer $KEY" | jq -c '.it
 
 Filter with `limit`, `cursor` (the response's `next_cursor`), and `status`. Only the sessions the key can see are returned.
 
+`repository` in the list and the detail is the repository the session was created against. `id` is the catalog key (the same as `repository_id`); `full_name` is a name to show, the `owner/name` of the repository URL, or the catalog key when the URL does not read that way. `branch` is the branch the worker cloned, not `agent/<session-id>` that a push writes to. All three are recorded when the session is created, so they stay the same when an operator later changes the catalog or removes the repository. A session created without a repository has `repository: null`; a session created before the catalog existed has `id: null`. The repository URL itself is never in a response.
+
+```bash
+curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq -c .repository
+# {"id":"sample-app","full_name":"agent/sample-app","branch":"main"}
+```
+
 ## Title
 
 A `title` you send is stored with runs of whitespace and line breaks collapsed to one space and the ends trimmed. If that leaves nothing or more than 80 characters (an emoji or a combined character counts as one), the answer is 400. Without one, the title is derived from the first `message` by the same rule, cut to 79 characters and `…` past 80. No model is called, so the same message always gives the same title. A message of only whitespace, and a session created before titles existed, read `title: null`.

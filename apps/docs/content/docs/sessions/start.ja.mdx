@@ -68,6 +68,13 @@ curl -sS "$API/v1/sessions?limit=5" -H "Authorization: Bearer $KEY" | jq -c '.it
 
 `limit`、`cursor`(レスポンスの `next_cursor`)、`status` で絞り込む。キーが見られるセッションだけが返る。
 
+一覧と詳細の `repository` は、セッションを作ったときのリポジトリだ。`id` はカタログのキー(`repository_id` と同じ)、`full_name` は画面に出す名前で、リポジトリ URL の `owner/name`、そう読めない URL ならカタログのキーになる。`branch` は worker が clone したブランチで、push が書き込む `agent/<session-id>` ではない。三つとも作成時に記録した値なので、運用者があとでカタログを変えたりリポジトリを外したりしても変わらない。リポジトリなしで作ったセッションは `repository` が `null`、カタログができる前に作ったセッションは `id` が `null` だ。リポジトリ URL そのものはどのレスポンスにも出ない。
+
+```bash
+curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq -c .repository
+# {"id":"sample-app","full_name":"agent/sample-app","branch":"main"}
+```
+
 ## タイトル
 
 `title` を送ると、連続する空白・改行を空白 1 つにまとめ、前後を切って保存する。その結果が空か 80 文字(絵文字や結合文字は 1 つで 1 文字)を超えると 400 になる。省略すると最初の `message` から同じ規則で作り、80 文字を超えると先頭 79 文字に `…` を付ける。モデルは呼ばないので、同じメッセージからは必ず同じタイトルになる。空白だけのメッセージと、この機能より前に作ったセッションは `title` が `null` になる。
