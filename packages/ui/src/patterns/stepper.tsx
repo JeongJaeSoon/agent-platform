@@ -107,7 +107,7 @@ export function Stepper({
             </>
           );
           const itemClass = cn(
-            "flex items-start gap-2 rounded-md p-1 text-muted-foreground",
+            "flex items-start gap-2 rounded-control p-1 text-muted-foreground",
             state === "current" && "text-foreground",
             state === "complete" && "text-foreground",
           );

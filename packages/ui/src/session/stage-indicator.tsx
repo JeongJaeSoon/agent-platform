@@ -37,7 +37,7 @@ export function StageIndicator({
       data-busy={busy || undefined}
       data-error={error || undefined}
       className={cn(
-        "flex min-w-0 items-center gap-2 rounded-md border bg-card px-3 py-2 text-sm",
+        "flex min-w-0 items-center gap-2 rounded-card border bg-card px-3 py-2 text-sm",
         error && "border-destructive",
         className,
       )}

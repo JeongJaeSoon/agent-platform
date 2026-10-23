@@ -27,7 +27,8 @@ Tailwind의 `dark:`는 수동 전환(`data-theme`)을 보지 못하기 때문이
   않고, 같은 이름을 쓰는 앱(shadcn을 쓰는 앱 등)의 변수와 부딪치지 않는다. shadcn의 `accent`는 hover용 조용한 바탕이고, 우리 브랜드 색은
   `primary`(= `--ap-color-accent`)다. 상태 색처럼 도메인 전용 색은 `--ap-tone-*`을 직접 쓴다.
 - **Tailwind 연결.** `src/foundations/theme.css`가 토큰을 유틸리티에 잇는 유일한 곳이다. 색(`bg-primary`·`bg-canvas`…),
-  글자 크기(`text-control` 등), `font-sans`·`font-mono`, `rounded-sm|md|lg`, `shadow-sm|md|lg`가 여기서 나온다. 쓰는 쪽 CSS는
+  글자 크기(`text-control`·`text-description`·`text-title` 등), `font-sans`·`font-mono`, `rounded-control|card`, `shadow-pop`이
+  여기서 나온다(`rounded-sm|md|lg`·`shadow-sm|md|lg`는 apps/web이 옮겨 갈 때까지 둔 옛 이름이다). 쓰는 쪽 CSS는
   `tailwindcss`·`styles.css`·`theme.css` 순으로 import하고 `@source`로 이 패키지의 `src`를 스캔해야 한다
   (`apps/web/src/styles.css`가 예다). Tailwind 없이 쓰면 primitive는 모양 없이 그려진다.
 - **cascade layer.** `tokens.css`와 `styles.css`의 규칙은 모두 `@layer ap` 안에 있다. `tokens.css`가
@@ -46,6 +47,10 @@ Tailwind의 `dark:`는 수동 전환(`data-theme`)을 보지 못하기 때문이
 색·간격·타이포·radius·shadow·모션은 `src/foundations/tokens.css` **한 곳**에만 있다. 라이트가 기본이고,
 다크는 시스템 설정(`prefers-color-scheme`)과 수동 전환(`:root[data-theme="dark"]`) 양쪽으로 온다.
 
+값은 콘솔 디자인 캔버스 v35 규칙표를 따른다. 간격은 4·8·12·16·24·32, 글자는 12·13·14·20·24, 반경은 컨트롤 6·카드 8·pill,
+그림자는 떠 있는 요소용 `--ap-shadow-pop` 하나다. 바탕은 사이드바 `--ap-color-sidebar`와 메인·카드 `--ap-color-surface` 둘이다. 사이드바 nav 행은 hover에 `bg-sidebar-hover`, 현재 페이지에 `bg-sidebar-accent`를 쓴다.
+값이 다른 토큰을 가리키는(`var(--ap-…)`) 이름은 apps/web이 옮겨 갈 때까지 둔 옛 이름이니 새 코드에서 쓰지 않는다.
+
 Tailwind 4의 `@theme` 블록 대신 `--ap-` 접두사를 붙인 평범한 커스텀 프로퍼티를 쓴다.
 `@theme`는 Tailwind 컴파일러를 거쳐야만 살아남는데, 이 패키지는 Tailwind 없이도 렌더돼야 하기 때문이다.
 Tailwind에는 `theme.css`가 이어 붙인다(`--color-canvas: var(--ap-color-canvas)` 식). 접두사가 없으면
@@ -60,7 +65,7 @@ Tailwind에는 `theme.css`가 이어 붙인다(`--color-canvas: var(--ap-color-c
 |---|---|---|
 | foundations · `src/foundations/` | 없음 | `tokens.css`·`styles.css`·`theme.css`·`fonts.css`(+`fonts/`), `cn`, `useReducedMotion`, `formatTimestamp` |
 | primitives · `src/primitives/` | foundations | shadcn 항목 `Button`·`Badge`·`Card*`·`Input`·`Textarea`·`NativeSelect*`·`Checkbox`·`RadioGroup*`·`Tabs*`·`Dialog*`·`Field*`, 그리고 `Skeleton`. 도메인을 모른다. 의미 있는 상태는 `Badge`가 아니라 `StatusLabel`로 |
-| patterns · `src/patterns/` | primitives | `ConfirmDialog`·`DestructiveActionDialog`(결과 설명이 필수이고, 파괴적 동작은 이름을 입력해야 열린다), `EmptyState`, `Stepper`, 상세 화면 두 칸 배치 `useDetailLayout` |
+| patterns · `src/patterns/` | primitives | `ConfirmDialog`·`DestructiveActionDialog`(결과 설명이 필수이고, 파괴적 동작은 이름을 입력해야 열린다), `EmptyState`, 페이지 머리 `PageHeader`(h1 + 설명 + 동작), `Stepper`, 상세 화면 두 칸 배치 `useDetailLayout` |
 | (도메인) `src/session/`·`src/status/`·`src/receipt/`·`src/feedback/` | `@werft-ai/contracts` 타입 | `StatusLabel`(admission·turn·receipt·execution **네 축**을 따로 그린다), `ReceiptSummary`·`ReceiptLink`(`unknown`은 성공으로 그리지 않는다), `ErrorState`(`error.code`별 "할 일"을 원문보다 먼저), `Session*`·`Timeline`·`Message`·`Composer`·`ApprovalCard`·`QuestionCard`·`StageIndicator` |
 
 도메인 파일은 `packages/react`로 옮길 예정이라 층 디렉터리에 넣지 않았다. 루트 index가 이름을 직접 내보낸다.
