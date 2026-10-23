@@ -41,6 +41,9 @@ import { createPostgresSessionShareStore } from "./session-shares.ts";
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
 const MANAGERS: readonly WorkspaceRole[] = ["owner", "admin"];
+// A write whose turn or answer carries this pauses inside its transaction,
+// every lock it took held (the trigger installed in beforeAll).
+const HOLD = "hold-locks";
 const LIMITS = { queuedInputLimitPerSession: 10_000, storageLimitBytes: 1e15 };
 
 // 94S-834: the policy decides before the write opens. Each test here lets a
@@ -55,6 +58,21 @@ integration("session writes re-judge their requester on PostgreSQL", () => {
     database = await createTempDatabase({ prefix: "session_write_races_it" });
     pool = new Pool({ connectionString: database.url, max: 24 });
     db = drizzle(pool, { schema });
+    await pool.query(`
+      CREATE FUNCTION test_hold_locks() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        IF TG_TABLE_NAME = 'turns' THEN
+          IF NEW.message = '${HOLD}' THEN PERFORM pg_sleep(1); END IF;
+        ELSIF NEW.answer->>'reason' = '${HOLD}' THEN
+          PERFORM pg_sleep(1);
+        END IF;
+        RETURN NEW;
+      END $$;
+      CREATE TRIGGER test_hold_locks BEFORE INSERT ON turns
+        FOR EACH ROW EXECUTE FUNCTION test_hold_locks();
+      CREATE TRIGGER test_hold_locks BEFORE UPDATE ON pending_requests
+        FOR EACH ROW EXECUTE FUNCTION test_hold_locks();
+    `);
   }, 60_000);
 
   afterAll(async () => {
@@ -217,13 +235,18 @@ integration("session writes re-judge their requester on PostgreSQL", () => {
     return created.response.session_id;
   }
 
-  const append = (by: Caller, sessionId: string, idempotencyKey?: string) =>
+  const append = (
+    by: Caller,
+    sessionId: string,
+    idempotencyKey?: string,
+    message = "more",
+  ) =>
     uow().appendInputAtomic({
       principal: by,
       sessionId,
       idempotencyKey: idempotencyKey ?? randomUUID(),
       payloadHash: "append",
-      message: "more",
+      message,
       limits: LIMITS,
     });
 
@@ -352,13 +375,21 @@ integration("session writes re-judge their requester on PostgreSQL", () => {
     sessionId: string,
     requestId: string,
     idempotencyKey?: string,
+    hold = false,
   ) =>
     pending().answerAtomic({
       principal: by,
       sessionId,
       idempotencyKey: idempotencyKey ?? randomUUID(),
       payloadHash: "answer",
-      answer: { request_id: requestId, kind: "permission", decision: "allow" },
+      answer: hold
+        ? {
+            request_id: requestId,
+            kind: "permission",
+            decision: "deny",
+            reason: HOLD,
+          }
+        : { request_id: requestId, kind: "permission", decision: "allow" },
       approval: { surface: "web", decisionId: randomUUID() },
     });
 
@@ -683,6 +714,120 @@ integration("session writes re-judge their requester on PostgreSQL", () => {
       expect(await answer(manager, sessionId, next)).toEqual({
         outcome: "role",
       });
+    });
+  });
+
+  // The other side of each race: a write that already holds its rows makes
+  // the revocation wait, so it is judged wholly before the revocation.
+  describe("a write that holds its rows", () => {
+    async function revocationWaits(
+      write: Promise<{ outcome: string }>,
+      revoke: () => Promise<unknown>,
+    ) {
+      let written = false;
+      const done = write.then((result) => {
+        written = true;
+        return result;
+      });
+      await Bun.sleep(300);
+      expect(written).toBe(false);
+      await revoke();
+      expect(written).toBe(true);
+      expect(await done).toMatchObject({ outcome: "accepted" });
+    }
+
+    test("a key revoke and a Slack unlink wait for an input", async () => {
+      const ws = await workspace();
+      const owner = await person(ws, "owner");
+      const speaker = await person(ws);
+      const live = await key(ws, { service: true });
+      const keySession = await session(live.caller);
+      await revocationWaits(
+        append(live.caller, keySession, undefined, HOLD),
+        () => revokeKey(owner, live.id),
+      );
+      const slack = await slackLink(speaker);
+      const slackSession = await session(slack.caller);
+      await revocationWaits(
+        append(slack.caller, slackSession, undefined, HOLD),
+        () => unlink(speaker, slack.id),
+      );
+    });
+
+    test("a share change, a team member's removal and a team's archive wait for an input", async () => {
+      const ws = await workspace();
+      const owner = await person(ws, "owner");
+      const creator = await person(ws);
+      const viewer = await person(ws);
+      const teamId = await team(owner, [viewer]);
+      const sessionId = await session(creator);
+      await share(creator, sessionId, "team", { teamIds: [teamId] });
+      await revocationWaits(append(viewer, sessionId, undefined, HOLD), () =>
+        teamMember(owner, teamId, viewer, false),
+      );
+      await teamMember(owner, teamId, viewer);
+      await revocationWaits(append(viewer, sessionId, undefined, HOLD), () =>
+        teams().delete({
+          actor: acting(owner),
+          receiptId: randomUUID(),
+          teamId,
+        }),
+      );
+      await share(creator, sessionId, "workspace");
+      await revocationWaits(append(viewer, sessionId, undefined, HOLD), () =>
+        share(creator, sessionId, "private"),
+      );
+    });
+
+    test("an admin's removal, a demotion and a disable wait for an answer", async () => {
+      const ws = await workspace();
+      const owner = await person(ws, "owner");
+      const creator = await person(ws);
+      const helper = await person(ws);
+      const viaTeam = await person(ws);
+      const manager = await person(ws, "admin");
+      const { agentId, releaseId } = await agentRelease(ws, owner);
+      const sessionId = await session(creator, releaseId);
+      await admin(owner, agentId, { kind: "user", id: idOf(helper) });
+      const teamId = await team(owner, [viaTeam]);
+      await admin(owner, agentId, { kind: "team", id: teamId });
+
+      const held = async (by: Caller) =>
+        answer(by, sessionId, await waitingRequest(sessionId), undefined, true);
+      await revocationWaits(held(helper), () =>
+        admin(owner, agentId, { kind: "user", id: idOf(helper) }, false),
+      );
+      await revocationWaits(held(viaTeam), () =>
+        admin(owner, agentId, { kind: "team", id: teamId }, false),
+      );
+      await revocationWaits(held(manager), () =>
+        setRole(owner, manager, "member"),
+      );
+      await revocationWaits(held(creator), () =>
+        setDisabled(owner, creator, true),
+      );
+    });
+
+    test("a key that lapses while its row is locked creates nothing", async () => {
+      const ws = await workspace();
+      const live = await key(ws, { service: true });
+      await db
+        .update(apiKeys)
+        .set({ expiresAt: new Date(Date.now() + 500) })
+        .where(eq(apiKeys.id, live.id));
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        await client.query("SELECT 1 FROM api_keys WHERE id = $1 FOR UPDATE", [
+          live.id,
+        ]);
+        const created = create(live.caller);
+        await Bun.sleep(1_000);
+        await client.query("COMMIT");
+        expect(await created).toEqual({ outcome: "actor_inactive" });
+      } finally {
+        client.release();
+      }
     });
   });
 
