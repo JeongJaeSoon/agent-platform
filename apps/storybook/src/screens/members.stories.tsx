@@ -183,7 +183,7 @@ function NameButton({
   return (
     <button
       type="button"
-      className={cn(linkVariants(), "text-left")}
+      className={cn(linkVariants(), "text-left focus-visible:underline")}
       onClick={onClick}
     >
       {children} ›
@@ -409,7 +409,9 @@ function TeamsTab({
                 {TEAMS.map((team) => (
                   <TableRow key={team.id}>
                     <TableCell>
-                      <Link href="#team">{team.name} ›</Link>
+                      <Link href="#team" className="focus-visible:underline">
+                        {team.name} ›
+                      </Link>
                     </TableCell>
                     <TableCell>{team.members}명</TableCell>
                     <TableCell>
@@ -561,7 +563,9 @@ function TeamDetailView({
               {TEAM_AGENTS.map((agent) => (
                 <TableRow key={agent.name}>
                   <TableCell>
-                    <Link href="#agent">{agent.name} ›</Link>
+                    <Link href="#agent" className="focus-visible:underline">
+                      {agent.name} ›
+                    </Link>
                   </TableCell>
                   <TableCell>
                     <Badge variant={agent.state[0]}>{agent.state[1]}</Badge>
@@ -713,6 +717,8 @@ function MemberEditDialog({
   readonly viewer: Role;
   readonly onClose: () => void;
 }) {
+  // The API refuses an admin's change to an owner (OWNER_PROTECTED).
+  const ownerGuarded = viewer === "admin" && member.role === "owner";
   return (
     <Dialog open onOpenChange={(open) => (open ? undefined : onClose())}>
       <DialogContent>
@@ -724,7 +730,17 @@ function MemberEditDialog({
         </DialogHeader>
         <FieldSet>
           <FieldLegend variant="label">역할</FieldLegend>
-          <RadioGroup name="role" defaultValue={member.role} aria-label="역할">
+          {ownerGuarded ? (
+            <FieldDescription>
+              소유자의 역할은 소유자만 바꿀 수 있습니다.
+            </FieldDescription>
+          ) : null}
+          <RadioGroup
+            name="role"
+            defaultValue={member.role}
+            disabled={ownerGuarded}
+            aria-label="역할"
+          >
             {(
               [
                 [
@@ -759,7 +775,7 @@ function MemberEditDialog({
           <Button type="button" variant="outline" onClick={onClose}>
             취소
           </Button>
-          <Button type="button" onClick={onClose}>
+          <Button type="button" disabled={ownerGuarded} onClick={onClose}>
             저장
           </Button>
         </DialogFooter>
@@ -823,6 +839,7 @@ type Screen =
   | "members-error"
   | "member-edit"
   | "member-edit-admin"
+  | "member-edit-admin-owner"
   | "member-disable"
   | "teams"
   | "teams-empty"
@@ -836,13 +853,18 @@ type Screen =
 
 const DETAIL_SCREENS: readonly Screen[] = ["team", "team-empty", "team-delete"];
 
+const OWNER = MEMBERS.find((member) => member.id === "u1") ?? null;
 const MINJI = MEMBERS.find((member) => member.id === "u3") ?? null;
 
 function MembersScreen({ screen }: { readonly screen: Screen }) {
   const [editing, setEditing] = useState<Member | null>(
-    screen === "member-edit" || screen === "member-edit-admin" ? MINJI : null,
+    screen === "member-edit" || screen === "member-edit-admin"
+      ? MINJI
+      : screen === "member-edit-admin-owner"
+        ? OWNER
+        : null,
   );
-  const viewer: Role = screen.endsWith("-admin")
+  const viewer: Role = screen.includes("-admin")
     ? "admin"
     : screen === "member-view"
       ? "member"
@@ -958,6 +980,10 @@ export const MemberEdit: Story = {
 export const MemberEditAsAdmin: Story = {
   name: "Member edit (admin)",
   args: { screen: "member-edit-admin" },
+};
+export const MemberEditOwnerAsAdmin: Story = {
+  name: "Member edit (admin on an owner: locked)",
+  args: { screen: "member-edit-admin-owner" },
 };
 export const MemberDisable: Story = { args: { screen: "member-disable" } };
 export const Teams: Story = { args: { screen: "teams" } };
