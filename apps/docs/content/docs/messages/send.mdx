@@ -69,7 +69,7 @@ turn이 끝났는지는 이 `status`로만 판단한다. 다섯 값 중 하나�
 | 409 `SESSION_PAUSED` | 세션이 paused다. 먼저 resume한다([승인 대기와 재개](/sessions/waiting-and-resume)) |
 | 409 `RECOVERY_REQUIRED` | 복구 결정이 먼저다([닫기](/sessions/close)) |
 | 409 `SESSION_CLOSING`, `SESSION_CLOSED` | 닫는 중이거나 닫혔다 |
-| 409 `CHECKPOINT_UNAVAILABLE` | 대화 기록이 상한을 넘어 새 turn을 받지 않는다. 새 세션을 연다 |
+| 409 `CHECKPOINT_UNAVAILABLE` | checkpoint 문제로 새 turn을 받지 않는다. 원인은 응답의 `message`에 있다. 대화 기록이 상한을 넘은 경우면 새 세션을 연다 |
 | 413 | 메시지가 너무 길다 |
 | 429 | 대기 입력이 상한에 닿았다 |
 
