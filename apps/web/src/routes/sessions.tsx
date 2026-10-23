@@ -31,6 +31,7 @@ import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
+import { SessionOutputs } from "./session-outputs.tsx";
 
 function loadError(error: unknown, onRetry: () => void) {
   if (isApiError(error, "FORBIDDEN")) {
@@ -100,7 +101,12 @@ export function SessionDetailScreen() {
         id={id}
         loading={<StatusScreen kind="loading" />}
         renderError={loadError}
-        controls={(session) => <SessionProfile session={session} />}
+        controls={(session) => (
+          <>
+            <SessionProfile session={session} />
+            <SessionOutputs session={session} />
+          </>
+        )}
         unavailable={unavailable}
         refusal={(error) => t(errorKey(error.code))}
       />

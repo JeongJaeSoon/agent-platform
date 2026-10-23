@@ -30,6 +30,7 @@ import { ko } from "./ko.ts";
 import { linkedEn, linkedJa, linkedKo } from "./linked.ts";
 import { membersEn, membersJa, membersKo } from "./members.ts";
 import { modelsEn, modelsJa, modelsKo } from "./models.ts";
+import { outputsEn, outputsJa, outputsKo } from "./outputs.ts";
 import { preferencesEn, preferencesJa, preferencesKo } from "./preferences.ts";
 import { shellEn, shellJa, shellKo } from "./shell.ts";
 import { teamsEn, teamsJa, teamsKo } from "./teams.ts";
@@ -78,6 +79,7 @@ describe("i18n", () => {
         sessionsKo,
         flowKo,
         linkedKo,
+        outputsKo,
         apiKeysKo,
         workspaceKo,
         preferencesKo,
@@ -96,6 +98,7 @@ describe("i18n", () => {
         sessionsJa,
         flowJa,
         linkedJa,
+        outputsJa,
         apiKeysJa,
         workspaceJa,
         preferencesJa,
@@ -114,6 +117,7 @@ describe("i18n", () => {
         sessionsEn,
         flowEn,
         linkedEn,
+        outputsEn,
         apiKeysEn,
         workspaceEn,
         preferencesEn,
