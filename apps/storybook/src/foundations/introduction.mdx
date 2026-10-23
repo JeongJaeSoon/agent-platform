@@ -1,6 +1,6 @@
 import { Meta } from "@storybook/addon-docs/blocks";
 
-<Meta title="Introduction" />
+<Meta title="Foundations/Introduction" />
 
 # @werft-ai/ui · @werft-ai/react
 
@@ -36,13 +36,18 @@ agent-platform 콘솔이 쓰는 UI 키트다. 사이드바는 패키지의 층�
 
 ## 쓰는 쪽이 갖출 의존성
 
-지금 `package.json` 기준으로, 키트가 import하지만 직접 설치하지 않는 것들이다.
+지금 `package.json` 기준이다. 두 패키지 모두 `peerDependencies`를 아직 선언하지 않는다.
 
-- `react`·`react-dom` 19(`^19.3.0`) — 모든 컴포넌트. 앱과 같은 사본 하나여야 한다(두 벌이면 hook이 깨진다).
-- `lucide-react` — `Checkbox`·`RadioGroup`·`NativeSelect`·`Stepper`와 Domain 컴포넌트의 아이콘.
+`@werft-ai/ui`는 `react`·`react-dom`(`^19.3.0`)과 Radix·`class-variance-authority`·`clsx`·`tailwind-merge`를 `dependencies`로 함께 설치한다.
+앱의 React와 사본이 둘이 되면 hook이 깨지므로 앱의 React 버전을 맞춘다. 키트가 import하지만 선언하지 않아 쓰는 쪽이 설치할 것은 다음과 같다.
+
+- `lucide-react` — `Checkbox`·`RadioGroup`·`NativeSelect`·`Stepper`의 아이콘.
 - `pretendard` — `styles.css`가 import하는 `fonts.css`의 한글 글꼴.
 - `tailwindcss` 4 — 아래 CSS 경로 1.
-- `@tanstack/react-query` 5 — `@werft-ai/react`의 provider·hook·Blocks.
+
+`@werft-ai/react`는 런타임 의존성을 하나도 선언하지 않는다(모두 `devDependencies`). 쓰는 쪽이 설치할 것은
+`react`, `@tanstack/react-query` 5, `react-hook-form`, `@hookform/resolvers`, `zod`, `@use-funnel/core`, `lucide-react`,
+그리고 워크스페이스의 `@werft-ai/ui`·`@werft-ai/client`·`@werft-ai/core`·`@werft-ai/contracts`다.
 
 ## CSS
 

@@ -99,8 +99,8 @@ const preview: Preview = {
     options: {
       storySort: {
         order: [
-          "Introduction",
           "Foundations",
+          ["Introduction", "Tokens", "Light and dark", "No preflight"],
           "Primitives",
           "Patterns",
           "Domain",

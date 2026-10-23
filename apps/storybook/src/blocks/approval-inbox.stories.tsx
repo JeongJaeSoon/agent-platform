@@ -1,7 +1,11 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { ApprovalInbox } from "@werft-ai/react/blocks";
 
-import { type FakeRoutes, json } from "../../.storybook/fake-client.ts";
+import {
+  apiError,
+  type FakeRoutes,
+  json,
+} from "../../.storybook/fake-client.ts";
 import { SESSION } from "../domain/session/session-fixtures.ts";
 import {
   accepted,
@@ -10,6 +14,7 @@ import {
   hostFor,
   PENDING,
   page,
+  pending,
   shared,
 } from "./block-fixtures.tsx";
 
@@ -43,8 +48,31 @@ export const Default: Story = {
   },
 };
 
+/** A key without sessions:approve: each answer says why it is off. */
+export const Disabled: Story = {
+  ...Default,
+  render: (_args, context) => {
+    const host = hostFor(context);
+    return <ApprovalInbox {...shared(host)} unavailable={host.unavailable} />;
+  },
+};
+
+export const Loading: Story = {
+  parameters: { api: { "GET /v1/sessions": pending } },
+};
+
 export const Empty: Story = {
   parameters: { api: { "GET /v1/sessions": () => page([]) } },
+};
+
+export const Failed: Story = {
+  name: "Error",
+  parameters: {
+    api: {
+      "GET /v1/sessions": () =>
+        apiError(503, "BACKEND_UNAVAILABLE", "backend unavailable"),
+    },
+  },
 };
 
 export const DefaultDark: Story = {
