@@ -2082,12 +2082,12 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Members",
     summary: "Disable a member of the workspace",
     description:
-      "In the same transaction: the membership is disabled, every web session of the person is revoked (open event streams end), their personal keys in the workspace are revoked, and the sessions they asked for wait for an owner's takeover. Service keys are untouched. Disabling yourself, or the last live owner, answers 409 LAST_OWNER. Writes a `disable_member` receipt unless the membership was already disabled (`receipt_id` null).",
+      "In the same transaction: the membership is disabled, every web session of the person is revoked (open event streams end), their personal keys in the workspace are revoked, and the sessions they asked for wait for an owner's takeover. Service keys are untouched. Only an owner disables an owner: an admin targeting one answers 403 OWNER_PROTECTED and nothing changes. Disabling yourself, or the last live owner, answers 409 LAST_OWNER. When several apply, the first answers: no `member.manage` (403 FORBIDDEN), yourself (409), no such member (404), an owner targeted by an admin (403 OWNER_PROTECTED), the last live owner (409). Writes a `disable_member` receipt unless the membership was already disabled (`receipt_id` null).",
     auth: "session",
     body: "SetAccessRequest",
     success: { status: 200, schema: "SetAccessResponse" },
     errors: [400, 401, 403, 404, 409, 413, 503],
-    errorCodes: { 409: ["LAST_OWNER"] },
+    errorCodes: { 403: ["FORBIDDEN", "OWNER_PROTECTED"], 409: ["LAST_OWNER"] },
     idempotent: false,
   },
   {
@@ -2097,11 +2097,12 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Members",
     summary: "Enable a disabled member again",
     description:
-      "Revoked web sessions and personal keys stay revoked: the person signs in again. Sessions no owner took over go back to them. Writes an `enable_member` receipt unless the membership was already live (`receipt_id` null).",
+      "Revoked web sessions and personal keys stay revoked: the person signs in again. Sessions no owner took over go back to them. An admin enabling an owner answers 403 OWNER_PROTECTED. Writes an `enable_member` receipt unless the membership was already live (`receipt_id` null).",
     auth: "session",
     body: "SetAccessRequest",
     success: { status: 200, schema: "SetAccessResponse" },
     errors: [400, 401, 403, 404, 413, 503],
+    errorCodes: { 403: ["FORBIDDEN", "OWNER_PROTECTED"] },
     idempotent: false,
   },
   {
@@ -2111,12 +2112,12 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Members",
     summary: "Suspend an account",
     description:
-      "Allowed only when every live membership of the account is in a workspace the caller owns; otherwise 403. The account cannot sign in anywhere, and the same cut-off as disabling a member applies in each of its workspaces. Suspending yourself answers 409 LAST_OWNER. Writes a `disable_user` receipt unless the account was already suspended (`receipt_id` null).",
+      "Allowed only when every live membership of the account is in a workspace the caller owns or administers; otherwise 403 FORBIDDEN. An account that is an owner in any workspace the caller only administers answers 403 OWNER_PROTECTED first. The account cannot sign in anywhere, and the same cut-off as disabling a member applies in each of its workspaces. Suspending yourself answers 409 LAST_OWNER. Writes a `disable_user` receipt unless the account was already suspended (`receipt_id` null).",
     auth: "session",
     body: "SetAccessRequest",
     success: { status: 200, schema: "SetAccessResponse" },
     errors: [400, 401, 403, 404, 409, 413, 503],
-    errorCodes: { 409: ["LAST_OWNER"] },
+    errorCodes: { 403: ["FORBIDDEN", "OWNER_PROTECTED"], 409: ["LAST_OWNER"] },
     idempotent: false,
   },
   {
@@ -2126,11 +2127,12 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Members",
     summary: "Lift an account suspension",
     description:
-      "The same ownership rule as suspending. Revoked web sessions and personal keys stay revoked. Writes an `enable_user` receipt unless the account was not suspended (`receipt_id` null).",
+      "The same rules as suspending, OWNER_PROTECTED included. Revoked web sessions and personal keys stay revoked. Writes an `enable_user` receipt unless the account was not suspended (`receipt_id` null).",
     auth: "session",
     body: "SetAccessRequest",
     success: { status: 200, schema: "SetAccessResponse" },
     errors: [400, 401, 403, 404, 413, 503],
+    errorCodes: { 403: ["FORBIDDEN", "OWNER_PROTECTED"] },
     idempotent: false,
   },
   {
