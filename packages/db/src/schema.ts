@@ -11,9 +11,13 @@ import {
   SESSION_STATUS_VALUES,
   SLACK_APP_KIND_VALUES,
   SLACK_APP_STATE_VALUES,
+  SLACK_INBOUND_DROP_REASON_VALUES,
+  SLACK_INBOUND_EVENT_STATUS_VALUES,
   SLACK_SURFACE_ACTION_VALUES,
   type SlackAppKind,
   type SlackAppState,
+  type SlackInboundDropReason,
+  type SlackInboundEventStatus,
   SURFACE_BINDING_STATUS_VALUES,
   SURFACE_CHANNEL_KIND_VALUES,
   SURFACE_DISCLOSURE_VALUES,
@@ -571,6 +575,57 @@ export const slackInstallStates = pgTable(
       .defaultNow(),
   },
   (table) => [index("slack_install_states_expires_idx").on(table.expiresAt)],
+);
+
+// One row per (team_id, event_id): Slack keeps `event_id` across its
+// retries. 94S-790 adds the claim columns.
+export const slackInboundEvents = pgTable(
+  "slack_inbound_events",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    agentId: uuid("agent_id").notNull(),
+    slackAppId: uuid("slack_app_id")
+      .notNull()
+      .references(() => slackApps.id),
+    teamId: text("team_id").notNull(),
+    appId: text("app_id").notNull(),
+    eventId: text("event_id").notNull(),
+    eventType: text("event_type").notNull(),
+    eventSubtype: text("event_subtype"),
+    eventTime: timestamp("event_time", { withTimezone: true }),
+    status: text().$type<SlackInboundEventStatus>().notNull(),
+    dropReason: text("drop_reason").$type<SlackInboundDropReason>(),
+    payload: jsonb().$type<Record<string, unknown>>(),
+    receivedAt: timestamp("received_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    unique("slack_inbound_events_team_event_key").on(
+      table.teamId,
+      table.eventId,
+    ),
+    foreignKey({
+      name: "slack_inbound_events_agent_fk",
+      columns: [table.workspaceId, table.agentId],
+      foreignColumns: [agents.workspaceId, agents.id],
+    }),
+    check(
+      "slack_inbound_events_status_check",
+      sql`${table.status} IN (${sql.raw(sqlList(SLACK_INBOUND_EVENT_STATUS_VALUES))})`,
+    ),
+    check(
+      "slack_inbound_events_drop_reason_check",
+      sql`${table.dropReason} IS NULL OR ${table.dropReason} IN (${sql.raw(sqlList(SLACK_INBOUND_DROP_REASON_VALUES))})`,
+    ),
+    check(
+      "slack_inbound_events_dropped_check",
+      sql`(${table.status} = 'dropped') = (${table.dropReason} IS NOT NULL) AND (${table.status} = 'dropped') = (${table.payload} IS NULL)`,
+    ),
+  ],
 );
 
 // A person's account on another service (design A.2): today a Slack user,

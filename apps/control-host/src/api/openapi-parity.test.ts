@@ -18,6 +18,7 @@ import type {
   SessionService,
   SessionShareService,
   SlackAppService,
+  SlackEventsService,
   SlackInstallService,
   SlackSecretService,
   SurfaceBindingService,
@@ -27,6 +28,7 @@ import type {
 import { createApiApp } from "./app.ts";
 import type { BootstrapGate } from "./auth.ts";
 import { buildOpenApiDocument, DOCUMENTED_ROUTE_SCOPES } from "./openapi.ts";
+import { createSlackEventsLimiter } from "./rate-limit.ts";
 import { ROUTE_ERROR_TESTS } from "./route-error-coverage.ts";
 import { registerAgentIdentityRoutes } from "./routes/agent-identities.ts";
 import { registerAgentRoutes } from "./routes/agents.ts";
@@ -53,6 +55,7 @@ import { registerSessionShareRoutes } from "./routes/session-shares.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
 import { registerSlackAppRoutes } from "./routes/slack-apps.ts";
 import { registerSlackBindingRoutes } from "./routes/slack-bindings.ts";
+import { registerSlackEventRoutes } from "./routes/slack-events.ts";
 import { registerSlackInstallRoutes } from "./routes/slack-install.ts";
 import { registerSlackSecretRoutes } from "./routes/slack-secrets.ts";
 import { registerTeamRoutes } from "./routes/teams.ts";
@@ -82,6 +85,10 @@ function apiApp() {
       registerPublicInviteRoutes(router, {
         invites: {} as InviteStore,
         identity: auth.identity,
+      });
+      registerSlackEventRoutes(router, {
+        events: {} as SlackEventsService,
+        limiter: createSlackEventsLimiter(),
       });
     },
     registerRoutes: (router) => {

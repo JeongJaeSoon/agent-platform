@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 
 // Slack's Web API over HTTP, for tests and the local stack: whatever reads
 // SLACK_API_URL can be pointed at `<url>/api`. Every token it hands out is
@@ -26,8 +26,31 @@ export type FakeSlackWebApi = {
   authorize(authorizeUrl: string): { code: string; state: string | null };
   apps: Map<string, FakeSlackApp>;
   calls: FakeSlackCall[];
+  /** Fields merged into every apps.manifest.update answer. */
+  manifestUpdateAnswer: Record<string, unknown>;
+  /**
+   * Posts an event to `url` as Slack would, signed with the app's secret:
+   * `ageSeconds` backdates the timestamp (negative: from the future),
+   * `challenge` sends a url_verification instead. Answers what came back.
+   */
+  sendEvent(input: SendSlackEventInput): Promise<{
+    status: number;
+    body: unknown;
+    eventId: string | null;
+  }>;
   /** Fields merged into every oauth.v2.access answer, to mimic a bad one. */
   installAnswer: Record<string, unknown>;
+};
+
+export type SendSlackEventInput = {
+  url: string;
+  appId: string;
+  event?: Record<string, unknown>;
+  eventId?: string;
+  teamId?: string;
+  ageSeconds?: number;
+  retryNum?: number;
+  challenge?: string;
 };
 
 type Context = {
@@ -63,6 +86,7 @@ export function createFakeSlackWebApi(
   /** The scopes each pending code's authorize URL asked for. */
   const scopesOf = new Map<string, string>();
   const installAnswer: Record<string, unknown> = {};
+  const manifestUpdateAnswer: Record<string, unknown> = {};
   let appCounter = 0;
 
   const issueConfigToken = () => {
@@ -168,7 +192,11 @@ export function createFakeSlackWebApi(
       configToken(context);
       const app = appOf(context.params.app_id);
       app.manifest = JSON.parse(context.params.manifest ?? "null");
-      return { app_id: app.appId, permissions_updated: false };
+      return {
+        app_id: app.appId,
+        permissions_updated: false,
+        ...manifestUpdateAnswer,
+      };
     },
 
     "apps.manifest.delete"(context) {
@@ -223,6 +251,50 @@ export function createFakeSlackWebApi(
     return { code, state: query.get("state") };
   }
 
+  async function sendEvent(input: SendSlackEventInput) {
+    const app = appOf(input.appId);
+    const envelope =
+      input.challenge === undefined
+        ? slackEventEnvelope({
+            appId: app.appId,
+            teamId: input.teamId ?? teamId,
+            event: input.event ?? {},
+            ...(input.eventId === undefined ? {} : { eventId: input.eventId }),
+          })
+        : {
+            token: hex(12),
+            challenge: input.challenge,
+            type: "url_verification",
+          };
+    const body = JSON.stringify(envelope);
+    const sentAt = Math.floor(Date.now() / 1000) - (input.ageSeconds ?? 0);
+    const response = await fetch(input.url, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...signSlackRequest(app.signingSecret, body, sentAt),
+        ...(input.retryNum === undefined
+          ? {}
+          : {
+              "X-Slack-Retry-Num": String(input.retryNum),
+              "X-Slack-Retry-Reason": "http_timeout",
+            }),
+      },
+      body,
+      signal: AbortSignal.timeout(10_000),
+    });
+    const text = await response.text();
+    let answer: unknown = text;
+    try {
+      answer = JSON.parse(text);
+    } catch {}
+    return {
+      status: response.status,
+      body: answer,
+      eventId: "event_id" in envelope ? envelope.event_id : null,
+    };
+  }
+
   async function paramsOf(request: Request, url: URL) {
     const params: Record<string, string> = Object.fromEntries(url.searchParams);
     if (request.method !== "POST") return params;
@@ -246,7 +318,9 @@ export function createFakeSlackWebApi(
     issueConfigToken,
 
     installAnswer,
+    manifestUpdateAnswer,
     authorize,
+    sendEvent,
 
     async handle(request) {
       const url = new URL(request.url);
@@ -267,6 +341,53 @@ export function createFakeSlackWebApi(
       }
       if (url.pathname === "/fake/config-tokens" && request.method === "POST") {
         return Response.json({ ok: true, refresh_token: issueConfigToken() });
+      }
+      // For curl on the local stack: the signature is made in here, from
+      // the app's secret, and never leaves it.
+      if (url.pathname === "/fake/events" && request.method === "POST") {
+        const input = (await request.json()) as {
+          url?: unknown;
+          app_id?: unknown;
+          event?: Record<string, unknown>;
+          event_id?: string;
+          team_id?: string;
+          age_seconds?: number;
+          retry_num?: number;
+          challenge?: string;
+        };
+        if (
+          typeof input.url !== "string" ||
+          !/^https?:\/\//.test(input.url) ||
+          typeof input.app_id !== "string" ||
+          !apps.has(input.app_id)
+        ) {
+          return Response.json(
+            { ok: false, error: "invalid_request" },
+            { status: 400 },
+          );
+        }
+        const sent = await sendEvent({
+          url: input.url,
+          appId: input.app_id,
+          ...(input.event === undefined ? {} : { event: input.event }),
+          ...(input.event_id === undefined ? {} : { eventId: input.event_id }),
+          ...(input.team_id === undefined ? {} : { teamId: input.team_id }),
+          ...(input.age_seconds === undefined
+            ? {}
+            : { ageSeconds: input.age_seconds }),
+          ...(input.retry_num === undefined
+            ? {}
+            : { retryNum: input.retry_num }),
+          ...(input.challenge === undefined
+            ? {}
+            : { challenge: input.challenge }),
+        });
+        return Response.json({
+          ok: true,
+          status: sent.status,
+          body: sent.body,
+          event_id: sent.eventId,
+        });
       }
       const method = url.pathname.startsWith("/api/")
         ? url.pathname.slice("/api/".length)
@@ -292,6 +413,41 @@ export function createFakeSlackWebApi(
         return Response.json({ ok: false, error: error.code });
       }
     },
+  };
+}
+
+/** Slack's `v0` signature headers for a body, made with an app's secret. */
+export function signSlackRequest(
+  signingSecret: string,
+  body: string,
+  timestampSeconds: number,
+): Record<string, string> {
+  const timestamp = String(timestampSeconds);
+  const signature = `v0=${createHmac("sha256", signingSecret)
+    .update(`v0:${timestamp}:${body}`)
+    .digest("hex")}`;
+  return {
+    "X-Slack-Request-Timestamp": timestamp,
+    "X-Slack-Signature": signature,
+  };
+}
+
+/** An `event_callback` envelope as Slack sends it. */
+export function slackEventEnvelope(input: {
+  appId: string;
+  teamId: string;
+  event: Record<string, unknown>;
+  eventId?: string;
+  eventTime?: number;
+}) {
+  return {
+    token: hex(12),
+    team_id: input.teamId,
+    api_app_id: input.appId,
+    event: input.event,
+    type: "event_callback",
+    event_id: input.eventId ?? `Ev${hex(6).toUpperCase()}`,
+    event_time: input.eventTime ?? Math.floor(Date.now() / 1000),
   };
 }
 

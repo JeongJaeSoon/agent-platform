@@ -157,6 +157,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/agents/{id}/slack/install/start",
     "POST /v1/slack/install/complete",
   ],
+  "routes/slack-events.test.ts": ["POST /v1/slack/events/{agent_id}"],
 };
 
 // Declared for clients but produced by nothing yet: alpha never trims

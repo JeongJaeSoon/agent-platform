@@ -414,8 +414,9 @@ function MemberTable({
                         type="button"
                         className={cn(
                           linkVariants(),
-                          // v4 .strong: weight 500, not the list's 600.
-                          "flex min-w-0 max-w-full text-left font-medium group-data-[disabled=true]:text-muted-foreground",
+                          // v4 .strong: body text at weight 500, not link blue;
+                          // blue stays for links that move (→).
+                          "flex min-w-0 max-w-full text-left font-medium text-foreground group-data-[disabled=true]:text-muted-foreground",
                         )}
                         aria-label={t("members.editFor", {
                           name: member.display_name,

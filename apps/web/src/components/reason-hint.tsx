@@ -28,8 +28,7 @@ export function ReasonHint({
           <Button
             type="button"
             variant="ghost"
-            size="icon"
-            className="size-[var(--ap-control-height-sm)]"
+            size="icon-sm"
             aria-label={label}
           >
             <Info aria-hidden="true" />

@@ -3,7 +3,9 @@
 # The public listener only; the authorizer Service is never routed. Only the
 # api's public paths (apps/control-host/src/api/app.ts): /internal is the
 # workers' gateway, which they reach through the egress proxy.
-{{- $paths := list (list "/v1" "Prefix") (list "/docs" "Prefix") (list "/healthz" "Exact") (list "/readyz" "Exact") }}
+# /v1 already covers /v1/slack/events; it is listed on its own so an
+# internet-facing entrance for Slack can copy that one rule.
+{{- $paths := list (list "/v1" "Prefix") (list "/v1/slack/events" "Prefix") (list "/docs" "Prefix") (list "/healthz" "Exact") (list "/readyz" "Exact") }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

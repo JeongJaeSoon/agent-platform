@@ -113,6 +113,16 @@ export interface SlackAppStore {
   /** Slack refused the creation: no app exists. */
   failCreate(workspaceId: string, slackAppId: string): Promise<void>;
   find(workspaceId: string, slackAppId: string): Promise<SlackAppRecord | null>;
+  /**
+   * The agent's `created` agent app, whatever workspace holds it: the
+   * events route knows only the agent id in its path.
+   */
+  findAgentApp(agentId: string): Promise<SlackAppRecord | null>;
+  /** The agent as its manifest describes it now; null when it is gone. */
+  manifestAgent(
+    workspaceId: string,
+    agentId: string,
+  ): Promise<SlackAppAgent | null>;
   /** The agent's live app (creating, created or deleting), if any. */
   findForAgent(
     workspaceId: string,

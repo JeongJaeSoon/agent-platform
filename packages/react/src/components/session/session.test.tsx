@@ -13,6 +13,9 @@ const { render } = await setupDom();
 // After setupDom: these load @werft-ai/ui, whose Radix decides at import time
 // whether a DOM exists.
 const { SESSION_COLUMNS, SessionRow } = await import("./session-row.tsx");
+const { SESSION_OVERVIEW_COLUMNS, SessionOverviewRow, SessionOverviewTable } =
+  await import("./session-overview.tsx");
+const { StatusLabel } = await import("../status/status-label.tsx");
 const { StageIndicator } = await import("./stage-indicator.tsx");
 const { Timeline } = await import("./timeline.tsx");
 
@@ -356,5 +359,145 @@ describe("SessionRow", () => {
       ["session", "neutral"],
       ["admission", "caution"],
     ]);
+  });
+});
+
+const OVERVIEW_MESSAGES = {
+  status: (status: string) => `status:${status}`,
+  statusAxis: "work",
+  noRepository: "no repository",
+  unknown: "—",
+  recent: "recent",
+};
+
+describe("SessionOverviewRow", () => {
+  test("열 정의는 폭마다 떨어진 class 하나씩이다", () => {
+    expect(SESSION_OVERVIEW_COLUMNS.split(" ")).toEqual([
+      "grid",
+      expect.stringMatching(/^grid-cols-\[[^\s@]+\]$/),
+      expect.stringMatching(/^@\[820px\]:grid-cols-\[[^\s@]+\]$/),
+    ]);
+  });
+
+  test("제목이 있으면 제목이 링크이고 그 아래 짧은 ID 8자리를 둔다", () => {
+    const { getByRole, getByText } = render(
+      <SessionOverviewRow
+        session={{ ...SESSION, title: "hello.txt 만들고 commit" }}
+        renderLink={(link) => <a href="/sessions/abc" {...link} />}
+        messages={OVERVIEW_MESSAGES}
+        statusDetail="12분"
+        renderTime={(at) => <time dateTime={at}>12분 전</time>}
+      />,
+    );
+    const link = getByRole("link", { name: "hello.txt 만들고 commit" });
+    expect(link.className).toContain("after:inset-0");
+    expect(link.className).not.toContain("font-mono");
+    expect(getByText(SESSION.id.slice(0, 8)).getAttribute("title")).toBe(
+      SESSION.id,
+    );
+    expect(getByText("model-claude-default")).toBeTruthy();
+    expect(getByText("no repository")).toBeTruthy();
+    const row = link.closest('[role="row"]') as HTMLElement;
+    expect(row.textContent).toContain("work: status:running · 12분");
+    expect(row.querySelector("time")?.textContent).toBe("12분 전");
+  });
+
+  test("저장소는 표시 이름 · branch로, 이름이 없으면 —로, 옛 서버면 catalog key로 보인다", () => {
+    const cases = [
+      [
+        { id: "demo", full_name: "agent/sample-app", branch: "main" },
+        "demo",
+        "agent/sample-app · main",
+      ],
+      [{ id: null, full_name: null, branch: "dev" }, null, "— · dev"],
+      [null, "demo", "demo"],
+    ] as const;
+    for (const [repository, repository_id, shown] of cases) {
+      const { getByTitle, unmount } = render(
+        <SessionOverviewRow
+          session={{ ...SESSION, repository, repository_id }}
+          renderLink={(link) => <a href="/sessions/abc" {...link} />}
+          messages={OVERVIEW_MESSAGES}
+        />,
+      );
+      expect(getByTitle(shown).textContent).toBe(shown);
+      unmount();
+    }
+  });
+
+  test("제목이 없으면 짧은 ID를 mono로 보이고 링크 이름은 전체 ID다", () => {
+    const { getByRole, queryAllByText } = render(
+      <SessionOverviewRow
+        session={{ ...SESSION, runtime: null, repository_id: "demo" }}
+        renderLink={(link) => <a href="/sessions/abc" {...link} />}
+        messages={OVERVIEW_MESSAGES}
+      />,
+    );
+    const link = getByRole("link", { name: SESSION.id });
+    expect(link.textContent).toBe(SESSION.id.slice(0, 8));
+    expect(link.className).toContain("font-mono");
+    // No runtime yet: the model column says so rather than guess.
+    expect(queryAllByText("—")).toHaveLength(1);
+    expect(queryAllByText(SESSION.id.slice(0, 8))).toHaveLength(1);
+    // No last event yet: the time is the creation time, absolute.
+    expect(link.closest('[role="row"]')?.querySelector("time")?.dateTime).toBe(
+      SESSION.created_at,
+    );
+  });
+
+  test("표 머리는 값이 있는 다섯 열이고 좁은 폭에서 저장소를 숨긴다", () => {
+    const { getAllByRole } = render(
+      <SessionOverviewTable
+        label="sessions"
+        messages={{
+          session: "세션",
+          status: "상태",
+          model: "모델",
+          repository: "저장소",
+          recent: "최근",
+        }}
+      >
+        {null}
+      </SessionOverviewTable>,
+    );
+    const heads = getAllByRole("columnheader");
+    expect(heads.map((head) => head.textContent)).toEqual([
+      "세션",
+      "상태",
+      "모델",
+      "저장소",
+      "최근",
+    ]);
+    expect(
+      heads.filter((head) => head.className.includes("hidden")),
+    ).toHaveLength(1);
+  });
+});
+
+describe("StatusLabel dot", () => {
+  test("점은 배지 없이 색 점과 글자이고 작업 중은 회전 테다", () => {
+    const { container } = render(
+      <>
+        <StatusLabel
+          appearance="dot"
+          axis="session"
+          state="needs_input"
+          detail="12분"
+        />
+        <StatusLabel appearance="dot" axis="session" state="running" />
+      </>,
+    );
+    const [waiting, running] = [...container.children] as HTMLElement[];
+    expect(waiting?.className).not.toContain("ap-status");
+    expect(waiting?.getAttribute("data-tone")).toBe("attention");
+    expect(waiting?.textContent).toBe("작업: 답변 대기 · 12분");
+    const ring = running?.querySelector('[aria-hidden="true"]');
+    expect(ring?.getAttribute("data-animated")).toBe("true");
+    expect(ring?.className).toContain("border-r-transparent");
+  });
+
+  test("기본은 지금처럼 배지다", () => {
+    const { container } = render(<StatusLabel axis="session" state="idle" />);
+    expect(container.querySelector(".ap-status")).toBeTruthy();
   });
 });
