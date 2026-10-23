@@ -8,14 +8,21 @@ import type {
   RevokeCredentialBindingResponse,
 } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
-import { Button, ConfirmDialog, cn, EmptyState } from "@werft-ai/ui";
+import {
+  Button,
+  ConfirmDialog,
+  cn,
+  EmptyState,
+  RowLines,
+  RowList,
+  RowListItem,
+} from "@werft-ai/ui";
 import { type ReactNode, type RefObject, useId, useState } from "react";
 import { queryKeys } from "../../api/queries.ts";
 import { permissionReason, useRole } from "../../auth/guard.tsx";
 import { LoadFailure } from "../../components/load-failure.tsx";
 import type { Outcome } from "../../components/outcome.tsx";
 import { StatusScreen } from "../../components/status-screen.tsx";
-import { RowLines, RowList, RowListItem } from "../../components/table.tsx";
 import { type Translate, useI18n } from "../../i18n/i18n.tsx";
 import { agentRefusal } from "../agents.tsx";
 import {

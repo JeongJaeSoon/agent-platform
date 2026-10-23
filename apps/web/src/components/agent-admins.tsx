@@ -6,7 +6,13 @@ import type {
   AgentAdminKind,
 } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
-import { ConfirmDialog, EmptyState } from "@werft-ai/ui";
+import {
+  ConfirmDialog,
+  EmptyState,
+  RowList,
+  RowListItem,
+  Link as TextLink,
+} from "@werft-ai/ui";
 import { useId, useState } from "react";
 import {
   administeredAgentsQuery,
@@ -28,6 +34,11 @@ import { useI18n } from "../i18n/i18n.tsx";
 import { LoadFailure } from "./load-failure.tsx";
 import type { Outcome } from "./outcome.tsx";
 import { StatusScreen } from "./status-screen.tsx";
+
+// Lines that wrap on a narrow screen sit a line gap apart, not RowListItem's 8px.
+const ADMIN_ROW = "gap-y-[var(--ap-row-line-gap)]";
+const PRIMARY = "font-semibold [overflow-wrap:anywhere]";
+const SECONDARY = "text-caption text-muted-foreground [overflow-wrap:anywhere]";
 
 /**
  * Who administers an agent: people and teams (design 4.1). Owners and admins
@@ -194,18 +205,18 @@ function AdminList({
       {admins.data.users.length + admins.data.teams.length === 0 ? (
         <EmptyState title={t("agentAdmins.empty")} />
       ) : (
-        <ul className="web-list">
+        <RowList>
           {admins.data.users.map((user) => {
             const name = user.display_name ?? user.email;
             return (
-              <li key={`u:${user.user_id}`} className="web-list__item">
-                <span className="web-table__primary">{name}</span>
-                <span className="web-table__secondary">
+              <RowListItem key={`u:${user.user_id}`} className={ADMIN_ROW}>
+                <span className={PRIMARY}>{name}</span>
+                <span className={SECONDARY}>
                   {t("agentAdmins.person")} · {user.email}
                 </span>
                 <button
                   type="button"
-                  className="ap-button"
+                  className="ap-button ml-auto"
                   disabled={change.isPending}
                   aria-label={t("agentAdmins.removeFor", { name })}
                   onClick={() =>
@@ -214,18 +225,16 @@ function AdminList({
                 >
                   {t("agentAdmins.remove")}
                 </button>
-              </li>
+              </RowListItem>
             );
           })}
           {admins.data.teams.map((row) => (
-            <li key={`t:${row.team_id}`} className="web-list__item">
-              <span className="web-table__primary">{row.name}</span>
-              <span className="web-table__secondary">
-                {t("agentAdmins.team")}
-              </span>
+            <RowListItem key={`t:${row.team_id}`} className={ADMIN_ROW}>
+              <span className={PRIMARY}>{row.name}</span>
+              <span className={SECONDARY}>{t("agentAdmins.team")}</span>
               <button
                 type="button"
-                className="ap-button"
+                className="ap-button ml-auto"
                 disabled={change.isPending}
                 aria-label={t("agentAdmins.removeFor", { name: row.name })}
                 onClick={() =>
@@ -238,9 +247,9 @@ function AdminList({
               >
                 {t("agentAdmins.remove")}
               </button>
-            </li>
+            </RowListItem>
           ))}
-        </ul>
+        </RowList>
       )}
       <form
         className="web-form web-form--inline"
@@ -376,20 +385,18 @@ export function AdministeredAgents({
       ) : (
         <>
           <p className="web-field__hint">{t("agentAdmins.mine.intro")}</p>
-          <ul className="web-list">
+          <RowList>
             {items.map((agent) => (
-              <li key={agent.id} className="web-list__item">
-                <Link
-                  to="/agents/$id"
-                  params={{ id: agent.id }}
-                  className="web-table__primary"
-                >
-                  {agent.name}
-                </Link>
-                <span className="web-table__secondary">{agent.slug}</span>
-              </li>
+              <RowListItem key={agent.id} className={ADMIN_ROW}>
+                <TextLink asChild className={PRIMARY}>
+                  <Link to="/agents/$id" params={{ id: agent.id }}>
+                    {agent.name}
+                  </Link>
+                </TextLink>
+                <span className={`${SECONDARY} ml-auto`}>{agent.slug}</span>
+              </RowListItem>
             ))}
-          </ul>
+          </RowList>
           {items.length >= ADMINISTERED_LIST_LIMIT ? (
             <p className="web-field__hint">
               {t("agentAdmins.mine.truncated", {

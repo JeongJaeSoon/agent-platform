@@ -23,8 +23,6 @@ export function AuthPage({
   );
 }
 
-export const LINK = "text-primary underline underline-offset-2";
-
 export function FormError({ children }: { readonly children: ReactNode }) {
   return (
     <p className="m-0 text-destructive" role="alert">
