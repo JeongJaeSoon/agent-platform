@@ -663,7 +663,10 @@ export function createFakeSlackConfigApi(options?: {
 }
 
 /** Install links and installs, as the Postgres store keeps them. */
-export function createMemorySlackInstallStore() {
+export function createMemorySlackInstallStore(
+  options: { now?: () => Date } = {},
+) {
+  const now = options.now ?? (() => new Date());
   const states = new Map<string, SlackInstallState>();
   const installations = new Map<
     string,
@@ -672,6 +675,7 @@ export function createMemorySlackInstallStore() {
       workspaceId: string;
       status: "pending" | "verified" | "revoked";
       botUserId: string | null;
+      verifiedAt: Date | null;
     }
   >();
   const hex = (hash: Uint8Array) => Buffer.from(hash).toString("hex");
@@ -698,14 +702,26 @@ export function createMemorySlackInstallStore() {
         workspaceId: input.workspaceId,
         status: "pending" as const,
         botUserId: null,
+        verifiedAt: null,
       };
-      Object.assign(row, { status: "verified", botUserId: input.botUserId });
+      Object.assign(row, {
+        status: "verified",
+        botUserId: input.botUserId,
+        verifiedAt: now(),
+      });
       installations.set(key, row);
       return { outcome: "verified", installationId: row.id };
     },
-    async revokeInstallation(key) {
+    async revokeInstallation(key, sentAt) {
       const row = installations.get(`${key.appId}|${key.teamId}`);
       if (!row) return "not_found";
+      if (
+        sentAt &&
+        row.verifiedAt &&
+        row.verifiedAt.getTime() >= sentAt.getTime() + 1000
+      ) {
+        return "superseded";
+      }
       row.status = "revoked";
       return "revoked";
     },

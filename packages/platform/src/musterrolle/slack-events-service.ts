@@ -6,6 +6,7 @@ import {
   type SlackEventCallback,
   type SlackInboundDropReason,
   type SlackInboundEventStatus,
+  slackEventCallbackSchema,
   slackEventEnvelopeSchema,
   slackUrlVerificationSchema,
 } from "@werft-ai/contracts";
@@ -158,9 +159,14 @@ export function createSlackEventsService(deps: {
       if (event.type === "tokens_revoked" && !hasBotTokens(event)) {
         return { status: "dropped", dropReason: "user_tokens_only" };
       }
-      return (await deps.installs.revokeInstallation(key)) === "revoked"
-        ? { status: "processed" }
-        : { status: "dropped", dropReason: "not_installed" };
+      const sentAt =
+        envelope.event_time === undefined
+          ? null
+          : new Date(envelope.event_time * 1000);
+      return (await deps.installs.revokeInstallation(key, sentAt)) ===
+        "not_found"
+        ? { status: "dropped", dropReason: "not_installed" }
+        : { status: "processed" };
     }
     const resolved = await agentForSlackEvent(deps.identities, {
       ...key,
@@ -226,7 +232,10 @@ export function createSlackEventsService(deps: {
       if (parsed.data.type !== "event_callback") {
         return { kind: "ack", result: "ignored" };
       }
-      const envelope = parsed.data as SlackEventCallback;
+      // A malformed callback also matches the catch-all envelope member.
+      const callback = slackEventCallbackSchema.safeParse(parsed.data);
+      if (!callback.success) return { kind: "bad_request" };
+      const envelope: SlackEventCallback = callback.data;
       const ids = { eventId: envelope.event_id, teamId: envelope.team_id };
       if (await deps.inbox.seen(envelope.team_id, envelope.event_id)) {
         return { kind: "ack", result: "duplicate", ...ids };

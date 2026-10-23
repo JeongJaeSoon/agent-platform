@@ -205,4 +205,31 @@ integration("slack_inbound_events on PostgreSQL", () => {
       }),
     ).toBe("not_found");
   });
+
+  test("revokeInstallation leaves an install verified after the report was sent", async () => {
+    const app = await agentApp();
+    const installs = createPostgresSlackInstallStore(db);
+    const teamId = slackId("T");
+    const key = { appId: app.appId, teamId };
+    await installs.recordInstallation({
+      workspaceId: app.workspaceId,
+      ...key,
+      botUserId: slackId("U"),
+    });
+    const before = new Date(Date.now() - 60_000);
+    expect(await installs.revokeInstallation(key, before)).toBe("superseded");
+    const [kept] = await db
+      .select({ status: slackInstallations.status })
+      .from(slackInstallations)
+      .where(eq(slackInstallations.appId, app.appId));
+    expect(kept?.status).toBe("verified");
+    const after = new Date(Date.now() + 60_000);
+    expect(await installs.revokeInstallation(key, after)).toBe("revoked");
+    expect(
+      await installs.revokeInstallation(
+        { appId: app.appId, teamId: slackId("T") },
+        after,
+      ),
+    ).toBe("not_found");
+  });
 });

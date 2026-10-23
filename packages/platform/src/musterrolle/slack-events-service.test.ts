@@ -77,10 +77,10 @@ function world(options: { linkTo?: string; withSecret?: boolean } = {}) {
       return apps.store.findAgentApp(agentId);
     },
   };
-  const installs = createMemorySlackInstallStore();
+  let clock = NOW;
+  const installs = createMemorySlackInstallStore({ now: () => clock });
   const identities = createMemoryAgentIdentityStore(installs.installations);
   const inbox = createMemorySlackInboundEventStore();
-  let clock = NOW;
   const signingSecrets = createSlackSigningSecrets({
     apps: counted,
     secrets: secrets.store,
@@ -140,13 +140,19 @@ function world(options: { linkTo?: string; withSecret?: boolean } = {}) {
 
   const event = (
     fields: Record<string, unknown>,
-    envelope: Partial<{ appId: string; teamId: string; eventId: string }> = {},
+    envelope: Partial<{
+      appId: string;
+      teamId: string;
+      eventId: string;
+      eventTime: number;
+    }> = {},
   ) =>
     JSON.stringify(
       slackEventEnvelope({
         appId: envelope.appId ?? APP_ID,
         teamId: envelope.teamId ?? TEAM,
         event: fields,
+        eventTime: envelope.eventTime ?? NOW_SECONDS,
         ...(envelope.eventId ? { eventId: envelope.eventId } : {}),
       }),
     );
@@ -402,6 +408,20 @@ describe("Slack events service", () => {
     }
   });
 
+  test("an uninstall sent before the last install verified leaves that install", async () => {
+    const w = world();
+    await w.install();
+    const late = await w.service.receive(
+      w.signed(
+        w.event({ type: "app_uninstalled" }, { eventTime: NOW_SECONDS - 60 }),
+      ),
+    );
+    expect(late).toMatchObject({ status: "processed" });
+    expect(w.installs.installations.get(`${APP_ID}|${TEAM}`)?.status).toBe(
+      "verified",
+    );
+  });
+
   test("tokens_revoked for user tokens only leaves the install", async () => {
     const w = world();
     await w.install();
@@ -429,7 +449,17 @@ describe("Slack events service", () => {
 
   test("a signed body that is not an envelope is a bad request", async () => {
     const w = world();
-    for (const body of ["not json", "[]", JSON.stringify({ type: 3 })]) {
+    const callback = JSON.parse(w.event(MENTION));
+    const { team_id: _, ...noTeam } = callback;
+    for (const body of [
+      "not json",
+      "[]",
+      JSON.stringify({ type: 3 }),
+      JSON.stringify(noTeam),
+      JSON.stringify({ ...callback, event_id: "E".repeat(65) }),
+      JSON.stringify({ ...callback, event: undefined }),
+      JSON.stringify({ ...callback, event: { ...callback.event, user: 7 } }),
+    ]) {
       expect(await w.service.receive(w.signed(body))).toEqual({
         kind: "bad_request",
       });
