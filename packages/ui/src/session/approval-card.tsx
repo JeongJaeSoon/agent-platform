@@ -129,33 +129,36 @@ export function ApprovalCard({
         >
           {messages.title(request.tool)}
         </p>
+        {/* Each separator wraps with the item after it, never left trailing. */}
         {subject === undefined ? null : (
-          <>
+          <span className="flex min-w-0 items-center gap-2">
             <span aria-hidden="true" className="text-muted-foreground">
               ·
             </span>
             <span className="min-w-0 text-caption [overflow-wrap:anywhere]">
               {subject}
             </span>
-          </>
+          </span>
         )}
-        <span aria-hidden="true" className="text-muted-foreground">
-          ·
+        <span className="flex items-center gap-2">
+          <span aria-hidden="true" className="text-muted-foreground">
+            ·
+          </span>
+          <p
+            ref={noticeRef}
+            tabIndex={expired ? -1 : undefined}
+            className="text-muted-foreground text-caption"
+          >
+            {expired
+              ? messages.expired
+              : messages.expires(formatTimestamp(request.expires_at, locale))}
+          </p>
         </span>
-        <p
-          ref={noticeRef}
-          tabIndex={expired ? -1 : undefined}
-          className="text-muted-foreground text-caption"
-        >
-          {expired
-            ? messages.expired
-            : messages.expires(formatTimestamp(request.expires_at, locale))}
-        </p>
       </div>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <details className="min-w-0 flex-1 basis-40">
           {/* As tall as the buttons beside it, so the two read as one line. */}
-          <summary className="flex h-[var(--ap-control-height)] cursor-pointer items-center text-muted-foreground text-caption">
+          <summary className="cursor-pointer text-muted-foreground text-caption leading-[var(--ap-control-height)]">
             {messages.input}
           </summary>
           <pre className="mt-2 max-h-60 overflow-auto rounded-control bg-card p-2 font-mono text-caption">
