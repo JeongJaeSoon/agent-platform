@@ -331,8 +331,13 @@ switch (cmd) {
     const token = readFileSync(`${userFile(args[0])}.invite`, "utf8");
     const c = JSON.parse(readFileSync(userFile(args[0]), "utf8"));
     await navigate(`/invite/${token}`);
+    // Step 1 asks whether the account exists; the second button is "new".
+    await evaluate(
+      `document.querySelector('main section[aria-labelledby] button:last-of-type')?.click()`,
+    );
+    await settle();
+    await fill("input[name=display_name]", `Verify ${args[0]}`);
     await fill("input[name=password]", c.password);
-    await fill("input[name=name]", `Verify ${args[0]}`);
     await submit();
     console.log(`accept ${args[0]} -> ${await here()}`);
     break;
