@@ -68,6 +68,7 @@ const catalog: SessionCatalog = {
 
 const record: SessionDetailRecord = {
   id: sessionId,
+  title: null,
   revision: 7,
   admission_state: "active",
   status: "idle",
@@ -124,6 +125,7 @@ function change(
       decideRecoveryAtomic: notReached,
       resumeAtomic: notReached,
       changeProfileAtomic,
+      renameAtomic: notReached,
     },
     reader: {
       listSessions: notReached,
