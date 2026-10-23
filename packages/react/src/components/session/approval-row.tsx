@@ -1,4 +1,5 @@
 import {
+  Badge,
   Button,
   cn,
   Field,
@@ -11,6 +12,7 @@ import { Hourglass } from "lucide-react";
 import {
   type FormEvent,
   type JSX,
+  type ReactNode,
   useEffect,
   useId,
   useRef,
@@ -34,6 +36,14 @@ export interface ApprovalRowMessages extends ApprovalCardMessages {
 
 export interface ApprovalRowProps extends Omit<ApprovalCardProps, "messages"> {
   readonly messages: ApprovalRowMessages;
+  /**
+   * Draws the row as a list line under its session: this on the first line
+   * with the request as a badge, `meta` and the expiry below. `subject` is
+   * then not shown.
+   */
+  readonly heading?: ReactNode;
+  /** The second line's lead, such as the session's short id and its wait. */
+  readonly meta?: ReactNode;
 }
 
 function inputText(input: unknown): string {
@@ -60,6 +70,8 @@ export function ApprovalRow({
   now = Date.now(),
   locale = "ko",
   subject,
+  heading,
+  meta,
   className,
 }: ApprovalRowProps): JSX.Element {
   const titleId = useId();
@@ -83,6 +95,32 @@ export function ApprovalRow({
     }
   }, [denying]);
 
+  const notice = (
+    <p
+      ref={noticeRef}
+      tabIndex={expired ? -1 : undefined}
+      className="text-muted-foreground text-caption"
+    >
+      {expired
+        ? messages.expired
+        : messages.expires(formatTimestamp(request.expires_at, locale))}
+    </p>
+  );
+  const inputToggle = (
+    <details
+      className="min-w-0"
+      onToggle={(event) => setInputOpen(event.currentTarget.open)}
+    >
+      <summary
+        // Only while open: a closed input is not in the DOM to name.
+        aria-controls={inputOpen ? inputId : undefined}
+        className="cursor-pointer text-muted-foreground text-caption"
+      >
+        {messages.input}
+      </summary>
+    </details>
+  );
+
   const submitDenial = (event: FormEvent) => {
     event.preventDefault();
     const trimmed = reason.trim();
@@ -96,70 +134,86 @@ export function ApprovalRow({
       data-slot="approval-row"
       data-expired={expired || undefined}
       className={cn(
-        "flex min-h-[var(--ap-row-min-height)] min-w-0 flex-col gap-3 rounded-card border border-[var(--ap-tone-attention-border)] bg-[var(--ap-tone-attention-bg)] px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)] text-control",
+        "flex min-h-[var(--ap-row-min-height)] min-w-0 flex-col gap-3 px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)] text-control",
+        // A list line sits in its list's frame; a lone row carries its own.
+        heading === undefined &&
+          "rounded-card border border-[var(--ap-tone-attention-border)] bg-[var(--ap-tone-attention-bg)]",
         className,
       )}
       {...within}
     >
-      <div className="flex flex-wrap items-start justify-end gap-x-4 gap-y-2">
+      <div
+        className={cn(
+          "flex flex-wrap justify-end gap-x-4 gap-y-2",
+          heading === undefined ? "items-start" : "items-center",
+        )}
+      >
         {/* At least the buttons' height, centred, so the two read as one
             line; wrapped lines keep their own height. */}
-        <div className="flex min-h-[var(--ap-control-height)] min-w-0 flex-1 basis-60 flex-wrap content-center items-center gap-x-4 gap-y-1">
-          <div className="flex min-w-0 flex-wrap items-center gap-x-2">
-            <Hourglass
-              className="size-4 shrink-0"
-              strokeWidth={1.5}
-              aria-hidden="true"
-            />
-            {/* Not a heading: the level depends on the screen around the row. */}
-            <p
-              id={titleId}
-              className="font-semibold text-body [overflow-wrap:anywhere]"
-            >
-              {messages.title(request.tool)}
-            </p>
-            {/* Each separator wraps with the item after it, never left trailing. */}
-            {subject === undefined ? null : (
-              <span className="flex min-w-0 items-center gap-2">
+        {heading === undefined ? (
+          <div className="flex min-h-[var(--ap-control-height)] min-w-0 flex-1 basis-60 flex-wrap content-center items-center gap-x-4 gap-y-1">
+            <div className="flex min-w-0 flex-wrap items-center gap-x-2">
+              <Hourglass
+                className="size-4 shrink-0"
+                strokeWidth={1.5}
+                aria-hidden="true"
+              />
+              {/* Not a heading: the level depends on the screen around the row. */}
+              <p
+                id={titleId}
+                className="font-semibold text-body [overflow-wrap:anywhere]"
+              >
+                {messages.title(request.tool)}
+              </p>
+              {/* Each separator wraps with the item after it, never left trailing. */}
+              {subject === undefined ? null : (
+                <span className="flex min-w-0 items-center gap-2">
+                  <span aria-hidden="true" className="text-muted-foreground">
+                    ·
+                  </span>
+                  <span className="min-w-0 text-caption [overflow-wrap:anywhere]">
+                    {subject}
+                  </span>
+                </span>
+              )}
+              <span className="flex items-center gap-2">
                 <span aria-hidden="true" className="text-muted-foreground">
                   ·
                 </span>
-                <span className="min-w-0 text-caption [overflow-wrap:anywhere]">
-                  {subject}
-                </span>
+                {notice}
               </span>
-            )}
-            <span className="flex items-center gap-2">
-              <span aria-hidden="true" className="text-muted-foreground">
-                ·
-              </span>
-              <p
-                ref={noticeRef}
-                tabIndex={expired ? -1 : undefined}
-                className="text-muted-foreground text-caption"
-              >
-                {expired
-                  ? messages.expired
-                  : messages.expires(
-                      formatTimestamp(request.expires_at, locale),
-                    )}
-              </p>
-            </span>
+            </div>
+            {/* The input opens below the whole line, so the summary stays put. */}
+            {inputToggle}
           </div>
-          {/* The input opens below the whole line, so the summary stays put. */}
-          <details
-            className="min-w-0"
-            onToggle={(event) => setInputOpen(event.currentTarget.open)}
-          >
-            <summary
-              // Only while open: a closed input is not in the DOM to name.
-              aria-controls={inputOpen ? inputId : undefined}
-              className="cursor-pointer text-muted-foreground text-caption"
+        ) : (
+          <div className="flex min-w-0 flex-1 basis-60 flex-col gap-0.5">
+            <p
+              id={titleId}
+              className="flex min-w-0 items-center gap-2 font-medium text-control leading-5"
             >
-              {messages.input}
-            </summary>
-          </details>
-        </div>
+              <span className="min-w-0 truncate">{heading}</span>
+              <Badge variant="amber" className="shrink-0">
+                {messages.title(request.tool)}
+              </Badge>
+            </p>
+            {/* A space either side of each dot, as inside `meta`; each dot
+                wraps with the item after it, never left trailing. */}
+            <div className="flex min-w-0 flex-wrap items-center gap-x-1 text-caption text-muted-foreground leading-4">
+              {meta === undefined ? null : (
+                <span className="min-w-0 [overflow-wrap:anywhere]">{meta}</span>
+              )}
+              <span className="flex items-center gap-1">
+                {meta === undefined ? null : <span aria-hidden="true">·</span>}
+                {notice}
+              </span>
+              <span className="flex items-center gap-1">
+                <span aria-hidden="true">·</span>
+                {inputToggle}
+              </span>
+            </div>
+          </div>
+        )}
         {expired || denying ? null : (
           <div className="flex shrink-0 gap-2">
             <Button

@@ -10,6 +10,7 @@ const { render, waitFor } = await setupDom();
 // whether a DOM exists, for every later file in the run too.
 const { AgentPlatformProvider } = await import("../provider.tsx");
 const { ApprovalInbox } = await import("./approval-inbox.tsx");
+type ApprovalInboxProps = import("./approval-inbox.tsx").ApprovalInboxProps;
 
 const SESSION_ID = "0192f0c4-3d1e-4c7a-9b2f-5e6d7c8a9b01";
 const SHORT = SESSION_ID.slice(0, 8);
@@ -63,10 +64,16 @@ function renderInbox({
   open,
   layout,
   unavailable,
+  answerable = true,
+  title = null,
+  extra,
 }: {
   open: PendingRequest[];
   layout?: ApprovalLayout;
   unavailable?: { answer?: string };
+  answerable?: boolean;
+  title?: string | null;
+  extra?: Partial<ApprovalInboxProps>;
 }) {
   const posted: Posted[] = [];
   let items = open;
@@ -75,12 +82,14 @@ function renderInbox({
     const route = `${request.method} ${url.pathname}${url.search}`;
     if (route === "GET /v1/sessions?status=needs_input") {
       return json(200, {
-        items: items.length ? [{ id: SESSION_ID, status: "needs_input" }] : [],
+        items: items.length
+          ? [{ id: SESSION_ID, title, status: "needs_input" }]
+          : [],
         next_cursor: null,
       });
     }
     if (route === `GET /v1/sessions/${SESSION_ID}/pending-requests`) {
-      return json(200, { answerable: true, items });
+      return json(200, { answerable, items });
     }
     if (route === `POST /v1/sessions/${SESSION_ID}/answers`) {
       const body = JSON.parse(await request.text()) as {
@@ -112,6 +121,7 @@ function renderInbox({
           renderError={() => <p>failed</p>}
           layout={layout}
           unavailable={unavailable}
+          {...extra}
         />
       </AgentPlatformProvider>
     </QueryClientProvider>,
@@ -208,5 +218,87 @@ describe("ApprovalInbox", () => {
     })) as HTMLButtonElement;
     expect(allow.disabled).toBe(true);
     expect(view.getByText("needs sessions:approve")).toBeTruthy();
+  });
+  test("요약 배치는 세션 이름 아래 요청을 한 줄로 두고, 답은 그 자리에서 보낸다", async () => {
+    const user = await setupUser();
+    const view = renderInbox({
+      open: [permission("req_1", "Bash"), QUESTION],
+      layout: "summary",
+      title: "Fix README",
+      extra: {
+        title: "Requests waiting on you",
+        action: <a href="/sessions?status=needs_input">View all</a>,
+        now: Date.parse("2026-10-21T01:02:30.000Z"),
+      },
+    });
+    const { container, posted } = view;
+    await view.findByText("Permission request: Bash");
+    expect(view.getByRole("heading", { level: 2 }).textContent).toBe(
+      "Requests waiting on you",
+    );
+    expect(view.getByRole("link", { name: "View all" })).toBeTruthy();
+    const row = container.querySelector("[data-slot='approval-row']");
+    // One frame for the list; the line itself carries no card of its own.
+    expect(row?.className).not.toContain("rounded-card");
+    expect(
+      row?.closest("ul")?.parentElement?.closest("ul")?.className,
+    ).toContain("rounded-card");
+    const name = view.getAllByRole("link", {
+      name: "Open session Fix README",
+    });
+    expect(name[0]?.textContent).toBe("Fix README");
+    expect(row?.textContent).toContain(`${SHORT} · Waiting 3 min`);
+    // The question keeps its card, under a line of the same shape.
+    expect(container.querySelector("[data-slot='question-card']")).toBeTruthy();
+    expect(name).toHaveLength(2);
+    await user.click(
+      view.getByRole("button", { name: `Allow: Bash · ${SHORT}` }),
+    );
+    await waitFor(() => expect(posted).toHaveLength(1));
+    expect(posted[0]?.body).toEqual({
+      request_id: "req_1",
+      kind: "permission",
+      decision: "allow",
+    });
+  });
+
+  test("요약 배치에서 제목이 없는 세션은 짧은 ID로 부른다", async () => {
+    const view = renderInbox({
+      open: [permission("req_1", "Bash")],
+      layout: "summary",
+    });
+    await view.findByText("Permission request: Bash");
+    const link = view.getByRole("link", {
+      name: `Open session ${SESSION_ID}`,
+    });
+    expect(link.textContent).toBe(SHORT);
+  });
+
+  test("요약 배치에서 답할 수 없으면 이유가 줄 안에 한 번 붙고 버튼은 막힌다", async () => {
+    const view = renderInbox({
+      open: [permission("req_1", "Bash")],
+      layout: "summary",
+      answerable: false,
+    });
+    const allow = (await view.findByRole("button", {
+      name: `Allow: Bash · ${SHORT}`,
+    })) as HTMLButtonElement;
+    expect(allow.disabled).toBe(true);
+    const row = view.container.querySelector("[data-slot='approval-row']");
+    const reason = view.getAllByText(/can answer\./);
+    expect(reason).toHaveLength(1);
+    expect(row?.contains(reason[0] ?? null)).toBe(true);
+  });
+
+  test("기다리는 세션이 없으면 넘겨받은 빈 상태를, 없으면 기본 한 줄을 보인다", async () => {
+    const given = renderInbox({
+      open: [],
+      layout: "summary",
+      extra: { empty: <p>nothing to answer</p> },
+    });
+    await given.findByText("nothing to answer");
+    given.unmount();
+    const plain = renderInbox({ open: [], layout: "summary" });
+    await plain.findByText("No session is waiting for an answer.");
   });
 });
