@@ -253,6 +253,23 @@ echo '{"status":"ready"}'
     expect(docker).toContain(`${fakeUp} up -d --build`);
   });
 
+  test("an ephemeral loopback binding gets the demo accounts too", async () => {
+    await writeFile(
+      config,
+      JSON.stringify({
+        services: {
+          api: { ports: [{ host_ip: "127.0.0.1", target: 3000 }] },
+          scheduler: { environment: { EXECUTION_INSTALLATION_ID: "local" } },
+        },
+      }),
+    );
+    const result = await run(["up", "--fake-model"], {
+      STUB_API: "127.0.0.1:43123",
+    });
+    expect(result.exitCode).toBe(0);
+    expect(await calls("docker-calls")).toContain(seed(fakeUp));
+  });
+
   test("demo-accounts adds them to a running stack of either mode", async () => {
     await writeFile(config, rendered("local", ["43123"], ["::1"]));
     const result = await run(["demo-accounts"], { STUB_API: "[::1]:43123" });

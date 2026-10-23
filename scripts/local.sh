@@ -230,7 +230,8 @@ demo_accounts_refusal() {
     *) echo "Docker is not this machine's (${endpoint:-unknown endpoint})"; return ;;
   esac
   # Every binding the api publishes, not only the first `compose port` names.
-  bindings=$(rendered | jq -r '.services.api.ports[]? | select(.published)
+  # An ephemeral binding (127.0.0.1::3000) renders without .published.
+  bindings=$(rendered | jq -r '.services.api.ports[]?
     | if (.host_ip // "") == "" then "0.0.0.0" else .host_ip end') ||
     { echo "compose cannot render the stack"; return; }
   [ -n "$bindings" ] || { echo "the api publishes no port"; return; }
