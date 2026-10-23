@@ -417,12 +417,14 @@ integration("session share scopes over HTTP on PostgreSQL", () => {
     const answer = await surfaces.find(([s]) => s === "approval")?.[1](who);
     if (!answer) throw new Error("no approval surface");
     const { code, details } = await codeOf(answer);
-    return {
-      who,
-      listed,
-      answer: answer.status,
-      code,
-      reason: details?.reason_code,
+    const reason = (details as { reason_code?: string } | undefined)
+      ?.reason_code;
+    return { who, listed, answer: answer.status, code, reason } as {
+      who: Who;
+      listed: boolean | number;
+      answer: number;
+      code: string;
+      reason: string | undefined;
     };
   }
 
