@@ -22,7 +22,7 @@ export function HomeHero() {
           Quickstart
         </Link>
         <Link href="/sdk" className={`${button} border hover:bg-fd-accent`}>
-          TypeScript SDK (API 클라이언트)
+          TypeScript SDK
         </Link>
       </div>
     </div>
