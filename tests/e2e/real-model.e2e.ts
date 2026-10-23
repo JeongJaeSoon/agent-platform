@@ -186,10 +186,9 @@ test.each(PROFILE_IDS)(
     expect(spent).toBeGreaterThan(0);
     expect(spent).toBeLessThanOrEqual(Number(usage.cost_limit_usd));
     expect(usage.budget_exceeded).toBe(false);
-    const limits = await api.expect<{
-      limits: { session_cost_limit_usd: string };
-    }>(200, "GET", "/v1/limits");
-    expect(usage.cost_limit_usd).toBe(limits.limits.session_cost_limit_usd);
+    // /v1/limits is the signed-in owner's alone, so a key cannot compare the
+    // limit against it.
+    await api.expect(403, "GET", "/v1/limits");
 
     // One line for the run record.
     console.log(

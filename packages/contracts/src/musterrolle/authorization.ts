@@ -352,6 +352,9 @@ export const AUTHORIZATION_ACTION_VALUES = [
   "session.audit_read",
   // Every session's metadata, none of its content (design 4.6).
   "session.admin_list",
+  // Figures summed over every owner: GET /v1/limits and the installation
+  // usage summary (94S-762: the owner's alone).
+  "usage.installation_read",
   "memory.read",
   "memory.write",
   "artifact.read",
@@ -398,6 +401,7 @@ const ACTION_RESOURCE_KINDS: Record<
   "session.rename": new Set(["session"]),
   "session.audit_read": new Set(["session"]),
   "session.admin_list": new Set(["workspace"]),
+  "usage.installation_read": new Set(["workspace"]),
   "memory.read": new Set(["workspace", "agent", "memory"]),
   "memory.write": new Set(["workspace", "agent", "memory"]),
   "artifact.read": new Set(["artifact", "session"]),

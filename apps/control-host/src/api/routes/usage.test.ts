@@ -1,8 +1,5 @@
 import { expect, test } from "bun:test";
-import {
-  apiErrorResponseSchema,
-  installationLimitsResponseSchema,
-} from "@werft-ai/contracts";
+import { apiErrorResponseSchema } from "@werft-ai/contracts";
 import {
   createAuthorizationPolicy,
   createUsageService,
@@ -37,6 +34,9 @@ const app = createApiApp({
             storageUpdatedAt: null,
           }),
           sessionUsage: async () => null,
+          usageSummary: async () => {
+            throw new Error("not read in these tests");
+          },
         },
       }),
     ),
@@ -44,12 +44,37 @@ const app = createApiApp({
 
 const headers = { "X-Owner-Id": "owner-a" };
 
-test("serves the installation limits", async () => {
-  const response = await app.request("/v1/limits", { headers });
-  expect(response.status).toBe(200);
-  expect(
-    installationLimitsResponseSchema.safeParse(await response.json()).success,
-  ).toBe(true);
+// AUTH_MODE=none lets anyone name an owner, so nobody is the installation's
+// owner and nobody started a session of their own.
+test("refuses installation figures and a summary of one's own sessions under AUTH_MODE=none", async () => {
+  for (const path of [
+    "/v1/limits",
+    "/v1/usage/summary?scope=installation&since=2026-10-01",
+    "/v1/usage/summary?scope=me&since=2026-10-01",
+  ]) {
+    const response = await app.request(path, { headers });
+    expect(response.status, path).toBe(403);
+    expect(apiErrorResponseSchema.parse(await response.json()).error.code).toBe(
+      "FORBIDDEN",
+    );
+  }
+});
+
+test("answers 400 for a summary query it cannot read", async () => {
+  for (const query of [
+    "scope=me",
+    "scope=team&since=2026-10-01",
+    "scope=me&since=2026-10-01T00:00:00",
+    "scope=me&since=2026-10-02&until=2026-10-01",
+  ]) {
+    const response = await app.request(`/v1/usage/summary?${query}`, {
+      headers,
+    });
+    expect(response.status, query).toBe(400);
+    expect(apiErrorResponseSchema.parse(await response.json()).error.code).toBe(
+      "BAD_REQUEST",
+    );
+  }
 });
 
 test("answers 404 for an unknown or malformed session id", async () => {

@@ -93,6 +93,78 @@ export const sessionUsageResponseSchema = z
   })
   .strict();
 
+export const USAGE_SUMMARY_SCOPE_VALUES = ["installation", "me"] as const;
+
+// A calendar date is that day's 00:00 UTC; a timestamp with an offset is
+// moved to UTC. Either way the period is cut on UTC.
+const periodBoundSchema = z
+  .union([z.iso.date(), z.iso.datetime({ offset: true })])
+  .transform(
+    (value) => new Date(value.length === 10 ? `${value}T00:00:00Z` : value),
+  )
+  // An impossible day such as 2026-02-30 is no date; PostgreSQL has no year 0.
+  .pipe(z.date().min(new Date("0001-01-01T00:00:00Z")));
+
+/**
+ * GET /v1/usage/summary. `installation` sums every owner's sessions and is
+ * the installation owner's alone; `me` sums the sessions the caller started.
+ */
+export const usageSummaryQuerySchema = z
+  .object({
+    scope: z.enum(USAGE_SUMMARY_SCOPE_VALUES),
+    since: periodBoundSchema,
+    // Omitted: the moment the database reads the figures.
+    until: periodBoundSchema.optional(),
+  })
+  .superRefine((query, ctx) => {
+    if (query.since < (query.until ?? new Date())) return;
+    ctx.addIssue(
+      query.until === undefined
+        ? {
+            code: "custom",
+            message: "since must be in the past",
+            path: ["since"],
+          }
+        : {
+            code: "custom",
+            message: "until must be after since",
+            path: ["until"],
+          },
+    );
+  });
+
+/**
+ * A session counts in the period it was created in, so `cost_usd` is the sum
+ * of `GET /v1/sessions/{id}/usage` `cost.amount_usd` over the same sessions
+ * and `cost_complete` is false when any of them is.
+ */
+export const usageSummaryResponseSchema = z
+  .object({
+    scope: z.enum(USAGE_SUMMARY_SCOPE_VALUES),
+    // Half-open: since <= created_at < until.
+    period: z
+      .object({ since: timestampSchema, until: timestampSchema })
+      .strict(),
+    refreshed_at: timestampSchema,
+    session_count: countSchema,
+    cost_usd: costUsdSchema,
+    cost_complete: z.boolean(),
+    token_count: countSchema,
+    // Wall-clock time turns ran: an open turn counts up to `refreshed_at`.
+    run_seconds: countSchema,
+    basis: z
+      .object({
+        sessions: z.literal("created_in_period"),
+        cost: z.literal("provider_usage_estimate"),
+        run_time: z.literal("turn_wall_clock"),
+      })
+      .strict(),
+  })
+  .strict();
+
+export type UsageSummaryScope = (typeof USAGE_SUMMARY_SCOPE_VALUES)[number];
+export type UsageSummaryQuery = z.infer<typeof usageSummaryQuerySchema>;
+export type UsageSummaryResponse = z.infer<typeof usageSummaryResponseSchema>;
 export type InstallationLimitsResponse = z.infer<
   typeof installationLimitsResponseSchema
 >;
