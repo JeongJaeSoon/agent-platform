@@ -59,6 +59,8 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   push: "push",
   open_pull_request: "PR 열기",
   comment_pull_request: "PR 코멘트",
+  set_slack_secret: "Slack 비밀값 설정",
+  delete_slack_secret: "Slack 비밀값 삭제",
 };
 
 export type ReceiptTimestamps = Pick<Receipt, "created_at" | "updated_at">;
