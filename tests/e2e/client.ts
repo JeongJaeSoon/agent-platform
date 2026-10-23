@@ -66,11 +66,6 @@ export const write = (path: string, content: string): Step => ({
   input: { file_path: path, content },
 });
 
-export const read = (path: string): Step => ({
-  tool: "Read",
-  input: { file_path: path },
-});
-
 export type ApiResponse<T> = { body: T; headers: Headers; status: number };
 
 export type ErrorBody = {

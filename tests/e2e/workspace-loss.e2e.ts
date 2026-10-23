@@ -6,8 +6,8 @@ import {
   e2eEnv,
   NO_REPOSITORY_PROFILE_ID,
   poll,
-  read,
   type SessionDetail,
+  type Step,
   scripted,
   write,
 } from "./client.ts";
@@ -22,6 +22,22 @@ import {
 const api = new Api(e2eEnv());
 const TIMEOUT = 600_000;
 const WORKSPACE = "/workspace";
+/**
+ * The fake Messages API keeps every call it served, so a rerun against the
+ * same stack (E2E_UP_ONLY=1) would read the last run's calls by spec id.
+ */
+const RUN = crypto.randomUUID().slice(0, 8);
+const spec = (name: string) => `wl-${name}-${RUN}`;
+
+/**
+ * Every line of `path`, read from disk. Not Read: the resumed engine
+ * remembers writing the file and answers a Read of it with "file unchanged
+ * since your last Read" instead of its content.
+ */
+const linesOf = (path: string): Step => ({
+  tool: "Grep",
+  input: { pattern: ".", path, output_mode: "content" },
+});
 
 const installation = process.env.EXECUTION_INSTALLATION_ID;
 if (!installation) {
@@ -164,7 +180,7 @@ describe("sessions without a repository", () => {
     "a question with no file written still commits a checkpoint",
     async () => {
       const created = await createWithoutRepository(
-        scripted("wl-qa", [], "an answer, no files"),
+        scripted(spec("qa"), [], "an answer, no files"),
       );
       expect(created.status).toBe(201);
       const sessionId = created.body.session_id;
@@ -182,7 +198,7 @@ describe("sessions without a repository", () => {
     "a push request is 409 PUSH_SOURCE_MISSING and leaves a failed receipt",
     async () => {
       const created = await createWithoutRepository(
-        scripted("wl-push", [], "nothing to push"),
+        scripted(spec("push"), [], "nothing to push"),
       );
       const sessionId = created.body.session_id;
       await completedWithCheckpoint(sessionId, "1");
@@ -215,7 +231,7 @@ describe("sessions without a repository", () => {
       const report = `${WORKSPACE}/out/report.md`;
       const created = await createWithoutRepository(
         scripted(
-          "wl-n1",
+          spec("n1"),
           [write(report, "report from turn one\n")],
           "wrote the report",
         ),
@@ -227,11 +243,16 @@ describe("sessions without a repository", () => {
       );
       const next = await api.send(
         sessionId,
-        scripted("wl-n2", [read(report)], "read it back"),
+        scripted(spec("n2"), [linesOf(report)], "read it back"),
       );
-      await expectRestored(sessionId, lost, "wl-n1", "wl-n2", next.turn_id, [
-        "report from turn one",
-      ]);
+      await expectRestored(
+        sessionId,
+        lost,
+        spec("n1"),
+        spec("n2"),
+        next.turn_id,
+        ["report from turn one"],
+      );
     },
     TIMEOUT,
   );
@@ -243,7 +264,7 @@ describe("sessions with a repository", () => {
     async () => {
       const created = await api.createSession(
         scripted(
-          "wl-r1",
+          spec("r1"),
           [
             bash(
               "mkdir -p out && echo repo-report > out/report.md && echo repo-notes > notes.txt",
@@ -259,12 +280,20 @@ describe("sessions with a repository", () => {
       );
       const next = await api.send(
         sessionId,
-        scripted("wl-r2", [bash("cat out/report.md notes.txt")], "read back"),
+        scripted(
+          spec("r2"),
+          [bash("cat out/report.md notes.txt")],
+          "read back",
+        ),
       );
-      await expectRestored(sessionId, lost, "wl-r1", "wl-r2", next.turn_id, [
-        "repo-report",
-        "repo-notes",
-      ]);
+      await expectRestored(
+        sessionId,
+        lost,
+        spec("r1"),
+        spec("r2"),
+        next.turn_id,
+        ["repo-report", "repo-notes"],
+      );
     },
     TIMEOUT,
   );
