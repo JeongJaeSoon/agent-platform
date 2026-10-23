@@ -297,6 +297,36 @@ function checkObjectStoreKeys(
   return errors;
 }
 
+const SECRET_KEY = "PLATFORM_SECRET_KEY";
+
+function checkSecretKey(label: string, manifests: Manifest[]): string[] {
+  const errors: string[] = [];
+  let holders = 0;
+  for (const m of manifests) {
+    const pod = podSpecOf(m);
+    if (pod === undefined) continue;
+    const component = m.metadata.labels?.["app.kubernetes.io/component"] ?? "";
+    for (const c of [...(pod.initContainers ?? []), ...pod.containers]) {
+      // biome-ignore lint/suspicious/noExplicitAny: rendered Kubernetes objects
+      const entry = (c.env ?? []).find((v: any) => v.name === SECRET_KEY);
+      if (entry === undefined) continue;
+      const where = `${label}: ${m.kind}/${m.metadata.name}: container ${c.name}`;
+      if (component !== "api" || c.name !== "api") {
+        errors.push(`${where} has ${SECRET_KEY}`);
+        continue;
+      }
+      holders++;
+      if (entry.valueFrom?.secretKeyRef?.optional !== true) {
+        errors.push(`${where}: ${SECRET_KEY} is not an optional secretKeyRef`);
+      }
+    }
+  }
+  if (holders !== 1) {
+    errors.push(`${label}: ${SECRET_KEY} is on ${holders} api containers`);
+  }
+  return errors;
+}
+
 // The api's public mounts (apps/control-host/src/api/app.ts). /internal is
 // the workers' gateway and must never be reachable from the load balancer.
 const PUBLIC_PATHS = [
@@ -402,6 +432,8 @@ errors.push(
     render(["-f", ciDigests, "-f", awsExample]),
     false,
   ),
+  ...checkSecretKey("default", render(["-f", ciDigests])),
+  ...checkSecretKey("aws example", render(["-f", ciDigests, "-f", awsExample])),
   ...checkIngress("default", render(["-f", ciDigests]), false),
   ...checkIngress(
     "aws example",

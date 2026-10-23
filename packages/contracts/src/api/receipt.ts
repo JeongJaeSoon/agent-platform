@@ -91,6 +91,10 @@ export const RECEIPT_OPERATION_VALUES = [
   "push",
   "open_pull_request",
   "comment_pull_request",
+  // A Slack secret set, replaced or deleted through the API; the receipt
+  // names its purpose and last four characters, never the value.
+  "set_slack_secret",
+  "delete_slack_secret",
 ] as const;
 
 export const receiptStatusSchema = z.enum(RECEIPT_STATUS_VALUES);

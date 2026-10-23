@@ -44,6 +44,7 @@ import {
   createTeamRequestSchema,
   credentialBindingParamsSchema,
   decidePushRequestRequestSchema,
+  deleteSlackSecretResponseSchema,
   deleteTeamResponseSchema,
   getReceiptResponseSchema,
   getSessionResponseSchema,
@@ -95,6 +96,8 @@ import {
   postSessionMessageResponseSchema,
   pushRequestParamsSchema,
   pushRequestSchema,
+  putSlackSecretRequestSchema,
+  putSlackSecretResponseSchema,
   readyResponseSchema,
   receiptAcceptedResponseSchema,
   receiptIdParamsSchema,
@@ -119,6 +122,7 @@ import {
   slackGuestResponseSchema,
   slackLinkCallbackRequestSchema,
   slackLinkCallbackResponseSchema,
+  slackSecretSummarySchema,
   sseEventSchema,
   startGoogleLoginResponseSchema,
   startSlackLinkResponseSchema,
@@ -185,6 +189,7 @@ const requestComponents = {
   GoogleLoginCallbackRequest: googleLoginCallbackRequestSchema,
   AuditRetentionRequest: auditRetentionRequestSchema,
   SlackGuestRequest: slackGuestRequestSchema,
+  PutSlackSecretRequest: putSlackSecretRequestSchema,
   CreateAgentRequest: createAgentRequestSchema,
   UpdateAgentRequest: updateAgentRequestSchema,
   CreateAgentReleaseRequest: createAgentReleaseRequestSchema,
@@ -245,6 +250,9 @@ const responseComponents = {
   IssuePasswordResetResponse: issuePasswordResetResponseSchema,
   AuditRetentionResponse: auditRetentionResponseSchema,
   SlackGuestResponse: slackGuestResponseSchema,
+  SlackSecretSummary: slackSecretSummarySchema,
+  PutSlackSecretResponse: putSlackSecretResponseSchema,
+  DeleteSlackSecretResponse: deleteSlackSecretResponseSchema,
   PasswordResetResponse: passwordResetResponseSchema,
   AuthMeResponse: authMeResponseSchema,
   InstallationLimitsResponse: installationLimitsResponseSchema,
@@ -390,7 +398,7 @@ export const OPENAPI_TAG_GROUPS = [
 ] as const satisfies readonly { name: string; tags: readonly ApiTagName[] }[];
 
 export type RouteDeclaration = {
-  method: "get" | "post" | "patch" | "delete";
+  method: "get" | "post" | "put" | "patch" | "delete";
   path: string;
   operationId: string;
   tag: ApiTagName;
@@ -798,6 +806,88 @@ export const API_ROUTE_DECLARATIONS = [
     body: "SlackGuestRequest",
     success: { status: 200, schema: "SlackGuestResponse" },
     errors: [400, 401, 403, 404, 413, 503],
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/workspaces/{id}/slack/config-token",
+    operationId: "getSlackConfigToken",
+    tag: "Workspace settings",
+    summary:
+      "Whether the Slack App Configuration Token is set (owner or admin)",
+    description:
+      "Says whether a token is set, its last four characters, when it was last set and by whom. The token itself is never returned. API keys are refused.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "SlackSecretSummary",
+      description:
+        "Whether a token is set; the last four characters and who set it when it is.",
+      example: {
+        configured: true,
+        last4: "a9f3",
+        updated_at: "2026-10-23T09:00:00Z",
+        updated_by: { user_id: EXAMPLE_USER_ID, display_name: "Jae" },
+      },
+    },
+    errors: [401, 403, 404, 503],
+    errorNotes: {
+      BACKEND_UNAVAILABLE:
+        "Also when the API runs without a master key (PLATFORM_SECRET_KEY).",
+    },
+  },
+  {
+    method: "put",
+    path: "/v1/workspaces/{id}/slack/config-token",
+    operationId: "putSlackConfigToken",
+    tag: "Workspace settings",
+    summary:
+      "Set or replace the Slack App Configuration Token (owner or admin)",
+    description:
+      "Stores the token encrypted; a replace keeps one value under a new version. The response and the `set_slack_secret` receipt carry the last four characters only, and the value is in no log or error. API keys are refused.",
+    auth: "session",
+    body: "PutSlackSecretRequest",
+    requestExample: { value: "<refresh-token-from-api.slack.com>" },
+    success: {
+      status: 200,
+      schema: "PutSlackSecretResponse",
+      description:
+        "Stored; the summary as GET now answers it, and the receipt.",
+      example: {
+        configured: true,
+        last4: "a9f3",
+        updated_at: "2026-10-23T09:00:00Z",
+        updated_by: { user_id: EXAMPLE_USER_ID, display_name: "Jae" },
+        receipt_id: EXAMPLE_RECEIPT_ID,
+      },
+    },
+    errors: [400, 401, 403, 404, 413, 503],
+    errorNotes: {
+      BACKEND_UNAVAILABLE:
+        "Also when the API runs without a master key (PLATFORM_SECRET_KEY).",
+    },
+    idempotent: false,
+  },
+  {
+    method: "delete",
+    path: "/v1/workspaces/{id}/slack/config-token",
+    operationId: "deleteSlackConfigToken",
+    tag: "Workspace settings",
+    summary: "Delete the Slack App Configuration Token (owner or admin)",
+    description:
+      "Deletes the stored token and writes a `delete_slack_secret` receipt with its last four characters. 404 when none is set. API keys are refused.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "DeleteSlackSecretResponse",
+      description: "Deleted; the receipt.",
+      example: { receipt_id: EXAMPLE_RECEIPT_ID },
+    },
+    errors: [401, 403, 404, 503],
+    errorNotes: {
+      BACKEND_UNAVAILABLE:
+        "Also when the API runs without a master key (PLATFORM_SECRET_KEY).",
+    },
     idempotent: false,
   },
   {
@@ -2581,7 +2671,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Limits & receipts",
     summary: "Current outcome of an accepted command",
     description:
-      "Reads the current outcome of a command by the `receipt_id` its response returned: `accepted` while it is in progress, then `succeeded`, `failed` (with `error`) or `unknown` (nobody can say; `error` explains). Poll until it leaves `accepted`. `result` depends on `operation`:\n\n- `create_session`, `append_message`: the acceptance response exactly as first returned, never rewritten. The turn's outcome is read from `GET /v1/sessions/{session_id}/turns/{turn_id}` using `target_ref`.\n- `interrupt`: `{turn_id, terminal, no_op}` once settled.\n- `pause`, `resume`: `{resulting_admission_state, checkpoint_revision, queued_turn_count}`.\n- `close`: `{resulting_admission_state, checkpoint_revision, cancelled_turn_count}`; `checkpoint_revision` is null only for a session that never ran a turn.\n- `terminate`: `{execution_gone, checkpoint_revision, unconfirmed_turn_id, external_effects_reverted}`.\n- `recovery_decision`: `{resulting_admission_state, checkpoint_revision, resumable}`.\n- `answer`: null; only `status` and `error` change.\n- `request_push`, `decide_push`, `push`: `{push_request_id, decision, verdict, refusal, repository_id, checkpoint_revision, git_commit, target_branch}`; `verdict` is `allow` or `refuse`, a refused attempt is `failed` with the reason in `refusal` and `error`, and fields the attempt never read are null. `actor` names who made it.\n- `open_pull_request`, `comment_pull_request`: `{push_request_id, verdict, refusal, repository_id, number, url, head, base, created}`, and for a comment also `{comment_id, comment_url, marker}`; `created` is false when the call answered an open pull request or edited the marked comment.\n\nAny credential of the same owner can read a receipt. It changes nothing.",
+      "Reads the current outcome of a command by the `receipt_id` its response returned: `accepted` while it is in progress, then `succeeded`, `failed` (with `error`) or `unknown` (nobody can say; `error` explains). Poll until it leaves `accepted`. `result` depends on `operation`:\n\n- `create_session`, `append_message`: the acceptance response exactly as first returned, never rewritten. The turn's outcome is read from `GET /v1/sessions/{session_id}/turns/{turn_id}` using `target_ref`.\n- `interrupt`: `{turn_id, terminal, no_op}` once settled.\n- `pause`, `resume`: `{resulting_admission_state, checkpoint_revision, queued_turn_count}`.\n- `close`: `{resulting_admission_state, checkpoint_revision, cancelled_turn_count}`; `checkpoint_revision` is null only for a session that never ran a turn.\n- `terminate`: `{execution_gone, checkpoint_revision, unconfirmed_turn_id, external_effects_reverted}`.\n- `recovery_decision`: `{resulting_admission_state, checkpoint_revision, resumable}`.\n- `answer`: null; only `status` and `error` change.\n- `request_push`, `decide_push`, `push`: `{push_request_id, decision, verdict, refusal, repository_id, checkpoint_revision, git_commit, target_branch}`; `verdict` is `allow` or `refuse`, a refused attempt is `failed` with the reason in `refusal` and `error`, and fields the attempt never read are null. `actor` names who made it.\n- `open_pull_request`, `comment_pull_request`: `{push_request_id, verdict, refusal, repository_id, number, url, head, base, created}`, and for a comment also `{comment_id, comment_url, marker}`; `created` is false when the call answered an open pull request or edited the marked comment.\n- `set_slack_secret`, `delete_slack_secret`: `{purpose, last4}`; the value itself is never in a receipt.\n\nAny credential of the same owner can read a receipt. It changes nothing.",
     scope: "read",
     success: {
       status: 200,
