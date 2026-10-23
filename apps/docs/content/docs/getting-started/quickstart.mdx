@@ -1,0 +1,120 @@
+---
+title: "Quickstart"
+description: API key를 받고 curl로 첫 세션을 만든다
+---
+
+[설치](/getting-started/install)대로 띄운 로컬 스택에서 API key를 받고, 세션 하나를 만들어 첫 turn이 끝나는 것까지 본다. 같은 터미널에서 순서대로 실행한다.
+
+## API key 받기
+
+```bash
+API=http://127.0.0.1:3000
+KEY=$(scripts/local.sh key quickstart \
+  --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover)
+echo "${KEY:0:4}…"
+```
+
+```text
+key_id …
+csp_…
+```
+
+`key_id`는 stderr로 나오는 key의 id다. key 자체는 stdout에 한 번만 나온다. 다시 볼 수 없으니 변수에만 둔다. `quickstart`는 key의 owner 이름이고, 이 key로 만든 세션은 이 owner의 것이다. scope는 [API key](/api-keys)에 있다.
+
+key가 맞는지 본다.
+
+```bash
+curl -sS -w '\n' "$API/v1" -H "Authorization: Bearer $KEY"
+```
+
+```text
+{"status":"ok","owner_id":"quickstart"}
+```
+
+## 실행 프로필 고르기
+
+세션은 운영자가 등록한 실행 프로필(profile) 중 하나로 돈다. 로컬 fake 스택에는 `claude-coding-local` 하나가 있다.
+
+```bash
+curl -sS "$API/v1/profiles" -H "Authorization: Bearer $KEY" | jq '.items[] | {id, model, repository_mode}'
+```
+
+```text
+{
+  "id": "claude-coding-local",
+  "model": "claude-sonnet-5",
+  "repository_mode": "required"
+}
+```
+
+## 세션 만들기
+
+```bash
+created=$(curl -sS "$API/v1/sessions" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d '{
+    "profile_id": "claude-coding-local",
+    "repository_id": "sample-app",
+    "message": "GATE-SPEC {\"id\":\"hello\",\"steps\":[],\"final\":\"hello from Werft\"}"
+  }')
+echo "$created" | jq .
+SID=$(echo "$created" | jq -r .session_id)
+```
+
+```text
+{
+  "session_id": "…",
+  "turn_id": "1",
+  "receipt_id": "…",
+  "receipt_status": "accepted",
+  "status": "queued"
+}
+```
+
+- `repository_id`는 세션이 clone할 저장소다. 로컬 스택의 Gitea에 `sample-app`이 들어 있다.
+- `message`는 첫 turn의 입력이다. fake 모델은 `GATE-SPEC {…}` 대본을 읽고 그대로 답한다. 이 대본은 도구를 부르지 않고 `hello from Werft`로 끝난다. 실제 Claude 스택에서는 평범한 문장을 쓴다.
+- 세션 API의 POST에는 `Idempotency-Key`가 필요하다. 같은 key로 다시 보내면 처음 응답이 그대로 온다.
+
+## turn 끝나기 기다리기
+
+scheduler가 worker를 띄우고 worker가 저장소를 clone한 뒤 turn 1을 돈다. 처음에는 수십 초 걸린다.
+
+```bash
+until [ "$(curl -sS "$API/v1/sessions/$SID/turns/1" -H "Authorization: Bearer $KEY" | jq -r .status)" = completed ]; do
+  sleep 2
+done
+curl -sS "$API/v1/sessions/$SID/turns/1" -H "Authorization: Bearer $KEY" | jq '{turn_id, status}'
+```
+
+```text
+{
+  "turn_id": "1",
+  "status": "completed"
+}
+```
+
+turn이 끝났는지는 turn 조회의 `status`로만 판단한다. `completed`·`failed`·`interrupted`·`cancelled`·`outcome_unknown`이 끝난 상태다.
+
+## 모델의 답 보기
+
+세션에서 일어난 일은 이벤트 스트림(SSE)으로 온다. 스트림은 서버가 닫지 않으므로 여기서는 5초 뒤 끊는다.
+
+```bash
+curl -sSN --max-time 5 "$API/v1/sessions/$SID/events" -H "Authorization: Bearer $KEY" \
+  | awk '/^event: assistant/ { getline; sub(/^data: /, ""); print }' \
+  | jq -r '.data.message.content[] | select(.type == "text") | .text' || true
+```
+
+```text
+curl: (28) Operation timed out after 5002 milliseconds with 3362 bytes received
+hello from Werft
+```
+
+이벤트 하나는 `event:` 줄(종류)과 `data:` 줄(JSON)이다. assistant 이벤트의 `data.message`가 모델이 보낸 메시지다. `curl: (28) Operation timed out`은 `--max-time`이 끊은 것이라 정상이다.
+
+## 다음 단계
+
+- [첫 세션](/getting-started/first-session): 권한 요청에 답하고, 메시지를 이어 보내고, 세션을 닫는다
+- [스트리밍 받기](/messages/streaming): 이벤트 종류와 재연결

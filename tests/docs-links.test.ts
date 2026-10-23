@@ -321,13 +321,8 @@ describe("Markdown relative links", () => {
     ).toEqual(["z.md"]);
   });
 
-  // Not yet rewritten to describe only current behavior.
-  const TICKET_EXEMPT = ["docs/operations.md"];
-
   test("none names a ticket", () => {
-    const files = trackedMarkdown().filter(
-      (file) => !TICKET_EXEMPT.includes(file),
-    );
+    const files = trackedMarkdown();
     const found = files.flatMap((file) =>
       readFileSync(join(root, file), "utf8")
         .split("\n")
@@ -374,6 +369,7 @@ const NOT_SETTINGS: Record<string, string> = {
   GIT_ALLOW_PROTOCOL: "written into git's environment, not read",
   GIT_CONFIG_COUNT: "written into git's environment, not read",
   NODE_EXTRA_CA_CERTS: "written into the engine's environment, not read",
+  NEXT_PUBLIC_BASE_PATH: "inlined into the docs site by its next.config.mjs",
 };
 
 function withoutComments(source: string): string {
@@ -435,8 +431,10 @@ describe("Operator settings", () => {
   const documented = (text: string, name: string) =>
     new RegExp(`(?<![A-Z0-9_])${name}(?![A-Z0-9_])`).test(text);
 
-  test("every setting the code reads is in docs/operations.md", () => {
-    const operations = readFileSync(join(root, "docs/operations.md"), "utf8");
+  test("every setting the code reads is in docs/operator/", () => {
+    const operator = scan("docs/operator/*.md")
+      .map((file) => readFileSync(join(root, file), "utf8"))
+      .join("\n");
     const names = codeSettings();
     // The scan still sees each of its three forms, and every exception.
     for (const name of [
@@ -449,7 +447,7 @@ describe("Operator settings", () => {
     }
     const missing = [...names]
       .filter((name) => !(name in NOT_SETTINGS))
-      .filter((name) => !documented(operations, name))
+      .filter((name) => !documented(operator, name))
       .sort();
     expect(missing).toEqual([]);
   });

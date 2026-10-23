@@ -1,0 +1,101 @@
+---
+title: "권한"
+description: 에이전트가 쓸 수 있는 도구, 사람의 승인, 에이전트를 관리하는 사람과 자격 연결
+---
+
+에이전트의 권한은 세 층이다. 실행 프로필이 정하는 도구와 권한 모드, 사람이 답하는 권한 요청, 그리고 에이전트를 관리하고 자격 증명 이름을 연결하는 사람.
+
+## 도구: 실행 프로필이 정한다
+
+세션은 실행 프로필의 `tools` 안의 도구만 쓴다. 밖의 도구는 권한 요청 없이 거절되고, 모델은 오류 `tool_result`를 받는다. 아래 대본은 로컬 프로필에 없는 `WebFetch`를 부른다.
+
+```bash
+created=$(curl -sS "$API/v1/sessions" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg m 'GATE-SPEC {"id":"outside","steps":[{"tool":"WebFetch","input":{"url":"https://example.com","prompt":"summarize"}}],"final":"done"}' \
+    '{profile_id: "claude-coding-local", repository_id: "sample-app", message: $m}')")
+SID=$(echo "$created" | jq -r .session_id)
+until [ "$(curl -sS "$API/v1/sessions/$SID/turns/1" -H "Authorization: Bearer $KEY" | jq -r .status)" = completed ]; do
+  sleep 2
+done
+curl -sSN --max-time 5 "$API/v1/sessions/$SID/events" -H "Authorization: Bearer $KEY" \
+  | awk '/^event: tool_result/ { getline; sub(/^data: /, ""); print }' \
+  | jq -c '.data | {is_error, content}' || true
+```
+
+```text
+curl: (28) Operation timed out after 5006 milliseconds with 4482 bytes received
+{"is_error":true,"content":"<tool_use_error>Error: No such tool available: WebFetch. WebFetch is disabled for this session, in subagents as well as here.</tool_use_error>"}
+```
+
+`curl: (28)`은 `--max-time`이 스트림을 끊은 것이다.
+
+<Callout type="warn">
+에이전트 카드의 `capabilities.tools`·`forbidden`·`tool_policy`는 release에 고정되지만 아직 실행에 적용되지 않는다. 카드에 `Read`만 적어도 세션은 프로필의 도구를 모두 쓴다.
+</Callout>
+
+## 권한 모드
+
+프로필의 `permission_mode`가 도구를 실행하기 전에 사람에게 묻는지 정한다. 세션 상세의 `runtime.permission_mode`에 나온다.
+
+| 모드 | 동작 |
+| --- | --- |
+| `default` | 파일을 바꾸는 도구(Write, Edit, 파일을 쓰는 Bash 명령 등)는 실행 전에 권한 요청을 만든다. 읽기 명령은 묻지 않는다. 로컬 프로필의 모드다 |
+| `acceptEdits`, `dontAsk`, `plan` | Claude Code의 같은 이름 모드로 돈다 |
+| `bypassPermissions`, `auto` | 사람의 승인 없이 실행한다. 카탈로그에 이 모드의 프로필이 있으면 API는 `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS=true` 없이는 기동하지 않는다 |
+
+모드는 카탈로그에만 있고, 세션 요청으로 바꿀 수 없다.
+
+## 승인: 사람만 한다
+
+권한 요청과 질문에 답하려면 `sessions:approve` scope가 필요하다. worker 안의 에이전트가 가진 자격은 `/v1`에서 401이라 스스로 승인하지 못한다. 에이전트 전용 key는 `sessions:approve`를 가질 수 없다. 답하는 방법은 [승인 대기와 재개](/sessions/waiting-and-resume)에 있다.
+
+## 에이전트 관리자
+
+에이전트를 만든 사람이 그 에이전트의 관리자가 된다. 관리자는 member여도 그 에이전트의 카드 수정, release, 활성화, 자격 연결, 관리자 지정, 에이전트 전용 key 발급을 할 수 있다. 사람이나 팀을 관리자로 더할 수 있고, 팀이면 그 팀 구성원 모두가 관리자다. [만들기](/agents/create)의 `AID`와 `WEB`을 이어 쓴다.
+
+```bash
+curl -sS "$API/v1/agents/$AID/admins" "${WEB[@]}" | jq '{users: [.users[].email], teams}'
+```
+
+```text
+{
+  "users": [
+    "owner@example.test"
+  ],
+  "teams": []
+}
+```
+
+| 요청 | 하는 일 |
+| --- | --- |
+| `POST /v1/agents/{id}/admins` `{"user_id"}` 또는 `{"team_id"}` | 관리자 지정 |
+| `DELETE /v1/agents/{id}/admins/users/{user_id}`, `…/teams/{team_id}` | 해제 |
+| `GET /v1/administered-agents` | 내가 관리하는 에이전트 |
+
+## 자격 연결
+
+카드는 쓸 자격 증명의 이름만 `capabilities.credential_refs`에 적는다. 값은 Werft 밖(secret store, remote MCP server 연결)에 있다. 그 이름을 이 에이전트가 써도 된다는 연결은 관리자가 따로 만든다. 카드에 적힌 이름 중 연결되지 않은 것이 있으면 활성화가 409 `CREDENTIAL_UNBOUND`다.
+
+```bash
+curl -sS "$API/v1/agents/$AID/credential-bindings" "${WEB[@]}" -d '{"credential_ref": "notion-token"}' \
+  | jq '{credential_ref: .binding.credential_ref, created}'
+curl -sS "$API/v1/agents/$AID/credential-bindings" "${WEB[@]}" | jq -c '[.items[].credential_ref]'
+```
+
+```text
+{
+  "credential_ref": "notion-token",
+  "created": true
+}
+["notion-token"]
+```
+
+해제(`DELETE /v1/agents/{id}/credential-bindings/{binding_id}`)는 돌고 있는 세션을 멈추지 않는다. 다음 세션부터 막힌다. 바로 막으려면 외부 서비스에서 그 자격을 폐기한다.
+
+## 다음 단계
+
+- [승인 대기와 재개](/sessions/waiting-and-resume): 권한 요청에 답하기
+- [API key](/api-keys): 개인 key, 서비스 key, 에이전트 전용 key

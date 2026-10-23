@@ -1,0 +1,64 @@
+---
+title: "지시문과 역할"
+description: 에이전트 카드의 필드, version이 쌓이는 방식, 지금 모델이 실제로 읽는 지시
+---
+
+카드는 에이전트가 누구이고 무엇을 해야 하는지 적은 정의다. 카드를 고치면 새 version이 생기고, 이전 version은 바뀌지 않는다.
+
+## 카드 필드
+
+| 필드 | 필수 | 내용 |
+| --- | --- | --- |
+| `role` | 예 | 한 줄 역할. 200자까지 |
+| `instructions` | 예 | 지시 사항. 20,000자까지 |
+| `model` | 예 | 모델 이름. release를 만들 때 실행 프로필의 모델과 같아야 한다 |
+| `capabilities.tools` | 예 | 쓸 도구 이름 목록. 실행 프로필에 있는 도구여야 한다 |
+| `capabilities.mcp` | 예 | 지금은 `null`만 받는다 |
+| `capabilities.forbidden` | | 금지할 도구 이름 |
+| `capabilities.tool_policy` | | 도구별 `allow`·`ask`·`deny` |
+| `capabilities.credential_refs` | | 쓸 자격 증명의 이름(값이 아니다). [권한](/agents/permissions) |
+| `tone` | | 말투. 200자까지 |
+| `language` | | `ko`(기본) 또는 `en` |
+| `rules` | | `{id, text, source}` 목록. `source`는 `user` 또는 `correction` |
+
+## 지금 모델이 읽는 것
+
+<Callout type="warn">
+카드의 `role`·`instructions`·`tone`·`rules`는 version과 release에 저장되고 세션에 고정되지만, 아직 모델에 전달되지 않는다.
+</Callout>
+
+지금 worker가 모델에 덧붙이는 지시는 둘이다.
+
+- 저장소 루트의 `CLAUDE.md`. 실행 프로필이 `project_settings.claude_md: true`일 때 커밋된 내용을 읽는다. 로컬 프로필 `claude-coding-local`은 켜져 있다.
+- 저장소 없는 세션이면, 사람에게 줄 파일을 `out/`에 두라는 한 줄.
+
+그래서 에이전트에게 일하는 방식을 알려 주려면 지금은 저장소의 `CLAUDE.md`에 적는다.
+
+## 고치기와 version
+
+카드를 고치면 `PATCH /v1/agents/{id}`가 새 version을 더한다. 이름만 바꿀 때는 `name`만 보낸다. 이미 있는 version과 같은 카드를 보내면 아무것도 더하지 않는다. [만들기](/agents/create)의 `AID`와 `WEB`을 이어 쓴다.
+
+```bash
+curl -sS -X PATCH "$API/v1/agents/$AID" "${WEB[@]}" -d '{
+  "card": {
+    "role": "저장소를 읽고 질문에 답한다",
+    "instructions": "Answer briefly. Cite file paths. Say when you are unsure.",
+    "model": "claude-sonnet-5",
+    "language": "en",
+    "capabilities": { "tools": ["Read", "Grep", "Glob"], "mcp": null },
+    "rules": [{ "id": "no-guess", "text": "Never invent a file path.", "source": "user" }]
+  }
+}' | jq -c '.versions[] | {version_no, language: .card.language}'
+```
+
+```text
+{"version_no":1,"language":"ko"}
+{"version_no":2,"language":"en"}
+```
+
+새 version은 활성 release를 바꾸지 않는다. 쓰려면 그 version으로 release를 만들고 활성화한다([만들기](/agents/create#release-만들기)). 웹 콘솔에서는 에이전트 상세의 "저장"이 같은 일을 하고, 두 version의 차이를 보여 준다.
+
+## 다음 단계
+
+- [실행 프로필 고르기](/agents/run-profiles): release와 세션이 쓰는 프로필
+- [권한](/agents/permissions): 도구 권한과 에이전트 관리자

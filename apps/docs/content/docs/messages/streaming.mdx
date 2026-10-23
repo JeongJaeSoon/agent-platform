@@ -1,0 +1,92 @@
+---
+title: "스트리밍 받기"
+description: SSE로 세션 이벤트를 받고, 끊기면 Last-Event-ID로 이어 받는다
+---
+
+`GET /v1/sessions/{id}/events`는 세션의 이벤트를 Server-Sent Events로 보낸다. 이미 저장된 이벤트를 처음부터 다시 보내고, 그 뒤로 새 이벤트가 생기는 대로 이어 보낸다. scope는 `sessions:read`다. [보내기](/messages/send)의 `SID`를 쓴다.
+
+## 받기
+
+스트림은 15초마다 keepalive를 보내므로 정상일 때도 닫히지 않는다. 아래 예제는 `--max-time`으로 끊는다. `curl: (28) Operation timed out`은 그래서 나온다.
+
+```bash
+curl -sSN --max-time 5 "$API/v1/sessions/$SID/events" -H "Authorization: Bearer $KEY" \
+  -o events.txt || true
+grep '^event:' events.txt | sort | uniq -c
+```
+
+```text
+curl: (28) Operation timed out after 5005 milliseconds with 8000 bytes received
+   2 event: assistant
+   2 event: result
+   4 event: status
+   8 event: system
+   1 event: tool_result
+   1 event: tool_use
+```
+
+이 세션의 turn 두 개(준비 메시지와 `ls`)의 이벤트가 모두 왔다. frame 하나는 `event:`, `data:`, `id:` 세 줄과 빈 줄이다.
+
+```text
+event: tool_use
+data: {"schema_version":1,"session_id":"…","turn_id":"2","attempt_id":"att_…","occurred_at":"…","data":{…}}
+id: ev_3m
+```
+
+`data`는 JSON이다. 어느 세션·turn·attempt의 이벤트인지와 시각이 있고, 내용은 안쪽 `data`에 있다.
+
+| event | 안쪽 `data` |
+| --- | --- |
+| `system` | 엔진이 알리는 시작·설정 정보 |
+| `assistant` | 모델의 메시지. 텍스트는 `message.content[]`의 `type: "text"` 블록 |
+| `tool_use` | 모델이 부른 도구와 입력 |
+| `tool_result` | 도구의 결과. 실패면 `is_error: true` |
+| `question` | 권한 요청이나 질문이 생겼다. 답하는 법은 [승인 대기와 재개](/sessions/waiting-and-resume) |
+| `result` | 엔진이 turn을 마쳤다. 완료 판정이 아니다 |
+| `status` | 세션 상태가 바뀌었다(`phase`: `running`, `idle` 등) |
+| `error` | 실행 오류 |
+
+## 텍스트와 도구 결과 뽑기
+
+```bash
+awk '/^event: assistant/ { getline; sub(/^data: /, ""); print }' events.txt \
+  | jq -r '.data.message.content[] | select(.type == "text") | .text'
+awk '/^event: tool_result/ { getline; sub(/^data: /, ""); print }' events.txt \
+  | jq -c '.data | {is_error}'
+```
+
+```text
+ready
+listed
+{"is_error":false}
+```
+
+turn이 끝났는지는 이벤트가 아니라 turn의 `status`로 본다([보내기](/messages/send#결과-읽기)). 일이 됐는지는 `assistant`와 `tool_result`의 내용으로 판단한다.
+
+## 끊긴 뒤 이어 받기
+
+마지막으로 받은 `id`를 `Last-Event-ID` 헤더로 보내면 그다음 이벤트부터 받는다. 받은 이벤트는 다시 오지 않는다.
+
+```bash
+LAST=$(awk '/^id: / { id = $2 } END { sub(/\r$/, "", id); print id }' events.txt)
+curl -sSN --max-time 3 "$API/v1/sessions/$SID/events" \
+  -H "Authorization: Bearer $KEY" -H "Last-Event-ID: $LAST" > more.txt || true
+grep -c '^event:' more.txt || true
+```
+
+```text
+curl: (28) Operation timed out after 3005 milliseconds with 0 bytes received
+0
+```
+
+그 뒤로 새 이벤트가 없어서 아무것도 오지 않았다. 그사이 다음 메시지를 보냈다면 그 turn의 이벤트가 온다.
+
+| 응답 | 뜻 |
+| --- | --- |
+| 410 `CURSOR_EXPIRED` | 그 `id`가 보존 범위 밖이다. 세션과 turn을 HTTP로 다시 읽고 새로 연결한다. 지금 서버는 이벤트를 지우지 않아 이 응답을 보내지 않지만, 클라이언트는 처리해 둔다 |
+| 429 | 동시에 연 스트림이 너무 많다 |
+
+## 다음 단계
+
+- [첨부](/messages/attachments)
+- [요청](/approvals/request): 세션이 만든 commit을 저장소로 내보내기

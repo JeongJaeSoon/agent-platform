@@ -1,0 +1,131 @@
+---
+title: "닫기"
+description: 일을 마친 세션을 닫고, 멈춰야 하는 실행을 terminate하고, 결과를 알 수 없는 turn을 복구한다
+---
+
+세션을 끝내는 길은 셋이다. 일을 마친 세션은 close로 닫는다. 지금 당장 멈춰야 하면 terminate한다. terminate로 결과를 알 수 없는 turn이 남으면 복구 결정을 한다. [시작](/sessions/start)에서 만든 `SID`를 이어 쓴다.
+
+| | close | terminate | 복구 결정 `close` |
+| --- | --- | --- | --- |
+| 요청 | `POST …/close` | `POST …/terminate` | `POST …/recovery-decisions` |
+| scope | `sessions:control` | `sessions:control` | `sessions:recover` |
+| 진행 중 turn | 끝까지 돌리고 checkpoint를 남긴다 | 실행을 죽인다. turn이 `outcome_unknown`이 될 수 있다 | 이미 멈춘 세션이 대상이다 |
+| 대기 중인 입력 | 닫힐 때 취소 | 바로 취소 | 바로 취소 |
+| 결과 | `closed`(되돌릴 수 없음) | `stopped`(resume 가능) | `closed`(되돌릴 수 없음) |
+
+## close
+
+close는 돌고 있는 turn을 끝까지 기다린다. 아직 시작하지 않은 turn은 취소된다(`cancelled_turn_count`). 아래는 첫 turn이 끝난 뒤에 닫는다.
+
+```bash
+until [ "$(curl -sS "$API/v1/sessions/$SID/turns/1" -H "Authorization: Bearer $KEY" | jq -r .status)" = completed ]; do
+  sleep 2
+done
+REV=$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq .revision)
+close=$(curl -sS "$API/v1/sessions/$SID/close" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --argjson r "$REV" '{expected_revision: $r, reason: "work is done"}')")
+RID=$(echo "$close" | jq -r .receipt_id)
+until [ "$(curl -sS "$API/v1/receipts/$RID" -H "Authorization: Bearer $KEY" | jq -r .status)" = succeeded ]; do
+  sleep 2
+done
+curl -sS "$API/v1/receipts/$RID" -H "Authorization: Bearer $KEY" | jq '{operation, status, result}'
+```
+
+```text
+{
+  "operation": "close",
+  "status": "succeeded",
+  "result": {
+    "checkpoint_revision": 3,
+    "cancelled_turn_count": 0,
+    "resulting_admission_state": "closed"
+  }
+}
+```
+
+닫는 동안 세션은 `closing`이다. 열린 권한 요청이나 질문은 close를 막는다. 답하거나 interrupt하면 풀린다. 60초가 넘으면 `attention`이 `CLOSE_BLOCKED`가 된다. 닫힌 뒤의 메시지와 pause·resume·close·terminate는 409 `SESSION_CLOSED`다. 이미 끝난 turn을 가리키는 interrupt는 닫힌 뒤에도 아무것도 하지 않는 성공(`no_op: true`)이다.
+
+## terminate
+
+terminate는 실행을 바로 내린다. 도구가 이미 바깥에 한 일은 되돌리지 않는다. 쉬고 있는 세션을 terminate하면 바로 `stopped`이고 그대로 resume할 수 있다. 돌고 있던 turn이 있으면 그 turn은 `outcome_unknown`이 되고 세션은 복구 결정을 기다린다.
+
+```bash
+created=$(curl -sS "$API/v1/sessions" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg m 'GATE-SPEC {"id":"runaway","steps":[],"final":"never","finalDelayMs":300000}' \
+    '{profile_id: "claude-coding-local", repository_id: "sample-app", message: $m}')")
+TID=$(echo "$created" | jq -r .session_id)
+until [ "$(curl -sS "$API/v1/sessions/$TID/turns/1" -H "Authorization: Bearer $KEY" | jq -r .status)" = running ]; do
+  sleep 1
+done
+REV=$(curl -sS "$API/v1/sessions/$TID" -H "Authorization: Bearer $KEY" | jq .revision)
+curl -sS "$API/v1/sessions/$TID/terminate" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --argjson r "$REV" '{expected_revision: $r, reason: "runaway turn"}')" \
+  | jq '{receipt_status, external_effects_reverted}'
+until [ "$(curl -sS "$API/v1/sessions/$TID" -H "Authorization: Bearer $KEY" | jq -r .admission_state)" = recovery_required ]; do
+  sleep 2
+done
+curl -sS "$API/v1/sessions/$TID/turns/1" -H "Authorization: Bearer $KEY" | jq '{status}'
+```
+
+```text
+{
+  "receipt_status": "accepted",
+  "external_effects_reverted": false
+}
+{
+  "status": "outcome_unknown"
+}
+```
+
+## 복구 결정
+
+`outcome_unknown`은 성공도 실패도 아니다. 그 turn이 바깥에 무엇을 했는지 확인한 사람이 결정한다.
+
+| 결정 | 하는 일 |
+| --- | --- |
+| `abandon` | 그 turn을 `cancelled`로 두고 마지막 checkpoint에서 이어 갈 수 있게 한다 |
+| `confirm_completed` | checkpoint가 그 turn까지 덮을 때, 끝난 것으로 인정한다. `evidence_ref`가 필요하다 |
+| `start_fresh` | 이전 대화를 버리고 새 Claude Code 세션에서 대기 중인 입력을 실행한다 |
+| `retry_restore` | checkpoint 복원 실패의 원인을 고친 뒤 같은 checkpoint로 다시 복원한다 |
+| `close` | 세션을 끝낸다. 되돌릴 수 없다 |
+
+```bash
+REV=$(curl -sS "$API/v1/sessions/$TID" -H "Authorization: Bearer $KEY" | jq .revision)
+decision=$(curl -sS "$API/v1/sessions/$TID/recovery-decisions" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --argjson r "$REV" '{decision: "close", expected_revision: $r, reason: "nothing to keep"}')")
+RID=$(echo "$decision" | jq -r .receipt_id)
+until [ "$(curl -sS "$API/v1/receipts/$RID" -H "Authorization: Bearer $KEY" | jq -r .status)" = succeeded ]; do
+  sleep 2
+done
+curl -sS "$API/v1/receipts/$RID" -H "Authorization: Bearer $KEY" | jq '{operation, result}'
+```
+
+```text
+{
+  "operation": "recovery_decision",
+  "result": {
+    "resumable": false,
+    "checkpoint_revision": null,
+    "resulting_admission_state": "closed"
+  }
+}
+```
+
+`abandon`과 `confirm_completed`에는 대상 turn을 `target_turn_id`로 함께 보낸다. 다른 결정은 받지 않는다(400). `abandon`의 receipt `result.resumable`이 `true`면 resume으로 이어 간다.
+
+## 다음 단계
+
+- [receipt](/approvals/receipt): 제어 명령의 결과 읽기
+- [저장소 없는 세션](/sessions/without-repository)
