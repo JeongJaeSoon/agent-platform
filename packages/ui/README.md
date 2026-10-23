@@ -96,6 +96,25 @@ Tailwind에는 `theme.css`가 이어 붙인다(`--color-surface: var(--ap-color-
 예를 들어 제목, "N건" 줄, 대상 ID 줄, 반폭 카드, 표를 차례로 쌓고 같은 대상을 표에 또 보이는 영역은 첫째·둘째·넷째 원칙을 어긴다.
 개수는 제목 옆 배지로, ID는 카드 첫 줄로 옮기고, 표에서는 그 대상을 뺀다.
 
+### 세로 리듬과 좌측선
+
+간격은 상자 경계에서 잰다. 4·8·12·16·24·32만 쓰고 6·10은 쓰지 않는다.
+
+| 사이 | 값 |
+|---|---|
+| topbar 아래 → 페이지 제목 | `--ap-space-page-top` 32px(390px 폭은 16px) |
+| 페이지 머리(제목·설명) → 첫 섹션 | `--ap-space-page-head` 24px |
+| 섹션 ↔ 섹션 | `--ap-space-section` 32px. 상세 화면의 패널과 본문이 위아래로 쌓여도 두 섹션으로 본다 |
+| 섹션 안 블록 ↔ 블록, 섹션 제목 → 내용 | `--ap-space-block` 16px |
+| 폼 필드 ↔ 필드 | 16px. 라디오·체크박스 묶음 안은 12px |
+| 카드 안 | padding 16px, 목록 행 padding 12px 16px |
+
+- 본문 폭은 화면 단위로 둘 중 하나다. 목록·표·상세 화면(홈, 세션, 에이전트, 구성원, 팀, 내 key·서비스 key 목록)은 `--ap-w-wide`(1200px), 폼 하나나 설정 한 열인 화면(에이전트 만들기, key 만들기, 연동 계정, 언어·테마, 워크스페이스 설정)은 `--ap-w-narrow`(840px)다. 메뉴 묶음이 아니라 본문이 무엇인지로 고른다. 둘 다 왼쪽에 붙고 gutter를 더한다.
+- 화면마다 콘텐츠 왼쪽 선은 하나다. 제목, 설명, 탭 글자, 표 첫 열 글자, 카드 테두리가 같은 x에 선다. line 탭은 좌우 padding 없이 `gap-6`으로 띄워 첫 탭 글자가 선 위에 온다.
+- 목록으로 돌아가는 링크는 제목 위 줄이 아니라 `PageHeader`의 `actions`(outline sm 버튼, 왼쪽 화살표)에 둔다. 그래야 제목 y가 화면마다 같다.
+- 사이드바 머리는 topbar와 높이(`--ap-topbar-h`)와 아래 경계선이 같아 한 줄로 이어진다.
+- 실측은 verify 스킬의 `browser.mjs measure`와 `layout-report.mjs`로 한다([web-console.md](../../.claude/skills/verify-agent-platform/features/web-console.md)).
+
 ## 들어 있는 것
 
 `src`는 아는 것에 따라 층으로 나뉜다. 층마다 `index.ts`가 있고, 루트 `src/index.ts`가 층 index를 다시 내보낸다.

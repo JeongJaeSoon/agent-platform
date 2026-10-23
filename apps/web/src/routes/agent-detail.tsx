@@ -310,7 +310,7 @@ function AgentView({
       key="body"
       value={tab}
       onValueChange={(next) => openTab(next as AgentTab)}
-      className="min-w-0"
+      className="min-w-0 gap-[var(--ap-space-block)]"
     >
       <div className="border-b">
         <TabsList
@@ -323,7 +323,7 @@ function AgentView({
               key={name}
               value={name}
               ref={name === "release" ? releaseTab : undefined}
-              className="h-9 px-3 text-control after:bottom-0"
+              className="h-9 text-control after:bottom-0"
             >
               {tabLabel(name)}
             </TabsTrigger>
@@ -447,29 +447,19 @@ function AgentView({
   return (
     <Page
       title={<span className="[overflow-wrap:anywhere]">{agent.name}</span>}
+      // Identifier and release are the summary card's; the head keeps the state.
       description={
-        <span className="flex flex-wrap items-center gap-2 [overflow-wrap:anywhere]">
-          <Badge
-            variant={
-              agent.active_release_id && agent.status === "active"
-                ? "green"
-                : "gray"
-            }
-          >
-            {agent.active_release_id
-              ? t(`agents.status.${agent.status}`)
-              : t("agents.state.notReleased")}
-          </Badge>
-          <span>
-            {t("agents.slugLine", { slug: agent.slug })}
-            {/* Without one, the badge already says so. */}
-            {agent.active_release_id
-              ? ` · ${t("agent.activeRelease", {
-                  release: releaseLabel(agent.active_release_id),
-                })}`
-              : null}
-          </span>
-        </span>
+        <Badge
+          variant={
+            agent.active_release_id && agent.status === "active"
+              ? "green"
+              : "gray"
+          }
+        >
+          {agent.active_release_id
+            ? t(`agents.status.${agent.status}`)
+            : t("agents.state.notReleased")}
+        </Badge>
       }
       actions={
         <Link
