@@ -145,7 +145,7 @@ export function SessionOverviewRow({
         </span>
         {session.title ? (
           <span
-            className="relative font-mono text-caption text-subtle-foreground leading-4"
+            className="relative max-w-full truncate font-mono text-caption text-subtle-foreground leading-4"
             title={session.id}
           >
             {shortId}
