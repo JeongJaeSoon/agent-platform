@@ -152,7 +152,9 @@ export function ReasonHint({
   readonly reason: string;
 }) {
   return (
-    <>
+    // Positioned, so the absolutely placed hidden copy stays inside a table's
+    // scroll container instead of widening the page past it.
+    <span className="relative inline-flex">
       <span id={id} className="ap-visually-hidden">
         {reason}
       </span>
@@ -171,7 +173,7 @@ export function ReasonHint({
         {/* Radix moves focus into this dialog; it is named like its button. */}
         <PopoverContent aria-label={label}>{reason}</PopoverContent>
       </Popover>
-    </>
+    </span>
   );
 }
 
