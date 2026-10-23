@@ -58,6 +58,7 @@ describe("Table", () => {
     expect(frame.tagName).toBe("SECTION");
     expect(frame.getAttribute("tabindex")).toBe("0");
     expect(frame.className).toContain("overflow-x-auto");
+    expect(frame.className).toContain("focus-visible:outline-focus-ring");
   });
 
   test("행 높이 하한과 셀 padding은 --ap-row-* 토큰에서 온다", () => {

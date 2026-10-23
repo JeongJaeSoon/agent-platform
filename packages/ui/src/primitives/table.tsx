@@ -33,7 +33,8 @@ export type TableContainerProps = ComponentProps<"section"> & {
 /**
  * The bordered frame a table sits in. It scrolls sideways when the table is
  * wider than the screen; the tab stop lets a keyboard reach it and scroll with
- * the arrow keys.
+ * the arrow keys. Its focus ring is the console's (apps/web styles.css), drawn
+ * here too so a host without that rule still shows where focus is.
  */
 export function TableContainer({
   label,
@@ -46,7 +47,10 @@ export function TableContainer({
       aria-label={label}
       // biome-ignore lint/a11y/noNoninteractiveTabindex: a scroll container must be focusable to scroll by keyboard
       tabIndex={0}
-      className={cn("overflow-x-auto rounded-card border bg-card", className)}
+      className={cn(
+        "overflow-x-auto rounded-card border bg-card focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2",
+        className,
+      )}
       {...props}
     />
   );
