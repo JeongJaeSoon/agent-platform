@@ -29,8 +29,7 @@ const slotOf = (workspaceId: string): SecretSlot => ({
 
 // One sealed value holds both tokens; neither contains whitespace, and the
 // refresh token goes last so the summary's last four are its own.
-const encodePair = (access: string, refresh: string) =>
-  `${access}\n${refresh}`;
+const encodePair = (access: string, refresh: string) => `${access}\n${refresh}`;
 function decodePair(value: string) {
   const [access, refresh, ...rest] = value.split("\n");
   if (!access || !refresh || rest.length > 0) return null;

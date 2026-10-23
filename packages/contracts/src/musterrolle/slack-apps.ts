@@ -3,7 +3,7 @@ import { z } from "zod";
 import { agentIdSchema, timestampSchema } from "../shared/index.ts";
 import { slackIdSchema } from "./agent-identities.ts";
 import {
-  SECRET_PURPOSE_VALUES,
+  type SECRET_PURPOSE_VALUES,
   slackSecretSummarySchema,
 } from "./slack-secrets.ts";
 import { workspaceParamsSchema } from "./workspaces.ts";

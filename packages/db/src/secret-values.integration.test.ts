@@ -342,5 +342,4 @@ integration("secret values on PostgreSQL", () => {
       outcome: "workspace_not_found",
     });
   });
-
 });

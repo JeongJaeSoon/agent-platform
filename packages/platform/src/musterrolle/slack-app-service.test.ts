@@ -212,7 +212,10 @@ describe("Slack app service", () => {
           replace_uncertain: false,
         }),
       ),
-    ).toMatchObject({ code: "SLACK_APP_CREATING", details: { uncertain: true } });
+    ).toMatchObject({
+      code: "SLACK_APP_CREATING",
+      details: { uncertain: true },
+    });
     expect(creates()).toBe(1);
     const replaced = await service.createAgentApp(user("owner"), AGENT, {
       replace_uncertain: true,

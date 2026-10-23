@@ -399,8 +399,11 @@ export function createFakeSlackConfigApi(options?: {
   userId?: string;
   teamId?: string;
   now?: () => Date;
+  /** Slack app ids are unique everywhere; fakes sharing a database differ here. */
+  appIdPrefix?: string;
 }) {
   const now = options?.now ?? (() => new Date());
+  const appIdPrefix = options?.appIdPrefix ?? "A0FAKE";
   const state = {
     userId: options?.userId ?? "U0ISSUER",
     teamId: options?.teamId ?? "T0FAKE",
@@ -462,7 +465,7 @@ export function createFakeSlackConfigApi(options?: {
         return behaviour();
       }
       appCounter += 1;
-      const appId = `A0FAKE${appCounter}`;
+      const appId = `${appIdPrefix}${appCounter}`;
       const clientId = `1000.${appCounter}`;
       state.apps.set(appId, { manifest, clientId });
       return {

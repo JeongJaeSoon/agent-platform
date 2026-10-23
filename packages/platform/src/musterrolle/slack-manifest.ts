@@ -45,7 +45,10 @@ export function buildAgentAppManifest(input: AgentAppManifestInput) {
         always_online: true,
       },
       agent_view: {
-        agent_description: clip(input.description.trim(), AGENT_DESCRIPTION_MAX),
+        agent_description: clip(
+          input.description.trim(),
+          AGENT_DESCRIPTION_MAX,
+        ),
       },
     },
     oauth_config: {

@@ -109,7 +109,10 @@ describe("agent app manifest", () => {
 
   test("the redirect is the console's callback page for the agent", () => {
     expect(
-      slackAppRedirectUrl("https://console.example.ts.net", AGENT.toUpperCase()),
+      slackAppRedirectUrl(
+        "https://console.example.ts.net",
+        AGENT.toUpperCase(),
+      ),
     ).toBe(REDIRECT);
   });
 

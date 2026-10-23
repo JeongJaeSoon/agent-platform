@@ -203,38 +203,38 @@ async function write(
   value: string,
   updatedBy: string | null,
 ): Promise<void> {
-    const fields = aadOf({
-      id: current?.id ?? randomUUID(),
-      workspaceId: slot.workspaceId,
-      ownerRef: secretOwnerRef(slot.owner),
-      purpose: slot.purpose,
-      secretVersion: (current?.secretVersion ?? 0) + 1,
-      keyVersion: key.version,
+  const fields = aadOf({
+    id: current?.id ?? randomUUID(),
+    workspaceId: slot.workspaceId,
+    ownerRef: secretOwnerRef(slot.owner),
+    purpose: slot.purpose,
+    secretVersion: (current?.secretVersion ?? 0) + 1,
+    keyVersion: key.version,
+  });
+  const sealed = sealSecret(key, fields, value);
+  const columns = {
+    secretVersion: fields.secretVersion,
+    keyVersion: fields.keyVersion,
+    nonce: sealed.nonce,
+    ciphertext: sealed.ciphertext,
+    last4: lastFour(value),
+    updatedBy,
+    updatedAt: DB_NOW,
+  };
+  if (current) {
+    await tx
+      .update(secretValues)
+      .set(columns)
+      .where(eq(secretValues.id, current.id));
+  } else {
+    await tx.insert(secretValues).values({
+      id: fields.id,
+      workspaceId: fields.workspaceId,
+      ownerRef: fields.ownerRef,
+      purpose: fields.purpose,
+      ...columns,
     });
-    const sealed = sealSecret(key, fields, value);
-    const columns = {
-      secretVersion: fields.secretVersion,
-      keyVersion: fields.keyVersion,
-      nonce: sealed.nonce,
-      ciphertext: sealed.ciphertext,
-      last4: lastFour(value),
-      updatedBy,
-      updatedAt: DB_NOW,
-    };
-    if (current) {
-      await tx
-        .update(secretValues)
-        .set(columns)
-        .where(eq(secretValues.id, current.id));
-    } else {
-      await tx.insert(secretValues).values({
-        id: fields.id,
-        workspaceId: fields.workspaceId,
-        ownerRef: fields.ownerRef,
-        purpose: fields.purpose,
-        ...columns,
-      });
-    }
+  }
 }
 
 export function createPostgresSecretStore(
@@ -278,7 +278,12 @@ export function createPostgresSecretStore(
           await tx
             .insert(receipts)
             .values(
-              secretReceiptRow(audit, slot, "set_slack_secret", lastFour(value)),
+              secretReceiptRow(
+                audit,
+                slot,
+                "set_slack_secret",
+                lastFour(value),
+              ),
             );
         }
         const summary = await summaryOf(tx, bySlot(slot));
@@ -305,7 +310,12 @@ export function createPostgresSecretStore(
           await tx
             .insert(receipts)
             .values(
-              secretReceiptRow(audit, slot, "delete_slack_secret", deleted.last4),
+              secretReceiptRow(
+                audit,
+                slot,
+                "delete_slack_secret",
+                deleted.last4,
+              ),
             );
         }
         return { outcome: "deleted", last4: deleted.last4 };

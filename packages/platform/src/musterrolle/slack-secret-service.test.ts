@@ -112,7 +112,11 @@ describe("Slack secret service", () => {
         issuer: { user_id: "U0ISSUER", team_id: "T0FAKE" },
         warnings: [],
       });
-      for (const value of [pasted, stored?.access_token, stored?.refresh_token]) {
+      for (const value of [
+        pasted,
+        stored?.access_token,
+        stored?.refresh_token,
+      ]) {
         expect(JSON.stringify(set)).not.toContain(value ?? "-");
       }
       const read = await service.describeConfigToken(caller, WORKSPACE);
@@ -148,8 +152,10 @@ describe("Slack secret service", () => {
       slack.issueRefresh(),
     );
     slack.state.userId = "U0SECOND";
-    const set = await service.setConfigToken(user("owner"), WORKSPACE, async () =>
-      slack.issueRefresh(),
+    const set = await service.setConfigToken(
+      user("owner"),
+      WORKSPACE,
+      async () => slack.issueRefresh(),
     );
     expect(set.warnings).toEqual([
       {

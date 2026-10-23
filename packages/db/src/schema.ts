@@ -12,12 +12,12 @@ import {
   SLACK_APP_KIND_VALUES,
   SLACK_APP_STATE_VALUES,
   SLACK_SURFACE_ACTION_VALUES,
+  type SlackAppKind,
+  type SlackAppState,
   SURFACE_BINDING_STATUS_VALUES,
   SURFACE_CHANNEL_KIND_VALUES,
   SURFACE_DISCLOSURE_VALUES,
   SURFACE_KIND_VALUES,
-  type SlackAppKind,
-  type SlackAppState,
 } from "@werft-ai/contracts";
 import type { SecretOwnerRef } from "@werft-ai/platform";
 import { sql } from "drizzle-orm";

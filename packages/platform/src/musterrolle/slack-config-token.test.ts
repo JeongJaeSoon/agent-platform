@@ -130,24 +130,23 @@ describe("Slack config token rotation", () => {
     expect((await tokens.describe(WORKSPACE)).state).toBe("active");
   });
 
-  test.each([
-    "invalid_refresh_token",
-    "token_expired",
-    "invalid_auth",
-  ])("Slack answering %s to a rotation asks for a new token", async (code) => {
-    const { tokens, slack, advance } = setup();
-    await tokens.register(WORKSPACE, slack.issueRefresh(), audit());
-    advance(12 * HOUR);
-    slack.state.next.rotate = async () => {
-      throw new SlackApiError("tooling.tokens.rotate", code, true);
-    };
-    expect(await refusal(tokens.accessToken(WORKSPACE))).toEqual({
-      code: "CONFIG_TOKEN_INVALID",
-      details: { reason_code: "needs_reentry" },
-    });
-    const summary = await tokens.describe(WORKSPACE);
-    expect(summary).toMatchObject({ state: "needs_reentry", secret: null });
-  });
+  test.each(["invalid_refresh_token", "token_expired", "invalid_auth"])(
+    "Slack answering %s to a rotation asks for a new token",
+    async (code) => {
+      const { tokens, slack, advance } = setup();
+      await tokens.register(WORKSPACE, slack.issueRefresh(), audit());
+      advance(12 * HOUR);
+      slack.state.next.rotate = async () => {
+        throw new SlackApiError("tooling.tokens.rotate", code, true);
+      };
+      expect(await refusal(tokens.accessToken(WORKSPACE))).toEqual({
+        code: "CONFIG_TOKEN_INVALID",
+        details: { reason_code: "needs_reentry" },
+      });
+      const summary = await tokens.describe(WORKSPACE);
+      expect(summary).toMatchObject({ state: "needs_reentry", secret: null });
+    },
+  );
 
   test("Slack answered but the pair could not be written: paste a new token", async () => {
     const { tokens, memory, slack, advance } = setup();
@@ -210,7 +209,11 @@ describe("Slack config token rotation", () => {
     expect(
       await refusal(
         tokens.withToken(WORKSPACE, async () => {
-          throw new SlackApiError("apps.manifest.create", "token_expired", true);
+          throw new SlackApiError(
+            "apps.manifest.create",
+            "token_expired",
+            true,
+          );
         }),
       ),
     ).toEqual({

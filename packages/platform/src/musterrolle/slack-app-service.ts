@@ -184,10 +184,11 @@ export function createSlackAppService(deps: {
     for (let attempt = 1; ; attempt += 1) {
       try {
         return await apps.finishCreate(input);
-      } catch (error) {
+      } catch {
         // The app exists in Slack and its secrets are only in memory; the
         // row stays `creating`, which a retry reports as uncertain.
-        if (attempt >= FINISH_ATTEMPTS) throw answerLost("apps.manifest.create");
+        if (attempt >= FINISH_ATTEMPTS)
+          throw answerLost("apps.manifest.create");
       }
     }
   }
@@ -381,7 +382,9 @@ export function createSlackAppService(deps: {
         }
       }
       return {
-        slack_app: slackAppView(await apps.finishDelete(workspaceId, slackAppId)),
+        slack_app: slackAppView(
+          await apps.finishDelete(workspaceId, slackAppId),
+        ),
       };
     },
 

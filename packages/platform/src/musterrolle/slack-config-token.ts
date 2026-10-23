@@ -203,7 +203,10 @@ export function createSlackConfigTokens(deps: {
         const at = now();
         const claim = await store.claimForReplace(
           workspaceId,
-          { now: at, leaseUntil: new Date(at.getTime() + CONFIG_TOKEN_LEASE_MS) },
+          {
+            now: at,
+            leaseUntil: new Date(at.getTime() + CONFIG_TOKEN_LEASE_MS),
+          },
           audit,
         );
         if (claim.outcome === "busy") {

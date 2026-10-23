@@ -100,5 +100,8 @@ export interface SlackAppStore {
     actor: SlackAppActor;
   }): Promise<BeginDeleteResult>;
   /** Marks the app deleted and drops its secrets. */
-  finishDelete(workspaceId: string, slackAppId: string): Promise<SlackAppRecord>;
+  finishDelete(
+    workspaceId: string,
+    slackAppId: string,
+  ): Promise<SlackAppRecord>;
 }
