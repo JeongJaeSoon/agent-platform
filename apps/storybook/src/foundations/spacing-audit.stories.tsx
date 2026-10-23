@@ -353,13 +353,15 @@ function SpacingAudit() {
       </Specimen>
       <Specimen title="Tabs line">
         <Tabs defaultValue="timeline">
-          <TabsList variant="line" aria-label="세션 보기" data-audit="tabs">
-            <TabsTrigger value="timeline">타임라인</TabsTrigger>
-            <TabsTrigger value="artifacts" count={4}>
-              결과물
-            </TabsTrigger>
-            <TabsTrigger value="info">정보</TabsTrigger>
-          </TabsList>
+          <div className="border-b">
+            <TabsList variant="line" aria-label="세션 보기" data-audit="tabs">
+              <TabsTrigger value="timeline">타임라인</TabsTrigger>
+              <TabsTrigger value="artifacts" count={4}>
+                결과물
+              </TabsTrigger>
+              <TabsTrigger value="info">정보</TabsTrigger>
+            </TabsList>
+          </div>
         </Tabs>
       </Specimen>
       <Specimen title="LinkTabs">

@@ -27,7 +27,7 @@ describe("Tabs", () => {
     }
   });
 
-  test("line 목록은 바닥선을 스스로 긋고 탭 사이 4px, 탭은 36px·좌우 8px이다", () => {
+  test("line 목록은 탭 사이 4px, 탭은 36px·좌우 8px이고 바닥선은 호출부 몫이다", () => {
     const { getByRole } = render(
       <Tabs defaultValue="a">
         <TabsList variant="line" aria-label="세션">
@@ -39,12 +39,15 @@ describe("Tabs", () => {
     for (const name of [
       "gap-1",
       "p-0",
-      "group-data-[orientation=horizontal]/tabs:border-b",
       "group-data-[orientation=horizontal]/tabs:h-auto",
     ]) {
       expect(list).toContain(name);
     }
     expect(list).not.toContain("gap-6");
+    // Callers draw the rule on a wrapper beside other controls; a second one
+    // here would double it (see the session detail screen story).
+    expect(list.some((name) => name.includes("border-b"))).toBe(false);
+    expect(list).toContain("w-fit");
     expect(list).not.toContain("group-data-[orientation=horizontal]/tabs:h-9");
     const tab = getByRole("tab", { name: "개요" }).className.split(" ");
     for (const name of [

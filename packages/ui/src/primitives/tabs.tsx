@@ -11,9 +11,10 @@ import { ItemCount } from "./segmented-control.tsx";
  * the active trigger sits on the card surface with an input border (canvas on
  * sunken barely differs, worst in dark) without a shadow, and transitions,
  * the line variant's underline included, stop under reduced motion. The line
- * variant is console v4 `.tabs`/`.tab`: a full-width list with its own bottom
- * rule, 36px tabs 8px apart from their labels' sides, and the underline inset
- * to the label, laid over the rule.
+ * variant is console v4 `.tab`: 36px tabs 4px apart with 8px sides, and the
+ * underline inset to the label, 1px below the list so it covers the bottom
+ * rule. The rule itself (v4 `.tabs` border-bottom) is still the caller's,
+ * drawn on a wrapper that also holds controls beside the tabs.
  */
 export function Tabs({
   className,
@@ -40,7 +41,7 @@ export const tabsListVariants = cva(
     variants: {
       variant: {
         default: "bg-muted",
-        line: "w-full justify-start gap-1 bg-transparent p-0 group-data-[orientation=horizontal]/tabs:h-auto group-data-[orientation=horizontal]/tabs:border-b group-data-[orientation=horizontal]/tabs:border-border",
+        line: "gap-1 bg-transparent p-0 group-data-[orientation=horizontal]/tabs:h-auto",
       },
     },
     defaultVariants: { variant: "default" },
