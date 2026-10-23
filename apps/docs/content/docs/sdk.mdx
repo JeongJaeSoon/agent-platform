@@ -11,7 +11,7 @@ SDK는 npm에 올라가 있지 않다. 이 저장소의 workspace 패키지(`pac
 
 ## 준비
 
-[설치](/getting-started/install)대로 띄운 스택과 [Quickstart](/getting-started/quickstart)의 `API`와 `KEY`를 쓴다. 저장소 루트에서 의존성을 설치한다.
+[설치](/getting-started/install)대로 띄운 스택과 [Quickstart](/getting-started/quickstart)의 `API`와 `KEY`를 쓴다. 스택은 `--fake-model`로 띄운다. 아래 스크립트의 `GATE-SPEC {…}` 메시지는 fake 모델이 읽는 대본이라, 실제 Claude 스택에서는 같은 도구 호출과 출력이 나오지 않는다. 저장소 루트에서 의존성을 설치한다.
 
 ```sh
 bun install
@@ -169,7 +169,7 @@ resume from: saved
 
 ## 재시도
 
-- 다시 보내는 경우: 오류 본문이 `retryable: true`일 때(429 포함), 프록시가 낸 502·504, 응답을 읽지 못한 연결 실패와 시도 timeout. 프록시 502·504와 연결 실패·timeout은 GET과 `Idempotency-Key`가 있는 명령만 다시 보낸다. key가 없는 `openPullRequest`·`commentPullRequest`는 서버가 이미 실행했을 수 있어 다시 보내지 않는다.
+- 다시 보내는 경우: 오류 본문이 `retryable: true`일 때(429 포함), 프록시가 낸 502·504, 응답을 읽지 못한 연결 실패와 시도 timeout. 프록시 502·504(API 오류 본문이 없는 것)와 연결 실패·timeout은 GET과 `Idempotency-Key`가 있는 명령만 다시 보낸다. key가 없는 `openPullRequest`·`commentPullRequest`는 서버가 이미 실행했을 수 있어 이 경우에는 다시 보내지 않는다. `retryable: true` 오류 본문은 명령 종류와 관계없이 다시 보낸다.
 - 다시 보내지 않는 경우: 409 전부, 500, `retryable: true`가 아닌 그 밖의 4xx.
 - `Retry-After`가 있으면 그만큼 기다린다. `maxRetryDelayMs`(기본 60초)를 넘으면 기다리지 않고 실패한다.
 - 프로세스를 다시 띄운 뒤 같은 명령을 이어서 재시도하려면 오류의 `idempotencyKey`를 저장해 두고 `{ idempotencyKey }`로 넘긴다.
