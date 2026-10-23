@@ -61,6 +61,7 @@ After installing the Slack app in a Slack workspace, the operator registers the 
 ```bash
 read -rs SLACK_BOT_TOKEN && export SLACK_BOT_TOKEN
 bun run slack-install register --workspace "$WS" --app-id A0123ABCD
+unset SLACK_BOT_TOKEN
 ```
 
 ```text
@@ -72,10 +73,11 @@ Running the same command again re-confirms the same installation (`registration:
 | Exit code | Meaning |
 | --- | --- |
 | 0 | A confirmed installation exists |
-| 2 | Bad arguments or environment variables, or the workspace does not exist |
+| 2 | Bad arguments or environment variables |
 | 3 | Slack refused the token, the token belongs to another app, or Slack is unreachable |
 | 4 | That app and team are already installed for another workspace (`workspace_conflict`) |
 | 5 | The installation was revoked while registering (`revoked`). Running again reopens it |
+| 6 | The workspace does not exist (`workspace_not_found`) |
 | 1 | Any other error |
 
 ## An agent's Slack app

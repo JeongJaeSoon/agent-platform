@@ -73,6 +73,14 @@ describe("slack-install arguments", () => {
         "A0MOCK",
         `--token=${TOKEN}`,
       ],
+      [
+        "register",
+        "--workspace",
+        WORKSPACE,
+        "--app-id",
+        "A0MOCK",
+        `--${TOKEN}`,
+      ],
       ["register", "--workspace", WORKSPACE, "--app-id", "A0MOCK", TOKEN],
     ]) {
       const run = capture({
@@ -138,6 +146,24 @@ describe("slack-install against a mock Slack", () => {
     );
   });
 
+  test("ids that do not look like Slack's are refused before they are stored or printed", async () => {
+    const odd: typeof fetch = Object.assign(
+      async (input: RequestInfo | URL) =>
+        String(input).endsWith("/auth.test")
+          ? Response.json({
+              ok: true,
+              team_id: "T0TEAM\u001b[2J",
+              user_id: "U0BOT",
+              bot_id: "B0BOT",
+            })
+          : Response.json({ ok: true, bot: { app_id: "A0MOCK" } }),
+      { preconnect: fetch.preconnect },
+    );
+    await expect(slackBotIdentity(apiUrl, TOKEN, odd)).rejects.toThrow(
+      "unexpected shape",
+    );
+  });
+
   test("a user token (no bot_id) is refused", async () => {
     const userToken: typeof fetch = Object.assign(
       async () =>
@@ -185,7 +211,17 @@ describe("slack-install against a mock Slack", () => {
         { SLACK_BOT_TOKEN: TOKEN, SLACK_API_URL: "file:///etc" },
         "A0MOCK",
         SLACK_INSTALL_EXIT.usage,
-        "SLACK_API_URL must be an http(s) URL",
+        "SLACK_API_URL must be https",
+      ],
+      [
+        // The token would cross the network in clear text.
+        {
+          SLACK_BOT_TOKEN: TOKEN,
+          SLACK_API_URL: "http://slack.example.com/api",
+        },
+        "A0MOCK",
+        SLACK_INSTALL_EXIT.usage,
+        "SLACK_API_URL must be https (http only for a local mock)",
       ],
     ];
     for (const [extra, appId, code, message] of cases) {

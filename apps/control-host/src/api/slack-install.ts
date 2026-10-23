@@ -4,6 +4,7 @@ import {
   type Database,
   findWorkspace,
   registerSlackInstallation,
+  type SlackInstallationStatus,
   verifySlackInstallation,
 } from "@werft-ai/db";
 import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
@@ -22,18 +23,20 @@ export const SLACK_INSTALL_EXIT = {
   slack_auth_failed: 3,
   workspace_conflict: 4,
   revoked: 5,
+  workspace_not_found: 6,
 } as const;
 
 const USAGE = `Usage: bun run apps/control-host/src/api/slack-install.ts register --workspace <workspace_id> --app-id <app_id>
 Environment: SLACK_BOT_TOKEN (required; never an argument), DATABASE_URL (required),
-             SLACK_API_URL (default https://slack.com/api)
-Exit codes: 0 verified, 1 unexpected error, 2 usage or unknown workspace,
-            3 Slack refused the token, 4 workspace_conflict, 5 revoked`;
+             SLACK_API_URL (default https://slack.com/api; http only for a local mock)
+Exit codes: 0 verified, 1 unexpected error, 2 usage, 3 Slack refused the token,
+            4 workspace_conflict, 5 revoked, 6 workspace not found`;
 
 const SLACK_API_URL = "https://slack.com/api";
 const SLACK_HTTP_TIMEOUT_MS = 10_000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const APP_ID = /^A[A-Z0-9]+$/;
+const SLACK_ID = /^[A-Z0-9]+$/;
 
 export class SlackInstallUsageError extends Error {}
 
@@ -47,11 +50,9 @@ export function parseSlackInstallCommand(argv: string[]): SlackInstallCommand {
   let parsed: ReturnType<typeof parse>;
   try {
     parsed = parse(argv);
-  } catch (error) {
-    // parseArgs names the offending option, never its value.
-    throw new SlackInstallUsageError(
-      `${error instanceof Error ? error.message : String(error)}\n${USAGE}`,
-    );
+  } catch {
+    // parseArgs quotes the offending option, which may be a pasted token.
+    throw new SlackInstallUsageError(`unknown or malformed option\n${USAGE}`);
   }
   const { workspace, "app-id": appId } = parsed.values;
   if (
@@ -183,6 +184,10 @@ export async function slackBotIdentity(
       ? field(bot as Record<string, unknown>, "app_id")
       : null;
   if (!appId) throw new SlackAuthTestError("bots.info: no app_id");
+  // Stored and printed as they come, so held to the shape of Slack ids.
+  if (![teamId, botUserId, appId].every((id) => SLACK_ID.test(id))) {
+    throw new SlackAuthTestError("Slack answered ids of an unexpected shape");
+  }
   return { teamId, botUserId, appId };
 }
 
@@ -197,7 +202,11 @@ export type SlackInstallOutcome =
       installationId: string;
     }
   | { outcome: "workspace_not_found" }
-  | { outcome: "workspace_conflict"; otherWorkspaceId: string }
+  | {
+      outcome: "workspace_conflict";
+      otherWorkspaceId: string;
+      otherStatus: SlackInstallationStatus;
+    }
   | { outcome: "revoked"; installationId: string };
 
 export async function installSlackApp(
@@ -217,6 +226,7 @@ export async function installSlackApp(
     return {
       outcome: "workspace_conflict",
       otherWorkspaceId: registered.installation.workspaceId,
+      otherStatus: registered.installation.status,
     };
   }
   const verified = await verifySlackInstallation(db, {
@@ -261,8 +271,18 @@ function apiUrlFrom(env: Record<string, string | undefined>): string {
   } catch {
     throw new SlackInstallUsageError("SLACK_API_URL must be an absolute URL");
   }
-  if (protocol !== "https:" && protocol !== "http:") {
-    throw new SlackInstallUsageError("SLACK_API_URL must be an http(s) URL");
+  // The token rides in a header: plain HTTP only to a mock on this host or
+  // on the compose network (a single-label name such as mock-slack).
+  const { hostname } = new URL(value);
+  const local =
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "[::1]" ||
+    !hostname.includes(".");
+  if (protocol !== "https:" && !(protocol === "http:" && local)) {
+    throw new SlackInstallUsageError(
+      "SLACK_API_URL must be https (http only for a local mock)",
+    );
   }
   return value;
 }
@@ -318,13 +338,15 @@ export async function runSlackInstall(
     switch (result.outcome) {
       case "workspace_not_found":
         return fail(
-          SLACK_INSTALL_EXIT.usage,
-          `workspace ${command.workspaceId} not found`,
+          SLACK_INSTALL_EXIT.workspace_not_found,
+          `workspace_not_found: workspace ${command.workspaceId} not found`,
         );
       case "workspace_conflict":
         return fail(
           SLACK_INSTALL_EXIT.workspace_conflict,
-          `workspace_conflict: ${where} is installed for workspace ${result.otherWorkspaceId}`,
+          result.otherStatus === "revoked"
+            ? `workspace_conflict: ${where} belongs to workspace ${result.otherWorkspaceId} (revoked there); only that workspace can register it again`
+            : `workspace_conflict: ${where} is installed for workspace ${result.otherWorkspaceId}`,
         );
       case "revoked":
         return fail(

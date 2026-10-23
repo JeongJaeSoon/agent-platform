@@ -61,6 +61,7 @@ curl -sS -o /dev/null -w '%{http_code}\n' -X POST "$API/v1/linked-accounts/slack
 ```bash
 read -rs SLACK_BOT_TOKEN && export SLACK_BOT_TOKEN
 bun run slack-install register --workspace "$WS" --app-id A0123ABCD
+unset SLACK_BOT_TOKEN
 ```
 
 ```text
@@ -72,10 +73,11 @@ bun run slack-install register --workspace "$WS" --app-id A0123ABCD
 | 終了コード | 意味 |
 | --- | --- |
 | 0 | 確認済みのインストールがある |
-| 2 | 引数・環境変数が正しくないか、ワークスペースが存在しない |
+| 2 | 引数または環境変数が正しくない |
 | 3 | Slack が token を拒否した、別のアプリの token である、または Slack に届かない |
 | 4 | そのアプリとチームは別のワークスペースにすでにインストールされている(`workspace_conflict`) |
 | 5 | 登録中にインストールが解除された(`revoked`)。もう一度実行すると再び開く |
+| 6 | ワークスペースが存在しない(`workspace_not_found`) |
 | 1 | その他のエラー |
 
 ## エージェントの Slack アプリ

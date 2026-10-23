@@ -4,6 +4,7 @@ import * as schema from "@werft-ai/db";
 import {
   findSlackInstallation,
   revokeSlackInstallation,
+  slackInstallations,
   workspaces,
 } from "@werft-ai/db";
 import {
@@ -122,7 +123,8 @@ integration("slack-install on PostgreSQL", () => {
       `workspace_conflict: app A0MOCK in team ${teamId} is installed for workspace ${workspaceId}`,
     );
 
-    // A revoke landing between register and verify.
+    // A revoke landing between register and verify. Only verify opens a
+    // transaction, so revoking on entry to it lands in that gap.
     const raced = await run(
       workspaceId,
       (d) =>
@@ -153,12 +155,22 @@ integration("slack-install on PostgreSQL", () => {
       registration: "registered",
       installation_id: printed.installation_id,
     });
+
+    // A revoked row still belongs to its workspace; the message says so.
+    await revokeSlackInstallation(db, { appId: "A0MOCK", teamId });
+    const takeover = await run(await newWorkspace());
+    expect(takeover.code).toBe(SLACK_INSTALL_EXIT.workspace_conflict);
+    expect(takeover.text).toContain(
+      `belongs to workspace ${workspaceId} (revoked there); only that workspace can register it again`,
+    );
   });
 
-  test("an unknown workspace is a usage error and writes nothing", async () => {
+  test("an unknown workspace has its own exit code and writes nothing", async () => {
+    const before = await db.$count(slackInstallations);
     const result = await run(randomUUID());
-    expect(result.code).toBe(SLACK_INSTALL_EXIT.usage);
-    expect(result.text).toContain("not found");
+    expect(result.code).toBe(SLACK_INSTALL_EXIT.workspace_not_found);
+    expect(result.text).toContain("workspace_not_found");
+    expect(await db.$count(slackInstallations)).toBe(before);
   });
 
   test("the real process prints the row and never the token", async () => {
