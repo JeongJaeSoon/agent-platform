@@ -308,7 +308,16 @@ describe("QuestionCard", () => {
     expect(getByRole("group", { name: "Which tools?" }).tagName).toBe(
       "FIELDSET",
     );
-    await user.click(getByRole("radio", { name: "Red" }));
+    const red = getByRole("radio", { name: "Red" });
+    await user.click(red);
+    // One Tab stop per group: Tab from the first radio skips Blue, and
+    // Shift+Tab comes back to the checked one.
+    await user.tab();
+    expect(
+      document.activeElement === getByRole("checkbox", { name: "git" }),
+    ).toBe(true);
+    await user.tab({ shift: true });
+    expect(document.activeElement === red).toBe(true);
     // Radix moves focus in a timeout and checks the radio only while the
     // arrow is still down, as it is under a real key press.
     await user.keyboard("{ArrowRight>}");
@@ -317,11 +326,6 @@ describe("QuestionCard", () => {
     await user.keyboard("{/ArrowRight}");
     expect(group.contains(document.activeElement)).toBe(true);
     expect(document.activeElement === blue).toBe(true);
-    // One Tab stop per group: Tab leaves the radios for the first checkbox.
-    await user.tab();
-    expect(
-      document.activeElement === getByRole("checkbox", { name: "git" }),
-    ).toBe(true);
   });
 
   test("여러 개 고르기는 체크박스를 Space로 켜고 끈다", async () => {

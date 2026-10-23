@@ -228,6 +228,18 @@ export const WritingOwnMobile: Story = {
   globals: { viewport: { value: "mobile390", isRotated: false } },
 };
 
+export const WritingOwnDark: Story = {
+  ...WritingOwn,
+  name: "Writing own (dark)",
+  globals: { theme: "dark" },
+};
+
+export const UnansweredMobile: Story = {
+  ...Unanswered,
+  name: "Unanswered (390px)",
+  globals: { viewport: { value: "mobile390", isRotated: false } },
+};
+
 export const UnansweredDark: Story = {
   ...Unanswered,
   name: "Unanswered (dark)",
