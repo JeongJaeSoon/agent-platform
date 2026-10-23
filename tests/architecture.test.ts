@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import {
   mkdir,
   mkdtemp,
@@ -10,6 +10,8 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
+import * as ts from "typescript";
+import { webUiAllowlist } from "./web-ui-allowlist.ts";
 
 const root = join(import.meta.dir, "..");
 const testkit = "@werft-ai/testkit";
@@ -281,6 +283,289 @@ export async function webBoundaryViolations(
     }
   }
   return offenders.sort();
+}
+
+/** Parsed rather than matched, so comments, strings and JSX text never pass for code. */
+async function parse(file: string): Promise<ts.SourceFile> {
+  return ts.createSourceFile(
+    file,
+    await readFile(file, "utf8"),
+    ts.ScriptTarget.Latest,
+    true,
+    file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
+}
+
+function walk(node: ts.Node, visit: (node: ts.Node) => void): void {
+  visit(node);
+  ts.forEachChild(node, (child) => walk(child, visit));
+}
+
+function isExported(node: ts.Node): boolean {
+  return (
+    ts.canHaveModifiers(node) &&
+    (ts.getModifiers(node) ?? []).some(
+      (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword,
+    )
+  );
+}
+
+/**
+ * PascalCase value names a workspace package exports, read statically from
+ * each script entry of its manifest's `exports` and the `export *` chains
+ * behind them. Importing the packages instead would load React and
+ * happy-dom-sensitive modules into whatever process runs this file.
+ */
+export async function exportedComponentNames(
+  directory: string,
+): Promise<Set<string>> {
+  const names = new Set<string>();
+  const seen = new Set<string>();
+  const visit = async (file: string): Promise<void> => {
+    if (seen.has(file)) return;
+    seen.add(file);
+    for (const statement of (await parse(file)).statements) {
+      if (ts.isExportDeclaration(statement)) {
+        if (statement.isTypeOnly) continue;
+        const clause = statement.exportClause;
+        const from = statement.moduleSpecifier;
+        if (!clause && from && ts.isStringLiteral(from)) {
+          if (from.text.startsWith("."))
+            await visit(moduleFile(file, from.text));
+        } else if (clause && ts.isNamedExports(clause)) {
+          for (const element of clause.elements)
+            if (!element.isTypeOnly) names.add(element.name.text);
+        }
+      } else if (isExported(statement)) {
+        if (
+          (ts.isFunctionDeclaration(statement) ||
+            ts.isClassDeclaration(statement)) &&
+          statement.name
+        )
+          names.add(statement.name.text);
+        if (ts.isVariableStatement(statement))
+          for (const declaration of statement.declarationList.declarations)
+            if (ts.isIdentifier(declaration.name))
+              names.add(declaration.name.text);
+      }
+    }
+  };
+  const { exports } = JSON.parse(
+    await readFile(join(directory, "package.json"), "utf8"),
+  ) as { exports?: unknown };
+  const subpaths =
+    typeof exports === "string" ? { ".": exports } : (exports ?? {});
+  for (const [subpath, target] of Object.entries(subpaths)) {
+    if (subpath.includes("test-support")) continue;
+    for (const path of leaves(target))
+      if (/\.tsx?$/.test(path)) await visit(join(directory, path));
+  }
+  // SCREAMING_CASE exports are constants, not components.
+  return new Set(
+    [...names].filter(
+      (name) => /^[A-Z]/.test(name) && !/^[A-Z0-9_]+$/.test(name),
+    ),
+  );
+}
+
+/** Every string target of a package.json `exports` value, conditions included. */
+function leaves(value: unknown): string[] {
+  if (typeof value === "string") return [value];
+  if (value && typeof value === "object")
+    return Object.values(value).flatMap(leaves);
+  return [];
+}
+
+/** The file an extensionless or directory specifier names; an unknown one fails loudly. */
+function moduleFile(from: string, specifier: string): string {
+  const base = resolve(dirname(from), specifier);
+  for (const candidate of [
+    base,
+    `${base}.ts`,
+    `${base}.tsx`,
+    join(base, "index.ts"),
+    join(base, "index.tsx"),
+  ])
+    if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
+  throw new Error(`${from}: cannot resolve export * from "${specifier}"`);
+}
+
+function isModuleSpecifier(node: ts.Node): boolean {
+  const parent = node.parent;
+  return (
+    ts.isImportDeclaration(parent) ||
+    ts.isExportDeclaration(parent) ||
+    ts.isExternalModuleReference(parent) ||
+    ts.isLiteralTypeNode(parent) ||
+    (ts.isCallExpression(parent) &&
+      parent.expression.kind === ts.SyntaxKind.ImportKeyword)
+  );
+}
+
+/**
+ * Whether a constant's value is a list of link classes ("text-primary
+ * hover:underline"), as opposed to a URL that merely contains "text-".
+ */
+function isLinkClasses(value: ts.Expression): boolean {
+  let inner = value;
+  while (
+    ts.isAsExpression(inner) ||
+    ts.isSatisfiesExpression(inner) ||
+    ts.isParenthesizedExpression(inner) ||
+    ts.isTypeAssertionExpression(inner)
+  )
+    inner = inner.expression;
+  const text = ts.isStringLiteralLike(inner)
+    ? inner.text
+    : ts.isTemplateExpression(inner)
+      ? [
+          inner.head.text,
+          ...inner.templateSpans.map((s) => s.literal.text),
+        ].join(" ")
+      : undefined;
+  return (
+    text !== undefined &&
+    text
+      .split(/\s+/)
+      // Any variant prefix, data-[active=true]: included; a URL's "//" is not one.
+      .some((token) => /(?:^|:)!?(?:text-|underline!?$)/.test(token))
+  );
+}
+
+/** Count of each web UI rule's matches, per file relative to apps/web/src. */
+export type WebUiCounts = Record<string, Partial<Record<WebUiRule, number>>>;
+
+/** What each rule catches, and what to do instead. */
+const webUiRules = {
+  "raw-table":
+    "raw <table>: use a table from @werft-ai/ui (or SessionTable from @werft-ai/react/components); if none fits, ask ui-kit for one",
+  "raw-anchor":
+    "raw <a>: use the router's link or a link component from @werft-ai/ui; if none fits, ask ui-kit for one",
+  "shadow-component":
+    "a component named like a @werft-ai/ui or @werft-ai/react export: import that export instead of defining a second one; if it lacks what you need, ask ui-kit to extend it",
+  "legacy-class":
+    "legacy web-* / ap-input class: use the @werft-ai/ui component that draws it (Field, Input, PageHeader, EmptyState, ...); if none fits, ask ui-kit for one",
+  "link-constant":
+    "link className constant: use a link component from @werft-ai/ui; if none fits, ask ui-kit for one",
+  "raw-destructive":
+    "raw text-destructive status text: use ErrorState, FieldError or ApiErrorState; if none fits, ask ui-kit for one",
+} as const;
+
+export type WebUiRule = keyof typeof webUiRules;
+
+const legacyClass = /(?<![\w-])(?:web-[a-z0-9_-]+|ap-input[a-z0-9_-]*)/g;
+
+/**
+ * Where apps/web draws its own UI instead of composing packages/ui and
+ * packages/react. `components` are the names those packages export.
+ */
+export async function webUiViolations(
+  directory: string,
+  components: ReadonlySet<string>,
+): Promise<WebUiCounts> {
+  const counts: WebUiCounts = {};
+  const add = (file: string, rule: WebUiRule, n: number) => {
+    if (n === 0) return;
+    counts[file] = { ...counts[file], [rule]: (counts[file]?.[rule] ?? 0) + n };
+  };
+  const entries = await readdir(directory, {
+    recursive: true,
+    withFileTypes: true,
+  });
+  for (const entry of entries) {
+    if (!entry.isFile() || entry.parentPath.includes("node_modules")) continue;
+    const file = join(entry.parentPath, entry.name);
+    const name = relative(directory, file);
+    if (entry.name.endsWith(".css")) {
+      // Every mention, so an attribute selector ([class~="web-x"]) counts too.
+      const css = (await readFile(file, "utf8")).replace(
+        /\/\*[\s\S]*?\*\//g,
+        "",
+      );
+      add(name, "legacy-class", [...css.matchAll(legacyClass)].length);
+      continue;
+    }
+    if (!/\.tsx?$/.test(entry.name) || isTestFile(file)) continue;
+    walk(await parse(file), (node) => {
+      if (
+        (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) &&
+        ts.isIdentifier(node.tagName)
+      ) {
+        if (node.tagName.text === "table") add(name, "raw-table", 1);
+        if (node.tagName.text === "a") add(name, "raw-anchor", 1);
+      }
+      if (
+        (ts.isFunctionDeclaration(node) ||
+          ts.isFunctionExpression(node) ||
+          ts.isClassDeclaration(node) ||
+          ts.isClassExpression(node) ||
+          ts.isVariableDeclaration(node)) &&
+        node.name &&
+        ts.isIdentifier(node.name) &&
+        components.has(node.name.text)
+      )
+        add(name, "shadow-component", 1);
+      if (
+        (ts.isStringLiteralLike(node) ||
+          ts.isTemplateHead(node) ||
+          ts.isTemplateMiddle(node) ||
+          ts.isTemplateTail(node)) &&
+        !isModuleSpecifier(node)
+      ) {
+        // Whole class tokens, so "./web-utils" or ".../web-api" is not one.
+        const tokens = node.text.split(/\s+/);
+        const classes = (pattern: RegExp) =>
+          tokens.filter((token) => pattern.test(token)).length;
+        add(
+          name,
+          "legacy-class",
+          classes(/(?:^|:)!?(?:web-[a-z0-9_-]+|ap-input[a-z0-9_-]*)!?$/),
+        );
+        add(
+          name,
+          "raw-destructive",
+          classes(/(?:^|:)!?text-destructive(?:\/[^\s!]+)?!?$/),
+        );
+      }
+      if (
+        ts.isVariableDeclaration(node) &&
+        ts.isIdentifier(node.name) &&
+        /link/i.test(node.name.text) &&
+        node.initializer &&
+        isLinkClasses(node.initializer)
+      )
+        add(name, "link-constant", 1);
+    });
+  }
+  return counts;
+}
+
+/**
+ * The ratchet: `actual` may only shrink below `allowed`. A count above the
+ * list is new UI drawn in apps/web; a count below it is a fix whose entry
+ * must go, so the list never stays larger than what is there.
+ */
+export function webUiRatchet(
+  actual: WebUiCounts,
+  allowed: WebUiCounts,
+): string[] {
+  const problems: string[] = [];
+  const files = new Set([...Object.keys(actual), ...Object.keys(allowed)]);
+  for (const file of [...files].sort()) {
+    for (const rule of Object.keys(webUiRules) as WebUiRule[]) {
+      const found = actual[file]?.[rule] ?? 0;
+      const listed = allowed[file]?.[rule] ?? 0;
+      if (found > listed)
+        problems.push(
+          `${file} ${rule}: ${found} found, ${listed} allowed. ${webUiRules[rule]}`,
+        );
+      else if (found < listed)
+        problems.push(
+          `${file} ${rule}: ${found} found, ${listed} allowed. Lower this entry in tests/web-ui-allowlist.ts to ${found}${found === 0 ? " (remove it)" : ""}`,
+        );
+    }
+  }
+  return problems;
 }
 
 describe("architecture", () => {
@@ -825,6 +1110,229 @@ describe("architecture", () => {
         "screen.tsx -> @werft-ai/platform",
         "screen.tsx -> contracts value import",
       ]);
+    } finally {
+      await rm(fixture, { recursive: true, force: true });
+    }
+  });
+
+  test("the web app draws no UI of its own beyond tests/web-ui-allowlist.ts", async () => {
+    const components = new Set([
+      ...(await exportedComponentNames(join(root, ui))),
+      ...(await exportedComponentNames(join(root, "packages", "react"))),
+    ]);
+    // A reader that found nothing would pass the shadow-component rule vacuously.
+    for (const name of ["Card", "EmptyState", "Input", "SessionTable"])
+      expect(components).toContain(name);
+    expect(
+      webUiRatchet(
+        await webUiViolations(join(root, web, "src"), components),
+        webUiAllowlist,
+      ),
+    ).toEqual([]);
+  });
+
+  test("the web UI ratchet fails on a new violation and on a list larger than the code", async () => {
+    const fixture = await mkdtemp(join(tmpdir(), "arch-web-ui-"));
+    try {
+      await mkdir(join(fixture, "ui", "src"), { recursive: true });
+      await writeFile(
+        join(fixture, "ui", "package.json"),
+        JSON.stringify({
+          exports: {
+            ".": "./src/index.ts",
+            "./styles.css": "./src/styles.css",
+          },
+        }),
+      );
+      await writeFile(
+        join(fixture, "ui", "src", "index.ts"),
+        [
+          'export * from "./card.tsx";',
+          "export { Badge, type BadgeProps, cn, LOCALES } from './badge.tsx';",
+        ].join("\n"),
+      );
+      await writeFile(
+        join(fixture, "ui", "src", "card.tsx"),
+        "export function Card() {}\nexport const EmptyState = () => null;",
+      );
+      const components = await exportedComponentNames(join(fixture, "ui"));
+      expect([...components].sort()).toEqual(["Badge", "Card", "EmptyState"]);
+
+      const web = join(fixture, "web");
+      await mkdir(join(web, "routes"), { recursive: true });
+      await writeFile(
+        join(web, "routes", "screen.tsx"),
+        [
+          "const LINK = 'text-primary underline';",
+          "export const PRIMARY_LINK =",
+          '  "text-primary";',
+          "const LINK_CODES = new Set([1]);",
+          "export function Card() {",
+          "  return (",
+          '    <table className="web-table">',
+          '      <a href="/x" className="ap-input web-field__hint">x</a>',
+          '      <p className="text-destructive">no</p>',
+          "    </table>",
+          "  );",
+          "}",
+          "function Cardboard() { return <abbr />; }",
+        ].join("\n"),
+      );
+      await writeFile(
+        join(web, "routes", "screen.test.tsx"),
+        '<table className="web-table"><a href="/">x</a></table>',
+      );
+      await writeFile(
+        join(web, "styles.css"),
+        ".web-field .ap-input { color: red; }\n.ap-button {}",
+      );
+      const counts = await webUiViolations(web, components);
+      expect(counts).toEqual({
+        [join("routes", "screen.tsx")]: {
+          "raw-table": 1,
+          "raw-anchor": 1,
+          "shadow-component": 1,
+          "legacy-class": 3,
+          "link-constant": 2,
+          "raw-destructive": 1,
+        },
+        "styles.css": { "legacy-class": 2 },
+      });
+
+      // Exactly what is listed passes.
+      expect(webUiRatchet(counts, counts)).toEqual([]);
+
+      // A violation the list does not have fails, saying what to use instead.
+      const added = webUiRatchet(counts, {
+        ...counts,
+        "styles.css": { "legacy-class": 1 },
+      });
+      expect(added).toHaveLength(1);
+      expect(added[0]).toContain("styles.css legacy-class: 2 found, 1 allowed");
+      expect(added[0]).toContain("@werft-ai/ui");
+      expect(added[0]).toContain("ask ui-kit");
+
+      // A fix whose entry stayed in the list fails until the entry goes.
+      const stale = webUiRatchet(
+        { "styles.css": { "legacy-class": 2 } },
+        { ...counts, "styles.css": { "legacy-class": 3 } },
+      );
+      expect(stale).toContain(
+        "styles.css legacy-class: 2 found, 3 allowed. Lower this entry in tests/web-ui-allowlist.ts to 2",
+      );
+      expect(stale).toContain(
+        `${join("routes", "screen.tsx")} raw-table: 0 found, 1 allowed. Lower this entry in tests/web-ui-allowlist.ts to 0 (remove it)`,
+      );
+      expect(stale).toHaveLength(7);
+    } finally {
+      await rm(fixture, { recursive: true, force: true });
+    }
+  });
+
+  test("the web UI scan reads past comments, URLs, generics and every way to declare or export a name", async () => {
+    const fixture = await mkdtemp(join(tmpdir(), "arch-web-ui-edge-"));
+    try {
+      await mkdir(join(fixture, "ui", "src", "parts"), { recursive: true });
+      await writeFile(
+        join(fixture, "ui", "package.json"),
+        JSON.stringify({
+          exports: { ".": { import: "./src/index.ts" } },
+        }),
+      );
+      await writeFile(
+        join(fixture, "ui", "src", "index.ts"),
+        [
+          'export * from "./card";',
+          'export * from "./parts";',
+          "export\ntype { CardProps } from './card';",
+          "// export const Ghost = () => null;",
+        ].join("\n"),
+      );
+      await writeFile(
+        join(fixture, "ui", "src", "card.tsx"),
+        "export const First = () => null, Second = () => null;\nexport const Input = () => null;",
+      );
+      await writeFile(
+        join(fixture, "ui", "src", "parts", "index.ts"),
+        "export const APIError = () => null;",
+      );
+      expect(
+        [...(await exportedComponentNames(join(fixture, "ui")))].sort(),
+      ).toEqual(["APIError", "First", "Input", "Second"]);
+
+      const web = join(fixture, "web");
+      await mkdir(web);
+      await writeFile(
+        join(web, "clean.tsx"),
+        [
+          '// <table> <a href="/"> web-field text-destructive',
+          "/* const Card = () => null; */",
+          "const identity = <table,>(value: table) => value;",
+          'const HELP_LINK = "https://example.com/help";',
+          'const HOME_LINK = "/home";',
+          'const HASH_LINK = "#help";',
+          'const help = "Use <a> or <table> for these";',
+          "const Copy = () => <p>Don't worry, it's fine.</p>;",
+          "function Screen({ title, Input = DefaultInput }) { return <Input />; }",
+          "const CardProps = {};",
+        ].join("\n"),
+      );
+      await writeFile(
+        join(web, "dirty.tsx"),
+        [
+          'const LINK: string = "underline";',
+          'const OTHER = 0, ROW_LINK = "hover:underline text-primary";',
+          'const CONST_LINK = "text-primary underline" as const;',
+          'const ACTIVE_LINK = "data-[active=true]:text-primary";',
+          'const LOUD_LINK = "hover:underline!";',
+          'const linkClassName = "text-primary hover:underline";',
+          'const linkHref = "/text-guide";',
+          'import { helper } from "./web-utils";',
+          'const lazy = () => import("web-lazy");',
+          'export const docsUrl = "https://example.com/web-api";',
+          'const tone = cn("hover:text-destructive/80", "web-old!");',
+          'const Faint = () => <p className="text-destructive/[0.5]">x</p>;',
+          "export default memo(function Second() { return <section />; });",
+          "const MIXED_LINK = `text-primary ${extra} underline`;",
+          'const DOCS_LINK: string = "https://tailwindcss.com/docs/text-decoration-line";',
+          "const NAV_LINK = `",
+          "  text-primary hover:underline",
+          "`;",
+          "const Help = () => <><p>Don't worry.</p><a href=\"/help\">Help</a><p>It's fine.</p></>;",
+          'const Quoted = () => <p>See "<a href={url}>help</a>" for details.</p>;',
+          'const Upload = () => <><input accept="image/*" /><a href={url}>Help</a>{/* hint */}</>;',
+          "const help2 = `<a> or <table>`;",
+          "const unrelated = 0, Second = () => <div />;",
+          "function APIError() { return <a/>; }",
+        ].join("\n"),
+      );
+      await writeFile(
+        join(web, "styles.css"),
+        '/* .web-old */\n[class~="web-field"] { color: red; }',
+      );
+      expect(
+        await webUiViolations(
+          web,
+          await exportedComponentNames(join(fixture, "ui")),
+        ),
+      ).toEqual({
+        "dirty.tsx": {
+          "raw-anchor": 4,
+          "shadow-component": 3,
+          "legacy-class": 1,
+          "link-constant": 8,
+          "raw-destructive": 2,
+        },
+        "styles.css": { "legacy-class": 1 },
+      });
+
+      await writeFile(
+        join(fixture, "ui", "src", "index.ts"),
+        'export * from "./missing";',
+      );
+      await expect(exportedComponentNames(join(fixture, "ui"))).rejects.toThrow(
+        'cannot resolve export * from "./missing"',
+      );
     } finally {
       await rm(fixture, { recursive: true, force: true });
     }
