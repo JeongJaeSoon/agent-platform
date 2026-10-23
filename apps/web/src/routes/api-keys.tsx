@@ -82,6 +82,8 @@ const PAGE = "flex w-full flex-col gap-[var(--ap-space-block)]";
 const SECTION_TITLE = "m-0 font-semibold text-body";
 const META = "text-muted-foreground text-xs";
 const ICON = "size-3.5 shrink-0";
+// v4 `.key-copy` (Console.dc.html L445): 24px, pulled into the meta gaps.
+const KEY_COPY = "-my-1 -mr-1 -ml-1.5 h-6 min-w-6 gap-1 px-1 text-xs";
 
 type IssueRequest = Pick<CreateApiKeyRequest, "kind" | "scopes"> & {
   agent_id?: string;
@@ -436,7 +438,7 @@ function CopyButton({
         type="button"
         variant="ghost"
         size="sm"
-        className="gap-1 px-2 text-xs"
+        className={KEY_COPY}
         aria-label={label}
         onClick={() => {
           void copyText(value, field ?? { current: null }).then((ok) => {
