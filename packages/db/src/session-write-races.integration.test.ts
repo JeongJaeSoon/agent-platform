@@ -811,18 +811,33 @@ integration("session writes re-judge their requester on PostgreSQL", () => {
     test("a key that lapses while its row is locked creates nothing", async () => {
       const ws = await workspace();
       const live = await key(ws, { service: true });
+      const lapsesAt = Date.now() + 1_500;
       await db
         .update(apiKeys)
-        .set({ expiresAt: new Date(Date.now() + 500) })
+        .set({ expiresAt: new Date(lapsesAt) })
         .where(eq(apiKeys.id, live.id));
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
-        await client.query("SELECT 1 FROM api_keys WHERE id = $1 FOR UPDATE", [
-          live.id,
-        ]);
+        const { rows } = await client.query(
+          "SELECT pg_backend_pid() AS pid FROM api_keys WHERE id = $1 FOR UPDATE",
+          [live.id],
+        );
+        const holder = rows[0]?.pid;
         const created = create(live.caller);
-        await Bun.sleep(1_000);
+        // The create must be queued on the key row before the key lapses,
+        // or this would not tell a check before the lock from one after it.
+        let queued = false;
+        while (!queued && Date.now() < lapsesAt) {
+          const waiting = await pool.query(
+            "SELECT 1 FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))",
+            [holder],
+          );
+          queued = (waiting.rowCount ?? 0) > 0;
+          if (!queued) await Bun.sleep(20);
+        }
+        expect(queued).toBe(true);
+        await Bun.sleep(Math.max(0, lapsesAt - Date.now()) + 200);
         await client.query("COMMIT");
         expect(await created).toEqual({ outcome: "actor_inactive" });
       } finally {
