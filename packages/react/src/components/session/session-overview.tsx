@@ -15,7 +15,7 @@ import type { SessionRowLink } from "./session-row.tsx";
  * time columns keep a fixed width throughout.
  */
 export const SESSION_OVERVIEW_COLUMNS =
-  "grid grid-cols-[minmax(0,2fr)_116px_minmax(0,1.2fr)_64px] @[820px]:grid-cols-[minmax(0,2.2fr)_120px_minmax(0,1.2fr)_minmax(0,1.2fr)_72px]";
+  "grid grid-cols-[minmax(0,2fr)_116px_minmax(0,1.2fr)_64px] @[820px]:grid-cols-[minmax(0,2.2fr)_120px_minmax(0,1fr)_minmax(0,1.4fr)_72px]";
 
 const WIDE_ONLY = "hidden @[820px]:flex";
 
@@ -119,10 +119,11 @@ export function SessionOverviewRow({
   const shortId = shortSessionId(session.id);
   const at = session.last_event_at ?? session.created_at;
   // A server older than the repository field sends only the catalog key.
-  const repository = session.repository
-    ? `${session.repository.full_name ?? messages.unknown} · ${session.repository.branch}`
+  const repositoryName = session.repository
+    ? (session.repository.full_name ?? messages.unknown)
     : session.repository_id;
-  const RepositoryIcon = repository ? GitBranch : Folder;
+  const branch = session.repository?.branch;
+  const RepositoryIcon = repositoryName ? GitBranch : Folder;
   return (
     <div
       role="row"
@@ -178,12 +179,18 @@ export function SessionOverviewRow({
           strokeWidth={1.5}
           aria-hidden="true"
         />
-        {repository ? (
+        {repositoryName ? (
+          // A long name gives way first, so the branch stays in sight.
           <span
-            className="relative truncate font-mono text-caption"
-            title={repository}
+            className="relative flex min-w-0 font-mono text-caption"
+            title={branch ? `${repositoryName} · ${branch}` : repositoryName}
           >
-            {repository}
+            <span className="min-w-0 truncate">{repositoryName}</span>
+            {branch ? (
+              <span className="max-w-[50%] flex-none overflow-hidden text-ellipsis whitespace-pre">
+                {` · ${branch}`}
+              </span>
+            ) : null}
           </span>
         ) : (
           <span className="truncate text-caption text-subtle-foreground">
