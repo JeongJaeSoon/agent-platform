@@ -190,7 +190,7 @@ function checks(m, width) {
       );
   }
   if (!auth) {
-    const lefts = m.lines.filter((l) => l.dx !== null && l.dx < 40);
+    const lefts = m.lines.filter((l) => l.dx !== null && !l.column);
     for (const l of lefts)
       if (Math.abs(l.dx) > 1)
         add("align.left", l.el, l.dx, 0, false, `box ${l.box}, ink ${l.ink}`);

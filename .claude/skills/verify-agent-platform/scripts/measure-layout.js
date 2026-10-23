@@ -367,6 +367,23 @@
   out.gaps = gaps;
 
   // (a) left lines: where the outer blocks start, box and ink, outside cards.
+  // A block that sits beside a sibling in a row (an icon, a second column)
+  // starts its own line; every other block owes the content line.
+  function sideColumn(el) {
+    for (let n = el; n && n !== root; n = n.parentElement) {
+      const p = n.parentElement;
+      if (!p) break;
+      const ps = getComputedStyle(p);
+      const row =
+        (ps.display.includes("flex") &&
+          !ps.flexDirection.startsWith("column")) ||
+        (ps.display.includes("grid") &&
+          ps.gridTemplateColumns.trim().split(/\s+/).length > 1);
+      if (row && n.getBoundingClientRect().left + scrollX > contentLeft + 1)
+        return true;
+    }
+    return false;
+  }
   const lines = [];
   const cards = [];
   function isCard(el) {
@@ -420,6 +437,7 @@
         box: r(b.left + scrollX),
         ink: i ? i.x : null,
         dx: i ? r(i.x - contentLeft) : null,
+        column: sideColumn(el),
       });
     }
   }
@@ -479,16 +497,20 @@
                 scrollY +
                 btn.getBoundingClientRect().height / 2,
             ),
-            // A button with a hint under it is centred as that group.
-            groupCenterY: [...btn.parentElement.childNodes].some(
-              (n) => n !== btn && n.textContent.trim(),
-            )
-              ? r(
-                  btn.parentElement.getBoundingClientRect().top +
-                    scrollY +
-                    btn.parentElement.getBoundingClientRect().height / 2,
-                )
-              : null,
+            // A button with a hint under it is centred as that group; the
+            // row itself or a wrapper holding the row's title is no group.
+            groupCenterY:
+              btn.parentElement !== el &&
+              !btn.parentElement.contains(firstText ?? null) &&
+              [...btn.parentElement.childNodes].some(
+                (n) => n !== btn && n.textContent.trim(),
+              )
+                ? r(
+                    btn.parentElement.getBoundingClientRect().top +
+                      scrollY +
+                      btn.parentElement.getBoundingClientRect().height / 2,
+                  )
+                : null,
           }
         : null,
       firstLine: firstText ? { el: name(firstText), ...rect(firstText) } : null,
