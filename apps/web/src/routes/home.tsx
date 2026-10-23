@@ -348,11 +348,6 @@ export function HomeScreen() {
               { label: t("home.glance.tokens"), value: unmeasured },
             ]}
             footer={t("home.overview.sessionsNote")}
-            link={
-              <ArrowLink to="/sessions">
-                {t("home.overview.toSessions")}
-              </ArrowLink>
-            }
           />
         </ul>
       </HomeSection>
