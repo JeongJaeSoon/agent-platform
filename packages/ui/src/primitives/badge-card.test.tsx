@@ -50,6 +50,15 @@ describe("Badge", () => {
     expect(badge?.textContent).toBe("초안");
   });
 
+  test("점이 없으면 children을 그대로 넘겨 dangerouslySetInnerHTML도 그대로 쓴다", () => {
+    const { container } = render(
+      // biome-ignore lint/security/noDangerouslySetInnerHtml: the existing prop this test pins
+      <Badge dangerouslySetInnerHTML={{ __html: "<b>초안</b>" }} />,
+    );
+    const badge = container.querySelector("[data-slot=badge]");
+    expect(badge?.innerHTML).toBe("<b>초안</b>");
+  });
+
   test("mono는 mono 글꼴·굵기 400의 회색 배지다", () => {
     const { container } = render(<Badge variant="mono">claude-opus</Badge>);
     const classes = classesOf(container.querySelector("[data-slot=badge]"));

@@ -55,13 +55,13 @@ export function Badge({
       className={cn(badgeVariants({ variant }), className)}
       {...props}
     >
-      {asChild ? (
-        children
-      ) : (
+      {dot && !asChild ? (
         <>
-          {dot ? <StatusDot status={dot} /> : null}
+          <StatusDot status={dot} />
           {children}
         </>
+      ) : (
+        children
       )}
     </Comp>
   );
