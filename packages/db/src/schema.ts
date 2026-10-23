@@ -545,6 +545,33 @@ export const slackApps = pgTable(
   ],
 );
 
+/**
+ * Install links in flight: the sha256 of each OAuth `state`, never the
+ * value, with who may complete it for which agent's app. A row is deleted
+ * when the link is completed, whatever the outcome, or once it expired.
+ */
+export const slackInstallStates = pgTable(
+  "slack_install_states",
+  {
+    stateHash: bytea("state_hash").primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    agentId: uuid("agent_id").notNull(),
+    slackAppId: uuid("slack_app_id")
+      .notNull()
+      .references(() => slackApps.id),
+    actorUserId: uuid("actor_user_id").notNull(),
+    teamId: text("team_id").notNull(),
+    redirectUrl: text("redirect_url").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [index("slack_install_states_expires_idx").on(table.expiresAt)],
+);
+
 // A person's account on another service (design A.2): today a Slack user,
 // linked through Sign in with Slack. Rows are revoked, never deleted, so the
 // receipts that name one keep their target; every status change bumps

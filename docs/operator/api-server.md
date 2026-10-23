@@ -624,7 +624,7 @@ Slack ingress는 이벤트를 받을 때 `agentForSlackEvent(store, {appId, team
 | `agent_mismatch` | 이벤트가 다른 에이전트 앞으로 왔다 |
 | `agent_archived` | 에이전트가 보관됐다 |
 
-Slack 앱 만들기와 OAuth 설치 흐름은 아직 없다. 운영자가 앱을 설치한 뒤 설치 행은 `bun run slack-install register`(위 Slack 계정 연결 절차 4)로 만든다.
+플랫폼이 만든 앱은 아래 "에이전트의 Slack 앱 설치"가 설치 행과 연결을 함께 만든다. 손으로 만든 앱은 운영자가 설치한 뒤 설치 행을 `bun run slack-install register`(위 Slack 계정 연결 절차 4)로 만들고 이 route로 연결한다.
 
 ```bash
 curl -s -b jar -X POST "http://127.0.0.1:3000/v1/agents/$AGENT_ID/identities" \
@@ -688,8 +688,8 @@ owner·admin이 콘솔 세션(cookie)으로만 쓴다. 값은 돌려주지 않�
 
 | 요청 | 하는 일 |
 |---|---|
-| `GET /v1/agents/{id}/slack/app` | 에이전트의 앱(`creating`·`created`·`deleting`)과 설치 URL. 없으면 둘 다 `null` |
-| `POST /v1/agents/{id}/slack/app` `{"replace_uncertain": false}` | 앱을 만들고 `{slack_app, authorize_url, created, warnings}`를 돌려준다. 이미 있으면 같은 앱을 `created: false`로 |
+| `GET /v1/agents/{id}/slack/app` | `{slack_app}`: 에이전트의 앱(`creating`·`created`·`deleting`). 없으면 `null` |
+| `POST /v1/agents/{id}/slack/app` `{"replace_uncertain": false}` | 앱을 만들고 `{slack_app, created, warnings}`를 돌려준다. 이미 있으면 같은 앱을 `created: false`로 |
 | `DELETE /v1/workspaces/{id}/slack/apps/{app_id}` | 그 workspace의 `slack_apps`에 있는 앱만 Slack에서 지우고(`apps.manifest.delete`) 비밀값을 지운다. 행은 `deleted`로 남는다 |
 | `PUT /v1/workspaces/{id}/slack/apps/{app_id}/secrets/{purpose}` `{"value":"…"}` | 손으로 만든 앱(kind `manual`)의 값만 넣는다. 플랫폼이 만든 앱은 `403 server_managed_secret`. `purpose`가 셋(`slack_signing_secret`·`slack_client_secret`·`slack_bot_token`) 밖이거나 `app_id`가 UUID가 아니면 `400` |
 
@@ -703,7 +703,7 @@ owner·admin이 콘솔 세션(cookie)으로만 쓴다. 값은 돌려주지 않�
 ```bash
 docker compose --profile apps exec -T api \
   bun run apps/control-host/src/api/slack-app.ts create --workspace "$WORKSPACE_ID" --agent "$AGENT_ID"
-# {"outcome":"created","slack_app_id":"…","app_id":"A…","agent_id":"…","created_by_token_user":"U…","authorize_url":"https://slack.com/oauth/v2/authorize?…","warnings":[]}
+# {"outcome":"created","slack_app_id":"…","app_id":"A…","agent_id":"…","created_by_token_user":"U…","warnings":[],"next":"Install it from the agent's page in the console, or with a signed-in console session: POST /v1/agents/<agent_id>/slack/install/start"}
 ```
 
 `--agent` 대신 `--kind link`를 주면 워크스페이스의 계정 연결용 link 앱을 만든다(위 "Slack 계정 연결").
@@ -719,7 +719,7 @@ docker compose --profile apps exec -T api \
 | `6` | 앱이 아직 만들어지는 중이거나 지워지는 중이다. Slack에서 확인한 뒤 `--replace-uncertain`으로 잃어버린 생성을 포기한다 |
 | `7` | Slack이 거절했거나 닿지 않는다 |
 
-로컬 스택의 mock overlay(`infra/compose.mock-slack.yml`)는 `SLACK_API_URL=http://mock-slack:4020/api`로 Slack Web API의 가짜(`packages/testkit/src/fake-slack-api.ts`)를 가리킨다. `POST http://mock-slack:4020/fake/config-tokens`가 그 가짜가 받는 config token을 하나 돌려준다. 실제 Slack은 부르지 않는다.
+로컬 스택의 mock overlay(`infra/compose.mock-slack.yml`)는 `SLACK_API_URL=http://mock-slack:4020/api`로 Slack Web API의 가짜(`packages/testkit/src/fake-slack-api.ts`)를 가리킨다. `POST http://mock-slack:4020/fake/config-tokens`가 그 가짜가 받는 config token을 하나 돌려준다. `GET http://mock-slack:4020/fake/oauth/authorize?<설치 URL의 query>`는 동의 화면 대신 `{ok, code, state}`를 JSON으로 돌려준다(아래 설치 흐름을 curl로 돌릴 때). 실제 Slack은 부르지 않는다.
 
 값은 repo 밖 파일에 두고 셸에서 읽어 보낸다. 값이 명령 인자나 셸 기록에 남지 않게 한다.
 
@@ -728,6 +728,25 @@ printf '{"value":"%s"}' "$(cat ~/.config/agent-platform/slack-config-token)" |
   curl -s -b jar -X PUT "http://127.0.0.1:3000/v1/workspaces/$WORKSPACE_ID/slack/config-token" \
     -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' --data-binary @-
 ```
+
+**에이전트의 Slack 앱 설치**
+
+만든 앱(`created`)을 Slack workspace에 설치하고 에이전트에 연결한다. Slack이 돌아오는 곳은 콘솔의 `/agents/{id}/slack/callback` 화면이고, 그 화면이 받은 `code`·`state`를 API에 넘긴다. 공개 listener는 없다.
+
+| 요청 | 하는 일 |
+|---|---|
+| `POST /v1/agents/{id}/slack/install/start` | `{authorize_url, expires_at}`. 부를 때마다 새 state를 만든다 |
+| `POST /v1/slack/install/complete` `{agent_id, state, code}` 또는 `{agent_id, state, error}` | state를 쓰고 설치를 끝낸다. `{slack_app, installation, agent_identity, receipt_id, finalized}` |
+
+- 둘 다 owner·admin·그 에이전트 관리자(`binding.manage`)가 콘솔 세션(cookie)과 `X-Requested-With`로만 한다. API key는 `403`(`reason_code: web_session_required`), member는 `403`이다. 앱이 없으면 `404`, 만드는 중이면 `409 SLACK_APP_CREATING`, 지우는 중이면 `409 REVISION_CONFLICT`, config token이 없으면 `409 CONFIG_TOKEN_INVALID`다. master key가 없으면 `503`이다.
+- state는 무작위 32바이트이고 DB(`slack_install_states`)에는 sha256 해시만 둔다. 행은 workspace·에이전트·앱(`slack_app_id`)·시작한 사용자·config token의 team·redirect URL에 묶이고 600초 산다. complete는 권한을 확인한 뒤 state를 지우면서 읽는다. 그 뒤로는 결과와 관계없이 다시 쓸 수 없다. 만료된 행은 다음 start가 지운다.
+- state 거절은 `409 SLACK_INSTALL_STATE_INVALID`이고 `details.reason_code`가 `not_found`(없거나 이미 씀)·`expired`·`workspace`·`actor`·`agent`·`app`(앱이 지워지거나 바뀜)이다. 사용자가 동의를 거절하면 `409 SLACK_INSTALL_DENIED`(`details.slack_error`)다.
+- `oauth.v2.access` 답이 이 앱(`app_id`)·이 team·enterprise 아님·bot scope 전부를 만족하지 않으면 `409 SLACK_INSTALL_REJECTED`(`reason_code` `app`·`team`·`enterprise`·`scope`, scope는 `missing_scopes`)이고 아무것도 저장하지 않는다. Slack이 `ok:false`로 답하면 같은 코드에 `reason_code: slack_error`, 닿지 않으면 `503`이다.
+- 통과하면 이 순서다: bot token을 `slack_app:<id>/slack_bot_token`에 저장하고 `slack_apps.bot_token_ref`를 채운다 → 그 token으로 `auth.test`·`bots.info`를 불러 app·team을 다시 확인한다 → 설치 행을 등록·확인한다 → `agent_identities`에 연결한다(`credential_ref`는 bot token의 이름 `slack_app:<id>/slack_bot_token`, `link_agent_identity` receipt). 같은 설치가 다른 workspace에 있으면 `409 SLACK_INSTALL_CONFLICT`, 앱이 다른 에이전트에 연결돼 있으면 `409 AGENT_IDENTITY_TAKEN`이다.
+- bot token을 저장한 뒤의 모든 거절(`auth.test`·`bots.info` 불일치나 무응답, `SLACK_INSTALL_CONFLICT`, `AGENT_IDENTITY_TAKEN`, `CREDENTIAL_REF_IN_USE`, `REVISION_CONFLICT`, 보관된 에이전트, 그 사이 권한을 잃은 사람의 `403` 등)에는 저장한 token이 남고, 설치를 등록한 뒤의 거절이면 확인된 설치 행도 남는다. 그래서 `secrets.slack_bot_token.configured`는 설치됐다는 뜻이 아니다. 설치됐는지는 에이전트의 `slack_bot` 신원으로 본다. 원인을 고친 뒤 start부터 다시 하면 token이 바뀐다.
+- 다시 설치하면 bot token이 새 버전으로 바뀌고 설치 행·연결은 그대로 하나다(`receipt_id: null`).
+- 끝나면 마무리 단계(`SlackInstallFinalize`, 이벤트 연결·환영 메시지는 뒤 티켓)를 한 번 부른다. 마무리가 실패해도 설치는 남고 `finalized: false`다.
+- complete 응답에는 `Referrer-Policy: no-referrer`가 붙는다. bot token·code·state는 응답·로그·오류·receipt에 나오지 않는다. 로그는 `Slack app installed`와 id만 남긴다.
 
 ### 에이전트의 Slack 채널 설정
 

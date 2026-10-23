@@ -98,6 +98,14 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
     "Slack 계정 연결을 아직 쓸 수 없어요 — 워크스페이스 관리자에게 Slack 연결 설정을 요청하세요.",
   AGENT_NOT_ACTIVE:
     "활성 release가 없는 에이전트예요 — release를 활성화한 뒤 다시 시도하세요.",
+  SLACK_INSTALL_STATE_INVALID:
+    "설치 링크가 만료됐거나 이미 썼어요 — 설치를 처음부터 다시 시작하세요.",
+  SLACK_INSTALL_DENIED:
+    'Slack에서 설치를 허용하지 않았어요 — 다시 시작해 "Allow"를 누르세요.',
+  SLACK_INSTALL_REJECTED:
+    "Slack 응답이 이 에이전트의 앱·workspace와 맞지 않아 저장하지 않았어요 — 설치를 다시 시작하세요.",
+  SLACK_INSTALL_CONFLICT:
+    "이 Slack 앱은 다른 workspace에 이미 설치돼 있어요 — 그쪽 설치를 먼저 해제하세요.",
 };
 
 /** Unknown codes fall back to a neutral instruction rather than raw English. */
