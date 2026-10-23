@@ -1959,3 +1959,29 @@ describe("세션 상세 레이아웃", () => {
     }
   });
 });
+
+describe("세션 상세 머리 경로", () => {
+  const trail = async () => {
+    const [header] = await screen.findAllByRole("banner");
+    return within(header as HTMLElement);
+  };
+
+  test("세션 목록으로 가는 링크 다음에 세션 제목이 온다", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () =>
+        json(200, { ...detail, title: "결제 오류 고치기" }),
+    });
+    const bar = await trail();
+    expect(await bar.findByText("결제 오류 고치기")).toBeTruthy();
+    expect(bar.getByRole("link", { name: "세션" }).getAttribute("href")).toBe(
+      "/sessions",
+    );
+  });
+
+  test("제목이 없으면 머리글처럼 짧은 id를 보인다", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
+    const bar = await trail();
+    expect(await bar.findByText(SESSION_ID.slice(0, 8))).toBeTruthy();
+  });
+});

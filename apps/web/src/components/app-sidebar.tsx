@@ -13,17 +13,22 @@ import {
   House,
   KeyRound,
   Link as LinkIcon,
-  List,
   LogOut,
   type LucideIcon,
   Monitor,
   Moon,
-  Settings,
   Sun,
   Users,
-  UsersRound,
 } from "lucide-react";
-import { type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
+import {
+  type ComponentType,
+  type KeyboardEvent,
+  type SVGProps,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
 import { useCan, useHasPermission, useMe, useRole } from "../auth/guard.tsx";
 import {
   isMessageKey,
@@ -40,17 +45,60 @@ type NavPath =
   | "/sessions"
   | "/agents"
   | "/members"
-  | "/teams"
   | "/settings/workspace"
   | "/settings/linked-accounts"
   | "/settings/api-keys"
   | "/settings/preferences";
 
+type NavIcon = ComponentType<{
+  readonly className?: string;
+  readonly strokeWidth?: number;
+  readonly "aria-hidden"?: "true";
+}>;
+
 export interface NavItem {
   readonly to: NavPath;
   readonly label: MessageKey;
-  readonly icon: LucideIcon;
+  readonly icon: NavIcon;
 }
+
+// Console v4 draws the rail with Lucide 0.468; Lucide has since redrawn these
+// two, so they keep the design's paths. The others still match the package.
+const RAIL_SVG = {
+  xmlns: "http://www.w3.org/2000/svg",
+  width: 24,
+  height: 24,
+  viewBox: "0 0 24 24",
+  fill: "none",
+  stroke: "currentColor",
+  strokeLinecap: "round",
+  strokeLinejoin: "round",
+} as const;
+
+function ListIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg aria-hidden="true" {...RAIL_SVG} {...props}>
+      <path d="M3 12h.01" />
+      <path d="M3 18h.01" />
+      <path d="M3 6h.01" />
+      <path d="M8 12h13" />
+      <path d="M8 18h13" />
+      <path d="M8 6h13" />
+    </svg>
+  );
+}
+
+function SettingsIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg aria-hidden="true" {...RAIL_SVG} {...props}>
+      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+
+// The design's stroke for every rail icon.
+const RAIL_STROKE = 1.5;
 
 export interface NavGroup {
   readonly label: MessageKey;
@@ -58,7 +106,6 @@ export interface NavGroup {
 }
 
 export function useNavGroups(): readonly NavGroup[] {
-  const managesMembers = useHasPermission("member.manage");
   const workspaceManage = useHasPermission("workspace.manage");
   const retentionManage = useHasPermission("audit_retention.manage");
   const showsWorkspaceSettings = workspaceManage || retentionManage;
@@ -67,23 +114,23 @@ export function useNavGroups(): readonly NavGroup[] {
       label: "shell.group.work",
       items: [
         { to: "/", label: "nav.home", icon: House },
-        { to: "/sessions", label: "nav.sessions", icon: List },
+        { to: "/sessions", label: "nav.sessions", icon: ListIcon },
         { to: "/agents", label: "nav.agents", icon: Bot },
       ],
     },
     {
       label: "shell.group.workspace",
       items: [
-        ...(managesMembers
-          ? [{ to: "/members", label: "nav.members", icon: Users } as const]
-          : []),
-        { to: "/teams", label: "nav.teams", icon: UsersRound },
+        // For everyone: teams live under 구성원 now, and a member without
+        // member.manage still sees the teams they are in there. The screen
+        // and the server keep the rights.
+        { to: "/members", label: "nav.members", icon: Users },
         ...(showsWorkspaceSettings
           ? [
               {
                 to: "/settings/workspace",
                 label: "nav.workspace",
-                icon: Settings,
+                icon: SettingsIcon,
               } as const,
             ]
           : []),
@@ -252,17 +299,20 @@ function NavSection({
           to={item.to}
           activeOptions={{ exact: item.to === "/" }}
           onClick={onNavigate}
+          // Console v4 `.nav`: text-2 at 500, the icon in the label's colour;
+          // the current page darkens to text on `active`.
           className={cn(
-            "flex h-8 items-center gap-2 rounded-control px-2 text-control text-foreground no-underline",
-            "hover:bg-sidebar-hover",
-            "data-[status=active]:bg-sidebar-accent data-[status=active]:font-medium",
+            "flex h-8 items-center gap-2 rounded-control px-2 font-medium text-control text-muted-foreground no-underline",
+            "hover:bg-sidebar-hover hover:text-foreground",
+            "data-[status=active]:bg-sidebar-accent data-[status=active]:text-foreground",
           )}
         >
           <item.icon
             aria-hidden="true"
-            className="size-4 shrink-0 text-muted-foreground"
+            strokeWidth={RAIL_STROKE}
+            className="size-4 shrink-0"
           />
-          <span className="whitespace-nowrap">{t(item.label)}</span>
+          <span className="min-w-0 flex-1 truncate">{t(item.label)}</span>
           {item.to === "/sessions" ? <WaitingBadge /> : null}
         </Link>
       ))}
@@ -349,7 +399,7 @@ function WaitingBell({ onNavigate }: { readonly onNavigate: () => void }) {
       onClick={onNavigate}
       className="relative grid size-8 shrink-0 place-items-center rounded-control text-muted-foreground hover:bg-sidebar-hover hover:text-foreground"
     >
-      <Bell aria-hidden="true" className={ICON} />
+      <Bell aria-hidden="true" strokeWidth={RAIL_STROKE} className={ICON} />
       {count > 0 ? (
         <span
           aria-hidden="true"
