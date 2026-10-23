@@ -474,6 +474,56 @@ services:
       postgres:
         condition: service_healthy
 
+  # The control host's slack role (`main.ts slack`): the same pass loop,
+  # draining the Slack inbox the api's events route fills. Each pass leases
+  # due received events (SLACK_ROLE_LEASE_SEC, the database's clock), one
+  # per thread at a time, and claims again until none is due; an event a
+  # killed pass held is claimed again once its lease runs out. Its status
+  # file is /tmp/slack-status.json. In the `slack` profile as well, to
+  # start it alone over a running stack.
+  #
+  # It reads the api's catalog at startup and refuses one the api would,
+  # so the catalog's mount follows the api's in every layer. Not its
+  # credentials: it resolves none, and the provider keys stay the api's.
+  # The master key is the one other holder besides the api: Slack's
+  # outbound calls (94S-792) decrypt bot tokens here. Never given to the
+  # worker, the scheduler or the reconciler (tests/images.test.ts).
+  # No build: the api's image, as for the reconciler.
+  slack:
+    image: ${API_IMAGE:-agent-platform-control-host:dev}
+    profiles: ["apps", "slack"]
+    command: ["bun", "run", "apps/control-host/src/main.ts", "slack"]
+    restart: unless-stopped
+    # PASS_LOOP_ROLES.slack.stopGraceSec is 10s; Docker waits longer.
+    stop_grace_period: 20s
+    healthcheck:
+      test: ["CMD", "bun", "run", "apps/control-host/src/main.ts", "slack", "--health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    environment:
+      # The compose postgres only, as for the reconciler.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-dev}@postgres:5432/${POSTGRES_DB:-sessions}
+      SLACK_ROLE_INTERVAL_SEC: ${SLACK_ROLE_INTERVAL_SEC:-2}
+      SLACK_ROLE_PASS_TIMEOUT_SEC: ${SLACK_ROLE_PASS_TIMEOUT_SEC:-60}
+      SLACK_ROLE_MAX_CONSECUTIVE_FAILURES: ${SLACK_ROLE_MAX_CONSECUTIVE_FAILURES:-3}
+      SLACK_ROLE_HEALTH_STALE_SEC: ${SLACK_ROLE_HEALTH_STALE_SEC:-90}
+      SLACK_ROLE_BATCH_SIZE: ${SLACK_ROLE_BATCH_SIZE:-10}
+      SLACK_ROLE_LEASE_SEC: ${SLACK_ROLE_LEASE_SEC:-60}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # By name from the caller's environment, as for the api.
+      PLATFORM_SECRET_KEY:
+      PLATFORM_CONFIG_DIR: /app/config
+      AWS_REGION: ${AWS_REGION:-ap-northeast-1}
+    volumes:
+      - ../config:/app/config:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+
 networks:
   # Worker networks are not declared here: the scheduler creates one per
   # worker (internal, IPv6 off) and removes it with the worker.

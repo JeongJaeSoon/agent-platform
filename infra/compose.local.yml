@@ -165,6 +165,13 @@ services:
       localstack:
         condition: service_healthy
 
+  # The api's unattended switch, since it refuses the same catalog the api
+  # would. None of the catalog's credentials: it never resolves them. No
+  # env_file: the developer's .env is the api's, HEARTBEAT_TTL_SEC and all.
+  slack:
+    environment:
+      PLATFORM_ALLOW_UNATTENDED_PERMISSIONS: ${PLATFORM_ALLOW_UNATTENDED_PERMISSIONS:-false}
+
   worker:
     build:
       context: ..

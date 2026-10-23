@@ -28,3 +28,7 @@ services:
         condition: service_healthy
       secrets:
         condition: service_healthy
+  # Reads the api's catalog (not its credentials), so the same one.
+  slack:
+    environment:
+      PLATFORM_CONFIG_DIR: /app/config/fake-model
