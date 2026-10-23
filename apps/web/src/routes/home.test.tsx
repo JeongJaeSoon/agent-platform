@@ -576,6 +576,58 @@ describe("홈 요약", () => {
     },
   );
 
+  test("비활성으로 알려 온 Slack 계정은 연결로 세지 않고 다시 연결을 보인다", async () => {
+    renderAt("/", {
+      ...homeRoutes(),
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/administered-agents": () => json(200, { items: [] }),
+      "GET /v1/sessions?status=running": () =>
+        json(200, { items: [], next_cursor: null }),
+      "GET /v1/sessions?status=idle": () =>
+        json(200, { items: [], next_cursor: null }),
+      "GET /v1/linked-accounts": () =>
+        json(200, {
+          items: [
+            {
+              id: "5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b",
+              user_id: "6f7a8b9c-0d1e-4f2a-9b3c-4d5e6f7a8b9c",
+              provider: "slack",
+              external_tenant: "T0001",
+              external_user_id: "U0001",
+              status: "stale",
+              verified_at: "2026-10-01T00:00:00Z",
+              revision: 1,
+            },
+          ],
+        }),
+    });
+    const overview = await screen.findByRole("region", { name: "한눈에 보기" });
+    await waitFor(() =>
+      expect(cards(overview)[2]).toMatchObject({
+        value: "0 / 3",
+        rows: [
+          ["GitHub", "준비 중"],
+          ["Slack", "다시 연결"],
+          ["Google Workspace", "준비 중"],
+        ],
+      }),
+    );
+  });
+
+  test("관리하는 에이전트를 읽지 못하면 카드를 짐작하지 않고 다시 시도를 보인다", async () => {
+    renderAt("/", {
+      ...homeRoutes(),
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/administered-agents": () =>
+        json(500, { error: { code: "INTERNAL", message: "boom" } }),
+    });
+    const overview = await screen.findByRole("region", { name: "한눈에 보기" });
+    expect(
+      await within(overview).findByRole("button", { name: "다시 시도" }),
+    ).toBeTruthy();
+    expect(within(overview).queryAllByRole("listitem")).toEqual([]);
+  });
+
   test("구성원 홈은 내 사용량, 진행 상황, 연동 계정 카드다", async () => {
     const running = {
       ...oneSession,

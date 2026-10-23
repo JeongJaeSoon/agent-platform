@@ -73,6 +73,7 @@ export const homeKo = {
   "home.recent.repository": "저장소",
   "home.recent.noRepository": "저장소 없음",
   "home.recent.statusAxis": "작업:",
+  "home.glance.relink": "다시 연결",
   "home.overview.ownerBasis": "설치 전체 수치는 설치 운영자에게만 보입니다",
   "home.recent.activity": "최근 활동",
 };
@@ -154,6 +155,7 @@ export const homeEn: Record<keyof typeof homeKo, string> = {
   "home.recent.repository": "Repository",
   "home.recent.noRepository": "No repository",
   "home.recent.statusAxis": "Work:",
+  "home.glance.relink": "Reconnect",
   "home.overview.ownerBasis":
     "Whole-install figures are visible to install operators only",
   "home.recent.activity": "Last activity",
@@ -236,6 +238,7 @@ export const homeJa: Record<keyof typeof homeKo, string> = {
   "home.recent.repository": "リポジトリ",
   "home.recent.noRepository": "リポジトリなし",
   "home.recent.statusAxis": "作業:",
+  "home.glance.relink": "再接続",
   "home.overview.ownerBasis":
     "インストール全体の数値はインストール運用者にだけ表示されます",
   "home.recent.activity": "最近のアクティビティ",

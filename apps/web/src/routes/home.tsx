@@ -113,7 +113,7 @@ export function useNow(): number {
  */
 export function HomeScreen() {
   const { t, locale } = useI18n();
-  const { reader, agents: managed } = useReader();
+  const { reader, agents: managed, failure: readerFailure } = useReader();
   const name = useMe()?.user?.display_name;
   const intro =
     reader === "owner" || reader === "admin"
@@ -412,9 +412,16 @@ export function HomeScreen() {
       link={<ArrowLink to="/sessions">{t("home.glance.toSessions")}</ArrowLink>}
     />
   );
-  const slackLinked = accounts.data?.items.some(
-    (account) => account.status !== "revoked",
-  );
+  // Only an active account answers for the person (contracts: a stale one
+  // is ignored until relinked), so only active counts as linked.
+  const slack = accounts.data
+    ? accounts.data.items.some((account) => account.status === "active")
+      ? "active"
+      : accounts.data.items.some((account) => account.status === "stale")
+        ? "stale"
+        : "none"
+    : undefined;
+  const slackLinked = slack === undefined ? undefined : slack === "active";
   const accountsCard = (
     <GlanceCard
       key="accounts"
@@ -432,11 +439,8 @@ export function HomeScreen() {
         { label: "GitHub", dot: "idle", value: t("linked.soon") },
         {
           label: "Slack",
-          dot: slackLinked ? "ok" : slackLinked === false ? "idle" : undefined,
-          value:
-            slackLinked === undefined
-              ? t("home.overview.unknown")
-              : t(slackLinked ? "linked.connected" : "linked.notLinked"),
+          dot: slack && SLACK_DOT[slack],
+          value: slack ? t(SLACK_LABEL[slack]) : t("home.overview.unknown"),
         },
         { label: "Google Workspace", dot: "idle", value: t("linked.soon") },
       ]}
@@ -515,6 +519,11 @@ export function HomeScreen() {
           <ul className="m-0 grid list-none grid-cols-1 items-stretch gap-4 p-0 @[720px]:grid-cols-3">
             {cards}
           </ul>
+        ) : readerFailure ? (
+          <LoadFailure
+            error={readerFailure.error}
+            onRetry={readerFailure.retry}
+          />
         ) : (
           <StatusScreen kind="loading" />
         )}
@@ -550,6 +559,8 @@ const INTRO = {
 function useReader(): {
   readonly reader: Reader | undefined;
   readonly agents: readonly Agent[];
+  /** The agents could not be read, so a member's cards are not known. */
+  readonly failure: { error: unknown; retry: () => void } | undefined;
 } {
   const { client } = useAgentPlatform();
   const role = useRole();
@@ -559,11 +570,25 @@ function useReader(): {
     enabled: role !== undefined && role !== "owner",
   });
   const agents = administered.data?.items ?? [];
-  if (role === "owner") return { reader: "owner", agents };
-  if (role === undefined || administered.isPending)
-    return { reader: undefined, agents };
-  if (role === "admin") return { reader: "admin", agents };
-  return { reader: agents.length > 0 ? "manager" : "requester", agents };
+  const failure = undefined;
+  if (role === "owner") return { reader: "owner", agents, failure };
+  if (administered.isError)
+    return {
+      reader: undefined,
+      agents,
+      failure: {
+        error: administered.error,
+        retry: () => void administered.refetch(),
+      },
+    };
+  if (role === undefined || !administered.isSuccess)
+    return { reader: undefined, agents, failure };
+  if (role === "admin") return { reader: "admin", agents, failure };
+  return {
+    reader: agents.length > 0 ? "manager" : "requester",
+    agents,
+    failure,
+  };
 }
 
 /** One status's first page, read only for the reader whose card counts it. */
@@ -730,6 +755,13 @@ interface GlanceRow {
 }
 
 type Dot = "wait" | "run" | "idle" | "ok" | "bad";
+
+const SLACK_DOT = { active: "ok", stale: "wait", none: "idle" } as const;
+const SLACK_LABEL = {
+  active: "linked.connected",
+  stale: "home.glance.relink",
+  none: "linked.notLinked",
+} as const satisfies Record<keyof typeof SLACK_DOT, MessageKey>;
 
 const SESSION_DOT = {
   queued: "idle",
