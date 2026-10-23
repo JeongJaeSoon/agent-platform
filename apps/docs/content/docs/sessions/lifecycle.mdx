@@ -120,7 +120,7 @@ curl -sS "$API/v1/sessions/$SID/usage" -H "Authorization: Bearer $KEY" \
 }
 ```
 
-비용은 청구액이 아니라 가격표로 계산한 추정치다. `complete`가 `false`면 아직 열린 turn이 있어 합계가 정해지지 않았다.
+비용은 청구액이 아니라 가격표로 계산한 추정치다. `complete`가 `false`면 합계가 아직 정해지지 않았다. 열린 turn이 있거나(`open_turn_count`), 끝난 turn 가운데 비용이 보고되지 않은 것이 있다(`unreported_turn_count`). 뒤의 경우는 모든 turn이 끝나도 `false`로 남는다.
 
 ## 다음 단계
 

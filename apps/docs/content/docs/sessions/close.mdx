@@ -46,7 +46,7 @@ curl -sS "$API/v1/receipts/$RID" -H "Authorization: Bearer $KEY" | jq '{operatio
 }
 ```
 
-닫는 동안 세션은 `closing`이다. 열린 권한 요청이나 질문은 close를 막는다. 답하거나 interrupt하면 풀린다. 60초가 넘으면 `attention`이 `CLOSE_BLOCKED`가 된다. 닫힌 뒤의 메시지와 제어는 모두 409 `SESSION_CLOSED`다.
+닫는 동안 세션은 `closing`이다. 열린 권한 요청이나 질문은 close를 막는다. 답하거나 interrupt하면 풀린다. 60초가 넘으면 `attention`이 `CLOSE_BLOCKED`가 된다. 닫힌 뒤의 메시지와 pause·resume·close·terminate는 409 `SESSION_CLOSED`다. 이미 끝난 turn을 가리키는 interrupt는 닫힌 뒤에도 아무것도 하지 않는 성공(`no_op: true`)이다.
 
 ## terminate
 

@@ -40,7 +40,7 @@ SID=$(echo "$created" | jq -r .session_id)
 
 ## Idempotency-Key
 
-세션 API의 모든 POST에는 `Idempotency-Key` 헤더가 필요하다. 없으면 400이다. 응답을 받지 못했으면 **같은 key와 같은 본문**으로 다시 보낸다. 서버는 명령을 한 번만 실행하고 처음 응답을 그대로 돌려준다. 같은 key에 다른 본문이면 409 `IDEMPOTENCY_CONFLICT`다.
+세션 API의 모든 POST에는 `Idempotency-Key` 헤더가 필요하다. 없으면 400이다. 응답을 받지 못했으면 **같은 key와 같은 본문**으로 다시 보낸다. 서버는 명령을 한 번만 실행한다. 세션 생성과 메시지는 처음 응답을 그대로 돌려주고, interrupt 같은 제어는 그 receipt의 지금 상태를 돌려준다. 같은 key에 다른 본문이면 409 `IDEMPOTENCY_CONFLICT`다.
 
 ```bash
 IDEM=$(uuidgen)
