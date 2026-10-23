@@ -217,7 +217,7 @@ describe("홈 요약", () => {
   });
   const pending = (id: string, created_at: string) => ({
     [`GET /v1/sessions/${id}/pending-requests`]: () =>
-      json(200, { items: [request(created_at)] }),
+      json(200, { answerable: true, items: [request(created_at)] }),
   });
   const homeRoutes = () => {
     const server = agentServer();

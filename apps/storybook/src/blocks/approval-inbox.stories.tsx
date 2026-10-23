@@ -42,7 +42,7 @@ export const Default: Story = {
         ]),
       [`GET ${base}/pending-requests`]: () => json(200, PENDING),
       "GET /v1/sessions/0192f0c4-7d3a-7b4e-9f00-0000000000a2/pending-requests":
-        () => json(200, { items: [] }),
+        () => json(200, { answerable: true, items: [] }),
       [`POST ${base}/answers`]: accepted,
     } satisfies FakeRoutes,
   },
