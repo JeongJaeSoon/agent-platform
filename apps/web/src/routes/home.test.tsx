@@ -1,5 +1,6 @@
 import { describe, expect, jest, test } from "bun:test";
-import { queryKeys } from "@werft-ai/core";
+import type { ApiClient } from "@werft-ai/client";
+import { queryKeys, waitingSessionsQuery } from "@werft-ai/core";
 import { AGENT_ID, agentServer } from "../test-support/fake-agents.ts";
 import {
   apiError,
@@ -10,7 +11,7 @@ import {
   WORKSPACE_ID,
 } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
-import { useNow, waitedFor } from "./home.tsx";
+import { statusPageQuery, useNow, waitedFor } from "./home.tsx";
 
 const { act, renderAt, renderHook, screen, waitFor, within } =
   await appHarness();
@@ -738,6 +739,18 @@ describe("홈 요약", () => {
       document.getElementById(button.getAttribute("aria-describedby") ?? "")
         ?.textContent,
     ).toBe("웹에서는 아직 세션을 시작할 수 없습니다. API로 시작하세요.");
+  });
+});
+
+describe("statusPageQuery", () => {
+  test("작업 중·쉬는 중 목록은 답변 대기 목록과 같은 주기로 다시 읽는다", () => {
+    // The open total adds the three lists; read at different paces it would
+    // count a session that moved between them twice or not at all.
+    const client = {} as ApiClient;
+    for (const status of ["running", "idle"] as const)
+      expect<unknown>(
+        statusPageQuery(client, status, true).refetchInterval,
+      ).toBe(waitingSessionsQuery(client).refetchInterval);
   });
 });
 

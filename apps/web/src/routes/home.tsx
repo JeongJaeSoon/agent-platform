@@ -468,7 +468,7 @@ export function HomeScreen() {
       link={
         <TextLink
           asChild
-          className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-(color:--home-link) text-control"
+          className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-control"
         >
           <Link to="/agents/$id" params={{ id: agent.id }}>
             {t("home.glance.toAgent")}
@@ -591,14 +591,20 @@ function useReader(): {
   };
 }
 
+// waitingSessionsQuery's pace (packages/core queries.ts).
+const WAITING_REFETCH_MS = 30_000;
+
 /** One status's first page, read only for the reader whose card counts it. */
-function statusPageQuery(
+export function statusPageQuery(
   client: ApiClient,
   status: "running" | "idle",
   enabled: boolean,
 ) {
   return {
     queryKey: [...queryKeys.sessions, "home", status],
+    // In step with the waiting list, or the open total adds counts read at
+    // different times and counts a session twice or not at all.
+    refetchInterval: WAITING_REFETCH_MS,
     queryFn: () =>
       unwrap(
         client.GET("/v1/sessions", { params: { query: { status } } }),
@@ -693,7 +699,7 @@ function ArrowLink({
   return (
     <TextLink
       asChild
-      className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-(color:--home-link) text-control"
+      className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-control"
     >
       <Link to={to}>
         {children}
@@ -754,9 +760,9 @@ interface GlanceRow {
   readonly dot?: Dot | undefined;
 }
 
-type Dot = "wait" | "run" | "idle" | "ok" | "bad";
+type Dot = "wait" | "run" | "idle" | "done" | "failed";
 
-const SLACK_DOT = { active: "ok", stale: "wait", none: "idle" } as const;
+const SLACK_DOT = { active: "done", stale: "wait", none: "idle" } as const;
 const SLACK_LABEL = {
   active: "linked.connected",
   stale: "home.glance.relink",
@@ -768,17 +774,17 @@ const SESSION_DOT = {
   running: "run",
   needs_input: "wait",
   idle: "idle",
-  failed: "bad",
+  failed: "failed",
   stopped: "idle",
 } as const satisfies Record<SessionSummary["status"], Dot>;
 
 // Console.dc.html .dot: 8px, the running one a 10px ring turning every 0.9s.
 const DOT_CLASS = {
-  wait: "size-2 bg-(--home-dot-wait)",
-  ok: "size-2 bg-(--home-dot-ok)",
-  bad: "size-2 bg-(--home-dot-bad)",
-  idle: "size-2 bg-(--home-dot-idle)",
-  run: "size-2.5 animate-spin border-[1.5px] border-(--home-dot-run) border-r-transparent [animation-duration:0.9s] motion-reduce:size-2 motion-reduce:animate-none motion-reduce:border-r-(--home-dot-run) motion-reduce:bg-(--home-dot-run)",
+  wait: "size-2 bg-(--ap-color-status-dot-wait)",
+  done: "size-2 bg-(--ap-color-status-dot-done)",
+  failed: "size-2 bg-(--ap-color-status-dot-failed)",
+  idle: "size-2 bg-(--ap-color-status-dot-idle)",
+  run: "size-2.5 animate-spin border-[1.5px] border-(--ap-color-status-dot-run) border-r-transparent [animation-duration:0.9s] motion-reduce:size-2 motion-reduce:animate-none motion-reduce:border-r-(--ap-color-status-dot-run) motion-reduce:bg-(--ap-color-status-dot-run)",
 } as const satisfies Record<Dot, string>;
 
 /** The design's status dot; the text beside it carries the meaning. */

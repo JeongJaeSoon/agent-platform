@@ -242,33 +242,34 @@ select:focus-visible,
 }
 
 /*
- * Console.dc.html's status-dot and link colours. packages/ui has no dot part
- * yet and its link and attention colours differ from the design, so home
- * reads these until ui-kit ships them (94S-826).
+ * ui-kit T1/T2 tokens ahead of their release, under the names and values
+ * ui-kit will ship (Console.dc.html). Delete this block once T1 lands.
  */
 :root {
-  --home-dot-wait: #9a4f00;
-  --home-dot-run: #0060d1;
-  --home-dot-ok: var(--ap-tone-success-fg);
-  --home-dot-bad: #c4282d;
-  --home-dot-idle: #8f8f8f;
-  --home-link: #0060d1;
+  --ap-color-link: #0060d1;
+  --ap-color-status-dot-wait: #9a4f00;
+  --ap-color-status-dot-run: #0060d1;
+  --ap-color-status-dot-idle: #8f8f8f;
+  --ap-color-status-dot-done: #0f7a33;
+  --ap-color-status-dot-failed: #c4282d;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --home-dot-wait: #f1a33b;
-    --home-dot-run: #52a8ff;
-    --home-dot-bad: #ff6b6f;
-    --home-dot-idle: #6f6f6f;
-    --home-link: #52a8ff;
+    --ap-color-link: #52a8ff;
+    --ap-color-status-dot-wait: #f1a33b;
+    --ap-color-status-dot-run: #52a8ff;
+    --ap-color-status-dot-idle: #6f6f6f;
+    --ap-color-status-dot-done: #5cc77a;
+    --ap-color-status-dot-failed: #ff6b6f;
   }
 }
 :root[data-theme="dark"] {
-  --home-dot-wait: #f1a33b;
-  --home-dot-run: #52a8ff;
-  --home-dot-bad: #ff6b6f;
-  --home-dot-idle: #6f6f6f;
-  --home-link: #52a8ff;
+  --ap-color-link: #52a8ff;
+  --ap-color-status-dot-wait: #f1a33b;
+  --ap-color-status-dot-run: #52a8ff;
+  --ap-color-status-dot-idle: #6f6f6f;
+  --ap-color-status-dot-done: #5cc77a;
+  --ap-color-status-dot-failed: #ff6b6f;
 }
 
 @media (min-width: 48rem) {
