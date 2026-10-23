@@ -1,0 +1,93 @@
+import { describe, expect, test } from "bun:test";
+import { randomBytes } from "node:crypto";
+import { SecretKey } from "@werft-ai/platform";
+import {
+  parseSlackAppCommand,
+  runSlackApp,
+  SLACK_APP_EXIT,
+  type SlackAppIo,
+  SlackAppUsageError,
+} from "./slack-app.ts";
+
+const WORKSPACE = "019a0000-0000-7000-8000-0000000000a1";
+const AGENT = "019a0000-0000-7000-8000-0000000000c1";
+
+function io(env: Record<string, string | undefined>) {
+  const err: string[] = [];
+  const opened: string[] = [];
+  const value: SlackAppIo = {
+    env,
+    out: () => {},
+    err: (line) => err.push(line),
+    loadKey: async () =>
+      SecretKey.fromHex(randomBytes(32).toString("hex"), "TEST_KEY"),
+    openDatabase: async (url) => {
+      opened.push(url);
+      throw new Error("not opened in this test");
+    },
+  };
+  return { io: value, err, opened };
+}
+
+const ENV = {
+  DATABASE_URL: "postgres://unused",
+  SLACK_OIDC_REDIRECT_URI:
+    "http://127.0.0.1:3000/settings/linked-accounts/slack",
+  SLACK_API_URL: "http://127.0.0.1:9/api",
+};
+const ARGS = ["create", "--workspace", WORKSPACE, "--agent", AGENT];
+
+describe("slack-app command line", () => {
+  test("parses create with lowercased ids", () => {
+    expect(
+      parseSlackAppCommand([
+        "create",
+        "--workspace",
+        WORKSPACE.toUpperCase(),
+        "--agent",
+        AGENT,
+        "--replace-uncertain",
+      ]),
+    ).toEqual({
+      command: "create",
+      workspaceId: WORKSPACE,
+      agentId: AGENT,
+      replaceUncertain: true,
+    });
+  });
+
+  test.each([
+    [[]],
+    [["create", "--workspace", WORKSPACE]],
+    [["delete", "--workspace", WORKSPACE, "--agent", AGENT]],
+    [["create", "--workspace", "nope", "--agent", AGENT]],
+    [["create", "--workspace", WORKSPACE, "--agent"]],
+    [[...ARGS, "--token", "x"]],
+  ])("refuses %j as usage", (argv) => {
+    expect(() => parseSlackAppCommand(argv)).toThrow(SlackAppUsageError);
+  });
+
+  test.each([
+    ["DATABASE_URL", { ...ENV, DATABASE_URL: undefined }],
+    ["SLACK_OIDC_REDIRECT_URI", { ...ENV, SLACK_OIDC_REDIRECT_URI: undefined }],
+    ["SLACK_API_URL", { ...ENV, SLACK_API_URL: "http://slack.example/api" }],
+  ])("a missing or unsafe %s is usage, before the database", async (_, env) => {
+    const run = io(env);
+    expect(await runSlackApp(ARGS, run.io)).toBe(SLACK_APP_EXIT.usage);
+    expect(run.opened).toEqual([]);
+    expect(run.err.join("\n")).toContain("slack-app:");
+  });
+
+  test("without a master key it stops before the database", async () => {
+    const run = io(ENV);
+    run.io.loadKey = async () => null;
+    expect(await runSlackApp(ARGS, run.io)).toBe(SLACK_APP_EXIT.usage);
+    expect(run.err.join("\n")).toContain("PLATFORM_SECRET_KEY");
+    expect(run.opened).toEqual([]);
+  });
+
+  test("an unexpected failure is exit 1", async () => {
+    const run = io(ENV);
+    expect(await runSlackApp(ARGS, run.io)).toBe(SLACK_APP_EXIT.unexpected);
+  });
+});

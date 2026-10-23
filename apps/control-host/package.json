@@ -13,6 +13,7 @@
     "keys": "bun run src/api/keys.ts",
     "grants": "bun run src/api/grants.ts",
     "slack-install": "bun run src/api/slack-install.ts",
+    "slack-app": "bun run src/api/slack-app.ts",
     "openapi:generate": "bun run scripts/generate-openapi.ts",
     "migrate-workspace": "bun run src/scheduler/migrate-workspace.ts"
   },
