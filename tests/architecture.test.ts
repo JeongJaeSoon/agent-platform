@@ -291,7 +291,7 @@ async function parse(file: string): Promise<ts.SourceFile> {
     file,
     await readFile(file, "utf8"),
     ts.ScriptTarget.Latest,
-    false,
+    true,
     file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
   );
 }
@@ -388,6 +388,18 @@ function moduleFile(from: string, specifier: string): string {
   ])
     if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
   throw new Error(`${from}: cannot resolve export * from "${specifier}"`);
+}
+
+function isModuleSpecifier(node: ts.Node): boolean {
+  const parent = node.parent;
+  return (
+    ts.isImportDeclaration(parent) ||
+    ts.isExportDeclaration(parent) ||
+    ts.isExternalModuleReference(parent) ||
+    ts.isLiteralTypeNode(parent) ||
+    (ts.isCallExpression(parent) &&
+      parent.expression.kind === ts.SyntaxKind.ImportKeyword)
+  );
 }
 
 /**
@@ -492,17 +504,25 @@ export async function webUiViolations(
       )
         add(name, "shadow-component", 1);
       if (
-        ts.isStringLiteralLike(node) ||
-        ts.isTemplateHead(node) ||
-        ts.isTemplateMiddle(node) ||
-        ts.isTemplateTail(node)
+        (ts.isStringLiteralLike(node) ||
+          ts.isTemplateHead(node) ||
+          ts.isTemplateMiddle(node) ||
+          ts.isTemplateTail(node)) &&
+        !isModuleSpecifier(node)
       ) {
-        add(name, "legacy-class", [...node.text.matchAll(legacyClass)].length);
+        // Whole class tokens, so "./web-utils" or ".../web-api" is not one.
+        const tokens = node.text.split(/\s+/);
+        const classes = (pattern: RegExp) =>
+          tokens.filter((token) => pattern.test(token)).length;
+        add(
+          name,
+          "legacy-class",
+          classes(/(?:^|:)!?(?:web-[a-z0-9_-]+|ap-input[a-z0-9_-]*)!?$/),
+        );
         add(
           name,
           "raw-destructive",
-          [...node.text.matchAll(/(?<![\w-])text-destructive(?![\w-])/g)]
-            .length,
+          classes(/(?:^|:)!?text-destructive(?:\/\d+)?!?$/),
         );
       }
       if (
@@ -1265,6 +1285,10 @@ describe("architecture", () => {
           'const LOUD_LINK = "hover:underline!";',
           'const linkClassName = "text-primary hover:underline";',
           'const linkHref = "/text-guide";',
+          'import { helper } from "./web-utils";',
+          'const lazy = () => import("web-lazy");',
+          'export const docsUrl = "https://example.com/web-api";',
+          'const tone = cn("hover:text-destructive/80", "web-old!");',
           "const MIXED_LINK = `text-primary ${extra} underline`;",
           'const DOCS_LINK: string = "https://tailwindcss.com/docs/text-decoration-line";',
           "const NAV_LINK = `",
@@ -1291,7 +1315,9 @@ describe("architecture", () => {
         "dirty.tsx": {
           "raw-anchor": 4,
           "shadow-component": 2,
+          "legacy-class": 1,
           "link-constant": 8,
+          "raw-destructive": 1,
         },
         "styles.css": { "legacy-class": 1 },
       });
