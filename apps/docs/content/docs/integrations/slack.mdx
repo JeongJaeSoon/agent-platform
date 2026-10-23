@@ -1,0 +1,71 @@
+---
+title: "Slack"
+description: Slack 연동에서 지금 되는 것과 아직 없는 것
+---
+
+<Callout type="warn">
+Slack에서 에이전트를 멘션해 세션을 시작하거나, Slack 버튼으로 승인하는 기능은 아직 없다. Slack 앱 설치(OAuth)와 Slack 이벤트 수신이 아직 없기 때문이다. 아래는 그 준비로 이미 있는 API다.
+</Callout>
+
+| 지금 있는 것 | API | 누가 |
+| --- | --- | --- |
+| 내 Slack 계정을 웹 계정에 연결 | `POST /v1/linked-accounts/slack/start`, `…/callback`, `GET /v1/linked-accounts`, `DELETE /v1/linked-accounts/{id}` | 로그인한 본인 |
+| 에이전트에 Slack 앱(bot) 연결 | `POST`·`GET /v1/agents/{id}/identities`, `DELETE …/identities/{identity_id}` | owner·admin·그 에이전트 관리자 |
+| guest의 에이전트 사용 허용 | `POST /v1/workspaces/{id}/slack-guest` | owner·admin |
+
+셋 다 웹 로그인 cookie로만 부른다. API key는 403이다. 아래 예제는 [만들기](/agents/create#로그인)의 `WEB` 헤더와 `WS`를 쓴다.
+
+## guest 사용 설정
+
+Slack guest(멀티·단일 채널 guest)가 에이전트를 쓸 수 있는지 정한다. 기본은 꺼짐이다.
+
+```bash
+WS=$(curl -sS "$API/v1/auth/me" "${WEB[@]}" | jq -r .workspace.id)
+curl -sS "$API/v1/workspaces/$WS/slack-guest" "${WEB[@]}" \
+  -d '{"slack_guest_enabled": true}' | jq .
+```
+
+```text
+{
+  "slack_guest_enabled": true
+}
+```
+
+켜도 guest는 자기 Slack 계정을 연결해야 쓴다. Slack Connect로 들어온 다른 회사 사용자는 이 설정과 상관없이 쓸 수 없다.
+
+## Slack 계정 연결
+
+Sign in with Slack(OpenID Connect)으로 연결한다. 운영자가 `SLACK_OIDC_CLIENT_ID`·`SLACK_OIDC_CLIENT_SECRET`·`SLACK_OIDC_REDIRECT_URI`를 설정하고, 그 워크스페이스에 확인된 Slack 설치가 있어야 한다. 로컬 스택에는 둘 다 없어서 시작 요청이 503이다.
+
+```bash
+curl -sS -o /dev/null -w '%{http_code}\n' -X POST "$API/v1/linked-accounts/slack/start" "${WEB[@]}"
+```
+
+```text
+503
+```
+
+설정된 설치에서는 시작 요청이 `authorize_url`을 돌려준다. 그 주소에서 Slack에 동의하면 웹의 연결 화면이 `code`와 `state`를 callback에 넘기고 연결이 끝난다. 연결 상태는 `active`·`stale`·`revoked`다.
+
+| 응답 | 뜻 |
+| --- | --- |
+| 409 `SLACK_NOT_INSTALLED` | 이 워크스페이스에 확인된 Slack 설치가 없다 |
+| 409 `LINK_TEAM_MISMATCH` | 설치되지 않은 Slack 팀의 계정이다 |
+| 409 `LINK_TAKEN` | 그 Slack 계정이 다른 사람에게 연결돼 있다 |
+| 409 `LINK_EXISTS` | 같은 팀에 내 연결이 이미 있다 |
+
+## 에이전트의 Slack 앱
+
+에이전트마다 자기 Slack 앱을 갖는다. 연결에는 앱 id, 팀 id, bot token이 든 자격 참조의 이름(`credential_ref`, 값이 아니다)을 보낸다.
+
+```sh
+curl -sS "$API/v1/agents/$AID/identities" "${WEB[@]}" \
+  -d '{"provider": "slack_bot", "app_id": "A0APP", "team_id": "T0TEAM", "credential_ref": "slack/research-bot-token"}'
+```
+
+확인된 Slack 설치가 없으면 409 `SLACK_NOT_INSTALLED`다. 설치는 아직 운영자가 저장소 함수로만 만든다.
+
+## 다음 단계
+
+- [API key](/api-keys)
+- [GitHub](/integrations/github)

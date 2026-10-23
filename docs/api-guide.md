@@ -370,7 +370,7 @@ echo "$limits" | jq .
 echo "$limits" | jq -e '.scope == "installation" and .limits.execution_slot_limit >= 0 and .usage.execution_slots_used >= 0'
 ```
 
-**기대 응답.** 세션 응답은 `cost.amount_usd`, `complete`, 보고/미보고/open turn 수, 비용 상한, 누적 provider token 수(`token_count`)와 token 상한(`token_limit`), queued input 수를 준다. `token_limit`이 null이면 설치에 token 상한이 없다. `budget_exceeded`는 비용과 token 중 어느 상한에든 닿으면 true다. 세션의 profile이 과금 없음(`billing: none`)을 선언했으면 `cost.kind`가 `"unmetered"`다. 이때 비용은 늘지 않고 비용 상한이 그 세션에 적용되지 않아 `cost_limit_usd`가 null이지만, token 상한은 그대로 걸린다([operations.md](operations.md#과금-없는-profile-billing-none-94s-541)). 설치 응답은 설정된 상한(`session_token_limit` 포함)과 현재 execution slot·queued input·저장소 사용량을 준다.
+**기대 응답.** 세션 응답은 `cost.amount_usd`, `complete`, 보고/미보고/open turn 수, 비용 상한, 누적 provider token 수(`token_count`)와 token 상한(`token_limit`), queued input 수를 준다. `token_limit`이 null이면 설치에 token 상한이 없다. `budget_exceeded`는 비용과 token 중 어느 상한에든 닿으면 true다. 세션의 profile이 과금 없음(`billing: none`)을 선언했으면 `cost.kind`가 `"unmetered"`다. 이때 비용은 늘지 않고 비용 상한이 그 세션에 적용되지 않아 `cost_limit_usd`가 null이지만, token 상한은 그대로 걸린다([configuration.md](operator/configuration.md#과금-없는-profile-billing-none)). 설치 응답은 설정된 상한(`session_token_limit` 포함)과 현재 execution slot·queued input·저장소 사용량을 준다.
 
 **흔한 오류.** 404 `NOT_FOUND`면 세션이 없거나 현재 owner에게 보이지 않는다. `complete: false`를 0원으로 해석하지 않는다. 503이면 DB나 사용량 집계를 포함한 설치 상태를 확인한다.
 
@@ -447,7 +447,7 @@ curl -sS "$API/v1/receipts/$(echo "$pushed" | jq -r .push_receipt_id)" "${AUTH[@
   | jq '{operation, status, refusal: .result.refusal, remote_ref: .result.remote_ref, git_commit: .result.git_commit, approved_by: .result.approved_by.principal}'
 ```
 
-**기대 응답.** 요청은 201로 `state: "requested"`와 고정한 값들을 돌려준다. 결정은 200으로 `approved` 또는 `rejected`와 `decided_by`를 돌려준다. 요청·결정·거절된 시도마다 receipt(`request_push`·`decide_push`)가 남고, 거절이면 오류의 `error.details.receipt_id`가 그 receipt를 가리킨다. receipt의 `result`에는 판정(`verdict`), 거절 사유(`refusal`), 요청 id, checkpoint revision, commit, 대상 브랜치가 있고 `actor`에는 누가 했는지가 있다. 승인된 요청은 `pushing`을 거쳐 `pushed`나 `failed`가 되고, `push_receipt_id`가 가리키는 `push` receipt에 원격 URL·ref(`refs/heads/agent/<session-id>`)·이전 commit·승인자, 실패면 `refusal`이 있다. 사유별 뜻은 [operations 문서](operations.md#승인된-요청의-push-94s-629)에 있다.
+**기대 응답.** 요청은 201로 `state: "requested"`와 고정한 값들을 돌려준다. 결정은 200으로 `approved` 또는 `rejected`와 `decided_by`를 돌려준다. 요청·결정·거절된 시도마다 receipt(`request_push`·`decide_push`)가 남고, 거절이면 오류의 `error.details.receipt_id`가 그 receipt를 가리킨다. receipt의 `result`에는 판정(`verdict`), 거절 사유(`refusal`), 요청 id, checkpoint revision, commit, 대상 브랜치가 있고 `actor`에는 누가 했는지가 있다. 승인된 요청은 `pushing`을 거쳐 `pushed`나 `failed`가 되고, `push_receipt_id`가 가리키는 `push` receipt에 원격 URL·ref(`refs/heads/agent/<session-id>`)·이전 commit·승인자, 실패면 `refusal`이 있다. 사유별 뜻은 [API 서버 문서](operator/api-server.md#승인된-요청의-push)에 있다.
 
 **흔한 오류.** 409 `PUSH_SOURCE_MISSING`이면 세션에 저장소나 checkpoint가 아직 없다. 409 `PUSH_REQUEST_OPEN`이면 열린 요청이 있다. 409 `PUSH_REQUEST_DECIDED`면 이미 결정한 요청이다. 409 `CHECKPOINT_MOVED`면 승인 body의 `git_commit`이 고정된 commit과 다르거나, 요청 뒤에 세션이 다시 checkpoint를 남겼다. 이 요청은 거부하고 새로 요청한다. `sessions:approve`가 없는 key로 결정하면 403 `FORBIDDEN`이고 receipt가 남는다. worker의 자격(launch nonce·session token)은 `/v1`에서 인증되지 않아 401이다.
 

@@ -1,5 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { ApprovalCard, type PermissionRequest } from "@werft-ai/ui";
+import {
+  ApprovalCard,
+  type PermissionRequest,
+} from "@werft-ai/react/components";
 
 // A fixed clock, as in the other stories.
 const NOW = Date.parse("2026-10-21T01:00:00.000Z");
@@ -60,11 +63,22 @@ export const Failed: Story = {
   args: { error: "The answer was refused: the request already expired." },
 };
 
+/** In a list of many sessions' requests, the title line names the session. */
+export const WithSubject: Story = {
+  args: {
+    subject: (
+      <a href="#session" className="font-mono text-primary underline">
+        <code>819f21a8…</code>
+      </a>
+    ),
+  },
+};
+
 /** Every state above in one column, so dark and 390px cover them all. */
 export const States: Story = {
   render: (args) => (
     <div className="flex flex-col gap-3">
-      {Object.entries({ Default, Empty, Loading, Failed }).map(
+      {Object.entries({ Default, Empty, Loading, Failed, WithSubject }).map(
         ([name, story]) => (
           <ApprovalCard key={name} {...args} {...story.args} />
         ),

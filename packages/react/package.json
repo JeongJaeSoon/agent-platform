@@ -1,12 +1,13 @@
 {
   "name": "@werft-ai/react",
-  "description": "React adapter over @werft-ai/core: the provider that injects client, locale, messages and links, and hooks that wrap the core's query options",
+  "description": "React adapter over @werft-ai/core: the provider that injects client, locale, messages and links, and hooks that wrap the core's query options, and the components that draw contracts types on @werft-ai/ui",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./blocks": "./src/blocks/index.ts"
+    "./blocks": "./src/blocks/index.ts",
+    "./components": "./src/components/index.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.blocks.json"
@@ -24,6 +25,7 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@use-funnel/core": "0.1.0",
+    "lucide-react": "1.53.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-hook-form": "7.90.0",

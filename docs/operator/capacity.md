@@ -118,6 +118,23 @@ local Docker 실행 기반에서는 한 머신의 메모리를 `EXECUTION_SLOT_L
 
 상한(`MAX_TRANSCRIPT_BYTES`)만 올리고 메모리를 그대로 두는 것은 권하지 않는다. compaction 없는 큰 transcript의 resume이 한도에 닿으면 worker가 재기동을 반복하다 세션이 `recovery_required`가 된다. 상한을 바꿀 때는 이 문서의 방법으로 다시 재고, 위 표를 갱신한다.
 
+## 결과물(`out/`) 색인 상한
+
+worker는 checkpoint마다 작업 디렉터리의 `out/` 아래 일반 파일을 git 상태와 상관없이 색인해 manifest `outputs`에 넣고, 파일마다 객체를 하나 올린다. 상한은 `apps/worker/src/workspace-outputs.ts`의 `DEFAULT_OUTPUT_LIMITS`다.
+
+| 값 | 기본값 | 넘으면 |
+|---|---|---|
+| 파일 하나 `maxFileBytes` | 64MiB | 그 파일은 `{path, bytes, omitted: "too_large"}`로만 남고 올리지 않는다 |
+| checkpoint 하나의 업로드 합계 `maxTotalBytes` | 256MiB | 합계를 넘기게 하는 파일부터 `too_large`가 된다 |
+| 파일 수 `maxFiles` | 1,000 | 경로 순으로 1,000개 뒤의 파일은 목록에서 빠진다. publish 로그의 `outputs_dropped`에 개수가 남는다 |
+
+- 색인 상한을 넘어도 checkpoint는 실패하지 않는다. git bundle 상한(256MiB)과 workspace quota는 그대로라서, git이 추적하거나 저장소 없는 세션이 bundle에 싣는 큰 `out/` 파일은 그쪽 상한에 따로 걸린다. git이 무시하지 않는 untracked `out/` 파일도 복원용 untracked 객체로는 그대로 올라간다. 색인에서 `too_large`여도 마찬가지다.
+- manifest 상한(객체 20,000개, 8MiB)도 checkpoint를 실패시키지 않는다. 결과물은 복원에 쓰는 객체가 남긴 개수까지만 목록에 들고, 넘는 파일은 `outputs_dropped`로 센다. 목록 때문에 manifest가 8MiB를 넘으면 그 checkpoint는 `outputs` 없이 올라가고, publish 로그 `outputs_refused`에 이유가 남는다. 두 경우 모두 빠진 파일의 객체는 이미 올라간 뒤라 어느 manifest도 가리키지 않고, 다음 checkpoint는 그 파일을 다시 올린다.
+- 파일은 한 번에 하나씩 메모리에 읽는다. worker 메모리에 더해지는 것은 파일 하나 상한(64MiB)까지다.
+- symlink, 일반 파일 아닌 것, `.git`이나 UTF-8이 아닌 이름처럼 manifest가 받지 않는 이름은 목록에 없다. `out` 자체가 symlink면 목록이 빈다.
+- 같은 digest는 한 번만 올린다. 직전 checkpoint가 올린 같은 digest는 그 객체를 그대로 가리키고 다시 올리지 않는다.
+- 객체는 `sessions/<id>/checkpoints/<revision>/<attempt>/<publish>/outputs/<sha256>`에 있다. control plane이 finalize에서 크기와 digest를 확인하고 version을 hold한다. checkpoint GC는 보존하는 checkpoint가 가리키는 결과물 객체를 지우지 않는다.
+
 ## 배포 순서
 
 이 값들을 바꾸는 변경은 control-host와 worker 이미지를 **같은 릴리스로** 올린다. 상한은 worker(capture, restore)와 API(finalize)가 따로 검사한다. 그래서 한쪽만 새 값이면 다음과 같이 된다.
@@ -127,10 +144,12 @@ local Docker 실행 기반에서는 한 머신의 메모리를 `EXECUTION_SLOT_L
 
 상한 초과 reason(`transcript_too_large`, `transcript_part_too_large`)과 `checkpoints.transcript_bytes` 컬럼을 더하는 migration이 든 릴리스는 migration → control-host(api) **모든** 인스턴스 → worker 이미지 순서로 배포한다. 옛 api는 worker가 보낸 새 reason을 400으로 거절하고, 새 worker는 그 보고가 실패하면 capture를 실패시킨다. 롤백은 이 reason을 아는 빌드까지만 한다. 그보다 옛 빌드는 이 reason이 남은 세션을 worker 경로에서 읽다가 예외를 낸다.
 
+manifest `outputs`가 든 릴리스는 control-host(api) **모든** 인스턴스 → worker 이미지 순서로 배포한다. 옛 api의 manifest codec은 모르는 필드를 거절하므로, 새 worker가 `out/`이 있는 세션에서 쓴 checkpoint를 커밋하지 못한다. 롤백은 api와 worker 모두 이 필드를 아는 빌드까지만 한다. 그보다 옛 빌드는 `outputs`가 든 checkpoint를 복원 지점으로 읽지 못한다.
+
 `WORKER_MEMORY_MB`(`worker.memoryMb`)는 다음 launch부터 적용된다. 실행 중인 worker는 교체되지 않는다.
 
 ## 관련 문서
 
-- [operations.md § scheduler·worker 컨테이너·egress 설정](../operations.md#schedulerworker-컨테이너egress-설정): `WORKER_MEMORY_MB` 등 환경 변수
-- [operations.md § worker workspace의 상한과 회수](../operations.md#worker-workspace의-상한과-회수): workspace quota
+- [configuration.md § scheduler·worker 컨테이너·egress 설정](configuration.md#schedulerworker-컨테이너egress-설정): `WORKER_MEMORY_MB` 등 환경 변수
+- [execution.md § worker workspace의 상한과 회수](execution.md#worker-workspace의-상한과-회수): workspace quota
 - [kubernetes-deployment.md](kubernetes-deployment.md): chart 설치와 업그레이드

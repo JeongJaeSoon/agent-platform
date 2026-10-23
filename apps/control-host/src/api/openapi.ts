@@ -282,7 +282,8 @@ export const OPENAPI_TAGS = [
   },
   {
     name: "Auth",
-    description: "Discover the API and manage authenticated browser sessions.",
+    description:
+      "Discover the API, sign in (including by redeeming an invite) and manage authenticated browser sessions.",
   },
   {
     name: "Sessions",
@@ -312,12 +313,18 @@ export const OPENAPI_TAGS = [
   },
   {
     name: "Recovery",
-    description: "Resolve sessions that require an operator recovery decision.",
+    description:
+      "Resolve sessions that require an operator recovery decision. The requester's own decision also takes an API key with `sessions:recover`.",
+  },
+  {
+    name: "Admin",
+    description:
+      "See and stop every session of the workspace, read a session outside its share with an audited reason, decide recovery for any session, and take over the sessions of members who were offboarded. Owners and admins, signed in; only an owner decides recovery. Every operation here refuses an API key except the recovery decision, which also takes a key holding `sessions:recover`, but only for sessions the key can already see.",
   },
   {
     name: "Members",
     description:
-      "Invite people, change member roles and take over the sessions of members who were offboarded. Owners and admins, from a browser session; only an owner grants or changes the owner role.",
+      "Invite people, change member roles and issue password reset links. Owners and admins, from a browser session; only an owner grants or changes the owner role or issues a password reset link.",
   },
   {
     name: "Teams",
@@ -355,6 +362,29 @@ type ComponentName =
   | keyof typeof responseComponents;
 
 type ApiTagName = (typeof OPENAPI_TAGS)[number]["name"];
+
+// Scalar renders these as the sections of the reference sidebar.
+export const OPENAPI_TAG_GROUPS = [
+  { name: "Getting started", tags: ["Auth", "API keys"] },
+  { name: "Agents", tags: ["Agents"] },
+  {
+    name: "Sessions",
+    tags: [
+      "Sessions",
+      "Messages & turns",
+      "Events",
+      "Pending requests",
+      "Session control",
+      "Push requests",
+    ],
+  },
+  {
+    name: "Workspace management",
+    tags: ["Members", "Teams", "Linked accounts", "Workspace settings"],
+  },
+  { name: "Administration", tags: ["Admin", "Recovery"] },
+  { name: "Operations", tags: ["Health", "Limits & receipts"] },
+] as const satisfies readonly { name: string; tags: readonly ApiTagName[] }[];
 
 export type RouteDeclaration = {
   method: "get" | "post" | "patch" | "delete";
@@ -727,7 +757,7 @@ export const API_ROUTE_DECLARATIONS = [
     method: "post",
     path: "/v1/workspaces/{id}/members/{userId}/password-reset",
     operationId: "issuePasswordReset",
-    tag: "Auth",
+    tag: "Members",
     summary: "Issue a one-time password reset link for a member (owner only)",
     description:
       "Requires the issuer's current password, counted against the issuer's login failure window. An owner cannot issue a link for themselves, nor for a member who owns another workspace. The token is returned once and expires in one hour; issuing another revokes the member's open link. Writes an `issue_password_reset` receipt whose result names the target's role.",
@@ -970,7 +1000,7 @@ export const API_ROUTE_DECLARATIONS = [
     method: "post",
     path: "/v1/sessions/{id}/audit-read",
     operationId: "auditReadSession",
-    tag: "Sessions",
+    tag: "Admin",
     summary: "Read a session outside its share, with a reason",
     description:
       "Owners and admins. The session detail and a page of its turns, whatever the share; nothing on the session changes and no other action is opened by it. Every read is recorded with its `justification`.",
@@ -984,7 +1014,7 @@ export const API_ROUTE_DECLARATIONS = [
     method: "get",
     path: "/v1/admin/sessions",
     operationId: "listAdminSessions",
-    tag: "Sessions",
+    tag: "Admin",
     summary: "Every session of the workspace, metadata only",
     description:
       "Owners and admins. Who made each session, its agent release, state and share scope, newest first; no content, title or summary.",
@@ -996,7 +1026,7 @@ export const API_ROUTE_DECLARATIONS = [
     method: "post",
     path: "/v1/admin/sessions/{id}/terminate",
     operationId: "adminTerminateSession",
-    tag: "Session control",
+    tag: "Admin",
     summary: "Stop any session of the workspace, with a reason",
     description:
       "Owners and admins, whatever the session's share. The `justification` is recorded with the decision and becomes the stop reason. Otherwise as `POST /v1/sessions/{id}/terminate`.",
@@ -1020,7 +1050,7 @@ export const API_ROUTE_DECLARATIONS = [
     method: "post",
     path: "/v1/admin/sessions/{id}/recovery-decisions",
     operationId: "adminDecideSessionRecovery",
-    tag: "Recovery",
+    tag: "Admin",
     summary: "Decide recovery for any session of the workspace",
     description:
       "Owners only, whatever the session's share. The decision's `reason` is the justification, recorded with the decision. Otherwise as `POST /v1/sessions/{id}/recovery-decisions`.",
@@ -1849,7 +1879,7 @@ export const API_ROUTE_DECLARATIONS = [
     method: "post",
     path: "/v1/invites/accept",
     operationId: "acceptInvite",
-    tag: "Members",
+    tag: "Auth",
     summary: "Redeem an invite; sets the session cookie",
     description:
       "An address with no account gets one with this password. An existing account joins with its current password, which is never changed. The token is spent once; a revoked, replaced or expired token answers 410, an accepted one 409. Writes an `accept_invite` receipt.",
@@ -1948,7 +1978,7 @@ export const API_ROUTE_DECLARATIONS = [
     method: "get",
     path: "/v1/takeovers",
     operationId: "listTakeovers",
-    tag: "Members",
+    tag: "Admin",
     summary: "Sessions waiting for an owner to take them over",
     description:
       "Sessions whose requester was offboarded. Each takes no further input until an owner takes it over. API keys are refused.",
@@ -1960,7 +1990,7 @@ export const API_ROUTE_DECLARATIONS = [
     method: "post",
     path: "/v1/sessions/{id}/takeover",
     operationId: "takeOverSession",
-    tag: "Members",
+    tag: "Admin",
     summary: "Become the requester of an offboarded member's session",
     description:
       "The caller becomes the session's requester and its queued input runs again. A session shared with less than the whole workspace and not with the caller needs a `justification`, kept on the decision and the receipt; without one it answers 403 with `reason_code` `justification_required`. The body may be empty. API keys are refused.",
@@ -2412,7 +2442,7 @@ export const API_ROUTE_DECLARATIONS = [
     method: "get",
     path: "/v1/profiles",
     operationId: "listProfiles",
-    tag: "Limits & receipts",
+    tag: "Agents",
     summary: "The runtime profiles this installation can run",
     description:
       "Lists the catalog profiles a session's `profile_id` or a release's `runtime_profile_id` may name, by `id`, with the model each one runs and its `repository_mode`: whether a session of it names a repository (`required`), may (`optional`) or never does (`none`). The catalog is the operator's config, read once at startup; this reads it and changes nothing. A profile's provider endpoint and credential are not included.",
@@ -2889,6 +2919,7 @@ export function buildOpenApiDocument() {
     openapi: generated.openapi,
     info: generated.info,
     tags: OPENAPI_TAGS,
+    "x-tagGroups": OPENAPI_TAG_GROUPS,
     components: {
       securitySchemes: {
         bearerApiKey: {

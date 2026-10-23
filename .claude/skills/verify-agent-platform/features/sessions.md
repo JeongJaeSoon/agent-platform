@@ -10,6 +10,7 @@
 - `permission` 파일을 바꾸는 도구는 `needs_input`과 pending request를 만들고 `POST …/answers`로 허용·거절한다.
 - `follow-up` `POST …/messages`로 turn 2.
 - `interrupt`·`pause`·`resume`·`terminate`·`recovery` 세션 제어(`docs/quickstart.md` 3장 ⑥–⑨).
+- `close` 일을 마친 세션을 `POST …/close`(`sessions:control`, `{expected_revision, reason?}`)로 닫는다. 아무것도 죽이지 않고 `admission_state`가 `closed`가 되며, 그 뒤 메시지·제어는 `409 SESSION_CLOSED`. terminate·recovery close와의 차이는 `docs/api-guide.md`.
 
 ## How to get to it (user POV)
 
@@ -33,6 +34,7 @@ body() { jq -nc --arg m "$1" '{profile_id:"claude-coding-local", repository_id:"
 - **권한 요청.** 대본 `GATE-SPEC {"id":"q1","steps":[{"tool":"Bash","input":{"command":"echo alpha > hello.txt","description":"write hello.txt"}}],"final":"wrote hello.txt"}`로 만들면 세션이 `needs_input`이 되고 `ap_get "/v1/sessions/$SID/pending-requests"`에 `kind: "permission"`이 하나 있다. `REQ=$(ap_get "/v1/sessions/$SID/pending-requests" | head -1 | jq -r '.items[0].request_id')`로 id를 받고 `ap_post "/v1/sessions/$SID/answers" "$(jq -nc --arg r "$REQ" '{request_id:$r, kind:"permission", decision:"allow"}')"` 뒤 turn 1이 `completed`.
 - **이벤트.** `curl -sSN --max-time 5 "$API/v1/sessions/$SID/events" -H "Authorization: Bearer $KEY" > "$EVIDENCE/events.txt" || true` → `event: result` 블록이 있다. timeout 메시지(28)는 정상.
 - **제어.** pause·resume·terminate·recovery는 `docs/quickstart.md` 3장 ⑥–⑨의 명령을 `get`/`post` 대신 `ap_get`/`ap_post`로 바꿔 그대로 쓴다(응답 마지막 줄의 상태 코드를 jq에 넘기지 않도록 `| head -1`).
+- **닫기.** 닫힌 세션은 다시 열리지 않고 제어도 `409 SESSION_CLOSED`라, 위 제어(⑨는 terminate 뒤 `abandon`·resume으로 같은 세션을 다시 쓴다)에 쓴 세션과 따로 한다. 위 생성 명령으로 새 세션을 만들고 turn 1이 `completed`가 된 뒤 그 `SID`로 `REV=$(ap_get "/v1/sessions/$SID" | head -1 | jq -r .revision)` → `ap_post "/v1/sessions/$SID/close" "$(jq -nc --argjson r "$REV" '{expected_revision:$r, reason:"verify close"}')"` → `202` `receipt_status: "accepted"`. 바로 읽으면 `admission_state: "closing"`(이때 메시지는 `409 SESSION_CLOSING`)이고, worker가 내려가면 몇 초 안에 `admission_state: "closed"`, `status: "stopped"`가 된다(`status`는 `closed`가 되지 않는다. `for i in $(seq 1 45); do [ "$(ap_get "/v1/sessions/$SID" | head -1 | jq -r .admission_state)" = closed ] && break; sleep 2; done`). 그 뒤 `ap_post "/v1/sessions/$SID/messages" '{"message":"again"}'` → `409 SESSION_CLOSED`.
 - **증거.** `| tee "$EVIDENCE/sessions.txt"`.
 
 웹 사용자의 세션. 웹 `/sessions`는 로그인한 사람이 볼 수 있는 세션을 보여 준다. 운영자 key(`ap_key`)로 만든 세션은 웹 사용자의 것이 아니다. 웹 사용자가 만든 세션이 필요하면 그 사람의 개인 key로 만든다. 웹 `/settings/api-keys`의 "개인 key 발급"이 보내는 것과 같은 `POST /v1/api-keys`를 `web-user.mjs key`가 그 사람의 cookie로 보내고, secret은 run 디렉터리의 `keys/<who>`(0600)에만 둔다.
@@ -47,9 +49,10 @@ created=$(ap_post /v1/sessions "$(body 'GATE-SPEC {"id":"v1","steps":[],"final":
 ap_web GET /v1/sessions | head -1 | jq -c '[.items[] | {id, status}]'   # member cookie로 SID가 보인다
 ```
 
-- 화면은 member로 로그인한 브라우저에서 `node .claude/skills/verify-agent-platform/scripts/browser.mjs <run id> login member` 뒤 `open /sessions`. 표에 SID 한 줄(상태 "쉬는 중", 런타임 `claude-coding-local · …`).
+- 화면은 member로 로그인한 브라우저에서 `node .claude/skills/verify-agent-platform/scripts/browser.mjs <run id> login member` 뒤 `open /sessions`. 제목 "세션" 아래 "답변 대기" 영역(없으면 "답을 기다리는 세션이 없습니다."), 그 아래 표에 SID 한 줄(작업 상태 "쉬는 중", 세션 상태 "열림", 런타임 `claude-coding-local · claude_agent_sdk …`). 권한 요청 대본으로 만든 세션이면 "답변 대기"에 "답을 기다리는 세션 1개", "권한 요청: Bash"와 "요청 내용 보기"·"허용"·"거부"가 있고, 표의 작업 상태는 "답변 대기"다. `click 허용` 뒤 turn 1이 `completed`, 영역은 다시 비고 행은 "쉬는 중"이 된다. 사이드바 머리의 답변 대기 버튼은 없을 때 `aria-label` "답변 대기 없음"이다.
 - 개인 key의 scope는 그 사람의 지금 scope 안에서만 된다(member는 `recover` 없음, 넘으면 `403 SCOPE_NOT_GRANTABLE`).
 - 2026-10-21 run `20261021-031642-23898`에서 이 순서로 member 세션을 만들었고(turn 1 `completed`), member cookie의 `GET /v1/sessions`와 브라우저 `/sessions`에 그 세션이 보였다. 같은 workspace의 owner cookie 목록에도 보였다.
+- 2026-10-23 run `20261023-155226-40022`(main `6971cdf0`)에서 생성 → 완료 → 닫기 → 권한 요청(answers 202 → completed)을, run `20261023-160737-96495`(main `e7490124`, JeongJaeSoon/agent-platform#568 포함)에서 닫기(202 → `closing`·메시지 `409 SESSION_CLOSING` → 네 번째 조회에 `closed`/`stopped` → 메시지 `409 SESSION_CLOSED`)와 member 개인 key 세션의 `/sessions` "답변 대기" → "허용" → completed를 확인했다.
 
 ## Gotchas
 

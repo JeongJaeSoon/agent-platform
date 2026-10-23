@@ -28,7 +28,7 @@ export const Default: Story = {
           청구서 문의에 답하고 환불을 접수합니다.
         </CardDescription>
         <CardAction>
-          <Badge variant="outline">초안</Badge>
+          <Badge variant="gray">초안</Badge>
         </CardAction>
       </CardHeader>
       <CardContent>

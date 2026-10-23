@@ -469,7 +469,7 @@ jobs:
               echo "| ${scan} | $(cat "vulnerabilities/${scan}.txt" 2>/dev/null || echo "no result") |"
             done
             echo
-            echo "Each finding is in the run summary and the \`supply-chain-results\` artifact. Update the package or base image, or record an exception with its reason and expiry in \`.github/vulnerability-exceptions.json\` (docs/operations.md § 공급망 취약점 정책). Until then every pull request's \`supply-chain\` check fails too. Close this issue once handled; the next finding opens a new one."
+            echo "Each finding is in the run summary and the \`supply-chain-results\` artifact. Update the package or base image, or record an exception with its reason and expiry in \`.github/vulnerability-exceptions.json\` (docs/operator/images-and-supply-chain.md § 공급망 취약점 정책). Until then every pull request's \`supply-chain\` check fails too. Close this issue once handled; the next finding opens a new one."
           } >body.md
           .github/scripts/upsert-ci-issue.sh ci-supply-chain \
             "Supply chain: fixable high or critical vulnerabilities" body.md

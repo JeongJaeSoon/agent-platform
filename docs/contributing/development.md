@@ -22,8 +22,9 @@ bun run check
 ```bash
 bun run --cwd packages/adapters/runtimes/claude test:unit
 bun run --cwd packages/adapters/runtimes/claude test:direct-local
-bun test spikes/94s-91/src/litellm-transport.test.ts
 ```
+
+실제 LiteLLM proxy를 거친 SDK 왕복은 호환 harness가 따로 확인한다. harness는 자기 의존성과 LiteLLM을 따로 설치해야 하므로, 설치와 실행 순서는 [harness README](../../scripts/agent-sdk-compat/README.md#실행)를 따른다.
 
 terminate 수락 지연은 PostgreSQL 임시 DB에서 동시 세션 10개(terminate 5개와 pause 5개)를 섞어 재현한다. 기본 20라운드의 terminate 100표본에서 nearest-rank p95가 500ms를 넘으면 실패하며, 결과에는 단계별 p95도 함께 나온다. `BENCH_ROUNDS`는 표본을 더 모을 때만 늘린다.
 
@@ -32,7 +33,7 @@ QUEUE_DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
   bun run --cwd packages/db bench:terminate
 ```
 
-실제 Docker daemon 대상 테스트(`DOCKER_BACKEND_TEST=1`)는 [operations.md § worker 네트워크](../operations.md#worker-네트워크-주소-풀-slot-limit-회수)에 있다.
+실제 Docker daemon 대상 테스트(`DOCKER_BACKEND_TEST=1`)는 [execution.md § worker 네트워크](../operator/execution.md#worker-네트워크-주소-풀-slot-limit-회수)에 있다.
 
 ## 의존 서비스만 띄우기와 host에서 도는 API
 
@@ -72,12 +73,21 @@ API를 로컬 인증 비활성 모드로 띄울 때만 `X-Owner-Id`를 사용할
 - 한 패키지·앱 안에서 닫히는 테스트는 대상 소스 옆에 `*.test.ts`로 둔다. PostgreSQL·LocalStack·Docker·실제 SDK가 필요한 테스트는 `*.integration.test.ts`다. 예외로 `packages/storage`의 `*.localstack.test.ts` 둘과, unit 파일 안에 opt-in LocalStack 블록을 둔 파일이 있다. 그래서 CI는 파일 이름이 아니라 opt-in 변수로 나눈다([ci.md](ci.md)). `__tests__` 디렉터리는 쓰지 않는다.
 - 여러 앱·패키지를 엮는 흐름 테스트와 저장소·CI·`scripts`를 검사하는 테스트는 루트 `tests/`에 둔다. 루트 `scripts/`와 `.github/` 안의 테스트는 `bun test` 필터에 걸리지 않아 돌지 않는다.
 - 실행 도구는 `scripts/<이름>/`에, 그 테스트는 `tests/<이름>/`에 짝으로 둔다. `d2-gate`는 스택 전체를 띄우는 harness이고, `tests/soak`는 `scripts/soak` 판정 함수의 단위 테스트다. e2e는 실행기와 테스트를 함께 `tests/e2e`에 둔다.
+- 자기 lock으로 SDK를 고정한 호환 harness는 `scripts/<이름>/`에 두고 CI 전용 job이 돌린다. `scripts/agent-sdk-compat`이 그렇고, 제품과 같은 SDK 버전인지는 짝 테스트 `tests/agent-sdk-compat`이 검사한다.
 - 테스트 전용 도우미는 대상의 `src/testing/`에 둔다(예: `apps/egress-proxy/src/testing`). 여러 패키지가 쓰는 fixture는 `packages/testkit`에 둔다. 예외: 다른 패키지에 `./testing` export로 내주는 도우미는 파일 하나(`local-docker/src/testing.ts`)이고, `packages/ui`는 happy-dom 도우미를 `src/test-support/`에, 스냅샷 fixture를 `src/__fixtures__/`에 둔다. runtime-claude의 제어 가능한 fake(`src/fake-adapter.ts`)는 제품 barrel로 export된다.
 - 수동 벤치는 `<패키지>/bench/`에 두고 그 패키지 tsconfig의 include에 넣는다. 테스트 파일 이름을 쓰지 않는다.
 - 새 루트 `tests/*.test.ts`는 ci.yml `integration-domain`의 `paths`에 접두어가 있어야 한다. 없으면 integration job이 모두 실패한다([ci.md](ci.md)).
 - 서비스가 필요한 테스트는 opt-in 변수(`localstackEnabled()`, `QUEUE_DATABASE_URL` 등)가 꺼지면 `describe.skip`·`skipIf`로 skip된다. 그 skip은 해당 변수를 켜는 integration job에서 사라져야 한다. 그 밖의 이유로 skip하는 코드(플랫폼 조건 등)를 새로 넣으면 integration job이 선언되지 않은 skip으로 실패시키므로 ci.yml `skips`에 선언한다.
 - 루트 `tests/`·`scripts/`·`.github/scripts`의 `.ts`는 어느 tsconfig에도 들어 있지 않아 `bun run typecheck`가 보지 않는다. 고친 파일은 직접 실행해 확인한다.
 - 운영자와 개발자가 부르는 도구는 `scripts/`에, workflow만 부르는 helper는 `.github/scripts/`에 둔다.
+
+## 문서 쓰기
+
+- 문서에는 지금 동작만 적는다. 티켓 번호, PR 번호, "예전에는 …였다"·"~에서 바꿨다" 같은 작업 경위는 쓰지 않는다. 경위는 커밋·PR·티켓에 남는다.
+- heading에 번호나 날짜를 넣지 않는다. heading이 바뀌면 anchor가 바뀌어, 그 anchor를 가리키는 문서와 `infra/datadog` monitor 메시지의 링크가 깨진다.
+- 문서는 독자별 디렉터리에 둔다. 사용자 문서(quickstart·API 가이드)는 `docs/` 바로 아래, 운영자 문서는 `docs/operator/`, 기여자 문서는 `docs/contributing/`, 채택·선택 결정의 결론은 `docs/contributing/decisions/`에 둔다. 새 문서는 [docs/README.md](../README.md) 색인에 넣는다.
+- 조사용 코드(spike)는 저장소에 남기지 않는다. 결론은 결정 기록에 적고, 계속 지킬 계약은 제품 테스트나 `scripts/<이름>/` harness로 옮긴 뒤 지운다.
+- `tests/docs-links.test.ts`가 추적 중인 Markdown의 Linear 티켓 번호(`94S-` 뒤 숫자), 깨진 상대 링크, 맞지 않는 heading anchor를 검사한다. PR 번호와 작업 경위는 검사하지 않으니 리뷰에서 본다.
 
 ## migration 만들기
 

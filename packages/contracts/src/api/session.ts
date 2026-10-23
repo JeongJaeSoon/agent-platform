@@ -84,7 +84,7 @@ export const PERMISSION_MODE_VALUES = [
 ] as const;
 // Modes in which no tool call waits for a person (`auto` lets a model
 // classifier decide instead). The API starts a catalog
-// naming one only when the installation opts in (docs/operations.md).
+// naming one only when the installation opts in (docs/operator/api-server.md).
 export const UNATTENDED_PERMISSION_MODES = [
   "bypassPermissions",
   "auto",

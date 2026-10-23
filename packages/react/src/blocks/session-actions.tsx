@@ -3,15 +3,10 @@ import type {
   PendingRequest,
   SessionDetail as SessionDetailData,
 } from "@werft-ai/contracts";
-import {
-  ApprovalCard,
-  Button,
-  Composer,
-  ConfirmDialog,
-  QuestionCard,
-} from "@werft-ai/ui";
+import { Button, ConfirmDialog } from "@werft-ai/ui";
 import {
   type Dispatch,
+  type ReactNode,
   type Ref,
   type SetStateAction,
   useId,
@@ -19,6 +14,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { ApprovalCard, Composer, QuestionCard } from "../components/index.ts";
 import {
   type SessionControl,
   useAnswer,
@@ -110,11 +106,14 @@ export function PendingAnswers({
   refusal,
   onAnswered,
   showEmpty = true,
+  subject,
 }: SessionActionProps & {
   readonly sessionId: string;
   readonly items: readonly PendingRequest[];
   readonly onAnswered?: () => void;
   readonly showEmpty?: boolean;
+  /** What each request belongs to, drawn on its card's title line. */
+  readonly subject?: ReactNode;
 }) {
   const { t, locale } = useBlockText();
   const answer = useAnswer(sessionId);
@@ -204,6 +203,7 @@ export function PendingAnswers({
               {request.kind === "permission" ? (
                 <ApprovalCard
                   request={request}
+                  subject={subject}
                   locale={locale}
                   pending={busyId === request.request_id}
                   disabled={reason !== undefined || busyId !== undefined}
@@ -236,28 +236,34 @@ export function PendingAnswers({
                   }
                 />
               ) : (
-                <QuestionCard
-                  request={request}
-                  locale={locale}
-                  pending={busyId === request.request_id}
-                  disabled={reason !== undefined || busyId !== undefined}
-                  error={errorFor(request)}
-                  messages={{
-                    title: t("session.pending.question"),
-                    expires,
-                    expired: t("session.pending.expired"),
-                    freeText: t("session.answer.freeText"),
-                    unanswered: t("session.answer.unanswered"),
-                    submit: t("session.answer.submit"),
-                  }}
-                  onSubmit={(answers) =>
-                    send({
-                      request_id: request.request_id,
-                      kind: "question",
-                      answers,
-                    })
-                  }
-                />
+                <>
+                  {/* QuestionCard has no title-line slot yet. */}
+                  {subject === undefined ? null : (
+                    <p className="m-0 mb-2 text-caption">{subject}</p>
+                  )}
+                  <QuestionCard
+                    request={request}
+                    locale={locale}
+                    pending={busyId === request.request_id}
+                    disabled={reason !== undefined || busyId !== undefined}
+                    error={errorFor(request)}
+                    messages={{
+                      title: t("session.pending.question"),
+                      expires,
+                      expired: t("session.pending.expired"),
+                      freeText: t("session.answer.freeText"),
+                      unanswered: t("session.answer.unanswered"),
+                      submit: t("session.answer.submit"),
+                    }}
+                    onSubmit={(answers) =>
+                      send({
+                        request_id: request.request_id,
+                        kind: "question",
+                        answers,
+                      })
+                    }
+                  />
+                </>
               )}
             </li>
           ))}

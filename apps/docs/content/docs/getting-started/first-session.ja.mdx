@@ -1,0 +1,130 @@
+---
+title: "最初のセッション"
+description: 権限リクエストに答え、メッセージを続けて送り、セッションを閉じる
+---
+
+セッション 1 つを最初から最後まで通して実行する。エージェントがファイルを書こうとして権限を尋ね、人が許可し、次のメッセージが同じ作業ツリーで続き、最後にセッションを閉じる。[Quickstart](/getting-started/quickstart) で作成した `API` と `KEY` を同じターミナルで使う。
+
+## ファイルを書くセッションを作成する
+
+この台本は Bash で `hello.txt` を書く。ローカルのプロファイルは、ファイルを変更するコマンドの前に権限を尋ねる。
+
+```bash
+created=$(curl -sS "$API/v1/sessions" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg m 'GATE-SPEC {"id":"first","steps":[{"tool":"Bash","input":{"command":"echo alpha > hello.txt","description":"write hello.txt"}}],"final":"wrote hello.txt"}' \
+    '{profile_id: "claude-coding-local", repository_id: "sample-app", message: $m}')")
+SID=$(echo "$created" | jq -r .session_id)
+echo "$SID"
+```
+
+本文を `jq -nc --arg` で組み立てると、メッセージ内の引用符を手で escape しなくてよい。
+
+## 権限リクエストを待つ
+
+セッションが権限を尋ねて止まると、`status` が `needs_input` になる。
+
+```bash
+until [ "$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq -r .status)" = needs_input ]; do
+  sleep 2
+done
+curl -sS "$API/v1/sessions/$SID/pending-requests" -H "Authorization: Bearer $KEY" \
+  | jq '.items[] | {request_id, kind, tool, command: .input.command}'
+```
+
+```text
+{
+  "request_id": "req_…",
+  "kind": "permission",
+  "tool": "Bash",
+  "command": "echo alpha > hello.txt"
+}
+```
+
+## 許可する
+
+```bash
+REQ=$(curl -sS "$API/v1/sessions/$SID/pending-requests" -H "Authorization: Bearer $KEY" | jq -r '.items[0].request_id')
+curl -sS "$API/v1/sessions/$SID/answers" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg r "$REQ" '{request_id: $r, kind: "permission", decision: "allow"}')" \
+  | jq '{receipt_status, approval: .approval.surface}'
+until [ "$(curl -sS "$API/v1/sessions/$SID/turns/1" -H "Authorization: Bearer $KEY" | jq -r .status)" = completed ]; do
+  sleep 2
+done
+```
+
+```text
+{
+  "receipt_status": "accepted",
+  "approval": "api"
+}
+```
+
+拒否するには `"decision": "deny"` と `"reason"` を送る。答えなかったリクエストは 30 分後に拒否として終了する。詳しくは [承認待ちと再開](/sessions/waiting-and-resume) を参照。
+
+## 続けて送る
+
+同じセッションにメッセージを送ると、次の turn になる。worker は同じ作業ツリーと同じ Claude Code の会話を引き継いで使う。読み取りコマンドは権限を尋ねない。
+
+```bash
+curl -sS "$API/v1/sessions/$SID/messages" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg m 'GATE-SPEC {"id":"second","steps":[{"tool":"Bash","input":{"command":"cat hello.txt","description":"read hello.txt"}}],"final":"read it"}' '{message: $m}')" \
+  | jq '{turn_id, receipt_status}'
+until [ "$(curl -sS "$API/v1/sessions/$SID/turns/2" -H "Authorization: Bearer $KEY" | jq -r .status)" = completed ]; do
+  sleep 2
+done
+curl -sS "$API/v1/sessions/$SID/turns" -H "Authorization: Bearer $KEY" | jq -c '.items[] | {turn_id, status}'
+```
+
+```text
+{
+  "turn_id": "2",
+  "receipt_status": "accepted"
+}
+{"turn_id":"1","status":"completed"}
+{"turn_id":"2","status":"completed"}
+```
+
+## 閉じる
+
+作業を終えたセッションは閉じる。進行中の turn を最後まで実行し、checkpoint を残してから `closed` になる。制御リクエストには、現在のセッションの `revision` を `expected_revision` として送る。
+
+```bash
+REV=$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq .revision)
+curl -sS "$API/v1/sessions/$SID/close" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --argjson r "$REV" '{expected_revision: $r, reason: "first session done"}')" \
+  | jq '{receipt_status}'
+until [ "$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq -r .admission_state)" = closed ]; do
+  sleep 2
+done
+curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq '{status, admission_state}'
+```
+
+```text
+{
+  "receipt_status": "accepted"
+}
+{
+  "status": "stopped",
+  "admission_state": "closed"
+}
+```
+
+閉じたセッションにはメッセージをこれ以上送れない (409 `SESSION_CLOSED`)。
+
+## 次のステップ
+
+- [開始](/sessions/start): セッション作成リクエストのフィールドとエラー
+- [状態とライフサイクル](/sessions/lifecycle): `status` と `admission_state` が意味するもの
+- [作成](/agents/create): エージェントを定義し、セッションに紐付ける

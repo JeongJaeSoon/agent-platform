@@ -849,7 +849,7 @@ async function giveUpOnCatalogMismatch(
   // Held until the claim commits, so an activation that replaces this
   // revision waits for the give-up judged under it instead of completing
   // while it still writes. The first activation, from none, has no row to
-  // wait on; it is made while one replica runs (docs/operations.md).
+  // wait on; it is made while one replica runs (docs/operator/api-server.md).
   const [authority] = await tx
     .select({ revision: catalogAuthority.revision })
     .from(catalogAuthority)

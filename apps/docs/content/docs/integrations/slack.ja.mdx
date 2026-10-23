@@ -1,0 +1,71 @@
+---
+title: "Slack"
+description: Slack 連携で今できることと、まだないこと
+---
+
+<Callout type="warn">
+Slack でエージェントにメンションしてセッションを開始する機能や、Slack のボタンで承認する機能はまだない。Slack アプリのインストール(OAuth)と Slack イベントの受信がまだないためである。以下は、その準備としてすでにある API である。
+</Callout>
+
+| 今あるもの | API | 誰が |
+| --- | --- | --- |
+| 自分の Slack アカウントを Web アカウントに連携 | `POST /v1/linked-accounts/slack/start`, `…/callback`, `GET /v1/linked-accounts`, `DELETE /v1/linked-accounts/{id}` | ログインした本人 |
+| エージェントに Slack アプリ(bot)を接続 | `POST`·`GET /v1/agents/{id}/identities`, `DELETE …/identities/{identity_id}` | owner·admin·そのエージェントの管理者 |
+| guest のエージェント利用を許可 | `POST /v1/workspaces/{id}/slack-guest` | owner·admin |
+
+三つとも Web ログインの cookie でのみ呼び出せる。API key では 403 になる。以下の例は[作成](/agents/create#ログイン)の `WEB` ヘッダーと `WS` を使う。
+
+## guest の利用設定
+
+Slack guest(マルチチャンネル·シングルチャンネル guest)がエージェントを使えるかどうかを決める。既定はオフである。
+
+```bash
+WS=$(curl -sS "$API/v1/auth/me" "${WEB[@]}" | jq -r .workspace.id)
+curl -sS "$API/v1/workspaces/$WS/slack-guest" "${WEB[@]}" \
+  -d '{"slack_guest_enabled": true}' | jq .
+```
+
+```text
+{
+  "slack_guest_enabled": true
+}
+```
+
+オンにしても、guest は自分の Slack アカウントを連携しないと使えない。Slack Connect で参加した他社のユーザーは、この設定に関係なく使えない。
+
+## Slack アカウントの連携
+
+Sign in with Slack(OpenID Connect)で連携する。運用者が `SLACK_OIDC_CLIENT_ID`·`SLACK_OIDC_CLIENT_SECRET`·`SLACK_OIDC_REDIRECT_URI` を設定し、そのワークスペースに確認済みの Slack インストールがある必要がある。ローカルスタックにはどちらもないため、開始リクエストは 503 になる。
+
+```bash
+curl -sS -o /dev/null -w '%{http_code}\n' -X POST "$API/v1/linked-accounts/slack/start" "${WEB[@]}"
+```
+
+```text
+503
+```
+
+設定済みのインストールでは、開始リクエストが `authorize_url` を返す。そのアドレスで Slack に同意すると、Web の連携画面が `code` と `state` を callback に渡し、連携が完了する。連携の状態は `active`·`stale`·`revoked` である。
+
+| レスポンス | 意味 |
+| --- | --- |
+| 409 `SLACK_NOT_INSTALLED` | このワークスペースに確認済みの Slack インストールがない |
+| 409 `LINK_TEAM_MISMATCH` | インストールされていない Slack チームのアカウントである |
+| 409 `LINK_TAKEN` | その Slack アカウントは別の人に連携されている |
+| 409 `LINK_EXISTS` | 同じチームに自分の連携がすでにある |
+
+## エージェントの Slack アプリ
+
+エージェントごとに自分の Slack アプリを持つ。接続には、アプリ id、チーム id、bot token が入った認証参照の名前(`credential_ref`、値ではない)を送る。
+
+```sh
+curl -sS "$API/v1/agents/$AID/identities" "${WEB[@]}" \
+  -d '{"provider": "slack_bot", "app_id": "A0APP", "team_id": "T0TEAM", "credential_ref": "slack/research-bot-token"}'
+```
+
+確認済みの Slack インストールがない場合は 409 `SLACK_NOT_INSTALLED` になる。インストールは今のところ、運用者がリポジトリ関数でのみ作成できる。
+
+## 次のステップ
+
+- [API key](/api-keys)
+- [GitHub](/integrations/github)

@@ -1,13 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import type { SessionSummary } from "@werft-ai/contracts";
 import { waitingSessionsQuery } from "@werft-ai/core";
+import { Button } from "@werft-ai/ui";
+import type { ReactNode } from "react";
 import {
-  Button,
   SessionRow,
   type SessionRowMessages,
   SessionTable,
-} from "@werft-ai/ui";
-import type { ReactNode } from "react";
+} from "../components/index.ts";
 import { useAgentPlatform } from "../provider.tsx";
 import { useSessions } from "../sessions.ts";
 import { useBlockText } from "./text.ts";

@@ -2,13 +2,13 @@ import * as CheckboxPrimitive from "@radix-ui/react-checkbox";
 import { Check } from "lucide-react";
 import type { ComponentProps, JSX } from "react";
 
-import { cn } from "../lib/cn.ts";
+import { cn } from "../foundations/cn.ts";
 import { useFieldControl } from "./field.tsx";
 
 /*
  * shadcn/ui new-york Checkbox. Changed from upstream: Field wiring (put each
- * checkbox in its own horizontal Field with its FieldLabel), an inline check
- * instead of lucide-react, card background, no `dark:` variants, and the box
+ * checkbox in its own horizontal Field with its FieldLabel), card
+ * background, no `dark:` variants, and the box
  * drawn in `muted-foreground`: the outline is all that shows an unchecked box,
  * and `border-input` is under 3:1 against the canvas in both themes.
  */
@@ -20,7 +20,7 @@ export function Checkbox({
     <CheckboxPrimitive.Root
       data-slot="checkbox"
       className={cn(
-        "peer size-4 shrink-0 rounded-[4px] border border-muted-foreground bg-card shadow-xs outline-none transition-shadow focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground motion-reduce:transition-none",
+        "peer size-4 shrink-0 rounded-[4px] border border-muted-foreground bg-card outline-none transition-shadow focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground motion-reduce:transition-none",
         className,
       )}
       {...useFieldControl(props)}

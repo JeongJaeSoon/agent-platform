@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { ApiErrorState, StatusLabel } from "@werft-ai/react/components";
 import {
   Button,
   Card,
@@ -6,14 +7,12 @@ import {
   CardHeader,
   CardTitle,
   EmptyState,
-  ErrorState,
   Skeleton,
-  StatusLabel,
 } from "@werft-ai/ui";
 
 /*
  * One list panel in each state a screen goes through, built only from
- * packages/ui. apps/web's StatusScreen is not here: it needs the i18n
+ * packages/ui and @werft-ai/react/components. apps/web's StatusScreen is not here: it needs the i18n
  * provider and the router's <Link>, which this workspace does not mount.
  */
 
@@ -35,7 +34,7 @@ function SessionsPanel({ state }: { readonly state: PanelState }) {
           />
         ) : null}
         {state === "error" ? (
-          <ErrorState
+          <ApiErrorState
             message="request timed out"
             code="REQUEST_TIMEOUT"
             retry={() => {}}

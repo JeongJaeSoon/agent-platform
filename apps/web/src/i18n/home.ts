@@ -1,5 +1,4 @@
 export const homeKo = {
-  "home.title": "워크스페이스",
   "home.signedInAs": "{name}({email}) 계정으로 로그인했습니다",
   "home.checklist.title": "시작하기",
   "home.checklist.admin": "소유자 계정 만들기",
@@ -29,7 +28,6 @@ export const homeKo = {
 };
 
 export const homeEn: Record<keyof typeof homeKo, string> = {
-  "home.title": "Workspace",
   "home.signedInAs": "Logged in as {name} ({email})",
   "home.checklist.title": "Getting started",
   "home.checklist.admin": "Create the owner account",
@@ -56,4 +54,33 @@ export const homeEn: Record<keyof typeof homeKo, string> = {
   "home.overview.toAgents": "Agent list",
   "home.recent.title": "Recent sessions",
   "home.recent.all": "All sessions",
+};
+
+export const homeJa: Record<keyof typeof homeKo, string> = {
+  "home.signedInAs": "{name}（{email}）でログインしています",
+  "home.checklist.title": "はじめに",
+  "home.checklist.admin": "オーナーアカウントを作成",
+  "home.checklist.invite": "メンバーを招待",
+  "home.checklist.agent": "エージェントを準備",
+  "home.checklist.session": "最初のセッションを確認",
+  "home.checklist.sessionHint":
+    "Web コンソールからはまだセッションを開始できません。API で開始したセッションがセッション一覧に表示されます。",
+  "home.checklist.unknown": "確認できません",
+  "home.checklist.progress": "{done} / {total} 完了",
+  "home.waiting.title": "回答が必要なリクエスト",
+  "home.waiting.all": "すべて表示",
+  "home.waiting.table": "回答待ちのセッション",
+  "home.overview.title": "概要",
+  "home.overview.unknown": "—",
+  "home.overview.waiting": "回答待ち",
+  "home.overview.waitingNote": "自分の回答を待っているセッション",
+  "home.overview.sessions": "セッション",
+  "home.overview.sessionsNote": "閲覧できるセッション",
+  "home.overview.agents": "エージェント",
+  "home.overview.agentsNote": "有効 {active} · 下書き {draft}",
+  "home.overview.agentsWithheld": "全件はオーナーと管理者のみ表示できます",
+  "home.overview.toSessions": "セッション一覧",
+  "home.overview.toAgents": "エージェント一覧",
+  "home.recent.title": "最近のセッション",
+  "home.recent.all": "すべてのセッション",
 };

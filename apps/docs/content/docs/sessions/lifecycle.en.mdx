@@ -1,0 +1,128 @@
+---
+title: "Status and lifecycle"
+description: A session's status and admission_state, turn states, interrupt, and attention
+---
+
+The session detail (`GET /v1/sessions/{id}`) has two states. `status` is what the execution is doing now, and `admission_state` is whether the session accepts new input. A turn has its own state, and you judge whether it has finished by the turn state alone. Look at the `SID` created in [Start](/sessions/start).
+
+```bash
+until [ "$(curl -sS "$API/v1/sessions/$SID/turns/1" -H "Authorization: Bearer $KEY" | jq -r .status)" = completed ]; do
+  sleep 2
+done
+curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" \
+  | jq '{status, admission_state, current_turn_id, revision, attention}'
+```
+
+```text
+{
+  "status": "idle",
+  "admission_state": "active",
+  "current_turn_id": null,
+  "revision": 0,
+  "attention": null
+}
+```
+
+`revision` goes up when a control such as pause, resume, or close changes the session. It does not go up when a turn finishes. Send the current value as `expected_revision` in control requests.
+
+## status
+
+| Value | Meaning |
+| --- | --- |
+| `queued` | There is input and it is waiting for a worker |
+| `running` | A worker is running a turn |
+| `needs_input` | The running turn is waiting for a person to answer a permission request or question |
+| `idle` | No turn to run. The next message is accepted |
+| `stopped` | Execution has stopped (after interrupt, terminate, pause, or close) |
+| `failed` | Execution failed. The reason is in `attention` |
+
+## admission_state
+
+| Value | Meaning |
+| --- | --- |
+| `active` | Accepts messages and controls |
+| `pausing` → `paused` | Pausing, then the state where a checkpoint is saved and the worker is down. Messages get 409 `SESSION_PAUSED` |
+| `resuming` | Resuming. A new worker restores from the checkpoint |
+| `stopping` → `stopped` | Terminating, then stopped |
+| `recovery_required` | A turn with an unknown outcome remains, and a person must make a recovery decision ([Close](/sessions/close)) |
+| `closing` → `closed` | Closing, then closed. This cannot be undone |
+
+## Turn states
+
+```bash
+curl -sS "$API/v1/sessions/$SID/turns" -H "Authorization: Bearer $KEY" | jq -c '.items[] | {turn_id, status}'
+```
+
+`queued`, `running`, and `needs_input` are in progress; `completed`, `failed`, `interrupted`, `cancelled`, and `outcome_unknown` are finished states. `completed` means the engine ended the turn normally, not that the requested work was done. Decide whether the work is done by reading the `assistant` and `tool_result` events. The `result` event is not a completion verdict either.
+
+## interrupt
+
+This stops only the one running turn. The worker stays and accepts the next message. The script below delays its reply by 5 minutes, so the turn stays `running` in the meantime.
+
+```bash
+turn=$(curl -sS "$API/v1/sessions/$SID/messages" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg m 'GATE-SPEC {"id":"slow","steps":[],"final":"too late","finalDelayMs":300000}' '{message: $m}')" \
+  | jq -r .turn_id)
+until [ "$(curl -sS "$API/v1/sessions/$SID/turns/$turn" -H "Authorization: Bearer $KEY" | jq -r .status)" = running ]; do
+  sleep 1
+done
+curl -sS "$API/v1/sessions/$SID/interrupt" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg t "$turn" '{target_turn_id: $t}')" | jq '{receipt_status}'
+until [ "$(curl -sS "$API/v1/sessions/$SID/turns/$turn" -H "Authorization: Bearer $KEY" | jq -r .status)" = interrupted ]; do
+  sleep 1
+done
+curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq '{status, admission_state}'
+```
+
+```text
+{
+  "receipt_status": "accepted"
+}
+{
+  "status": "stopped",
+  "admission_state": "active"
+}
+```
+
+A turn that has not started yet gets 409 `TURN_NOT_STARTED`, and a turn that has already finished gets a successful no-op (`no_op: true`). The scope is `sessions:control`.
+
+## attention
+
+When the session is waiting for a person, `attention` carries a `code` and a reason. Normally it is `null`.
+
+| code | Meaning |
+| --- | --- |
+| `PAUSE_BLOCKED`, `CLOSE_BLOCKED` | Pause or close could not drain for over 60 seconds. The reason is `long_turn`, `pending_request`, and so on |
+| `BUDGET_EXCEEDED` | The session cost or token limit was exceeded |
+| `TRANSCRIPT_LIMIT` | The transcript is near or over its limit. Time to move to a new session |
+| `STARTUP_FAILED`, `RESTORE_FAILED` | The worker cannot start or restore a checkpoint |
+| `CATALOG_MISMATCH` | An operator changed the profile or repository settings after the session was created |
+| `CONTEXT_GAP` | A recovery decision dropped part of the earlier conversation |
+
+## Usage
+
+```bash
+curl -sS "$API/v1/sessions/$SID/usage" -H "Authorization: Bearer $KEY" \
+  | jq '{cost: .cost.amount_usd, complete: .cost.complete, budget_exceeded}'
+```
+
+```text
+{
+  "cost": "0.000042",
+  "complete": true,
+  "budget_exceeded": false
+}
+```
+
+The cost is an estimate computed from a price list, not a billed amount. If `complete` is `false`, the total is not settled yet. Either there is an open turn (`open_turn_count`), or some finished turn has no reported cost (`unreported_turn_count`). In the latter case it stays `false` even after all turns finish.
+
+## Next steps
+
+- [Waiting for approval and resuming](/sessions/waiting-and-resume): answering `needs_input`, pause and resume
+- [Close](/sessions/close): close, terminate, recovery decisions

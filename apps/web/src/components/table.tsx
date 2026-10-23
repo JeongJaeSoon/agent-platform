@@ -27,7 +27,7 @@ export function TableContainer({
       aria-label={label}
       // biome-ignore lint/a11y/noNoninteractiveTabindex: a scroll container must be focusable to scroll by keyboard
       tabIndex={0}
-      className={cn("overflow-x-auto rounded-lg border bg-card", className)}
+      className={cn("overflow-x-auto rounded-card border bg-card", className)}
       {...props}
     />
   );
@@ -154,8 +154,8 @@ export function RowList({
       className={cn(
         "m-0 flex list-none flex-col p-0",
         variant === "separate"
-          ? "gap-2 [&>li]:rounded-md [&>li]:border [&>li]:bg-card"
-          : "overflow-hidden rounded-lg border bg-card [&>li:last-child]:border-b-0 [&>li]:border-b",
+          ? "gap-2 [&>li]:rounded-card [&>li]:border [&>li]:bg-card"
+          : "overflow-hidden rounded-card border bg-card [&>li:last-child]:border-b-0 [&>li]:border-b",
         className,
       )}
       {...props}
@@ -163,6 +163,8 @@ export function RowList({
   );
 }
 
+// A row that wraps on a narrow screen puts its action 8px under the text;
+// the 2px line gap is only for lines inside RowLines.
 export function RowListItem({
   className,
   ...props
@@ -170,7 +172,7 @@ export function RowListItem({
   return (
     <li
       className={cn(
-        "flex min-h-[var(--ap-row-min-height)] flex-wrap items-center gap-x-3 gap-y-[var(--ap-row-line-gap)] px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)]",
+        "flex min-h-[var(--ap-row-min-height)] flex-wrap items-center gap-x-3 gap-y-2 px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)]",
         className,
       )}
       {...props}

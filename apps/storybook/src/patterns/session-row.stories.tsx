@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { SessionRow, SessionTable, Skeleton } from "@werft-ai/ui";
+import { SessionRow, SessionTable } from "@werft-ai/react/components";
+import { Skeleton } from "@werft-ai/ui";
 
 import { SESSION, SESSION_ROW_MESSAGES } from "./session-fixtures.ts";
 
@@ -51,7 +52,7 @@ export const Empty: Story = {
 /** What a list shows in a row's place while it loads. */
 function LoadingRow() {
   return (
-    <div className="flex flex-col gap-2 rounded-md border p-3">
+    <div className="flex flex-col gap-2 rounded-control border p-3">
       <Skeleton width="30%" label="Loading session" />
       <Skeleton width="70%" />
     </div>

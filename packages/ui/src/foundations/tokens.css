@@ -1,0 +1,319 @@
+/*
+ * The single source of design tokens (02 UX 설계 §6). Light is the default and
+ * dark is derived here; no other file in the repo may define a colour.
+ *
+ * Tokens are plain custom properties under `--ap-*` rather than a Tailwind 4
+ * `@theme` block, because `@theme` only survives Tailwind's compiler and this
+ * package has to render in bare jsdom/browser too. theme.css re-exposes them
+ * to Tailwind in one place. No unprefixed name is defined here, so a host
+ * app's own `--primary` or `--border` never collides with the kit's.
+ *
+ * Everything the kit declares lives in the `ap` cascade layer. The statement
+ * below puts it after Tailwind's layers whether this file or Tailwind loads
+ * first: kit rules still beat utilities (ConfirmDialog relies on it), and any
+ * unlayered rule in the host app beats the kit. A host that declares its own
+ * layer order before this file decides the order instead.
+ */
+
+@layer theme, base, components, utilities, ap;
+
+@layer ap {
+  :root {
+    /* Native controls (a select's open list, scrollbars) follow the theme too. */
+    color-scheme: light dark;
+
+    /*
+     * Surfaces and accent follow shadcn/ui's neutral base colour (white
+     * surface, near-black primary). Where shadcn's value fails WCAG AA here,
+     * the value is darkened instead: muted-foreground (#737373 drops under
+     * 4.5:1 on the tone backgrounds), border-input and focus-ring (#e5e5e5
+     * and #a1a1a1 are under 3:1 on white).
+     *
+     * Console v35: the sidebar sits on `sidebar`, the main column and its
+     * cards on one `surface`. A sidebar nav row takes `sidebar-hover` under
+     * the pointer and `sidebar-accent` when it is the current page.
+     */
+    --ap-color-sidebar: #fafafa;
+    --ap-color-sidebar-hover: #f2f2f2;
+    --ap-color-sidebar-accent: #ebebeb;
+    --ap-color-surface: #ffffff;
+    /* The main background's old name, still read by apps/docs. */
+    --ap-color-canvas: var(--ap-color-surface);
+    --ap-color-surface-sunken: #f5f5f5;
+
+    --ap-color-border: #e5e5e5;
+    --ap-color-border-strong: #d4d4d4;
+    /* A control's edge is how it is found (WCAG 1.4.11): 3:1 on surface and
+     canvas, which border-strong is not. */
+    --ap-color-border-input: #8a8a8a;
+    --ap-color-foreground: #0a0a0a;
+    --ap-color-muted-foreground: #666666;
+    /* The faintest text (v35 text-3), still 4.5:1 on sidebar and surface. */
+    --ap-color-subtle-foreground: #6b6b6b;
+
+    /* Used for focus and the single primary action. */
+    --ap-color-accent: #171717;
+    --ap-color-accent-hover: #2e2e2e;
+    --ap-color-accent-foreground: #fafafa;
+    --ap-color-focus-ring: #737373;
+
+    /*
+     * Status tones. A tone is a meaning, not a colour name: components pick a
+     * tone from the state vocabulary, never a hex value. Only progress,
+     * caution and danger carry a hue. attention (waiting on a person) and
+     * unknown (outcome not confirmed) both ask the reader to look, so they
+     * share caution's values; positive is neutral, because a finished state
+     * needs no signal.
+     */
+    --ap-tone-neutral-fg: #404040;
+    --ap-tone-neutral-bg: #f5f5f5;
+    --ap-tone-neutral-border: #e5e5e5;
+
+    --ap-tone-progress-fg: #1f4f7a;
+    --ap-tone-progress-bg: #e4eef7;
+    --ap-tone-progress-border: #b8d3e8;
+
+    --ap-tone-attention-fg: #7a5200;
+    --ap-tone-attention-bg: #fbefd6;
+    --ap-tone-attention-border: #ecd39a;
+
+    --ap-tone-caution-fg: #7a5200;
+    --ap-tone-caution-bg: #fbefd6;
+    --ap-tone-caution-border: #ecd39a;
+
+    --ap-tone-danger-fg: #c4262b;
+    --ap-tone-danger-bg: #fdecec;
+    --ap-tone-danger-border: #f7c4c4;
+
+    /* Only Badge's green uses it; no state in the vocabulary is green. */
+    --ap-tone-success-fg: #0f7a33;
+    --ap-tone-success-bg: #eaf7ee;
+    --ap-tone-success-border: #b6e3c3;
+
+    --ap-tone-unknown-fg: #7a5200;
+    --ap-tone-unknown-bg: #fbefd6;
+    --ap-tone-unknown-border: #ecd39a;
+
+    --ap-tone-positive-fg: #404040;
+    --ap-tone-positive-bg: #f5f5f5;
+    --ap-tone-positive-border: #e5e5e5;
+
+    /* Typography */
+    --ap-font-sans:
+      Geist, "Pretendard Variable", Pretendard, -apple-system,
+      BlinkMacSystemFont, "Apple SD Gothic Neo", "Segoe UI", system-ui,
+      sans-serif;
+    --ap-font-mono:
+      "Geist Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo,
+      "Pretendard Variable", monospace;
+
+    /*
+     * Console v35 sizes only: 12 meta, 13 body, 14 section, 20 page title,
+     * 24 figures.
+     */
+    --ap-text-xs: 0.75rem;
+    --ap-text-sm: 0.8125rem;
+    --ap-text-label: 0.875rem;
+
+    --ap-leading-tight: 1.35;
+    --ap-leading-normal: 1.7;
+    /* 13px body copy, such as a page description, on a 20px line. */
+    --ap-leading-body: 1.25rem;
+
+    --ap-weight-regular: 400;
+    --ap-weight-medium: 500;
+    --ap-weight-bold: 600;
+
+    /* Spacing — 4, 8, 12, 16, 24 and 32 only (console v35). */
+    --ap-space-0: 0;
+    --ap-space-1: 0.25rem;
+    --ap-space-2: 0.5rem;
+    --ap-space-3: 0.75rem;
+    --ap-space-4: 1rem;
+    --ap-space-6: 1.5rem;
+    --ap-space-8: 2rem;
+
+    /* Vertical rhythm of a page: above the content, under the page header,
+     between sections and between blocks inside one. */
+    --ap-space-page-top: var(--ap-space-8);
+    --ap-space-page-head: var(--ap-space-6);
+    --ap-space-section: var(--ap-space-8);
+    --ap-space-block: var(--ap-space-4);
+
+    /* Controls 6px; cards, menus and dialogs 8px; pills. */
+    --ap-radius-control: 0.375rem;
+    --ap-radius-card: 0.5rem;
+    --ap-radius-pill: 999px;
+
+    /* One shadow, for what floats (menus, dialogs, toasts). */
+    --ap-shadow-pop: 0 2px 8px rgb(0 0 0 / 0.08);
+    --ap-color-overlay: rgb(0 0 0 / 0.5);
+
+    /*
+     * Motion. Every animated rule reads these, so the reduced-motion block
+     * below is the only place that has to turn motion off.
+     */
+    --ap-motion-fast: 120ms;
+    --ap-motion-normal: 200ms;
+    --ap-motion-ease: cubic-bezier(0.2, 0, 0.2, 1);
+
+    /*
+     * Layout (console v35): content is 1200px wide, or 840px in one column
+     * for settings, left-aligned inside 32px gutters under a 52px top bar.
+     */
+    --ap-w-wide: 75rem;
+    --ap-w-narrow: 52.5rem;
+    --ap-gutter: 2rem;
+    --ap-topbar-h: 3.25rem;
+    /* The 768px reading column of 02 UX 설계 §6. */
+    --ap-layout-reading-width: 48rem;
+    --ap-layout-sidebar-width: 14.75rem;
+    --ap-layout-detail-panel-width: 21.25rem;
+    /*
+     * Table and list rows (console design v30): a row is at least 48px and a
+     * header row 40px. Lines stacked in one cell sit 2px apart.
+     */
+    --ap-row-padding-x: var(--ap-space-4);
+    --ap-row-padding-y: var(--ap-space-3);
+    --ap-row-head-padding-y: var(--ap-space-2);
+    --ap-row-min-height: 3rem;
+    --ap-row-head-min-height: 2.5rem;
+    --ap-row-line-gap: 0.125rem;
+    --ap-control-height: 2rem;
+    --ap-control-height-sm: 1.75rem;
+    --ap-text-title: 1.25rem;
+    --ap-leading-title: 1.75rem;
+    --ap-text-number: 1.5rem;
+    --ap-leading-number: 2rem;
+  }
+
+  /*
+   * Dark follows Geist: a black sidebar, a near-black surface, edges one or
+   * two grey steps up, and each tone a saturated foreground over a very dark
+   * background of the same hue, so red reads as red rather than brown.
+   */
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ap-color-sidebar: #000000;
+      --ap-color-sidebar-hover: #1a1a1a;
+      --ap-color-sidebar-accent: #232323;
+      --ap-color-surface: #0a0a0a;
+      --ap-color-surface-sunken: #1a1a1a;
+
+      --ap-color-border: #2e2e2e;
+      --ap-color-border-strong: #454545;
+      --ap-color-border-input: #737373;
+      --ap-color-foreground: #ededed;
+      --ap-color-muted-foreground: #a1a1a1;
+      --ap-color-subtle-foreground: #8f8f8f;
+
+      --ap-color-accent: #ededed;
+      --ap-color-accent-hover: #cccccc;
+      --ap-color-accent-foreground: #0a0a0a;
+      --ap-color-focus-ring: #737373;
+
+      --ap-tone-neutral-fg: #d4d4d4;
+      --ap-tone-neutral-bg: #1f1f1f;
+      --ap-tone-neutral-border: #454545;
+
+      --ap-tone-progress-fg: #52a8ff;
+      --ap-tone-progress-bg: #0d1b2e;
+      --ap-tone-progress-border: #163a66;
+
+      --ap-tone-attention-fg: #ffb224;
+      --ap-tone-attention-bg: #291c06;
+      --ap-tone-attention-border: #533a12;
+
+      --ap-tone-caution-fg: #ffb224;
+      --ap-tone-caution-bg: #291c06;
+      --ap-tone-caution-border: #533a12;
+
+      --ap-tone-danger-fg: #ff6166;
+      --ap-tone-danger-bg: #2a1215;
+      --ap-tone-danger-border: #6b2329;
+
+      --ap-tone-success-fg: #5cc77a;
+      --ap-tone-success-bg: #0a1f10;
+      --ap-tone-success-border: #16452a;
+
+      --ap-tone-unknown-fg: #ffb224;
+      --ap-tone-unknown-bg: #291c06;
+      --ap-tone-unknown-border: #533a12;
+
+      --ap-tone-positive-fg: #d4d4d4;
+      --ap-tone-positive-bg: #1f1f1f;
+      --ap-tone-positive-border: #454545;
+
+      --ap-shadow-pop: 0 2px 8px rgb(0 0 0 / 0.45);
+      --ap-color-overlay: rgb(0 0 0 / 0.65);
+    }
+  }
+
+  :root[data-theme="light"] {
+    color-scheme: light;
+  }
+
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+
+    --ap-color-sidebar: #000000;
+    --ap-color-sidebar-hover: #1a1a1a;
+    --ap-color-sidebar-accent: #232323;
+    --ap-color-surface: #0a0a0a;
+    --ap-color-surface-sunken: #1a1a1a;
+
+    --ap-color-border: #2e2e2e;
+    --ap-color-border-strong: #454545;
+    --ap-color-border-input: #737373;
+    --ap-color-foreground: #ededed;
+    --ap-color-muted-foreground: #a1a1a1;
+    --ap-color-subtle-foreground: #8f8f8f;
+
+    --ap-color-accent: #ededed;
+    --ap-color-accent-hover: #cccccc;
+    --ap-color-accent-foreground: #0a0a0a;
+    --ap-color-focus-ring: #737373;
+
+    --ap-tone-neutral-fg: #d4d4d4;
+    --ap-tone-neutral-bg: #1f1f1f;
+    --ap-tone-neutral-border: #454545;
+
+    --ap-tone-progress-fg: #52a8ff;
+    --ap-tone-progress-bg: #0d1b2e;
+    --ap-tone-progress-border: #163a66;
+
+    --ap-tone-attention-fg: #ffb224;
+    --ap-tone-attention-bg: #291c06;
+    --ap-tone-attention-border: #533a12;
+
+    --ap-tone-caution-fg: #ffb224;
+    --ap-tone-caution-bg: #291c06;
+    --ap-tone-caution-border: #533a12;
+
+    --ap-tone-danger-fg: #ff6166;
+    --ap-tone-danger-bg: #2a1215;
+    --ap-tone-danger-border: #6b2329;
+
+    --ap-tone-success-fg: #5cc77a;
+    --ap-tone-success-bg: #0a1f10;
+    --ap-tone-success-border: #16452a;
+
+    --ap-tone-unknown-fg: #ffb224;
+    --ap-tone-unknown-bg: #291c06;
+    --ap-tone-unknown-border: #533a12;
+
+    --ap-tone-positive-fg: #d4d4d4;
+    --ap-tone-positive-bg: #1f1f1f;
+    --ap-tone-positive-border: #454545;
+
+    --ap-shadow-pop: 0 2px 8px rgb(0 0 0 / 0.45);
+    --ap-color-overlay: rgb(0 0 0 / 0.65);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    :root {
+      --ap-motion-fast: 0ms;
+      --ap-motion-normal: 0ms;
+    }
+  }
+}

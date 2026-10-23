@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   type ErrorComponentProps,
+  Link,
   Outlet,
   useNavigate,
   useRouter,
@@ -16,8 +17,9 @@ import {
   NativeSelect,
   NativeSelectOption,
 } from "@werft-ai/ui";
+import { Plus } from "lucide-react";
 import { type ReactNode, useId, useLayoutEffect, useState } from "react";
-import { useMe } from "../auth/guard.tsx";
+import { useHasPermission, useMe } from "../auth/guard.tsx";
 import {
   AppSidebar,
   type NavGroup,
@@ -27,7 +29,13 @@ import {
 import { MAIN_CONTENT_ID, Main } from "../components/main.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { applyTheme, storedTheme } from "../components/theme.ts";
-import { errorKey, LOCALES, type Locale, useI18n } from "../i18n/i18n.tsx";
+import {
+  errorKey,
+  LOCALE_NAMES,
+  LOCALES,
+  type Locale,
+  useI18n,
+} from "../i18n/i18n.tsx";
 
 export function RootLayout() {
   const { t } = useI18n();
@@ -37,17 +45,27 @@ export function RootLayout() {
   });
   useLayoutEffect(() => applyTheme(storedTheme()), []);
   return (
-    <div className="flex min-h-dvh flex-col">
+    <div className="group/root flex min-h-dvh flex-col">
       <a
-        className="absolute top-2 left-2 z-50 -translate-y-[200%] rounded-sm bg-card px-3 py-2 focus:translate-y-0"
+        className="absolute top-2 left-2 z-50 -translate-y-[200%] rounded-control bg-card px-3 py-2 focus:translate-y-0"
         href={`#${MAIN_CONTENT_ID}`}
       >
         {t("common.skipToContent")}
       </a>
+      {/* On an AuthPage this spacer and the footer split the spare height,
+          so the page sits in the middle of the viewport and, once taller,
+          scrolls from its top. Other public screens keep to the top. Both
+          grow from a 0px basis with no padding of their own: the root's
+          height is indefinite, so a 0% basis would fall back to content. */}
+      {authed ? null : (
+        <div className="hidden grow basis-0 group-has-[>.auth-page]/root:block" />
+      )}
       <Outlet />
       {authed ? null : (
-        <footer className="mt-auto flex justify-end p-4">
-          <LocaleSwitch />
+        <footer className="mt-auto flex justify-end group-has-[>.auth-page]/root:grow group-has-[>.auth-page]/root:basis-0 group-has-[>.auth-page]/root:items-end">
+          <div className="p-4">
+            <LocaleSwitch />
+          </div>
         </footer>
       )}
     </div>
@@ -65,7 +83,7 @@ function LocaleSwitch() {
       >
         {LOCALES.map((value) => (
           <NativeSelectOption key={value} value={value}>
-            {value === "ko" ? "한국어" : "English"}
+            {LOCALE_NAMES[value]}
           </NativeSelectOption>
         ))}
       </NativeSelect>
@@ -73,20 +91,25 @@ function LocaleSwitch() {
   );
 }
 
-/** One width per screen, which every block on it shares. */
+/**
+ * One width per screen, which every block on it shares (console v35): forms
+ * and settings read in one narrow column, lists take the wide one.
+ */
 function contentWidth(pathname: string) {
-  if (pathname === "/agents/new")
-    return "max-w-[var(--ap-layout-reading-width)]";
-  if (pathname.startsWith("/settings/")) {
-    return "max-w-[var(--ap-layout-settings-width)]";
+  if (pathname === "/agents/new" || pathname.startsWith("/settings/")) {
+    return "max-w-[calc(var(--ap-w-narrow)+2*var(--ap-gutter))]";
   }
-  return "max-w-[var(--ap-layout-content-width)]";
+  return "max-w-[calc(var(--ap-w-wide)+2*var(--ap-gutter))]";
 }
+
+// The top bar's "new" lives only on the screens that list what it makes.
+const NEW_ON = new Set(["/", "/sessions", "/agents"]);
 
 export function AuthedLayout() {
   const { t } = useI18n();
   const me = useMe();
   const groups = useNavGroups();
+  const canCreate = useHasPermission("agent.create");
   const { client } = useAgentPlatform();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -111,7 +134,7 @@ export function AuthedLayout() {
     // Header, sidebar, main in reading order: below md the open menu unfolds
     // under its button; from md on the grid puts the sidebar on the left.
     <div className="flex flex-1 flex-col md:grid md:grid-cols-[var(--ap-layout-sidebar-width)_minmax(0,1fr)] md:grid-rows-[auto_1fr]">
-      <header className="flex min-h-[3.25rem] items-center gap-3 border-b bg-card px-4 md:col-start-2 md:row-start-1 md:px-6">
+      <header className="flex min-h-[var(--ap-topbar-h)] items-center gap-3 border-b bg-surface px-4 md:col-start-2 md:row-start-1 md:px-[var(--ap-gutter)]">
         <Button
           type="button"
           variant="outline"
@@ -127,6 +150,7 @@ export function AuthedLayout() {
           groups={groups}
           fallback={me?.workspace?.name ?? t("common.appName")}
         />
+        {canCreate ? <NewButton /> : null}
       </header>
       <AppSidebar
         id={sidebarId}
@@ -165,28 +189,40 @@ function PageTrail({
 }) {
   const { t } = useI18n();
   const here = navItemFor(groups, usePathname());
+  // The same words as the sidebar item and the page title.
   return (
-    <p className="m-0 flex min-w-0 flex-wrap items-center gap-x-2 text-control">
-      {here ? (
-        <>
-          <span className="text-muted-foreground">{t(here.group.label)}</span>
-          <span aria-hidden="true" className="text-muted-foreground">
-            /
-          </span>
-          <span className="font-medium">{t(here.item.label)}</span>
-        </>
-      ) : (
-        <span className="font-medium">{fallback}</span>
-      )}
+    <p className="m-0 min-w-0 truncate font-medium text-control">
+      {here ? t(here.item.label) : fallback}
     </p>
+  );
+}
+
+/**
+ * Making something starts here on the screens that list it. The console makes
+ * agents only; sessions start from the API, Slack or the SDK. It re-renders on
+ * every navigation, so it must not read the signed-in user itself: after
+ * logout that read would fetch them again into the cleared cache.
+ */
+function NewButton() {
+  const { t } = useI18n();
+  if (!NEW_ON.has(usePathname())) return null;
+  return (
+    <Button asChild variant="outline" size="sm" className="ml-auto">
+      <Link to="/agents/new">
+        <Plus aria-hidden="true" />
+        {t("shell.new")}
+      </Link>
+    </Button>
   );
 }
 
 function ShellMain({ children }: { readonly children: ReactNode }) {
   return (
+    // Left-aligned (console v35): the column starts at the sidebar and stops
+    // at its width, it does not centre in the space left over.
     <Main
       className={cn(
-        "web-shell__main mx-auto flex w-full min-w-0 flex-col p-4 md:col-start-2 md:row-start-2 md:px-6 md:py-6",
+        "web-shell__main flex w-full min-w-0 flex-col bg-surface p-4 md:col-start-2 md:row-start-2 md:px-[var(--ap-gutter)] md:pt-[var(--ap-space-page-top)] md:pb-[var(--ap-space-section)]",
         contentWidth(usePathname()),
       )}
     >

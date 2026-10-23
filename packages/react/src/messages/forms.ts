@@ -29,3 +29,17 @@ export const formsEn: Record<keyof typeof formsKo, string> = {
   "form.error.choice": "Choose one of the options.",
   "form.error.invalid": "Check this value.",
 };
+
+export const formsJa: Record<keyof typeof formsKo, string> = {
+  "form.error.required": "必須項目です。",
+  "form.error.tooShort": "{min}文字以上で入力してください。",
+  "form.error.tooLong": "{max}文字以内で入力してください。",
+  "form.error.tooFew": "{min}個以上追加してください。",
+  "form.error.tooMany": "{max}個以内にしてください。",
+  "form.error.tooSmall": "{min}以上の値にしてください。",
+  "form.error.tooBig": "{max}以下の値にしてください。",
+  "form.error.email": "メールアドレスの形式で入力してください。",
+  "form.error.format": "形式が正しくありません。",
+  "form.error.choice": "一覧から選択してください。",
+  "form.error.invalid": "値を確認してください。",
+};

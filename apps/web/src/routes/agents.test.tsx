@@ -204,8 +204,9 @@ describe("에이전트 목록", () => {
     expect(
       await screen.findByText(/전체 에이전트 목록은 소유자와 관리자만 봅니다/),
     ).toBeDefined();
-    const button = screen.getByRole("button", { name: "새 에이전트" });
-    expect((button as HTMLButtonElement).disabled).toBe(false);
+    // Whoever may create is offered it once, in the top bar.
+    expect(screen.queryByRole("button", { name: "새 에이전트" })).toBeNull();
+    const button = screen.getByRole("link", { name: "새로 만들기" });
     expect(screen.queryByRole("alert")).toBeNull();
     expect(document.body.textContent).not.toContain("agent.manage");
     expect(document.body.textContent).not.toContain("does not hold");
@@ -1340,9 +1341,7 @@ describe("새 에이전트: 브라우저 history", () => {
       ...server.routes,
     });
     const user = await setupUser();
-    await user.click(
-      await screen.findByRole("button", { name: "새 에이전트" }),
-    );
+    await user.click(await screen.findByRole("link", { name: "새로 만들기" }));
     await toJobStep(user);
     await fillJob(user);
     await atStep("배포 판");
@@ -1388,9 +1387,7 @@ describe("새 에이전트: 브라우저 history", () => {
   test("저장하지 않은 입력이 있으면 흐름을 떠나기 전에 묻고, 단계 사이 이동은 묻지 않는다", async () => {
     openInBrowser("/agents", { ...meOk, ...agentServer().routes });
     const user = await setupUser();
-    await user.click(
-      await screen.findByRole("button", { name: "새 에이전트" }),
-    );
+    await user.click(await screen.findByRole("link", { name: "새로 만들기" }));
     await toJobStep(user);
     await user.type(screen.getByLabelText("역할"), CARD.role);
     const unload = () => {

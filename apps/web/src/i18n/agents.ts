@@ -12,7 +12,7 @@ export const agentsKo = {
   "agent.notFound.body":
     "지워졌거나, 주소가 틀렸거나, 볼 수 없는 에이전트입니다.",
   "agent.notFound.back": "에이전트 목록으로",
-  "agents.empty": "아직 에이전트가 없습니다. 새 에이전트를 눌러 만드세요.",
+  "agents.empty": "아직 에이전트가 없습니다.",
   "agents.updated": "{at} 수정",
   "agents.slugLine": "식별자 {slug}",
   "agents.state.notReleased": "아직 쓸 수 없음",
@@ -224,7 +224,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.notFound.body":
     "It was deleted, the address is wrong, or you cannot see it.",
   "agent.notFound.back": "Back to agents",
-  "agents.empty": "No agents yet. Select New agent to create one.",
+  "agents.empty": "No agents yet.",
   "agents.updated": "updated {at}",
   "agents.slugLine": "identifier {slug}",
   "agents.state.notReleased": "Not usable yet",
@@ -417,4 +417,217 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
     "You were named their admin directly or through a team. Open one to manage its card and admins.",
   "agentAdmins.mine.empty": "You are not named an admin of any agent yet.",
   "agentAdmins.mine.truncated": "Showing the first {count}.",
+};
+
+export const agentsJa: Record<keyof typeof agentsKo, string> = {
+  "agents.title": "エージェント",
+  "agents.new": "新規エージェント",
+  "agents.listWithheld":
+    "すべてのエージェントの一覧を見られるのはオーナーと管理者のみです。新しく作成したエージェントは、下の「管理しているエージェント」に表示されます。",
+  "agent.notFound.title": "エージェントが見つかりません",
+  "agent.notFound.body":
+    "削除されたか、アドレスが間違っているか、閲覧できないエージェントです。",
+  "agent.notFound.back": "エージェント一覧へ",
+  "agents.empty": "エージェントはまだありません。",
+  "agents.updated": "{at}に更新",
+  "agents.slugLine": "識別子 {slug}",
+  "agents.state.notReleased": "未公開",
+  "agents.state.draft": "下書き",
+  "agents.status.active": "有効",
+  "agents.status.paused": "一時停止",
+  "agents.status.archived": "アーカイブ済み",
+  "agents.newTitle": "新規エージェント",
+  "agents.newIntro":
+    "空のカードから 4 ステップで作成します。「役割」まで完了すると下書きとして保存され、その後に離れても一覧に下書きとして残ります。",
+  "agents.name": "名前",
+  "agents.slug": "識別子",
+  "agents.slugHint":
+    "このワークスペースでエージェントを区別する名前で、一覧と詳細画面に表示され、ほかのエージェントと重複できません。英小文字・数字・ハイフン（-）。名前から自動入力され、変更できます。保存後は変更できません",
+  "agents.slugLocked": "下書きを保存したため、識別子は変更できません",
+  "agents.slugTaken":
+    "この識別子はほかのエージェントがすでに使っています。「名前」ステップに戻って変更してください。",
+  "agents.flow.label": "エージェント作成のステップ",
+  "agents.flow.name": "名前",
+  "agents.flow.job": "役割",
+  "agents.flow.release": "リリース",
+  "agents.flow.activate": "有効化",
+  "agents.flow.next": "次へ",
+  "agents.flow.jobIntro":
+    "エージェントに任せる仕事を入力します。次へ進むと下書きとして保存されます。",
+  "agents.flow.saveDraft": "下書きを保存して次へ",
+  "agents.flow.saving": "保存中…",
+  "agents.flow.releaseIntro":
+    "下書きとして保存しました。カードをプロファイルに紐付けてリリースを作成します。作成しただけではセッションで使われません。",
+  "agents.flow.createRelease": "リリースを作成",
+  "agents.flow.activateIntro":
+    "有効にすると、新しいセッションはこのリリースで開始します。",
+  "agents.flow.turnOn": "エージェントを有効化",
+  "agents.flow.activating": "有効化中…",
+  "agents.flow.later": "あとで設定",
+  "agents.flow.done":
+    "{name}を有効にしました。新しいセッションでこのエージェントが使われます。",
+  "agents.flow.open": "エージェントを表示",
+  "agents.flow.leaveTitle": "保存せずに移動しますか？",
+  "agents.flow.leaveConsequence":
+    "ここで入力して保存していない内容は失われます。残すには「下書きを保存して次へ」を押してください。",
+  "agents.flow.leave": "移動する",
+  "agents.flow.stay": "編集を続ける",
+  "agentCard.role": "役割",
+  "agentCard.roleHint": "このエージェントが担当することを 1 行で",
+  "agentCard.instructions": "指示",
+  "agentCard.language": "回答言語",
+  "agentCard.model": "モデル",
+  "agentCard.modelHint":
+    "リリース時に選ぶプロファイルのモデルと完全に一致している必要があります",
+  "agentCard.tools": "使用できるツール",
+  "agentCard.toolsAll": "プロファイルで許可されたすべてのツール",
+  "agentCard.toolsList": "選択したツールのみ",
+  "agentCard.toolNames": "ツール名",
+  "agentCard.listHint": "1 行に 1 つ",
+  "agentCard.forbidden": "禁止するツール",
+  "agentCard.forbiddenHint":
+    "1 行に 1 つ。エージェントはこれらを使用できません",
+  "agent.created":
+    "エージェントを作成しました（バージョン 1）。セッションで使うには、下の「リリース」でバージョンとプロファイルを選んでリリースを作成し、有効化してください。",
+  "agent.noActive": "なし",
+  "agent.activeRelease": "有効なリリース: {release}",
+  "agent.releaseLabel": "バージョン {version} · {profile}",
+  "agent.versionLabel": "バージョン {version}",
+  "agent.saved":
+    "バージョン {version} として保存しました。まだ使われていません。「リリース」タブでリリースを作成して有効化してください。",
+  "agent.savedExisting":
+    "保存しました。このカードはバージョン {version} と同じため、新しいバージョンは作成していません。",
+  "agent.savedNoChange":
+    "保存しました。変更がないため、新しいバージョンは作成していません。",
+  "agent.activated":
+    "有効化しました。新しいセッションは {release} で開始します。",
+  "agent.alreadyActive": "すでに有効なリリースです。変更はありません。",
+  "agent.conflict.title": "ほかの場所で有効なリリースが先に変更されました",
+  "agent.conflict.body":
+    "このページを開いたあと、ほかの人または別のタブで有効なリリースが変更されたため、上書きせずに中断しました。最新の状態を読み込み、変更内容を確認してから、あらためて判断してください。",
+  "agent.conflict.reload": "最新の状態を読み込む",
+  "agent.conflict.reloaded":
+    "このページでは {seen} が有効と表示されていましたが、現在は {now} です。下の差分を確認し、必要であれば再度有効化してください。",
+  "agent.card.title": "カード",
+  "agent.card.intro":
+    "保存すると新しいバージョンが作成されます。有効なリリースは変わりません。",
+  "agent.card.save": "保存",
+  "agent.card.saving": "保存中…",
+  "agent.card.stale":
+    "ほかの人がこのカードを保存し、最新はバージョン {version} になりました。編集内容は残っており、このまま保存すると次のバージョンになります。",
+  "agent.card.takeLatest": "最新のカードを読み込む",
+  "agent.versions.title": "バージョン履歴",
+  "agent.versions.active": "有効",
+  "agent.versions.before": "比較元",
+  "agent.versions.after": "比較先",
+  "agent.releases.title": "リリース",
+  "agent.releases.intro":
+    "リリースはバージョンをプロファイルに固定します。作成しただけでは何も変わらず、有効化すると反映されます。",
+  "agent.releases.version": "バージョン",
+  "agent.releases.profile": "プロファイル",
+  "agent.releases.profileHint":
+    "各プロファイルと、そのプロファイルが実行するモデルです。カードのモデルを実行するプロファイルにのみリリースできます",
+  "agent.releases.profileOption": "{profile} · {model}",
+  "agent.releases.profileUnlisted":
+    "プロファイルの権限モードは、この画面にはまだ表示されません。",
+  "agent.releases.profilesLoading": "プロファイルを読み込み中…",
+  "agent.releases.profilesFailed":
+    "プロファイルを読み込めませんでした: {reason}",
+  "agent.releases.create": "リリースを作成",
+  "agent.releases.creating": "作成中…",
+  "agent.releases.empty": "リリースはまだありません。",
+  "agent.releases.approved": "{at}に初回有効化",
+  "agent.releases.notApproved": "未有効化",
+  "agent.releases.active": "有効",
+  "agent.releases.activate": "有効化",
+  "agent.releases.activating": "有効化中…",
+  "agent.releases.activateFor": "{release}を有効化",
+  "agent.releaseCreated":
+    "バージョン {version} のリリースを作成しました。まだ有効ではありません。",
+  "agent.releaseExisted":
+    "同じ内容のリリースがすでにあるため、そのリリースを使います。まだ有効でない場合は有効化してください。",
+  "agent.credentials.title": "認証情報",
+  "agent.credentials.intro":
+    "カードが使う認証情報の名前を、このエージェントに接続します。未接続の認証情報を指定するリリースは有効化できず、新しいセッションも開始しません。ここでは名前のみを扱い、値は扱いません。",
+  "agent.credentials.unboundList": "未接続",
+  "agent.credentials.boundList": "接続済み",
+  "agent.credentials.neededToActivate": "有効化に必要 · 未接続",
+  "agent.credentials.namedByCard": "カードで指定 · 未接続",
+  "agent.credentials.empty": "接続済みの認証情報はまだありません。",
+  "agent.credentials.noneNamed":
+    "カードで指定された認証情報がないため、接続するものはありません。",
+  "agent.credentials.running": "実行中のセッション {count}件",
+  "agent.credentials.bind": "接続",
+  "agent.credentials.bindFor": "{name}を接続",
+  "agent.credentials.bound": "{name}を接続しました。",
+  "agent.credentials.alreadyBound": "{name}はすでに接続されています。",
+  "agent.credentials.inUse":
+    "この認証情報の名前は、すでにほかのもの（エージェントまたは Slack アプリ連携）に紐付いています。別の名前を選んでください。",
+  "agent.credentials.revoke": "接続解除",
+  "agent.credentials.revokeFor": "{name}の接続を解除",
+  "agent.credentials.revokeTitle": "{name}の接続を解除しますか？",
+  "agent.credentials.revokeConsequence":
+    "この認証情報を指定するリリースは、次のセッションを開始しなくなります。実行中のセッションは終了するまで使い続けます。すぐに止めるには、外部サービス側で取り消してください。",
+  "agent.credentials.revokeRunning": "現在 {count}件のセッションが実行中です。",
+  "agent.credentials.revoked": "{name}の接続を解除しました。",
+  "agent.unbound.title": "有効化できませんでした: 認証情報が接続されていません",
+  "agent.unbound.body":
+    "このリリースは {names} を使いますが、エージェントに接続されていません。「認証情報」で接続してから、再度有効化してください。",
+  "agent.unbound.bodyUnnamed":
+    "このリリースは、エージェントに接続されていない認証情報を使います。「認証情報」で接続してから、再度有効化してください。",
+  "agent.unbound.go": "認証情報へ移動",
+  "agent.tabs.label": "エージェント詳細",
+  "agent.tabs.overview": "概要",
+  "agent.tabs.card": "カード",
+  "agent.tabs.release": "リリース",
+  "agent.tabs.admins": "管理者",
+  "agent.tabs.toRelease": "「リリース」タブへ移動",
+  "agent.overview.active": "有効なリリース",
+  "agent.overview.latest": "最新バージョン",
+  "agent.overview.notActive":
+    "まだ有効になっていません。「リリース」タブでリリースを作成して有効化すると、新しいセッションでこのエージェントが使われます。",
+  "agent.overview.newerVersion":
+    "最新のバージョン {latest} はまだ使われていません。新しいセッションはバージョン {active} で開始します。",
+  "agent.overview.upToDate": "新しいセッションは最新バージョンで開始します。",
+  "diff.caption": "{before} → {after}",
+  "diff.added": "追加: ",
+  "diff.removed": "削除: ",
+  "diff.same": "2 つのバージョンのカードは同じです。",
+
+  "agentAdmins.title": "エージェント管理者",
+  "agentAdmins.intro":
+    "エージェント管理者は、このエージェントのカード・リリース・接続した認証情報・エージェントキーを管理します。人またはチームを管理者に追加してください。",
+  "agentAdmins.empty":
+    "エージェント管理者はまだいません。ワークスペースのオーナーと管理者は、ここに追加しなくてもすべてのエージェントを管理できます。",
+  "agentAdmins.person": "人",
+  "agentAdmins.team": "チーム",
+  "agentAdmins.remove": "外す",
+  "agentAdmins.removeFor": "{name}を管理者から外す",
+  "agentAdmins.removeTitle": "{name}を管理者から外しますか？",
+  "agentAdmins.removeConsequence":
+    "管理者として持っていた、このエージェントを管理する権限がなくなります。再び追加すると元に戻ります。",
+  "agentAdmins.removeSelfConsequence":
+    "自分を外すと、管理者権限がなくなります。所属チームが管理者でない限り、このエージェントを変更することも、自分を再追加することもできなくなります。",
+  "agentAdmins.pickPerson": "管理者に追加する人",
+  "agentAdmins.pickTeam": "管理者に追加するチーム",
+  "agentAdmins.pickPlaceholder": "選択してください",
+  "agentAdmins.addPerson": "人を追加",
+  "agentAdmins.addTeam": "チームを追加",
+  "agentAdmins.added": "{name}を管理者に追加しました。",
+  "agentAdmins.removed": "{name}を管理者から外しました。",
+  "agentAdmins.mine.title": "管理しているエージェント",
+  "agentAdmins.mine.intro":
+    "直接、またはチームを通じて管理者に指定されたエージェントです。開くとカードと管理者を管理できます。",
+  "agentAdmins.mine.empty":
+    "管理者に指定されているエージェントはまだありません。",
+  "agentAdmins.mine.truncated": "最初の {count}件を表示しています。",
+  "agents.intro":
+    "エージェントは、カード・リリース・管理者を持つ作業者です。管理者はそのエージェントのセッションからのリクエストに回答します。",
+  "agents.column.agent": "エージェント",
+  "agents.column.state": "状態",
+  "agents.column.updated": "更新",
+  "agent.back": "エージェント一覧",
+  "agent.panel.label": "エージェントの概要",
+  "agent.panel.summary": "概要",
+  "agent.panel.none": "なし",
 };

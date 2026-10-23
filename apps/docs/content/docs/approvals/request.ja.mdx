@@ -1,0 +1,77 @@
+---
+title: "リクエスト"
+description: セッションが作った commit を、リポジトリの agent/<session-id> ブランチに送り出すよう依頼する
+---
+
+セッションはリポジトリに直接 push しない。セッションの作業は checkpoint に commit として残り、その commit をリポジトリに送り出すには push リクエストを作る。`sessions:approve` を持つ人が[承認](/approvals/approve)して初めて、プラットフォーム(API)が push する。リクエストには `sessions:write` が必要である。
+
+| 状態 | 意味 |
+| --- | --- |
+| `requested` | 判断を待っている |
+| `approved` → `pushing` | 承認され、プラットフォームが push している |
+| `pushed` | リポジトリにブランチが作成または更新された |
+| `rejected` | 拒否された |
+| `failed` | push できなかった。理由は [receipt](/approvals/receipt) にある |
+
+## ファイルを変更するセッションを用意する
+
+[Quickstart](/getting-started/quickstart) の `API` と `KEY` を使う。このスクリプトはリポジトリの `README.md` に 1 行を追加し、権限リクエストを許可すると turn が終わる。
+
+```bash
+SID=$(curl -sS "$API/v1/sessions" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg m 'GATE-SPEC {"id":"note","steps":[{"tool":"Bash","input":{"command":"echo tested >> README.md","description":"append to README.md"}}],"final":"updated README.md"}' \
+    '{profile_id: "claude-coding-local", repository_id: "sample-app", message: $m}')" \
+  | jq -r .session_id)
+until [ "$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq -r .status)" = needs_input ]; do
+  sleep 2
+done
+REQ=$(curl -sS "$API/v1/sessions/$SID/pending-requests" -H "Authorization: Bearer $KEY" | jq -r '.items[0].request_id')
+curl -sS "$API/v1/sessions/$SID/answers" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg r "$REQ" '{request_id: $r, kind: "permission", decision: "allow"}')" > /dev/null
+until [ "$(curl -sS "$API/v1/sessions/$SID/turns/1" -H "Authorization: Bearer $KEY" | jq -r .status)" = completed ]; do
+  sleep 2
+done
+```
+
+## リクエストする
+
+本文は空(`{}`)で送る。何をどこに送るかは、リクエストする人が選ぶのではない。プラットフォームが、その時点のセッションの最新の checkpoint とその commit、セッションのリポジトリ、ブランチ `agent/<session-id>` を固定する。
+
+```bash
+push=$(curl -sS "$API/v1/sessions/$SID/push-requests" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d '{}')
+echo "$push" | jq '{state, repository_id, checkpoint_revision, git_commit, target_branch}'
+PUSH_ID=$(echo "$push" | jq -r .id)
+PUSH_COMMIT=$(echo "$push" | jq -r .git_commit)
+```
+
+```text
+{
+  "state": "requested",
+  "repository_id": "sample-app",
+  "checkpoint_revision": 0,
+  "git_commit": "…",
+  "target_branch": "agent/…"
+}
+```
+
+レスポンスは 201 である。`GET /v1/sessions/{id}/push-requests` でセッションのリクエスト一覧を、`GET …/push-requests/{push_request_id}` でリクエスト 1 件を見る。
+
+| レスポンス | 意味 |
+| --- | --- |
+| 409 `PUSH_SOURCE_MISSING` | セッションにリポジトリまたは checkpoint がまだない |
+| 409 `PUSH_REQUEST_OPEN` | 開いているリクエスト(`requested`・`approved`・`pushing`)がすでにある。セッションごとに 1 つである |
+
+## 次のステップ
+
+- [承認](/approvals/approve): 固定された commit を確認して承認する
+- [拒否](/approvals/reject)

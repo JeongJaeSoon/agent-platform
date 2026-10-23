@@ -8,6 +8,7 @@ import { homeKo } from "./home.ts";
 import { linkedKo } from "./linked.ts";
 import { membersKo } from "./members.ts";
 import { modelsKo } from "./models.ts";
+import { preferencesKo } from "./preferences.ts";
 import { shellKo } from "./shell.ts";
 import { teamsKo } from "./teams.ts";
 import { workspaceKo } from "./workspace.ts";
@@ -35,6 +36,7 @@ export const ko = {
   ...linkedKo,
   ...apiKeysKo,
   ...workspaceKo,
+  ...preferencesKo,
   ...errorsKo,
   ...formsKo,
 } as const;

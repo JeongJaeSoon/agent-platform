@@ -1,0 +1,65 @@
+---
+title: "receipt"
+description: Read the record of how a command ended
+---
+
+Commands such as messages, controls (interrupt, pause, resume, close, terminate, recovery decisions, profile changes), push requests and decisions, and account and key management leave a receipt. A receipt holds who did it (`actor`), what they did (`operation`, `target_ref`), and how it ended (`status`, `result`, `error`). For an asynchronous command, the response's `receipt_status` is `accepted`, and you read the receipt again to see whether it finished. The scope is `sessions:read`.
+
+| `status` | Meaning |
+| --- | --- |
+| `accepted` | Received and not finished yet |
+| `succeeded` | Finished. The outcome is in `result` |
+| `failed` | Rejected or failed. The reason is in `error` and `result.refusal` |
+| `unknown` | The outcome cannot be known |
+
+## Read
+
+Call `GET /v1/receipts/{id}` with the response's `receipt_id`. Read the receipts of the request made in [Reject](/approvals/reject).
+
+```bash
+pr=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID" -H "Authorization: Bearer $KEY")
+for id in $(echo "$pr" | jq -r '.request_receipt_id, .decision_receipt_id'); do
+  curl -sS "$API/v1/receipts/$id" -H "Authorization: Bearer $KEY" \
+    | jq -c '{operation, status, actor: .actor.principal.kind, decision: .result.decision}'
+done
+```
+
+```text
+{"operation":"request_push","status":"succeeded","actor":"api_key","decision":null}
+{"operation":"decide_push","status":"succeeded","actor":"api_key","decision":"reject"}
+```
+
+For a refused request, `error.details.receipt_id` in the error body points to that receipt. This means a refusal is recorded too.
+
+## Wait until it finishes
+
+The receipt of an asynchronous control changes from `accepted` to `succeeded` or `failed`. Check for both so the loop stops even if another outcome arrives while waiting.
+
+```bash
+REV=$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq .revision)
+RID=$(curl -sS "$API/v1/sessions/$SID/pause" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --argjson r "$REV" '{expected_revision: $r, reason: "lunch"}')" | jq -r .receipt_id)
+until curl -sS "$API/v1/receipts/$RID" -H "Authorization: Bearer $KEY" \
+  | jq -e '.status | IN("succeeded", "failed", "unknown")' >/dev/null; do
+  sleep 2
+done
+curl -sS "$API/v1/receipts/$RID" -H "Authorization: Bearer $KEY" \
+  | jq '{operation, status, state: .result.resulting_admission_state}'
+```
+
+```text
+{
+  "operation": "pause",
+  "status": "succeeded",
+  "state": "paused"
+}
+```
+
+A receipt never contains secret values. A receipt in someone else's scope is 404.
+
+## Next steps
+
+- [GitHub](/integrations/github): open a PR from the pushed branch and comment on it
