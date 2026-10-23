@@ -305,13 +305,13 @@ bun install
 2장의 함수와 3장의 `SID`를 그대로 쓴다.
 
 ```bash
-get /v1/limits | jq .
+get "/v1/usage/summary?scope=me&since=$(date -u +%Y-%m-01)" | jq .
 get "/v1/sessions/$SID/usage" | jq .
 ```
 
 | 기능 | 명령 |
 |---|---|
-| 설치 상한 조회 | `get /v1/limits \| jq .` |
+| 이번 달 내 사용량(세션 수·비용·token·실행 시간) | `get "/v1/usage/summary?scope=me&since=$(date -u +%Y-%m-01)" \| jq .` |
 | 세션 사용량(비용·대기 입력 수) | `get /v1/sessions/$SID/usage \| jq .` |
 | turn 조회 | `get /v1/sessions/$SID/turns/1 \| jq .` |
 | receipt 조회 | `get /v1/receipts/<receipt_id> \| jq .` |
