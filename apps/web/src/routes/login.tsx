@@ -7,14 +7,19 @@ import {
 } from "@tanstack/react-router";
 import { type ApiError, CSRF_HEADER_VALUE, unwrap } from "@werft-ai/client";
 import { useAgentPlatform } from "@werft-ai/react";
-import { Button, Field, FieldLabel, Input } from "@werft-ai/ui";
+import {
+  Button,
+  Field,
+  FieldLabel,
+  Input,
+  Link as TextLink,
+} from "@werft-ai/ui";
 import { type FormEvent, useState } from "react";
 import { loginMethodsQuery, viewerQuery } from "../api/queries.ts";
 import {
   ASIDE,
   AuthPage,
   FormError,
-  LINK,
   NOTICE,
 } from "../components/auth-page.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
@@ -104,9 +109,9 @@ export function LoginScreen() {
       {viewer.data?.user ? (
         <output className={NOTICE}>
           {t("login.signedIn", { email: viewer.data.user.email })}{" "}
-          <Link className={LINK} to="/">
-            {t("login.signedInHome")}
-          </Link>
+          <TextLink asChild underline="always">
+            <Link to="/">{t("login.signedInHome")}</Link>
+          </TextLink>
         </output>
       ) : null}
       {search.redirect ? (
@@ -149,9 +154,9 @@ export function LoginScreen() {
       <GoogleChoice redirect={search.redirect} />
       <p className={ASIDE}>
         {t("login.bootstrapPrompt")}{" "}
-        <Link className={LINK} to="/bootstrap">
-          {t("login.bootstrapLink")}
-        </Link>
+        <TextLink asChild underline="always">
+          <Link to="/bootstrap">{t("login.bootstrapLink")}</Link>
+        </TextLink>
       </p>
     </AuthPage>
   );
