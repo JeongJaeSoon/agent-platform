@@ -256,6 +256,12 @@ export const HorizontalScroll: Story = {
       "td [title='alex.rivera.long-address@example.com']",
     ) as HTMLElement;
     await expect(long.scrollWidth).toBeGreaterThan(long.clientWidth);
+    const style = getComputedStyle(long);
+    await expect([
+      style.textOverflow,
+      style.overflowX,
+      style.whiteSpace,
+    ]).toEqual(["ellipsis", "hidden", "nowrap"]);
     // A nowrap column grows to its content, so a date is never cut inside its
     // cell; past the frame it is reached by scrolling.
     for (const cell of canvasElement.querySelectorAll(
