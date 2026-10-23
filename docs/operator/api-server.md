@@ -74,12 +74,12 @@ profile의 `repository`는 그 profile로 만든 세션이 저장소를 갖는�
 
 worker의 작업 디렉터리는 세션의 workspace volume(Kubernetes backend에서는 PVC)에 있지만, 세션을 이어 가는 데 필요한 정본은 volume이 아니다. worker는 turn이 끝날 때마다 작업 디렉터리와 엔진 대화를 checkpoint로 object store(S3)에 올리고, DB의 checkpoint pointer가 그 revision을 가리킨다([checkpoint object store](#checkpoint-object-store)). volume이 없어진 세션을 resume하면 scheduler가 빈 volume을 새로 만들어 worker를 띄우고(Docker backend는 새 이름으로, Kubernetes backend는 같은 이름의 PVC를 다시 만든다), worker가 pointer의 checkpoint를 복원해 대화를 이어 간다. 저장소 모드와 상관없이 같은 경로다.
 
-**보장 범위:** 마지막으로 commit된 checkpoint까지는 S3 + DB에 있다. 그 뒤의 작업, ignored·exclude 파일, 작업 디렉터리 밖 상태는 volume을 잃으면 없다.
+**보장 범위:** 마지막으로 commit된 checkpoint까지는 S3 + DB에 있다. 그 뒤의 작업, 추적되지 않은 ignored·exclude 파일, 작업 디렉터리 밖 상태는 volume을 잃으면 없다.
 
-- 마지막 checkpoint가 어느 turn까지인지는 세션 상세의 `checkpoint_revision`과 `durability.last_checkpointed_turn_id`로 본다. 이 값이 `durability.last_completed_turn_id`와 같으면 마지막 turn까지 checkpoint에 들었다. `durability.checkpoint_pending_reason`은 앞서 checkpoint가 거절된 사유이고, 뒤의 checkpoint가 그 turn을 덮은 뒤에도 남을 수 있으므로 이것만으로 마지막 turn이 빠졌다고 보지 않는다.
+- 마지막 checkpoint가 어느 turn까지인지는 세션 상세의 `checkpoint_revision`과 `durability.last_checkpointed_turn_id`로 본다. `durability.last_checkpointed_turn_id`가 `durability.last_completed_turn_id`와 같으면 마지막으로 완료된 turn까지 checkpoint에 들었다. `durability.checkpoint_pending_reason`은 앞서 checkpoint가 거절된 사유이고, 뒤의 checkpoint가 그 turn을 덮은 뒤에도 남을 수 있으므로 이것만으로 마지막 turn이 빠졌다고 보지 않는다.
 - 추적되지 않은 파일 중 `.gitignore`·`.git/info/exclude`에 걸린 것은 checkpoint에 들어가지 않는다. 빌드 결과, 의존성, ignore된 `.env`도 마찬가지다. 이미 추적되는 파일은 ignore 규칙에 걸려도 checkpoint에 든다. 남겨야 하는 결과물은 ignore되지 않은 경로(예: `out/`)에 쓴다.
 - 작업 디렉터리 밖(tmpfs HOME의 `git config --global` 등)은 volume과 상관없이 worker가 바뀌면 사라진다.
-- `tests/e2e/workspace-loss.e2e.ts`가 CI `e2e` job에서 이 경로를 확인한다. 저장소 없는 세션과 있는 세션 각각에서 파일을 쓰고 pause한 뒤 workspace volume을 지우고 resume한다. 그다음 turn이 파일 내용과 이전 대화를 읽는지, volume 이름이 바뀌었는지 본다.
+- `tests/e2e/workspace-loss.e2e.ts`가 CI `e2e` job에서 Docker backend로 이 경로를 확인한다(Kubernetes backend는 이 e2e가 다루지 않는다). 저장소 없는 세션과 있는 세션 각각에서 파일을 쓰고 pause한 뒤 workspace volume을 지우고 resume한다. 그다음 turn이 파일 내용과 이전 대화를 읽는지, volume 이름이 바뀌었는지 본다.
 
 ### GitHub 저장소
 
