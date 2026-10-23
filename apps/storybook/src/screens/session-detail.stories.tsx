@@ -149,7 +149,7 @@ function Header({ named = false }: { readonly named?: boolean }) {
           <Button
             type="button"
             variant="outline"
-            aria-label="세션 id 전체 복사"
+            aria-label="id 복사 (세션 id 전체)"
           >
             id 복사
           </Button>
@@ -344,8 +344,12 @@ function Progress() {
       <div className="flex items-center justify-between gap-4">
         <Tabs value="progress">
           <TabsList variant="line" aria-label="세션 보기">
-            <TabsTrigger value="progress">진행</TabsTrigger>
-            <TabsTrigger value="info">정보</TabsTrigger>
+            <TabsTrigger value="progress" aria-controls={undefined}>
+              진행
+            </TabsTrigger>
+            <TabsTrigger value="info" aria-controls={undefined}>
+              정보
+            </TabsTrigger>
           </TabsList>
         </Tabs>
         <Field orientation="horizontal" className="w-auto">
@@ -377,8 +381,12 @@ function Info({ viewer }: { readonly viewer: Viewer }) {
     <div className="flex flex-col gap-4">
       <Tabs value="info">
         <TabsList variant="line" aria-label="세션 보기">
-          <TabsTrigger value="progress">진행</TabsTrigger>
-          <TabsTrigger value="info">정보</TabsTrigger>
+          <TabsTrigger value="progress" aria-controls={undefined}>
+            진행
+          </TabsTrigger>
+          <TabsTrigger value="info" aria-controls={undefined}>
+            정보
+          </TabsTrigger>
         </TabsList>
       </Tabs>
       <Card>

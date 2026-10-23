@@ -43,7 +43,7 @@ import {
   TabsList,
   TabsTrigger,
 } from "@werft-ai/ui";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useId, useState } from "react";
 import { fn } from "storybook/test";
 
 import {
@@ -237,10 +237,18 @@ function Head({
       />
       <div className="flex flex-wrap items-center gap-2">
         <Tabs value={tab}>
+          {/* Navigation tabs with no TabsContent (LinkTabs requested): drop the
+              aria-controls Radix points at a panel that is never rendered. */}
           <TabsList variant="line" aria-label="구성원 보기">
-            <TabsTrigger value="members">구성원 5</TabsTrigger>
-            <TabsTrigger value="teams">팀 3</TabsTrigger>
-            <TabsTrigger value="invites">초대 2</TabsTrigger>
+            <TabsTrigger value="members" aria-controls={undefined}>
+              구성원 5
+            </TabsTrigger>
+            <TabsTrigger value="teams" aria-controls={undefined}>
+              팀 3
+            </TabsTrigger>
+            <TabsTrigger value="invites" aria-controls={undefined}>
+              초대 2
+            </TabsTrigger>
           </TabsList>
         </Tabs>
         <PartRequest name="LinkTabs" />
@@ -449,6 +457,8 @@ function TeamDetailView({
 }: {
   readonly emptyMembers?: boolean;
 }) {
+  const membersHeadingId = useId();
+  const agentsHeadingId = useId();
   return (
     <div className="flex flex-col gap-6 pt-4">
       <Button asChild variant="ghost" size="sm" className="self-start">
@@ -487,8 +497,13 @@ function TeamDetailView({
           ))}
         </div>
       </div>
-      <section aria-label="플랫폼팀 구성원" className="flex flex-col gap-3">
-        <h3 className="m-0 font-semibold">구성원</h3>
+      <section
+        aria-labelledby={membersHeadingId}
+        className="flex flex-col gap-3"
+      >
+        <h3 id={membersHeadingId} className="m-0 font-semibold">
+          구성원
+        </h3>
         {emptyMembers ? (
           <EmptyState
             title="이 팀에 구성원이 없습니다"
@@ -546,10 +561,12 @@ function TeamDetailView({
         )}
       </section>
       <section
-        aria-label="플랫폼팀이 관리하는 에이전트"
+        aria-labelledby={agentsHeadingId}
         className="flex flex-col gap-3"
       >
-        <h3 className="m-0 font-semibold">관리하는 에이전트</h3>
+        <h3 id={agentsHeadingId} className="m-0 font-semibold">
+          관리하는 에이전트
+        </h3>
         <TableContainer label="플랫폼팀이 관리하는 에이전트">
           <Table>
             <TableHeader>

@@ -149,9 +149,9 @@ export function DangerArea({ rows }: { readonly rows: readonly DangerRow[] }) {
   return (
     <section aria-labelledby={headingId} className="flex flex-col gap-3">
       <div className="flex items-center gap-2">
-        <h3 id={headingId} className="m-0 font-semibold">
+        <h2 id={headingId} className="m-0 font-semibold">
           위험 영역
-        </h3>
+        </h2>
         <PartRequest name="DangerZone" />
       </div>
       <Card className="gap-0 divide-y border-(color:--ap-tone-danger-border) py-0">
