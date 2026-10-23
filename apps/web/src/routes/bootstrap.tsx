@@ -12,7 +12,6 @@ import {
 import { type FormEvent, useState } from "react";
 import { PASSWORD_MIN_LENGTH } from "../auth/limits.ts";
 import { ASIDE, AuthPage, FormError, LINK } from "../components/auth-page.tsx";
-import { slugInput } from "../components/field.tsx";
 import { errorKey, type MessageKey, useI18n } from "../i18n/i18n.tsx";
 
 const FIELDS = [
@@ -58,6 +57,23 @@ const FIELDS = [
   type: string;
   autoComplete: string;
 }[];
+
+/**
+ * A URL name (workspace slug), with our sentence in place of the browser's
+ * "match the requested format", which cannot say what it is.
+ */
+function slugInput(message: string) {
+  return {
+    pattern: "[a-z0-9][a-z0-9\\-]*",
+    maxLength: 64,
+    onInvalid: (event: FormEvent<HTMLInputElement>) => {
+      const input = event.currentTarget;
+      if (input.validity.patternMismatch) input.setCustomValidity(message);
+    },
+    onInput: (event: FormEvent<HTMLInputElement>) =>
+      event.currentTarget.setCustomValidity(""),
+  };
+}
 
 type FieldName = (typeof FIELDS)[number]["name"];
 type Form = Record<FieldName, string>;

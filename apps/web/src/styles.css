@@ -240,10 +240,6 @@ select:focus-visible,
 .web-form--wide {
   max-width: min(100%, 40rem);
 }
-.web-field__area {
-  min-height: 8rem;
-  resize: vertical;
-}
 .web-fieldset {
   margin: 0;
   padding: var(--ap-space-3);
