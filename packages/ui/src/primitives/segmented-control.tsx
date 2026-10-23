@@ -96,6 +96,9 @@ export function SegmentedControlItem({
       className={cn(
         "inline-flex h-[var(--ap-control-height-sm)] items-center gap-2 whitespace-nowrap rounded-control border-0 bg-transparent px-2 font-medium text-control text-muted-foreground hover:text-foreground",
         "aria-pressed:bg-active aria-pressed:text-foreground",
+        // v4 keeps the count text-3, but on the pressed fill that is 4.47:1;
+        // text-2 keeps it at AA.
+        "aria-pressed:[&_[data-slot=item-count]]:text-muted-foreground",
         "focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2",
         "disabled:pointer-events-none disabled:opacity-50",
         "[&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0",

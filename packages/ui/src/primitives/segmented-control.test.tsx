@@ -201,6 +201,9 @@ describe("SegmentedControl", () => {
       expect(item).toContain(name);
     }
     expect(item).toContain("aria-pressed:bg-active");
+    expect(item).toContain(
+      "aria-pressed:[&_[data-slot=item-count]]:text-muted-foreground",
+    );
   });
 
   test("두 진입점에서 같은 부품을 내보낸다", async () => {

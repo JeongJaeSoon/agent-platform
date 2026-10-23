@@ -7,6 +7,7 @@ import {
   SegmentedControl,
   SegmentedControlItem,
   Tabs,
+  TabsContent,
   TabsList,
   TabsTrigger,
 } from "@werft-ai/ui";
@@ -362,6 +363,9 @@ function SpacingAudit() {
               <TabsTrigger value="info">정보</TabsTrigger>
             </TabsList>
           </div>
+          <TabsContent value="timeline">이벤트 목록</TabsContent>
+          <TabsContent value="artifacts">결과물 목록</TabsContent>
+          <TabsContent value="info">세션 정보</TabsContent>
         </Tabs>
       </Specimen>
       <Specimen title="LinkTabs">
