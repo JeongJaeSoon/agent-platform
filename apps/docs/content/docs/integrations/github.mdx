@@ -1,5 +1,79 @@
 ---
 title: "GitHub"
+description: GitHub 저장소에서 세션을 돌리고, 승인한 결과를 브랜치로 push하고, 그 브랜치로 PR을 연다
 ---
 
-작성 중
+GitHub와 하는 일은 셋이다. 세션이 시작할 때 저장소를 clone한다. 사람이 승인한 commit을 `agent/<session-id>` 브랜치로 push한다. 그 브랜치로 PR을 열고 코멘트를 단다. clone은 worker가 API의 프록시를 거쳐 하고, push와 PR은 플랫폼(API)이 직접 한다. 어느 쪽이든 저장소 자격 증명은 worker에 가지 않는다.
+
+## 운영자가 할 일
+
+저장소는 운영자가 카탈로그(`config/repositories.yaml`)에 등록한다. 자격 증명은 둘 중 하나다.
+
+| 방식 | 필요한 권한 |
+| --- | --- |
+| GitHub App(기본) | Repository permissions: Contents Read and write, Pull requests Read and write |
+| fine-grained PAT | 같은 두 권한 |
+
+`Workflows` 권한은 주지 않는다. push되는 commit은 에이전트가 쓴 것이라, 이 권한이 있으면 에이전트가 고친 `.github/workflows/` 파일도 push되고 CI에서 실행된다. 기본 브랜치는 저장소 ruleset으로도 막아 둔다. 설정 방법은 운영 문서에 있다.
+
+## 사용자가 할 일
+
+1. 그 저장소의 `repository_id`로 세션을 만든다([시작](/sessions/start)).
+2. 결과를 [요청](/approvals/request)하고 [승인](/approvals/approve)한다. 요청이 `pushed`가 되면 저장소에 `agent/<session-id>` 브랜치가 생긴다.
+3. PR을 연다. `sessions:approve`가 필요하다.
+
+```sh
+curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/pull-request" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d '{"title": "Add release notes", "body": "Written by the agent, approved by me."}' \
+  | jq '{number: .pull_request.number, url: .pull_request.url, created}'
+```
+
+head는 `agent/<session-id>`, base는 카탈로그에 적은 브랜치다. 요청 하나에 PR은 하나다. 그 브랜치의 PR이 이미 열려 있으면 새로 열지 않고 그 PR을 돌려준다(`created: false`). 플랫폼은 PR을 승인·머지하지 않고, 리뷰어나 라벨도 정하지 않는다.
+
+4. 코멘트를 단다. 같은 `marker`(기본 `status`)의 코멘트가 이미 있으면 새로 달지 않고 그 코멘트를 고친다.
+
+```sh
+curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/pull-request/comments" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d '{"body": "Tests pass on the agent branch."}'
+```
+
+제목·본문·코멘트는 GitHub에 보내기 전에 정리된다. 비밀처럼 보이는 줄은 가리고, `@멘션`과 `Closes #N` 같은 닫기 키워드는 알림이나 자동 닫기가 일어나지 않게 바꾼다.
+
+## 로컬 스택에서
+
+로컬 `sample-app`은 GitHub가 아니라 스택 안의 Gitea 저장소이고 push 자격 증명이 없다. 그래서 승인한 push는 `no_push_credential`로 `failed`가 되고, PR 요청은 push되지 않은 요청이라 409다. [승인](/approvals/approve)에서 `failed`로 끝난 요청으로 확인한다.
+
+```bash
+FAILED=$(curl -sS "$API/v1/sessions/$SID/push-requests" -H "Authorization: Bearer $KEY" \
+  | jq -r '[.items[] | select(.state == "failed")][0].id')
+curl -sS "$API/v1/sessions/$SID/push-requests/$FAILED/pull-request" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d '{"title": "Add release notes"}' | jq '{code: .error.code}'
+```
+
+```text
+{
+  "code": "PUSH_NOT_PUSHED"
+}
+```
+
+| 응답 | 뜻 |
+| --- | --- |
+| 409 `PUSH_NOT_PUSHED` | 요청이 아직 `pushed`가 아니다 |
+| 409 `PULL_REQUEST_MISSING` | 코멘트 전에 PR을 먼저 열어야 한다 |
+| 409 `CATALOG_MISMATCH` | 요청 뒤에 운영자가 저장소 설정을 바꿨다 |
+| 403 `FORBIDDEN` | `sessions:approve`가 없거나, GitHub가 아닌 저장소다(`no_forge`) |
+| 503 `BACKEND_UNAVAILABLE` | GitHub 호출이 재시도 뒤에도 실패했다 |
+
+## 다음 단계
+
+- [Slack](/integrations/slack)
+- [receipt](/approvals/receipt): PR 열기와 코멘트도 receipt(`open_pull_request`, `comment_pull_request`)를 남긴다
