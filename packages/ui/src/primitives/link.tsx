@@ -1,6 +1,6 @@
 import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
-import { ChevronRight } from "lucide-react";
+import { ArrowRight, ChevronRight } from "lucide-react";
 import {
   type ComponentProps,
   cloneElement,
@@ -21,7 +21,9 @@ const FOCUS_OUTLINE =
  * Console v35 links: `hover` is the standalone link (a name in a list, a
  * "view all"), `always` the link inside a sentence, which keeps the text's
  * weight. `variant="table"` is a row's name link: a trailing chevron says it
- * opens the row, and it underlines on keyboard focus too.
+ * opens the row, and it underlines on keyboard focus too. `variant="more"` is
+ * a section's "view all": 13px with a trailing 14px arrow (console v4 `.link`
+ * L207, L534).
  */
 export const linkVariants = cva(
   `text-link underline-offset-2 ${FOCUS_OUTLINE}`,
@@ -35,6 +37,7 @@ export const linkVariants = cva(
         default: "",
         table:
           "inline-flex items-center gap-1 font-medium no-underline hover:underline focus-visible:underline",
+        more: "inline-flex items-center gap-1 font-medium text-control",
       },
     },
     defaultVariants: { underline: "hover", variant: "default" },
@@ -108,7 +111,17 @@ export function Link({
   const rel = safeRel(newTab, props.rel, child?.props.rel);
   const chevron =
     variant === "table" ? (
-      <ChevronRight aria-hidden="true" className="size-4 shrink-0" />
+      <ChevronRight
+        aria-hidden="true"
+        className="size-4 shrink-0"
+        strokeWidth={1.5}
+      />
+    ) : variant === "more" ? (
+      <ArrowRight
+        aria-hidden="true"
+        className="size-3.5 shrink-0"
+        strokeWidth={1.5}
+      />
     ) : null;
   const label =
     newTab && newTabLabel != null ? (

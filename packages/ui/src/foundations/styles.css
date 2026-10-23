@@ -293,66 +293,54 @@
 
   /* Empty / Error / Skeleton ----------------------------------------------- */
 
+  /* Console v4 `.empty` and `.state-err` (L325-331): the same centred stack,
+   no frame of its own. Only the error's red icon box tells them apart. */
   .ap-state {
     display: flex;
     flex-direction: column;
+    align-items: center;
+    justify-content: center;
     gap: var(--ap-space-2);
-    padding: var(--ap-space-6) var(--ap-space-4);
-    border-radius: var(--ap-radius-card);
+    padding: 2.5rem var(--ap-space-6);
+    color: var(--ap-color-muted-foreground);
     font-family: var(--ap-font-sans);
     font-size: var(--ap-text-sm);
     line-height: var(--ap-leading-body);
-  }
-
-  /* Quiet by design: an empty list is not a problem. */
-  .ap-state--empty {
-    align-items: center;
-    border: 1px dashed var(--ap-color-border-strong);
-    background: var(--ap-color-surface-sunken);
-    color: var(--ap-color-muted-foreground);
     text-align: center;
   }
 
-  /* Loud on purpose, so it can never be mistaken for the empty state: the red
-   fill, the "!" mark and the red title carry that, not a heavier edge. */
-  .ap-state--error {
-    align-items: flex-start;
-    padding: var(--ap-space-4);
-    border: 1px solid var(--ap-tone-danger-border);
+  .ap-state[data-size="sm"] {
+    padding: var(--ap-space-6) var(--ap-space-4);
+  }
+
+  .ap-state__icon {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    margin-bottom: var(--ap-space-1);
+    border: 1px solid var(--ap-color-border);
+    border-radius: var(--ap-radius-card);
+    background: var(--ap-color-surface-sunken);
+    color: var(--ap-color-subtle-foreground);
+  }
+
+  .ap-state--error .ap-state__icon {
+    border-color: var(--ap-tone-danger-border);
     background: var(--ap-tone-danger-bg);
     color: var(--ap-tone-danger-fg);
-    text-align: left;
   }
 
   .ap-state__title {
-    display: flex;
-    align-items: center;
-    gap: var(--ap-space-2);
     margin: 0;
+    color: var(--ap-color-foreground);
     font-size: var(--ap-text-label);
     font-weight: var(--ap-weight-bold);
   }
 
-  .ap-state--empty .ap-state__title {
-    color: var(--ap-color-foreground);
-  }
-
-  .ap-state__mark {
-    display: inline-flex;
-    flex: none;
-    align-items: center;
-    justify-content: center;
-    width: 1.5rem;
-    height: 1.5rem;
-    border-radius: 50%;
-    background: var(--ap-tone-danger-fg);
-    color: var(--ap-color-surface);
-    font-size: var(--ap-text-label);
-  }
-
   .ap-state__guidance {
     margin: 0;
-    font-weight: var(--ap-weight-medium);
   }
 
   .ap-state__description {
@@ -360,20 +348,19 @@
     /* The server's own message lands here — a trace id or a URL with no spaces
      in it must wrap rather than widen the page. */
     overflow-wrap: anywhere;
-    color: var(--ap-color-muted-foreground);
-    font-size: var(--ap-text-sm);
   }
 
   .ap-state__actions {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
+    justify-content: center;
     gap: var(--ap-space-2);
   }
 
   .ap-state__code {
     overflow-wrap: anywhere;
-    color: var(--ap-color-muted-foreground);
+    color: var(--ap-color-subtle-foreground);
     font-family: var(--ap-font-mono);
     font-size: var(--ap-text-xs);
   }
@@ -389,8 +376,9 @@
     display: block;
     width: 100%;
     height: 0.75rem;
-    border-radius: var(--ap-radius-control);
-    background: var(--ap-color-surface-sunken);
+    /* Console v4 `.sk` (L332); no radius token is this small. */
+    border-radius: 0.25rem;
+    background: var(--ap-color-skeleton);
   }
 
   .ap-skeleton[data-shape="text"] .ap-skeleton__bar:last-of-type {
@@ -410,12 +398,12 @@
   }
 
   .ap-skeleton[data-animated="true"] .ap-skeleton__bar {
-    animation: ap-pulse 1.6s ease-in-out infinite;
+    animation: ap-pulse 1.4s ease-in-out infinite;
   }
 
   @keyframes ap-pulse {
     50% {
-      opacity: 0.55;
+      opacity: 0.5;
     }
   }
 
