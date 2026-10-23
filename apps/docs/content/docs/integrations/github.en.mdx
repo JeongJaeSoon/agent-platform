@@ -70,7 +70,7 @@ curl -sS "$API/v1/sessions/$SID/push-requests/$FAILED/pull-request" \
 | 409 `PUSH_NOT_PUSHED` | The request is not `pushed` yet |
 | 409 `PULL_REQUEST_MISSING` | Open the PR before commenting |
 | 409 `CATALOG_MISMATCH` | The operator changed the repository settings after the request |
-| 403 `FORBIDDEN` | `sessions:approve` is missing, or the repository is not on GitHub (`no_forge`) |
+| 403 `FORBIDDEN` | `sessions:approve` is missing, the caller only sees the session and is not one who approves, or the repository is not on GitHub (`no_forge`) |
 | 503 `BACKEND_UNAVAILABLE` | The GitHub call still failed after retries |
 
 ## Next steps

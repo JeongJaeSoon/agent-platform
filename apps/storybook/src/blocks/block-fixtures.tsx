@@ -140,6 +140,7 @@ export const accepted = () =>
   });
 
 export const PENDING = {
+  answerable: true,
   items: [
     {
       kind: "permission",

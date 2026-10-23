@@ -70,7 +70,7 @@ curl -sS "$API/v1/sessions/$SID/push-requests/$FAILED/pull-request" \
 | 409 `PUSH_NOT_PUSHED` | 요청이 아직 `pushed`가 아니다 |
 | 409 `PULL_REQUEST_MISSING` | 코멘트 전에 PR을 먼저 열어야 한다 |
 | 409 `CATALOG_MISMATCH` | 요청 뒤에 운영자가 저장소 설정을 바꿨다 |
-| 403 `FORBIDDEN` | `sessions:approve`가 없거나, GitHub가 아닌 저장소다(`no_forge`) |
+| 403 `FORBIDDEN` | `sessions:approve`가 없거나, 세션을 보기만 하고 승인할 사람이 아니거나, GitHub가 아닌 저장소다(`no_forge`) |
 | 503 `BACKEND_UNAVAILABLE` | GitHub 호출이 재시도 뒤에도 실패했다 |
 
 ## 다음 단계

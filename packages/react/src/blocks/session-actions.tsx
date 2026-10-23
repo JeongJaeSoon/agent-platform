@@ -107,9 +107,12 @@ export function PendingAnswers({
   onAnswered,
   showEmpty = true,
   subject,
+  answerable = true,
 }: SessionActionProps & {
   readonly sessionId: string;
   readonly items: readonly PendingRequest[];
+  /** False when the reader only sees the session and may not answer for it. */
+  readonly answerable?: boolean;
   readonly onAnswered?: () => void;
   readonly showEmpty?: boolean;
   /** What each request belongs to, drawn on its card's title line. */
@@ -121,7 +124,9 @@ export function PendingAnswers({
   const [outcome, setOutcome] = useState<
     (Outcome & { readonly requestId: string }) | null
   >(null);
-  const reason = unavailable?.answer;
+  const reason =
+    unavailable?.answer ??
+    (answerable ? undefined : t("session.answer.notAnswerer"));
   const busyId = answer.isPending ? answer.variables?.request_id : undefined;
   const listRef = useRef<HTMLDivElement>(null);
   const noticeRef = useRef<HTMLOutputElement>(null);

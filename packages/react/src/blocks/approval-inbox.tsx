@@ -141,6 +141,7 @@ function WaitingSession({
         <PendingAnswers
           sessionId={session.id}
           items={pending.data.items}
+          answerable={pending.data.answerable}
           subject={link}
           unavailable={unavailable}
           refusal={refusal}

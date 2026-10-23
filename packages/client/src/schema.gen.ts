@@ -721,7 +721,7 @@ export interface paths {
         put?: never;
         /**
          * Answer a pending permission or question request
-         * @description Answers one pending request by `request_id`: a permission with `allow` or `deny` (a denial needs a `reason` the model can act on), a question with one answer per question, by option ids or free text where the question allows it. The answer is stored and the request closes at once: the pending list drops it and a `status` event ends the wait. The worker then hands the answer to the engine, and the receipt settles when it reports: `succeeded` once delivered, `failed` if the request expired (`REQUEST_EXPIRED`) or was cancelled (`REQUEST_STALE`) first, `unknown` if the execution ended before it reported.
+         * @description Answers one pending request by `request_id`: a permission with `allow` or `deny` (a denial needs a `reason` the model can act on), a question with one answer per question, by option ids or free text where the question allows it. The answer is stored and the request closes at once: the pending list drops it and a `status` event ends the wait. The worker then hands the answer to the engine, and the receipt settles when it reports: `succeeded` once delivered, `failed` if the request expired (`REQUEST_EXPIRED`) or was cancelled (`REQUEST_STALE`) first, `unknown` if the execution ended before it reported. Seeing a session is not answering for it: only its creator (for a session an API key made, that key), its agent's admins and the workspace's owners and admins answer. Anyone else the session is visible to gets 403 (`reason_code: role`) and the request stays open; anyone it is not visible to, 404.
          *
          *     **Scope:** `sessions:approve` (API key or cookie session). **Idempotency-Key:** required.
          */
@@ -2656,6 +2656,8 @@ export interface components {
                     allow_free_text: boolean;
                 }[];
             })[];
+            /** @description Whether this caller may answer the session's requests: its creator, its agent's admins and the workspace's owners and admins may; someone who only sees it through its share may not (POST /answers is then 403). A hint for what to offer; the answer is judged again. */
+            answerable: boolean;
         };
         ListTakeoversResponse: {
             items: {
@@ -7803,7 +7805,8 @@ export interface operations {
                      *             "description": "Run the tests"
                      *           }
                      *         }
-                     *       ]
+                     *       ],
+                     *       "answerable": true
                      *     }
                      */
                     "application/json": components["schemas"]["ListPendingRequestsResponse"];
