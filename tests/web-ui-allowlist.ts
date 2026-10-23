@@ -13,7 +13,6 @@ export const webUiAllowlist: WebUiCounts = {
     "raw-destructive": 1,
   },
   "components/auth-page.tsx": { "link-constant": 1, "raw-destructive": 1 },
-  "components/field.tsx": { "legacy-class": 9 },
   "components/my-teams.tsx": { "link-constant": 1 },
   "components/new-agent-flow.tsx": {
     "legacy-class": 2,
@@ -33,5 +32,5 @@ export const webUiAllowlist: WebUiCounts = {
     "raw-destructive": 1,
   },
   "routes/session-outputs.tsx": { "raw-anchor": 1 },
-  "styles.css": { "legacy-class": 55 },
+  "styles.css": { "legacy-class": 54 },
 };
