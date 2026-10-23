@@ -1,5 +1,5 @@
 /*
- * theme.css maps the tokens to utilities (`bg-canvas`, `rounded-md`…), and
+ * theme.css maps the tokens to utilities (`bg-background`, `rounded-control`…), and
  * Tailwind's preflight makes every box border-box, so neither is repeated here.
  */
 @import "tailwindcss";
@@ -18,7 +18,7 @@
 
 body {
   margin: 0;
-  background: var(--ap-color-canvas);
+  background: var(--ap-color-surface);
   color: var(--ap-color-foreground);
   font-family: var(--ap-font-sans);
   font-size: var(--ap-text-label);
@@ -249,7 +249,7 @@ select:focus-visible,
   margin: 0;
   padding: var(--ap-space-3);
   border: 1px solid var(--ap-color-border);
-  border-radius: var(--ap-radius-md);
+  border-radius: var(--ap-radius-control);
   display: flex;
   flex-direction: column;
   gap: var(--ap-space-2);
@@ -258,7 +258,7 @@ select:focus-visible,
   display: inline-block;
   padding: 0 var(--ap-space-2);
   border: 1px solid var(--ap-color-border);
-  border-radius: var(--ap-radius-md);
+  border-radius: var(--ap-radius-control);
   font-size: var(--ap-text-xs);
   white-space: nowrap;
 }
@@ -284,7 +284,7 @@ select:focus-visible,
   padding: var(--ap-space-3);
   overflow-x: auto;
   border: 1px solid var(--ap-color-border);
-  border-radius: var(--ap-radius-md);
+  border-radius: var(--ap-radius-control);
   font-family: var(--ap-font-mono);
   font-size: var(--ap-text-xs);
 }
