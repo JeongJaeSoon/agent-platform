@@ -315,11 +315,13 @@ describe("홈 요약", () => {
     const name = waitingSession.id.slice(0, 8);
     await within(overview).findByRole("link", { name });
     fail = true;
-    await act(() =>
-      services.queryClient.refetchQueries({
+    await act(async () => {
+      await services.queryClient.refetchQueries({
         queryKey: queryKeys.waitingSessions,
-      }),
-    );
+      });
+      // The query batches its notification on a timer; let it land in act.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
     await waitFor(() =>
       expect(within(overview).queryByRole("link", { name })).toBeNull(),
     );
