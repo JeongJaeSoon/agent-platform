@@ -1,0 +1,100 @@
+---
+title: "세션 블록 넣기"
+description: "SessionList와 SessionDetail로 세션 목록과 세션 화면을 그린다"
+---
+
+세션 블록은 API에서 데이터를 읽어 화면 한 덩어리를 그린다. 앱은 블록을 놓을 자리와 로딩·오류 모습, 링크 만드는 법만 준다. 여기서는 [설치](/ui/install)와 [테마 적용](/ui/theme)에서 만든 앱에 세션 목록과 세션 화면을 넣는다.
+
+## 블록이 API를 부르는 방식
+
+블록은 `@werft-ai/client`의 클라이언트로 같은 origin의 `/v1`을 부르고, 웹 콘솔의 로그인 cookie로 인증한다. cookie 요청에 필요한 CSRF 헤더(`X-Requested-With: agent-platform-web`)는 클라이언트가 붙인다. 그래서 다음이 필요하다.
+
+- 앱과 API가 같은 origin이어야 한다. 개발 중에는 Vite의 `server.proxy`가 `/v1`을 스택으로 넘긴다([설치](/ui/install)의 `vite.config.ts`).
+- 브라우저가 로그인돼 있어야 한다. cookie는 포트를 가리지 않으므로, 같은 브라우저로 `http://127.0.0.1:3000` 웹 콘솔에 로그인하면 `http://127.0.0.1:5173`의 앱 요청에도 그 cookie가 간다.
+- 보이는 세션과 할 수 있는 일은 로그인한 사람의 권한을 따른다.
+
+## 앱 코드
+
+```tsx title="ui-demo/src/main.tsx"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { createApiClient } from "@werft-ai/client";
+import { AgentPlatformProvider, type RenderLink } from "@werft-ai/react";
+import { SessionDetail, SessionList } from "@werft-ai/react/blocks";
+import { ErrorState, Skeleton } from "@werft-ai/ui";
+import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
+import "./styles.css";
+
+const client = createApiClient();
+const queryClient = new QueryClient();
+const renderLink: RenderLink = ({ to: _to, id, children, ...rest }) => (
+  <a href={`/sessions/${id}`} {...rest}>
+    {children}
+  </a>
+);
+
+const loading = <Skeleton lines={3} />;
+const renderError = (_error: unknown, retry: () => void) => (
+  <ErrorState message="불러오지 못했다." retry={retry} retryLabel="다시 시도" />
+);
+const sessionId = location.pathname.match(/^\/sessions\/([^/]+)$/)?.[1];
+
+createRoot(document.getElementById("root") as HTMLElement).render(
+  <StrictMode>
+    <QueryClientProvider client={queryClient}>
+      <AgentPlatformProvider
+        client={client}
+        locale="ko"
+        renderLink={renderLink}
+      >
+        <main className="mx-auto max-w-4xl p-6">
+          {sessionId ? (
+            <SessionDetail
+              id={sessionId}
+              back={<a href="/">세션 목록</a>}
+              loading={loading}
+              renderError={renderError}
+            />
+          ) : (
+            <SessionList loading={loading} renderError={renderError} />
+          )}
+        </main>
+      </AgentPlatformProvider>
+    </QueryClientProvider>
+  </StrictMode>,
+);
+```
+
+- `AgentPlatformProvider`는 블록과 hook이 읽는 클라이언트, 언어(`ko`, `ja`, `en`), 링크 함수를 둔다. `QueryClientProvider` 안에 놓는다.
+- `renderLink`는 블록이 세션으로 가는 링크를 그릴 때 부른다. URL은 앱이 정한다. 라우터를 쓰는 앱이면 그 라우터의 `Link`를 돌려준다.
+- `loading`과 `renderError`는 블록마다 받는다. 문구도 앱의 것이다.
+
+## 실행
+
+```sh
+cd ui-demo
+../node_modules/.bin/vite --host 127.0.0.1 --port 5173
+```
+
+같은 브라우저로 웹 콘솔에 로그인한 뒤 `http://127.0.0.1:5173`을 연다. 목록에 로그인한 사람이 만든 세션이 보이고, 세션 id를 누르면 `/sessions/<id>`에서 `SessionDetail`이 상태, 기다리는 요청, 다음 지시 입력, 사용량, 세션 제어, 진행 이벤트를 그린다. 진행 이벤트는 이벤트 스트림으로 이어서 받는다.
+
+로그인하지 않았으면 목록 자리에 `renderError`가 그린 오류와 다시 시도 버튼이 나온다.
+
+## 블록
+
+| 블록 | 그리는 것 | 받는 것(로딩·오류 말고) |
+| --- | --- | --- |
+| `SessionList` | 로그인한 사람의 세션 목록. 한 페이지씩 읽는다 | 없음 |
+| `RecentSessions` | 최근 세션 몇 개 | `label`, `limit` |
+| `WaitingSessions` | 답을 기다리는 세션 | `label` |
+| `SessionDetail` | 세션 한 개의 화면 | `id`, `back`, `controls`, `unavailable`, `refusal` |
+| `ApprovalInbox` | 답을 기다리는 세션과 그 요청. 여기서 바로 답한다 | `unavailable`, `refusal` |
+
+- `unavailable`은 할 수 없는 동작(`answer`, `control`, `send`)과 그 이유다. 이름을 준 동작은 이유와 함께 비활성으로 그린다. 서버는 어느 쪽이든 권한으로 다시 거절한다.
+- `refusal`은 서버가 거절한 명령의 오류를 앱의 문구로 바꾼다.
+- 블록보다 작게 쓰려면 `@werft-ai/react`의 hook(`useSessions`, `useSession`, `useSessionEvents`, `useSendMessage`, `useAnswer`, `useSessionControl`)과 `@werft-ai/ui`의 컴포넌트를 직접 조합한다.
+
+## 다음 단계
+
+- <SiblingLink href="/storybook/">Storybook</SiblingLink>의 Blocks/Session: 블록의 상태별 모습(빈 목록, 실패, 읽기 전용, 모바일)
+- [승인 대기와 재개](/sessions/waiting-and-resume): `SessionDetail`과 `ApprovalInbox`가 답하는 요청의 종류
