@@ -8,8 +8,8 @@ import { useFieldControl } from "./field.tsx";
  * shadcn/ui new-york NativeSelect: a styled <select>, chosen over the Radix
  * Select item. A native select submits with its form without a hidden mirror
  * input, and phones open their own picker, which screen readers and large
- * text already handle. Changed from upstream: Field wiring, an inline chevron
- * instead of lucide-react, card background, no `dark:` variants.
+ * text already handle. Changed from upstream: Field wiring, card background,
+ * no `dark:` variants.
  */
 export function NativeSelect({
   className,

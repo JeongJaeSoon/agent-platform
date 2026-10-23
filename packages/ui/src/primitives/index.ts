@@ -1,4 +1,4 @@
-export { Badge, type BadgeProps, badgeVariants } from "./badge.tsx";
+export { Badge, type BadgeProps } from "./badge.tsx";
 export { Button, type ButtonProps, buttonVariants } from "./button.tsx";
 export {
   Card,
@@ -17,8 +17,6 @@ export {
   DialogDescription,
   DialogFooter,
   DialogHeader,
-  DialogOverlay,
-  DialogPortal,
   DialogTitle,
   DialogTrigger,
 } from "./dialog.tsx";
@@ -32,7 +30,6 @@ export {
   FieldLegend,
   type FieldProps,
   FieldSet,
-  fieldVariants,
 } from "./field.tsx";
 export { Input } from "./input.tsx";
 export {
@@ -42,11 +39,5 @@ export {
 } from "./native-select.tsx";
 export { RadioGroup, RadioGroupItem } from "./radio-group.tsx";
 export { Skeleton, type SkeletonProps } from "./skeleton.tsx";
-export {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-  tabsListVariants,
-} from "./tabs.tsx";
+export { Tabs, TabsContent, TabsList, TabsTrigger } from "./tabs.tsx";
 export { Textarea } from "./textarea.tsx";
