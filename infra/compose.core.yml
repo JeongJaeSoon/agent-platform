@@ -254,8 +254,11 @@ services:
       # secret store off. Never given to the worker or the scheduler.
       PLATFORM_SECRET_KEY:
       # Sign in with Slack, for linking a person's Slack account
-      # (docs/operator/api-server.md). Unset keeps linking off; the three are set
-      # together. SLACK_OIDC_ISSUER is for a mock IdP only.
+      # (docs/operator/api-server.md). Unset REDIRECT_URI keeps linking off;
+      # it alone is enough when the workspace's link app is used. The client
+      # id and secret are an optional fallback, set as a pair, and also need
+      # REDIRECT_URI.
+      # SLACK_OIDC_ISSUER is for a mock IdP only.
       SLACK_OIDC_CLIENT_ID: ${SLACK_OIDC_CLIENT_ID:-}
       SLACK_OIDC_CLIENT_SECRET: ${SLACK_OIDC_CLIENT_SECRET:-}
       SLACK_OIDC_REDIRECT_URI: ${SLACK_OIDC_REDIRECT_URI:-}

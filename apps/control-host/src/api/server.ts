@@ -24,6 +24,7 @@ import {
   createPostgresSlackAppStore,
   createPostgresSlackConfigTokenStore,
   createPostgresSlackGuestSetting,
+  createPostgresSlackInstallStore,
   createPostgresSurfaceBindingStore,
   createPostgresTeamStore,
   createPostgresTurnInterrupts,
@@ -57,6 +58,8 @@ import {
   createSlackAppService,
   createSlackConfigApi,
   createSlackConfigTokens,
+  createSlackInstallService,
+  createSlackLinkAppService,
   createSlackSecretService,
   createSurfaceBindingService,
   createTeamService,
@@ -131,6 +134,7 @@ import { registerSessionShareRoutes } from "./routes/session-shares.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
 import { registerSlackAppRoutes } from "./routes/slack-apps.ts";
 import { registerSlackBindingRoutes } from "./routes/slack-bindings.ts";
+import { registerSlackInstallRoutes } from "./routes/slack-install.ts";
 import { registerSlackSecretRoutes } from "./routes/slack-secrets.ts";
 import { registerTeamRoutes } from "./routes/teams.ts";
 import { registerUsageRoutes } from "./routes/usage.ts";
@@ -139,7 +143,7 @@ import { registerWorkspaceRoutes } from "./routes/workspaces.ts";
 import { PostgresSessionNotifier } from "./session-notifier.ts";
 import { createShutdown } from "./shutdown.ts";
 import { consoleOriginFrom, slackApiUrlFrom } from "./slack-config.ts";
-import { slackOidcConfigFromEnv } from "./slack-link.ts";
+import { signInWithSlackOff, slackOidcSettingsFromEnv } from "./slack-link.ts";
 
 const authMode = process.env.AUTH_MODE;
 const databaseUrl = process.env.DATABASE_URL;
@@ -300,13 +304,7 @@ const linkedAccounts = createLinkedAccountService({
   authorization,
   store: createPostgresLinkedAccountStore(db),
 });
-const slackOidc = slackOidcConfigFromEnv(process.env);
-if (slackOidc === null) {
-  logger.warn(
-    "Sign in with Slack is off (SLACK_OIDC_CLIENT_ID unset); Slack accounts cannot be linked",
-    {},
-  );
-}
+const slackOidc = slackOidcSettingsFromEnv(process.env);
 const slackConfigApi = createSlackConfigApi({
   apiUrl: slackApiUrlFrom(process.env),
 });
@@ -324,6 +322,8 @@ if (consoleOrigin === null) {
     {},
   );
 }
+const slackLinkOff = signInWithSlackOff(slackOidc, secretKey !== null);
+if (slackLinkOff !== null) logger.warn(slackLinkOff, {});
 const slackSecrets = createSlackSecretService({
   authorization,
   store: secretKey === null ? null : createPostgresSecretStore(db, secretKey),
@@ -331,12 +331,34 @@ const slackSecrets = createSlackSecretService({
   appKind: (workspaceId, slackAppId) =>
     slackAppKind(db, workspaceId, slackAppId),
 });
+const slackAppStore =
+  secretKey === null ? null : createPostgresSlackAppStore(db, secretKey);
 const slackApps = createSlackAppService({
   authorization,
-  apps: secretKey === null ? null : createPostgresSlackAppStore(db, secretKey),
+  apps: slackAppStore,
   tokens: slackConfigTokens,
   api: slackConfigApi,
   consoleOrigin,
+});
+const slackInstall = createSlackInstallService({
+  authorization,
+  apps: slackAppStore,
+  states: secretKey === null ? null : createPostgresSlackInstallStore(db),
+  secrets: secretKey === null ? null : createPostgresSecretStore(db, secretKey),
+  tokens: slackConfigTokens,
+  identities: createPostgresAgentIdentityStore(db),
+  api: slackConfigApi,
+});
+const slackLinkApps = createSlackLinkAppService({
+  authorization,
+  apps: slackAppStore,
+  tokens: slackConfigTokens,
+  api: slackConfigApi,
+  consoleOrigin,
+  fallback:
+    slackOidc?.client == null
+      ? null
+      : { ...slackOidc.client, redirectUri: slackOidc.redirectUri },
 });
 const credentialBindingService = createCredentialBindingService({
   authorization,
@@ -520,7 +542,10 @@ const app = createApiApp({
     registerInterruptRoutes(router, interrupts);
     registerLinkedAccountRoutes(router, {
       service: linkedAccounts,
-      slack: slackOidc,
+      slack:
+        slackOidc === null
+          ? null
+          : { issuer: slackOidc.issuer, clients: slackLinkApps },
       logger,
     });
     registerMemberRoutes(router, members, invites);
@@ -535,6 +560,7 @@ const app = createApiApp({
       secrets: slackSecrets,
       logger,
     });
+    registerSlackInstallRoutes(router, { service: slackInstall, logger });
     registerApiKeyRoutes(router, apiKeys);
     registerTeamRoutes(router, teams, agentAdmins);
     registerCredentialBindingRoutes(router, credentialBindingService);

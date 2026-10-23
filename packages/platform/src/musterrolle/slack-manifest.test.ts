@@ -2,8 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { BOT_SCOPES, SLACK_AGENT_BOT_EVENTS } from "@werft-ai/contracts";
 import {
   buildAgentAppManifest,
+  buildLinkAppManifest,
+  LINK_APP_COPY,
   slackAppRedirectUrl,
   slackAuthorizeUrl,
+  slackLinkRedirectUrl,
 } from "./slack-manifest.ts";
 
 const AGENT = "019a0000-0000-7000-8000-0000000000c1";
@@ -128,5 +131,58 @@ describe("agent app manifest", () => {
       scope: BOT_SCOPES.join(","),
       redirect_uri: REDIRECT,
     });
+  });
+});
+
+describe("link app manifest", () => {
+  const LINK_REDIRECT =
+    "https://console.example.ts.net/settings/linked-accounts/slack";
+
+  test("the redirect is the console's linked-accounts page", () => {
+    expect(slackLinkRedirectUrl("https://console.example.ts.net")).toBe(
+      LINK_REDIRECT,
+    );
+  });
+
+  test("the whole manifest: user scopes openid and profile only, no bot, no events", () => {
+    const manifest = buildLinkAppManifest({
+      workspaceName: "Acme",
+      redirectUrl: LINK_REDIRECT,
+    });
+    expect(manifest).toEqual({
+      display_information: {
+        name: `Acme${LINK_APP_COPY.nameSuffix}`,
+        description: LINK_APP_COPY.description,
+      },
+      oauth_config: {
+        redirect_urls: [LINK_REDIRECT],
+        scopes: { user: ["openid", "profile"] },
+      },
+      settings: {
+        org_deploy_enabled: false,
+        socket_mode_enabled: false,
+        token_rotation_enabled: false,
+      },
+    });
+    expect(manifest.oauth_config.scopes).not.toHaveProperty("bot");
+    expect(manifest).not.toHaveProperty("features");
+  });
+
+  test("the words are these, under review as one constant", () => {
+    expect(LINK_APP_COPY).toEqual({
+      nameSuffix: " 계정 연결",
+      description: "agent-platform 콘솔에서 Slack 계정을 연결합니다.",
+    });
+  });
+
+  test("a long workspace name is cut to Slack's 35, keeping the suffix", () => {
+    const manifest = buildLinkAppManifest({
+      workspaceName: "Department of Very Long Workspace Names 한국어",
+      redirectUrl: LINK_REDIRECT,
+    });
+    expect(manifest.display_information.name).toMatchInlineSnapshot(
+      `"Department of Very Long Works 계정 연결"`,
+    );
+    expect([...manifest.display_information.name]).toHaveLength(35);
   });
 });
