@@ -11,6 +11,7 @@ import {
   ClaudeSdkRuntime,
   claudeProfileFingerprint,
   type RuntimeProfile,
+  remoteMcpRelay,
 } from "@werft-ai/runtime-claude";
 import type {
   CheckpointObjectStore,
@@ -193,6 +194,8 @@ type ClaudeRunConfig = Pick<
   | "claudeConfigDir"
   | "cwd"
   | "home"
+  | "identities"
+  | "mcpServers"
   | "model"
   | "permissionMode"
   | "profile"
@@ -240,6 +243,31 @@ export function claudeRunConfig(
       : {}),
     settingSources: [],
     tools: runtimeConfig.tools,
+    ...mcpRunConfig(runtimeConfig, config.egressCredentialUrl),
+  };
+}
+
+function mcpRunConfig(
+  runtimeConfig: RuntimeConfig,
+  egressCredentialUrl: string,
+): Pick<ClaudeRunConfig, "identities" | "mcpServers"> {
+  const servers = runtimeConfig.mcp_servers ?? [];
+  if (servers.length === 0) return {};
+  return {
+    identities: {
+      mcpServers: Object.fromEntries(servers.map((s) => [s.name, s.binding])),
+    },
+    mcpServers: Object.fromEntries(
+      servers.map((s) => [
+        s.name,
+        remoteMcpRelay({
+          name: s.name,
+          url: `${egressCredentialUrl}/mcp/${s.name}`,
+          token: s.access.token,
+          tools: runtimeConfig.tools,
+        }),
+      ]),
+    ),
   };
 }
 

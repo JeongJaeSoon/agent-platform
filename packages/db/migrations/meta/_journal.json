@@ -435,6 +435,13 @@
       "when": 1792759217555,
       "tag": "0152_surface_bindings",
       "breakpoints": true
+    },
+    {
+      "idx": 153,
+      "version": "7",
+      "when": 1792761098312,
+      "tag": "0153_worker_credentials_mcp",
+      "breakpoints": true
     }
   ]
 }

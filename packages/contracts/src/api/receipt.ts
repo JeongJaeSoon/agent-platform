@@ -93,6 +93,9 @@ export const RECEIPT_OPERATION_VALUES = [
   "push",
   "open_pull_request",
   "comment_pull_request",
+  // A remote MCP exchange the egress proxy refused for the agent's
+  // credential: unbound, not for this workspace, or moved in the catalog.
+  "call_mcp",
   // A Slack secret set, replaced or deleted through the API; the receipt
   // names its purpose and last four characters, never the value.
   "set_slack_secret",

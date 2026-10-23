@@ -11,6 +11,8 @@
 services:
   fake-messages:
     profiles: !reset []
+  fake-mcp:
+    profiles: !reset []
   secrets:
     profiles: !reset []
   api:
@@ -21,6 +23,8 @@ services:
       ANTHROPIC_API_KEY: ""
     depends_on:
       fake-messages:
+        condition: service_healthy
+      fake-mcp:
         condition: service_healthy
       secrets:
         condition: service_healthy

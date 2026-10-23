@@ -11,6 +11,7 @@ import {
   createPostgresDecisionLog,
   createPostgresInviteStore,
   createPostgresLinkedAccountStore,
+  createPostgresMcpEgressStore,
   createPostgresMemberStore,
   createPostgresPendingRequests,
   createPostgresPullRequests,
@@ -370,6 +371,11 @@ const workers = createWorkerGateway({
     : { checkpointProtocol: checkpoints.protocol }),
   pending: createPostgresWorkerPendingStore(db),
   forges,
+  mcp: createPostgresMcpEgressStore(db),
+  onMcpReceiptError: (error) =>
+    logger.error("MCP refusal receipt not recorded", {
+      error: error instanceof Error ? error.name : "error",
+    }),
   options: {
     sessionCostLimitUsd: limits.sessionCostLimitUsd,
     sessionTokenLimit: limits.sessionTokenLimit,

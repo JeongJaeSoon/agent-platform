@@ -218,7 +218,9 @@ export function buildSdkOptions(
       ...(append === undefined ? {} : { append }),
       snapshot: true,
     },
-    tools: config.tools,
+    // The built-in set only; an MCP server's tools come with the server and
+    // stay in the allowlist above.
+    tools: config.tools.filter((tool) => !tool.startsWith("mcp__")),
     spawnClaudeCodeProcess: (options) =>
       spawnEngine(options, engineApiKey(config.profile), processObserver),
   };

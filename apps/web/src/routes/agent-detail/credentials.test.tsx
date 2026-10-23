@@ -70,7 +70,7 @@ describe("자격 연결 단계", () => {
       within(section).getByRole("button", { name: "github/app 연결 해제" }),
     );
     const dialog = await screen.findByRole("dialog");
-    expect(dialog.textContent).toContain("다음 세션부터 시작하지 못합니다");
+    expect(dialog.textContent).toContain("실행 중인 세션도 다음 메시지부터");
     await user.click(within(dialog).getByRole("button", { name: "연결 해제" }));
     const revoked = await within(section).findByText(
       "github/app의 연결을 해제했습니다.",
