@@ -35,7 +35,22 @@ export function createPendingRequestService(deps: {
       if (items === null) {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
       }
-      return { items };
+      const answer = await authorization
+        .authorize(
+          {
+            subject: actor.subject,
+            action: "session.approve",
+            resource: {
+              kind: "session",
+              id: sessionId,
+              owner_scope: actor.ownerId,
+            },
+            request_id: actor.requestId,
+          },
+          { record: false },
+        )
+        .catch(() => null);
+      return { items, answerable: answer?.outcome === "allow" };
     },
 
     async answer(

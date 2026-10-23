@@ -42,6 +42,10 @@ export const pendingRequestSchema = z.discriminatedUnion("kind", [
 ]);
 export const listPendingRequestsResponseSchema = z.object({
   items: z.array(pendingRequestSchema),
+  answerable: z.boolean().meta({
+    description:
+      "Whether this caller may answer the session's requests: its creator, its agent's admins and the workspace's owners and admins may; someone who only sees it through its share may not (POST /answers is then 403). A hint for what to offer; the answer is judged again.",
+  }),
 });
 
 export type PendingQuestionOption = z.infer<typeof pendingQuestionOptionSchema>;

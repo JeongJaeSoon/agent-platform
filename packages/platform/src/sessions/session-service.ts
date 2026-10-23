@@ -251,9 +251,12 @@ export async function requireAllowed(
       { reason_code: "credential_unbound" },
     );
   }
+  const scope = ACTION_SCOPES[action];
   throw new SessionServiceError(
     "FORBIDDEN",
-    `This principal does not hold ${ACTION_SCOPES[action] ?? action}`,
+    scope !== undefined && decision?.effective_scopes.includes(scope)
+      ? `This principal holds ${scope} but may not use it on this session`
+      : `This principal does not hold ${scope ?? action}`,
     undefined,
     // The policy's reason, so a screen can say why (design 3.3).
     { reason_code: decision?.reason_code ?? "error" },

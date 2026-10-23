@@ -43,6 +43,11 @@ const human: Principal = {
   workspace_id: null,
   scopes: ["sessions:approve"],
 };
+// As under AUTH_MODE=none, nobody is recorded as the session's maker.
+const unrecorded = {
+  visibleTo: async () => true,
+  originOf: async () => ({ creatorUserId: null, creatorApiKeyId: null }),
+};
 const actor = {
   caller: testCaller("owner-a"),
   principal: human,
@@ -159,7 +164,9 @@ function harness(
     },
   };
   const service = createPullRequestService({
-    authorization: options.authorization ?? createAuthorizationPolicy(),
+    authorization:
+      options.authorization ??
+      createAuthorizationPolicy({ sessions: unrecorded }),
     store,
     catalog: CATALOG,
     forges: (id) => (id === "app" ? forge : null),
