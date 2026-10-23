@@ -479,7 +479,6 @@ integration("Slack apps and the config token on PostgreSQL", () => {
       expect(created.created).toBe(true);
       expect(again.created).toBe(false);
       expect(again.slack_app.app_id).toBe(created.slack_app.app_id);
-      expect(again.authorize_url).toBe(created.authorize_url);
       expect(created.slack_app).toMatchObject({
         state: "created",
         created_by_token_user: "U0ISSUER",

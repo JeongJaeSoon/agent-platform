@@ -56,6 +56,14 @@ export const API_ERROR_CODE_VALUES = [
   "CONFIG_TOKEN_INVALID",
   "SLACK_APP_CREATING",
   "AGENT_NOT_ACTIVE",
+  // Installing an agent's Slack app: the install link's state is unknown,
+  // spent, expired or another's; Slack sent the admin back with an error;
+  // Slack's answer is not the expected app, team or scopes; the app is
+  // already installed in that team for another workspace.
+  "SLACK_INSTALL_STATE_INVALID",
+  "SLACK_INSTALL_DENIED",
+  "SLACK_INSTALL_REJECTED",
+  "SLACK_INSTALL_CONFLICT",
   // An invite that was revoked, replaced by a newer one, or has expired.
   "INVITE_EXPIRED",
   "INVITE_USED",

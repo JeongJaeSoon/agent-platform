@@ -132,8 +132,6 @@ export const createSlackAppRequestSchema = z
 export const createSlackAppResponseSchema = z
   .object({
     slack_app: slackAppSchema,
-    /** Where a workspace admin approves installing the app. */
-    authorize_url: z.url(),
     /** False when the agent already had this app. */
     created: z.boolean(),
     warnings: z.array(slackWarningSchema),
@@ -141,10 +139,7 @@ export const createSlackAppResponseSchema = z
   .strict();
 
 export const getSlackAppResponseSchema = z
-  .object({
-    slack_app: slackAppSchema.nullable(),
-    authorize_url: z.url().nullable(),
-  })
+  .object({ slack_app: slackAppSchema.nullable() })
   .strict();
 
 export const slackAppParamsSchema = workspaceParamsSchema
