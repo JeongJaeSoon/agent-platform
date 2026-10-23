@@ -26,6 +26,7 @@ import {
   sessionShares,
   sessionShareTargets,
   sessions,
+  turns,
 } from "./schema.ts";
 
 // Session share scopes (94S-584, design 4.6). Lock order: the people
@@ -36,8 +37,9 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const uuidOrNull = (value: string | null) =>
   value !== null && UUID.test(value) ? value.toLowerCase() : null;
 
-// The creator branches of sessionVisibleTo: the caller started the session.
-function startedBy(viewer: SessionViewer): SQL[] {
+// The creator branches of sessionVisibleTo: the caller holds the session
+// now, which a takeover hands to someone else.
+function ownedBy(viewer: SessionViewer): SQL[] {
   const userId = uuidOrNull(viewer.userId);
   const apiKeyId = uuidOrNull(viewer.apiKeyId);
   return [
@@ -62,6 +64,25 @@ function sharedWith(viewer: SessionViewer): SQL[] {
   ];
 }
 
+// Turn 1's actor, which a takeover leaves alone; created_by_user_id where
+// turn 1 names no one (rows from before #427). Qualified by hand: turns has
+// an id of its own.
+const starter = sql`coalesce((SELECT t.actor_id FROM ${turns} t WHERE t.session_id = ${sessions}.id AND t.sequence = 1), ${sessions}.created_by_user_id)`;
+
+// relation=started: the caller started the session, whoever holds it now.
+function startedBy(viewer: SessionViewer): SQL[] {
+  const userId = uuidOrNull(viewer.userId);
+  const apiKeyId = uuidOrNull(viewer.apiKeyId);
+  return [
+    ...(userId === null ? [] : [sql`${starter} = ${userId}`]),
+    ...(apiKeyId === null
+      ? []
+      : [
+          sql`(${starter} IS NULL AND ${sessions}.created_by_api_key_id = ${apiKeyId})`,
+        ]),
+  ];
+}
+
 const anyOf = (branches: SQL[]): SQL =>
   branches.length === 0 ? sql`false` : sql`(${sql.join(branches, sql` OR `)})`;
 
@@ -73,7 +94,7 @@ const anyOf = (branches: SQL[]): SQL =>
 export function sessionVisibleTo(viewer: SessionViewer): SQL {
   return anyOf([
     sql`coalesce((SELECT ${sessionShares.scope} FROM ${sessionShares} WHERE ${sessionShares.sessionId} = ${sessions.id}), 'workspace') = 'workspace'`,
-    ...startedBy(viewer),
+    ...ownedBy(viewer),
     ...sharedWith(viewer),
   ]);
 }

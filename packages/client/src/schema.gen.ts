@@ -2527,7 +2527,7 @@ export interface components {
                 release_version_no: number;
             } | null;
             /**
-             * @description Who started the session: the signed-in person, or for an API key the person who created the key. Null for sessions from before people were recorded and for a key with no creator.
+             * @description Who started the session: the signed-in person, or for an API key the person who created the key. It stays the same after a takeover hands the session to someone else. Null for sessions from before people were recorded and for a key with no creator.
              * @default null
              */
             created_by: {
@@ -2586,7 +2586,7 @@ export interface components {
                 release_version_no: number;
             } | null;
             /**
-             * @description Who started the session: the signed-in person, or for an API key the person who created the key. Null for sessions from before people were recorded and for a key with no creator.
+             * @description Who started the session: the signed-in person, or for an API key the person who created the key. It stays the same after a takeover hands the session to someone else. Null for sessions from before people were recorded and for a key with no creator.
              * @default null
              */
             created_by: {

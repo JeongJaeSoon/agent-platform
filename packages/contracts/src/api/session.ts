@@ -306,7 +306,7 @@ export const sessionSummarySchema = z.object({
     .default(null)
     .meta({
       description:
-        "Who started the session: the signed-in person, or for an API key the person who created the key. Null for sessions from before people were recorded and for a key with no creator.",
+        "Who started the session: the signed-in person, or for an API key the person who created the key. It stays the same after a takeover hands the session to someone else. Null for sessions from before people were recorded and for a key with no creator.",
     }),
   channel: surfaceKindSchema.nullable().default(null).meta({
     description:

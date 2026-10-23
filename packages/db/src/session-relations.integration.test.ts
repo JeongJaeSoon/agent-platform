@@ -14,6 +14,7 @@ import {
 } from "@werft-ai/testkit/postgres";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { createPostgresMemberStore } from "./members.ts";
 import { createPostgresSessionReader } from "./postgres-unit-of-work.ts";
 import * as schema from "./schema.ts";
 import {
@@ -29,6 +30,7 @@ import {
   sessionShares,
   sessionShareTargets,
   sessions,
+  turns,
   users,
   workspaces,
 } from "./schema.ts";
@@ -433,6 +435,178 @@ integration("session list relations, search and counts on PostgreSQL", () => {
       created_by: null,
       channel: null,
     });
+  });
+});
+
+integration("who started a session on PostgreSQL", () => {
+  let database: TempDatabase;
+  let pool: Pool;
+  let db: NodePgDatabase<typeof schema>;
+  const workspaceId = randomUUID();
+  const alice = randomUUID();
+  const bob = randomUUID();
+  const ids = {} as Record<string, string>;
+  const as = (userId: string): SessionViewer => ({ userId, apiKeyId: null });
+
+  beforeAll(async () => {
+    database = await createTempDatabase({ prefix: "session_starter_it" });
+    pool = new Pool({ connectionString: database.url, max: 2 });
+    db = drizzle(pool, { schema });
+    await db.insert(workspaces).values({
+      id: workspaceId,
+      slug: `ws-${workspaceId.slice(0, 8)}`,
+      name: "ws",
+    });
+    for (const [id, name] of [
+      [alice, "Alice Kim"],
+      [bob, "Bob Lee"],
+    ] as const) {
+      await db.insert(users).values({
+        id,
+        email: `${id}@example.invalid`,
+        passwordHash: "argon2id$placeholder",
+        displayName: name,
+      });
+      await db
+        .insert(memberships)
+        .values({ workspaceId, userId: id, role: "owner" });
+    }
+    let at = Date.parse("2026-10-24T00:00:00Z");
+    const session = async (
+      name: string,
+      row: {
+        createdBy: string | null;
+        firstTurnBy?: string | null;
+        private?: boolean;
+      },
+    ) => {
+      const id = randomUUID();
+      ids[name] = id;
+      at += 60_000;
+      await db.insert(sessions).values({
+        id,
+        ownerId: workspaceId,
+        workspaceId,
+        repoUrl: "https://example.invalid/app.git",
+        branch: "main",
+        title: name,
+        status: "idle",
+        createdByUserId: row.createdBy,
+        createdAt: new Date(at),
+        // bob left; the takeover below hands these to alice.
+        ...(row.createdBy === bob && row.firstTurnBy === bob
+          ? { takeoverRequiredAt: new Date(at) }
+          : {}),
+      });
+      if (row.firstTurnBy !== undefined) {
+        await db.insert(turns).values({
+          sessionId: id,
+          sequence: 1,
+          message: "start",
+          status: "succeeded",
+          actorId: row.firstTurnBy,
+        });
+      }
+      if (row.private) {
+        await db.insert(sessionShares).values({
+          sessionId: id,
+          ownerId: workspaceId,
+          workspaceId,
+          scope: "private",
+        });
+      }
+    };
+    await session("handedOver", { createdBy: bob, firstTurnBy: bob });
+    await session("handedOverPrivate", {
+      createdBy: bob,
+      firstTurnBy: bob,
+      private: true,
+    });
+    // Rows from before #427: turn 1 names no one, or there is no turn.
+    await session("firstTurnNamesNoOne", {
+      createdBy: alice,
+      firstTurnBy: null,
+    });
+    await session("noTurn", { createdBy: bob });
+    const members = createPostgresMemberStore(db);
+    for (const name of ["handedOver", "handedOverPrivate"]) {
+      const taken = await members.takeOver({
+        principal: {
+          ownerId: workspaceId,
+          actor: {
+            principal: { kind: "user", id: alice },
+            userId: alice,
+            workspaceId,
+            apiKeyId: null,
+          },
+        },
+        workspaceId,
+        sessionId: ids[name] ?? "",
+        newRequesterId: alice,
+      });
+      if (taken.outcome !== "taken_over") throw new Error(taken.outcome);
+    }
+  }, 60_000);
+
+  afterAll(async () => {
+    await pool?.end();
+    await database?.drop();
+  }, 60_000);
+
+  const reader = () => createPostgresSessionReader(db);
+  const named = (found: { id: string }[]) =>
+    found
+      .map(({ id }) => Object.keys(ids).find((name) => ids[name] === id) ?? id)
+      .sort();
+
+  test("a takeover leaves who started it: started and created_by follow turn 1, reading follows the new holder", async () => {
+    const list = async (userId: string, relation: SessionRelation) =>
+      named(
+        (
+          await reader().listSessions(
+            workspaceId,
+            { limit: 100, relation },
+            as(userId),
+          )
+        ).items,
+      );
+    const total = async (userId: string, relation: SessionRelation) =>
+      (await reader().countSessions(workspaceId, { relation }, as(userId)))
+        .total;
+    expect(await list(alice, "all")).toEqual([
+      "firstTurnNamesNoOne",
+      "handedOver",
+      "handedOverPrivate",
+      "noTurn",
+    ]);
+    expect(await list(alice, "started")).toEqual(["firstTurnNamesNoOne"]);
+    expect(await total(alice, "started")).toBe(1);
+    // bob still started handedOverPrivate, but no longer holds it.
+    expect(await list(bob, "all")).toEqual([
+      "firstTurnNamesNoOne",
+      "handedOver",
+      "noTurn",
+    ]);
+    expect(await list(bob, "started")).toEqual(["handedOver", "noTurn"]);
+    expect(await total(bob, "started")).toBe(2);
+    const startedBy = async (name: string) =>
+      (await reader().getSession(workspaceId, ids[name] ?? ""))?.created_by;
+    const bobRef = { user_id: bob, display_name: "Bob Lee" };
+    expect(await startedBy("handedOver")).toEqual(bobRef);
+    expect(await startedBy("handedOverPrivate")).toEqual(bobRef);
+    expect(await startedBy("firstTurnNamesNoOne")).toEqual({
+      user_id: alice,
+      display_name: "Alice Kim",
+    });
+    expect(await startedBy("noTurn")).toEqual(bobRef);
+    const [summary] = (
+      await reader().listSessions(
+        workspaceId,
+        { limit: 1, q: "handedOverPrivate" },
+        as(alice),
+      )
+    ).items;
+    expect(summary?.created_by).toEqual(bobRef);
   });
 });
 

@@ -632,8 +632,17 @@ export function createPostgresSessionReader(
     const releaseIds = [
       ...new Set(rows.flatMap(({ session }) => session.agentReleaseId ?? [])),
     ];
+    // Turn 1's actor started the session; a takeover rewrites
+    // created_by_user_id but leaves it. Rows from before #427 fall back.
+    const firstTurns = await executor
+      .select({ sessionId: turns.sessionId, actorId: turns.actorId })
+      .from(turns)
+      .where(and(inArray(turns.sessionId, ids), eq(turns.sequence, 1)));
+    const starterOf = (session: SessionRow) =>
+      firstTurns.find((turn) => turn.sessionId === session.id)?.actorId ??
+      session.createdByUserId;
     const creatorIds = [
-      ...new Set(rows.flatMap(({ session }) => session.createdByUserId ?? [])),
+      ...new Set(rows.flatMap(({ session }) => starterOf(session) ?? [])),
     ];
     const releases =
       releaseIds.length === 0
@@ -692,7 +701,7 @@ export function createPostgresSessionReader(
             }
           : null,
         created_by:
-          creators.find((creator) => creator.user_id === row.createdByUserId) ??
+          creators.find((creator) => creator.user_id === starterOf(row)) ??
           null,
         channel: row.channel,
         revision: row.revision,
