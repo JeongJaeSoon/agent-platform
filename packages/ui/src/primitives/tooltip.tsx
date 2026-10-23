@@ -1,6 +1,8 @@
 import {
   type ComponentProps,
+  cloneElement,
   createContext,
+  isValidElement,
   type JSX,
   type PointerEvent,
   type ReactNode,
@@ -11,6 +13,7 @@ import {
   useState,
 } from "react";
 
+import { cn } from "../foundations/cn.ts";
 import { Popover, PopoverContent, PopoverTrigger } from "./popover.tsx";
 
 /*
@@ -110,8 +113,15 @@ function assignRef<T>(ref: Ref<T> | undefined, node: T | null): void {
   else if (ref) ref.current = node;
 }
 
+function describedBy(...ids: unknown[]): string {
+  return ids.filter((id) => typeof id === "string" && id !== "").join(" ");
+}
+
 export function TooltipTrigger({
   ref,
+  asChild,
+  children,
+  "aria-describedby": ownDescribedBy,
   onPointerEnter,
   onPointerLeave,
   onFocus,
@@ -120,9 +130,21 @@ export function TooltipTrigger({
   ...props
 }: ComponentProps<typeof PopoverTrigger>): JSX.Element {
   const tooltip = useTooltip("TooltipTrigger");
+  // Slot lets the child's own props win, so the child's ids are merged in
+  // rather than left to replace the note's.
+  const child =
+    asChild && isValidElement<{ "aria-describedby"?: string }>(children)
+      ? children
+      : null;
+  const ariaDescribedBy = describedBy(
+    ownDescribedBy,
+    child?.props["aria-describedby"],
+    tooltip.descriptionId,
+  );
   return (
     <PopoverTrigger
       {...props}
+      asChild={asChild === true}
       ref={(node) => {
         tooltip.trigger.current = node;
         assignRef(ref, node);
@@ -131,7 +153,7 @@ export function TooltipTrigger({
       aria-haspopup={false}
       aria-expanded={undefined}
       aria-controls={undefined}
-      aria-describedby={tooltip.descriptionId}
+      aria-describedby={ariaDescribedBy}
       onPointerEnter={(event: PointerEvent<HTMLButtonElement>) => {
         onPointerEnter?.(event);
         if (event.pointerType === "mouse") tooltip.show("hover");
@@ -154,20 +176,26 @@ export function TooltipTrigger({
       }}
       onClick={(event) => {
         onClick?.(event);
-        tooltip.pressed.current = true;
+        // Radix skips its toggle for a cancelled click, so nothing reads this.
+        if (!event.defaultPrevented) tooltip.pressed.current = true;
       }}
-    />
+    >
+      {child
+        ? cloneElement(child, { "aria-describedby": ariaDescribedBy })
+        : children}
+    </PopoverTrigger>
   );
 }
 
 export function TooltipContent({
   ref,
+  className,
   children,
   onPointerLeave,
   ...props
 }: Omit<
   ComponentProps<typeof PopoverContent>,
-  "onOpenAutoFocus" | "onCloseAutoFocus"
+  "onOpenAutoFocus" | "onCloseAutoFocus" | "sideOffset"
 >): JSX.Element {
   const tooltip = useTooltip("TooltipContent");
   return (
@@ -181,6 +209,13 @@ export function TooltipContent({
           tooltip.content.current = node;
           assignRef(ref, node);
         }}
+        // A transparent rim over PopoverContent's 4px sideOffset, so a pointer
+        // crossing the gap from the trigger is already on the note. One pixel
+        // more than the gap: at exactly 4px the subpixel seam hit <body>.
+        className={cn(
+          "relative before:absolute before:-inset-[5px] before:-z-10 before:content-['']",
+          className,
+        )}
         // The trigger already carries the hidden copy as its description.
         role="tooltip"
         aria-hidden={true}

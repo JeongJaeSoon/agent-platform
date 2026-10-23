@@ -120,6 +120,49 @@ describe("Tooltip", () => {
     await waitFor(() => expect(note()).toBeNull());
   });
 
+  test("기본 동작을 취소한 클릭 뒤에도 Esc로 닫힌다", async () => {
+    const user = await setupUser();
+    const { getByRole } = render(
+      <Tooltip>
+        <TooltipTrigger asChild={true}>
+          <button type="button" onClick={(event) => event.preventDefault()}>
+            취소
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>설명</TooltipContent>
+      </Tooltip>,
+    );
+    const note = () => document.querySelector('[data-slot="popover-content"]');
+    await user.click(getByRole("button", { name: "취소" }));
+    await waitFor(() => expect(note()).not.toBeNull());
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(note()).toBeNull());
+  });
+
+  test("자식이 가진 aria-describedby와 설명 id를 함께 둔다", () => {
+    const { getByRole } = render(
+      <>
+        <Tooltip>
+          <TooltipTrigger asChild={true}>
+            <button type="button" aria-describedby="existing-help">
+              도움
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>툴팁 설명</TooltipContent>
+        </Tooltip>
+      </>,
+    );
+    const ids = (
+      getByRole("button", { name: "도움" }).getAttribute("aria-describedby") ??
+      ""
+    ).split(" ");
+    expect(ids[0]).toBe("existing-help");
+    expect(ids).toHaveLength(2);
+    expect(document.getElementById(ids[1] ?? "")?.textContent).toBe(
+      "툴팁 설명",
+    );
+  });
+
   test("open을 넘기면 그 값대로 열려 있다", () => {
     render(
       <Tooltip open={true}>
