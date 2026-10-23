@@ -18,6 +18,7 @@ import type {
   SessionService,
   SessionShareService,
   SlackSecretService,
+  SurfaceBindingService,
   TeamService,
   UsageService,
 } from "@werft-ai/platform";
@@ -48,6 +49,7 @@ import { registerPushRequestRoutes } from "./routes/push-requests.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
 import { registerSessionShareRoutes } from "./routes/session-shares.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
+import { registerSlackBindingRoutes } from "./routes/slack-bindings.ts";
 import { registerSlackSecretRoutes } from "./routes/slack-secrets.ts";
 import { registerTeamRoutes } from "./routes/teams.ts";
 import { registerUsageRoutes } from "./routes/usage.ts";
@@ -96,6 +98,9 @@ function apiApp() {
       registerAgentRoutes(router, {} as AgentService);
       registerAgentIdentityRoutes(router, {
         service: {} as AgentIdentityService,
+      });
+      registerSlackBindingRoutes(router, {
+        service: {} as SurfaceBindingService,
       });
       registerLinkedAccountRoutes(router, {
         service: {} as LinkedAccountService,
