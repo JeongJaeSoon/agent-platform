@@ -173,9 +173,10 @@ const INVITES = [
   },
 ] as const;
 
-const ROLE_COLUMN = "w-[calc(120px+var(--ap-row-padding-x))]";
+const ROLE_COLUMN =
+  "w-[calc(120px+var(--ap-row-padding-x))] @max-md:w-[calc(64px+var(--ap-row-padding-x))]";
 const WIDE_ONLY = "@max-2xl:hidden";
-const ACTIONS = "w-[calc(var(--ap-row-action-min-width)+4rem)]";
+const ACTIONS = "w-[calc(var(--ap-row-action-min-width)+3.25rem)] text-right";
 
 /** Name that opens 구성원 편집 (role lives there, not in the row). */
 function NameButton({
@@ -190,7 +191,7 @@ function NameButton({
       type="button"
       className={cn(
         linkVariants(),
-        "block max-w-full truncate text-left font-semibold focus-visible:underline",
+        "block max-w-full truncate text-left font-medium focus-visible:underline",
       )}
       onClick={onClick}
     >

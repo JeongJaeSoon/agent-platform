@@ -66,10 +66,11 @@ const SECONDARY =
   "block text-muted-foreground text-xs [overflow-wrap:anywhere]";
 // Console v4 .t-mem: 1.6fr name, 120px role, 1.4fr agents, 1fr last active;
 // the actions column is v3's (rows only disable). Agents and last active
-// fold away when the table is narrow, as v4's tables do.
-const ROLE_COLUMN = "w-[calc(120px+var(--ap-row-padding-x))]";
+// fold away on a narrow table, as v4's tables do, and the role badges stack.
+const ROLE_COLUMN =
+  "w-[calc(120px+var(--ap-row-padding-x))] @max-md:w-[calc(64px+var(--ap-row-padding-x))]";
 const WIDE_ONLY = "@max-2xl:hidden";
-const ACTIONS = "w-[calc(var(--ap-row-action-min-width)+4rem)]";
+const ACTIONS = "w-[calc(var(--ap-row-action-min-width)+3.25rem)] text-right";
 const UNMEASURED = "text-muted-foreground text-xs";
 
 type Outcome =
@@ -347,8 +348,8 @@ function MemberTable({
                         type="button"
                         className={cn(
                           linkVariants(),
-                          PRIMARY,
-                          "flex min-w-0 max-w-full text-left",
+                          // v4 .strong: weight 500, not the list's 600.
+                          "flex min-w-0 max-w-full text-left font-medium group-data-[disabled=true]:text-muted-foreground",
                         )}
                         aria-label={t("members.editFor", {
                           name: member.display_name,
