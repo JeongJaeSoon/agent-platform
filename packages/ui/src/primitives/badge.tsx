@@ -7,19 +7,13 @@ import { cn } from "../foundations/cn.ts";
 /*
  * shadcn/ui new-york Badge, without `dark:` variants (see button.tsx). A badge
  * names a category; a status with meaning (running, paused…) is StatusLabel.
- * The five colour variants are console v35's badge tones; default, secondary,
- * destructive and outline stay until apps/web has moved to them.
+ * The five colour variants are console v35's badge tones.
  */
 export const badgeVariants = cva(
   "inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap h-5 rounded-full border px-2 font-medium text-caption transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 motion-reduce:transition-none [&>svg]:pointer-events-none [&>svg]:size-3",
   {
     variants: {
       variant: {
-        default: "border-transparent bg-primary text-primary-foreground",
-        secondary: "border-transparent bg-secondary text-secondary-foreground",
-        destructive:
-          "border-transparent bg-destructive text-destructive-foreground",
-        outline: "text-foreground",
         gray: "border-(color:--ap-tone-neutral-border) bg-(color:--ap-tone-neutral-bg) text-(color:--ap-tone-neutral-fg)",
         blue: "border-(color:--ap-tone-progress-border) bg-(color:--ap-tone-progress-bg) text-(color:--ap-tone-progress-fg)",
         green:
@@ -29,7 +23,7 @@ export const badgeVariants = cva(
         red: "border-(color:--ap-tone-danger-border) bg-(color:--ap-tone-danger-bg) text-(color:--ap-tone-danger-fg)",
       },
     },
-    defaultVariants: { variant: "default" },
+    defaultVariants: { variant: "gray" },
   },
 );
 

@@ -8,17 +8,7 @@ const meta = {
   argTypes: {
     variant: {
       control: "select",
-      options: [
-        "gray",
-        "blue",
-        "green",
-        "amber",
-        "red",
-        "default",
-        "secondary",
-        "destructive",
-        "outline",
-      ],
+      options: ["gray", "blue", "green", "amber", "red"],
     },
   },
 } satisfies Meta<typeof Badge>;
@@ -44,22 +34,5 @@ export const Tones: Story = {
 export const TonesDark: Story = {
   ...Tones,
   name: "Tones (dark)",
-  globals: { theme: "dark" },
-};
-
-export const Variants: Story = {
-  render: () => (
-    <div className="story-row">
-      <Badge>기본</Badge>
-      <Badge variant="secondary">보조</Badge>
-      <Badge variant="destructive">위험</Badge>
-      <Badge variant="outline">테두리</Badge>
-    </div>
-  ),
-};
-
-export const VariantsDark: Story = {
-  ...Variants,
-  name: "Variants (dark)",
   globals: { theme: "dark" },
 };
