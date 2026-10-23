@@ -251,23 +251,41 @@ describe("approval inbox", () => {
       ),
     );
     const inbox = await screen.findByRole("region", { name: "답변 대기" });
+    // The count sits beside the heading as a badge; no line of its own.
+    const badge = (await within(inbox).findByText("답을 기다리는 세션 2개"))
+      .parentElement as HTMLElement;
+    expect(badge.getAttribute("data-slot")).toBe("badge");
+    expect(badge.textContent).toBe("2답을 기다리는 세션 2개");
     expect(
-      await within(inbox).findByText("답을 기다리는 세션 2개"),
-    ).toBeTruthy();
+      badge.parentElement?.contains(
+        screen.getByRole("heading", { name: "답변 대기" }),
+      ),
+    ).toBe(true);
     expect(await screen.findByText("답변 대기 2개")).toBeTruthy();
     expect(
       within(inbox)
         .getByRole("link", { name: `세션 열기 ${SESSION_ID}` })
         .getAttribute("href"),
     ).toBe(`/sessions/${SESSION_ID}`);
-    expect(await within(inbox).findByText("권한 요청: Bash")).toBeTruthy();
-    const grid = within(inbox).getAllByRole("list")[0] as HTMLElement;
-    expect(grid.className).toContain("@[820px]:grid-cols-2");
-    expect(grid.className).toContain("items-stretch");
+    // The session link rides on the card's title line, not a line of its own.
+    const titleLine = (await within(inbox).findByText("권한 요청: Bash"))
+      .parentElement as HTMLElement;
+    expect(titleLine.textContent).toMatch(
+      new RegExp(`^권한 요청: Bash·${SESSION_ID.slice(0, 8)}…·.+까지$`),
+    );
+    expect(
+      titleLine.contains(
+        within(inbox).getByRole("link", { name: `세션 열기 ${SESSION_ID}` }),
+      ),
+    ).toBe(true);
+    // One column as wide as the session table below, 16px between blocks.
+    const list = within(inbox).getAllByRole("list")[0] as HTMLElement;
+    expect(list.className).not.toContain("grid-cols-2");
+    expect(list.className).toContain("gap-[var(--ap-space-block)]");
+    expect(inbox.parentElement?.className).toContain(
+      "gap-[var(--ap-space-block)]",
+    );
     expect(inbox.className).not.toContain("border");
-    const item = within(grid).getAllByRole("listitem")[0];
-    expect(item?.className).not.toContain("border");
-    expect(item?.className).toContain("[&_[data-slot=approval-card]]:h-full");
   });
 
   test("a longer first page reads as more, as the badge does", async () => {
@@ -275,7 +293,10 @@ describe("approval inbox", () => {
       "/sessions",
       waitingRoutes([summary(SESSION_ID, { status: "needs_input" })], "next"),
     );
-    expect(await screen.findByText("답을 기다리는 세션 1개 이상")).toBeTruthy();
+    const count = await screen.findByText("답을 기다리는 세션 1개 이상");
+    expect(count.parentElement?.textContent).toBe(
+      "1+답을 기다리는 세션 1개 이상",
+    );
     expect(await screen.findByText("답변 대기 1개 이상")).toBeTruthy();
   });
 

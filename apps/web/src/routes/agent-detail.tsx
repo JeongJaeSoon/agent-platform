@@ -16,7 +16,6 @@ import {
   Badge,
   Button,
   buttonVariants,
-  cn,
   Tabs,
   TabsContent,
   TabsList,
@@ -30,11 +29,12 @@ import { useRole } from "../auth/guard.tsx";
 import { AgentAdmins } from "../components/agent-admins.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
+import { Page } from "../components/page.tsx";
 import { RevisionDiff } from "../components/revision-diff.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 import { CardEditor } from "./agent-detail/card-editor.tsx";
-import { ALERT, ALERT_TITLE, MUTED } from "./agent-detail/classes.ts";
+import { ALERT, ALERT_TITLE } from "./agent-detail/classes.ts";
 import {
   Credentials,
   CredentialUnbound,
@@ -52,8 +52,6 @@ import { VersionHistory } from "./agent-detail/version-history.tsx";
 import { latestVersion } from "./agent-detail/versions.tsx";
 import { agentRefusal } from "./agents.tsx";
 
-const PAGE = "flex flex-col gap-6";
-const TITLE = "m-0 font-semibold text-title";
 const PANEL = "flex flex-col gap-8 pt-4";
 
 export const AGENT_TABS = ["overview", "card", "release", "admins"] as const;
@@ -122,9 +120,10 @@ function AgentDetailPage({ id }: { readonly id: string }) {
 function AgentNotFound() {
   const { t } = useI18n();
   return (
-    <div className={PAGE}>
-      <h1 className={TITLE}>{t("agent.notFound.title")}</h1>
-      <p className={MUTED}>{t("agent.notFound.body")}</p>
+    <Page
+      title={t("agent.notFound.title")}
+      description={t("agent.notFound.body")}
+    >
       <Link
         className={buttonVariants({
           variant: "outline",
@@ -134,7 +133,7 @@ function AgentNotFound() {
       >
         {t("agent.notFound.back")}
       </Link>
-    </div>
+    </Page>
   );
 }
 
@@ -446,20 +445,22 @@ function AgentView({
   );
 
   return (
-    <div className={PAGE}>
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className={cn(TITLE, "[overflow-wrap:anywhere]")}>
-              {agent.name}
-            </h1>
-            <Badge variant={agent.active_release_id ? "default" : "outline"}>
-              {agent.active_release_id
-                ? t(`agents.status.${agent.status}`)
-                : t("agents.state.notReleased")}
-            </Badge>
-          </div>
-          <p className={cn(MUTED, "text-control [overflow-wrap:anywhere]")}>
+    <Page
+      title={<span className="[overflow-wrap:anywhere]">{agent.name}</span>}
+      description={
+        <span className="flex flex-wrap items-center gap-2 [overflow-wrap:anywhere]">
+          <Badge
+            variant={
+              agent.active_release_id && agent.status === "active"
+                ? "green"
+                : "gray"
+            }
+          >
+            {agent.active_release_id
+              ? t(`agents.status.${agent.status}`)
+              : t("agents.state.notReleased")}
+          </Badge>
+          <span>
             {t("agents.slugLine", { slug: agent.slug })}
             {/* Without one, the badge already says so. */}
             {agent.active_release_id
@@ -467,8 +468,10 @@ function AgentView({
                   release: releaseLabel(agent.active_release_id),
                 })}`
               : null}
-          </p>
-        </div>
+          </span>
+        </span>
+      }
+      actions={
         <Link
           to="/agents"
           className={buttonVariants({ variant: "outline", size: "sm" })}
@@ -476,7 +479,8 @@ function AgentView({
           <ArrowLeft className="size-3.5" aria-hidden="true" />
           {t("agent.back")}
         </Link>
-      </header>
+      }
+    >
       <OutcomeLine outcome={placed?.at === "page" ? placed.outcome : null} />
       <div
         ref={layout.ref}
@@ -485,6 +489,6 @@ function AgentView({
       >
         {layout.narrow ? [panel, body] : [body, panel]}
       </div>
-    </div>
+    </Page>
   );
 }

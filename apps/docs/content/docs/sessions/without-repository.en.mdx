@@ -1,0 +1,24 @@
+---
+title: "Sessions without a repository"
+description: The current state of sessions that run without a repository
+---
+
+<Callout type="warn">
+Sessions that run without a repository cannot be created through the API yet. `POST /v1/sessions` requires `repository_id`, and an empty value is 400.
+</Callout>
+
+A run profile already records whether it uses a repository. `repository_mode` in `GET /v1/profiles` is one of `required` (a repository is required), `optional`, or `none` (no repository).
+
+```bash
+curl -sS "$API/v1/profiles" -H "Authorization: Bearer $KEY" | jq -c '.items[] | {id, repository_mode}'
+```
+
+```text
+{"id":"claude-coding-local","repository_mode":"required"}
+```
+
+Every profile in the local stack is `required`. For now, each session picks one repository ([Start](/sessions/start)).
+
+## Next steps
+
+- [Send](/messages/send): send a message to a session
