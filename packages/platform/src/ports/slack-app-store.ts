@@ -84,6 +84,16 @@ export interface SlackAppStore {
     created: CreatedSlackApp;
     tokenUserId: string;
   }): Promise<SlackAppRecord>;
+  /**
+   * Seals the bot token an install returned under the app, replacing an
+   * earlier one, and sets `bot_token_ref`. Null when the app is no longer
+   * `created`.
+   */
+  storeBotToken(input: {
+    workspaceId: string;
+    slackAppId: string;
+    botToken: string;
+  }): Promise<SlackAppRecord | null>;
   /** Slack refused the creation: no app exists. */
   failCreate(workspaceId: string, slackAppId: string): Promise<void>;
   find(workspaceId: string, slackAppId: string): Promise<SlackAppRecord | null>;

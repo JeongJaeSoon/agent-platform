@@ -449,6 +449,13 @@
       "when": 1792764661793,
       "tag": "0154_slack_apps",
       "breakpoints": true
+    },
+    {
+      "idx": 155,
+      "version": "7",
+      "when": 1792773722155,
+      "tag": "0155_slack_install_states",
+      "breakpoints": true
     }
   ]
 }
