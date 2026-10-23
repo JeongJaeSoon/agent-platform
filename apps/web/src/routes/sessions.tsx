@@ -31,7 +31,7 @@ import {
   TabsTrigger,
 } from "@werft-ai/ui";
 import { ArrowLeft, Plus, Search } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ReasonButton, useCan } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { Page } from "../components/page.tsx";
@@ -99,6 +99,7 @@ export function SessionsScreen() {
     sessionsSearch(useSearch({ from: "/authed/sessions" })).status ?? "all";
   const navigate = useNavigate({ from: "/sessions" });
   const [query, setQuery] = useState("");
+  const search = useRef<HTMLInputElement>(null);
   const pick = (next: string) =>
     void navigate({
       search: next === "all" ? {} : { status: next as SessionFilter },
@@ -106,9 +107,12 @@ export function SessionsScreen() {
       // would otherwise fill the back button with tab entries.
       replace: true,
     });
+  // The clear button leaves with the empty state, so focus would fall to
+  // the page; it goes back to the search box instead.
   const clear = () => {
     setQuery("");
     pick("all");
+    search.current?.focus();
   };
   return (
     <Page
@@ -148,6 +152,7 @@ export function SessionsScreen() {
                 aria-hidden="true"
               />
               <Input
+                ref={search}
                 type="search"
                 aria-label={t("sessionList.search")}
                 placeholder={t("sessionList.search")}

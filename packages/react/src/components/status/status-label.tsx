@@ -80,7 +80,7 @@ export function StatusLabel<A extends StatusAxis>({
           className={cn(
             "flex-none rounded-full",
             spinning
-              ? "size-2.5 animate-[spin_0.9s_linear_infinite] border-[1.5px] border-[var(--ap-color-status-dot-run,var(--ap-tone-fg))] border-r-transparent"
+              ? "size-2.5 animate-[ap-spin_0.9s_linear_infinite] border-[1.5px] border-[var(--ap-color-status-dot-run,var(--ap-tone-fg))] border-r-transparent"
               : cn("size-2", DOT_FILL[descriptor.tone]),
           )}
         />

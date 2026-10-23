@@ -566,6 +566,7 @@ describe("sessions list", () => {
     expect(screen.getByText("조건에 맞는 세션이 없습니다")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "필터 지우기" }));
     expect((search as HTMLInputElement).value).toBe("");
+    expect(document.activeElement === search).toBe(true);
     expect(screen.getByRole("link", { name: "README 정리" })).toBeTruthy();
   });
 
