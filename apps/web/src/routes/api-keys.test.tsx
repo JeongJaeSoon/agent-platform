@@ -208,18 +208,33 @@ describe("API key", () => {
   });
 
   test("두 화면은 같은 머리글 구조이고 하위 내비로 오간다", async () => {
-    renderAt(PERSONAL, { ...ownerOk, ...keysServer() });
+    renderAt(PERSONAL, {
+      ...ownerOk,
+      ...keysServer([key({ kind: "personal", agent_id: null })]),
+    });
     const nav = await screen.findByRole("navigation", { name: "key 목록" });
-    expect(
-      within(nav)
-        .getByRole("link", { name: "내 key" })
-        .getAttribute("aria-current"),
-    ).toBe("page");
+    // Counts wait for the list; the parent path is not current on its child.
+    const mine = await within(nav).findByRole("link", { name: "내 key 1개" });
+    const service = within(nav).getByRole("link", { name: "서비스 key 0개" });
+    expect(mine.getAttribute("aria-current")).toBe("page");
+    expect(service.getAttribute("aria-current")).toBeNull();
     const user = await setupUser();
-    await user.click(within(nav).getByRole("link", { name: "서비스 key" }));
+    await user.click(service);
     expect(
       await screen.findByRole("heading", { level: 1, name: "서비스 key" }),
     ).toBeDefined();
+    // The service screen draws its own tabs.
+    const after = screen.getByRole("navigation", { name: "key 목록" });
+    expect(
+      within(after)
+        .getByRole("link", { name: /^내 key/ })
+        .getAttribute("aria-current"),
+    ).toBeNull();
+    expect(
+      within(after)
+        .getByRole("link", { name: /^서비스 key/ })
+        .getAttribute("aria-current"),
+    ).toBe("page");
     expect(screen.getByRole("button", { name: "새 key" })).toBeDefined();
     expect(screen.getByText("아직 서비스 key가 없습니다.")).toBeDefined();
   });
