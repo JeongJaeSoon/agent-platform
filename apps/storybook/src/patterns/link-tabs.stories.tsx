@@ -171,7 +171,9 @@ const meta = {
   title: "Patterns/LinkTabs",
   component: LinkTabs,
   args: { "aria-label": COPY.ko.keys },
-  render: (_args, context) => <KeyTabs {...context} />,
+  // Only the globals: the whole context would send the docs source snippet
+  // into its circular references.
+  render: (_args, { globals }) => <KeyTabs globals={globals} />,
 } satisfies Meta<typeof LinkTabs>;
 
 export default meta;
@@ -187,7 +189,7 @@ export const DefaultDark: Story = {
 
 /** Session list filters: `?status=` links with demo counts. */
 export const SessionStatus: Story = {
-  render: (_args, context) => <SessionStatusTabs {...context} />,
+  render: (_args, { globals }) => <SessionStatusTabs globals={globals} />,
 };
 
 export const SessionStatusDark: Story = {
@@ -210,7 +212,7 @@ export const SessionStatusEnglish: Story = {
 
 /** More tabs than fit scroll sideways inside the nav; the page does not. */
 export const Overflow: Story = {
-  render: (_args, context) => <ManyTabs {...context} />,
+  render: (_args, { globals }) => <ManyTabs globals={globals} />,
   globals: { viewport: { value: "mobile390", isRotated: false } },
 };
 
