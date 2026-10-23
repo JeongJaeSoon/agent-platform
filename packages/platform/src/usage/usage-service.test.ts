@@ -1,12 +1,23 @@
 import { describe, expect, test } from "bun:test";
 import {
   installationLimitsResponseSchema,
+  scopesForRole,
   sessionUsageResponseSchema,
+  usageSummaryQuerySchema,
+  usageSummaryResponseSchema,
+  type WorkspaceRole,
 } from "@werft-ai/contracts";
 import { testCaller } from "@werft-ai/testkit/callers";
 import type { InstallationLimits } from "../limits/installation-limits.ts";
-import { createAuthorizationPolicy } from "../musterrolle/policy.ts";
-import type { SessionUsageRecord } from "../ports/usage-reader.ts";
+import {
+  type Caller,
+  callerFor,
+  createAuthorizationPolicy,
+} from "../musterrolle/policy.ts";
+import type {
+  SessionUsageRecord,
+  UsageSummaryFilter,
+} from "../ports/usage-reader.ts";
 import { SessionServiceError } from "../sessions/session-service.ts";
 import { createUsageService, decimalUsd } from "./usage-service.ts";
 
@@ -32,7 +43,45 @@ const record: SessionUsageRecord = {
   queuedInputCount: 0,
 };
 
-function service(session: SessionUsageRecord | null = record) {
+const WORKSPACE = crypto.randomUUID();
+const USER = crypto.randomUUID();
+const SERVICE_KEY_ID = crypto.randomUUID();
+
+function user(role: WorkspaceRole): Caller {
+  return callerFor(
+    {
+      kind: "user",
+      id: USER,
+      workspace_id: WORKSPACE,
+      role,
+      scopes: [...scopesForRole(role)],
+    },
+    { kind: "web" },
+    crypto.randomUUID(),
+  );
+}
+
+function serviceKey(): Caller {
+  return callerFor(
+    {
+      kind: "api_key",
+      id: SERVICE_KEY_ID,
+      owner_id: WORKSPACE,
+      workspace_id: WORKSPACE,
+      scopes: ["sessions:read"],
+    },
+    { kind: "api" },
+    crypto.randomUUID(),
+    { creatorId: null },
+  );
+}
+
+const asked: UsageSummaryFilter[] = [];
+
+function service(
+  session: SessionUsageRecord | null = record,
+  incompleteTurnCount = 0,
+) {
   return createUsageService({
     authorization: createAuthorizationPolicy(),
     limits,
@@ -45,9 +94,24 @@ function service(session: SessionUsageRecord | null = record) {
         storageUpdatedAt: null,
       }),
       sessionUsage: async () => session,
+      usageSummary: async (filter, period) => {
+        asked.push(filter);
+        return {
+          readAt,
+          until: period.until ?? readAt,
+          sessionCount: 3,
+          costUsd: "1.250000",
+          providerTokens: 42,
+          incompleteTurnCount,
+          runSeconds: 90,
+        };
+      },
     },
   });
 }
+
+const query = (scope: "installation" | "me") =>
+  usageSummaryQuerySchema.parse({ scope, since: "2026-10-01" });
 
 describe("decimalUsd", () => {
   test("prints a limit exactly, however small, without exponent notation", () => {
@@ -61,7 +125,7 @@ describe("decimalUsd", () => {
 
 describe("usage service", () => {
   test("a limit finer than the column survives into the contract", async () => {
-    const body = await service().getInstallationLimits();
+    const body = await service().getInstallationLimits(user("owner"));
     expect(installationLimitsResponseSchema.parse(body).limits).toMatchObject({
       session_cost_limit_usd: "0.0000005",
       execution_slot_limit: 0,
@@ -122,5 +186,71 @@ describe("usage service", () => {
       expect(parsed.cost_limit_usd).toBe(costLimit);
       expect(usage.budget_exceeded).toBe(false);
     }
+  });
+
+  test("installation figures are refused to anyone but the owner, before anything is read", async () => {
+    for (const caller of [
+      user("admin"),
+      user("member"),
+      serviceKey(),
+      testCaller(WORKSPACE),
+    ]) {
+      asked.length = 0;
+      for (const read of [
+        () => service().getInstallationLimits(caller),
+        () => service().getUsageSummary(caller, query("installation")),
+      ]) {
+        const error = await read().catch((caught: unknown) => caught);
+        expect(error).toBeInstanceOf(SessionServiceError);
+        expect((error as SessionServiceError).code).toBe("FORBIDDEN");
+      }
+      expect(asked).toEqual([]);
+    }
+    asked.length = 0;
+    await service().getUsageSummary(user("owner"), query("installation"));
+    expect(asked).toEqual([{ kind: "installation" }]);
+  });
+
+  test("scope=me sums what the caller started: a person's, else the key's", async () => {
+    asked.length = 0;
+    await service().getUsageSummary(user("member"), query("me"));
+    await service().getUsageSummary(serviceKey(), query("me"));
+    expect(asked).toEqual([
+      { kind: "user", ownerId: WORKSPACE, userId: USER },
+      { kind: "api_key", ownerId: WORKSPACE, apiKeyId: SERVICE_KEY_ID },
+    ]);
+    const error = await service()
+      .getUsageSummary(testCaller(WORKSPACE), query("me"))
+      .catch((caught: unknown) => caught);
+    expect((error as SessionServiceError).code).toBe("FORBIDDEN");
+  });
+
+  test("the summary echoes the period on UTC and is incomplete while any turn is", async () => {
+    const complete = usageSummaryResponseSchema.parse(
+      await service().getUsageSummary(user("member"), query("me")),
+    );
+    expect(complete).toEqual({
+      scope: "me",
+      period: {
+        since: "2026-10-01T00:00:00.000Z",
+        until: readAt.toISOString(),
+      },
+      refreshed_at: readAt.toISOString(),
+      session_count: 3,
+      cost_usd: "1.250000",
+      cost_complete: true,
+      token_count: 42,
+      run_seconds: 90,
+      basis: {
+        sessions: "created_in_period",
+        cost: "provider_usage_estimate",
+        run_time: "turn_wall_clock",
+      },
+    });
+    const open = await service(record, 1).getUsageSummary(
+      user("member"),
+      query("me"),
+    );
+    expect(open.cost_complete).toBe(false);
   });
 });

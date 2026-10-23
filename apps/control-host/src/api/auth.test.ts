@@ -1137,6 +1137,8 @@ describe("login, logout, me", () => {
     ]);
     expect(permissionsOf("admin")).toContain("team.manage");
     expect(permissionsOf("admin")).not.toContain("audit_retention.manage");
+    expect(permissionsOf("admin")).not.toContain("usage.installation_read");
+    expect(permissionsOf("owner")).toContain("usage.installation_read");
     expect(permissionsOf("owner")).toContain("audit_retention.manage");
   });
 

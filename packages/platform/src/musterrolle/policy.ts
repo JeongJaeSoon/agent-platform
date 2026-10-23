@@ -231,6 +231,7 @@ export const MANAGEMENT_ROLES: Partial<
   "binding.manage": ["owner", "admin"],
   "session.audit_read": ["owner", "admin"],
   "session.admin_list": ["owner", "admin"],
+  "usage.installation_read": ["owner"],
 };
 
 const WORKSPACE_MANAGERS: readonly WorkspaceRole[] = ["owner", "admin"];

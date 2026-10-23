@@ -1,6 +1,6 @@
 import type { TurnStatus } from "@werft-ai/contracts";
-import type { UsageReader } from "@werft-ai/platform";
-import { and, eq, inArray, isNull, not, type SQL, sql } from "drizzle-orm";
+import type { UsageReader, UsageSummaryFilter } from "@werft-ai/platform";
+import { and, eq, inArray, isNull, not, or, type SQL, sql } from "drizzle-orm";
 import { INSTALLATION_STORAGE_SCOPE } from "./input-limits.ts";
 import type { Database } from "./queries.ts";
 import { sessions, storageUsage, turns, workerLaunches } from "./schema.ts";
@@ -24,6 +24,38 @@ const costReported = sql`(${turns.resultJson} ->> 'cost_usd') IS NOT NULL`;
 // terminate or close. A legacy row without timestamps that ended any other
 // way still counts as unreported.
 const neverRan = sql`(${turns.status} = 'cancelled' AND ${turns.startedAt} IS NULL AND ${turns.attemptId} IS NULL AND NOT ${turns.outcomeUnknown})`;
+
+// The turns that keep a session usage's `cost.complete` false.
+const incomplete = or(
+  and(inArray(turns.status, ENDED), not(costReported), not(neverRan)),
+  inArray(turns.status, OPEN),
+);
+// Wall clock from start to end; an open turn runs until the read.
+const runSeconds = sql`greatest(extract(epoch FROM (CASE WHEN ${inArray(turns.status, OPEN)} THEN now() ELSE ${turns.endedAt} END) - ${turns.startedAt}), 0)`;
+const ran = and(
+  sql`${turns.startedAt} IS NOT NULL`,
+  or(
+    inArray(turns.status, OPEN),
+    and(inArray(turns.status, ENDED), sql`${turns.endedAt} IS NOT NULL`),
+  ),
+);
+
+function startedBy(filter: UsageSummaryFilter): SQL | undefined {
+  switch (filter.kind) {
+    case "installation":
+      return undefined;
+    case "user":
+      return and(
+        eq(sessions.ownerId, filter.ownerId),
+        eq(sessions.createdByUserId, filter.userId),
+      );
+    case "api_key":
+      return and(
+        eq(sessions.ownerId, filter.ownerId),
+        eq(sessions.createdByApiKeyId, filter.apiKeyId),
+      );
+  }
+}
 
 function counted(condition: SQL | undefined) {
   return sql<number>`count(${turns.id}) FILTER (WHERE ${condition})`.mapWith(
@@ -86,6 +118,57 @@ export function createPostgresUsageReader(db: Database): UsageReader {
         .where(and(eq(sessions.id, sessionId), eq(sessions.ownerId, ownerId)))
         .groupBy(sessions.id);
       return row ?? null;
+    },
+
+    async usageSummary(filter, period) {
+      const until = period.until
+        ? sql`${period.until.toISOString()}::timestamptz`
+        : sql`now()`;
+      const picked = db.$with("picked").as(
+        db
+          .select({
+            id: sessions.id,
+            costUsd: sessions.costUsd,
+            providerTokens: sessions.providerTokens,
+          })
+          .from(sessions)
+          .where(
+            and(
+              sql`${sessions.createdAt} >= ${period.since.toISOString()}::timestamptz`,
+              sql`${sessions.createdAt} < ${until}`,
+              startedBy(filter),
+            ),
+          ),
+      );
+      const pickedTurns = inArray(
+        turns.sessionId,
+        db.select({ id: picked.id }).from(picked),
+      );
+      const [row] = await db
+        .with(picked)
+        .select({
+          readAt: sql<Date>`now()`.mapWith((value) => new Date(value)),
+          until: sql<Date>`${until}`.mapWith((value) => new Date(value)),
+          sessionCount: sql<number>`count(*)`.mapWith(Number),
+          costUsd: sql<string>`coalesce(sum(${picked.costUsd}), 0)::text`,
+          providerTokens:
+            sql<number>`coalesce(sum(${picked.providerTokens}), 0)`.mapWith(
+              Number,
+            ),
+          incompleteTurnCount: sql<number>`(${db
+            .select({ count: sql`count(*)` })
+            .from(turns)
+            .where(and(pickedTurns, incomplete))})`.mapWith(Number),
+          runSeconds: sql<number>`(${db
+            .select({
+              seconds: sql`coalesce(floor(sum(${runSeconds})), 0)`,
+            })
+            .from(turns)
+            .where(and(pickedTurns, ran))})`.mapWith(Number),
+        })
+        .from(picked);
+      if (!row) throw new Error("usage summary read returned no row");
+      return row;
     },
   };
 }
