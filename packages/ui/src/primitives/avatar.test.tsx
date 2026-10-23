@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { useId } from "react";
 
 import { setupDom } from "../test-support/dom.ts";
 import { Avatar } from "./avatar.tsx";
@@ -24,12 +25,16 @@ describe("Avatar", () => {
   });
 
   test("aria-labelledby를 넘겨도 이름은 label이다", () => {
-    const { getByRole, queryByRole } = render(
-      <>
-        <span id="other">다른 이름</span>
-        <Avatar initials="JS" label="정재순" aria-labelledby="other" />
-      </>,
-    );
+    function Labelled() {
+      const other = useId();
+      return (
+        <>
+          <span id={other}>다른 이름</span>
+          <Avatar initials="JS" label="정재순" aria-labelledby={other} />
+        </>
+      );
+    }
+    const { getByRole, queryByRole } = render(<Labelled />);
     expect(getByRole("img", { name: "정재순" }).textContent).toBe("JS");
     expect(queryByRole("img", { name: "다른 이름" })).toBeNull();
   });
