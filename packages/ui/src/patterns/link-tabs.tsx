@@ -49,7 +49,11 @@ export function LinkTabs({
 type ChildProps = { readonly children?: unknown };
 
 export type LinkTabProps = ComponentProps<"a"> & {
-  /** The tab of the screen being shown; the caller matches the route. */
+  /**
+   * The tab of the screen being shown; the caller matches the route. A router
+   * link sets its own `aria-current` when it counts as active (TanStack does
+   * for a parent path too), so give such a link exact matching.
+   */
   readonly current?: boolean | undefined;
   /** Drawn in a badge after the label, 0 included; omit for no badge. */
   readonly count?: number | undefined;
