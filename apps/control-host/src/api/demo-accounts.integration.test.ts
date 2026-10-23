@@ -110,6 +110,33 @@ integration("seedDemoAccounts on PostgreSQL", () => {
     expect(row?.hash).toBe(changed);
   });
 
+  test("seeding beside a bootstrap waits for it and refuses instead of recovering", async () => {
+    // Holds bootstrap's lock while a user appears and its owner goes away:
+    // the state recovery would act on.
+    const holder = await pool.connect();
+    try {
+      await holder.query("BEGIN");
+      await holder.query(
+        "SELECT pg_advisory_xact_lock(hashtext('auth.bootstrap'))",
+      );
+      const seeding = seedDemoAccounts(db);
+      await Bun.sleep(200);
+      const id = randomUUID();
+      await holder.query(
+        "INSERT INTO users (id, email, display_name, disabled_at) VALUES ($1, 'someone@example.test', 'Someone', now())",
+        [id],
+      );
+      await holder.query("COMMIT");
+      await expect(seeding).rejects.toThrow(
+        "the installation has users but no live owner",
+      );
+    } finally {
+      holder.release();
+    }
+    expect(await roles()).toEqual(["someone@example.test:null"]);
+    expect(await db.select().from(schema.workspaces)).toHaveLength(0);
+  });
+
   test("users without a live owner are refused instead of recovered", async () => {
     await otherOwner();
     await db.update(users).set({ disabledAt: new Date() });

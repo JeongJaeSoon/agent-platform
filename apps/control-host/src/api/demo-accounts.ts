@@ -12,7 +12,7 @@ import {
 import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
 import { createLogger } from "@werft-ai/observability";
 import { callerFor, INVITE_TTL_MS } from "@werft-ai/platform";
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import {
   generateWebSessionToken,
@@ -137,24 +137,35 @@ export async function seedDemoAccounts(
       outcomes.push({ email: account.email, outcome: "exists" });
       continue;
     }
-    if (account.role === "owner" && (await countUsers(db)) === 0) {
-      await bootstrapOwner(db, {
-        userId: randomUUID(),
-        email: account.email,
-        passwordHash,
-        displayName: account.displayName,
-        workspaceId: randomUUID(),
-        workspaceSlug: "demo",
-        workspaceName: "Demo",
-        // No BOOTSTRAP_TOKEN was presented; a fresh value spends nothing.
-        bootstrapTokenHash: hashWebSessionToken(
-          randomBytes(32).toString("base64url"),
-        ),
-        receiptId: randomUUID(),
-        loginMethodId: randomUUID(),
+    if (account.role === "owner") {
+      // Emptiness is re-read under bootstrap's own lock: a user arriving in
+      // between would turn bootstrapOwner into recovery.
+      const bootstrapped = await db.transaction(async (tx) => {
+        await tx.execute(
+          sql`SELECT pg_advisory_xact_lock(hashtext('auth.bootstrap'))`,
+        );
+        if ((await countUsers(tx)) > 0) return false;
+        await bootstrapOwner(tx, {
+          userId: randomUUID(),
+          email: account.email,
+          passwordHash,
+          displayName: account.displayName,
+          workspaceId: randomUUID(),
+          workspaceSlug: "demo",
+          workspaceName: "Demo",
+          // No BOOTSTRAP_TOKEN was presented; a fresh value spends nothing.
+          bootstrapTokenHash: hashWebSessionToken(
+            randomBytes(32).toString("base64url"),
+          ),
+          receiptId: randomUUID(),
+          loginMethodId: randomUUID(),
+        });
+        return true;
       });
-      outcomes.push({ email: account.email, outcome: "created" });
-      continue;
+      if (bootstrapped) {
+        outcomes.push({ email: account.email, outcome: "created" });
+        continue;
+      }
     }
     const owner = await liveOwner(db, DEMO_ACCOUNTS[0].email);
     if (!owner) {
