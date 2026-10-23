@@ -2319,11 +2319,18 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Linked accounts",
     summary: "Start linking the caller's Slack account",
     description:
-      "Returns Slack's consent URL and sets a one-time state cookie for the callback, valid ten minutes. Scopes are `openid profile`; no email is requested. Refused with 409 when the workspace has no verified Slack install. API keys are refused.",
+      "Returns Slack's consent URL and sets a one-time state cookie for the callback, valid ten minutes. Scopes are `openid profile`; no email is requested. The consent is for the workspace's link app; a workspace without one gets it made now with its App Configuration Token (once: concurrent starts share it), unless the installation names a fallback OIDC app. Refused with 409 when the workspace has no verified Slack install, or nothing to link with. API keys are refused.",
     auth: "session",
     success: { status: 200, schema: "StartSlackLinkResponse" },
     errors: [401, 403, 409, 503],
-    errorCodes: { 409: ["SLACK_NOT_INSTALLED"] },
+    errorCodes: {
+      409: [
+        "SLACK_NOT_INSTALLED",
+        "SLACK_LINK_NOT_CONFIGURED",
+        "SLACK_APP_CREATING",
+        "REVISION_CONFLICT",
+      ],
+    },
     idempotent: false,
   },
   {

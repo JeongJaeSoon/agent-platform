@@ -94,6 +94,8 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
   CONFIG_TOKEN_INVALID:
     "Slack App Configuration Token을 쓸 수 없어요 — owner·admin이 새 token을 붙여 넣으세요.",
   SLACK_APP_CREATING: "Slack 앱을 만드는 중이에요 — 잠시 뒤 다시 확인하세요.",
+  SLACK_LINK_NOT_CONFIGURED:
+    "Slack 계정 연결을 아직 쓸 수 없어요 — 워크스페이스 관리자에게 Slack 연결 설정을 요청하세요.",
   AGENT_NOT_ACTIVE:
     "활성 release가 없는 에이전트예요 — release를 활성화한 뒤 다시 시도하세요.",
 };

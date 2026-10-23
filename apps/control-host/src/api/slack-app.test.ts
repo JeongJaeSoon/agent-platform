@@ -63,15 +63,36 @@ describe("slack-app command line", () => {
       ]),
     ).toEqual({
       command: "create",
+      kind: "agent",
       workspaceId: WORKSPACE,
       agentId: AGENT,
       replaceUncertain: true,
     });
   });
 
+  test("parses create --kind link with no agent", () => {
+    expect(
+      parseSlackAppCommand([
+        "create",
+        "--kind",
+        "link",
+        "--workspace",
+        WORKSPACE.toUpperCase(),
+      ]),
+    ).toEqual({
+      command: "create",
+      kind: "link",
+      workspaceId: WORKSPACE,
+      replaceUncertain: false,
+    });
+  });
+
   test.each([
     [[]],
     [["create", "--workspace", WORKSPACE]],
+    [["create", "--kind", "link", "--workspace", WORKSPACE, "--agent", AGENT]],
+    [["create", "--kind", "manual", "--workspace", WORKSPACE]],
+    [["create", "--kind", "link"]],
     [["delete", "--workspace", WORKSPACE, "--agent", AGENT]],
     [["create", "--workspace", "nope", "--agent", AGENT]],
     [["create", "--workspace", WORKSPACE, "--agent"]],
