@@ -18,9 +18,12 @@ on:
       - .github/workflows/ui-release.yml
   workflow_dispatch:
 
-# Read-only for every job but `publish`: a pull request can edit this file,
-# so a token with package write in the PR job would let a branch publish
-# before merge.
+# Read-only for every job but `publish`: a token with package write in the PR
+# job would let a branch publish before merge. This file is not the whole
+# boundary: a branch of this repository can edit it and ask for package write
+# itself, as it can with images.yml. What holds is who may push branches,
+# review before merge, and, once the package exists, its Actions access
+# limited to this repository (packages/ui/README.md, 릴리스 절차).
 permissions:
   contents: read
 

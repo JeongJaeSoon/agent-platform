@@ -120,6 +120,11 @@ main에 있을 때만 돌고, `release` environment의 필수 승인자가 승�
 
 `ui-v*` 태그는 `images.yml`(`v*` 태그)을 시작하지 않는다. `tests/ui-release.test.ts`가 이 게이트를 검사한다.
 
+이 게이트는 워크플로 파일 안의 조건이다. 이 저장소의 브랜치는 PR에서 워크플로를 고쳐 job에 `packages: write`를 직접 요청할 수
+있으므로(`images.yml`도 같다), 파일만으로는 머지 전 게시를 막지 못한다. 막는 것은 저장소 설정이다. 브랜치를 push할 수 있는
+사람(저장소 write 권한)을 좁게 두고 PR은 리뷰 뒤에 머지한다. 첫 게시 뒤에는 패키지 설정의 Manage Actions access를 이 저장소로
+한정한다. 모두 사람이 하는 설정이다.
+
 ## 토큰
 
 색·간격·타이포·radius·shadow·모션은 `src/foundations/tokens.css` **한 곳**에만 있다. 라이트가 기본이고,

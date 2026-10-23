@@ -5,7 +5,13 @@ import { join } from "node:path";
 // The publish gate of ui-release.yml: nothing but a pushed ui-v* tag, approved
 // in the `release` environment, reaches a token that can write packages.
 
-type Step = { uses?: string; run?: string; name?: string; if?: string };
+type Step = {
+  uses?: string;
+  run?: string;
+  name?: string;
+  if?: string;
+  "continue-on-error"?: boolean;
+};
 type Job = {
   if?: string;
   needs?: string | string[];
@@ -46,9 +52,23 @@ describe("ui-release.yml", () => {
     // the first run, unprotected.
     expect(publish?.environment).toBe("release");
     expect(publish?.needs).toBe("build");
-    expect(runs(publish as Job)).toContain(
-      'git merge-base --is-ancestor "$GITHUB_SHA" origin/main',
+    // Runs unconditionally, fails the job, and comes before the publish.
+    const onMain = publish?.steps.findIndex((step) =>
+      step.run?.includes(
+        'if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then',
+      ),
     );
+    const step = publish?.steps[onMain ?? -1];
+    expect(step?.run).toContain("exit 1");
+    expect(step?.if).toBeUndefined();
+    expect(step?.["continue-on-error"]).toBeUndefined();
+    const publishAt = publish?.steps.findIndex((s) =>
+      s.run?.includes("npm publish"),
+    );
+    expect(onMain).toBeGreaterThanOrEqual(0);
+    expect(publishAt).toBeGreaterThan(onMain ?? Infinity);
+    for (const s of publish?.steps ?? [])
+      expect(s["continue-on-error"]).toBeUndefined();
   });
 
   test("only publish holds package write, and only publish publishes", () => {
@@ -93,13 +113,16 @@ describe("ui-release.yml", () => {
     }
   });
 
-  // images.yml publishes on v* tags; a ui-v* tag must not start it.
-  test("images.yml does not take ui-v* tags", () => {
-    const images = Bun.YAML.parse(read(".github/workflows/images.yml")) as {
-      on: { push: { tags: string[] } };
-    };
-    for (const pattern of images.on.push.tags) {
-      expect(new Bun.Glob(pattern).match("ui-v0.1.0")).toBe(false);
-    }
+  // images.yml publishes on v* tags and ci.yml builds only main; a ui-v* tag
+  // must start neither.
+  test("a ui-v* tag starts no other push workflow", () => {
+    const pushOf = (file: string) =>
+      (Bun.YAML.parse(read(file)) as { on: { push: unknown } }).on.push;
+    expect(pushOf(".github/workflows/images.yml")).toEqual({
+      branches: ["main"],
+      tags: ["v*"],
+    });
+    expect(new Bun.Glob("v*").match("ui-v0.1.0")).toBe(false);
+    expect(pushOf(".github/workflows/ci.yml")).toEqual({ branches: ["main"] });
   });
 });
