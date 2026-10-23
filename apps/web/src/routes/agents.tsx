@@ -8,6 +8,7 @@ import {
   type BadgeProps,
   buttonVariants,
   cn,
+  EmptyState,
   formatTimestamp,
 } from "@werft-ai/ui";
 import { agentsQuery } from "../api/queries.ts";
@@ -110,7 +111,7 @@ export function AgentsScreen() {
           />
         )
       ) : agents.data.items.length === 0 ? (
-        <p className="web-page__empty">{t("agents.empty")}</p>
+        <EmptyState title={t("agents.empty")} />
       ) : (
         <div className="@container overflow-hidden rounded-card border bg-card">
           <Table>
