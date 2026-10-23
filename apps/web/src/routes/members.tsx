@@ -201,13 +201,22 @@ export function MembersScreen() {
 
 /** The 초대 tab: invites still waiting to be accepted. */
 export function InvitesScreen() {
+  const { client } = useAgentPlatform();
   const manages = useHasPermission("member.manage");
+  const members = useQuery({ ...membersQuery(client), enabled: manages });
   const [outcome, setOutcome] = useState<Outcome | null>(null);
 
   if (!manages) return null;
 
   return (
     <div className="flex flex-col gap-[var(--ap-space-block)]">
+      {/* The invite button in the head waits on this list; say why it is gone. */}
+      {members.isError && !isApiError(members.error, "FORBIDDEN") ? (
+        <LoadFailure
+          error={members.error}
+          onRetry={() => void members.refetch()}
+        />
+      ) : null}
       <OutcomeNote outcome={outcome} />
       <InviteList onOutcome={setOutcome} />
     </div>

@@ -698,6 +698,28 @@ describe("구성원 · 팀 · 초대 탭", () => {
     expect(screen.queryByRole("region", { name: "구성원 표" })).toBeNull();
   });
 
+  test("초대 탭에서 구성원 목록을 못 불러오면 초대 버튼 대신 오류와 다시 시도를 보인다", async () => {
+    const user = await setupUser();
+    let fail = true;
+    renderAt("/members/invites", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": () =>
+        fail
+          ? apiError(500, "INTERNAL", "boom")
+          : json(200, { items: [owner] }),
+      "GET /v1/invites": () => json(200, { items: [pendingInvite] }),
+    });
+    expect(await screen.findByText("late@example.com")).toBeDefined();
+    const retry = await screen.findByRole("button", { name: "다시 시도" });
+    expect(screen.queryByRole("button", { name: "구성원 초대" })).toBeNull();
+    fail = false;
+    await user.click(retry);
+    expect(
+      await screen.findByRole("button", { name: "구성원 초대" }),
+    ).toBeDefined();
+    expect(screen.queryByRole("button", { name: "다시 시도" })).toBeNull();
+  });
+
   test("관리 권한이 없으면 팀 탭만 보인다", async () => {
     renderAt("/members/teams", {
       "GET /v1/auth/me": () => json(200, memberMe()),
