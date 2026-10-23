@@ -10,6 +10,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
+import * as ts from "typescript";
 import { webUiAllowlist } from "./web-ui-allowlist.ts";
 
 const root = join(import.meta.dir, "..");
@@ -284,6 +285,31 @@ export async function webBoundaryViolations(
   return offenders.sort();
 }
 
+/** Parsed rather than matched, so comments, strings and JSX text never pass for code. */
+async function parse(file: string): Promise<ts.SourceFile> {
+  return ts.createSourceFile(
+    file,
+    await readFile(file, "utf8"),
+    ts.ScriptTarget.Latest,
+    false,
+    file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
+}
+
+function walk(node: ts.Node, visit: (node: ts.Node) => void): void {
+  visit(node);
+  ts.forEachChild(node, (child) => walk(child, visit));
+}
+
+function isExported(node: ts.Node): boolean {
+  return (
+    ts.canHaveModifiers(node) &&
+    (ts.getModifiers(node) ?? []).some(
+      (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword,
+    )
+  );
+}
+
 /**
  * PascalCase value names a workspace package exports, read statically from
  * each script entry of its manifest's `exports` and the `export *` chains
@@ -298,25 +324,31 @@ export async function exportedComponentNames(
   const visit = async (file: string): Promise<void> => {
     if (seen.has(file)) return;
     seen.add(file);
-    const source = withoutComments(await readFile(file, "utf8"));
-    for (const match of source.matchAll(
-      /export\s*\*\s*from\s*["']([^"']+)["']/g,
-    ))
-      if (match[1]?.startsWith(".")) await visit(moduleFile(file, match[1]));
-    for (const match of source.matchAll(/export\s*(type\b\s*)?\{([^}]*)\}/g)) {
-      if (match[1]) continue;
-      for (const item of (match[2] ?? "").split(",")) {
-        const name = item.trim();
-        if (!name || name.startsWith("type ")) continue;
-        names.add(name.split(/\s+as\s+/).pop() ?? name);
+    for (const statement of (await parse(file)).statements) {
+      if (ts.isExportDeclaration(statement)) {
+        if (statement.isTypeOnly) continue;
+        const clause = statement.exportClause;
+        const from = statement.moduleSpecifier;
+        if (!clause && from && ts.isStringLiteral(from)) {
+          if (from.text.startsWith("."))
+            await visit(moduleFile(file, from.text));
+        } else if (clause && ts.isNamedExports(clause)) {
+          for (const element of clause.elements)
+            if (!element.isTypeOnly) names.add(element.name.text);
+        }
+      } else if (isExported(statement)) {
+        if (
+          (ts.isFunctionDeclaration(statement) ||
+            ts.isClassDeclaration(statement)) &&
+          statement.name
+        )
+          names.add(statement.name.text);
+        if (ts.isVariableStatement(statement))
+          for (const declaration of statement.declarationList.declarations)
+            if (ts.isIdentifier(declaration.name))
+              names.add(declaration.name.text);
       }
     }
-    for (const match of source.matchAll(
-      /export\s+(?:declare\s+)?(?:async\s+)?(?:function\*?|const|let|var|class)\s+([A-Za-z_$][\w$]*)/g,
-    ))
-      names.add(match[1] ?? "");
-    for (const match of source.matchAll(laterDeclarator))
-      names.add(match[1] ?? "");
   };
   const { exports } = JSON.parse(
     await readFile(join(directory, "package.json"), "utf8"),
@@ -356,31 +388,6 @@ function moduleFile(from: string, specifier: string): string {
   ])
     if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
   throw new Error(`${from}: cannot resolve export * from "${specifier}"`);
-}
-
-function withoutComments(source: string): string {
-  return source
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/(^|\s)\/\/.*$/gm, "$1");
-}
-
-/**
- * The second and later bindings of `const a = 1, Card = () => ...`. Only a
- * function value counts, so a destructured default (`{ Input = Default }`)
- * that injects a component is not a definition.
- */
-const laterDeclarator =
-  /,\s*([A-Z][\w$]*)\s*(?::[^=,;()]+)?=\s*(?:\(|async\b|function\b|[\w$.]*(?:memo|forwardRef)\()/g;
-
-/**
- * Quoted strings blanked out, for rules that look for JSX rather than text. A
- * quote right after a letter is an apostrophe in JSX text (Don't), not one.
- */
-function withoutStrings(source: string): string {
-  return source.replace(
-    /(?<![\w$\\])(?:"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*')/g,
-    '""',
-  );
 }
 
 /** Count of each web UI rule's matches, per file relative to apps/web/src. */
@@ -429,37 +436,56 @@ export async function webUiViolations(
     const name = relative(directory, file);
     if (entry.name.endsWith(".css")) {
       // Every mention, so an attribute selector ([class~="web-x"]) counts too.
-      const css = withoutComments(await readFile(file, "utf8"));
+      const css = (await readFile(file, "utf8")).replace(
+        /\/\*[\s\S]*?\*\//g,
+        "",
+      );
       add(name, "legacy-class", [...css.matchAll(legacyClass)].length);
       continue;
     }
     if (!/\.tsx?$/.test(entry.name) || isTestFile(file)) continue;
-    const source = withoutComments(await readFile(file, "utf8"));
-    const count = (pattern: RegExp) => [...source.matchAll(pattern)].length;
-    const code = withoutStrings(source);
-    const countCode = (pattern: RegExp) => [...code.matchAll(pattern)].length;
-    add(name, "raw-table", countCode(/<table(?=[\s>/])/g));
-    add(name, "raw-anchor", countCode(/<a(?=[\s>/])/g));
-    add(
-      name,
-      "shadow-component",
-      [
-        ...code.matchAll(
-          /\b(?:function\*?|const|let|var|class)\s+([A-Z][\w$]*)/g,
-        ),
-        ...code.matchAll(laterDeclarator),
-      ].filter((match) => components.has(match[1] ?? "")).length,
-    );
-    add(name, "legacy-class", count(legacyClass));
-    // A string of link classes, not a URL constant (HELP_LINK = "#help").
-    add(
-      name,
-      "link-constant",
-      count(
-        /(?:\bconst\s+|,\s*)[A-Z0-9_]*LINK[A-Z0-9_]*\s*(?::[^=]+)?=\s*(["'`])(?=(?:(?!\1)[\s\S])*?(?:\btext-|\bunderline\b))/g,
-      ),
-    );
-    add(name, "raw-destructive", count(/(?<![\w-])text-destructive(?![\w-])/g));
+    walk(await parse(file), (node) => {
+      if (
+        (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) &&
+        ts.isIdentifier(node.tagName)
+      ) {
+        if (node.tagName.text === "table") add(name, "raw-table", 1);
+        if (node.tagName.text === "a") add(name, "raw-anchor", 1);
+      }
+      if (
+        (ts.isFunctionDeclaration(node) ||
+          ts.isClassDeclaration(node) ||
+          ts.isVariableDeclaration(node)) &&
+        node.name &&
+        ts.isIdentifier(node.name) &&
+        components.has(node.name.text)
+      )
+        add(name, "shadow-component", 1);
+      if (
+        ts.isStringLiteralLike(node) ||
+        ts.isTemplateHead(node) ||
+        ts.isTemplateMiddle(node) ||
+        ts.isTemplateTail(node)
+      ) {
+        add(name, "legacy-class", [...node.text.matchAll(legacyClass)].length);
+        add(
+          name,
+          "raw-destructive",
+          [...node.text.matchAll(/(?<![\w-])text-destructive(?![\w-])/g)]
+            .length,
+        );
+      }
+      // A string of link classes, not a URL constant (HELP_LINK = "#help").
+      if (
+        ts.isVariableDeclaration(node) &&
+        ts.isIdentifier(node.name) &&
+        /^[A-Z0-9_]*LINK[A-Z0-9_]*$/.test(node.name.text) &&
+        node.initializer &&
+        ts.isStringLiteralLike(node.initializer) &&
+        /\btext-|\bunderline\b/.test(node.initializer.text)
+      )
+        add(name, "link-constant", 1);
+    });
   }
   return counts;
 }
@@ -1210,6 +1236,9 @@ describe("architecture", () => {
           "  text-primary hover:underline",
           "`;",
           "const Help = () => <><p>Don't worry.</p><a href=\"/help\">Help</a><p>It's fine.</p></>;",
+          'const Quoted = () => <p>See "<a href={url}>help</a>" for details.</p>;',
+          'const Upload = () => <><input accept="image/*" /><a href={url}>Help</a>{/* hint */}</>;',
+          "const help2 = `<a> or <table>`;",
           "const unrelated = 0, Second = () => <div />;",
           "function APIError() { return <a/>; }",
         ].join("\n"),
@@ -1225,7 +1254,7 @@ describe("architecture", () => {
         ),
       ).toEqual({
         "dirty.tsx": {
-          "raw-anchor": 2,
+          "raw-anchor": 4,
           "shadow-component": 2,
           "link-constant": 3,
         },
