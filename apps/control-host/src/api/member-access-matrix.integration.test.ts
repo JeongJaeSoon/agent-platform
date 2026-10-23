@@ -296,14 +296,41 @@ integration("who may disable a member or suspend an account", () => {
     ).not.toBeNull();
   });
 
+  test("an admin cannot suspend or lift the account of an owner whose membership is disabled", async () => {
+    const { workspaceId, people } = await workspaceWith([
+      { role: "admin" },
+      { role: "owner" },
+      { role: "owner", disabled: true },
+    ]);
+    const [admin, , disabled] = people;
+    if (!admin || !disabled) throw new Error("no such person");
+    const cookie = await cookieOf(admin.email);
+    expect(
+      await setAccess("disable_user", "disable", disabled.id, cookie),
+    ).toEqual(OWNER_PROTECTED);
+    expect((await accessOf(workspaceId, disabled.id)).account).toBeNull();
+
+    await db
+      .update(users)
+      .set({ disabledAt: sql`clock_timestamp()` })
+      .where(eq(users.id, disabled.id));
+    expect(
+      await setAccess("disable_user", "enable", disabled.id, cookie),
+    ).toEqual(OWNER_PROTECTED);
+    expect((await accessOf(workspaceId, disabled.id)).account).not.toBeNull();
+  });
+
   test("an account owned in a workspace where the caller is only an admin answers OWNER_PROTECTED, before the elsewhere check", async () => {
     const first = await workspaceWith([{ role: "owner" }, { role: "member" }]);
     const second = await workspaceWith([{ role: "owner" }]);
+    // The caller is in neither of these, so the account is also elsewhere.
+    const third = await workspaceWith([{ role: "owner" }]);
     const [owner, target] = first.people;
     if (!owner || !target) throw new Error("no such person");
     await db.insert(memberships).values([
       { workspaceId: second.workspaceId, userId: owner.id, role: "admin" },
       { workspaceId: second.workspaceId, userId: target.id, role: "owner" },
+      { workspaceId: third.workspaceId, userId: target.id, role: "member" },
     ]);
     const cookie = await cookieOf(owner.email);
     expect(
