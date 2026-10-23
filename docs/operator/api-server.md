@@ -648,15 +648,54 @@ owner·admin이 콘솔 세션(cookie)으로만 쓴다. 값은 돌려주지 않�
 
 | 요청 | 하는 일 |
 |---|---|
-| `GET /v1/workspaces/{id}/slack/config-token` | `{configured, last4, updated_at, updated_by}`. 값은 없다 |
-| `PUT /v1/workspaces/{id}/slack/config-token` `{"value":"…"}` | 저장하거나 교체한다. 교체하면 같은 행의 `secret_version`이 오른다. 응답은 GET과 같은 요약과 `receipt_id` |
+| `GET /v1/workspaces/{id}/slack/config-token` | `{configured, last4, updated_at, updated_by, state, expires_at, issuer}`. 값은 없다 |
+| `PUT /v1/workspaces/{id}/slack/config-token` `{"value":"…"}` | 붙여 넣은 refresh token을 바로 Slack에서 회전(`tooling.tokens.rotate`)하고, 받은 access·refresh token 한 쌍을 저장한다. 응답은 GET과 같은 요약, `receipt_id`, `warnings` |
 | `DELETE /v1/workspaces/{id}/slack/config-token` | 지운다. 설정된 값이 없으면 `404` |
 
 - 쓰기에는 `X-Requested-With` 헤더가 필요하다. 없거나 다른 사이트에서 온 요청은 `403`이다(`csrfViolation`).
 - member는 `403`이다. API key는 역할과 관계없이 `403`이다(`reason_code: web_session_required` 또는 `role`). 다른 workspace의 경로는 `404`다.
 - `value`는 공백 없는 출력 가능 ASCII 8–4096자다. 어긋나면 `400 Request body is invalid`이고, 응답에도 로그에도 값은 남지 않는다.
+- 붙여 넣는 값은 api.slack.com/apps의 **Your App Configuration Tokens**에서 만든 refresh token이다. 붙여 넣은 값은 저장 즉시 회전으로 소모된다. Slack이 받지 않으면 `409 CONFIG_TOKEN_INVALID`(`reason_code: rejected`)이고 저장된 값은 그대로다. Slack에 닿지 못하면 `503`이고 역시 그대로다.
 - 저장·교체는 `set_slack_secret`, 삭제는 `delete_slack_secret` receipt를 남긴다. `result`는 `{purpose, last4}`뿐이다. 쓰는 transaction 안에서 쓰는 사람의 역할을 다시 읽는다.
-- 앱별 비밀값은 사람이 넣지 않는다. 플랫폼이 만든 앱의 signing secret·client secret·bot token은 서버가 Slack 응답에서 바로 저장하고, API로 덮어쓸 수 없다. signing secret을 아는 관리자는 서명된 가짜 이벤트를 보내 아무 member로 행세할 수 있기 때문이다. 손으로 만든 앱(kind `manual`)만 그 앱의 값을 넣는 경로가 열린다(앱 목록과 함께 다음 버전).
+- `state`는 `unset`·`active`·`needs_reentry`다. access token은 12시간짜리이고, 만료 5분 전부터 다음 Slack 호출이 먼저 회전한다. 회전은 `slack_config_tokens` 행의 lease(30초)로 프로세스 사이에서 한 번만 일어나고, Slack 호출 중에는 transaction을 열어 두지 않는다. Slack이 refresh token을 거절하거나(`invalid_refresh_token`·`token_revoked` 등) 회전 응답을 받고도 저장에 세 번 실패하면, 또는 lease가 끝난 회전이 발견되면 저장된 쌍을 지우고 `needs_reentry`가 된다. 그때는 owner·admin이 새 token을 붙여 넣는다. refresh token의 수명과 일회성은 Slack 문서에 적혀 있지 않아 이렇게 다룬다.
+- token을 만든 Slack 사용자가 바뀌면 `warnings`에 `config_token_issuer_changed`가 온다. 이후 만드는 앱의 collaborator가 그 사용자가 된다.
+
+**에이전트의 Slack 앱 만들기**
+
+활성 release가 있는 에이전트마다 Slack 앱을 하나 만든다. 앱 이름은 에이전트 이름, bot 이름은 slug, agent view 설명은 활성 release의 role이다. bot scope는 `assistant:write`·`app_mentions:read`·`chat:write`·`im:history`·`channels:history`·`groups:history`·`channels:read`·`groups:read`·`users:read`·`channels:join`·`groups:write`이고 user scope는 없다. 생성 manifest에는 event subscription이 없다(이벤트는 events route가 생긴 뒤 manifest 갱신으로 붙인다). OAuth redirect는 `<콘솔 origin>/agents/{id}/slack/callback`이고, 콘솔 origin은 `SLACK_OIDC_REDIRECT_URI`의 origin이다. 이 값이 없으면 앱을 만들지 않는다(`503`).
+
+| 요청 | 하는 일 |
+|---|---|
+| `GET /v1/agents/{id}/slack/app` | 에이전트의 앱(`creating`·`created`·`deleting`)과 설치 URL. 없으면 둘 다 `null` |
+| `POST /v1/agents/{id}/slack/app` `{"replace_uncertain": false}` | 앱을 만들고 `{slack_app, authorize_url, created, warnings}`를 돌려준다. 이미 있으면 같은 앱을 `created: false`로 |
+| `DELETE /v1/workspaces/{id}/slack/apps/{app_id}` | 그 workspace의 `slack_apps`에 있는 앱만 Slack에서 지우고(`apps.manifest.delete`) 비밀값을 지운다. 행은 `deleted`로 남는다 |
+| `PUT /v1/workspaces/{id}/slack/apps/{app_id}/secrets/{purpose}` `{"value":"…"}` | 손으로 만든 앱(kind `manual`)의 값만 넣는다. 플랫폼이 만든 앱은 `403 server_managed_secret`. `purpose`가 셋(`slack_signing_secret`·`slack_client_secret`·`slack_bot_token`) 밖이거나 `app_id`가 UUID가 아니면 `400` |
+
+- 만들기·조회는 owner·admin·그 에이전트의 관리자, 콘솔 세션(cookie)과 `X-Requested-With`로만 한다. API key는 `403`이다. 활성 release가 없으면 `409 AGENT_NOT_ACTIVE`, config token이 없거나 쓸 수 없으면 `409 CONFIG_TOKEN_INVALID`다.
+- `slack_apps` 행은 Slack을 부르기 전에 `creating`으로 쓴다. Slack 응답에서 받은 signing secret·client secret은 서버가 `slack_app:<id>` 아래에 저장하고 응답·로그·receipt에는 남기지 않는다. 응답의 `secrets`는 저장 여부와 끝 네 글자뿐이다.
+- Slack 응답을 잃으면(시간 초과, 연결 끊김, 저장 실패) 행이 `creating`으로 남고 `503`이다. 다음 요청은 `409 SLACK_APP_CREATING`이고, 60초가 지나면 `details.uncertain: true`가 붙는다. 그때 api.slack.com/apps에서 그 시각에 만들어진 앱을 지운 뒤 `replace_uncertain: true`로 다시 요청하면 옛 행을 `abandoned`로 두고 새로 만든다. Slack이 manifest를 거절하면 행은 `failed`가 되고 `503`(`details.slack_error`)이다.
+- 만들기·지우기는 아직 receipt를 남기지 않는다.
+
+운영자는 CLI로도 만든다. API 컨테이너 안에서(DB, master key, `SLACK_OIDC_REDIRECT_URI`, `SLACK_API_URL`이 이미 있다) 실행하고, 출력은 JSON 한 줄이다. 비밀값은 출력하지 않는다.
+
+```bash
+docker compose --profile apps exec -T api \
+  bun run apps/control-host/src/api/slack-app.ts create --workspace "$WORKSPACE_ID" --agent "$AGENT_ID"
+# {"outcome":"created","slack_app_id":"…","app_id":"A…","agent_id":"…","created_by_token_user":"U…","authorize_url":"https://slack.com/oauth/v2/authorize?…","warnings":[]}
+```
+
+| 종료 코드 | 뜻 |
+|---|---|
+| `0` | 만들었거나 이미 있다(`outcome: created`·`exists`) |
+| `1` | 예상하지 못한 오류 |
+| `2` | 인자·env가 잘못됐다(`DATABASE_URL`·`SLACK_OIDC_REDIRECT_URI`·master key 없음, `SLACK_API_URL`이 https가 아님) |
+| `3` | config token이 없거나 Slack이 더는 받지 않는다. 콘솔에서 새로 붙여 넣는다 |
+| `4` | 에이전트나 workspace가 없다 |
+| `5` | 에이전트에 활성 release가 없다 |
+| `6` | 앱이 아직 만들어지는 중이거나 지워지는 중이다. Slack에서 확인한 뒤 `--replace-uncertain`으로 잃어버린 생성을 포기한다 |
+| `7` | Slack이 거절했거나 닿지 않는다 |
+
+로컬 스택의 mock overlay(`infra/compose.mock-slack.yml`)는 `SLACK_API_URL=http://mock-slack:4020/api`로 Slack Web API의 가짜(`packages/testkit/src/fake-slack-api.ts`)를 가리킨다. `POST http://mock-slack:4020/fake/config-tokens`가 그 가짜가 받는 config token을 하나 돌려준다. 실제 Slack은 부르지 않는다.
 
 값은 repo 밖 파일에 두고 셸에서 읽어 보낸다. 값이 명령 인자나 셸 기록에 남지 않게 한다.
 

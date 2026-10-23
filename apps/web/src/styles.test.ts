@@ -51,15 +51,11 @@ describe("styles.css", () => {
     }
   });
 
-  test("link colors leave links drawn as buttons alone", () => {
-    const prelude =
-      css.match(/([^{}]*)\{\s*color: var\(--ap-color-accent\);/)?.[1] ?? "";
-    const selectors = (prelude.split("*/").pop() ?? "")
-      .split(",")
-      .map((s) => s.trim());
-    expect(selectors.length).toBeGreaterThan(0);
-    for (const selector of selectors)
-      expect(selector).toEndWith('a:not([data-slot="button"]):not(.ap-button)');
+  // A global link rule outranks the Link part's hover-only underline.
+  test("leaves link color and underline to the ui Link", () => {
+    expect(css).not.toMatch(
+      /(?:^|[\s,])a(?::not\([^)]*\))*\s*\{[^}]*(?:color|text-decoration):/m,
+    );
   });
 
   test("breaks Korean between words", () => {

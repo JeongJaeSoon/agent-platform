@@ -95,6 +95,8 @@ describe("database schema", () => {
       "session_share_targets",
       "session_shares",
       "sessions",
+      "slack_apps",
+      "slack_config_tokens",
       "slack_installations",
       "storage_usage",
       "surface_bindings",

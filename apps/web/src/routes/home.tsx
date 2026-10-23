@@ -4,7 +4,7 @@ import { isApiError } from "@werft-ai/client";
 import { pendingRequestsQuery, waitingSessionsQuery } from "@werft-ai/core";
 import { useAgentPlatform, useSessions } from "@werft-ai/react";
 import { RecentSessions } from "@werft-ai/react/blocks";
-import { Card, cn, formatTimestamp } from "@werft-ai/ui";
+import { Card, cn, formatTimestamp, Link as TextLink } from "@werft-ai/ui";
 import { ArrowRight, Check } from "lucide-react";
 import { type ReactNode, useId } from "react";
 import { agentsQuery, invitesQuery, membersQuery } from "../api/queries.ts";
@@ -43,8 +43,6 @@ const STATE_KEY = {
   unknown: "home.checklist.unknown",
 } as const satisfies Record<StepState, MessageKey>;
 
-const LINK =
-  "inline-flex items-center gap-1 font-medium text-control text-primary underline-offset-2 hover:underline";
 const RECENT_LIMIT = 5;
 
 function loadError(error: unknown, onRetry: () => void) {
@@ -179,24 +177,30 @@ export function HomeScreen() {
               oldest ? (
                 <>
                   {t("home.overview.oldest")}{" "}
-                  <Link
-                    to="/sessions/$id"
-                    params={{ id: oldest.sessionId }}
-                    className="font-mono text-primary underline-offset-2 hover:underline"
-                    title={oldest.sessionId}
-                  >
-                    {oldest.sessionId.slice(0, 8)}
-                  </Link>
+                  <TextLink asChild className="font-mono font-normal">
+                    <Link
+                      to="/sessions/$id"
+                      params={{ id: oldest.sessionId }}
+                      title={oldest.sessionId}
+                    >
+                      {oldest.sessionId.slice(0, 8)}
+                    </Link>
+                  </TextLink>
                   {" · "}
                   {formatTimestamp(oldest.at, locale)}
                 </>
               ) : null
             }
             link={
-              <Link to="/sessions" className={LINK}>
-                {t("home.overview.toSessions")}
-                <ArrowRight className="size-3.5" aria-hidden="true" />
-              </Link>
+              <TextLink
+                asChild
+                className="inline-flex items-center gap-1 text-control"
+              >
+                <Link to="/sessions">
+                  {t("home.overview.toSessions")}
+                  <ArrowRight className="size-3.5" aria-hidden="true" />
+                </Link>
+              </TextLink>
             }
           />
           <SummaryCard
@@ -208,10 +212,15 @@ export function HomeScreen() {
             }
             note={t("home.overview.sessionsNote")}
             link={
-              <Link to="/sessions" className={LINK}>
-                {t("home.overview.toSessions")}
-                <ArrowRight className="size-3.5" aria-hidden="true" />
-              </Link>
+              <TextLink
+                asChild
+                className="inline-flex items-center gap-1 text-control"
+              >
+                <Link to="/sessions">
+                  {t("home.overview.toSessions")}
+                  <ArrowRight className="size-3.5" aria-hidden="true" />
+                </Link>
+              </TextLink>
             }
           />
           <SummaryCard
@@ -226,10 +235,15 @@ export function HomeScreen() {
                   })
             }
             link={
-              <Link to="/agents" className={LINK}>
-                {t("home.overview.toAgents")}
-                <ArrowRight className="size-3.5" aria-hidden="true" />
-              </Link>
+              <TextLink
+                asChild
+                className="inline-flex items-center gap-1 text-control"
+              >
+                <Link to="/agents">
+                  {t("home.overview.toAgents")}
+                  <ArrowRight className="size-3.5" aria-hidden="true" />
+                </Link>
+              </TextLink>
             }
           />
         </ul>
@@ -362,12 +376,13 @@ function Checklist({ steps }: { readonly steps: readonly Step[] }) {
               </span>
               <span className="flex min-w-0 flex-1 flex-col gap-1">
                 {step.to ? (
-                  <Link
-                    className="font-medium text-control text-primary underline underline-offset-2"
-                    to={step.to}
+                  <TextLink
+                    asChild
+                    underline="always"
+                    className="font-medium text-control"
                   >
-                    {t(step.key)}
-                  </Link>
+                    <Link to={step.to}>{t(step.key)}</Link>
+                  </TextLink>
                 ) : (
                   <span className="font-medium text-control">
                     {t(step.key)}
