@@ -294,6 +294,7 @@ export function HomeScreen() {
                   ]
                 : []),
               ...expiring.map((key) => ({
+                wraps: true,
                 label: (
                   <KeyName
                     apiKey={key}
@@ -492,6 +493,8 @@ function KeyName({
 interface GlanceRow {
   readonly label: ReactNode;
   readonly value: ReactNode;
+  /** A label from data (an agent's name) wraps; fixed labels stay on one line. */
+  readonly wraps?: boolean;
 }
 
 function GlanceCard({
@@ -533,10 +536,22 @@ function GlanceCard({
               key={index}
               className="flex min-h-6 min-w-0 items-center justify-between gap-3 text-control"
             >
-              <dt className="shrink-0 whitespace-nowrap text-muted-foreground">
+              <dt
+                className={cn(
+                  "text-muted-foreground",
+                  row.wraps
+                    ? "min-w-0 [overflow-wrap:anywhere]"
+                    : "shrink-0 whitespace-nowrap",
+                )}
+              >
                 {row.label}
               </dt>
-              <dd className="m-0 min-w-0 text-right tabular-nums">
+              <dd
+                className={cn(
+                  "m-0 min-w-0 text-right tabular-nums",
+                  row.wraps && "shrink-0",
+                )}
+              >
                 {row.value}
               </dd>
             </div>
