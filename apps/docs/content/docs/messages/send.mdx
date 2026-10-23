@@ -1,5 +1,79 @@
 ---
 title: "보내기"
+description: 세션에 메시지를 보내 다음 turn을 만들고, 그 turn의 결과를 읽는다
 ---
 
-작성 중
+메시지 하나가 turn 하나다. 같은 세션의 메시지는 같은 worker, 같은 작업 트리, 같은 Claude Code 대화에서 차례로 돈다. scope는 `sessions:write`다. [Quickstart](/getting-started/quickstart)의 `API`와 `KEY`를 쓴다.
+
+## 세션 하나 준비
+
+```bash
+SID=$(curl -sS "$API/v1/sessions" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg m 'GATE-SPEC {"id":"m1","steps":[],"final":"ready"}' \
+    '{profile_id: "claude-coding-local", repository_id: "sample-app", message: $m}')" \
+  | jq -r .session_id)
+```
+
+## 보내기
+
+```bash
+sent=$(curl -sS "$API/v1/sessions/$SID/messages" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg m 'GATE-SPEC {"id":"m2","steps":[{"tool":"Bash","input":{"command":"ls","description":"list files"}}],"final":"listed"}' '{message: $m}')")
+echo "$sent" | jq .
+TURN=$(echo "$sent" | jq -r .turn_id)
+```
+
+```text
+{
+  "turn_id": "2",
+  "receipt_id": "…",
+  "receipt_status": "accepted"
+}
+```
+
+응답은 202다. 앞 turn이 아직 돌고 있으면 새 turn은 `queued`로 기다렸다가 차례가 되면 돈다.
+
+- `message`는 UTF-8 32,768바이트까지다. 넘으면 413이다.
+- 한 세션에 쌓아 둘 수 있는 대기 입력은 기본 20개다. 넘으면 429다.
+- `Idempotency-Key`가 필요하다. 응답을 못 받았으면 같은 key와 같은 본문으로 다시 보낸다. turn은 한 번만 생긴다.
+
+## 결과 읽기
+
+```bash
+until curl -sS "$API/v1/sessions/$SID/turns/$TURN" -H "Authorization: Bearer $KEY" \
+  | jq -e '.status | IN("completed", "failed", "interrupted", "cancelled", "outcome_unknown")' >/dev/null; do
+  sleep 2
+done
+curl -sS "$API/v1/sessions/$SID/turns/$TURN" -H "Authorization: Bearer $KEY" | jq '{turn_id, status}'
+```
+
+```text
+{
+  "turn_id": "2",
+  "status": "completed"
+}
+```
+
+turn이 끝났는지는 이 `status`로만 판단한다. 다섯 값 중 하나면 끝났다. `completed`는 엔진이 turn을 정상으로 마쳤다는 뜻이지 요청한 일을 다 했다는 뜻이 아니다. 모델이 도구 하나만 부르고 답을 끝내도, 도구가 오류를 받아도 `completed`다. 일이 됐는지는 [스트리밍](/messages/streaming)의 `assistant`·`tool_result` 이벤트를 읽고 판단하고, 덜 됐으면 같은 세션에 다음 메시지를 보낸다.
+
+## 보낼 수 없을 때
+
+| 응답 | 뜻 |
+| --- | --- |
+| 409 `SESSION_PAUSED` | 세션이 paused다. 먼저 resume한다([승인 대기와 재개](/sessions/waiting-and-resume)) |
+| 409 `RECOVERY_REQUIRED` | 복구 결정이 먼저다([닫기](/sessions/close)) |
+| 409 `SESSION_CLOSING`, `SESSION_CLOSED` | 닫는 중이거나 닫혔다 |
+| 409 `CHECKPOINT_UNAVAILABLE` | 대화 기록이 상한을 넘어 새 turn을 받지 않는다. 새 세션을 연다 |
+| 413 | 메시지가 너무 길다 |
+| 429 | 대기 입력이 상한에 닿았다 |
+
+## 다음 단계
+
+- [스트리밍 받기](/messages/streaming): turn이 도는 동안 진행 보기
+- [첨부](/messages/attachments)

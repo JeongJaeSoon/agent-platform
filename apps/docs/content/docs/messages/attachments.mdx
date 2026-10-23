@@ -1,5 +1,29 @@
 ---
 title: "첨부"
+description: 메시지에 파일을 붙이는 기능의 지금 상태
 ---
 
-작성 중
+<Callout type="warn">
+메시지에 파일을 붙이는 기능은 아직 없다. 메시지 본문은 UTF-8 텍스트 하나이고 32,768바이트까지다.
+</Callout>
+
+`POST /v1/sessions/{id}/messages`가 받는 필드는 `message` 하나다. 넘치면 413이다.
+
+```bash
+LONG=$(head -c 32769 /dev/zero | tr '\0' a)
+curl -sS -o /dev/null -w '%{http_code}\n' "$API/v1/sessions/$SID/messages" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg m "$LONG" '{message: $m}')"
+```
+
+```text
+413
+```
+
+에이전트가 읽어야 할 파일은 세션이 쓰는 저장소에 commit해 두고, 메시지에서 경로로 가리킨다. 세션은 시작할 때 그 저장소를 clone한다.
+
+## 다음 단계
+
+- [요청](/approvals/request): 세션이 만든 commit을 저장소로 내보내기
