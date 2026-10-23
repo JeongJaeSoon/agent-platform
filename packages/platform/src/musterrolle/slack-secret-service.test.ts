@@ -28,6 +28,11 @@ const APP = "019a0000-0000-7000-8000-00000000a991";
 // Made per run: a fixed token-shaped string has no place in a file.
 const VALUE = `xoxe-1-${randomBytes(24).toString("hex")}`;
 const LAST4 = VALUE.slice(-4);
+const READ = async () => VALUE;
+// A body reader that must not run: the caller is refused first.
+const UNREAD = async (): Promise<string> => {
+  throw new Error("the body was read for a refused caller");
+};
 
 const agents: AgentAuthority = {
   agentOf: async () => null,
@@ -130,7 +135,7 @@ describe("Slack secret service", () => {
     async (role) => {
       const { service, memory } = serviceWith();
       const caller = user(role);
-      const set = await service.setConfigToken(caller, WORKSPACE, VALUE);
+      const set = await service.setConfigToken(caller, WORKSPACE, READ);
       expect(set).toMatchObject({ configured: true, last4: LAST4 });
       expect(JSON.stringify(set)).not.toContain(VALUE);
       const read = await service.describeConfigToken(caller, WORKSPACE);
@@ -154,7 +159,7 @@ describe("Slack secret service", () => {
   test("a member is refused before anything is read or written", async () => {
     const { service, memory } = serviceWith();
     for (const attempt of [
-      service.setConfigToken(user("member"), WORKSPACE, VALUE),
+      service.setConfigToken(user("member"), WORKSPACE, UNREAD),
       service.describeConfigToken(user("member"), WORKSPACE),
       service.deleteConfigToken(user("member"), WORKSPACE),
     ]) {
@@ -166,11 +171,11 @@ describe("Slack secret service", () => {
   test("an API key, or an owner calling on a key's surface, is refused", async () => {
     const { service, memory } = serviceWith();
     expect(
-      (await refusal(service.setConfigToken(key, WORKSPACE, VALUE))).code,
+      (await refusal(service.setConfigToken(key, WORKSPACE, UNREAD))).code,
     ).toBe("FORBIDDEN");
     expect(
       await refusal(
-        service.setConfigToken(user("owner", "api"), WORKSPACE, VALUE),
+        service.setConfigToken(user("owner", "api"), WORKSPACE, READ),
       ),
     ).toEqual({
       code: "FORBIDDEN",
@@ -183,7 +188,7 @@ describe("Slack secret service", () => {
     const { service } = serviceWith();
     const caller = user("owner", "web", OTHER_WORKSPACE);
     expect(
-      (await refusal(service.setConfigToken(caller, WORKSPACE, VALUE))).code,
+      (await refusal(service.setConfigToken(caller, WORKSPACE, READ))).code,
     ).toBe("NOT_FOUND");
   });
 
@@ -198,8 +203,7 @@ describe("Slack secret service", () => {
   test("deleting what was never set is not found", async () => {
     const { service } = serviceWith();
     expect(
-      (await refusal(service.deleteConfigToken(user("owner"), WORKSPACE)))
-        .code,
+      (await refusal(service.deleteConfigToken(user("owner"), WORKSPACE))).code,
     ).toBe("NOT_FOUND");
   });
 
@@ -214,7 +218,7 @@ describe("Slack secret service", () => {
             WORKSPACE,
             APP,
             "slack_signing_secret",
-            VALUE,
+            UNREAD,
           ),
         ),
       ).toEqual({
@@ -232,7 +236,7 @@ describe("Slack secret service", () => {
       WORKSPACE,
       APP,
       "slack_signing_secret",
-      VALUE,
+      READ,
     );
     expect([...memory.values.keys()]).toEqual([
       `${WORKSPACE}|slack_app:${APP}|slack_signing_secret`,
@@ -247,7 +251,7 @@ describe("Slack secret service", () => {
         WORKSPACE,
         APP,
         "slack_bot_token",
-        VALUE,
+        READ,
       );
       expect((await refusal(attempt)).code).toBe("NOT_FOUND");
     }

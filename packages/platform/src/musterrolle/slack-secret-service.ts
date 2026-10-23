@@ -62,7 +62,12 @@ export function slackSecretSummaryOf(
   summary: SecretSummary | null,
 ): SlackSecretSummary {
   if (summary === null) {
-    return { configured: false, last4: null, updated_at: null, updated_by: null };
+    return {
+      configured: false,
+      last4: null,
+      updated_at: null,
+      updated_by: null,
+    };
   }
   return {
     configured: true,
@@ -87,7 +92,10 @@ export function createSlackSecretService(deps: {
    * such app. Supplied once `slack_apps` exists (94S-181); until then no
    * app secret can be set by a person.
    */
-  appKind?: (workspaceId: string, appId: string) => Promise<SlackAppKind | null>;
+  appKind?: (
+    workspaceId: string,
+    appId: string,
+  ) => Promise<SlackAppKind | null>;
   newId?: () => string;
 }) {
   const { authorization } = deps;
@@ -156,13 +164,17 @@ export function createSlackSecretService(deps: {
       );
     },
 
+    /**
+     * `readValue` runs only once the caller is allowed, so a refused caller
+     * learns nothing about the request body.
+     */
     async setConfigToken(
       caller: Caller,
       workspaceId: string,
-      value: string,
+      readValue: () => Promise<string>,
     ): Promise<PutSlackSecretResponse> {
       const store = await managedStore(caller, workspaceId);
-      return put(caller, store, configToken(workspaceId), value);
+      return put(caller, store, configToken(workspaceId), await readValue());
     },
 
     async deleteConfigToken(
@@ -196,7 +208,7 @@ export function createSlackSecretService(deps: {
       workspaceId: string,
       appId: string,
       purpose: SlackAppSecretPurpose,
-      value: string,
+      readValue: () => Promise<string>,
     ): Promise<PutSlackSecretResponse> {
       const store = await managedStore(caller, workspaceId);
       const kind = (await deps.appKind?.(workspaceId, appId)) ?? null;
@@ -213,7 +225,7 @@ export function createSlackSecretService(deps: {
         caller,
         store,
         { workspaceId, owner: { kind: "slack_app", id: appId }, purpose },
-        value,
+        await readValue(),
       );
     },
   };

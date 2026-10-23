@@ -18,7 +18,13 @@ import { eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import * as schema from "./schema.ts";
-import { memberships, receipts, secretValues, users, workspaces } from "./schema.ts";
+import {
+  memberships,
+  receipts,
+  secretValues,
+  users,
+  workspaces,
+} from "./schema.ts";
 import { createPostgresSecretStore } from "./secret-values.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -301,17 +307,17 @@ integration("secret values on PostgreSQL", () => {
     const workspaceId = await workspace();
     const slot = configToken(workspaceId);
     const member = await person(workspaceId, "member");
-    expect(
-      await store.put(slot, fakeToken(), { audit: member.audit }),
-    ).toEqual({ outcome: "outranked" });
+    expect(await store.put(slot, fakeToken(), { audit: member.audit })).toEqual(
+      { outcome: "outranked" },
+    );
     const owner = await person(workspaceId, "owner");
     await db
       .update(memberships)
       .set({ disabledAt: new Date() })
       .where(eq(memberships.userId, owner.userId));
-    expect(await store.put(slot, fakeToken(), { audit: owner.audit })).toEqual(
-      { outcome: "actor_inactive" },
-    );
+    expect(await store.put(slot, fakeToken(), { audit: owner.audit })).toEqual({
+      outcome: "actor_inactive",
+    });
     expect(await store.describe(slot)).toBeNull();
     expect(
       await db.select().from(receipts).where(eq(receipts.ownerId, workspaceId)),
