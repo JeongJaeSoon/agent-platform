@@ -15,7 +15,7 @@ on:
         type: choice
         required: false
         default: all
-        options: [all, check, integration, workspace-quota, e2e, quickstart, helm-chart, k8s-smoke, agent-sdk-compat, storybook, docs]
+        options: [all, check, integration, workspace-quota, e2e, quickstart, helm-chart, k8s-smoke, agent-sdk-compat, storybook, docs, ui-pack]
       allow_parallel:
         description: 'Allow independent parallel manual runs for deliberate flake testing (uses extra minutes)'
         type: boolean
@@ -508,6 +508,41 @@ jobs:
           name: docs-out
           path: apps/docs/out
           retention-days: 1
+
+  # packages/ui as an outside app gets it: the built package, packed, installed
+  # from the tarball into an empty Vite + React app with no Tailwind, which
+  # must type-check with skipLibCheck off, build, and render a styled Button in
+  # the runner's Chrome. Nothing is published.
+  ui-pack:
+    if: contains(fromJSON('["all","ui-pack"]'), github.event.inputs.only || 'all')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/bun-setup
+      # The consumer's toolchain is npm's, as an outside app's would be.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      # The consumer pins its direct dependencies in the script, so the
+      # script is the key.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.npm
+          key: ui-pack-npm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/ui-pack-smoke.ts') }}
+          restore-keys: ui-pack-npm-${{ runner.os }}-${{ runner.arch }}-
+      - run: bun install --frozen-lockfile
+      - name: Build the package
+        run: bun run --cwd packages/ui build:package
+      - name: Files the tarball would carry
+        run: npm pack --dry-run ./packages/ui/dist
+      - name: Install, type-check, build and render in an empty app
+        run: bun scripts/ui-pack-smoke.ts --screenshot "$RUNNER_TEMP/ui-pack-button.png"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ui-pack-button
+          path: ${{ runner.temp }}/ui-pack-button.png
+          retention-days: 7
 
   # Assembled on every run so a PR proves the layout the deploy will get: the
   # docs site at the root, Storybook and the Scalar reference beside it.
