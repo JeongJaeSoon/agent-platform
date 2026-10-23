@@ -7,13 +7,13 @@ Werft の Web コンソールの画面は二つのパッケージで作られて
 
 | パッケージ | 含まれるもの |
 | --- | --- |
-| `@werft-ai/ui` | デザイントークン(`tokens.css`)、Tailwind との接続(`theme.css`)、primitive(`Button`, `Card`, `Dialog`, `Tabs` など)、状態表示(`StatusLabel`, `ErrorState`, `Skeleton`, `EmptyState`)、セッションの部品(`Timeline`, `Composer`, `ApprovalCard`, `QuestionCard`) |
-| `@werft-ai/react` | サーバー状態を読み書きする hook(`useSessions`, `useSession`, `useSessionEvents`, `useSendMessage`, `useAnswer` など)と `AgentPlatformProvider`。`@werft-ai/react/blocks` には、データの読み取りまで行って描画するセッションブロック `SessionList`, `RecentSessions`, `WaitingSessions`, `SessionDetail`, `ApprovalInbox` がある |
+| `@werft-ai/ui` | デザイントークン(`tokens.css`)、Tailwind との接続(`theme.css`)、primitive(`Button`, `Card`, `Dialog`, `Tabs`, `Skeleton` など)、状態表示(`ErrorState`, `EmptyState`) |
+| `@werft-ai/react` | サーバー状態を読み書きする hook(`useSessions`, `useSession`, `useSessionEvents`, `useSendMessage`, `useAnswer` など)と `AgentPlatformProvider`。`@werft-ai/react/components` には API の型を受け取って描画する部品(`StatusLabel`, `Timeline`, `Composer`, `ApprovalCard`, `QuestionCard` など)が、`@werft-ai/react/blocks` には、データの読み取りまで行って描画するセッションブロック `SessionList`, `RecentSessions`, `WaitingSessions`, `SessionDetail`, `ApprovalInbox` がある |
 
 `@werft-ai/ui` は受け取った状態を描画するだけである。API を呼んだり、権限を判断したりはしない。API の呼び出しは `@werft-ai/react` の hook とブロックが担う。
 
 <Callout type="warn">
-二つのパッケージは npm に公開されていない(`private`、バージョン 0.0.0)。外部リポジトリのアプリにインストールして使う方法はまだ提供していない。今のところ、このリポジトリ内のアプリからのみ workspace パッケージとして import できる。パッケージはビルド済みの JavaScript ではなく TypeScript のソースをエクスポートするため、Vite のように TypeScript をコンパイルするバンドラーが必要である。
+二つのパッケージはレジストリに公開されていない(`private`、バージョン 0.0.0)。このリポジトリ内のアプリは workspace パッケージとして import し、そのときパッケージは TypeScript のソースをエクスポートするため、Vite のように TypeScript をコンパイルするバンドラーが必要である。リポジトリ外のアプリには、`@werft-ai/ui` だけをビルド済み JavaScript の tarball としてインストールできる([リポジトリ外のアプリにインストール](/ui/package))。`@werft-ai/react` はリポジトリ外にはインストールできない。
 </Callout>
 
 ## この節の順序
@@ -21,7 +21,8 @@ Werft の Web コンソールの画面は二つのパッケージで作られて
 1. [インストール](/ui/install): リポジトリ内に Vite アプリを作り、パッケージを import する
 2. [テーマの適用](/ui/theme): CSS を三つ import し、ダークテーマを有効にする
 3. [セッションブロックの組み込み](/ui/session-blocks): ローカルスタックのセッション一覧とセッション画面を描画する
-4. [Storybook](/ui/storybook): コンポーネントごとに状態別の見た目と props を確認する
+4. [リポジトリ外のアプリにインストール](/ui/package): `@werft-ai/ui` を tarball にまとめ、別の React アプリにインストールする
+5. [Storybook](/ui/storybook): コンポーネントごとに状態別の見た目と props を確認する
 
 ## 次のステップ
 

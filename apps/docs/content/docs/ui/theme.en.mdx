@@ -28,7 +28,7 @@ body {
 | import | What it does |
 | --- | --- |
 | `tailwindcss` | Tailwind 4 |
-| `@werft-ai/ui/styles.css` | The tokens (`tokens.css`), the fonts, and the default rules for the kit's elements. The fonts (Geist, Pretendard) use files inside the package. They are not fetched from a CDN |
+| `@werft-ai/ui/styles.css` | The tokens (`tokens.css`), the fonts, and the default rules for the kit's elements. The workspace package inside the repository takes the fonts (Geist, Pretendard) from files inside the package and from the `pretendard` the repository installs; nothing is fetched from a CDN. In a package [installed in an app outside the repository](/ui/package), `styles.css` is prebuilt CSS and carries no fonts |
 | `@werft-ai/ui/theme.css` | Connects the tokens to Tailwind utilities. Names such as `bg-canvas`, `bg-primary`, `text-control`, `font-sans`, `rounded-md`, and `shadow-sm` come from here |
 
 The two `@source` lines make Tailwind look for class names in the package sources linked under `node_modules`. Tailwind's automatic detection skips `node_modules`, so the web console (`apps/web/src/styles.css`) has the same two lines. The paths are relative to this CSS file.
