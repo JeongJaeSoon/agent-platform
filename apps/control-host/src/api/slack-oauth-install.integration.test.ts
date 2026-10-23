@@ -1,6 +1,10 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomBytes, randomUUID } from "node:crypto";
-import { BOT_SCOPES, scopesForRole } from "@werft-ai/contracts";
+import {
+  BOT_SCOPES,
+  SLACK_AGENT_BOT_EVENTS,
+  scopesForRole,
+} from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
   agentIdentities,
@@ -11,10 +15,12 @@ import {
   createPostgresSecretStore,
   createPostgresSlackAppStore,
   createPostgresSlackConfigTokenStore,
+  createPostgresSlackInboundEventStore,
   createPostgresSlackInstallStore,
   memberships,
   secretValues,
   slackApps,
+  slackInboundEvents,
   slackInstallations,
   slackInstallStates,
   users,
@@ -22,11 +28,15 @@ import {
 } from "@werft-ai/db";
 import {
   callerFor,
+  composeSlackFinalize,
   createAuthorizationPolicy,
   createSlackAppService,
   createSlackConfigApi,
   createSlackConfigTokens,
+  createSlackEventsFinalize,
+  createSlackEventsService,
   createSlackInstallService,
+  createSlackSigningSecrets,
   MANAGEMENT_ROLES,
   SecretKey,
   SessionServiceError,
@@ -69,7 +79,7 @@ integration(
       await database?.drop();
     });
 
-    function services() {
+    function services(publicUrl?: string | null) {
       const api = createSlackConfigApi({ apiUrl: slack.url });
       const tokens = createSlackConfigTokens({
         store: createPostgresSlackConfigTokenStore(db, key),
@@ -77,15 +87,20 @@ integration(
       });
       const authorization = createAuthorizationPolicy({});
       const apps = createPostgresSlackAppStore(db, key);
+      const appService = createSlackAppService({
+        authorization,
+        apps,
+        tokens,
+        api,
+        consoleOrigin: CONSOLE,
+      });
+      const record = async (installed: SlackInstalled) => {
+        finalized.push(installed);
+        return { finalized: true, warnings: [] };
+      };
       return {
         tokens,
-        apps: createSlackAppService({
-          authorization,
-          apps,
-          tokens,
-          api,
-          consoleOrigin: CONSOLE,
-        }),
+        apps: appService,
         install: createSlackInstallService({
           authorization,
           apps,
@@ -94,16 +109,24 @@ integration(
           tokens,
           identities: createPostgresAgentIdentityStore(db),
           api,
-          finalize: async (installed) => {
-            finalized.push(installed);
-          },
+          finalize:
+            publicUrl === undefined
+              ? record
+              : composeSlackFinalize(
+                  record,
+                  createSlackEventsFinalize({
+                    apps: appService,
+                    agents: apps,
+                    publicUrl,
+                  }),
+                ),
           now: () => clock,
         }),
       };
     }
 
     /** A workspace with its owner, a config token, and an agent with its app. */
-    async function agentWithApp() {
+    async function agentWithApp(publicUrl?: string | null) {
       const workspaceId = randomUUID();
       await db
         .insert(workspaces)
@@ -129,7 +152,7 @@ integration(
         { kind: "web" },
         randomUUID(),
       );
-      const { tokens, apps, install } = services();
+      const { tokens, apps, install } = services(publicUrl);
       const stored = await tokens.register(
         workspaceId,
         slack.issueConfigToken(),
@@ -389,6 +412,148 @@ integration(
         .catch((e: SessionServiceError) => e.details);
       expect(expired).toEqual({ reason_code: "expired" });
       clock = new Date();
+    });
+
+    async function installed(publicUrl: string | null) {
+      const setup = await agentWithApp(publicUrl);
+      const started = await setup.install.start(setup.caller, setup.agentId);
+      const answer = await consent(started.authorize_url);
+      const updatesBefore = slack.calls.filter(
+        (call) => call.method === "apps.manifest.update",
+      ).length;
+      const done = await setup.install.complete(setup.caller, {
+        agent_id: setup.agentId,
+        ...answer,
+      });
+      const updates =
+        slack.calls.filter((call) => call.method === "apps.manifest.update")
+          .length - updatesBefore;
+      return { ...setup, done, updates };
+    }
+
+    const PUBLIC = "https://agent-platform.example.ts.net:8443";
+
+    test("with SLACK_EVENTS_PUBLIC_URL, complete registers the event subscription in the whole manifest", async () => {
+      const { done, updates, appId, agentId } = await installed(`${PUBLIC}/`);
+      expect(updates).toBe(1);
+      expect(done).toMatchObject({ finalized: true, warnings: [] });
+      const manifest = slack.apps.get(appId)?.manifest as {
+        settings: {
+          event_subscriptions: { request_url: string; bot_events: string[] };
+        };
+        oauth_config: unknown;
+      };
+      expect(manifest.settings.event_subscriptions).toEqual({
+        request_url: `${PUBLIC}/v1/slack/events/${agentId}`,
+        bot_events: [...SLACK_AGENT_BOT_EVENTS],
+      });
+      expect(manifest.settings.event_subscriptions.bot_events).toHaveLength(7);
+      // apps.manifest.update replaces the whole manifest, scopes included.
+      expect(manifest.oauth_config).toMatchObject({
+        scopes: { bot: [...BOT_SCOPES] },
+      });
+    });
+
+    test("without it, nothing is sent and complete still succeeds with events_url_unset", async () => {
+      const { done, updates } = await installed(null);
+      expect(updates).toBe(0);
+      expect(done).toMatchObject({
+        installation: { status: "verified" },
+        finalized: false,
+        warnings: [{ code: "events_url_unset" }],
+      });
+    });
+
+    test("an update Slack answers with permissions_updated asks for a reinstall", async () => {
+      slack.manifestUpdateAnswer.permissions_updated = true;
+      try {
+        const { done } = await installed(PUBLIC);
+        expect(done).toMatchObject({
+          finalized: true,
+          warnings: [{ code: "reinstall_required" }],
+        });
+      } finally {
+        delete slack.manifestUpdateAnswer.permissions_updated;
+      }
+    });
+
+    test("an event signed with the installed app's secret lands in slack_inbound_events once", async () => {
+      const { agentId, appId, workspaceId } = await installed(PUBLIC);
+      const events = createSlackEventsService({
+        signingSecrets: createSlackSigningSecrets({
+          apps: createPostgresSlackAppStore(db, key),
+          secrets: createPostgresSecretStore(db, key),
+        }),
+        inbox: createPostgresSlackInboundEventStore(db),
+        identities: createPostgresAgentIdentityStore(db),
+        installs: createPostgresSlackInstallStore(db),
+      });
+      const listener = Bun.serve({
+        hostname: "127.0.0.1",
+        port: 0,
+        async fetch(request) {
+          const outcome = await events.receive({
+            agentId,
+            rawBody: new Uint8Array(await request.arrayBuffer()),
+            timestamp: request.headers.get("X-Slack-Request-Timestamp"),
+            signature: request.headers.get("X-Slack-Signature"),
+          });
+          return Response.json(outcome, {
+            status: outcome.kind === "unauthorized" ? 401 : 200,
+          });
+        },
+      });
+      try {
+        const url = `http://127.0.0.1:${listener.port}/v1/slack/events/${agentId}`;
+        const event = {
+          type: "app_mention",
+          user: "U0PERSON",
+          text: "hello",
+          channel: "C0CHAN",
+          ts: "1761300000.000100",
+        };
+        const first = await slack.sendEvent({ url, appId, event });
+        expect(first).toMatchObject({
+          status: 200,
+          body: { kind: "ack", result: "recorded", status: "received" },
+        });
+        const eventId = first.eventId ?? "";
+        expect(
+          await slack.sendEvent({ url, appId, event, eventId, retryNum: 1 }),
+        ).toMatchObject({ status: 200, body: { result: "duplicate" } });
+        expect(
+          (await slack.sendEvent({ url, appId, event, ageSeconds: 301 }))
+            .status,
+        ).toBe(401);
+        const rows = await db
+          .select()
+          .from(slackInboundEvents)
+          .where(eq(slackInboundEvents.workspaceId, workspaceId));
+        expect(rows).toHaveLength(1);
+        expect(rows[0]).toMatchObject({
+          agentId,
+          appId,
+          teamId: "T0INSTALL",
+          eventId,
+          eventType: "app_mention",
+          status: "received",
+          dropReason: null,
+        });
+
+        const uninstalled = await slack.sendEvent({
+          url,
+          appId,
+          event: { type: "app_uninstalled" },
+        });
+        expect(uninstalled.body).toMatchObject({ status: "processed" });
+        const [install] = await db
+          .select({ status: slackInstallations.status })
+          .from(slackInstallations)
+          .where(eq(slackInstallations.appId, appId));
+        expect(install?.status).toBe("revoked");
+      } finally {
+        listener.stop(true);
+      }
     });
   },
 );

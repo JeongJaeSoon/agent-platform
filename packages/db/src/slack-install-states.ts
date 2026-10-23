@@ -1,11 +1,17 @@
 import type { SlackInstallStore } from "@werft-ai/platform";
-import { eq, lt } from "drizzle-orm";
+import { and, eq, lt } from "drizzle-orm";
 import type { Database } from "./queries.ts";
-import { slackInstallStates } from "./schema.ts";
+import { slackInstallations, slackInstallStates } from "./schema.ts";
 import {
   registerSlackInstallation,
+  revokeSlackInstallation,
   verifySlackInstallation,
 } from "./slack-installations.ts";
+
+// Slack's event_time is whole seconds, so a verify in that same second
+// may still predate the report.
+const verifiedAfter = (verifiedAt: Date | null, sentAt: Date) =>
+  verifiedAt !== null && verifiedAt.getTime() >= sentAt.getTime() + 1000;
 
 export function createPostgresSlackInstallStore(
   db: Database,
@@ -65,6 +71,28 @@ export function createPostgresSlackInstallStore(
       }
       if (verified.outcome === "revoked") return { outcome: "revoked" };
       return { outcome: "verified", installationId: verified.installation.id };
+    },
+
+    async revokeInstallation(key, sentAt) {
+      if (!sentAt) return (await revokeSlackInstallation(db, key)).outcome;
+      return db.transaction(async (tx) => {
+        // Locked, so a reinstall cannot verify it between check and revoke.
+        const [row] = await tx
+          .select({ verifiedAt: slackInstallations.verifiedAt })
+          .from(slackInstallations)
+          .where(
+            and(
+              eq(slackInstallations.appId, key.appId),
+              eq(slackInstallations.teamId, key.teamId),
+            ),
+          )
+          .for("update");
+        if (!row) return "not_found";
+        if (verifiedAfter(row.verifiedAt, sentAt)) {
+          return "superseded";
+        }
+        return (await revokeSlackInstallation(tx, key)).outcome;
+      });
     },
   };
 }
