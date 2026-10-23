@@ -112,12 +112,18 @@ export function HomeScreen() {
   const waitingCount = waiting.data
     ? count(waiting.data.items.length, waiting.data.next_cursor !== null)
     : null;
-  // Answering happens on the session screen; home names only who waited longest.
-  const oldest = waiting.data?.items.reduce<SessionSummary | undefined>(
-    (first, item) =>
-      first === undefined || item.updated_at < first.updated_at ? item : first,
-    undefined,
-  );
+  // Answering happens on the session screen; home names only who waited
+  // longest, and only when the one page holds every waiting session.
+  const oldest =
+    waiting.data?.next_cursor === null
+      ? waiting.data.items.reduce<SessionSummary | undefined>(
+          (first, item) =>
+            first === undefined || item.updated_at < first.updated_at
+              ? item
+              : first,
+          undefined,
+        )
+      : undefined;
   const agentItems = agents.data?.items ?? [];
   const activeAgents = agentItems.filter(
     (agent) => agentState(agent) === "active",
@@ -282,7 +288,7 @@ function SummaryCard({
           <p className="m-0 text-caption text-muted-foreground">{note}</p>
         </div>
         {detail ? (
-          <p className="m-0 truncate border-t pt-3 text-caption text-muted-foreground">
+          <p className="m-0 border-t pt-3 text-caption text-muted-foreground">
             {detail}
           </p>
         ) : null}

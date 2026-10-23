@@ -179,7 +179,8 @@
           ? {
               ...rect(head),
               borderBottom: parseFloat(hs.borderBottomWidth),
-              ink: ink(head),
+              // Without the block's own border, so the centre is the brand's.
+              ink: ink(head, false),
               lines: [...head.children].map((c) => ({
                 text: c.innerText.trim().slice(0, 28),
                 ...rect(c),

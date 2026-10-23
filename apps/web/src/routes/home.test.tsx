@@ -261,6 +261,27 @@ describe("홈 요약", () => {
     ).toEqual([waitingSession.id, oneSession.id]);
   });
 
+  test("대기 세션이 한 페이지를 넘으면 가장 오래 기다린 세션을 짐작하지 않는다", async () => {
+    renderAt("/", {
+      ...homeRoutes(),
+      "GET /v1/sessions?status=needs_input": () =>
+        json(200, { items: [waitingSession], next_cursor: "more" }),
+    });
+    const overview = await screen.findByRole("region", { name: "한눈에 보기" });
+    await waitFor(() =>
+      expect(
+        within(overview)
+          .getAllByRole("listitem")[0]
+          ?.querySelector("div:has(> h3) + div > p")?.textContent,
+      ).toBe("1+"),
+    );
+    expect(
+      within(overview).queryByRole("link", {
+        name: waitingSession.id.slice(0, 8),
+      }),
+    ).toBeNull();
+  });
+
   test("시작하기를 다 마치면 checklist는 요약 아래로 내려간다", async () => {
     renderAt("/", {
       ...homeRoutes(),

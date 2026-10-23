@@ -47,6 +47,13 @@ function checks(m, width) {
       note,
     });
   const auth = !m.shell;
+  add(
+    "page.overflow",
+    "document scrollWidth vs viewport",
+    m.scrollWidth,
+    m.w,
+    m.scrollWidth <= m.w,
+  );
 
   if (m.shell) {
     const { topbar, brand, trail } = m.shell;
