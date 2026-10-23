@@ -347,7 +347,7 @@ function MembersTab({
             {MEMBERS.map((member) => (
               <RowListItem
                 key={member.id}
-                className="flex items-start justify-between gap-2"
+                className="flex items-center justify-between gap-2"
               >
                 <RowLines>
                   <NameButton onClick={() => onEdit(member)}>
@@ -418,7 +418,7 @@ function TeamsTab({
                       {team.agents.length === 0 ? (
                         <span className="text-muted-foreground">없음</span>
                       ) : (
-                        <span className="flex flex-wrap gap-1">
+                        <span className="flex h-5 items-center gap-1">
                           {team.agents.slice(0, 2).map((agent) => (
                             <Badge key={agent}>{agent}</Badge>
                           ))}
@@ -454,7 +454,7 @@ function TeamDetailView({
       <Button asChild variant="ghost" size="sm" className="self-start">
         <a href="#teams">← 팀 목록</a>
       </Button>
-      <div className="flex flex-wrap items-start justify-between gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex flex-col gap-1">
           <h2 className="m-0 font-semibold text-title">플랫폼팀</h2>
           <p className="m-0 text-muted-foreground">
@@ -682,7 +682,7 @@ function MobileRows({
         {rows.map(({ key, lines: [first, ...rest] }) => (
           <RowListItem
             key={key}
-            className="flex items-start justify-between gap-2"
+            className="flex items-center justify-between gap-2"
           >
             <RowLines>
               <span className="font-medium">{first}</span>
@@ -748,11 +748,7 @@ function MemberEditDialog({
                   "소유자",
                   "워크스페이스 설정과 소유자까지 모두 바꿉니다.",
                 ],
-                [
-                  "admin",
-                  "관리자",
-                  "구성원·팀·초대를 관리합니다. 소유자는 바꾸지 못합니다.",
-                ],
+                ["admin", "관리자", "구성원·팀·초대를 관리합니다."],
                 ["member", "구성원", "자기 세션과 맡은 에이전트만 다룹니다."],
               ] as const
             ).map(([value, label, help]) => (

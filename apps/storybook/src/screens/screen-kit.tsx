@@ -86,12 +86,12 @@ export function ScreenShell({
         </Card>
       </nav>
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-12 items-center gap-2 px-4">
+        <header className="flex h-12 w-full max-w-[1040px] items-center gap-2 px-4">
           <nav aria-label="위치" className="text-muted-foreground">
             {crumb.join(" › ")}
           </nav>
         </header>
-        <main className="mx-auto w-full max-w-[1040px] px-4 py-4 md:px-8 md:py-8">
+        <main className="w-full max-w-[1040px] px-4 py-4 md:px-8 md:py-8">
           {children}
         </main>
       </div>

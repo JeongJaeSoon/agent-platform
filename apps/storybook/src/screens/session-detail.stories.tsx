@@ -26,6 +26,7 @@ import {
   FieldLabel,
   NativeSelect,
   NativeSelectOption,
+  PageHeader,
   Tabs,
   TabsList,
   TabsTrigger,
@@ -119,40 +120,45 @@ type Option = 1 | 2;
 
 function Header({ named = false }: { readonly named?: boolean }) {
   return (
-    <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
-      <div className="flex min-w-0 flex-col gap-2">
-        <div className="flex items-center gap-2">
-          <h1 className="m-0 font-semibold text-title">
-            {named ? "결제 알림 고치기" : SID.slice(0, 8)}
-          </h1>
-          {named ? (
-            <span className="font-mono text-muted-foreground">
+    <PageHeader
+      title={
+        named ? (
+          <>
+            결제 알림 고치기{" "}
+            <span className="font-mono font-normal text-muted-foreground">
               {SID.slice(0, 8)}
-            </span>
-          ) : null}
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            aria-label="세션 id 전체 복사"
-          >
-            복사
-          </Button>
-          {named ? <Badge variant="red">API 변경 필요</Badge> : null}
-        </div>
-        <p className="m-0 flex flex-wrap items-center gap-x-4 gap-y-1 text-muted-foreground">
+            </span>{" "}
+            <Badge variant="red">API 변경 필요</Badge>
+          </>
+        ) : (
+          SID.slice(0, 8)
+        )
+      }
+      description={
+        <span className="flex flex-wrap items-center gap-x-4 gap-y-1">
           <SessionStatusLabel status="needs_input" label="답변 대기" />
           <span>general · claude-sonnet-5</span>
           <span>verify/hello</span>
           <span>claude_agent_sdk 0.3.270</span>
           <span>진행 중인 작업: 1</span>
           <span>마지막 변경: 2026. 10. 23. 23:01</span>
-        </p>
-      </div>
-      <Button asChild variant="ghost">
-        <a href="#sessions">← 세션 목록</a>
-      </Button>
-    </header>
+        </span>
+      }
+      actions={
+        <>
+          <Button
+            type="button"
+            variant="outline"
+            aria-label="세션 id 전체 복사"
+          >
+            id 복사
+          </Button>
+          <Button asChild variant="ghost">
+            <a href="#sessions">← 세션 목록</a>
+          </Button>
+        </>
+      }
+    />
   );
 }
 
@@ -384,8 +390,10 @@ function Info({ viewer }: { readonly viewer: Viewer }) {
             ["만든 때", "2026. 10. 23. 23:01"],
           ].map(([label, value]) => (
             <div key={label} className="flex justify-between gap-4">
-              <span className="text-muted-foreground">{label}</span>
-              <span className="break-all text-right">{value}</span>
+              <span className="shrink-0 text-muted-foreground">{label}</span>
+              <span className="min-w-0 truncate text-right" title={value}>
+                {value}
+              </span>
             </div>
           ))}
         </CardContent>
