@@ -184,9 +184,10 @@ async function setAccess(
       (row) => row.userId === userId && row.workspaceId === workspaceId,
     );
     if (!target) return { outcome: "not_found" };
-    // Only an owner changes an owner's access, wherever the change reaches.
-    // Disabled memberships count too: an owner whose membership is off is
-    // still an owner, and only the elsewhere check needs live ones.
+    // Only a live owner of that workspace changes an owner's access, wherever
+    // the change reaches. Disabled memberships count too: an owner whose
+    // membership is off is still an owner. Only the elsewhere check needs
+    // live ones.
     const touched = locked.filter(
       (row) =>
         row.userId === userId &&
@@ -195,10 +196,10 @@ async function setAccess(
     const reached = touched.filter(
       (row) => scope === "membership" || row.membershipDisabledAt === null,
     );
-    const outranked = touched.some((row) => {
-      const role = managing.get(row.workspaceId);
-      return row.role === "owner" && role !== undefined && role !== "owner";
-    });
+    const outranked = touched.some(
+      (row) =>
+        row.role === "owner" && managing.get(row.workspaceId) !== "owner",
+    );
     if (outranked) return { outcome: "outranked" };
 
     let current: Date | null;
