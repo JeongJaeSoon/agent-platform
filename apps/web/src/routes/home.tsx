@@ -343,7 +343,6 @@ export function HomeScreen() {
             when: relativeTime(key.expires_at ?? "", locale, now),
           }),
         })),
-        { label: t("home.glance.linkedExpiry"), value: unmeasured },
         {
           label: t("home.overview.agents"),
           value: isApiError(agents.error, "FORBIDDEN")

@@ -242,8 +242,8 @@ select:focus-visible,
 }
 
 /*
- * ui-kit T1/T2 tokens ahead of their release, under the names and values
- * ui-kit will ship (Console.dc.html). Delete this block once T1 lands.
+ * temporary until @werft-ai/ui tokens land: ui-kit T1/T2's names and values
+ * (Console.dc.html), ahead of their release. Delete this block once T1 lands.
  */
 :root {
   --ap-color-link: #0060d1;
