@@ -168,7 +168,8 @@ const TOKEN = {
   saved_at: "2026. 10. 23. 13:58",
   saved_by: "Verify Owner",
 };
-// GET /v1/slack/apps for this workspace: the link app and one agent's app.
+// Demo rows: there is no workspace-wide Slack app list API yet, only
+// GET /v1/agents/{id}/slack/app per agent.
 const SLACK_APPS = [
   {
     name: "계정 연결 앱",

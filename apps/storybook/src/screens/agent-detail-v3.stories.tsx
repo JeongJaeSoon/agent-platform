@@ -91,7 +91,7 @@ type SlackState =
   | "none";
 type Segment = "overview" | "channels" | "defaults" | "advanced";
 type DialogKind = "review" | "add" | "home" | "disconnect" | "delete";
-type RequestState = "pending" | "approved" | "rejected";
+type RequestState = "none" | "pending" | "approved" | "rejected";
 
 const STATUS = {
   connected: ["연결됨", "green"],
@@ -274,6 +274,11 @@ function ReviewDialog({
   const [reason, setReason] = useState("");
   const [missing, setMissing] = useState(false);
   const reasonRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    setReason("");
+    setMissing(false);
+  }, [open]);
   return (
     <Dialog open={open} onOpenChange={(next) => (next ? undefined : onClose())}>
       <DialogContent>
@@ -371,8 +376,10 @@ function CallbackPage({ state }: { readonly state: "working" | "denied" }) {
   );
 }
 
+type DetailTab = "overview" | "card" | "release" | "admins" | "slack";
+
 interface ScreenProps {
-  readonly tab: "overview" | "slack";
+  readonly tab: DetailTab;
   readonly slack: SlackState;
   readonly segment: Segment;
   readonly dialog?: DialogKind | undefined;
@@ -390,13 +397,20 @@ function AgentDetailScreen(props: ScreenProps) {
   const [on, setOn] = useState(props.slackOn ?? true);
   const [dm, setDm] = useState(true);
   const [outcome, setOutcome] = useState<string | null>(null);
+  const fresh = props.slack === "installed" || props.slack === "none";
   const [request, setRequest] = useState<RequestState>(
-    props.slack === "todo" ? "pending" : "approved",
+    fresh ? "none" : props.slack === "todo" ? "pending" : "approved",
   );
-  const [home, setHome] = useState(props.slack === "nohome" ? "" : HOME);
+  const [home, setHome] = useState(
+    fresh || props.slack === "nohome" ? "" : HOME,
+  );
   const [added, setAdded] = useState<readonly string[]>([]);
+  // Each channel keeps the reaction it was connected with; changing the
+  // default only applies to channels connected afterwards.
   const [reactions, setReactions] = useState<Record<string, string>>({
+    [HOME]: REACTIONS[0] ?? "",
     "#dev-platform": "꺼짐",
+    [REQUEST.channel]: REACTIONS[0] ?? "",
   });
   const [defaultReaction, setDefaultReaction] = useState(REACTIONS[0] ?? "");
   const [expanded, setExpanded] = useState(false);
@@ -423,8 +437,11 @@ function AgentDetailScreen(props: ScreenProps) {
   }
 
   const pending = request === "pending" && slack === "todo";
+  const installing = slack === "installed" || slack === "none";
   const joined = [
-    ...new Set([home, ...PUBLIC_JOINED, ...added].filter(Boolean)),
+    ...new Set(
+      [home, ...(installing ? [] : PUBLIC_JOINED), ...added].filter(Boolean),
+    ),
   ];
   const status =
     slack === "installed" || slack === "none" ? undefined : STATUS[slack];
@@ -432,7 +449,16 @@ function AgentDetailScreen(props: ScreenProps) {
     setOutcome(text);
     if (next) setSegment(next);
   };
-  const reactionOf = (channel: string) => reactions[channel] ?? defaultReaction;
+  const reactionOf = (channel: string) =>
+    reactions[channel] ?? REACTIONS[0] ?? "";
+  const reset = (text: string) => {
+    setDialog(undefined);
+    setSlack("none");
+    setHome("");
+    setAdded([]);
+    setRequest("none");
+    setOutcome(text);
+  };
   const changeReaction = (channel: string, value: string) => {
     setReactions((current) => ({ ...current, [channel]: value }));
     show(`${channel} 반응을 '${value}'(으)로 바꿨습니다. 바로 저장됐습니다.`);
@@ -446,15 +472,20 @@ function AgentDetailScreen(props: ScreenProps) {
   const homeGroups: readonly ChannelGroup[] = [
     {
       label: "공개 채널",
-      options: [
-        ...joined.map((name) => ({
-          name,
-          note: name === home ? "현재 홈 채널" : "공개 · 연결됨",
-        })),
-        ...PUBLIC_UNJOINED.filter((name) => !joined.includes(name)).map(
-          (name) => ({ name, note: "공개 · 고르면 봇이 참여" }),
-        ),
-      ],
+      options: installing
+        ? [...PUBLIC_JOINED, ...PUBLIC_UNJOINED].map((name) => ({
+            name,
+            note: "공개 · 고르면 봇이 참여",
+          }))
+        : [
+            ...joined.map((name) => ({
+              name,
+              note: name === home ? "현재 홈 채널" : "공개 · 연결됨",
+            })),
+            ...PUBLIC_UNJOINED.filter((name) => !joined.includes(name)).map(
+              (name) => ({ name, note: "공개 · 고르면 봇이 참여" }),
+            ),
+          ],
     },
     {
       label: "비공개 채널",
@@ -918,6 +949,9 @@ function AgentDetailScreen(props: ScreenProps) {
     slack === "none" ? "allow" : slack === "installed" ? "pick" : null;
   const slackPanel = connectStep ? (
     <>
+      {connectStep === "allow" && outcome ? (
+        <OutcomeStandIn key={outcome}>{outcome}</OutcomeStandIn>
+      ) : null}
       {connectStep === "pick" ? <Parts names={["Combobox"]} /> : null}
       <SlackConnectCard
         key={connectStep}
@@ -982,7 +1016,7 @@ function AgentDetailScreen(props: ScreenProps) {
   const tabs = (
     <Tabs
       value={tab}
-      onValueChange={(next) => setTab(next as typeof tab)}
+      onValueChange={(next) => setTab(next as DetailTab)}
       className="min-w-0 gap-[var(--ap-space-block)]"
     >
       <div className="border-b">
@@ -1067,6 +1101,10 @@ function AgentDetailScreen(props: ScreenProps) {
         }}
         onApprove={() => {
           setRequest("approved");
+          setReactions((current) => ({
+            ...current,
+            [REQUEST.channel]: defaultReaction,
+          }));
           setSlack("connected");
           setDialog(undefined);
           show(
@@ -1110,6 +1148,10 @@ function AgentDetailScreen(props: ScreenProps) {
         confirmDisabled={!addPick}
         onConfirm={() => {
           setAdded((current) => [...current, addPick]);
+          setReactions((current) => ({
+            ...current,
+            [addPick]: defaultReaction,
+          }));
           setDialog(undefined);
           show(
             `추가함 · ${addPick} · 봇이 참여함. 반응은 기본값 '${defaultReaction}'. 홈 채널이 아니라 인사는 보내지 않았습니다.`,
@@ -1137,10 +1179,11 @@ function AgentDetailScreen(props: ScreenProps) {
         consequence="봇 token을 회수합니다. 진행 중인 Slack 스레드에는 더 답하지 않습니다. Slack 앱은 남아 있어 다시 설치할 수 있습니다."
         confirmLabel="연결 해제"
         tone="danger"
-        onConfirm={() => {
-          setDialog(undefined);
-          setSlack("none");
-        }}
+        onConfirm={() =>
+          reset(
+            "Slack 연결을 해제했습니다. 봇 token을 회수했습니다. Slack 앱은 남아 있어 다시 설치할 수 있습니다.",
+          )
+        }
       />
       <DestructiveActionDialog
         open={dialog === "delete"}
@@ -1149,10 +1192,11 @@ function AgentDetailScreen(props: ScreenProps) {
         consequence="Slack 워크스페이스에서 앱과 봇 사용자가 사라집니다. 되돌릴 수 없습니다. 에이전트와 세션 기록은 남습니다."
         resourceName={AGENT.slug}
         confirmLabel="앱 삭제"
-        onConfirm={() => {
-          setDialog(undefined);
-          setSlack("none");
-        }}
+        onConfirm={() =>
+          reset(
+            "Slack 앱을 삭제했습니다. 에이전트와 세션 기록은 남아 있습니다.",
+          )
+        }
       />
     </ScreenShell>
   );
@@ -1303,6 +1347,16 @@ export const AgentDetailSlackAdvancedMobile: Story = {
 export const AgentDetailSlackAdvancedError: Story = {
   name: "Slack › 고급: 오류 (고치기)",
   args: { slack: "error", segment: "advanced" },
+};
+export const AgentDetailSlackAdvancedErrorDark: Story = {
+  ...AgentDetailSlackAdvancedError,
+  name: "Slack › 고급: 오류 (Dark)",
+  globals: DARK,
+};
+export const AgentDetailSlackAdvancedErrorMobile: Story = {
+  ...AgentDetailSlackAdvancedError,
+  name: "Slack › 고급: 오류 (390px)",
+  globals: MOBILE,
 };
 
 export const AgentDetailSlackNone: Story = {

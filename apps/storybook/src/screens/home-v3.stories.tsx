@@ -41,6 +41,7 @@ const TODOS: readonly Todo[] = [
     title: "#ops-private 연결 승인 요청",
     sub: "On-call Helper · lee.ops가 2026. 10. 23. 14:40에 초대",
     action: "검토",
+    // The review story only draws Release Notes' #finance-private request.
     story: `${DETAIL}-dialog-review`,
   },
   {
