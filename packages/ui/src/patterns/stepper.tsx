@@ -163,7 +163,7 @@ export function Stepper({
                   onClick={() => onStepSelect(step.id)}
                   className={cn(
                     itemClass,
-                    "rounded-control text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:cursor-not-allowed disabled:opacity-50",
+                    "cursor-pointer rounded-control text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:cursor-not-allowed disabled:opacity-50",
                   )}
                 >
                   {body}
