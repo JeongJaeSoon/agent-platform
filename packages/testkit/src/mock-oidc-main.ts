@@ -1,7 +1,7 @@
 import { startMockOidcServer } from "./mock-oidc.ts";
 
 // The mock Google provider as a process, for driving Google sign-in against
-// a running stack (docs/operations.md "Google 로그인"). The API container
+// a running stack (docs/operator/api-server.md "Google 로그인"). The API container
 // reaches it on MOCK_OIDC_ISSUER (host.docker.internal), a shell on this
 // host on MOCK_OIDC_PUBLIC_URL; the account signing in is the `login_hint`
 // added to the authorization URL (testkit/mock-oidc.ts loginHint).

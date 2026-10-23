@@ -1,0 +1,131 @@
+---
+title: "Close"
+description: Close a finished session, terminate an execution that must stop, and recover a turn with an unknown outcome
+---
+
+There are three ways to end a session. Close a session whose work is done. Terminate if you must stop it right now. If terminate leaves a turn with an unknown outcome, make a recovery decision. Continue using the `SID` created in [Start](/sessions/start).
+
+| | close | terminate | recovery decision `close` |
+| --- | --- | --- | --- |
+| Request | `POST …/close` | `POST …/terminate` | `POST …/recovery-decisions` |
+| scope | `sessions:control` | `sessions:control` | `sessions:recover` |
+| Turn in progress | Runs to the end and saves a checkpoint | Kills the execution. The turn may become `outcome_unknown` | Targets a session that has already stopped |
+| Queued input | Cancelled when closed | Cancelled immediately | Cancelled immediately |
+| Result | `closed` (cannot be undone) | `stopped` (can resume) | `closed` (cannot be undone) |
+
+## close
+
+Close waits for the running turn to finish. Turns that have not started are cancelled (`cancelled_turn_count`). The example below closes after the first turn has finished.
+
+```bash
+until [ "$(curl -sS "$API/v1/sessions/$SID/turns/1" -H "Authorization: Bearer $KEY" | jq -r .status)" = completed ]; do
+  sleep 2
+done
+REV=$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq .revision)
+close=$(curl -sS "$API/v1/sessions/$SID/close" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --argjson r "$REV" '{expected_revision: $r, reason: "work is done"}')")
+RID=$(echo "$close" | jq -r .receipt_id)
+until [ "$(curl -sS "$API/v1/receipts/$RID" -H "Authorization: Bearer $KEY" | jq -r .status)" = succeeded ]; do
+  sleep 2
+done
+curl -sS "$API/v1/receipts/$RID" -H "Authorization: Bearer $KEY" | jq '{operation, status, result}'
+```
+
+```text
+{
+  "operation": "close",
+  "status": "succeeded",
+  "result": {
+    "checkpoint_revision": 3,
+    "cancelled_turn_count": 0,
+    "resulting_admission_state": "closed"
+  }
+}
+```
+
+While closing, the session is `closing`. An open permission request or question blocks close. Answer it or interrupt to unblock. After 60 seconds, `attention` becomes `CLOSE_BLOCKED`. After the session is closed, messages and pause, resume, close, and terminate get 409 `SESSION_CLOSED`. An interrupt that points at an already finished turn is still a successful no-op (`no_op: true`) after the session is closed.
+
+## terminate
+
+Terminate takes the execution down immediately. It does not undo what a tool has already done outside. Terminating an idle session makes it `stopped` immediately, and you can resume it as is. If a turn was running, that turn becomes `outcome_unknown` and the session waits for a recovery decision.
+
+```bash
+created=$(curl -sS "$API/v1/sessions" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg m 'GATE-SPEC {"id":"runaway","steps":[],"final":"never","finalDelayMs":300000}' \
+    '{profile_id: "claude-coding-local", repository_id: "sample-app", message: $m}')")
+TID=$(echo "$created" | jq -r .session_id)
+until [ "$(curl -sS "$API/v1/sessions/$TID/turns/1" -H "Authorization: Bearer $KEY" | jq -r .status)" = running ]; do
+  sleep 1
+done
+REV=$(curl -sS "$API/v1/sessions/$TID" -H "Authorization: Bearer $KEY" | jq .revision)
+curl -sS "$API/v1/sessions/$TID/terminate" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --argjson r "$REV" '{expected_revision: $r, reason: "runaway turn"}')" \
+  | jq '{receipt_status, external_effects_reverted}'
+until [ "$(curl -sS "$API/v1/sessions/$TID" -H "Authorization: Bearer $KEY" | jq -r .admission_state)" = recovery_required ]; do
+  sleep 2
+done
+curl -sS "$API/v1/sessions/$TID/turns/1" -H "Authorization: Bearer $KEY" | jq '{status}'
+```
+
+```text
+{
+  "receipt_status": "accepted",
+  "external_effects_reverted": false
+}
+{
+  "status": "outcome_unknown"
+}
+```
+
+## Recovery decision
+
+`outcome_unknown` is neither success nor failure. A person who has checked what the turn did outside decides.
+
+| Decision | What it does |
+| --- | --- |
+| `abandon` | Leaves the turn as `cancelled` and lets the session continue from the last checkpoint |
+| `confirm_completed` | When the checkpoint covers that turn, accepts it as finished. Needs `evidence_ref` |
+| `start_fresh` | Discards the earlier conversation and runs the queued input in a new Claude Code session |
+| `retry_restore` | After fixing the cause of the checkpoint restore failure, restores from the same checkpoint again |
+| `close` | Ends the session. This cannot be undone |
+
+```bash
+REV=$(curl -sS "$API/v1/sessions/$TID" -H "Authorization: Bearer $KEY" | jq .revision)
+decision=$(curl -sS "$API/v1/sessions/$TID/recovery-decisions" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --argjson r "$REV" '{decision: "close", expected_revision: $r, reason: "nothing to keep"}')")
+RID=$(echo "$decision" | jq -r .receipt_id)
+until [ "$(curl -sS "$API/v1/receipts/$RID" -H "Authorization: Bearer $KEY" | jq -r .status)" = succeeded ]; do
+  sleep 2
+done
+curl -sS "$API/v1/receipts/$RID" -H "Authorization: Bearer $KEY" | jq '{operation, result}'
+```
+
+```text
+{
+  "operation": "recovery_decision",
+  "result": {
+    "resumable": false,
+    "checkpoint_revision": null,
+    "resulting_admission_state": "closed"
+  }
+}
+```
+
+For `abandon` and `confirm_completed`, also send the target turn as `target_turn_id`. Other decisions do not accept it (400). If the `abandon` receipt's `result.resumable` is `true`, continue with resume.
+
+## Next steps
+
+- [receipt](/approvals/receipt): read the result of a control command
+- [Sessions without a repository](/sessions/without-repository)

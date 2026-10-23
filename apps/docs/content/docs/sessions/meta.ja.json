@@ -1,0 +1,10 @@
+{
+  "title": "セッション",
+  "pages": [
+    "start",
+    "lifecycle",
+    "waiting-and-resume",
+    "close",
+    "without-repository"
+  ]
+}

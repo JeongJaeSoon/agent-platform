@@ -1,0 +1,29 @@
+---
+title: "Overview"
+description: "The React components and session blocks the web console uses"
+---
+
+The screens of the Werft web console are built from two packages. The same packages let you put a session list and a session screen into another React app.
+
+| Package | What it contains |
+| --- | --- |
+| `@werft-ai/ui` | Design tokens (`tokens.css`), the Tailwind connection (`theme.css`), primitives (`Button`, `Card`, `Dialog`, `Tabs`, and others), status displays (`StatusLabel`, `ErrorState`, `Skeleton`, `EmptyState`), and session pieces (`Timeline`, `Composer`, `ApprovalCard`, `QuestionCard`) |
+| `@werft-ai/react` | Hooks that read and write server state (`useSessions`, `useSession`, `useSessionEvents`, `useSendMessage`, `useAnswer`, and others) and `AgentPlatformProvider`. `@werft-ai/react/blocks` has the session blocks that also read the data and render it: `SessionList`, `RecentSessions`, `WaitingSessions`, `SessionDetail`, `ApprovalInbox` |
+
+`@werft-ai/ui` only renders the state it is given. It does not call the API or decide permissions. API calls are handled by the hooks and blocks of `@werft-ai/react`.
+
+<Callout type="warn">
+Neither package is published to npm (`private`, version 0.0.0). There is not yet a way to install them into an app in an external repository. For now they can be imported as workspace packages only from apps inside this repository. The packages export TypeScript source, not built JavaScript, so you need a bundler that compiles TypeScript, such as Vite.
+</Callout>
+
+## Order of this section
+
+1. [Install](/ui/install): create a Vite app inside the repository and import the packages
+2. [Apply the theme](/ui/theme): import three CSS files and turn on the dark theme
+3. [Add session blocks](/ui/session-blocks): render the local stack's session list and session screen
+4. [Storybook](/ui/storybook): see each component's states and props
+
+## Next steps
+
+- [Install](/ui/install)
+- <SiblingLink href="/storybook/">Storybook</SiblingLink>: the API of individual components

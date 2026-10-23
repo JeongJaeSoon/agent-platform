@@ -1,0 +1,97 @@
+---
+title: "Choose a run profile"
+description: The run profile that decides which model, tools, and permission mode a session runs with
+---
+
+A run profile (profile) decides how a session runs: the runtime and its version, the model, the tool list, the permission mode, the model provider, and whether it uses a repository. The operator registers profiles in the installation's catalog (`config/profiles.yaml`), and users choose one by id. The list of profiles that can run for each repository is also in a catalog (`config/repositories.yaml`).
+
+## List profiles
+
+```bash
+curl -sS "$API/v1/profiles" -H "Authorization: Bearer $KEY" | jq '.items[]'
+```
+
+```text
+{
+  "id": "claude-coding-local",
+  "model": "claude-sonnet-5",
+  "tools": [
+    "Read",
+    "Edit",
+    "Write",
+    "Glob",
+    "Grep",
+    "Bash",
+    "AskUserQuestion"
+  ],
+  "runtime_kind": "claude_agent_sdk",
+  "runtime_version": "0.3.270",
+  "billing": "metered",
+  "repository_mode": "required"
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `model` | Default model |
+| `tools` | Tools a session can use. Tools outside the list are not run ([Permissions](/agents/permissions)) |
+| `billing` | With `metered`, cost counts toward the session limit. With `none`, cost is not counted |
+| `repository_mode` | `required` (a repository is mandatory), `optional`, or `none` (no repository) |
+
+The provider address and credentials do not appear in the list. Those values do not go to the worker either.
+
+## Choose in a session
+
+Choose with `profile_id` when you create a session. If the profile allows several models, choose one of them with `model`; if you leave it out, the session runs with the default model.
+
+```bash
+created=$(curl -sS "$API/v1/sessions" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg m 'GATE-SPEC {"id":"profile","steps":[],"final":"ok"}' \
+    '{profile_id: "claude-coding-local", model: "claude-sonnet-5", repository_id: "sample-app", message: $m}')")
+SID=$(echo "$created" | jq -r .session_id)
+curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq .runtime
+```
+
+```text
+{
+  "kind": "claude_agent_sdk",
+  "version": "0.3.270",
+  "profile_id": "claude-coding-local",
+  "model": "claude-sonnet-5",
+  "permission_mode": "default"
+}
+```
+
+A profile that is not in the catalog, a profile that cannot run with that repository, and a model the profile does not allow all return 422.
+
+When you create an agent release, choose with `runtime_profile_id`. The card's `model` must match that profile's model, and all of the card's tools must be in the profile ([Create](/agents/create#create-a-release)).
+
+## Change the profile of a running session
+
+Change it with `POST /v1/sessions/{id}/profile`. The running turn finishes with the profile it started with, and input from then on runs with the new profile. The conversation and working tree continue from the last checkpoint. Changing to the same profile changes nothing and only leaves a receipt.
+
+```bash
+until [ "$(curl -sS "$API/v1/sessions/$SID/turns/1" -H "Authorization: Bearer $KEY" | jq -r .status)" = completed ]; do
+  sleep 2
+done
+REV=$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq .revision)
+curl -sS "$API/v1/sessions/$SID/profile" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --argjson r "$REV" '{expected_revision: $r, profile_id: "claude-coding-local"}')" | jq -c .
+```
+
+```text
+{"receipt_id":"…","receipt_status":"succeeded"}
+```
+
+If the new profile differs in runtime kind, version, or billing mode, or does not pair with that repository, the response is 422 `UNSUPPORTED_CAPABILITY`. For a session created from an agent release, the release decides the profile, so the response is 409 `RELEASE_PROFILE_MISMATCH`. The scope is `sessions:control`.
+
+## Next steps
+
+- [Permissions](/agents/permissions): What the tool list and permission mode do
+- [Start](/sessions/start): The session creation request

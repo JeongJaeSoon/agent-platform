@@ -1,0 +1,66 @@
+---
+title: "설치"
+description: "저장소 안에 Vite 앱을 만들고 @werft-ai/ui와 @werft-ai/react를 가져온다"
+---
+
+UI 패키지를 쓰는 작은 Vite 앱을 저장소 안에 만든다. 이 절의 나머지 쪽은 이 앱을 이어서 채운다.
+
+<Callout type="warn">
+npm으로 설치하는 방법은 아직 제공하지 않는다. 두 패키지는 이 저장소의 workspace 패키지이고 TypeScript 소스를 그대로 내보낸다. 그래서 저장소 밖의 앱에서는 가져올 수 없다.
+</Callout>
+
+## 준비
+
+저장소 루트에서 의존성을 설치한다. 루트의 `node_modules/@werft-ai/ui`와 `node_modules/@werft-ai/react`가 `packages/ui`, `packages/react`를 가리키는 링크로 생긴다.
+
+```sh
+bun install
+```
+
+필요한 것은 다음과 같다. 모두 이 저장소의 다른 패키지가 이미 쓰고 있어서, 위 설치로 루트 `node_modules`에 들어 있다.
+
+| 무엇 | 왜 |
+| --- | --- |
+| React 19, `react-dom` | 두 패키지가 React 19로 그린다 |
+| `@tanstack/react-query` | `@werft-ai/react`의 hook과 블록이 이 cache를 쓴다. 앱이 `QueryClientProvider`로 감싼다 |
+| Tailwind CSS 4, `@tailwindcss/vite` | primitive의 모양이 Tailwind 유틸리티로 나온다. Tailwind 없이 쓰면 primitive는 모양 없이 그려진다 |
+| Vite, `@vitejs/plugin-react` | 패키지가 TypeScript 소스를 내보내므로 앱의 번들러가 컴파일한다 |
+
+## 앱 만들기
+
+저장소 루트에 `ui-demo` 디렉터리를 만들고 두 파일을 둔다. `ui-demo`는 workspace에 넣지 않는다. import는 위로 올라가 루트 `node_modules`에서 찾는다.
+
+```html title="ui-demo/index.html"
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Werft UI demo</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+```
+
+```ts title="ui-demo/vite.config.ts"
+import tailwindcss from "@tailwindcss/vite";
+import react from "@vitejs/plugin-react";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  plugins: [react(), tailwindcss()],
+  // The blocks call /v1 on their own origin with the login cookie.
+  server: { proxy: { "/v1": "http://127.0.0.1:3000" } },
+});
+```
+
+`server.proxy`는 앱의 `/v1` 요청을 [설치](/getting-started/install)대로 띄운 로컬 스택으로 넘긴다. 세션 블록은 자기 origin의 `/v1`을 웹 로그인 cookie로 부르기 때문이다. 이유는 [세션 블록 넣기](/ui/session-blocks)에 있다.
+
+`src/styles.css`는 [테마 적용](/ui/theme)에서, `src/main.tsx`는 [세션 블록 넣기](/ui/session-blocks)에서 만든다.
+
+## 다음 단계
+
+- [테마 적용](/ui/theme): CSS를 import하고 어두운 테마를 켠다

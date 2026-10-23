@@ -1,0 +1,63 @@
+---
+title: "거부"
+description: push 요청을 거부한다. 거부한 뒤에 새로 요청할 수 있다
+---
+
+내보내면 안 되는 commit이면 거부한다. 승인과 같은 `sessions:approve`가 필요하다. 세션마다 열린 요청은 하나라서, 고칠 것이 있으면 거부하고 세션에 다음 메시지를 보낸 뒤 새로 요청한다. [요청](/approvals/request)의 `SID`를 쓴다. 앞 요청이 끝났으므로 새 요청을 만든다.
+
+## 거부하기
+
+```bash
+push=$(curl -sS "$API/v1/sessions/$SID/push-requests" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d '{}')
+PUSH_ID=$(echo "$push" | jq -r .id)
+PUSH_COMMIT=$(echo "$push" | jq -r .git_commit)
+curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/decision" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg c "$PUSH_COMMIT" '{decision: "reject", git_commit: $c, reason: "needs tests first"}')" \
+  | jq '{state, decision_reason}'
+```
+
+```text
+{
+  "state": "rejected",
+  "decision_reason": "needs tests first"
+}
+```
+
+`reason`은 선택이다. 거부에는 commit이 바뀌었는지 검사하지 않는다.
+
+## 결정은 한 번
+
+이미 결정한 요청에 다시 결정하면 409 `PUSH_REQUEST_DECIDED`다. 그 시도도 receipt로 남는다.
+
+```bash
+again=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/decision" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg c "$PUSH_COMMIT" '{decision: "approve", git_commit: $c}')")
+echo "$again" | jq '{code: .error.code}'
+curl -sS "$API/v1/receipts/$(echo "$again" | jq -r .error.details.receipt_id)" -H "Authorization: Bearer $KEY" \
+  | jq '{operation, status, refusal: .result.refusal}'
+```
+
+```text
+{
+  "code": "PUSH_REQUEST_DECIDED"
+}
+{
+  "operation": "decide_push",
+  "status": "failed",
+  "refusal": "already_decided"
+}
+```
+
+## 다음 단계
+
+- [receipt](/approvals/receipt): 요청·결정·push의 기록 읽기

@@ -1,0 +1,128 @@
+---
+title: "状態とライフサイクル"
+description: セッションの status と admission_state、turn の状態、interrupt、attention
+---
+
+セッション詳細(`GET /v1/sessions/{id}`)には状態が 2 つある。`status` は現在の実行状況、`admission_state` はセッションが新しい入力を受け付けるかどうかである。turn は別に状態を持ち、終わったかどうかは turn の状態だけで判断する。[開始](/sessions/start)で作った `SID` で確認する。
+
+```bash
+until [ "$(curl -sS "$API/v1/sessions/$SID/turns/1" -H "Authorization: Bearer $KEY" | jq -r .status)" = completed ]; do
+  sleep 2
+done
+curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" \
+  | jq '{status, admission_state, current_turn_id, revision, attention}'
+```
+
+```text
+{
+  "status": "idle",
+  "admission_state": "active",
+  "current_turn_id": null,
+  "revision": 0,
+  "attention": null
+}
+```
+
+`revision` は、pause・resume・close などの制御でセッションが変わったときに上がる。turn が終わっても上がらない。制御リクエストには現在の値を `expected_revision` として送る。
+
+## status
+
+| 値 | 意味 |
+| --- | --- |
+| `queued` | 入力があり、worker を待っている |
+| `running` | worker が turn を実行している |
+| `needs_input` | 実行中の turn が、応答できる権限リクエストまたは質問を待っている |
+| `idle` | 実行する turn がない。次のメッセージを受け付ける |
+| `stopped` | 実行が止まっている(interrupt、terminate、pause、close の後) |
+| `failed` | 実行が失敗した。理由は `attention` にある |
+
+## admission_state
+
+| 値 | 意味 |
+| --- | --- |
+| `active` | メッセージと制御を受け付ける |
+| `pausing` → `paused` | pause 中、および checkpoint を残して worker が停止した状態。メッセージは 409 `SESSION_PAUSED` |
+| `resuming` | resume 中。新しい worker が checkpoint から復元する |
+| `stopping` → `stopped` | terminate 中、および停止した状態 |
+| `recovery_required` | 結果が不明な turn が残っており、人が復旧の判断をする必要がある([クローズ](/sessions/close)) |
+| `closing` → `closed` | close 中、および閉じた状態。元に戻せない |
+
+## turn の状態
+
+```bash
+curl -sS "$API/v1/sessions/$SID/turns" -H "Authorization: Bearer $KEY" | jq -c '.items[] | {turn_id, status}'
+```
+
+`queued`・`running`・`needs_input` は進行中、`completed`・`failed`・`interrupted`・`cancelled`・`outcome_unknown` は終了した状態である。`completed` はエンジンが turn を正常に終了したという意味であり、依頼した作業をすべて終えたという意味ではない。作業が終わったかどうかは、イベントの `assistant`・`tool_result` を読んで判断する。イベントの `result` も完了の判定ではない。
+
+## interrupt
+
+実行中の turn 1 つだけを止める。worker は残り、次のメッセージを受け付ける。下のスクリプトは応答を 5 分遅らせるので、その間 turn は `running` のままになる。
+
+```bash
+turn=$(curl -sS "$API/v1/sessions/$SID/messages" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg m 'GATE-SPEC {"id":"slow","steps":[],"final":"too late","finalDelayMs":300000}' '{message: $m}')" \
+  | jq -r .turn_id)
+until [ "$(curl -sS "$API/v1/sessions/$SID/turns/$turn" -H "Authorization: Bearer $KEY" | jq -r .status)" = running ]; do
+  sleep 1
+done
+curl -sS "$API/v1/sessions/$SID/interrupt" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg t "$turn" '{target_turn_id: $t}')" | jq '{receipt_status}'
+until [ "$(curl -sS "$API/v1/sessions/$SID/turns/$turn" -H "Authorization: Bearer $KEY" | jq -r .status)" = interrupted ]; do
+  sleep 1
+done
+curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq '{status, admission_state}'
+```
+
+```text
+{
+  "receipt_status": "accepted"
+}
+{
+  "status": "stopped",
+  "admission_state": "active"
+}
+```
+
+まだ開始していない turn は 409 `TURN_NOT_STARTED`、すでに終了した turn は何もしない成功(`no_op: true`)になる。scope は `sessions:control` である。
+
+## attention
+
+セッションが人の対応を待っているとき、`attention` に `code` と理由が付く。通常は `null` である。
+
+| code | 意味 |
+| --- | --- |
+| `PAUSE_BLOCKED`, `CLOSE_BLOCKED` | pause・close が 60 秒を超えても drain できなかった。理由は `long_turn`、`pending_request` など |
+| `BUDGET_EXCEEDED` | セッションのコストまたは token の上限を超えた |
+| `TRANSCRIPT_LIMIT` | 会話履歴が上限に近づいた、または超えた。新しいセッションに移るタイミングである |
+| `STARTUP_FAILED`, `RESTORE_FAILED` | worker が起動できない、または checkpoint を復元できない |
+| `CATALOG_MISMATCH` | セッションを作った後に、運用者がプロファイルまたはリポジトリの設定を変更した |
+| `CONTEXT_GAP` | 復旧の判断により、以前の会話の一部が欠けている |
+
+## 使用量
+
+```bash
+curl -sS "$API/v1/sessions/$SID/usage" -H "Authorization: Bearer $KEY" \
+  | jq '{cost: .cost.amount_usd, complete: .cost.complete, budget_exceeded}'
+```
+
+```text
+{
+  "cost": "0.000042",
+  "complete": true,
+  "budget_exceeded": false
+}
+```
+
+コストは請求額ではなく、価格表で計算した推定値である。`complete` が `false` なら、合計はまだ確定していない。開いている turn がある(`open_turn_count`)か、終了した turn のうちコストが報告されていないものがある(`unreported_turn_count`)。後者の場合は、すべての turn が終了しても `false` のままである。
+
+## 次のステップ
+
+- [承認待ちと再開](/sessions/waiting-and-resume): `needs_input` への応答、pause と resume
+- [クローズ](/sessions/close): close、terminate、復旧の判断

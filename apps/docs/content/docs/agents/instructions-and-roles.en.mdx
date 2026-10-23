@@ -1,0 +1,64 @@
+---
+title: "Instructions and roles"
+description: The fields of an agent card, how versions accumulate, and the instructions the model actually reads today
+---
+
+A card is the definition that says who an agent is and what it should do. Editing a card creates a new version, and earlier versions never change.
+
+## Card fields
+
+| Field | Required | Content |
+| --- | --- | --- |
+| `role` | Yes | One-line role. Up to 200 characters |
+| `instructions` | Yes | Instructions. Up to 20,000 characters |
+| `model` | Yes | Model name. Must match the run profile's model when you create a release |
+| `capabilities.tools` | Yes | List of tool names to use. They must be tools the run profile has |
+| `capabilities.mcp` | Yes | Only `null` is accepted for now |
+| `capabilities.forbidden` | | Tool names to forbid |
+| `capabilities.tool_policy` | | `allow`, `ask`, or `deny` per tool |
+| `capabilities.credential_refs` | | Names of the credentials to use (not the values). [Permissions](/agents/permissions) |
+| `tone` | | Tone of voice. Up to 200 characters |
+| `language` | | `ko` (default) or `en` |
+| `rules` | | List of `{id, text, source}`. `source` is `user` or `correction` |
+
+## What the model reads today
+
+<Callout type="warn">
+A card's `role`, `instructions`, `tone`, and `rules` are stored in the version and the release and pinned to the session, but they are not passed to the model yet.
+</Callout>
+
+The worker currently adds two instructions to the model.
+
+- `CLAUDE.md` at the repository root. When the run profile has `project_settings.claude_md: true`, the committed content is read. The local profile `claude-coding-local` has it on.
+- For a session without a repository, a single line telling the agent to put files meant for people in `out/`.
+
+So to tell an agent how to work, write it in the repository's `CLAUDE.md` for now.
+
+## Editing and versions
+
+Editing a card makes `PATCH /v1/agents/{id}` add a new version. To change only the name, send only `name`. Sending a card identical to an existing version adds nothing. This continues with `AID` and `WEB` from [Create](/agents/create).
+
+```bash
+curl -sS -X PATCH "$API/v1/agents/$AID" "${WEB[@]}" -d '{
+  "card": {
+    "role": "저장소를 읽고 질문에 답한다",
+    "instructions": "Answer briefly. Cite file paths. Say when you are unsure.",
+    "model": "claude-sonnet-5",
+    "language": "en",
+    "capabilities": { "tools": ["Read", "Grep", "Glob"], "mcp": null },
+    "rules": [{ "id": "no-guess", "text": "Never invent a file path.", "source": "user" }]
+  }
+}' | jq -c '.versions[] | {version_no, language: .card.language}'
+```
+
+```text
+{"version_no":1,"language":"ko"}
+{"version_no":2,"language":"en"}
+```
+
+A new version does not change the active release. To use it, create a release from that version and activate it ([Create](/agents/create#create-a-release)). In the web console, "Save" on the agent detail does the same thing and shows the difference between the two versions.
+
+## Next steps
+
+- [Choose a run profile](/agents/run-profiles): The profile that releases and sessions use
+- [Permissions](/agents/permissions): Tool permissions and agent administrators

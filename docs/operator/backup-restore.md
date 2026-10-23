@@ -16,7 +16,7 @@ test-ops 설치에서는 이 스크립트들을 직접 부르지 않는다. `scr
 checkpoint object의 삭제는 chart의 checkpoint GC CronJob(`checkpointGc.schedule`, 기본 `0 4 * * 0`)만 한다. **bucket에 lifecycle 만료 규칙을 두지 않는다.** GC는 DB를 읽고 현재 pointer와 그 부모가 가리키지 않는 revision만 골라, legal hold를 푼 뒤 그 version을 지우고 행에 `collected_at`을 적는다. lifecycle 규칙은 나이와 prefix만 보고 DB를 모른다. 그래서 둘이 겹치면 다음 일이 생긴다.
 
 - hold가 걸리기 전의 object(worker가 올렸고 finalize가 아직 검증 중인 것)나 GC가 hold를 푼 version을 lifecycle이 먼저 지운다. finalize가 실패하거나, GC가 행을 표시하기 전에 object가 사라진다.
-- hold가 걸린 version은 lifecycle이 지우지 못한다. 저장량은 lifecycle로 줄지 않고 GC로만 준다(operations.md의 "한계: checkpoint 바이트").
+- hold가 걸린 version은 lifecycle이 지우지 못한다. 저장량은 lifecycle로 줄지 않고 GC로만 준다(api-server.md의 "한계: checkpoint 바이트").
 
 RDS 스냅샷은 그 시점의 pointer를 담는다. 스냅샷 뒤에 GC가 지운 revision을 그 스냅샷의 pointer가 가리킬 수 있다. 스냅샷 보존 기간과 GC 주기를 어떻게 맞출지, 실제 복원 절차는 실제 RDS·S3로 하는 복원 훈련에서 정한다(보류: AWS 리소스가 생긴 뒤 재개).
 

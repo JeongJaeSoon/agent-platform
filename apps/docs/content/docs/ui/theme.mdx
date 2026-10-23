@@ -1,0 +1,59 @@
+---
+title: "테마 적용"
+description: "토큰과 Tailwind 연결을 import하고 어두운 테마를 켠다"
+---
+
+컴포넌트의 색, 간격, 글꼴, radius, 그림자는 모두 `--ap-` 접두사가 붙은 CSS 변수(토큰)에서 나온다. 앱은 CSS 세 개를 import하고, 패키지 소스를 Tailwind가 스캔하게 한다.
+
+## CSS 가져오기
+
+[설치](/ui/install)에서 만든 앱에 `src/styles.css`를 만든다.
+
+```css title="ui-demo/src/styles.css"
+@import "tailwindcss";
+@import "@werft-ai/ui/styles.css";
+@import "@werft-ai/ui/theme.css";
+
+@source "../../packages/ui/src";
+@source "../../packages/react/src";
+
+body {
+  margin: 0;
+  background: var(--ap-color-canvas);
+  color: var(--ap-color-foreground);
+  font-family: var(--ap-font-sans);
+}
+```
+
+| import | 하는 일 |
+| --- | --- |
+| `tailwindcss` | Tailwind 4 |
+| `@werft-ai/ui/styles.css` | 토큰(`tokens.css`), 글꼴, 키트 요소의 기본 규칙. 글꼴(Geist, Pretendard)은 패키지 안의 파일을 쓴다. CDN에서 받지 않는다 |
+| `@werft-ai/ui/theme.css` | 토큰을 Tailwind 유틸리티로 잇는다. `bg-canvas`, `bg-primary`, `text-control`, `font-sans`, `rounded-md`, `shadow-sm` 같은 이름이 여기서 나온다 |
+
+`@source` 두 줄은 Tailwind가 `node_modules` 아래 링크된 패키지 소스에서 클래스 이름을 찾게 한다. Tailwind의 자동 탐색은 `node_modules`를 건너뛰기 때문에 웹 콘솔(`apps/web/src/styles.css`)도 같은 두 줄을 둔다. 경로는 이 CSS 파일 기준이다.
+
+## 어두운 테마
+
+토큰은 밝은 테마가 기본이다. 어두운 테마는 두 가지로 켜진다.
+
+- 시스템 설정: 운영체제가 어두운 모드면(`prefers-color-scheme: dark`) 따로 할 일이 없다.
+- 직접 전환: `<html>`의 `data-theme`을 바꾼다. `"dark"`는 시스템 설정과 관계없이 어둡게, `"light"`는 밝게 고정한다.
+
+```ts
+document.documentElement.dataset.theme = "dark";
+```
+
+컴포넌트는 Tailwind의 `dark:` variant를 쓰지 않는다. `dark:`는 `data-theme` 전환을 보지 못하므로, 앱의 CSS도 색을 바꿀 때 토큰(`var(--ap-color-…)`)을 쓰면 두 방식 모두에서 따라온다.
+
+## 덮어쓰기
+
+`tokens.css`와 `styles.css`의 규칙은 `@layer ap` 안에 있고, 이 layer는 Tailwind의 `utilities` 뒤에 온다. 그래서 다음 두 가지가 정해진다.
+
+- `ConfirmDialog`, `DestructiveActionDialog`, `EmptyState`, `ErrorState`, `Skeleton`, `StatusLabel`, `ReceiptSummary`, `ReceiptLink`는 자기 클래스로 그린다. 여기에 `className`으로 넘긴 Tailwind 유틸리티는 같은 속성이면 적용되지 않는다.
+- layer 밖에 쓴 앱의 CSS는 이 규칙들을 이긴다. 모양을 바꾸려면 layer 밖 CSS로 덮는다.
+
+## 다음 단계
+
+- [세션 블록 넣기](/ui/session-blocks): 이 CSS를 쓰는 화면을 그린다
+- <SiblingLink href="/storybook/">Storybook</SiblingLink>: toolbar에서 테마를 바꿔 컴포넌트마다 두 테마를 본다

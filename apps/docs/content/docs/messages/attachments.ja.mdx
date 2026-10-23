@@ -1,0 +1,29 @@
+---
+title: "添付"
+description: メッセージにファイルを添付する機能の現状
+---
+
+<Callout type="warn">
+メッセージにファイルを添付する機能はまだない。メッセージ本文は UTF-8 のテキスト 1 つで、32,768 バイトまでである。
+</Callout>
+
+`POST /v1/sessions/{id}/messages` の必須フィールドは、テキストの `message` 1 つだけである。ファイルを載せるフィールドはない。長さが超過すると 413 になる。
+
+```bash
+LONG=$(head -c 32769 /dev/zero | tr '\0' a)
+curl -sS -o /dev/null -w '%{http_code}\n' "$API/v1/sessions/$SID/messages" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg m "$LONG" '{message: $m}')"
+```
+
+```text
+413
+```
+
+エージェントに読ませたいファイルは、セッションが使うリポジトリに commit しておき、メッセージでパスを指定する。セッションは開始時にそのリポジトリを clone する。
+
+## 次のステップ
+
+- [リクエスト](/approvals/request): セッションが作った commit をリポジトリに送り出す
