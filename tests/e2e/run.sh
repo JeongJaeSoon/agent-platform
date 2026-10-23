@@ -125,6 +125,9 @@ export EXECUTION_INSTALLATION_ID="e2e${run_id}"
 export API_IMAGE="agent-platform-control-host:${project}"
 export WORKER_IMAGE="agent-platform-worker:${project}"
 export EGRESS_PROXY_IMAGE="agent-platform-egress-proxy:${project}"
+# The first owner's, for tests/e2e/remote-mcp.e2e.ts: infra/compose.core.yml
+# passes it to the API.
+export BOOTSTRAP_TOKEN="$(openssl rand -hex 24)"
 label="agent-platform.installation=${EXECUTION_INSTALLATION_ID}"
 # E2E_COMPOSE_OVERRIDE: one more overlay after ours; CI passes
 # tests/e2e/compose.ci-mirror.yml to pull from its image mirror.
@@ -225,8 +228,15 @@ sdk_version="$(sed -n 's/.*"@anthropic-ai\/claude-agent-sdk": "\([^"]*\)".*/\1/p
 
 export E2E_API_URL="http://127.0.0.1:$(dc port api 3000 | sed 's/.*://')"
 export E2E_API_KEY="$api_key"
-[ -n "$real_model$local_model" ] ||
+if [ -z "$real_model$local_model" ]; then
   export E2E_MESSAGES_URL="http://127.0.0.1:$(dc port fake-messages 4011 | sed 's/.*://')"
+  export E2E_BOOTSTRAP_TOKEN="$BOOTSTRAP_TOKEN"
+  export E2E_FAKE_MCP_URL="http://127.0.0.1:$(dc port fake-mcp 4021 | sed 's/.*://')"
+  E2E_FAKE_MCP_BEARER_HASH="$(dc exec -T secrets awslocal secretsmanager get-secret-value \
+    --secret-id agent-platform/local/fake-mcp --query SecretString --output text |
+    tr -d '\r\n' | shasum -a 256 | cut -d' ' -f1)"
+  export E2E_FAKE_MCP_BEARER_HASH
+fi
 if [ "${E2E_UP_ONLY:-0}" = 1 ]; then
   export E2E_KEEP=1
   # Holds the API key, so only here and never in a CI artifact.
@@ -240,7 +250,9 @@ set +e
 if [ -n "$real_model$local_model" ]; then
   suites=(./tests/e2e/real-model.e2e.ts)
 else
-  suites=(./tests/e2e/alpha-path.e2e.ts ./tests/e2e/pause-coverage.e2e.ts)
+  # remote-mcp first: the other suites leave their sessions holding every
+  # execution slot.
+  suites=(./tests/e2e/remote-mcp.e2e.ts ./tests/e2e/alpha-path.e2e.ts ./tests/e2e/pause-coverage.e2e.ts)
 fi
 # The suites drive the public API and never need the provider key.
 env -u ANTHROPIC_API_KEY bun test "${suites[@]}" --timeout 900000 \

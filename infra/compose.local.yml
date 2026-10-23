@@ -60,7 +60,8 @@ services:
     volumes:
       - ./localstack/secrets-init/10-seed-secrets.sh:/etc/localstack/init/ready.d/10-seed-secrets.sh:ro
     healthcheck:
-      test: ["CMD-SHELL", "awslocal secretsmanager describe-secret --secret-id agent-platform/local/fake-messages >/dev/null"]
+      # The last secret the init script seeds.
+      test: ["CMD-SHELL", "awslocal secretsmanager describe-secret --secret-id agent-platform/local/fake-mcp >/dev/null"]
       interval: 5s
       timeout: 3s
       retries: 12
@@ -80,6 +81,28 @@ services:
       - ..:/app:ro
     healthcheck:
       test: ["CMD", "bun", "-e", "await fetch('http://127.0.0.1:4010/healthz')"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+  # The remote MCP server config/fake-model/mcp-servers.yaml names, behind
+  # the service-account bearer the secrets service seeds. Workers reach it
+  # only through the proxy's /mcp/fake route. Its control port (/calls)
+  # reports call counts and bearer hashes, never a value.
+  fake-mcp:
+    profiles: [fake-model]
+    image: oven/bun:1.3.14@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4
+    command: ["bun", "run", "/app/packages/testkit/src/fake-mcp-main.ts"]
+    environment:
+      FAKE_MCP_PORT: "4020"
+      FAKE_MCP_CONTROL_PORT: "4021"
+      FAKE_MCP_MARKER: fake-mcp
+      FAKE_MCP_BEARER: local-fake-mcp-service-account
+    volumes:
+      - ..:/app:ro
+    healthcheck:
+      test: ["CMD", "bun", "-e", "await fetch('http://127.0.0.1:4021/healthz')"]
       interval: 5s
       timeout: 3s
       retries: 12

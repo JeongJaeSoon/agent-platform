@@ -184,6 +184,8 @@
     --ap-row-min-height: 3rem;
     --ap-row-head-min-height: 2.5rem;
     --ap-row-line-gap: 0.125rem;
+    /* A row button's floor in a table's actions column. */
+    --ap-row-action-min-width: 6rem;
     --ap-control-height: 2rem;
     --ap-control-height-sm: 1.75rem;
     --ap-text-title: 1.25rem;

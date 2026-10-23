@@ -1051,7 +1051,29 @@
                     ]
                   },
                   "mcp": {
-                    "type": "null"
+                    "anyOf": [
+                      {
+                        "minItems": 1,
+                        "maxItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "server": {
+                              "type": "string",
+                              "pattern": "^[a-z0-9](?:[a-z0-9-]|_(?!_)){0,31}$"
+                            }
+                          },
+                          "required": [
+                            "server"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   },
                   "forbidden": {
                     "default": [],
@@ -1228,7 +1250,29 @@
                     ]
                   },
                   "mcp": {
-                    "type": "null"
+                    "anyOf": [
+                      {
+                        "minItems": 1,
+                        "maxItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "server": {
+                              "type": "string",
+                              "pattern": "^[a-z0-9](?:[a-z0-9-]|_(?!_)){0,31}$"
+                            }
+                          },
+                          "required": [
+                            "server"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   },
                   "forbidden": {
                     "default": [],
@@ -5257,6 +5301,7 @@
               "push",
               "open_pull_request",
               "comment_pull_request",
+              "call_mcp",
               "set_slack_secret",
               "delete_slack_secret"
             ]
@@ -6989,7 +7034,29 @@
                           ]
                         },
                         "mcp": {
-                          "type": "null"
+                          "anyOf": [
+                            {
+                              "minItems": 1,
+                              "maxItems": 1,
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "server": {
+                                    "type": "string",
+                                    "pattern": "^[a-z0-9](?:[a-z0-9-]|_(?!_)){0,31}$"
+                                  }
+                                },
+                                "required": [
+                                  "server"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
                         },
                         "forbidden": {
                           "default": [],
@@ -7777,6 +7844,11 @@
             "format": "uuid",
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           },
+          "receipt_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
           "admins": {
             "type": "array",
             "items": {
@@ -7813,6 +7885,7 @@
           "reason_code",
           "guidance",
           "agent_id",
+          "receipt_id",
           "admins",
           "admin_link"
         ],
@@ -8879,7 +8952,7 @@
           },
           "revoke_notice": {
             "type": "string",
-            "const": "실행 중인 세션은 끝날 때까지 이 자격을 써요. 바로 막으려면 외부 서비스에서 폐기하세요"
+            "const": "해제하면 실행 중인 세션도 다음 메시지부터 막히고, 원격 MCP 호출은 30초 안에 끊겨요. 이미 보낸 호출은 끝까지 실행되니 값 자체는 외부 서비스에서 폐기하세요"
           }
         },
         "required": [
@@ -8949,7 +9022,7 @@
           },
           "revoke_notice": {
             "type": "string",
-            "const": "실행 중인 세션은 끝날 때까지 이 자격을 써요. 바로 막으려면 외부 서비스에서 폐기하세요"
+            "const": "해제하면 실행 중인 세션도 다음 메시지부터 막히고, 원격 MCP 호출은 30초 안에 끊겨요. 이미 보낸 호출은 끝까지 실행되니 값 자체는 외부 서비스에서 폐기하세요"
           },
           "receipt_id": {
             "type": "string",
@@ -29961,7 +30034,7 @@
           "Agents"
         ],
         "summary": "The credential names bound to an agent",
-        "description": "Owners, admins and the agent's admins. Each binding carries `running_sessions`, the sessions of this agent that name it and have not closed, with the `revoke_notice` the unbind screen shows: unbinding stops the next session, not a running one (D11). Names only; no value is ever stored.\n\n**Auth:** cookie session only; no scope.",
+        "description": "Owners, admins and the agent's admins. Each binding carries `running_sessions`, the sessions of this agent that name it and have not closed, with the `revoke_notice` the unbind screen shows: unbinding stops the next session and the next message of a running one, and cuts its remote MCP calls within 30 seconds. Names only; no value is ever stored.\n\n**Auth:** cookie session only; no scope.",
         "security": [
           {
             "cookieSession": []
@@ -30501,7 +30574,7 @@
           "Agents"
         ],
         "summary": "Unbind a credential name from an agent",
-        "description": "Takes what binding takes. The next session of a release naming it is refused 409 CREDENTIAL_UNBOUND; sessions already running keep it until they end, which the answer's `binding.running_sessions` and `revoke_notice` say. Writes an `unbind_credential` receipt; a binding already revoked is not found.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "Takes what binding takes. The next session of a release naming it, and the next message to a running one, is refused 409 CREDENTIAL_UNBOUND with a failed receipt; a running session's remote MCP calls are refused from the next exchange and an open one is cut within 30 seconds, while a call already sent finishes. The answer's `binding.running_sessions` and `revoke_notice` say so. Writes an `unbind_credential` receipt; a binding already revoked is not found.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []

@@ -75,12 +75,25 @@ export const agentRuleSchema = z
   })
   .strict();
 
+/** Its tools are `mcp__<id>__<tool>`, so the id holds no `__`. */
+export const MCP_SERVER_ID_PATTERN = "^[a-z0-9](?:[a-z0-9-]|_(?!_)){0,31}$";
+export const mcpServerIdSchema = z
+  .string()
+  .regex(new RegExp(MCP_SERVER_ID_PATTERN), "must be a catalog MCP server id");
+export const cardMcpServerSchema = z
+  .object({ server: mcpServerIdSchema })
+  .strict();
+
 export const agentCapabilitiesSchema = z
   .object({
     /** `null` = every tool the runtime profile allows, `[]` = none. */
     tools: z.array(toolNameSchema).nullable(),
-    /** Always null: a worker's `runtime_config` carries no MCP servers. */
-    mcp: z.null(),
+    /**
+     * The remote MCP server the agent calls, by the operator catalog's id
+     * (`mcp_servers.<id>`), which fixes its URL, credential and workspaces.
+     * Null for none, so a card written before it keeps its content hash.
+     */
+    mcp: z.array(cardMcpServerSchema).min(1).max(1).nullable(),
     /** Server-enforced denials, not prose in the instructions. */
     forbidden: z.array(toolNameSchema).default([]),
     /**

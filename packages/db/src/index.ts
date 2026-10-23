@@ -19,6 +19,7 @@ export * from "./interrupt-control.ts";
 export * from "./invites.ts";
 export * from "./lease-reconcile.ts";
 export * from "./linked-accounts.ts";
+export * from "./mcp-egress.ts";
 export * from "./member-teams.ts";
 export * from "./members.ts";
 export * from "./migration-head.ts";

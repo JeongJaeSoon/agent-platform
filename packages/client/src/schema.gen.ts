@@ -1480,7 +1480,7 @@ export interface paths {
         };
         /**
          * The credential names bound to an agent
-         * @description Owners, admins and the agent's admins. Each binding carries `running_sessions`, the sessions of this agent that name it and have not closed, with the `revoke_notice` the unbind screen shows: unbinding stops the next session, not a running one (D11). Names only; no value is ever stored.
+         * @description Owners, admins and the agent's admins. Each binding carries `running_sessions`, the sessions of this agent that name it and have not closed, with the `revoke_notice` the unbind screen shows: unbinding stops the next session and the next message of a running one, and cuts its remote MCP calls within 30 seconds. Names only; no value is ever stored.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -1511,7 +1511,7 @@ export interface paths {
         post?: never;
         /**
          * Unbind a credential name from an agent
-         * @description Takes what binding takes. The next session of a release naming it is refused 409 CREDENTIAL_UNBOUND; sessions already running keep it until they end, which the answer's `binding.running_sessions` and `revoke_notice` say. Writes an `unbind_credential` receipt; a binding already revoked is not found.
+         * @description Takes what binding takes. The next session of a release naming it, and the next message to a running one, is refused 409 CREDENTIAL_UNBOUND with a failed receipt; a running session's remote MCP calls are refused from the next exchange and an open one is cut within 30 seconds, while a call already sent finishes. The answer's `binding.running_sessions` and `revoke_notice` say so. Writes an `unbind_credential` receipt; a binding already revoked is not found.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -2135,7 +2135,9 @@ export interface components {
                 model: string;
                 capabilities: {
                     tools: string[] | null;
-                    mcp: null;
+                    mcp: {
+                        server: string;
+                    }[] | null;
                     /** @default [] */
                     forbidden: string[];
                     tool_policy?: {
@@ -2174,7 +2176,9 @@ export interface components {
                 model: string;
                 capabilities: {
                     tools: string[] | null;
-                    mcp: null;
+                    mcp: {
+                        server: string;
+                    }[] | null;
                     /** @default [] */
                     forbidden: string[];
                     tool_policy?: {
@@ -2978,7 +2982,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             /** @enum {string} */
-            operation: "create_session" | "append_message" | "answer" | "interrupt" | "pause" | "close" | "terminate" | "resume" | "recovery_decision" | "change_profile" | "revoke_execution" | "issue_password_reset" | "reset_password" | "recover_owner" | "takeover" | "link_account" | "unlink_account" | "invite_member" | "accept_invite" | "revoke_invite" | "change_member_role" | "disable_member" | "enable_member" | "disable_user" | "enable_user" | "create_agent" | "update_agent" | "create_agent_release" | "activate_agent" | "create_api_key" | "revoke_api_key" | "create_team" | "rename_team" | "delete_team" | "add_team_member" | "remove_team_member" | "add_agent_admin" | "remove_agent_admin" | "bind_credential" | "unbind_credential" | "link_agent_identity" | "revoke_agent_identity" | "set_surface_binding" | "share_session" | "request_push" | "decide_push" | "push" | "open_pull_request" | "comment_pull_request" | "set_slack_secret" | "delete_slack_secret";
+            operation: "create_session" | "append_message" | "answer" | "interrupt" | "pause" | "close" | "terminate" | "resume" | "recovery_decision" | "change_profile" | "revoke_execution" | "issue_password_reset" | "reset_password" | "recover_owner" | "takeover" | "link_account" | "unlink_account" | "invite_member" | "accept_invite" | "revoke_invite" | "change_member_role" | "disable_member" | "enable_member" | "disable_user" | "enable_user" | "create_agent" | "update_agent" | "create_agent_release" | "activate_agent" | "create_api_key" | "revoke_api_key" | "create_team" | "rename_team" | "delete_team" | "add_team_member" | "remove_team_member" | "add_agent_admin" | "remove_agent_admin" | "bind_credential" | "unbind_credential" | "link_agent_identity" | "revoke_agent_identity" | "set_surface_binding" | "share_session" | "request_push" | "decide_push" | "push" | "open_pull_request" | "comment_pull_request" | "call_mcp" | "set_slack_secret" | "delete_slack_secret";
             target_ref: {
                 /** Format: uuid */
                 session_id: string;
@@ -3305,7 +3309,9 @@ export interface components {
                     model: string;
                     capabilities: {
                         tools: string[] | null;
-                        mcp: null;
+                        mcp: {
+                            server: string;
+                        }[] | null;
                         /** @default [] */
                         forbidden: string[];
                         tool_policy?: {
@@ -3456,6 +3462,8 @@ export interface components {
             guidance: "연결 설정이 바뀌어 시작하지 못했어요. 에이전트 관리자에게 문의하세요";
             /** Format: uuid */
             agent_id: string;
+            /** Format: uuid */
+            receipt_id: string;
             admins: {
                 /** Format: uuid */
                 user_id: string;
@@ -3662,7 +3670,7 @@ export interface components {
                 running_sessions: number;
             }[];
             /** @constant */
-            revoke_notice: "실행 중인 세션은 끝날 때까지 이 자격을 써요. 바로 막으려면 외부 서비스에서 폐기하세요";
+            revoke_notice: "해제하면 실행 중인 세션도 다음 메시지부터 막히고, 원격 MCP 호출은 30초 안에 끊겨요. 이미 보낸 호출은 끝까지 실행되니 값 자체는 외부 서비스에서 폐기하세요";
         };
         RevokeCredentialBindingResponse: {
             binding: {
@@ -3679,7 +3687,7 @@ export interface components {
                 running_sessions: number;
             };
             /** @constant */
-            revoke_notice: "실행 중인 세션은 끝날 때까지 이 자격을 써요. 바로 막으려면 외부 서비스에서 폐기하세요";
+            revoke_notice: "해제하면 실행 중인 세션도 다음 메시지부터 막히고, 원격 MCP 호출은 30초 안에 끊겨요. 이미 보낸 호출은 끝까지 실행되니 값 자체는 외부 서비스에서 폐기하세요";
             /** Format: uuid */
             receipt_id: string;
         };

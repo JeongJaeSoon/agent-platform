@@ -7,13 +7,13 @@ Werft 웹 콘솔의 화면은 두 패키지로 만든다. 같은 패키지로 �
 
 | 패키지 | 들어 있는 것 |
 | --- | --- |
-| `@werft-ai/ui` | 디자인 토큰(`tokens.css`), Tailwind 연결(`theme.css`), primitive(`Button`, `Card`, `Dialog`, `Tabs` 등), 상태 표시(`StatusLabel`, `ErrorState`, `Skeleton`, `EmptyState`), 세션 조각(`Timeline`, `Composer`, `ApprovalCard`, `QuestionCard`) |
-| `@werft-ai/react` | 서버 상태를 읽고 쓰는 hook(`useSessions`, `useSession`, `useSessionEvents`, `useSendMessage`, `useAnswer` 등)과 `AgentPlatformProvider`. `@werft-ai/react/blocks`에는 데이터까지 읽어 그리는 세션 블록 `SessionList`, `RecentSessions`, `WaitingSessions`, `SessionDetail`, `ApprovalInbox`가 있다 |
+| `@werft-ai/ui` | 디자인 토큰(`tokens.css`), Tailwind 연결(`theme.css`), primitive(`Button`, `Card`, `Dialog`, `Tabs`, `Skeleton` 등), 상태 표시(`ErrorState`, `EmptyState`) |
+| `@werft-ai/react` | 서버 상태를 읽고 쓰는 hook(`useSessions`, `useSession`, `useSessionEvents`, `useSendMessage`, `useAnswer` 등)과 `AgentPlatformProvider`. `@werft-ai/react/components`에는 API 타입을 받아 그리는 조각(`StatusLabel`, `Timeline`, `Composer`, `ApprovalCard`, `QuestionCard` 등)이, `@werft-ai/react/blocks`에는 데이터까지 읽어 그리는 세션 블록 `SessionList`, `RecentSessions`, `WaitingSessions`, `SessionDetail`, `ApprovalInbox`가 있다 |
 
 `@werft-ai/ui`는 받은 상태를 그리기만 한다. API를 부르거나 권한을 판단하지 않는다. API 호출은 `@werft-ai/react`의 hook과 블록이 맡는다.
 
 <Callout type="warn">
-두 패키지는 npm에 올라가 있지 않다(`private`, 버전 0.0.0). 외부 저장소의 앱에 설치해 쓰는 방법은 아직 제공하지 않는다. 지금은 이 저장소 안의 앱에서만 workspace 패키지로 가져올 수 있다. 패키지는 빌드된 JavaScript가 아니라 TypeScript 소스를 내보내므로, Vite처럼 TypeScript를 컴파일하는 번들러가 필요하다.
+두 패키지는 레지스트리에 올라가 있지 않다(`private`, 버전 0.0.0). 이 저장소 안의 앱은 workspace 패키지로 가져오고, 이때 패키지는 TypeScript 소스를 내보내므로 Vite처럼 TypeScript를 컴파일하는 번들러가 필요하다. 저장소 밖의 앱에는 `@werft-ai/ui`만 빌드된 JavaScript tarball로 설치할 수 있다([저장소 밖 앱에 설치](/ui/package)). `@werft-ai/react`는 저장소 밖에 설치할 수 없다.
 </Callout>
 
 ## 이 절의 순서
@@ -21,7 +21,8 @@ Werft 웹 콘솔의 화면은 두 패키지로 만든다. 같은 패키지로 �
 1. [설치](/ui/install): 저장소 안에 Vite 앱을 만들고 패키지를 가져온다
 2. [테마 적용](/ui/theme): CSS 세 개를 import하고 어두운 테마를 켠다
 3. [세션 블록 넣기](/ui/session-blocks): 로컬 스택의 세션 목록과 세션 화면을 그린다
-4. [Storybook](/ui/storybook): 컴포넌트마다 상태별 모습과 props를 본다
+4. [저장소 밖 앱에 설치](/ui/package): `@werft-ai/ui`를 tarball로 묶어 다른 React 앱에 설치한다
+5. [Storybook](/ui/storybook): 컴포넌트마다 상태별 모습과 props를 본다
 
 ## 다음 단계
 

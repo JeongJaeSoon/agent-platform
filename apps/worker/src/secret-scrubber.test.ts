@@ -1,5 +1,21 @@
 import { describe, expect, test } from "bun:test";
-import { SCRUBBED, SecretScrubber } from "./secret-scrubber.ts";
+import type { BootstrapClaimResponse } from "@werft-ai/contracts";
+import { claimSecrets, SCRUBBED, SecretScrubber } from "./secret-scrubber.ts";
+
+describe("claimSecrets", () => {
+  test("holds the remote MCP route's token beside the others", () => {
+    const claim = {
+      session_credential: "wsc_1",
+      runtime_config: {
+        provider: { auth: { token: "wep_1" } },
+        mcp_servers: [{ name: "fake", access: { token: "wem_1" } }],
+      },
+      workspace: { repository: {} },
+      object_store: { access: { token: "weo_1" } },
+    } as unknown as BootstrapClaimResponse;
+    expect(claimSecrets(claim, "nonce")).toContain("wem_1");
+  });
+});
 
 describe("SecretScrubber", () => {
   test("replaces each known value wherever it sits, keys included", () => {

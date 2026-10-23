@@ -45,6 +45,25 @@ export {
   NativeSelectOption,
 } from "./native-select.tsx";
 export { RadioGroup, RadioGroupItem } from "./radio-group.tsx";
+export {
+  RowLines,
+  RowList,
+  RowListItem,
+  type RowListProps,
+} from "./row-list.tsx";
 export { Skeleton, type SkeletonProps } from "./skeleton.tsx";
+export {
+  Table,
+  TableBody,
+  TableCell,
+  type TableCellProps,
+  type TableCellVariant,
+  TableContainer,
+  type TableContainerProps,
+  TableHead,
+  TableHeader,
+  type TableHeadProps,
+  TableRow,
+} from "./table.tsx";
 export { Tabs, TabsContent, TabsList, TabsTrigger } from "./tabs.tsx";
 export { Textarea } from "./textarea.tsx";

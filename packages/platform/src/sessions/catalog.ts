@@ -2,6 +2,9 @@ import { createHash, createPrivateKey } from "node:crypto";
 import { isIP } from "node:net";
 import {
   canonicalJson,
+  credentialRefSchema,
+  MCP_TOOL_PREFIX,
+  mcpServerIdSchema,
   permissionModeSchema,
   projectSettingsSchema,
   type RepositoryMode,
@@ -289,6 +292,29 @@ export const catalogRepositorySchema = z
     },
   );
 
+// A remote MCP server an agent card may name. The operator fixes the
+// pairing of server, credential and workspaces here: a card names only the
+// server, so it cannot point one server's credential at another URL, and
+// an admin elsewhere who binds the same credential name gets nothing. The
+// value reaches only the egress proxy, as a bearer on the session's MCP
+// route. Workspaces are named by slug, which never changes.
+export const catalogMcpServerSchema = z
+  .object({
+    url: webUrl.refine(
+      (value) => !isWebUrl(value) || new URL(value).search === "",
+      { message: "must not carry a query" },
+    ),
+    credential_ref: credentialRefSchema,
+    auth: credentialRef(z.literal("bearer")),
+    workspaces: z
+      .array(z.string().min(1))
+      .min(1)
+      .refine((slugs) => new Set(slugs).size === slugs.length, {
+        message: "must not repeat a workspace",
+      }),
+  })
+  .strict();
+
 function nonEmpty<T extends z.ZodType>(record: T, what: string) {
   return record.refine(
     (value) => Object.keys(value as object).length > 0,
@@ -303,6 +329,7 @@ export const sessionCatalogConfigSchema = z
       "profile",
     ),
     repositories: z.record(z.string().min(1), catalogRepositorySchema),
+    mcp_servers: z.record(mcpServerIdSchema, catalogMcpServerSchema).optional(),
   })
   .strict()
   .superRefine((config, ctx) => {
@@ -389,10 +416,94 @@ export type CatalogProfile = {
       };
 };
 
+export type CatalogMcpServer = Omit<
+  z.infer<typeof catalogMcpServerSchema>,
+  "auth"
+> & { auth: { kind: "bearer"; value: string; ref: CredentialRef } };
+
 export type SessionCatalog = {
   profiles: Record<string, CatalogProfile>;
   repositories: Record<string, CatalogRepository>;
+  mcp_servers?: Record<string, CatalogMcpServer>;
 };
+
+/** A remote MCP server the session's agent release names, as claimed. */
+export type SessionMcp = {
+  releaseId: string;
+  server: string;
+  /** The release's `mcp__<server>__*` tools pinned `allow`. */
+  tools: string[];
+};
+
+/**
+ * What an MCP egress token is held to: the release, and the server's URL
+ * and credential name as the catalog had them at the claim. A catalog edit
+ * since refuses the route, and the checkpoint fingerprint names this in
+ * place of the token, so a server or credential renamed makes another
+ * digest.
+ */
+export function mcpBinding(
+  releaseId: string,
+  serverId: string,
+  server: Pick<CatalogMcpServer, "url" | "credential_ref">,
+): string {
+  return sha256({
+    release_id: releaseId,
+    server_id: serverId,
+    url: server.url,
+    credential_ref: server.credential_ref,
+  });
+}
+
+/** Where the MCP route goes and the service account it calls as. */
+export function mcpUpstreamOf(server: CatalogMcpServer): EgressUpstream {
+  return {
+    url: server.url,
+    headers: [["authorization", `Bearer ${server.auth.value}`]],
+  };
+}
+
+/** The release's MCP tools a session runs: its `allow` pins for the server. */
+export function pinnedMcpTools(
+  serverId: string,
+  perTool: Readonly<Record<string, string>>,
+): string[] {
+  const prefix = `${MCP_TOOL_PREFIX}${serverId}__`;
+  return Object.entries(perTool)
+    .filter(
+      ([tool, policy]) =>
+        tool.startsWith(prefix) &&
+        tool.length > prefix.length &&
+        policy === "allow",
+    )
+    .map(([tool]) => tool)
+    .sort();
+}
+
+/**
+ * The runtime config a claim hands over, with the session's MCP server when
+ * its release names one: the current config and every restore config go
+ * through here, so a checkpoint made with the server is restorable on the
+ * same terms.
+ */
+export function runtimeConfigWithMcp(
+  config: RuntimeConfig,
+  mcp: { name: string; endpoint: string; binding: string; tools: string[] },
+  token: string,
+): RuntimeConfig {
+  return {
+    ...config,
+    tools: [...config.tools, ...mcp.tools],
+    mcp_servers: [
+      {
+        name: mcp.name,
+        endpoint: mcp.endpoint,
+        binding: mcp.binding,
+        access: { kind: "egress_token", token },
+      },
+    ],
+  };
+}
 
 /**
  * The provider as the worker protocol carries it: where the proxy
@@ -690,6 +801,12 @@ export function catalogCredentialRefs(
       ref: credentialRefOf(repository.auth),
     });
   }
+  for (const [id, server] of Object.entries(config.mcp_servers ?? {})) {
+    refs.push({
+      path: `mcp_servers.${id}.auth`,
+      ref: credentialRefOf(server.auth),
+    });
+  }
   return refs;
 }
 
@@ -784,7 +901,20 @@ export function resolveSessionCatalog(
           : { kind: "bearer", value, ref },
     };
   }
-  return { profiles, repositories };
+  if (config.mcp_servers === undefined) return { profiles, repositories };
+  const mcp_servers: Record<string, CatalogMcpServer> = {};
+  for (const [id, server] of Object.entries(config.mcp_servers)) {
+    const ref = credentialRefOf(server.auth);
+    mcp_servers[id] = {
+      ...server,
+      auth: {
+        kind: "bearer",
+        value: resolved(`mcp_servers.${id}.auth`, ref),
+        ref,
+      },
+    };
+  }
+  return { profiles, repositories, mcp_servers };
 }
 
 // A PEM spans lines, which an environment variable often carries as `\n`

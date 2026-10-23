@@ -23,6 +23,10 @@ services:
   fake-messages:
     ports:
       - "127.0.0.1::4011"
+  # Its control port: tool calls that reached it and bearer hashes.
+  fake-mcp:
+    ports:
+      - "127.0.0.1::4021"
   api:
     ports: !override
       - "127.0.0.1::3000"
