@@ -440,7 +440,7 @@ function ArrowLink({
 function Unmeasured() {
   const { t } = useI18n();
   return (
-    <span className="inline-flex items-center gap-2">
+    <span className="inline-flex items-center gap-1.5">
       <span aria-hidden="true">{t("home.overview.unknown")}</span>
       <Badge>{t("home.glance.unmeasured")}</Badge>
     </span>
@@ -515,25 +515,27 @@ function GlanceCard({
   // what it is, the figures behind it, then where the numbers come from.
   return (
     <li className="min-w-0">
-      <Card className="h-full gap-4 p-4">
-        <div className="flex flex-col gap-1">
+      <Card className="h-full gap-3 p-4">
+        <div className="flex flex-col gap-0.5">
           <p className="m-0 text-caption text-muted-foreground">{eyebrow}</p>
-          <h3 className="m-0 font-semibold text-control">{title}</h3>
+          <h3 className="m-0 font-semibold text-body">{title}</h3>
         </div>
         <div>
           <p className="m-0 font-semibold text-number tabular-nums">{value}</p>
           <p className="m-0 text-caption text-muted-foreground">{note}</p>
         </div>
-        <dl className="m-0 flex flex-1 flex-col gap-2">
+        <dl className="m-0 flex flex-1 flex-col gap-1">
           {rows.map((row, index) => (
             <div
               // Rows are fixed per card apart from the keys, which come last
               // but one and keep their order.
               // biome-ignore lint/suspicious/noArrayIndexKey: see above
               key={index}
-              className="flex min-w-0 items-center justify-between gap-3 text-control"
+              className="flex min-h-6 min-w-0 items-center justify-between gap-3 text-control"
             >
-              <dt className="min-w-0 text-muted-foreground">{row.label}</dt>
+              <dt className="shrink-0 whitespace-nowrap text-muted-foreground">
+                {row.label}
+              </dt>
               <dd className="m-0 min-w-0 text-right tabular-nums">
                 {row.value}
               </dd>
@@ -541,8 +543,13 @@ function GlanceCard({
           ))}
         </dl>
         {footer || link ? (
-          <div className="flex items-center justify-between gap-3 border-t pt-3">
-            <p className="m-0 text-caption text-muted-foreground">{footer}</p>
+          <div className="flex items-center justify-between gap-2 border-t pt-3">
+            <p
+              className="m-0 min-w-0 truncate text-caption text-muted-foreground"
+              title={typeof footer === "string" ? footer : undefined}
+            >
+              {footer}
+            </p>
             {link}
           </div>
         ) : null}
