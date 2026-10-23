@@ -11,10 +11,15 @@ import {
   SearchDialogOverlay,
   type SharedProps,
 } from "fumadocs-ui/components/dialog/search";
+import { useI18n } from "fumadocs-ui/contexts/i18n";
 import { searchIndexRoute, withBasePath } from "@/lib/shared";
 
 export default function StaticSearchDialog(props: SharedProps) {
-  const search = useStaticSearch({ from: withBasePath(searchIndexRoute) });
+  const { locale } = useI18n();
+  const search = useStaticSearch({
+    from: withBasePath(searchIndexRoute),
+    locale,
+  });
 
   return (
     <SearchDialog {...search} {...props}>
