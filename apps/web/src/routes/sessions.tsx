@@ -192,6 +192,13 @@ function useFollowListRefresh() {
         followed.has(event.query.queryHash)
       ) {
         void queryClient.invalidateQueries({ queryKey: STATUS_LISTS });
+        // An invalidated query reports no further invalidation, and the full
+        // list sits unmounted behind a status tab. It has no staleTime, so it
+        // reads again on mount with or without the flag; clearing it keeps
+        // the next refresh visible here.
+        if (!event.query.isActive()) {
+          event.query.setState({ isInvalidated: false });
+        }
       }
     });
   }, [queryClient]);

@@ -554,6 +554,36 @@ describe("sessions list", () => {
     expect(history.location.search).not.toContain("status=");
   });
 
+  test("every refresh of the full list reaches the status tab, not just the first", async () => {
+    const user = await setupUser();
+    const { api, services } = renderAt("/sessions", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": (request) =>
+        new URL(request.url).searchParams.get("status") === "failed"
+          ? json(200, {
+              items: [summary(OTHER_ID, { status: "failed" })],
+              next_cursor: null,
+            })
+          : json(200, { items: [summary(SESSION_ID)], next_cursor: null }),
+    });
+    await screen.findByRole("link", { name: SESSION_ID });
+    // The full list stays cached, unmounted, behind the status tab.
+    await user.click(screen.getByRole("tab", { name: "실패" }));
+    await screen.findByRole("link", { name: OTHER_ID });
+    const failedReads = () =>
+      api.calls.filter((call) => call.search === "?status=failed").length;
+    await waitFor(() => expect(failedReads()).toBe(1));
+    for (const expected of [2, 3]) {
+      await act(() =>
+        services.queryClient.invalidateQueries({
+          queryKey: ["sessions"],
+          exact: true,
+        }),
+      );
+      await waitFor(() => expect(failedReads()).toBe(expected));
+    }
+  });
+
   test("an address with a status opens on that tab", async () => {
     renderAt("/sessions?status=idle", {
       "GET /v1/auth/me": () => json(200, memberMe()),
