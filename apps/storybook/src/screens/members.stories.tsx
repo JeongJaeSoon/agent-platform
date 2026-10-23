@@ -173,10 +173,10 @@ const INVITES = [
   },
 ] as const;
 
-const ROLE_COLUMN =
-  "w-[calc(120px+var(--ap-row-padding-x))] @max-md:w-[calc(64px+var(--ap-row-padding-x))]";
-const WIDE_ONLY = "@max-2xl:hidden";
-const ACTIONS = "w-[calc(var(--ap-row-action-min-width)+3.25rem)] text-right";
+// As in apps/web: at 390px the name drops the text column's minimum and the
+// role badges stack, so the table never scrolls sideways.
+const NARROW_NAME = "@max-md:min-w-0";
+const NARROW_ROLE = "@max-md:flex-col @max-md:items-start";
 
 /** Name that opens 구성원 편집 (role lives there, not in the row). */
 function NameButton({
@@ -323,28 +323,19 @@ function MembersTab({
         <div className="flex flex-wrap gap-2">
           <PartRequest name="LockedButton+Tooltip" />
           <PartRequest name="Avatar (UIKIT-V4-DATA-PARTS)" />
-          <PartRequest name="GridTable (UIKIT-V4-GRID-TABLE)" />
-          <Badge variant="amber">
-            API 변경 필요: 관리하는 에이전트·마지막 활동 (94S-816)
-          </Badge>
         </div>
-        {/* Console v4 .t-mem (L302): 1.6fr name, 120px role, 1.4fr agents,
-            1fr last active, then v3's actions column (rows only disable).
-            Fixed layout and a container query fold agents and last active
-            on a narrow screen instead of scrolling sideways. */}
+        {/* Console v4 .t-mem without agents managed and last active: GET
+            /v1/members has neither yet (94S-816), and a column empty on
+            every row is left out. */}
         <TableContainer label="구성원" className="@container">
-          <Table className="table-fixed">
+          <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>구성원</TableHead>
-                <TableHead className={ROLE_COLUMN}>역할</TableHead>
-                <TableHead className={`${WIDE_ONLY} w-[28%]`}>
-                  관리하는 에이전트
+                <TableHead variant="text" className={NARROW_NAME}>
+                  구성원
                 </TableHead>
-                <TableHead className={`${WIDE_ONLY} w-[20%]`}>
-                  마지막 활동
-                </TableHead>
-                <TableHead variant="actions" className={ACTIONS}>
+                <TableHead variant="nowrap">역할</TableHead>
+                <TableHead variant="actions" className="text-right">
                   관리
                 </TableHead>
               </TableRow>
@@ -352,19 +343,22 @@ function MembersTab({
             <TableBody>
               {MEMBERS.map((member) => (
                 <TableRow key={member.id}>
-                  <TableCell>
-                    <div className="flex min-w-0 flex-col">
+                  <TableCell variant="text" className={NARROW_NAME}>
+                    <RowLines>
                       <NameButton onClick={() => onEdit(member)}>
                         {member.name}
                         {member.id === ME[viewer] ? " (나)" : ""}
                       </NameButton>
-                      <div className="truncate text-caption text-muted-foreground">
+                      <span
+                        className="text-muted-foreground text-xs"
+                        title={member.email}
+                      >
                         {member.email}
-                      </div>
-                    </div>
+                      </span>
+                    </RowLines>
                   </TableCell>
-                  <TableCell className={ROLE_COLUMN}>
-                    <div className="flex flex-wrap items-center gap-1">
+                  <TableCell variant="nowrap">
+                    <div className={cn("flex items-center gap-1", NARROW_ROLE)}>
                       <Badge
                         variant={member.role === "member" ? "gray" : "blue"}
                       >
@@ -373,17 +367,7 @@ function MembersTab({
                       {member.active ? null : <Badge>비활성</Badge>}
                     </div>
                   </TableCell>
-                  <TableCell
-                    className={`${WIDE_ONLY} text-caption text-muted-foreground`}
-                  >
-                    미계측
-                  </TableCell>
-                  <TableCell
-                    className={`${WIDE_ONLY} text-caption text-muted-foreground`}
-                  >
-                    미계측
-                  </TableCell>
-                  <TableCell variant="actions" className={ACTIONS}>
+                  <TableCell variant="actions">
                     <div className="flex justify-end">
                       {access(member, viewer)}
                     </div>

@@ -145,13 +145,11 @@ describe("구성원 화면", () => {
       within(region)
         .getAllByRole("columnheader")
         .map((head) => head.textContent),
-    ).toEqual(["구성원", "역할", "관리하는 에이전트", "마지막 활동", "관리"]);
+    ).toEqual(["구성원", "역할", "관리"]);
     const mateRow = within(region)
       .getByRole("button", { name: "Mate 편집" })
       .closest("tr") as HTMLElement;
     expect(mateRow.textContent).toContain("mate@example.com");
-    // GET /v1/members carries neither yet (94S-816).
-    expect(within(mateRow).getAllByText("미계측")).toHaveLength(2);
     expect(roleIn("Mate")).toBe("구성원");
     expect(roleIn("Owner")).toBe("소유자");
     const goneRow = screen.getByText(/^Gone/).closest("tr");

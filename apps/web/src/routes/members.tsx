@@ -64,14 +64,11 @@ const PRIMARY =
   "block break-words font-semibold group-data-[disabled=true]:text-muted-foreground";
 const SECONDARY =
   "block text-muted-foreground text-xs [overflow-wrap:anywhere]";
-// Console v4 .t-mem: 1.6fr name, 120px role, 1.4fr agents, 1fr last active;
-// the actions column is v3's (rows only disable). Agents and last active
-// fold away on a narrow table, as v4's tables do, and the role badges stack.
-const ROLE_COLUMN =
-  "w-[calc(120px+var(--ap-row-padding-x))] @max-md:w-[calc(64px+var(--ap-row-padding-x))]";
-const WIDE_ONLY = "@max-2xl:hidden";
-const ACTIONS = "w-[calc(var(--ap-row-action-min-width)+3.25rem)] text-right";
-const UNMEASURED = "text-muted-foreground text-xs";
+
+// At 390px the name, role and actions columns only fit side by side when the
+// name gives up the text column's minimum and the role badges stack.
+const NARROW_NAME = "@max-md:min-w-0";
+const NARROW_ROLE = "@max-md:flex-col @max-md:items-start";
 
 type Outcome =
   | { readonly kind: "notice"; readonly text: string }
@@ -311,22 +308,16 @@ function MemberTable({
   return (
     <>
       <TableContainer label={t("members.tableLabel")} className="@container">
-        {/* Fixed layout so a narrow screen shrinks the name, not the frame:
-            the console v4 member table never scrolls sideways. */}
-        <Table className="table-fixed">
+        <Table>
           <TableHeader>
             <TableRow>
-              <TableHead scope="col">{t("members.column.name")}</TableHead>
-              <TableHead scope="col" className={ROLE_COLUMN}>
+              <TableHead scope="col" variant="text" className={NARROW_NAME}>
+                {t("members.column.name")}
+              </TableHead>
+              <TableHead scope="col" variant="nowrap">
                 {t("members.column.role")}
               </TableHead>
-              <TableHead scope="col" className={cn(WIDE_ONLY, "w-[28%]")}>
-                {t("members.column.agents")}
-              </TableHead>
-              <TableHead scope="col" className={cn(WIDE_ONLY, "w-[20%]")}>
-                {t("members.column.lastActive")}
-              </TableHead>
-              <TableHead scope="col" variant="actions" className={ACTIONS}>
+              <TableHead scope="col" variant="actions" className="text-right">
                 {t("members.column.actions")}
               </TableHead>
             </TableRow>
@@ -349,8 +340,8 @@ function MemberTable({
                   className="group"
                   data-disabled={disabled}
                 >
-                  <TableCell>
-                    <RowLines className="min-w-0">
+                  <TableCell variant="text" className={NARROW_NAME}>
+                    <RowLines>
                       <button
                         type="button"
                         className={cn(
@@ -369,13 +360,16 @@ function MemberTable({
                         <span className="truncate">{member.display_name}</span>
                         <span aria-hidden="true">&nbsp;›</span>
                       </button>
-                      <span className={cn(SECONDARY, "truncate")}>
+                      <span
+                        className="text-muted-foreground text-xs"
+                        title={member.email}
+                      >
                         {member.email}
                       </span>
                     </RowLines>
                   </TableCell>
-                  <TableCell className={ROLE_COLUMN}>
-                    <div className="flex flex-wrap items-center gap-1">
+                  <TableCell variant="nowrap">
+                    <div className={cn("flex items-center gap-1", NARROW_ROLE)}>
                       <Badge
                         variant={member.role === "member" ? "gray" : "blue"}
                       >
@@ -388,14 +382,7 @@ function MemberTable({
                       ) : null}
                     </div>
                   </TableCell>
-                  {/* Not in GET /v1/members yet (94S-816); never made up here. */}
-                  <TableCell className={cn(WIDE_ONLY, UNMEASURED)}>
-                    {t("members.unmeasured")}
-                  </TableCell>
-                  <TableCell className={cn(WIDE_ONLY, UNMEASURED)}>
-                    {t("members.unmeasured")}
-                  </TableCell>
-                  <TableCell variant="actions" className={ACTIONS}>
+                  <TableCell variant="actions">
                     <div className="flex items-center justify-end gap-1">
                       {disabled ? (
                         <Button
