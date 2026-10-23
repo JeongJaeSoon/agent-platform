@@ -204,14 +204,21 @@ describe("에이전트 목록", () => {
     expect(
       await screen.findByText(/전체 에이전트 목록은 소유자와 관리자만 봅니다/),
     ).toBeDefined();
-    // Whoever may create is offered it once, in the top bar.
-    expect(screen.queryByRole("button", { name: "새 에이전트" })).toBeNull();
-    const button = screen.getByRole("link", { name: "새로 만들기" });
+    // Whoever may create is offered it once, in the top bar's menu, which
+    // the agent list names after what it makes.
+    const [trigger, ...others] = screen.getAllByRole("button", {
+      name: "새 에이전트",
+    });
+    expect(others).toEqual([]);
+    expect(trigger?.getAttribute("aria-haspopup")).toBe("menu");
     expect(screen.queryByRole("alert")).toBeNull();
     expect(document.body.textContent).not.toContain("agent.manage");
     expect(document.body.textContent).not.toContain("does not hold");
     const user = await setupUser();
-    await user.click(button);
+    await user.click(trigger as HTMLElement);
+    await user.click(
+      await screen.findByRole("menuitem", { name: "새 에이전트" }),
+    );
     await waitFor(() => expect(history.location.pathname).toBe("/agents/new"));
   });
 
@@ -1350,7 +1357,12 @@ describe("새 에이전트: 브라우저 history", () => {
       ...server.routes,
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("link", { name: "새로 만들기" }));
+    await user.click(
+      await screen.findByRole("button", { name: "새 에이전트" }),
+    );
+    await user.click(
+      await screen.findByRole("menuitem", { name: "새 에이전트" }),
+    );
     await toJobStep(user);
     await fillJob(user);
     await atStep("배포 판");
@@ -1396,7 +1408,12 @@ describe("새 에이전트: 브라우저 history", () => {
   test("저장하지 않은 입력이 있으면 흐름을 떠나기 전에 묻고, 단계 사이 이동은 묻지 않는다", async () => {
     openInBrowser("/agents", { ...meOk, ...agentServer().routes });
     const user = await setupUser();
-    await user.click(await screen.findByRole("link", { name: "새로 만들기" }));
+    await user.click(
+      await screen.findByRole("button", { name: "새 에이전트" }),
+    );
+    await user.click(
+      await screen.findByRole("menuitem", { name: "새 에이전트" }),
+    );
     await toJobStep(user);
     await user.type(screen.getByLabelText("역할"), CARD.role);
     const unload = () => {

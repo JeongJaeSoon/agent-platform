@@ -12,12 +12,17 @@ import { useAgentPlatform } from "@werft-ai/react";
 import {
   Button,
   cn,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
   Field,
   FieldLabel,
   NativeSelect,
   NativeSelectOption,
 } from "@werft-ai/ui";
-import { Plus } from "lucide-react";
+import { Bot, ChevronDown, List, Plus, Users, UsersRound } from "lucide-react";
 import { type ReactNode, useId, useLayoutEffect, useState } from "react";
 import { useHasPermission, useMe } from "../auth/guard.tsx";
 import {
@@ -115,7 +120,11 @@ export function AuthedLayout() {
   const { t } = useI18n();
   const me = useMe();
   const groups = useNavGroups();
-  const canCreate = useHasPermission("agent.create");
+  const can: CreatePermissions = {
+    agent: useHasPermission("agent.create"),
+    invite: useHasPermission("member.manage"),
+    team: useHasPermission("team.manage"),
+  };
   const { client } = useAgentPlatform();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -156,7 +165,7 @@ export function AuthedLayout() {
           groups={groups}
           fallback={me?.workspace?.name ?? t("common.appName")}
         />
-        {canCreate ? <NewButton /> : null}
+        {can.agent || can.invite || can.team ? <NewMenu can={can} /> : null}
       </header>
       <AppSidebar
         id={sidebarId}
@@ -203,22 +212,80 @@ function PageTrail({
   );
 }
 
+interface CreatePermissions {
+  readonly agent: boolean;
+  readonly invite: boolean;
+  readonly team: boolean;
+}
+
 /**
- * Making something starts here on the screens that list it. The console makes
- * agents only; sessions start from the API, Slack or the SDK. It re-renders on
- * every navigation, so it must not read the signed-in user itself: after
- * logout that read would fetch them again into the cleared cache.
+ * Making something starts here on the screens that list it. Items the viewer
+ * may not make are left out, as their screens leave out the form. Sessions
+ * start from the API, Slack or the SDK, so that item stays, inert, to say
+ * so. It re-renders on every navigation, so it must not read the signed-in
+ * user itself: after logout that read would fetch them again into the
+ * cleared cache.
  */
-function NewButton() {
+function NewMenu({ can }: { readonly can: CreatePermissions }) {
   const { t } = useI18n();
-  if (!NEW_ON.has(usePathname())) return null;
+  const pathname = usePathname();
+  const reasonId = useId();
+  if (!NEW_ON.has(pathname)) return null;
+  // The agent list's own thing to make names the button there.
+  const label =
+    pathname === "/agents" && can.agent ? t("agents.new") : t("shell.new");
   return (
-    <Button asChild variant="outline" size="sm" className="ml-auto">
-      <Link to="/agents/new">
-        <Plus aria-hidden="true" />
-        {t("shell.new")}
-      </Link>
-    </Button>
+    <DropdownMenu modal={false}>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" size="sm" className="ml-auto">
+          <Plus aria-hidden="true" />
+          {label}
+          <ChevronDown aria-hidden="true" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        {can.agent ? (
+          <DropdownMenuItem asChild>
+            <Link to="/agents/new">
+              <Bot aria-hidden="true" />
+              {t("agents.new")}
+            </Link>
+          </DropdownMenuItem>
+        ) : null}
+        {can.invite ? (
+          <DropdownMenuItem asChild>
+            <Link to="/members">
+              <Users aria-hidden="true" />
+              {t("shell.new.invite")}
+            </Link>
+          </DropdownMenuItem>
+        ) : null}
+        {can.team ? (
+          <DropdownMenuItem asChild>
+            <Link to="/teams">
+              <UsersRound aria-hidden="true" />
+              {t("teams.create")}
+            </Link>
+          </DropdownMenuItem>
+        ) : null}
+        <DropdownMenuSeparator />
+        {/* aria-disabled, not disabled: Radix skips a disabled item, and the
+            reason would never reach a keyboard or screen reader. */}
+        <DropdownMenuItem
+          aria-disabled="true"
+          aria-describedby={reasonId}
+          onSelect={(event) => event.preventDefault()}
+        >
+          <List aria-hidden="true" />
+          <span className="flex min-w-0 flex-col">
+            {t("shell.new.session")}
+            <span id={reasonId} className="text-caption">
+              {t("shell.new.sessionUnavailable")}
+            </span>
+          </span>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

@@ -158,7 +158,12 @@ describe("불러오기 실패", () => {
       renderAt(item.path, { ...meOk, [item.key]: failing });
       await screen.findByRole("button", { name: "다시 시도" });
       expect(screen.queryByText("권한을 확인하는 중입니다.")).toBeNull();
-      expect(screen.queryByRole("button", { name: item.action })).toBeNull();
+      // The top bar's menu may share the words; the page's own action may not.
+      expect(
+        within(screen.getByRole("main")).queryByRole("button", {
+          name: item.action,
+        }),
+      ).toBeNull();
     });
   }
 });

@@ -14,6 +14,9 @@ export const shellKo = {
   "shell.waitingMore": "답변 대기 {count}개 이상",
   "shell.waitingNone": "답변 대기 없음",
   "shell.new": "새로 만들기",
+  "shell.new.invite": "구성원 초대",
+  "shell.new.session": "새 세션",
+  "shell.new.sessionUnavailable": "웹에서는 아직 시작할 수 없습니다",
 };
 
 export const shellEn: Record<keyof typeof shellKo, string> = {
@@ -32,6 +35,9 @@ export const shellEn: Record<keyof typeof shellKo, string> = {
   "shell.waitingMore": "{count}+ waiting for an answer",
   "shell.waitingNone": "Nothing waiting for an answer",
   "shell.new": "New",
+  "shell.new.invite": "Invite members",
+  "shell.new.session": "New session",
+  "shell.new.sessionUnavailable": "Can't be started from the web yet",
 };
 
 export const shellJa: Record<keyof typeof shellKo, string> = {
@@ -50,4 +56,7 @@ export const shellJa: Record<keyof typeof shellKo, string> = {
   "shell.waitingMore": "回答待ち {count}件以上",
   "shell.waitingNone": "回答待ちはありません",
   "shell.new": "新規作成",
+  "shell.new.invite": "メンバーを招待",
+  "shell.new.session": "新しいセッション",
+  "shell.new.sessionUnavailable": "Web からはまだ開始できません",
 };

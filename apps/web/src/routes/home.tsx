@@ -24,7 +24,8 @@ interface Step {
   readonly key: MessageKey;
   readonly state: StepState;
   readonly to?: "/members" | "/agents" | "/sessions";
-  readonly hint?: MessageKey;
+  /** Every step says how it gets done, so every row has the same two lines. */
+  readonly hint: MessageKey;
 }
 
 function stateOf(query: {
@@ -81,8 +82,17 @@ export function HomeScreen() {
         : stateOf(members);
   const firstPage = sessions.data?.pages[0];
   const steps: readonly Step[] = [
-    { key: "home.checklist.admin", state: "done" },
-    { key: "home.checklist.invite", state: invited, to: "/members" },
+    {
+      key: "home.checklist.admin",
+      state: "done",
+      hint: "home.checklist.adminHint",
+    },
+    {
+      key: "home.checklist.invite",
+      state: invited,
+      to: "/members",
+      hint: "home.checklist.inviteHint",
+    },
     {
       key: "home.checklist.agent",
       state: stateOf({
@@ -93,6 +103,7 @@ export function HomeScreen() {
         ),
       }),
       to: "/agents",
+      hint: "home.checklist.agentHint",
     },
     {
       key: "home.checklist.session",
@@ -326,12 +337,12 @@ function Checklist({ steps }: { readonly steps: readonly Step[] }) {
           {t("home.checklist.progress", { done, total: steps.length })}
         </span>
       </div>
-      <Card className="p-4">
+      <Card className="px-4 py-1">
         <ol className="m-0 flex list-none flex-col p-0">
           {steps.map((step, index) => (
             <li
               key={step.key}
-              className="flex items-center gap-3 border-t py-3 first:border-t-0 first:pt-0 last:pb-0"
+              className="flex min-h-16 items-center gap-3 border-t py-3 first:border-t-0"
               data-done={step.state === "done"}
               data-state={step.state}
             >
@@ -349,7 +360,7 @@ function Checklist({ steps }: { readonly steps: readonly Step[] }) {
                   index + 1
                 )}
               </span>
-              <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+              <span className="flex min-w-0 flex-1 flex-col gap-1">
                 {step.to ? (
                   <Link
                     className="font-medium text-control text-primary underline underline-offset-2"
@@ -362,11 +373,9 @@ function Checklist({ steps }: { readonly steps: readonly Step[] }) {
                     {t(step.key)}
                   </span>
                 )}
-                {step.hint ? (
-                  <span className="text-caption text-muted-foreground">
-                    {t(step.hint)}
-                  </span>
-                ) : null}
+                <span className="text-caption text-muted-foreground">
+                  {t(step.hint)}
+                </span>
               </span>
               <span className="shrink-0 text-caption text-muted-foreground">
                 {t(STATE_KEY[step.state])}

@@ -2,11 +2,14 @@ export const homeKo = {
   "home.signedInAs": "{name}({email}) 계정으로 로그인했습니다",
   "home.checklist.title": "시작하기",
   "home.checklist.admin": "소유자 계정 만들기",
+  "home.checklist.adminHint": "워크스페이스를 만든 계정이 소유자입니다.",
   "home.checklist.invite": "구성원 초대하기",
+  "home.checklist.inviteHint": "구성원 화면에서 초대 링크를 만들어 전달합니다.",
   "home.checklist.agent": "에이전트 준비하기",
+  "home.checklist.agentHint": "release를 활성화한 에이전트를 세션이 씁니다.",
   "home.checklist.session": "첫 세션 확인하기",
   "home.checklist.sessionHint":
-    "웹 콘솔에서는 아직 세션을 시작할 수 없습니다. API로 시작한 세션이 세션 목록에 보입니다.",
+    "웹에서는 아직 시작할 수 없습니다. API로 시작한 세션이 목록에 보입니다.",
   "home.checklist.unknown": "확인할 수 없음",
   "home.checklist.progress": "{done} / {total} 완료",
   "home.overview.title": "한눈에 보기",
@@ -28,11 +31,17 @@ export const homeEn: Record<keyof typeof homeKo, string> = {
   "home.signedInAs": "Logged in as {name} ({email})",
   "home.checklist.title": "Getting started",
   "home.checklist.admin": "Create the owner account",
+  "home.checklist.adminHint":
+    "The account that created the workspace is its owner.",
   "home.checklist.invite": "Invite members",
+  "home.checklist.inviteHint":
+    "Create an invite link on the Members screen and send it.",
   "home.checklist.agent": "Set up an agent",
+  "home.checklist.agentHint":
+    "Sessions use an agent once it has an active release.",
   "home.checklist.session": "Check for the first session",
   "home.checklist.sessionHint":
-    "The console cannot start a session yet. Sessions started through the API show up in the session list.",
+    "The web can't start one yet. Sessions started through the API show up in the list.",
   "home.checklist.unknown": "Unknown",
   "home.checklist.progress": "{done} of {total} done",
   "home.overview.title": "At a glance",
@@ -54,11 +63,16 @@ export const homeJa: Record<keyof typeof homeKo, string> = {
   "home.signedInAs": "{name}（{email}）でログインしています",
   "home.checklist.title": "はじめに",
   "home.checklist.admin": "オーナーアカウントを作成",
+  "home.checklist.adminHint":
+    "ワークスペースを作成したアカウントがオーナーです。",
   "home.checklist.invite": "メンバーを招待",
+  "home.checklist.inviteHint": "メンバー画面で招待リンクを作成して渡します。",
   "home.checklist.agent": "エージェントを準備",
+  "home.checklist.agentHint":
+    "リリースを有効にしたエージェントをセッションが使います。",
   "home.checklist.session": "最初のセッションを確認",
   "home.checklist.sessionHint":
-    "Web コンソールからはまだセッションを開始できません。API で開始したセッションがセッション一覧に表示されます。",
+    "Web からはまだ開始できません。API で開始したセッションが一覧に表示されます。",
   "home.checklist.unknown": "確認できません",
   "home.checklist.progress": "{done} / {total} 完了",
   "home.overview.title": "概要",
