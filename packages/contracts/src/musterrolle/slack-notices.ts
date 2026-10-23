@@ -1,7 +1,7 @@
+import type { SlackSurfaceAction } from "../kollegium/surfaces.ts";
 import type {
   AuthorizationDecision,
   AuthorizationReason,
-  SlackSurfaceAction,
 } from "./authorization.ts";
 
 // What the person a Slack decision refused sees, only them and once per

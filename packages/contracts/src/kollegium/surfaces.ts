@@ -43,6 +43,43 @@ export const SURFACE_BINDING_STATUS_VALUES = [
 ] as const;
 export const surfaceBindingStatusSchema = z.enum(SURFACE_BINDING_STATUS_VALUES);
 
+/**
+ * What a Slack installation can ever do: read, ask, steer and approve.
+ * Recovery, sharing, audit reads, the admin list and deletion are web
+ * actions, so no channel setting can hand them to Slack.
+ */
+export const SLACK_SURFACE_ACTION_VALUES = [
+  "session.read",
+  "session.submit",
+  "session.control",
+  "session.approve",
+] as const;
+export const slackSurfaceActionSchema = z.enum(SLACK_SURFACE_ACTION_VALUES);
+
+/** `summary`: reads in this channel get a summary and a web link (D13). */
+export const SURFACE_DISCLOSURE_VALUES = ["full", "summary"] as const;
+export const surfaceDisclosureSchema = z.enum(SURFACE_DISCLOSURE_VALUES);
+
+/**
+ * A channel's ceiling: the actions its binding allows — approvals only when
+ * `session.approve` is listed — and how much of a session it may show.
+ */
+export const surfaceCeilingSchema = z
+  .object({
+    actions: z.array(slackSurfaceActionSchema),
+    disclosure: surfaceDisclosureSchema,
+  })
+  .strict();
+
+/**
+ * A binding stored without a ceiling of its own: every Slack action, shown
+ * in full. The person's role still bounds what they may do (d40).
+ */
+export const DEFAULT_SURFACE_CEILING = {
+  actions: [...SLACK_SURFACE_ACTION_VALUES],
+  disclosure: "full",
+} as const satisfies z.infer<typeof surfaceCeilingSchema>;
+
 /** A place where one agent works: (installation, external surface) → agent. */
 export const surfaceBindingSchema = z
   .object({
@@ -52,11 +89,17 @@ export const surfaceBindingSchema = z
     owner_id: ownerScopeSchema,
     surface: surfaceKindSchema,
     installation_id: installationIdSchema.nullable(),
-    /** Channel id as the surface spells it; opaque here. */
+    /**
+     * Channel id as the surface spells it; opaque here. Null on a DM
+     * binding: one row covers every DM with the installation's bot.
+     */
     external_surface_id: opaqueIdSchema.nullable(),
     surface_kind: surfaceChannelKindSchema.nullable(),
     agent_id: agentIdSchema,
     mode: bindingModeSchema,
+    ceiling: surfaceCeilingSchema,
+    /** The agent's home channel; an agent has one at most, never a DM. */
+    home: z.boolean(),
     memory_write_policy: memoryWritePolicySchema,
     status: surfaceBindingStatusSchema,
     muted: z.boolean(),
@@ -78,12 +121,29 @@ export const surfaceBindingSchema = z
     // The three columns are nullable because `partial` and `failed` are real
     // states: an install can land before the channel is chosen. `ready` is the
     // claim that routing works, so it cannot be missing what routing needs.
+    if (binding.surface_kind === "dm" && binding.external_surface_id !== null) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["external_surface_id"],
+        message: "a dm binding covers every dm and names no channel",
+      });
+    }
+    if (binding.home && binding.surface_kind === "dm") {
+      ctx.addIssue({
+        code: "custom",
+        path: ["home"],
+        message: "a dm binding is never home",
+      });
+    }
     if (binding.surface !== "slack" || binding.status !== "ready") return;
     for (const field of [
       "installation_id",
       "external_surface_id",
       "surface_kind",
     ] as const) {
+      if (field === "external_surface_id" && binding.surface_kind === "dm") {
+        continue;
+      }
       if (binding[field] === null) {
         ctx.addIssue({
           code: "custom",
@@ -206,6 +266,9 @@ export type SurfaceChannelKind = z.infer<typeof surfaceChannelKindSchema>;
 export type BindingMode = z.infer<typeof bindingModeSchema>;
 export type MemoryWritePolicy = z.infer<typeof memoryWritePolicySchema>;
 export type SurfaceBindingStatus = z.infer<typeof surfaceBindingStatusSchema>;
+export type SlackSurfaceAction = z.infer<typeof slackSurfaceActionSchema>;
+export type SurfaceDisclosure = z.infer<typeof surfaceDisclosureSchema>;
+export type SurfaceCeiling = z.infer<typeof surfaceCeilingSchema>;
 export type SurfaceBinding = z.infer<typeof surfaceBindingSchema>;
 export type SessionLinkRole = z.infer<typeof sessionLinkRoleSchema>;
 export type SessionLinkVisibility = z.infer<typeof sessionLinkVisibilitySchema>;
