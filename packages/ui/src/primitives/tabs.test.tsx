@@ -83,6 +83,25 @@ describe("Tabs", () => {
     );
   });
 
+  test("포커스는 다른 부품처럼 focus-ring 2px outline을 2px 띄워 그린다", () => {
+    const { getByRole } = render(
+      <Tabs defaultValue="a">
+        <TabsList>
+          <TabsTrigger value="a">개요</TabsTrigger>
+        </TabsList>
+      </Tabs>,
+    );
+    const classes = getByRole("tab", { name: "개요" }).className.split(" ");
+    for (const name of [
+      "focus-visible:outline-2",
+      "focus-visible:outline-offset-2",
+      "focus-visible:outline-focus-ring",
+    ]) {
+      expect(classes).toContain(name);
+    }
+    expect(classes.some((name) => name.includes("ring-ring"))).toBe(false);
+  });
+
   test("기본 variant 목록은 그대로다", () => {
     const { getByRole } = render(
       <Tabs defaultValue="a">
