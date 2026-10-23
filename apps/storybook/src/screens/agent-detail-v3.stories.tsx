@@ -77,6 +77,11 @@ const APP_ID = "A07PLACEHLD";
 const EVENT_URL =
   "https://agents.verify.example/v1/slack/events/ebc9271d-5cec-4c73-bd7d-7efbda71d2a9";
 const REACTIONS = ["멘션할 때", "모든 메시지", "꺼짐"];
+const SEEDED_REACTIONS: Readonly<Record<string, string>> = {
+  [HOME]: REACTIONS[0] ?? "",
+  "#dev-platform": "꺼짐",
+  [REQUEST.channel]: REACTIONS[0] ?? "",
+};
 const VISIBILITY =
   "승인하면 이 채널에서 시작한 세션이 웹 콘솔에 남습니다. 세션은 공유 범위를 바꾸지 않으면 워크스페이스 구성원 모두가 읽을 수 있습니다.";
 
@@ -407,11 +412,8 @@ function AgentDetailScreen(props: ScreenProps) {
   const [added, setAdded] = useState<readonly string[]>([]);
   // Each channel keeps the reaction it was connected with; changing the
   // default only applies to channels connected afterwards.
-  const [reactions, setReactions] = useState<Record<string, string>>({
-    [HOME]: REACTIONS[0] ?? "",
-    "#dev-platform": "꺼짐",
-    [REQUEST.channel]: REACTIONS[0] ?? "",
-  });
+  const [reactions, setReactions] =
+    useState<Record<string, string>>(SEEDED_REACTIONS);
   const [defaultReaction, setDefaultReaction] = useState(REACTIONS[0] ?? "");
   const [expanded, setExpanded] = useState(false);
   const [homePick, setHomePick] = useState("");
@@ -457,6 +459,7 @@ function AgentDetailScreen(props: ScreenProps) {
     setHome("");
     setAdded([]);
     setRequest("none");
+    setReactions(SEEDED_REACTIONS);
     setOutcome(text);
   };
   const changeReaction = (channel: string, value: string) => {
@@ -1350,7 +1353,7 @@ export const AgentDetailSlackAdvancedError: Story = {
 };
 export const AgentDetailSlackAdvancedErrorDark: Story = {
   ...AgentDetailSlackAdvancedError,
-  name: "Slack › 고급: 오류 (Dark)",
+  name: "Slack › 고급: 오류 (dark)",
   globals: DARK,
 };
 export const AgentDetailSlackAdvancedErrorMobile: Story = {
