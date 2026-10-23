@@ -185,6 +185,8 @@
     --ap-row-line-gap: 0.125rem;
     /* A row button's floor in a table's actions column. */
     --ap-row-action-min-width: 6rem;
+    /* A table's long-text column floor; below it the frame scrolls. */
+    --ap-row-text-min-width: 10rem;
     --ap-control-height: 2rem;
     --ap-control-height-sm: 1.75rem;
     --ap-text-title: 1.25rem;
