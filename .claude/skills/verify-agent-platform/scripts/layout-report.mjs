@@ -27,6 +27,18 @@ const RULE = {
   390: { top: 16, head: 24, section: 32, block: 16, gutter: 16 },
 };
 const TOPBAR = 52;
+// Lists, tables and details take the wide column; one form or one settings
+// column the narrow one (packages/ui/README.md). The key lists sit under
+// /settings/ but are lists.
+const W_WIDE = 1200;
+const W_NARROW = 840;
+const KEY_LISTS = new Set(["/settings/api-keys", "/settings/api-keys/service"]);
+// A row that wraps on a narrow screen puts its action under the text, where
+// centring does not apply.
+const wrapped = (row) =>
+  row.firstLine !== null &&
+  row.firstLine !== undefined &&
+  row.button.y >= row.firstLine.bottom;
 const near = (a, b, tol = 1) =>
   a !== null && b !== null && Math.abs(a - b) <= tol;
 
@@ -213,7 +225,7 @@ function checks(m, width) {
           );
         // Centred in the row's box: an icon button inside a text line keeps the ink centre off by its own padding.
         const rowCenter = row.y + row.h / 2;
-        if (row.button) {
+        if (row.button && !wrapped(row)) {
           const y = row.button.groupCenterY ?? row.button.centerY;
           add(
             "card.row-button-y",
@@ -224,15 +236,51 @@ function checks(m, width) {
           );
         }
       }
-    } else {
-      // No padding: a frame around rows (a table); a bordered row: 12 16.
+    } else if (/^li\b/.test(c.el)) {
+      // A row bordered on its own is still a list row.
       const pad = c.padding.join(" ");
-      const ok =
-        pad === "16 16 16 16" ||
-        pad === "0 0 0 0" ||
-        (/^li\b/.test(c.el) && pad === "12 16 12 16");
-      if (!ok) add("card.padding", c.el, pad, "16", false);
+      if (pad !== "12 16 12 16")
+        add("card.row-padding", c.el, pad, "12 16 12 16", false);
+      if (c.button && !wrapped(c)) {
+        const y = c.button.groupCenterY ?? c.button.centerY;
+        const rowCenter = c.y + c.h / 2;
+        add(
+          "card.row-button-y",
+          `${c.el} ${c.button.label}`,
+          y - rowCenter,
+          0,
+          near(y, rowCenter, 1),
+        );
+      }
+    } else {
+      // No padding: a frame around rows (a table).
+      const pad = c.padding.join(" ");
+      if (pad !== "16 16 16 16" && pad !== "0 0 0 0")
+        add("card.padding", c.el, pad, "16", false);
     }
+  }
+  if (m.shell && m.path) {
+    const narrow =
+      m.path === "/agents/new" ||
+      (m.path.startsWith("/settings/") && !KEY_LISTS.has(m.path));
+    const expected = (narrow ? W_NARROW : W_WIDE) + 2 * RULE[1440].gutter;
+    add(
+      "width.main",
+      `${m.path} (${narrow ? "narrow" : "wide"})`,
+      parseFloat(m.main.maxWidth),
+      expected,
+      parseFloat(m.main.maxWidth) === expected,
+    );
+    // A list, table or panel fills the column; an inner max-width shows here.
+    for (const b of m.widths ?? [])
+      if (/^(ul|ol|table|section|nav|div\[card\])/.test(b.el))
+        add(
+          "width.block",
+          b.el,
+          b.w,
+          m.main.contentWidth,
+          near(b.w, m.main.contentWidth),
+        );
   }
   return out;
 }
