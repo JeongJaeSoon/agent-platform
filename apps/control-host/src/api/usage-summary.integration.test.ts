@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
+  apiErrorResponseSchema,
   type Principal,
   scopesForRole,
   type UsageSummaryResponse,
@@ -36,6 +37,15 @@ import {
 import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { createApiApp } from "./app.ts";
+import {
+  createBootstrapGate,
+  DatabaseIdentityStore,
+  LoginLockout,
+} from "./auth.ts";
+import { DatabaseApiKeyStore } from "./keys.ts";
+import { registerPublicAuthRoutes } from "./routes/auth.ts";
+import { registerUsageRoutes } from "./routes/usage.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -372,5 +382,128 @@ integration("usage summary on PostgreSQL", () => {
     expect(read.run_seconds).toBeGreaterThanOrEqual(30);
     expect(read.run_seconds).toBeLessThan(120);
     expect(read.cost_complete).toBe(false);
+  });
+});
+
+// What the console does: signed in with a cookie, through the route's scope
+// check and then the service's own (94S-864).
+integration("installation figures over HTTP on PostgreSQL", () => {
+  let database: TempDatabase;
+  let pool: Pool;
+  let app: ReturnType<typeof createApiApp>;
+  const workspaceId = crypto.randomUUID();
+  const secret = crypto.randomUUID();
+  const cookies = {} as Record<WorkspaceRole, string>;
+
+  beforeAll(async () => {
+    database = await createTempDatabase({ prefix: "usage_summary_http" });
+    pool = new Pool({ connectionString: database.url, max: 5 });
+    const db = drizzle(pool, { schema });
+    const identity = new DatabaseIdentityStore(db);
+    const authorization = createAuthorizationPolicy({
+      identity: createDatabaseIdentityReader(db),
+    });
+    const auth = {
+      identity,
+      bootstrap: createBootstrapGate(crypto.randomUUID()),
+      lockout: new LoginLockout(),
+    };
+    app = createApiApp({
+      authMode: "api-key",
+      keyStore: new DatabaseApiKeyStore(db),
+      identity,
+      authorization,
+      registerPublicRoutes: (router) => registerPublicAuthRoutes(router, auth),
+      registerRoutes: (router) =>
+        registerUsageRoutes(
+          router,
+          createUsageService({
+            authorization,
+            reader: createPostgresUsageReader(db),
+            limits: {
+              executionSlotLimit: 10,
+              queuedInputLimitPerSession: 20,
+              storageLimitBytes: 1_073_741_824,
+              maxTurnSeconds: 3600,
+              sessionCostLimitUsd: 2.5,
+              sessionTokenLimit: null,
+              providerMaxRetries: 2,
+            },
+          }),
+        ),
+    });
+    await db
+      .insert(workspaces)
+      .values({ id: workspaceId, slug: "acme", name: "Acme" });
+    const hash = await Bun.password.hash(secret, { algorithm: "argon2id" });
+    for (const role of ["owner", "admin", "member"] as const) {
+      const [user] = await db
+        .insert(users)
+        .values({
+          id: crypto.randomUUID(),
+          email: `${role}@example.com`,
+          passwordHash: hash,
+          displayName: role,
+        })
+        .returning({ id: users.id });
+      if (!user) throw new Error("no user");
+      await db
+        .insert(memberships)
+        .values({ workspaceId, userId: user.id, role });
+      const login = await app.request("/v1/auth/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Requested-With": "agent-platform-web",
+        },
+        body: JSON.stringify({
+          email: `${role}@example.com`,
+          password: secret,
+        }),
+      });
+      expect(login.status).toBe(200);
+      cookies[role] =
+        (login.headers.get("Set-Cookie") ?? "").split(";")[0] ?? "";
+    }
+  }, 60_000);
+
+  afterAll(async () => {
+    await pool.end();
+    await database.drop();
+  }, 60_000);
+
+  const get = (path: string, role: WorkspaceRole) =>
+    app.request(path, {
+      headers: {
+        Cookie: cookies[role],
+        "X-Requested-With": "agent-platform-web",
+      },
+    });
+
+  test("the owner reads GET /v1/limits and scope=installation; admin and member get 403", async () => {
+    const installation =
+      "/v1/usage/summary?scope=installation&since=2026-10-01";
+    for (const [role, status] of [
+      ["owner", 200],
+      ["admin", 403],
+      ["member", 403],
+    ] as const) {
+      for (const path of ["/v1/limits", installation]) {
+        const response = await get(path, role);
+        expect(response.status, `${role} ${path}`).toBe(status);
+        if (status === 403) {
+          expect(
+            apiErrorResponseSchema.parse(await response.json()).error.code,
+          ).toBe("FORBIDDEN");
+        }
+      }
+      // Their own figure is everyone's.
+      const me = await get("/v1/usage/summary?scope=me&since=2026-10-01", role);
+      expect(me.status, role).toBe(200);
+      expect(usageSummaryResponseSchema.parse(await me.json())).toMatchObject({
+        scope: "me",
+        session_count: 0,
+      });
+    }
   });
 });
