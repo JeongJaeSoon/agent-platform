@@ -5,11 +5,11 @@
 #
 # Starts the API (and what it depends on) from this checkout under a project
 # of its own (tests/e2e/compose.yml's ephemeral loopback ports), warms every
-# database path the API holds open — the request pool through GET /v1/limits,
+# database path the API holds open — the request pool through GET /v1/sessions,
 # the probe pool through /readyz, the session event listener — then stops
 # postgres, parks a placeholder container on its old address and starts it
 # again, so the name `postgres` now resolves somewhere else and the old
-# address refuses. Passes when /readyz and GET /v1/limits answer 200 within
+# address refuses. Passes when /readyz and GET /v1/sessions answer 200 within
 # DBR_READY_DEADLINE_SEC (default 60) of the restart, the event listener has
 # connected again, and no API log line after that still dials the old address.
 #
@@ -68,7 +68,8 @@ api_key="$(dc exec -T api bun run apps/control-host/src/api/keys.ts create dbr-o
 status_of() {
   curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$@" || true
 }
-limits() { status_of -H "authorization: Bearer ${api_key}" "${api_url}/v1/limits"; }
+# Any key-authenticated read on the request pool; /v1/limits is the owner's.
+sessions() { status_of -H "authorization: Bearer ${api_key}" "${api_url}/v1/sessions?limit=1"; }
 readyz() { status_of "${api_url}/readyz"; }
 listener_connects() {
   dc logs --no-color api >"$out/api.log" 2>&1 || fail "could not read the API log"
@@ -76,7 +77,7 @@ listener_connects() {
 }
 
 [ "$(readyz)" = 200 ] || fail "readyz before the restart"
-[ "$(limits)" = 200 ] || fail "GET /v1/limits before the restart"
+[ "$(sessions)" = 200 ] || fail "GET /v1/sessions before the restart"
 connects_before="$(listener_connects)"
 [ "$connects_before" -ge 1 ] || fail "event listener never connected"
 
@@ -104,7 +105,7 @@ ready_after=""
 while [ $(($(date +%s) - restarted_at)) -le "$deadline_sec" ]; do
   # Its own statement, so set -e ends the run when the log cannot be read.
   connects="$(listener_connects)"
-  if [ "$(readyz)" = 200 ] && [ "$(limits)" = 200 ] &&
+  if [ "$(readyz)" = 200 ] && [ "$(sessions)" = 200 ] &&
     [ "$connects" -gt "$connects_before" ]; then
     ready_after=$(($(date +%s) - restarted_at))
     break
@@ -112,8 +113,8 @@ while [ $(($(date +%s) - restarted_at)) -le "$deadline_sec" ]; do
   sleep 1
 done
 [ -n "$ready_after" ] ||
-  fail "readyz, GET /v1/limits and the event listener not all back within ${deadline_sec}s (readyz $(readyz), limits $(limits))"
-pass "readyz, GET /v1/limits and the event listener back ${ready_after}s after the restart (limit ${deadline_sec}s)"
+  fail "readyz, GET /v1/sessions and the event listener not all back within ${deadline_sec}s (readyz $(readyz), sessions $(sessions))"
+pass "readyz, GET /v1/sessions and the event listener back ${ready_after}s after the restart (limit ${deadline_sec}s)"
 
 # Nothing still dials the old address once the API has recovered.
 sleep 3

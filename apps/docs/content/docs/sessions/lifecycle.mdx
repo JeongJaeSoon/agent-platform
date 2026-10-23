@@ -122,6 +122,15 @@ curl -sS "$API/v1/sessions/$SID/usage" -H "Authorization: Bearer $KEY" \
 
 비용은 청구액이 아니라 가격표로 계산한 추정치다. `complete`가 `false`면 합계가 아직 정해지지 않았다. 열린 turn이 있거나(`open_turn_count`), 끝난 turn 가운데 비용이 보고되지 않은 것이 있다(`unreported_turn_count`). 뒤의 경우는 모든 turn이 끝나도 `false`로 남는다.
 
+기간 동안 내가 시작한 세션을 모두 더하려면 `GET /v1/usage/summary`를 쓴다. `since`는 날짜(그 날 00:00 UTC)나 offset이 붙은 시각이고, `until`을 빼면 지금까지다.
+
+```bash
+curl -sS "$API/v1/usage/summary?scope=me&since=2026-10-01" -H "Authorization: Bearer $KEY" \
+  | jq '{session_count, cost_usd, cost_complete, token_count, run_seconds}'
+```
+
+기간 안에 만든 세션이 대상이고, `cost_usd`는 그 세션들 `/usage`의 `cost.amount_usd` 합이다. 그 가운데 하나라도 `complete: false`면 `cost_complete`도 `false`다. 개인 key는 만든 사람의 세션을 더한다. `scope=installation`(모든 owner의 세션)과 `GET /v1/limits`는 로그인한 workspace owner만 읽고, 다른 구성원과 모든 API key는 403이다.
+
 ## 다음 단계
 
 - [승인 대기와 재개](/sessions/waiting-and-resume): `needs_input`에 답하기, pause와 resume

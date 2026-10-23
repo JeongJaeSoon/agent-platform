@@ -368,6 +368,7 @@ describe("OpenAPI document", () => {
         "/v1/agents/{id}/slack-bindings",
         "/v1/agents/{id}/slack/app",
         "/v1/agents/{id}/slack/install/start",
+        "/v1/slack/events/{agent_id}",
         "/v1/slack/install/complete",
         "/v1/api-keys",
         "/v1/api-keys/{id}",
@@ -393,6 +394,7 @@ describe("OpenAPI document", () => {
         "/v1/members/{user_id}/enable",
         "/v1/users/{user_id}/disable",
         "/v1/users/{user_id}/enable",
+        "/v1/usage/summary",
       ].sort(),
     );
     const rendered = renderOpenApiDocument();

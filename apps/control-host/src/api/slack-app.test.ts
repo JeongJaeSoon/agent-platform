@@ -48,6 +48,7 @@ describe("slack-app command line", () => {
       agent_not_active: 5,
       app_busy: 6,
       slack_error: 7,
+      events_url_unset: 8,
     });
   });
 
@@ -87,8 +88,19 @@ describe("slack-app command line", () => {
     });
   });
 
+  test("parses finalize with a lowercased agent", () => {
+    expect(
+      parseSlackAppCommand(["finalize", "--agent", AGENT.toUpperCase()]),
+    ).toEqual({ command: "finalize", agentId: AGENT });
+  });
+
   test.each([
     [[]],
+    [["finalize"]],
+    [["finalize", "--agent", "nope"]],
+    [["finalize", "--workspace", WORKSPACE, "--agent", AGENT]],
+    [["finalize", "--agent", AGENT, "--kind", "agent"]],
+    [["finalize", "--agent", AGENT, "--replace-uncertain"]],
     [["create", "--workspace", WORKSPACE]],
     [["create", "--kind", "link", "--workspace", WORKSPACE, "--agent", AGENT]],
     [["create", "--kind", "manual", "--workspace", WORKSPACE]],

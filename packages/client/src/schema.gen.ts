@@ -1721,6 +1721,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/slack/events/{agent_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Slack's Events API request URL for one agent's app
+         * @description Called by Slack, not by people: each agent app's event subscription points here (Finalize registers it when SLACK_EVENTS_PUBLIC_URL is set). The body is read up to 256 KiB (413 above that), then checked in this order: the `v0` signature (`X-Slack-Signature`) over the raw bytes with the app's signing secret, the `X-Slack-Request-Timestamp` within 300 seconds, then the JSON. An unknown agent, an agent without a created app, an app without a signing secret, a wrong, missing or stale signature all answer the same 401. A signed `url_verification` answers its `challenge`. An `event_callback` is stored once per `(team_id, event_id)`, so Slack's retries (`X-Slack-Retry-Num`) answer 200 without a second row; one for another app or team than the agent's install, from a bot, or of a message subtype other than `thread_broadcast`, is stored as dropped with its reason. `app_uninstalled` and `tokens_revoked` mark the install revoked. Any other envelope type answers 200 and is ignored. A failed write answers 5xx so Slack sends the event again. Rate limited per agent and overall before any database read (429).
+         *
+         *     **Auth:** public; no credential. **Idempotency-Key:** ignored.
+         */
+        post: operations["receiveSlackEvent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/api-keys": {
         parameters: {
             query?: never;
@@ -1998,11 +2020,40 @@ export interface paths {
         };
         /**
          * Installation limits and installation-wide usage
-         * @description Reads the limits this installation runs under (execution slots, queued input per session, storage, turn length, per-session cost and token limits, provider retries) and the usage against the installation-wide ones, summed over every owner. Use it to explain `STORAGE_LIMIT_EXCEEDED`, a full input queue, or sessions waiting in `queued` for a slot. It changes nothing.
+         * @description Reads the limits this installation runs under (execution slots, queued input per session, storage, turn length, per-session cost and token limits, provider retries) and the usage against the installation-wide ones, summed over every owner. Use it to explain `STORAGE_LIMIT_EXCEEDED`, a full input queue, or sessions waiting in `queued` for a slot.
+         *
+         *     Only the workspace owner, signed in, reads it: any other member and every API key get 403. It changes nothing.
          *
          *     **Scope:** `sessions:read` (API key or cookie session).
          */
         get: operations["getInstallationLimits"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/usage/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Cost, tokens and run time of the sessions created in a period
+         * @description Adds up the sessions created in `[since, until)`: how many, their estimated provider cost, their tokens, and how long their turns ran. `since` and `until` take a date (`2026-10-01`, that day's 00:00 UTC) or a timestamp with an offset, which is moved to UTC; without `until` the period ends when the figures are read, so `since` must then be in the past.
+         *
+         *     - `scope=me`: the sessions the caller started. A personal API key counts as the person who created it; a key nobody created counts the sessions it started itself. Sessions shared with the caller are not added. A key bound to an agent gets 403, as it does from `GET /v1/sessions`.
+         *     - `scope=installation`: every session of every owner. Only the workspace owner, signed in, reads it: any other member and every API key get 403.
+         *
+         *     `cost_usd` is the sum of `cost.amount_usd` from `GET /v1/sessions/{id}/usage` over the same sessions: an estimate, not a bill. `cost_complete: false` means one of them has a turn still open or one that ended without reporting its cost, so the true total is unknown. `run_seconds` is wall-clock turn time, waiting for an answer included; an open turn counts up to `refreshed_at`. Sessions from before tokens were metered count 0 tokens. It changes nothing.
+         *
+         *     **Scope:** `sessions:read` (API key or cookie session).
+         */
+        get: operations["getUsageSummary"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2071,6 +2122,12 @@ export interface components {
              * @enum {string}
              */
             status?: "queued" | "running" | "needs_input" | "idle" | "failed" | "stopped";
+        };
+        UsageSummaryQuery: {
+            /** @enum {string} */
+            scope: "installation" | "me";
+            since: string;
+            until?: string;
         };
         PostSessionMessageRequest: {
             /** @description At most 32768 bytes of UTF-8 */
@@ -2259,6 +2316,34 @@ export interface components {
             code?: string;
             error?: string;
         };
+        SlackEventEnvelope: ({
+            /** @constant */
+            type: "url_verification";
+            challenge: string;
+        } & {
+            [key: string]: unknown;
+        }) | ({
+            /** @constant */
+            type: "event_callback";
+            team_id: string;
+            api_app_id: string;
+            event_id: string;
+            event_time?: number;
+            event: {
+                type: string;
+                subtype?: string;
+                user?: string;
+                bot_id?: string;
+            } & {
+                [key: string]: unknown;
+            };
+        } & {
+            [key: string]: unknown;
+        }) | ({
+            type: string;
+        } & {
+            [key: string]: unknown;
+        });
         CreateAgentRequest: {
             slug: string;
             name: string;
@@ -3464,6 +3549,16 @@ export interface components {
             };
             receipt_id: string | null;
             finalized: boolean;
+            warnings: {
+                /** @enum {string} */
+                code: "events_url_unset" | "reinstall_required" | "finalize_failed";
+            }[];
+        };
+        SlackEventsResponse: {
+            challenge: string;
+        } | {
+            /** @constant */
+            ok: true;
         };
         PasswordResetResponse: {
             /** Format: uuid */
@@ -3529,7 +3624,7 @@ export interface components {
                 created_at: string;
             } | null;
             scopes: ("sessions:read" | "sessions:write" | "sessions:approve" | "sessions:control" | "sessions:recover")[];
-            permissions: ("workspace.read" | "workspace.manage" | "audit_retention.manage" | "member.manage" | "team.manage" | "api_key.manage" | "api_key.manage_own" | "account.link" | "agent.create" | "agent.manage" | "agent.restore" | "agent.admin.manage" | "credential.bind" | "binding.manage" | "routine.manage" | "session.read" | "session.submit" | "session.approve" | "session.control" | "session.recover" | "session.share" | "session.rename" | "session.audit_read" | "session.admin_list" | "memory.read" | "memory.write" | "artifact.read" | "delivery.send")[];
+            permissions: ("workspace.read" | "workspace.manage" | "audit_retention.manage" | "member.manage" | "team.manage" | "api_key.manage" | "api_key.manage_own" | "account.link" | "agent.create" | "agent.manage" | "agent.restore" | "agent.admin.manage" | "credential.bind" | "binding.manage" | "routine.manage" | "session.read" | "session.submit" | "session.approve" | "session.control" | "session.recover" | "session.share" | "session.rename" | "session.audit_read" | "session.admin_list" | "usage.installation_read" | "memory.read" | "memory.write" | "artifact.read" | "delivery.send")[];
         };
         InstallationLimitsResponse: {
             /** @constant */
@@ -3553,6 +3648,31 @@ export interface components {
                     accounted_content: "input_messages"[];
                     updated_at: string | null;
                 };
+            };
+        };
+        UsageSummaryResponse: {
+            /** @enum {string} */
+            scope: "installation" | "me";
+            period: {
+                /** Format: date-time */
+                since: string;
+                /** Format: date-time */
+                until: string;
+            };
+            /** Format: date-time */
+            refreshed_at: string;
+            session_count: number;
+            cost_usd: string;
+            cost_complete: boolean;
+            token_count: number;
+            run_seconds: number;
+            basis: {
+                /** @constant */
+                sessions: "created_in_period";
+                /** @constant */
+                cost: "provider_usage_estimate";
+                /** @constant */
+                run_time: "turn_wall_clock";
             };
         };
         SessionUsageResponse: {
@@ -6357,7 +6477,8 @@ export interface operations {
                      *         "credential.bind",
                      *         "binding.manage",
                      *         "session.audit_read",
-                     *         "session.admin_list"
+                     *         "session.admin_list",
+                     *         "usage.installation_read"
                      *       ]
                      *     }
                      */
@@ -15496,7 +15617,8 @@ export interface operations {
                      *         "revoked_at": null
                      *       },
                      *       "receipt_id": "9c1e3a5b-7d8f-4e0a-8b1c-8b0c2d4e6f7a",
-                     *       "finalized": true
+                     *       "finalized": true,
+                     *       "warnings": []
                      *     }
                      */
                     "application/json": components["schemas"]["CompleteSlackInstallResponse"];
@@ -15617,6 +15739,148 @@ export interface operations {
             };
             500: components["responses"]["InternalError"];
             /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. Also when the API runs without a master key (PLATFORM_SECRET_KEY), or Slack could not be reached; start again. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    receiveSlackEvent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "token": "legacy-verification-token",
+                 *       "team_id": "T0A1B2C3D",
+                 *       "api_app_id": "A0B1C2D3E4F",
+                 *       "event": {
+                 *         "type": "app_mention",
+                 *         "user": "U0PERSON1",
+                 *         "text": "<@U0B1C2D3E> summarize this thread",
+                 *         "channel": "C0CHANNEL1",
+                 *         "ts": "1761300000.000100"
+                 *       },
+                 *       "type": "event_callback",
+                 *       "event_id": "Ev0A1B2C3D4E",
+                 *       "event_time": 1761300000
+                 *     }
+                 */
+                "application/json": components["schemas"]["SlackEventEnvelope"];
+            };
+        };
+        responses: {
+            /** @description `{"challenge": ...}` for a url_verification, `{"ok": true}` for everything else that was signed. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "ok": true
+                     *     }
+                     */
+                    "application/json": components["schemas"]["SlackEventsResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: The submitted credentials were rejected. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8. */
+            413: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "PAYLOAD_TOO_LARGE";
+                        };
+                    };
+                };
+            };
+            /** @description - `RATE_LIMITED`: Too many requests; wait for `Retry-After` and retry. */
+            429: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "RATE_LIMITED";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -17333,6 +17597,113 @@ export interface operations {
                      *     }
                      */
                     "application/json": components["schemas"]["InstallationLimitsResponse"];
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, checked before the body or the resource is read. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    getUsageSummary: {
+        parameters: {
+            query: {
+                scope: "installation" | "me";
+                since: string;
+                until?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The figures as of `refreshed_at`. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "scope": "me",
+                     *       "period": {
+                     *         "since": "2026-10-01T00:00:00.000Z",
+                     *         "until": "2026-10-11T08:15:43.000Z"
+                     *       },
+                     *       "refreshed_at": "2026-10-11T08:15:43.000Z",
+                     *       "session_count": 12,
+                     *       "cost_usd": "3.218400",
+                     *       "cost_complete": false,
+                     *       "token_count": 1824500,
+                     *       "run_seconds": 5410,
+                     *       "basis": {
+                     *         "sessions": "created_in_period",
+                     *         "cost": "provider_usage_estimate",
+                     *         "run_time": "turn_wall_clock"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["UsageSummaryResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
                 };
             };
             /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */

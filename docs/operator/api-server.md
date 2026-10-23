@@ -684,7 +684,7 @@ owner·admin이 콘솔 세션(cookie)으로만 쓴다. 값은 돌려주지 않�
 
 **에이전트의 Slack 앱 만들기**
 
-활성 release가 있는 에이전트마다 Slack 앱을 하나 만든다. 앱 이름은 에이전트 이름, bot 이름은 slug, agent view 설명은 활성 release의 role이다. bot scope는 `assistant:write`·`app_mentions:read`·`chat:write`·`im:history`·`channels:history`·`groups:history`·`channels:read`·`groups:read`·`users:read`·`channels:join`·`groups:write`이고 user scope는 없다. 생성 manifest에는 event subscription이 없다(이벤트는 events route가 생긴 뒤 manifest 갱신으로 붙인다). OAuth redirect는 `<콘솔 origin>/agents/{id}/slack/callback`이고, 콘솔 origin은 `SLACK_OIDC_REDIRECT_URI`의 origin이다. 이 값이 없으면 앱을 만들지 않는다(`503`).
+활성 release가 있는 에이전트마다 Slack 앱을 하나 만든다. 앱 이름은 에이전트 이름, bot 이름은 slug, agent view 설명은 활성 release의 role이다. bot scope는 `assistant:write`·`app_mentions:read`·`chat:write`·`im:history`·`channels:history`·`groups:history`·`channels:read`·`groups:read`·`users:read`·`channels:join`·`groups:write`이고 user scope는 없다. 생성 manifest에는 event subscription이 없다. 설치가 끝날 때 마무리 ①이 manifest를 다시 보내 붙인다(아래 "Slack 이벤트 수신"). OAuth redirect는 `<콘솔 origin>/agents/{id}/slack/callback`이고, 콘솔 origin은 `SLACK_OIDC_REDIRECT_URI`의 origin이다. 이 값이 없으면 앱을 만들지 않는다(`503`).
 
 | 요청 | 하는 일 |
 |---|---|
@@ -736,7 +736,7 @@ printf '{"value":"%s"}' "$(cat ~/.config/agent-platform/slack-config-token)" |
 | 요청 | 하는 일 |
 |---|---|
 | `POST /v1/agents/{id}/slack/install/start` | `{authorize_url, expires_at}`. 부를 때마다 새 state를 만든다 |
-| `POST /v1/slack/install/complete` `{agent_id, state, code}` 또는 `{agent_id, state, error}` | state를 쓰고 설치를 끝낸다. `{slack_app, installation, agent_identity, receipt_id, finalized}` |
+| `POST /v1/slack/install/complete` `{agent_id, state, code}` 또는 `{agent_id, state, error}` | state를 쓰고 설치를 끝낸다. `{slack_app, installation, agent_identity, receipt_id, finalized, warnings}` |
 
 - 둘 다 owner·admin·그 에이전트 관리자(`binding.manage`)가 콘솔 세션(cookie)과 `X-Requested-With`로만 한다. API key는 `403`(`reason_code: web_session_required`), member는 `403`이다. 앱이 없으면 `404`, 만드는 중이면 `409 SLACK_APP_CREATING`, 지우는 중이면 `409 REVISION_CONFLICT`, config token이 없으면 `409 CONFIG_TOKEN_INVALID`다. master key가 없으면 `503`이다.
 - state는 무작위 32바이트이고 DB(`slack_install_states`)에는 sha256 해시만 둔다. 행은 workspace·에이전트·앱(`slack_app_id`)·시작한 사용자·config token의 team·redirect URL에 묶이고 600초 산다. complete는 권한을 확인한 뒤 state를 지우면서 읽는다. 그 뒤로는 결과와 관계없이 다시 쓸 수 없다. 만료된 행은 다음 start가 지운다.
@@ -745,8 +745,47 @@ printf '{"value":"%s"}' "$(cat ~/.config/agent-platform/slack-config-token)" |
 - 통과하면 이 순서다: bot token을 `slack_app:<id>/slack_bot_token`에 저장하고 `slack_apps.bot_token_ref`를 채운다 → 그 token으로 `auth.test`·`bots.info`를 불러 app·team을 다시 확인한다 → 설치 행을 등록·확인한다 → `agent_identities`에 연결한다(`credential_ref`는 bot token의 이름 `slack_app:<id>/slack_bot_token`, `link_agent_identity` receipt). 같은 설치가 다른 workspace에 있으면 `409 SLACK_INSTALL_CONFLICT`, 앱이 다른 에이전트에 연결돼 있으면 `409 AGENT_IDENTITY_TAKEN`이다.
 - bot token을 저장한 뒤의 모든 거절(`auth.test`·`bots.info` 불일치나 무응답, `SLACK_INSTALL_CONFLICT`, `AGENT_IDENTITY_TAKEN`, `CREDENTIAL_REF_IN_USE`, `REVISION_CONFLICT`, 보관된 에이전트, 그 사이 권한을 잃은 사람의 `403` 등)에는 저장한 token이 남고, 설치를 등록한 뒤의 거절이면 확인된 설치 행도 남는다. 그래서 `secrets.slack_bot_token.configured`는 설치됐다는 뜻이 아니다. 설치됐는지는 에이전트의 `slack_bot` 신원으로 본다. 원인을 고친 뒤 start부터 다시 하면 token이 바뀐다.
 - 다시 설치하면 bot token이 새 버전으로 바뀌고 설치 행·연결은 그대로 하나다(`receipt_id: null`).
-- 끝나면 마무리 단계(`SlackInstallFinalize`, 이벤트 연결·환영 메시지는 뒤 티켓)를 한 번 부른다. 마무리가 실패해도 설치는 남고 `finalized: false`다.
+- 끝나면 마무리 단계(`SlackInstallFinalize`)를 한 번 부른다. 지금은 ① 이벤트 연결뿐이다(아래 "Slack 이벤트 수신"). 환영 메시지는 뒤 티켓이다. 마무리가 실패하거나 `SLACK_EVENTS_PUBLIC_URL`이 없으면 설치는 남고 `finalized: false`다. 이유는 `warnings`(`events_url_unset`, `reinstall_required`, 단계가 실패하면 `finalize_failed`)에 온다.
 - complete 응답에는 `Referrer-Policy: no-referrer`가 붙는다. bot token·code·state는 응답·로그·오류·receipt에 나오지 않는다. 로그는 `Slack app installed`와 id만 남긴다.
+
+**Slack 이벤트 수신**
+
+Slack은 에이전트 앱의 이벤트를 `POST /v1/slack/events/{agent_id}`로 보낸다. 로그인이 없는 공개 route이고, Slack의 서명(`X-Slack-Signature` v0, `X-Slack-Request-Timestamp`)이 인증이다. 받은 이벤트는 `slack_inbound_events`에 한 행씩 쌓기만 한다. 세션은 만들지 않는다(처리는 뒤 티켓).
+
+| 변수 | 기본값 | 허용 범위 |
+|---|---|---|
+| `SLACK_EVENTS_PUBLIC_URL` | 없음(마무리 ①을 건너뛴다. `finalized: false`, `warnings: [{code: "events_url_unset"}]`) | query 없는 https URL. Slack이 닿는 공개 origin(path가 있으면 그 아래)이다. request URL은 `<값>/v1/slack/events/<agent_id>`이다. 콘솔 주소와 따로 둔다 |
+
+- 검사 순서: 레이트 리미터(전체 분당 1000, 에이전트마다 분당 600. 넘으면 `429 RATE_LIMITED`와 `Retry-After`) → 본문 256 KiB(넘으면 서명을 보기 전에 `413`) → 서명(그 앱의 signing secret으로 HMAC-SHA256, 상수 시간 비교) → 시각(±300초) → JSON 파싱(`400`) → `event_id` 중복. 리미터는 DB를 읽기 전에 돈다.
+- 모르는 에이전트, 앱이 없는 에이전트, signing secret이 없는 앱, 틀리거나 오래된 서명은 모두 같은 `401 UNAUTHORIZED`("Request signature is not valid")다. 응답으로 에이전트가 있는지 알 수 없다. signing secret은 성공한 조회만 60초 동안 프로세스에 둔다. 앱을 만들거나 지우면 그 프로세스의 캐시를 바로 지운다. 다른 replica는 60초 안에 따라온다.
+- `url_verification`은 서명이 맞을 때만 `{challenge}`로 답한다. 나머지는 `{ok: true}`이고 3초 안에 답한다. Slack 재시도(`X-Slack-Retry-Num`)는 `(team_id, event_id)` unique로 한 행이 된다. inbox 쓰기가 실패하면 `503`이라 Slack이 다시 보낸다.
+- 행의 `status`는 `received`(처리할 것)·`dropped`(`drop_reason`이 있고 본문은 두지 않는다)·`processed`(앱 해제처럼 받을 때 끝낸 것)다. 본문(`payload`)은 Slack의 옛 `token` 칸을 뺀 이벤트 전체다.
+- 버리는 이유(`drop_reason`): `app_mismatch`(이벤트의 `api_app_id`가 URL 에이전트의 앱이 아님), `unsupported_event`(구독하지 않은 종류), `bot_message`(`bot_id`가 있음), `own_bot_user`(이 앱의 bot 사용자가 보냄), `message_subtype`(subtype이 없거나 `thread_broadcast`인 message만 받는다), `user_tokens_only`(bot token이 없는 `tokens_revoked`), 그리고 `agentForSlackEvent`의 이유(`unidentified`·`not_installed` 등. 위 "에이전트의 Slack 앱 연결"). `app_mention`은 bot이 보낸 것만 버린다. `member_joined_channel`은 bot 규칙 없이 저장만 한다.
+- `app_uninstalled`와 bot token을 담은 `tokens_revoked`는 그 설치를 `revoked`로 바꾸고 `processed`로 남는다.
+- 로그는 id·결과·`status`·`drop_reason`·재시도 번호만 남긴다. 본문·메시지 글·서명·헤더 값은 응답·로그·오류에 나오지 않는다.
+
+마무리 ①은 설치가 끝날 때 앱 manifest 전체를 다시 보낸다(`apps.manifest.update`). 이름·bot 이름·설명·scope는 앱을 만들 때와 같고, `settings.event_subscriptions`에 request URL과 bot event `app_mention`·`message.im`·`message.channels`·`message.groups`·`member_joined_channel`·`app_uninstalled`·`tokens_revoked`가 붙는다. Slack이 `permissions_updated: true`로 답하면(scope가 바뀌어 다시 설치해야 함) `warnings`에 `reinstall_required`가 오고 로그에 남는다. 아직 따로 저장하지는 않는다.
+
+설치를 다시 하지 않고 manifest만 다시 보내려면(예: 공개 주소를 바꾼 뒤) API 컨테이너 안에서 실행한다. 같은 결과를 몇 번이고 보낸다.
+
+```bash
+bun run apps/control-host/src/api/slack-app.ts finalize --agent "$AGENT_ID"
+# {"outcome":"finalized","slack_app_id":"…","app_id":"A…","agent_id":"…","request_url":"https://…/v1/slack/events/<agent_id>","warnings":[]}
+```
+
+종료 코드는 위 `create`와 같고, 더해서 `4`는 그 에이전트에 만든 앱이 없음, `8`은 `SLACK_EVENTS_PUBLIC_URL`이 없어 아무것도 보내지 않음이다.
+
+로컬 스택에서 실제 Slack이 이벤트를 보내게 하려면 events path만 인터넷에 연다. 콘솔은 위 0처럼 tailnet 안(`tailscale serve`)에 둔다. Funnel은 path가 아니라 port 단위로 켜진다. 콘솔을 funnel과 같은 port(443·8443·10000)에 serve하면 콘솔과 `/v1` 전체가 인터넷에 열리니, 콘솔은 그 셋이 아닌 port에 둔다.
+
+```bash
+PORT=<API_PORT> scripts/slack-funnel.sh on   # https://<host>.ts.net/v1/slack/events → http://127.0.0.1:<API_PORT>/v1/slack/events
+scripts/slack-funnel.sh status
+scripts/slack-funnel.sh off                  # on과 같은 --https·--set-path로 내린다
+```
+
+공개 port는 `SLACK_FUNNEL_HTTPS_PORT`(443 기본, 8443, 10000)다. 그 뒤 API에 `SLACK_EVENTS_PUBLIC_URL=https://<host>.ts.net`(443이 아니면 `:<port>`)을 주고 다시 띄운 다음, 설치를 하거나 `slack-app finalize`를 실행한다. Helm chart의 Ingress는 사내 전용이라 Slack이 닿지 않는다. Slack용 입구는 `/v1/slack/events` Prefix만 넘기는 인터넷 쪽 Ingress·LB를 따로 두고, 그 주소를 `api.extraEnv.SLACK_EVENTS_PUBLIC_URL`에 준다.
+
+로컬 mock overlay의 가짜 Slack은 서명된 이벤트도 보낸다. `POST http://mock-slack:4020/fake/events` `{url, app_id, team_id, event, event_id?, age_seconds?, retry_num?}`는 그 앱의 signing secret으로 서명해 `url`로 보내고 `{ok, status, body, event_id}`를 돌려준다. `challenge`를 주면 `url_verification`을 보낸다. signing secret은 출력하지 않는다.
 
 ### 에이전트의 Slack 채널 설정
 

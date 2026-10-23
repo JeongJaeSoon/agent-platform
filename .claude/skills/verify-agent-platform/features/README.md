@@ -35,5 +35,5 @@ H1 제목과 사용자에게 보이는 동작 한 문단, 그다음 H2 넷을 �
 - [웹 로그인 선택·팀·연동 계정·API key·워크스페이스 설정](./web-settings.md): 비밀번호/Google 선택, 팀과 에이전트 관리자 지정, Slack 연결·해제, 내 key·서비스 key 목록과 만들기 화면(에이전트 key), 감사 보존 29일 거절, Slack 게스트 사용 토글(member는 읽기 전용).
 - [API key](./api-keys.md): key CLI로 운영자 key·workspace key 발급, scope 검사, 폐기 후 401. 웹의 권한별 key는 musterrolle d.
 - [세션](./sessions.md): fake model 대본으로 세션 생성·turn 완료·권한 요청·pause/resume (전체 경로는 `docs/quickstart.md` 3장), 웹 사용자가 개인 key로 만든 세션이 웹 `/sessions`에 보이기.
-- [운영 조회](./ops-endpoints.md): `/readyz`, `/docs`(API reference), `/v1/limits`, 세션 usage.
+- [운영 조회](./ops-endpoints.md): `/readyz`, `/docs`(API reference), `/v1/limits`(owner), `/v1/usage/summary`, 세션 usage.
 - [멤버·팀·권한 (Musterrolle)](./musterrolle.md): 시나리오 a–g 전부. a(초대·역할 변경·OWNER_PROTECTED·LAST_OWNER·비활성화와 재활성화), b(팀과 팀을 에이전트 관리자로), c(Slack 계정 연결과 멘션·승인 판정, mock IdP overlay), d(권한별 key와 에이전트 전용 key), e(판정 기록·보존 기간·공유 범위·SSE 끊김·감사 열람·관리 목록), f(자격 연결), g(에이전트의 Slack 앱 연결). DM 기본 "나만"만 경로가 없다.
