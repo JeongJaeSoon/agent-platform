@@ -23,9 +23,11 @@ export type LinkTabsProps = Omit<ComponentProps<"nav">, "aria-label"> & {
 };
 
 /**
- * Too many tabs scroll sideways inside the nav instead of wrapping. The 4px
- * padding, given back by the margin, keeps a focused tab's outline out of the
- * scroll clip.
+ * Too many tabs scroll sideways inside the nav instead of wrapping. 4px of
+ * room on every side keeps a focused tab's 2px outline at 2px offset out of
+ * the scroll clip: padding given back by margin above, below and on the left,
+ * and the list's own padding on the right, so the nav never grows past its
+ * parent's right edge.
  */
 export function LinkTabs({
   className,
@@ -35,10 +37,10 @@ export function LinkTabs({
   return (
     <nav
       data-slot="link-tabs"
-      className={cn("-m-1 overflow-x-auto p-1", className)}
+      className={cn("-my-1 -ml-1 overflow-x-auto py-1 pl-1", className)}
       {...props}
     >
-      <ul className="m-0 flex w-max min-w-full list-none gap-6 border-b p-0">
+      <ul className="m-0 flex w-max min-w-full list-none gap-6 border-b py-0 pr-1 pl-0">
         {children}
       </ul>
     </nav>
