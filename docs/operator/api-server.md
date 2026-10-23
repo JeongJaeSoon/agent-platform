@@ -386,7 +386,7 @@ Enterprise Grid: id_token의 `https://slack.com/team_id`가 workspace id인지 o
    | `1` | 그 밖의 오류(DB 등) |
 
    `4`에서 그 행이 다른 워크스페이스에서 해제(`revoked`)된 것이면 메시지가 그렇게 말한다. 해제된 행도 원래 워크스페이스만 다시 등록할 수 있다. `SLACK_API_URL`(기본 `https://slack.com/api`)은 mock IdP를 쓸 때만 바꾼다. Kubernetes에는 아직 `:k8s` 스크립트가 없다. `kubectl exec -it <api pod> -c api -- bash`로 들어가(`sh`는 `read -s`가 없다) 그 안에서 `read -rs SLACK_BOT_TOKEN`으로 넣고 `bun run apps/control-host/src/api/slack-install.ts register …`를 실행한다. token을 `kubectl` 인자(`env SLACK_BOT_TOKEN=…` 등)에 쓰지 않는다.
-   설치가 `verified`가 되면 그 앱을 에이전트에 연결한다: 에이전트를 만들고 release를 활성화한 뒤 `POST /v1/agents/{id}/identities`(`provider: slack_bot`, `app_id`, `team_id`, bot token의 `credential_ref`)를 보낸다(아래 "에이전트의 Slack 앱 연결"). 연결이 없으면 그 앱으로 온 이벤트는 `unidentified`로 버려진다. 계정 연결(5)에는 필요 없다.
+   설치가 `verified`가 되면 그 앱을 에이전트에 연결한다: 에이전트를 만든 뒤 `POST /v1/agents/{id}/identities`(`provider: slack_bot`, `app_id`, `team_id`, bot token의 `credential_ref`)를 보낸다(아래 "에이전트의 Slack 앱 연결"). 연결이 없으면 그 앱으로 온 이벤트는 `unidentified`로 버려진다. 계정 연결(5)에는 필요 없다.
 5. owner로 `<CONSOLE_URL>`에 로그인하고 **연동 계정** 화면에서 Slack 연결 → Slack 동의 → 콜백 순으로 연결한다. `GET /v1/linked-accounts`에 `active` 행(`external_tenant` = 그 team id)과 `link_account` receipt가 보이는지 확인한다.
 6. 다른 워크스페이스 계정으로 시도해 `LINK_TEAM_MISMATCH`, 다른 웹 사용자로 같은 Slack 계정을 시도해 `LINK_TAKEN`을 확인한다. Grid 설치라면 연결이 되는지 보고, 됐으면 `linked_accounts.external_tenant`를 `slack_installations.team_id`와 비교해 P5를 판정한다. `LINK_TEAM_MISMATCH`로 거절되면 id_token의 team이 org id라는 뜻이다.
 7. 해제한 뒤 `GET /v1/linked-accounts`가 비고 `unlink_account` receipt가 남는지, 연결한 멤버를 `POST /v1/members/{user_id}/disable`로 비활성화하면 receipt `result.revoked_linked_accounts`가 1이고 목록에서 사라지는지 확인한다.
