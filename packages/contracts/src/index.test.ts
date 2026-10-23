@@ -121,6 +121,38 @@ describe("session contracts", () => {
     expect(sessionSummarySchema.safeParse(missing).success).toBe(false);
   });
 
+  test("summary repository names a branch, and is null when absent", () => {
+    const summary = {
+      id: SESSION_ID,
+      title: null,
+      revision: 0,
+      admission_state: "active",
+      status: "queued",
+      runtime: null,
+      repository_id: null,
+      current_turn_id: null,
+      queued_turn_count: 0,
+      last_event_at: null,
+      created_at: AT,
+      updated_at: AT,
+    };
+    expect(sessionSummarySchema.parse(summary).repository).toBeNull();
+    const legacy = { id: null, full_name: null, branch: "main" };
+    expect(
+      sessionSummarySchema.parse({ ...summary, repository: legacy }).repository,
+    ).toEqual(legacy);
+    for (const repository of [
+      { ...legacy, branch: null },
+      { ...legacy, branch: "" },
+      { ...legacy, full_name: "" },
+      { ...legacy, id: "" },
+    ]) {
+      expect(
+        sessionSummarySchema.safeParse({ ...summary, repository }).success,
+      ).toBe(false);
+    }
+  });
+
   test("a summary from a server before titles reads title null", () => {
     const { title: _omitted, ...older } = {
       id: SESSION_ID,

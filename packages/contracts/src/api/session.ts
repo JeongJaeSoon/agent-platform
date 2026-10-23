@@ -272,6 +272,21 @@ export const sessionTitleSchema = z
     description: `Stored with runs of whitespace and line breaks collapsed to one space and the ends trimmed; at most ${SESSION_TITLE_MAX_GRAPHEMES} characters (grapheme clusters) after that.`,
   });
 
+export const sessionRepositorySchema = z.object({
+  id: z.string().min(1).nullable().meta({
+    description:
+      "The catalog key, as `repository_id`. Null for a session created before the catalog existed.",
+  }),
+  full_name: z.string().min(1).nullable().meta({
+    description:
+      "A name to show: `owner/name` from the repository's URL, or else the catalog key; null when neither exists. Never the URL itself, which may embed a credential.",
+  }),
+  branch: z.string().min(1).meta({
+    description:
+      "The branch the session's workspace was cloned from. Not the branch a push writes to (`agent/<session-id>`).",
+  }),
+});
+
 export const sessionSummarySchema = z.object({
   id: sessionIdSchema,
   // Defaults so a reader ahead of its server, during a rollout, reads a
@@ -295,6 +310,11 @@ export const sessionSummarySchema = z.object({
   // legacy rows) carry no key and surface null; the stored repo URL is
   // never exposed because it may embed credentials.
   repository_id: z.string().min(1).nullable(),
+  // Defaults like title, so a reader ahead of its server reads none.
+  repository: sessionRepositorySchema.nullable().default(null).meta({
+    description:
+      "The repository the session was created against, as the session recorded it then: a later catalog change or removal does not alter it. Null for a session created without a repository.",
+  }),
   current_turn_id: turnIdSchema.nullable(),
   queued_turn_count: z.number().int().nonnegative(),
   last_event_at: timestampSchema.nullable(),
@@ -382,6 +402,7 @@ export type SessionAttention = z.infer<typeof sessionAttentionSchema>;
 export type PauseBlockedReason = z.infer<typeof pauseBlockedReasonSchema>;
 export type CloseBlockedReason = z.infer<typeof closeBlockedReasonSchema>;
 export type SessionDurability = z.infer<typeof sessionDurabilitySchema>;
+export type SessionRepository = z.infer<typeof sessionRepositorySchema>;
 export type SessionSummary = z.infer<typeof sessionSummarySchema>;
 export type SessionDetail = z.infer<typeof sessionDetailSchema>;
 export type CreateSessionRequest = z.infer<typeof createSessionRequestSchema>;
