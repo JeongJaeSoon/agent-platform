@@ -1,7 +1,11 @@
 export const homeKo = {
   "home.intro.owner": "설치 전체 현황과 워크스페이스 점검 항목입니다.",
-  "home.intro.other":
+  "home.intro.admin":
     "내 세션과 관리하는 에이전트, 워크스페이스 점검 항목입니다.",
+  "home.intro.manager":
+    "{name} 님이 관리하는 에이전트와 내 세션을 기준으로 구성했습니다.",
+  "home.intro.requester":
+    "{name} 님이 시작했거나 공유받은 세션을 기준으로 구성했습니다.",
   "home.checklist.title": "시작하기",
   "home.checklist.admin": "소유자 계정 만들기",
   "home.checklist.adminHint": "워크스페이스를 만든 계정입니다.",
@@ -48,14 +52,18 @@ export const homeKo = {
   "home.recent.all": "모든 세션",
   "home.recent.agent": "에이전트",
   "home.recent.repository": "저장소",
+  "home.recent.noRepository": "저장소 없음",
   "home.recent.activity": "최근 활동",
 };
 
 export const homeEn: Record<keyof typeof homeKo, string> = {
-  "home.intro.owner":
-    "How the whole installation is doing, and what the workspace needs checked.",
-  "home.intro.other":
-    "Your sessions, the agents you manage, and what the workspace needs checked.",
+  "home.intro.owner": "Whole-install status and workspace checks.",
+  "home.intro.admin":
+    "Your sessions, the agents you manage, and workspace checks.",
+  "home.intro.manager":
+    "Built from the agents {name} manages and their own sessions.",
+  "home.intro.requester":
+    "Built from sessions {name} started or that are shared with them.",
   "home.checklist.title": "Getting started",
   "home.checklist.admin": "Create the owner account",
   "home.checklist.adminHint": "The account that created the workspace.",
@@ -102,14 +110,18 @@ export const homeEn: Record<keyof typeof homeKo, string> = {
   "home.recent.all": "All sessions",
   "home.recent.agent": "Agent",
   "home.recent.repository": "Repository",
+  "home.recent.noRepository": "No repository",
   "home.recent.activity": "Last activity",
 };
 
 export const homeJa: Record<keyof typeof homeKo, string> = {
-  "home.intro.owner":
-    "インストール全体の状況と、ワークスペースで確認する項目です。",
-  "home.intro.other":
-    "自分のセッションと管理するエージェント、ワークスペースで確認する項目です。",
+  "home.intro.owner": "インストール全体の状況とワークスペースの点検項目です。",
+  "home.intro.admin":
+    "自分のセッション、担当エージェント、ワークスペースの点検項目です。",
+  "home.intro.manager":
+    "{name} さんの担当エージェントと自分のセッションをもとに表示しています。",
+  "home.intro.requester":
+    "{name} さんが開始した、または共有されたセッションをもとに表示しています。",
   "home.checklist.title": "はじめに",
   "home.checklist.admin": "オーナーアカウントを作成",
   "home.checklist.adminHint": "ワークスペースを作成したアカウントです。",
@@ -157,5 +169,6 @@ export const homeJa: Record<keyof typeof homeKo, string> = {
   "home.recent.all": "すべてのセッション",
   "home.recent.agent": "エージェント",
   "home.recent.repository": "リポジトリ",
+  "home.recent.noRepository": "リポジトリなし",
   "home.recent.activity": "最近のアクティビティ",
 };

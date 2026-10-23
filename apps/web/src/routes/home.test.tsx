@@ -542,17 +542,37 @@ describe("홈 요약", () => {
     );
   });
 
-  test("설명은 역할에 따라 고르고, 새 세션 버튼은 세션 목록처럼 사유와 함께 막혀 있다", async () => {
+  test.each([
+    ["owner", [], "설치 전체 현황과 워크스페이스 점검 항목입니다."],
+    ["admin", [], "내 세션과 관리하는 에이전트, 워크스페이스 점검 항목입니다."],
+    [
+      "member",
+      [agentServer().detail().agent],
+      "Owner 님이 관리하는 에이전트와 내 세션을 기준으로 구성했습니다.",
+    ],
+    [
+      "member",
+      [],
+      "Owner 님이 시작했거나 공유받은 세션을 기준으로 구성했습니다.",
+    ],
+  ] as const)(
+    "설명은 역할로 고른다: %s, 관리하는 에이전트 %p",
+    async (role, administered, intro) => {
+      renderAt("/", {
+        ...homeRoutes(),
+        "GET /v1/auth/me": () => json(200, me(undefined, role)),
+        "GET /v1/administered-agents": () => json(200, { items: administered }),
+      });
+      expect(await screen.findByText(intro)).toBeDefined();
+    },
+  );
+
+  test("새 세션 버튼은 세션 목록처럼 사유와 함께 막혀 있다", async () => {
     renderAt("/", {
       ...homeRoutes(),
       "GET /v1/auth/me": () => json(200, memberMe()),
     });
-    expect(
-      await screen.findByText(
-        "내 세션과 관리하는 에이전트, 워크스페이스 점검 항목입니다.",
-      ),
-    ).toBeDefined();
-    const button = screen.getByRole("button", { name: "새 세션" });
+    const button = await screen.findByRole("button", { name: "새 세션" });
     expect((button as HTMLButtonElement).disabled).toBe(true);
     expect(
       document.getElementById(button.getAttribute("aria-describedby") ?? "")

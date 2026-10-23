@@ -28,10 +28,15 @@ import {
   TableRow,
   Link as TextLink,
 } from "@werft-ai/ui";
-import { ArrowRight, Check } from "lucide-react";
+import { ArrowRight, Check, Folder, GitBranch } from "lucide-react";
 import { type ReactNode, useEffect, useId, useState } from "react";
-import { agentsQuery, invitesQuery, membersQuery } from "../api/queries.ts";
-import { useRole } from "../auth/guard.tsx";
+import {
+  administeredAgentsQuery,
+  agentsQuery,
+  invitesQuery,
+  membersQuery,
+} from "../api/queries.ts";
+import { useMe, useRole } from "../auth/guard.tsx";
 import { AdministeredAgents } from "../components/agent-admins.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { MyTeams } from "../components/my-teams.tsx";
@@ -104,7 +109,7 @@ export function useNow(): number {
  */
 export function HomeScreen() {
   const { t, locale } = useI18n();
-  const role = useRole();
+  const intro = useIntro();
   const now = useNow();
   const unavailable = useUnavailable();
   const { client } = useAgentPlatform();
@@ -228,9 +233,7 @@ export function HomeScreen() {
   return (
     <Page
       title={t("nav.home")}
-      description={t(
-        role === "owner" ? "home.intro.owner" : "home.intro.other",
-      )}
+      description={intro}
       actions={<NewSessionButton />}
     >
       {allDone ? null : checklist}
@@ -390,6 +393,33 @@ export function HomeScreen() {
       <AdministeredAgents showEmpty={false} />
       <MyTeams showEmpty={false} />
     </Page>
+  );
+}
+
+/**
+ * The design writes home for four readers: the owner, an admin, a member who
+ * manages an agent, and any other member. Nothing until the member's agents
+ * are read, so the line does not change under the reader.
+ */
+function useIntro(): string | undefined {
+  const { t } = useI18n();
+  const { client } = useAgentPlatform();
+  const role = useRole();
+  const name = useMe()?.user?.display_name;
+  const member = role !== undefined && role !== "owner" && role !== "admin";
+  // Same query as the agents section below, so it is read once.
+  const administered = useQuery({
+    ...administeredAgentsQuery(client),
+    enabled: member,
+  });
+  if (role === "owner") return t("home.intro.owner");
+  if (role === "admin") return t("home.intro.admin");
+  if (!member || !name || administered.isPending) return undefined;
+  return t(
+    (administered.data?.items.length ?? 0) > 0
+      ? "home.intro.manager"
+      : "home.intro.requester",
+    { name },
   );
 }
 
@@ -753,8 +783,30 @@ function RecentRow({
       <TableCell className="text-muted-foreground">
         {t("home.overview.unknown")}
       </TableCell>
-      <TableCell className="whitespace-nowrap text-muted-foreground">
-        {session.repository_id ?? t("home.overview.unknown")}
+      <TableCell className="whitespace-nowrap">
+        <span className="flex items-center gap-2">
+          {session.repository_id ? (
+            <>
+              <GitBranch
+                className="size-3.5 shrink-0 text-muted-foreground"
+                aria-hidden="true"
+              />
+              <span className="font-mono text-caption">
+                {session.repository_id}
+              </span>
+            </>
+          ) : (
+            <>
+              <Folder
+                className="size-3.5 shrink-0 text-muted-foreground"
+                aria-hidden="true"
+              />
+              <span className="text-caption text-muted-foreground">
+                {t("home.recent.noRepository")}
+              </span>
+            </>
+          )}
+        </span>
       </TableCell>
       <TableCell className="whitespace-nowrap text-right text-muted-foreground">
         <time dateTime={at} title={formatTimestamp(at, locale)}>
