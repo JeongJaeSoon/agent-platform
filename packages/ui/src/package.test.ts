@@ -106,8 +106,16 @@ describe("패키지 경계", () => {
     // Any quoted specifier, subpaths included: static, dynamic, side-effect
     // and re-export forms all name the package in quotes.
     const specifier = new RegExp(`["'\`]${contracts}["'\`/]`);
+    // The whole package, not only src/: a test or script added beside it
+    // would otherwise bring contracts back unseen.
+    const scripts = new Glob("**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}");
+    const files: string[] = [];
+    for await (const file of scripts.scan({ cwd: PACKAGE_ROOT })) {
+      if (!file.split("/").includes("node_modules")) files.push(file);
+    }
+    expect(files).toContain("src/index.ts");
     const offenders: string[] = [];
-    for (const file of await sourceFiles()) {
+    for (const file of files) {
       const source = await Bun.file(`${PACKAGE_ROOT}/${file}`).text();
       if (specifier.test(source)) offenders.push(file);
     }
