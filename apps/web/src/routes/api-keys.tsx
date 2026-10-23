@@ -27,6 +27,8 @@ import {
   FieldSet,
   formatTimestamp,
   Input,
+  LinkTab,
+  LinkTabs,
   NativeSelect,
   NativeSelectOption,
 } from "@werft-ai/ui";
@@ -310,27 +312,39 @@ function useCreateReason(kind: ApiKeyKind): string | undefined {
   return service ? undefined : t("apiKeys.noAgents");
 }
 
-function KeyScreenNav({ current }: { readonly current: ApiKeyKind }) {
+function KeyScreenNav({
+  current,
+  keys,
+}: {
+  readonly current: ApiKeyKind;
+  /** The listed keys; until they load, the tabs show no counts. */
+  readonly keys: readonly ApiKeyView[] | undefined;
+}) {
   const { t } = useI18n();
   const service = useIssuesServiceKeys();
   if (!service && current === "personal") return null;
   return (
-    <nav aria-label={t("apiKeys.nav")} className="flex gap-6 border-b">
-      {(["personal", "service"] as const).map((kind) => (
-        <Link
-          key={kind}
-          to={SCREEN[kind].list}
-          aria-current={kind === current ? "page" : undefined}
-          className={cn(
-            "-mb-px border-transparent border-b-2 py-2 text-control text-muted-foreground no-underline!",
-            "hover:text-foreground",
-            "aria-[current=page]:border-foreground aria-[current=page]:font-semibold aria-[current=page]:text-foreground",
-          )}
-        >
-          {t(SCREEN[kind].title)}
-        </Link>
-      ))}
-    </nav>
+    <LinkTabs aria-label={t("apiKeys.nav")}>
+      {(["personal", "service"] as const).map((kind) => {
+        const count = keys?.filter((key) => key.kind === kind).length;
+        return (
+          <LinkTab
+            key={kind}
+            asChild
+            current={kind === current}
+            count={count}
+            countLabel={
+              count === undefined ? undefined : t("apiKeys.navCount", { count })
+            }
+          >
+            {/* The personal list's path is the service list's parent. */}
+            <Link to={SCREEN[kind].list} activeOptions={{ exact: true }}>
+              {t(SCREEN[kind].title)}
+            </Link>
+          </LinkTab>
+        );
+      })}
+    </LinkTabs>
   );
 }
 
@@ -366,7 +380,7 @@ function KeysScreen({ kind }: { readonly kind: ApiKeyKind }) {
         </ReasonButton>
       }
     >
-      <KeyScreenNav current={kind} />
+      <KeyScreenNav current={kind} keys={keys.data?.items} />
       {outcome ? (
         outcome.kind === "error" ? (
           <FormError>{outcome.text}</FormError>
@@ -473,6 +487,10 @@ function KeyIdMeta({ id }: { readonly id: string }) {
       ) : null}
     </span>
   );
+}
+
+function MetaDot() {
+  return <span aria-hidden="true">·</span>;
 }
 
 /** Expiry, or revocation, in the state tokens: a key that never ends warns. */
@@ -605,15 +623,17 @@ function KeyList({
                 <div
                   className={cn(
                     META,
-                    "flex flex-wrap items-center gap-x-3 gap-y-1 leading-4",
+                    "flex flex-wrap items-center gap-x-2 gap-y-1 leading-4",
                   )}
                 >
                   <KeyIdMeta id={key.id} />
+                  <MetaDot />
                   <span>
                     {t("apiKeys.createdAt", {
                       at: formatTimestamp(key.created_at, locale),
                     })}
                   </span>
+                  <MetaDot />
                   <ExpiryMeta
                     expiresAt={key.expires_at}
                     revokedAt={key.revoked_at}
