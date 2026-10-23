@@ -350,7 +350,13 @@ export function CardSummary({ detail }: { readonly detail: AgentDetail }) {
               {t("agent.card.summaryTitle")}
             </h2>
             <span className={META}>
-              {live ? t("agent.card.subActive") : t("agent.card.subDraft")}
+              {!live
+                ? t("agent.card.subDraft")
+                : detail.agent.status === "active"
+                  ? t("agent.card.subActive")
+                  : t("agent.card.subStopped", {
+                      status: t(`agents.status.${detail.agent.status}`),
+                    })}
             </span>
           </div>
           {version ? (
@@ -359,44 +365,49 @@ export function CardSummary({ detail }: { readonly detail: AgentDetail }) {
             </Badge>
           ) : null}
         </div>
-        {card ? (
-          <dl className="m-0 grid grid-cols-1 items-baseline gap-x-4 gap-y-1 text-control sm:grid-cols-[140px_minmax(0,1fr)] sm:gap-y-2">
-            <dt className={TERM}>{t("agents.name")}</dt>
-            <dd className={VALUE}>{detail.agent.name}</dd>
-            <dt className={TERM}>{t("agents.slug")}</dt>
-            <dd className={`${VALUE} font-mono text-caption`}>
-              {detail.agent.slug}
-            </dd>
-            <dt className={TERM}>{t("agentCard.role")}</dt>
-            <dd className={VALUE}>{card.role}</dd>
-            <dt className={TERM}>{t("agentCard.instructions")}</dt>
-            <dd className={`${VALUE} line-clamp-3`}>{card.instructions}</dd>
-            <dt className={TERM}>{t("agentCard.model")}</dt>
-            <dd className={`${VALUE} font-mono text-caption`}>{card.model}</dd>
-            <dt className={TERM}>{t("agentCard.language")}</dt>
-            <dd className={VALUE}>
-              {card.language === "ko" ? "한국어" : "English"}
-            </dd>
-            <dt className={TERM}>{t("agentCard.tools")}</dt>
-            <dd className={VALUE}>
-              {card.capabilities.tools === null
-                ? t("agentCard.toolsAll")
-                : names(card.capabilities.tools)}
-            </dd>
-            <dt className={TERM}>{t("agentCard.forbidden")}</dt>
-            <dd className={VALUE}>{names(card.capabilities.forbidden)}</dd>
-            <dt className={TERM}>{t("agents.cards.mcp")}</dt>
-            <dd className={VALUE}>
-              {names(
-                (card.capabilities.mcp ?? []).map((server) => server.server),
-              )}
-            </dd>
-            <dt className={TERM}>{t("agents.cards.credentials")}</dt>
-            <dd className={VALUE}>
-              {names(card.capabilities.credential_refs ?? [])}
-            </dd>
-          </dl>
-        ) : (
+        <dl className="m-0 grid grid-cols-1 items-baseline gap-x-4 gap-y-1 text-control sm:grid-cols-[140px_minmax(0,1fr)] sm:gap-y-2">
+          <dt className={TERM}>{t("agents.name")}</dt>
+          <dd className={VALUE}>{detail.agent.name}</dd>
+          <dt className={TERM}>{t("agents.slug")}</dt>
+          <dd className={`${VALUE} font-mono text-caption`}>
+            {detail.agent.slug}
+          </dd>
+          {card ? (
+            <>
+              <dt className={TERM}>{t("agentCard.role")}</dt>
+              <dd className={VALUE}>{card.role}</dd>
+              <dt className={TERM}>{t("agentCard.instructions")}</dt>
+              <dd className={`${VALUE} line-clamp-3`}>{card.instructions}</dd>
+              <dt className={TERM}>{t("agentCard.model")}</dt>
+              <dd className={`${VALUE} font-mono text-caption`}>
+                {card.model}
+              </dd>
+              <dt className={TERM}>{t("agentCard.language")}</dt>
+              <dd className={VALUE}>
+                {card.language === "ko" ? "한국어" : "English"}
+              </dd>
+              <dt className={TERM}>{t("agentCard.tools")}</dt>
+              <dd className={VALUE}>
+                {card.capabilities.tools === null
+                  ? t("agentCard.toolsAll")
+                  : names(card.capabilities.tools)}
+              </dd>
+              <dt className={TERM}>{t("agentCard.forbidden")}</dt>
+              <dd className={VALUE}>{names(card.capabilities.forbidden)}</dd>
+              <dt className={TERM}>{t("agents.cards.mcp")}</dt>
+              <dd className={VALUE}>
+                {names(
+                  (card.capabilities.mcp ?? []).map((server) => server.server),
+                )}
+              </dd>
+              <dt className={TERM}>{t("agents.cards.credentials")}</dt>
+              <dd className={VALUE}>
+                {names(card.capabilities.credential_refs ?? [])}
+              </dd>
+            </>
+          ) : null}
+        </dl>
+        {card ? null : (
           <p className={`${META} text-control`}>{t("agent.noActive")}</p>
         )}
       </section>

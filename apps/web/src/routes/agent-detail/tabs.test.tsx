@@ -206,6 +206,35 @@ describe("에이전트 상세 탭", () => {
     expect(
       within(section).queryByRole("button", { name: "배포 탭으로" }),
     ).toBeNull();
+    const user = await setupUser();
+    await user.click(screen.getByRole("tab", { name: "카드" }));
+    const summary = (
+      await screen.findByRole("heading", { name: "에이전트 카드" })
+    ).closest("section") as HTMLElement;
+    expect(
+      within(summary).getByText(/일시정지 상태라 새 세션은 쓰지 않습니다/),
+    ).toBeDefined();
+    expect(within(summary).queryByText(/새 세션에 쓰이는/)).toBeNull();
+  });
+
+  test("version이 없는 에이전트도 카드 탭에 이름과 식별자를 보인다", async () => {
+    const server = agentServer();
+    const path = `/v1/agents/${AGENT_ID}`;
+    renderAt(`${DETAIL}?tab=card`, {
+      ...meOk,
+      ...server.routes,
+      [`GET ${path}`]: () => json(200, { ...server.detail(), versions: [] }),
+    });
+    const summary = (
+      await screen.findByRole("heading", { name: "에이전트 카드" })
+    ).closest("section") as HTMLElement;
+    await waitFor(() =>
+      expect(
+        within(summary).getByText("식별자", { selector: "dt" })
+          .nextElementSibling?.textContent,
+      ).toBe("billing"),
+    );
+    expect(within(summary).queryByText("역할", { selector: "dt" })).toBeNull();
   });
 
   test("머리의 새 세션 버튼은 꺼져 있고 이유를 읽어 준다", async () => {

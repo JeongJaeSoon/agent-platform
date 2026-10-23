@@ -223,6 +223,8 @@ export const agentsKo = {
   "agent.card.summaryTitle": "에이전트 카드",
   "agent.card.subActive": "새 세션에 쓰이는 version입니다. 읽기 전용.",
   "agent.card.subDraft": "아직 배포하지 않은 최신 version입니다. 읽기 전용.",
+  "agent.card.subStopped":
+    "활성 release의 version이지만 에이전트가 {status} 상태라 새 세션은 쓰지 않습니다. 읽기 전용.",
   "agent.card.raw": "카드 원문",
   "agent.card.rawSub": "API가 돌려주는 카드 JSON",
   "agent.card.copy": "복사",
@@ -484,6 +486,8 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.card.summaryTitle": "Agent card",
   "agent.card.subActive": "The version new sessions use. Read-only.",
   "agent.card.subDraft": "The latest version, not released yet. Read-only.",
+  "agent.card.subStopped":
+    "The active release's version, but the agent is {status}, so new sessions do not use it. Read-only.",
   "agent.card.raw": "Card source",
   "agent.card.rawSub": "The card JSON the API returns",
   "agent.card.copy": "Copy",
@@ -744,6 +748,8 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
     "新しいセッションで使われるバージョンです。読み取り専用。",
   "agent.card.subDraft":
     "まだリリースしていない最新バージョンです。読み取り専用。",
+  "agent.card.subStopped":
+    "有効なリリースのバージョンですが、エージェントが「{status}」のため新しいセッションでは使われません。読み取り専用。",
   "agent.card.raw": "カードの原文",
   "agent.card.rawSub": "APIが返すカードのJSON",
   "agent.card.copy": "コピー",
