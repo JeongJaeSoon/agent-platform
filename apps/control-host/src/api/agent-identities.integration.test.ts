@@ -6,6 +6,8 @@ import {
   CSRF_HEADER_VALUE,
   linkAgentIdentityResponseSchema,
   listAgentIdentitiesResponseSchema,
+  listSlackBindingsResponseSchema,
+  putSlackBindingResponseSchema,
   revokeAgentIdentityResponseSchema,
 } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
@@ -17,16 +19,23 @@ import {
   createDatabaseIdentityReader,
   createPostgresAgentIdentityStore,
   createPostgresDecisionLog,
+  createPostgresLinkedAccountStore,
+  createPostgresSurfaceBindingStore,
+  linkedAccounts,
   memberships,
   receipts,
   registerSlackInstallation,
+  surfaceBindings,
   users,
   verifySlackInstallation,
 } from "@werft-ai/db";
 import {
+  type AuthorizationPolicy,
   agentForSlackEvent,
+  authorizeSlackInput,
   createAgentIdentityService,
   createAuthorizationPolicy,
+  createSurfaceBindingService,
 } from "@werft-ai/platform";
 import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { and, eq } from "drizzle-orm";
@@ -41,6 +50,7 @@ import {
 import { DatabaseApiKeyStore } from "./keys.ts";
 import { registerAgentIdentityRoutes } from "./routes/agent-identities.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
+import { registerSlackBindingRoutes } from "./routes/slack-bindings.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 
@@ -53,6 +63,7 @@ integration("agent identities over HTTP on PostgreSQL", () => {
   let pool: Pool;
   let db: NodePgDatabase<typeof schema>;
   let app: ReturnType<typeof createApiApp>;
+  let authorization: AuthorizationPolicy;
 
   beforeAll(async () => {
     database = await createTempDatabase({ prefix: "agent_identities_api" });
@@ -64,13 +75,18 @@ integration("agent identities over HTTP on PostgreSQL", () => {
       bootstrap: createBootstrapGate(BOOTSTRAP_TOKEN),
       lockout: new LoginLockout(),
     };
+    authorization = createAuthorizationPolicy({
+      identity: createDatabaseIdentityReader(db),
+      agents: createDatabaseAgentAuthority(db),
+      decisions: createPostgresDecisionLog(db),
+    });
     const service = createAgentIdentityService({
-      authorization: createAuthorizationPolicy({
-        identity: createDatabaseIdentityReader(db),
-        agents: createDatabaseAgentAuthority(db),
-        decisions: createPostgresDecisionLog(db),
-      }),
+      authorization,
       store: createPostgresAgentIdentityStore(db),
+    });
+    const slackBindings = createSurfaceBindingService({
+      authorization,
+      store: createPostgresSurfaceBindingStore(db),
     });
     app = createApiApp({
       authMode: "api-key",
@@ -80,6 +96,7 @@ integration("agent identities over HTTP on PostgreSQL", () => {
       registerRoutes: (router) => {
         registerAuthRoutes(router, auth);
         registerAgentIdentityRoutes(router, { service });
+        registerSlackBindingRoutes(router, { service: slackBindings });
       },
     });
   }, 60_000);
@@ -320,5 +337,180 @@ integration("agent identities over HTTP on PostgreSQL", () => {
       LINK,
     );
     expect(noAgent.status).toBe(404);
+  });
+
+  test("slack bindings: an agent's admin sets a channel, and a mention there is allowed", async () => {
+    const OPS = { appId: "A0OPS", teamId: APP.teamId };
+    await registerSlackInstallation(db, { ...OPS, workspaceId });
+    await verifySlackInstallation(db, { ...OPS, botUserId: "B0OPS" });
+    const adminId = await addMember("ops-admin@example.com");
+    const admin = await login("ops-admin@example.com");
+    const agentId = await newAgent("ops", adminId);
+    const unlinked = await newAgent("ops-unlinked", adminId);
+    const linked = await send(
+      "POST",
+      `/v1/agents/${agentId}/identities`,
+      admin,
+      {
+        ...LINK,
+        app_id: OPS.appId,
+        credential_ref: "slack/ops-bot-token",
+      },
+    );
+    expect(linked.status).toBe(201);
+    const bindingsOf = `/v1/agents/${agentId}/slack-bindings`;
+
+    const put = await send("PUT", bindingsOf, admin, {
+      channel_id: "C0OPS",
+      channel_kind: "public_channel",
+      mode: "mention",
+      home: true,
+    });
+    expect(put.status).toBe(200);
+    const set = putSlackBindingResponseSchema.parse(await put.json());
+    expect(set.slack_binding).toMatchObject({
+      agent_id: agentId,
+      external_surface_id: "C0OPS",
+      surface_kind: "public_channel",
+      mode: "mention",
+      home: true,
+      status: "ready",
+      revision: 1,
+      ceiling: {
+        actions: [
+          "session.read",
+          "session.submit",
+          "session.control",
+          "session.approve",
+        ],
+        disclosure: "full",
+      },
+    });
+    const dm = await send("PUT", bindingsOf, ownerCookie, {
+      channel_id: null,
+      channel_kind: "dm",
+      mode: "mention",
+    });
+    expect(dm.status).toBe(200);
+    const listed = listSlackBindingsResponseSchema.parse(
+      await (await send("GET", bindingsOf, admin)).json(),
+    );
+    expect(
+      listed.items.map((b) => [b.external_surface_id, b.surface_kind, b.home]),
+    ).toEqual([
+      ["C0OPS", "public_channel", true],
+      [null, "dm", false],
+    ]);
+
+    // A member, ambient, a home DM, an agent with no app, someone else's agent.
+    await addMember("ops-member@example.com");
+    const member = await login("ops-member@example.com");
+    const body = { channel_id: "C0X", channel_kind: "public_channel" };
+    for (const [cookie, path, request, status, code] of [
+      [member, bindingsOf, { ...body, mode: "mention" }, 403, "FORBIDDEN"],
+      [member, bindingsOf, undefined, 403, "FORBIDDEN"],
+      [admin, bindingsOf, { ...body, mode: "ambient" }, 400, "BAD_REQUEST"],
+      [
+        admin,
+        bindingsOf,
+        { channel_id: null, channel_kind: "dm", mode: "mention", home: true },
+        400,
+        "BAD_REQUEST",
+      ],
+      [
+        admin,
+        `/v1/agents/${unlinked}/slack-bindings`,
+        { ...body, mode: "mention" },
+        409,
+        "SLACK_NOT_INSTALLED",
+      ],
+      [
+        admin,
+        `/v1/agents/${crypto.randomUUID()}/slack-bindings`,
+        { ...body, mode: "mention" },
+        403,
+        "FORBIDDEN",
+      ],
+    ] as const) {
+      const response = await send(
+        request === undefined ? "GET" : "PUT",
+        path,
+        cookie,
+        request,
+      );
+      expect([response.status, (await errorOf(response)).code]).toEqual([
+        status,
+        code,
+      ]);
+    }
+
+    // The owner's Slack account, linked, mentions the bot in each place.
+    const [owner] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.email, "owner@example.com"));
+    await db.insert(linkedAccounts).values({
+      id: crypto.randomUUID(),
+      workspaceId,
+      userId: owner?.id ?? "",
+      provider: "slack",
+      externalTenant: OPS.teamId,
+      externalUserId: "U0OWNER",
+      verifiedVia: "slack_oidc",
+      verifiedAt: new Date(),
+    });
+    const mention = (channel: { id: string; dm: boolean }) =>
+      authorizeSlackInput(
+        {
+          authorization,
+          agents: createPostgresAgentIdentityStore(db),
+          links: createPostgresLinkedAccountStore(db),
+          bindings: createPostgresSurfaceBindingStore(db),
+        },
+        {
+          event: { ...OPS, agentId },
+          user: { id: "U0OWNER", team_id: OPS.teamId },
+          action: "session.submit",
+          channel,
+          resource: { kind: "surface_binding" },
+          requestId: crypto.randomUUID(),
+          connectUrl: "https://app.example/settings/accounts",
+        },
+      );
+    const outcome = async (channel: { id: string; dm: boolean }) => {
+      const decided = await mention(channel);
+      if (decided.status !== "decided") throw new Error(decided.reason);
+      return [decided.decision.outcome, decided.decision.reason_code];
+    };
+    expect(await outcome({ id: "C0OPS", dm: false })).toEqual(["allow", "ok"]);
+    expect(await outcome({ id: "D0ANY", dm: true })).toEqual(["allow", "ok"]);
+    expect(await outcome({ id: "C0UNBOUND", dm: false })).toEqual([
+      "deny",
+      "surface_ceiling",
+    ]);
+
+    // Switched off, the channel takes nothing; the console reads it off.
+    const off = await send("PUT", bindingsOf, admin, {
+      channel_id: "C0OPS",
+      channel_kind: "public_channel",
+      mode: "off",
+      home: true,
+    });
+    expect(
+      putSlackBindingResponseSchema.parse(await off.json()).slack_binding,
+    ).toMatchObject({ id: set.slack_binding.id, mode: "off", revision: 2 });
+    expect(await outcome({ id: "C0OPS", dm: false })).toEqual([
+      "deny",
+      "surface_ceiling",
+    ]);
+    // Revoked, it is refused as unbound.
+    await db
+      .update(surfaceBindings)
+      .set({ mode: "mention", status: "revoked", revokedAt: new Date() })
+      .where(eq(surfaceBindings.id, set.slack_binding.id));
+    expect(await outcome({ id: "C0OPS", dm: false })).toEqual([
+      "deny",
+      "surface_ceiling",
+    ]);
   });
 });

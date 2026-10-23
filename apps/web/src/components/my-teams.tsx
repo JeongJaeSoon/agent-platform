@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { isApiError } from "@werft-ai/client";
 import { useAgentPlatform } from "@werft-ai/react";
+import { EmptyState } from "@werft-ai/ui";
 import { useId } from "react";
 import { myTeamsQuery } from "../api/queries.ts";
 import { useHasPermission } from "../auth/guard.tsx";
@@ -44,7 +45,7 @@ export function MyTeams({
       {teams.error ? (
         <LoadFailure error={teams.error} onRetry={() => void teams.refetch()} />
       ) : items.length === 0 ? (
-        <p className={MUTED}>{t("teams.mine.empty")}</p>
+        <EmptyState title={t("teams.mine.empty")} />
       ) : (
         <>
           <p className={`${MUTED} text-sm`}>{t("teams.mine.intro")}</p>

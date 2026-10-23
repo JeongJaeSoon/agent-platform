@@ -117,6 +117,7 @@ describe("카드 폼 변환", () => {
       ...CARD,
       capabilities: {
         ...CARD.capabilities,
+        mcp: [{ server: "fake" }],
         tool_policy: {
           default: { mcp: "deny" },
           per_tool: { Read: "allow", Bash: "ask" },

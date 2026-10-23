@@ -7,6 +7,7 @@ import {
   agents,
   memberships,
   sessions,
+  surfaceBindings,
   users,
 } from "./schema.ts";
 
@@ -44,6 +45,21 @@ export function createDatabaseAgentAuthority(db: Database): AgentAuthority {
             ),
           )
           .where(and(eq(sessions.id, id), eq(sessions.ownerId, workspaceId)))
+          .limit(1);
+        return row?.agentId ?? null;
+      }
+      if (resource.kind === "surface_binding") {
+        // A revoked binding speaks for no agent any more.
+        const [row] = await db
+          .select({ agentId: surfaceBindings.agentId })
+          .from(surfaceBindings)
+          .where(
+            and(
+              eq(surfaceBindings.id, id),
+              eq(surfaceBindings.workspaceId, workspaceId),
+              isNull(surfaceBindings.revokedAt),
+            ),
+          )
           .limit(1);
         return row?.agentId ?? null;
       }

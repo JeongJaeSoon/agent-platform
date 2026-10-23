@@ -19,31 +19,6 @@ const OUT = join(PACKAGE_ROOT, "dist");
 // The package does not ship fonts: the host app picks and loads its own.
 const FONTS_IMPORT = '@import "./fonts.css";\n';
 
-// The kit's elements and what they render inside, at zero specificity: the
-// scope styles.css already gives box-sizing.
-const KIT_ROOT = '[class^="ap-"], [class*=" ap-"], [data-slot]';
-const KIT = `:where(${KIT_ROOT}, :where(${KIT_ROOT}) *)`;
-
-// Tailwind's preflight rules the kit's classes assume, inside KIT only. Without
-// them a host's UA styles show through: a 2px outset border and buttonface
-// background on <button>, an underlined blue <a>, list markers, heading sizes.
-// Not the `border` shorthand: it would also reset theme.css's border colour.
-const SCOPED_PREFLIGHT = `@layer base {
-  ${KIT}, ${KIT}::before, ${KIT}::after {
-    box-sizing: border-box; border-width: 0; border-style: solid; margin: 0; padding: 0;
-  }
-  ${KIT}:where(h1, h2, h3, h4, h5, h6) { font-size: inherit; font-weight: inherit; }
-  ${KIT}:where(a) { color: inherit; text-decoration: inherit; }
-  ${KIT}:where(ol, ul, menu) { list-style: none; }
-  ${KIT}:where(img, svg, video, canvas, audio, iframe, embed, object) { display: block; vertical-align: middle; }
-  ${KIT}:where(img, video) { max-width: 100%; height: auto; }
-  ${KIT}:where(button, input, select, optgroup, textarea) {
-    font: inherit; font-feature-settings: inherit; font-variation-settings: inherit;
-    letter-spacing: inherit; color: inherit; border-radius: 0; background-color: transparent; opacity: 1;
-  }
-  ${KIT}:where(textarea) { resize: vertical; }
-}`;
-
 type Manifest = {
   name: string;
   version: string;
@@ -91,7 +66,7 @@ async function prebuiltStyles(): Promise<string> {
     '@import "tailwindcss/theme.css" layer(theme);',
     '@import "tailwindcss/utilities.css" layer(utilities) source(none);',
     '@import "./theme.css";',
-    SCOPED_PREFLIGHT,
+    '@import "./scoped-preflight.css";',
     styles.replace(FONTS_IMPORT, ""),
     '@source "..";',
     '@source not "../__fixtures__";',

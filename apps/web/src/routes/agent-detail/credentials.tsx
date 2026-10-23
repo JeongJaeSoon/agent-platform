@@ -8,7 +8,7 @@ import type {
   RevokeCredentialBindingResponse,
 } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
-import { Button, ConfirmDialog, cn } from "@werft-ai/ui";
+import { Button, ConfirmDialog, cn, EmptyState } from "@werft-ai/ui";
 import { type ReactNode, type RefObject, useId, useState } from "react";
 import { queryKeys } from "../../api/queries.ts";
 import { permissionReason, useRole } from "../../auth/guard.tsx";
@@ -194,13 +194,13 @@ export function Credentials({
             </RowList>
           ) : null}
           {active.length === 0 ? (
-            <p className={MUTED}>
-              {t(
+            <EmptyState
+              title={t(
                 unbound.length === 0
                   ? "agent.credentials.noneNamed"
                   : "agent.credentials.empty",
               )}
-            </p>
+            />
           ) : (
             <RowList aria-label={t("agent.credentials.boundList")}>
               {active.map((binding) => (

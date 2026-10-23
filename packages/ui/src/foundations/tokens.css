@@ -56,6 +56,11 @@
     --ap-color-accent-hover: #2e2e2e;
     --ap-color-accent-foreground: #fafafa;
     --ap-color-focus-ring: #737373;
+    /*
+     * Text links. Resolved on :root, so it follows the dark accent without a
+     * dark entry of its own; give it a value here to tint links apart.
+     */
+    --ap-color-link: var(--ap-color-accent);
 
     /*
      * Status tones. A tone is a meaning, not a colour name: components pick a
@@ -178,6 +183,8 @@
     --ap-row-min-height: 3rem;
     --ap-row-head-min-height: 2.5rem;
     --ap-row-line-gap: 0.125rem;
+    /* A row button's floor in a table's actions column. */
+    --ap-row-action-min-width: 6rem;
     --ap-control-height: 2rem;
     --ap-control-height-sm: 1.75rem;
     --ap-text-title: 1.25rem;

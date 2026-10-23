@@ -75,6 +75,7 @@ import {
   listSessionOutputsResponseSchema,
   listSessionsQuerySchema,
   listSessionsResponseSchema,
+  listSlackBindingsResponseSchema,
   listTakeoversResponseSchema,
   listTeamsResponseSchema,
   listTurnsQuerySchema,
@@ -96,6 +97,8 @@ import {
   postSessionMessageResponseSchema,
   pushRequestParamsSchema,
   pushRequestSchema,
+  putSlackBindingRequestSchema,
+  putSlackBindingResponseSchema,
   putSlackSecretRequestSchema,
   putSlackSecretResponseSchema,
   readyResponseSchema,
@@ -204,6 +207,7 @@ const requestComponents = {
   AddTeamMemberRequest: addTeamMemberRequestSchema,
   AddAgentAdminRequest: addAgentAdminRequestSchema,
   LinkAgentIdentityRequest: linkAgentIdentityRequestSchema,
+  PutSlackBindingRequest: putSlackBindingRequestSchema,
 } satisfies Record<string, z.ZodType>;
 const responseComponents = {
   ApiErrorResponse: apiErrorResponseSchema,
@@ -283,6 +287,8 @@ const responseComponents = {
   LinkAgentIdentityResponse: linkAgentIdentityResponseSchema,
   ListAgentIdentitiesResponse: listAgentIdentitiesResponseSchema,
   RevokeAgentIdentityResponse: revokeAgentIdentityResponseSchema,
+  ListSlackBindingsResponse: listSlackBindingsResponseSchema,
+  PutSlackBindingResponse: putSlackBindingResponseSchema,
   OpenApiDocument: openApiDocumentResponseSchema,
 } satisfies Record<string, z.ZodType>;
 
@@ -2082,12 +2088,12 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Members",
     summary: "Disable a member of the workspace",
     description:
-      "In the same transaction: the membership is disabled, every web session of the person is revoked (open event streams end), their personal keys in the workspace are revoked, and the sessions they asked for wait for an owner's takeover. Service keys are untouched. Disabling yourself, or the last live owner, answers 409 LAST_OWNER. Writes a `disable_member` receipt unless the membership was already disabled (`receipt_id` null).",
+      "In the same transaction: the membership is disabled, every web session of the person is revoked (open event streams end), their personal keys in the workspace are revoked, and the sessions they asked for wait for an owner's takeover. Service keys are untouched. Only an owner disables an owner: an admin targeting one answers 403 OWNER_PROTECTED and nothing changes. Disabling yourself, or the last live owner, answers 409 LAST_OWNER. When several apply, the first answers: no `member.manage` (403 FORBIDDEN), yourself (409), no such member (404), an owner targeted by an admin (403 OWNER_PROTECTED), the last live owner (409). Writes a `disable_member` receipt unless the membership was already disabled (`receipt_id` null).",
     auth: "session",
     body: "SetAccessRequest",
     success: { status: 200, schema: "SetAccessResponse" },
     errors: [400, 401, 403, 404, 409, 413, 503],
-    errorCodes: { 409: ["LAST_OWNER"] },
+    errorCodes: { 403: ["FORBIDDEN", "OWNER_PROTECTED"], 409: ["LAST_OWNER"] },
     idempotent: false,
   },
   {
@@ -2097,11 +2103,12 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Members",
     summary: "Enable a disabled member again",
     description:
-      "Revoked web sessions and personal keys stay revoked: the person signs in again. Sessions no owner took over go back to them. Writes an `enable_member` receipt unless the membership was already live (`receipt_id` null).",
+      "Revoked web sessions and personal keys stay revoked: the person signs in again. Sessions no owner took over go back to them. An admin enabling an owner answers 403 OWNER_PROTECTED. Writes an `enable_member` receipt unless the membership was already live (`receipt_id` null).",
     auth: "session",
     body: "SetAccessRequest",
     success: { status: 200, schema: "SetAccessResponse" },
     errors: [400, 401, 403, 404, 413, 503],
+    errorCodes: { 403: ["FORBIDDEN", "OWNER_PROTECTED"] },
     idempotent: false,
   },
   {
@@ -2111,12 +2118,12 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Members",
     summary: "Suspend an account",
     description:
-      "Allowed only when every live membership of the account is in a workspace the caller owns; otherwise 403. The account cannot sign in anywhere, and the same cut-off as disabling a member applies in each of its workspaces. Suspending yourself answers 409 LAST_OWNER. Writes a `disable_user` receipt unless the account was already suspended (`receipt_id` null).",
+      "Allowed only when every live membership of the account is in a workspace the caller owns or administers; otherwise 403 FORBIDDEN. An account that is an owner, even with that membership disabled, in any workspace the caller is not a live owner of answers 403 OWNER_PROTECTED first. The account cannot sign in anywhere, and the same cut-off as disabling a member applies in each of its workspaces. Suspending yourself answers 409 LAST_OWNER. Writes a `disable_user` receipt unless the account was already suspended (`receipt_id` null).",
     auth: "session",
     body: "SetAccessRequest",
     success: { status: 200, schema: "SetAccessResponse" },
     errors: [400, 401, 403, 404, 409, 413, 503],
-    errorCodes: { 409: ["LAST_OWNER"] },
+    errorCodes: { 403: ["FORBIDDEN", "OWNER_PROTECTED"], 409: ["LAST_OWNER"] },
     idempotent: false,
   },
   {
@@ -2126,11 +2133,12 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Members",
     summary: "Lift an account suspension",
     description:
-      "The same ownership rule as suspending. Revoked web sessions and personal keys stay revoked. Writes an `enable_user` receipt unless the account was not suspended (`receipt_id` null).",
+      "The same rules as suspending, OWNER_PROTECTED included. Revoked web sessions and personal keys stay revoked. Writes an `enable_user` receipt unless the account was not suspended (`receipt_id` null).",
     auth: "session",
     body: "SetAccessRequest",
     success: { status: 200, schema: "SetAccessResponse" },
     errors: [400, 401, 403, 404, 413, 503],
+    errorCodes: { 403: ["FORBIDDEN", "OWNER_PROTECTED"] },
     idempotent: false,
   },
   {
@@ -2312,7 +2320,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "The credential names bound to an agent",
     description:
-      "Owners, admins and the agent's admins. Each binding carries `running_sessions`, the sessions of this agent that name it and have not closed, with the `revoke_notice` the unbind screen shows: unbinding stops the next session, not a running one (D11). Names only; no value is ever stored.",
+      "Owners, admins and the agent's admins. Each binding carries `running_sessions`, the sessions of this agent that name it and have not closed, with the `revoke_notice` the unbind screen shows: unbinding stops the next session and the next message of a running one, and cuts its remote MCP calls within 30 seconds. Names only; no value is ever stored.",
     auth: "session",
     success: { status: 200, schema: "ListCredentialBindingsResponse" },
     errors: [401, 403, 404, 503],
@@ -2339,7 +2347,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "Unbind a credential name from an agent",
     description:
-      "Takes what binding takes. The next session of a release naming it is refused 409 CREDENTIAL_UNBOUND; sessions already running keep it until they end, which the answer's `binding.running_sessions` and `revoke_notice` say. Writes an `unbind_credential` receipt; a binding already revoked is not found.",
+      "Takes what binding takes. The next session of a release naming it, and the next message to a running one, is refused 409 CREDENTIAL_UNBOUND with a failed receipt; a running session's remote MCP calls are refused from the next exchange and an open one is cut within 30 seconds, while a call already sent finishes. The answer's `binding.running_sessions` and `revoke_notice` say so. Writes an `unbind_credential` receipt; a binding already revoked is not found.",
     auth: "session",
     success: { status: 200, schema: "RevokeCredentialBindingResponse" },
     errors: [401, 403, 404, 503],
@@ -2386,10 +2394,37 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "Revoke an agent identity",
     description:
-      "Events from that app and team are dropped from then on, including events already waiting to be processed. Revoking one already revoked changes nothing and answers a null `receipt_id`; otherwise writes a `revoke_agent_identity` receipt. Linking again makes a new identity.",
+      "Events from that app and team are dropped from then on, including events already waiting to be processed. Revoking one already revoked changes nothing and answers a null `receipt_id`; otherwise writes a `revoke_agent_identity` receipt. The agent's Slack channel bindings in that install are revoked with it. Linking again makes a new identity.",
     auth: "session",
     success: { status: 200, schema: "RevokeAgentIdentityResponse" },
     errors: [401, 403, 404, 503],
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/agents/{id}/slack-bindings",
+    operationId: "listSlackBindings",
+    tag: "Agents",
+    summary: "The agent's Slack channel bindings",
+    description:
+      "Live bindings of the channels of the agent's Slack app, and its DM binding (`surface_kind: dm`, no `external_surface_id`): the home channel first, then oldest first; up to 500. Channel ids only; the console resolves names. Owners, admins and the agent's admins.",
+    auth: "session",
+    success: { status: 200, schema: "ListSlackBindingsResponse" },
+    errors: [401, 403, 404, 503],
+  },
+  {
+    method: "put",
+    path: "/v1/agents/{id}/slack-bindings",
+    operationId: "putSlackBinding",
+    tag: "Agents",
+    summary: "Set how the agent answers in one Slack channel or its DMs",
+    description:
+      "Replaces the binding of `channel_id` in the agent's Slack app install, or the install's one DM binding when `channel_kind` is `dm` and `channel_id` is null, creating it the first time. `mode` is `off` (the channel takes nothing; a mention there is refused) or `mention`. `home: true` makes this channel the agent's home and clears the previous one; a DM is never home. A missing `ceiling` is the default: every Slack action, shown in full. The agent needs a live Slack app identity (409 SLACK_NOT_INSTALLED); a concurrent change to the same channel or home answers 409 REVISION_CONFLICT. No Slack call is made: the bot does not join the channel here. Owners, admins and the agent's admins; API keys are refused. Writes a `set_surface_binding` receipt.",
+    auth: "session",
+    body: "PutSlackBindingRequest",
+    success: { status: 200, schema: "PutSlackBindingResponse" },
+    errors: [400, 401, 403, 404, 409, 413, 503],
+    errorCodes: { 409: ["SLACK_NOT_INSTALLED", "REVISION_CONFLICT"] },
     idempotent: false,
   },
   {

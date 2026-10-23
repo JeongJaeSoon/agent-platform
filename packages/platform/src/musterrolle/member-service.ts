@@ -95,7 +95,7 @@ export function createMemberService(deps: {
         );
       case "outranked":
         throw new SessionServiceError(
-          "FORBIDDEN",
+          "OWNER_PROTECTED",
           "Only an owner can change an owner's access",
         );
       case "actor_inactive":

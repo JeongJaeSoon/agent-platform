@@ -23,12 +23,17 @@ export const agentContactSchema = z
   })
   .strict();
 
-/** `details` of a 409 CREDENTIAL_UNBOUND from POST /v1/sessions. */
+/**
+ * `details` of a 409 CREDENTIAL_UNBOUND from POST /v1/sessions and from a
+ * message appended to a session whose release lost a binding.
+ */
 export const sessionCredentialUnboundDetailsSchema = z
   .object({
     reason_code: z.literal("credential_unbound"),
     guidance: z.literal(CREDENTIAL_UNBOUND_GUIDANCE),
     agent_id: agentIdSchema,
+    /** The failed create_session or append_message receipt of the refusal. */
+    receipt_id: receiptIdSchema,
     /** The agent's admins, or its workspace's owners and admins when none is left. */
     admins: z.array(agentContactSchema),
     /** A `mailto:` link to every admin above; null when there is no one. */
@@ -53,12 +58,13 @@ export type ActivationCredentialUnboundDetails = z.infer<
 >;
 
 /**
- * What the unbind screen says beside the running count (D11): unbinding
- * only stops the next session, and the value's owner is the one who can
- * stop a running one.
+ * What the unbind screen says beside the running count: unbinding stops the
+ * next session and the next message of a running one at once, and a
+ * running session's remote MCP calls within 30 seconds. A call already
+ * sent still finishes, and the value's owner is the one who can revoke it.
  */
 export const CREDENTIAL_REVOKE_NOTICE =
-  "실행 중인 세션은 끝날 때까지 이 자격을 써요. 바로 막으려면 외부 서비스에서 폐기하세요";
+  "해제하면 실행 중인 세션도 다음 메시지부터 막히고, 원격 MCP 호출은 30초 안에 끊겨요. 이미 보낸 호출은 끝까지 실행되니 값 자체는 외부 서비스에서 폐기하세요";
 
 export const credentialBindingIdSchema = z.uuid();
 

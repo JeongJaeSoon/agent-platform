@@ -10,26 +10,29 @@ const WORKSPACE_ID = "019a0000-0000-7000-8000-0000000000e2";
 const BINDING_ID = "019a0000-0000-7000-8000-0000000000e4";
 const SESSION_ID = "019a0000-0000-7000-8000-0000000000e5";
 const AT = "2026-09-22T01:00:00Z";
+const BINDING = {
+  id: BINDING_ID,
+  workspace_id: WORKSPACE_ID,
+  owner_id: "owner_1",
+  surface: "slack",
+  installation_id: SESSION_ID,
+  external_surface_id: "C01",
+  surface_kind: "private_channel",
+  agent_id: AGENT_ID,
+  mode: "mention",
+  ceiling: { actions: ["session.read", "session.submit"], disclosure: "full" },
+  home: false,
+  memory_write_policy: "deny",
+  status: "ready",
+  muted: false,
+  revision: 0,
+  created_at: AT,
+  revoked_at: null,
+};
 
 describe("surfaces", () => {
   test("a binding decides whether an agent may write at all", () => {
-    const binding = {
-      id: BINDING_ID,
-      workspace_id: WORKSPACE_ID,
-      owner_id: "owner_1",
-      surface: "slack",
-      installation_id: SESSION_ID,
-      external_surface_id: "C01",
-      surface_kind: "private_channel",
-      agent_id: AGENT_ID,
-      mode: "mention",
-      memory_write_policy: "deny",
-      status: "ready",
-      muted: false,
-      revision: 0,
-      created_at: AT,
-      revoked_at: null,
-    };
+    const binding = BINDING;
     expect(surfaceBindingSchema.parse(binding).memory_write_policy).toBe(
       "deny",
     );
@@ -42,23 +45,7 @@ describe("surfaces", () => {
   });
 
   test("a ready slack binding cannot be missing what routing needs", () => {
-    const binding = {
-      id: BINDING_ID,
-      workspace_id: WORKSPACE_ID,
-      owner_id: "owner_1",
-      surface: "slack",
-      installation_id: SESSION_ID,
-      external_surface_id: "C01",
-      surface_kind: "private_channel",
-      agent_id: AGENT_ID,
-      mode: "mention",
-      memory_write_policy: "deny",
-      status: "ready",
-      muted: false,
-      revision: 0,
-      created_at: AT,
-      revoked_at: null,
-    };
+    const binding = BINDING;
     for (const field of [
       "installation_id",
       "external_surface_id",
@@ -78,26 +65,26 @@ describe("surfaces", () => {
     }
   });
 
+  test("one dm binding covers every dm, so it names no channel", () => {
+    const dm = { ...BINDING, surface_kind: "dm", external_surface_id: null };
+    expect(surfaceBindingSchema.safeParse(dm).success).toBe(true);
+    expect(
+      surfaceBindingSchema.safeParse({ ...dm, external_surface_id: "D01" })
+        .success,
+    ).toBe(false);
+    // Home is where the agent greets a channel; a DM is nobody's channel.
+    expect(surfaceBindingSchema.safeParse({ ...dm, home: true }).success).toBe(
+      false,
+    );
+    expect(
+      surfaceBindingSchema.safeParse({ ...BINDING, home: true }).success,
+    ).toBe(true);
+  });
+
   test("a revoked binding cannot also report itself ready", () => {
     // One consumer reads `status`, another reads `revoked_at`; if they can
     // disagree, one of them keeps routing into a revoked binding.
-    const binding = {
-      id: BINDING_ID,
-      workspace_id: WORKSPACE_ID,
-      owner_id: "owner_1",
-      surface: "slack",
-      installation_id: SESSION_ID,
-      external_surface_id: "C01",
-      surface_kind: "private_channel",
-      agent_id: AGENT_ID,
-      mode: "mention",
-      memory_write_policy: "deny",
-      status: "ready",
-      muted: false,
-      revision: 0,
-      created_at: AT,
-      revoked_at: null,
-    };
+    const binding = BINDING;
     expect(
       surfaceBindingSchema.safeParse({ ...binding, revoked_at: AT }).success,
     ).toBe(false);

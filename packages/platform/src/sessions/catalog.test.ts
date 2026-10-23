@@ -8,6 +8,9 @@ import {
   describeConfigError,
   environmentCredentials,
   isUnmetered,
+  mcpBinding,
+  mcpUpstreamOf,
+  pinnedMcpTools,
   profileFingerprint,
   profileModels,
   profileWithModel,
@@ -902,5 +905,77 @@ describe("models a session may name", () => {
     expect(sessionProfile(bare(), pinned)).toBeNull();
     // A row from before the pin runs the default.
     expect(sessionProfile(listed, null)).toEqual(bare());
+  });
+});
+
+describe("remote MCP servers", () => {
+  const server = {
+    url: "http://fake-mcp:4020/mcp",
+    credential_ref: "mcp/fake",
+    auth: { kind: "bearer", value_env: "FAKE_MCP_SA" },
+    workspaces: ["default"],
+  };
+  const withMcp = (mcp: unknown) => ({ ...config(), mcp_servers: mcp });
+  const lookup = environmentCredentials({ ...env, FAKE_MCP_SA: "sa-value" });
+
+  test("resolves the bearer at load, and only the proxy's upstream holds it", () => {
+    const catalog = load(withMcp({ fake: server }), lookup);
+    const fake = catalog.mcp_servers?.fake;
+    expect(fake?.auth).toEqual({
+      kind: "bearer",
+      value: "sa-value",
+      ref: { value_env: "FAKE_MCP_SA" },
+    });
+    if (fake === undefined) throw new Error("no server");
+    expect(mcpUpstreamOf(fake)).toEqual({
+      url: "http://fake-mcp:4020/mcp",
+      headers: [["authorization", "Bearer sa-value"]],
+    });
+    expect(load(config())).not.toHaveProperty("mcp_servers");
+    expect(catalogRevision(catalog)).toBe(catalogRevision(load(config())));
+  });
+
+  test("refuses what the proxy or the card could not name", () => {
+    for (const bad of [
+      { a__b: server },
+      { Fake: server },
+      { fake: { ...server, url: "http://fake-mcp:4020/mcp?x=1" } },
+      { fake: { ...server, workspaces: [] } },
+      { fake: { ...server, workspaces: ["a", "a"] } },
+      { fake: { ...server, credential_ref: "Not A Ref" } },
+      { fake: { ...server, auth: { kind: "basic", value_env: "X" } } },
+      { fake: { ...server, extra: true } },
+    ]) {
+      expect(sessionCatalogConfigSchema.safeParse(withMcp(bad)).success).toBe(
+        false,
+      );
+    }
+  });
+
+  test("the binding moves with the release, server, URL and credential name only", () => {
+    const binding = mcpBinding("rel-1", "fake", server);
+    expect(binding).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(mcpBinding("rel-1", "fake", { ...server })).toBe(binding);
+    for (const moved of [
+      mcpBinding("rel-2", "fake", server),
+      mcpBinding("rel-1", "other", server),
+      mcpBinding("rel-1", "fake", { ...server, url: "http://x.test/mcp" }),
+      mcpBinding("rel-1", "fake", { ...server, credential_ref: "mcp/other" }),
+    ]) {
+      expect(moved).not.toBe(binding);
+    }
+  });
+
+  test("a session runs the server's allowed tools only", () => {
+    expect(
+      pinnedMcpTools("fake", {
+        mcp__fake__whoami: "allow",
+        mcp__fake__other: "ask",
+        mcp__fake__gone: "deny",
+        mcp__fake__: "allow",
+        mcp__fakery__x: "allow",
+        Read: "allow",
+      }),
+    ).toEqual(["mcp__fake__whoami"]);
   });
 });

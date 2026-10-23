@@ -90,6 +90,41 @@ bun scripts/ui-pack-smoke.ts              # 빈 Vite+React 앱에 설치해 렌�
 - `package.json`: 저장소 것에서 만든다. exports는 `dist` 파일을 가리키고 `./test-support/*`는 뺀다. `react`·`react-dom`은 peer 그대로다.
 - `LICENSE`: 저장소 루트 것을 복사한다.
 
+키트 요소에 거는 preflight 대체 규칙은 `src/foundations/scoped-preflight.css` 한 곳에 있다. 빌드가 배포 `styles.css`에 넣고,
+Storybook의 Foundations/No preflight가 같은 파일을 읽는다. 워크스페이스 `styles.css`는 import하지 않는다(콘솔은 Tailwind preflight를 쓴다).
+
+저장소 밖 앱에서 tarball을 설치해 쓰는 법은 문서 사이트의 [저장소 밖 앱에 설치](../../apps/docs/content/docs/ui/package.mdx)에 있다.
+
+### 릴리스 절차
+
+`.github/workflows/ui-release.yml`이 빌드·smoke·pack을 하고 tarball을 artifact `ui-package`로 남긴다. pull request(이 패키지나
+워크플로를 바꿀 때)와 수동 실행은 여기서 멈춘다. 이것이 dry run이다. 게시(`publish` job)는 `ui-v*` 태그의 **push**이고 그 커밋이
+main에 있을 때만 돌고, `release` environment의 필수 승인자가 승인해야 시작한다. 그 job만 `packages: write`를 받고, 인증은 자동
+`GITHUB_TOKEN`이다.
+
+아직 게시하지 않는다. 첫 게시 전에 사람이 정할 것:
+
+1. **D-7a 라이선스.** 지금 `LICENSE`는 서면 허락 없는 사용·배포를 금지한다. 패키지에 붙일 문구를 소유자가 정한다.
+2. **D-7b 게시 위치와 토큰.** 스코프 `@werft-ai`는 GitHub 조직 `Werft-ai`의 것이고 저장소는 사용자 소유다. 이 저장소의
+   `GITHUB_TOKEN`이 조직 패키지에 쓸 수 있는지 확인하고, 안 되면 저장소를 조직으로 옮기거나 조직 범위 PAT를 등록한다.
+   PAT를 쓰면 `publish` job의 `NODE_AUTH_TOKEN` 한 줄만 바꾼다.
+3. **게시 승인.** 1·2가 끝난 뒤 소유자가 게시를 승인한다.
+
+그 뒤 한 번 게시하는 순서:
+
+1. `packages/ui/package.json`의 `version`을 올리는 PR을 land한다(`private: true`는 그대로다. 배포용 package.json은 빌드가 만든다).
+2. main의 그 커밋에 `ui-vX.Y.Z` 태그를 push한다. 태그 이름과 `version`이 다르면 build job이 실패한다.
+3. 처음 한 번: `release` environment의 deployment 정책에 태그 패턴 `ui-v*`를 더한다. 지금 정책은 `v*`뿐이라 그 전에는
+   `publish` job이 거부된다.
+4. ui-release 실행의 build 결과(smoke 로그, tarball 파일 목록)를 보고 `publish` job을 승인한다.
+
+`ui-v*` 태그는 `images.yml`(`v*` 태그)을 시작하지 않는다. `tests/ui-release.test.ts`가 이 게이트를 검사한다.
+
+이 게이트는 워크플로 파일 안의 조건이다. 이 저장소의 브랜치는 PR에서 워크플로를 고쳐 job에 `packages: write`를 직접 요청할 수
+있으므로(`images.yml`도 같다), 파일만으로는 머지 전 게시를 막지 못한다. 막는 것은 저장소 설정이다. 브랜치를 push할 수 있는
+사람(저장소 write 권한)을 좁게 두고 PR은 리뷰 뒤에 머지한다. 첫 게시 뒤에는 패키지 설정의 Manage Actions access를 이 저장소로
+한정한다. 모두 사람이 하는 설정이다.
+
 ## 토큰
 
 색·간격·타이포·radius·shadow·모션은 `src/foundations/tokens.css` **한 곳**에만 있다. 라이트가 기본이고,

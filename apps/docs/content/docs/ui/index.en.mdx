@@ -7,13 +7,13 @@ The screens of the Werft web console are built from two packages. The same packa
 
 | Package | What it contains |
 | --- | --- |
-| `@werft-ai/ui` | Design tokens (`tokens.css`), the Tailwind connection (`theme.css`), primitives (`Button`, `Card`, `Dialog`, `Tabs`, and others), status displays (`StatusLabel`, `ErrorState`, `Skeleton`, `EmptyState`), and session pieces (`Timeline`, `Composer`, `ApprovalCard`, `QuestionCard`) |
-| `@werft-ai/react` | Hooks that read and write server state (`useSessions`, `useSession`, `useSessionEvents`, `useSendMessage`, `useAnswer`, and others) and `AgentPlatformProvider`. `@werft-ai/react/blocks` has the session blocks that also read the data and render it: `SessionList`, `RecentSessions`, `WaitingSessions`, `SessionDetail`, `ApprovalInbox` |
+| `@werft-ai/ui` | Design tokens (`tokens.css`), the Tailwind connection (`theme.css`), primitives (`Button`, `Card`, `Dialog`, `Tabs`, `Skeleton`, and others), and status displays (`ErrorState`, `EmptyState`) |
+| `@werft-ai/react` | Hooks that read and write server state (`useSessions`, `useSession`, `useSessionEvents`, `useSendMessage`, `useAnswer`, and others) and `AgentPlatformProvider`. `@werft-ai/react/components` has the pieces that take API types and render them (`StatusLabel`, `Timeline`, `Composer`, `ApprovalCard`, `QuestionCard`, and others), and `@werft-ai/react/blocks` has the session blocks that also read the data and render it: `SessionList`, `RecentSessions`, `WaitingSessions`, `SessionDetail`, `ApprovalInbox` |
 
 `@werft-ai/ui` only renders the state it is given. It does not call the API or decide permissions. API calls are handled by the hooks and blocks of `@werft-ai/react`.
 
 <Callout type="warn">
-Neither package is published to npm (`private`, version 0.0.0). There is not yet a way to install them into an app in an external repository. For now they can be imported as workspace packages only from apps inside this repository. The packages export TypeScript source, not built JavaScript, so you need a bundler that compiles TypeScript, such as Vite.
+Neither package is published to a registry (`private`, version 0.0.0). Apps inside this repository import them as workspace packages; there the packages export TypeScript source, so you need a bundler that compiles TypeScript, such as Vite. An app outside the repository can install only `@werft-ai/ui`, as a tarball of built JavaScript ([Install in an app outside the repository](/ui/package)). `@werft-ai/react` cannot be installed outside the repository.
 </Callout>
 
 ## Order of this section
@@ -21,7 +21,8 @@ Neither package is published to npm (`private`, version 0.0.0). There is not yet
 1. [Install](/ui/install): create a Vite app inside the repository and import the packages
 2. [Apply the theme](/ui/theme): import three CSS files and turn on the dark theme
 3. [Add session blocks](/ui/session-blocks): render the local stack's session list and session screen
-4. [Storybook](/ui/storybook): see each component's states and props
+4. [Install in an app outside the repository](/ui/package): pack `@werft-ai/ui` into a tarball and install it in another React app
+5. [Storybook](/ui/storybook): see each component's states and props
 
 ## Next steps
 
