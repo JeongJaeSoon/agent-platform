@@ -401,6 +401,31 @@ integration("session share scopes over HTTP on PostgreSQL", () => {
     ],
   ];
 
+  // 94S-798: what each person is told about answering, and what an answer
+  // gets. Past the policy the store finds no request "req_none" (404), so a
+  // 404 here is a permitted answer and a 403 a refused one.
+  async function answering(who: Who) {
+    const list = await send(
+      "GET",
+      `/v1/sessions/${sessionId}/pending-requests`,
+      asCookie(cookies[who]),
+    );
+    const listed =
+      list.status === 200
+        ? ((await list.json()) as { answerable: boolean }).answerable
+        : list.status;
+    const answer = await surfaces.find(([s]) => s === "approval")?.[1](who);
+    if (!answer) throw new Error("no approval surface");
+    const { code, details } = await codeOf(answer);
+    return {
+      who,
+      listed,
+      answer: answer.status,
+      code,
+      reason: details?.reason_code,
+    };
+  }
+
   test("setup: owner, admin, the creator, a teammate in a team, an outsider; the creator's session", async () => {
     const boot = await send(
       "POST",
@@ -457,6 +482,47 @@ integration("session share scopes over HTTP on PostgreSQL", () => {
     }
   });
 
+  test("everyone sees a workspace-wide session; only its creator, owner and admin answer it (94S-798)", async () => {
+    const got = [];
+    for (const who of [
+      "owner",
+      "admin",
+      "creator",
+      "teammate",
+      "outsider",
+    ] as const) {
+      got.push(await answering(who));
+    }
+    const permitted = { listed: true, answer: 404, code: "NOT_FOUND" };
+    const refused = {
+      listed: false,
+      answer: 403,
+      code: "FORBIDDEN",
+      reason: "role",
+    };
+    expect(got).toEqual([
+      { who: "owner", ...permitted, reason: undefined },
+      { who: "admin", ...permitted, reason: undefined },
+      { who: "creator", ...permitted, reason: undefined },
+      { who: "teammate", ...refused },
+      { who: "outsider", ...refused },
+    ]);
+    const refusals = await db
+      .select({ actor: authzDecisions.actorUserId })
+      .from(authzDecisions)
+      .where(
+        and(
+          eq(authzDecisions.resourceId, sessionId),
+          eq(authzDecisions.action, "session.approve"),
+          eq(authzDecisions.reasonCode, "role"),
+        ),
+      );
+    // The refused answers are kept; the lists that said so are not.
+    expect(refusals.map((row) => row.actor).sort()).toEqual(
+      [ids.teammate, ids.outsider].sort(),
+    );
+  });
+
   test("a private session is the creator's on every surface; everyone else, owner and admin included, gets not_found", async () => {
     await share("private");
     expect(await listed("creator")).toContain(sessionId);
@@ -507,23 +573,29 @@ integration("session share scopes over HTTP on PostgreSQL", () => {
       asCookie(cookies.teammate),
     );
     expect(detail.status).toBe(200);
-    const approval = await surfaces.find(([s]) => s === "approval")?.[1](
-      "teammate",
-    );
-    // Past the share; the store then finds no such request.
-    expect(approval?.status).toBe(404);
-    const [allowed] = await db
-      .select({ outcome: authzDecisions.outcome })
-      .from(authzDecisions)
-      .where(
-        and(
-          eq(authzDecisions.resourceId, sessionId),
-          eq(authzDecisions.action, "session.approve"),
-          eq(authzDecisions.actorUserId, ids.teammate),
-          eq(authzDecisions.outcome, "allow"),
-        ),
-      );
-    expect(allowed?.outcome).toBe("allow");
+    // 94S-798: the teammate sees it but may not answer for its creator; the
+    // owner, outside the team, does not even see it.
+    expect(await answering("teammate")).toEqual({
+      who: "teammate",
+      listed: false,
+      answer: 403,
+      code: "FORBIDDEN",
+      reason: "role",
+    });
+    expect(await answering("owner")).toMatchObject({
+      listed: 404,
+      answer: 404,
+      code: "NOT_FOUND",
+    });
+    expect(await answering("admin")).toMatchObject({
+      listed: 404,
+      answer: 404,
+    });
+    expect(await answering("creator")).toMatchObject({
+      listed: true,
+      answer: 404,
+      code: "NOT_FOUND",
+    });
     for (const [, call] of surfaces) {
       expect((await call("outsider")).status).toBe(404);
     }

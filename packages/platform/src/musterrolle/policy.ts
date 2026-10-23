@@ -390,6 +390,9 @@ export function createAuthorizationPolicy(
     workspaceId: string,
     sessionId: string,
   ): Promise<boolean> {
+    // A caller from before workspaces (a legacy key, AUTH_MODE=none) has no
+    // members beside it to answer for.
+    if (reading.principal.workspace_id === null) return true;
     const viewer = viewerOf(reading);
     const role =
       reading.principal.kind === "user"
@@ -400,13 +403,11 @@ export function createAuthorizationPolicy(
     if (origin === null) return false;
     const same = (a: string | null, b: string | null) =>
       a !== null && b !== null && a.toLowerCase() === b.toLowerCase();
-    if (origin.creatorUserId !== null) {
-      if (same(origin.creatorUserId, viewer.userId)) return true;
-    } else if (origin.creatorApiKeyId !== null) {
-      if (same(origin.creatorApiKeyId, viewer.apiKeyId)) return true;
-    } else if (reading.principal.workspace_id === null) {
-      // No maker recorded and a caller from before workspaces (AUTH_MODE=none):
-      // the partition has no people to answer for.
+    if (
+      origin.creatorUserId !== null
+        ? same(origin.creatorUserId, viewer.userId)
+        : same(origin.creatorApiKeyId, viewer.apiKeyId)
+    ) {
       return true;
     }
     if (viewer.userId === null) return false;
