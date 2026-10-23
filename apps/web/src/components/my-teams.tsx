@@ -9,8 +9,8 @@ import { useI18n } from "../i18n/i18n.tsx";
 import { LoadFailure } from "./load-failure.tsx";
 import { RowList, RowListItem } from "./table.tsx";
 
-export const SECTION = "flex flex-col gap-3";
-export const SECTION_TITLE = "m-0 font-semibold text-lg";
+export const SECTION = "flex flex-col gap-[var(--ap-space-block)]";
+export const SECTION_TITLE = "m-0 font-semibold text-body";
 export const MUTED = "m-0 text-muted-foreground";
 export const PRIMARY_LINK =
   "font-medium text-primary underline-offset-2 hover:underline [overflow-wrap:anywhere]";

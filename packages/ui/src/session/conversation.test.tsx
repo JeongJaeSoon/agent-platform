@@ -57,6 +57,28 @@ describe("ApprovalCard", () => {
     expect(onAllow).toHaveBeenCalledTimes(1);
   });
 
+  test("제목 줄에 대상과 기한을 함께 두고, 답 버튼은 입력 보기 옆에 내용 폭으로 둔다", () => {
+    const view = render(
+      <ApprovalCard
+        request={REQUEST}
+        messages={APPROVAL}
+        onAllow={() => {}}
+        onDeny={() => {}}
+        now={NOW}
+        locale="en"
+        subject={<a href="#s">s-1…</a>}
+      />,
+    );
+    const title = view.getByText("Bash asks").parentElement as HTMLElement;
+    expect(title.textContent).toMatch(/^Bash asks·s-1…·expires /);
+    const allow = view.getByRole("button", { name: "Allow" });
+    const deny = view.getByRole("button", { name: "Deny" });
+    expect(allow.className).not.toContain("flex-1");
+    expect(deny.className).not.toContain("flex-1");
+    const row = allow.parentElement?.parentElement as HTMLElement;
+    expect(row.contains(view.getByText("input"))).toBe(true);
+  });
+
   test("거부는 이유를 적어야 보내지고, 취소하면 거부 버튼으로 돌아간다", async () => {
     const user = await setupUser();
     const onDeny = mock((_reason: string) => {});

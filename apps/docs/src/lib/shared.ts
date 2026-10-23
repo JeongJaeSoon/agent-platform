@@ -12,11 +12,11 @@ export function withBasePath(path: string): string {
 }
 
 /**
- * `/llms.mdx/<slugs>/content.md`: the Markdown copy of one page. Without the
- * base path: Fumadocs' copy button adds it.
+ * `/llms.mdx/<lang>/<slugs>/content.md`: the Markdown copy of one page.
+ * Without the base path: Fumadocs' copy button adds it.
  */
-export function getPageMarkdownUrl(page: { slugs: string[] }) {
-  const segments = [...page.slugs, "content.md"];
+export function getPageMarkdownUrl(page: { slugs: string[]; locale?: string }) {
+  const segments = [page.locale ?? "", ...page.slugs, "content.md"];
   return {
     segments,
     url: `${markdownRoute}/${segments.join("/")}`,

@@ -51,6 +51,7 @@ node $B <run id> stop                    # stopped pid N; profile removed
 ```
 
 - 폭(`W`, 기본 1280)·높이(`H`, 900)·테마(`THEME`, `light`|`dark`)는 명령마다 `Emulation.setDeviceMetricsOverride`·`setEmulatedMedia`로 다시 건다. 600px 미만은 mobile로 그린다.
+- 화면을 바꾼 PR은 `W=1440`으로 찍은 스크린샷을 [화면 구성 원칙](../../../../packages/ui/README.md#화면-구성-원칙)으로 점검하고, 위에서 아래로 나열만 된 곳이 있는지 PR의 검증 sticky comment에 적는다.
 - 다른 명령: `click <버튼 글자|css>`, `press <버튼 글자|css> [Key]`, `type <css|@N> <text>`, `select <css|@N> <value>`, `eval <expr>`, `shot <name> full`(페이지 전체). `@N`은 main 안 N번째 입력 칸(0부터)이다.
 - bootstrap 화면은 `node $B <run id> bootstrap <who>`로 몬다. `state.env`의 bootstrap token과 `users/<who>`(없으면 `web-user.mjs`와 같은 모양으로 만든다)로 폼 여섯 칸을 채워 제출하고, 값은 출력하지 않는다. 첫 제출은 `bootstrap owner -> /login?notice=created |`, 소유자가 이미 있으면(`web-user.mjs bootstrap owner` 뒤 등) `bootstrap owner -> /bootstrap | <오류 줄 글자>`다. token과 비밀번호를 `type`으로 명령에 쓰지 않는다.
 - 포커스 회복(대화상자를 닫은 뒤, 보내기·삭제 뒤 포커스가 어디로 가는지)은 `press <버튼 글자|css> [Key]`로 본다. `click`은 `el.click()`이라 버튼에 포커스를 주지 않아, 키보드 사용자가 겪는 포커스 이동을 재현하지 못한다. `press`는 그 요소에 `focus()`를 한 뒤 CDP로 실제 키(기본 `Enter`)를 보내고, 끝난 뒤 `document.activeElement`(태그·이름·outline)를 출력한다. 찾지 못하면 `not found`, 찾았지만 포커스가 가지 않으면(disabled·숨김·포커스 불가 요소) `not focusable <태그> <글자>`만 출력하고 키를 보내지 않는다.

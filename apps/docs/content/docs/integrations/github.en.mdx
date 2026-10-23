@@ -1,0 +1,79 @@
+---
+title: "GitHub"
+description: Run sessions on a GitHub repository, push approved results to a branch, and open a PR from that branch
+---
+
+Werft does three things with GitHub. It clones the repository when a session starts. It pushes the commits a person approved to the `agent/<session-id>` branch. It opens a PR from that branch and adds comments to it. The worker clones through the API's proxy, while the platform (API) pushes and handles the PR itself. In either case, the repository credentials never reach the worker.
+
+## What the operator does
+
+The operator registers repositories in the catalog (`config/repositories.yaml`). The credential is one of two kinds.
+
+| Method | Required permissions |
+| --- | --- |
+| GitHub App (default) | Repository permissions: Contents Read and write, Pull requests Read and write |
+| fine-grained PAT | The same two permissions |
+
+Do not grant the `Workflows` permission. The commits that get pushed are written by the agent, so with this permission a `.github/workflows/` file the agent edited would also be pushed and run in CI. Also protect the default branch with a repository ruleset. The operations docs describe how to set this up.
+
+## What the user does
+
+1. Create a session with that repository's `repository_id` ([Start](/sessions/start)).
+2. [Request](/approvals/request) and [approve](/approvals/approve) the result. When the request becomes `pushed`, the `agent/<session-id>` branch exists in the repository.
+3. Open the PR. This needs `sessions:approve`.
+
+```sh
+curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/pull-request" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d '{"title": "Add release notes", "body": "Written by the agent, approved by me."}' \
+  | jq '{number: .pull_request.number, url: .pull_request.url, created}'
+```
+
+The head is `agent/<session-id>` and the base is the branch listed in the catalog. Each request gets one PR. If a PR from that branch is already open, no new one is opened and that PR is returned (`created: false`). The platform does not approve or merge PRs, and it does not choose reviewers or labels.
+
+4. Add a comment. If a comment with the same `marker` (default `status`) already exists, it is edited instead of adding a new one.
+
+```sh
+curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/pull-request/comments" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d '{"body": "Tests pass on the agent branch."}'
+```
+
+Titles, bodies, and comments are sanitized before they are sent to GitHub. Lines that look like secrets are masked, and `@mentions` and closing keywords such as `Closes #N` are rewritten so they trigger no notification or automatic close.
+
+## On the local stack
+
+The local `sample-app` is a Gitea repository inside the stack, not GitHub, and it has no push credential. So an approved push ends as `failed` with `no_push_credential`, and a PR request returns 409 because the request was never pushed. Check this with a request that ended as `failed` in [Approve](/approvals/approve).
+
+```bash
+FAILED=$(curl -sS "$API/v1/sessions/$SID/push-requests" -H "Authorization: Bearer $KEY" \
+  | jq -r '[.items[] | select(.state == "failed")][0].id')
+curl -sS "$API/v1/sessions/$SID/push-requests/$FAILED/pull-request" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d '{"title": "Add release notes"}' | jq '{code: .error.code}'
+```
+
+```text
+{
+  "code": "PUSH_NOT_PUSHED"
+}
+```
+
+| Response | Meaning |
+| --- | --- |
+| 409 `PUSH_NOT_PUSHED` | The request is not `pushed` yet |
+| 409 `PULL_REQUEST_MISSING` | Open the PR before commenting |
+| 409 `CATALOG_MISMATCH` | The operator changed the repository settings after the request |
+| 403 `FORBIDDEN` | `sessions:approve` is missing, or the repository is not on GitHub (`no_forge`) |
+| 503 `BACKEND_UNAVAILABLE` | The GitHub call still failed after retries |
+
+## Next steps
+
+- [Slack](/integrations/slack)
+- [receipt](/approvals/receipt): opening a PR and commenting also leave a receipt (`open_pull_request`, `comment_pull_request`)

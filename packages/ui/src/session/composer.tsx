@@ -114,7 +114,7 @@ export function Composer({
             {queued.map((message) => (
               <li
                 key={message.id}
-                className="rounded-md border border-dashed px-3 py-2 text-sm whitespace-pre-wrap [overflow-wrap:anywhere]"
+                className="rounded-card border border-dashed px-3 py-2 text-sm whitespace-pre-wrap [overflow-wrap:anywhere]"
               >
                 {message.text}
               </li>

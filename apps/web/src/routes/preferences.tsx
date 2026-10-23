@@ -7,6 +7,7 @@ import {
 } from "@werft-ai/ui";
 import { type ReactNode, useId } from "react";
 import { roleLabel, useMe, useRole } from "../auth/guard.tsx";
+import { Page } from "../components/page.tsx";
 import { chooseTheme, type Theme, useTheme } from "../components/theme.ts";
 import {
   LOCALE_NAMES,
@@ -16,9 +17,9 @@ import {
   useI18n,
 } from "../i18n/i18n.tsx";
 
-const CARD = "flex flex-col gap-3 rounded-lg border bg-card p-5";
+const CARD = "flex flex-col gap-3 rounded-card border bg-card p-4";
 const CARD_TITLE = "m-0 font-semibold text-body";
-const HINT = "m-0 text-muted-foreground text-body";
+const HINT = "m-0 text-control text-muted-foreground";
 const THEME_ORDER: readonly Theme[] = ["light", "dark", "system"];
 
 /** How the console looks to the caller; kept in this browser, not the server. */
@@ -26,12 +27,8 @@ export function PreferencesScreen() {
   const { t, locale, setLocale } = useI18n();
   const theme = useTheme();
   return (
-    <div className="flex flex-col">
-      <h1 className="m-0 font-semibold text-xl">{t("nav.preferences")}</h1>
-      <p className="m-0 mt-1 mb-6 text-muted-foreground text-body">
-        {t("preferences.lead")}
-      </p>
-      <div className="flex flex-col gap-4">
+    <Page title={t("nav.preferences")} description={t("preferences.lead")}>
+      <div className="flex flex-col gap-[var(--ap-space-block)]">
         <ChoiceCard
           title={t("common.language")}
           hint={t("preferences.languageHint")}
@@ -57,7 +54,7 @@ export function PreferencesScreen() {
         />
         <AccountCard />
       </div>
-    </div>
+    </Page>
   );
 }
 
@@ -129,7 +126,7 @@ function AccountCard() {
       <h2 id={titleId} className={CARD_TITLE}>
         {t("preferences.account")}
       </h2>
-      <dl className="m-0 grid grid-cols-[minmax(0,8.75rem)_minmax(0,1fr)] gap-x-4 gap-y-2.5 text-body">
+      <dl className="m-0 grid grid-cols-[minmax(0,8.75rem)_minmax(0,1fr)] gap-x-4 gap-y-2 text-body">
         {rows.map(([label, value]) => (
           <div key={label} className="contents">
             <dt className="text-muted-foreground">{t(label)}</dt>

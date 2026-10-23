@@ -1,0 +1,4 @@
+{
+  "title": "メッセージ",
+  "pages": ["send", "streaming", "attachments"]
+}

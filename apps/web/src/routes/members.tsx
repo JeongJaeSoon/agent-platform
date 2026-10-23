@@ -26,6 +26,7 @@ import {
 } from "../auth/guard.tsx";
 import { FormError, NOTICE } from "../components/auth-page.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
+import { Page } from "../components/page.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import {
   RowLines,
@@ -42,11 +43,8 @@ import {
 import { errorKey, type Translate, useI18n } from "../i18n/i18n.tsx";
 import { InviteDialog } from "./invite-dialog.tsx";
 
-const PAGE = "flex flex-col gap-6";
-const TITLE = "m-0 font-semibold text-xl";
-const SECTION = "flex flex-col gap-3";
-const SECTION_TITLE = "m-0 font-semibold text-lg";
-const MUTED = "m-0 text-muted-foreground";
+const SECTION = "flex flex-col gap-[var(--ap-space-block)]";
+const SECTION_TITLE = "m-0 font-semibold text-body";
 const PRIMARY =
   "block break-words font-semibold group-data-[disabled=true]:text-muted-foreground";
 const SECONDARY =
@@ -80,16 +78,23 @@ export function MembersScreen() {
 
   if (!manages) {
     return (
-      <div className={PAGE}>
-        <h1 className={TITLE}>{t("members.title")}</h1>
-        <p className={MUTED}>{t("members.withheld")}</p>
-      </div>
+      <Page title={t("members.title")} description={t("members.withheld")} />
     );
   }
 
   return (
-    <div className={PAGE}>
-      <h1 className={TITLE}>{t("members.title")}</h1>
+    <Page
+      title={t("members.title")}
+      actions={
+        failed ? undefined : (
+          <InviteDialog
+            reason={reason}
+            members={members.data?.items ?? []}
+            refusal={(error, role) => refusal(t, error, role)}
+          />
+        )
+      }
+    >
       {outcome ? (
         outcome.kind === "error" ? (
           <FormError>{outcome.text}</FormError>
@@ -97,15 +102,6 @@ export function MembersScreen() {
           <output className={NOTICE}>{outcome.text}</output>
         )
       ) : null}
-      {failed ? null : (
-        <div>
-          <InviteDialog
-            reason={reason}
-            members={members.data?.items ?? []}
-            refusal={(error, role) => refusal(t, error, role)}
-          />
-        </div>
-      )}
       <section className={SECTION} aria-labelledby={titleId}>
         <h2 id={titleId} className={SECTION_TITLE}>
           {t("members.listTitle")}
@@ -126,7 +122,7 @@ export function MembersScreen() {
         )}
       </section>
       {members.isSuccess ? <InviteList onOutcome={setOutcome} /> : null}
-    </div>
+    </Page>
   );
 }
 
@@ -285,7 +281,7 @@ function MemberTable({
                   <TableCell>
                     {disabled ? (
                       <RowLines className="items-start">
-                        <Badge variant="secondary">
+                        <Badge variant="gray">
                           {t("members.state.disabled")}
                         </Badge>
                         <span className={SECONDARY}>
@@ -293,9 +289,7 @@ function MemberTable({
                         </span>
                       </RowLines>
                     ) : (
-                      <Badge variant="outline">
-                        {t("members.state.active")}
-                      </Badge>
+                      <Badge variant="green">{t("members.state.active")}</Badge>
                     )}
                   </TableCell>
                   <TableCell>

@@ -140,13 +140,13 @@ export function SessionDetail({
         ) : null}
       </div>
       <TabsContent value="timeline" className="flex flex-col gap-4">
-        <div className="min-w-0 rounded-lg border bg-card">
+        <div className="min-w-0 rounded-card border bg-card">
           <Events events={events.events} state={events.state} debug={debug} />
         </div>
         {hasPending ? composer : null}
       </TabsContent>
       <TabsContent value="info">
-        <div className="flex flex-col gap-3 rounded-lg border bg-card p-4">
+        <div className="flex flex-col gap-3 rounded-card border bg-card p-4">
           <Overview session={detail} />
           {usage.data ? <Usage usage={usage.data} /> : null}
         </div>
@@ -186,7 +186,7 @@ export function SessionDetail({
           {composer}
         </Section>
       ) : pendingCount === undefined ? (
-        <div className="flex min-w-0 flex-col gap-3 rounded-lg border bg-card p-4">
+        <div className="flex min-w-0 flex-col gap-3 rounded-card border bg-card p-4">
           {pending.error ? null : (
             <output className="text-caption text-muted-foreground">
               {t("sessions.loadingMore")}
@@ -263,7 +263,7 @@ function Section({
   const titleId = useId();
   return (
     <section
-      className="flex min-w-0 flex-col gap-3 rounded-lg border bg-card p-4"
+      className="flex min-w-0 flex-col gap-3 rounded-card border bg-card p-4"
       aria-labelledby={titleId}
     >
       <h2 id={titleId} className="m-0 font-semibold text-body leading-5">

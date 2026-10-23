@@ -1,0 +1,100 @@
+---
+title: "セッションブロックの組み込み"
+description: "SessionList と SessionDetail でセッション一覧とセッション画面を描画する"
+---
+
+セッションブロックは、API からデータを読み取って画面の一塊を描画する。アプリが渡すのは、ブロックを置く場所、ロード中とエラーの見た目、リンクの作り方だけである。ここでは、[インストール](/ui/install)と[テーマの適用](/ui/theme)で作ったアプリにセッション一覧とセッション画面を組み込む。
+
+## ブロックが API を呼ぶ方法
+
+ブロックは `@werft-ai/client` のクライアントで同じ origin の `/v1` を呼び、Web コンソールのログイン cookie で認証する。cookie を使うリクエストに必要な CSRF ヘッダー(`X-Requested-With: agent-platform-web`)はクライアントが付ける。そのため、次のことが必要である。
+
+- アプリと API が同じ origin であること。開発中は Vite の `server.proxy` が `/v1` をスタックへ転送する([インストール](/ui/install)の `vite.config.ts`)。
+- ブラウザがログインしていること。cookie はポートを区別しないので、同じブラウザで `http://127.0.0.1:3000` の Web コンソールにログインすると、`http://127.0.0.1:5173` のアプリのリクエストにもその cookie が送られる。
+- 見えるセッションとできることは、ログインした人の権限に従う。
+
+## アプリのコード
+
+```tsx title="ui-demo/src/main.tsx"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { createApiClient } from "@werft-ai/client";
+import { AgentPlatformProvider, type RenderLink } from "@werft-ai/react";
+import { SessionDetail, SessionList } from "@werft-ai/react/blocks";
+import { ErrorState, Skeleton } from "@werft-ai/ui";
+import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
+import "./styles.css";
+
+const client = createApiClient();
+const queryClient = new QueryClient();
+const renderLink: RenderLink = ({ to: _to, id, children, ...rest }) => (
+  <a href={`/sessions/${id}`} {...rest}>
+    {children}
+  </a>
+);
+
+const loading = <Skeleton lines={3} />;
+const renderError = (_error: unknown, retry: () => void) => (
+  <ErrorState message="불러오지 못했다." retry={retry} retryLabel="다시 시도" />
+);
+const sessionId = location.pathname.match(/^\/sessions\/([^/]+)$/)?.[1];
+
+createRoot(document.getElementById("root") as HTMLElement).render(
+  <StrictMode>
+    <QueryClientProvider client={queryClient}>
+      <AgentPlatformProvider
+        client={client}
+        locale="ko"
+        renderLink={renderLink}
+      >
+        <main className="mx-auto max-w-4xl p-6">
+          {sessionId ? (
+            <SessionDetail
+              id={sessionId}
+              back={<a href="/">세션 목록</a>}
+              loading={loading}
+              renderError={renderError}
+            />
+          ) : (
+            <SessionList loading={loading} renderError={renderError} />
+          )}
+        </main>
+      </AgentPlatformProvider>
+    </QueryClientProvider>
+  </StrictMode>,
+);
+```
+
+- `AgentPlatformProvider` は、ブロックと hook が読むクライアント、言語(`ko`, `ja`, `en`)、リンク関数を保持する。`QueryClientProvider` の内側に置く。
+- `renderLink` は、ブロックがセッションへのリンクを描画するときに呼ばれる。URL はアプリが決める。ルーターを使うアプリなら、そのルーターの `Link` を返す。
+- `loading` と `renderError` はブロックごとに渡す。文言もアプリのものである。
+
+## 実行
+
+```sh
+cd ui-demo
+../node_modules/.bin/vite --host 127.0.0.1 --port 5173
+```
+
+同じブラウザで Web コンソールにログインしてから `http://127.0.0.1:5173` を開く。一覧にはログインした人が作ったセッションが表示され、セッション id を押すと `/sessions/<id>` で `SessionDetail` が、状態、待機中のリクエスト、次の指示の入力、使用量、セッションの制御、進行イベントを描画する。進行イベントはイベントストリームで続けて受け取る。
+
+ログインしていない場合は、一覧の位置に `renderError` が描画したエラーと再試行ボタンが表示される。
+
+## ブロック
+
+| ブロック | 描画するもの | 受け取るもの(ロード中·エラー以外) |
+| --- | --- | --- |
+| `SessionList` | ログインした人のセッション一覧。一ページずつ読み取る | なし |
+| `RecentSessions` | 最近のセッション数件 | `label`, `limit` |
+| `WaitingSessions` | 回答を待っているセッション | `label` |
+| `SessionDetail` | セッション一つの画面 | `id`, `back`, `controls`, `unavailable`, `refusal` |
+| `ApprovalInbox` | 回答を待っているセッションとそのリクエスト。ここからすぐに回答できる | `unavailable`, `refusal` |
+
+- `unavailable` は、できない操作(`answer`, `control`, `send`)とその理由である。名前を渡した操作は、理由とともに無効状態で描画する。サーバーはどちらの場合も権限で再度拒否する。
+- `refusal` は、サーバーが拒否したコマンドのエラーを、アプリの文言に置き換える。
+- ブロックより小さい単位で使うには、`@werft-ai/react` の hook(`useSessions`, `useSession`, `useSessionEvents`, `useSendMessage`, `useAnswer`, `useSessionControl`)と `@werft-ai/ui` のコンポーネントを直接組み合わせる。
+
+## 次のステップ
+
+- <SiblingLink href="/storybook/">Storybook</SiblingLink> の Blocks/Session: ブロックの状態別の見た目(空の一覧、失敗、読み取り専用、モバイル)
+- [承認待ちと再開](/sessions/waiting-and-resume): `SessionDetail` と `ApprovalInbox` が回答するリクエストの種類

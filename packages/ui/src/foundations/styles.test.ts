@@ -215,9 +215,10 @@ describe("tokens.css", () => {
       "danger",
       "unknown",
       "positive",
+      "success",
     ];
     const SURFACES = [
-      "--ap-color-canvas",
+      "--ap-color-sidebar",
       "--ap-color-surface",
       "--ap-color-surface-sunken",
       ...TONES.map((tone) => `--ap-tone-${tone}-bg`),
@@ -240,7 +241,11 @@ describe("tokens.css", () => {
         ),
       ],
     ];
-    const TEXT = ["--ap-color-foreground", "--ap-color-muted-foreground"];
+    const TEXT = [
+      "--ap-color-foreground",
+      "--ap-color-muted-foreground",
+      "--ap-color-subtle-foreground",
+    ];
     const RAIL_TEXT = [
       "--ap-color-rail-foreground",
       "--ap-color-rail-muted-foreground",
@@ -265,6 +270,10 @@ describe("tokens.css", () => {
       const pairs: [string[], string[]][] = [
         [TEXT, SURFACES],
         [RAIL_TEXT, ["--ap-color-rail"]],
+        [
+          ["--ap-color-foreground", "--ap-color-muted-foreground"],
+          ["--ap-color-sidebar-hover", "--ap-color-sidebar-accent"],
+        ],
         // A status label draws its own tone on its own background — the pair
         // the whole StatusLabel vocabulary rests on.
         ...TONES.map(
@@ -294,7 +303,7 @@ describe("tokens.css", () => {
     expect(failures).toEqual([]);
   });
 
-  test("입력 칸 테두리가 surface·canvas에서 3:1을 넘는다", () => {
+  test("입력 칸 테두리가 surface·sidebar에서 3:1을 넘는다", () => {
     const themes: [string, Map<string, string>][] = [
       [
         "light",
@@ -317,7 +326,7 @@ describe("tokens.css", () => {
       "var(--ap-color-border-input)",
     );
     const ratios = themes.flatMap(([theme, palette]) =>
-      ["--ap-color-surface", "--ap-color-canvas"].map((surface) => {
+      ["--ap-color-surface", "--ap-color-sidebar"].map((surface) => {
         const border = palette.get("--ap-color-border-input") ?? "";
         const ratio = contrast(border, palette.get(surface) ?? "");
         return `${theme} ${surface} ${ratio >= 3 ? "ok" : ratio.toFixed(2)}`;
@@ -350,8 +359,14 @@ describe("tokens.css", () => {
       customProperties((d) => d.selector === ':root[data-theme="dark"]'),
     );
 
-    const themed = [...light].filter((name) =>
-      /^--ap-(color|tone|shadow)-/.test(name),
+    // An alias (`var(--ap-…)`) follows its target, which is checked itself.
+    const aliases = new Set(
+      tokenDeclarations
+        .filter((d) => d.selector === ":root" && d.value.startsWith("var("))
+        .map((d) => d.property),
+    );
+    const themed = [...light].filter(
+      (name) => /^--ap-(color|tone|shadow)-/.test(name) && !aliases.has(name),
     );
     expect(themed.length).toBeGreaterThan(0);
     for (const name of themed) {

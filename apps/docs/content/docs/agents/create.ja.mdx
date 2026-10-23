@@ -1,0 +1,145 @@
+---
+title: "作成"
+description: エージェントを定義し、リリースを作成して有効化し、セッションに紐付ける
+---
+
+エージェントはワークスペース内の名前付きの定義である。定義はカード (ロール、指示文、モデル、ツール) で、カードを修正するたびに新しいバージョンが積み重なる。バージョン 1 つを実行プロファイルと紐付けたものがリリースであり、エージェントが指しているリリースが有効なリリースである。セッションを作成するときにリリースを指定すると、そのセッションはそのエージェントのものになる。
+
+<Callout type="warn">
+現在のセッションは `profile_id` の実行プロファイルで動く。リリースの指示文とツール一覧はセッションに記録されるだけで、モデルにはまだ渡されない。詳しくは [指示文とロール](/agents/instructions-and-roles) と [権限](/agents/permissions) を参照。
+</Callout>
+
+## Web コンソールで
+
+ローカルスタックの Web コンソールは `http://127.0.0.1:3000/` である。
+
+1. 初回のみ、`/bootstrap` で最初の owner とワークスペースを作成する。bootstrap token は API が最初に起動したときにログへ一度だけ出力される: `docker compose logs api | grep BOOTSTRAP_TOKEN=`
+2. ログイン後、上部の「エージェント」→「新規エージェント」に進む。
+3. 名前、アドレス名 (slug)、ロール、指示事項、モデル、ツールを入力して「エージェント作成」を押す。バージョン 1 が作成される。
+4. 詳細画面でバージョンと runtime profile を選び、「リリースを作成」を押す。
+5. 作成したリリースの「有効化」を押す。
+
+owner・admin・member のいずれも、エージェントを作成できる。作成した人がそのエージェントの管理者になる。
+
+## API で
+
+エージェント API は、Web コンソールと同じ cookie ログインでのみ呼び出せる。API key で呼び出すと 403 になる。
+
+### ログイン
+
+```sh
+read -rs AP_PASSWORD
+AP_COOKIE=$(curl -sS -o /dev/null -D - "$API/v1/auth/login" \
+  -H 'Content-Type: application/json' -H 'X-Requested-With: agent-platform-web' \
+  -d "$(jq -nc --arg e 'owner@example.test' --arg p "$AP_PASSWORD" '{email: $e, password: $p}')" \
+  | sed -n 's/^[Ss]et-[Cc]ookie: \(__Host-ap_session=[^;]*\).*/\1/p')
+```
+
+ログイン cookie は名前が `__Host-` で始まり `Secure` なので、http では curl の cookie jar に保存されない。そのため応答ヘッダーから取り出し、`Cookie` ヘッダーで送る。状態を変更するリクエストには `X-Requested-With: agent-platform-web` が必要である。
+
+```bash
+WEB=(-H 'Content-Type: application/json' -H 'X-Requested-With: agent-platform-web' -H "Cookie: $AP_COOKIE")
+curl -sS "$API/v1/auth/me" "${WEB[@]}" | jq '{role: .principal.role, workspace: .workspace.slug}'
+```
+
+### 作成
+
+```bash
+agent=$(curl -sS "$API/v1/agents" "${WEB[@]}" -d '{
+  "slug": "research-bot",
+  "name": "Research Bot",
+  "card": {
+    "role": "저장소를 읽고 질문에 답한다",
+    "instructions": "Answer briefly. Cite file paths.",
+    "model": "claude-sonnet-5",
+    "capabilities": { "tools": ["Read", "Grep", "Glob"], "mcp": null }
+  }
+}')
+AID=$(echo "$agent" | jq -r .agent.id)
+VID=$(echo "$agent" | jq -r '.versions[0].id')
+echo "$agent" | jq '{slug: .agent.slug, version: .versions[0].version_no, active_release_id: .agent.active_release_id}'
+```
+
+```text
+{
+  "slug": "research-bot",
+  "version": 1,
+  "active_release_id": null
+}
+```
+
+同じワークスペースに同じ slug があると 409 `ALREADY_EXISTS` になる。作成しただけでは何も有効化されない。
+
+### リリースの作成
+
+リリースはバージョン 1 つと実行プロファイル 1 つを紐付ける。カードの `model` がプロファイルのモデルと異なる場合や、カードのツールがプロファイルにない場合は 422 になる。
+
+```bash
+release=$(curl -sS "$API/v1/agents/$AID/releases" "${WEB[@]}" \
+  -d "$(jq -nc --arg v "$VID" '{version_id: $v, runtime_profile_id: "claude-coding-local"}')")
+REL=$(echo "$release" | jq -r .release.id)
+echo "$release" | jq '{id: .release.id, created, tools: .release.effective_tools.tools}'
+```
+
+```text
+{
+  "id": "sha256:…",
+  "created": true,
+  "tools": [
+    "Read",
+    "Glob",
+    "Grep"
+  ]
+}
+```
+
+リリース id はカードとプロファイルの内容のハッシュである。同じ内容で再度作成すると、同じリリースが `created: false` で返る。
+
+### 有効化
+
+`expected_revision` はエージェントの現在の `activation_revision` である。初回は `-1` である。他の場所で先に変更されていた場合は 409 `REVISION_CONFLICT` になる。
+
+```bash
+curl -sS "$API/v1/agents/$AID/activate" "${WEB[@]}" \
+  -d "$(jq -nc --arg r "$REL" '{release_id: $r, expected_revision: -1}')" \
+  | jq '{activation_revision, previous_release_id}'
+```
+
+```text
+{
+  "activation_revision": 0,
+  "previous_release_id": null
+}
+```
+
+## セッションに紐付ける
+
+`POST /v1/sessions` に `agent_release_id` を指定する。`profile_id` はそのリリースのプロファイルでなければならない (そうでなければ 409 `RELEASE_PROFILE_MISMATCH`)。エージェントはワークスペースに属するため、key もそのワークスペースの key でなければならない。運用者 CLI では `--workspace` を指定して発行する。
+
+```bash
+WS=$(curl -sS "$API/v1/auth/me" "${WEB[@]}" | jq -r .workspace.id)
+WS_KEY=$(scripts/local.sh key --workspace "$WS" --scopes sessions:read,sessions:write)
+curl -sS "$API/v1/sessions" \
+  -H "Authorization: Bearer $WS_KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg r "$REL" --arg m 'GATE-SPEC {"id":"agent","steps":[],"final":"hello from research-bot"}' \
+    '{profile_id: "claude-coding-local", repository_id: "sample-app", agent_release_id: $r, message: $m}')" \
+  | jq '{status, turn_id}'
+```
+
+```text
+key_id …
+{
+  "status": "queued",
+  "turn_id": "1"
+}
+```
+
+ワークスペースに属さない key (例: `scripts/local.sh key quickstart …`) で送ると、リリースが見つからず 404 になる。
+
+## 次のステップ
+
+- [指示文とロール](/agents/instructions-and-roles): カードのフィールドとバージョン
+- [実行プロファイルを選ぶ](/agents/run-profiles): プロファイルとモデル
+- [権限](/agents/permissions): ツール権限とエージェント管理者

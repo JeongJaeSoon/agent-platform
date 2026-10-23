@@ -147,7 +147,7 @@ export function Timeline({
   return (
     <div data-slot="timeline" className={cn("flex flex-col gap-2", className)}>
       {state === "open" ? null : (
-        <output className="rounded-md bg-muted px-3 py-2 text-muted-foreground text-body">
+        <output className="rounded-card bg-muted px-3 py-2 text-muted-foreground text-body">
           {state === "connecting" ? messages.connecting : messages.closed}
         </output>
       )}
@@ -225,7 +225,7 @@ function TimelineItem({
             <summary className={cn(summaryClass, "cursor-pointer")}>
               {summary}
             </summary>
-            <p className="mt-2 whitespace-pre-wrap rounded-md bg-muted px-2.5 py-2 font-mono text-caption [overflow-wrap:anywhere]">
+            <p className="mt-2 whitespace-pre-wrap rounded-control bg-muted px-3 py-2 font-mono text-caption [overflow-wrap:anywhere]">
               {presentation.detail}
             </p>
           </details>

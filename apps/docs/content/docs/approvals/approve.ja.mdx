@@ -1,0 +1,79 @@
+---
+title: "承認"
+description: push リクエストが固定した commit を確認して承認する。プラットフォームが数秒以内に push する
+---
+
+承認には `sessions:approve` が必要である。この scope は、人だけが持つように発行する。CI などの自動化には与えない。セッションを実行する worker の資格では `/v1` を呼べないため(401)、エージェントが自分で承認することはできない。[リクエスト](/approvals/request)の `SID`、`PUSH_ID`、`PUSH_COMMIT` を使う。
+
+## 承認する
+
+判断の本文の `git_commit` は、リクエストが固定した commit と同じでなければならない。承認する人が、何を承認するのかを確認したことを示す印である。
+
+```bash
+curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/decision" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg c "$PUSH_COMMIT" '{decision: "approve", git_commit: $c}')" \
+  | jq '{state, decided_by: .decided_by.principal.kind}'
+```
+
+```text
+{
+  "state": "approved",
+  "decided_by": "api_key"
+}
+```
+
+## push の結果を見る
+
+プラットフォームは 3 秒ごとに、承認されたリクエストを 1 件ずつ取り上げて push する。リクエストが `pushing` を経て `pushed` または `failed` になるまで待つ。
+
+```bash
+until curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID" -H "Authorization: Bearer $KEY" \
+  | jq -e '.state | IN("pushed", "failed")' >/dev/null; do
+  sleep 2
+done
+pushed=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID" -H "Authorization: Bearer $KEY")
+echo "$pushed" | jq '{state}'
+curl -sS "$API/v1/receipts/$(echo "$pushed" | jq -r .push_receipt_id)" -H "Authorization: Bearer $KEY" \
+  | jq '{operation, status, refusal: .result.refusal}'
+```
+
+```text
+{
+  "state": "failed"
+}
+{
+  "operation": "push",
+  "status": "failed",
+  "refusal": "no_push_credential"
+}
+```
+
+ローカルスタックの `sample-app` リポジトリには push の認証情報がないため、`no_push_credential` で終わる。運用者がリポジトリに GitHub App または PAT を設定すると([GitHub](/integrations/github))`pushed` になり、receipt の `result` に `remote_ref`(`refs/heads/agent/<session-id>`)と `previous_commit` が残る。
+
+プラットフォームは、その commit 1 つだけをそのブランチに送る。force push はしない。デフォルトブランチには送らない。
+
+| `refusal` | 意味 |
+| --- | --- |
+| `no_push_credential` | リポジトリに push の認証情報がない |
+| `catalog_changed` | リクエストの後に、運用者がリポジトリの設定を変更した。新しくリクエストする |
+| `non_fast_forward` | リモートブランチがこの commit の祖先ではない |
+| `default_branch`, `target_refused` | デフォルトブランチ、または `agent/<session-id>` ではないブランチである |
+| `push_failed` | トークン発行の失敗、リモートの拒否、ネットワークエラー |
+
+## 承認が拒否されるとき
+
+| レスポンス | 意味 |
+| --- | --- |
+| 409 `CHECKPOINT_MOVED` | `git_commit` が固定された commit と異なる、またはリクエストの後にセッションが checkpoint を残し直した。このリクエストは[拒否](/approvals/reject)して、新しくリクエストする |
+| 409 `PUSH_REQUEST_DECIDED` | すでに判断済みのリクエストである |
+| 403 `FORBIDDEN` | key に `sessions:approve` がない |
+
+拒否された試行にも receipt が残る。エラー本文の `error.details.receipt_id` で読む。
+
+## 次のステップ
+
+- [拒否](/approvals/reject)
+- [receipt](/approvals/receipt): リクエスト・判断・push の記録を読む

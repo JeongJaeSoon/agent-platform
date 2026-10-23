@@ -1,0 +1,83 @@
+---
+title: "オブザーバビリティ (OTel)"
+description: セッションの進行をどこで見るか、そして OTLP のサンプル collector を立ち上げて試す方法
+---
+
+<Callout type="warn">
+Werft はまだ OpenTelemetry trace をエクスポートしない。セッションを実行しても、collector には trace が生成されない。以下のサンプル collector は、OTLP を受ける側を先に立ち上げて試すためのものである。
+</Callout>
+
+## 今見られる場所
+
+| 何を | どこで |
+| --- | --- |
+| セッションで起きたこと(モデルの回答、ツール呼び出しと結果、権限リクエスト、状態変化) | イベントストリーム `GET /v1/sessions/{id}/events`([ストリーミングの受信](/messages/streaming)) |
+| コマンド一つの結果 | receipt `GET /v1/receipts/{id}`([receipt](/approvals/receipt)) |
+| コストと token | `GET /v1/sessions/{id}/usage`([状態とライフサイクル](/sessions/lifecycle#使用量)) |
+| サーバーの状態 | `GET /readyz`、API·worker の stdout JSON ログ |
+
+イベントは DB に保存された正本である。エンジンのメッセージのうち秘密に見える値は、保存前に `[REDACTED]` に伏せられる。イベントは、そのセッションを見られる `sessions:read` の主体だけが読める。
+
+```bash
+curl -sS -w '\n' "$API/readyz"
+```
+
+```text
+{"status":"ready","checks":{"database":"ok","schema":"ok","config":"ok"}}
+```
+
+## サンプル collector を立ち上げる
+
+リポジトリの `infra/observability/` に collector のサンプルが二つある。どちらも Werft スタックとは別に立ち上がる compose project で、前段に OpenTelemetry Collector を置いて OTLP/HTTP を受ける。一台のコンピューターで確認するためのもので、運用構成ではない。ポートはすべて loopback にのみ開く。
+
+| サンプル | OTLP/HTTP の受け口 | 画面 | 受けるシグナル |
+| --- | --- | --- | --- |
+| Grafana LGTM (`infra/observability/lgtm/`) | `http://127.0.0.1:26318` | `http://localhost:26000` | trace, ログ, メトリクス |
+| Langfuse (`infra/observability/langfuse/`) | `http://127.0.0.1:25318` | `http://localhost:25000` | trace |
+
+以下は Grafana LGTM である。リポジトリのルートで実行する。
+
+```bash
+docker compose -p werft-obs-lgtm -f infra/observability/lgtm/compose.yml up -d --wait
+```
+
+## テスト trace を送る
+
+`send-test-span.sh` は、今後 Werft が送る形に似せたダミーの trace を一つ送る。`werft.turn` の下にモデル呼び出し(`werft.llm_request`)とツール呼び出し(`werft.tool`)がある。`--with-log` は、同じ trace に紐づくログを一行も送る。
+
+```bash
+infra/observability/send-test-span.sh http://127.0.0.1:26318 --with-log | tee span.txt
+TRACE_ID=$(sed -n 's/^trace_id=\([0-9a-f]*\) .*/\1/p' span.txt)
+```
+
+```text
+trace_id=… session_id=ses_test_…
+```
+
+Grafana(`http://localhost:26000`、ログインなし)の Explore → Tempo で trace id を指定して探す。一つのセッションのターンをすべて見るには、TraceQL `{ span.werft.session_id = "<session_id>" }` で検索する。ログは Explore → Loki で `{service_name="werft-api"}` を指定して探す。API でも確認できる。
+
+```bash
+until curl -sf "http://127.0.0.1:26000/api/datasources/proxy/uid/tempo/api/traces/$TRACE_ID" -o trace.json; do
+  sleep 2
+done
+jq -r '[.batches[].scopeSpans[].spans[].name] | sort | join(" ")' trace.json
+```
+
+```text
+werft.llm_request werft.tool werft.turn
+```
+
+## 停止する
+
+`-v` は保存した trace も削除する。
+
+```bash
+docker compose -p werft-obs-lgtm -f infra/observability/lgtm/compose.yml down -v
+```
+
+Langfuse サンプルのアカウントとキー、画面での探し方は運用ドキュメントにある。
+
+## 次のステップ
+
+- [ストリーミングの受信](/messages/streaming): セッションイベントの受信
+- [TypeScript SDK](/sdk)

@@ -41,12 +41,11 @@ import {
   SECTION_TITLE,
 } from "../components/my-teams.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
+import { Page } from "../components/page.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { RowList, RowListItem } from "../components/table.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 
-const PAGE = "flex flex-col gap-6";
-const PAGE_TITLE = "m-0 font-semibold text-xl [overflow-wrap:anywhere]";
 const FORM = "flex flex-col items-start gap-3";
 const NAME_FIELD = "max-w-md";
 const SECONDARY = "text-muted-foreground text-sm [overflow-wrap:anywhere]";
@@ -131,18 +130,14 @@ export function TeamsScreen() {
 
   if (!manages) {
     return (
-      <div className={PAGE}>
-        <h1 className={PAGE_TITLE}>{t("teams.title")}</h1>
-        <p className={MUTED}>{t("teams.intro")}</p>
+      <Page title={t("teams.title")} description={t("teams.intro")}>
         <MyTeams showEmpty />
-      </div>
+      </Page>
     );
   }
 
   return (
-    <div className={PAGE}>
-      <h1 className={PAGE_TITLE}>{t("teams.title")}</h1>
-      <p className={MUTED}>{t("teams.intro")}</p>
+    <Page title={t("teams.title")} description={t("teams.intro")}>
       <OutcomeLine outcome={outcome} />
       {failed ? null : (
         <form className={FORM} onSubmit={submit}>
@@ -187,7 +182,7 @@ export function TeamsScreen() {
         )}
       </section>
       {isApiError(teams.error, "FORBIDDEN") ? <MyTeams showEmpty /> : null}
-    </div>
+    </Page>
   );
 }
 
@@ -203,7 +198,7 @@ function TeamPage({ id }: { readonly id: string }) {
   const [outcome, setOutcome] = useState<Outcome | null>(null);
 
   return (
-    <div className={PAGE}>
+    <div className="flex flex-col gap-[var(--ap-space-block)]">
       <p className="m-0">
         <Link to="/teams" className={PRIMARY_LINK}>
           {t("teams.back")}
@@ -212,17 +207,19 @@ function TeamPage({ id }: { readonly id: string }) {
       {team.isPending ? (
         <StatusScreen kind="loading" />
       ) : team.error ? (
-        <>
-          <h1 className={PAGE_TITLE}>{t("teams.title")}</h1>
+        <Page title={t("teams.title")}>
           <ListError error={team.error} onRetry={() => void team.refetch()} />
-        </>
+        </Page>
       ) : (
-        <>
-          <h1 className={PAGE_TITLE}>{team.data.name}</h1>
+        <Page
+          title={
+            <span className="[overflow-wrap:anywhere]">{team.data.name}</span>
+          }
+        >
           <OutcomeLine outcome={outcome} />
           <TeamSettings team={team.data} onOutcome={setOutcome} />
           <TeamMembers team={team.data} onOutcome={setOutcome} />
-        </>
+        </Page>
       )}
     </div>
   );

@@ -85,15 +85,18 @@ export function SessionRow({
         className,
       )}
     >
-      <span role="cell" className="min-w-0 truncate font-mono text-caption">
+      <span
+        role="cell"
+        className="min-w-0 truncate font-mono text-caption leading-5"
+      >
         {renderLink({
           children: session.id,
           "aria-label": session.id,
           title: session.id,
           className:
-            "after:absolute after:inset-0 after:rounded-sm outline-none hover:underline focus-visible:underline focus-visible:after:ring-2 focus-visible:after:ring-ring",
+            "after:absolute after:inset-0 after:rounded-control outline-none hover:underline focus-visible:underline focus-visible:after:ring-2 focus-visible:after:ring-ring",
         })}
-        <span className="mt-[var(--ap-row-line-gap)] block text-left font-sans text-muted-foreground text-caption @[480px]:hidden">
+        <span className="mt-[var(--ap-row-line-gap)] block text-left font-sans text-caption text-muted-foreground leading-4 @[480px]:hidden">
           {timestamp}
         </span>
       </span>

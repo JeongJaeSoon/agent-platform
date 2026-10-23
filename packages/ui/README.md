@@ -27,7 +27,8 @@ Tailwind의 `dark:`는 수동 전환(`data-theme`)을 보지 못하기 때문이
   않고, 같은 이름을 쓰는 앱(shadcn을 쓰는 앱 등)의 변수와 부딪치지 않는다. shadcn의 `accent`는 hover용 조용한 바탕이고, 우리 브랜드 색은
   `primary`(= `--ap-color-accent`)다. 상태 색처럼 도메인 전용 색은 `--ap-tone-*`을 직접 쓴다.
 - **Tailwind 연결.** `src/foundations/theme.css`가 토큰을 유틸리티에 잇는 유일한 곳이다. 색(`bg-primary`·`bg-canvas`…),
-  글자 크기(`text-control` 등), `font-sans`·`font-mono`, `rounded-sm|md|lg`, `shadow-sm|md|lg`가 여기서 나온다. 쓰는 쪽 CSS는
+  글자 크기(`text-control`·`text-description`·`text-title` 등), `font-sans`·`font-mono`, `rounded-control|card`, `shadow-pop`이
+  여기서 나온다(`rounded-sm|md|lg`·`shadow-sm|md|lg`는 apps/web이 옮겨 갈 때까지 둔 옛 이름이다). 쓰는 쪽 CSS는
   `tailwindcss`·`styles.css`·`theme.css` 순으로 import하고 `@source`로 이 패키지의 `src`를 스캔해야 한다
   (`apps/web/src/styles.css`가 예다). Tailwind 없이 쓰면 primitive는 모양 없이 그려진다.
 - **cascade layer.** `tokens.css`와 `styles.css`의 규칙은 모두 `@layer ap` 안에 있다. `tokens.css`가
@@ -46,10 +47,29 @@ Tailwind의 `dark:`는 수동 전환(`data-theme`)을 보지 못하기 때문이
 색·간격·타이포·radius·shadow·모션은 `src/foundations/tokens.css` **한 곳**에만 있다. 라이트가 기본이고,
 다크는 시스템 설정(`prefers-color-scheme`)과 수동 전환(`:root[data-theme="dark"]`) 양쪽으로 온다.
 
+값은 콘솔 디자인 캔버스 v35 규칙표를 따른다. 간격은 4·8·12·16·24·32, 글자는 12·13·14·20·24, 반경은 컨트롤 6·카드 8·pill,
+그림자는 떠 있는 요소용 `--ap-shadow-pop` 하나다. 바탕은 사이드바 `--ap-color-sidebar`와 메인·카드 `--ap-color-surface` 둘이다. 사이드바 nav 행은 hover에 `bg-sidebar-hover`, 현재 페이지에 `bg-sidebar-accent`를 쓴다.
+값이 다른 토큰을 가리키는(`var(--ap-…)`) 이름은 apps/web이 옮겨 갈 때까지 둔 옛 이름이니 새 코드에서 쓰지 않는다.
+
 Tailwind 4의 `@theme` 블록 대신 `--ap-` 접두사를 붙인 평범한 커스텀 프로퍼티를 쓴다.
 `@theme`는 Tailwind 컴파일러를 거쳐야만 살아남는데, 이 패키지는 Tailwind 없이도 렌더돼야 하기 때문이다.
 Tailwind에는 `theme.css`가 이어 붙인다(`--color-canvas: var(--ap-color-canvas)` 식). 접두사가 없으면
 `--color-canvas: var(--color-canvas)`가 되어 순환한다. 접두사는 그것을 막는다.
+
+## 화면 구성 원칙
+
+화면은 정보를 위에서 아래로 한 줄씩 쌓아 만들지 않는다. 값은 위 v35 규칙표를 따른다.
+
+- 같은 대상에 대한 정보는 한 덩어리로 묶는다. 제목·개수·링크·카드를 각각 한 줄씩 쌓지 않는다.
+- 개수·상태는 제목 옆 배지로, 대상 이름·기한은 카드 첫 줄 한 줄로 둔다.
+- 짧은 항목이 여러 개면 가로로 놓는다(한 줄 메타, 2~3열 그리드, 오른쪽 정렬 버튼). 세로로 나열하는 것은 순서에 의미가 있을 때뿐이다.
+- 같은 정보를 한 화면에 두 번 보이지 않는다.
+- 버튼은 내용 폭이고 높이는 `--ap-control-height`(32px)다. 폭을 채우는 버튼은 390px 폭 화면의 주 동작에만 쓴다.
+- 섹션 사이는 `--ap-space-section`(32px), 같은 섹션 안 블록 사이는 `--ap-space-block`(16px)이다. 한 섹션 안에 블록이 셋을 넘으면 묶을 수 있는지 먼저 본다.
+- PR마다 1440px 스크린샷에서 위에서 아래로 나열만 된 곳이 있는지 보고, PR의 검증 sticky comment에 적는다.
+
+예를 들어 제목, "N건" 줄, 대상 ID 줄, 반폭 카드, 표를 차례로 쌓고 같은 대상을 표에 또 보이는 영역은 첫째·둘째·넷째 원칙을 어긴다.
+개수는 제목 옆 배지로, ID는 카드 첫 줄로 옮기고, 표에서는 그 대상을 뺀다.
 
 ## 들어 있는 것
 
@@ -60,7 +80,7 @@ Tailwind에는 `theme.css`가 이어 붙인다(`--color-canvas: var(--ap-color-c
 |---|---|---|
 | foundations · `src/foundations/` | 없음 | `tokens.css`·`styles.css`·`theme.css`·`fonts.css`(+`fonts/`), `cn`, `useReducedMotion`, `formatTimestamp` |
 | primitives · `src/primitives/` | foundations | shadcn 항목 `Button`·`Badge`·`Card*`·`Input`·`Textarea`·`NativeSelect*`·`Checkbox`·`RadioGroup*`·`Tabs*`·`Dialog*`·`Field*`, 그리고 `Skeleton`. 도메인을 모른다. 의미 있는 상태는 `Badge`가 아니라 `StatusLabel`로 |
-| patterns · `src/patterns/` | primitives | `ConfirmDialog`·`DestructiveActionDialog`(결과 설명이 필수이고, 파괴적 동작은 이름을 입력해야 열린다), `EmptyState`, `Stepper`, 상세 화면 두 칸 배치 `useDetailLayout` |
+| patterns · `src/patterns/` | primitives | `ConfirmDialog`·`DestructiveActionDialog`(결과 설명이 필수이고, 파괴적 동작은 이름을 입력해야 열린다), `EmptyState`, 페이지 머리 `PageHeader`(h1 + 설명 + 동작), `Stepper`, 상세 화면 두 칸 배치 `useDetailLayout` |
 | (도메인) `src/session/`·`src/status/`·`src/receipt/`·`src/feedback/` | `@werft-ai/contracts` 타입 | `StatusLabel`(admission·turn·receipt·execution **네 축**을 따로 그린다), `ReceiptSummary`·`ReceiptLink`(`unknown`은 성공으로 그리지 않는다), `ErrorState`(`error.code`별 "할 일"을 원문보다 먼저), `Session*`·`Timeline`·`Message`·`Composer`·`ApprovalCard`·`QuestionCard`·`StageIndicator` |
 
 도메인 파일은 `packages/react`로 옮길 예정이라 층 디렉터리에 넣지 않았다. 루트 index가 이름을 직접 내보낸다.

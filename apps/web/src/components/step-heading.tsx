@@ -30,7 +30,7 @@ export function StepHeading({
       ref={heading}
       id={id}
       tabIndex={-1}
-      className="m-0 font-semibold text-lg outline-none"
+      className="m-0 font-semibold text-body outline-none"
     >
       {children}
     </h2>

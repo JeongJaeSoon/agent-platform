@@ -24,17 +24,15 @@ import {
 } from "../auth/guard.tsx";
 import { FormError, NOTICE } from "../components/auth-page.tsx";
 import type { Outcome } from "../components/outcome.tsx";
+import { Page } from "../components/page.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 
 // The server's ceiling; the web takes contracts as types only, so a test
 // keeps this equal to the contract's value.
 export const AUDIT_RETENTION_MAX_DAYS = 3650;
 
-const PAGE = "flex flex-col gap-6";
-const TITLE = "m-0 font-semibold text-xl";
-const SECTION = "flex flex-col gap-3";
-const SECTION_TITLE = "m-0 font-semibold text-lg";
-const MUTED = "m-0 text-muted-foreground";
+const SECTION = "flex flex-col gap-[var(--ap-space-block)]";
+const SECTION_TITLE = "m-0 font-semibold text-body";
 const HINT = "m-0 text-muted-foreground text-sm";
 const FORM = "flex max-w-xl flex-col items-start gap-4";
 
@@ -46,8 +44,7 @@ export function WorkspaceSettingsScreen() {
   const retentionManage = useHasPermission("audit_retention.manage");
   if (!workspaceManage && !retentionManage) return <ReadOnlySettings />;
   return (
-    <div className={PAGE}>
-      <h1 className={TITLE}>{t("workspace.title")}</h1>
+    <Page title={t("workspace.title")}>
       {outcome ? (
         outcome.kind === "error" ? (
           <FormError>{outcome.text}</FormError>
@@ -57,7 +54,7 @@ export function WorkspaceSettingsScreen() {
       ) : null}
       <AuditRetention onOutcome={setOutcome} />
       <SlackGuest onOutcome={setOutcome} />
-    </div>
+    </Page>
   );
 }
 
@@ -66,9 +63,7 @@ function ReadOnlySettings() {
   const { t } = useI18n();
   const settings = useMe()?.workspace?.settings;
   return (
-    <div className={PAGE}>
-      <h1 className={TITLE}>{t("workspace.title")}</h1>
-      <p className={MUTED}>{t("workspace.readOnly")}</p>
+    <Page title={t("workspace.title")} description={t("workspace.readOnly")}>
       <section className={SECTION}>
         <h2 className={SECTION_TITLE}>{t("workspace.retention")}</h2>
         <p className="m-0">
@@ -89,7 +84,7 @@ function ReadOnlySettings() {
           )}
         </p>
       </section>
-    </div>
+    </Page>
   );
 }
 

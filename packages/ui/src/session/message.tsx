@@ -44,7 +44,7 @@ export function Message({
       data-slot="message"
       data-from={from}
       className={cn(
-        "flex w-fit min-w-0 max-w-[85%] flex-col gap-1 rounded-lg border px-3 py-2 text-sm",
+        "flex w-fit min-w-0 max-w-[85%] flex-col gap-1 rounded-card border px-3 py-2 text-sm",
         user ? "ml-auto bg-secondary" : "bg-card",
         error && "border-destructive",
         className,
