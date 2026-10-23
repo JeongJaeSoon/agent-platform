@@ -891,10 +891,14 @@ export function createSessionService(deps: {
       sessionId: string,
       body: UpdateSessionRequest,
     ): Promise<SessionDetail> {
-      await requirePermitted(authorization, actor, "session.rename", {
-        kind: "session",
-        id: sessionId,
-      });
+      // The answer is the detail, which reading the session gives. Rename
+      // first, so a refusal is kept under what was asked.
+      for (const action of ["session.rename", "session.read"] as const) {
+        await requirePermitted(authorization, actor, action, {
+          kind: "session",
+          id: sessionId,
+        });
+      }
       const result = await controls.renameAtomic({
         principal: actor,
         sessionId,
@@ -903,6 +907,12 @@ export function createSessionService(deps: {
       });
       if (result.outcome === "not_found") {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
+      }
+      if (result.outcome === "actor_inactive") {
+        throw new SessionServiceError(
+          "FORBIDDEN",
+          "This principal is no longer a member of the workspace",
+        );
       }
       return detailOf(actor, sessionId);
     },

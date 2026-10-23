@@ -17,7 +17,7 @@ import {
   createPostgresSessionUnitOfWork,
 } from "./postgres-unit-of-work.ts";
 import * as schema from "./schema.ts";
-import { sessions } from "./schema.ts";
+import { memberships, sessions, users, workspaces } from "./schema.ts";
 
 const OWNER = testCaller("owner-a");
 const OTHER = testCaller("owner-b");
@@ -149,6 +149,66 @@ describe("session titles (94S-804)", () => {
     const count = (await statusEvents(id)).length;
     await service().renameSession(OWNER, id, { title: "Same" });
     expect(await statusEvents(id)).toHaveLength(count);
+  });
+
+  test("a member offboarded after the check renames nothing", async () => {
+    const workspaceId = crypto.randomUUID();
+    const userId = crypto.randomUUID();
+    await db
+      .insert(workspaces)
+      .values({ id: workspaceId, slug: `ws-${workspaceId}`, name: "Acme" });
+    await db.insert(users).values({
+      id: userId,
+      email: `${userId}@example.invalid`,
+      passwordHash: "argon2id$placeholder",
+      displayName: "member",
+    });
+    await db
+      .insert(memberships)
+      .values({ workspaceId, userId, role: "member" });
+    const principal = {
+      ownerId: workspaceId,
+      actor: {
+        principal: { kind: "user" as const, id: userId },
+        userId,
+        workspaceId,
+        apiKeyId: null,
+      },
+    };
+    const id = crypto.randomUUID();
+    await db.insert(sessions).values({
+      id,
+      ownerId: workspaceId,
+      workspaceId,
+      createdByUserId: userId,
+      repositoryMode: "none",
+      title: "Before",
+    });
+    const controls = createPostgresSessionControl(db);
+    const rename = () =>
+      controls.renameAtomic({
+        principal,
+        sessionId: id,
+        title: "After",
+        now: new Date(),
+      });
+
+    await db
+      .update(memberships)
+      .set({ disabledAt: new Date() })
+      .where(eq(memberships.userId, userId));
+    expect(await rename()).toEqual({ outcome: "actor_inactive" });
+    const [row] = await db
+      .select({ title: sessions.title })
+      .from(sessions)
+      .where(eq(sessions.id, id));
+    expect(row?.title).toBe("Before");
+
+    await db
+      .update(memberships)
+      .set({ disabledAt: null })
+      .where(eq(memberships.userId, userId));
+    expect(await rename()).toEqual({ outcome: "renamed", changed: true });
   });
 
   test("another owner's session is not found", async () => {

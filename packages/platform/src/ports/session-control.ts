@@ -183,6 +183,7 @@ export type RenameSessionInput = {
 
 export type RenameSessionResult =
   | { outcome: "not_found" }
+  | { outcome: "actor_inactive" }
   | { outcome: "renamed"; changed: boolean };
 
 export type ChangeProfileResult =

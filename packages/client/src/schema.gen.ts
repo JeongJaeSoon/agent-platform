@@ -459,7 +459,7 @@ export interface paths {
         head?: never;
         /**
          * Rename the session
-         * @description Sets `title`, in any admission state; the session's `revision` does not change and no receipt is written. Allowed to the session's creator (for a session an API key made, that key), the workspace's owners and admins, and the admins of its agent. Anyone else the session is visible to, through its share, gets 403; anyone it is not visible to, 404. A changed title is a `status` event on the stream carrying `title`; naming the title the session already has writes none. Answers with the session as `GET /v1/sessions/{id}` reads it.
+         * @description Sets `title`, in any admission state; the session's `revision` does not change and no receipt is written. Allowed to the session's creator (for a session an API key made, that key), the workspace's owners and admins, and the admins of its agent; since the answer is the session's detail, a key also needs `sessions:read`. Anyone else the session is visible to, through its share, gets 403; anyone it is not visible to, 404. A changed title is a `status` event on the stream carrying `title`; naming the title the session already has writes none. Answers with the session as `GET /v1/sessions/{id}` reads it.
          *
          *     **Scope:** `sessions:write` (API key or cookie session). **Idempotency-Key:** ignored.
          */

@@ -5,7 +5,7 @@
 ## Sub-features
 
 - `session-create` `POST /v1/sessions` → 201 `queued`, turn 1.
-- `title` 생성 body의 선택 `title`, 없으면 첫 메시지에서 만든 제목이 목록·상세의 `title`에 있다. `PATCH /v1/sessions/{id}` `{title}`(Idempotency-Key 없음, `sessions:write`)로 바꾸면 200 상세가 오고 SSE에 `title`을 실은 `status` 이벤트가 생긴다. curl: `curl -sS -X PATCH "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' -d '{"title":"renamed"}'`.
+- `title` 생성 body의 선택 `title`, 없으면 첫 메시지에서 만든 제목이 목록·상세의 `title`에 있다. `PATCH /v1/sessions/{id}` `{title}`(Idempotency-Key 없음, `sessions:write`와 `sessions:read`)로 바꾸면 200 상세가 오고 SSE에 `title`을 실은 `status` 이벤트가 생긴다. curl: `curl -sS -X PATCH "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' -d '{"title":"renamed"}'`.
 - `turn-complete` turn이 `completed`가 된다.
 - `events` `GET /v1/sessions/{id}/events` SSE.
 - `permission` 파일을 바꾸는 도구는 `needs_input`과 pending request를 만들고 `POST …/answers`로 허용·거절한다.

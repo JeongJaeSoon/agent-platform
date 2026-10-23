@@ -1197,6 +1197,36 @@ describe("session titles (94S-804)", () => {
     expect(await errorCode(response)).toBe("FORBIDDEN");
   });
 
+  test("rename needs the read it answers with: without it the store is never reached", async () => {
+    const response = await patch(
+      { title: "T" },
+      {
+        renameAtomic: async () => {
+          throw new Error("not reached");
+        },
+      },
+      {
+        authorize: async ({ action }) => ({
+          outcome: action === "session.read" ? "deny" : "allow",
+          reason_code: action === "session.read" ? "role" : "ok",
+          effective_scopes: ["sessions:write"],
+          policy_version: "test",
+          decision_id: crypto.randomUUID(),
+        }),
+      },
+    );
+    expect(response.status).toBe(403);
+  });
+
+  test("rename by a member offboarded since the check is 403", async () => {
+    const response = await patch(
+      { title: "T" },
+      { renameAtomic: async () => ({ outcome: "actor_inactive" }) },
+    );
+    expect(response.status).toBe(403);
+    expect(await errorCode(response)).toBe("FORBIDDEN");
+  });
+
   test("rename maps a storage connection failure to 503", async () => {
     const response = await patch(
       { title: "T" },

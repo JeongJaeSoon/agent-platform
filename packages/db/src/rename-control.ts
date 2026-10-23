@@ -4,6 +4,7 @@ import type {
 } from "@werft-ai/platform";
 import { eq } from "drizzle-orm";
 import {
+  actorStillMember,
   controlClock,
   lockSessionForControl,
   transactionWithBindingRetry,
@@ -21,6 +22,9 @@ export function renameAtomic(
   const sessionId = input.sessionId.toLowerCase();
   const startedAt = Date.now();
   return transactionWithBindingRetry(db, async (tx, attempt) => {
+    if (!(await actorStillMember(tx, input.principal))) {
+      return { outcome: "actor_inactive" };
+    }
     // The events writer's lock: the status event below takes its id under it.
     const session = await lockSessionForControl(tx, {
       sessionId,
