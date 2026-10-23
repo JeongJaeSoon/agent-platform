@@ -32,7 +32,7 @@ const requiredEnv = ["DATABASE_URL", "AUTH_MODE"];
 
 describe("readiness probe", () => {
   test("journal head is the last migration tag", () => {
-    expect(expectedMigrationHead().tag).toBe("0151_secret_values");
+    expect(expectedMigrationHead().tag).toBe("0152_surface_bindings");
   });
 
   test("passes on a migrated database with the required configuration", async () => {
@@ -95,7 +95,7 @@ describe("readiness probe", () => {
     })();
     expect(result).toMatchObject({ ready: false, check: "schema" });
     expect(result.ready === false && result.reason).toContain(
-      "0151_secret_values",
+      "0152_surface_bindings",
     );
 
     // Same timestamp, different SQL behind it: not the schema this build ships.

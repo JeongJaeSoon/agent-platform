@@ -75,6 +75,7 @@ import {
   listSessionOutputsResponseSchema,
   listSessionsQuerySchema,
   listSessionsResponseSchema,
+  listSlackBindingsResponseSchema,
   listTakeoversResponseSchema,
   listTeamsResponseSchema,
   listTurnsQuerySchema,
@@ -96,6 +97,8 @@ import {
   postSessionMessageResponseSchema,
   pushRequestParamsSchema,
   pushRequestSchema,
+  putSlackBindingRequestSchema,
+  putSlackBindingResponseSchema,
   putSlackSecretRequestSchema,
   putSlackSecretResponseSchema,
   readyResponseSchema,
@@ -204,6 +207,7 @@ const requestComponents = {
   AddTeamMemberRequest: addTeamMemberRequestSchema,
   AddAgentAdminRequest: addAgentAdminRequestSchema,
   LinkAgentIdentityRequest: linkAgentIdentityRequestSchema,
+  PutSlackBindingRequest: putSlackBindingRequestSchema,
 } satisfies Record<string, z.ZodType>;
 const responseComponents = {
   ApiErrorResponse: apiErrorResponseSchema,
@@ -283,6 +287,8 @@ const responseComponents = {
   LinkAgentIdentityResponse: linkAgentIdentityResponseSchema,
   ListAgentIdentitiesResponse: listAgentIdentitiesResponseSchema,
   RevokeAgentIdentityResponse: revokeAgentIdentityResponseSchema,
+  ListSlackBindingsResponse: listSlackBindingsResponseSchema,
+  PutSlackBindingResponse: putSlackBindingResponseSchema,
   OpenApiDocument: openApiDocumentResponseSchema,
 } satisfies Record<string, z.ZodType>;
 
@@ -1445,6 +1451,7 @@ export const API_ROUTE_DECLARATIONS = [
             input: { command: "npm test", description: "Run the tests" },
           },
         ],
+        answerable: true,
       },
     },
     errors: [401, 404, 503],
@@ -1456,7 +1463,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Pending requests",
     summary: "Answer a pending permission or question request",
     description:
-      "Answers one pending request by `request_id`: a permission with `allow` or `deny` (a denial needs a `reason` the model can act on), a question with one answer per question, by option ids or free text where the question allows it. The answer is stored and the request closes at once: the pending list drops it and a `status` event ends the wait. The worker then hands the answer to the engine, and the receipt settles when it reports: `succeeded` once delivered, `failed` if the request expired (`REQUEST_EXPIRED`) or was cancelled (`REQUEST_STALE`) first, `unknown` if the execution ended before it reported.",
+      "Answers one pending request by `request_id`: a permission with `allow` or `deny` (a denial needs a `reason` the model can act on), a question with one answer per question, by option ids or free text where the question allows it. The answer is stored and the request closes at once: the pending list drops it and a `status` event ends the wait. The worker then hands the answer to the engine, and the receipt settles when it reports: `succeeded` once delivered, `failed` if the request expired (`REQUEST_EXPIRED`) or was cancelled (`REQUEST_STALE`) first, `unknown` if the execution ended before it reported. Seeing a session is not answering for it: only its creator (for a session an API key made, that key), its agent's admins and the workspace's owners and admins answer. Anyone else the session is visible to gets 403 (`reason_code: role`) and the request stays open; anyone it is not visible to, 404.",
     scope: "approve",
     body: "PostSessionAnswerRequest",
     requestExample: {
@@ -2385,10 +2392,37 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "Revoke an agent identity",
     description:
-      "Events from that app and team are dropped from then on, including events already waiting to be processed. Revoking one already revoked changes nothing and answers a null `receipt_id`; otherwise writes a `revoke_agent_identity` receipt. Linking again makes a new identity.",
+      "Events from that app and team are dropped from then on, including events already waiting to be processed. Revoking one already revoked changes nothing and answers a null `receipt_id`; otherwise writes a `revoke_agent_identity` receipt. The agent's Slack channel bindings in that install are revoked with it. Linking again makes a new identity.",
     auth: "session",
     success: { status: 200, schema: "RevokeAgentIdentityResponse" },
     errors: [401, 403, 404, 503],
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/agents/{id}/slack-bindings",
+    operationId: "listSlackBindings",
+    tag: "Agents",
+    summary: "The agent's Slack channel bindings",
+    description:
+      "Live bindings of the channels of the agent's Slack app, and its DM binding (`surface_kind: dm`, no `external_surface_id`): the home channel first, then oldest first; up to 500. Channel ids only; the console resolves names. Owners, admins and the agent's admins.",
+    auth: "session",
+    success: { status: 200, schema: "ListSlackBindingsResponse" },
+    errors: [401, 403, 404, 503],
+  },
+  {
+    method: "put",
+    path: "/v1/agents/{id}/slack-bindings",
+    operationId: "putSlackBinding",
+    tag: "Agents",
+    summary: "Set how the agent answers in one Slack channel or its DMs",
+    description:
+      "Replaces the binding of `channel_id` in the agent's Slack app install, or the install's one DM binding when `channel_kind` is `dm` and `channel_id` is null, creating it the first time. `mode` is `off` (the channel takes nothing; a mention there is refused) or `mention`. `home: true` makes this channel the agent's home and clears the previous one; a DM is never home. A missing `ceiling` is the default: every Slack action, shown in full. The agent needs a live Slack app identity (409 SLACK_NOT_INSTALLED); a concurrent change to the same channel or home answers 409 REVISION_CONFLICT. No Slack call is made: the bot does not join the channel here. Owners, admins and the agent's admins; API keys are refused. Writes a `set_surface_binding` receipt.",
+    auth: "session",
+    body: "PutSlackBindingRequest",
+    success: { status: 200, schema: "PutSlackBindingResponse" },
+    errors: [400, 401, 403, 404, 409, 413, 503],
+    errorCodes: { 409: ["SLACK_NOT_INSTALLED", "REVISION_CONFLICT"] },
     idempotent: false,
   },
   {

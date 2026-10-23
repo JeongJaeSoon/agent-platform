@@ -171,6 +171,7 @@ export function SessionDetail({
         <PendingAnswers
           sessionId={id}
           items={pending.data.items}
+          answerable={pending.data.answerable}
           showEmpty={false}
           unavailable={unavailable}
           refusal={refusal}

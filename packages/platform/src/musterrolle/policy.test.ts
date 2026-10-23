@@ -867,7 +867,15 @@ describe("decision log", () => {
         entries.push(entry);
       },
     };
-    return { entries, policy: createAuthorizationPolicy({ decisions }) };
+    // SESSION is the member's own, so the member may answer it.
+    const sessions = {
+      visibleTo: async () => true,
+      originOf: async () => ({ creatorUserId: USER, creatorApiKeyId: null }),
+    };
+    return {
+      entries,
+      policy: createAuthorizationPolicy({ decisions, sessions }),
+    };
   }
 
   test("keeps every refusal with the request that asked", async () => {

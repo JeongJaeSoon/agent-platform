@@ -428,6 +428,13 @@
       "when": 1792753224270,
       "tag": "0151_secret_values",
       "breakpoints": true
+    },
+    {
+      "idx": 152,
+      "version": "7",
+      "when": 1792759217555,
+      "tag": "0152_surface_bindings",
+      "breakpoints": true
     }
   ]
 }

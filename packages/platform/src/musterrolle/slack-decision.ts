@@ -7,7 +7,6 @@ import {
   type SlackSurfaceAction,
   type SlackUser,
   type SurfaceCeiling,
-  type SurfaceChannelKind,
   slackNoticeFor,
   slackUserKindOf,
 } from "@werft-ai/contracts";
@@ -16,6 +15,7 @@ import type {
   SlackEventKey,
 } from "../ports/agent-identity-store.ts";
 import type { LinkedAccountStore } from "../ports/linked-account-store.ts";
+import type { SurfaceBindingStore } from "../ports/surface-binding-store.ts";
 import { agentForSlackEvent } from "./agent-identity-service.ts";
 import type { AuthorizationPolicy } from "./policy.ts";
 
@@ -26,22 +26,23 @@ export type SlackInput = {
   user: SlackUser;
   action: SlackSurfaceAction;
   /**
-   * A new conversation is asked of the binding (`id` null until bindings
-   * are stored); a follow-up or a button, of its session.
+   * Where it was typed or pressed. Every DM with the bot shares the
+   * install's one DM binding, so a DM's own channel id is not read.
+   */
+  channel: { id: string; dm: boolean };
+  /**
+   * A new conversation is asked of the channel's binding; a follow-up or a
+   * button, of its session.
    */
   resource:
-    | { kind: "surface_binding"; id: string | null; releaseId?: string }
+    | { kind: "surface_binding"; releaseId?: string }
     | { kind: "session" | "session_link"; id: string };
-  /** The channel's binding, handed in until 94S-177 stores it. */
-  binding: {
-    id?: string;
-    channelKind: SurfaceChannelKind;
-    ceiling: SurfaceCeiling;
-  };
   requestId: string;
   /** The web page where a person links their Slack account. */
   connectUrl: string;
 };
+
+const NO_CEILING: SurfaceCeiling = { actions: [], disclosure: "summary" };
 
 export type SlackDecision =
   // Not this agent's app, or the app is gone: nothing runs and nobody is told.
@@ -69,6 +70,7 @@ export async function authorizeSlackInput(
     authorization: AuthorizationPolicy;
     agents: Pick<AgentIdentityStore, "resolveSlackEvent">;
     links: Pick<LinkedAccountStore, "resolveLinkedSubject">;
+    bindings: Pick<SurfaceBindingStore, "resolveSlackChannel">;
   },
   input: SlackInput,
 ): Promise<SlackDecision> {
@@ -77,6 +79,16 @@ export async function authorizeSlackInput(
     return { status: "dropped", reason: agent.reason };
   }
   const { workspaceId, agentId } = agent;
+  const stored = await deps.bindings.resolveSlackChannel(
+    agent.installationId,
+    input.channel.dm ? null : input.channel.id,
+  );
+  // An unbound, switched-off or other agent's channel takes nothing. It is
+  // still decided, so the refusal is recorded and the person told.
+  const binding =
+    stored !== null && stored.mode !== "off" && stored.agentId === agentId
+      ? stored
+      : null;
 
   const linked = await deps.links.resolveLinkedSubject({
     provider: "slack",
@@ -101,12 +113,16 @@ export async function authorizeSlackInput(
         }),
     surface: {
       kind: "slack",
-      ...(input.binding.id === undefined
+      ...(binding === null
         ? {}
-        : { binding_id: input.binding.id }),
-      channel_kind: input.binding.channelKind,
+        : {
+            binding_id: binding.id,
+            ...(binding.channelKind === null
+              ? {}
+              : { channel_kind: binding.channelKind }),
+          }),
       slack_user_kind: slackUserKindOf(input.user, input.event.teamId),
-      ceiling: input.binding.ceiling,
+      ceiling: binding?.ceiling ?? NO_CEILING,
       agent_id: agentId,
     },
   };
@@ -115,17 +131,18 @@ export async function authorizeSlackInput(
     subject,
     action: input.action,
     resource:
-      resource.kind === "surface_binding" && resource.id === null
-        ? {
+      resource.kind !== "surface_binding"
+        ? { kind: resource.kind, id: resource.id, owner_scope: workspaceId }
+        : {
             kind: "surface_binding",
-            id: null,
             owner_scope: workspaceId,
-            agent_id: agentId,
+            ...(binding === null
+              ? { id: null, agent_id: agentId }
+              : { id: binding.id }),
             ...(resource.releaseId === undefined
               ? {}
               : { release_id: resource.releaseId }),
-          }
-        : { kind: resource.kind, id: resource.id, owner_scope: workspaceId },
+          },
     request_id: input.requestId,
   });
   return {

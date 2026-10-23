@@ -69,7 +69,7 @@ curl -sS "$API/v1/receipts/$(echo "$pushed" | jq -r .push_receipt_id)" -H "Autho
 | --- | --- |
 | 409 `CHECKPOINT_MOVED` | `git_commit` が固定された commit と異なる、またはリクエストの後にセッションが checkpoint を残し直した。このリクエストは[拒否](/approvals/reject)して、新しくリクエストする |
 | 409 `PUSH_REQUEST_DECIDED` | すでに判断済みのリクエストである |
-| 403 `FORBIDDEN` | キーに `sessions:approve` がない |
+| 403 `FORBIDDEN` | キーに `sessions:approve` がない、またはセッションを見ているだけで承認する人(作った人、エージェントの管理者、owner・admin)ではない |
 
 拒否された試行にも receipt が残る。エラー本文の `error.details.receipt_id` で読む。
 
