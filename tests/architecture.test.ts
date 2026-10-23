@@ -372,9 +372,15 @@ function withoutComments(source: string): string {
 const laterDeclarator =
   /,\s*([A-Z][\w$]*)\s*(?::[^=,;()]+)?=\s*(?:\(|async\b|function\b|[\w$.]*(?:memo|forwardRef)\()/g;
 
-/** Quoted strings blanked out, for rules that look for JSX rather than text. */
+/**
+ * Quoted strings blanked out, for rules that look for JSX rather than text. A
+ * quote right after a letter is an apostrophe in JSX text (Don't), not one.
+ */
 function withoutStrings(source: string): string {
-  return source.replace(/"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'/g, '""');
+  return source.replace(
+    /(?<![\w$\\])(?:"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*')/g,
+    '""',
+  );
 }
 
 /** Count of each web UI rule's matches, per file relative to apps/web/src. */
@@ -450,7 +456,7 @@ export async function webUiViolations(
       name,
       "link-constant",
       count(
-        /(?:\bconst\s+|,\s*)[A-Z0-9_]*LINK[A-Z0-9_]*\s*(?::[^=]+)?=\s*(["'`])(?=(?:(?!\1).)*(?:\btext-|\bunderline\b))/g,
+        /(?:\bconst\s+|,\s*)[A-Z0-9_]*LINK[A-Z0-9_]*\s*(?::[^=]+)?=\s*(["'`])(?=(?:(?!\1)[\s\S])*?(?:\btext-|\bunderline\b))/g,
       ),
     );
     add(name, "raw-destructive", count(/(?<![\w-])text-destructive(?![\w-])/g));
@@ -1190,6 +1196,7 @@ describe("architecture", () => {
           'const HOME_LINK = "/home";',
           'const HASH_LINK = "#help";',
           'const help = "Use <a> or <table> for these";',
+          "const Copy = () => <p>Don't worry, it's fine.</p>;",
           "function Screen({ title, Input = DefaultInput }) { return <Input />; }",
           "const CardProps = {};",
         ].join("\n"),
@@ -1199,6 +1206,10 @@ describe("architecture", () => {
         [
           'const LINK: string = "underline";',
           'const OTHER = 0, ROW_LINK = "hover:underline text-primary";',
+          "const NAV_LINK = `",
+          "  text-primary hover:underline",
+          "`;",
+          "const Help = () => <><p>Don't worry.</p><a href=\"/help\">Help</a><p>It's fine.</p></>;",
           "const unrelated = 0, Second = () => <div />;",
           "function APIError() { return <a/>; }",
         ].join("\n"),
@@ -1214,9 +1225,9 @@ describe("architecture", () => {
         ),
       ).toEqual({
         "dirty.tsx": {
-          "raw-anchor": 1,
+          "raw-anchor": 2,
           "shadow-component": 2,
-          "link-constant": 2,
+          "link-constant": 3,
         },
         "styles.css": { "legacy-class": 1 },
       });
