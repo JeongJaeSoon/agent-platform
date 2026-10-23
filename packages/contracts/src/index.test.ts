@@ -121,6 +121,27 @@ describe("session contracts", () => {
     expect(sessionSummarySchema.safeParse(missing).success).toBe(false);
   });
 
+  test("a summary from a server before titles reads title null", () => {
+    const { title: _omitted, ...older } = {
+      id: SESSION_ID,
+      title: "x",
+      revision: 0,
+      admission_state: "active",
+      status: "queued",
+      runtime: null,
+      repository_id: null,
+      current_turn_id: null,
+      queued_turn_count: 0,
+      last_event_at: null,
+      created_at: AT,
+      updated_at: AT,
+    };
+    expect(sessionSummarySchema.parse(older).title).toBeNull();
+    expect(
+      sessionSummarySchema.safeParse({ ...older, title: "" }).success,
+    ).toBe(false);
+  });
+
   test("summary runtime is a whole catalog entry or null, never a partial one", () => {
     const summary = {
       id: SESSION_ID,
