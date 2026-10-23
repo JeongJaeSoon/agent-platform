@@ -163,6 +163,31 @@ describe("Tooltip", () => {
     );
   });
 
+  test("처음부터 열린 툴팁은 첫 누르기로 닫힌다", async () => {
+    const user = await setupUser();
+    const changes: boolean[] = [];
+    const { getByRole } = render(
+      <Tooltip
+        defaultOpen={true}
+        onOpenChange={(open) => {
+          changes.push(open);
+        }}
+      >
+        <TooltipTrigger asChild={true}>
+          <button type="button">열림</button>
+        </TooltipTrigger>
+        <TooltipContent>처음부터 열림</TooltipContent>
+      </Tooltip>,
+    );
+    const note = () => document.querySelector('[data-slot="popover-content"]');
+    expect(note()).not.toBeNull();
+    await user.pointer([
+      { keys: "[TouchA]", target: getByRole("button", { name: "열림" }) },
+    ]);
+    await waitFor(() => expect(note()).toBeNull());
+    expect(changes.at(-1)).toBe(false);
+  });
+
   test("open을 넘기면 그 값대로 열려 있다", () => {
     render(
       <Tooltip open={true}>

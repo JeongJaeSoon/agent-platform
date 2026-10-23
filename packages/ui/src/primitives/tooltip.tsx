@@ -71,7 +71,9 @@ export function Tooltip({
     if (next !== open) onOpenChange?.(next);
   };
   const show = (by: OpenedBy) => {
-    openedBy.current ??= by;
+    // A note already open (defaultOpen, controlled) keeps no opener, so the
+    // next press closes it.
+    if (!open) openedBy.current ??= by;
     setOpen(true);
   };
   const hide = () => setOpen(false);
@@ -82,7 +84,10 @@ export function Tooltip({
     pressed.current = false;
     // A press on a note that hover or focus opened pins it rather than
     // closing it: a mouse hovers before it clicks, and a tap focuses first.
-    if (open && openedBy.current !== "press") {
+    if (
+      open &&
+      (openedBy.current === "hover" || openedBy.current === "focus")
+    ) {
       openedBy.current = "press";
       return;
     }
