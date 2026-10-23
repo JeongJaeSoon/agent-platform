@@ -1,13 +1,14 @@
 import type { JSX } from "react";
 
 import { cn } from "../foundations/cn.ts";
-import { guidanceFor } from "./error-guidance.ts";
 
 export interface ErrorStateProps {
   readonly title?: string | undefined;
+  /** What the reader should do next; shown before the message. */
+  readonly guidance?: string | undefined;
   /** The server's own message; shown under the instruction, never instead. */
   readonly message?: string | undefined;
-  /** `error.code` — branching and copy key on the code, not the HTTP status. */
+  /** An identifier the reader can quote when reporting the failure. */
   readonly code?: string | undefined;
   readonly retry?: (() => void) | undefined;
   readonly retryLabel?: string | undefined;
@@ -20,6 +21,7 @@ export interface ErrorStateProps {
 
 export function ErrorState({
   title = "문제가 생겼습니다",
+  guidance,
   message,
   code,
   retry,
@@ -27,8 +29,6 @@ export function ErrorState({
   evidenceLink,
   className,
 }: ErrorStateProps): JSX.Element {
-  const guidance = guidanceFor(code);
-
   return (
     <div
       className={cn("ap-state", "ap-state--error", className)}

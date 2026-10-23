@@ -3,13 +3,7 @@ import type {
   PendingRequest,
   SessionDetail as SessionDetailData,
 } from "@werft-ai/contracts";
-import {
-  ApprovalCard,
-  Button,
-  Composer,
-  ConfirmDialog,
-  QuestionCard,
-} from "@werft-ai/ui";
+import { Button, ConfirmDialog } from "@werft-ai/ui";
 import {
   type Dispatch,
   type ReactNode,
@@ -20,6 +14,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { ApprovalCard, Composer, QuestionCard } from "../components/index.ts";
 import {
   type SessionControl,
   useAnswer,

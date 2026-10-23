@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { presentTurnEvent } from "@werft-ai/contracts";
-import { StageIndicator } from "@werft-ai/ui";
+import { StageIndicator } from "@werft-ai/react/components";
 
 import { formatMessage } from "./session-fixtures.ts";
 

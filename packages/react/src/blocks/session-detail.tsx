@@ -9,18 +9,20 @@ import {
   Field,
   FieldLabel,
   formatTimestamp,
-  SessionStatusLabel,
-  StatusLabel,
   Tabs,
   TabsContent,
   TabsList,
   TabsTrigger,
-  Timeline,
-  type TimelineEntry,
-  turnSummaryText,
   useDetailLayout,
 } from "@werft-ai/ui";
 import { type ReactNode, useId, useMemo, useState } from "react";
+import {
+  SessionStatusLabel,
+  StatusLabel,
+  Timeline,
+  type TimelineEntry,
+  turnSummaryText,
+} from "../components/index.ts";
 import {
   type EventStreamState,
   type SessionEventFrame,

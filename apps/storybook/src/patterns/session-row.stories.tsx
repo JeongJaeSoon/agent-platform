@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { SessionRow, SessionTable, Skeleton } from "@werft-ai/ui";
+import { SessionRow, SessionTable } from "@werft-ai/react/components";
+import { Skeleton } from "@werft-ai/ui";
 
 import { SESSION, SESSION_ROW_MESSAGES } from "./session-fixtures.ts";
 

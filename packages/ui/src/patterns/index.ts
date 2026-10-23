@@ -7,6 +7,7 @@ export {
   type DestructiveActionDialogProps,
 } from "./destructive-action-dialog.tsx";
 export { EmptyState, type EmptyStateProps } from "./empty-state.tsx";
+export { ErrorState, type ErrorStateProps } from "./error-state.tsx";
 export { PageHeader, type PageHeaderProps } from "./page-header.tsx";
 export {
   Stepper,

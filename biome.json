@@ -155,6 +155,16 @@
           }
         }
       }
+    },
+    {
+      "includes": ["packages/react/src/**/*.test.tsx"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedGlobals": "off"
+          }
+        }
+      }
     }
   ]
 }

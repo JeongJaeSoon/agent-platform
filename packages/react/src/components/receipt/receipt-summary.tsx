@@ -4,11 +4,10 @@ import type {
   ReceiptStatus,
   ReceiptTarget,
 } from "@werft-ai/contracts";
+import { cn, formatTimestamp } from "@werft-ai/ui";
 import type { JSX, ReactNode } from "react";
 
 import { guidanceFor } from "../feedback/error-guidance.ts";
-import { cn } from "../foundations/cn.ts";
-import { formatTimestamp } from "../foundations/format-timestamp.ts";
 import { StatusLabel } from "../status/status-label.tsx";
 
 export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
