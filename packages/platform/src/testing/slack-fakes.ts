@@ -35,6 +35,10 @@ import type {
   SlackConfigTokenStore,
 } from "../ports/slack-config-token-store.ts";
 import type {
+  SlackInboundEventInput,
+  SlackInboundEventStore,
+} from "../ports/slack-inbound-event-store.ts";
+import type {
   SlackInstallState,
   SlackInstallStore,
 } from "../ports/slack-install-store.ts";
@@ -403,6 +407,25 @@ export function createMemorySlackAppStore(input: {
       const row = rows.get(slackAppId);
       return row && row.workspaceId === workspaceId ? record(row) : null;
     },
+    async findAgentApp(agentId) {
+      const row = [...rows.values()].find(
+        (candidate) =>
+          candidate.kind === "agent" &&
+          candidate.agentId === agentId &&
+          candidate.state === "created",
+      );
+      return row ? record(row) : null;
+    },
+    async manifestAgent(workspaceId, agentId) {
+      const agent = input.agents.get(agentId);
+      if (!agent || agent.workspaceId !== workspaceId) return null;
+      return {
+        id: agent.id,
+        name: agent.name,
+        slug: agent.slug,
+        role: agent.role,
+      };
+    },
     async findForAgent(workspaceId, agentId) {
       const row = live(workspaceId, agentId);
       return row ? record(row) : null;
@@ -487,6 +510,8 @@ export function createFakeSlackConfigApi(options?: {
     accessTokens: new Set<string>(),
     apps: new Map<string, { manifest: object; clientId: string }>(),
     calls: [] as { method: string; appId?: string }[],
+    /** What apps.manifest.update answers, as when a scope was added. */
+    permissionsUpdated: false,
     /** Replace one call's outcome, e.g. to throw a lost answer. */
     next: {} as {
       rotate?: Behaviour<RotatedConfigToken>;
@@ -558,7 +583,7 @@ export function createFakeSlackConfigApi(options?: {
         throw new SlackApiError("apps.manifest.update", "app_not_found", true);
       }
       app.manifest = manifest;
-      return { permissionsUpdated: false };
+      return { permissionsUpdated: state.permissionsUpdated };
     },
     async deleteApp(token, appId) {
       state.calls.push({ method: "apps.manifest.delete", appId });
@@ -638,7 +663,10 @@ export function createFakeSlackConfigApi(options?: {
 }
 
 /** Install links and installs, as the Postgres store keeps them. */
-export function createMemorySlackInstallStore() {
+export function createMemorySlackInstallStore(
+  options: { now?: () => Date } = {},
+) {
+  const now = options.now ?? (() => new Date());
   const states = new Map<string, SlackInstallState>();
   const installations = new Map<
     string,
@@ -647,6 +675,7 @@ export function createMemorySlackInstallStore() {
       workspaceId: string;
       status: "pending" | "verified" | "revoked";
       botUserId: string | null;
+      verifiedAt: Date | null;
     }
   >();
   const hex = (hash: Uint8Array) => Buffer.from(hash).toString("hex");
@@ -673,10 +702,28 @@ export function createMemorySlackInstallStore() {
         workspaceId: input.workspaceId,
         status: "pending" as const,
         botUserId: null,
+        verifiedAt: null,
       };
-      Object.assign(row, { status: "verified", botUserId: input.botUserId });
+      Object.assign(row, {
+        status: "verified",
+        botUserId: input.botUserId,
+        verifiedAt: now(),
+      });
       installations.set(key, row);
       return { outcome: "verified", installationId: row.id };
+    },
+    async revokeInstallation(key, sentAt) {
+      const row = installations.get(`${key.appId}|${key.teamId}`);
+      if (!row) return "not_found";
+      if (
+        sentAt &&
+        row.verifiedAt &&
+        row.verifiedAt.getTime() >= sentAt.getTime() + 1000
+      ) {
+        return "superseded";
+      }
+      row.status = "revoked";
+      return "revoked";
     },
   };
   return { store, states, installations };
@@ -745,7 +792,68 @@ export function createMemoryAgentIdentityStore(
     },
     revoke: unused,
     list: unused,
-    resolveSlackEvent: unused,
+    // The Postgres store's checks, in its order.
+    async resolveSlackEvent(key) {
+      const installation = installations.get(`${key.appId}|${key.teamId}`);
+      if (!installation) return { status: "dropped", reason: "not_installed" };
+      if (installation.status === "revoked") {
+        return { status: "dropped", reason: "installation_revoked" };
+      }
+      if (installation.status !== "verified") {
+        return { status: "dropped", reason: "installation_unverified" };
+      }
+      const identity =
+        identities.find(
+          (row) =>
+            row.installationId === installation.id && row.status === "active",
+        ) ??
+        [...identities]
+          .reverse()
+          .find((row) => row.installationId === installation.id);
+      if (!identity) return { status: "dropped", reason: "unidentified" };
+      if (identity.status !== "active") {
+        return { status: "dropped", reason: "identity_revoked" };
+      }
+      if (identity.externalPrincipalId !== installation.botUserId) {
+        return { status: "dropped", reason: "bot_mismatch" };
+      }
+      if (archived.has(identity.agentId)) {
+        return { status: "dropped", reason: "agent_archived" };
+      }
+      return {
+        status: "resolved",
+        workspaceId: identity.workspaceId,
+        agentId: identity.agentId,
+        identity: { id: identity.id, revision: identity.revision },
+        installationId: installation.id,
+        botUserId: identity.externalPrincipalId,
+        credentialRef: identity.credentialRef,
+      };
+    },
   };
   return { store, identities, receipts, archived };
+}
+
+export function createMemorySlackInboundEventStore() {
+  const rows = new Map<string, SlackInboundEventInput>();
+  const calls = { seen: 0, record: 0 };
+  const faults = { record: 0 };
+  const store: SlackInboundEventStore = {
+    async seen(teamId, eventId) {
+      calls.seen += 1;
+      return rows.has(`${teamId}|${eventId}`);
+    },
+    async record(event) {
+      calls.record += 1;
+      if (faults.record > 0) {
+        faults.record -= 1;
+        throw new Error("inbox write failed");
+      }
+      const key = `${event.teamId}|${event.eventId}`;
+      if (rows.has(key)) return "duplicate";
+      rows.set(key, event);
+      return "recorded";
+    },
+  };
+  return { store, rows, calls, faults };
 }

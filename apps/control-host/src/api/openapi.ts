@@ -134,6 +134,9 @@ import {
   slackAppParamsSchema,
   slackAppSecretParamsSchema,
   slackConfigTokenSummarySchema,
+  slackEventEnvelopeSchema,
+  slackEventsParamsSchema,
+  slackEventsResponseSchema,
   slackGuestRequestSchema,
   slackGuestResponseSchema,
   slackLinkCallbackRequestSchema,
@@ -211,6 +214,7 @@ const requestComponents = {
   PutSlackSecretRequest: putSlackSecretRequestSchema,
   CreateSlackAppRequest: createSlackAppRequestSchema,
   CompleteSlackInstallRequest: completeSlackInstallRequestSchema,
+  SlackEventEnvelope: slackEventEnvelopeSchema,
   CreateAgentRequest: createAgentRequestSchema,
   UpdateAgentRequest: updateAgentRequestSchema,
   CreateAgentReleaseRequest: createAgentReleaseRequestSchema,
@@ -283,6 +287,7 @@ const responseComponents = {
   DeleteSlackAppResponse: deleteSlackAppResponseSchema,
   StartSlackInstallResponse: startSlackInstallResponseSchema,
   CompleteSlackInstallResponse: completeSlackInstallResponseSchema,
+  SlackEventsResponse: slackEventsResponseSchema,
   PasswordResetResponse: passwordResetResponseSchema,
   AuthMeResponse: authMeResponseSchema,
   InstallationLimitsResponse: installationLimitsResponseSchema,
@@ -2759,6 +2764,7 @@ export const API_ROUTE_DECLARATIONS = [
         },
         receipt_id: "9c1e3a5b-7d8f-4e0a-8b1c-8b0c2d4e6f7a",
         finalized: true,
+        warnings: [],
       },
     },
     errors: [400, 401, 403, 404, 409, 413, 503],
@@ -2779,6 +2785,41 @@ export const API_ROUTE_DECLARATIONS = [
       BACKEND_UNAVAILABLE:
         "Also when the API runs without a master key (PLATFORM_SECRET_KEY), or Slack could not be reached; start again.",
     },
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/slack/events/{agent_id}",
+    operationId: "receiveSlackEvent",
+    tag: "Agents",
+    summary: "Slack's Events API request URL for one agent's app",
+    description:
+      "Called by Slack, not by people: each agent app's event subscription points here (Finalize registers it when SLACK_EVENTS_PUBLIC_URL is set). The body is read up to 256 KiB (413 above that), then checked in this order: the `v0` signature (`X-Slack-Signature`) over the raw bytes with the app's signing secret, the `X-Slack-Request-Timestamp` within 300 seconds, then the JSON. An unknown agent, an agent without a created app, an app without a signing secret, a wrong, missing or stale signature all answer the same 401. A signed `url_verification` answers its `challenge`. An `event_callback` is stored once per `(team_id, event_id)`, so Slack's retries (`X-Slack-Retry-Num`) answer 200 without a second row; one for another app or team than the agent's install, from a bot, or of a message subtype other than `thread_broadcast`, is stored as dropped with its reason. `app_uninstalled` and `tokens_revoked` mark the install revoked. Any other envelope type answers 200 and is ignored. A failed write answers 5xx so Slack sends the event again. Rate limited per agent and overall before any database read (429).",
+    auth: "public",
+    body: "SlackEventEnvelope",
+    requestExample: {
+      token: "legacy-verification-token",
+      team_id: "T0A1B2C3D",
+      api_app_id: EXAMPLE_SLACK_APP.app_id,
+      event: {
+        type: "app_mention",
+        user: "U0PERSON1",
+        text: "<@U0B1C2D3E> summarize this thread",
+        channel: "C0CHANNEL1",
+        ts: "1761300000.000100",
+      },
+      type: "event_callback",
+      event_id: "Ev0A1B2C3D4E",
+      event_time: 1761300000,
+    },
+    success: {
+      status: 200,
+      schema: "SlackEventsResponse",
+      description:
+        '`{"challenge": ...}` for a url_verification, `{"ok": true}` for everything else that was signed.',
+      example: { ok: true },
+    },
+    errors: [400, 401, 413, 429, 503],
     idempotent: false,
   },
   {
@@ -3276,6 +3317,7 @@ function paramsSchemaFor(path: string): z.ZodObject {
   }
   if (path.startsWith("/v1/linked-accounts/{id}"))
     return linkedAccountParamsSchema;
+  if (path === "/v1/slack/events/{agent_id}") return slackEventsParamsSchema;
   throw new Error(`No params schema registered for ${path}`);
 }
 
