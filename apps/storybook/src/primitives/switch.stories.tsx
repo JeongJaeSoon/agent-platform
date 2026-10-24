@@ -65,7 +65,7 @@ export const DisabledOn: Story = {
   args: { disabled: true, defaultChecked: true },
 };
 
-/** While saving: looks disabled but keeps focus and refuses the toggle. */
+/** While saving: full colour with a spinner in the thumb; keeps focus and refuses the toggle. */
 export const Busy: Story = {
   args: { "aria-disabled": true, defaultChecked: true },
 };
@@ -132,4 +132,13 @@ export const StatesMobile: Story = {
   ...States,
   name: "States (390px)",
   globals: { viewport: { value: "mobile390", isRotated: false } },
+};
+
+export const StatesMobileDark: Story = {
+  ...States,
+  name: "States (390px, dark)",
+  globals: {
+    theme: "dark",
+    viewport: { value: "mobile390", isRotated: false },
+  },
 };

@@ -330,7 +330,7 @@ describe("tokens.css", () => {
     expect(ratios.filter((line) => !line.endsWith("ok"))).toEqual([]);
   });
 
-  test("링크·상태 점·채운 위험 버튼이 바탕에서 AA를 넘는다", () => {
+  test("링크·상태 점·채운 위험 버튼·켜진 Switch가 바탕에서 AA를 넘는다", () => {
     // Link text 4.5:1; a dot is a graphic, 3:1 (WCAG 1.4.11).
     const DOTS = ["wait", "run", "idle", "done", "failed"].map(
       (state) => `--ap-color-status-dot-${state}`,
@@ -350,6 +350,16 @@ describe("tokens.css", () => {
         4.5,
       ],
       ["--ap-color-focus-ring", "--ap-color-surface", 3],
+      // An on switch: the track on the page, the surface thumb on the track.
+      ...[
+        "--ap-color-surface",
+        "--ap-color-sidebar",
+        "--ap-color-surface-sunken",
+      ].map((surface): [string, string, number] => [
+        "--ap-color-control-checked",
+        surface,
+        3,
+      ]),
     ];
     const themes: [string, Map<string, string>][] = [
       [
