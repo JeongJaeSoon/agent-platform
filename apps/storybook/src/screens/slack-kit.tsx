@@ -6,12 +6,11 @@ import {
   FieldDescription,
   FieldLabel,
   Link,
-  NativeSelect,
-  NativeSelectOptGroup,
-  NativeSelectOption,
   RowListItem,
+  SearchInput,
   Textarea,
 } from "@werft-ai/ui";
+import { Check } from "lucide-react";
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 
 /*
@@ -274,12 +273,15 @@ export interface ChannelGroup {
   readonly options: readonly ChannelOption[];
 }
 
+const CHANNEL_PAGE = 5;
+
 /**
- * Stand-in for the channel Combobox: NativeSelect cannot search or give an
- * option a second line, so the note follows the name and the groups are
- * optgroups. It starts at "선택 없음".
+ * Stand-in for the channel Combobox: a search field over an always-open
+ * listbox. Typing filters the fixed demo channels by name; the list shows
+ * CHANNEL_PAGE matches at a time and "더 보기" adds the next page. How the
+ * product fetches the matches is not drawn here.
  */
-export function ChannelSelect({
+export function ChannelCombobox({
   label,
   groups,
   value,
@@ -292,35 +294,119 @@ export function ChannelSelect({
   readonly onChange: (value: string) => void;
   readonly description?: ReactNode;
 }) {
-  const empty = groups.every((group) => group.options.length === 0);
+  const [query, setQuery] = useState("");
+  const [shown, setShown] = useState(CHANNEL_PAGE);
+  const [active, setActive] = useState(-1);
+  const listId = useId();
+  const optionId = useId();
+  const hintId = useId();
+  const needle = query.trim().replace(/^#/, "").toLowerCase();
+  // Each note already says 공개 or 비공개, so the group label is not repeated.
+  const matches = groups.flatMap((group) =>
+    group.options.filter((option) =>
+      option.name.replace(/^#/, "").toLowerCase().includes(needle),
+    ),
+  );
+  const visible = matches.slice(0, shown);
+  const pick = (index: number) => {
+    const option = visible[index];
+    if (!option || option.disabled) return;
+    onChange(option.name);
+    setActive(index);
+  };
+  const search = (next: string) => {
+    setQuery(next);
+    setShown(CHANNEL_PAGE);
+    setActive(-1);
+  };
   return (
     <Field>
-      <FieldLabel>{label}</FieldLabel>
-      <NativeSelect
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      >
-        <NativeSelectOption value="">선택 없음</NativeSelectOption>
-        {groups
-          .filter((group) => group.options.length > 0)
-          .map((group) => (
-            <NativeSelectOptGroup key={group.label} label={group.label}>
-              {group.options.map((option) => (
-                <NativeSelectOption
-                  key={option.name}
-                  value={option.name}
-                  disabled={option.disabled}
-                >
-                  {`${option.name} — ${option.note}`}
-                </NativeSelectOption>
-              ))}
-            </NativeSelectOptGroup>
+      <FieldLabel htmlFor={`${listId}-input`}>{label}</FieldLabel>
+      <SearchInput
+        id={`${listId}-input`}
+        role="combobox"
+        aria-label={`${label} 검색`}
+        aria-expanded="true"
+        aria-controls={listId}
+        aria-autocomplete="list"
+        aria-activedescendant={
+          active >= 0 && active < visible.length
+            ? `${optionId}-${active}`
+            : undefined
+        }
+        aria-describedby={hintId}
+        placeholder="채널 이름으로 검색"
+        autoComplete="off"
+        wrapperClassName="max-w-none flex-none"
+        value={query}
+        onChange={(event) => search(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+            event.preventDefault();
+            const step = event.key === "ArrowDown" ? 1 : -1;
+            setActive((current) =>
+              Math.min(Math.max(current + step, 0), visible.length - 1),
+            );
+          } else if (event.key === "Enter" && active >= 0) {
+            event.preventDefault();
+            pick(active);
+          }
+        }}
+      />
+      <div className="flex flex-col rounded-md border">
+        <div
+          id={listId}
+          role="listbox"
+          aria-label={`${label} 후보`}
+          className="flex flex-col p-1"
+        >
+          {visible.map((option, index) => (
+            <Button
+              key={option.name}
+              id={`${optionId}-${index}`}
+              type="button"
+              variant="ghost"
+              role="option"
+              tabIndex={-1}
+              aria-selected={option.name === value}
+              aria-disabled={option.disabled || undefined}
+              data-active={index === active || undefined}
+              onClick={() => pick(index)}
+              className="h-auto justify-between gap-3 px-2 py-1.5 text-left font-normal aria-disabled:cursor-not-allowed aria-disabled:opacity-60 aria-selected:bg-accent data-active:bg-accent"
+            >
+              <div className="flex min-w-0 flex-col">
+                <div className="font-medium">{option.name}</div>
+                <div className="text-caption text-muted-foreground">
+                  {option.note}
+                </div>
+              </div>
+              {option.name === value ? (
+                <Check aria-hidden="true" strokeWidth={1.5} />
+              ) : null}
+            </Button>
           ))}
-      </NativeSelect>
-      {empty ? (
-        <FieldDescription>맞는 채널이 없습니다.</FieldDescription>
-      ) : null}
-      {description ? <FieldDescription>{description}</FieldDescription> : null}
+        </div>
+        {matches.length === 0 ? (
+          <div className={`${MUTED_TEXT} px-3 pb-2.5`}>
+            맞는 채널이 없습니다.
+          </div>
+        ) : null}
+        {matches.length > shown ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="rounded-t-none border-t"
+            onClick={() => setShown((current) => current + CHANNEL_PAGE)}
+          >
+            더 보기 ({matches.length - shown}개 남음)
+          </Button>
+        ) : null}
+      </div>
+      <FieldDescription id={hintId}>
+        {value ? `고른 채널: ${value}` : "아직 고르지 않았습니다."}
+        {description ? ` ${description}` : ""}
+      </FieldDescription>
     </Field>
   );
 }
@@ -399,7 +485,7 @@ export function SlackConnectCard({
         <div className={ACTIONS}>
           {later}
           <Button type="button" onClick={() => onStep("allowed")}>
-            Slack에서 허용
+            Slack에 설치
           </Button>
         </div>
       </>
@@ -419,7 +505,7 @@ export function SlackConnectCard({
         <div className={ACTIONS}>
           {later}
           <ReasonButton
-            label="Slack에서 허용"
+            label="Slack에 설치"
             reason="token이 저장되면 누를 수 있습니다"
           />
         </div>
@@ -428,7 +514,7 @@ export function SlackConnectCard({
     pick: (
       <>
         <OutcomeStandIn>Slack에 설치했습니다 · {bot}</OutcomeStandIn>
-        <ChannelSelect
+        <ChannelCombobox
           label="홈 채널"
           groups={channels}
           value={picked}

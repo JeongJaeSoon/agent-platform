@@ -36,8 +36,8 @@ import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 
 import { MOBILE, PartRequest, ScreenShell } from "./screen-kit.tsx";
 import {
+  ChannelCombobox,
   type ChannelGroup,
-  ChannelSelect,
   type ConnectStep,
   DetailRailSectionStandIn,
   DetailRailStandIn,
@@ -75,7 +75,17 @@ const REQUEST = {
   at: "2026. 10. 23. 15:02",
 };
 const PUBLIC_JOINED = [HOME, "#dev-platform"];
-const PUBLIC_UNJOINED = ["#general", "#random"];
+// More than one ChannelCombobox page, so the add dialog shows "더 보기".
+const PUBLIC_UNJOINED = [
+  "#general",
+  "#random",
+  "#design",
+  "#eng-announce",
+  "#incident",
+  "#marketing",
+  "#qa",
+  "#support",
+];
 const PUBLIC = [...PUBLIC_JOINED, ...PUBLIC_UNJOINED];
 const APP_ID = "A07PLACEHLD";
 const EVENT_URL =
@@ -676,23 +686,7 @@ function AgentDetailScreen(props: ScreenProps) {
   );
 
   const homeMark = (name: string) =>
-    name === home ? (
-      <Badge>홈 채널</Badge>
-    ) : (
-      <Button
-        type="button"
-        variant="link"
-        size="sm"
-        className="h-auto px-0 font-normal text-link"
-        aria-label={`${name} 홈 채널로 지정하기`}
-        onClick={() => {
-          openDialog("home");
-          setHomePick(name);
-        }}
-      >
-        홈 채널로 지정하기 →
-      </Button>
-    );
+    name === home ? <Badge>홈 채널</Badge> : undefined;
   const channels = (
     <>
       {pending ? (
@@ -721,15 +715,25 @@ function AgentDetailScreen(props: ScreenProps) {
       <Section
         title="연결된 채널"
         action={
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => openDialog("add")}
-          >
-            <Plus aria-hidden="true" strokeWidth={1.5} />
-            채널 추가
-          </Button>
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => openDialog("home")}
+            >
+              홈 지정
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => openDialog("add")}
+            >
+              <Plus aria-hidden="true" strokeWidth={1.5} />
+              채널 추가
+            </Button>
+          </div>
         }
       >
         <RowList variant="joined">
@@ -1198,7 +1202,7 @@ function AgentDetailScreen(props: ScreenProps) {
           );
         }}
       >
-        <ChannelSelect
+        <ChannelCombobox
           label="홈 채널"
           groups={homeGroups}
           value={homePick}
@@ -1226,7 +1230,7 @@ function AgentDetailScreen(props: ScreenProps) {
         }}
       >
         <div className="flex flex-col gap-4">
-          <ChannelSelect
+          <ChannelCombobox
             label="채널"
             groups={addGroups}
             value={addPick}
