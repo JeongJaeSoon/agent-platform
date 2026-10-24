@@ -990,7 +990,7 @@ function RecentSessionTable({
           <GridTableColumnHeader hideNarrow={true}>
             {t("home.recent.repository")}
           </GridTableColumnHeader>
-          <GridTableColumnHeader align="end" className="whitespace-nowrap">
+          <GridTableColumnHeader align="end" className="text-right">
             {t("home.recent.activity")}
           </GridTableColumnHeader>
         </GridTableHeader>
@@ -1122,7 +1122,7 @@ function RecentRow({
       <GridTableCell
         align="end"
         raised={true}
-        className="whitespace-nowrap text-muted-foreground"
+        className="text-right text-muted-foreground"
       >
         <RelativeTime value={at} locale={locale} now={now} />
       </GridTableCell>
