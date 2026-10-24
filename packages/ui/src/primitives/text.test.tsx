@@ -92,5 +92,22 @@ describe("Text", () => {
     expect(classes).toContain("mt-1");
     expect(classes).toContain("text-caption");
     expect(classes).not.toContain("text-control");
+    expect(classes).toContain("leading-5");
+  });
+
+  test("호출자의 크기 클래스가 variant의 줄을 지우지 않고, 호출자의 leading은 그것을 대신한다", () => {
+    const meta = classesOf({ variant: "meta", className: "text-caption" });
+    expect(meta).toContain("leading-normal");
+    const own = classesOf({ variant: "meta", className: "md:leading-5" });
+    expect(own).toContain("md:leading-5");
+    expect(own).not.toContain("leading-normal");
+  });
+
+  test("span으로 자를 때는 잘릴 상자를 만든다", () => {
+    const span = classesOf({ as: "span", truncate: true });
+    for (const name of ["truncate", "inline-block", "max-w-full"])
+      expect(span).toContain(name);
+    const p = classesOf({ truncate: true });
+    expect(p).not.toContain("inline-block");
   });
 });

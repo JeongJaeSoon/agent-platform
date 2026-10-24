@@ -1,6 +1,7 @@
 import type { ComponentProps, JSX } from "react";
 
 import { cn } from "../foundations/cn.ts";
+import { withLeading } from "./leading.ts";
 
 // Mockup v4's names. Its "body" is 13px, which is Tailwind's `text-control`
 // here: the `text-body` key is v4's 14px section size.
@@ -51,16 +52,20 @@ export function Text({
     <Tag
       data-slot="text"
       data-variant={variant}
-      className={cn(
-        "m-0",
-        // One size class, then the line: a later size would drop the line.
-        mono ? "font-mono text-caption" : size,
+      className={withLeading(
+        cn(
+          "m-0",
+          mono ? "font-mono text-caption" : size,
+          weight === "medium" ? "font-medium text-foreground" : "font-normal",
+          weight === "medium" ? null : tone,
+          numeric && "tabular-nums",
+          truncate && "min-w-0 truncate",
+          // An inline span has no box to clip; align-bottom keeps it on the
+          // line's baseline once overflow is hidden.
+          truncate && Tag === "span" && "inline-block max-w-full align-bottom",
+          className,
+        ),
         leading,
-        weight === "medium" ? "font-medium text-foreground" : "font-normal",
-        weight === "medium" ? null : tone,
-        numeric && "tabular-nums",
-        truncate && "min-w-0 truncate",
-        className,
       )}
       {...props}
     />

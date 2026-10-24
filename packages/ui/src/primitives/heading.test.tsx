@@ -56,5 +56,18 @@ describe("Heading", () => {
     expect(classesOf(heading)).toContain("text-caption");
     expect(classesOf(heading)).toContain("mb-2");
     expect(classesOf(heading)).not.toContain("text-body");
+    // A caller's size keeps the part's line.
+    expect(classesOf(heading)).toContain("leading-5");
+  });
+
+  test("호출자의 leading은 부품의 줄을 대신한다", () => {
+    const { getByRole } = render(
+      <Heading size="title" className="leading-5">
+        제목
+      </Heading>,
+    );
+    const classes = classesOf(getByRole("heading"));
+    expect(classes).toContain("leading-5");
+    expect(classes).not.toContain("leading-7");
   });
 });

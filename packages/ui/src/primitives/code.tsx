@@ -1,6 +1,7 @@
 import type { ComponentProps, JSX } from "react";
 
 import { cn } from "../foundations/cn.ts";
+import { withLeading } from "./leading.ts";
 
 export type CodeProps = ComponentProps<"code">;
 
@@ -29,9 +30,12 @@ export function CodeBlock({
   return (
     <pre
       data-slot="code-block"
-      className={cn(
-        "m-0 whitespace-pre-wrap wrap-anywhere rounded-control border bg-muted px-3 py-2 font-mono font-normal text-caption text-foreground leading-[1.6]",
-        className,
+      className={withLeading(
+        cn(
+          "m-0 whitespace-pre-wrap wrap-anywhere rounded-control border bg-muted px-3 py-2 font-mono font-normal text-caption text-foreground",
+          className,
+        ),
+        "leading-[1.6]",
       )}
       {...props}
     >

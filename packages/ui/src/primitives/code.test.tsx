@@ -79,4 +79,15 @@ describe("CodeBlock", () => {
     expect(classesOf(pre)).toContain("bg-background");
     expect(classesOf(pre)).not.toContain("bg-muted");
   });
+
+  test("호출자의 크기 클래스가 1.6 줄을 지우지 않는다", () => {
+    const { container } = render(
+      <CodeBlock className="text-control">ok</CodeBlock>,
+    );
+    const classes = classesOf(
+      container.querySelector("[data-slot=code-block]"),
+    );
+    expect(classes).toContain("text-control");
+    expect(classes).toContain("leading-[1.6]");
+  });
 });

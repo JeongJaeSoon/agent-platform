@@ -1,12 +1,13 @@
 import type { ComponentProps, JSX } from "react";
 
 import { cn } from "../foundations/cn.ts";
+import { withLeading } from "./leading.ts";
 
+// v4 `.page-title`: 20px on a 28px line, -0.4px tracking. `.section-title`
+// and `.card-title`: 14px on a 20px line.
 const HEADING_SIZE = {
-  // v4 `.page-title`: 20px on a 28px line, -0.4px tracking.
-  title: "text-title",
-  // v4 `.section-title` and `.card-title`: 14px on a 20px line.
-  section: "text-body leading-5",
+  title: { size: "text-title", leading: "leading-7" },
+  section: { size: "text-body", leading: "leading-5" },
 } as const;
 
 export type HeadingProps = ComponentProps<"h2"> & {
@@ -30,10 +31,13 @@ export function Heading({
     <Tag
       data-slot="heading"
       data-size={size}
-      className={cn(
-        "m-0 font-semibold text-foreground",
-        HEADING_SIZE[size],
-        className,
+      className={withLeading(
+        cn(
+          "m-0 font-semibold text-foreground",
+          HEADING_SIZE[size].size,
+          className,
+        ),
+        HEADING_SIZE[size].leading,
       )}
       {...props}
     />

@@ -89,6 +89,11 @@ export const Truncate: Story = {
         <Text variant="meta" truncate>
           {copy.long}
         </Text>
+        <div>
+          <Text as="span" variant="sub" truncate>
+            {copy.long}
+          </Text>
+        </div>
       </div>
     );
   },
