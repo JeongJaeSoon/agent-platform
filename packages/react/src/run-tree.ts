@@ -1,5 +1,6 @@
 import type { SessionEventFrame } from "@werft-ai/client";
 import type { StatusEventPhase } from "@werft-ai/contracts";
+import type { RunStatus, ToolCallState } from "./components/agent-map/types.ts";
 
 /*
  * One session's events as the tree the agent map's relation panel draws: the
@@ -9,16 +10,6 @@ import type { StatusEventPhase } from "@werft-ai/contracts";
  * frames arrive in or on a frame arriving twice: where two frames disagree,
  * the earlier one by (occurredAt, id) wins.
  */
-
-/** "interrupted": its turn or the session ended before a result came. */
-export type ToolCallState =
-  | "ok"
-  | "error"
-  | "running"
-  | "waiting"
-  | "interrupted";
-/** The same values as the ui's StatusDotStatus. */
-export type RunStatus = "wait" | "run" | "idle" | "done" | "failed";
 
 export interface ToolNode {
   /** The tool_use id. */
