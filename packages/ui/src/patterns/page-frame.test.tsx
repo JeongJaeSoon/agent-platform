@@ -15,9 +15,8 @@ describe("PageFrame", () => {
     const frame = container.querySelector('[data-slot="page-frame"]');
     for (const gutter of [
       "p-4",
-      "pt-6",
       "md:px-6",
-      "md:pt-[var(--ap-space-page-top)]",
+      "md:py-[var(--ap-space-page-top)]",
       "flex-1",
     ]) {
       expect(frame?.className.split(" ")).toContain(gutter);

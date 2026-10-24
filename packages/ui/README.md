@@ -164,7 +164,7 @@ Tailwind에는 `theme.css`가 이어 붙인다(`--color-surface: var(--ap-color-
 
 | 사이 | 값 |
 |---|---|
-| topbar 아래 → 페이지 제목 | `--ap-space-page-top` 32px(390px 폭은 16px) |
+| topbar 아래 → 페이지 제목, 마지막 섹션 → 페이지 끝 | `--ap-space-page-top` 24px. 768px 미만은 상하좌우 모두 16px |
 | 페이지 머리(제목·설명) → 첫 섹션 | `--ap-space-page-head` 24px |
 | 섹션 ↔ 섹션 | `--ap-space-section` 32px. 상세 화면의 패널과 본문이 위아래로 쌓여도 두 섹션으로 본다 |
 | 섹션 안 블록 ↔ 블록, 섹션 제목 → 내용 | `--ap-space-block` 16px |
