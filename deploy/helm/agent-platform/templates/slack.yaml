@@ -50,6 +50,11 @@ spec:
               value: {{ .Values.slack.batchSize | quote }}
             - name: SLACK_ROLE_LEASE_SEC
               value: {{ .Values.slack.leaseSec | quote }}
+            # It creates sessions (94S-791), under the api's limits.
+            {{- range $name, $value := .Values.config.limits }}
+            - name: {{ $name }}
+              value: {{ $value | toString | quote }}
+            {{- end }}
             - name: LOG_LEVEL
               value: {{ .Values.config.logLevel | quote }}
             - name: PLATFORM_CONFIG_DIR
