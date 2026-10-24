@@ -411,13 +411,9 @@ function AgentDetailScreen(props: ScreenProps) {
   // A channel the bot joins starts on the default reaction, whichever dialog
   // joined it.
   const join = (channel: string) => {
-    if (!PUBLIC.includes(channel)) return;
-    setJoined((current) =>
-      current.includes(channel) ? current : [...current, channel],
-    );
-    setReactions((current) =>
-      channel in current ? current : { ...current, [channel]: defaultReaction },
-    );
+    if (!PUBLIC.includes(channel) || joined.includes(channel)) return;
+    setJoined((current) => [...current, channel]);
+    setReactions((current) => ({ ...current, [channel]: defaultReaction }));
   };
   // Each channel keeps the reaction it was connected with; changing the
   // default only applies to channels connected afterwards.
