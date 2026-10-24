@@ -194,7 +194,7 @@ function NameButton({
       type="button"
       className={cn(
         linkVariants(),
-        "grid w-fit max-w-full grid-cols-[minmax(0,auto)_auto_auto] items-center gap-y-[var(--ap-row-line-gap)] text-left font-medium text-foreground focus-visible:underline @max-md:grid-cols-[minmax(0,auto)_auto]",
+        "grid w-fit max-w-full grid-cols-[minmax(0,auto)_auto] items-center gap-y-[var(--ap-row-line-gap)] text-left font-medium text-foreground focus-visible:underline @max-md:grid-cols-[minmax(0,auto)]",
       )}
       onClick={onClick}
     >
@@ -205,7 +205,6 @@ function NameButton({
           {badge}
         </span>
       ) : null}
-      <span aria-hidden="true">&nbsp;›</span>
     </button>
   );
 }
@@ -452,7 +451,7 @@ function TeamsTab({
                   <TableRow key={team.id}>
                     <TableCell>
                       <Link href="#team" className="focus-visible:underline">
-                        {team.name} ›
+                        {team.name}
                       </Link>
                     </TableCell>
                     <TableCell>{team.members}명</TableCell>
@@ -620,7 +619,7 @@ function TeamDetailView({
                 <TableRow key={agent.name}>
                   <TableCell>
                     <Link href="#agent" className="focus-visible:underline">
-                      {agent.name} ›
+                      {agent.name}
                     </Link>
                   </TableCell>
                   <TableCell>

@@ -100,7 +100,7 @@ function ApprovalInboxGroupsBody({ state }: { readonly state: GroupState }) {
                 href={`#/sessions/${SESSION_ID}`}
                 aria-label={SESSION_ID.slice(0, 8)}
               >
-                {SESSION_ID.slice(0, 8)} ›
+                {SESSION_ID.slice(0, 8)}
               </Link>
             }
             messages={{
