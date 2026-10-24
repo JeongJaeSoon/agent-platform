@@ -205,7 +205,7 @@ const approver = werft.withOptions({ apiKey: approverKey });
 | `sessions.pushRequests.create` · `list` · `get` · `decide` · `openPullRequest` · `commentPullRequest` | [Push approval](/approvals/request) and PRs |
 | `receipts.get`, `auth.me`, `limits.get`, `profiles.list`, `root.get` | receipt, my info, limits, profiles, health |
 
-`sessions.list` and `turns.list` give the first page when you `await` them and every item when you use `for await`. Field names are snake_case, the same as the API. APIs that are called only with a web login, such as agent, member, and key management, are not wrapped.
+`sessions.list` and `turns.list` give the first page when you `await` them and every item when you use `for await`. Field names are snake_case, the same as the API. APIs that are called only with a web login, such as agent, member, and key management, are not wrapped. `limits.get` is readable only by the signed-in workspace owner, so it answers 403 to an API key.
 
 ## Examples in the repository
 
