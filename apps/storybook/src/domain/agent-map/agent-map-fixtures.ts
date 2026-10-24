@@ -224,7 +224,7 @@ export const NODES: Readonly<Record<string, readonly MapNode[]>> = {
 };
 
 /**
- * 가칭(provisional): an agent-to-agent message in the smallest shape the map
+ * Provisional: an agent-to-agent message in the smallest shape the map
  * needs until the agent-network design review settles the record.
  */
 export interface DraftAgentMessage {
@@ -239,7 +239,6 @@ export interface DraftAgentMessage {
   readonly body: string;
 }
 
-/** The sessions s1's messages go to or come from. */
 const PEERS: Readonly<
   Record<string, Pick<MapSessionNode, "agent" | "title" | "status">>
 > = {

@@ -18,7 +18,6 @@ export function laneOf(session: MapSession): Lane {
     return "attention";
   if (session.status === "running") return "running";
   if (session.status === "queued") return "queued";
-  // Idle is open and waiting for the next message, not finished.
   if (session.status === "idle") return "idle";
   return "done";
 }

@@ -165,8 +165,8 @@ describe("RelationGraph", () => {
     );
     expect(view.queryByText("Task")).toBeNull();
     expect(view.getByText("응답 대기")).toBeTruthy();
-    // The badge, and the held chip's spoken state.
-    expect(view.getAllByText("승인 대기")).toHaveLength(2);
+    expect(view.getByText("승인 대기", { ignore: ".sr-only" })).toBeTruthy();
+    expect(view.getByText("승인 대기", { selector: ".sr-only" })).toBeTruthy();
     expect(view.getByText("보안 검토 봇 · peer request")).toBeTruthy();
   });
 });
@@ -226,6 +226,13 @@ describe("LaneBoard", () => {
 });
 
 describe("AgentMap", () => {
+  test("only the agent-map entry exports it, so other screens' bundles skip the graph", async () => {
+    for (const barrel of ["../index.ts", "../../index.ts"]) {
+      const source = await Bun.file(new URL(barrel, import.meta.url)).text();
+      expect(source).not.toContain("agent-map");
+    }
+  });
+
   const selected = { session: session({ id: "s" }), nodes: NODES };
 
   test("loading keeps the lanes in place and announces once", () => {

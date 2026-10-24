@@ -1,5 +1,3 @@
-// Its own entry (@werft-ai/react/agent-map), outside the components barrel,
-// so only the screen that draws the map pulls the graph into its bundle.
 export { AgentMap, type AgentMapProps } from "./agent-map.tsx";
 export {
   ApprovalStrip,

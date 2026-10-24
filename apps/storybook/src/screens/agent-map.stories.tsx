@@ -241,9 +241,9 @@ export const MobileDetail: Story = {
 };
 
 /**
- * Added at the user's request (94S-924 범위 추가): s1 also messages three
- * sessions, so all four edge kinds show in one panel. The message record
- * is provisional (가칭) until the agent-network design review settles it.
+ * s1 also messages three sessions, so all four edge kinds show in one panel.
+ * The message record is provisional until the agent-network design review
+ * settles it.
  */
 export const Messages: Story = {
   name: "Messages and approval edges",

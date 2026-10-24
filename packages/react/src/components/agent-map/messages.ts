@@ -3,7 +3,7 @@ import type { SessionStatus } from "@werft-ai/contracts";
 import type { Locale } from "../../messages/index.ts";
 import type { Lane, MapEdgeKind, RunStatus, ToolCallState } from "./types.ts";
 
-/*
+/**
  * The agent map's own wording, one set per locale, so a screen passes data
  * alone. A host replaces any entry through `messages`.
  */

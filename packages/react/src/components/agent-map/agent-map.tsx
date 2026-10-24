@@ -105,7 +105,6 @@ function AgentMapLoading({
 }: {
   readonly messages: AgentMapMessages;
 }): JSX.Element {
-  // One announcement for the whole map; the stand-ins stay silent.
   return (
     <div className={COLUMNS}>
       <output className="sr-only">{messages.loading}</output>
