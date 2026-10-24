@@ -436,6 +436,7 @@ export function NewAgentFlow({
         channels={({ context }) => (
           <section className={AGENT_FORM}>
             <StepHeading focus={moved}>{t("agents.flow.channels")}</StepHeading>
+            <Notice>{t("agents.flow.done", { name: context.name })}</Notice>
             <Suspense fallback={<p aria-busy="true">{t("slack.working")}</p>}>
               <SlackConnect agentId={context.agentId} />
             </Suspense>
@@ -764,51 +765,28 @@ function ActivateStep({
       onNext();
     },
   });
-  const name = agent.data?.agent.name ?? "";
-  // The button pressed is gone after the switch; focus goes to what is next.
-  const opened = useRef<HTMLAnchorElement>(null);
-  useEffect(() => {
-    if (activate.isSuccess) opened.current?.focus();
-  }, [activate.isSuccess]);
   return (
     <section className={AGENT_FORM}>
       <StepHeading focus={focus}>{t("agents.flow.activate")}</StepHeading>
-      {/* Mounted before the result, so the result is read when it lands. */}
-      <Notice>
-        {activate.isSuccess ? t("agents.flow.done", { name }) : null}
-      </Notice>
-      {activate.isSuccess ? (
-        <div>
-          <Button asChild>
-            <Link to="/agents/$id" params={{ id: agentId }} ref={opened}>
-              {t("agents.flow.open")}
-            </Link>
-          </Button>
-        </div>
-      ) : (
-        <>
-          <p className="m-0 text-muted-foreground text-sm">
-            {t("agents.flow.activateIntro")}
-          </p>
-          {activate.error ? <Alerts lines={[refuse(activate.error)]} /> : null}
-          {agent.error ? <Alerts lines={[refuse(agent.error)]} /> : null}
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              disabled={activate.isPending || !agent.data}
-              onClick={() =>
-                agent.data &&
-                activate.mutate(agent.data.agent.activation_revision)
-              }
-            >
-              {activate.isPending
-                ? t("agents.flow.activating")
-                : t("agents.flow.turnOn")}
-            </Button>
-            <LaterLink agentId={agentId} />
-          </div>
-        </>
-      )}
+      <p className="m-0 text-muted-foreground text-sm">
+        {t("agents.flow.activateIntro")}
+      </p>
+      {activate.error ? <Alerts lines={[refuse(activate.error)]} /> : null}
+      {agent.error ? <Alerts lines={[refuse(agent.error)]} /> : null}
+      <div className="flex flex-wrap gap-2">
+        <Button
+          type="button"
+          disabled={activate.isPending || !agent.data}
+          onClick={() =>
+            agent.data && activate.mutate(agent.data.agent.activation_revision)
+          }
+        >
+          {activate.isPending
+            ? t("agents.flow.activating")
+            : t("agents.flow.turnOn")}
+        </Button>
+        <LaterLink agentId={agentId} />
+      </div>
     </section>
   );
 }

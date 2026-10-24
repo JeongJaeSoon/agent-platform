@@ -35,7 +35,7 @@ export function SlackInstallCallback() {
       ),
     onSuccess: async (result) => {
       await cache.invalidateQueries({ queryKey: ["agents", id, "slack"] });
-      if (result.finalized)
+      if (result.finalized && result.warnings.length === 0)
         await navigate({
           to: "/agents/$id",
           params: { id },
@@ -59,9 +59,14 @@ export function SlackInstallCallback() {
       <output aria-live="polite">
         {complete.error
           ? slackFailure(complete.error, t)
-          : complete.data && !complete.data.finalized
-            ? t("slack.verifyNeeded")
-            : t("slack.working")}
+          : complete.data?.warnings.some(
+                (warning) => warning.code === "reinstall_required",
+              )
+            ? t("slack.state.reinstall")
+            : complete.data &&
+                (!complete.data.finalized || complete.data.warnings.length > 0)
+              ? t("slack.verifyNeeded")
+              : t("slack.working")}
       </output>
       {complete.error || complete.data ? (
         <Button asChild variant="outline">

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { components } from "@werft-ai/client";
 import { AGENT_ID, agentServer } from "../../test-support/fake-agents.ts";
 import { apiError, json, me } from "../../test-support/fake-api.ts";
 import { appHarness } from "../../test-support/render-app.tsx";
@@ -6,7 +7,102 @@ import { appHarness } from "../../test-support/render-app.tsx";
 const { renderAt, screen, waitFor } = await appHarness();
 const CALLBACK = `/agents/${AGENT_ID}/slack/callback?state=state1&error=access_denied`;
 
+function completed(): components["schemas"]["CompleteSlackInstallResponse"] {
+  const id = "00000000-0000-4000-8000-000000000001";
+  const at = "2026-10-24T00:00:00.000Z";
+  const summary = {
+    configured: false,
+    last4: null,
+    updated_at: null,
+    updated_by: null,
+  };
+  return {
+    slack_app: {
+      id,
+      kind: "agent",
+      agent_id: AGENT_ID,
+      state: "created",
+      app_id: "A123",
+      client_id: "123",
+      redirect_url: `https://console.test/agents/${AGENT_ID}/slack/callback`,
+      created_by_token_user: "U123",
+      created_at: at,
+      updated_at: at,
+      secrets: {
+        slack_signing_secret: summary,
+        slack_client_secret: summary,
+        slack_bot_token: summary,
+      },
+    },
+    installation: {
+      id,
+      app_id: "A123",
+      team_id: "T123",
+      bot_user_id: "U123",
+      status: "verified",
+    },
+    agent_identity: {
+      id,
+      agent_id: AGENT_ID,
+      provider: "slack_bot",
+      app_id: "A123",
+      team_id: "T123",
+      bot_user_id: "U123",
+      credential_ref: "slack/bot",
+      status: "active",
+      revision: 0,
+      created_by: null,
+      created_at: at,
+      revoked_at: null,
+    },
+    receipt_id: null,
+    finalized: true,
+    warnings: [],
+  };
+}
+
 describe("Slack install callback", () => {
+  test("keeps reinstall warnings visible even when event finalization succeeded", async () => {
+    const result = completed();
+    result.warnings = [{ code: "reinstall_required" }];
+    const { history } = renderAt(CALLBACK, {
+      ...agentServer().routes,
+      "GET /v1/auth/me": () => json(200, me()),
+      "POST /v1/slack/install/complete": () => json(200, result),
+    });
+    await screen.findByText("재설치 필요");
+    expect(history.location.pathname.endsWith("/slack/callback")).toBe(true);
+  });
+
+  test("returns a successful installation to the Slack tab", async () => {
+    const { history } = renderAt(CALLBACK, {
+      ...agentServer().routes,
+      "GET /v1/auth/me": () => json(200, me()),
+      "POST /v1/slack/install/complete": () => json(200, completed()),
+      [`GET /v1/agents/${AGENT_ID}/slack/app`]: () =>
+        json(200, { slack_app: null }),
+      [`GET /v1/agents/${AGENT_ID}/identities`]: () => json(200, { items: [] }),
+    });
+    await waitFor(() =>
+      expect(history.location.pathname).toBe(`/agents/${AGENT_ID}`),
+    );
+    expect(new URLSearchParams(history.location.search).get("tab")).toBe(
+      "slack",
+    );
+  });
+
+  test("shows verification guidance when finalization is incomplete", async () => {
+    const result = completed();
+    result.finalized = false;
+    result.warnings = [{ code: "events_url_unset" }];
+    renderAt(CALLBACK, {
+      "GET /v1/auth/me": () => json(200, me()),
+      "POST /v1/slack/install/complete": () => json(200, result),
+    });
+    expect(
+      await screen.findByText(/이벤트 등록 확인이 필요합니다/),
+    ).toBeDefined();
+  });
   for (const [code, message] of [
     ["SLACK_INSTALL_DENIED", "Slack에서 설치를 허용하지 않았습니다."],
     [

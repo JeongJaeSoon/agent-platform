@@ -4,10 +4,10 @@ Open the agent's **Slack** tab to see its app status. New agents reach the same 
 
 1. Turn on the agent and choose **Create and install Slack app**. A workspace administrator must configure app creation first.
 2. Install the app on Slack's consent screen. The callback completes installation and returns to the Slack tab. If consent is declined or the link expires, start a new installation from that tab. Used links are never retried automatically.
-3. Open **Channels**, search by name prefix and choose **Connect**. The default response switch applies to channels added from the current screen only.
+3. Open **Channels › Add channel**, search by name prefix and choose **Connect**. The default response switch in **Settings** applies to channels added from the current screen only. **Direct messages** saves the DM binding separately.
 4. Turn a connected channel's switch on to respond to mentions, or off to stop responding there. Failed saves show an error and retain the stored setting. Choose **Set home** to change the home channel.
 
-The server joins public channels automatically. Invite the bot to private channels with `/invite`. Search includes public channels and private channels the bot has joined. **Load more** reads the next page. The screen warns when Slack rate limits leave old results or the list is truncated.
+Invite the bot to both public and private channels with `/invite`. The current server does not join a channel when its binding is saved. Search includes public channels and private channels the bot has joined. **Load more** reads the next page. The screen warns when Slack rate limits leave old results or the list is truncated.
 
 **Disconnect** revokes the agent's Slack identity and channel bindings. **Delete app** deletes the Slack app and stored credentials. Both actions explain their consequences before confirmation.
 

@@ -11,10 +11,17 @@ import {
   Badge,
   Button,
   ConfirmDialog,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
   Field,
   FieldError,
   FieldLabel,
   Input,
+  RowList,
+  SettingRow,
   Skeleton,
   Switch,
   Tabs,
@@ -56,18 +63,8 @@ export function SlackSkeleton() {
   );
 }
 
-export function SlackConnect({
-  agentId,
-  active = true,
-}: {
-  readonly agentId: string;
-  readonly active?: boolean;
-}) {
-  const { t } = useI18n();
+function useSlackState(agentId: string) {
   const { client } = useAgentPlatform();
-  const cache = useQueryClient();
-  const me = useMe();
-  const { leave } = useAppServices();
   const key = ["agents", agentId, "slack"];
   const app = useQuery({
     queryKey: [...key, "app"],
@@ -91,6 +88,24 @@ export function SlackConnect({
     staleTime: 30_000,
     retry: false,
   });
+  return { app, identities, key };
+}
+
+export function SlackConnect({
+  agentId,
+  active = true,
+  manage = true,
+}: {
+  readonly agentId: string;
+  readonly active?: boolean;
+  readonly manage?: boolean;
+}) {
+  const { t } = useI18n();
+  const { client } = useAgentPlatform();
+  const cache = useQueryClient();
+  const me = useMe();
+  const { leave } = useAppServices();
+  const { app, identities, key } = useSlackState(agentId);
   const [notice, setNotice] = useState("");
   const outcome = useRef<HTMLOutputElement>(null);
   useEffect(() => {
@@ -124,6 +139,7 @@ export function SlackConnect({
     },
   });
   const remove = useMutation({
+    onMutate: () => setNotice(""),
     mutationFn: async () => {
       if (!record || !me?.workspace) return;
       await unwrap(
@@ -139,6 +155,7 @@ export function SlackConnect({
     },
   });
   const revoke = useMutation({
+    onMutate: () => setNotice(""),
     mutationFn: async () => {
       if (!identity) return;
       await unwrap(
@@ -178,7 +195,15 @@ export function SlackConnect({
       aria-label={t("slack.app")}
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="m-0 text-heading-sm">{t("slack.app")}</h2>
+        <h2 className="m-0 font-semibold text-body leading-5">
+          {t(
+            record && identity
+              ? manage
+                ? "slack.advanced"
+                : "slack.connection"
+              : "slack.app",
+          )}
+        </h2>
         <Badge
           variant={
             status === "connected"
@@ -195,68 +220,138 @@ export function SlackConnect({
         {t("slack.joinHint")}
       </p>
       {record?.app_id ? (
-        <p className="m-0 text-control">
-          {t("slack.appId")}: <span className="font-mono">{record.app_id}</span>
-        </p>
+        <RowList variant="joined">
+          <SettingRow
+            title={t("slack.appId")}
+            meta={
+              <span className="font-mono text-caption">{record.app_id}</span>
+            }
+          />
+          {identity ? (
+            <SettingRow
+              title={t("slack.botId")}
+              meta={
+                <span className="font-mono text-caption">
+                  {identity.bot_user_id}
+                </span>
+              }
+            />
+          ) : null}
+        </RowList>
       ) : null}
-      <output ref={outcome} tabIndex={-1} aria-live="polite">
+      <output
+        ref={outcome}
+        tabIndex={-1}
+        aria-live="polite"
+        className={notice ? "text-control" : "sr-only"}
+      >
         {notice}
       </output>
       {errorText ? (
-        <div role="alert">
+        <div>
           <FieldError>{errorText}</FieldError>
         </div>
       ) : null}
       {!active ? (
         <p className="m-0 text-muted-foreground">{t("slack.activateFirst")}</p>
       ) : null}
-      <div className="flex flex-wrap gap-2">
-        {!app.error && !identities.error ? (
-          <Button
-            type="button"
-            disabled={(!active && !record) || busy || pending}
-            onClick={() => connect.mutate()}
+      {manage && record ? (
+        <>
+          <RowList variant="joined">
+            <SettingRow
+              title={t(identity ? "slack.reinstall" : "slack.install")}
+              actions={
+                <>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={
+                      busy || pending || Boolean(app.error || identities.error)
+                    }
+                    onClick={() => connect.mutate()}
+                  >
+                    {connect.isPending
+                      ? t("slack.working")
+                      : t(identity ? "slack.reinstall" : "slack.install")}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={busy || app.isFetching || identities.isFetching}
+                    onClick={() => void refresh()}
+                  >
+                    {t("slack.refresh")}
+                  </Button>
+                </>
+              }
+            />
+          </RowList>
+          <h3 className="m-0 font-semibold text-body leading-5">
+            {t("slack.danger")}
+          </h3>
+          <RowList
+            variant="joined"
+            className="border-(color:--ap-tone-danger-border)"
           >
-            {connect.isPending
-              ? t("slack.working")
-              : t(
-                  identity
-                    ? "slack.reinstall"
-                    : record
-                      ? "slack.install"
-                      : "slack.createInstall",
-                )}
-          </Button>
-        ) : null}
-        <Button
-          type="button"
-          variant="outline"
-          disabled={busy || app.isFetching || identities.isFetching}
-          onClick={() => void refresh()}
-        >
-          {t("slack.refresh")}
-        </Button>
-        {identity ? (
+            {identity ? (
+              <SettingRow
+                title={t("slack.revoke")}
+                description={t("slack.revokeWarning")}
+                actions={
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={busy}
+                    onClick={() => setRevoking(true)}
+                  >
+                    {t("slack.revoke")}
+                  </Button>
+                }
+              />
+            ) : null}
+            <SettingRow
+              title={t("slack.delete")}
+              description={t("slack.deleteWarning")}
+              actions={
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  disabled={busy || pending || !me?.workspace}
+                  onClick={() => setDeleting(true)}
+                >
+                  {t("slack.delete")}
+                </Button>
+              }
+            />
+          </RowList>
+        </>
+      ) : !record ? (
+        <div className="flex flex-wrap gap-2">
+          {!app.error && !identities.error ? (
+            <Button
+              type="button"
+              disabled={!active || busy}
+              onClick={() => connect.mutate()}
+            >
+              {connect.isPending
+                ? t("slack.working")
+                : t("slack.createInstall")}
+            </Button>
+          ) : null}
           <Button
             type="button"
             variant="outline"
-            disabled={busy}
-            onClick={() => setRevoking(true)}
+            disabled={busy || app.isFetching || identities.isFetching}
+            onClick={() => void refresh()}
           >
-            {t("slack.revoke")}
+            {t("slack.refresh")}
           </Button>
-        ) : null}
-        {record ? (
-          <Button
-            type="button"
-            variant="outline"
-            disabled={busy || pending || !me}
-            onClick={() => setDeleting(true)}
-          >
-            {t("slack.delete")}
-          </Button>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
       <ConfirmDialog
         open={deleting}
         onOpenChange={setDeleting}
@@ -291,14 +386,21 @@ export function SlackConnect({
   );
 }
 
-function SlackChannels({ agentId }: { readonly agentId: string }) {
+function SlackChannels({
+  agentId,
+  defaultMention,
+}: {
+  readonly agentId: string;
+  readonly defaultMention: boolean;
+}) {
   const { t } = useI18n();
   const { client } = useAgentPlatform();
   const cache = useQueryClient();
   const key = ["agents", agentId, "slack"];
   const [input, setInput] = useState("");
   const [query, setQuery] = useState("");
-  const [defaultMention, setDefaultMention] = useState(true);
+  const [picking, setPicking] = useState(false);
+  const [pickHome, setPickHome] = useState(false);
   const [notice, setNotice] = useState("");
   const [names, setNames] = useState<Record<string, string>>({});
   useEffect(() => {
@@ -337,6 +439,7 @@ function SlackChannels({ agentId }: { readonly agentId: string }) {
     retry: false,
   });
   const update = useMutation({
+    onMutate: () => setNotice(""),
     mutationFn: (body: BindingInput) =>
       unwrap(
         client.PUT("/v1/agents/{id}/slack-bindings", {
@@ -346,11 +449,19 @@ function SlackChannels({ agentId }: { readonly agentId: string }) {
       ),
     onSuccess: async () => {
       setNotice(t("slack.saved"));
+      setPicking(false);
       await cache.invalidateQueries({ queryKey: [...key, "bindings"] });
     },
   });
-  const rows = bindings.data?.items ?? [];
-  const listed = channels.data?.pages.flatMap((page) => page.items) ?? [];
+  const rows =
+    bindings.data?.items.filter((row) => row.surface_kind !== "dm") ?? [];
+  const listed = [
+    ...new Map(
+      channels.data?.pages.flatMap((page) =>
+        page.items.map((item) => [item.id, item] as const),
+      ) ?? [],
+    ).values(),
+  ];
   useEffect(() => {
     if (!channels.data) return;
     setNames((previous) => ({
@@ -363,6 +474,21 @@ function SlackChannels({ agentId }: { readonly agentId: string }) {
     }));
   }, [channels.data]);
   const error = bindings.error ?? channels.error ?? update.error;
+  const connectChannel = (channelId: string) => {
+    const row = rows.find((item) => item.external_surface_id === channelId);
+    update.mutate({
+      channel_id: channelId,
+      mode: row
+        ? row.mode === "off"
+          ? "off"
+          : "mention"
+        : defaultMention
+          ? "mention"
+          : "off",
+      home: pickHome || (row?.home ?? false),
+      ...(row ? { ceiling: row.ceiling } : {}),
+    });
+  };
   const change = (row: Binding, checked: boolean) =>
     update.mutate({
       channel_id: row.external_surface_id,
@@ -372,87 +498,82 @@ function SlackChannels({ agentId }: { readonly agentId: string }) {
     });
   return (
     <section
-      className="flex min-h-96 flex-col gap-6"
+      className="flex min-h-96 flex-col gap-[var(--ap-space-block)]"
       aria-label={t("slack.channels")}
     >
-      <h2 className="m-0 text-heading-sm">{t("slack.channels")}</h2>
-      <output aria-live="polite">{notice}</output>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="m-0 font-semibold text-body leading-5">
+          {t("slack.connectedChannels")}
+        </h2>
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setPickHome(true);
+              setPicking(true);
+            }}
+          >
+            {t("slack.setHome")}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setPickHome(false);
+              setPicking(true);
+            }}
+          >
+            {t("slack.addChannel")}
+          </Button>
+        </div>
+      </div>
+      <output
+        aria-live="polite"
+        className={notice ? "text-control" : "sr-only"}
+      >
+        {notice}
+      </output>
       {error ? (
-        <div role="alert">
+        <div>
           <FieldError>{slackFailure(error, t)}</FieldError>
         </div>
       ) : null}
       {bindings.isPending ? (
         <SlackSkeleton />
       ) : (
-        <ul className="m-0 list-none divide-y p-0">
+        <RowList variant="joined" aria-label={t("slack.connectedChannels")}>
           {rows.map((row) => {
-            const channel = listed.find(
-              (item) => item.id === row.external_surface_id,
-            );
             const name =
               row.surface_kind === "dm"
                 ? t("slack.dm")
-                : channel ||
-                    (row.external_surface_id && names[row.external_surface_id])
-                  ? `#${channel?.name ?? names[row.external_surface_id ?? ""]}`
-                  : row.external_surface_id;
+                : row.external_surface_id && names[row.external_surface_id]
+                  ? `#${names[row.external_surface_id]}`
+                  : (row.external_surface_id ?? "");
             return (
-              <li
+              <SettingRow
                 key={row.id}
-                className="flex min-h-16 items-center justify-between gap-4 py-3"
-              >
-                <div className="min-w-0">
-                  <span className="break-words font-medium">{name}</span>
-                  {row.home ? (
-                    <Badge className="ml-2" variant="gray">
-                      {t("slack.home")}
-                    </Badge>
-                  ) : null}
-                  <div className="mt-1 flex gap-2">
-                    <Badge
-                      variant={
-                        row.surface_kind === "public_channel" ? "green" : "gray"
-                      }
-                    >
-                      {t(
-                        row.surface_kind === "private_channel"
-                          ? "slack.private"
-                          : row.surface_kind === "dm"
-                            ? "slack.dm"
-                            : "slack.public",
-                      )}
-                    </Badge>
-                    <span className="text-caption text-muted-foreground">
-                      {t(row.mode === "off" ? "slack.off" : "slack.mention")}
-                    </span>
-                    {row.surface_kind === "private_channel" &&
-                    row.status !== "ready" ? (
-                      <Badge variant="gray">{t("slack.privateInvite")}</Badge>
-                    ) : null}
-                  </div>
-                </div>
-                <div className="flex shrink-0 items-center gap-3">
-                  {row.external_surface_id && !row.home ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={update.isPending}
-                      onClick={() =>
-                        update.mutate({
-                          channel_id: row.external_surface_id,
-                          mode: row.mode === "off" ? "off" : "mention",
-                          home: true,
-                          ceiling: row.ceiling,
-                        })
-                      }
-                    >
-                      {t("slack.setHome")}
-                    </Button>
-                  ) : null}
+                title={name}
+                badge={
+                  row.home ? (
+                    <Badge variant="gray">{t("slack.home")}</Badge>
+                  ) : undefined
+                }
+                description={t(
+                  row.surface_kind === "private_channel"
+                    ? "slack.private"
+                    : "slack.public",
+                )}
+                status={
+                  <span className="text-control text-muted-foreground">
+                    {t(row.mode === "off" ? "slack.off" : "slack.mention")}
+                  </span>
+                }
+                control={
                   <Switch
-                    aria-label={t("slack.reaction", { channel: name ?? "" })}
+                    aria-label={t("slack.reaction", { channel: name })}
                     checked={row.mode === "mention"}
                     aria-disabled={update.isPending || row.mode === "ambient"}
                     onCheckedChange={(checked) => {
@@ -460,96 +581,189 @@ function SlackChannels({ agentId }: { readonly agentId: string }) {
                         change(row, checked);
                     }}
                   />
-                </div>
-              </li>
+                }
+              />
             );
           })}
-        </ul>
+        </RowList>
       )}
-      <div className="flex items-center justify-between gap-4">
-        <span>{t("slack.defaultReaction")}</span>
-        <Switch
-          aria-label={t("slack.defaultReaction")}
-          checked={defaultMention}
-          onCheckedChange={setDefaultMention}
-        />
-      </div>
-      <Field>
-        <FieldLabel>{t("slack.search")}</FieldLabel>
-        <Input
-          value={input}
-          maxLength={80}
-          onChange={(event) => setInput(event.target.value)}
-        />
-      </Field>
-      <div aria-busy={channels.isFetching || input.trim() !== query}>
-        <ul className="m-0 list-none divide-y p-0">
-          {listed.map((channel) => (
-            <li
-              key={channel.id}
-              className="flex min-h-16 items-center justify-between gap-4 py-3"
-            >
-              <div className="min-w-0">
-                <div className="break-words font-medium">#{channel.name}</div>
-                <div className="mt-1 flex flex-wrap gap-2">
-                  <Badge variant={channel.is_private ? "gray" : "green"}>
-                    {t(channel.is_private ? "slack.private" : "slack.public")}
-                  </Badge>
-                  {!channel.is_member ? (
-                    <Badge variant="gray">{t("slack.invite")}</Badge>
-                  ) : null}
-                </div>
-              </div>
+      <Dialog open={picking} onOpenChange={setPicking}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {t(pickHome ? "slack.setHome" : "slack.addChannel")}
+            </DialogTitle>
+            <DialogDescription>{t("slack.joinHint")}</DialogDescription>
+          </DialogHeader>
+          {error ? <FieldError>{slackFailure(error, t)}</FieldError> : null}
+          <Field>
+            <FieldLabel>{t("slack.search")}</FieldLabel>
+            <Input
+              value={input}
+              maxLength={80}
+              onChange={(event) => setInput(event.target.value)}
+            />
+          </Field>
+          <div
+            className="max-h-80 overflow-y-auto"
+            aria-busy={channels.isFetching || input.trim() !== query}
+          >
+            <RowList variant="joined">
+              {listed.map((channel) => (
+                <SettingRow
+                  key={channel.id}
+                  title={`#${channel.name}`}
+                  description={
+                    <span className="flex flex-wrap gap-2">
+                      <Badge variant={channel.is_private ? "gray" : "green"}>
+                        {t(
+                          channel.is_private ? "slack.private" : "slack.public",
+                        )}
+                      </Badge>
+                      {!channel.is_member ? (
+                        <Badge variant="gray">{t("slack.privateInvite")}</Badge>
+                      ) : null}
+                    </span>
+                  }
+                  actions={
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      aria-label={t(
+                        pickHome ? "slack.channelHome" : "slack.channelConnect",
+                        {
+                          channel: `#${channel.name}`,
+                        },
+                      )}
+                      disabled={
+                        update.isPending ||
+                        !bindings.isSuccess ||
+                        channels.isPlaceholderData ||
+                        input.trim() !== query ||
+                        (!pickHome &&
+                          rows.some(
+                            (row) => row.external_surface_id === channel.id,
+                          )) ||
+                        rows.some(
+                          (row) =>
+                            row.external_surface_id === channel.id &&
+                            row.mode === "ambient",
+                        )
+                      }
+                      onClick={() => connectChannel(channel.id)}
+                    >
+                      {t(pickHome ? "slack.setHome" : "slack.add")}
+                    </Button>
+                  }
+                />
+              ))}
+            </RowList>
+            {!channels.isPending && listed.length === 0 ? (
+              <p>{t("slack.noChannels")}</p>
+            ) : null}
+            {channels.data?.pages.some(
+              (page) => page.stale || page.truncated,
+            ) ? (
+              <p className="text-muted-foreground">{t("slack.partial")}</p>
+            ) : null}
+            {channels.hasNextPage ? (
               <Button
                 type="button"
                 variant="outline"
-                disabled={
-                  update.isPending ||
-                  !bindings.isSuccess ||
-                  channels.isPlaceholderData ||
-                  input.trim() !== query ||
-                  rows.some((row) => row.external_surface_id === channel.id)
-                }
-                onClick={() =>
-                  update.mutate({
-                    channel_id: channel.id,
-                    mode: defaultMention ? "mention" : "off",
-                    home: false,
-                  })
-                }
+                disabled={channels.isFetching}
+                onClick={() => void channels.fetchNextPage()}
               >
-                {t("slack.add")}
+                {t("slack.more")}
               </Button>
-            </li>
-          ))}
-        </ul>
-        {!channels.isPending && listed.length === 0 ? (
-          <p>{t("slack.noChannels")}</p>
-        ) : null}
-        {channels.data?.pages.some((page) => page.stale || page.truncated) ? (
-          <p className="text-muted-foreground">{t("slack.partial")}</p>
-        ) : null}
-        {channels.hasNextPage ? (
-          <Button
-            type="button"
-            variant="outline"
-            disabled={channels.isFetching}
-            onClick={() => void channels.fetchNextPage()}
-          >
-            {t("slack.more")}
-          </Button>
-        ) : null}
-        {channels.error ? (
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => void channels.refetch()}
-          >
-            {t("slack.refresh")}
-          </Button>
-        ) : null}
-      </div>
+            ) : null}
+            {channels.error ? (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void channels.refetch()}
+              >
+                {t("slack.refresh")}
+              </Button>
+            ) : null}
+          </div>
+        </DialogContent>
+      </Dialog>
     </section>
+  );
+}
+
+function SlackDmSetting({ agentId }: { readonly agentId: string }) {
+  const { t } = useI18n();
+  const { client } = useAgentPlatform();
+  const cache = useQueryClient();
+  const key = ["agents", agentId, "slack", "bindings"];
+  const bindings = useQuery({
+    queryKey: key,
+    queryFn: () =>
+      unwrap(
+        client.GET("/v1/agents/{id}/slack-bindings", {
+          params: { path: { id: agentId } },
+        }),
+      ),
+    staleTime: 30_000,
+    retry: false,
+  });
+  const dm = bindings.data?.items.find((row) => row.surface_kind === "dm");
+  const [notice, setNotice] = useState("");
+  const update = useMutation({
+    onMutate: () => setNotice(""),
+    mutationFn: (checked: boolean) =>
+      unwrap(
+        client.PUT("/v1/agents/{id}/slack-bindings", {
+          params: { path: { id: agentId } },
+          body: {
+            channel_id: null,
+            mode: checked ? "mention" : "off",
+            home: false,
+            ...(dm ? { ceiling: dm.ceiling } : {}),
+          },
+        }),
+      ),
+    onSuccess: async () => {
+      await cache.invalidateQueries({ queryKey: key });
+      setNotice(t("slack.saved"));
+    },
+  });
+  const unavailable =
+    !bindings.isSuccess || update.isPending || dm?.mode === "ambient";
+  const error = bindings.error ?? update.error;
+  return (
+    <SettingRow
+      title={t("slack.dm")}
+      description={t("slack.dmHint")}
+      status={
+        <span className="text-control text-muted-foreground">
+          {t(dm?.mode === "mention" ? "slack.mention" : "slack.off")}
+        </span>
+      }
+      meta={
+        <>
+          {error ? <FieldError>{slackFailure(error, t)}</FieldError> : null}
+          <output
+            aria-live="polite"
+            className={notice ? "text-control" : "sr-only"}
+          >
+            {notice}
+          </output>
+        </>
+      }
+      control={
+        <Switch
+          aria-label={t("slack.dm")}
+          checked={dm?.mode === "mention"}
+          aria-disabled={unavailable}
+          onCheckedChange={(checked) => {
+            if (!unavailable) update.mutate(checked);
+          }}
+        />
+      }
+    />
   );
 }
 
@@ -563,23 +777,70 @@ export default function SlackTab({
   const { t } = useI18n();
   const [segment, setSegment] = useState("overview");
   const [channelsOpened, setChannelsOpened] = useState(false);
+  const [settingsOpened, setSettingsOpened] = useState(false);
+  const [defaultMention, setDefaultMention] = useState(true);
+  const { identities } = useSlackState(agentId);
+  const installed =
+    identities.data?.items.some((item) => item.status === "active") ?? false;
+  const [wasConnected, setWasConnected] = useState(installed);
+  useEffect(() => {
+    if (installed) setWasConnected(true);
+  }, [installed]);
+  if (!installed && !wasConnected) {
+    return <SlackConnect agentId={agentId} active={active} />;
+  }
   return (
     <Tabs
       value={segment}
       onValueChange={(next) => {
         setSegment(next);
         if (next === "channels") setChannelsOpened(true);
+        if (next === "settings") setSettingsOpened(true);
       }}
     >
       <TabsList aria-label={t("slack.sections")}>
         <TabsTrigger value="overview">{t("slack.overview")}</TabsTrigger>
         <TabsTrigger value="channels">{t("slack.channels")}</TabsTrigger>
+        <TabsTrigger value="settings">{t("slack.settings")}</TabsTrigger>
       </TabsList>
       <TabsContent value="overview" forceMount hidden={segment !== "overview"}>
-        <SlackConnect agentId={agentId} active={active} />
+        <SlackConnect agentId={agentId} active={active} manage={false} />
+      </TabsContent>
+      <TabsContent value="settings" forceMount hidden={segment !== "settings"}>
+        {settingsOpened ? (
+          <section className="mb-8 flex flex-col gap-[var(--ap-space-block)]">
+            <h2 className="m-0 font-semibold text-body leading-5">
+              {t("slack.basic")}
+            </h2>
+            <RowList variant="joined">
+              <SlackDmSetting agentId={agentId} />
+              <SettingRow
+                title={t("slack.defaultReaction")}
+                description={t("slack.defaultHint")}
+                status={
+                  <span className="text-control text-muted-foreground">
+                    {t(defaultMention ? "slack.mention" : "slack.off")}
+                  </span>
+                }
+                control={
+                  <Switch
+                    aria-label={t("slack.defaultReaction")}
+                    checked={defaultMention}
+                    onCheckedChange={setDefaultMention}
+                  />
+                }
+              />
+            </RowList>
+          </section>
+        ) : null}
+        {settingsOpened ? (
+          <SlackConnect agentId={agentId} active={active} />
+        ) : null}
       </TabsContent>
       <TabsContent value="channels" forceMount hidden={segment !== "channels"}>
-        {channelsOpened ? <SlackChannels agentId={agentId} /> : null}
+        {channelsOpened ? (
+          <SlackChannels agentId={agentId} defaultMention={defaultMention} />
+        ) : null}
       </TabsContent>
     </Tabs>
   );

@@ -764,6 +764,7 @@ describe("새 에이전트", () => {
     });
     await user.click(screen.getByRole("button", { name: "에이전트 켜기" }));
     await atStep("채널 연결");
+    expect(await screen.findByText(/결제 담당을\(를\) 켰습니다/)).toBeDefined();
     expect(
       await screen.findByRole("button", { name: "Slack 앱 만들고 설치" }),
     ).toBeDefined();
