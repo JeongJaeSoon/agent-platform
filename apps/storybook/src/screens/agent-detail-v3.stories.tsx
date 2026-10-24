@@ -1148,11 +1148,7 @@ function AgentDetailScreen(props: ScreenProps) {
   );
 
   return (
-    <ScreenShell
-      current="agents"
-      crumb={["에이전트", AGENT.name]}
-      width="flush"
-    >
+    <ScreenShell current="agents" crumb={["에이전트", AGENT.name]} flush>
       <DetailLayout rail={<SummaryRail />}>
         <AgentHead
           agent={AGENT}

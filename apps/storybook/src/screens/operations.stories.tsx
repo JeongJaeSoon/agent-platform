@@ -914,7 +914,7 @@ function OperationsScreen({
           current="operations"
           crumb={["업무", "운영"]}
           role={screen.role}
-          width="flush"
+          flush
         >
           <Tools screen={screen} hideSessions={hideSessions} />
         </ScreenShell>

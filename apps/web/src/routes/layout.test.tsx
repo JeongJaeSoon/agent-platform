@@ -106,7 +106,7 @@ describe("app shell", () => {
   // One form or settings column stops inside the frame; lists use it all.
   for (const [path, title, width] of [
     ["/sessions", "세션", "full"],
-    ["/settings/api-keys", "내 key", "full"],
+    ["/settings/api-keys", "API key", "full"],
     ["/settings/workspace", "워크스페이스 설정", "form"],
     ["/settings/preferences", "언어·테마", "form"],
     ["/settings/linked-accounts", "연동 계정", "form"],
