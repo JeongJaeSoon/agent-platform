@@ -63,7 +63,13 @@ import { Button, Card } from "@werft-ai/ui";
 
 ## フォント
 
-パッケージにフォントは含まれていない。書体は `--ap-font-sans`(Geist、Pretendard Variable の順)と `--ap-font-mono`(Geist Mono から)が選び、アプリがそのフォントを読み込まなければ各リストの末尾にあるシステムフォントで描画される。ハングルを Pretendard で表示するには、アプリが自分で読み込む。このリポジトリの Web コンソールは `pretendard` パッケージの dynamic subset を使っている。
+パッケージにフォントは含まれていない。書体のリストは `--ap-font-sans`(Geist、Pretendard Variable の順)と `--ap-font-mono`(Geist Mono から)にあるが、`styles.css` はこの変数をキットの `ap-*` 要素にしか当てない。ボタンやセグメントコントロールなどのコントロールはアプリの書体を継承するため、アプリが `body`(または `:root`)に書体を指定しないと、ブラウザ既定の書体(多くは Times のような serif)で描画される。アプリの CSS に 1 行を置く。
+
+```css title="src/app.css"
+body { font-family: var(--ap-font-sans); }
+```
+
+こうしておけば、アプリが Geist・Pretendard を読み込まなくてもリスト末尾のシステムフォントで描画される。ハングルを Pretendard で表示するには、アプリが自分で読み込む。このリポジトリの Web コンソールは `pretendard` パッケージの dynamic subset を使っている。
 
 ```sh
 npm install pretendard

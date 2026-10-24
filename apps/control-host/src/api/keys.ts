@@ -69,7 +69,7 @@ export class DatabaseApiKeyStore implements ApiKeyStore, ApiKeyWriter {
  * included, is what scoped keys exist to stop. Order and duplicates do not
  * matter; the stored list is the vocabulary's order.
  */
-export function parseScopes(value: string): SessionScope[] {
+function parseScopes(value: string): SessionScope[] {
   const words = value
     .split(",")
     .map((word) => word.trim())

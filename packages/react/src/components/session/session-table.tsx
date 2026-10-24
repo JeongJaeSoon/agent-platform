@@ -1,9 +1,11 @@
-/* biome-ignore-all lint/a11y/useSemanticElements: container-responsive columns use a div-grid table. */
-/* biome-ignore-all lint/a11y/useFocusableInteractive: static table rows delegate keyboard navigation to their cell links. */
-import { cn } from "@werft-ai/ui";
+import {
+  GridTable,
+  GridTableColumnHeader,
+  GridTableHeader,
+} from "@werft-ai/ui";
 import type { ReactNode } from "react";
 
-import { SESSION_COLUMNS } from "./session-row.tsx";
+import { SESSION_NARROW_TEMPLATE, SESSION_TEMPLATE } from "./session-row.tsx";
 
 export interface SessionTableProps {
   readonly label: string;
@@ -20,31 +22,32 @@ export interface SessionTableProps {
 
 export function SessionTable({ label, messages, children }: SessionTableProps) {
   return (
-    <div
-      role="table"
-      aria-label={label}
-      className="@container m-0 w-full overflow-hidden rounded-card border bg-card p-0"
-    >
-      <div
-        role="row"
-        className={cn(
-          SESSION_COLUMNS,
-          "min-h-[var(--ap-row-head-min-height)] items-center gap-4 border-b bg-surface-sunken px-[var(--ap-row-padding-x)] py-[var(--ap-row-head-padding-y)] text-muted-foreground text-caption font-medium",
-        )}
+    // The row opener's focus ring sits outside the row, so this frame must
+    // not clip overflow.
+    <div className="w-full min-w-0 rounded-card border bg-card">
+      <GridTable
+        aria-label={label}
+        columns={SESSION_TEMPLATE}
+        narrowAt={820}
+        narrowColumns={SESSION_NARROW_TEMPLATE}
       >
-        <span role="columnheader">{messages.id}</span>
-        <span role="columnheader">{messages.status}</span>
-        <span role="columnheader" className="hidden @[820px]:block">
-          {messages.admission}
-        </span>
-        <span role="columnheader" className="hidden @[820px]:block">
-          {messages.runtime}
-        </span>
-        <span role="columnheader" className="hidden text-right @[480px]:block">
-          {messages.lastEvent} / {messages.created}
-        </span>
-      </div>
-      {children}
+        <GridTableHeader>
+          <GridTableColumnHeader>{messages.id}</GridTableColumnHeader>
+          <GridTableColumnHeader>{messages.status}</GridTableColumnHeader>
+          <GridTableColumnHeader hideNarrow={true}>
+            {messages.admission}
+          </GridTableColumnHeader>
+          <GridTableColumnHeader hideNarrow={true}>
+            {messages.runtime}
+          </GridTableColumnHeader>
+          <GridTableColumnHeader align="end">
+            <span className="truncate">
+              {messages.lastEvent} / {messages.created}
+            </span>
+          </GridTableColumnHeader>
+        </GridTableHeader>
+        {children}
+      </GridTable>
     </div>
   );
 }

@@ -109,13 +109,13 @@ describe("workspace shell", () => {
       screen.getByText("설치 전체 현황과 워크스페이스 점검 항목입니다."),
     ).toBeDefined();
     const steps = within(
-      screen.getByRole("region", { name: "시작하기" }),
+      await screen.findByRole("region", { name: "시작하기" }),
     ).getAllByRole("listitem");
-    expect(steps.map((step) => step.getAttribute("data-done"))).toEqual([
-      "true",
-      "false",
-      "false",
-      "false",
+    expect(steps.map((step) => step.getAttribute("data-state"))).toEqual([
+      "done",
+      "todo",
+      "todo",
+      "todo",
     ]);
   });
 
