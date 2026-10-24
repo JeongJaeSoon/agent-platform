@@ -53,8 +53,6 @@ export function loadError(error: unknown, onRetry: () => void) {
   return <LoadFailure error={error} onRetry={onRetry} />;
 }
 
-const PAGE = "flex flex-col gap-[var(--ap-space-section)]";
-
 /** The status tabs, in the order the design shows them. */
 export const SESSION_FILTERS = [
   "needs_input",
@@ -436,7 +434,8 @@ export function SessionDetailScreen() {
   const { id } = useParams({ from: "/authed/sessions/$id" });
   const unavailable = useUnavailable();
   return (
-    <div className={PAGE}>
+    // The screen fills the area under the top bar, so its rail reaches the bottom.
+    <div className="flex flex-1 flex-col">
       <SessionDetail
         back={
           <Link

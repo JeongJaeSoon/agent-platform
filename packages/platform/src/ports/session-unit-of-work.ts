@@ -59,6 +59,9 @@ export type AcceptSessionInput = {
   // earlier acceptance goes through. Without it, the names are rechecked
   // under lock against a concurrent unbind.
   credentialsUnbound?: true;
+  // A Slack DM's session starts seen by its creator alone (design 4.6);
+  // left out, by the whole workspace.
+  shareScope?: "private";
   message: string;
   limits: InputLimits;
 };

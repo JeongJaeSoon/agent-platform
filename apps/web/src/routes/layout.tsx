@@ -90,6 +90,10 @@ function LocaleSwitch() {
   );
 }
 
+// The router opens these with a trailing slash too.
+const SESSION_PATH = /^\/sessions\/([^/]+)\/?$/;
+const AGENT_PATH = /^\/agents\/([^/]+)\/?$/;
+
 // Lists, though they sit under settings.
 const KEY_LISTS = new Set(["/settings/api-keys", "/settings/api-keys/service"]);
 
@@ -98,9 +102,9 @@ const KEY_LISTS = new Set(["/settings/api-keys", "/settings/api-keys/service"]);
  * the sidebar (V4-CENTER): lists, tables and detail screens take Vercel's
  * 1620px, forms and settings Cloudflare's 1100px.
  */
-type ContentWidth = "wide" | "narrow";
+type ContentWidth = "wide" | "narrow" | "flush";
 
-const CONTENT_MAX_WIDTH: Record<ContentWidth, string> = {
+const CONTENT_MAX_WIDTH: Record<Exclude<ContentWidth, "flush">, string> = {
   wide: "max-w-[101.25rem]",
   narrow: "max-w-[68.75rem]",
 };
@@ -110,6 +114,9 @@ function contentWidth(pathname: string): ContentWidth {
     pathname.length > 1 && pathname.endsWith("/")
       ? pathname.slice(0, -1)
       : pathname;
+  // A session's rail runs to the screen's edge, so the screen lays out the
+  // whole area itself, its body under the same width rule (V4-RAIL).
+  if (SESSION_PATH.test(path)) return "flush";
   if (
     path === "/agents/new" ||
     (path.startsWith("/settings/") && !KEY_LISTS.has(path))
@@ -192,10 +199,6 @@ function usePathname() {
   return useRouterState({ select: (state) => state.location.pathname });
 }
 
-// The router opens these with a trailing slash too.
-const SESSION_PATH = /^\/sessions\/([^/]+)\/?$/;
-const AGENT_PATH = /^\/agents\/([^/]+)\/?$/;
-
 /**
  * What a screen under a sidebar item is called after it, when it is not the
  * item's own list: a session by its title, an agent by its name (console v4
@@ -275,12 +278,19 @@ function ShellMain({ children }: { readonly children: ReactNode }) {
   return (
     // The column fills the space beside the sidebar and its content centres
     // in it, up to the screen's width; narrower, only the gutters remain.
-    <Main className="web-shell__main flex w-full min-w-0 flex-col bg-surface p-4 pt-6 md:col-start-2 md:row-start-2 md:px-6 md:pt-[var(--ap-space-page-top)] md:pb-[var(--ap-space-section)]">
+    <Main
+      className={cn(
+        "web-shell__main flex w-full min-w-0 flex-col bg-surface md:col-start-2 md:row-start-2",
+        width === "flush"
+          ? null
+          : "p-4 pt-6 md:px-6 md:pt-[var(--ap-space-page-top)] md:pb-[var(--ap-space-section)]",
+      )}
+    >
       <div
         data-content-width={width}
         className={cn(
-          "mx-auto flex w-full min-w-0 flex-1 flex-col",
-          CONTENT_MAX_WIDTH[width],
+          "flex w-full min-w-0 flex-1 flex-col",
+          width === "flush" ? null : `mx-auto ${CONTENT_MAX_WIDTH[width]}`,
         )}
       >
         {children}

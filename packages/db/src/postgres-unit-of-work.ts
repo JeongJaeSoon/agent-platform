@@ -107,6 +107,7 @@ import {
   executions,
   idempotencyKeys,
   receipts,
+  sessionShares,
   sessions,
   turns,
   users,
@@ -114,9 +115,9 @@ import {
 import { recordStatus } from "./session-events.ts";
 import { sessionRelationIs, sessionVisibleTo } from "./session-shares.ts";
 
-const CREATE_SESSION = "create_session";
+export const CREATE_SESSION = "create_session";
 const APPEND_MESSAGE = "append_message";
-const SESSIONS_RESOURCE = "sessions";
+export const SESSIONS_RESOURCE = "sessions";
 
 async function recordAcceptance(
   tx: Database,
@@ -278,6 +279,17 @@ export function createPostgresSessionUnitOfWork(
           createdByUserId: actor?.userId ?? null,
           createdByApiKeyId: actor?.apiKeyId ?? null,
         });
+        if (input.shareScope !== undefined) {
+          if (!actor?.workspaceId) {
+            throw new Error("a share scope needs the session's workspace");
+          }
+          await tx.insert(sessionShares).values({
+            sessionId,
+            ownerId: scope.principal,
+            workspaceId: actor.workspaceId,
+            scope: input.shareScope,
+          });
+        }
         await insertQueuedTurn(tx, {
           sessionId,
           sequence: 1,

@@ -92,6 +92,7 @@ describe("database schema", () => {
       "queue_messages",
       "receipts",
       "secret_values",
+      "session_links",
       "session_share_targets",
       "session_shares",
       "sessions",

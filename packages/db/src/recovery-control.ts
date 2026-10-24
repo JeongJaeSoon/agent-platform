@@ -11,10 +11,11 @@ import type {
   ResumeSessionInput,
   ResumeSessionResult,
 } from "@werft-ai/platform";
-import { and, count, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { contextCoverage, contextGap } from "./context-gap.ts";
 import {
   controlClock,
+  controlReplay,
   earliestUnknownTurn,
   findIdempotent,
   hasRestorePoint,
@@ -34,7 +35,11 @@ import {
   RESTORE_FAILURE_LIMIT,
   RESTORE_FAILURES_CLEARED,
 } from "./restore-failures.ts";
-import { RESUME, resumePauseFamily } from "./resume-control.ts";
+import {
+  queuedTurnCount,
+  RESUME,
+  resumePauseFamily,
+} from "./resume-control.ts";
 import {
   checkpoints,
   executions,
@@ -296,18 +301,8 @@ export function decideRecoveryAtomic(
   return transactionWithBindingRetry(db, async (tx, attempt) => {
     await lockIdempotencyScope(tx, scope);
     const existing = await findIdempotent(tx, scope);
-    if (existing) {
-      if (existing.payloadHash !== input.payloadHash) {
-        return { outcome: "conflict" };
-      }
-      return {
-        outcome: "replayed",
-        response: {
-          receipt_id: existing.receiptId,
-          receipt_status: existing.status,
-        },
-      };
-    }
+    const replay = controlReplay(existing, input.payloadHash);
+    if (replay) return replay;
     const session = await lockSessionForControl(tx, {
       sessionId,
       ownerId: scope.principal,
@@ -620,14 +615,6 @@ async function retryRestore(
   return null;
 }
 
-async function queuedTurnCount(tx: Database, sessionId: string) {
-  const [row] = await tx
-    .select({ queued: count() })
-    .from(turns)
-    .where(and(eq(turns.sessionId, sessionId), eq(turns.status, "queued")));
-  return row?.queued ?? 0;
-}
-
 /**
  * Puts a session that admits work again back in line for a worker when it
  * has input waiting, in its partition; the row may still be
@@ -832,18 +819,8 @@ export function resumeAtomic(
   return transactionWithBindingRetry(db, async (tx, attempt) => {
     await lockIdempotencyScope(tx, scope);
     const existing = await findIdempotent(tx, scope);
-    if (existing) {
-      if (existing.payloadHash !== input.payloadHash) {
-        return { outcome: "conflict" };
-      }
-      return {
-        outcome: "replayed",
-        response: {
-          receipt_id: existing.receiptId,
-          receipt_status: existing.status,
-        },
-      };
-    }
+    const replay = controlReplay(existing, input.payloadHash);
+    if (replay) return replay;
     const session = await lockSessionForControl(tx, {
       sessionId,
       ownerId: scope.principal,

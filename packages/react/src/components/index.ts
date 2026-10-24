@@ -3,6 +3,14 @@ export {
   type ApiErrorStateProps,
 } from "./feedback/api-error-state.tsx";
 export { ERROR_GUIDANCE, guidanceFor } from "./feedback/error-guidance.ts";
+export {
+  DetailLayout,
+  type DetailLayoutProps,
+  DetailRail,
+  type DetailRailProps,
+  DetailRailSection,
+  type DetailRailSectionProps,
+} from "./layout/detail-layout.tsx";
 export { ListToolbar, type ListToolbarProps } from "./list/list-toolbar.tsx";
 export { ReceiptLink, type ReceiptLinkProps } from "./receipt/receipt-link.tsx";
 export {

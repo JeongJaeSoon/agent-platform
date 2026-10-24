@@ -120,6 +120,19 @@ export const chatAudienceSchema = z
   })
   .strict();
 
+/**
+ * Where a delivery is posted. Not the same thing as `audience` (who may see
+ * it) nor a session link's `visibility` (how much of the session it shows).
+ */
+export const CHAT_OUTBOUND_VISIBILITY_VALUES = [
+  "thread",
+  "channel",
+  "requester_only",
+] as const;
+export const chatOutboundVisibilitySchema = z.enum(
+  CHAT_OUTBOUND_VISIBILITY_VALUES,
+);
+
 export const chatOutboundEnvelopeSchema = z
   .object({
     deliveryId: opaqueIdSchema,
@@ -130,9 +143,19 @@ export const chatOutboundEnvelopeSchema = z
     audience: chatAudienceSchema,
     category: chatOutboundCategorySchema,
     content: chatContentSchema,
+    visibility: chatOutboundVisibilitySchema.default("thread"),
   })
   .strict()
   .superRefine((envelope, ctx) => {
+    // The other values are named so the column has its final shape, but no
+    // delivery path posts outside the thread yet.
+    if (envelope.visibility !== "thread") {
+      ctx.addIssue({
+        code: "custom",
+        path: ["visibility"],
+        message: "unsupported visibility",
+      });
+    }
     // Delivery sends to `scope`'s binding but intersects with `audience`'s
     // ACL, so two bindings would let B's actors authorise a post into A.
     if (
@@ -170,5 +193,12 @@ export type ScopedSessionBinding = z.infer<typeof scopedSessionBindingSchema>;
 export type ChatOutboundCategory = z.infer<typeof chatOutboundCategorySchema>;
 export type ChatContent = z.infer<typeof chatContentSchema>;
 export type ChatAudience = z.infer<typeof chatAudienceSchema>;
+export type ChatOutboundVisibility = z.infer<
+  typeof chatOutboundVisibilitySchema
+>;
 export type ChatOutboundEnvelope = z.infer<typeof chatOutboundEnvelopeSchema>;
+/** What a producer builds; `visibility` may be left to its default. */
+export type ChatOutboundEnvelopeInput = z.input<
+  typeof chatOutboundEnvelopeSchema
+>;
 export type MuteDecision = z.infer<typeof muteDecisionSchema>;

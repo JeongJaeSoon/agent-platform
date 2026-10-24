@@ -1,4 +1,7 @@
-import { SLACK_INBOUND_MAX_ATTEMPTS } from "@werft-ai/contracts";
+import {
+  SLACK_INBOUND_MAX_ATTEMPTS,
+  type SlackInboundDropReason,
+} from "@werft-ai/contracts";
 import type {
   SlackInboundClaim,
   SlackInboundEventStore,
@@ -29,6 +32,13 @@ export function slackConversationKey(
 export type SlackInboundHandler = (event: SlackInboundClaim) => Promise<void>;
 
 export const noopSlackInboundHandler: SlackInboundHandler = async () => {};
+
+/** Thrown by a handler to end the event `dropped` instead of retrying it. */
+export class SlackInboundDropped extends Error {
+  constructor(readonly reason: SlackInboundDropReason) {
+    super(`Slack event dropped: ${reason}`);
+  }
+}
 
 const BACKOFF_BASE_MS = 30_000;
 const BACKOFF_CAP_MS = 5 * 60_000;
@@ -108,6 +118,12 @@ export async function drainSlackInbox(deps: {
         await deps.handler(event);
       } catch (error) {
         failure = { error };
+      }
+      if (failure?.error instanceof SlackInboundDropped) {
+        if (await deps.inbox.drop(event, failure.error.reason)) {
+          drain.dropped += 1;
+        } else lost();
+        continue;
       }
       if (failure === undefined) {
         if (await deps.inbox.complete(event)) drain.processed += 1;
