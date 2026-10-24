@@ -61,6 +61,7 @@ import {
 } from "drizzle-orm";
 import { contextGapAttention } from "./context-gap.ts";
 import {
+  containsPattern,
   findIdempotent,
   type IdempotencyScope,
   lockIdempotencyScope,
@@ -72,12 +73,13 @@ import {
   recordUnboundRefusal,
 } from "./credential-bindings.ts";
 import {
+  decodeCreatedAtCursor,
   decodeEventCursor,
-  decodeSessionCursor,
   decodeTurnCursor,
+  encodeCreatedAtCursor,
   encodeEventCursor,
-  encodeSessionCursor,
   encodeTurnCursor,
+  rethrowCursorCastError,
 } from "./cursors.ts";
 import { drainAttention } from "./drain.ts";
 import { enqueueWithin } from "./enqueue.ts";
@@ -475,7 +477,6 @@ export function createPostgresSessionUnitOfWork(
 }
 
 const CREATED_AT_TEXT = sql<string>`${sessions.createdAt}::text`;
-const LIKE_SPECIAL = /[\\%_]/g;
 const ID_PREFIX = /^[0-9a-f-]+$/;
 // The newest event in stream order (ids are commit order within a session),
 // one index probe where max(created_at) visited every event of every listed
@@ -778,7 +779,7 @@ export function createPostgresSessionReader(
       q === undefined
         ? undefined
         : or(
-            sql`${sessions.title} ILIKE ${`%${q.replace(LIKE_SPECIAL, "\\$&")}%`}`,
+            sql`${sessions.title} ILIKE ${containsPattern(q)}`,
             ID_PREFIX.test(q)
               ? sql`${sessions.id}::text LIKE ${`${q}%`}`
               : undefined,
@@ -827,7 +828,7 @@ export function createPostgresSessionReader(
       query: ListSessionsQuery,
       viewer: SessionViewer,
     ) {
-      const cursor = query.cursor ? decodeSessionCursor(query.cursor) : null;
+      const cursor = query.cursor ? decodeCreatedAtCursor(query.cursor) : null;
       const rows = await db
         .select({
           session: sessions,
@@ -847,22 +848,14 @@ export function createPostgresSessionReader(
         )
         .orderBy(desc(sessions.createdAt), desc(sessions.id))
         .limit(query.limit + 1)
-        .catch((error: unknown) => {
-          // A well-formed but out-of-range timestamp (month 13) only fails
-          // at the cast: SQLSTATE 22007/22008 mean the cursor, not the DB.
-          const code = (error as { cause?: { code?: unknown } })?.cause?.code;
-          if (code === "22007" || code === "22008") {
-            throw new InvalidCursorError();
-          }
-          throw error;
-        });
+        .catch(rethrowCursorCastError);
       const page = rows.slice(0, query.limit);
       const last = page[page.length - 1];
       return {
         items: await summarize(db, page),
         next_cursor:
           rows.length > query.limit && last
-            ? encodeSessionCursor({
+            ? encodeCreatedAtCursor({
                 created_at: last.cursorAt,
                 id: last.session.id,
               })

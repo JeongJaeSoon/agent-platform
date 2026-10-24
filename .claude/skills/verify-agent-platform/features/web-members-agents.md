@@ -38,16 +38,18 @@ node $U <run id> login member                  # 같은 비밀번호로 API 로�
 ```
 
 - API로만 수락하려면 `node $U <run id> accept member` → `200` `{user_id, workspace, role: "member"}`, cookie가 생긴다.
-- 브라우저는 cookie를 하나만 가진다. 다른 사람으로 화면을 보려면 사이드바 아래 사용자 메뉴를 열고 로그아웃한 뒤(`node $B <run id> click "Verify Owner"`, `click 로그아웃`. [web-console.md](./web-console.md) `logout`) `node $B <run id> login <who>`. 이미 로그인한 브라우저로 초대 링크를 열면 `invite-signed-in` 화면이 나온다.
-- 초대 대화상자(`invite-create`)는 `<main>` 밖에 그려져 `@N`이 닿지 않는다. CSS로 몬다: `open /members` → `click "초대 링크 만들기"` → `type '[role=dialog] input[type=email]' invitee@example.test` → `click '[role=dialog] form button[type=submit]'`(같은 글자의 바깥 버튼이 먼저 잡히므로 글자로 누르지 않는다) → `?invite.step=link`. 그 링크의 token은 출력하지 않는다(`eval`로 읽지 말고 대화상자 버튼 이름이나 목록의 "대기 중인 초대"로 확인한다). 끝내려면 `click 닫기` → `click "복사하지 않고 나가기"`.
+- 브라우저는 cookie를 하나만 가진다. 다른 사람으로 화면을 보려면 사이드바 아래 사용자 메뉴를 열고 로그아웃한 뒤(`node $B <run id> open /`, `click "Verify Owner"`, `click 로그아웃`. [web-console.md](./web-console.md) `logout`) `node $B <run id> login <who>`. 이미 로그인한 브라우저로 초대 링크를 열면 `invite-signed-in` 화면이 나온다.
+- 초대 대화상자(`invite-create`)는 `<main>` 밖에 그려져 `@N`이 닿지 않는다. CSS로 몬다: `open /members` → `click "구성원 초대"` → `type '[role=dialog] input[type=email]' invitee@example.test` → `click '[role=dialog] form button[type=submit]'`(같은 글자의 바깥 버튼이 먼저 잡히므로 글자로 누르지 않는다) → `?invite.step=link`. 그 링크의 token은 출력하지 않는다(`eval`로 읽지 말고 대화상자 버튼 이름이나 목록의 "대기 중인 초대"로 확인한다). 끝내려면 `click 닫기` → `click "복사하지 않고 나가기"`.
 - `accept`는 `/`에 닿아야 exit 0이다. 폼 대신 안내 화면이 나오면 그 제목을 출력하고 exit 1로 끝난다. 그래서 다른 상태 화면도 `accept`로 본다(token을 `open` 인자로 넘기지 않는다. 명령줄 인자는 `ps`에 보인다): 로그인한 브라우저로 `accept member` → `| 이미 이 워크스페이스의 구성원입니다`, 이미 수락한 뒤 로그아웃한 브라우저로 다시 `accept member` → `| 이미 수락한 초대입니다`. 모양이 틀린 token은 `open /invite/not-a-real-token` → "초대 링크가 올바르지 않습니다". zsh에서는 `[...]`가 든 CSS를 따옴표로 감싼다.
 
 역할 변경·비활성은 owner 화면에서 몬다. 확인 대화상자 둘이 동시에 열리지 않도록 하나씩 끝낸다(`click`은 `el.click()`이라 열린 modal 뒤의 버튼도 누른다).
 
 ```sh
-node $B <run id> select 'main select[aria-label="Verify member의 역할"]' admin   # 출력은 "selected member": 확인 전에는 값이 그대로다
-node $B <run id> click "역할 바꾸기"                                               # → "Verify member의 역할을 관리자(으)로 바꿨습니다."
-node $B <run id> click '[aria-label="Verify member 비활성화"]'
+node $B <run id> click '[aria-label="Verify Member 편집"]'
+node $B <run id> click '[role=dialog] [role=radio][value=admin]'
+node $B <run id> click '[role=dialog] button:last-child' # Save, then confirm the role change.   # 출력은 "selected member": 확인 전에는 값이 그대로다
+node $B <run id> click "역할 바꾸기"                                               # → "Verify Member의 역할을 관리자(으)로 바꿨습니다."
+node $B <run id> click '[aria-label="Verify Member 비활성화"]'
 node $B <run id> click '[role=dialog] button:last-child'                          # 대화상자의 "비활성화" → "… 계정을 비활성화했습니다."
 node $B <run id> click "다시 활성화"
 ```
@@ -94,6 +96,8 @@ ap_compose exec -T postgres psql -U postgres -d sessions -c "select a.slug, a.ac
 - `orca click`이 접힌 영역 아래 버튼(상세의 "저장")을 누르지 못할 때가 있다. 겹친 요소는 없었다. `orca eval --expression "[...document.querySelectorAll('button')].find(b=>b.textContent==='저장').click()"`로 누른다. `browser.mjs click`은 처음부터 이렇게 누른다.
 - 비활성된 사람의 탭은 열린 채로는 `me`의 staleTime(30초)이 지나고 포커스가 돌아와야 로그인 화면으로 간다. 다시 열면 바로 간다.
 - `GET /v1/members`가 owner·admin(`member.manage`) 전용이라 member는 구성원 목록을 못 본다. 권한 없음 화면이 맞는 결과다.
-- 웹 카드 폼에는 `credential_refs`가 없어 웹에서 만든 에이전트는 바로 활성화된다. API로 `capabilities.credential_refs`를 넣은 카드는 연결 전 활성화가 `409 CREDENTIAL_UNBOUND`다. 자격 연결·Slack 앱 연결 화면은 아직 없고 API로만 한다([musterrolle.md](./musterrolle.md) f·g).
+- 웹 카드 폼에는 `credential_refs`가 없어 웹에서 만든 에이전트는 바로 활성화된다. API로 `capabilities.credential_refs`를 넣은 카드는 연결 전 활성화가 `409 CREDENTIAL_UNBOUND`다. 자격 연결은 배포 탭에 있다. Slack 앱 설치 설정은 API로 한다([musterrolle.md](./musterrolle.md) f·g).
 - 초대 token은 URL 경로에 있다. 텍스트 증거에는 링크를 남기지 않는다. 초대 링크 스크린샷의 token은 수락이나 회수 뒤 무효다.
 - 같은 사람을 두 번 초대하지 않는다. `invite`는 그 사람의 `users/<who>`가 이미 있으면 새 비밀번호를 만들지 않고 그대로 쓴다.
+
+현재 구성원 화면은 구성원·팀·초대 LinkTabs다. 표는 GridTable의 role=table/row/cell이며 구성원·역할·관리 3열이다. 역할은 행의 편집 버튼 → RadioGroup → 저장 → 역할 바꾸기 확인으로 바꾼다. 팀 주소는 `/members/teams`, 대기 중 초대는 `/members/invites`다. 에이전트 목록은 전체/관리하는 에이전트 SegmentedControl과 개수, 카드/표 보기다. 소스: `apps/web/src/routes/members.tsx`, `agents.tsx`. 실행 순서는 [procedures.md](procedures.md)를 따른다.

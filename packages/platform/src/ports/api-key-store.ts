@@ -9,10 +9,13 @@ export type WorkspaceKey = {
   agentId: string | null;
   /** Who issued it; null on keys from before the API issued them. */
   createdByUserId: string | null;
+  /** The issuer's display name now, set whenever createdByUserId is. */
+  createdByDisplayName: string | null;
   scopes: SessionScope[];
   createdAt: Date;
   expiresAt: Date | null;
   revokedAt: Date | null;
+  lastUsedAt: Date | null;
 };
 
 export type IssueKeyInput = {

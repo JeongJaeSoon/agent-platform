@@ -4,9 +4,11 @@ import type {
   ActivationCredentialUnboundDetails,
   AgentDetail,
   AgentRelease,
+  CountAgentsResponse,
   CreateAgentReleaseRequest,
   CreateAgentReleaseResponse,
   CreateAgentRequest,
+  ListAgentsQuery,
   ListAgentsResponse,
   UpdateAgentRequest,
 } from "@werft-ai/contracts";
@@ -30,8 +32,6 @@ import {
   releaseModel,
   resolveReleaseContent,
 } from "./release-ids.ts";
-
-export const AGENT_LIST_LIMIT = 500;
 
 const NOT_FOUND = () =>
   new SessionServiceError("NOT_FOUND", "Resource not found");
@@ -118,9 +118,17 @@ export function createAgentService(deps: {
   return {
     resolveRelease,
 
-    async listAgents(caller: Caller): Promise<ListAgentsResponse> {
+    async listAgents(
+      caller: Caller,
+      query: ListAgentsQuery,
+    ): Promise<ListAgentsResponse> {
       await onWorkspace(caller, "agent.manage");
-      return { items: await store.list(caller.ownerId, AGENT_LIST_LIMIT) };
+      return store.list(caller.ownerId, query);
+    },
+
+    async countAgents(caller: Caller): Promise<CountAgentsResponse> {
+      const userId = await onWorkspace(caller, "agent.manage");
+      return { counts: await store.count(caller.ownerId, userId) };
     },
 
     async getAgent(caller: Caller, agentId: string): Promise<AgentDetail> {

@@ -1,6 +1,9 @@
 // Every public page cursor is minted and checked here. Anything a decoder
 // does not recognise is InvalidCursorError, which the routes answer with 400.
-import { sessionIdSchema } from "@werft-ai/contracts";
+import {
+  userIdSchema,
+  sessionIdSchema as uuidSchema,
+} from "@werft-ai/contracts";
 import { InvalidCursorError } from "@werft-ai/platform";
 import { SEQUENCE_MAX } from "./control-shared.ts";
 
@@ -40,26 +43,35 @@ function decodeJsonCursor<T>(
   throw new InvalidCursorError();
 }
 
-// created_at is the database's own text rendering so microsecond precision
-// survives the round trip (JS Date would truncate to milliseconds).
-export type SessionCursor = { created_at: string; id: string };
+// Sessions and agents page on (created_at, id). created_at is the database's
+// own text rendering so microsecond precision survives the round trip (JS Date
+// would truncate to milliseconds).
+export type CreatedAtCursor = { created_at: string; id: string };
 // Only the exact shape PostgreSQL renders; JS Date.parse is far more lenient
 // than the timestamptz cast and a forged cursor must not reach the query.
 const PG_TIMESTAMPTZ_TEXT =
   /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d{1,6})?[+-]\d{2}(:\d{2})?$/;
 
-export function encodeSessionCursor(cursor: SessionCursor): string {
+export function encodeCreatedAtCursor(cursor: CreatedAtCursor): string {
   return encodeJsonCursor(cursor);
 }
 
-export function decodeSessionCursor(value: string): SessionCursor {
+export function decodeCreatedAtCursor(value: string): CreatedAtCursor {
   return decodeJsonCursor(value, (parsed) =>
     typeof parsed.created_at === "string" &&
     PG_TIMESTAMPTZ_TEXT.test(parsed.created_at) &&
-    sessionIdSchema.safeParse(parsed.id).success
-      ? (parsed as SessionCursor)
+    uuidSchema.safeParse(parsed.id).success
+      ? (parsed as CreatedAtCursor)
       : undefined,
   );
+}
+
+// A well-formed but out-of-range timestamp (month 13) only fails at the
+// cast: SQLSTATE 22007/22008 mean the cursor, not the DB.
+export function rethrowCursorCastError(error: unknown): never {
+  const code = (error as { cause?: { code?: unknown } })?.cause?.code;
+  if (code === "22007" || code === "22008") throw new InvalidCursorError();
+  throw error;
 }
 
 // Turns page in FIFO order; the cursor is the last sequence on the page.
@@ -76,6 +88,23 @@ export function decodeTurnCursor(value: string): TurnCursor {
     parsed.sequence >= 1 &&
     parsed.sequence <= SEQUENCE_MAX
       ? { sequence: parsed.sequence }
+      : undefined,
+  );
+}
+
+// Members page oldest membership first; created_at is text for the same reason.
+export type MemberCursor = { created_at: string; user_id: string };
+
+export function encodeMemberCursor(cursor: MemberCursor): string {
+  return encodeJsonCursor(cursor);
+}
+
+export function decodeMemberCursor(value: string): MemberCursor {
+  return decodeJsonCursor(value, (parsed) =>
+    typeof parsed.created_at === "string" &&
+    PG_TIMESTAMPTZ_TEXT.test(parsed.created_at) &&
+    userIdSchema.safeParse(parsed.user_id).success
+      ? { created_at: parsed.created_at, user_id: parsed.user_id as string }
       : undefined,
   );
 }

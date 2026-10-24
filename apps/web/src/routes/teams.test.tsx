@@ -68,7 +68,8 @@ function teamServer() {
     },
     routes: {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner, mate] }),
+      "GET /v1/members": () =>
+        json(200, { items: [owner, mate], next_cursor: null }),
       "GET /v1/teams": () => json(200, { items: team ? [view()] : [] }),
       "POST /v1/teams": async (request: Request) => {
         const { name } = (await request.json()) as { name: string };
@@ -145,6 +146,24 @@ describe("팀 화면", () => {
     const { api } = renderAt("/members/teams", server.routes);
     const link = await screen.findByRole("link", { name: "결제팀" });
     expect(link.getAttribute("href")).toBe(`/members/teams/${TEAM_ID}`);
+    // The row opens as a whole through the name link: its box covers the
+    // row, the row takes the hover fill, and the chevron sits at the row's end.
+    const row = link.closest("li") as HTMLElement;
+    const rowClasses = row.className.split(" ");
+    expect(rowClasses).toContain("relative");
+    expect(rowClasses).toContain("cursor-pointer");
+    expect(rowClasses).toContain("hover:bg-hover");
+    const linkClasses = link.className.split(" ");
+    expect(linkClasses).toContain("after:absolute");
+    expect(linkClasses).toContain("after:inset-0");
+    expect(linkClasses).toContain("focus-visible:after:outline-2");
+    // One ring, the row's: the link's own is off over styles.css's rule.
+    expect(linkClasses).toContain("focus-visible:outline-none!");
+    expect(row.querySelectorAll("a").length).toBe(1);
+    const chevron = row.lastElementChild as Element;
+    expect(chevron.tagName.toLowerCase()).toBe("svg");
+    expect(chevron.getAttribute("aria-hidden")).toBe("true");
+    expect(link.querySelector("svg")).toBeNull();
     const user = await setupUser();
     await user.type(screen.getByLabelText("팀 이름"), "지원팀");
     await user.click(screen.getByRole("button", { name: "팀 만들기" }));

@@ -63,15 +63,22 @@ const MODELS = ["claude-haiku-5", "claude-sonnet-5"];
 const CARD_BODY = "flex flex-col gap-3 p-4";
 const META = "text-caption text-subtle-foreground";
 const ICON = "size-3.5 shrink-0";
+const STATUS = `${META} min-w-6 text-right`;
+// The card draws the box; the rows only keep the rule under the body.
+const ROWS = "rounded-none border-x-0 border-b-0 bg-transparent";
 
 function SettingsCard({
   title,
   description,
+  descriptionId,
+  rows,
   foot,
   children,
 }: {
   readonly title: string;
   readonly description: string;
+  readonly descriptionId?: string;
+  readonly rows?: ReactNode;
   readonly foot?: ReactNode;
   readonly children?: ReactNode;
 }) {
@@ -82,11 +89,16 @@ function SettingsCard({
         <CardTitle id={titleId} role="heading" aria-level={2}>
           {title}
         </CardTitle>
-        <CardDescription className="text-description">
+        <CardDescription id={descriptionId} className="text-description">
           {description}
         </CardDescription>
         {children}
       </div>
+      {rows ? (
+        <RowList variant="joined" className={ROWS}>
+          {rows}
+        </RowList>
+      ) : null}
       {foot ? <CardFooter variant="form">{foot}</CardFooter> : null}
     </Card>
   );
@@ -475,9 +487,38 @@ function SlackAppsPage() {
   );
 }
 
+function GuestRow({
+  hintId,
+  saving,
+}: {
+  readonly hintId: string;
+  readonly saving: boolean;
+}) {
+  const [enabled, setEnabled] = useState(WORKSPACE.slack_guest_enabled);
+  return (
+    <SettingRow
+      title="Slack 게스트도 에이전트를 쓸 수 있게 하기"
+      status={
+        <div aria-hidden="true" className={STATUS}>
+          {enabled ? "켜짐" : "꺼짐"}
+        </div>
+      }
+      control={
+        <Switch
+          checked={enabled}
+          aria-describedby={hintId}
+          aria-disabled={saving || undefined}
+          onCheckedChange={setEnabled}
+        />
+      }
+    />
+  );
+}
+
 function WorkspaceSettingsScreen({
   viewer,
   models,
+  saving = false,
   slack: initialPage,
   token = "active",
   editing = false,
@@ -488,10 +529,11 @@ function WorkspaceSettingsScreen({
   readonly slack?: SlackPage | undefined;
   readonly token?: ConfigToken | undefined;
   readonly editing?: boolean | undefined;
+  readonly saving?: boolean | undefined;
 }) {
   const nameId = useId();
   const daysId = useId();
-  const guestId = useId();
+  const guestHintId = useId();
   const [page, setPage] = useState(initialPage);
   const editable = viewer !== "member";
   const retentionReason =
@@ -634,24 +676,14 @@ function WorkspaceSettingsScreen({
             <SettingsCard
               title="Slack 게스트"
               description="켜도 게스트는 먼저 웹에서 자기 Slack 계정을 연결해야 합니다. Slack Connect로 들어온 다른 조직 사람은 켜져 있어도 에이전트를 쓸 수 없습니다. 소유자나 관리자가 바꿀 수 있습니다."
+              descriptionId={guestHintId}
+              rows={
+                editable ? (
+                  <GuestRow hintId={guestHintId} saving={saving} />
+                ) : undefined
+              }
             >
-              {editable ? (
-                <div className="flex flex-wrap items-baseline gap-2">
-                  <div id={guestId}>
-                    Slack 게스트도 에이전트를 쓸 수 있게 하기
-                  </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    role="switch"
-                    aria-checked={WORKSPACE.slack_guest_enabled}
-                    aria-labelledby={guestId}
-                  >
-                    꺼짐
-                  </Button>
-                </div>
-              ) : (
+              {editable ? null : (
                 <div>Slack 게스트는 에이전트를 쓸 수 없습니다.</div>
               )}
             </SettingsCard>
@@ -666,7 +698,7 @@ const meta = {
   title: "Screens/Workspace settings (v4)",
   component: WorkspaceSettingsScreen,
   parameters: { layout: "fullscreen" },
-  args: { viewer: "owner", models: "ready" },
+  args: { viewer: "owner", models: "ready", saving: false },
   argTypes: {
     viewer: { control: "inline-radio", options: ["owner", "admin", "member"] },
     models: {
@@ -687,6 +719,11 @@ export const WorkspaceSettingsAdmin: Story = {
 export const WorkspaceSettingsMember: Story = {
   name: "Member (read-only)",
   args: { viewer: "member" },
+};
+/** The guest switch while its save is in flight: focusable, but refuses. */
+export const WorkspaceSettingsGuestSaving: Story = {
+  name: "Guest switch saving",
+  args: { saving: true },
 };
 export const WorkspaceSettingsModelsLoading: Story = {
   name: "Models loading",

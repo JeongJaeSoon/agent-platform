@@ -1,6 +1,6 @@
 # 웹 콘솔
 
-API가 `WEB_DIST_DIR`(control-host 이미지는 `/app/apps/web/dist`)의 웹 콘솔을 같은 origin에서 서빙한다. 사용자는 브라우저로 `/bootstrap`에서 첫 소유자(owner)를 만들고, `/login`에서 로그인해 `/`의 workspace shell(왼쪽 사이드바, 머리의 답변 대기 버튼)과 시작하기 checklist를 보고, 사이드바 아래 사용자 메뉴에서 로그아웃한다. `/v1`·`/internal` 밖의 경로는 모두 `index.html`이라 새로고침해도 화면이 열린다.
+API가 `WEB_DIST_DIR`(control-host 이미지는 `/app/apps/web/dist`)의 웹 콘솔을 같은 origin에서 서빙한다. 사용자는 브라우저로 `/bootstrap`에서 첫 소유자(owner)를 만들고, `/login`에서 로그인해 `/`의 workspace shell(왼쪽 사이드바, 세션 항목의 답변 대기 배지)과 시작하기 checklist를 보고, 사이드바 아래 사용자 메뉴에서 로그아웃한다. `/v1`·`/internal` 밖의 경로는 모두 `index.html`이라 새로고침해도 화면이 열린다.
 
 ## Sub-features
 
@@ -9,8 +9,8 @@ API가 `WEB_DIST_DIR`(control-host 이미지는 `/app/apps/web/dist`)의 웹 콘
 - `login-required` 로그인 없이 `/`를 열면 `/login?redirect=%2F`로 가고 "로그인이 필요합니다"와 "로그인하면 열려던 화면으로 돌아갑니다."가 보인다.
 - `bootstrap` `/bootstrap`은 제목 "첫 소유자 만들기"로 열리고, 제출하면 `/login?notice=created`.
 - `bootstrap-done` 소유자가 이미 있으면 제출 결과가 409라 `/bootstrap`에 머문 채 폼 아래 오류 줄에 "이미 소유자가 있습니다. 로그인해 주세요. 로그인하기"(마지막 말이 `/login` 링크)가 보인다. `/login?notice=bootstrap_done` 안내는 그 주소로 직접 열 때만 나온다.
-- `login` 로그인하면 `/`에 workspace 이름, "<이름>(<이메일>) 계정으로 로그인했습니다", "시작하기 1 / 4 완료"와 항목 넷(소유자 계정 만들기·구성원 초대하기·에이전트 준비하기·첫 세션 확인하기, 첫째만 완료).
-- `shell` 사이드바는 업무(홈·세션·에이전트), 워크스페이스(구성원·팀·워크스페이스 설정, 권한 있을 때만), 내 설정(연동 계정·내 key·언어·테마). 머리에는 만들기 버튼이 없고, 각 목록 머리의 주 버튼(에이전트 "새 에이전트", 구성원 "초대 링크 만들기", 팀 "팀 만들기")이 만든다. 좁은 폭에서는 사이드바가 "메뉴 열기" 뒤에 숨는다.
+- `login` 로그인하면 `/`에 workspace 이름, “답이 필요한 요청”·“최근 세션”, 새 run에서는 "시작하기 1 / 4 완료"와 항목 넷(소유자 계정 만들기·구성원 초대하기·에이전트 준비하기·첫 세션 확인하기, 첫째만 완료).
+- `shell` 사이드바는 업무(홈·세션·에이전트), 워크스페이스(구성원·워크스페이스 설정, 설정은 권한 있을 때만), 내 설정(연동 계정·내 key·언어·테마). 머리에는 만들기 버튼이 없고, 각 목록 머리의 주 버튼(에이전트 "새 에이전트", 구성원 "초대 링크 만들기", 팀 "팀 만들기")이 만든다. 좁은 폭에서는 사이드바가 "메뉴 열기" 뒤에 숨는다.
 - `logout` 사이드바 아래 사용자 버튼(글자 `<첫 글자><이름>`, `aria-label` "<이름> · <역할>")이 메뉴(연동 계정·언어·테마·내 key·로그아웃)를 연다. "로그아웃"하면 `/login?notice=logged_out`, 다시 `/`를 열면 로그인 화면.
 - `session-ended` 로그인한 채 다른 곳에서 세션이 끝나면(다른 탭 로그아웃), 다음 `me` 재조회가 401을 받아 `/login?redirect=…`로 간다.
 - `locale` 한국어·日本語·English. 로그인 전 화면(`/login`·`/bootstrap`·초대)은 오른쪽 아래 `<footer>`의 native select, 로그인 뒤에는 사용자 메뉴의 "언어"와 `/settings/preferences`("언어·테마")에서 고른다. 첫 방문 언어는 브라우저 언어를 따른다.
@@ -48,6 +48,7 @@ node $B <run id> blockshot /sessions '*/v1/sessions*' sessions-error   # 그 요
 node $B <run id> slowshot /sessions sessions-loading 3000              # 2.5초 지연 중 로딩 화면
 node $B <run id> key Tab 3               # 포커스가 간 요소와 outline
 node $B <run id> press "연결 해제"        # 그 버튼에 포커스를 두고 Enter → 경로와 그 뒤 포커스가 간 요소
+node $B <run id> open /                  # 사용자 메뉴가 있는 shell로 이동
 node $B <run id> click "Verify Owner"    # 사이드바 아래 사용자 메뉴를 연다(로그아웃은 그 안에만 있다)
 node $B <run id> click 로그아웃           # → /login?notice=logged_out
 node $B <run id> select "footer select" ja   # 로그인 전 화면의 언어. h1이 "ログイン"이 된다. 되돌릴 때 ko
@@ -75,3 +76,7 @@ Orca 브라우저(`orca tab`·`orca snapshot`)도 쓸 수 있다. 다른 스택�
 - `slowshot` 직후의 다음 명령은 페이지가 아직 불러오는 중일 수 있다. `open`으로 다시 연 뒤 이어 간다.
 - 화면 글자는 브라우저 언어를 따른다. `browser.mjs`의 Chrome은 OS 언어로 뜨므로(이 머신은 `navigator.languages` = `ko-KR,ko,…`) 이 map의 한국어 글자가 그대로 맞는다. 다른 언어로 첫 방문을 보려면 `start` 전에 `$VERIFY_RUN/browser/profile/Default/Preferences`를 `{"intl":{"accept_languages":"ja,en-US,en"}}`로 쓴다(Write 도구).
 - `click`은 보이는 글자만 맞춘다(`aria-label`은 보지 않는다). 글자 없는 버튼은 CSS로 누른다(예: `click '[aria-label="Slack 계정 연결"]'`).
+
+홈 요청함은 “답이 필요한 요청”, 빈 상태는 “지금 답할 요청이 없습니다”다. 최근 세션·가장 오래된 요청 시각은 상대 시각이며 focus/hover tooltip으로 정확한 시각을 확인한다. `/sessions`는 상태 SegmentedControl과 “제목이나 ID로 찾기” SearchInput이다. 웹 검색은 불러온 목록 안에서만 하고 상태별 count는 아직 표시하지 않는다. API의 q/counts 지원과 구분한다. 소스: `apps/web/src/routes/home.tsx`, `sessions.tsx`, `components/app-sidebar.tsx`. 절차: [procedures.md](procedures.md) P-WEB-HOME·P-WEB-SESSIONS.
+
+Radix 상세 탭은 `click` 대신 `press 카드 Enter`처럼 키보드로 활성화하거나 탭 URL을 연다. 전환 뒤 `eval`로 `[role=tab]`의 `aria-selected`와 `location.search`를 출력해 확인한다.

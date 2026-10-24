@@ -446,6 +446,50 @@ describe("sessions list", () => {
     expect(nextCalls).toBe(2);
   });
 
+  test("from the keyboard 더 보기 keeps the focus, asks once, and hands it to the new row at the end", async () => {
+    const user = await setupUser();
+    let release = () => {};
+    let failing = true;
+    const { api } = renderAt("/sessions", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/sessions": async (request) => {
+        if (new URL(request.url).searchParams.get("cursor") !== "next-1") {
+          return json(200, {
+            items: [summary(SESSION_ID, { status: "idle" })],
+            next_cursor: "next-1",
+          });
+        }
+        if (failing) return apiError(503, "BACKEND_UNAVAILABLE", "down");
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        return json(200, { items: [summary(OTHER_ID)], next_cursor: null });
+      },
+    });
+
+    const more = await screen.findByRole("button", { name: "더 보기" });
+    await act(async () => more.focus());
+    await user.keyboard("{Enter}");
+    await screen.findByRole("alert");
+    // A failed page keeps 더 보기, and the keyboard on it.
+    expect(screen.getByRole("button", { name: "더 보기" }) === more).toBe(true);
+    expect(document.activeElement === more).toBe(true);
+
+    failing = false;
+    await user.keyboard("{Enter}");
+    await screen.findByRole("button", { name: "불러오는 중…" });
+    expect(more.getAttribute("aria-disabled")).toBe("true");
+    expect(document.activeElement === more).toBe(true);
+    await user.keyboard("{Enter}");
+    release();
+    const added = await screen.findByRole("link", { name: opener(OTHER_ID) });
+    expect(screen.queryByRole("button", { name: "더 보기" })).toBeNull();
+    await waitFor(() => expect(document.activeElement === added).toBe(true));
+    expect(
+      api.calls.filter((call) => call.search === "?cursor=next-1"),
+    ).toHaveLength(2);
+  });
+
   test("a refresh that failed under a shown list is retried as a refresh", async () => {
     const user = await setupUser();
     let firstPageCalls = 0;

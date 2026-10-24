@@ -11,8 +11,14 @@ import type {
   MembershipRole,
   RevokeInviteResult,
 } from "@werft-ai/platform";
+import { InvalidCursorError } from "@werft-ai/platform";
 import { and, asc, desc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
-import { lockActorAccount, receiptActorOf } from "./control-shared.ts";
+import {
+  containsPattern,
+  lockActorAccount,
+  receiptActorOf,
+} from "./control-shared.ts";
+import { decodeMemberCursor, encodeMemberCursor } from "./cursors.ts";
 import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
 import { createWebSession } from "./identity.ts";
 import type { Database } from "./queries.ts";
@@ -521,14 +527,53 @@ export function createPostgresInviteStore(db: Database): InviteStore {
     revokeInvite: (input) => revokeInvite(db, input),
     peekInvite: (tokenHash) => peekInvite(db, tokenHash),
     acceptInvite: (input) => acceptInvite(db, input),
-    async listMembers(workspaceId) {
+    async listMembers(workspaceId, query) {
+      const cursor = query.cursor ? decodeMemberCursor(query.cursor) : null;
+      const pattern = query.q === undefined ? null : containsPattern(query.q);
       const rows = await db
-        .select(memberColumns)
+        .select({
+          ...memberColumns,
+          cursorAt: sql<string>`${memberships.createdAt}::text`,
+        })
         .from(memberships)
         .innerJoin(users, eq(users.id, memberships.userId))
-        .where(eq(memberships.workspaceId, workspaceId))
-        .orderBy(asc(memberships.createdAt), asc(memberships.userId));
-      return rows.map(memberRecord);
+        .where(
+          and(
+            eq(memberships.workspaceId, workspaceId),
+            pattern === null
+              ? undefined
+              : or(
+                  sql`${users.displayName} ILIKE ${pattern}`,
+                  sql`${users.email} ILIKE ${pattern}`,
+                ),
+            cursor
+              ? sql`(${memberships.createdAt}, ${memberships.userId}) > (${cursor.created_at}::timestamptz, ${cursor.user_id}::uuid)`
+              : undefined,
+          ),
+        )
+        .orderBy(asc(memberships.createdAt), asc(memberships.userId))
+        .limit(query.limit + 1)
+        .catch((error: unknown) => {
+          // Same as sessions: a well-formed out-of-range timestamp only
+          // fails at the cast.
+          const code = (error as { cause?: { code?: unknown } })?.cause?.code;
+          if (code === "22007" || code === "22008") {
+            throw new InvalidCursorError();
+          }
+          throw error;
+        });
+      const page = rows.slice(0, query.limit);
+      const last = page[page.length - 1];
+      return {
+        items: page.map(({ cursorAt: _, ...row }) => memberRecord(row)),
+        next_cursor:
+          rows.length > query.limit && last
+            ? encodeMemberCursor({
+                created_at: last.cursorAt,
+                user_id: last.userId,
+              })
+            : null,
+      };
     },
     changeMemberRole: (input) => changeMemberRole(db, input),
   };

@@ -7,6 +7,7 @@ export {
   invitesQuery,
   linkedAccountsQuery,
   loginMethodsQuery,
+  memberPagesQuery,
   membersQuery,
   meQuery,
   myTeamsQuery,

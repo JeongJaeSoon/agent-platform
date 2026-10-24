@@ -1192,7 +1192,9 @@ export interface paths {
         };
         /**
          * Members of the workspace, oldest first
-         * @description **Auth:** cookie session only; no scope.
+         * @description Lists the workspace's members, disabled ones included, oldest membership first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. `q` keeps the members whose display name or email contains it, ignoring case.
+         *
+         *     **Auth:** cookie session only; no scope.
          */
         get: operations["listMembers"];
         put?: never;
@@ -1454,7 +1456,7 @@ export interface paths {
         };
         /**
          * The workspace's agents
-         * @description Up to 500, oldest first. API keys are refused.
+         * @description Lists the workspace's agents oldest `created_at` first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. API keys are refused.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -1467,6 +1469,28 @@ export interface paths {
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         post: operations["createAgent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/counts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * How many agents the workspace has, and how many the caller administers
+         * @description `all` is how many agents GET /v1/agents lists read to the last page; `administered` is how many of them the caller administers now, directly or through a team they are a live member of. Answered for the same callers as the list. API keys are refused. It changes nothing.
+         *
+         *     **Auth:** cookie session only; no scope.
+         */
+        get: operations["countAgents"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2172,6 +2196,18 @@ export interface components {
              */
             relation?: "all" | "started" | "shared" | "administered";
             /** @description Matches a session whose title contains it, ignoring case, or whose id starts with it. */
+            q?: string;
+        };
+        ListAgentsQuery: {
+            cursor?: string;
+            /** @default 50 */
+            limit: number;
+        };
+        ListMembersQuery: {
+            cursor?: string;
+            /** @default 50 */
+            limit: number;
+            /** @description Matches a member whose display name or email contains it, ignoring case. `%` and `_` match themselves. */
             q?: string;
         };
         CountSessionsQuery: {
@@ -3244,6 +3280,7 @@ export interface components {
         };
         ListMembersResponse: {
             items: components["schemas"]["MemberView"][];
+            next_cursor: string | null;
         };
         MemberView: {
             /** Format: uuid */
@@ -3865,6 +3902,15 @@ export interface components {
                 /** Format: date-time */
                 updated_at: string;
             }[];
+            next_cursor: string | null;
+        };
+        CountAgentsResponse: {
+            counts: {
+                /** @description How many agents GET /v1/agents lists, read to the last page. */
+                all: number;
+                /** @description How many of those the caller administers now, directly or through a team. */
+                administered: number;
+            };
         };
         ListProfilesResponse: {
             items: {
@@ -4094,11 +4140,19 @@ export interface components {
                 workspace_id: string;
                 agent_id: string | null;
                 created_by: string | null;
+                /** @description Who issued the key, with their display name as it is now. It stays after the issuer leaves the workspace or their account is disabled. Null on a key issued before keys recorded who issued them. */
+                created_by_user: {
+                    /** Format: uuid */
+                    id: string;
+                    display_name: string;
+                } | null;
                 scopes: ("sessions:read" | "sessions:write" | "sessions:approve" | "sessions:control" | "sessions:recover")[];
                 /** Format: date-time */
                 created_at: string;
                 expires_at: string | null;
                 revoked_at: string | null;
+                /** @description When the key last authenticated a request, recorded at most once a minute. A use made while another request is writing a session with the key is recorded on the next use instead, so it can lag by more. Null means no use has been recorded since last-use recording began, not that the key was never used. */
+                last_used_at: string | null;
             };
             secret: string;
             /** Format: uuid */
@@ -4114,11 +4168,19 @@ export interface components {
                 workspace_id: string;
                 agent_id: string | null;
                 created_by: string | null;
+                /** @description Who issued the key, with their display name as it is now. It stays after the issuer leaves the workspace or their account is disabled. Null on a key issued before keys recorded who issued them. */
+                created_by_user: {
+                    /** Format: uuid */
+                    id: string;
+                    display_name: string;
+                } | null;
                 scopes: ("sessions:read" | "sessions:write" | "sessions:approve" | "sessions:control" | "sessions:recover")[];
                 /** Format: date-time */
                 created_at: string;
                 expires_at: string | null;
                 revoked_at: string | null;
+                /** @description When the key last authenticated a request, recorded at most once a minute. A use made while another request is writing a session with the key is recorded on the next use instead, so it can lag by more. Null means no use has been recorded since last-use recording began, not that the key was never used. */
+                last_used_at: string | null;
             }[];
         };
         RevokeApiKeyResponse: {
@@ -4131,11 +4193,19 @@ export interface components {
                 workspace_id: string;
                 agent_id: string | null;
                 created_by: string | null;
+                /** @description Who issued the key, with their display name as it is now. It stays after the issuer leaves the workspace or their account is disabled. Null on a key issued before keys recorded who issued them. */
+                created_by_user: {
+                    /** Format: uuid */
+                    id: string;
+                    display_name: string;
+                } | null;
                 scopes: ("sessions:read" | "sessions:write" | "sessions:approve" | "sessions:control" | "sessions:recover")[];
                 /** Format: date-time */
                 created_at: string;
                 expires_at: string | null;
                 revoked_at: string | null;
+                /** @description When the key last authenticated a request, recorded at most once a minute. A use made while another request is writing a session with the key is recorded on the next use instead, so it can lag by more. Null means no use has been recorded since last-use recording began, not that the key was never used. */
+                last_used_at: string | null;
             };
             receipt_id: string | null;
         };
@@ -12253,7 +12323,11 @@ export interface operations {
     };
     listMembers: {
         parameters: {
-            query?: never;
+            query?: {
+                cursor?: string;
+                limit?: number;
+                q?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -12268,6 +12342,21 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ListMembersResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
                 };
             };
             /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
@@ -13703,21 +13792,58 @@ export interface operations {
     };
     listAgents: {
         parameters: {
-            query?: never;
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description One page of agents. */
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "id": "8d2c4f1a-6b3e-4a9d-b7c5-2e1f0a9b8c7d",
+                     *           "workspace_id": "9d2c4e61-8a3b-4f70-b1e5-6c0a7d3f2b98",
+                     *           "slug": "finance",
+                     *           "name": "Finance analyst",
+                     *           "status": "active",
+                     *           "active_release_id": null,
+                     *           "activation_revision": -1,
+                     *           "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *           "created_at": "2026-10-11T08:00:00Z",
+                     *           "updated_at": "2026-10-11T08:00:00Z"
+                     *         }
+                     *       ],
+                     *       "next_cursor": "eyJjcmVhdGVkX2F0IjoiMjAyNi0xMC0xMSAwODowMDowMCswMCIsImlkIjoiOGQyYzRmMWEtNmIzZS00YTlkLWI3YzUtMmUxZjBhOWI4YzdkIn0"
+                     *     }
+                     */
                     "application/json": components["schemas"]["ListAgentsResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
                 };
             };
             /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
@@ -13881,6 +14007,82 @@ export interface operations {
                         error?: {
                             /** @enum {string} */
                             code?: "PAYLOAD_TOO_LARGE";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    countAgents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The two counts. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "counts": {
+                     *         "all": 128,
+                     *         "administered": 3
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["CountAgentsResponse"];
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
                         };
                     };
                 };

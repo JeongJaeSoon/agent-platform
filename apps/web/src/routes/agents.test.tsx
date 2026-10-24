@@ -207,6 +207,7 @@ describe("에이전트 목록", () => {
             agent("held", "paused", true),
             agent("old", "archived", false),
           ],
+          next_cursor: null,
         }),
     });
     const badges = () =>
@@ -336,7 +337,7 @@ describe("에이전트 카드", () => {
     });
     return {
       ...server.routes,
-      "GET /v1/agents": () => json(200, { items: [agent] }),
+      "GET /v1/agents": () => json(200, { items: [agent], next_cursor: null }),
       [`GET /v1/agents/${AGENT_ID}`]: () => json(200, detail),
       [`GET /v1/agents/${AGENT_ID}/admins`]: () =>
         json(200, {
@@ -459,7 +460,7 @@ describe("에이전트 카드", () => {
     }));
     const { api } = renderAt("/agents", {
       ...meOk,
-      "GET /v1/agents": () => json(200, { items }),
+      "GET /v1/agents": () => json(200, { items, next_cursor: null }),
     });
     await screen.findByRole("link", { name: "에이전트 13" });
     expect(
@@ -484,7 +485,7 @@ describe("에이전트 목록 탭과 보기", () => {
   test("에이전트가 없어도 탭과 보기 전환은 남고 전체 탭이 비었다고 알린다", async () => {
     renderAt("/agents", {
       ...meOk,
-      "GET /v1/agents": () => json(200, { items: [] }),
+      "GET /v1/agents": () => json(200, { items: [], next_cursor: null }),
       "GET /v1/administered-agents": () => json(200, { items: [] }),
     });
     expect(await screen.findByRole("button", { name: "전체 0" })).toBeDefined();
@@ -507,7 +508,7 @@ describe("에이전트 목록 탭과 보기", () => {
       ...meOk,
       ...server.routes,
       "GET /v1/agents": () =>
-        json(200, { items: [server.detail().agent, other] }),
+        json(200, { items: [server.detail().agent, other], next_cursor: null }),
       "GET /v1/administered-agents": () =>
         json(200, { items: [server.detail().agent] }),
     });
@@ -540,7 +541,7 @@ describe("에이전트 목록 탭과 보기", () => {
       ...meOk,
       ...server.routes,
       "GET /v1/agents": () =>
-        json(200, { items: [server.detail().agent, other] }),
+        json(200, { items: [server.detail().agent, other], next_cursor: null }),
       "GET /v1/administered-agents": () => json(200, { items: [other] }),
     });
     const all = await screen.findByRole("button", { name: "전체 2" });
@@ -600,7 +601,7 @@ describe("에이전트 목록 탭과 보기", () => {
     }));
     renderAt("/agents", {
       ...meOk,
-      "GET /v1/agents": () => json(200, { items: [base] }),
+      "GET /v1/agents": () => json(200, { items: [base], next_cursor: null }),
       "GET /v1/administered-agents": () => json(200, { items }),
     });
     await showList(await setupUser(), "관리하는 에이전트 200+");
@@ -818,7 +819,10 @@ describe("새 에이전트", () => {
       ...meOk,
       ...server.routes,
       "GET /v1/agents": () =>
-        json(200, { items: saved ? [server.detail().agent] : [] }),
+        json(200, {
+          items: saved ? [server.detail().agent] : [],
+          next_cursor: null,
+        }),
       "POST /v1/agents": (request: Request) => {
         saved = true;
         return server.routes["POST /v1/agents"](request);

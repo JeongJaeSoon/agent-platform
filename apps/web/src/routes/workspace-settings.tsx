@@ -13,8 +13,11 @@ import {
   CardFooter,
   CardTitle,
   Input,
+  RowList,
   SecretField,
+  SettingRow,
   Skeleton,
+  Switch,
 } from "@werft-ai/ui";
 import { Lock } from "lucide-react";
 import { type FormEvent, type ReactNode, useId, useState } from "react";
@@ -44,6 +47,10 @@ const CARD_BODY = "flex flex-col gap-3 p-4";
 const SUB = "text-description";
 const META = "text-caption text-subtle-foreground";
 const ICON = "size-3.5 shrink-0";
+// Wide enough for the longer of On/Off, so the label does not reflow on a flip.
+const STATUS = `${META} min-w-6 text-right`;
+// The card draws the box; the rows only keep the rule under the body.
+const ROWS = "rounded-none border-x-0 border-b-0 bg-transparent";
 
 type OnOutcome = (outcome: Outcome | null) => void;
 
@@ -87,6 +94,7 @@ function SettingsCard({
   title,
   description,
   descriptionId,
+  rows,
   foot,
   onSubmit,
   children,
@@ -94,6 +102,8 @@ function SettingsCard({
   readonly title: string;
   readonly description: string;
   readonly descriptionId?: string;
+  /** SettingRows under the body, edge to edge like the foot. */
+  readonly rows?: ReactNode;
   readonly foot?: ReactNode;
   readonly onSubmit?: (event: FormEvent) => void;
   readonly children?: ReactNode;
@@ -110,6 +120,11 @@ function SettingsCard({
         </CardDescription>
         {children}
       </div>
+      {rows ? (
+        <RowList variant="joined" className={ROWS}>
+          {rows}
+        </RowList>
+      ) : null}
       {foot ? <CardFooter variant="form">{foot}</CardFooter> : null}
     </>
   );
@@ -313,6 +328,7 @@ function AuditRetention({ onOutcome }: { readonly onOutcome: OnOutcome }) {
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
+    if (save.isPending) return;
     save.mutate(Number(days));
   };
 
@@ -329,9 +345,14 @@ function AuditRetention({ onOutcome }: { readonly onOutcome: OnOutcome }) {
           </div>
           <ReasonButton
             type="submit"
-            className={buttonVariants({ size: "sm" })}
+            className={buttonVariants({
+              size: "sm",
+              className: "aria-disabled:opacity-45",
+            })}
             reason={reason}
-            disabled={save.isPending || days.trim() === ""}
+            // aria-disabled, not disabled: a disabled button drops its focus.
+            aria-disabled={save.isPending || undefined}
+            disabled={days.trim() === ""}
           >
             {t("workspace.save")}
           </ReasonButton>
@@ -369,8 +390,8 @@ function SlackGuest({ onOutcome }: { readonly onOutcome: OnOutcome }) {
   const role = useRole();
   const workspaceId = me?.workspace?.id ?? "";
   const enabled = me?.workspace?.settings.slack_guest_enabled ?? false;
-  const labelId = useId();
   const hintId = useId();
+  const reasonId = useId();
   const reason = useHasPermission("workspace.manage")
     ? undefined
     : permissionReason(t, "workspace.manage", role);
@@ -407,25 +428,33 @@ function SlackGuest({ onOutcome }: { readonly onOutcome: OnOutcome }) {
       title={t("workspace.guest")}
       description={t("workspace.guestHint")}
       descriptionId={hintId}
-    >
-      <div className="flex flex-wrap items-baseline gap-2">
-        <div id={labelId}>{t("workspace.guestLabel")}</div>
-        <ReasonButton
-          className={buttonVariants({
-            variant: enabled ? "default" : "outline",
-            size: "sm",
-          })}
-          role="switch"
-          aria-checked={enabled}
-          aria-labelledby={labelId}
-          aria-describedby={hintId}
-          reason={reason}
-          disabled={save.isPending || me?.workspace === undefined}
-          onClick={() => save.mutate(!enabled)}
-        >
-          {t(enabled ? "workspace.guestOn" : "workspace.guestOff")}
-        </ReasonButton>
-      </div>
-    </SettingsCard>
+      rows={
+        <SettingRow
+          title={t("workspace.guestLabel")}
+          meta={
+            reason === undefined ? null : (
+              <div id={reasonId} className="text-caption text-muted-foreground">
+                {reason}
+              </div>
+            )
+          }
+          status={
+            // aria-checked already says it; the words are for sighted users.
+            <div aria-hidden="true" className={STATUS}>
+              {t(enabled ? "workspace.guestOn" : "workspace.guestOff")}
+            </div>
+          }
+          control={
+            <Switch
+              checked={enabled}
+              aria-describedby={reason === undefined ? hintId : reasonId}
+              aria-disabled={save.isPending || undefined}
+              disabled={reason !== undefined || me?.workspace === undefined}
+              onCheckedChange={(next) => save.mutate(next)}
+            />
+          }
+        />
+      }
+    />
   );
 }

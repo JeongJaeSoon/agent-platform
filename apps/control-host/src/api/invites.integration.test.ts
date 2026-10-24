@@ -389,6 +389,64 @@ integration("invites and roles over HTTP on PostgreSQL", () => {
     ]);
   });
 
+  test("members page by cursor and filter by q", async () => {
+    const extra = Array.from({ length: 5 }, () => crypto.randomUUID());
+    await db.insert(users).values(
+      extra.map((id, index) => ({
+        id,
+        email: `paged-${index}@example.com`,
+        passwordHash: null,
+        displayName: index === 0 ? "50%_off Pager" : `Pager ${index}`,
+      })),
+    );
+    await db
+      .insert(memberships)
+      .values(extra.map((userId) => ({ workspaceId, userId, role: "member" })));
+    const get = async (search: string) =>
+      send("GET", `/v1/members${search}`, undefined, as(ownerCookie));
+
+    const all = listMembersResponseSchema.parse(await (await get("")).json());
+    expect(all.next_cursor).toBeNull();
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    do {
+      const query: string = cursor
+        ? `?limit=2&cursor=${encodeURIComponent(cursor)}`
+        : "?limit=2";
+      const page = listMembersResponseSchema.parse(
+        await (await get(query)).json(),
+      );
+      expect(page.items.length).toBeLessThanOrEqual(2);
+      seen.push(...page.items.map((item) => item.user_id));
+      cursor = page.next_cursor;
+    } while (cursor !== null);
+    expect(seen).toEqual(all.items.map((item) => item.user_id));
+    expect(seen.length).toBeGreaterThan(5);
+
+    const pager = listMembersResponseSchema.parse(
+      await (await get("?q=%20PAGER%20")).json(),
+    );
+    expect(pager.items.map((item) => item.user_id).sort()).toEqual(
+      [...extra].sort(),
+    );
+    const literal = listMembersResponseSchema.parse(
+      await (await get("?q=%25_")).json(),
+    );
+    expect(literal.items.map((item) => item.user_id)).toEqual(
+      extra.slice(0, 1),
+    );
+
+    const refused = await Promise.all([
+      get("?q="),
+      get(`?q=${"a".repeat(201)}`),
+      get("?cursor=not-a-cursor"),
+      get("?limit=101"),
+    ]);
+    expect(refused.map((response) => response.status)).toEqual([
+      400, 400, 400, 400,
+    ]);
+  });
+
   test("roles change, and the last owner cannot be demoted", async () => {
     const listed = listMembersResponseSchema.parse(
       await (
