@@ -1,13 +1,13 @@
 # 웹 로그인 선택·팀·연동 계정·API key·워크스페이스 설정
 
-로그인 화면은 비밀번호와 Google 중 고르게 한다(Google을 설정했을 때만 Google 버튼). 로그인한 사람은 사이드바에서 팀, 연동 계정, 내 key, 워크스페이스 설정(owner·admin)으로 간다. 화면 전체를 못 쓰는 메뉴는 `GET /v1/auth/me`의 `permissions`로 숨기고, 바꿀 권한이 없는 화면은 지금 값만 읽기 전용으로 보인다(admin처럼 일부만 바꿀 수 있으면 그 칸만 비활성+이유). 서버가 판정한다.
+로그인 화면은 비밀번호와 Google 중 고르게 한다(Google을 설정했을 때만 Google 버튼). 로그인한 사람은 구성원의 팀 탭에서 팀을, 사이드바에서 연동 계정, 내 key, 워크스페이스 설정(owner·admin)으로 간다. 화면 전체를 못 쓰는 메뉴는 `GET /v1/auth/me`의 `permissions`로 숨기고, 바꿀 권한이 없는 화면은 지금 값만 읽기 전용으로 보인다(admin처럼 일부만 바꿀 수 있으면 그 칸만 비활성+이유). 서버가 판정한다.
 
 ## Sub-features
 
 - `login-choice` `/login`에 비밀번호 폼과 "또는" 아래 "Google로 로그인". `GET /v1/auth/login-methods`가 `password`만 주면 Google 버튼은 없다.
 - `google-callback` Google이 `/auth/google/callback?code&state`로 돌려보내면 한 번만 교환하고 로그인 전 경로(없으면 `/`)로 간다. 401·403·409(`LOGIN_LINK_REQUIRED`)·취소는 각자의 문구.
-- `menu-by-role` 사이드바. member: 홈·세션·에이전트·팀·연동 계정·내 key·언어·테마. owner·admin은 구성원과 워크스페이스 설정이 더 있다.
-- `teams` `/teams` 만들기(같은 이름이면 "같은 이름의 팀이 이미 있습니다 — 다른 이름을 쓰세요.") → `/teams/{id}` 이름 바꾸기, "추가할 사람" select → "구성원 추가"(수락 없음, "<이름>님을 팀에 추가했습니다.")·빼기, "팀 삭제"(확인 대화상자). member는 홈과 `/teams`의 "내가 속한 팀"에서 자기 팀 이름만 본다(`GET /v1/my-teams`, 홈은 팀이 없으면 섹션이 없다).
+- `menu-by-role` 사이드바. member: 홈·세션·에이전트·구성원·연동 계정·내 key·언어·테마. owner·admin은 워크스페이스 설정이 더 있다. 팀은 구성원의 팀 탭이다.
+- `teams` `/members/teams` 만들기(같은 이름이면 "같은 이름의 팀이 이미 있습니다 — 다른 이름을 쓰세요.") → `/members/teams/{id}` 이름 바꾸기, "추가할 사람" select → "구성원 추가"(수락 없음, "<이름>님을 팀에 추가했습니다.")·빼기, "팀 삭제"(확인 대화상자). member는 홈과 `/teams`의 "내가 속한 팀"에서 자기 팀 이름만 본다(`GET /v1/my-teams`, 홈은 팀이 없으면 섹션이 없다).
 - `agent-admins` `/agents/{id}`의 "관리자" 탭(`?tab=admins`): "관리자로 추가할 사람"·"관리자로 추가할 팀" select와 "사람 추가"·"팀 추가" → "<이름>을(를) 관리자로 추가했습니다.", "빼기". 관리자가 아니면 이유만 보이고 관리자 목록을 묻지 않는다.
 - `linked-slack` `/settings/linked-accounts`는 제공자 목록(GitHub "준비 중", Slack "연결 안 됨"/"연결됨", Google Workspace "준비 중")이다. Slack 행의 "연결"(`aria-label` "Slack 계정 연결") → Slack 동의 → `/settings/linked-accounts/slack` 콜백이 목록으로 돌아온다 → "연결 해제". 연결은 Slack 워크스페이스마다 하나라, 연결이 있어도 버튼은 남는다(다른 워크스페이스 연결).
 - `api-keys` 사이드바 "내 key". `/settings/api-keys`("내 key")와 `/settings/api-keys/service`("서비스 key")를 `aria-label` "key 목록" 탭으로 오간다. 목록마다 "새 key" → `/settings/api-keys/new`·`/settings/api-keys/service/new`. 폼은 권한 카드(세션 보기·세션 만들기·요청에 답하기·세션 제어, 글자로 `click`)·"만료일(필수 아님)"·"key 만들기"이고, 서비스 key 폼에는 "대상" select가 앞에 있다(owner·admin은 "워크스페이스 전체 (에이전트 지정 없음)"과 모든 에이전트, member는 "에이전트를 고르세요"와 관리하는 에이전트만. 에이전트를 고르기 전에는 "key 만들기"가 비활성). 에이전트 key에는 `sessions:approve`를 넣지 않는다. 만들면 폼 자리에 `section[aria-label="새 key"]`("key를 만들었습니다", 읽기 전용 칸에 값 한 번, "복사"·"목록으로"). 관리하는 에이전트가 없는 member는 서비스 key "새 key"가 비활성+"관리하는 에이전트가 없습니다.". 목록에서 폐기(확인).
@@ -16,7 +16,7 @@
 
 ## How to get to it (user POV)
 
-- 사이드바의 "팀"·"연동 계정"·"내 key"·"워크스페이스 설정", 에이전트 상세의 "관리자" 탭.
+- 구성원의 "팀" 탭·"연동 계정"·"내 key"·"워크스페이스 설정", 에이전트 상세의 "관리자" 탭.
 - member·admin은 [web-members-agents.md](./web-members-agents.md)의 초대·수락으로 만든다. 사람마다 cookie 파일을 둔다(`cp "$VERIFY_RUN/cookie" "$VERIFY_RUN/cookie.<이름>"`).
 
 ## Driving it with lib.sh
@@ -26,14 +26,16 @@ Preconditions: `up.sh infra/compose.mock-slack.yml`로 띄웠다(Orca에서는 `
 1. **Google 선택지.** 기본 스택은 Google이 꺼져 있다(`login-methods` → `["password"]`). 켜려면 host에서 mock IdP를 띄우고(PID를 적는다) api만 Google env로 다시 만든다. 이때 `COMPOSE_FILE`에 `infra/compose.fake-model.yml`을 꼭 더하고(빠지면 api가 `ANTHROPIC_API_KEY`를 찾다 죽는다), api 포트를 run의 포트로 고정한다(빠지면 새 임의 포트로 떠 `$API`가 어긋난다).
 
    ```sh
-   MOCK_OIDC_PORT=4031 MOCK_OIDC_ISSUER=http://host.docker.internal:4031 MOCK_OIDC_PUBLIC_URL=http://127.0.0.1:4031 \
+   VERIFY_GOOGLE_SECRET=$(openssl rand -hex 24)
+   MOCK_OIDC_CLIENT_SECRET="$VERIFY_GOOGLE_SECRET" MOCK_OIDC_PORT=4031 MOCK_OIDC_ISSUER=http://host.docker.internal:4031 MOCK_OIDC_PUBLIC_URL=http://127.0.0.1:4031 \
      nohup bun run packages/testkit/src/mock-oidc-main.ts > "$VERIFY_RUN/mock-google.log" 2>&1 & echo $! > "$VERIFY_RUN/mock-google.pid"
+   umask 077
    cat > "$VERIFY_RUN/google.yml" <<EOF
    services:
      api:
        environment:
          GOOGLE_OIDC_CLIENT_ID: mock-client
-         GOOGLE_OIDC_CLIENT_SECRET: mock-secret
+         GOOGLE_OIDC_CLIENT_SECRET: $VERIFY_GOOGLE_SECRET
          GOOGLE_OIDC_ISSUER: http://host.docker.internal:4031
          GOOGLE_OIDC_REDIRECT_URI: $API/auth/google/callback
        ports: !override
@@ -44,14 +46,14 @@ Preconditions: `up.sh infra/compose.mock-slack.yml`로 띄웠다(Orca에서는 `
    curl -sS "$API/v1/auth/login-methods"     # {"methods":["password","google"]}
    ```
 
-   owner가 `google@example.test`를 초대해 두고, `/login`에서 "Google로 로그인"을 누른다. mock은 `login_hint`(claims JSON의 base64url)가 없으면 `bad authorization request`이므로, 이동한 URL 끝에 붙여 다시 연다: `{"sub":"g-verify-1","email":"google@example.test","email_verified":true,"hd":"example.test","name":"Google Member"}`. 콜백 화면을 거쳐 `/`에 "Google Member(google@example.test) 계정으로 로그인했습니다". 끝나면 `kill "$(cat "$VERIFY_RUN/mock-google.pid")"`.
+   owner가 `google@example.test`를 초대해 두고, `/login`에서 "Google로 로그인"을 누른다. mock은 `login_hint`(claims JSON의 base64url)가 없으면 `bad authorization request`이므로, 이동한 URL 끝에 붙여 다시 연다: `{"sub":"g-verify-1","email":"google@example.test","email_verified":true,"hd":"example.test","name":"Google Member"}`. 콜백 화면을 거쳐 `/`로 돌아오고 사용자 메뉴에 Google Member가 보인다. 끝나면 `kill "$(cat "$VERIFY_RUN/mock-google.pid")"`.
 2. **팀과 관리자.** owner로 `browser.mjs`: `open /teams` → `type @0 Verifiers` → `click "팀 만들기"` → `click Verifiers` → `select 'main select' <member user id>` → `click "구성원 추가"`. 에이전트 상세는 `open "/agents/<id>?tab=admins"` → "관리자로 추가할 팀" 칸의 `@N`(상세의 숨은 탭 칸까지 세므로 `eval`로 label을 찍어 찾는다. version 둘이면 @11) → `select @N <team id>` → `click "팀 추가"` → "Verifiers을(를) 관리자로 추가했습니다."
 3. **에이전트 전용 key.** member로 `/settings/api-keys/service/new`(같은 요청을 `ap_web POST /v1/api-keys '{"kind":"service","scopes":["sessions:read"]}'`로 workspace key로 보내면 `403` `This principal does not hold api_key.manage`). "대상" select에는 "에이전트를 고르세요"와 관리하는 에이전트만. `select 'main select' <agent id>` → `click "세션 만들기"` → `click "key 만들기"` → `section[aria-label="새 key"]`. 값은 화면에 찍지 말고 `(umask 077; node $B <run id> eval "document.querySelector('section[aria-label=\"새 key\"] input').value" | tr -d '"\n' > "$VERIFY_RUN/keys/<who>-agent")`로 파일에만 받고 `click 목록으로`. 그 key로 `ap_post /v1/sessions` 본문에 그 에이전트 release(`agent_release_id`) → `201`, release 없이 → `403` `agent_ceiling`.
 4. **Slack.** 이 단계는 mock overlay와 버리는 master key로 띄운 스택에서 한다. master key 한 줄: `export PLATFORM_SECRET_KEY="$(openssl rand -hex 32)"`를 `up.sh infra/compose.mock-slack.yml`과 같은 Bash 호출에서 부른다(값은 출력하지 않고 `${#PLATFORM_SECRET_KEY}`로 64만 확인, 사람의 Keychain 항목은 읽지 않는다. [musterrolle.md](./musterrolle.md) c). 연결 전에 [musterrolle.md](./musterrolle.md) c의 1–3을 API로 한다: owner의 config token PUT, 에이전트 앱 생성, install start → mock 동의 → complete로 확인된 설치. 설정 › Slack(config token)과 에이전트 설치 화면은 아직 없다. 이 준비 없이 "연결"을 누르면 목록 위에 "Slack 계정 연결을 아직 쓸 수 없습니다 — 워크스페이스 관리자에게 Slack 연결 설정을 요청하세요."가 뜬다(`409 SLACK_LINK_NOT_CONFIGURED`).
 
    mock 발급자(`http://mock-slack:4020`)는 compose 안에서만 닿고, link 앱의 리디렉션 주소는 overlay의 `SLACK_OIDC_REDIRECT_URI` origin인 `127.0.0.1:3000`이다. "연결"을 누르면 시작 요청이 link 앱을 만들고 화면이 동의 URL로 떠나 `chrome-error://`가 된다(시작 요청과 이동까지는 확인된다). 같은 탭을 `orca goto --url "$API/settings/linked-accounts"`로 돌려놓고(상대 경로 fetch가 API origin에서 돌아야 한다), 브라우저 cookie를 그대로 쓰도록 페이지 안에서 다시 시작한다: `orca eval --expression 'fetch("/v1/linked-accounts/slack/start",{method:"POST",headers:{"x-requested-with":"agent-platform-web"}}).then(r=>r.json()).then(j=>j.authorize_url)'` → `ap_compose exec -T api bun -e 'const r = await fetch(process.argv[1], { redirect: "manual" }); console.log(r.headers.get("location"))' "$AUTH"` → 결과의 `127.0.0.1:3000`을 `$API` 호스트:포트로 바꿔 `orca goto`. 콜백 화면이 목록으로 돌아와 Slack 행이 "연결됨"과 `Slack 사용자 U0MOCK (워크스페이스 T0MOCK)`, "연결 해제" → "Slack 계정 연결을 해제했습니다.", DB `revoked | unlinked | 2`.
 5. **감사 보존.** owner로 `/settings/workspace`, 값 `29` → 저장 → alert "감사 기록은 30일보다 짧게 보존할 수 없습니다. 30일 이상(최대 3650일)으로 정하세요."와 api 로그 `POST … audit-retention 400`. member가 같은 API를 부르면 `403` `Only an owner can change audit retention`, member 메뉴에는 "워크스페이스 설정"이 없다.
-6. **Slack 게스트.** owner 탭으로 `/settings/workspace`의 switch(처음 `checked=false`, "꺼짐")를 누른다 → status "이제 Slack 게스트도 에이전트를 쓸 수 있습니다.", switch `checked=true` "켜짐". `ap_web GET /v1/auth/me | sed '$d' | jq .workspace.settings.slack_guest_enabled` → `true`. member cookie로 `ap_web POST "/v1/workspaces/$WS/slack-guest" '{"slack_guest_enabled":false}'` → `403` `Only an owner or admin can change the Slack guest setting`(`reason_code: role`). member로 로그인한 브라우저에서 `/settings/workspace`를 주소로 열면 `[role=switch]`가 없고 읽기 전용 글만 있다. member는 API로 초대·수락해도 된다: `node $U <run id> invite owner member member` → `node $U <run id> accept member`(token과 비밀번호는 run 디렉터리에만 있다. `ap_web POST /v1/invites`는 응답에 token을 그대로 출력하고 수락 본문이 curl 인자에 들어가므로 쓰지 않는다).
+6. **Slack 게스트.** owner 탭으로 `/settings/workspace`의 switch(처음 `checked=false`, "꺼짐")를 누른다 → status "이제 Slack 게스트도 에이전트를 쓸 수 있습니다.", switch `checked=true` "켜짐". `ap_web GET /v1/auth/me | head -1 | jq .workspace.settings.slack_guest_enabled` → `true`. member cookie로 `ap_web POST "/v1/workspaces/$WS/slack-guest" '{"slack_guest_enabled":false}'` → `403` `Only an owner or admin can change the Slack guest setting`(`reason_code: role`). member로 로그인한 브라우저에서 `/settings/workspace`를 주소로 열면 `[role=switch]`가 없고 읽기 전용 글만 있다. member는 API로 초대·수락해도 된다: `node $U <run id> invite owner member member` → `node $U <run id> accept member`(token과 비밀번호는 run 디렉터리에만 있다. `ap_web POST /v1/invites`는 응답에 token을 그대로 출력하고 수락 본문이 curl 인자에 들어가므로 쓰지 않는다).
 
 - 2026-10-11 run `20261011-232746-64155`에서 1–5를 이 순서대로 확인했다. 스크린샷 `evidence/m10-*.png`, API 출력 `evidence/m10-*.txt`.
 - 2026-10-12 run `20261012-015938-81242`에서 6을 확인했다. 스크린샷 `evidence/slack-guest-*.png`, API 출력 `evidence/slack-guest-*.txt`.
@@ -63,6 +65,8 @@ Preconditions: `up.sh infra/compose.mock-slack.yml`로 띄웠다(Orca에서는 `
 - `orca click`은 화면 밖 요소를 스크롤하지 않고 그 좌표의 `<html>`을 누른다. 아무 일도 안 일어나면 `orca eval --expression '<요소>.scrollIntoView({block:"center"})'` 뒤 다시 누른다. 같은 탭에서 이런 일이 쌓이면 `orca tab close` 뒤 새 탭을 연다(cookie는 남는다).
 - 입력은 `orca click`으로 포커스한 뒤 `orca type`이 확실하다. `fill`은 값을 바꾸고도 React가 못 보는 일이 있었다. select는 `orca select`(label이 아니라 option의 value).
 - select를 바꾼 직후 버튼이 아직 비활성일 수 있다. 다시 snapshot해 `disabled`가 빠진 것을 보고 누른다.
-- macOS `head`는 `-n -1`을 받지 않는다. `ap_web` 출력에서 마지막 상태 줄을 뗄 때는 `sed '$d'`.
+- macOS `head`는 `-n -1`을 받지 않는다. `ap_web` 출력에서 마지막 상태 줄을 뗄 때는 `head -1`.
 - 비밀값(key `csp_…`, invite token, bootstrap token)이 snapshot·state 출력에 섞인다. 화면에 key가 떠 있는 동안 snapshot을 출력하지 말고, 그 상태로 스크린샷을 남기지 않는다. 노출했으면 확인이 끝난 뒤 그 key를 폐기한다.
 - Google env를 넣어 api를 다시 만든 스택은 `down.sh`가 그대로 지운다. host의 mock IdP는 `down.sh`가 모르므로 적어 둔 PID로 끈다.
+
+key 목록 제목은 “내 key”·“서비스 key”이고 LinkTabs는 로드 후 각 개수를 보인다. API key 마지막 사용 시각·발급자 이름은 아직 main에 없다. workspace는 이름·ID·모델 허용 목록·감사 보존·Slack 게스트 Card로 나뉜다. ID는 SecretField 복사, 모델은 mono Badge, 저장은 CardFooter다. 소스: `apps/web/src/routes/api-keys.tsx`, `workspace-settings.tsx`, `i18n/api-keys.ts`. 절차: [procedures.md](procedures.md) P-WEB-SETTINGS.
