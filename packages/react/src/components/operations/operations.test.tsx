@@ -202,6 +202,46 @@ describe("ToolTable loading", () => {
     expect(getAllByText("도구 목록을 읽는 중")).toHaveLength(1);
     expect(getByRole("table").getAttribute("aria-busy")).toBe("true");
   });
+
+  test("읽는 중 행 수는 loadingRows이고, 도구가 오면 같은 표에 그 행이 들어온다", () => {
+    const table = (tools: typeof TOOLS | undefined) => (
+      <AgentPlatformProvider
+        client={{} as ApiClient}
+        locale="ko"
+        renderLink={() => null}
+      >
+        <ToolTable
+          tools={tools}
+          label="도구와 명령"
+          loadingRows={TOOLS.length + 1}
+          describe={() => "셸 명령"}
+        />
+      </AgentPlatformProvider>
+    );
+    const { getAllByRole, getByRole, queryByText, rerender } = render(
+      table(undefined),
+    );
+    const before = getByRole("table");
+    // One header row, then a placeholder per row.
+    expect(getAllByRole("row")).toHaveLength(TOOLS.length + 2);
+    rerender(table(TOOLS));
+    // toBe on DOM nodes can pass on any element in bun; compare identity.
+    expect(getByRole("table") === before).toBe(true);
+    expect(before.getAttribute("aria-busy")).toBeNull();
+    expect(getAllByRole("row")).toHaveLength(TOOLS.length + 1);
+    expect(queryByText("도구 목록을 읽는 중")).toBeNull();
+  });
+});
+
+describe("ToolCalls loading", () => {
+  test("읽는 중에는 loadingRows만큼 숨긴 자리표시 행을 두고 상태 알림은 내지 않는다", () => {
+    const { container, queryAllByRole } = withPlatform(
+      <ToolCalls calls={undefined} loadingRows={5} />,
+    );
+    expect(container.querySelectorAll("li")).toHaveLength(5);
+    expect(queryAllByRole("listitem")).toHaveLength(0);
+    expect(queryAllByRole("status")).toHaveLength(0);
+  });
 });
 
 describe("ToolCalls", () => {
