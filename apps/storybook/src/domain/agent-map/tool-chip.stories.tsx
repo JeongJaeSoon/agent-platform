@@ -31,3 +31,17 @@ type Story = StoryObj<typeof meta>;
 
 export const States: Story = {};
 export const Empty: Story = { args: { tools: [], hidden: undefined } };
+/**
+ * Added by the coordinator's decision, not in the design: a call whose turn
+ * or session ended before its result. No colour names it, so it says
+ * "중단" on screen.
+ */
+export const Interrupted: Story = {
+  args: {
+    tools: [
+      { id: "1", name: "Bash", target: "bun test", state: "interrupted" },
+      { id: "2", name: "Read", target: "retry.ts", state: "ok" },
+    ],
+    hidden: undefined,
+  },
+};

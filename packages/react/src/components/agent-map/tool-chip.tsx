@@ -2,6 +2,7 @@ import { StatusDot } from "@werft-ai/ui";
 import {
   Bot,
   Check,
+  CircleSlash,
   FileText,
   Globe,
   type LucideIcon,
@@ -35,6 +36,8 @@ const TONE: Record<ToolCallState, string> = {
     "border-(color:--ap-tone-progress-border) bg-(color:--ap-tone-progress-bg) text-(color:--ap-tone-progress-fg)",
   waiting:
     "border-(color:--ap-tone-attention-border) bg-(color:--ap-tone-attention-bg) text-(color:--ap-tone-attention-fg)",
+  interrupted:
+    "border-(color:--ap-tone-neutral-border) bg-(color:--ap-tone-neutral-bg) text-(color:--ap-tone-neutral-fg)",
 };
 
 export interface ToolChipProps {
@@ -45,6 +48,8 @@ export interface ToolChipProps {
 /**
  * One tool call as a list item: the state shows in colour, in the trailing
  * mark (check, cross, shield or turning dot) and in words for a screen reader.
+ * An interrupted call, which no colour of the design names, also says so on
+ * screen.
  */
 export function ToolChip({
   call,
@@ -68,10 +73,14 @@ export function ToolChip({
         <X aria-hidden="true" className="size-3 flex-none" />
       ) : call.state === "waiting" ? (
         <ShieldQuestion aria-hidden="true" className="size-3 flex-none" />
+      ) : call.state === "interrupted" ? (
+        <CircleSlash aria-hidden="true" className="size-3 flex-none" />
       ) : (
         <StatusDot status="run" />
       )}
-      <span className="sr-only">{messages.toolState(call.state)}</span>
+      <span className={call.state === "interrupted" ? "flex-none" : "sr-only"}>
+        {messages.toolState(call.state)}
+      </span>
     </li>
   );
 }

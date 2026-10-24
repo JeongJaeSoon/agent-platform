@@ -1,3 +1,14 @@
+export {
+  buildRunTree,
+  createRunTreeBuilder,
+  ROOT_RUN_ID,
+  type RunTree,
+  type RunTreeBuilder,
+  type RunTreeFrame,
+  type RunTreeNode,
+  runRows,
+  type ToolNode,
+} from "../../run-tree.ts";
 export { AgentMap, type AgentMapProps } from "./agent-map.tsx";
 export {
   ApprovalStrip,
