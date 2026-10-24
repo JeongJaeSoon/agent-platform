@@ -17,7 +17,7 @@ import type {
 import type { LinkedAccountStore } from "../ports/linked-account-store.ts";
 import type { SurfaceBindingStore } from "../ports/surface-binding-store.ts";
 import { agentForSlackEvent } from "./agent-identity-service.ts";
-import type { AuthorizationPolicy } from "./policy.ts";
+import type { AuthorizationPolicy, Caller } from "./policy.ts";
 
 export type SlackInput = {
   /** The event's app and team, and the agent its request URL names. */
@@ -52,11 +52,40 @@ export type SlackDecision =
       workspaceId: string;
       agentId: string;
       decision: AuthorizationDecision;
+      installationId: string;
+      /** What the decision judged: what a session call goes on as. */
+      subject: AuthorizationSubject;
       /** Who the input is recorded as; set only when it may proceed. */
       actorUserId: string | null;
       /** What to show the person alone, once per thread; null for none. */
       notice: SlackNotice | null;
     };
+
+/**
+ * The caller a decided Slack input calls the session service as: the
+ * installation, recorded as the person its linked account names, under the
+ * same subject the decision judged.
+ */
+export function slackCallerOf(
+  decision: Extract<SlackDecision, { status: "decided" }>,
+  requestId: string,
+): Caller {
+  const link = decision.subject.linked_account;
+  return {
+    ownerId: decision.workspaceId,
+    actor: {
+      principal: { kind: "installation", id: decision.installationId },
+      userId: decision.actorUserId,
+      workspaceId: decision.workspaceId,
+      apiKeyId: null,
+      ...(link === undefined
+        ? {}
+        : { linkedAccount: { id: link.id, revision: link.revision } }),
+    },
+    subject: decision.subject,
+    requestId,
+  };
+}
 
 /**
  * The whole Musterrolle half of a Slack mention or button (design 3.2):
@@ -150,6 +179,8 @@ export async function authorizeSlackInput(
     workspaceId,
     agentId,
     decision,
+    installationId: agent.installationId,
+    subject,
     actorUserId:
       decision.outcome !== "deny" && linked.status === "linked"
         ? linked.userId

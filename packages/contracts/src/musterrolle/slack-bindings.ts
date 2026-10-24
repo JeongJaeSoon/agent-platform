@@ -25,26 +25,30 @@ const slackChannelIdSchema = z
 /**
  * Replaces the binding for one channel, or the install's DM binding, whole:
  * a missing `ceiling` is the default one. `home: true` moves the agent's
- * home here.
+ * home here. The server asks Slack what kind of channel it is (94S-791);
+ * `channel_kind`, when sent, only has to agree on whether it is the DM row.
  */
 export const putSlackBindingRequestSchema = z
   .object({
     channel_id: slackChannelIdSchema.nullable(),
-    channel_kind: surfaceChannelKindSchema,
+    channel_kind: surfaceChannelKindSchema.optional(),
     mode: slackBindingModeSchema,
     home: z.boolean().default(false),
     ceiling: surfaceCeilingSchema.optional(),
   })
   .strict()
   .superRefine((request, ctx) => {
-    if ((request.channel_kind === "dm") !== (request.channel_id === null)) {
+    if (
+      request.channel_kind !== undefined &&
+      (request.channel_kind === "dm") !== (request.channel_id === null)
+    ) {
       ctx.addIssue({
         code: "custom",
         path: ["channel_id"],
         message: "a dm binding names no channel, and only a dm binding",
       });
     }
-    if (request.home && request.channel_kind === "dm") {
+    if (request.home && request.channel_id === null) {
       ctx.addIssue({
         code: "custom",
         path: ["home"],
@@ -75,6 +79,11 @@ export const SLACK_BINDING_MESSAGES = {
     "이 에이전트는 Slack 앱에 연결돼 있지 않아요. 앱을 연결한 뒤 채널을 설정하세요",
   conflict:
     "같은 채널 설정이 동시에 바뀌었어요. 목록을 새로 읽고 다시 시도하세요",
+  dmChannel: "DM은 채널 id 없이 DM 설정으로 정하세요",
+  channelUnknown:
+    "Slack이 이 채널을 알려주지 않아요. 에이전트를 채널에 초대한 뒤 다시 시도하세요",
+  slackUnavailable:
+    "지금 Slack에서 채널 정보를 읽지 못했어요. 잠시 뒤 다시 시도하세요",
 } as const;
 
 export type SlackBindingMode = z.infer<typeof slackBindingModeSchema>;

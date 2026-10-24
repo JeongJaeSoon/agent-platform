@@ -25,6 +25,7 @@ import {
   runtimeConfigOf,
   runtimeProviderOf,
   sessionCatalogConfigSchema,
+  sessionCatalogView,
   sessionProfile,
 } from "./catalog.ts";
 
@@ -706,6 +707,36 @@ describe("repository mode", () => {
     ).toThrow(
       /^repositories\.app\.profiles\.1: names profile q, whose repository is none$/,
     );
+  });
+});
+
+describe("the catalog view (94S-791)", () => {
+  test("holds where each credential comes from, never a value, and pins the same profiles", () => {
+    const parsed = sessionCatalogConfigSchema.parse(
+      config(configured, {
+        app: {
+          ...repository,
+          auth: { kind: "bearer", value_env: "GIT_TOKEN" },
+        },
+      }),
+    );
+    const asked: string[] = [];
+    const view = sessionCatalogView(parsed);
+    expect(asked).toEqual([]);
+    expect(JSON.stringify(view)).not.toContain("resolved-key");
+    expect(view.profiles.p?.provider.auth).toEqual({
+      kind: "api_key",
+      ref: { value_env: "ANTHROPIC_KEY_MAIN" },
+    });
+    expect(view.repositories.app).not.toHaveProperty("auth");
+    const resolved = resolveSessionCatalog(parsed, (ref) => {
+      asked.push(JSON.stringify(ref));
+      return "resolved-key";
+    });
+    expect(asked).not.toEqual([]);
+    const [viewed, full] = [view.profiles.p, resolved.profiles.p];
+    if (!viewed || !full) throw new Error("profile p is missing");
+    expect(profileFingerprint(viewed)).toBe(profileFingerprint(full));
   });
 });
 

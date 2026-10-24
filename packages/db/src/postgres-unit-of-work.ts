@@ -106,6 +106,7 @@ import {
   executions,
   idempotencyKeys,
   receipts,
+  sessionShares,
   sessions,
   turns,
   users,
@@ -277,6 +278,17 @@ export function createPostgresSessionUnitOfWork(
           createdByUserId: actor?.userId ?? null,
           createdByApiKeyId: actor?.apiKeyId ?? null,
         });
+        if (input.shareScope !== undefined) {
+          if (!actor?.workspaceId) {
+            throw new Error("a share scope needs the session's workspace");
+          }
+          await tx.insert(sessionShares).values({
+            sessionId,
+            ownerId: scope.principal,
+            workspaceId: actor.workspaceId,
+            scope: input.shareScope,
+          });
+        }
         await insertQueuedTurn(tx, {
           sessionId,
           sequence: 1,

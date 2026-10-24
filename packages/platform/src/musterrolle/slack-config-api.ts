@@ -1,3 +1,4 @@
+import type { SlackUser, SurfaceChannelKind } from "@werft-ai/contracts";
 import { z } from "zod";
 
 // The App Configuration API calls the platform makes with a workspace's
@@ -123,16 +124,18 @@ const updateAnswer = z.object({
 
 const ERROR_CODE = /^[a-z_]{1,64}$/;
 
-export function createSlackConfigApi(options?: {
+export type SlackApiOptions = {
   apiUrl?: string;
   fetch?: typeof fetch;
   timeoutMs?: number;
-}): SlackConfigApi & SlackInstallApi {
+};
+
+function slackCaller(options?: SlackApiOptions) {
   const apiUrl = (options?.apiUrl ?? SLACK_API_URL).replace(/\/+$/, "");
   const fetchImpl = options?.fetch ?? fetch;
   const timeoutMs = options?.timeoutMs ?? SLACK_HTTP_TIMEOUT_MS;
 
-  async function call<T>(
+  return async function call<T>(
     method: string,
     init: { token?: string; body: URLSearchParams | object },
     schema: z.ZodType<T>,
@@ -181,8 +184,13 @@ export function createSlackConfigApi(options?: {
       throw new SlackApiError(method, "unexpected_answer", false);
     }
     return parsed.data;
-  }
+  };
+}
 
+export function createSlackConfigApi(
+  options?: SlackApiOptions,
+): SlackConfigApi & SlackInstallApi {
+  const call = slackCaller(options);
   return {
     async rotateConfigToken(refreshToken) {
       const answer = await call(
@@ -271,6 +279,93 @@ export function createSlackConfigApi(options?: {
         botUserId: auth.user_id,
         appId: info.bot.app_id,
       };
+    },
+  };
+}
+
+/** The progress line under a thread's last message (94S-791). */
+export const SLACK_SET_STATUS_METHOD = "agents.sessions.setStatus";
+
+/** The calls a bot token makes about the people and places it hears from. */
+export interface SlackBotApi {
+  /** `users.info`: the flags that tell a member from a guest or a stranger. */
+  userInfo(botToken: string, userId: string): Promise<SlackUser>;
+  /** `conversations.info`: what kind of place the channel is. */
+  channelKind(botToken: string, channelId: string): Promise<SurfaceChannelKind>;
+  setStatus(
+    botToken: string,
+    input: { channelId: string; threadTs: string; status: string },
+  ): Promise<void>;
+}
+
+const userInfoAnswer = z.object({
+  user: z.object({
+    id: slackId,
+    team_id: slackId,
+    is_restricted: z.boolean().optional(),
+    is_ultra_restricted: z.boolean().optional(),
+    is_stranger: z.boolean().optional(),
+  }),
+});
+
+const conversationInfoAnswer = z.object({
+  channel: z.object({
+    is_im: z.boolean().optional(),
+    is_mpim: z.boolean().optional(),
+    is_private: z.boolean().optional(),
+  }),
+});
+
+export function createSlackBotApi(options?: SlackApiOptions): SlackBotApi {
+  const call = slackCaller(options);
+  return {
+    async userInfo(botToken, userId) {
+      const { user } = await call(
+        "users.info",
+        { token: botToken, body: new URLSearchParams({ user: userId }) },
+        userInfoAnswer,
+      );
+      return {
+        id: user.id,
+        team_id: user.team_id,
+        ...(user.is_restricted === undefined
+          ? {}
+          : { is_restricted: user.is_restricted }),
+        ...(user.is_ultra_restricted === undefined
+          ? {}
+          : { is_ultra_restricted: user.is_ultra_restricted }),
+        ...(user.is_stranger === undefined
+          ? {}
+          : { is_stranger: user.is_stranger }),
+      };
+    },
+
+    async channelKind(botToken, channelId) {
+      const { channel } = await call(
+        "conversations.info",
+        { token: botToken, body: new URLSearchParams({ channel: channelId }) },
+        conversationInfoAnswer,
+      );
+      if (channel.is_im) return "dm";
+      // A group DM is as closed as a private channel.
+      return channel.is_private || channel.is_mpim
+        ? "private_channel"
+        : "public_channel";
+    },
+
+    async setStatus(botToken, input) {
+      await call(
+        SLACK_SET_STATUS_METHOD,
+        {
+          token: botToken,
+          body: {
+            channel_id: input.channelId,
+            thread_ts: input.threadTs,
+            status: input.status,
+          },
+        },
+        z.object({}),
+      );
     },
   };
 }

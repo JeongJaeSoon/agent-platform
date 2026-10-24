@@ -130,6 +130,14 @@ export interface AgentAuthority {
     agentId: string,
     userId: string,
   ): Promise<boolean>;
+  /**
+   * The agent a release was made for; null for none. Without it a start on
+   * a binding or a link that names a release is refused.
+   */
+  agentOfRelease?(
+    workspaceId: string,
+    releaseId: string,
+  ): Promise<string | null>;
 }
 
 // Without a store an agent is only ever named directly, and nobody
@@ -586,6 +594,21 @@ export function createAuthorizationPolicy(
     // next session.
     if (resource.release_id !== undefined) {
       if (action !== "session.submit") return ["error", []];
+      // A session resource names its release's own agent; a binding or a
+      // link names its agent apart from the release, so they must agree.
+      if (resource.kind !== "session") {
+        if (agents.agentOfRelease === undefined) return ["error", []];
+        const releaseAgent = await agents.agentOfRelease(
+          resource.owner_scope,
+          resource.release_id,
+        );
+        if (
+          releaseAgent === null ||
+          releaseAgent.toLowerCase() !== (await agentOfResource(resource))
+        ) {
+          return ["agent_ceiling", scopes];
+        }
+      }
       const unbound = await credentials.unboundRefs(
         resource.owner_scope,
         resource.release_id,

@@ -1,5 +1,8 @@
 import { randomUUID } from "node:crypto";
-import type { SlackSurfaceAction } from "@werft-ai/contracts";
+import {
+  DEFAULT_SURFACE_CEILING,
+  type SlackSurfaceAction,
+} from "@werft-ai/contracts";
 import type {
   Principal,
   SetSurfaceBindingResult,
@@ -264,19 +267,53 @@ export function createPostgresSurfaceBindingStore(
         .limit(limit);
       return rows.map(recordOf);
     },
-    async resolveSlackChannel(installationId, channelId) {
+    resolveSlackChannel: (installationId, channelId) =>
+      resolveSlackChannel(db, installationId, channelId),
+    async ensureDmBinding(installationId) {
       if (!UUID.test(installationId)) return null;
-      const [row] = await db
-        .select(columns)
+      const id = installationId.toLowerCase();
+      const [live] = await db
+        .select({ id: surfaceBindings.id })
         .from(surfaceBindings)
-        .where(
-          and(
-            channelOf(installationId.toLowerCase(), channelId),
-            eq(surfaceBindings.status, "ready"),
-          ),
-        )
+        .where(channelOf(id, null))
         .limit(1);
-      return row ? recordOf(row) : null;
+      if (!live) {
+        const { actions, disclosure } = DEFAULT_SURFACE_CEILING;
+        // The live DM index takes the second of two first DMs.
+        await db.execute(sql`
+          INSERT INTO ${surfaceBindings} (id, workspace_id, agent_id, surface,
+            installation_id, surface_kind, mode, ceiling_actions,
+            ceiling_disclosure)
+          SELECT ${randomUUID()}, i.workspace_id, i.agent_id, 'slack',
+            i.installation_id, 'dm', 'mention',
+            ARRAY[${sql.join(
+              actions.map((action) => sql`${action}`),
+              sql`, `,
+            )}]::text[], ${disclosure}
+          FROM ${agentIdentities} i
+          WHERE i.installation_id = ${id} AND i.status = 'active'
+          ON CONFLICT DO NOTHING`);
+      }
+      return resolveSlackChannel(db, id, null);
     },
   };
+}
+
+async function resolveSlackChannel(
+  db: Database,
+  installationId: string,
+  channelId: string | null,
+): Promise<SurfaceBindingRecord | null> {
+  if (!UUID.test(installationId)) return null;
+  const [row] = await db
+    .select(columns)
+    .from(surfaceBindings)
+    .where(
+      and(
+        channelOf(installationId.toLowerCase(), channelId),
+        eq(surfaceBindings.status, "ready"),
+      ),
+    )
+    .limit(1);
+  return row ? recordOf(row) : null;
 }
