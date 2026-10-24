@@ -1,4 +1,9 @@
 export {
+  Combobox,
+  type ComboboxOption,
+  type ComboboxProps,
+} from "./combobox.tsx";
+export {
   ConfirmDialog,
   type ConfirmDialogProps,
 } from "./confirm-dialog.tsx";
