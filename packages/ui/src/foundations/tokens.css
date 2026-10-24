@@ -191,9 +191,11 @@
     --ap-motion-ease: cubic-bezier(0.2, 0, 0.2, 1);
 
     /*
-     * Layout (console v35): content is 1200px wide, or 840px in one column
-     * for settings, left-aligned inside 32px gutters under a 52px top bar.
+     * Layout: every page's column grows to --ap-w-page and centres
+     * (V4-PAGE-FRAME); a form or settings column inside it stops at
+     * --ap-w-narrow.
      */
+    --ap-w-page: 101.25rem;
     --ap-w-wide: 75rem;
     --ap-w-narrow: 52.5rem;
     --ap-gutter: 2rem;

@@ -28,6 +28,19 @@ export {
   LinkTabs,
   type LinkTabsProps,
 } from "./link-tabs.tsx";
+export {
+  PageBreadcrumb,
+  PageBreadcrumbCurrent,
+  PageBreadcrumbLink,
+  type PageBreadcrumbLinkProps,
+  type PageBreadcrumbProps,
+} from "./page-breadcrumb.tsx";
+export {
+  Page,
+  PageFrame,
+  type PageFrameProps,
+  type PageProps,
+} from "./page-frame.tsx";
 export { PageHeader, type PageHeaderProps } from "./page-header.tsx";
 export {
   SecretField,

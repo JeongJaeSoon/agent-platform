@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
 import { setupDom } from "../test-support/dom.ts";
+import {
+  PageBreadcrumb,
+  PageBreadcrumbCurrent,
+  PageBreadcrumbLink,
+} from "./page-breadcrumb.tsx";
 import { PageHeader } from "./page-header.tsx";
 
 const { render } = await setupDom();
@@ -49,5 +54,36 @@ describe("PageHeader", () => {
     expect(container.querySelector("p")?.className).toContain(
       "text-description",
     );
+  });
+
+  test("breadcrumb은 제목 위 줄에 위치 nav로 놓이고, 마지막이 지금 페이지다", () => {
+    const { getByRole, container } = render(
+      <PageHeader
+        title="새 개인 key"
+        breadcrumb={
+          <PageBreadcrumb label="위치">
+            <PageBreadcrumbLink href="/settings/api-keys">
+              내 key
+            </PageBreadcrumbLink>
+            <PageBreadcrumbCurrent>새 개인 key</PageBreadcrumbCurrent>
+          </PageBreadcrumb>
+        }
+        actions={<button type="button">주 버튼</button>}
+      />,
+    );
+    const nav = getByRole("navigation", { name: "위치" });
+    const heading = getByRole("heading", { level: 1, name: "새 개인 key" });
+    // Above the title in the same column; the actions stay the page's own.
+    expect(nav.nextElementSibling).toBe(heading);
+    expect([...nav.querySelectorAll("li")].map((li) => li.textContent)).toEqual(
+      ["내 key", "/", "새 개인 key"],
+    );
+    expect(getByRole("link", { name: "내 key" }).getAttribute("href")).toBe(
+      "/settings/api-keys",
+    );
+    expect(container.querySelector("[aria-current=page]")?.textContent).toBe(
+      "새 개인 key",
+    );
+    expect(nav.contains(getByRole("button", { name: "주 버튼" }))).toBe(false);
   });
 });
