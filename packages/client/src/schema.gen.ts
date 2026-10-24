@@ -1192,7 +1192,9 @@ export interface paths {
         };
         /**
          * Members of the workspace, oldest first
-         * @description **Auth:** cookie session only; no scope.
+         * @description Lists the workspace's members, disabled ones included, oldest membership first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. `q` keeps the members whose display name or email contains it, ignoring case.
+         *
+         *     **Auth:** cookie session only; no scope.
          */
         get: operations["listMembers"];
         put?: never;
@@ -2172,6 +2174,13 @@ export interface components {
              */
             relation?: "all" | "started" | "shared" | "administered";
             /** @description Matches a session whose title contains it, ignoring case, or whose id starts with it. */
+            q?: string;
+        };
+        ListMembersQuery: {
+            cursor?: string;
+            /** @default 50 */
+            limit: number;
+            /** @description Matches a member whose display name or email contains it, ignoring case. `%` and `_` match themselves. */
             q?: string;
         };
         CountSessionsQuery: {
@@ -3244,6 +3253,7 @@ export interface components {
         };
         ListMembersResponse: {
             items: components["schemas"]["MemberView"][];
+            next_cursor: string | null;
         };
         MemberView: {
             /** Format: uuid */
@@ -4094,11 +4104,19 @@ export interface components {
                 workspace_id: string;
                 agent_id: string | null;
                 created_by: string | null;
+                /** @description Who issued the key, with their display name as it is now. It stays after the issuer leaves the workspace or their account is disabled. Null on a key issued before keys recorded who issued them. */
+                created_by_user: {
+                    /** Format: uuid */
+                    id: string;
+                    display_name: string;
+                } | null;
                 scopes: ("sessions:read" | "sessions:write" | "sessions:approve" | "sessions:control" | "sessions:recover")[];
                 /** Format: date-time */
                 created_at: string;
                 expires_at: string | null;
                 revoked_at: string | null;
+                /** @description When the key last authenticated a request, recorded at most once a minute. A use made while another request is writing a session with the key is recorded on the next use instead, so it can lag by more. Null means no use has been recorded since last-use recording began, not that the key was never used. */
+                last_used_at: string | null;
             };
             secret: string;
             /** Format: uuid */
@@ -4114,11 +4132,19 @@ export interface components {
                 workspace_id: string;
                 agent_id: string | null;
                 created_by: string | null;
+                /** @description Who issued the key, with their display name as it is now. It stays after the issuer leaves the workspace or their account is disabled. Null on a key issued before keys recorded who issued them. */
+                created_by_user: {
+                    /** Format: uuid */
+                    id: string;
+                    display_name: string;
+                } | null;
                 scopes: ("sessions:read" | "sessions:write" | "sessions:approve" | "sessions:control" | "sessions:recover")[];
                 /** Format: date-time */
                 created_at: string;
                 expires_at: string | null;
                 revoked_at: string | null;
+                /** @description When the key last authenticated a request, recorded at most once a minute. A use made while another request is writing a session with the key is recorded on the next use instead, so it can lag by more. Null means no use has been recorded since last-use recording began, not that the key was never used. */
+                last_used_at: string | null;
             }[];
         };
         RevokeApiKeyResponse: {
@@ -4131,11 +4157,19 @@ export interface components {
                 workspace_id: string;
                 agent_id: string | null;
                 created_by: string | null;
+                /** @description Who issued the key, with their display name as it is now. It stays after the issuer leaves the workspace or their account is disabled. Null on a key issued before keys recorded who issued them. */
+                created_by_user: {
+                    /** Format: uuid */
+                    id: string;
+                    display_name: string;
+                } | null;
                 scopes: ("sessions:read" | "sessions:write" | "sessions:approve" | "sessions:control" | "sessions:recover")[];
                 /** Format: date-time */
                 created_at: string;
                 expires_at: string | null;
                 revoked_at: string | null;
+                /** @description When the key last authenticated a request, recorded at most once a minute. A use made while another request is writing a session with the key is recorded on the next use instead, so it can lag by more. Null means no use has been recorded since last-use recording began, not that the key was never used. */
+                last_used_at: string | null;
             };
             receipt_id: string | null;
         };
@@ -12253,7 +12287,11 @@ export interface operations {
     };
     listMembers: {
         parameters: {
-            query?: never;
+            query?: {
+                cursor?: string;
+                limit?: number;
+                q?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -12268,6 +12306,21 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ListMembersResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
                 };
             };
             /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */

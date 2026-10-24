@@ -3,6 +3,8 @@ import { z } from "zod";
 import { PAYLOAD_TOO_LARGE_ISSUE } from "../api/session.ts";
 import {
   inviteIdSchema,
+  pageSchema,
+  paginationQuerySchema,
   receiptIdSchema,
   timestampSchema,
   userIdSchema,
@@ -227,9 +229,15 @@ export const setAccessResponseSchema = z
   })
   .strict();
 
-export const listMembersResponseSchema = z
-  .object({ items: z.array(memberViewSchema) })
-  .strict();
+export const MEMBER_SEARCH_MAX_CHARS = 200;
+export const listMembersQuerySchema = paginationQuerySchema.extend({
+  q: z.string().trim().min(1).max(MEMBER_SEARCH_MAX_CHARS).optional().meta({
+    description:
+      "Matches a member whose display name or email contains it, ignoring case. `%` and `_` match themselves.",
+  }),
+});
+/** Oldest membership first, user id breaking ties. */
+export const listMembersResponseSchema = pageSchema(memberViewSchema).strict();
 /** Newest first; at most INVITE_LIST_LIMIT. */
 export const listInvitesResponseSchema = z
   .object({ items: z.array(inviteSchema).max(INVITE_LIST_LIMIT) })
@@ -250,5 +258,6 @@ export type UpdateMemberRequest = z.infer<typeof updateMemberRequestSchema>;
 export type UpdateMemberResponse = z.infer<typeof updateMemberResponseSchema>;
 export type SetAccessRequest = z.infer<typeof setAccessRequestSchema>;
 export type SetAccessResponse = z.infer<typeof setAccessResponseSchema>;
+export type ListMembersQuery = z.infer<typeof listMembersQuerySchema>;
 export type ListMembersResponse = z.infer<typeof listMembersResponseSchema>;
 export type ListInvitesResponse = z.infer<typeof listInvitesResponseSchema>;

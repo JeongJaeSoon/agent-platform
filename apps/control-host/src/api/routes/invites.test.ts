@@ -98,7 +98,7 @@ function inviteStore(overrides: Partial<InviteStore> = {}): InviteStore {
       role: "member",
       sessionExpiresAt: new Date("2026-10-25T00:00:00.000Z"),
     }),
-    listMembers: async () => [],
+    listMembers: async () => ({ items: [], next_cursor: null }),
     changeMemberRole: async () => ({ outcome: "not_found" }),
     ...overrides,
   };

@@ -76,6 +76,7 @@ import {
   listCredentialBindingsResponseSchema,
   listInvitesResponseSchema,
   listLinkedAccountsResponseSchema,
+  listMembersQuerySchema,
   listMembersResponseSchema,
   listMyTeamsResponseSchema,
   listPendingRequestsResponseSchema,
@@ -190,6 +191,7 @@ const openApiDocumentResponseSchema = z.looseObject({
 const requestComponents = {
   CreateSessionRequest: createSessionRequestSchema,
   ListSessionsQuery: listSessionsQuerySchema,
+  ListMembersQuery: listMembersQuerySchema,
   CountSessionsQuery: countSessionsQuerySchema,
   UsageSummaryQuery: usageSummaryQuerySchema,
   PostSessionMessageRequest: postSessionMessageRequestSchema,
@@ -2301,9 +2303,12 @@ export const API_ROUTE_DECLARATIONS = [
     operationId: "listMembers",
     tag: "Members",
     summary: "Members of the workspace, oldest first",
+    description:
+      "Lists the workspace's members, disabled ones included, oldest membership first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. `q` keeps the members whose display name or email contains it, ignoring case.",
     auth: "session",
+    query: "ListMembersQuery",
     success: { status: 200, schema: "ListMembersResponse" },
-    errors: [401, 403, 503],
+    errors: [400, 401, 403, 503],
   },
   {
     method: "patch",

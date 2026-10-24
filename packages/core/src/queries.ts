@@ -153,11 +153,31 @@ export function profilesQuery(client: ApiClient) {
   });
 }
 
+// PAGE_LIMIT_MAX; this entry point imports no contracts values.
+const MEMBER_PAGE_LIMIT = 100;
+
+/** Every member of the workspace, every page read, oldest first. */
 export function membersQuery(client: ApiClient) {
   return queryOptions({
     queryKey: queryKeys.members,
-    queryFn: () =>
-      unwrap(client.GET("/v1/members")) as Promise<ListMembersResponse>,
+    queryFn: async (): Promise<ListMembersResponse> => {
+      const items: ListMembersResponse["items"] = [];
+      let cursor: string | null = null;
+      do {
+        const page = (await unwrap(
+          client.GET("/v1/members", {
+            params: {
+              query: cursor
+                ? { cursor, limit: MEMBER_PAGE_LIMIT }
+                : { limit: MEMBER_PAGE_LIMIT },
+            },
+          }),
+        )) as ListMembersResponse;
+        items.push(...page.items);
+        cursor = page.next_cursor;
+      } while (cursor);
+      return { items, next_cursor: null };
+    },
     retry: false,
   });
 }

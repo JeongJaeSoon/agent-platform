@@ -92,7 +92,7 @@ describe("bootstrap checklist", () => {
     const server = agentServer();
     const { api } = renderAt("/", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner] }),
+      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
       "GET /v1/invites": () => json(200, { items: [] }),
       "GET /v1/agents": server.routes["GET /v1/agents"],
       ...noSessions,
@@ -127,7 +127,7 @@ describe("bootstrap checklist", () => {
     const agent = { ...server.detail().agent, active_release_id: "rel-1" };
     renderAt("/", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner] }),
+      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
       "GET /v1/invites": () =>
         json(200, {
           items: [
@@ -160,7 +160,10 @@ describe("bootstrap checklist", () => {
     renderAt("/", {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": () =>
-        json(200, { items: [owner, { ...owner, user_id: AGENT_ID }] }),
+        json(200, {
+          items: [owner, { ...owner, user_id: AGENT_ID }],
+          next_cursor: null,
+        }),
       "GET /v1/invites": () => json(200, { items: [] }),
       "GET /v1/agents": server.routes["GET /v1/agents"],
       ...noSessions,
@@ -174,7 +177,7 @@ describe("bootstrap checklist", () => {
   test("구성원은 혼자인데 초대 조회가 실패하면 초대 단계는 모른다", async () => {
     renderAt("/", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner] }),
+      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
       "GET /v1/invites": () => apiError(500, "INTERNAL", "boom"),
       "GET /v1/agents": () => json(200, { items: [] }),
       ...noSessions,
@@ -221,7 +224,7 @@ describe("bootstrap checklist", () => {
   test("세션 목록을 읽지 못하면 세션 단계는 모른다", async () => {
     renderAt("/", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner] }),
+      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
       "GET /v1/invites": () => json(200, { items: [] }),
       "GET /v1/agents": () => json(200, { items: [] }),
       "GET /v1/sessions": () => apiError(500, "INTERNAL", "boom"),
@@ -291,10 +294,12 @@ describe("홈 요약", () => {
     workspace_id: WORKSPACE_ID,
     agent_id: AGENT_ID,
     created_by: USER_ID,
+    created_by_user: null,
     scopes: ["sessions:read"],
     created_at: "2026-10-01T00:00:00.000Z",
     expires_at: inDays(3),
     revoked_at: null,
+    last_used_at: null,
   };
   /** Each card as title, headline and its label/value rows. */
   const cards = (overview: HTMLElement) =>
@@ -340,7 +345,7 @@ describe("홈 요약", () => {
     };
     return {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner] }),
+      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
       "GET /v1/invites": () => json(200, { items: [] }),
       "GET /v1/agents": () =>
         json(200, { items: [released, server.detail().agent] }),
@@ -686,6 +691,7 @@ describe("홈 요약", () => {
               role: "member",
             },
           ],
+          next_cursor: null,
         }),
     });
     // The recent table reads the same session list the last step does.
@@ -698,7 +704,7 @@ describe("홈 요약", () => {
   test("목록 하나라도 읽는 중이면 시작하기를 그리지 않는다", async () => {
     const { api } = renderAt("/", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner] }),
+      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
       "GET /v1/invites": () => json(200, { items: [] }),
       "GET /v1/agents": () => new Promise<Response>(() => {}),
       ...noSessions,
@@ -1010,7 +1016,7 @@ describe("내가 속한 팀", () => {
   test("팀을 관리하는 사람에게는 팀 화면 링크다", async () => {
     renderAt("/", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner] }),
+      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
       "GET /v1/invites": () => json(200, { items: [] }),
       "GET /v1/agents": () => json(200, { items: [] }),
       "GET /v1/my-teams": () => json(200, { items: [TEAM] }),
@@ -1078,7 +1084,7 @@ describe("내가 관리하는 에이전트", () => {
     const server = agentServer();
     const { api } = renderAt("/", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner] }),
+      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
       "GET /v1/invites": () => json(200, { items: [] }),
       "GET /v1/agents": server.routes["GET /v1/agents"],
       ...noSessions,

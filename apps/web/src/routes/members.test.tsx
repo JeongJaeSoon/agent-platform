@@ -147,7 +147,8 @@ describe("구성원 화면", () => {
   test("목록과 상태를 보이고, 역할 선택지는 contracts의 역할 그대로다", async () => {
     renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner, teammate, gone] }),
+      "GET /v1/members": () =>
+        json(200, { items: [owner, teammate, gone], next_cursor: null }),
       ...noInvites,
     });
     const user = await setupUser();
@@ -183,7 +184,8 @@ describe("구성원 화면", () => {
   test("행에는 비활성화만 있고 역할 select는 없다", async () => {
     renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner, teammate] }),
+      "GET /v1/members": () =>
+        json(200, { items: [owner, teammate], next_cursor: null }),
       ...noInvites,
     });
     const region = await screen.findByRole("table", { name: "구성원 표" });
@@ -197,7 +199,8 @@ describe("구성원 화면", () => {
     let release: () => void = () => {};
     const { api } = renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner, current] }),
+      "GET /v1/members": () =>
+        json(200, { items: [owner, current], next_cursor: null }),
       ...noInvites,
       "PATCH /v1/members/2c7e1d4a-5b6f-4a8e-9d0c-1e2f3a4b5c6d": () =>
         new Promise((resolve) => {
@@ -234,7 +237,8 @@ describe("구성원 화면", () => {
     });
     renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner, boss, teammate] }),
+      "GET /v1/members": () =>
+        json(200, { items: [owner, boss, teammate], next_cursor: null }),
       ...noInvites,
       [`PATCH /v1/members/${GONE_ID}`]: () =>
         apiError(409, "LAST_OWNER", "The last owner cannot be demoted"),
@@ -249,7 +253,8 @@ describe("구성원 화면", () => {
   test("관리자가 소유자 역할을 주려 하면(403 OWNER_PROTECTED) 그 이유를 보인다", async () => {
     renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me(undefined, "admin")),
-      "GET /v1/members": () => json(200, { items: [owner, teammate] }),
+      "GET /v1/members": () =>
+        json(200, { items: [owner, teammate], next_cursor: null }),
       ...noInvites,
       [`PATCH /v1/members/${teammate.user_id}`]: () =>
         apiError(403, "OWNER_PROTECTED", "Only an owner can grant owner"),
@@ -266,7 +271,10 @@ describe("구성원 화면", () => {
     renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me(undefined, "admin")),
       "GET /v1/members": () =>
-        json(200, { items: [{ ...owner, role: "admin" }, teammate, boss] }),
+        json(200, {
+          items: [{ ...owner, role: "admin" }, teammate, boss],
+          next_cursor: null,
+        }),
       ...noInvites,
     });
     const row = (await screen.findByText("Boss")).closest(
@@ -290,7 +298,8 @@ describe("구성원 화면", () => {
     const boss = { ...gone, display_name: "Boss", role: "owner" as const };
     renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner, boss] }),
+      "GET /v1/members": () =>
+        json(200, { items: [owner, boss], next_cursor: null }),
       ...noInvites,
       [`POST /v1/members/${GONE_ID}/enable`]: () =>
         apiError(403, "OWNER_PROTECTED", "Only an owner may enable an owner"),
@@ -308,7 +317,8 @@ describe("구성원 화면", () => {
     let current = teammate;
     const { api } = renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner, current] }),
+      "GET /v1/members": () =>
+        json(200, { items: [owner, current], next_cursor: null }),
       ...noInvites,
       [`POST /v1/members/${OTHER_ID}/disable`]: () => {
         current = { ...teammate, disabled_at: "2026-10-11T00:00:00.000Z" };
@@ -344,7 +354,8 @@ describe("구성원 화면", () => {
     let current = gone;
     renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner, current] }),
+      "GET /v1/members": () =>
+        json(200, { items: [owner, current], next_cursor: null }),
       ...noInvites,
       [`POST /v1/members/${GONE_ID}/enable`]: () => {
         current = { ...gone, disabled_at: null };
@@ -366,7 +377,8 @@ describe("구성원 화면", () => {
     const token = "k".repeat(43);
     const { api } = renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner, gone] }),
+      "GET /v1/members": () =>
+        json(200, { items: [owner, gone], next_cursor: null }),
       ...noInvites,
       "POST /v1/invites": () =>
         json(201, {
@@ -408,7 +420,7 @@ describe("구성원 화면", () => {
     let revoked = false;
     const { api } = renderAt("/members/invites", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner] }),
+      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
       "GET /v1/invites": () => json(200, { items: revoked ? [] : [invite] }),
       [`DELETE /v1/invites/${invite.id}`]: () => {
         revoked = true;
@@ -433,7 +445,7 @@ describe("구성원 화면", () => {
   test("초대 회수를 취소하면 아무것도 보내지 않는다", async () => {
     const { api } = renderAt("/members/invites", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner] }),
+      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
       "GET /v1/invites": () => json(200, { items: [pendingInvite] }),
     });
     const user = await setupUser();
@@ -461,7 +473,8 @@ describe("구성원 화면", () => {
     test(`${why} 직접 복사하라고 알리고 링크 칸을 선택해 둔다`, async () => {
       renderAt("/members", {
         "GET /v1/auth/me": () => json(200, me()),
-        "GET /v1/members": () => json(200, { items: [owner] }),
+        "GET /v1/members": () =>
+          json(200, { items: [owner], next_cursor: null }),
         ...noInvites,
         "POST /v1/invites": () =>
           json(201, {
@@ -508,7 +521,8 @@ describe("구성원 화면", () => {
 describe("되돌리기 어려운 동작의 확인", () => {
   const routes = (calls: string[]) => ({
     "GET /v1/auth/me": () => json(200, me()),
-    "GET /v1/members": () => json(200, { items: [owner, teammate] }),
+    "GET /v1/members": () =>
+      json(200, { items: [owner, teammate], next_cursor: null }),
     ...noInvites,
     [`PATCH /v1/members/${OTHER_ID}`]: () => {
       calls.push("PATCH");
@@ -592,6 +606,7 @@ describe("되돌리기 어려운 동작의 확인", () => {
       "GET /v1/members": () =>
         json(200, {
           items: [{ ...owner, role: "admin" }, other, teammate],
+          next_cursor: null,
         }),
       ...noInvites,
     });
@@ -657,6 +672,7 @@ describe("되돌리기 어려운 동작의 확인", () => {
               role: "owner",
             },
           ],
+          next_cursor: null,
         }),
       ...noInvites,
     });
@@ -677,7 +693,10 @@ describe("되돌리기 어려운 동작의 확인", () => {
     renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me(undefined, "admin")),
       "GET /v1/members": () =>
-        json(200, { items: [{ ...owner, role: "admin" }, boss, teammate] }),
+        json(200, {
+          items: [{ ...owner, role: "admin" }, boss, teammate],
+          next_cursor: null,
+        }),
       ...noInvites,
     });
     const user = await setupUser();
@@ -721,7 +740,8 @@ describe("구성원 · 팀 · 초대 탭", () => {
   test("관리하는 사람은 세 탭을 보고, 지금 탭 하나만 현재다", async () => {
     renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner, teammate] }),
+      "GET /v1/members": () =>
+        json(200, { items: [owner, teammate], next_cursor: null }),
       ...noInvites,
     });
     await screen.findByRole("button", { name: "Mate 편집" });
@@ -737,7 +757,7 @@ describe("구성원 · 팀 · 초대 탭", () => {
   test("초대 탭은 대기 중인 초대를 보이고 초대 버튼을 둔다", async () => {
     renderAt("/members/invites", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner] }),
+      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
       "GET /v1/invites": () => json(200, { items: [pendingInvite] }),
     });
     expect(await screen.findByText("late@example.com")).toBeDefined();
@@ -754,7 +774,7 @@ describe("구성원 · 팀 · 초대 탭", () => {
       "GET /v1/members": () =>
         fail
           ? apiError(500, "INTERNAL", "boom")
-          : json(200, { items: [owner] }),
+          : json(200, { items: [owner], next_cursor: null }),
       "GET /v1/invites": () => json(200, { items: [pendingInvite] }),
     });
     expect(await screen.findByText("late@example.com")).toBeDefined();
@@ -803,7 +823,8 @@ describe("권한", () => {
   test("서버가 거절한 동작(403)은 비활성 버튼과 같은 문구로 보인다", async () => {
     renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner, teammate] }),
+      "GET /v1/members": () =>
+        json(200, { items: [owner, teammate], next_cursor: null }),
       ...noInvites,
       [`PATCH /v1/members/${OTHER_ID}`]: forbidden,
     });
@@ -819,7 +840,8 @@ describe("권한", () => {
     const future = { ...me(undefined, "admin"), permissions: me().permissions };
     renderAt("/members", {
       "GET /v1/auth/me": () => json(200, future),
-      "GET /v1/members": () => json(200, { items: [owner, teammate] }),
+      "GET /v1/members": () =>
+        json(200, { items: [owner, teammate], next_cursor: null }),
       ...noInvites,
     });
     const button = await screen.findByRole("button", {
