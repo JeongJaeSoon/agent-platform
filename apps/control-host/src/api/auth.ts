@@ -536,8 +536,7 @@ export function createAuthenticator(
           return null;
         }
         if (key.touchDue && keyStore.touch) {
-          // Not awaited: a last-use time is not worth a request's latency,
-          // and a session write may hold the row (touchApiKey skips it).
+          // Not awaited: a last-use time is not worth a request's latency.
           keyStore.touch(key.id).catch((error: unknown) => {
             logger?.warn("API key last use not recorded", {
               key_id: key.id,
