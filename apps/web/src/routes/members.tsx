@@ -13,6 +13,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DisabledReason,
   EmptyState,
   Field,
   FieldDescription,
@@ -48,7 +49,6 @@ import {
 import { FormError, Notice } from "../components/auth-page.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { Page } from "../components/page.tsx";
-import { ReasonHint } from "../components/reason-hint.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import {
   errorKey,
@@ -254,7 +254,6 @@ function MemberTable({
     role: WorkspaceRole;
   } | null>(null);
   const self = useMe()?.user?.id;
-  const reasonId = useId();
   const activeOwners = items.filter(
     (member) => member.role === "owner" && member.disabled_at === null,
   ).length;
@@ -396,12 +395,37 @@ function MemberTable({
               const keepWhy = disabled
                 ? enableReason(member)
                 : keepReason(member);
-              const keepId = `${reasonId}-${member.user_id}-keep`;
               const busy =
                 (changeRole.isPending &&
                   changeRole.variables?.member.user_id === member.user_id) ||
                 (setAccess.isPending &&
                   setAccess.variables?.member.user_id === member.user_id);
+              const button = disabled ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0"
+                  disabled={busy || keepWhy !== undefined}
+                  onClick={() => setAccess.mutate({ member, enable: true })}
+                >
+                  {t("members.enable")}
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0"
+                  disabled={busy || keepWhy !== undefined}
+                  aria-label={t("members.disableFor", {
+                    name: member.display_name,
+                  })}
+                  onClick={() => setConfirming(member)}
+                >
+                  {t("members.disable")}
+                </Button>
+              );
               return (
                 <GridTableRow
                   key={member.user_id}
@@ -422,6 +446,14 @@ function MemberTable({
                       blue stays for links that move (→). */}
                     <span className="flex min-w-0 max-w-full font-medium text-foreground group-data-[disabled=true]:text-muted-foreground">
                       <span className="truncate">{member.display_name}</span>
+                      {member.user_id === self ? (
+                        <Badge
+                          variant="gray"
+                          className="ms-1.5 shrink-0 self-center"
+                        >
+                          {t("members.you")}
+                        </Badge>
+                      ) : null}
                       <span aria-hidden="true">&nbsp;›</span>
                     </span>
                     <span
@@ -449,46 +481,19 @@ function MemberTable({
                     align="end"
                     className="gap-1 [&_[data-slot=button]:not([data-size^=icon])]:min-w-[var(--ap-row-action-min-width)]"
                   >
-                    {disabled ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="shrink-0"
-                        disabled={busy || keepWhy !== undefined}
-                        aria-describedby={keepWhy ? keepId : undefined}
-                        onClick={() =>
-                          setAccess.mutate({ member, enable: true })
-                        }
-                      >
-                        {t("members.enable")}
-                      </Button>
-                    ) : (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="shrink-0"
-                        disabled={busy || keepWhy !== undefined}
-                        aria-describedby={keepWhy ? keepId : undefined}
-                        aria-label={t("members.disableFor", {
-                          name: member.display_name,
-                        })}
-                        onClick={() => setConfirming(member)}
-                      >
-                        {t("members.disable")}
-                      </Button>
-                    )}
                     {keepWhy ? (
-                      <ReasonHint
-                        id={keepId}
+                      <DisabledReason
+                        reason={keepWhy}
                         label={t(
-                          disabled ? "members.enableWhy" : "members.disableWhy",
+                          disabled ? "members.enableFor" : "members.disableFor",
                           { name: member.display_name },
                         )}
-                        reason={keepWhy}
-                      />
-                    ) : null}
+                      >
+                        {button}
+                      </DisabledReason>
+                    ) : (
+                      button
+                    )}
                   </GridTableCell>
                 </GridTableRow>
               );
