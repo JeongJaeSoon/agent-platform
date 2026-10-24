@@ -838,13 +838,13 @@ Slack 스레드 하나는 세션 하나다. 그 묶음이 `session_links`의 행
 9. lease를 다시 쥐고(`renew`: `id`·`claim_token`이 같고 lease가 살아 있을 때 `lease_expires_at = now() + lease`) 설치 상태를 같은 문장에서 읽는다. lease를 잃었으면 아무것도 쓰지 않고 던진다(다른 pass가 이미 잡았다). 그 사이 설치가 `revoked`가 됐으면 `dropped`·`installation_revoked`다.
 10. 새 스레드면 연결 행을 잡는다: `INSERT … ON CONFLICT DO NOTHING RETURNING`, 없으면 `SELECT … FOR UPDATE`. 동시에 온 첫 메시지 둘도 행 하나를 같이 쓴다.
 11. 연결에 세션이 없거나 이 메시지가 연 메시지(`opened_by_ts`)면 `createSession`(idempotency key = 연결 행 id, body `{profile_id, agent_release_id, message}`, repository 없음)으로 만들고 연결 행에 붙인다. 아니면 `appendMessage`(idempotency key `<team>:<channel>:<ts>`, `mode: enqueue`)로 다음 턴을 넣는다. 둘 다 웹·API와 같은 session service 경로다. 세션 쪽 거절(`RATE_LIMITED`·`BACKEND_UNAVAILABLE` 말고)은 안내 "지금은 요청을 처리하지 못했어요"를 남기고 끝낸다. 그 둘은 던져서 다시 한다.
-12. Slack에 스레드 상태를 보낸다: `agents.sessions.setStatus` `{channel_id, thread_ts: <스레드 root>, status: "processing"}`. 세션 쓰기 뒤에 보내서 lease를 다시 쥔 때와 세션 쓰기 사이에 Slack 호출이 끼지 않는다. `not_authorized`·`feature_disabled`·`thread_ts_required`는 그 workspace가 상태를 보이지 않는다는 뜻이라 info 로그, 다른 실패는 warn 로그이고 어느 쪽도 처리를 막지 않는다. `active`로 되돌리는 것은 응답을 보내는 94S-792가 한다.
+12. Slack에 스레드 상태를 보낸다: `agents.sessions.setStatus` `{channel_id, thread_ts: <스레드 root>, status: "processing"}`. 세션 쓰기 뒤에 보내서 lease를 다시 쥔 때와 세션 쓰기 사이에 Slack 호출이 끼지 않는다. `not_authorized`·`feature_disabled`·`thread_ts_required`는 그 workspace가 상태를 보이지 않는다는 뜻이라 info 로그, 다른 실패는 warn 로그이고 어느 쪽도 처리를 막지 않는다. `active`로 되돌리는 것은 응답을 보내는 쪽(아직 없음)이 한다.
 
 - 같은 메시지가 두 번 오는 일(Slack은 채널의 멘션 하나에 `app_mention`과 `message`를 둘 다 보내고, 재시도도 있다)은 key로 막는다. 첫 메시지는 연결 행 id라 두 번째 이벤트가 같은 세션을 돌려받고, 답글은 `<team>:<channel>:<ts>`가 턴과 같은 transaction의 receipt에 남아 두 번째 이벤트가 같은 턴을 돌려받는다. 따로 dedupe 표를 두지 않은 것은 이 key가 세션 쓰기와 한 transaction이라 "기록은 됐는데 턴은 없다"가 생기지 않기 때문이다.
 - pass가 연결 행을 잡은 뒤 `createSession` 전에 죽으면 lease가 끝난 뒤 다음 pass가 같은 key로 세션을 만든다. 연 메시지가 5번 다 실패한 채 연결 행에 세션이 없고 다음 답글이 오면, 그 key로 이미 만들어진 세션(receipt)이 있으면 그 세션을 붙이고 답글을 다음 턴으로 넣는다. 없으면 `opened_by_ts`를 그 답글로 넘기고 같은 연결 행 id key로 세션을 연다. 세션 key는 스레드마다 하나뿐이다.
 - 세션은 Slack 사람의 연결된 계정(`linked_accounts`의 `(team, user)`)으로 만든다. `created_by_user_id`·1번 턴의 `actor_id`가 그 사람이고 `channel`은 `slack`이며, 판정 행(`authz_decisions`)에 `linked_account_id`가 남는다. DM 세션은 공유 범위 `private`로 시작한다(만든 사람만 본다. owner·admin은 위 "세션 공유 범위와 감사 열람"의 두 길로만 다룬다. `GET /v1/sessions/{id}/share`로 확인한다). 채널 세션은 웹과 같은 기본 범위다.
 - 세션의 실행(worker claim·provider 호출)은 api와 worker가 한다. provider credential은 그때 api가 푼 catalog로 정해지므로, `slack` 역할이 만든 세션도 api의 key로 돈다.
-- 안내는 아직 보내지 않는다. `SlackNoticeSink`가 받아 로그 한 줄(`Slack notice held for delivery`, id·이유만, 문구·링크 없음)로 남긴다. 94S-792가 ephemeral로 보낸다. 담는 것: workspace·에이전트·설치·`slack_app_id`·team·channel·스레드 root `thread_ts`·Slack user·이유·문구(`SlackNotice`)·한 번만 보낼 key `<installation_id>:<surface_ref>:<slack_user_id>`.
+- 안내는 아직 보내지 않는다. `SlackNoticeSink`가 받아 로그 한 줄(`Slack notice held for delivery`, id·이유만, 문구·링크 없음)로 남긴다. 보내는 쪽은 ephemeral로 보낼 예정이다. 담는 것: workspace·에이전트·설치·`slack_app_id`·team·channel·스레드 root `thread_ts`·Slack user·이유·문구(`SlackNotice`)·한 번만 보낼 key `<installation_id>:<surface_ref>:<slack_user_id>`.
 
 | 설정 | 기본 | 의미 |
 |---|---|---|
