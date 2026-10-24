@@ -163,7 +163,12 @@ function NewKeyScreen({
                 <Field>
                   <FieldLabel>만료일(필수 아님)</FieldLabel>
                   <div>
-                    <Input type="date" className="w-auto" />
+                    <Input
+                      type="date"
+                      className="w-auto"
+                      // As in the console: no past day (local YYYY-MM-DD).
+                      min={new Date().toLocaleDateString("sv")}
+                    />
                   </div>
                   <FieldDescription>
                     비워 두면 폐기할 때까지 유효합니다.
