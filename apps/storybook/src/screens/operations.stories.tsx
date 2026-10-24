@@ -423,6 +423,7 @@ function Overview({ screen }: { readonly screen: ScreenData }) {
                 }
         }
         statusLink={statusLink}
+        messages={{ loading: "" }}
       />
       <div>
         <Filters role={screen.role} days={screen.days} />
@@ -955,7 +956,7 @@ export const OverviewMember: Story = { args: { screen: data("member", 30) } };
 export const OverviewEmpty: Story = {
   args: { screen: data("owner", 30, true) },
 };
-/** No value or meter is drawn yet; the screen and the counts each say so once. */
+/** No value or meter is drawn yet, and the screen says so once. */
 export const OverviewLoading: Story = {
   args: { screen: LOADING },
   play: async ({ canvasElement }) => {
@@ -963,7 +964,7 @@ export const OverviewLoading: Story = {
     expect(canvas.queryAllByRole("meter")).toHaveLength(0);
     expect(
       canvas.getAllByRole("status").map((status) => status.textContent),
-    ).toEqual(["운영 화면을 읽는 중", "세션 수를 읽는 중"]);
+    ).toEqual(["운영 화면을 읽는 중"]);
   },
 };
 export const OverviewDark: Story = { globals: DARK };
@@ -1043,6 +1044,9 @@ export const ToolsEmpty: Story = {
 };
 export const ToolsLoading: Story = {
   args: { tab: "tools", screen: LOADING },
+  play: async ({ canvasElement }) => {
+    expect(within(canvasElement).getAllByRole("status")).toHaveLength(1);
+  },
 };
 export const ToolsDark: Story = { args: { tab: "tools" }, globals: DARK };
 export const ToolsMobile: Story = {
@@ -1075,6 +1079,11 @@ export const LimitsTokenLimitSet: Story = {
 };
 export const LimitsLoading: Story = {
   args: { tab: "limits", screen: LOADING },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    expect(canvas.queryAllByRole("meter")).toHaveLength(0);
+    expect(canvas.getAllByRole("status")).toHaveLength(1);
+  },
 };
 export const LimitsDark: Story = { args: { tab: "limits" }, globals: DARK };
 export const LimitsMobile: Story = {
