@@ -105,11 +105,21 @@ describe("Slack management", () => {
     const user = await setupUser();
     await screen.findByText("홈 채널");
     await waitFor(() =>
-      expect(screen.queryByText("설정 안 됨") === null).toBe(true),
+      expect(document.querySelector("[data-slot=field-error]") !== null).toBe(
+        true,
+      ),
     );
-    expect(screen.queryByText("선택 안 됨") === null).toBe(true);
+    const state = screen
+      .getByRole("heading", { name: "상태" })
+      .closest("section") as HTMLElement;
+    expect(within(state).getByText("—")).toBeDefined();
+    const home = screen.getByText("홈 채널").closest("dl") as HTMLElement;
+    expect(within(home).getByText("—")).toBeDefined();
     await user.click(screen.getByRole("tab", { name: "설정" }));
     expect(screen.queryByText("설정 안 됨") === null).toBe(true);
+    expect(
+      screen.queryByRole("switch", { name: "다이렉트 메시지" }) === null,
+    ).toBe(true);
     await user.click(await screen.findByRole("tab", { name: "채널" }));
     await waitFor(() =>
       expect(document.querySelector("[data-slot=field-error]") !== null).toBe(

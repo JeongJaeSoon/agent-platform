@@ -964,14 +964,16 @@ function SlackDmSetting({ agentId }: { readonly agentId: string }) {
         </>
       }
       control={
-        <Switch
-          aria-label={t("slack.dm")}
-          checked={dm !== undefined && dm.mode !== "off"}
-          aria-disabled={unavailable}
-          onCheckedChange={(checked) => {
-            if (!unavailable) update.mutate(checked);
-          }}
-        />
+        bindings.isError && !bindings.data ? null : (
+          <Switch
+            aria-label={t("slack.dm")}
+            checked={dm !== undefined && dm.mode !== "off"}
+            aria-disabled={unavailable}
+            onCheckedChange={(checked) => {
+              if (!unavailable) update.mutate(checked);
+            }}
+          />
+        )
       }
     />
   );
