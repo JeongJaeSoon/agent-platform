@@ -147,7 +147,10 @@ describe("불러오기 실패", () => {
       await user.click(
         within(alert).getByRole("button", { name: "다시 시도" }),
       );
-      expect(await screen.findByText(item.after)).toBeTruthy();
+      // In the page: the top bar names a detail screen after it too.
+      expect(
+        await within(screen.getByRole("main")).findByText(item.after),
+      ).toBeTruthy();
       expect(source.calls).toBe(2);
     });
   }
