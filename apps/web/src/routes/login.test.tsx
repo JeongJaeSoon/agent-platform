@@ -80,7 +80,7 @@ describe("Google 콜백", () => {
       {
         "POST /v1/auth/google/callback": () => json(200, signedIn),
         "GET /v1/auth/me": () => json(200, me()),
-        "GET /v1/members": () => json(200, { items: [] }),
+        "GET /v1/members": () => json(200, { items: [], next_cursor: null }),
         "GET /v1/invites": () => json(200, { items: [] }),
       },
     );

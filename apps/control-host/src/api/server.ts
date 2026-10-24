@@ -61,6 +61,7 @@ import {
   createSlackAppService,
   createSlackBotApi,
   createSlackChannelKinds,
+  createSlackChannelSearchService,
   createSlackConfigApi,
   createSlackConfigTokens,
   createSlackEventsFinalize,
@@ -74,6 +75,7 @@ import {
   createUsageService,
   createWorkerGateway,
   fingerprintModel,
+  forgettingChannelsOnBindingPut,
   InstallationConfigError,
   installationLimitsFromEnv,
 } from "@werft-ai/platform";
@@ -144,6 +146,7 @@ import { registerSessionShareRoutes } from "./routes/session-shares.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
 import { registerSlackAppRoutes } from "./routes/slack-apps.ts";
 import { registerSlackBindingRoutes } from "./routes/slack-bindings.ts";
+import { registerSlackChannelRoutes } from "./routes/slack-channels.ts";
 import { registerSlackEventRoutes } from "./routes/slack-events.ts";
 import { registerSlackInstallRoutes } from "./routes/slack-install.ts";
 import { registerSlackSecretRoutes } from "./routes/slack-secrets.ts";
@@ -328,6 +331,7 @@ const agentIdentities = createAgentIdentityService({
   authorization,
   store: createPostgresAgentIdentityStore(db),
 });
+const slackBotApi = createSlackBotApi({ apiUrl: slackApiUrlFrom(process.env) });
 const slackBindings = createSurfaceBindingService({
   authorization,
   store: createPostgresSurfaceBindingStore(db),
@@ -336,7 +340,7 @@ const slackBindings = createSurfaceBindingService({
       secretKey === null ? null : createPostgresSlackAppStore(db, secretKey),
     secrets:
       secretKey === null ? null : createPostgresSecretStore(db, secretKey),
-    slack: createSlackBotApi({ apiUrl: slackApiUrlFrom(process.env) }),
+    slack: slackBotApi,
   }),
 });
 const linkedAccounts = createLinkedAccountService({
@@ -379,6 +383,13 @@ const slackSigningSecrets =
         apps: slackAppStore,
         secrets: createPostgresSecretStore(db, secretKey),
       });
+const slackChannels = createSlackChannelSearchService({
+  authorization,
+  agents: createDatabaseAgentAuthority(db),
+  apps: slackAppStore,
+  secrets: secretKey === null ? null : createPostgresSecretStore(db, secretKey),
+  api: slackBotApi,
+});
 const slackApps = createSlackAppService({
   authorization,
   apps: slackAppStore,
@@ -633,7 +644,11 @@ const app = createApiApp({
       service: agentIdentities,
       logger,
     });
-    registerSlackBindingRoutes(router, { service: slackBindings, logger });
+    registerSlackBindingRoutes(router, {
+      service: forgettingChannelsOnBindingPut(slackBindings, slackChannels),
+      logger,
+    });
+    registerSlackChannelRoutes(router, { service: slackChannels, logger });
     registerSlackAppRoutes(router, {
       apps: slackApps,
       secrets: slackSecrets,

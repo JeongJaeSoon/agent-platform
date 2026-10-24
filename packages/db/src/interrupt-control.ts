@@ -15,6 +15,7 @@ import {
   logControlResult,
 } from "./control-observability.ts";
 import {
+  controlReplay,
   findIdempotent,
   type IdempotencyScope,
   lockIdempotencyScope,
@@ -58,18 +59,8 @@ export function createPostgresTurnInterrupts(
       const result: InterruptTurnResult = await db.transaction(async (tx) => {
         await lockIdempotencyScope(tx, scope);
         const existing = await findIdempotent(tx, scope);
-        if (existing) {
-          if (existing.payloadHash !== input.payloadHash) {
-            return { outcome: "conflict" };
-          }
-          return {
-            outcome: "replayed",
-            response: {
-              receipt_id: existing.receiptId,
-              receipt_status: existing.status,
-            },
-          };
-        }
+        const replay = controlReplay(existing, input.payloadHash);
+        if (replay) return replay;
 
         // The session row lock is what finalize and the execution-gone path
         // take before they give a turn its terminal, so the turn read below

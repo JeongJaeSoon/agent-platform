@@ -6,7 +6,7 @@ import type {
   TeamStore,
 } from "@werft-ai/platform";
 import { and, asc, count, eq, exists, isNull, sql } from "drizzle-orm";
-import { lockPeople, receiptActorOf } from "./control-shared.ts";
+import { findPgError, lockPeople, receiptActorOf } from "./control-shared.ts";
 import type { Database } from "./queries.ts";
 import {
   agentAdminTeams,
@@ -113,15 +113,11 @@ function teamTarget(teamId: string, workspaceId: string) {
 }
 
 // Two renames racing to one free name: the live-name index refuses the
-// second. drizzle wraps the driver's error, so the code may sit on its cause;
-// any other unique violation (a reused receipt id) is not a name clash.
+// second. Any other unique violation (a reused receipt id) is not a name clash.
 function isLiveNameTaken(error: unknown): boolean {
-  for (let e = error; typeof e === "object" && e !== null; ) {
-    const { code, constraint } = e as { code?: unknown; constraint?: unknown };
-    if (code === "23505") return constraint === "member_teams_live_name_uniq";
-    e = (e as { cause?: unknown }).cause;
-  }
-  return false;
+  return (
+    findPgError(error, "23505")?.constraint === "member_teams_live_name_uniq"
+  );
 }
 
 async function bumpRevision(tx: Database, teamId: string) {

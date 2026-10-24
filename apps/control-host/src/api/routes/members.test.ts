@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   apiErrorResponseSchema,
+  type ListMembersQuery,
   listMembersResponseSchema,
   listTakeoversResponseSchema,
   REQUEST_BODY_MAX_BYTES,
@@ -14,6 +15,7 @@ import {
   createAuthorizationPolicy,
   createInviteService,
   createMemberService,
+  InvalidCursorError,
   type InviteService,
   type InviteStore,
   type MemberRecord,
@@ -93,7 +95,7 @@ function roleStore(overrides: Partial<InviteStore> = {}): InviteStore {
     revokeInvite: unused,
     peekInvite: unused,
     acceptInvite: unused,
-    listMembers: async () => [MEMBER],
+    listMembers: async () => ({ items: [MEMBER], next_cursor: null }),
     changeMemberRole: async (input) => ({
       outcome: "changed",
       member: { ...MEMBER, role: input.role },
@@ -122,7 +124,8 @@ function app(
     options.person === false
       ? invites
       : {
-          listMembers: (caller) => invites.listMembers(asPerson(caller)),
+          listMembers: (caller, query) =>
+            invites.listMembers(asPerson(caller), query),
           changeMemberRole: (caller, userId, role) =>
             invites.changeMemberRole(asPerson(caller), userId, role),
         };
@@ -340,7 +343,69 @@ describe("GET /v1/members", () => {
           created_at: "2026-10-11T00:00:00.000Z",
         },
       ],
+      next_cursor: null,
     });
+  });
+
+  test("passes the trimmed query and the page on", async () => {
+    const seen: ListMembersQuery[] = [];
+    const response = await app(store(), {
+      roles: roleStore({
+        listMembers: async (_workspaceId, query) => {
+          seen.push(query);
+          return { items: [MEMBER], next_cursor: "page-2" };
+        },
+      }),
+    }).request("/v1/members?q=%20Ki%25_%20&limit=1&cursor=abc", {
+      headers: owner,
+    });
+    expect(response.status).toBe(200);
+    expect((await response.json()).next_cursor).toBe("page-2");
+    expect(seen).toEqual([{ q: "Ki%_", limit: 1, cursor: "abc" }]);
+  });
+
+  test("defaults to a page of 50 without cursor or q", async () => {
+    const seen: ListMembersQuery[] = [];
+    await app(store(), {
+      roles: roleStore({
+        listMembers: async (_workspaceId, query) => {
+          seen.push(query);
+          return { items: [], next_cursor: null };
+        },
+      }),
+    }).request("/v1/members", { headers: owner });
+    expect(seen).toEqual([{ limit: 50 }]);
+  });
+
+  test.each([
+    ["an empty q", "q="],
+    ["a blank q", "q=%20%20"],
+    ["a q of 201 characters", `q=${"a".repeat(201)}`],
+    ["limit 0", "limit=0"],
+    ["limit 101", "limit=101"],
+  ])("answers %s with 400", async (_name, search) => {
+    const response = await app().request(`/v1/members?${search}`, {
+      headers: owner,
+    });
+    expect(response.status).toBe(400);
+  });
+
+  test("accepts a q of 200 characters", async () => {
+    const response = await app().request(`/v1/members?q=${"a".repeat(200)}`, {
+      headers: owner,
+    });
+    expect(response.status).toBe(200);
+  });
+
+  test("answers a cursor the store rejects with 400", async () => {
+    const response = await app(store(), {
+      roles: roleStore({
+        listMembers: async () => {
+          throw new InvalidCursorError();
+        },
+      }),
+    }).request("/v1/members?cursor=forged", { headers: owner });
+    expect(response.status).toBe(400);
   });
 
   test("refuses an API key whatever its scopes", async () => {

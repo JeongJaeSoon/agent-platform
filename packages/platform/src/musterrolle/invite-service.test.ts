@@ -94,7 +94,8 @@ const EVERY_ENTRY = {
   listInvites: (s: ReturnType<typeof service>, c: Caller) => s.listInvites(c),
   revokeInvite: (s: ReturnType<typeof service>, c: Caller) =>
     s.revokeInvite(c, INVITE.id),
-  listMembers: (s: ReturnType<typeof service>, c: Caller) => s.listMembers(c),
+  listMembers: (s: ReturnType<typeof service>, c: Caller) =>
+    s.listMembers(c, { limit: 50 }),
   changeMemberRole: (s: ReturnType<typeof service>, c: Caller) =>
     s.changeMemberRole(c, MEMBER, "owner"),
 };
@@ -210,8 +211,10 @@ describe("invite service", () => {
     const s = service({
       listInvites: async (workspaceId) =>
         workspaceId === WORKSPACE ? [INVITE] : [],
-      listMembers: async (workspaceId) =>
-        workspaceId === WORKSPACE ? [MEMBER_ROW] : [],
+      listMembers: async (workspaceId, query) => ({
+        items: workspaceId === WORKSPACE && query.q === "x" ? [MEMBER_ROW] : [],
+        next_cursor: "next",
+      }),
     });
     const owner = user(OWNER, "owner");
     expect(await s.listInvites(owner)).toEqual([
@@ -221,8 +224,9 @@ describe("invite service", () => {
         expires_at: "2026-10-18T00:00:00.000Z",
       }),
     ]);
-    expect(await s.listMembers(owner)).toEqual([
-      expect.objectContaining({ user_id: MEMBER, disabled_at: null }),
-    ]);
+    expect(await s.listMembers(owner, { limit: 50, q: "x" })).toEqual({
+      items: [expect.objectContaining({ user_id: MEMBER, disabled_at: null })],
+      next_cursor: "next",
+    });
   });
 });

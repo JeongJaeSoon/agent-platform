@@ -221,6 +221,13 @@ exports[`query options and the request each query makes 1`] = `
     "calls": [
       [
         "/v1/members",
+        {
+          "params": {
+            "query": {
+              "limit": 100,
+            },
+          },
+        },
       ],
     ],
     "options": {

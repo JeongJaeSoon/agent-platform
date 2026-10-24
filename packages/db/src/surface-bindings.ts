@@ -11,7 +11,7 @@ import type {
 } from "@werft-ai/platform";
 import { and, asc, desc, eq, isNull, ne, sql } from "drizzle-orm";
 import { callerHoldsRight } from "./agent-identities.ts";
-import { receiptActorOf } from "./control-shared.ts";
+import { findPgError, receiptActorOf } from "./control-shared.ts";
 import { DB_NOW } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import {
@@ -79,19 +79,10 @@ function channelOf(installationId: string, channelId: string | null) {
 }
 
 // Two writes racing to one channel, the DM row or the home: a live index
-// refuses the second. drizzle wraps the driver's error, so the code may sit
-// on its cause.
+// refuses the second.
 function isLiveConflict(error: unknown): boolean {
-  for (let e = error; typeof e === "object" && e !== null; ) {
-    const { code, constraint } = e as { code?: unknown; constraint?: unknown };
-    if (code === "23505") {
-      return (
-        typeof constraint === "string" && LIVE_UNIQUE_INDEXES.has(constraint)
-      );
-    }
-    e = (e as { cause?: unknown }).cause;
-  }
-  return false;
+  const constraint = findPgError(error, "23505")?.constraint;
+  return typeof constraint === "string" && LIVE_UNIQUE_INDEXES.has(constraint);
 }
 
 async function writeReceipt(

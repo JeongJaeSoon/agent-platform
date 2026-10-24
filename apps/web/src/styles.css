@@ -90,16 +90,6 @@ select:focus-visible,
   color: var(--ap-tone-danger-fg);
 }
 
-.web-notice {
-  display: block;
-  margin: 0;
-  padding: var(--ap-space-3) var(--ap-space-4);
-  border: 1px solid var(--ap-tone-progress-border);
-  border-radius: var(--ap-radius-card);
-  background: var(--ap-tone-progress-bg);
-  color: var(--ap-tone-progress-fg);
-}
-
 .web-status {
   padding: var(--ap-space-4);
   border: 1px solid var(--ap-color-border);
