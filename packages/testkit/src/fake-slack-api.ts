@@ -40,6 +40,30 @@ export type FakeSlackWebApi = {
   }>;
   /** Fields merged into every oauth.v2.access answer, to mimic a bad one. */
   installAnswer: Record<string, unknown>;
+  /** users.info answers; a user not here is a full member of the team. */
+  users: Map<string, FakeSlackUser>;
+  /**
+   * conversations.info answers; a channel not here is told by its id: D is
+   * a DM, G a private channel, anything else public.
+   */
+  channels: Map<string, FakeSlackChannel>;
+  /** Every thread status agents.sessions.setStatus accepted, in order. */
+  statuses: { channelId: string; threadTs: string; status: string }[];
+  /** A method named here answers ok:false with this error. */
+  failures: Map<string, string>;
+};
+
+export type FakeSlackUser = {
+  teamId?: string;
+  isRestricted?: boolean;
+  isUltraRestricted?: boolean;
+  isStranger?: boolean;
+};
+
+export type FakeSlackChannel = {
+  isIm?: boolean;
+  isPrivate?: boolean;
+  isMpim?: boolean;
 };
 
 export type SendSlackEventInput = {
@@ -87,6 +111,10 @@ export function createFakeSlackWebApi(
   const scopesOf = new Map<string, string>();
   const installAnswer: Record<string, unknown> = {};
   const manifestUpdateAnswer: Record<string, unknown> = {};
+  const users = new Map<string, FakeSlackUser>();
+  const channels = new Map<string, FakeSlackChannel>();
+  const statuses: FakeSlackWebApi["statuses"] = [];
+  const failures = new Map<string, string>();
   let appCounter = 0;
 
   const issueConfigToken = () => {
@@ -104,6 +132,14 @@ export function createFakeSlackWebApi(
   const appOf = (appId: string | undefined) => {
     const app = appId === undefined ? undefined : apps.get(appId);
     if (!app) throw new SlackError("app_not_found");
+    return app;
+  };
+
+  const installedBot = (context: Context) => {
+    const app = [...apps.values()].find((candidate) =>
+      candidate.botTokens.includes(context.token ?? ""),
+    );
+    if (!app) throw new SlackError("invalid_auth");
     return app;
   };
 
@@ -140,6 +176,53 @@ export function createFakeSlackWebApi(
           deleted: false,
         },
       };
+    },
+
+    "users.info"(context) {
+      installedBot(context);
+      const id = context.params.user;
+      if (!id) throw new SlackError("user_not_found");
+      const user = users.get(id) ?? {};
+      return {
+        user: {
+          id,
+          team_id: user.teamId ?? teamId,
+          is_bot: false,
+          deleted: false,
+          is_restricted: user.isRestricted ?? false,
+          is_ultra_restricted: user.isUltraRestricted ?? false,
+          ...(user.isStranger === undefined
+            ? {}
+            : { is_stranger: user.isStranger }),
+        },
+      };
+    },
+
+    "conversations.info"(context) {
+      installedBot(context);
+      const id = context.params.channel;
+      if (!id) throw new SlackError("channel_not_found");
+      const channel = channels.get(id) ?? {
+        isIm: id.startsWith("D"),
+        isPrivate: id.startsWith("G"),
+      };
+      return {
+        channel: {
+          id,
+          is_im: channel.isIm ?? false,
+          is_private: channel.isPrivate ?? false,
+          is_mpim: channel.isMpim ?? false,
+        },
+      };
+    },
+
+    "agents.sessions.setStatus"(context) {
+      installedBot(context);
+      const { channel_id, thread_ts, status } = context.params;
+      if (!channel_id || !status) throw new SlackError("invalid_arguments");
+      if (!thread_ts) throw new SlackError("thread_ts_required");
+      statuses.push({ channelId: channel_id, threadTs: thread_ts, status });
+      return {};
     },
 
     "tooling.tokens.rotate"(context) {
@@ -319,6 +402,10 @@ export function createFakeSlackWebApi(
 
     installAnswer,
     manifestUpdateAnswer,
+    users,
+    channels,
+    statuses,
+    failures,
     authorize,
     sendEvent,
 
@@ -338,6 +425,9 @@ export function createFakeSlackWebApi(
             { status: 400 },
           );
         }
+      }
+      if (url.pathname === "/fake/statuses" && request.method === "GET") {
+        return Response.json({ ok: true, statuses });
       }
       if (url.pathname === "/fake/config-tokens" && request.method === "POST") {
         return Response.json({ ok: true, refresh_token: issueConfigToken() });
@@ -402,6 +492,8 @@ export function createFakeSlackWebApi(
         params: await paramsOf(request, url),
       };
       try {
+        const failure = failures.get(method);
+        if (failure !== undefined) throw new SlackError(failure);
         const answer = run(context);
         if (answer === null) return null;
         calls.push({ method, ok: true });

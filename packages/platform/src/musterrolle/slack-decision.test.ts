@@ -114,6 +114,10 @@ const deps = () => ({
           ? AGENT
           : null;
       },
+      async agentOfRelease(_workspaceId, releaseId) {
+        if (releaseId === "rel-other") return OTHER_AGENT;
+        return releaseId === "rel-1" ? AGENT : null;
+      },
       async isAdmin() {
         return false;
       },
@@ -339,6 +343,21 @@ describe("the channel's stored binding (94S-177)", () => {
         },
       },
     });
+  });
+
+  test("a release of another agent, or none, is refused at the agent ceiling", async () => {
+    link("U0B", 1);
+    for (const releaseId of ["rel-other", "rel-missing"]) {
+      const asked = await judge(
+        input(slackUser("U0B"), {
+          resource: { kind: "surface_binding", releaseId },
+        }),
+      );
+      expect(asked.decision).toMatchObject({
+        outcome: "deny",
+        reason_code: "agent_ceiling",
+      });
+    }
   });
 
   test("an unbound, switched-off or other agent's channel is refused, not dropped", async () => {

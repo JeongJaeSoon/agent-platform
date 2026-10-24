@@ -59,6 +59,8 @@ import {
   createSessionService,
   createSessionShareService,
   createSlackAppService,
+  createSlackBotApi,
+  createSlackChannelKinds,
   createSlackConfigApi,
   createSlackConfigTokens,
   createSlackEventsFinalize,
@@ -329,6 +331,13 @@ const agentIdentities = createAgentIdentityService({
 const slackBindings = createSurfaceBindingService({
   authorization,
   store: createPostgresSurfaceBindingStore(db),
+  channels: createSlackChannelKinds({
+    apps:
+      secretKey === null ? null : createPostgresSlackAppStore(db, secretKey),
+    secrets:
+      secretKey === null ? null : createPostgresSecretStore(db, secretKey),
+    slack: createSlackBotApi({ apiUrl: slackApiUrlFrom(process.env) }),
+  }),
 });
 const linkedAccounts = createLinkedAccountService({
   authorization,

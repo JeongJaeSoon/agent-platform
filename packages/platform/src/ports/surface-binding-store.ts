@@ -69,4 +69,11 @@ export interface SurfaceBindingStore {
     installationId: string,
     channelId: string | null,
   ): Promise<SurfaceBindingRecord | null>;
+  /**
+   * The install's DM binding, made on its first DM when it has none
+   * (`mention`, the default ceiling, no receipt: no person set it). Two
+   * first DMs at once make one row. Null when the install has no live agent
+   * identity or its DM row is not ready.
+   */
+  ensureDmBinding(installationId: string): Promise<SurfaceBindingRecord | null>;
 }

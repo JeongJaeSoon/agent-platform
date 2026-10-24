@@ -105,7 +105,6 @@ integration("members and actors over HTTP on PostgreSQL", () => {
               endpoint: "https://litellm.invalid",
               auth: {
                 kind: "api_key",
-                value: "catalog-provider-key",
                 ref: { value_env: "PROVIDER_KEY" },
               },
             },

@@ -87,6 +87,7 @@ integration("agent identities over HTTP on PostgreSQL", () => {
     const slackBindings = createSurfaceBindingService({
       authorization,
       store: createPostgresSurfaceBindingStore(db),
+      channels: { kindOf: async () => "public_channel" },
     });
     app = createApiApp({
       authMode: "api-key",

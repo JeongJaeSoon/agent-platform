@@ -49,6 +49,10 @@ import type {
   SlackInstallState,
   SlackInstallStore,
 } from "../ports/slack-install-store.ts";
+import type {
+  SlackNoticeRecord,
+  SlackNoticeSink,
+} from "../ports/slack-notice-sink.ts";
 import { lastFour } from "../secrets/secret-cipher.ts";
 
 /** Token-shaped values are made per run, never written into a file. */
@@ -941,6 +945,14 @@ export function createMemorySlackInboundEventStore(
       }
       return out;
     },
+    async renew(fence, leaseMs) {
+      const row = held(fence);
+      if (row === undefined) return null;
+      row.leaseExpiresAt = now() + leaseMs;
+      return {
+        installationStatus: options.installationStatus?.() ?? "verified",
+      };
+    },
     async complete(fence) {
       const row = held(fence);
       if (row) release(row, "processed");
@@ -964,4 +976,19 @@ export function createMemorySlackInboundEventStore(
     },
   };
   return { store, rows, lease, calls, faults };
+}
+
+/**
+ * Keeps one notice per `onceKey`, as 94S-792's delivery will: a person who
+ * keeps writing into a thread they may not use hears about it once.
+ */
+export function createMemorySlackNoticeSink() {
+  const notices: SlackNoticeRecord[] = [];
+  const sink: SlackNoticeSink = {
+    async record(notice) {
+      if (notices.some((held) => held.onceKey === notice.onceKey)) return;
+      notices.push(notice);
+    },
+  };
+  return { sink, notices };
 }

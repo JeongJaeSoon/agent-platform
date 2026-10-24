@@ -65,7 +65,7 @@ import {
   profileFingerprint,
   profileWithModel,
   repositoryModeOf,
-  type SessionCatalog,
+  type SessionCatalogView,
   sessionProfile,
 } from "./catalog.ts";
 import { deriveSessionTitle } from "./session-title.ts";
@@ -290,7 +290,7 @@ export function createSessionService(deps: {
   inputs: InputAcceptance;
   controls: SessionControl;
   reader: SessionReader;
-  catalog: SessionCatalog;
+  catalog: SessionCatalogView;
   // Resolves a release a session pins; absent, no session may name one.
   releases?: {
     resolveRelease(
@@ -514,7 +514,11 @@ export function createSessionService(deps: {
   return {
     async createSession(
       actor: Caller,
-      input: { idempotencyKey: string; body: CreateSessionRequest },
+      input: {
+        idempotencyKey: string;
+        body: CreateSessionRequest;
+        shareScope?: "private";
+      },
     ): Promise<CreateSessionResponse> {
       const release = await pinnedRelease(actor, input.body);
       // An unbound name refuses a new session but not the replay of one
@@ -586,6 +590,9 @@ export function createSessionService(deps: {
           : {}),
         ...(release ? { agentReleaseId: release.id } : {}),
         ...(credentialsUnbound ? { credentialsUnbound: true as const } : {}),
+        ...(input.shareScope === undefined
+          ? {}
+          : { shareScope: input.shareScope }),
         message: input.body.message,
         limits: inputLimits,
       });
