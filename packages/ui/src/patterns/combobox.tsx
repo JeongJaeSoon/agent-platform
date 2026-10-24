@@ -21,10 +21,11 @@ import {
 /*
  * ARIA 1.2 combobox with a list popup, single select. Focus never leaves the
  * input: arrows move `aria-activedescendant` through the enabled options and,
- * last, the "load more" button. That button sits after the listbox because a
- * listbox may only own options. The list takes the v4 command palette's
- * values (`.cmd-list`, `.cmd-item`). The kit has no words of its own, so every
- * message is a prop.
+ * last, the "load more" row. That row is an option of the listbox because
+ * `aria-activedescendant` may only point into it, but it carries no
+ * `aria-selected` and choosing it loads the next page instead. The list takes
+ * the v4 command palette's values (`.cmd-list`, `.cmd-item`). The kit has no
+ * words of its own, so every message is a prop.
  */
 
 export interface ComboboxOption {
@@ -38,7 +39,10 @@ export interface ComboboxOption {
 
 export interface ComboboxProps {
   readonly options: readonly ComboboxOption[];
-  /** The chosen value; leave undefined to let the combobox keep it. */
+  /**
+   * The chosen value; leave undefined to let the combobox keep it. When it
+   * changes from outside, an uncontrolled input shows the new option's label.
+   */
   readonly value?: string | null | undefined;
   readonly onValueChange?:
     | ((value: string, option: ComboboxOption) => void)
@@ -46,6 +50,7 @@ export interface ComboboxProps {
   /** Empty the input after a choice, for flows that add and move on. */
   readonly clearOnSelect?: boolean | undefined;
   readonly inputValue?: string | undefined;
+  /** Starting text, filtered by as if typed. */
   readonly defaultInputValue?: string | undefined;
   readonly onInputValueChange?: ((value: string) => void) | undefined;
   /**
@@ -54,7 +59,12 @@ export interface ComboboxProps {
    * as given: the caller searches, usually on the server, via `onQueryChange`.
    */
   readonly filter?: "internal" | "none" | undefined;
-  /** Called once typing pauses for `debounceMs`; only with `filter="none"`. */
+  /**
+   * Called once typing pauses for `debounceMs`, and at once with "" after a
+   * choice, so the next opening lists everything again. Only with
+   * `filter="none"`. Dropping a response that a newer query overtook is the
+   * caller's job.
+   */
   readonly onQueryChange?: ((query: string) => void) | undefined;
   readonly debounceMs?: number | undefined;
   readonly loading?: boolean | undefined;
@@ -94,6 +104,9 @@ function filterOptions(
   );
 }
 
+const ROW =
+  "flex min-h-10 cursor-default items-center gap-3 rounded-control px-3";
+
 export function Combobox({
   options,
   value,
@@ -119,36 +132,71 @@ export function Combobox({
   className,
 }: ComboboxProps): JSX.Element {
   const baseId = useId();
-  const contentId = `${baseId}-content`;
   const listboxId = `${baseId}-listbox`;
   const loadMoreId = `${baseId}-load-more`;
   const optionId = (index: number) => `${baseId}-option-${index}`;
 
   const [ownValue, setOwnValue] = useState<string | null>(null);
   const selected = value === undefined ? ownValue : value;
+  const selectedLabel = options.find(
+    (option) => option.value === selected,
+  )?.label;
   const [ownInput, setOwnInput] = useState(
-    () =>
-      defaultInputValue ??
-      (clearOnSelect
-        ? ""
-        : (options.find((option) => option.value === selected)?.label ?? "")),
+    () => defaultInputValue ?? (clearOnSelect ? "" : (selectedLabel ?? "")),
   );
   const inputValue = inputValueProp ?? ownInput;
-  // What the list is filtered by: the typed text, reset by a choice so that
-  // reopening after one shows every option again.
-  const [query, setQuery] = useState("");
+  // After a choice the input holds a label, not a query: every option shows
+  // until someone types.
+  const [showAll, setShowAll] = useState(
+    defaultInputValue === undefined && inputValueProp === undefined,
+  );
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState<ActiveKey>(null);
+
+  // A controlled value moved by the parent, or its option arriving late,
+  // updates an input the combobox owns.
+  const [synced, setSynced] = useState({
+    value: selected,
+    label: selectedLabel,
+  });
+  if (
+    value !== undefined &&
+    (selected !== synced.value ||
+      (synced.label === undefined && selectedLabel !== undefined))
+  ) {
+    const moved = selected !== synced.value;
+    setSynced({ value: selected, label: selectedLabel });
+    if (
+      inputValueProp === undefined &&
+      !clearOnSelect &&
+      (moved || !ownInput)
+    ) {
+      setOwnInput(selectedLabel ?? "");
+      setShowAll(true);
+    }
+  }
+
+  // Text the parent put in a controlled input is a query, unless it is what
+  // the combobox itself asked for.
+  const requested = useRef(inputValueProp);
+  const [seenInputProp, setSeenInputProp] = useState(inputValueProp);
+  if (inputValueProp !== seenInputProp) {
+    setSeenInputProp(inputValueProp);
+    if (inputValueProp !== requested.current) setShowAll(false);
+  }
 
   const anchorRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const lastQuery = useRef("");
   const latestOnQueryChange = useRef(onQueryChange);
   latestOnQueryChange.current = onQueryChange;
   useEffect(() => () => clearTimeout(timer.current), []);
 
   const visible =
-    filter === "internal" ? filterOptions(options, query) : options;
+    filter === "internal"
+      ? filterOptions(options, showAll ? "" : inputValue)
+      : options;
   const showLoadMore = hasMore && !loading && onLoadMore !== undefined;
   const keys: ActiveKey[] = [
     ...visible.filter((option) => !option.disabled).map((o) => o.value),
@@ -163,7 +211,6 @@ export function Combobox({
         ? optionId(activeIndex)
         : undefined;
   const isOpen = open && !disabled;
-  const hasListbox = visible.length > 0 || loading;
 
   useEffect(() => {
     if (!isOpen || !activeId) return;
@@ -171,8 +218,14 @@ export function Combobox({
   }, [isOpen, activeId]);
 
   function changeInput(next: string) {
+    requested.current = next;
     if (inputValueProp === undefined) setOwnInput(next);
     onInputValueChange?.(next);
+  }
+
+  function query(next: string) {
+    lastQuery.current = next;
+    latestOnQueryChange.current?.(next);
   }
 
   function close() {
@@ -182,23 +235,23 @@ export function Combobox({
 
   function choose(option: ComboboxOption) {
     if (option.disabled) return;
+    clearTimeout(timer.current);
     if (value === undefined) setOwnValue(option.value);
+    setSynced({ value: option.value, label: option.label });
     onValueChange?.(option.value, option);
     changeInput(clearOnSelect ? "" : option.label);
-    setQuery("");
+    setShowAll(true);
+    if (filter === "none" && lastQuery.current !== "") query("");
     close();
   }
 
   function type(next: string) {
     changeInput(next);
-    setQuery(next);
+    setShowAll(false);
     setActive(null);
-    if (filter === "none" && latestOnQueryChange.current) {
+    if (filter === "none") {
       clearTimeout(timer.current);
-      timer.current = setTimeout(
-        () => latestOnQueryChange.current?.(next),
-        debounceMs,
-      );
+      timer.current = setTimeout(() => query(next), debounceMs);
     }
   }
 
@@ -213,6 +266,8 @@ export function Combobox({
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    // An IME's Enter or arrow belongs to the composition, not the list.
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
     const at = activeKey === null ? -1 : keys.indexOf(activeKey);
     switch (event.key) {
       case "ArrowDown":
@@ -291,11 +346,7 @@ export function Combobox({
             aria-label={ariaLabel}
             aria-autocomplete="list"
             aria-expanded={isOpen}
-            // With no options there is no listbox; the popup then holds the
-            // empty message.
-            aria-controls={
-              isOpen ? (hasListbox ? listboxId : contentId) : undefined
-            }
+            aria-controls={isOpen ? listboxId : undefined}
             aria-activedescendant={isOpen ? activeId : undefined}
             placeholder={placeholder}
             disabled={disabled}
@@ -318,7 +369,6 @@ export function Combobox({
         data-slot="combobox-content"
         role={undefined}
         tabIndex={undefined}
-        id={contentId}
         className="flex max-h-80 w-[var(--radix-popover-trigger-width)] max-w-none flex-col p-1 text-control"
         onOpenAutoFocus={(event) => event.preventDefault()}
         onCloseAutoFocus={(event) => event.preventDefault()}
@@ -330,61 +380,69 @@ export function Combobox({
         // Keep focus, and with it typing, in the input on a pointer press.
         onMouseDown={(event) => event.preventDefault()}
       >
-        {hasListbox && (
-          <div
-            role="listbox"
-            id={listboxId}
-            // A FieldLabel names only the input; the list repeats its words.
-            aria-label={
-              ariaLabel ??
-              inputRef.current?.labels?.[0]?.textContent ??
-              undefined
-            }
-            aria-busy={loading || undefined}
-            className="min-h-0 overflow-y-auto"
-          >
-            {visible.map((option, index) => {
-              const isSelected = option.value === selected;
-              return (
-                // biome-ignore lint/a11y/useFocusableInteractive lint/a11y/useKeyWithClickEvents: focus stays in the input, which handles the keys and points here with aria-activedescendant.
-                <div
-                  key={option.value}
-                  role="option"
-                  id={optionId(index)}
-                  aria-selected={isSelected}
-                  aria-disabled={option.disabled || undefined}
-                  data-active={option.value === activeKey || undefined}
-                  className={cn(
-                    "flex min-h-10 cursor-default items-center gap-3 rounded-control px-3",
-                    option.description !== undefined && "py-1.5",
-                    "data-[active]:bg-hover aria-disabled:opacity-50",
+        {/* Kept when empty, so aria-controls always names the list. */}
+        <div
+          role="listbox"
+          id={listboxId}
+          // A FieldLabel names only the input; the list repeats its words.
+          aria-label={
+            ariaLabel ?? inputRef.current?.labels?.[0]?.textContent ?? undefined
+          }
+          aria-busy={loading || undefined}
+          className="min-h-0 overflow-y-auto"
+        >
+          {visible.map((option, index) => {
+            const isSelected = option.value === selected;
+            return (
+              // biome-ignore lint/a11y/useFocusableInteractive lint/a11y/useKeyWithClickEvents: focus stays in the input, which handles the keys and points here with aria-activedescendant.
+              <div
+                key={option.value}
+                role="option"
+                id={optionId(index)}
+                aria-selected={isSelected}
+                aria-disabled={option.disabled || undefined}
+                data-active={option.value === activeKey || undefined}
+                className={cn(
+                  ROW,
+                  option.description !== undefined && "py-1.5",
+                  "data-[active]:bg-hover aria-disabled:opacity-50",
+                )}
+                onPointerMove={() => {
+                  if (!option.disabled) setActive(option.value);
+                }}
+                onClick={() => choose(option)}
+              >
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span className="truncate">{option.label}</span>
+                  {option.description !== undefined && (
+                    <span className="truncate text-caption text-subtle-foreground">
+                      {option.description}
+                    </span>
                   )}
-                  onPointerMove={() => {
-                    if (!option.disabled) setActive(option.value);
-                  }}
-                  onClick={() => choose(option)}
-                >
-                  <span className="flex min-w-0 flex-1 flex-col">
-                    <span className="truncate">{option.label}</span>
-                    {option.description !== undefined && (
-                      <span className="truncate text-caption text-subtle-foreground">
-                        {option.description}
-                      </span>
-                    )}
-                  </span>
-                  <Check
-                    aria-hidden="true"
-                    strokeWidth={1.5}
-                    className={cn(
-                      "size-4 shrink-0",
-                      !isSelected && "invisible",
-                    )}
-                  />
-                </div>
-              );
-            })}
-          </div>
-        )}
+                </span>
+                <Check
+                  aria-hidden="true"
+                  strokeWidth={1.5}
+                  className={cn("size-4 shrink-0", !isSelected && "invisible")}
+                />
+              </div>
+            );
+          })}
+          {showLoadMore && (
+            // biome-ignore lint/a11y/useFocusableInteractive lint/a11y/useKeyWithClickEvents: as for the options above.
+            <div
+              role="option"
+              id={loadMoreId}
+              data-slot="combobox-load-more"
+              data-active={activeKey === LOAD_MORE || undefined}
+              className={cn(ROW, "data-[active]:bg-hover")}
+              onPointerMove={() => setActive(LOAD_MORE)}
+              onClick={onLoadMore}
+            >
+              {loadMoreLabel}
+            </div>
+          )}
+        </div>
         {loading && (
           <p className="p-3 text-caption text-subtle-foreground">
             {loadingMessage}
@@ -394,19 +452,6 @@ export function Combobox({
           <p className="p-3 text-caption text-subtle-foreground">
             {emptyMessage}
           </p>
-        )}
-        {showLoadMore && (
-          <button
-            type="button"
-            id={loadMoreId}
-            tabIndex={-1}
-            data-active={activeKey === LOAD_MORE || undefined}
-            className="flex h-10 w-full items-center gap-3 rounded-control px-3 text-left data-[active]:bg-hover"
-            onPointerMove={() => setActive(LOAD_MORE)}
-            onClick={onLoadMore}
-          >
-            {loadMoreLabel}
-          </button>
         )}
       </PopoverContent>
     </Popover>

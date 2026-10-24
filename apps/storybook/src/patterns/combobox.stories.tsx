@@ -148,7 +148,8 @@ function MemberPicker({
 
 /*
  * The caller owns the server search: it debounces through the kit, pages with
- * the cursor and drops a response that a newer query has overtaken.
+ * the cursor and drops a response that a newer request or newer typing has
+ * overtaken, even before the debounce sends the new query.
  */
 function ChannelPicker({ copy }: { readonly copy: Copy }) {
   const [query, setQuery] = useState("");
@@ -156,12 +157,13 @@ function ChannelPicker({ copy }: { readonly copy: Copy }) {
   const [next, setNext] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const latest = useRef(0);
+  const typed = useRef("");
 
   function load(q: string, cursor: number) {
     const request = ++latest.current;
     setLoading(true);
     void fetchChannels(q, cursor).then((page) => {
-      if (request !== latest.current) return;
+      if (request !== latest.current || q !== typed.current) return;
       setItems((current) =>
         cursor === 0 ? page.items : [...current, ...page.items],
       );
@@ -188,6 +190,10 @@ function ChannelPicker({ copy }: { readonly copy: Copy }) {
         clearOnSelect
         options={options}
         filter="none"
+        onInputValueChange={(text) => {
+          typed.current = text;
+          if (text !== query) setLoading(true);
+        }}
         onQueryChange={(q) => {
           setQuery(q);
           load(q, 0);
@@ -287,13 +293,14 @@ export const ServerSearch: Story = {
     const copy = copyFor({ globals });
     await openWithArrow(canvasElement);
     // Counts, not the elements: the play log serialises what expect gets.
-    await waitFor(() => expect(page().getAllByRole("option").length).toBe(5));
-    await userEvent.click(page().getByRole("button", { name: copy.loadMore }));
+    // Each page is five channels plus the "load more" row.
+    await waitFor(() => expect(page().getAllByRole("option").length).toBe(6));
+    await userEvent.click(page().getByRole("option", { name: copy.loadMore }));
     await expect(page().getByRole("listbox")).toHaveAttribute(
       "aria-busy",
       "true",
     );
-    await waitFor(() => expect(page().getAllByRole("option").length).toBe(10));
+    await waitFor(() => expect(page().getAllByRole("option").length).toBe(11));
   },
 };
 

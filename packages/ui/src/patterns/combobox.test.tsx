@@ -258,9 +258,9 @@ describe("Combobox", () => {
     expect(getByRole("status").textContent).toBe("불러오는 중");
   });
 
-  test("결과가 없으면 빈 결과 문구를 보이고 listbox를 두지 않는다", async () => {
+  test("결과가 없으면 빈 listbox를 가리킨 채 빈 결과 문구를 보인다", async () => {
     const user = await setupUser();
-    const { getByRole, queryByRole, getAllByText } = render(
+    const { getByRole, queryAllByRole, getAllByText } = render(
       <Combobox
         aria-label="구성원"
         options={MEMBERS}
@@ -269,11 +269,9 @@ describe("Combobox", () => {
     );
     const box = input(getByRole);
     await user.type(box, "zzz");
-    expect(queryByRole("listbox")).toBeNull();
-    const controlled = document.getElementById(
-      box.getAttribute("aria-controls") ?? "",
-    );
-    expect(controlled?.textContent).toBe("맞는 사람이 없습니다");
+    const listbox = getByRole("listbox", { name: "구성원" });
+    expect(box.getAttribute("aria-controls")).toBe(listbox.id);
+    expect(queryAllByRole("option")).toHaveLength(0);
     expect(getAllByText("맞는 사람이 없습니다")).toHaveLength(2);
   });
 
@@ -308,9 +306,10 @@ describe("Combobox", () => {
     const box = input(getByRole);
     box.focus();
     await user.keyboard("{ArrowDown}{End}");
-    const more = getByRole("button", { name: "더 보기" });
+    const more = getByRole("option", { name: "더 보기" });
     expect(box.getAttribute("aria-activedescendant")).toBe(more.id);
-    expect(more.closest("[role=listbox]")).toBeNull();
+    expect(more.parentElement === getByRole("listbox")).toBe(true);
+    expect(more.hasAttribute("aria-selected")).toBe(false);
     await user.keyboard("{Enter}");
     expect(onLoadMore).toHaveBeenCalledTimes(1);
     expect(box.getAttribute("aria-expanded")).toBe("true");
@@ -355,6 +354,101 @@ describe("Combobox", () => {
     await user.type(box, "x");
     expect(onInputValueChange.mock.calls[0]?.[0]).toBe("fixedx");
     expect(box.value).toBe("fixed");
+  });
+
+  test("controlled value가 바깥에서 바뀌면 입력이 그 label을 따른다", async () => {
+    const view = (value: string | null, options = MEMBERS) => (
+      <Combobox
+        aria-label="구성원"
+        options={options}
+        emptyMessage="없음"
+        value={value}
+      />
+    );
+    const { getByRole, rerender } = render(view("u3"));
+    const box = input(getByRole);
+    expect(box.value).toBe("Park Sora");
+    rerender(view(null));
+    expect(box.value).toBe("");
+    // The chosen option arrives after the value, as from a server page.
+    rerender(view("u5", []));
+    expect(box.value).toBe("");
+    rerender(view("u5"));
+    expect(box.value).toBe("Jung Hana");
+  });
+
+  test("defaultInputValue와 바깥에서 바꾼 inputValue로 거른다", async () => {
+    const { getByRole, getAllByRole, unmount } = render(
+      <Combobox
+        aria-label="구성원"
+        options={MEMBERS}
+        emptyMessage="없음"
+        defaultInputValue="sora"
+      />,
+    );
+    const user = await setupUser();
+    await user.click(input(getByRole));
+    expect(optionLabels(getAllByRole)).toEqual(["Park Sora"]);
+    unmount();
+    const view = (inputValue: string) => (
+      <Combobox
+        aria-label="구성원"
+        options={MEMBERS}
+        emptyMessage="없음"
+        inputValue={inputValue}
+      />
+    );
+    const second = render(view(""));
+    await user.click(input(second.getByRole));
+    expect(second.getAllByRole("option")).toHaveLength(MEMBERS.length);
+    second.rerender(view("hana"));
+    expect(optionLabels(second.getAllByRole)).toEqual(["Jung Hana"]);
+  });
+
+  test("IME 조합 중 Enter는 고르지 않는다", async () => {
+    const { fireEvent } = await import("@testing-library/react");
+    const onValueChange = mock();
+    const { getByRole } = render(
+      <Combobox
+        aria-label="구성원"
+        options={MEMBERS}
+        emptyMessage="없음"
+        onValueChange={onValueChange}
+      />,
+    );
+    const box = input(getByRole);
+    fireEvent.keyDown(box, { key: "ArrowDown" });
+    expect(box.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.keyDown(box, { key: "Enter", keyCode: 229 });
+    fireEvent.keyDown(box, { key: "Enter", isComposing: true });
+    expect(onValueChange).not.toHaveBeenCalled();
+    fireEvent.keyDown(box, { key: "Enter" });
+    expect(onValueChange).toHaveBeenCalledTimes(1);
+  });
+
+  test('filter="none"에서 고르면 남은 디바운스를 버리고 빈 검색어를 바로 보낸다', async () => {
+    const { fireEvent } = await import("@testing-library/react");
+    const onQueryChange = mock();
+    const { getByRole, getByText } = render(
+      <Combobox
+        aria-label="구성원"
+        options={MEMBERS}
+        emptyMessage="없음"
+        filter="none"
+        clearOnSelect
+        debounceMs={5}
+        onQueryChange={onQueryChange}
+      />,
+    );
+    const box = input(getByRole);
+    fireEvent.change(box, { target: { value: "kim" } });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(onQueryChange.mock.calls).toEqual([["kim"]]);
+    fireEvent.change(box, { target: { value: "kim p" } });
+    fireEvent.click(getByText("Park Sora"));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(onQueryChange.mock.calls).toEqual([["kim"], [""]]);
+    expect(box.value).toBe("");
   });
 
   test("Field 안에서는 FieldLabel이 입력과 목록의 이름이 된다", async () => {
