@@ -1,4 +1,13 @@
 export {
+  Alert,
+  AlertActions,
+  AlertDescription,
+  type AlertProps,
+  AlertTitle,
+  type AlertTitleProps,
+  alertVariants,
+} from "./alert.tsx";
+export {
   Avatar,
   type AvatarProps,
   avatarVariants,
@@ -86,6 +95,7 @@ export {
   type StatusDotProps,
   type StatusDotStatus,
 } from "./status-dot.tsx";
+export { Switch, type SwitchProps } from "./switch.tsx";
 export {
   Table,
   TableBody,

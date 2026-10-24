@@ -398,7 +398,9 @@ const MOVING: ReadonlySet<SessionDetailData["admission_state"]> = new Set([
  * The commands an admission state takes. Recovery decisions are their own
  * screen; a closed or stopping session takes nothing here.
  */
-function actionsFor(session: SessionDetailData): readonly ControlAction[] {
+export function actionsFor(
+  session: SessionDetailData,
+): readonly ControlAction[] {
   switch (session.admission_state) {
     case "active":
       return session.current_turn_id === null

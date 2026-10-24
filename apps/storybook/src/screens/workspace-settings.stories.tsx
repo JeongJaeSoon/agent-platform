@@ -4,16 +4,18 @@ import {
   Button,
   Card,
   CardDescription,
+  CardFooter,
   CardTitle,
   ErrorState,
   Input,
   PageHeader,
+  SecretField,
   Skeleton,
 } from "@werft-ai/ui";
-import { Copy, Lock } from "lucide-react";
+import { Lock } from "lucide-react";
 import { type ReactNode, useId } from "react";
 
-import { MOBILE, PartRequest, ScreenShell } from "./screen-kit.tsx";
+import { MOBILE, ScreenShell } from "./screen-kit.tsx";
 
 /*
  * v4 workspace settings (Console.dc.html L853-867), as apps/web draws it:
@@ -36,8 +38,6 @@ const WORKSPACE = {
 const MODELS = ["claude-haiku-5", "claude-sonnet-5"];
 
 const CARD_BODY = "flex flex-col gap-3 p-4";
-const FOOT =
-  "flex items-center justify-between gap-3 rounded-b-card border-t bg-muted px-4 py-3";
 const META = "text-caption text-subtle-foreground";
 const ICON = "size-3.5 shrink-0";
 
@@ -54,7 +54,7 @@ function SettingsCard({
 }) {
   const titleId = useId();
   return (
-    <Card role="region" aria-labelledby={titleId} className="gap-0 py-0">
+    <Card flush role="region" aria-labelledby={titleId}>
       <div className={CARD_BODY}>
         <CardTitle id={titleId} role="heading" aria-level={2}>
           {title}
@@ -64,7 +64,7 @@ function SettingsCard({
         </CardDescription>
         {children}
       </div>
-      {foot ? <div className={FOOT}>{foot}</div> : null}
+      {foot ? <CardFooter variant="form">{foot}</CardFooter> : null}
     </Card>
   );
 }
@@ -118,7 +118,7 @@ function ModelList({ models }: { readonly models: Models }) {
     <ul className="m-0 flex list-none flex-wrap gap-1 p-0">
       {MODELS.map((model) => (
         <li key={model}>
-          <Badge className="font-mono font-normal">{model}</Badge>
+          <Badge variant="mono">{model}</Badge>
         </li>
       ))}
     </ul>
@@ -145,6 +145,7 @@ function WorkspaceSettingsScreen({
       current="settings"
       crumb={["워크스페이스", "워크스페이스 설정"]}
       role={viewer}
+      width="narrow"
     >
       <PageHeader
         title="워크스페이스 설정"
@@ -154,11 +155,6 @@ function WorkspaceSettingsScreen({
             : "지금 설정입니다. 바꾸려면 워크스페이스 소유자나 관리자에게 요청하세요."
         }
       />
-      <div className="mb-4 flex flex-wrap gap-1">
-        <PartRequest name="CardFooter form" />
-        <PartRequest name="SecretField" />
-        <PartRequest name="Badge mono" />
-      </div>
       <div className="flex flex-col gap-4">
         <SettingsCard
           title="워크스페이스 이름"
@@ -187,15 +183,13 @@ function WorkspaceSettingsScreen({
           title="워크스페이스 ID"
           description="API와 CLI에서 이 워크스페이스를 가리킬 때 씁니다."
         >
-          <div className="flex max-w-105 items-center gap-2 rounded-control border bg-muted px-3 py-2">
-            <div className="min-w-0 flex-1 font-mono text-caption [overflow-wrap:anywhere]">
-              {WORKSPACE.id}
-            </div>
-            <Button type="button" variant="outline" size="sm">
-              <Copy aria-hidden="true" className={ICON} strokeWidth={1.5} />
-              복사
-            </Button>
-          </div>
+          <SecretField
+            className="max-w-105"
+            value={WORKSPACE.id}
+            copyLabel="복사"
+            copiedMessage="워크스페이스 ID를 복사했습니다."
+            copyFailedMessage="복사하지 못했습니다. ID를 직접 선택해 복사하세요."
+          />
         </SettingsCard>
         <SettingsCard
           title="모델 허용 목록"

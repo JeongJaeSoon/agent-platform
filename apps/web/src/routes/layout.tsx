@@ -94,17 +94,29 @@ function LocaleSwitch() {
 const KEY_LISTS = new Set(["/settings/api-keys", "/settings/api-keys/service"]);
 
 /**
- * One width per screen, which every block on it shares (console v35): forms
- * and settings read in one narrow column, lists take the wide one.
+ * How wide a screen's content may grow before it centres in the space beside
+ * the sidebar (V4-CENTER): lists, tables and detail screens take Vercel's
+ * 1620px, forms and settings Cloudflare's 1100px.
  */
-function contentWidth(pathname: string) {
+type ContentWidth = "wide" | "narrow";
+
+const CONTENT_MAX_WIDTH: Record<ContentWidth, string> = {
+  wide: "max-w-[101.25rem]",
+  narrow: "max-w-[68.75rem]",
+};
+
+function contentWidth(pathname: string): ContentWidth {
+  const path =
+    pathname.length > 1 && pathname.endsWith("/")
+      ? pathname.slice(0, -1)
+      : pathname;
   if (
-    pathname === "/agents/new" ||
-    (pathname.startsWith("/settings/") && !KEY_LISTS.has(pathname))
+    path === "/agents/new" ||
+    (path.startsWith("/settings/") && !KEY_LISTS.has(path))
   ) {
-    return "max-w-[calc(var(--ap-w-narrow)+2*var(--ap-gutter))]";
+    return "narrow";
   }
-  return "max-w-[calc(var(--ap-w-wide)+2*var(--ap-gutter))]";
+  return "wide";
 }
 
 export function AuthedLayout() {
@@ -135,7 +147,7 @@ export function AuthedLayout() {
     // Header, sidebar, main in reading order: below md the open menu unfolds
     // under its button; from md on the grid puts the sidebar on the left.
     <div className="flex flex-1 flex-col md:grid md:grid-cols-[var(--ap-layout-sidebar-width)_minmax(0,1fr)] md:grid-rows-[auto_1fr]">
-      <header className="flex min-h-[var(--ap-topbar-h)] items-center gap-3 border-b bg-surface px-4 md:col-start-2 md:row-start-1 md:px-[var(--ap-gutter)]">
+      <header className="flex min-h-[var(--ap-topbar-h)] items-center gap-3 border-b bg-surface px-4 md:col-start-2 md:row-start-1 md:px-6">
         <Button
           type="button"
           variant="outline"
@@ -259,16 +271,20 @@ function PageTrail({
 }
 
 function ShellMain({ children }: { readonly children: ReactNode }) {
+  const width = contentWidth(usePathname());
   return (
-    // Left-aligned (console v35): the column starts at the sidebar and stops
-    // at its width, it does not centre in the space left over.
-    <Main
-      className={cn(
-        "web-shell__main flex w-full min-w-0 flex-col bg-surface p-4 md:col-start-2 md:row-start-2 md:px-[var(--ap-gutter)] md:pt-[var(--ap-space-page-top)] md:pb-[var(--ap-space-section)]",
-        contentWidth(usePathname()),
-      )}
-    >
-      {children}
+    // The column fills the space beside the sidebar and its content centres
+    // in it, up to the screen's width; narrower, only the gutters remain.
+    <Main className="web-shell__main flex w-full min-w-0 flex-col bg-surface p-4 pt-6 md:col-start-2 md:row-start-2 md:px-6 md:pt-[var(--ap-space-page-top)] md:pb-[var(--ap-space-section)]">
+      <div
+        data-content-width={width}
+        className={cn(
+          "mx-auto flex w-full min-w-0 flex-1 flex-col",
+          CONTENT_MAX_WIDTH[width],
+        )}
+      >
+        {children}
+      </div>
     </Main>
   );
 }

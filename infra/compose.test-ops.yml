@@ -39,6 +39,10 @@ services:
       EXECUTION_WORKSPACE_QUOTA: ${EXECUTION_WORKSPACE_QUOTA:?EXECUTION_WORKSPACE_QUOTA must be set (on, with xfs prjquota)}
   reconciler:
     image: ${API_IMAGE:?API_IMAGE must name the released control-host image}
+  slack:
+    image: ${API_IMAGE:?API_IMAGE must name the released control-host image}
+    volumes:
+      - ${PLATFORM_CATALOG_DIR:?PLATFORM_CATALOG_DIR must name the catalog directory}:/app/config:ro
   egress-proxy:
     image: ${EGRESS_PROXY_IMAGE:?EGRESS_PROXY_IMAGE must name the released egress-proxy image}
     environment:

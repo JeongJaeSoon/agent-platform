@@ -602,12 +602,23 @@ export const slackInboundEvents = pgTable(
     receivedAt: timestamp("received_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    /**
+     * `<slack_app_id>:<channel>:<thread_ts ?? ts>`: the thread a message
+     * belongs to, in which the `slack` role takes one event at a time.
+     * Null on dropped rows and on events outside a channel message.
+     */
+    conversationKey: text("conversation_key"),
+    claimToken: uuid("claim_token"),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    /** Claims so far, lease expiries included. */
+    attempts: integer().notNull().default(0),
+    /** A failed attempt's backoff; unclaimable before it. */
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
   },
   (table) => [
-    unique("slack_inbound_events_team_event_key").on(
-      table.teamId,
-      table.eventId,
-    ),
+    // Per app: the event_id two apps of one team receive for one message is
+    // not documented to differ, and each app's copy is its own work.
+    unique("slack_inbound_events_app_event_key").on(table.appId, table.eventId),
     foreignKey({
       name: "slack_inbound_events_agent_fk",
       columns: [table.workspaceId, table.agentId],
@@ -625,6 +636,20 @@ export const slackInboundEvents = pgTable(
       "slack_inbound_events_dropped_check",
       sql`(${table.status} = 'dropped') = (${table.dropReason} IS NOT NULL) AND (${table.status} = 'dropped') = (${table.payload} IS NULL)`,
     ),
+    check(
+      "slack_inbound_events_conversation_check",
+      sql`${table.status} <> 'dropped' OR ${table.conversationKey} IS NULL`,
+    ),
+    check(
+      "slack_inbound_events_claim_check",
+      sql`(${table.claimToken} IS NULL) = (${table.leaseExpiresAt} IS NULL) AND (${table.status} = 'received' OR ${table.claimToken} IS NULL)`,
+    ),
+    index("slack_inbound_events_due_idx")
+      .on(table.nextAttemptAt)
+      .where(sql`${table.status} = 'received'`),
+    index("slack_inbound_events_conversation_idx")
+      .on(table.conversationKey, table.eventTime, table.receivedAt)
+      .where(sql`${table.status} = 'received'`),
   ],
 );
 

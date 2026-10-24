@@ -43,6 +43,8 @@ Helm chart(`deploy/helm/agent-platform`, 설치 절차는 [kubernetes-deployment
 | `WORKER_CPUS`, `WORKER_MEMORY_MB` | `worker.cpus`, `worker.memoryMb` | |
 | 설치 상한(`EXECUTION_SLOT_LIMIT` 등) | `config.limits` | api와 scheduler에 같은 값 |
 | `SCHEDULER_*` | `scheduler.intervalSec` 등 | `SCHEDULER_PASS_TIMEOUT_SEC`(`scheduler.passTimeoutSec`, 기본 180)는 150보다 커야 한다 |
+| `SLACK_ROLE_INTERVAL_SEC`, `SLACK_ROLE_PASS_TIMEOUT_SEC`, `SLACK_ROLE_MAX_CONSECUTIVE_FAILURES`, `SLACK_ROLE_HEALTH_STALE_SEC`, `SLACK_ROLE_BATCH_SIZE`, `SLACK_ROLE_LEASE_SEC` | `slack.intervalSec`, `slack.passTimeoutSec`, `slack.maxConsecutiveFailures`, `slack.healthStaleSec`, `slack.batchSize`, `slack.leaseSec` | 기본 2, 60, 3, 90, 10, 60. `slack.enabled: false`면 slack Deployment를 그리지 않는다 |
+| `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS`(slack) | `api.extraEnv` | slack은 api와 같은 카탈로그를 읽으므로 api의 값을 따른다. `slack.extraEnv`에 적으면 그 값이 이긴다 |
 
 어느 Deployment에나 `extraEnv`로 env를 더할 수 있다. Secret에서 오는 값(`DATABASE_URL`, `EGRESS_AUTHORIZER_TOKEN`, AWS key, 카탈로그 credential)은 [kubernetes-deployment.md § 준비](kubernetes-deployment.md#준비)의 표에 있다.
 
@@ -53,9 +55,10 @@ Helm chart(`deploy/helm/agent-platform`, 설치 절차는 [kubernetes-deployment
 | api | `GET /readyz` | `GET /healthz` | `GET /healthz`(5초 × 24) |
 | scheduler | `bun run apps/control-host/src/main.ts scheduler --health` | 같음 | 같음. 실패 허용 횟수는 `(intervalSec + passTimeoutSec + 39) / 10` |
 | reconciler | `bun run apps/control-host/src/main.ts reconciler --health` | 같음 | scheduler와 같은 식 |
+| slack | `bun run apps/control-host/src/main.ts slack --health` | 같음 | scheduler와 같은 식 |
 | egress-proxy | `bun run /app/src/healthcheck.ts` | 같음 | 없음 |
 
-`/healthz`는 HTTP를 받는지만 보고 DB를 보지 않는다. 그래서 liveness에 쓰고, DB·schema·설정을 보는 `/readyz`는 readiness에만 쓴다. DB가 잠시 끊겨도 api Pod는 재시작되지 않고 트래픽에서만 빠진다. `/livez`는 없다. scheduler와 reconciler의 `--health`는 loop가 쓰는 status file을 읽고, 직전 pass가 실패했거나 기한을 넘겼거나, `SCHEDULER_HEALTH_STALE_SEC`·`RECONCILER_HEALTH_STALE_SEC` 안에 끝난 pass가 없으면 실패한다. startup probe는 첫 pass가 끝날 때까지 기다린다.
+`/healthz`는 HTTP를 받는지만 보고 DB를 보지 않는다. 그래서 liveness에 쓰고, DB·schema·설정을 보는 `/readyz`는 readiness에만 쓴다. DB가 잠시 끊겨도 api Pod는 재시작되지 않고 트래픽에서만 빠진다. `/livez`는 없다. scheduler·reconciler·slack의 `--health`는 loop가 쓰는 status file을 읽고, 직전 pass가 실패했거나 기한을 넘겼거나, `SCHEDULER_HEALTH_STALE_SEC`·`RECONCILER_HEALTH_STALE_SEC`·`SLACK_ROLE_HEALTH_STALE_SEC` 안에 끝난 pass가 없으면 실패한다. startup probe는 첫 pass가 끝날 때까지 기다린다.
 
 ## scheduler는 replica 1, `Recreate`
 

@@ -1980,9 +1980,11 @@ describe("session profile", () => {
     ).toBeNull();
     const stop = screen.getByRole("button", { name: "지금 turn 멈추기" });
     expect(stop.hasAttribute("disabled")).toBe(true);
+    // Under the header's commands and in the operations card.
     expect(
-      screen.getByText("sessions:control 권한이 있어야 할 수 있습니다."),
-    ).toBeTruthy();
+      screen.getAllByText("sessions:control 권한이 있어야 할 수 있습니다."),
+    ).toHaveLength(2);
+    expect(screen.queryByText("할 수 있음")).toBeNull();
     expect(
       screen
         .getByRole("textbox", { name: "다음 지시" })
@@ -2154,6 +2156,45 @@ describe("세션 상세 레이아웃", () => {
       if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
       else Reflect.deleteProperty(navigator, "clipboard");
     }
+  });
+
+  test("운영 카드는 답할 수 있는 사람과 지금 할 수 있는 조치를 모으고 제어 버튼은 헤더에만 둔다", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
+    const ops = await screen.findByRole("region", { name: "운영" });
+    const panel = screen.getByRole("complementary", { name: "답변과 승인" });
+    expect(panel.lastElementChild).toBe(ops);
+    expect(
+      within(ops)
+        .getAllByRole("heading", { level: 3 })
+        .map((heading) => heading.textContent),
+    ).toEqual(["답할 수 있는 사람", "운영 조치"]);
+    expect(
+      await within(ops).findByText("나는 이 세션의 요청에 답할 수 있습니다."),
+    ).toBeTruthy();
+    expect(ops.textContent).toContain(
+      "지금 turn 멈추기 · 일시 정지 · 세션 종료",
+    );
+    expect(within(ops).getByText("할 수 있음")).toBeTruthy();
+    expect(within(ops).queryAllByRole("button")).toHaveLength(0);
+  });
+
+  test("운영 카드는 멈춘 세션에 다시 시작·종료를, 요청을 읽기 전에는 규칙만 보인다", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () =>
+        json(200, { ...detail, admission_state: "paused" }),
+      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+        new Promise<Response>(() => {}),
+    });
+    const ops = await screen.findByRole("region", { name: "운영" });
+    expect(ops.textContent).toContain("다시 시작 · 세션 종료");
+    expect(
+      within(ops).getByText(
+        "세션을 시작한 사람, 에이전트 담당자, 워크스페이스 소유자·관리자",
+      ),
+    ).toBeTruthy();
+    expect(ops.textContent).not.toContain("답할 수 있습니다.");
+    expect(ops.textContent).not.toContain("답할 수 없습니다.");
   });
 
   test("공유받아 보기만 하는 사람에게는 답할 수 없다고 말한다", async () => {
