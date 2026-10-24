@@ -10,6 +10,7 @@ import {
   ErrorState,
   Field,
   FieldDescription,
+  FieldError,
   FieldLabel,
   Input,
   LinkTab,
@@ -225,6 +226,7 @@ function SlackConnectionPage({
   const [token, setToken] = useState(initialToken);
   const [editing, setEditing] = useState(initialEditing && !readOnly);
   const [deleting, setDeleting] = useState(false);
+  const [missing, setMissing] = useState(false);
   const [outcome, setOutcome] = useState<string | null>(null);
   const status = {
     unset: [
@@ -318,8 +320,19 @@ function SlackConnectionPage({
             <RowListItem>
               <form
                 className="flex w-full flex-col gap-4"
+                noValidate
                 onSubmit={(event) => {
                   event.preventDefault();
+                  const input = event.currentTarget.elements.namedItem("token");
+                  if (
+                    input instanceof HTMLInputElement &&
+                    !input.value.trim()
+                  ) {
+                    setMissing(true);
+                    input.focus();
+                    return;
+                  }
+                  setMissing(false);
                   setEditing(false);
                   setToken("active");
                   setOutcome("App Configuration Token을 저장했습니다.");
@@ -328,15 +341,23 @@ function SlackConnectionPage({
                 <Field>
                   <FieldLabel>새 App Configuration Token</FieldLabel>
                   <Input
+                    name="token"
                     type="password"
                     autoComplete="off"
                     spellCheck={false}
+                    required
+                    onChange={(event) => {
+                      if (event.target.value.trim()) setMissing(false);
+                    }}
                   />
                   <FieldDescription>
                     값은 암호화해 저장하고, 저장한 뒤에는 다시 보여 주지
                     않습니다. 이 token을 만든 사람이 자동으로 만드는 앱의
                     협업자가 됩니다. 12시간마다 자동으로 갱신합니다.
                   </FieldDescription>
+                  {missing ? (
+                    <FieldError>저장하려면 새 token을 넣어 주세요.</FieldError>
+                  ) : null}
                 </Field>
                 <div className="flex flex-wrap items-start justify-end gap-2">
                   <Button

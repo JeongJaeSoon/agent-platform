@@ -408,12 +408,17 @@ function AgentDetailScreen(props: ScreenProps) {
   const [joined, setJoined] = useState<readonly string[]>(
     fresh ? [] : PUBLIC_JOINED,
   );
-  const join = (channel: string) =>
-    PUBLIC.includes(channel)
-      ? setJoined((current) =>
-          current.includes(channel) ? current : [...current, channel],
-        )
-      : undefined;
+  // A channel the bot joins starts on the default reaction, whichever dialog
+  // joined it.
+  const join = (channel: string) => {
+    if (!PUBLIC.includes(channel)) return;
+    setJoined((current) =>
+      current.includes(channel) ? current : [...current, channel],
+    );
+    setReactions((current) =>
+      channel in current ? current : { ...current, [channel]: defaultReaction },
+    );
+  };
   // Each channel keeps the reaction it was connected with; changing the
   // default only applies to channels connected afterwards.
   const [reactions, setReactions] =
@@ -1183,10 +1188,6 @@ function AgentDetailScreen(props: ScreenProps) {
         confirmDisabled={!addPick}
         onConfirm={() => {
           join(addPick);
-          setReactions((current) => ({
-            ...current,
-            [addPick]: defaultReaction,
-          }));
           setDialog(undefined);
           show(
             `추가함 · ${addPick} · 봇이 참여함. 반응은 기본값 '${defaultReaction}'. 홈 채널이 아니라 인사는 보내지 않았습니다.`,
@@ -1481,6 +1482,21 @@ export const AgentDetailDialogHomeDark: Story = {
 export const AgentDetailDialogHomeMobile: Story = {
   ...AgentDetailDialogHome,
   name: "대화상자: 홈 채널 선택 (390px)",
+  globals: MOBILE,
+};
+
+export const AgentDetailDialogDisconnect: Story = {
+  name: "대화상자: 연결 해제 확인",
+  args: { segment: "settings", dialog: "disconnect" },
+};
+export const AgentDetailDialogDisconnectDark: Story = {
+  ...AgentDetailDialogDisconnect,
+  name: "대화상자: 연결 해제 확인 (dark)",
+  globals: DARK,
+};
+export const AgentDetailDialogDisconnectMobile: Story = {
+  ...AgentDetailDialogDisconnect,
+  name: "대화상자: 연결 해제 확인 (390px)",
   globals: MOBILE,
 };
 
