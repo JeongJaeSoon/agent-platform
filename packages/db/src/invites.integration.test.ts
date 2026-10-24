@@ -528,7 +528,17 @@ integration("invite store on PostgreSQL", () => {
         actor: acting(ws, owner),
         receiptId: randomUUID(),
       });
-      await Bun.sleep(300);
+      // Commit only once the change is queued behind the suspension: started
+      // after it, the change would pass without the fix too. Polled from the
+      // pool, since a transaction sees pg_stat_activity as of its start.
+      for (let tries = 0; ; tries++) {
+        const { rows } = await pool.query(
+          "SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'",
+        );
+        if (rows[0].n > 0) break;
+        if (tries > 100) throw new Error("the role change never waited");
+        await Bun.sleep(50);
+      }
       await other.query("COMMIT");
       expect(await changing).toEqual({ outcome: "account_disabled" });
     } finally {
