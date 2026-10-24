@@ -69,11 +69,12 @@
    * An inactive row (GridTableRow/TableRow `inactive`) reads faint as a
    * whole: subtle-foreground holds 4.5:1 on every surface and tone bg
    * (styles.test.ts), and badges drop their hue. A cell holding a button is
-   * left alone so the row's action stays at full contrast. Colour alone
+   * left alone so the row's action stays at full contrast; a Button inside a
+   * `…Trigger asChild` carries the trigger's slot instead. Colour alone
    * never says "inactive"; the caller names it in text.
    */
   :is([data-slot="grid-table-row"], [data-slot="table-row"])[data-inactive]
-    > :not(:has([data-slot="button"])) {
+    > :not(:has([data-slot="button"], [data-slot$="-trigger"])) {
     --ap-color-foreground: var(--ap-color-subtle-foreground);
     --ap-color-muted-foreground: var(--ap-color-subtle-foreground);
     --ap-color-accent: var(--ap-color-subtle-foreground);
@@ -81,7 +82,7 @@
     color: var(--ap-color-subtle-foreground);
   }
   :is([data-slot="grid-table-row"], [data-slot="table-row"])[data-inactive]
-    > :not(:has([data-slot="button"]))
+    > :not(:has([data-slot="button"], [data-slot$="-trigger"]))
     [data-slot="badge"] {
     border-color: var(--ap-tone-neutral-border);
     background-color: var(--ap-tone-neutral-bg);

@@ -8,6 +8,9 @@ import {
   GridTableHeader,
   GridTableRow,
   GridTableRowOpener,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from "@werft-ai/ui";
 import type { ReactNode } from "react";
 import { expect } from "storybook/test";
@@ -461,6 +464,97 @@ export const ClickableRows: Story = {
       true,
     );
   },
+};
+
+/**
+ * `inactive` rows: every cell without a button turns faint and its badges lose
+ * their hue, while the actions keep full contrast, a Button under
+ * `TooltipTrigger asChild` included. The name says "inactive" in text.
+ */
+export const InactiveRows: Story = {
+  name: "Inactive rows",
+  render: () => (
+    <Frame>
+      <GridTable
+        aria-label="구성원"
+        columns="minmax(0,1.6fr) 120px minmax(var(--ap-row-action-min-width),1fr)"
+      >
+        <GridTableHeader>
+          <GridTableColumnHeader>구성원</GridTableColumnHeader>
+          <GridTableColumnHeader>역할</GridTableColumnHeader>
+          <GridTableColumnHeader align="end">관리</GridTableColumnHeader>
+        </GridTableHeader>
+        {[
+          { name: "김하나", inactive: false, tooltip: false },
+          { name: "이두리", inactive: true, tooltip: false },
+          { name: "박세찬", inactive: true, tooltip: true },
+        ].map((row) => {
+          const action = (
+            <Button type="button" variant="outline" size="sm">
+              {row.inactive ? "다시 활성화" : "비활성화"}
+            </Button>
+          );
+          return (
+            <GridTableRow key={row.name} inactive={row.inactive}>
+              <GridTableCell lines={true}>
+                <span className="font-medium text-foreground">
+                  {row.name}
+                  {row.inactive ? (
+                    <span className="sr-only"> (비활성)</span>
+                  ) : null}
+                </span>
+                <span className="text-muted-foreground text-xs">
+                  {row.name}@example.test
+                </span>
+              </GridTableCell>
+              <GridTableCell>
+                <Badge variant="blue">관리자</Badge>
+              </GridTableCell>
+              <GridTableCell align="end">
+                {row.tooltip ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild={true}>{action}</TooltipTrigger>
+                    <TooltipContent>다시 들어올 수 있게 합니다</TooltipContent>
+                  </Tooltip>
+                ) : (
+                  action
+                )}
+              </GridTableCell>
+            </GridTableRow>
+          );
+        })}
+      </GridTable>
+    </Frame>
+  ),
+  play: async ({ canvasElement }) => {
+    const [, active, inactive, tooltipped] = [
+      ...canvasElement.querySelectorAll("[role=row]"),
+    ];
+    if (!(active && inactive && tooltipped)) throw new Error("no rows");
+    const colour = (row: Element, selector: string) => {
+      const element = row.querySelector(selector);
+      if (!element) throw new Error(`no ${selector}`);
+      return getComputedStyle(element).color;
+    };
+    const probe = document.createElement("span");
+    probe.style.color = "var(--ap-color-subtle-foreground)";
+    canvasElement.append(probe);
+    const subtle = getComputedStyle(probe).color;
+    probe.remove();
+    for (const row of [inactive, tooltipped]) {
+      await expect(colour(row, ".font-medium")).toBe(subtle);
+      await expect(colour(row, "[data-slot=badge]")).toBe(subtle);
+      await expect(colour(row, "button")).not.toBe(subtle);
+    }
+    await expect(colour(active, ".font-medium")).not.toBe(subtle);
+    await expect(colour(active, "[data-slot=badge]")).not.toBe(subtle);
+  },
+};
+
+export const InactiveRowsDark: Story = {
+  ...InactiveRows,
+  name: "Inactive rows (dark)",
+  globals: { theme: "dark" },
 };
 
 /** Long text ends in "…" inside its column instead of widening the table. */

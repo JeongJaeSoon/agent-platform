@@ -473,7 +473,10 @@ describe("styles.css", () => {
     expect(inactive.length).toBeGreaterThan(0);
     for (const d of inactive) {
       // The action cell keeps its contrast: every rule skips it.
-      expect(d.selector).toContain(':not(:has([data-slot="button"]))');
+      // A Button under `TooltipTrigger asChild` takes the trigger's slot.
+      expect(d.selector).toContain(
+        ':not(:has([data-slot="button"], [data-slot$="-trigger"]))',
+      );
     }
     const colourOf = (badge: boolean) =>
       inactive.find(
