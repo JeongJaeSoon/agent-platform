@@ -83,11 +83,11 @@ function NewAgentScreen({
               setStep(next === "allowed" ? "pick" : next);
             }}
             skipHref={storyHref(`${DETAIL}-slack-none`)}
-            agentHref={storyHref(
+            agentHref={
               step === "later"
-                ? `${DETAIL}-slack-no-home`
-                : `${DETAIL}-slack-overview`,
-            )}
+                ? storyHref(`${DETAIL}-slack-no-home`)
+                : `${storyHref(`${DETAIL}-slack-overview`)}&args=home:${home.slice(1)}`
+            }
             settingsHref={storyHref(
               "screens-workspace-settings-v4--workspace-settings-slack-unset-edit",
             )}

@@ -363,7 +363,10 @@ function SlackConnectionPage({
                   <Button
                     type="button"
                     variant="ghost"
-                    onClick={() => setEditing(false)}
+                    onClick={() => {
+                      setMissing(false);
+                      setEditing(false);
+                    }}
                   >
                     취소
                   </Button>

@@ -100,6 +100,13 @@ const SEEDED_REACTIONS: Readonly<Record<string, string>> = {
   "#dev-platform": "꺼짐",
   [REQUEST.channel]: REACTIONS[0] ?? "",
 };
+const CHECKED = "2026. 10. 23. 21:50";
+const CHECK_FAILED = "2026. 10. 23. 22:10";
+const RECHECKED = "2026. 10. 23. 22:14";
+const FAILED_CHANNEL = {
+  name: "#launch-2025",
+  reason: "보관된 채널입니다(is_archived)",
+};
 const VISIBILITY =
   "승인하면 이 채널에서 시작한 세션이 웹 콘솔에 남습니다. 세션은 공유 범위를 바꾸지 않으면 워크스페이스 구성원 모두가 읽을 수 있습니다.";
 
@@ -386,6 +393,8 @@ interface ScreenProps {
   readonly dialog?: DialogKind | undefined;
   readonly callback?: "working" | "denied" | undefined;
   readonly slackOn?: boolean | undefined;
+  // Without "#": Storybook URL args reject it, and new-agent links pass this.
+  readonly home?: string | undefined;
 }
 
 function AgentDetailScreen(props: ScreenProps) {
@@ -396,18 +405,24 @@ function AgentDetailScreen(props: ScreenProps) {
   const [callback, setCallback] = useState(props.callback);
   const [walking, setWalking] = useState(false);
   const [on, setOn] = useState(props.slackOn ?? true);
+  const [checkedAt, setCheckedAt] = useState(CHECKED);
   const [dm, setDm] = useState(true);
   const [outcome, setOutcome] = useState<string | null>(null);
   const fresh = props.slack === "installed" || props.slack === "none";
   const [request, setRequest] = useState<RequestState>(
     fresh ? "none" : props.slack === "todo" ? "pending" : "approved",
   );
+  const seededHome = props.home ? `#${props.home}` : HOME;
   const [home, setHome] = useState(
-    fresh || props.slack === "nohome" ? "" : HOME,
+    fresh || props.slack === "nohome" ? "" : seededHome,
   );
   // Public channels the bot is in; the home joins it when it is public.
   const [joined, setJoined] = useState<readonly string[]>(
-    fresh ? [] : PUBLIC_JOINED,
+    fresh
+      ? []
+      : PUBLIC.includes(seededHome) && !PUBLIC_JOINED.includes(seededHome)
+        ? [...PUBLIC_JOINED, seededHome]
+        : PUBLIC_JOINED,
   );
   // A channel the bot joins starts on the default reaction, whichever dialog
   // joined it.
@@ -464,6 +479,7 @@ function AgentDetailScreen(props: ScreenProps) {
   const reset = (text: string) => {
     setDialog(undefined);
     setSlack("none");
+    setOn(true);
     setHome("");
     setJoined([]);
     setRequest("none");
@@ -565,8 +581,9 @@ function AgentDetailScreen(props: ScreenProps) {
   // a missing home channel still needs its own action.
   function reregister() {
     if (slack === "error") setSlack("connected");
+    setCheckedAt(RECHECKED);
     show(
-      "이벤트 주소를 다시 등록했습니다. Slack이 2026. 10. 23. 22:14에 확인했습니다.",
+      `이벤트 주소를 다시 등록했습니다. Slack이 ${RECHECKED}에 확인했습니다.`,
     );
   }
 
@@ -742,11 +759,20 @@ function AgentDetailScreen(props: ScreenProps) {
           ) : null}
           {slack === "error" ? (
             <SettingRow
-              title="#launch-2025"
+              title={FAILED_CHANNEL.name}
               badge={<Badge variant="red">오류</Badge>}
-              description="공개 · 참여하지 못했습니다. 보관된 채널입니다(is_archived)"
+              description={`공개 · 참여하지 못했습니다. ${FAILED_CHANNEL.reason}`}
               actions={
-                <Button type="button" variant="outline" size="sm">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    show(
+                      `${FAILED_CHANNEL.name}에 다시 참여하지 못했습니다. ${FAILED_CHANNEL.reason}. Slack에서 보관을 푼 뒤 다시 시도하세요.`,
+                    )
+                  }
+                >
                   다시 시도
                 </Button>
               }
@@ -873,8 +899,8 @@ function AgentDetailScreen(props: ScreenProps) {
               {slack === "error" ? <Badge variant="red">오류</Badge> : null}
               <div className={SECONDARY}>
                 {slack === "error"
-                  ? "2026. 10. 23. 22:10 Slack이 확인하지 못함"
-                  : "2026. 10. 23. 21:50 Slack이 확인함"}
+                  ? `${CHECK_FAILED} Slack이 확인하지 못함`
+                  : `${checkedAt} Slack이 확인함`}
               </div>
             </>
           }
@@ -1227,6 +1253,8 @@ const meta = {
   component: AgentDetailScreen,
   parameters: { layout: "fullscreen" },
   args: { tab: "slack", slack: "connected", segment: "overview" },
+  // Storybook drops URL args without an argType.
+  argTypes: { home: { control: "text" } },
 } satisfies Meta<typeof AgentDetailScreen>;
 
 export default meta;

@@ -36,7 +36,9 @@ interface Row {
   readonly draft: boolean;
   readonly slack: Slack;
   readonly why: string;
-  readonly story: string;
+  // Detail stories only draw Release Notes; other rows stay unlinked rather
+  // than open another agent's settings.
+  readonly story?: string;
 }
 
 const DETAIL = "screens-agent-detail-v3--agent-detail";
@@ -58,28 +60,34 @@ const RELEASE_NOTES: Row = {
 };
 const ROWS = {
   ok: [RELEASE_NOTES],
+  // The same four items as home-v3's to-do list.
   mixed: [
     {
       ...RELEASE_NOTES,
-      slack: "action",
-      why: "승인 요청 1건",
-      story: `${DETAIL}-slack-todo`,
+      slack: "error",
+      why: "이벤트 주소 확인 실패 · 승인 요청 1건",
+      story: `${DETAIL}-slack-error`,
     },
     {
       name: "On-call Helper",
       slug: "oncall-helper",
       draft: false,
-      slack: "error",
-      why: "이벤트 주소 확인 실패",
-      story: `${DETAIL}-slack-error`,
+      slack: "action",
+      why: "승인 요청 1건",
     },
     {
       name: "Docs Tidy",
       slug: "docs-tidy",
       draft: true,
+      slack: "action",
+      why: "홈 채널 미선택",
+    },
+    {
+      name: "Weekly Digest",
+      slug: "weekly-digest",
+      draft: true,
       slack: "none",
       why: "",
-      story: `${DETAIL}-slack-none`,
     },
   ],
 } as const satisfies Record<string, readonly Row[]>;
@@ -90,6 +98,10 @@ const WIDE = "hidden @[480px]:table-cell";
 const LAST_WHEN_NARROW =
   "pr-[var(--ap-row-padding-x)] @[480px]:pr-[calc(var(--ap-row-padding-x)/2)]";
 const SECONDARY = "text-caption text-muted-foreground";
+const NAME =
+  "min-w-0 truncate leading-5 @[480px]:whitespace-normal @[480px]:[overflow-wrap:anywhere]";
+const NARROW_SLACK =
+  "ml-auto inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-caption @[480px]:hidden";
 
 function AgentTable({ rows }: { readonly rows: readonly Row[] }) {
   return (
@@ -112,28 +124,50 @@ function AgentTable({ rows }: { readonly rows: readonly Row[] }) {
         <TableBody>
           {rows.map((row) => {
             const [word, tone] = SLACK[row.slack];
-            const href = storyHref(row.story);
+            const href = row.story ? storyHref(row.story) : undefined;
+            const slackWord = (
+              <>
+                Slack {word}
+                <ArrowRight aria-hidden="true" className="size-3" />
+              </>
+            );
             return (
               <TableRow key={row.slug}>
                 {/* max-w-0 lets a narrow table truncate the name instead of growing. */}
                 <TableCell className="w-full max-w-0 @[480px]:max-w-none">
                   <div className="flex min-w-0 flex-col gap-[var(--ap-row-line-gap)] leading-4">
                     <div className="flex min-w-0 items-baseline gap-2">
-                      <Link
-                        href={storyHref(`${DETAIL}-overview-tab`)}
-                        className="min-w-0 truncate leading-5 @[480px]:whitespace-normal @[480px]:[overflow-wrap:anywhere]"
-                      >
-                        {row.name}
-                      </Link>
-                      {row.slack === "action" || row.slack === "error" ? (
+                      {href ? (
                         <Link
-                          href={href}
-                          aria-label={`${row.name} Slack ${word}`}
-                          className="ml-auto inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-caption @[480px]:hidden"
+                          href={storyHref(`${DETAIL}-overview-tab`)}
+                          className={NAME}
                         >
-                          Slack {word}
-                          <ArrowRight aria-hidden="true" className="size-3" />
+                          {row.name}
                         </Link>
+                      ) : (
+                        <div className={cn(NAME, "font-medium")}>
+                          {row.name}
+                        </div>
+                      )}
+                      {row.slack === "action" || row.slack === "error" ? (
+                        href ? (
+                          <Link
+                            href={href}
+                            aria-label={`${row.name} Slack ${word}`}
+                            className={NARROW_SLACK}
+                          >
+                            {slackWord}
+                          </Link>
+                        ) : (
+                          <div
+                            className={cn(
+                              NARROW_SLACK,
+                              "text-muted-foreground",
+                            )}
+                          >
+                            Slack {word}
+                          </div>
+                        )
                       ) : null}
                     </div>
                     <div className="font-mono text-caption text-muted-foreground [overflow-wrap:anywhere]">
@@ -151,11 +185,15 @@ function AgentTable({ rows }: { readonly rows: readonly Row[] }) {
                 </TableCell>
                 <TableCell className={cn(FIT, WIDE)}>
                   <div className="flex flex-col gap-[var(--ap-row-line-gap)]">
-                    <Badge asChild variant={tone}>
-                      <a href={href} aria-label={`${row.name} Slack ${word}`}>
-                        {word}
-                      </a>
-                    </Badge>
+                    {href ? (
+                      <Badge asChild variant={tone}>
+                        <a href={href} aria-label={`${row.name} Slack ${word}`}>
+                          {word}
+                        </a>
+                      </Badge>
+                    ) : (
+                      <Badge variant={tone}>{word}</Badge>
+                    )}
                     {row.why ? (
                       <div className={`${SECONDARY} leading-4`}>{row.why}</div>
                     ) : null}
