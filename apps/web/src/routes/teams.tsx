@@ -25,6 +25,7 @@ import {
   NativeSelectOption,
   RowList,
   RowListItem,
+  Section,
   Link as TextLink,
 } from "@werft-ai/ui";
 import { ArrowLeft } from "lucide-react";
@@ -334,7 +335,6 @@ function TeamDangerZone({
   const navigate = useNavigate();
   const role = useRole();
   const [confirming, setConfirming] = useState(false);
-  const titleId = useId();
 
   const remove = useMutation<unknown, ApiError>({
     mutationFn: () =>
@@ -360,10 +360,7 @@ function TeamDangerZone({
   });
 
   return (
-    <section className={SECTION} aria-labelledby={titleId}>
-      <h3 id={titleId} className={SECTION_TITLE}>
-        {t("teams.dangerZone")}
-      </h3>
+    <Section title={t("teams.dangerZone")} titleAs="h3">
       <Card className="border-[var(--ap-tone-danger-border)]">
         <CardHeader>
           <CardTitle>{t("teams.delete")}</CardTitle>
@@ -391,7 +388,7 @@ function TeamDangerZone({
         busy={remove.isPending}
         onConfirm={() => remove.mutate()}
       />
-    </section>
+    </Section>
   );
 }
 

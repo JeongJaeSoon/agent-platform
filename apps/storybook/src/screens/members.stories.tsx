@@ -33,6 +33,7 @@ import {
   RowLines,
   RowList,
   RowListItem,
+  Section,
   Skeleton,
   Table,
   TableBody,
@@ -475,7 +476,6 @@ function TeamDetailView({
 }: {
   readonly emptyMembers?: boolean;
 }) {
-  const settingsHeadingId = useId();
   const membersHeadingId = useId();
   const agentsHeadingId = useId();
   return (
@@ -511,13 +511,7 @@ function TeamDetailView({
           ))}
         </div>
       </div>
-      <section
-        aria-labelledby={settingsHeadingId}
-        className="flex flex-col gap-3"
-      >
-        <h3 id={settingsHeadingId} className="m-0 font-semibold">
-          팀 설정
-        </h3>
+      <Section title="팀 설정" titleAs="h3">
         <TeamNameRow
           name="플랫폼팀"
           submit={
@@ -526,7 +520,7 @@ function TeamDetailView({
             </Button>
           }
         />
-      </section>
+      </Section>
       <section
         aria-labelledby={membersHeadingId}
         className="flex flex-col gap-3"
