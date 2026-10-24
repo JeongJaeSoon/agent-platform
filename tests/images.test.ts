@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { DEFAULT_MAX_CONCURRENT_BUNDLE_VERIFICATIONS } from "@werft-ai/platform";
@@ -213,7 +214,7 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     expect(services.scheduler?.image).toBe(services.api?.image);
   });
 
-  test.each(["scheduler", "reconciler"] as const)(
+  test.each(["scheduler", "reconciler", "slack"] as const)(
     "the %s runs as its role's supervised pass loop",
     (role) => {
       const service = localStack()[role];
@@ -370,6 +371,10 @@ describe("compose and workflow agree with the Dockerfiles", () => {
 
   const reconcilerBlock = compose.slice(
     compose.indexOf("\n  reconciler:"),
+    compose.indexOf("\n  slack:"),
+  );
+  const slackBlock = compose.slice(
+    compose.indexOf("\n  slack:"),
     compose.indexOf("\nnetworks:"),
   );
 
@@ -408,6 +413,30 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     expect(reconcilerBlock).not.toContain("env_file");
     expect(reconcilerBlock).not.toContain("HEARTBEAT_TTL_SEC:");
     expect(reconcilerBlock).not.toMatch(/^ {4}ports:/m);
+  });
+
+  test("the slack role runs with the apps, or alone in its own profile, on the api's image", () => {
+    expect(slackBlock).toContain('profiles: ["apps", "slack"]');
+    const { api, slack } = localStack();
+    expect(slack?.build).toBeUndefined();
+    expect(slack?.image).toBe(api?.image);
+    expect(slack?.environment?.PLATFORM_CONFIG_DIR).toBe(
+      api?.environment?.PLATFORM_CONFIG_DIR,
+    );
+    // The developer's .env is the api's, HEARTBEAT_TTL_SEC and all.
+    expect(slack?.env_file).toBeUndefined();
+    for (const files of [LOCAL_LAYERS, [...LOCAL_LAYERS, FAKE_MODEL]])
+      expect(
+        Object.keys(
+          layeredServices<ComposeService>(files).slack?.environment ?? {},
+        ).filter((name) =>
+          /^(ANTHROPIC_|AWS_ENDPOINT|AWS_ACCESS|AWS_SECRET)/.test(name),
+        ),
+      ).toEqual([]);
+    expect(slackBlock).not.toContain("docker.sock");
+    expect(slackBlock).not.toContain("DOCKER_HOST");
+    expect(slackBlock).not.toContain("HEARTBEAT_TTL_SEC:");
+    expect(slackBlock).not.toMatch(/^ {4}ports:/m);
   });
 
   test("images.yml builds every app and pushes only on tags", () => {
@@ -964,11 +993,10 @@ describe("compose layers", () => {
               new RegExp(`^\\$\\{${variable || "[A-Z_]+"}:\\?[^}]+\\}$`),
             ),
           });
-        // The one mount a layer may set: the API's catalog, read-only.
         expect({ name, volumes: service.volumes }).toEqual({
           name,
           volumes:
-            name === "api" && layer === TEST_OPS_LAYERS[1]
+            (name === "api" || name === "slack") && layer === TEST_OPS_LAYERS[1]
               ? [
                   expect.stringMatching(
                     /^\$\{PLATFORM_CATALOG_DIR:\?[^}]+\}:\/app\/config:ro$/,
@@ -1138,6 +1166,7 @@ describe("compose layers", () => {
         api: APP_IMAGES.API_IMAGE,
         scheduler: APP_IMAGES.API_IMAGE,
         reconciler: APP_IMAGES.API_IMAGE,
+        slack: APP_IMAGES.API_IMAGE,
         "egress-proxy": APP_IMAGES.EGRESS_PROXY_IMAGE,
         worker: APP_IMAGES.WORKER_IMAGE,
       };
@@ -1255,6 +1284,30 @@ describe("compose layers", () => {
           cost: services[name]?.environment?.SESSION_COST_LIMIT_USD,
           turn: services[name]?.environment?.MAX_TURN_SECONDS,
         }).toEqual({ name, cost: "1", turn: "600" });
+    },
+    COMPOSE_RENDER_TIMEOUT_MS,
+  );
+
+  test.each([
+    ["the local stack", [...LOCAL_LAYERS]],
+    ["the fake-model stack", [...LOCAL_LAYERS, FAKE_MODEL]],
+    ["the mock-slack stack", [...LOCAL_LAYERS, "infra/compose.mock-slack.yml"]],
+    ["test-ops on s3", [...TEST_OPS_LAYERS, TEST_OPS_STORE_LAYERS.s3]],
+  ])(
+    "%s hands PLATFORM_SECRET_KEY to the api and the slack role alone",
+    (_, files) => {
+      const masterKey = randomBytes(32).toString("hex");
+      const { exitCode, stderr, model } = render(files, {
+        ...(files.includes(TEST_OPS_LAYERS[1]) ? TEST_OPS_REQUIRED : {}),
+        PLATFORM_SECRET_KEY: masterKey,
+      });
+      expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
+      const holders = Object.entries(model?.services ?? {})
+        .filter(([, service]) => JSON.stringify(service).includes(masterKey))
+        .map(([name]) => name)
+        .sort();
+      console.log(`${files.join(" + ")}: master key on ${holders.join(", ")}`);
+      expect(holders).toEqual(["api", "slack"]);
     },
     COMPOSE_RENDER_TIMEOUT_MS,
   );

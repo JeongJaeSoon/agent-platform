@@ -9,6 +9,7 @@ import {
   blocking,
   findings,
   type GhsaRange,
+  LOCKFILES,
   lockedVersions,
   parseExceptions,
 } from "../.github/scripts/npm-audit.ts";
@@ -43,6 +44,19 @@ const ghsa = (name: string, range: string, fix: string | null): GhsaRange => ({
 });
 
 describe("npm-audit", () => {
+  test("audits every tracked bun.lock", () => {
+    const listed = Bun.spawnSync(["git", "ls-files", "-z", "*bun.lock"], {
+      cwd: root,
+    });
+    if (listed.exitCode !== 0) throw new Error(listed.stderr.toString());
+    const dirs = listed.stdout
+      .toString()
+      .split("\0")
+      .filter(Boolean)
+      .map((path) => path.replace(/\/?bun\.lock$/, "") || ".");
+    expect([...LOCKFILES].sort()).toEqual(dirs.sort());
+  });
+
   test("reads every locked version, skipping workspaces", () => {
     const locked = lockedVersions(lockText);
     expect(

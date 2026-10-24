@@ -127,7 +127,7 @@ function AgentTabs({
   return (
     <Tabs value={current} className="gap-0">
       <div className="mb-6 border-b">
-        <TabsList variant="line" aria-label="에이전트 상세" className="h-9 p-0">
+        <TabsList variant="line" aria-label="에이전트 상세">
           {(
             [
               ["overview", "개요"],
@@ -136,11 +136,7 @@ function AgentTabs({
               ["admins", "관리자"],
             ] as const
           ).map(([value, label]) => (
-            <TabsTrigger
-              key={value}
-              value={value}
-              className="h-9 text-control after:bottom-0"
-            >
+            <TabsTrigger key={value} value={value}>
               {label}
             </TabsTrigger>
           ))}

@@ -16,6 +16,7 @@ export const agentsKo = {
   "agents.view.label": "보기",
   "agents.view.cards": "카드",
   "agents.view.table": "표",
+  "agents.tabs.label": "보여 줄 에이전트",
   "agents.tabs.all": "전체",
   "agents.tabs.administered": "관리하는 에이전트",
   "agents.cards.limited":
@@ -285,6 +286,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agents.view.label": "View",
   "agents.view.cards": "Cards",
   "agents.view.table": "Table",
+  "agents.tabs.label": "Agents to show",
   "agents.tabs.all": "All",
   "agents.tabs.administered": "Agents I manage",
   "agents.cards.limited":
@@ -545,6 +547,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agents.view.label": "表示",
   "agents.view.cards": "カード",
   "agents.view.table": "表",
+  "agents.tabs.label": "表示するエージェント",
   "agents.tabs.all": "すべて",
   "agents.tabs.administered": "管理しているエージェント",
   "agents.cards.limited":
