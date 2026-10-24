@@ -171,9 +171,9 @@
     --ap-space-6: 1.5rem;
     --ap-space-8: 2rem;
 
-    /* Vertical rhythm of a page: above the content, under the page header,
+    /* Vertical rhythm of a page: above and below the content, under the page header,
      between sections and between blocks inside one. */
-    --ap-space-page-top: var(--ap-space-8);
+    --ap-space-page-top: var(--ap-space-6);
     --ap-space-page-head: var(--ap-space-6);
     --ap-space-section: var(--ap-space-8);
     --ap-space-block: var(--ap-space-4);

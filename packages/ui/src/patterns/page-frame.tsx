@@ -8,8 +8,8 @@ export type PageFrameProps = ComponentProps<"div"> & {
 };
 
 /**
- * The one frame every console page sits in (V4-PAGE-FRAME): gutters of 16px
- * (24px from 768px), the title 24px under the top bar (32px from 768px), and
+ * The one frame every console page sits in (V4-PAGE-FRAME): 16px on every
+ * side, then 24px from 768px (`--ap-space-page-top` above and below), and
  * a column that grows to `--ap-w-page` and then centres. Lists, settings,
  * forms and details share it, so the content's edges and the title's y are
  * the same on every page.
@@ -23,7 +23,7 @@ export function PageFrame({
     <div
       data-slot="page-frame"
       className={cn(
-        "flex w-full min-w-0 flex-col p-4 pt-6 md:px-6 md:pt-[var(--ap-space-page-top)] md:pb-[var(--ap-space-section)]",
+        "flex w-full min-w-0 flex-col p-4 md:px-6 md:py-[var(--ap-space-page-top)]",
         className,
       )}
       {...props}
