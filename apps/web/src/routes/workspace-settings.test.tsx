@@ -263,7 +263,7 @@ describe("워크스페이스 설정", () => {
     expect(screen.getByText("켜짐")).toBeDefined();
   });
 
-  test("게스트 스위치는 설정 행의 오른쪽 끝에 있고, 켜짐·꺼짐 글자는 그 왼쪽에 있다", async () => {
+  test("게스트 스위치는 설정 행 컨트롤 칸의 마지막이고, 읽지 않는 켜짐·꺼짐 글자가 바로 앞에 있다", async () => {
     renderAt("/settings/workspace", {
       "GET /v1/auth/me": () => json(200, withGuest(adminMe(), false)),
     });
