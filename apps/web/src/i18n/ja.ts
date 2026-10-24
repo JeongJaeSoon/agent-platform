@@ -75,6 +75,9 @@ export const slackJa = {
   "slack.channelHome": "{channel} をホームに設定",
   "slack.channelConnect": "{channel} に接続",
   "slack.connectedChannels": "接続済みチャンネル",
+  "slack.noConnectedChannels": "接続済みチャンネルはありません",
+  "slack.addChannelHint":
+    "チャンネルを追加から、このエージェントが反応する場所を選んでください。",
   "slack.addChannel": "チャンネルを追加",
   "slack.basic": "基本",
   "slack.advanced": "詳細",

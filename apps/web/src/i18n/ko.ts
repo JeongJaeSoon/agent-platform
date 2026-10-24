@@ -81,6 +81,8 @@ export const slackKo = {
   "slack.channelHome": "{channel} 홈 지정",
   "slack.channelConnect": "{channel} 연결",
   "slack.connectedChannels": "연결된 채널",
+  "slack.noConnectedChannels": "연결된 채널이 없습니다",
+  "slack.addChannelHint": "채널 추가에서 이 에이전트가 반응할 채널을 고르세요.",
   "slack.addChannel": "채널 추가",
   "slack.basic": "기본",
   "slack.advanced": "고급",

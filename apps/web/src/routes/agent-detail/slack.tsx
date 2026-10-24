@@ -16,6 +16,7 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
+  EmptyState,
   Field,
   FieldError,
   FieldLabel,
@@ -736,6 +737,11 @@ function SlackChannels({
       ) : null}
       {bindings.isPending ? (
         <ChannelSkeleton />
+      ) : rows.length === 0 ? (
+        <EmptyState
+          title={t("slack.noConnectedChannels")}
+          description={t("slack.addChannelHint")}
+        />
       ) : (
         <RowList variant="joined" aria-label={t("slack.connectedChannels")}>
           {rows.map((row) => {
@@ -806,57 +812,65 @@ function SlackChannels({
             className="max-h-80 overflow-y-auto"
             aria-busy={channels.isFetching || input.trim() !== query}
           >
-            <RowList variant="joined">
-              {listed.map((channel) => (
-                <SettingRow
-                  key={channel.id}
-                  title={`#${channel.name}`}
-                  description={
-                    <span className="flex flex-wrap gap-2">
-                      <Badge variant={channel.is_private ? "gray" : "green"}>
-                        {t(
-                          channel.is_private ? "slack.private" : "slack.public",
+            {listed.length > 0 ? (
+              <RowList variant="joined">
+                {listed.map((channel) => (
+                  <SettingRow
+                    key={channel.id}
+                    title={`#${channel.name}`}
+                    description={
+                      <span className="flex flex-wrap gap-2">
+                        <Badge variant={channel.is_private ? "gray" : "green"}>
+                          {t(
+                            channel.is_private
+                              ? "slack.private"
+                              : "slack.public",
+                          )}
+                        </Badge>
+                        {!channel.is_member ? (
+                          <Badge variant="gray">
+                            {t("slack.privateInvite")}
+                          </Badge>
+                        ) : null}
+                      </span>
+                    }
+                    actions={
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        aria-label={t(
+                          pickHome
+                            ? "slack.channelHome"
+                            : "slack.channelConnect",
+                          {
+                            channel: `#${channel.name}`,
+                          },
                         )}
-                      </Badge>
-                      {!channel.is_member ? (
-                        <Badge variant="gray">{t("slack.privateInvite")}</Badge>
-                      ) : null}
-                    </span>
-                  }
-                  actions={
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      aria-label={t(
-                        pickHome ? "slack.channelHome" : "slack.channelConnect",
-                        {
-                          channel: `#${channel.name}`,
-                        },
-                      )}
-                      disabled={
-                        update.isPending ||
-                        !bindings.isSuccess ||
-                        channels.isPlaceholderData ||
-                        input.trim() !== query ||
-                        (!pickHome &&
+                        disabled={
+                          update.isPending ||
+                          !bindings.isSuccess ||
+                          channels.isPlaceholderData ||
+                          input.trim() !== query ||
+                          (!pickHome &&
+                            rows.some(
+                              (row) => row.external_surface_id === channel.id,
+                            )) ||
                           rows.some(
-                            (row) => row.external_surface_id === channel.id,
-                          )) ||
-                        rows.some(
-                          (row) =>
-                            row.external_surface_id === channel.id &&
-                            row.mode === "ambient",
-                        )
-                      }
-                      onClick={() => connectChannel(channel.id)}
-                    >
-                      {t(pickHome ? "slack.setHome" : "slack.add")}
-                    </Button>
-                  }
-                />
-              ))}
-            </RowList>
+                            (row) =>
+                              row.external_surface_id === channel.id &&
+                              row.mode === "ambient",
+                          )
+                        }
+                        onClick={() => connectChannel(channel.id)}
+                      >
+                        {t(pickHome ? "slack.setHome" : "slack.add")}
+                      </Button>
+                    }
+                  />
+                ))}
+              </RowList>
+            ) : null}
             {!channels.isPending && listed.length === 0 ? (
               <p>{t("slack.noChannels")}</p>
             ) : null}

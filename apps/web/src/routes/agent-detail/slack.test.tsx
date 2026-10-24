@@ -94,6 +94,25 @@ function routes(app: typeof APP | null = null, installed = false) {
 }
 
 describe("Slack management", () => {
+  test("explains an empty binding list and omits empty search result borders", async () => {
+    renderAt(DETAIL, routes(APP, true));
+    const user = await setupUser();
+    await user.click(await screen.findByRole("tab", { name: "채널" }));
+    await screen.findByText("연결된 채널이 없습니다");
+    expect(screen.queryByRole("list", { name: "연결된 채널" }) === null).toBe(
+      true,
+    );
+    await user.click(screen.getByRole("button", { name: "채널 추가" }));
+    await screen.findByText(
+      "찾은 채널이 없습니다. 비공개 채널은 먼저 /invite로 초대하세요.",
+    );
+    expect(
+      document.querySelector(
+        "[data-slot=dialog-content] [data-slot=row-list]",
+      ) === null,
+    ).toBe(true);
+  });
+
   test("shows DM immediately but keeps the home placeholder until channel names arrive", async () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {

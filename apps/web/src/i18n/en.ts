@@ -74,6 +74,9 @@ export const slackEn = {
   "slack.channelHome": "Set home: {channel}",
   "slack.channelConnect": "Connect {channel}",
   "slack.connectedChannels": "Connected channels",
+  "slack.noConnectedChannels": "No connected channels",
+  "slack.addChannelHint":
+    "Choose Add channel to select where this agent responds.",
   "slack.addChannel": "Add channel",
   "slack.basic": "Basic",
   "slack.advanced": "Advanced",
