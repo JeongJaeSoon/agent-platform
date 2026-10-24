@@ -16,6 +16,7 @@ const COPY = {
     on: "켜짐",
     disabledOff: "비활성(꺼짐)",
     disabledOn: "비활성(켜짐)",
+    busy: "저장 중(켜짐)",
   },
   ja: {
     label: "ゲストを許可",
@@ -24,6 +25,7 @@ const COPY = {
     on: "オン",
     disabledOff: "無効(オフ)",
     disabledOn: "無効(オン)",
+    busy: "保存中(オン)",
   },
   en: {
     label: "Allow guests",
@@ -32,6 +34,7 @@ const COPY = {
     on: "On",
     disabledOff: "Disabled (off)",
     disabledOn: "Disabled (on)",
+    busy: "Saving (on)",
   },
 } as const;
 
@@ -60,6 +63,11 @@ export const DisabledOff: Story = { args: { disabled: true } };
 
 export const DisabledOn: Story = {
   args: { disabled: true, defaultChecked: true },
+};
+
+/** While saving: looks disabled but keeps focus and refuses the toggle. */
+export const Busy: Story = {
+  args: { "aria-disabled": true, defaultChecked: true },
 };
 
 /** Inside a Field the label names the switch and the description describes it. */
@@ -99,6 +107,7 @@ export const States: Story = {
       [copy.on, { defaultChecked: true }],
       [copy.disabledOff, { disabled: true }],
       [copy.disabledOn, { disabled: true, defaultChecked: true }],
+      [copy.busy, { "aria-disabled": true, defaultChecked: true }],
     ] as const;
     return (
       <div className="flex flex-col gap-4">
