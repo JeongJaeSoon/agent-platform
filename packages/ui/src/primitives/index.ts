@@ -86,6 +86,7 @@ export {
   type StatusDotProps,
   type StatusDotStatus,
 } from "./status-dot.tsx";
+export { Switch, type SwitchProps } from "./switch.tsx";
 export {
   Table,
   TableBody,

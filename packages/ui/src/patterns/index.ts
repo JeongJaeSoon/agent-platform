@@ -25,6 +25,7 @@ export {
   type SecretFieldProps,
 } from "./secret-field.tsx";
 export { Section, type SectionProps } from "./section.tsx";
+export { SettingRow, type SettingRowProps } from "./setting-row.tsx";
 export { StatCard, type StatCardProps } from "./stat-card.tsx";
 export {
   Stepper,
