@@ -29,7 +29,10 @@ export interface ToolTableProps {
   /** The `name` of the row shown in the rail. */
   readonly selected?: string | undefined;
   readonly onSelect?: ((name: string) => void) | undefined;
-  /** A short note under a name, such as "셸 명령"; not an API field. */
+  /**
+   * A short note under a name, such as "셸 명령"; not an API field. Loading
+   * rows keep a note line whenever this is given.
+   */
   readonly describe?: ((name: string) => string | undefined) | undefined;
   /** Placeholder rows while `tools` is read, e.g. the last count seen. */
   readonly loadingRows?: number | undefined;

@@ -947,26 +947,33 @@ function OperationsScreen({
   );
 }
 
-// Handed to a play by the mounted Arriving screen: the data comes.
-let arrive = () => {};
+// Set by each mounted Arriving screen, per tab: its play calls it so the data
+// comes to that screen only.
+const arrive = new Map<Tab, () => void>();
 
 /** One screen, mounted once, that starts reading and then gets its data. */
 function Arriving({ tab }: { readonly tab: Tab }) {
   const [loading, setLoading] = useState(true);
   useEffect(() => {
-    arrive = () => setLoading(false);
-  }, []);
+    arrive.set(tab, () => setLoading(false));
+    return () => {
+      arrive.delete(tab);
+    };
+  }, [tab]);
   return <OperationsScreen tab={tab} screen={{ ...LOADING, loading }} />;
 }
 
-const BLOCKS = "h1, h2, h3, [role=table], [data-slot=card], [role=tablist]";
+const BLOCKS =
+  "h1, h2, h3, [role=table], [role=row], [data-slot=card], [role=tablist]";
 const layout = (root: HTMLElement) =>
   [...root.querySelectorAll(BLOCKS)].map((block) => {
     const { top, left, width, height } = block.getBoundingClientRect();
     const name = block.matches("h1, h2, h3")
       ? block.textContent
-      : (block.getAttribute("aria-label") ?? block.tagName);
-    return `${name} ${[top, left, width, height].map(Math.round).join(",")}`;
+      : (block.getAttribute("aria-label") ??
+        block.getAttribute("role") ??
+        block.tagName);
+    return `${name} ${top},${left},${width},${height}`;
   });
 
 /** The data replaces each placeholder in place, and nothing else changes. */
@@ -979,7 +986,7 @@ const loadingToLoaded = (tab: Tab): Story => ({
       tab === "limits" ? null : canvas.getByRole("button", { name: "7일" });
     if (period) await userEvent.click(period);
     const before = layout(canvasElement);
-    arrive();
+    arrive.get(tab)?.();
     await waitFor(() =>
       expect(canvas.getByRole("status").textContent).toBe(""),
     );
