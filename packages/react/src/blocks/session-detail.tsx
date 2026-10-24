@@ -124,16 +124,12 @@ export function SessionDetail({
       key="body"
     >
       <div className="flex flex-wrap items-center justify-between gap-2 border-b">
-        <TabsList
-          variant="line"
-          aria-label={t("session.tabs.label")}
-          className="h-9 gap-1 p-0"
-        >
-          <TabsTrigger value="timeline" className={TAB}>
+        <TabsList variant="line" aria-label={t("session.tabs.label")}>
+          <TabsTrigger value="timeline">
             {t("session.tabs.timeline")}
           </TabsTrigger>
           {hostTabs.map((extra) => (
-            <TabsTrigger key={extra.value} value={extra.value} className={TAB}>
+            <TabsTrigger key={extra.value} value={extra.value}>
               {extra.label}
               {extra.count === undefined ? null : (
                 <span className="text-caption text-muted-foreground tabular-nums">
@@ -142,9 +138,7 @@ export function SessionDetail({
               )}
             </TabsTrigger>
           ))}
-          <TabsTrigger value="info" className={TAB}>
-            {t("session.tabs.info")}
-          </TabsTrigger>
+          <TabsTrigger value="info">{t("session.tabs.info")}</TabsTrigger>
         </TabsList>
         {tab === "timeline" ? (
           <Field orientation="horizontal" className="w-auto gap-2 text-caption">
@@ -309,10 +303,6 @@ export function SessionDetail({
   );
 }
 
-// Console v4 `.tab`: 36px, 8px each side, the underline inset to the text.
-const TAB =
-  "h-9 text-control group-data-[variant=line]/tabs-list:px-2 group-data-[orientation=horizontal]/tabs:after:inset-x-2 group-data-[orientation=horizontal]/tabs:after:bottom-[-1px]";
-
 function idleNote(status: SessionDetailData["status"]) {
   switch (status) {
     case "idle":
@@ -350,8 +340,7 @@ function SessionMeta({
         <Button
           type="button"
           variant="ghost"
-          size="icon"
-          className="size-7"
+          size="icon-sm"
           aria-label={label}
           title={label}
           onClick={() => {

@@ -247,7 +247,7 @@ describe("POST /v1/slack/events/{agent_id}", () => {
     const large = mention("Ev0LARGE", "y".repeat(70 * 1024));
     const stored = await post(AGENT, large, signed(large));
     expect(stored.status).toBe(200);
-    expect(inbox.rows.get(`${TEAM}|Ev0LARGE`)?.status).toBe("received");
+    expect(inbox.rows.get(`${APP_ID}|Ev0LARGE`)?.status).toBe("received");
   });
 
   test("the limiter answers 429 before any lookup", async () => {

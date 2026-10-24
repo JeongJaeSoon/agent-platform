@@ -306,17 +306,12 @@ function AgentView({
       className="min-w-0 gap-[var(--ap-space-block)]"
     >
       <div className="border-b">
-        <TabsList
-          variant="line"
-          aria-label={t("agent.tabs.label")}
-          className="h-9 p-0"
-        >
+        <TabsList variant="line" aria-label={t("agent.tabs.label")}>
           {AGENT_TABS.map((name) => (
             <TabsTrigger
               key={name}
               value={name}
               ref={name === "release" ? releaseTab : undefined}
-              className="h-9 text-control after:bottom-0"
             >
               {tabLabel(name)}
             </TabsTrigger>

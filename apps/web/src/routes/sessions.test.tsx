@@ -134,6 +134,7 @@ function summary(id: string, overrides: Partial<SessionSummary> = {}) {
     repository_id: "demo",
     current_turn_id: "1",
     queued_turn_count: 0,
+    model: "model-default",
     last_event_at: AT,
     created_at: AT,
     updated_at: AT,
@@ -338,8 +339,8 @@ describe("approval inbox", () => {
       [`POST /v1/sessions/${SESSION_ID}/answers`]: () =>
         json(202, { receipt_id: RECEIPT_ID, receipt_status: "accepted" }),
     });
-    const tab = await screen.findByRole("tabpanel");
-    await within(tab).findByRole("link", { name: SESSION_ID });
+    const list = await screen.findByRole("table");
+    await within(list).findByRole("link", { name: SESSION_ID });
     const waitingReads = () =>
       api.calls.filter((call) => call.search === "?status=needs_input").length;
     await waitFor(() => expect(waitingReads()).toBe(2));
@@ -482,9 +483,14 @@ describe("sessions list", () => {
     expect(within(row).getByText("Working")).toBeTruthy();
     expect(screen.getByRole("searchbox", { name: "Find by title or ID" }));
     expect(screen.queryByText(/세션/)).toBeNull();
-    // The exact time rides on the short one until the ui-kit's tooltip.
-    expect(row.querySelector("time")?.getAttribute("title")).toBe(
-      "Oct 11, 2026, 17:14",
+    // Focus opens the exact time in a Tooltip; no title attribute is left.
+    const time = row.querySelector("time") as HTMLElement;
+    expect(time.hasAttribute("title")).toBe(false);
+    act(() => time.focus());
+    await waitFor(() =>
+      expect(document.querySelector('[role="tooltip"]')?.textContent).toMatch(
+        /^October 11, 2026/,
+      ),
     );
   });
 
@@ -655,20 +661,20 @@ describe("sessions list", () => {
       },
     });
 
-    const tabs = await screen.findByRole("tablist", { name: "상태로 보기" });
+    const tabs = await screen.findByRole("group", { name: "상태로 보기" });
     expect(
       within(tabs)
-        .getAllByRole("tab")
+        .getAllByRole("button")
         .map((tab) => tab.textContent),
     ).toEqual(["전체", "답변 대기", "작업 중", "쉬는 중", "멈춤", "실패"]);
     expect(
       within(tabs)
-        .getByRole("tab", { name: "전체" })
-        .getAttribute("aria-selected"),
+        .getByRole("button", { name: "전체" })
+        .getAttribute("aria-pressed"),
     ).toBe("true");
     await screen.findByRole("link", { name: SESSION_ID });
 
-    await user.click(within(tabs).getByRole("tab", { name: "실패" }));
+    await user.click(within(tabs).getByRole("button", { name: "실패" }));
     await screen.findByRole("link", { name: OTHER_ID });
     expect(screen.queryByRole("link", { name: SESSION_ID })).toBeNull();
     expect(history.location.search).toContain("status=failed");
@@ -679,10 +685,10 @@ describe("sessions list", () => {
       ),
     ).toBe(true);
 
-    await user.click(within(tabs).getByRole("tab", { name: "멈춤" }));
+    await user.click(within(tabs).getByRole("button", { name: "멈춤" }));
     expect(await screen.findByText("이 상태의 세션이 없습니다.")).toBeTruthy();
 
-    await user.click(within(tabs).getByRole("tab", { name: "전체" }));
+    await user.click(within(tabs).getByRole("button", { name: "전체" }));
     await screen.findByRole("link", { name: SESSION_ID });
     expect(history.location.search).not.toContain("status=");
   });
@@ -701,7 +707,7 @@ describe("sessions list", () => {
     });
     await screen.findByRole("link", { name: SESSION_ID });
     // The full list stays cached, unmounted, behind the status tab.
-    await user.click(screen.getByRole("tab", { name: "실패" }));
+    await user.click(screen.getByRole("button", { name: "실패" }));
     await screen.findByRole("link", { name: OTHER_ID });
     const failedReads = () =>
       api.calls.filter((call) => call.search === "?status=failed").length;
@@ -728,8 +734,8 @@ describe("sessions list", () => {
             })
           : json(200, { items: [summary(SESSION_ID)], next_cursor: null }),
     });
-    const tab = await screen.findByRole("tab", { name: "쉬는 중" });
-    expect(tab.getAttribute("aria-selected")).toBe("true");
+    const tab = await screen.findByRole("button", { name: "쉬는 중" });
+    expect(tab.getAttribute("aria-pressed")).toBe("true");
     await screen.findByRole("link", { name: OTHER_ID });
   });
 
@@ -739,8 +745,8 @@ describe("sessions list", () => {
       "GET /v1/sessions": () =>
         json(200, { items: [summary(SESSION_ID)], next_cursor: null }),
     });
-    const tab = await screen.findByRole("tab", { name: "전체" });
-    expect(tab.getAttribute("aria-selected")).toBe("true");
+    const tab = await screen.findByRole("button", { name: "전체" });
+    expect(tab.getAttribute("aria-pressed")).toBe("true");
     await screen.findByRole("link", { name: SESSION_ID });
   });
 
@@ -2090,5 +2096,78 @@ describe("세션 상세 레이아웃", () => {
     } finally {
       globalThis.ResizeObserver = original;
     }
+  });
+});
+
+describe("세션 상세 머리 경로", () => {
+  const trail = async () => {
+    const [header] = await screen.findAllByRole("banner");
+    return within(header as HTMLElement);
+  };
+
+  test("세션 목록으로 가는 링크 다음에 세션 제목이 온다", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () =>
+        json(200, { ...detail, title: "결제 오류 고치기" }),
+    });
+    const bar = await trail();
+    expect(await bar.findByText("결제 오류 고치기")).toBeTruthy();
+    expect(bar.getByRole("link", { name: "세션" }).getAttribute("href")).toBe(
+      "/sessions",
+    );
+  });
+
+  test("주소 끝에 /가 붙어도 세션 제목을 보인다", async () => {
+    renderAt(`/sessions/${SESSION_ID}/`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () =>
+        json(200, { ...detail, title: "결제 오류 고치기" }),
+    });
+    const bar = await trail();
+    expect(await bar.findByText("결제 오류 고치기")).toBeTruthy();
+  });
+
+  test("제목이 없으면 머리글처럼 짧은 id를 보인다", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
+    const bar = await trail();
+    expect(await bar.findByText(SESSION_ID.slice(0, 8))).toBeTruthy();
+  });
+
+  test("열어 둔 세션을 다시 불러오다 실패하면 예전 제목을 지운다", async () => {
+    let visible = true;
+    const { services } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () =>
+        visible
+          ? json(200, { ...detail, title: "결제 오류 고치기" })
+          : apiError(404, "NOT_FOUND", "Resource not found"),
+    });
+    const bar = await trail();
+    expect(await bar.findByText("결제 오류 고치기")).toBeTruthy();
+
+    visible = false;
+    await act(() =>
+      services.queryClient.refetchQueries({
+        queryKey: ["sessions", SESSION_ID],
+        exact: true,
+      }),
+    );
+    expect(await screen.findByText(/이 세션을 찾을 수 없습니다/)).toBeTruthy();
+    expect(bar.queryByText("결제 오류 고치기")).toBeNull();
+    expect(bar.queryByRole("link")).toBeNull();
+  });
+
+  test("세션을 불러오지 못하면 빈 이름 앞에 구분선을 남기지 않고 항목 이름만 둔다", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () =>
+        apiError(404, "NOT_FOUND", "no such session"),
+    });
+    expect(await screen.findByText(/이 세션을 찾을 수 없습니다/)).toBeTruthy();
+    const bar = await trail();
+    expect(bar.queryByRole("link")).toBeNull();
+    expect(bar.getByText("세션")).toBeTruthy();
+    expect(bar.queryByText("/")).toBeNull();
   });
 });

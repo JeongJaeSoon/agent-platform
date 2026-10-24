@@ -11,7 +11,7 @@ A card is the definition that says who an agent is and what it should do. Editin
 | --- | --- | --- |
 | `role` | Yes | One-line role. Up to 200 characters |
 | `instructions` | Yes | Instructions. Up to 20,000 characters |
-| `model` | Yes | Model name. Must match the run profile's model when you create a release |
+| `model` | Yes | Model name. Must be one of the models the run profile can run when you create a release |
 | `capabilities.tools` | Yes | List of tool names to use. They must be tools the run profile has |
 | `capabilities.mcp` | Yes | Only `null` is accepted for now |
 | `capabilities.forbidden` | | Tool names to forbid |

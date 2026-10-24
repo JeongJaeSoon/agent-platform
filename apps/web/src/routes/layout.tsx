@@ -1,12 +1,14 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   type ErrorComponentProps,
+  Link,
   Outlet,
   useNavigate,
   useRouter,
   useRouterState,
 } from "@tanstack/react-router";
 import { ApiError, isApiError, unwrap } from "@werft-ai/client";
+import { sessionQuery } from "@werft-ai/core";
 import { useAgentPlatform } from "@werft-ai/react";
 import {
   Button,
@@ -18,6 +20,7 @@ import {
   SkipLink,
 } from "@werft-ai/ui";
 import { type ReactNode, useId, useLayoutEffect, useState } from "react";
+import { agentQuery } from "../api/queries.ts";
 import { useMe } from "../auth/guard.tsx";
 import {
   AppSidebar,
@@ -177,6 +180,42 @@ function usePathname() {
   return useRouterState({ select: (state) => state.location.pathname });
 }
 
+// The router opens these with a trailing slash too.
+const SESSION_PATH = /^\/sessions\/([^/]+)\/?$/;
+const AGENT_PATH = /^\/agents\/([^/]+)\/?$/;
+
+/**
+ * What a screen under a sidebar item is called after it, when it is not the
+ * item's own list: a session by its title, an agent by its name (console v4
+ * crumb). Read from the cache the screen fills, so the bar asks for nothing.
+ */
+function useLeafTitle(pathname: string): string | undefined {
+  const { t } = useI18n();
+  const { client } = useAgentPlatform();
+  const sessionId = SESSION_PATH.exec(pathname)?.[1];
+  const agentId = AGENT_PATH.exec(pathname)?.[1];
+  const sessionRead = useQuery({
+    ...sessionQuery(client, sessionId ?? ""),
+    enabled: false,
+  });
+  const agentRead = useQuery({
+    ...agentQuery(client, agentId === "new" ? "" : (agentId ?? "")),
+    enabled: false,
+  });
+  // A refetch that failed keeps the old data; the screen has dropped it (a
+  // share taken back, a deletion), so the bar drops it too.
+  const session = sessionRead.isError ? undefined : sessionRead.data;
+  const agent = agentRead.isError ? undefined : agentRead.data;
+  // Until the screen has it, or when it failed, the bar names only the item:
+  // no separator left hanging before an empty name.
+  if (session && sessionId !== undefined) {
+    // A server from before titles sends none, as the page head shows.
+    return session.title || sessionId.slice(0, 8);
+  }
+  if (agentId === "new") return t("agents.newTitle");
+  return agent?.agent.name;
+}
+
 function PageTrail({
   groups,
   fallback,
@@ -185,11 +224,36 @@ function PageTrail({
   readonly fallback: string;
 }) {
   const { t } = useI18n();
-  const here = navItemFor(groups, usePathname());
-  // The same words as the sidebar item and the page title.
+  const pathname = usePathname();
+  const here = navItemFor(groups, pathname);
+  const leaf = useLeafTitle(pathname);
+  if (!here) {
+    return (
+      <p className="m-0 min-w-0 truncate font-medium text-control">
+        {fallback}
+      </p>
+    );
+  }
+  // The same words as the sidebar item and the page title; a screen under an
+  // item leads with the item, a link back to its list (console v4 `.crumbs`).
   return (
-    <p className="m-0 min-w-0 truncate font-medium text-control">
-      {here ? t(here.item.label) : fallback}
+    <p className="m-0 flex min-w-0 items-center gap-2 whitespace-nowrap text-control text-subtle-foreground">
+      {leaf === undefined ? null : (
+        <>
+          <Link
+            to={here.item.to}
+            className="shrink-0 text-subtle-foreground no-underline hover:text-foreground"
+          >
+            {t(here.item.label)}
+          </Link>
+          <span aria-hidden="true" className="text-border-strong">
+            /
+          </span>
+        </>
+      )}
+      <span className="min-w-0 truncate font-medium text-foreground">
+        {leaf ?? t(here.item.label)}
+      </span>
     </p>
   );
 }

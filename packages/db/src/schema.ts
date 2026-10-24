@@ -602,12 +602,23 @@ export const slackInboundEvents = pgTable(
     receivedAt: timestamp("received_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    /**
+     * `<slack_app_id>:<channel>:<thread_ts ?? ts>`: the thread a message
+     * belongs to, in which the `slack` role takes one event at a time.
+     * Null on dropped rows and on events outside a channel message.
+     */
+    conversationKey: text("conversation_key"),
+    claimToken: uuid("claim_token"),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    /** Claims so far, lease expiries included. */
+    attempts: integer().notNull().default(0),
+    /** A failed attempt's backoff; unclaimable before it. */
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
   },
   (table) => [
-    unique("slack_inbound_events_team_event_key").on(
-      table.teamId,
-      table.eventId,
-    ),
+    // Per app: the event_id two apps of one team receive for one message is
+    // not documented to differ, and each app's copy is its own work.
+    unique("slack_inbound_events_app_event_key").on(table.appId, table.eventId),
     foreignKey({
       name: "slack_inbound_events_agent_fk",
       columns: [table.workspaceId, table.agentId],
@@ -625,6 +636,20 @@ export const slackInboundEvents = pgTable(
       "slack_inbound_events_dropped_check",
       sql`(${table.status} = 'dropped') = (${table.dropReason} IS NOT NULL) AND (${table.status} = 'dropped') = (${table.payload} IS NULL)`,
     ),
+    check(
+      "slack_inbound_events_conversation_check",
+      sql`${table.status} <> 'dropped' OR ${table.conversationKey} IS NULL`,
+    ),
+    check(
+      "slack_inbound_events_claim_check",
+      sql`(${table.claimToken} IS NULL) = (${table.leaseExpiresAt} IS NULL) AND (${table.status} = 'received' OR ${table.claimToken} IS NULL)`,
+    ),
+    index("slack_inbound_events_due_idx")
+      .on(table.nextAttemptAt)
+      .where(sql`${table.status} = 'received'`),
+    index("slack_inbound_events_conversation_idx")
+      .on(table.conversationKey, table.eventTime, table.receivedAt)
+      .where(sql`${table.status} = 'received'`),
   ],
 );
 
@@ -827,6 +852,11 @@ export const sessions = pgTable(
     // hashes to it. Null on rows from before it, pinned by their
     // next claim.
     profileFingerprint: text("profile_fingerprint"),
+    // The model the session runs, one the profile offers. What a version 2
+    // fingerprint pins it to alongside; a version 1 fingerprint names the
+    // model itself, and the API backfills this from it at start. Null where
+    // neither says.
+    model: text(),
     // The profile declared `billing: none` when the session was accepted.
     // Fixed on the row, not read from each API's catalog: during a rollout
     // a replica that does not know the profile must not price its calls.
@@ -1457,6 +1487,8 @@ export const checkpoints = pgTable(
     // is checked against it. Null on rows from before the column.
     profileId: text("profile_id"),
     profileFingerprint: text("profile_fingerprint"),
+    // The attempt's model; null where the fingerprint names it (version 1).
+    model: text(),
   },
   (table) => [primaryKey({ columns: [table.sessionId, table.revision] })],
 );
@@ -1519,6 +1551,9 @@ export const attempts = pgTable(
     // next claim; null on rows from before the column.
     profileId: text("profile_id"),
     profileFingerprint: text("profile_fingerprint"),
+    // The session's model when this attempt claimed it; null where the
+    // fingerprint names it (version 1).
+    model: text(),
   },
   (table) => [
     index("attempts_session_started_idx").on(table.sessionId, table.startedAt),

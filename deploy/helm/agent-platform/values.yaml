@@ -20,7 +20,7 @@ images:
   # Secret names for pulling the images; handed to the worker Pods too
   # (EXECUTION_K8S_IMAGE_PULL_SECRETS).
   pullSecrets: []
-  # api, scheduler, reconciler, migrate and checkpoint GC.
+  # api, scheduler, reconciler, slack, migrate and checkpoint GC.
   controlHost:
     repository: ghcr.io/jeongjaesoon/agent-platform-control-host
     digest: ""
@@ -35,13 +35,14 @@ images:
 
 # The chart never holds a secret value. Each workload reads only the keys it
 # needs from this one Secret:
-#   DATABASE_URL            api, scheduler, reconciler, migrate, checkpoint GC
+#   DATABASE_URL            api, scheduler, reconciler, slack, migrate,
+#                           checkpoint GC
 #   EGRESS_AUTHORIZER_TOKEN api, egress-proxy (the same value on both sides)
 #   AWS_ACCESS_KEY_ID,
 #   AWS_SECRET_ACCESS_KEY   api, checkpoint GC (the checkpoint object store),
 #                           only while objectStoreKeys is true
-#   PLATFORM_SECRET_KEY     api alone, optional: the master key Slack secrets
-#                           are encrypted under (`openssl rand -hex 32`)
+#   PLATFORM_SECRET_KEY     api and slack, optional: the master key Slack
+#                           secrets are encrypted under (`openssl rand -hex 32`)
 secrets:
   name: agent-platform
   # Hand the two AWS keys above to the api and the checkpoint GC. false
@@ -49,7 +50,8 @@ secrets:
   # credential chain instead: IRSA through serviceAccounts.api on EKS.
   objectStoreKeys: true
   # Further keys handed to the api alone, as environment variables of the
-  # same name: the credentials the catalog names by value_env.
+  # same name: the credentials the catalog names by value_env. slack reads
+  # the catalog too, but never its credentials.
   catalogEnv: [ANTHROPIC_API_KEY]
   # Have the External Secrets Operator write the Secret above from a secret
   # store instead of creating it by hand. Needs the operator's CRDs.
@@ -196,6 +198,30 @@ reconciler:
   affinity: {}
   extraEnv: {}
 
+# Drains the Slack inbox, claiming rows for leaseSec at a time; one replica
+# is enough. It loads the api's catalog, so
+# PLATFORM_ALLOW_UNATTENDED_PERMISSIONS follows api.extraEnv unless
+# extraEnv here sets it.
+slack:
+  enabled: true
+  replicas: 1
+  # Above the role's 10s stop grace.
+  terminationGracePeriodSeconds: 20
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 1Gi}
+  intervalSec: 2
+  passTimeoutSec: 60
+  maxConsecutiveFailures: 3
+  # Above intervalSec + passTimeoutSec.
+  healthStaleSec: 90
+  batchSize: 10
+  leaseSec: 60
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  extraEnv: {}
+
 egressProxy:
   replicas: 2
   # 512 MiB credential bodies + 64 MiB response queues + 2048 MiB forward
@@ -266,3 +292,6 @@ networkPolicy:
     # Workers reach the gateway through the egress proxy, whose NO_PROXY
     # names only localhost and the proxy, so they need no direct route.
     allowDirectGateway: false
+  slack:
+    # The PostgreSQL port slack's egress may reach, on any address.
+    databasePort: 5432

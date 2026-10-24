@@ -5,7 +5,14 @@ import type {
   SessionDetail,
 } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
-import { buttonVariants, EmptyState, Link } from "@werft-ai/ui";
+import {
+  buttonVariants,
+  EmptyState,
+  Link,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@werft-ai/ui";
 import { Download } from "lucide-react";
 import { useId } from "react";
 import { LoadFailure } from "../components/load-failure.tsx";
@@ -14,7 +21,7 @@ import { useI18n } from "../i18n/i18n.tsx";
 
 const UNITS = ["byte", "kilobyte", "megabyte", "gigabyte"] as const;
 
-function formatBytes(bytes: number, locale: string): string {
+export function formatBytes(bytes: number, locale: string): string {
   let value = bytes;
   let unit = 0;
   while (value >= 1024 && unit < UNITS.length - 1) {
@@ -113,18 +120,24 @@ export function SessionOutputs({
                 </span>
               </div>
               {item.omitted === null ? (
-                <Link
-                  href={`/v1/sessions/${encodeURIComponent(session.id)}/outputs/${encodeURIComponent(item.path)}`}
-                  download={name.slice(name.lastIndexOf("/") + 1)}
-                  aria-label={t("session.outputs.download", { name })}
-                  title={t("session.outputs.download", { name })}
-                  className={buttonVariants({
-                    variant: "outline",
-                    size: "icon",
-                  })}
-                >
-                  <Download className="size-3.5" aria-hidden="true" />
-                </Link>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Link
+                      href={`/v1/sessions/${encodeURIComponent(session.id)}/outputs/${encodeURIComponent(item.path)}`}
+                      download={name.slice(name.lastIndexOf("/") + 1)}
+                      aria-label={t("session.outputs.download", { name })}
+                      className={buttonVariants({
+                        variant: "outline",
+                        size: "icon",
+                      })}
+                    >
+                      <Download className="size-3.5" aria-hidden="true" />
+                    </Link>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {t("session.outputs.download", { name })}
+                  </TooltipContent>
+                </Tooltip>
               ) : null}
             </li>
           );

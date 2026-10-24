@@ -13,6 +13,7 @@ import { preferencesKo } from "./preferences.ts";
 import { sessionListKo } from "./session-list.ts";
 import { shellKo } from "./shell.ts";
 import { teamsKo } from "./teams.ts";
+import { usageKo } from "./usage.ts";
 import { workspaceKo } from "./workspace.ts";
 
 /**
@@ -40,6 +41,7 @@ export const ko = {
   ...outputsKo,
   ...apiKeysKo,
   ...workspaceKo,
+  ...usageKo,
   ...preferencesKo,
   ...errorsKo,
   ...formsKo,

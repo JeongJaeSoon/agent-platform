@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { ApprovalInbox } from "@werft-ai/react/blocks";
+import { EmptyState, Link as TextLink } from "@werft-ai/ui";
 
 import {
   apiError,
@@ -169,4 +170,77 @@ export const DefaultJapanese: Story = {
   ...Default,
   name: "Default (日本語)",
   globals: { locale: "ja" },
+};
+
+const SUMMARY_NOW = Date.parse(SESSION.updated_at) + 12 * 60_000;
+
+/**
+ * `layout="summary"`, as home uses it (Console v4 "답이 필요한 요청"): each
+ * request is a line under its session's name, the answer still at its end.
+ * The design's avatar, agent name and "why you" wait for the API
+ * (94S-811); the line says the short id and how long it waited instead.
+ */
+export const Summary: Story = {
+  render: (_args, context) => (
+    <ApprovalInbox
+      {...shared(hostFor(context))}
+      layout="summary"
+      title="답이 필요한 요청"
+      action={<TextLink href="#sessions">전체 보기</TextLink>}
+      now={SUMMARY_NOW}
+    />
+  ),
+  parameters: {
+    api: {
+      ...(Rows.parameters as { api: FakeRoutes }).api,
+      "GET /v1/sessions": () =>
+        page([
+          { ...SESSION, title: "README 정리", status: "needs_input" },
+          { ...SESSION, id: OTHER, status: "needs_input" },
+        ]),
+    } satisfies FakeRoutes,
+  },
+};
+
+export const SummaryDark: Story = {
+  ...Summary,
+  name: "Summary (dark)",
+  globals: { theme: "dark" },
+};
+
+export const SummaryMobile: Story = {
+  ...Summary,
+  name: "Summary (390px)",
+  globals: { viewport: { value: "mobile390", isRotated: false } },
+};
+
+/** Seen through a share only: the line says why its answers are off. */
+export const SummaryNotAnswerer: Story = {
+  ...Summary,
+  name: "Summary (not an answerer)",
+  parameters: {
+    api: {
+      ...(Summary.parameters as { api: FakeRoutes }).api,
+      [`GET ${base}/pending-requests`]: () =>
+        json(200, { ...PENDING, answerable: false }),
+    } satisfies FakeRoutes,
+  },
+};
+
+export const SummaryEmpty: Story = {
+  render: (_args, context) => (
+    <ApprovalInbox
+      {...shared(hostFor(context))}
+      layout="summary"
+      title="답이 필요한 요청"
+      empty={
+        <EmptyState
+          title="지금 답할 요청이 없습니다"
+          description="세션이 권한이나 답을 기다리면 여기에 먼저 나옵니다."
+        />
+      }
+    />
+  ),
+  name: "Summary (empty)",
+  parameters: { api: { "GET /v1/sessions": () => page([]) } },
 };

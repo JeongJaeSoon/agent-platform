@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  profileFingerprint,
+  profilePinned,
   repositoryModeOf,
   resolveSessionCatalog,
 } from "@werft-ai/platform";
@@ -321,8 +321,8 @@ describe("readCatalogConfig", () => {
   });
 
   test("the shipped profiles keep the fingerprints main computed before `repository` existed", async () => {
-    // Captured on main 015a1634; a change here fails every session pinned
-    // to these profiles with CATALOG_MISMATCH.
+    // Captured on main 015a1634; a profile they no longer name fails every
+    // session pinned to it with CATALOG_MISMATCH.
     const before = {
       ".": {
         "claude-coding-real":
@@ -343,11 +343,11 @@ describe("readCatalogConfig", () => {
         if (profile === undefined) throw new Error(`${dir}: no profile ${id}`);
         return [id, profile] as const;
       });
-      expect(
-        Object.fromEntries(
-          pinned.map(([id, profile]) => [id, profileFingerprint(profile)]),
-        ),
-      ).toEqual(expected);
+      for (const [id, profile] of pinned) {
+        expect(
+          profilePinned(profile, expected[id as keyof typeof expected]),
+        ).toBe(true);
+      }
       for (const [, profile] of pinned) {
         expect(repositoryModeOf(profile)).toBe("required");
       }

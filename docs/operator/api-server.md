@@ -35,9 +35,9 @@ worker 컨테이너 env에도, claim 응답에도 provider 키와 저장소 로�
 API는 기동 시 `PLATFORM_CONFIG_DIR`(기본: 저장소의 `config/`)에서 `profiles.yaml`과 `repositories.yaml`을 한 번 읽는다. 파일이 없거나 schema에 맞지 않거나 자격 증명 참조가 풀리지 않으면 파일·경로를 적은 메시지와 함께 기동하지 않는다. 옛 `SESSION_CATALOG_JSON`은 더 읽지 않으며 설정돼 있으면 기동을 거부한다. 저장소의 `config/`는 실제 Messages API용 카탈로그다([real-claude.md](../real-claude.md)). `config/fake-model/`은 key 없이 도는 fake 카탈로그이고, `--fake-model` overlay(`infra/compose.fake-model.yml`)가 `PLATFORM_CONFIG_DIR`를 그 디렉터리로 바꾼다([quickstart.md](../quickstart.md)).
 
 - profile의 `provider.auth`에는 값 대신 참조를 하나만 적는다: API 프로세스 환경 변수 `value_env`, 또는 Secrets Manager `secret_id`(`AWS_ENDPOINT_URL_SECRETS_MANAGER`로 endpoint 지정, `AWS_ENDPOINT_URL`은 따르지 않는다). 값은 기동 시 한 번 해석되고 worker에는 가지 않는다. egress proxy의 credential route가 요청마다 authorizer에 물어 upstream 요청에 붙인다(위 절).
-- profile의 `models`는 세션이 `POST /v1/sessions`의 `model`로 고를 수 있는 모델 목록이다. `model`은 기본값이고 늘 고를 수 있다. 목록에 없는 모델로 만들면 `422 UNSUPPORTED_CAPABILITY`이고 세션은 생기지 않는다. 세션은 고른 모델로 바꾼 profile의 지문에 묶이므로, 목록에 모델을 더해도 기존 세션은 그대로 돈다. 세션이 쓰는 모델을 목록에서 빼면 그 세션은 아래와 같이 `CATALOG_MISMATCH`가 된다. provider·`billing`·tools는 profile 단위라 모델을 골라도 바뀌지 않고, 비용은 응답이 밝힌 모델 가격으로 매겨져 세션 상한에 그대로 걸린다.
+- profile의 `models`는 세션이 `POST /v1/sessions`의 `model`로 고를 수 있는 모델 목록이다. `model`은 기본값이고 늘 고를 수 있다. 목록에 없는 모델로 만들면 `422 UNSUPPORTED_CAPABILITY`이고 세션은 생기지 않는다. `model`을 생략하면 `agent_release_id`가 있을 때는 release 카드의 모델, 없으면 profile의 `model`로 돈다. 세션은 고른 모델을 `sessions.model`에 적고(세션 응답의 `model`), profile 지문과 이 모델에 묶인다. 그래서 목록에 모델을 더하거나 기본 `model`을 바꿔도 기존 세션은 그대로 돈다. 세션이 쓰는 모델을 목록에서 빼면 그 세션은 아래와 같이 `CATALOG_MISMATCH`가 된다. provider·`billing`·tools는 profile 단위라 모델을 골라도 바뀌지 않고, 비용은 응답이 밝힌 모델 가격으로 매겨져 세션 상한에 그대로 걸린다.
 - `repositories.<id>.profiles`가 그 저장소에서 돌 수 있는 profile allowlist다. `(profile, repository)` 쌍이 신뢰 단위이며, 목록에 없는 쌍이나 모르는 id로 `POST /v1/sessions`를 부르면 `422`다.
-- 이미 만든 세션의 쌍이 빠졌거나, id가 다른 URL·branch를 가리키게 되거나, 같은 profile id의 설정(model·tools·permission_mode·endpoint·runtime version·project_settings·자격 증명 참조 위치)이 세션을 만들 때와 달라지면, 세션 상세의 `attention`이 `CATALOG_MISMATCH`가 되고 그 세션으로 뜬 worker의 첫 claim이 `409 CATALOG_MISMATCH`를 받는다. 그 자리에서 대기 중이던 turn은 `failed`(`terminal_reason: catalog_mismatch`), 해당 receipt는 `CATALOG_MISMATCH`, 세션은 `failed`가 되고 status 이벤트에 같은 코드가 남는다. worker는 claim timeout을 기다리지 않고 바로 나가며, 다음 scheduler pass가 슬롯을 돌려받아 다른 세션을 띄운다. 메시지에는 저장소 id만 적히고 URL은 나오지 않는다. `resuming` 중인 세션이면 resume이 `CATALOG_MISMATCH`로 실패해 `recovery_required`로 가고, 대기 중인 입력은 복구 결정을 위해 남는다.
+- 이미 만든 세션의 쌍이 빠졌거나, id가 다른 URL·branch를 가리키게 되거나, 같은 profile id의 설정(tools·permission_mode·endpoint·runtime version·project_settings·자격 증명 참조 위치)이 세션을 만들 때와 달라지거나 세션의 모델이 `models`에서 빠지면, 세션 상세의 `attention`이 `CATALOG_MISMATCH`가 되고 그 세션으로 뜬 worker의 첫 claim이 `409 CATALOG_MISMATCH`를 받는다. 그 자리에서 대기 중이던 turn은 `failed`(`terminal_reason: catalog_mismatch`), 해당 receipt는 `CATALOG_MISMATCH`, 세션은 `failed`가 되고 status 이벤트에 같은 코드가 남는다. worker는 claim timeout을 기다리지 않고 바로 나가며, 다음 scheduler pass가 슬롯을 돌려받아 다른 세션을 띄운다. 메시지에는 저장소 id만 적히고 URL은 나오지 않는다. `resuming` 중인 세션이면 resume이 `CATALOG_MISMATCH`로 실패해 `recovery_required`로 가고, 대기 중인 입력은 복구 결정을 위해 남는다.
 - **카탈로그를 되돌려도 저절로 다시 실행되지는 않는다.** 되돌리면 `attention`이 사라지고, 그 세션에 새 메시지를 보내면 새 generation으로 다시 뜬다. 실패한 turn은 재시도되지 않으므로 필요한 입력은 다시 보낸다. 되돌리지 않은 채 메시지를 보내면 그 입력도 첫 claim에서 곧바로 같은 코드로 실패한다(추가 메시지를 422로 막지는 않는다 — 받은 입력은 receipt로 결말을 알린다).
 - **이 즉시 실패는 권위 있는 카탈로그만 쓴다.** 각 API는 기동 시 읽은 자기 카탈로그로 판단한다. 그래서 카탈로그가 다른 replica가 섞인 rolling update 동안에는 요청을 받은 replica에 따라, 다른 replica라면 돌릴 세션이 실패할 수 있다. 이를 막으려고 DB에 **활성 catalog revision**(`catalog_authority`, 행 하나)을 둔다. 기동 로그 `Session catalog loaded`의 `revision`이 활성 revision과 같은 replica만 세션을 실패시킨다. 다른 replica는 아무것도 쓰지 않고 claim에 `404 NOT_FOUND`(잡을 세션 없음)로 답한다. worker는 claim timeout 뒤 나가고, launch 실패 횟수·격리가 안전망으로 남는다. 활성 revision은 API가 스스로 정하지 않고 운영자가 compare-and-swap으로만 바꾼다. API 기동은 이 행을 읽지 않고, 불일치 경로에서만 읽는다.
   - **한 replica(compose 기본):** 행이 없으면 모든 API가 권위 있는 것으로 본다. 활성화하지 않아도 위 동작(첫 claim에 즉시 실패)은 그대로다.
@@ -55,6 +55,11 @@ API는 기동 시 `PLATFORM_CONFIG_DIR`(기본: 저장소의 `config/`)에서 `p
 - endpoint·저장소 URL은 `http://`·`https://`만 받는다(worker가 밖으로 나가는 길은 HTTP(S) egress proxy뿐이다). 자격 증명(userinfo, query string)이 들어 있으면 거절한다.
 - profile마다 `sha256:` fingerprint(설정과 참조의 정규 JSON 해시, 값 제외)가 worker claim의 `profile_fingerprint`로 가고, 카탈로그 전체의 revision은 기동 로그 `Session catalog loaded`에 남는다. 같은 참조 뒤의 값만 회전하면 fingerprint는 바뀌지 않는다.
 - 세션은 만들 때의 profile fingerprint를 저장하고, claim은 카탈로그의 같은 id가 그 fingerprint로 해시될 때만 세션을 묶는다. 설정을 바꾸려면 **새 profile id**를 등록하고 새 세션을 그 id로 만든다. 기존 id를 고치면 그 id로 만든 세션은 모두 위의 `CATALOG_MISMATCH`가 되고, 되돌리면 다시 돈다. 자격 증명 값은 claim 때 카탈로그에서 읽으므로 같은 참조 뒤의 값 회전(그리고 API 재기동)은 기존 세션을 막지 않는다. 이 컬럼 전에 만든 세션은 fingerprint가 비어 있고 다음 claim이 그때의 fingerprint로 고정한다.
+- fingerprint는 두 판이 있다. 지금 만드는 세션과 release는 **v2**를 적는다. v2는 `model`·`models`·`repository`를 빼고 해시하므로, 모델은 `sessions.model`(attempt·checkpoint 행에도 같은 값)이 정하고 저장소 모드는 세션의 `repository_mode`가 정한다. 0159 전에 만든 세션·checkpoint·release는 **v1**(고른 모델을 넣은 해시)을 그대로 갖고, claim·상세·restore·release 활성화는 v1 값도 그 모델의 v1과 같으면 받아들인다. 값을 다시 쓰지 않는다. API는 기동할 때 `model`이 빈 세션에 v1 지문이 가리키는 모델을 적고(`Session models backfilled` 로그), 찾지 못한 행은 null로 둔다. 저장소 binding(`repositoryBinding`)과 카탈로그 revision은 별도 버전이라 이 변경으로 값이 바뀌지 않으므로, 대기 중인 push·PR은 그대로 진행된다.
+- 배포 순서: migration 0159(컬럼 추가만)를 먼저 적용하고 API를 올린다. worker 이미지는 바꿀 필요가 없다.
+  - **옛 API와 섞어 돌리지 않는다.** 옛 API는 v2를 모른다. 새 API가 만든 세션을 claim하면 `CATALOG_MISMATCH`로 실패시키고(카탈로그 revision이 같아 활성 revision 검사도 막지 않는다), v2 provider token을 거절하고, v2 release의 활성화를 `PROFILE_DIGEST_MISMATCH`로 막는다. replica가 여럿이면 옛 replica를 모두 내린 뒤 새 replica를 올린다(helm: `kubectl scale deployment <api> --replicas=0` 뒤 `helm upgrade`). 그동안 API는 잠깐 멈춘다.
+  - 업그레이드 전 세션은 v1 지문을 그대로 쓰고, 새 API가 그 세션에 주는 provider token도 v1이다. 그래서 옛 API에서도, 새 API에서도 claim되고 모델 호출이 통과한다.
+  - **되돌리지 않는다.** 새 API가 v2로 만든 세션·release는 옛 API에서 위와 같이 실패한다. 문제가 생기면 앞으로 고쳐 다시 올린다.
 
 ### 저장소 모드 (`repository`)
 
@@ -651,7 +656,7 @@ curl -s -b jar -X POST "http://127.0.0.1:3000/v1/agents/$AGENT_ID/identities" \
 
 - `platform.yaml`이 없으면 `PLATFORM_SECRET_KEY` 환경 변수를 읽는다. 비어 있으면 저장소를 끈다. 이때 기동 로그에 `Secret store is off` 경고가 남고, 아래 API는 `503`으로 답한다.
 - 64 hex가 아니면 API가 뜨지 않는다. `platform.yaml`이 있는데 값을 읽지 못해도 뜨지 않는다. 오류에는 변수 이름이나 secret id만 나오고 값은 나오지 않는다.
-- compose는 이 키를 `api`에만 넘긴다. Helm도 api Deployment에만 Secret의 `PLATFORM_SECRET_KEY`를 optional로 넘긴다. scheduler와 worker는 받지 않는다(`deploy/helm/render-check.ts`가 검사한다).
+- compose는 이 키를 `api`와 `slack` 서비스에만 넘긴다(`tests/images.test.ts`가 검사한다). Helm은 api Deployment와 slack Deployment(`slack.enabled`일 때)에 Secret의 `PLATFORM_SECRET_KEY`를 optional로 넘긴다. slack role도 기동할 때 같은 키를 검증하기 때문이다. scheduler와 worker는 받지 않는다(`deploy/helm/render-check.ts`가 검사한다).
 - 키를 잃으면 저장된 값을 읽을 수 없다. 새 키로 띄운 뒤 config token을 다시 넣고, 자동 생성한 앱은 다시 만든다. 키 회전 도구는 아직 없고 `key_version`은 1이다.
 
 로컬 스택에서는 키를 macOS Keychain에 두고 기동할 때마다 꺼낸다. 처음 한 번만 1–3을 한다.
@@ -760,8 +765,9 @@ Slack은 에이전트 앱의 이벤트를 `POST /v1/slack/events/{agent_id}`로 
 
 - 검사 순서: 레이트 리미터(전체 분당 1000, 에이전트마다 분당 600. 넘으면 `429 RATE_LIMITED`와 `Retry-After`) → 본문 256 KiB(넘으면 서명을 보기 전에 `413`) → 서명(그 앱의 signing secret으로 HMAC-SHA256, 상수 시간 비교) → 시각(±300초) → JSON 파싱(`400`) → `event_id` 중복. 리미터는 DB를 읽기 전에 돈다.
 - 모르는 에이전트, 앱이 없는 에이전트, signing secret이 없는 앱, 틀리거나 오래된 서명은 모두 같은 `401 UNAUTHORIZED`("Request signature is not valid")다. 응답으로 에이전트가 있는지 알 수 없다. signing secret은 성공한 조회만 60초 동안 프로세스에 둔다. 앱을 만들거나 지우면 그 프로세스의 캐시를 바로 지운다. 다른 replica는 60초 안에 따라온다.
-- `url_verification`은 서명이 맞을 때만 `{challenge}`로 답한다. 나머지는 `{ok: true}`이고 3초 안에 답한다. Slack 재시도(`X-Slack-Retry-Num`)는 `(team_id, event_id)` unique로 한 행이 된다. inbox 쓰기가 실패하면 `503`이라 Slack이 다시 보낸다.
-- 행의 `status`는 `received`(처리할 것)·`dropped`(`drop_reason`이 있고 본문은 두지 않는다)·`processed`(앱 해제처럼 받을 때 끝낸 것)다. 본문(`payload`)은 Slack의 옛 `token` 칸을 뺀 이벤트 전체다.
+- `url_verification`은 서명이 맞을 때만 `{challenge}`로 답한다. 나머지는 `{ok: true}`이고 3초 안에 답한다. Slack 재시도(`X-Slack-Retry-Num`)는 `(app_id, event_id)` unique로 한 행이 된다. 앱마다 따로 세므로, 한 team에 설치된 앱 둘이 같은 `event_id`를 받으면 두 행이 다 남는다. inbox 쓰기가 실패하면 `503`이라 Slack이 다시 보낸다.
+- 행의 `status`는 `received`(처리할 것)·`dropped`(`drop_reason`이 있고 본문은 두지 않는다)·`processed`(앱 해제처럼 받을 때 끝냈거나 `slack` 역할이 처리한 것)·`failed`(`slack` 역할이 5번 시도하고 포기한 것)다. 본문(`payload`)은 Slack의 옛 `token` 칸을 뺀 이벤트 전체다.
+- 채널 메시지에는 `conversation_key` `<slack_app_id>:<channel>:<thread_ts ?? ts>`가 붙는다. 스레드 밖 메시지는 자기 `ts`가 스레드다. DM도 channel id로 같다. 채널·`ts`가 없는 이벤트와 `dropped` 행에는 없다.
 - 버리는 이유(`drop_reason`): `app_mismatch`(이벤트의 `api_app_id`가 URL 에이전트의 앱이 아님), `unsupported_event`(구독하지 않은 종류), `bot_message`(`bot_id`가 있음), `own_bot_user`(이 앱의 bot 사용자가 보냄), `message_subtype`(subtype이 없거나 `thread_broadcast`인 message만 받는다), `user_tokens_only`(bot token이 없는 `tokens_revoked`), 그리고 `agentForSlackEvent`의 이유(`unidentified`·`not_installed` 등. 위 "에이전트의 Slack 앱 연결"). `app_mention`은 bot이 보낸 것만 버린다. `member_joined_channel`은 bot 규칙 없이 저장만 한다.
 - `app_uninstalled`와 bot token을 담은 `tokens_revoked`는 그 설치를 `revoked`로 바꾸고 `processed`로 남는다.
 - 로그는 id·결과·`status`·`drop_reason`·재시도 번호만 남긴다. 본문·메시지 글·서명·헤더 값은 응답·로그·오류에 나오지 않는다.
@@ -788,6 +794,31 @@ scripts/slack-funnel.sh off                  # on과 같은 --https·--set-path�
 공개 port는 `SLACK_FUNNEL_HTTPS_PORT`(443 기본, 8443, 10000)다. 그 뒤 API에 `SLACK_EVENTS_PUBLIC_URL=https://<host>.ts.net`(443이 아니면 `:<port>`)을 주고 다시 띄운 다음, 설치를 하거나 `slack-app finalize`를 실행한다. Helm chart의 Ingress는 사내 전용이라 Slack이 닿지 않는다. Slack용 입구는 `/v1/slack/events` Prefix만 넘기는 인터넷 쪽 Ingress·LB를 따로 두고, 그 주소를 `api.extraEnv.SLACK_EVENTS_PUBLIC_URL`에 준다.
 
 로컬 mock overlay의 가짜 Slack은 서명된 이벤트도 보낸다. `POST http://mock-slack:4020/fake/events` `{url, app_id, team_id, event, event_id?, age_seconds?, retry_num?}`는 그 앱의 signing secret으로 서명해 `url`로 보내고 `{ok, status, body, event_id}`를 돌려준다. `challenge`를 주면 `url_verification`을 보낸다. signing secret은 출력하지 않는다.
+
+**Slack inbox 처리 (`slack` 역할)**
+
+`received` 행은 control host의 `slack` 역할(`main.ts slack`)이 비운다. reconciler와 같은 감독 루프로, pass 하나가 "claim → 처리 → 할 것이 없거나 pass 예산(pass 제한 시간의 절반)이 끝나면 종료"다. `main.ts slack --once`는 pass 하나, `--health`는 상태 파일을 본다. compose에서는 `slack` 서비스(profile `apps`와 `slack`)이고 api image를 쓴다. Helm은 `slack` Deployment다([Kubernetes 배포](kubernetes-deployment.md)).
+
+| 설정 | 기본 | 의미 |
+|---|---|---|
+| `SLACK_ROLE_INTERVAL_SEC` | 2 | pass가 끝난 뒤 다음 pass까지 쉬는 시간. 이벤트가 첫 claim까지 기다리는 시간이다 |
+| `SLACK_ROLE_PASS_TIMEOUT_SEC` | 60 | 넘긴 pass는 SIGTERM, 10초 뒤 SIGKILL로 끝내고 실패로 센다 |
+| `SLACK_ROLE_MAX_CONSECUTIVE_FAILURES` | 3 | 실패 pass가 이만큼 이어지면 루프가 exit 1 한다 |
+| `SLACK_ROLE_HEALTH_STALE_SEC` | 90 | 이 시간 동안 성공한 pass가 없으면 unhealthy. interval + timeout보다 커야 기동한다 |
+| `SLACK_ROLE_STATUS_FILE` | `/tmp/slack-status.json` | 루프 상태 파일. compose는 넘기지 않는다 |
+| `SLACK_ROLE_BATCH_SIZE` | 10 | claim 한 번에 잡는 행 수 상한 |
+| `SLACK_ROLE_LEASE_SEC` | 60 | claim한 행을 쥐는 시간. 역할이 죽으면 이 시간이 지난 뒤 다른 pass가 이어 잡는다 |
+
+prefix가 `SLACK_`가 아니라 `SLACK_ROLE_`인 것은 `SLACK_API_URL`·`SLACK_OIDC_*`·`SLACK_EVENTS_PUBLIC_URL`이 api의 설정이기 때문이다.
+
+- claim(한 transaction, advisory lock으로 claimer 하나씩): `received`이고, lease가 없거나 끝났고, `next_attempt_at`이 없거나 지났고, 같은 `conversation_key`에 더 이른 `received` 행도, lease가 살아 있는 행도 없는 행을 `(event_time, received_at, id)` 순서로 `FOR UPDATE SKIP LOCKED`로 잡는다. 잡으면 `claim_token`을 새로 쓰고 `lease_expires_at = now() + lease`, `attempts + 1`이다. 그래서 한 스레드에서는 앞 이벤트가 끝나야 다음 이벤트를 잡고(뒤늦게 온 더 이른 이벤트도 처리 중인 이벤트를 기다린다), 다른 스레드는 함께 처리한다.
+- 끝내기·실패 쓰기는 `id`·`claim_token`이 같고 `lease_expires_at > now()`일 때만 쓴다. lease를 잃은 쪽은 아무것도 쓰지 않고 `Slack event lease lost` 한 줄만 남긴다. lease 판정은 모두 DB의 `now()`다(앱 해제의 superseded 판정과 같은 시계).
+- 실패하면 lease를 풀고 `next_attempt_at = now() + backoff`(30초에서 두 배씩, 상한 5분)다. lease 만료로 다시 잡힌 것도 시도로 센다. 5번째 시도가 실패하거나 5번째 lease가 끝나면 `failed`다.
+- 처리 전에 그 설치가 지금 `revoked`이면(이벤트가 기다리는 사이 앱이 해제됨) 처리하지 않고 `dropped`·`installation_revoked`로 끝내며 본문과 `conversation_key`를 지운다.
+- 처리기는 아직 no-op이라 claim한 행은 `processed`가 된다(세션 연결은 뒤 티켓). 로그는 `Slack event claimed`(id·event_id·종류·시도 횟수)와 pass 요약 `Slack inbox pass`다.
+- 기동할 때와 pass마다(`--once`로 손으로 돌린 pass도) api와 같은 catalog(`PLATFORM_CONFIG_DIR`)를 같은 규칙으로 읽는다. 무인 profile이 있는데 `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS=true`가 없으면 api와 같은 이유로 기동을 거부한다. catalog의 credential은 풀지 않는다. provider key와 Secrets Manager 접근은 api에만 있다.
+- master key(`PLATFORM_SECRET_KEY`)는 api와 이 역할에만 간다(bot token으로 Slack에 보내는 일이 이 역할에 붙는다). 값이 64 hex가 아니면 기동하지 않는다. compose는 이 역할에 Secrets Manager endpoint와 AWS 자격을 주지 않으므로 `platform.yaml`의 master key는 `value_env`로 적어야 이 역할이 뜬다(`secret_id`면 기동하지 못하고 재시작을 반복한다). worker·scheduler·reconciler에는 없다(`tests/images.test.ts`, `deploy/helm/render-check.ts`가 검사한다).
+- 0160 이전에 쌓인 `received`·`processed` 행은 migration이 같은 규칙으로 `conversation_key`를 채운다.
 
 ### 에이전트의 Slack 채널 설정
 

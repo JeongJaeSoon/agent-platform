@@ -237,6 +237,13 @@ describe("API key", () => {
     ).toBe("page");
     expect(screen.getByRole("button", { name: "새 key" })).toBeDefined();
     expect(screen.getByText("아직 서비스 key가 없습니다.")).toBeDefined();
+    // The personal list is the service list's parent path; only the screen
+    // being shown is current.
+    expect(
+      within(screen.getByRole("navigation", { name: "key 목록" }))
+        .getAllByRole("link")
+        .map((link) => link.getAttribute("aria-current")),
+    ).toEqual([null, "page"]);
   });
 
   test("key ID는 잘리지 않고 전체로 보이며 복사할 수 있다", async () => {
@@ -308,6 +315,29 @@ describe("API key", () => {
     expect(
       await screen.findByRole("heading", { level: 1, name: "내 key" }),
     ).toBeDefined();
+  });
+
+  test("만들기 폼은 카드 아래 버튼 줄에 취소·만들기를 두고, 제목 위 링크로 목록에 돌아간다", async () => {
+    const { history } = renderAt(NEW_SERVICE, {
+      ...ownerOk,
+      ...keysServer(),
+    });
+    await screen.findByRole("heading", { level: 1, name: "새 서비스 key" });
+    const foot = document.querySelector("[data-slot=card-footer]");
+    expect(foot?.closest("[data-slot=card]")).not.toBeNull();
+    expect(
+      [...(foot?.querySelectorAll("a, button") ?? [])].map(
+        (el) => el.textContent,
+      ),
+    ).toEqual(["취소", "key 만들기"]);
+    const back = screen.getByRole("link", { name: "서비스 key" });
+    expect(back.getAttribute("data-slot")).toBe("link");
+    const user = await setupUser();
+    await user.click(back);
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "서비스 key" }),
+    ).toBeDefined();
+    expect(history.location.pathname).toBe(SERVICE);
   });
 
   test("에이전트 관리자인 구성원은 워크스페이스 전체를 고를 수 없다", async () => {

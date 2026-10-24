@@ -22,6 +22,7 @@ const profile: SessionCatalog["profiles"][string] = {
   runtime_kind: "claude_agent_sdk",
   runtime_version: "0.3.270",
   model: "claude-sonnet-5",
+  models: ["claude-opus-5-5", "claude-haiku-5-5"],
   tools: ["Read"],
   permission_mode: "default",
   provider: {
@@ -79,6 +80,7 @@ function setup(
           id: "rel-1",
           agent_id: AGENT,
           runtime_profile_id: "coding-v1",
+          runtime_config_snapshot: { model: "claude-opus-5-5" },
         };
       },
     },
@@ -164,6 +166,25 @@ describe("a session pinned to an agent release", () => {
       release_id: "rel-1",
     });
     expect(accepted[0]?.agentReleaseId).toBe("rel-1");
+  });
+
+  test("runs the card's model unless the request names another the profile offers", async () => {
+    const { service, caller, accepted } = setup();
+    const create = (extra: object) =>
+      service.createSession(caller, {
+        idempotencyKey: "k",
+        body: { ...body, agent_release_id: "rel-1", ...extra },
+      });
+    await create({});
+    expect(accepted[0]?.model).toBe("claude-opus-5-5");
+    await create({ model: "claude-haiku-5-5" });
+    expect(accepted[1]?.model).toBe("claude-haiku-5-5");
+    await service.createSession(caller, { idempotencyKey: "k", body });
+    expect(accepted[2]?.model).toBe("claude-sonnet-5");
+    await create({ model: "claude-fable-5-1" });
+    expect(accepted[3]).toMatchObject({ repository: null });
+    expect(accepted[3]?.model).toBeUndefined();
+    expect(accepted[3]?.profileFingerprint).toBeUndefined();
   });
 
   test("must run on the release's profile", async () => {

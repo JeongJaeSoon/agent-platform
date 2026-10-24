@@ -104,6 +104,8 @@ const RELEASE_TAB = `${DETAIL}?tab=release`;
 const PROFILE = "claude-coding-local";
 const showTab = async (user: User, name: string) =>
   user.click(await screen.findByRole("tab", { name }));
+const showList = async (user: User, name: string) =>
+  user.click(await screen.findByRole("button", { name }));
 // The state badge of the card or row an agent's name links from.
 const stateOf = (link: HTMLElement) =>
   link.closest("tr, [data-slot=card]")?.querySelector("[data-state]");
@@ -485,9 +487,9 @@ describe("에이전트 목록 탭과 보기", () => {
       "GET /v1/agents": () => json(200, { items: [] }),
       "GET /v1/administered-agents": () => json(200, { items: [] }),
     });
-    expect(await screen.findByRole("tab", { name: "전체 0" })).toBeDefined();
+    expect(await screen.findByRole("button", { name: "전체 0" })).toBeDefined();
     expect(
-      await screen.findByRole("tab", { name: "관리하는 에이전트 0" }),
+      await screen.findByRole("button", { name: "관리하는 에이전트 0" }),
     ).toBeDefined();
     expect(screen.getByRole("button", { name: "카드" })).toBeDefined();
     expect(screen.getByText("아직 에이전트가 없습니다.")).toBeDefined();
@@ -510,12 +512,12 @@ describe("에이전트 목록 탭과 보기", () => {
         json(200, { items: [server.detail().agent] }),
     });
     expect(
-      (await screen.findByRole("tab", { name: "전체 2" })).getAttribute(
-        "aria-selected",
+      (await screen.findByRole("button", { name: "전체 2" })).getAttribute(
+        "aria-pressed",
       ),
     ).toBe("true");
     const user = await setupUser();
-    await showTab(user, "관리하는 에이전트 1");
+    await showList(user, "관리하는 에이전트 1");
     await waitFor(() =>
       expect(screen.queryByRole("link", { name: "다른 에이전트" })).toBeNull(),
     );
@@ -535,7 +537,7 @@ describe("에이전트 목록 탭과 보기", () => {
       "GET /v1/agents": () => json(200, { items: [base] }),
       "GET /v1/administered-agents": () => json(200, { items }),
     });
-    await showTab(await setupUser(), "관리하는 에이전트 200+");
+    await showList(await setupUser(), "관리하는 에이전트 200+");
     expect(await screen.findByText("처음 200개만 보입니다.")).toBeDefined();
   });
 
@@ -1730,7 +1732,12 @@ describe("새 에이전트: 브라우저 history", () => {
     expect((screen.getByLabelText("역할") as HTMLInputElement).value).toBe(
       CARD.role,
     );
-    await user.click(screen.getByRole("link", { name: "에이전트" }));
+    await user.click(
+      within(screen.getByRole("navigation", { name: "주요 메뉴" })).getByRole(
+        "link",
+        { name: "에이전트" },
+      ),
+    );
     await user.click(
       within(
         await screen.findByRole("dialog", { name: LEAVE_TITLE }),
@@ -1791,5 +1798,27 @@ describe("새 에이전트: 브라우저 history", () => {
     expect(
       (screen.getByLabelText("지시 사항") as HTMLTextAreaElement).value,
     ).toBe(sent);
+  });
+});
+
+describe("에이전트 머리 경로", () => {
+  const trail = async () => {
+    const [header] = await screen.findAllByRole("banner");
+    return within(header as HTMLElement);
+  };
+
+  test("상세는 에이전트 목록 링크 다음에 이름이 온다", async () => {
+    renderAt(DETAIL, { ...meOk, ...agentServer().routes });
+    const bar = await trail();
+    expect(await bar.findByText("결제 담당")).toBeDefined();
+    expect(
+      bar.getByRole("link", { name: "에이전트" }).getAttribute("href"),
+    ).toBe("/agents");
+  });
+
+  test("새 에이전트는 주소 끝에 /가 붙어도 화면 제목을 쓴다", async () => {
+    renderAt("/agents/new/", { ...meOk, ...agentServer().routes });
+    const bar = await trail();
+    expect(await bar.findByText("새 에이전트")).toBeDefined();
   });
 });

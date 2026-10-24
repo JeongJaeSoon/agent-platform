@@ -11,19 +11,17 @@ import {
   Button,
   EmptyState,
   ErrorState,
-  Input,
   Link,
   PageHeader,
+  SearchInput,
+  SegmentedControl,
+  SegmentedControlItem,
   Skeleton,
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
 } from "@werft-ai/ui";
-import { Plus, Search } from "lucide-react";
+import { Plus } from "lucide-react";
 import { useState } from "react";
 
-import { MOBILE, PartRequest, ScreenShell } from "./screen-kit.tsx";
+import { MOBILE, ScreenShell } from "./screen-kit.tsx";
 
 /*
  * Console v4 session list (Console.dc.html, SESSIONS): one segmented status
@@ -38,9 +36,6 @@ interface Row {
   readonly summary: SessionSummary;
   /** From the oldest pending request's created_at. */
   readonly waitedMinutes?: number;
-  /** last_event_at as RelativeTime will show it, and its tooltip. */
-  readonly recent: string;
-  readonly exact: string;
 }
 
 function summary(
@@ -69,6 +64,7 @@ function summary(
           permission_mode: "default",
         }
       : null,
+    model,
     repository_id: repository,
     repository: repository
       ? { id: repository, full_name: `agent/${repository}`, branch: "main" }
@@ -81,6 +77,9 @@ function summary(
   };
 }
 
+// The design's moment: rows read "12분 전", "3분 전", "어제 15:14", "10/20".
+const NOW = Date.parse("2026-10-24T06:14:45.000Z");
+
 const ROWS: readonly Row[] = [
   {
     summary: summary(
@@ -92,8 +91,6 @@ const ROWS: readonly Row[] = [
       "2026-10-24T06:02:11.000Z",
     ),
     waitedMinutes: 12,
-    recent: "12분 전",
-    exact: "2026년 10월 24일 15:02:11 GMT+9",
   },
   {
     summary: summary(
@@ -104,8 +101,6 @@ const ROWS: readonly Row[] = [
       null,
       "2026-10-24T06:11:40.000Z",
     ),
-    recent: "3분 전",
-    exact: "2026년 10월 24일 15:11:40 GMT+9",
   },
   {
     summary: summary(
@@ -116,8 +111,6 @@ const ROWS: readonly Row[] = [
       null,
       "2026-10-23T06:14:02.000Z",
     ),
-    recent: "어제 15:14",
-    exact: "2026년 10월 23일 15:14:02 GMT+9",
   },
   {
     summary: summary(
@@ -128,8 +121,6 @@ const ROWS: readonly Row[] = [
       "demo-repo",
       "2026-10-20T00:40:17.000Z",
     ),
-    recent: "10/20",
-    exact: "2026년 10월 20일 09:40:17 GMT+9",
   },
   {
     // Created before titles existed (migration 0155 backfills none).
@@ -141,8 +132,6 @@ const ROWS: readonly Row[] = [
       "demo-repo",
       "2026-10-18T02:03:55.000Z",
     ),
-    recent: "10/18",
-    exact: "2026년 10월 18일 11:03:55 GMT+9",
   },
 ];
 
@@ -157,9 +146,6 @@ const FILTERS: readonly (readonly [SessionStatus | "all", string])[] = [
 
 const statusWord = (status: SessionStatus) =>
   FILTERS.find(([key]) => key === status)?.[1] ?? status;
-
-const SEGMENT =
-  "h-7 flex-none rounded-control border-0 px-2 text-control text-muted-foreground hover:text-foreground data-[state=active]:bg-(--ap-color-active) data-[state=active]:text-foreground data-[state=active]:shadow-none";
 
 const ROW_MESSAGES = {
   status: statusWord,
@@ -209,41 +195,32 @@ function SessionListV4Body({
       />
       <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center gap-2">
-          <PartRequest name="SegmentedControl" />
-          <PartRequest name="RelativeTime + Tooltip" />
           <Badge variant="red">
             탭 개수·에이전트·시작한 사람 열: API 변경 필요 (94S-811)
           </Badge>
         </div>
-        <Tabs value={tab} onValueChange={setTab} className="min-w-0 gap-4">
+        <div className="flex min-w-0 flex-col gap-4">
           <div className="flex flex-wrap items-center gap-2">
-            <TabsList
+            <SegmentedControl
               aria-label="상태로 보기"
-              className="h-auto max-w-full flex-nowrap justify-start gap-0.5 overflow-x-auto overflow-y-hidden rounded-[8px] border bg-card p-0.5"
+              value={tab}
+              onValueChange={setTab}
             >
               {FILTERS.map(([key, label]) => (
-                <TabsTrigger key={key} value={key} className={SEGMENT}>
+                <SegmentedControlItem key={key} value={key}>
                   {label}
-                </TabsTrigger>
+                </SegmentedControlItem>
               ))}
-            </TabsList>
-            <div className="relative min-w-[140px] max-w-[320px] flex-[1_1_160px]">
-              <Search
-                className="pointer-events-none absolute top-2 left-2.5 size-4 text-subtle-foreground"
-                strokeWidth={1.5}
-                aria-hidden="true"
-              />
-              <Input
-                type="search"
-                aria-label="제목이나 ID로 찾기"
-                placeholder="제목이나 ID로 찾기"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                className="pl-8"
-              />
-            </div>
+            </SegmentedControl>
+            <SearchInput
+              type="search"
+              aria-label="제목이나 ID로 찾기"
+              placeholder="제목이나 ID로 찾기"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
           </div>
-          <TabsContent value={tab}>
+          <div>
             {state === "loading" ? (
               <div className="flex flex-col gap-3" aria-busy="true">
                 <Skeleton className="h-10 w-full" />
@@ -290,11 +267,7 @@ function SessionListV4Body({
                         ? undefined
                         : `${row.waitedMinutes}분`
                     }
-                    renderTime={(at) => (
-                      <time dateTime={at} title={row.exact}>
-                        {row.recent}
-                      </time>
-                    )}
+                    now={NOW}
                     renderLink={(link) => (
                       <Link href={`#/sessions/${row.summary.id}`} {...link} />
                     )}
@@ -302,8 +275,8 @@ function SessionListV4Body({
                 ))}
               </SessionOverviewTable>
             )}
-          </TabsContent>
-        </Tabs>
+          </div>
+        </div>
         {state === "ready" ? (
           <div className="text-caption text-subtle-foreground">
             {shown.length}개 표시 · 검색은 지금 불러온 세션 안에서만 찾습니다.
