@@ -263,6 +263,29 @@ describe("워크스페이스 설정", () => {
     expect(screen.getByText("켜짐")).toBeDefined();
   });
 
+  test("게스트 스위치는 설정 행 컨트롤 칸의 마지막이고, 읽지 않는 켜짐·꺼짐 글자가 바로 앞에 있다", async () => {
+    renderAt("/settings/workspace", {
+      "GET /v1/auth/me": () => json(200, withGuest(adminMe(), false)),
+    });
+    const toggle = await screen.findByRole("switch", GUEST_SWITCH);
+    const row = toggle.closest('[data-slot="setting-row"]');
+    expect(
+      row?.closest('[role="region"]')?.getAttribute("aria-labelledby"),
+    ).toBe(screen.getByRole("heading", { name: "Slack 게스트" }).id);
+    // bun's toBe passes on unrelated DOM nodes; compare elements with ===.
+    const slot = toggle.parentElement;
+    expect(slot?.lastElementChild === toggle).toBe(true);
+    expect(slot?.parentElement?.parentElement === row).toBe(true);
+    const status = toggle.previousElementSibling;
+    expect(status?.textContent).toBe("꺼짐");
+    expect(status?.querySelector('[aria-hidden="true"]')?.textContent).toBe(
+      "꺼짐",
+    );
+    expect(row?.querySelector(`label[for="${toggle.id}"]`)?.textContent).toBe(
+      GUEST_SWITCH.name,
+    );
+  });
+
   test("키보드로 스위치에 가서 Space로 켜고 Enter로 끈다", async () => {
     let enabled = false;
     const { api } = renderAt("/settings/workspace", {
