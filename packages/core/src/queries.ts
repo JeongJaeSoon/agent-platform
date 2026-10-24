@@ -332,6 +332,8 @@ export function apiKeysQuery(client: ApiClient) {
     queryFn: () =>
       unwrap(client.GET("/v1/api-keys")) as Promise<ListApiKeysResponse>,
     retry: false,
+    // The key tabs share this list; issuing and revoking invalidate it.
+    staleTime: 30_000,
   });
 }
 
