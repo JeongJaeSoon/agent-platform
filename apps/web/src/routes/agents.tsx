@@ -10,6 +10,7 @@ import {
   cn,
   EmptyState,
   formatTimestamp,
+  Page,
   RowLines,
   SegmentedControl,
   SegmentedControlItem,
@@ -43,7 +44,6 @@ import {
 } from "../components/agent-view.ts";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { NewAgentFlow } from "../components/new-agent-flow.tsx";
-import { Page } from "../components/page.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, type Translate, useI18n } from "../i18n/i18n.tsx";
 

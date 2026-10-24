@@ -33,6 +33,7 @@ import {
   EmptyState,
   NativeSelect,
   NativeSelectOption,
+  Page,
   SearchInput,
   SegmentedControl,
   SegmentedControlItem,
@@ -41,7 +42,6 @@ import { ArrowLeft, Plus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { ReasonButton, useCan } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
-import { Page } from "../components/page.tsx";
 import { SEARCH_MAX, useSearchTerm } from "../components/search-term.ts";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";

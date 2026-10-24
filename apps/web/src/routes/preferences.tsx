@@ -2,12 +2,12 @@ import {
   Field,
   FieldContent,
   FieldLabel,
+  Page,
   RadioGroup,
   RadioGroupItem,
 } from "@werft-ai/ui";
 import { type ReactNode, useId } from "react";
 import { roleLabel, useMe, useRole } from "../auth/guard.tsx";
-import { Page } from "../components/page.tsx";
 import { chooseTheme, type Theme, useTheme } from "../components/theme.ts";
 import {
   LOCALE_NAMES,
