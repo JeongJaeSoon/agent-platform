@@ -55,19 +55,30 @@ function NavItem({
   );
 }
 
+/** apps/web's layout.tsx: lists and details wide, forms and settings narrow. */
+export type ContentWidth = "wide" | "narrow";
+
+const CONTENT_MAX_WIDTH: Record<ContentWidth, string> = {
+  wide: "max-w-[101.25rem]",
+  narrow: "max-w-[68.75rem]",
+};
+
 /**
  * Stand-in for AppShell: the sidebar has no '팀' item (M-01) and the topbar
  * has no '새로 만들기' (C-01). Below md the sidebar is hidden as in the console.
+ * The content centres beside the sidebar up to `width` (V4-CENTER).
  */
 export function ScreenShell({
   current,
   crumb,
   role = "owner",
+  width = "wide",
   children,
 }: {
   readonly current: NavKey;
   readonly crumb: readonly string[];
   readonly role?: "owner" | "admin" | "member";
+  readonly width?: ContentWidth;
   readonly children: ReactNode;
 }) {
   return (
@@ -97,8 +108,13 @@ export function ScreenShell({
             {crumb.join(" › ")}
           </nav>
         </header>
-        <main className="w-full max-w-[1040px] px-4 py-4 md:px-8 md:py-8">
-          {children}
+        <main className="w-full p-4 pt-6 md:px-6 md:pt-8 md:pb-8">
+          <div
+            data-content-width={width}
+            className={`mx-auto w-full min-w-0 ${CONTENT_MAX_WIDTH[width]}`}
+          >
+            {children}
+          </div>
         </main>
       </div>
     </div>
