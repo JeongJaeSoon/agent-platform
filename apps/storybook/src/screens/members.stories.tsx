@@ -3,7 +3,9 @@ import {
   Badge,
   Button,
   Card,
+  CardAction,
   CardContent,
+  CardDescription,
   CardHeader,
   CardTitle,
   ConfirmDialog,
@@ -48,7 +50,6 @@ import { type ReactNode, useId, useState } from "react";
 import { fn } from "storybook/test";
 
 import {
-  DangerArea,
   LockedButton,
   MOBILE,
   PartRequest,
@@ -620,19 +621,21 @@ function TeamDetailView({
           </Table>
         </TableContainer>
       </section>
-      <DangerArea
-        rows={[
-          {
-            title: "팀 삭제",
-            body: "팀을 지우면 이 팀이 관리자로 있던 에이전트 3개의 관리에서 빠집니다. 구성원 계정은 그대로입니다.",
-            action: (
+      <Section title="위험 구역" titleAs="h3">
+        <Card className="border-[var(--ap-tone-danger-border)]">
+          <CardHeader>
+            <CardTitle>팀 삭제</CardTitle>
+            <CardDescription>
+              팀을 삭제하면 이 팀이 관리자로 있던 에이전트에서도 빠집니다.
+            </CardDescription>
+            <CardAction>
               <Button type="button" variant="danger">
                 팀 삭제
               </Button>
-            ),
-          },
-        ]}
-      />
+            </CardAction>
+          </CardHeader>
+        </Card>
+      </Section>
     </div>
   );
 }
