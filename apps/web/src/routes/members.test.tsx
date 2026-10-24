@@ -637,7 +637,8 @@ describe("되돌리기 어려운 동작의 확인", () => {
   test("본인 행은 이름 옆에 '나'를 달고, 관리 열에 버튼 하나만 둔다", async () => {
     renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me(undefined, "owner")),
-      "GET /v1/members": () => json(200, { items: [owner, teammate] }),
+      "GET /v1/members": () =>
+        json(200, { items: [owner, teammate], next_cursor: null }),
       ...noInvites,
     });
     const buttonOf = async (name: string) =>
