@@ -2,15 +2,15 @@
 
 `.github/workflows/images.yml`은 ci.yml과 별도 workflow로 세 앱 이미지를 빌드·smoke하고 digest artifact를 남긴다([이미지와 공급망 § 이미지와 Compose `apps` profile](../operator/images-and-supply-chain.md#이미지와-compose-apps-profile)). 아래는 ci.yml이다.
 
-`.github/workflows/ci.yml`은 `main` push와 모든 pull request에서 `check`의 다섯 부분과 도메인별 integration job 6개를 **동시에** 시작한다. `check`가 성공해야 `integration`을 돌리면 실패한 변경에서 서비스 컨테이너 분을 아끼지만, 저장소가 public이라 그 분은 무료이고 대가인 대기(`check` 약 5분 + `integration` 약 7분 30초 직렬)만 남는다. 같은 커밋이 push와 pull_request로 두 번 돌지 않게 push는 `main`으로만 제한한다.
+`.github/workflows/ci.yml`은 `main` push와 모든 pull request에서 `check`의 여섯 부분과 도메인별 integration job 6개를 **동시에** 시작한다. `check`가 성공해야 `integration`을 돌리면 실패한 변경에서 서비스 컨테이너 분을 아끼지만, 저장소가 public이라 그 분은 무료이고 대가인 대기(`check` 약 5분 + `integration` 약 7분 30초 직렬)만 남는다. 같은 커밋이 push와 pull_request로 두 번 돌지 않게 push는 `main`으로만 제한한다.
 
 integration 스위트는 숫자 샤드가 아니라 도메인별 job 6개(`integration (db)`·`(api)`·`(storage)`·`(docker)`·`(egress)`·`(worker)`)로 나뉘어 각자의 runner에서 돈다. job마다 **자기 파일이 요구하는 서비스만** 띄운다 — PostgreSQL만 쓰는 `db`는 LocalStack을 기다리지 않고, 서비스가 필요 없는 `worker`는 컨테이너 없이 곧바로 테스트에 들어간다. job끼리는 DB·컨테이너·네트워크를 공유하지 않고, 한 job 안에서는 파일들이 한 `bun test` 프로세스에서 순서대로 돈다. 어느 파일이 어느 job인지는 ci.yml의 `integration-domain` matrix에 있는 `paths`(저장소 기준 상대 경로의 접두어)가 유일한 기록이다. `.github/scripts/integration-jobs.ts`가 그것을 읽어 `package.json`의 `test` 스크립트가 도는 파일 전부를 나누고(파일 찾기는 `.github/scripts/test-files.ts` — Bun과 같은 규칙이며 Bun은 `tests packages apps` 인자를 디렉터리가 아니라 부분 문자열로 맞춘다), **어느 job에도 속하지 않는 파일, 두 job에 걸리는 파일, 아무 파일도 잡지 않는 접두어, 빈 job**이 하나라도 있으면 모든 integration job이 테스트 전에 실패한다. 같은 검사가 `tests/integration-jobs.test.ts`로 `check`에서도 돈다. 새 테스트 파일을 기존 접두어 밖에 만들면 matrix에 한 줄 넣어야 한다. 가장 긴 도메인이 가장 긴 `check` 부분보다 길어지면 그 도메인을 의미 단위로 다시 나눈다 — `egress`(egress proxy와 worker 네트워크 격리, suite가 LocalStack 이미지를 직접 받아 혼자 70초 남짓)를 `docker`와 따로 두는 이유다.
 
 서비스를 job마다 나누면 새 구멍이 하나 생긴다: 필요한 서비스가 없는 job에 들어간 파일은 opt-in 변수가 꺼져 있어 테스트가 실패하지 않고 **skip된다**. 그래서 각 job은 `bun test --reporter=junit`의 보고서를 같은 스크립트로 다시 읽어, 자기 파일이 전부 돌았는지, 다른 파일이 끼지 않았는지, matrix에 선언하지 않은 skip이 없는지 확인하고 하나라도 어긋나면 실패한다. 선언된 skip은 두 종류다. `integration (storage)`의 `packages/storage/src/git-runner.test.ts` 1건(Linux에서 의도적으로 skip)과, `integration (worker)`의 D2 gate 테스트(`tests/d2-gate/*.e2e.test.ts`, 스택 전체가 필요해 [D2 gate](#d2-gate-nightly)만 돌린다)다. 선언했는데 skip되지 않아도 실패한다. skip을 세지 못하는 유일한 형태 — opt-in이 꺼지면 테스트를 아예 선언하지 않는 것 — 는 쓰지 않는다(`tests/checkpoint-flow.test.ts`의 LocalStack 변형도 `describe.skip`으로 선언한다).
 
-`check`는 숫자 샤드가 아니라 **역할 이름이 붙은 job**으로 나뉜다: `check (typecheck)`, `check (lint)`, `check (licenses)`, `check (unit: packages)`, `check (unit: apps, tests)`. `check (licenses)`는 아래 "제3자 라이선스와 취약점"을 본다. 단일 job이면 `bun run check` 한 단계가 typecheck 약 1분 → Biome 1초 → 서비스 없는 Bun 테스트 약 4분 10초를 직렬로 돌아 5분 10초이고, integration 샤드보다 길어 PR run 전체의 임계 경로가 된다. 테스트만으로도 가장 긴 integration 샤드와 비슷하므로 테스트를 한 번 더 저장소 구조로 나눈다. `.github/scripts/unit-part.ts`가 integration과 같은 파일 찾기(`.github/scripts/test-files.ts`)로 파일을 찾아 `packages/` 아래를 `packages`로, 나머지 전부(지금은 `apps/`·`tests/`)를 `rest`로 준다. `rest`는 `packages`의 여집합이라 두 부분 사이로 빠지는 파일이 없고, `test` 필터가 새 최상위 디렉터리를 잡으면 `rest`로 간다. 빈 부분은 전체 스위트로 읽히므로 출력 전에 실패한다. 로컬 `bun run check`는 그대로 셋을 직렬로 돈다.
+`check`는 숫자 샤드가 아니라 **역할 이름이 붙은 job**으로 나뉜다: `check (typecheck)`, `check (lint)`, `check (licenses)`, `check (unit: packages)`, `check (unit: worker, web)`, `check (unit: other apps, tests)`. `check (licenses)`는 아래 "제3자 라이선스와 취약점"을 본다. 단일 job이면 `bun run check` 한 단계가 typecheck 약 1분 → Biome 1초 → 서비스 없는 Bun 테스트 약 4분 10초를 직렬로 돌아 5분 10초이고, integration 샤드보다 길어 PR run 전체의 임계 경로가 된다. 테스트만으로도 가장 긴 integration 샤드와 비슷하므로 테스트를 한 번 더 저장소 구조로 나눈다. `.github/scripts/unit-part.ts`가 integration과 같은 파일 찾기(`.github/scripts/test-files.ts`)로 파일을 찾아 `packages/` 아래를 `packages`로, `apps/worker/`·`apps/web/` 아래를 `worker-web`으로, 나머지 전부(지금은 다른 `apps/`·`tests/`)를 `rest`로 준다. `apps/`·`tests/`를 한 job으로 돌던 때는 p95가 5분 40초로 6분 timeout에 붙어 있어 둘로 나눴다(94S-890). `rest`는 앞의 둘의 여집합이라 부분 사이로 빠지는 파일이 없고, `test` 필터가 새 최상위 디렉터리를 잡으면 `rest`로 간다. 빈 부분은 전체 스위트로 읽히므로 출력 전에 실패한다. 로컬 `bun run check`는 그대로 셋을 직렬로 돈다.
 
-브랜치 보호의 필수 체크는 `check`·`integration`·`e2e`·`quickstart`와 images.yml의 `supply-chain`이다. matrix는 부분·도메인마다 context를 따로 올리므로 `check`는 다섯 부분을, `integration`은 여섯 도메인 job을 기다리는 집계 job이다. 결과가 `success`가 아니면(실패·취소·timeout·skip) 빨갛게 끝난다. `workspace-quota`와 `agent-sdk-compat`는 집계 job `check`를 `needs`로 기다린다. 조건이 `always()`인 이유는 skip된 필수 체크가 통과로 취급되기 때문이다 — 기본 조건이면 한 job이 실패했을 때, `!cancelled()`면 한 job이 실패한 뒤 run이 취소됐을 때 집계 job이 skip되어 PR이 초록으로 보인다. matrix는 `fail-fast: false`라 한 job의 실패가 다른 job을 취소하지 않는다. 동시 job: PR run 하나는 시작 순간 11개 job(`check` 부분 5 + integration 도메인 6)을 쥔다. `check (lint)`는 30초 안팎, `check (typecheck)`와 서비스가 가벼운 도메인은 1분 30초 안팎에 끝나므로 대부분의 시간은 그보다 적다. PR 2개가 한꺼번에 시작하면 free plan의 동시 job 20개에 닿고, 넘는 job은 실패하지 않고 줄을 선다.
+브랜치 보호의 필수 체크는 `check`·`integration`·`e2e`·`quickstart`와 images.yml의 `supply-chain`이다. matrix는 부분·도메인마다 context를 따로 올리므로 `check`는 여섯 부분을, `integration`은 여섯 도메인 job을 기다리는 집계 job이다. 결과가 `success`가 아니면(실패·취소·timeout·skip) 빨갛게 끝난다. `workspace-quota`와 `agent-sdk-compat`는 집계 job `check`를 `needs`로 기다린다. 조건이 `always()`인 이유는 skip된 필수 체크가 통과로 취급되기 때문이다 — 기본 조건이면 한 job이 실패했을 때, `!cancelled()`면 한 job이 실패한 뒤 run이 취소됐을 때 집계 job이 skip되어 PR이 초록으로 보인다. matrix는 `fail-fast: false`라 한 job의 실패가 다른 job을 취소하지 않는다. 동시 job: PR run 하나는 시작 순간 12개 job(`check` 부분 6 + integration 도메인 6)을 쥔다. `check (lint)`는 30초 안팎, `check (typecheck)`와 서비스가 가벼운 도메인은 1분 30초 안팎에 끝나므로 대부분의 시간은 그보다 적다. PR 2개가 한꺼번에 시작하면 free plan의 동시 job 20개에 닿고, 넘는 job은 실패하지 않고 줄을 선다.
 
 `agent-sdk-compat`는 **pull request에서는 돌지 않는다.** 결과가 어차피 run을 막지 않으므로(아래 참고) PR 커밋마다 돌려도 `main` push가 주는 신호 이상을 얻지 못한다. `main` push와 수동 실행에서만 돈다. `scripts/agent-sdk-compat`을 건드리거나 SDK·LiteLLM 버전을 올리는 PR은 `-f only=agent-sdk-compat`로 직접 확인한다.
 
@@ -45,8 +45,8 @@ bun 버전 고정과 `~/.bun/install/cache` 캐시는 `.github/actions/bun-setup
 | `check (typecheck)` | 없음 | 없음 | `bun run typecheck` | 집계로 |
 | `check (lint)` | 없음 | 없음 | `bun run lint` (Biome) | 집계로 |
 | `check (licenses)` | 없음 | 없음 | `bun scripts/third-party-notices.ts --check` | 집계로 |
-| `check (unit: packages)`, `check (unit: apps, tests)` | 없음 | 없음 | `bun test <unit-part.ts가 고른 파일>` (`packages/` 아래 / 그 나머지) | 집계로 |
-| `check` | 없음 | 없음 | 다섯 부분의 결과가 `success`인지 확인 | ✅ |
+| `check (unit: packages)`, `check (unit: worker, web)`, `check (unit: other apps, tests)` | 없음 | 없음 | `bun test <unit-part.ts가 고른 파일>` (`packages/` 아래 / `apps/worker/`·`apps/web/` 아래 / 그 나머지) | 집계로 |
+| `check` | 없음 | 없음 | 여섯 부분의 결과가 `success`인지 확인 | ✅ |
 | `integration (db)` | `postgres:16` | `QUEUE_DATABASE_URL` | `bun test <db 파일>` | 집계로 |
 | `integration (api)` | `postgres:16`, `localstack/localstack:3` | `QUEUE_DATABASE_URL`, `STORAGE_LOCALSTACK_TEST=1` | `bun test <api 파일>` | 집계로 |
 | `integration (storage)` | `localstack/localstack:3` | `STORAGE_LOCALSTACK_TEST=1` | `bun test <storage 파일>` | 집계로 |
@@ -129,7 +129,7 @@ compose 스택도 같은 원칙이다. `infra/compose.core.yml`·`infra/compose.
 - **actions cache**(`docker save` tar를 캐시하고 `docker load`): 서비스 컨테이너는 첫 step보다 먼저 뜨므로 캐시를 쓰려면 `services:`를 step으로 다시 짜야 한다. LocalStack tar만 1 GB를 넘어 저장소 캐시 10 GB를 bun 캐시와 나눠 쓰게 되고, 캐시가 밀려나면 조용히 Docker Hub로 돌아간다. `docker load`도 layer를 푸는 시간은 pull과 같다.
 - **digest 고정 + 사전 pull만**: 재현성은 얻지만 받는 곳이 여전히 Docker Hub라 rate limit 위험이 그대로다. digest 고정은 미러와 함께 가져왔다.
 
-**`tests/ci-images.test.ts`**(`check (unit: apps, tests)`와 `integration (worker)`에서 돈다)가 지키는 것:
+**`tests/ci-images.test.ts`**(`check (unit: other apps, tests)`와 `integration (worker)`에서 돈다)가 지키는 것:
 
 - ci.yml의 서비스 이미지와 `*_IMAGE` 변수가 전부 mirror 참조다. mirror 목록에 있는 upstream `name:tag`는 ci.yml 어디에도 나오지 않는다.
 - ci.yml의 mirror 참조는 전부 `<name>@sha256:…`이고, 그 `name`·digest 쌍이 mirror 목록에 있다.
