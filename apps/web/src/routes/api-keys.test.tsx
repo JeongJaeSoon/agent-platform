@@ -320,7 +320,7 @@ describe("API key", () => {
     ).toBeDefined();
   });
 
-  test("만들기 폼은 카드 아래 버튼 줄에 취소·만들기를 두고, 제목 위 링크로 목록에 돌아간다", async () => {
+  test("만들기 폼은 카드 아래 버튼 줄에 취소·만들기를 두고, 제목 위 breadcrumb으로 목록에 돌아간다", async () => {
     const { history } = renderAt(NEW_SERVICE, {
       ...ownerOk,
       ...keysServer(),
@@ -333,8 +333,13 @@ describe("API key", () => {
         (el) => el.textContent,
       ),
     ).toEqual(["취소", "key 만들기"]);
-    const back = screen.getByRole("link", { name: "서비스 key" });
-    expect(back.getAttribute("data-slot")).toBe("link");
+    // A crumb above the title, not a button in the head's actions
+    // (V4-PAGE-FRAME).
+    const trail = screen.getByRole("navigation", { name: "위치" });
+    const back = within(trail).getByRole("link", { name: "서비스 key" });
+    expect(trail.querySelector("[aria-current=page]")?.textContent).toBe(
+      "새 서비스 key",
+    );
     const user = await setupUser();
     await user.click(back);
     expect(
