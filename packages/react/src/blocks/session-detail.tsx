@@ -493,11 +493,19 @@ function Operations({
             {
               label: t("session.ops.available"),
               value:
-                actions.length === 0
-                  ? t("session.ops.none")
-                  : actions
-                      .map((action) => t(`session.control.${action}`))
-                      .join(" · "),
+                actions.length === 0 ? (
+                  t("session.ops.none")
+                ) : (
+                  // A narrow panel breaks the line between commands only.
+                  <span className="flex flex-wrap justify-end gap-x-1">
+                    {actions.map((action, index) => (
+                      <span key={action} className="whitespace-nowrap">
+                        {t(`session.control.${action}`)}
+                        {index < actions.length - 1 ? " · " : null}
+                      </span>
+                    ))}
+                  </span>
+                ),
             },
             {
               label: t("session.ops.mine"),

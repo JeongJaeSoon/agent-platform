@@ -1920,9 +1920,9 @@ describe("세션 상세 레이아웃", () => {
     expect(
       await within(ops).findByText("나는 이 세션의 요청에 답할 수 있습니다."),
     ).toBeTruthy();
-    expect(
-      within(ops).getByText("지금 turn 멈추기 · 일시 정지 · 세션 종료"),
-    ).toBeTruthy();
+    expect(ops.textContent).toContain(
+      "지금 turn 멈추기 · 일시 정지 · 세션 종료",
+    );
     expect(within(ops).getByText("할 수 있음")).toBeTruthy();
     expect(within(ops).queryAllByRole("button")).toHaveLength(0);
   });
@@ -1936,7 +1936,7 @@ describe("세션 상세 레이아웃", () => {
         new Promise<Response>(() => {}),
     });
     const ops = await screen.findByRole("region", { name: "운영" });
-    expect(within(ops).getByText("다시 시작 · 세션 종료")).toBeTruthy();
+    expect(ops.textContent).toContain("다시 시작 · 세션 종료");
     expect(
       within(ops).getByText(
         "세션을 시작한 사람, 에이전트 담당자, 워크스페이스 소유자·관리자",
