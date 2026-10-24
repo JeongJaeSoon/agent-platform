@@ -47,4 +47,14 @@ export interface SessionLinkStore {
    * keeps it; the answer is the row as it stands.
    */
   attachSession(linkId: string, sessionId: string): Promise<SessionLinkRecord>;
+  /**
+   * The session `createSession` made under the link's id, when it answered
+   * but the link was never filled; null when it never made one.
+   */
+  openedSession(link: SessionLinkRecord): Promise<string | null>;
+  /**
+   * Hands the opening to another message while the link names no session;
+   * the answer is the row as it stands.
+   */
+  reopen(linkId: string, openedByTs: string): Promise<SessionLinkRecord>;
 }

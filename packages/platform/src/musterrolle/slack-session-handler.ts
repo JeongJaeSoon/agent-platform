@@ -290,17 +290,21 @@ export function createSlackSessionHandler(
         })
       ).link;
     }
-    await setProcessing(botToken, event.channel, threadTs, ids);
-
     try {
+      if (link.sessionId === null && link.openedByTs !== event.ts) {
+        link = await adoptOrReopen(link, event.ts);
+      }
       if (link.sessionId === null || link.openedByTs === event.ts) {
-        await openSession(caller, link, event.ts, message, dm);
+        await openSession(caller, link, message, dm);
       } else {
         await deps.sessions.appendMessage(caller, link.sessionId, {
           idempotencyKey: `${claim.teamId}:${event.channel}:${event.ts}`,
           body: { message, mode: "enqueue" },
         });
       }
+      // After the effects, so nothing slow sits between the lease's renewal
+      // and the session's write.
+      await setProcessing(botToken, event.channel, threadTs, ids);
     } catch (error) {
       if (
         !(error instanceof SessionServiceError) ||
@@ -316,20 +320,30 @@ export function createSlackSessionHandler(
     }
   };
 
+  /**
+   * The link's opening message gave out before the link learned its
+   * session: keep the session it made, or let this message open one.
+   */
+  async function adoptOrReopen(
+    link: SessionLinkRecord,
+    ts: string,
+  ): Promise<SessionLinkRecord> {
+    const made = await deps.sessionLinks.openedSession(link);
+    if (made !== null) return deps.sessionLinks.attachSession(link.id, made);
+    deps.logger.warn("Slack thread's opening message ran out; reopened", {
+      link_id: link.id,
+    });
+    return deps.sessionLinks.reopen(link.id, ts);
+  }
+
   async function openSession(
     caller: Caller,
     link: SessionLinkRecord,
-    ts: string,
     message: string,
     dm: boolean,
   ): Promise<void> {
-    if (link.openedByTs !== ts && link.sessionId === null) {
-      deps.logger.warn("Slack thread's opening message ran out; reopened", {
-        link_id: link.id,
-      });
-    }
     const created = await deps.sessions.createSession(caller, {
-      idempotencyKey: link.openedByTs === ts ? link.id : `${link.id}:${ts}`,
+      idempotencyKey: link.id,
       body: {
         profile_id: link.profileId,
         agent_release_id: link.releaseId,

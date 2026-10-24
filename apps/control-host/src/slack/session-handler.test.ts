@@ -409,6 +409,25 @@ const turnsOf = (sessionId: string | undefined) =>
 
 const links = () => db.select().from(sessionLinks);
 
+/** The thread's link as a pass that died right after reserving it left it. */
+async function reserveThread(fixture: Fixture) {
+  const [installation] = await db.select().from(slackInstallations);
+  const [binding] = await db.select().from(surfaceBindings);
+  await createPostgresSessionLinkStore(db).reserve({
+    workspaceId: fixture.workspaceId,
+    installationId: installation?.id ?? "",
+    surfaceBindingId: binding?.id ?? "",
+    surfaceRef: `${CHANNEL}:100.000100`,
+    channelId: CHANNEL,
+    threadId: "100.000100",
+    openedByTs: "100.000100",
+    agentId: fixture.agentId,
+    releaseId: fixture.releaseId,
+    profileId: "general",
+    createdBy: fixture.ownerId,
+  });
+}
+
 const inboxStatuses = async () =>
   (
     await db
@@ -664,27 +683,52 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     await deliver(fixture, mention("100.000100"));
     const [claim] = await claimAll(1);
     expect(claim).toBeDefined();
-    const [installation] = await db.select().from(slackInstallations);
-    const [binding] = await db.select().from(surfaceBindings);
-    await createPostgresSessionLinkStore(db).reserve({
-      workspaceId: fixture.workspaceId,
-      installationId: installation?.id ?? "",
-      surfaceBindingId: binding?.id ?? "",
-      surfaceRef: `${CHANNEL}:100.000100`,
-      channelId: CHANNEL,
-      threadId: "100.000100",
-      openedByTs: "100.000100",
-      agentId: fixture.agentId,
-      releaseId: fixture.releaseId,
-      profileId: "general",
-      createdBy: fixture.ownerId,
-    });
+    await reserveThread(fixture);
     await Bun.sleep(20);
     await drain(handler().handle);
     const [session, ...others] = await sessionsOf(fixture);
     expect(others).toEqual([]);
     const [link] = await links();
     expect(link?.sessionId).toBe(session?.id ?? "");
+  });
+
+  test("a session made before its link knew it stays the thread's one session", async () => {
+    const fixture = await agentInSlack();
+    const { handle } = handler();
+    await deliver(fixture, mention("100.000100"));
+    await drain(handle);
+    await db.update(sessionLinks).set({ sessionId: null });
+    await deliver(fixture, message("100.000200", { thread_ts: "100.000100" }));
+    await drain(handle);
+    const [session, ...others] = await sessionsOf(fixture);
+    expect(others).toEqual([]);
+    const said = (await turnsOf(session?.id)).map((turn) => turn.message);
+    expect(said).toEqual(["summarize the thread", "and the next step"]);
+    const [link] = await links();
+    expect(link?.sessionId).toBe(session?.id ?? "");
+  });
+
+  test("a post that opens the thread in place of its spent first post is one turn, however often it comes", async () => {
+    const fixture = await agentInSlack();
+    const { handle } = handler();
+    await reserveThread(fixture);
+    const reply = message("100.000200", {
+      thread_ts: "100.000100",
+      text: `<@${BOT_USER}> more`,
+    });
+    await deliver(fixture, reply);
+    await drain(handle);
+    await deliver(fixture, { ...reply, type: "app_mention" });
+    await drain(handle);
+    const [session, ...others] = await sessionsOf(fixture);
+    expect(others).toEqual([]);
+    const said = (await turnsOf(session?.id)).map((turn) => turn.message);
+    expect(said).toEqual(["more"]);
+    const [link] = await links();
+    expect(link).toMatchObject({
+      sessionId: session?.id,
+      openedByTs: "100.000200",
+    });
   });
 
   test("a lease lost before the effects makes nothing; so does an uninstall since the claim", async () => {

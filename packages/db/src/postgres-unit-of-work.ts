@@ -114,9 +114,9 @@ import {
 import { recordStatus } from "./session-events.ts";
 import { sessionRelationIs, sessionVisibleTo } from "./session-shares.ts";
 
-const CREATE_SESSION = "create_session";
+export const CREATE_SESSION = "create_session";
 const APPEND_MESSAGE = "append_message";
-const SESSIONS_RESOURCE = "sessions";
+export const SESSIONS_RESOURCE = "sessions";
 
 async function recordAcceptance(
   tx: Database,

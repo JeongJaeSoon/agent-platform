@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { SessionLinkRecord, SessionLinkStore } from "@werft-ai/platform";
 import { and, eq, isNull } from "drizzle-orm";
+import { CREATE_SESSION, SESSIONS_RESOURCE } from "./postgres-unit-of-work.ts";
 import type { Database } from "./queries.ts";
-import { sessionLinks } from "./schema.ts";
+import { idempotencyKeys, receipts, sessionLinks } from "./schema.ts";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -84,13 +85,44 @@ export function createPostgresSessionLinkStore(db: Database): SessionLinkStore {
         .update(t)
         .set({ sessionId: sessionId.toLowerCase() })
         .where(and(eq(t.id, linkId), isNull(t.sessionId)));
+      return read(linkId);
+    },
+
+    async openedSession(link) {
       const [row] = await db
-        .select(columns)
-        .from(t)
-        .where(eq(t.id, linkId))
+        .select({ result: receipts.result })
+        .from(idempotencyKeys)
+        .innerJoin(receipts, eq(receipts.id, idempotencyKeys.receiptId))
+        .where(
+          and(
+            eq(idempotencyKeys.principal, link.workspaceId),
+            eq(idempotencyKeys.operation, CREATE_SESSION),
+            eq(idempotencyKeys.resource, SESSIONS_RESOURCE),
+            eq(idempotencyKeys.key, link.id),
+          ),
+        )
         .limit(1);
-      if (!row) throw new Error(`session link ${linkId} not found`);
-      return row satisfies SessionLinkRecord;
+      const made = (row?.result as { session_id?: unknown } | null | undefined)
+        ?.session_id;
+      return typeof made === "string" ? made : null;
+    },
+
+    async reopen(linkId, openedByTs) {
+      await db
+        .update(t)
+        .set({ openedByTs })
+        .where(and(eq(t.id, linkId), isNull(t.sessionId)));
+      return read(linkId);
     },
   };
+
+  async function read(linkId: string): Promise<SessionLinkRecord> {
+    const [row] = await db
+      .select(columns)
+      .from(t)
+      .where(eq(t.id, linkId))
+      .limit(1);
+    if (!row) throw new Error(`session link ${linkId} not found`);
+    return row;
+  }
 }
