@@ -24,7 +24,12 @@ import {
   SURFACE_KIND_VALUES,
   type SurfaceKind,
 } from "@werft-ai/contracts";
-import type { SecretOwnerRef } from "@werft-ai/platform";
+import type {
+  SecretOwnerRef,
+  SlackOutboxBody,
+  SlackOutboxKind,
+  SlackOutboxStatus,
+} from "@werft-ai/platform";
 import { sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
@@ -2398,6 +2403,11 @@ export const sessionLinks = pgTable(
     visibility: text().$type<"full" | "summary">().notNull().default("full"),
     muted: boolean().notNull().default(false),
     revision: integer().notNull().default(1),
+    /**
+     * The Slack outbox's mark: every turn up to this sequence needs nothing
+     * more from it, so its pass reads only the turns after.
+     */
+    answeredThrough: integer("answered_through").notNull().default(0),
     createdBy: uuid("created_by").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -2437,6 +2447,80 @@ export const sessionLinks = pgTable(
       sql`${table.visibility} IN ('full', 'summary')`,
     ),
     check("session_links_revision_check", sql`${table.revision} >= 1`),
+  ],
+);
+
+// What the `slack` role sends: a linked turn's answer, its failure or input
+// notice, and refusals. A row whose send was under way when its lease ran
+// out becomes `uncertain` and is never sent again (design 94S-792).
+export const slackOutbox = pgTable(
+  "slack_outbox",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    agentId: uuid("agent_id").notNull(),
+    slackAppId: uuid("slack_app_id")
+      .notNull()
+      .references(() => slackApps.id),
+    installationId: uuid("installation_id").notNull(),
+    kind: text().$type<SlackOutboxKind>().notNull(),
+    channelId: text("channel_id").notNull(),
+    threadTs: text("thread_ts").notNull(),
+    slackUserId: text("slack_user_id"),
+    sessionId: uuid("session_id").references(() => sessions.id),
+    /** The text before Slack controls are escaped, and the link it carries. */
+    body: jsonb().$type<SlackOutboxBody>().notNull(),
+    dedupeKey: text("dedupe_key").notNull(),
+    status: text().$type<SlackOutboxStatus>().notNull().default("pending"),
+    claimToken: uuid("claim_token"),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    /** Claims so far. */
+    attempts: integer().notNull().default(0),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
+    slackTs: text("slack_ts"),
+    errorCode: text("error_code"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    // Send order: rows enqueued within one clock tick still go in order.
+    seq: bigserial({ mode: "number" }).notNull(),
+  },
+  (table) => [
+    unique("slack_outbox_dedupe_key").on(table.dedupeKey),
+    foreignKey({
+      name: "slack_outbox_agent_fk",
+      columns: [table.workspaceId, table.agentId],
+      foreignColumns: [agents.workspaceId, agents.id],
+    }),
+    check(
+      "slack_outbox_kind_check",
+      sql`${table.kind} IN ('reply', 'notice', 'failure_notice', 'input_notice')`,
+    ),
+    check(
+      "slack_outbox_status_check",
+      sql`${table.status} IN ('pending', 'sending', 'sent', 'failed', 'uncertain')`,
+    ),
+    check(
+      "slack_outbox_user_check",
+      sql`(${table.kind} = 'notice') = (${table.slackUserId} IS NOT NULL)`,
+    ),
+    check(
+      "slack_outbox_claim_check",
+      // A claimed row stays `pending` until its send begins.
+      sql`(${table.claimToken} IS NULL) = (${table.leaseExpiresAt} IS NULL) AND (${table.status} IN ('pending', 'sending') OR ${table.claimToken} IS NULL) AND (${table.status} <> 'sending' OR ${table.claimToken} IS NOT NULL)`,
+    ),
+    index("slack_outbox_due_idx")
+      .on(table.nextAttemptAt)
+      .where(sql`${table.status} = 'pending'`),
+    index("slack_outbox_sending_idx")
+      .on(table.leaseExpiresAt)
+      .where(sql`${table.status} = 'sending'`),
+    index("slack_outbox_session_idx").on(table.sessionId),
+    index("slack_outbox_uncertain_idx")
+      .on(table.seq)
+      .where(sql`${table.status} = 'uncertain' AND ${table.kind} = 'reply'`),
   ],
 );
 
