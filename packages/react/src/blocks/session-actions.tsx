@@ -546,7 +546,7 @@ export function SessionControls({
         // Not `disabled` while a command runs: Chrome takes focus off a
         // disabled button, and the keyboard would lose its place.
         aria-disabled={control.isPending || undefined}
-        size={icons ? "icon" : "sm"}
+        size={icons ? "icon-sm" : "sm"}
         className={
           icons && action === "terminate"
             ? "text-destructive hover:text-destructive aria-disabled:opacity-50"
