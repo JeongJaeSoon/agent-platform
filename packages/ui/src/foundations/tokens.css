@@ -222,6 +222,16 @@
     --ap-leading-title: 1.75rem;
     --ap-text-number: 1.5rem;
     --ap-leading-number: 2rem;
+
+    /*
+     * Charts draw one series in greys, no category hues: aliases of existing
+     * colours, so they turn dark with them. A part a reader picks or points
+     * at takes mark-active.
+     */
+    --ap-chart-mark: var(--ap-color-subtle-foreground);
+    --ap-chart-mark-active: var(--ap-color-foreground);
+    --ap-chart-track: var(--ap-color-sidebar-accent);
+    --ap-chart-grid: var(--ap-color-border);
   }
 
   /*
