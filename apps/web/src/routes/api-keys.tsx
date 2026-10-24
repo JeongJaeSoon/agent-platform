@@ -849,6 +849,7 @@ function NewKeyScreen({ kind }: { readonly kind: KeyKind }) {
 
   return (
     <Page
+      width="form"
       title={t(screen.newTitle)}
       description={t(screen.intro)}
       breadcrumb={

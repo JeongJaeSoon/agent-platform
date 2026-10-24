@@ -40,6 +40,11 @@ export function PageFrame({
 
 export type PageProps = Omit<PageHeaderProps, "className"> & {
   readonly children?: ReactNode;
+  /**
+   * `form` stops the sections at `--ap-w-form` for a page that is one form
+   * or settings column; the page and its head keep the frame's width.
+   */
+  readonly width?: "full" | "form" | undefined;
 };
 
 /**
@@ -47,11 +52,21 @@ export type PageProps = Omit<PageHeaderProps, "className"> & {
  * apart (console v35). `actions` takes several elements, such as a view
  * switch before the primary button.
  */
-export function Page({ children, ...header }: PageProps): JSX.Element {
+export function Page({
+  children,
+  width = "full",
+  ...header
+}: PageProps): JSX.Element {
   return (
     <div data-slot="page" className="flex flex-col">
       <PageHeader {...header} />
-      <div className="flex flex-col gap-[var(--ap-space-section)]">
+      <div
+        data-width={width}
+        className={cn(
+          "flex flex-col gap-[var(--ap-space-section)]",
+          width === "form" && "w-full max-w-[var(--ap-w-form)]",
+        )}
+      >
         {children}
       </div>
     </div>

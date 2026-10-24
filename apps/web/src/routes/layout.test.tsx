@@ -103,6 +103,31 @@ describe("app shell", () => {
     });
   }
 
+  // One form or settings column stops inside the frame; lists use it all.
+  for (const [path, title, width] of [
+    ["/sessions", "세션", "full"],
+    ["/settings/api-keys", "내 key", "full"],
+    ["/settings/workspace", "워크스페이스 설정", "form"],
+    ["/settings/preferences", "언어·테마", "form"],
+    ["/settings/linked-accounts", "연동 계정", "form"],
+    ["/settings/api-keys/new", "새 개인 key", "form"],
+    ["/agents/new", "새 에이전트", "form"],
+  ] as const) {
+    test(`${path} takes the ${width} column`, async () => {
+      renderAt(path, signedIn);
+      const heading = await screen.findByRole("heading", {
+        level: 1,
+        name: title,
+      });
+      expect(
+        heading
+          .closest('[data-slot="page"]')
+          ?.querySelector("[data-width]")
+          ?.getAttribute("data-width"),
+      ).toBe(width);
+    });
+  }
+
   test("a session's detail lays out the whole area itself", async () => {
     renderAt(`/sessions/${FIRST}`, signedIn);
     await waitFor(() =>
