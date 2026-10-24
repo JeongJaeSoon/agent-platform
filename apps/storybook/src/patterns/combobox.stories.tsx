@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import {
+  Badge,
   Combobox,
   type ComboboxOption,
   Field,
@@ -19,6 +20,8 @@ const COPY = {
     channelPlaceholder: "채널 이름으로 찾기",
     public: "공개 채널",
     private: "비공개 채널",
+    publicTag: "공개",
+    privateTag: "비공개",
     empty: "맞는 결과가 없습니다.",
     loading: "불러오는 중…",
     loadMore: "더 보기",
@@ -32,6 +35,8 @@ const COPY = {
     channelPlaceholder: "チャンネル名で検索",
     public: "公開チャンネル",
     private: "非公開チャンネル",
+    publicTag: "公開",
+    privateTag: "非公開",
     empty: "一致する結果はありません。",
     loading: "読み込み中…",
     loadMore: "さらに表示",
@@ -45,6 +50,8 @@ const COPY = {
     channelPlaceholder: "Search channels",
     public: "Public channel",
     private: "Private channel",
+    publicTag: "Public",
+    privateTag: "Private",
     empty: "No matches.",
     loading: "Loading…",
     loadMore: "Load more",
@@ -100,6 +107,8 @@ const CHANNELS = [
   ["data-platform", false],
 ] as const;
 const CONNECTED = new Set(["general", "deploys"]);
+// A name too long for 390px, so its line ends in an ellipsis before the tag.
+const LONG_CHANNEL = "customer-success-escalations-apac-weekend-oncall";
 const PAGE = 5;
 const LATENCY_MS = 600;
 
@@ -142,6 +151,37 @@ function MemberPicker({
         />
         <FieldDescription>{copy.memberHint}</FieldDescription>
       </Field>
+    </div>
+  );
+}
+
+/** Visibility as a tag at the end of the name's line, not a second line. */
+function ChannelTagPicker({ copy }: { readonly copy: Copy }) {
+  const [value, setValue] = useState<string | null>(null);
+  const options: ComboboxOption[] = [
+    [LONG_CHANNEL, false] as const,
+    ...CHANNELS,
+  ].map(([name, isPrivate]) => ({
+    value: name,
+    label: `#${name}`,
+    end: (
+      <Badge variant="gray">
+        {isPrivate ? copy.privateTag : copy.publicTag}
+      </Badge>
+    ),
+    disabled: CONNECTED.has(name),
+  }));
+  return (
+    <div className="max-w-105">
+      <Combobox
+        aria-label={copy.channel}
+        placeholder={copy.channelPlaceholder}
+        options={options}
+        value={value}
+        onValueChange={setValue}
+        emptyMessage={copy.empty}
+        resultCountMessage={copy.count}
+      />
     </div>
   );
 }
@@ -284,6 +324,46 @@ export const InternalFilterEnglish: Story = {
   ...InternalFilter,
   name: "Internal filter (en)",
   globals: { locale: "en" },
+};
+
+/**
+ * Each channel's visibility tag sits at the end of its name's line; a name too
+ * long for the row is cut with an ellipsis and the tag stays whole.
+ */
+export const EndTag: Story = {
+  render: (_args, context) => <ChannelTagPicker copy={copyFor(context)} />,
+  play: async ({ canvasElement, globals }) => {
+    const copy = copyFor({ globals });
+    await openWithArrow(canvasElement);
+    const long = page()
+      .getAllByRole("option")
+      .find((option) => option.textContent?.startsWith(`#${LONG_CHANNEL}`));
+    const [text, end] = Array.from(long?.children ?? []) as HTMLElement[];
+    const label = text?.querySelector("span");
+    const row = long?.getBoundingClientRect();
+    const tag = end?.getBoundingClientRect();
+    // Numbers, not elements: the play log serialises what expect gets.
+    await expect(end?.textContent).toBe(copy.publicTag);
+    await expect(Boolean(label && label.scrollWidth > label.clientWidth)).toBe(
+      true,
+    );
+    await expect(Boolean(row && tag && tag.right <= row.right)).toBe(true);
+    await expect(
+      Boolean(label && tag && label.getBoundingClientRect().right <= tag.left),
+    ).toBe(true);
+  },
+};
+
+export const EndTagMobile: Story = {
+  ...EndTag,
+  name: "End tag (390px)",
+  globals: { viewport: { value: "mobile390", isRotated: false } },
+};
+
+export const EndTagDark: Story = {
+  ...EndTag,
+  name: "End tag (dark)",
+  globals: { theme: "dark" },
 };
 
 /** Search on the server: loading, results, then the next page. */

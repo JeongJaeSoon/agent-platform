@@ -33,6 +33,8 @@ export interface ComboboxOption {
   readonly label: string;
   /** Second line: an email, a channel's visibility. Strings are searched. */
   readonly description?: ReactNode;
+  /** At the end of the label's line: a channel's visibility tag. Not searched. */
+  readonly end?: ReactNode;
   /** Shown but not choosable, e.g. someone already on the team. */
   readonly disabled?: boolean;
 }
@@ -420,6 +422,11 @@ export function Combobox({
                     </span>
                   )}
                 </span>
+                {option.end !== undefined && (
+                  <span className="flex shrink-0 items-center">
+                    {option.end}
+                  </span>
+                )}
                 <Check
                   aria-hidden="true"
                   strokeWidth={1.5}

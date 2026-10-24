@@ -484,4 +484,32 @@ describe("Combobox", () => {
       getByRole("listbox", { name: "추가할 구성원" }).getAttribute("role"),
     ).toBe("listbox");
   });
+
+  test("end는 이름 줄 끝, 체크 앞에 줄지 않고 놓이고 검색되지 않는다", async () => {
+    const user = await setupUser();
+    const { getByRole, getAllByRole, queryAllByRole } = render(
+      <Combobox
+        aria-label="채널"
+        options={[
+          { value: "c1", label: "#general", end: <b>공개</b> },
+          { value: "c2", label: "#leadership" },
+        ]}
+        emptyMessage="없음"
+      />,
+    );
+    const box = input(getByRole);
+    await user.click(box);
+    const [tagged, plain] = getAllByRole("option");
+    const [text, end, check] = Array.from(tagged?.children ?? []);
+    expect(text?.querySelector("span")?.className).toContain("truncate");
+    expect(text?.className).toContain("flex-1");
+    expect(end?.className).toContain("shrink-0");
+    expect(end?.textContent).toBe("공개");
+    expect(check?.tagName.toLowerCase()).toBe("svg");
+    expect(tagged?.textContent).toBe("#general공개");
+    // No end, no extra node: the row is what it was before the slot.
+    expect(plain?.children.length).toBe(2);
+    await user.type(box, "공개");
+    expect(queryAllByRole("option")).toHaveLength(0);
+  });
 });
