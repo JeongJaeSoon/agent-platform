@@ -12,21 +12,32 @@ import type { TimelineEntry, TimelineMessages } from "./timeline.tsx";
 const { render } = await setupDom();
 // After setupDom: these load @werft-ai/ui, whose Radix decides at import time
 // whether a DOM exists.
-const { SESSION_COLUMNS, SessionRow } = await import("./session-row.tsx");
-const { SESSION_OVERVIEW_COLUMNS, SessionOverviewRow, SessionOverviewTable } =
-  await import("./session-overview.tsx");
+const { SESSION_COLUMNS, SESSION_NARROW_COLUMNS, SessionRow } = await import(
+  "./session-row.tsx"
+);
+const {
+  SESSION_OVERVIEW_COLUMNS,
+  SESSION_OVERVIEW_HOME_COLUMNS,
+  SESSION_OVERVIEW_NARROW_COLUMNS,
+  SessionOverviewRow,
+  SessionOverviewTable,
+} = await import("./session-overview.tsx");
 const { StatusLabel } = await import("../status/status-label.tsx");
 const { StageIndicator } = await import("./stage-indicator.tsx");
 const { Timeline } = await import("./timeline.tsx");
 
-test("세션 표 열 정의는 폭마다 떨어진 class 하나씩이다", () => {
-  // Two classes run together are one unknown class, and Tailwind drops both.
-  expect(SESSION_COLUMNS.split(" ")).toEqual([
-    "grid",
-    expect.stringMatching(/^grid-cols-\[[^\s@]+\]$/),
-    expect.stringMatching(/^@\[480px\]:grid-cols-\[[^\s@]+\]$/),
-    expect.stringMatching(/^@\[820px\]:grid-cols-\[[^\s@]+\]$/),
-  ]);
+// One track per column, each minmax(0,…) or fixed so no cell widens the table.
+const TRACK = /^(minmax\((0|\d+px),[\d.]+fr\)|\d+px)$/;
+test.each([
+  [SESSION_COLUMNS, 5],
+  [SESSION_NARROW_COLUMNS, 3],
+  [SESSION_OVERVIEW_COLUMNS, 6],
+  [SESSION_OVERVIEW_HOME_COLUMNS, 5],
+  [SESSION_OVERVIEW_NARROW_COLUMNS, 4],
+])("세션 표 열 정의 %s는 열마다 트랙 하나다", (columns, count) => {
+  const tracks = columns.split(" ");
+  expect(tracks).toHaveLength(count);
+  for (const track of tracks) expect(track).toMatch(TRACK);
 });
 
 // Echoes the key and params, so a test reads what the component asked for.
@@ -310,7 +321,7 @@ const SESSION: SessionSummary = {
 };
 
 describe("SessionRow", () => {
-  test("행 링크가 전체 id로 읽히고 런타임과 대기 작업을 그린다", () => {
+  test("행 전체를 여는 링크가 전체 id로 읽히고 런타임과 대기 작업을 그린다", () => {
     const { getByRole, container } = render(
       <SessionRow
         session={SESSION}
@@ -320,7 +331,7 @@ describe("SessionRow", () => {
     );
     const link = getByRole("link", { name: SESSION.id });
     expect(link.getAttribute("href")).toBe("/sessions/abc");
-    expect(link.textContent).toBe(SESSION.id);
+    expect(link.dataset.slot).toBe("grid-table-row-opener");
     expect(link.closest('[role="cell"]')).toBeTruthy();
     const row = link.closest('[role="row"]');
     expect(row?.querySelectorAll("a")).toHaveLength(1);
@@ -329,8 +340,7 @@ describe("SessionRow", () => {
         (cell) => cell.getAttribute("role") === "cell",
       ),
     ).toBe(true);
-    expect(link.className).toContain("after:inset-0");
-    expect(link.className).toContain("focus-visible:after:ring-2");
+    expect(link.closest('[role="cell"]')?.textContent).toBe(SESSION.id);
     const text = container.textContent ?? "";
     for (const part of [
       "work: status:running",
@@ -372,15 +382,7 @@ const OVERVIEW_MESSAGES = {
 };
 
 describe("SessionOverviewRow", () => {
-  test("열 정의는 폭마다 떨어진 class 하나씩이다", () => {
-    expect(SESSION_OVERVIEW_COLUMNS.split(" ")).toEqual([
-      "grid",
-      expect.stringMatching(/^grid-cols-\[[^\s@]+\]$/),
-      expect.stringMatching(/^@\[820px\]:grid-cols-\[[^\s@]+\]$/),
-    ]);
-  });
-
-  test("제목이 있으면 제목이 링크이고 그 아래 짧은 ID 8자리를 둔다", () => {
+  test("제목이 있으면 행을 여는 링크가 제목으로 읽히고 그 아래 짧은 ID 8자리를 둔다", () => {
     const { getByRole, getByText } = render(
       <SessionOverviewRow
         session={{ ...SESSION, title: "hello.txt 만들고 commit" }}
@@ -391,15 +393,19 @@ describe("SessionOverviewRow", () => {
       />,
     );
     const link = getByRole("link", { name: "hello.txt 만들고 commit" });
-    expect(link.className).toContain("after:inset-0");
-    expect(link.className).not.toContain("font-mono");
-    expect(getByText(SESSION.id.slice(0, 8)).getAttribute("title")).toBe(
-      SESSION.id,
+    expect(link.dataset.slot).toBe("grid-table-row-opener");
+    expect(link.getAttribute("title")).toBe("hello.txt 만들고 commit");
+    expect(getByText("hello.txt 만들고 commit").className).not.toContain(
+      "font-mono",
     );
+    expect(getByText(SESSION.id.slice(0, 8))).toBeTruthy();
     expect(getByText("model-claude-default")).toBeTruthy();
     expect(getByText("no repository")).toBeTruthy();
     const row = link.closest('[role="row"]') as HTMLElement;
     expect(row.textContent).toContain("work: status:running · 12분");
+    expect(
+      row.querySelector("[data-slot=status-dot]")?.getAttribute("data-status"),
+    ).toBe("run");
     expect(row.querySelector("time")?.textContent).toBe("12분 전");
     // A caller's time keeps the ellipsis the column has always given it.
     expect(row.querySelector("time")?.parentElement?.className).toContain(
@@ -431,23 +437,87 @@ describe("SessionOverviewRow", () => {
   });
 
   test("제목이 없으면 짧은 ID를 mono로 보이고 링크 이름은 전체 ID다", () => {
-    const { getByRole, queryAllByText } = render(
+    const { getByRole, getByText, queryAllByText } = render(
       <SessionOverviewRow
-        session={{ ...SESSION, runtime: null, repository_id: "demo" }}
+        session={{ ...SESSION, model: null, repository_id: "demo" }}
         renderLink={(link) => <a href="/sessions/abc" {...link} />}
         messages={OVERVIEW_MESSAGES}
       />,
     );
     const link = getByRole("link", { name: SESSION.id });
-    expect(link.textContent).toBe(SESSION.id.slice(0, 8));
-    expect(link.className).toContain("font-mono");
-    // No runtime yet: the model column says so rather than guess.
+    expect(getByText(SESSION.id.slice(0, 8)).className).toContain("font-mono");
+    // No agent: a dash, not a guess; no model: no second line.
     expect(queryAllByText("—")).toHaveLength(1);
+    expect(queryAllByText("model-claude-default")).toHaveLength(0);
     expect(queryAllByText(SESSION.id.slice(0, 8))).toHaveLength(1);
     // No last event yet: the time is the creation time, absolute.
     expect(link.closest('[role="row"]')?.querySelector("time")?.dateTime).toBe(
       SESSION.created_at,
     );
+  });
+
+  test("에이전트 위에 모델, 시작한 사람 열에 표시 이름을 두고 여는 링크 이름은 messages.open이다", () => {
+    const head = {
+      session: "세션",
+      status: "상태",
+      model: "모델",
+      agent: "에이전트 · 모델",
+      repository: "저장소",
+      startedBy: "시작한 사람",
+      recent: "최근",
+    };
+    const { getAllByRole, getByRole, rerender } = render(
+      <SessionOverviewTable label="sessions" messages={head}>
+        <SessionOverviewRow
+          session={{
+            ...SESSION,
+            title: "배포 점검",
+            agent: {
+              id: "0192f0c4-7d3a-7b4e-9f00-0000000000a1",
+              name: "Release helper",
+              release_version_no: 3,
+            },
+            created_by: {
+              user_id: "0192f0c4-7d3a-7b4e-9f00-0000000000b1",
+              display_name: "김하나",
+            },
+          }}
+          renderLink={(link) => <a href="/sessions/abc" {...link} />}
+          messages={{
+            ...OVERVIEW_MESSAGES,
+            open: (name) => `세션 열기: ${name}`,
+          }}
+        />
+      </SessionOverviewTable>,
+    );
+    expect(getAllByRole("columnheader").map((h) => h.textContent)).toEqual([
+      "세션",
+      "상태",
+      "에이전트 · 모델",
+      "저장소",
+      "시작한 사람",
+      "최근",
+    ]);
+    const link = getByRole("link", { name: "세션 열기: 배포 점검" });
+    const cells = [
+      ...(link.closest('[role="row"]')?.querySelectorAll('[role="cell"]') ??
+        []),
+    ];
+    expect(cells).toHaveLength(6);
+    expect(cells[2]?.textContent).toBe("Release helpermodel-claude-default");
+    expect(cells[4]?.textContent).toBe("김하나");
+    rerender(
+      <SessionOverviewTable label="sessions" messages={head}>
+        <SessionOverviewRow
+          session={SESSION}
+          renderLink={(link) => <a href="/sessions/abc" {...link} />}
+          messages={OVERVIEW_MESSAGES}
+        />
+      </SessionOverviewTable>,
+    );
+    // A service key's session or one from before people were recorded.
+    const row = getByRole("link", { name: SESSION.id }).closest('[role="row"]');
+    expect(row?.querySelectorAll('[role="cell"]')[4]?.textContent).toBe("—");
   });
 
   test("표 머리는 값이 있는 다섯 열이고 좁은 폭에서 저장소를 숨긴다", () => {

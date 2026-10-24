@@ -20,16 +20,6 @@ function useMinute(): number {
   return now;
 }
 
-/** Title or id prefix, as the design's search box matches. */
-export function matchesSessionQuery(session: SessionSummary, query: string) {
-  const q = query.trim().toLowerCase();
-  if (q === "") return true;
-  return (
-    (session.title?.toLowerCase().includes(q) ?? false) ||
-    session.id.toLowerCase().startsWith(q)
-  );
-}
-
 export function SessionsOverview({
   sessions,
 }: {
@@ -44,7 +34,9 @@ export function SessionsOverview({
         session: t("sessionList.column.session"),
         status: t("sessionList.column.status"),
         model: t("sessionList.column.model"),
+        agent: t("sessionList.column.agent"),
         repository: t("sessionList.column.repository"),
+        startedBy: t("sessionList.column.startedBy"),
         recent: t("sessionList.column.recent"),
       }}
     >
@@ -87,6 +79,7 @@ function Row({
         noRepository: t("sessionList.noRepository"),
         unknown: t("sessionList.unknown"),
         recent: t("sessionList.column.recent"),
+        open: (name) => t("sessionList.open", { name }),
       }}
       now={now}
       renderLink={({ children, ...link }) => (
