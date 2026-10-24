@@ -38,8 +38,14 @@ import {
   StatCard,
   Text,
 } from "@werft-ai/ui";
-import { createContext, type ReactNode, useContext, useState } from "react";
-import { expect, userEvent, within } from "storybook/test";
+import {
+  createContext,
+  type ReactNode,
+  useContext,
+  useEffect,
+  useState,
+} from "react";
+import { expect, userEvent, waitFor, within } from "storybook/test";
 
 import { TOOL_NOTE, TOOLS } from "../domain/operations/operations-fixtures.ts";
 import {
@@ -142,14 +148,13 @@ function Value({
   readonly width?: string;
 }) {
   return useContext(Loading) ? (
-    // Inline so a value that shares a line ("7 / 10") keeps that line's box.
-    <span
-      aria-hidden="true"
-      className="inline-block align-top"
-      style={{ width }}
-    >
-      <Skeleton height="1lh" className="justify-center" />
-    </span>
+    <Skeleton
+      inline
+      decorative
+      width={width}
+      height="1lh"
+      className="justify-center"
+    />
   ) : (
     children
   );
@@ -168,13 +173,12 @@ function Box({
   readonly chart?: boolean;
 }) {
   return (
-    <div aria-hidden="true">
-      <Skeleton
-        shape={chart ? "block" : "text"}
-        height={height}
-        className="justify-center"
-      />
-    </div>
+    <Skeleton
+      decorative
+      shape={chart ? "block" : "text"}
+      height={height}
+      className="justify-center"
+    />
   );
 }
 
@@ -385,9 +389,13 @@ const statusLink = (
   status: string,
   link: { readonly className: string; readonly children: ReactNode },
 ) => (
-  <a href={`#/sessions?status=${status}`} className={link.className}>
+  <Link
+    href={`#/sessions?status=${status}`}
+    underline={null}
+    className={link.className}
+  >
     {link.children}
-  </a>
+  </Link>
 );
 
 // ---------- tabs ----------
@@ -692,9 +700,7 @@ function Tools({
           }
         >
           {loading ? (
-            <div aria-hidden="true">
-              <Skeleton lines={3} />
-            </div>
+            <Skeleton decorative lines={3} />
           ) : (
             <ToolCalls calls={calls} timeZone="Asia/Seoul" />
           )}
@@ -707,12 +713,15 @@ function Tools({
       <Filters role={screen.role} days={screen.days} />
       <div
         aria-busy={loading || undefined}
-        className="flex min-w-0 flex-col gap-8"
+        className="@container flex min-w-0 flex-col gap-8"
       >
         {screen.empty ? null : loading ? (
-          <div aria-hidden="true">
-            <Skeleton lines={2} height="3rem" className="justify-around" />
-          </div>
+          // The summary sentence is one 24px line from about 40rem, two below.
+          <Skeleton
+            decorative
+            lines={2}
+            className="h-12 justify-around @min-[40rem]:h-6 @min-[40rem]:justify-center @min-[40rem]:[&>:nth-child(2)]:hidden"
+          />
         ) : (
           <ToolsSummary tools={tools} period={`최근 ${screen.days}일`} />
         )}
@@ -752,6 +761,7 @@ function Tools({
             selected={selected}
             onSelect={setSelected}
             describe={(name) => TOOL_NOTE[name]?.ko}
+            loadingRows={TOOLS.tools.length}
           />
         </Section>
       </div>
@@ -937,6 +947,52 @@ function OperationsScreen({
   );
 }
 
+// Handed to a play by the mounted Arriving screen: the data comes.
+let arrive = () => {};
+
+/** One screen, mounted once, that starts reading and then gets its data. */
+function Arriving({ tab }: { readonly tab: Tab }) {
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    arrive = () => setLoading(false);
+  }, []);
+  return <OperationsScreen tab={tab} screen={{ ...LOADING, loading }} />;
+}
+
+const BLOCKS = "h1, h2, h3, [role=table], [data-slot=card], [role=tablist]";
+const layout = (root: HTMLElement) =>
+  [...root.querySelectorAll(BLOCKS)].map((block) => {
+    const { top, left, width, height } = block.getBoundingClientRect();
+    const name = block.matches("h1, h2, h3")
+      ? block.textContent
+      : (block.getAttribute("aria-label") ?? block.tagName);
+    return `${name} ${[top, left, width, height].map(Math.round).join(",")}`;
+  });
+
+/** The data replaces each placeholder in place, and nothing else changes. */
+const loadingToLoaded = (tab: Tab): Story => ({
+  args: { tab },
+  render: () => <Arriving tab={tab} />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const period =
+      tab === "limits" ? null : canvas.getByRole("button", { name: "7일" });
+    if (period) await userEvent.click(period);
+    const before = layout(canvasElement);
+    arrive();
+    await waitFor(() =>
+      expect(canvas.getByRole("status").textContent).toBe(""),
+    );
+    expect(canvasElement.querySelector("[aria-busy=true]")).toBeNull();
+    if (tab !== "tools") {
+      expect(canvas.getAllByRole("meter").length).toBeGreaterThan(0);
+    }
+    expect(layout(canvasElement)).toEqual(before);
+    // Still the same mount: what the viewer chose while it read stays.
+    if (period) expect(period.getAttribute("aria-pressed")).toBe("true");
+  },
+});
+
 const meta = {
   title: "Screens/Operations",
   component: OperationsScreen,
@@ -967,6 +1023,7 @@ export const OverviewLoading: Story = {
     ).toEqual(["운영 화면을 읽는 중"]);
   },
 };
+export const OverviewLoadingToLoaded = loadingToLoaded("overview");
 export const OverviewDark: Story = { globals: DARK };
 export const OverviewMobile: Story = {
   name: "Overview Owner (390px)",
@@ -995,6 +1052,7 @@ export const UsageLoading: Story = {
     expect(canvas.getAllByRole("status")).toHaveLength(1);
   },
 };
+export const UsageLoadingToLoaded = loadingToLoaded("usage");
 export const UsageDark: Story = { args: { tab: "usage" }, globals: DARK };
 export const UsageMobile: Story = {
   name: "Usage Owner (390px)",
@@ -1048,6 +1106,7 @@ export const ToolsLoading: Story = {
     expect(within(canvasElement).getAllByRole("status")).toHaveLength(1);
   },
 };
+export const ToolsLoadingToLoaded = loadingToLoaded("tools");
 export const ToolsDark: Story = { args: { tab: "tools" }, globals: DARK };
 export const ToolsMobile: Story = {
   name: "Tools Owner (390px)",
@@ -1085,6 +1144,7 @@ export const LimitsLoading: Story = {
     expect(canvas.getAllByRole("status")).toHaveLength(1);
   },
 };
+export const LimitsLoadingToLoaded = loadingToLoaded("limits");
 export const LimitsDark: Story = { args: { tab: "limits" }, globals: DARK };
 export const LimitsMobile: Story = {
   name: "Limits Owner (390px)",
