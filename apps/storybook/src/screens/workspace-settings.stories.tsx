@@ -545,7 +545,6 @@ function WorkspaceSettingsScreen({
       current="settings"
       crumb={["워크스페이스", "워크스페이스 설정"]}
       role={viewer}
-      width="narrow"
     >
       <PageHeader
         title="워크스페이스 설정"

@@ -81,7 +81,7 @@ function Page({
     <ScreenShell
       current="sessions"
       crumb={["세션", "hello.txt 만들고 commit"]}
-      width="flush"
+      flush
     >
       <DetailLayout rail={<Rail sections={sections} />}>
         <PageHeader
