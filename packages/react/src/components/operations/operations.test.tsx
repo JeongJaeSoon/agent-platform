@@ -239,10 +239,8 @@ describe("ToolCalls loading", () => {
       <ToolCalls calls={undefined} loadingRows={5} />,
     );
     expect(container.querySelectorAll("li")).toHaveLength(5);
+    expect(queryAllByRole("listitem")).toHaveLength(0);
     expect(queryAllByRole("status")).toHaveLength(0);
-    expect(container.querySelector("ul")?.getAttribute("aria-busy")).toBe(
-      "true",
-    );
   });
 });
 

@@ -47,8 +47,8 @@ export function ToolCalls({
       </p>
       {calls === undefined ? (
         // A call row's two lines at their heights, so the list does not grow
-        // when the calls come.
-        <ul aria-busy="true" className="m-0 list-none p-0">
+        // when the calls come; no empty items for assistive tech.
+        <ul aria-hidden="true" className="m-0 list-none p-0">
           {Array.from({ length: loadingRows }, (_, row) => row).map((row) => (
             <li key={row} className={ROW}>
               <span className="flex min-w-0 flex-col">
