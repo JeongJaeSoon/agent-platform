@@ -82,7 +82,7 @@ const WARNINGS: readonly Row[] = [
   {
     name: "AP_SESSION_ID",
     notice: (
-      <Alert className="basis-full" variant="red">
+      <Alert className="basis-full" variant="red" role="alert">
         AP_SESSION_ID은 이제 예약 이름이라 세션이 시작되지 않습니다. 카드에서
         이름을 바꾸세요.
       </Alert>
