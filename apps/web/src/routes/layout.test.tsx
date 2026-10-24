@@ -85,12 +85,20 @@ describe("app shell", () => {
     await screen.findByRole("heading", { name: "홈" });
     expect(contentColumn()?.dataset.contentWidth).toBe("wide");
     expect(contentColumn()?.className).toContain("mx-auto");
+    expect(contentColumn()?.className).toContain("max-w-[101.25rem]");
   });
 
-  test("a settings form takes the form width, with or without a slash", async () => {
+  test("a trailing slash keeps the screen's width", async () => {
     renderAt("/settings/workspace/", signedIn);
     await screen.findByRole("heading", { level: 1 });
     expect(contentColumn()?.dataset.contentWidth).toBe("narrow");
+    expect(contentColumn()?.className).toContain("max-w-[68.75rem]");
+  });
+
+  test("a key list with a trailing slash stays a list", async () => {
+    renderAt("/settings/api-keys/", signedIn);
+    await screen.findByRole("heading", { level: 1, name: "내 key" });
+    expect(contentColumn()?.dataset.contentWidth).toBe("wide");
   });
 
   test("the key lists take the list width", async () => {
