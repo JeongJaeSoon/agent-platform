@@ -242,7 +242,8 @@ describe("워크스페이스 설정", () => {
     });
     const toggle = await screen.findByRole("switch", GUEST_SWITCH);
     expect(toggle.getAttribute("aria-checked")).toBe("false");
-    expect(toggle.textContent).toBe("꺼짐");
+    expect(screen.getByText("꺼짐")).toBeDefined();
+    expect(document.querySelector('input[type="checkbox"]')).toBeNull();
     expect(
       document.getElementById(toggle.getAttribute("aria-describedby") ?? "")
         ?.textContent,
@@ -258,7 +259,58 @@ describe("워크스페이스 설정", () => {
     await waitFor(() =>
       expect(toggle.getAttribute("aria-checked")).toBe("true"),
     );
-    expect(toggle.textContent).toBe("켜짐");
+    expect(screen.getByText("켜짐")).toBeDefined();
+  });
+
+  test("키보드로 스위치에 가서 Space로 켜고 Enter로 끈다", async () => {
+    let enabled = false;
+    const { api } = renderAt("/settings/workspace", {
+      "GET /v1/auth/me": () => json(200, withGuest(me(), enabled)),
+      [`POST ${GUEST}`]: async (request: Request) => {
+        enabled = ((await request.json()) as { slack_guest_enabled: boolean })
+          .slack_guest_enabled;
+        return json(200, { slack_guest_enabled: enabled });
+      },
+    });
+    const toggle = await screen.findByRole("switch", GUEST_SWITCH);
+    const user = await setupUser();
+    screen.getByRole("button", { name: "저장" }).focus();
+    await user.tab();
+    expect(document.activeElement === toggle).toBe(true);
+    await user.keyboard(" ");
+    await waitFor(() =>
+      expect(toggle.getAttribute("aria-checked")).toBe("true"),
+    );
+    await waitFor(() => expect(toggle.hasAttribute("disabled")).toBe(false));
+    await user.keyboard("{Enter}");
+    await waitFor(() =>
+      expect(toggle.getAttribute("aria-checked")).toBe("false"),
+    );
+    expect(
+      api.calls.filter((c) => c.path === GUEST).map((c) => c.body),
+    ).toEqual([{ slack_guest_enabled: true }, { slack_guest_enabled: false }]);
+  });
+
+  test("워크스페이스 설정 권한이 없으면 스위치가 이유와 함께 닫혀 있고, 서버에 묻지 않는다", async () => {
+    const body = me();
+    const { api } = renderAt("/settings/workspace", {
+      "GET /v1/auth/me": () =>
+        json(200, {
+          ...body,
+          permissions: body.permissions.filter((p) => p !== "workspace.manage"),
+        }),
+    });
+    const toggle = await screen.findByRole("switch", GUEST_SWITCH);
+    expect(toggle.hasAttribute("disabled")).toBe(true);
+    const described = (toggle.getAttribute("aria-describedby") ?? "")
+      .split(" ")
+      .map((id) => document.getElementById(id)?.textContent);
+    expect(described).toContain(
+      "워크스페이스 설정 변경 권한이 있어야 할 수 있습니다. 지금 역할: 소유자.",
+    );
+    const user = await setupUser();
+    await user.click(toggle);
+    expect(api.calls.some((c) => c.path === GUEST)).toBe(false);
   });
 
   test("켜져 있으면 끄는 값을 보낸다", async () => {

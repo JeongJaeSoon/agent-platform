@@ -13,8 +13,12 @@ import {
   CardFooter,
   CardTitle,
   Input,
+  RowList,
   SecretField,
+  Section,
+  SettingRow,
   Skeleton,
+  Switch,
 } from "@werft-ai/ui";
 import { Lock } from "lucide-react";
 import { type FormEvent, type ReactNode, useId, useState } from "react";
@@ -369,8 +373,7 @@ function SlackGuest({ onOutcome }: { readonly onOutcome: OnOutcome }) {
   const role = useRole();
   const workspaceId = me?.workspace?.id ?? "";
   const enabled = me?.workspace?.settings.slack_guest_enabled ?? false;
-  const labelId = useId();
-  const hintId = useId();
+  const reasonId = useId();
   const reason = useHasPermission("workspace.manage")
     ? undefined
     : permissionReason(t, "workspace.manage", role);
@@ -403,29 +406,40 @@ function SlackGuest({ onOutcome }: { readonly onOutcome: OnOutcome }) {
   });
 
   return (
-    <SettingsCard
-      title={t("workspace.guest")}
-      description={t("workspace.guestHint")}
-      descriptionId={hintId}
-    >
-      <div className="flex flex-wrap items-baseline gap-2">
-        <div id={labelId}>{t("workspace.guestLabel")}</div>
-        <ReasonButton
-          className={buttonVariants({
-            variant: enabled ? "default" : "outline",
-            size: "sm",
-          })}
-          role="switch"
-          aria-checked={enabled}
-          aria-labelledby={labelId}
-          aria-describedby={hintId}
-          reason={reason}
-          disabled={save.isPending || me?.workspace === undefined}
-          onClick={() => save.mutate(!enabled)}
-        >
-          {t(enabled ? "workspace.guestOn" : "workspace.guestOff")}
-        </ReasonButton>
-      </div>
-    </SettingsCard>
+    <Section title={t("workspace.guest")}>
+      <RowList variant="joined">
+        <SettingRow
+          title={t("workspace.guestLabel")}
+          description={t("workspace.guestHint")}
+          meta={
+            reason === undefined ? null : (
+              <span
+                id={reasonId}
+                className="text-caption text-muted-foreground"
+              >
+                {reason}
+              </span>
+            )
+          }
+          status={
+            <span className={META}>
+              {t(enabled ? "workspace.guestOn" : "workspace.guestOff")}
+            </span>
+          }
+          control={
+            <Switch
+              checked={enabled}
+              aria-describedby={reason === undefined ? undefined : reasonId}
+              disabled={
+                reason !== undefined ||
+                save.isPending ||
+                me?.workspace === undefined
+              }
+              onCheckedChange={(next) => save.mutate(next)}
+            />
+          }
+        />
+      </RowList>
+    </Section>
   );
 }
