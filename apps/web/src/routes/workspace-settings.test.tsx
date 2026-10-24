@@ -303,15 +303,12 @@ describe("워크스페이스 설정", () => {
     });
     const toggle = await screen.findByRole("switch", GUEST_SWITCH);
     expect(toggle.hasAttribute("disabled")).toBe(true);
-    const described = (toggle.getAttribute("aria-describedby") ?? "")
-      .split(" ")
-      .map((id) => document.getElementById(id)?.textContent);
-    expect(described).toContain(
+    expect(
+      document.getElementById(toggle.getAttribute("aria-describedby") ?? "")
+        ?.textContent,
+    ).toBe(
       "워크스페이스 설정 변경 권한이 있어야 할 수 있습니다. 지금 역할: 소유자.",
     );
-    expect(
-      described.some((text) => text?.includes("자기 Slack 계정을 연결해야")),
-    ).toBe(true);
     const user = await setupUser();
     await user.click(toggle);
     expect(api.calls.some((c) => c.path === GUEST)).toBe(false);

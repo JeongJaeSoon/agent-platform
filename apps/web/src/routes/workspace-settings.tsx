@@ -13,10 +13,7 @@ import {
   CardFooter,
   CardTitle,
   Input,
-  RowList,
   SecretField,
-  Section,
-  SettingRow,
   Skeleton,
   Switch,
 } from "@werft-ai/ui";
@@ -373,6 +370,8 @@ function SlackGuest({ onOutcome }: { readonly onOutcome: OnOutcome }) {
   const role = useRole();
   const workspaceId = me?.workspace?.id ?? "";
   const enabled = me?.workspace?.settings.slack_guest_enabled ?? false;
+  const labelId = useId();
+  const hintId = useId();
   const reasonId = useId();
   const reason = useHasPermission("workspace.manage")
     ? undefined
@@ -406,40 +405,33 @@ function SlackGuest({ onOutcome }: { readonly onOutcome: OnOutcome }) {
   });
 
   return (
-    <Section title={t("workspace.guest")}>
-      <RowList variant="joined">
-        <SettingRow
-          title={t("workspace.guestLabel")}
-          description={t("workspace.guestHint")}
-          meta={
-            reason === undefined ? null : (
-              <span
-                id={reasonId}
-                className="text-caption text-muted-foreground"
-              >
-                {reason}
-              </span>
-            )
+    <SettingsCard
+      title={t("workspace.guest")}
+      description={t("workspace.guestHint")}
+      descriptionId={hintId}
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <div id={labelId}>{t("workspace.guestLabel")}</div>
+        <Switch
+          checked={enabled}
+          aria-labelledby={labelId}
+          aria-describedby={reason === undefined ? hintId : reasonId}
+          disabled={
+            reason !== undefined ||
+            save.isPending ||
+            me?.workspace === undefined
           }
-          status={
-            <span className={META}>
-              {t(enabled ? "workspace.guestOn" : "workspace.guestOff")}
-            </span>
-          }
-          control={
-            <Switch
-              checked={enabled}
-              aria-describedby={reason === undefined ? undefined : reasonId}
-              disabled={
-                reason !== undefined ||
-                save.isPending ||
-                me?.workspace === undefined
-              }
-              onCheckedChange={(next) => save.mutate(next)}
-            />
-          }
+          onCheckedChange={(next) => save.mutate(next)}
         />
-      </RowList>
-    </Section>
+        <span className={META}>
+          {t(enabled ? "workspace.guestOn" : "workspace.guestOff")}
+        </span>
+        {reason === undefined ? null : (
+          <span id={reasonId} className="text-caption text-muted-foreground">
+            {reason}
+          </span>
+        )}
+      </div>
+    </SettingsCard>
   );
 }
