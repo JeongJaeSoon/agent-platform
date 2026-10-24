@@ -62,10 +62,11 @@ const NAME_FIELD = "min-w-0 flex-[1_1_14rem]";
 const SECONDARY = "text-muted-foreground text-sm [overflow-wrap:anywhere]";
 // A team row opens as a whole: the name link's box stretches over the row,
 // so the link, its name and its one Tab stop stay as they were, and its
-// keyboard ring is drawn around the row.
+// keyboard ring is drawn around the row. `!` because styles.css rings every
+// focused link outside any layer, which beats a plain utility.
 const OPENS_ROW = "relative cursor-pointer hover:bg-hover";
 const ROW_LINK =
-  "[overflow-wrap:anywhere] after:absolute after:inset-0 after:rounded-card focus-visible:outline-none focus-visible:after:outline-2 focus-visible:after:outline-focus-ring focus-visible:after:outline-offset-2";
+  "[overflow-wrap:anywhere] after:absolute after:inset-0 after:rounded-card focus-visible:outline-none! focus-visible:after:outline-2 focus-visible:after:outline-focus-ring focus-visible:after:outline-offset-2";
 
 function ListError({
   error,

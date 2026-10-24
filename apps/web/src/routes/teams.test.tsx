@@ -157,6 +157,8 @@ describe("팀 화면", () => {
     expect(linkClasses).toContain("after:absolute");
     expect(linkClasses).toContain("after:inset-0");
     expect(linkClasses).toContain("focus-visible:after:outline-2");
+    // One ring, the row's: the link's own is off over styles.css's rule.
+    expect(linkClasses).toContain("focus-visible:outline-none!");
     expect(row.querySelectorAll("a").length).toBe(1);
     const chevron = row.lastElementChild as Element;
     expect(chevron.tagName.toLowerCase()).toBe("svg");
