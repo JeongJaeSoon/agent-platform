@@ -101,9 +101,11 @@ describe("Text", () => {
     const own = classesOf({ variant: "meta", className: "leading-5" });
     expect(own).toContain("leading-5");
     expect(own).not.toContain("leading-normal");
-    const shorthand = classesOf({ className: "text-lg/8" });
-    expect(shorthand).toContain("text-lg/8");
-    expect(shorthand).not.toContain("leading-5");
+    for (const className of ["text-lg/8", "text-[15px]/6"]) {
+      const shorthand = classesOf({ className });
+      expect(shorthand).toContain(className);
+      expect(shorthand).not.toContain("leading-5");
+    }
   });
 
   test("변형이 붙은 leading과 색 투명도는 기본 줄을 지우지 않는다", () => {
@@ -113,8 +115,13 @@ describe("Text", () => {
     });
     expect(responsive).toContain("md:leading-5");
     expect(responsive).toContain("leading-normal");
-    const faded = classesOf({ className: "text-foreground/80" });
-    expect(faded).toContain("leading-5");
+    const hover = classesOf({ className: "hover:leading-6" });
+    expect(hover).toContain("leading-5");
+    for (const className of ["text-foreground/80", "text-[#123456]/80"]) {
+      const faded = classesOf({ className });
+      expect(faded).toContain(className);
+      expect(faded).toContain("leading-5");
+    }
   });
 
   test("span으로 자를 때는 잘릴 상자를 만든다", () => {
