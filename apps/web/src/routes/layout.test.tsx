@@ -33,6 +33,10 @@ const SECOND = "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d";
 
 const signedIn = { "GET /v1/auth/me": () => json(200, me()) };
 
+// The column inside <main> that centres up to the screen's width.
+const contentColumn = () =>
+  document.getElementById("main")?.firstElementChild as HTMLElement | null;
+
 afterEach(() => {
   delete document.documentElement.dataset.theme;
   localStorage.clear();
@@ -79,25 +83,34 @@ describe("app shell", () => {
   test("lists and forms take different widths", async () => {
     renderAt("/", signedIn);
     await screen.findByRole("heading", { name: "홈" });
-    expect(document.getElementById("main")?.className).toContain(
-      "max-w-[calc(var(--ap-w-wide)+2*var(--ap-gutter))]",
-    );
+    expect(contentColumn()?.dataset.contentWidth).toBe("wide");
+    expect(contentColumn()?.className).toContain("mx-auto");
+    expect(contentColumn()?.className).toContain("max-w-[101.25rem]");
+  });
+
+  test("a trailing slash keeps the screen's width", async () => {
+    renderAt("/settings/workspace/", signedIn);
+    await screen.findByRole("heading", { level: 1 });
+    expect(contentColumn()?.dataset.contentWidth).toBe("narrow");
+    expect(contentColumn()?.className).toContain("max-w-[68.75rem]");
+  });
+
+  test("a key list with a trailing slash stays a list", async () => {
+    renderAt("/settings/api-keys/", signedIn);
+    await screen.findByRole("heading", { level: 1, name: "내 key" });
+    expect(contentColumn()?.dataset.contentWidth).toBe("wide");
   });
 
   test("the key lists take the list width", async () => {
     renderAt("/settings/api-keys", signedIn);
     await screen.findByRole("heading", { level: 1, name: "내 key" });
-    expect(document.getElementById("main")?.className).toContain(
-      "max-w-[calc(var(--ap-w-wide)+2*var(--ap-gutter))]",
-    );
+    expect(contentColumn()?.dataset.contentWidth).toBe("wide");
   });
 
   test("making a key takes the form width", async () => {
     renderAt("/settings/api-keys/new", signedIn);
     await screen.findByRole("heading", { level: 1, name: "새 개인 key" });
-    expect(document.getElementById("main")?.className).toContain(
-      "max-w-[calc(var(--ap-w-narrow)+2*var(--ap-gutter))]",
-    );
+    expect(contentColumn()?.dataset.contentWidth).toBe("narrow");
   });
 
   test("the top bar makes nothing; each list offers its own", async () => {

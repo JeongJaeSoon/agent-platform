@@ -23,7 +23,6 @@ export const webUiAllowlist: WebUiCounts = {
   "routes/agent-detail/releases.tsx": { "raw-destructive": 1 },
   "routes/agents.tsx": { "legacy-class": 1 },
   "routes/api-keys.tsx": { "raw-destructive": 1 },
-  "routes/home.tsx": { "shadow-component": 1 },
   "routes/layout.tsx": { "legacy-class": 1, "raw-destructive": 1 },
   "styles.css": { "legacy-class": 38 },
 };

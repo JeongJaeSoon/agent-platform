@@ -60,10 +60,31 @@ const oneSession = {
 async function states() {
   await screen.findByRole("heading", { name: "홈" });
   // Home has other lists; the checklist is the region named for it.
+  // Steps marks done or to do; an unreadable step says so in its text.
   return () =>
-    within(screen.getByRole("region", { name: "시작하기" }))
-      .getAllByRole("listitem")
-      .map((step) => step.getAttribute("data-state"));
+    checklistSteps().map((step) =>
+      step.getAttribute("data-state") === "done"
+        ? "done"
+        : step.textContent?.includes("확인할 수 없음")
+          ? "unknown"
+          : "pending",
+    );
+}
+
+function checklistSteps() {
+  return within(screen.getByRole("region", { name: "시작하기" })).getAllByRole(
+    "listitem",
+  );
+}
+
+/** Each step's action link: its text and where it goes, done or not. */
+function stepLinks() {
+  return checklistSteps().map((step) => {
+    const link = within(step).queryByRole("link");
+    return link
+      ? [link.textContent, link.getAttribute("href"), link.className]
+      : null;
+  });
 }
 
 describe("bootstrap checklist", () => {
@@ -83,21 +104,22 @@ describe("bootstrap checklist", () => {
     await waitFor(() =>
       expect(read()).toEqual(["done", "pending", "pending", "pending"]),
     );
+    const order = [...document.querySelectorAll("main section > div h2")].map(
+      (heading) => heading.textContent,
+    );
+    expect(order[0]).toBe("시작하기");
+    // The owner step has nothing to open; the next step to do gets the
+    // primary button, the rest the outline one.
+    const links = stepLinks();
+    expect(links.map((link) => link?.slice(0, 2) ?? null)).toEqual([
+      null,
+      ["구성원 목록", "/members"],
+      ["에이전트 목록", "/agents"],
+      ["세션 목록", "/sessions"],
+    ]);
     expect(
-      screen
-        .getByRole("link", { name: "첫 세션 확인하기" })
-        .getAttribute("href"),
-    ).toBe("/sessions");
-    expect(
-      screen
-        .getByRole("link", { name: "구성원 초대하기" })
-        .getAttribute("href"),
-    ).toBe("/members");
-    expect(
-      screen
-        .getByRole("link", { name: "에이전트 준비하기" })
-        .getAttribute("href"),
-    ).toBe("/agents");
+      links.map((link) => (link?.[2] ?? "").includes("bg-primary")),
+    ).toEqual([false, true, false, false]);
   });
 
   test("초대를 보냈고 활성 release가 있는 에이전트가 있으면 두 단계가 완료다", async () => {
@@ -404,14 +426,14 @@ describe("홈 요약", () => {
     const recent = screen.getByRole("table", { name: "최근 세션" });
     // The design's dot, not a pill: amber for waiting, the text says which.
     expect(
-      [...recent.querySelectorAll("[data-dot]")].map((dot) =>
-        dot.getAttribute("data-dot"),
+      [...recent.querySelectorAll("[data-slot=status-dot]")].map((dot) =>
+        dot.getAttribute("data-status"),
       ),
     ).toEqual(["wait", "idle"]);
     expect(
-      [...recent.querySelectorAll("tr")].map((row) =>
-        [...row.children].map((cell) => shownText(cell)),
-      ),
+      within(recent)
+        .getAllByRole("row")
+        .map((row) => [...row.children].map((cell) => shownText(cell))),
     ).toEqual([
       ["세션", "작업 상태", "에이전트", "저장소", "최근 활동"],
       [
@@ -435,7 +457,7 @@ describe("홈 요약", () => {
         .map((l) => l.getAttribute("href")),
     ).toEqual([`/sessions/${waitingSession.id}`, `/sessions/${oneSession.id}`]);
     // Focus opens the exact time the short wait count stands for.
-    const waited = recent.querySelectorAll("tr")[1]?.querySelector("time");
+    const waited = within(recent).getAllByRole("row")[1]?.querySelector("time");
     expect(waited?.tabIndex).toBe(0);
     act(() => waited?.focus());
     await waitFor(() =>
@@ -443,12 +465,16 @@ describe("홈 요약", () => {
         /^2026년 10월 23일 \d{2}:\d{2}:\d{2}/,
       ),
     );
-    // A titled session links by its title; one without a title, by its id.
+    // Each row opens from one link named for the session: a titled one by
+    // its title, one without a title by its short id.
     expect(
       within(recent)
         .getAllByRole("link")
-        .map((l) => l.textContent),
-    ).toEqual([waitingSession.title, oneSession.id.slice(0, 8)]);
+        .map((l) => l.getAttribute("aria-label")),
+    ).toEqual([
+      `세션 열기: ${waitingSession.title}`,
+      `세션 열기: ${oneSession.id.slice(0, 8)}`,
+    ]);
   });
 
   test("설치 전체 사용량 권한이 없으면 전체 카드를 숨기고 한도·전체 합계를 묻지 않는다", async () => {
@@ -646,7 +672,7 @@ describe("홈 요약", () => {
     ).toBeNull();
   });
 
-  test("시작하기를 다 마치면 checklist는 요약 아래로 내려간다", async () => {
+  test("시작하기를 다 마치면 블록째 숨긴다", async () => {
     renderAt("/", {
       ...homeRoutes(),
       "GET /v1/members": () =>
@@ -662,16 +688,29 @@ describe("홈 요약", () => {
           ],
         }),
     });
-    const read = await states();
+    // The recent table reads the same session list the last step does.
+    await screen.findByRole("table", { name: "최근 세션" });
     await waitFor(() =>
-      expect(read()).toEqual(["done", "done", "done", "done"]),
+      expect(document.querySelector("[data-slot=home-checklist]")).toBeNull(),
     );
-    const order = [...document.querySelectorAll("main section > div h2")].map(
-      (heading) => heading.textContent,
+  });
+
+  test("목록 하나라도 읽는 중이면 시작하기를 그리지 않는다", async () => {
+    const { api } = renderAt("/", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": () => json(200, { items: [owner] }),
+      "GET /v1/invites": () => json(200, { items: [] }),
+      "GET /v1/agents": () => new Promise<Response>(() => {}),
+      ...noSessions,
+    });
+    await screen.findByRole("heading", { name: "홈" });
+    await waitFor(() =>
+      expect(api.calls.some((c) => c.path === "/v1/sessions")).toBe(true),
     );
-    expect(order.indexOf("시작하기")).toBeGreaterThan(
-      order.findIndex((title) => title?.startsWith("최근 세션")),
+    await waitFor(() =>
+      expect(api.calls.some((c) => c.path === "/v1/invites")).toBe(true),
     );
+    expect(document.querySelector("[data-slot=home-checklist]")).toBeNull();
   });
 
   test.each([
@@ -839,8 +878,8 @@ describe("홈 요약", () => {
     );
     expect(cards(overview)[0]?.title).toBe("내가 시작한 세션 기준");
     expect(
-      [...overview.querySelectorAll("[data-dot]")].map((dot) =>
-        dot.getAttribute("data-dot"),
+      [...overview.querySelectorAll("[data-slot=status-dot]")].map((dot) =>
+        dot.getAttribute("data-status"),
       ),
     ).toEqual(["wait", "run", "idle", "idle", "idle", "idle"]);
     // The "last 30 days" basis waits for a usage period; only the owner's shows.
@@ -895,17 +934,18 @@ describe("홈 요약", () => {
     },
   );
 
-  test("새 세션 버튼은 세션 목록처럼 사유와 함께 막혀 있다", async () => {
+  test("홈에는 새 세션 버튼과 그 사유 문구가 없다", async () => {
     renderAt("/", {
       ...homeRoutes(),
       "GET /v1/auth/me": () => json(200, memberMe()),
     });
-    const button = await screen.findByRole("button", { name: "새 세션" });
-    expect((button as HTMLButtonElement).disabled).toBe(true);
+    await screen.findByRole("table", { name: "최근 세션" });
+    expect(screen.queryByRole("button", { name: "새 세션" })).toBeNull();
     expect(
-      document.getElementById(button.getAttribute("aria-describedby") ?? "")
-        ?.textContent,
-    ).toBe("웹에서는 아직 세션을 시작할 수 없습니다. API로 시작하세요.");
+      screen.queryByText(
+        "웹에서는 아직 세션을 시작할 수 없습니다. API로 시작하세요.",
+      ),
+    ).toBeNull();
   });
 });
 
