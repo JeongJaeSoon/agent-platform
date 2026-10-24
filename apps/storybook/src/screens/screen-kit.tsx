@@ -1,4 +1,12 @@
-import { Badge, Button, Card, CardContent } from "@werft-ai/ui";
+import {
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  Tooltip,
+  TooltipContent,
+  TooltipDisabledTrigger,
+} from "@werft-ai/ui";
 import { type ReactNode, useId } from "react";
 
 /*
@@ -136,9 +144,8 @@ export function ScreenShell({
 }
 
 /**
- * Stand-in for LockedButton + Tooltip: aria-disabled keeps it focusable and
- * the reason is read through aria-describedby; the visible tooltip is the
- * requested part.
+ * A withheld action: the disabled button stays in line with its row and says
+ * why on hover or focus, above it, as the members table does.
  */
 export function LockedButton({
   label,
@@ -149,24 +156,15 @@ export function LockedButton({
   readonly reason: string;
   readonly size?: "sm" | "default";
 }) {
-  const id = useId();
   return (
-    <>
-      <Button
-        type="button"
-        variant="outline"
-        size={size}
-        aria-disabled="true"
-        aria-describedby={id}
-        className="opacity-50"
-        title={reason}
-      >
-        {label}
-      </Button>
-      <span id={id} hidden>
-        {reason}
-      </span>
-    </>
+    <Tooltip>
+      <TooltipDisabledTrigger>
+        <Button type="button" variant="outline" size={size} disabled={true}>
+          {label}
+        </Button>
+      </TooltipDisabledTrigger>
+      <TooltipContent side="top">{reason}</TooltipContent>
+    </Tooltip>
   );
 }
 

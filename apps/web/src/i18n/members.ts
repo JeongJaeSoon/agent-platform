@@ -6,6 +6,7 @@ export const membersKo = {
   "members.column.actions": "관리",
   "members.tableLabel": "구성원 표",
   "members.state.disabled": "비활성",
+  "members.you": "나",
   "members.roleChanged": "{name}의 역할을 {role}(으)로 바꿨습니다.",
   "members.roleChangeTitle": "{name}의 역할을 {role}(으)로 바꿀까요?",
   "members.roleChangeConsequence":
@@ -19,8 +20,6 @@ export const membersKo = {
   "members.disableOwnerProtected": "소유자는 관리자가 비활성화할 수 없습니다.",
   "members.enableOwnerProtected":
     "소유자는 관리자가 다시 활성화할 수 없습니다.",
-  "members.enableWhy": "{name}을(를) 다시 활성화할 수 없는 이유",
-  "members.disableWhy": "{name}을(를) 비활성화할 수 없는 이유",
   "members.roleSelf": "자기 자신의 역할은 바꿀 수 없습니다.",
   "members.roleLastOwner":
     "하나뿐인 소유자의 역할은 바꿀 수 없습니다 — 다른 사람을 먼저 소유자로 정하세요.",
@@ -95,6 +94,7 @@ export const membersEn: Record<keyof typeof membersKo, string> = {
   "members.column.actions": "Manage",
   "members.tableLabel": "Members table",
   "members.state.disabled": "Disabled",
+  "members.you": "You",
   "members.roleChanged": "{name} is now {role}.",
   "members.roleChangeTitle": "Make {name} {role}?",
   "members.roleChangeConsequence":
@@ -107,8 +107,6 @@ export const membersEn: Record<keyof typeof membersKo, string> = {
     "The only owner cannot be disabled — make someone else an owner first.",
   "members.disableOwnerProtected": "An admin cannot disable an owner.",
   "members.enableOwnerProtected": "An admin cannot re-enable an owner.",
-  "members.enableWhy": "Why {name} cannot be re-enabled",
-  "members.disableWhy": "Why {name} cannot be disabled",
   "members.roleSelf": "You cannot change your own role.",
   "members.roleLastOwner":
     "The only owner's role cannot change — make someone else an owner first.",
@@ -183,6 +181,7 @@ export const membersJa: Record<keyof typeof membersKo, string> = {
   "members.column.actions": "管理",
   "members.tableLabel": "メンバー一覧表",
   "members.state.disabled": "無効",
+  "members.you": "自分",
   "members.roleChanged": "{name}のロールを{role}に変更しました。",
   "members.roleChangeTitle": "{name}のロールを{role}に変更しますか？",
   "members.roleChangeConsequence":
@@ -195,8 +194,6 @@ export const membersJa: Record<keyof typeof membersKo, string> = {
     "唯一のオーナーは無効化できません。先にほかの人をオーナーにしてください。",
   "members.disableOwnerProtected": "管理者はオーナーを無効化できません。",
   "members.enableOwnerProtected": "管理者はオーナーを再有効化できません。",
-  "members.enableWhy": "{name}を再有効化できない理由",
-  "members.disableWhy": "{name}を無効化できない理由",
   "members.roleSelf": "自分自身のロールは変更できません。",
   "members.roleLastOwner":
     "唯一のオーナーのロールは変更できません。先にほかの人をオーナーにしてください。",

@@ -94,7 +94,7 @@ interface MembersProps {
   readonly locale: unknown;
   readonly twoLine?: boolean;
   readonly actions?: boolean;
-  /** An icon button beside the admin's row button, as ReasonHint draws it. */
+  /** An icon button beside the admin's row button. */
   readonly hint?: boolean;
   readonly style?: CSSProperties;
 }

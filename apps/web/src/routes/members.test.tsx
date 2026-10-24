@@ -83,6 +83,20 @@ async function changeRole(
 }
 
 /** The role badge in a member's row. */
+/** The focusable box that carries a disabled row button's reason. */
+function lockOf(button: HTMLElement): HTMLElement {
+  const lock = button.parentElement;
+  if (lock?.dataset.slot !== "tooltip-disabled-trigger")
+    throw new Error("the button has no reason box");
+  expect(lock.tabIndex).toBe(0);
+  return lock;
+}
+
+function descriptionOf(element: HTMLElement) {
+  return document.getElementById(element.getAttribute("aria-describedby") ?? "")
+    ?.textContent;
+}
+
 function roleIn(name: string) {
   // Also while a dialog hides the page from the accessibility tree.
   const row = screen
@@ -243,7 +257,7 @@ describe("구성원 화면", () => {
     );
   });
 
-  test("관리자는 비활성 소유자를 다시 활성화하지 못하고, 이유를 안내 버튼 뒤에 둔다", async () => {
+  test("관리자는 비활성 소유자를 다시 활성화하지 못하고, 이유를 버튼의 툴팁에 둔다", async () => {
     const boss = { ...gone, display_name: "Boss", role: "owner" as const };
     renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me(undefined, "admin")),
@@ -258,15 +272,14 @@ describe("구성원 화면", () => {
       name: "다시 활성화",
     }) as HTMLButtonElement;
     expect(enable.disabled).toBe(true);
+    expect(descriptionOf(lockOf(enable))).toBe(
+      "소유자는 관리자가 다시 활성화할 수 없습니다.",
+    );
     expect(
-      document.getElementById(enable.getAttribute("aria-describedby") ?? "")
-        ?.textContent,
-    ).toBe("소유자는 관리자가 다시 활성화할 수 없습니다.");
-    expect(
-      within(row).getByRole("button", {
-        name: "Boss을(를) 다시 활성화할 수 없는 이유",
-      }),
-    ).toBeDefined();
+      within(enable.closest("[role=cell]") as HTMLElement).getAllByRole(
+        "button",
+      ),
+    ).toHaveLength(1);
   });
 
   test("다시 활성화가 403 OWNER_PROTECTED로 거절되면 그 동작의 말로 보인다", async () => {
@@ -582,10 +595,13 @@ describe("되돌리기 어려운 동작의 확인", () => {
       const button = (await screen.findByRole("button", {
         name: `${name} 비활성화`,
       })) as HTMLButtonElement;
-      const reason = document.getElementById(
-        button.getAttribute("aria-describedby") ?? "",
+      const lock = button.closest<HTMLElement>(
+        "[data-slot=tooltip-disabled-trigger]",
       );
-      return { disabled: button.disabled, reason: reason?.textContent };
+      return {
+        disabled: button.disabled,
+        reason: lock ? descriptionOf(lock) : undefined,
+      };
     };
     expect(await reasonOf("Owner")).toEqual({
       disabled: true,
@@ -595,7 +611,35 @@ describe("되돌리기 어려운 동작의 확인", () => {
       disabled: true,
       reason: "소유자는 관리자가 비활성화할 수 없습니다.",
     });
-    expect((await reasonOf("Mate")).disabled).toBe(false);
+    expect(await reasonOf("Mate")).toEqual({
+      disabled: false,
+      reason: undefined,
+    });
+  });
+
+  test("본인 행은 이름 옆에 '나'를 달고, 관리 열에 버튼 하나만 둔다", async () => {
+    renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me(undefined, "owner")),
+      "GET /v1/members": () => json(200, { items: [owner, teammate] }),
+      ...noInvites,
+    });
+    const buttonOf = async (name: string) =>
+      (await screen.findByRole("button", {
+        name: `${name} 비활성화`,
+      })) as HTMLButtonElement;
+    const rowOf = (button: HTMLElement) =>
+      button.closest("[role=row]") as HTMLElement;
+    const button = await buttonOf("Owner");
+    expect(within(rowOf(button)).getByText("나")).toBeDefined();
+    expect(within(rowOf(await buttonOf("Mate"))).queryByText("나")).toBeNull();
+    // Only the disable button: no (i) beside it to push it out of line.
+    const cell = button.closest("[role=cell]") as HTMLElement;
+    expect(within(cell).getAllByRole("button")).toHaveLength(1);
+    expect(cell.querySelector("svg")).toBeNull();
+    expect(button.disabled).toBe(true);
+    expect(descriptionOf(lockOf(button))).toBe(
+      "자기 자신은 비활성화할 수 없습니다.",
+    );
   });
 
   test("비활성 구성원의 역할은 편집에서 막고, 다시 활성화하라고 한다", async () => {
@@ -621,7 +665,7 @@ describe("되돌리기 어려운 동작의 확인", () => {
     });
   });
 
-  test("역할도 같은 규칙으로 편집에서 막고, 비활성화 이유는 행 높이를 바꾸지 않는 안내 버튼 뒤에 둔다", async () => {
+  test("역할도 같은 규칙으로 편집에서 막고, 비활성화 이유는 버튼 위 툴팁으로 연다", async () => {
     const boss = member({
       user_id: GONE_ID,
       email: "boss@example.com",
@@ -645,22 +689,20 @@ describe("되돌리기 어려운 동작의 확인", () => {
     });
     expect((await roleRule(user, "Mate")).disabled).toBe(false);
 
-    // Nothing under the control: the reason opens from the keyboard.
-    const why = screen.getByRole("button", {
-      name: "Boss을(를) 비활성화할 수 없는 이유",
-    });
-    expect(why.closest("[role=cell]")?.textContent).toBe(
-      "비활성화소유자는 관리자가 비활성화할 수 없습니다.",
+    // Nothing under the control: the reason opens above it from the keyboard.
+    const lock = lockOf(screen.getByRole("button", { name: "Boss 비활성화" }));
+    const note = () => document.querySelector('[data-slot="popover-content"]');
+    expect(note()).toBeNull();
+    await act(async () => lock.focus());
+    await waitFor(() =>
+      expect(note()?.textContent).toBe(
+        "소유자는 관리자가 비활성화할 수 없습니다.",
+      ),
     );
-    why.focus();
-    await user.keyboard("{Enter}");
-    const note = await screen.findByRole("dialog", {
-      name: "Boss을(를) 비활성화할 수 없는 이유",
-    });
-    expect(note.textContent).toBe("소유자는 관리자가 비활성화할 수 없습니다.");
+    expect(note()?.getAttribute("data-side")).toBe("top");
     await user.keyboard("{Escape}");
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(document.activeElement).toBe(why);
+    await waitFor(() => expect(note()).toBeNull());
+    expect(document.activeElement === lock).toBe(true);
   });
 });
 

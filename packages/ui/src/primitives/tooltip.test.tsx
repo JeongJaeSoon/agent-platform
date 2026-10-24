@@ -4,9 +4,8 @@ import { setupDom, setupUser } from "../test-support/dom.ts";
 
 const { fireEvent, render, waitFor } = await setupDom();
 // Radix decides at import time whether a DOM exists; see test-support/dom.ts.
-const { Tooltip, TooltipContent, TooltipTrigger } = await import(
-  "./tooltip.tsx"
-);
+const { Tooltip, TooltipContent, TooltipDisabledTrigger, TooltipTrigger } =
+  await import("./tooltip.tsx");
 
 function renderTooltip() {
   const result = render(
@@ -270,5 +269,36 @@ describe("Tooltip", () => {
     expect(
       document.querySelector('[data-slot="popover-content"]')?.textContent,
     ).toBe("열린 설명");
+  });
+
+  test("비활성 버튼을 감싼 트리거가 포커스·hover로 설명을 연다", async () => {
+    const user = await setupUser();
+    const result = render(
+      <Tooltip>
+        <TooltipDisabledTrigger>
+          <button type="button" disabled={true}>
+            비활성화
+          </button>
+        </TooltipDisabledTrigger>
+        <TooltipContent side="top">자기 자신은 안 됩니다</TooltipContent>
+      </Tooltip>,
+    );
+    const button = result.getByRole("button", { name: "비활성화" });
+    const wrapper = button.parentElement as HTMLElement;
+    const note = () => document.querySelector('[data-slot="popover-content"]');
+    expect(wrapper.dataset.slot).toBe("tooltip-disabled-trigger");
+    expect(wrapper.hasAttribute("type")).toBe(false);
+    expect(
+      document.getElementById(wrapper.getAttribute("aria-describedby") ?? "")
+        ?.textContent,
+    ).toBe("자기 자신은 안 됩니다");
+    await user.tab();
+    expect(document.activeElement === wrapper).toBe(true);
+    await waitFor(() => expect(note()).not.toBeNull());
+    expect(note()?.getAttribute("data-side")).toBe("top");
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(note()).toBeNull());
+    await user.hover(wrapper);
+    await waitFor(() => expect(note()).not.toBeNull());
   });
 });

@@ -1,5 +1,11 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Button, Tooltip, TooltipContent, TooltipTrigger } from "@werft-ai/ui";
+import {
+  Button,
+  Tooltip,
+  TooltipContent,
+  TooltipDisabledTrigger,
+  TooltipTrigger,
+} from "@werft-ai/ui";
 import { Pause, Square } from "lucide-react";
 
 const LABEL: Record<string, { pause: string; stop: string; note: string }> = {
@@ -107,6 +113,46 @@ export const IconButtons: Story = {
       </div>
     );
   },
+};
+
+const LOCKED: Record<string, { disable: string; note: string }> = {
+  ko: { disable: "비활성화", note: "자기 자신은 비활성화할 수 없습니다." },
+  ja: { disable: "無効化", note: "自分自身は無効化できません。" },
+  en: { disable: "Disable", note: "You cannot disable yourself." },
+};
+
+/*
+ * A disabled button takes neither hover nor Tab, so the box around it opens
+ * the note; it sits where the button sits, beside an enabled one of the
+ * same size, and the note opens above so the row below stays readable.
+ */
+export const OnDisabledButton: Story = {
+  name: "On a disabled button",
+  args: { open: true },
+  render: (args, { globals }) => {
+    const label = LOCKED[globals.locale] ?? LOCKED.ko;
+    return (
+      <div className="flex flex-col items-end gap-2 pt-16">
+        <Tooltip {...args}>
+          <TooltipDisabledTrigger>
+            <Button type="button" variant="outline" size="sm" disabled={true}>
+              {label?.disable}
+            </Button>
+          </TooltipDisabledTrigger>
+          <TooltipContent side="top">{label?.note}</TooltipContent>
+        </Tooltip>
+        <Button type="button" variant="outline" size="sm">
+          {label?.disable}
+        </Button>
+      </div>
+    );
+  },
+};
+
+export const OnDisabledButtonDark: Story = {
+  ...OnDisabledButton,
+  name: "On a disabled button (dark)",
+  globals: { theme: "dark" },
 };
 
 export const Dark: Story = {
