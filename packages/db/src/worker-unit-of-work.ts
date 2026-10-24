@@ -519,6 +519,7 @@ export async function advanceCheckpointPointer(
     // this attempt claimed, which the session may have changed since.
     profileId: sql`(SELECT ${attempts.profileId} FROM ${attempts} WHERE ${attempts.id} = ${input.fence.attemptId})`,
     profileFingerprint: sql`(SELECT ${attempts.profileFingerprint} FROM ${attempts} WHERE ${attempts.id} = ${input.fence.attemptId})`,
+    model: sql`(SELECT ${attempts.model} FROM ${attempts} WHERE ${attempts.id} = ${input.fence.attemptId})`,
     transcriptBytes: input.transcriptBytes ?? null,
   });
   if (input.transcriptBytes !== undefined) {
@@ -677,6 +678,7 @@ type RunnableFields = Pick<
   SessionRow,
   | "profileId"
   | "profileFingerprint"
+  | "model"
   | "repositoryMode"
   | "repositoryId"
   | "repoUrl"
@@ -704,7 +706,8 @@ export function runnablePairOf(
     (pair) =>
       allowsPair(pair, session) &&
       (session.profileFingerprint === null ||
-        session.profileFingerprint === pair.profileFingerprint),
+        (session.profileFingerprint === pair.profileFingerprint &&
+          (pair.model === null || pair.model === session.model))),
   );
 }
 
@@ -748,15 +751,14 @@ export function runnableCondition(all: readonly RunnablePair[]): SQL {
       ),
       sql`, `,
     );
-    const pinned = sql.join(
-      withRepository.map(
-        (pair) =>
-          sql`(${pair.profileId}, ${pair.repositoryId}, ${pair.url}, ${pair.branch}, ${pair.profileFingerprint})`,
-      ),
-      sql`, `,
+    const pinned = pinnedCondition(
+      withRepository,
+      (pair) =>
+        sql`${pair.profileId}, ${pair.repositoryId}, ${pair.url}, ${pair.branch}, ${pair.profileFingerprint}`,
+      sql`${sessions.profileId}, ${sessions.repositoryId}, ${sessions.repoUrl}, ${sessions.branch}, ${sessions.profileFingerprint}`,
     );
     conditions.push(
-      sql`(${sessions.repositoryMode} = 'repository' AND ((${sessions.profileId}, ${sessions.repositoryId}, ${sessions.repoUrl}, ${sessions.branch}, ${sessions.profileFingerprint}) IN (${pinned}) OR (${sessions.profileFingerprint} IS NULL AND (${sessions.profileId}, ${sessions.repositoryId}, ${sessions.repoUrl}, ${sessions.branch}) IN (${pairs}))))`,
+      sql`(${sessions.repositoryMode} = 'repository' AND (${pinned} OR (${sessions.profileFingerprint} IS NULL AND (${sessions.profileId}, ${sessions.repositoryId}, ${sessions.repoUrl}, ${sessions.branch}) IN (${pairs}))))`,
     );
   }
   if (without.length > 0) {
@@ -764,18 +766,44 @@ export function runnableCondition(all: readonly RunnablePair[]): SQL {
       without.map((pair) => sql`${pair.profileId}`),
       sql`, `,
     );
-    const pinned = sql.join(
-      without.map(
-        (pair) => sql`(${pair.profileId}, ${pair.profileFingerprint})`,
-      ),
-      sql`, `,
+    const pinned = pinnedCondition(
+      without,
+      (pair) => sql`${pair.profileId}, ${pair.profileFingerprint}`,
+      sql`${sessions.profileId}, ${sessions.profileFingerprint}`,
     );
     conditions.push(
-      sql`(${sessions.repositoryMode} = 'none' AND ((${sessions.profileId}, ${sessions.profileFingerprint}) IN (${pinned}) OR (${sessions.profileFingerprint} IS NULL AND ${sessions.profileId} IN (${profiles}))))`,
+      sql`(${sessions.repositoryMode} = 'none' AND (${pinned} OR (${sessions.profileFingerprint} IS NULL AND ${sessions.profileId} IN (${profiles}))))`,
     );
   }
   if (conditions.length === 0) return sql`false`;
   return sql`(${sql.join(conditions, sql` OR `)})`;
+}
+
+function pinnedCondition<Pair extends RunnablePair>(
+  all: readonly Pair[],
+  values: (pair: Pair) => SQL,
+  columns: SQL,
+): SQL {
+  const byFingerprint = all.filter((pair) => pair.model === null);
+  const byModel = all.filter((pair) => pair.model !== null);
+  const conditions: SQL[] = [];
+  if (byFingerprint.length > 0) {
+    const tuples = sql.join(
+      byFingerprint.map((pair) => sql`(${values(pair)})`),
+      sql`, `,
+    );
+    conditions.push(sql`(${columns}) IN (${tuples})`);
+  }
+  if (byModel.length > 0) {
+    const tuples = sql.join(
+      byModel.map((pair) => sql`(${values(pair)}, ${pair.model})`),
+      sql`, `,
+    );
+    conditions.push(sql`(${columns}, ${sessions.model}) IN (${tuples})`);
+  }
+  return conditions.length === 0
+    ? sql`false`
+    : sql`(${sql.join(conditions, sql` OR `)})`;
 }
 
 function budgetOf(input: {
@@ -960,6 +988,7 @@ async function bindingOf(
     leaseRemainingMs: leaseRemainingMs(attempt.leaseExpiresAt, at),
     profileId: session.profileId,
     profileFingerprint: session.profileFingerprint,
+    model: session.model,
     unmetered: session.unmetered,
     ownerScope: session.ownerId,
     repository: sessionRepositoryOf(session),
@@ -988,6 +1017,7 @@ async function withRestoreProfiles(
     .select({
       profileId: checkpoints.profileId,
       profileFingerprint: checkpoints.profileFingerprint,
+      model: checkpoints.model,
     })
     .from(checkpoints)
     .where(
@@ -998,7 +1028,11 @@ async function withRestoreProfiles(
         isNotNull(checkpoints.profileFingerprint),
       ),
     )
-    .groupBy(checkpoints.profileId, checkpoints.profileFingerprint)
+    .groupBy(
+      checkpoints.profileId,
+      checkpoints.profileFingerprint,
+      checkpoints.model,
+    )
     .orderBy(desc(max(checkpoints.revision)));
   return {
     restore,
@@ -1009,6 +1043,7 @@ async function withRestoreProfiles(
             {
               profileId: row.profileId,
               profileFingerprint: row.profileFingerprint,
+              model: row.model,
             },
           ],
     ),
@@ -1024,6 +1059,7 @@ async function issueCredentials(
     | "id"
     | "profileId"
     | "profileFingerprint"
+    | "model"
     | "repositoryMode"
     | "repositoryId"
     | "agentReleaseId"
@@ -1230,6 +1266,10 @@ export function createPostgresWorkerUnitOfWork(
             .set({
               authRevision: sql`${sessions.authRevision} + 1`,
               profileFingerprint: pair.profileFingerprint,
+              model:
+                bound.session.profileFingerprint === null
+                  ? pair.model
+                  : bound.session.model,
               updatedAt: input.now,
             })
             .where(eq(sessions.id, bound.session.id))
@@ -1247,6 +1287,7 @@ export function createPostgresWorkerUnitOfWork(
               leaseExpiresAt,
               profileId: session.profileId,
               profileFingerprint: session.profileFingerprint,
+              model: session.model,
             })
             .where(eq(attempts.id, bound.attempt.id))
             .returning();
@@ -1357,6 +1398,8 @@ export function createPostgresWorkerUnitOfWork(
             podId: launch.executionId,
             // Pins a row from before; any other holds this already.
             profileFingerprint: pair.profileFingerprint,
+            model:
+              locked.profileFingerprint === null ? pair.model : locked.model,
             restoreAttemptId: input.attemptId,
             updatedAt: input.now,
           })
@@ -1387,6 +1430,7 @@ export function createPostgresWorkerUnitOfWork(
             startedAt: input.now,
             profileId: session.profileId,
             profileFingerprint: session.profileFingerprint,
+            model: session.model,
           })
           .returning();
         if (!attempt) throw new Error("Failed to insert attempt");
@@ -1621,11 +1665,15 @@ export function createPostgresWorkerUnitOfWork(
         // The session's profile was changed after this attempt claimed it:
         // it finishes what it holds on its own profile and goes, and the
         // next claim runs the new one.
+        // An attempt with no model ran a version 1 fingerprint, which names
+        // its model; the session's may have been backfilled since.
         const profileMoved =
           fenced.attempt.profileFingerprint !== null &&
           (fenced.attempt.profileId !== fenced.session.profileId ||
             fenced.attempt.profileFingerprint !==
-              fenced.session.profileFingerprint);
+              fenced.session.profileFingerprint ||
+            (fenced.attempt.model !== null &&
+              fenced.attempt.model !== fenced.session.model));
 
         const [head] = await tx
           .select({ message: queueMessages, turn: turns })

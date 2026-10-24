@@ -1696,6 +1696,7 @@ integration("worker gateway on PostgreSQL", () => {
       payloadHash: crypto.randomUUID(),
       profileId: "general",
       profileFingerprint: profileFingerprint(general),
+      model: general.model,
       repository: "none",
       message: "first input",
     });

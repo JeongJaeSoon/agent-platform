@@ -134,6 +134,7 @@ function summary(id: string, overrides: Partial<SessionSummary> = {}) {
     repository_id: "demo",
     current_turn_id: "1",
     queued_turn_count: 0,
+    model: "model-default",
     last_event_at: AT,
     created_at: AT,
     updated_at: AT,

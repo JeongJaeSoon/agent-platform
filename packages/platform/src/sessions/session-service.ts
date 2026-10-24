@@ -36,6 +36,7 @@ import {
   CREDENTIAL_UNBOUND_GUIDANCE,
   normalizeSessionTitle,
 } from "@werft-ai/contracts";
+import { releaseModel } from "../agents/release-ids.ts";
 import {
   budgetExceeded,
   type SessionSpend,
@@ -60,6 +61,7 @@ import type {
 import {
   allowedRun,
   isUnmetered,
+  type ProfilePin,
   profileFingerprint,
   profileWithModel,
   repositoryModeOf,
@@ -109,6 +111,13 @@ function canonicalize(value: unknown): unknown {
 // Plain-object catalogs must not resolve inherited keys such as "toString".
 function own<T>(record: Record<string, T>, key: string): T | undefined {
   return Object.hasOwn(record, key) ? record[key] : undefined;
+}
+
+function pinOf(record: {
+  profile_fingerprint: string | null;
+  model: string | null;
+}): ProfilePin {
+  return { fingerprint: record.profile_fingerprint, model: record.model };
 }
 
 // api.md: pausing/paused, resuming and closed each have their own code;
@@ -287,7 +296,12 @@ export function createSessionService(deps: {
     resolveRelease(
       workspaceId: string,
       releaseId: string,
-    ): Promise<Pick<AgentRelease, "id" | "agent_id" | "runtime_profile_id">>;
+    ): Promise<
+      Pick<
+        AgentRelease,
+        "id" | "agent_id" | "runtime_profile_id" | "runtime_config_snapshot"
+      >
+    >;
   };
   // Who a requester refused for an unbound credential is told to ask.
   credentials?: Pick<CredentialBindingStore, "contacts">;
@@ -355,19 +369,18 @@ export function createSessionService(deps: {
       (run.repository === null ||
         (run.repository.url === record.repo_url &&
           run.repository.branch === record.branch)) &&
-      sessionProfile(run.profile, record.profile_fingerprint) !== null
+      sessionProfile(run.profile, pinOf(record)) !== null
     );
   }
 
   function runtimeFor(record: {
     profile_id: string | null;
     profile_fingerprint: string | null;
+    model: string | null;
   }): SessionRuntimeView | null {
     const profileId = record.profile_id;
     const listed = profileId ? own(catalog.profiles, profileId) : undefined;
-    const profile = listed
-      ? sessionProfile(listed, record.profile_fingerprint)
-      : null;
+    const profile = listed ? sessionProfile(listed, pinOf(record)) : null;
     if (!profile || !profileId) return null;
     return {
       kind: profile.runtime_kind,
@@ -490,7 +503,11 @@ export function createSessionService(deps: {
               reason: `The session has reached its ${reachedLimits(spend)}; queued messages will not run and a pending resume will not launch`,
             }
           : null),
-      runtime: runtimeFor({ profile_id, profile_fingerprint }),
+      runtime: runtimeFor({
+        profile_id,
+        profile_fingerprint,
+        model: detail.model,
+      }),
     };
   }
 
@@ -534,7 +551,10 @@ export function createSessionService(deps: {
       // catalog does not allow; a replay of an earlier acceptance still
       // succeeds.
       const runs = allowed
-        ? profileWithModel(allowed.profile, input.body.model)
+        ? profileWithModel(
+            allowed.profile,
+            input.body.model ?? releaseModel(release),
+          )
         : null;
       const pair = allowed && runs ? { ...allowed, profile: runs } : null;
       const result = await inputs.acceptInputAtomic({
@@ -560,6 +580,7 @@ export function createSessionService(deps: {
         ...(pair
           ? {
               profileFingerprint: profileFingerprint(pair.profile),
+              model: pair.profile.model,
               unmetered: isUnmetered(pair.profile),
             }
           : {}),
@@ -829,7 +850,7 @@ export function createSessionService(deps: {
         ? own(catalog.profiles, record.profile_id)
         : undefined;
       const current = found
-        ? (sessionProfile(found, record.profile_fingerprint) ?? undefined)
+        ? (sessionProfile(found, pinOf(record)) ?? undefined)
         : undefined;
       // The next attempt restores checkpoints the current runtime took, so
       // the runtime has to stay; the model, tools and provider may change.
@@ -857,7 +878,15 @@ export function createSessionService(deps: {
           refusal === null && pair !== null
             ? {
                 id: wanted,
-                fingerprint: profileFingerprint(pair.profile),
+                // Rewriting a version 1 pin for the same profile and model
+                // would move a running attempt off a profile it still runs.
+                fingerprint:
+                  wanted === record.profile_id &&
+                  record.profile_fingerprint !== null &&
+                  current?.model === pair.profile.model
+                    ? record.profile_fingerprint
+                    : profileFingerprint(pair.profile),
+                model: pair.profile.model,
                 unmetered: isUnmetered(pair.profile),
               }
             : null,
@@ -1095,7 +1124,11 @@ export function createSessionService(deps: {
         items: page.items.map(
           ({ profile_id, profile_fingerprint, ...item }) => ({
             ...item,
-            runtime: runtimeFor({ profile_id, profile_fingerprint }),
+            runtime: runtimeFor({
+              profile_id,
+              profile_fingerprint,
+              model: item.model,
+            }),
           }),
         ),
         next_cursor: page.next_cursor,

@@ -67,7 +67,7 @@ curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq .runtime
 
 A profile that is not in the catalog, a profile that cannot run with that repository, and a model the profile does not allow all return 422.
 
-When you create an agent release, choose with `runtime_profile_id`. The card's `model` must match that profile's model, and all of the card's tools must be in the profile ([Create](/agents/create#create-a-release)).
+When you create an agent release, choose with `runtime_profile_id`. The card's `model` must be one of the models that profile can run, and all of the card's tools must be in the profile ([Create](/agents/create#create-a-release)).
 
 ## Change the profile of a running session
 

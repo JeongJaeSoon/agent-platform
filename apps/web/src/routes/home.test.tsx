@@ -51,6 +51,7 @@ const oneSession = {
   repository_id: "demo",
   current_turn_id: null,
   queued_turn_count: 0,
+  model: "model-default",
   last_event_at: null,
   created_at: "2026-10-01T00:00:00.000Z",
   updated_at: "2026-10-01T00:00:00.000Z",
@@ -235,6 +236,33 @@ describe("홈 요약", () => {
       },
     },
   };
+  const since = new Date(Date.now() - 30 * 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+  const summary = (
+    scope: "me" | "installation",
+    sessions: number,
+    complete = true,
+  ) => ({
+    scope,
+    period: {
+      since: `${since}T00:00:00.000Z`,
+      until: "2026-10-23T09:00:00.000Z",
+    },
+    refreshed_at: "2026-10-23T09:00:00.000Z",
+    session_count: sessions,
+    cost_usd: scope === "me" ? "1.250000" : "4.500000",
+    cost_complete: complete,
+    token_count: sessions * 1200,
+    run_seconds: sessions * 600,
+    basis: {
+      sessions: "created_in_period",
+      cost: "provider_usage_estimate",
+      run_time: "turn_wall_clock",
+    },
+  });
+  const summaryRoute = (scope: "me" | "installation") =>
+    `GET /v1/usage/summary?scope=${scope}&since=${since}`;
   const expiringKey = {
     id: "9c8b7a6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
     kind: "service",
@@ -302,12 +330,15 @@ describe("홈 요약", () => {
           next_cursor: "next",
         }),
       "GET /v1/limits": () => json(200, limits),
+      [summaryRoute("me")]: () => json(200, summary("me", 3)),
+      [summaryRoute("installation")]: () =>
+        json(200, summary("installation", 12, false)),
       "GET /v1/api-keys": () => json(200, { items: [expiringKey] }),
       ...pending(waitingSession.id, "2026-10-23T09:00:00.000Z"),
     };
   };
 
-  test("카드 세 장에 실제 수치와 미계측을 나눠 보이고, 답변 대기는 가장 오래된 요청 하나만 가리킨다", async () => {
+  test("카드 세 장에 최근 30일 사용량과 미계측을 나눠 보이고, 답변 대기는 가장 오래된 요청 하나만 가리킨다", async () => {
     renderAt("/", homeRoutes());
     const overview = await screen.findByRole("region", { name: "한눈에 보기" });
     await waitFor(() =>
@@ -315,9 +346,9 @@ describe("홈 요약", () => {
         {
           title: "전체 사용량",
           badge: undefined,
-          value: "—미계측",
+          value: "$4.500000",
           rows: [
-            ["세션", "—미계측"],
+            ["세션", "12"],
             ["동시 실행", "3 / 8 slot"],
             ["결과물 저장", "—미계측"],
           ],
@@ -337,11 +368,11 @@ describe("홈 요약", () => {
         {
           title: "내가 시작한 세션 기준",
           badge: undefined,
-          value: "—미계측",
+          value: "$1.250000",
           rows: [
-            ["세션", "—미계측"],
-            ["실행 시간", "—미계측"],
-            ["토큰", "—미계측"],
+            ["세션", "3"],
+            ["실행 시간", "30분"],
+            ["토큰", "3,600"],
           ],
         },
       ]),
@@ -362,9 +393,14 @@ describe("홈 요약", () => {
         .getAttribute("href"),
     ).toBe("/settings/api-keys/service");
 
+    expect(screen.getByText("최근 30일 · UTC 기준")).toBeTruthy();
+    // The install's sum is partial; the viewer's own is whole.
     expect(
-      screen.getByText("설치 전체 수치는 설치 운영자에게만 보입니다"),
+      within(overview).getByText(
+        "추정 비용 · 진행 중이거나 비용을 보고하지 않은 turn은 빠짐",
+      ),
     ).toBeTruthy();
+    expect(within(overview).getByText("추정 비용")).toBeTruthy();
     const recent = screen.getByRole("table", { name: "최근 세션" });
     // The design's dot, not a pill: amber for waiting, the text says which.
     expect(
@@ -415,10 +451,17 @@ describe("홈 요약", () => {
     ).toEqual([waitingSession.title, oneSession.id.slice(0, 8)]);
   });
 
-  test("한도를 읽을 수 없는 사람에게는 설치 전체 카드를 숨긴다", async () => {
-    renderAt("/", {
+  test("설치 전체 사용량 권한이 없으면 전체 카드를 숨기고 한도·전체 합계를 묻지 않는다", async () => {
+    const owner = me();
+    const { api } = renderAt("/", {
       ...homeRoutes(),
-      "GET /v1/limits": () => apiError(403, "FORBIDDEN", "forbidden"),
+      "GET /v1/auth/me": () =>
+        json(200, {
+          ...owner,
+          permissions: owner.permissions.filter(
+            (action) => action !== "usage.installation_read",
+          ),
+        }),
     });
     const overview = await screen.findByRole("region", { name: "한눈에 보기" });
     await waitFor(() =>
@@ -426,6 +469,31 @@ describe("홈 요약", () => {
         "확인할 항목",
         "내가 시작한 세션 기준",
       ]),
+    );
+    expect(api.calls.some((call) => call.path === "/v1/limits")).toBe(false);
+    expect(
+      api.calls
+        .filter((call) => call.path === "/v1/usage/summary")
+        .map((call) => new URLSearchParams(call.search).get("scope")),
+    ).not.toContain("installation");
+  });
+
+  test("사용량을 읽지 못하면 값을 지어내지 않고 —로 둔다", async () => {
+    renderAt("/", {
+      ...homeRoutes(),
+      [summaryRoute("me")]: () => apiError(500, "INTERNAL", "boom"),
+    });
+    const overview = await screen.findByRole("region", { name: "한눈에 보기" });
+    await waitFor(() =>
+      expect(cards(overview)[2]).toMatchObject({
+        title: "내가 시작한 세션 기준",
+        value: "—",
+        rows: [
+          ["세션", "—"],
+          ["실행 시간", "—"],
+          ["토큰", "—"],
+        ],
+      }),
     );
   });
 

@@ -14,6 +14,7 @@ import { preferencesJa } from "./preferences.ts";
 import { sessionListJa } from "./session-list.ts";
 import { shellJa } from "./shell.ts";
 import { teamsJa } from "./teams.ts";
+import { usageJa } from "./usage.ts";
 import { workspaceJa } from "./workspace.ts";
 
 export const ja: Record<MessageKey, string> = {
@@ -32,6 +33,7 @@ export const ja: Record<MessageKey, string> = {
   ...outputsJa,
   ...apiKeysJa,
   ...workspaceJa,
+  ...usageJa,
   ...preferencesJa,
   ...errorsJa,
   ...formsJa,

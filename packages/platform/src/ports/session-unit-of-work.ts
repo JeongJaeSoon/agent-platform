@@ -48,6 +48,8 @@ export type AcceptSessionInput = {
   // every claim of the session is then held to. Left out, the row
   // is pinned by its first claim, as one from before the column is.
   profileFingerprint?: string;
+  // The model the session runs, set with profileFingerprint.
+  model?: string;
   // The profile declared `billing: none`; fixed on the session for good.
   unmetered?: boolean;
   // The agent release the session belongs to, already checked against
@@ -94,7 +96,7 @@ export type AppendMessageResult =
 // Storage rows carry profile_id; the service resolves runtime from the catalog.
 export type SessionRecord = Omit<SessionSummary, "runtime"> & {
   profile_id: string | null;
-  // Which of the profile's models the session runs; never exposed.
+  // With `model`, what the session is pinned to; never exposed.
   profile_fingerprint: string | null;
 };
 export type SessionDetailRecord = Omit<SessionDetail, "runtime"> & {

@@ -17,7 +17,13 @@ export function PartRequest({ name }: { readonly name: string }) {
   );
 }
 
-export type NavKey = "home" | "sessions" | "agents" | "members" | "settings";
+export type NavKey =
+  | "home"
+  | "sessions"
+  | "agents"
+  | "members"
+  | "settings"
+  | "usage";
 
 const NAV: readonly (readonly [NavKey, string])[] = [
   ["home", "홈"],
