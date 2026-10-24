@@ -12,24 +12,26 @@ import {
   EmptyState,
   ErrorState,
   Link,
+  NativeSelect,
+  NativeSelectOption,
   PageHeader,
   SearchInput,
   SegmentedControl,
   SegmentedControlItem,
   Skeleton,
 } from "@werft-ai/ui";
-import { Plus } from "lucide-react";
 import { useState } from "react";
 
 import { MOBILE, ScreenShell } from "./screen-kit.tsx";
 
 /*
- * Console v4 session list (Console.dc.html, SESSIONS): one segmented status
- * filter, a search box over the loaded rows, and the title-first table. Rows
- * carry only SessionSummary fields and the oldest pending request's wait.
- * Columns the API cannot fill yet (agent, who started it) are left out, not
- * shown empty. The real screen keeps its one-line approval inbox above the
- * table (Blocks/ApprovalInbox › Rows); this board draws the list alone.
+ * Console v4 session list (Console.dc.html, SESSIONS, `.t-sess`): the
+ * segmented status filter with the counts GET /v1/sessions/counts reads, a
+ * search box and a relation select the API answers (`q`, `relation`), and the
+ * six-column table: title, status, agent · model, repository, started by,
+ * recent. Rows carry only SessionSummary fields and the oldest pending
+ * request's wait. The real screen keeps its one-line approval inbox above
+ * the table (Blocks/ApprovalInbox › Rows); this board draws the list alone.
  */
 
 interface Row {
@@ -45,12 +47,25 @@ function summary(
   model: string | null,
   repository: string | null,
   at: string,
+  agent: string | null = null,
+  startedBy: string | null = null,
 ): SessionSummary {
   return {
     id,
     title,
-    agent: null,
-    created_by: null,
+    agent: agent
+      ? {
+          id: "0192f0c4-7d3a-7b4e-9f00-0000000000a1",
+          name: agent,
+          release_version_no: 3,
+        }
+      : null,
+    created_by: startedBy
+      ? {
+          user_id: "0192f0c4-7d3a-7b4e-9f00-0000000000b1",
+          display_name: startedBy,
+        }
+      : null,
     channel: null,
     revision: 1,
     admission_state: "active",
@@ -89,6 +104,8 @@ const ROWS: readonly Row[] = [
       "gpt-5-codex",
       "demo-repo",
       "2026-10-24T06:02:11.000Z",
+      "Release helper",
+      "김하나",
     ),
     waitedMinutes: 12,
   },
@@ -100,6 +117,8 @@ const ROWS: readonly Row[] = [
       "claude-sonnet-5",
       null,
       "2026-10-24T06:11:40.000Z",
+      "Meeting notes",
+      "Alex Rivera",
     ),
   },
   {
@@ -110,6 +129,8 @@ const ROWS: readonly Row[] = [
       "claude-opus-5",
       null,
       "2026-10-23T06:14:02.000Z",
+      null,
+      "佐藤 花子",
     ),
   },
   {
@@ -120,6 +141,8 @@ const ROWS: readonly Row[] = [
       "claude-sonnet-5",
       "demo-repo",
       "2026-10-20T00:40:17.000Z",
+      // A service key's session: an agent, nobody recorded as its starter.
+      "Release helper",
     ),
   },
   {
@@ -147,19 +170,29 @@ const FILTERS: readonly (readonly [SessionStatus | "all", string])[] = [
 const statusWord = (status: SessionStatus) =>
   FILTERS.find(([key]) => key === status)?.[1] ?? status;
 
+const RELATIONS = [
+  ["all", "모든 관계"],
+  ["started", "내가 시작"],
+  ["shared", "공유받음"],
+  ["administered", "관리하는 에이전트"],
+] as const;
+
 const ROW_MESSAGES = {
   status: statusWord,
   statusAxis: "작업 상태",
   noRepository: "저장소 없음",
   unknown: "—",
   recent: "최근",
+  open: (name: string) => `세션 열기: ${name}`,
 };
 
 const HEAD = {
   session: "세션",
   status: "상태",
   model: "모델",
+  agent: "에이전트 · 모델",
   repository: "저장소",
+  startedBy: "시작한 사람",
   recent: "최근",
 };
 
@@ -173,49 +206,67 @@ function SessionListV4Body({
   readonly initialQuery?: string;
 }) {
   const [tab, setTab] = useState("all");
+  const [relation, setRelation] = useState("all");
   const [query, setQuery] = useState(initialQuery);
   const q = query.trim().toLowerCase();
-  const shown = ROWS.filter(
+  // What the API's q matches: the title, or the id's head.
+  const matching = ROWS.filter(
     ({ summary: session }) =>
-      (tab === "all" || session.status === tab) &&
-      (q === "" ||
-        (session.title?.toLowerCase().includes(q) ?? false) ||
-        session.id.startsWith(q)),
+      q === "" ||
+      (session.title?.toLowerCase().includes(q) ?? false) ||
+      session.id.startsWith(q),
   );
+  const shown = matching.filter(
+    ({ summary: session }) => tab === "all" || session.status === tab,
+  );
+  const count = (key: string) =>
+    key === "all"
+      ? matching.length
+      : matching.filter(({ summary: session }) => session.status === key)
+          .length;
   return (
     <div className="flex flex-col">
       <PageHeader
         title="세션"
         description="내가 만들었거나 나에게 공유된 세션입니다. 세션을 누르면 상태와 이벤트를 봅니다."
-        actions={
-          <Button type="button">
-            <Plus aria-hidden="true" />새 세션
-          </Button>
-        }
       />
       <div className="flex flex-col gap-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="red">
-            탭 개수·에이전트·시작한 사람 열: API 변경 필요 (94S-811)
-          </Badge>
-        </div>
         <div className="flex min-w-0 flex-col gap-4">
           <div className="flex flex-wrap items-center gap-2">
-            <SegmentedControl
-              aria-label="상태로 보기"
-              value={tab}
-              onValueChange={setTab}
-            >
-              {FILTERS.map(([key, label]) => (
-                <SegmentedControlItem key={key} value={key}>
-                  {label}
-                </SegmentedControlItem>
-              ))}
-            </SegmentedControl>
+            <div className="flex flex-wrap items-center gap-2">
+              <SegmentedControl
+                aria-label="상태로 보기"
+                value={tab}
+                onValueChange={setTab}
+              >
+                {FILTERS.map(([key, label]) => (
+                  <SegmentedControlItem
+                    key={key}
+                    value={key}
+                    count={state === "ready" ? count(key) : undefined}
+                  >
+                    {label}
+                  </SegmentedControlItem>
+                ))}
+              </SegmentedControl>
+              <NativeSelect
+                aria-label="나와의 관계"
+                value={relation}
+                onChange={(event) => setRelation(event.target.value)}
+              >
+                {RELATIONS.map(([key, label]) => (
+                  <NativeSelectOption key={key} value={key}>
+                    {label}
+                  </NativeSelectOption>
+                ))}
+              </NativeSelect>
+            </div>
             <SearchInput
               type="search"
               aria-label="제목이나 ID로 찾기"
               placeholder="제목이나 ID로 찾기"
+              maxLength={200}
+              wrapperClassName="max-w-none flex-[1_1_100%] sm:ml-auto sm:w-[260px] sm:flex-none"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
             />
@@ -249,6 +300,7 @@ function SessionListV4Body({
                     onClick={() => {
                       setQuery("");
                       setTab("all");
+                      setRelation("all");
                     }}
                   >
                     필터 지우기
@@ -279,7 +331,7 @@ function SessionListV4Body({
         </div>
         {state === "ready" ? (
           <div className="text-caption text-subtle-foreground">
-            {shown.length}개 표시 · 검색은 지금 불러온 세션 안에서만 찾습니다.
+            {shown.length}개 표시
           </div>
         ) : null}
       </div>

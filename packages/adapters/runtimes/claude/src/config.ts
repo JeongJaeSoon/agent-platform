@@ -3,7 +3,6 @@ import {
   CLAUDE_CODE_VERSION,
 } from "@werft-ai/runtime-claude-codec";
 import type {
-  NativeEnvelope,
   RuntimeCapabilities,
   RuntimeConfig,
   TranscriptMirror,
@@ -24,10 +23,6 @@ export type PermissionMode =
   | "plan"
   | "bypassPermissions"
   | "auto";
-
-export type ClaudeNativeEnvelope = NativeEnvelope & {
-  sdk_version: typeof CLAUDE_AGENT_SDK_VERSION;
-};
 
 export type RuntimePlugin = { path: string; type: "local" };
 

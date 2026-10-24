@@ -525,6 +525,72 @@ describe("에이전트 목록 탭과 보기", () => {
     expect(screen.getByRole("link", { name: "결제 담당" })).toBeDefined();
   });
 
+  test("검색은 이름·식별자로 목록만 좁히고 개수는 서버 값 그대로 둔다", async () => {
+    // The page has other live regions (the waiting bell); this one is the
+    // list's own.
+    const results = () =>
+      document.querySelector("main output") as HTMLOutputElement;
+    const server = agentServer();
+    const other = {
+      ...server.detail().agent,
+      id: crypto.randomUUID(),
+      slug: "refund-desk",
+      name: "다른 에이전트",
+    };
+    renderAt("/agents", {
+      ...meOk,
+      ...server.routes,
+      "GET /v1/agents": () =>
+        json(200, { items: [server.detail().agent, other] }),
+      "GET /v1/administered-agents": () => json(200, { items: [other] }),
+    });
+    const all = await screen.findByRole("button", { name: "전체 2" });
+    const search = screen.getByRole("searchbox", {
+      name: "이름이나 식별자로 찾기",
+    });
+    const cards = screen.getByRole("button", { name: "카드" });
+    // Categories, then search, then view: the toolbar's reading order.
+    expect(
+      all.compareDocumentPosition(search) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      search.compareDocumentPosition(cards) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    const user = await setupUser();
+    // Empty until someone types, then the match count for a screen reader.
+    expect(results().textContent).toBe("");
+    await user.type(search, "  REFUND ");
+    await waitFor(() =>
+      expect(screen.queryByRole("link", { name: "결제 담당" })).toBeNull(),
+    );
+    expect(results().textContent).toBe("1개 표시");
+    expect(screen.getByRole("link", { name: "다른 에이전트" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "전체 2" })).toBeDefined();
+
+    const region = results();
+    await showList(user, "관리하는 에이전트 1");
+    expect(
+      await screen.findByRole("link", { name: "다른 에이전트" }),
+    ).toBeDefined();
+    // The same live region across categories, so the new count is heard.
+    expect(results() === region).toBe(true);
+    expect(results().textContent).toBe("1개 표시");
+
+    await user.clear(search);
+    await user.type(search, "없는 이름");
+    expect(
+      await screen.findByText("검색어에 맞는 에이전트가 없습니다"),
+    ).toBeDefined();
+    expect(results().textContent).toBe("0개 표시");
+    await user.click(screen.getByRole("button", { name: "검색어 지우기" }));
+    expect(
+      await screen.findByRole("link", { name: "다른 에이전트" }),
+    ).toBeDefined();
+    expect((search as HTMLInputElement).value).toBe("");
+    expect(document.activeElement === search).toBe(true);
+  });
+
   test("관리하는 에이전트가 서버 상한만큼 오면 개수에 +를 붙이고 일부만 보인다고 알린다", async () => {
     const base = agentServer().detail().agent;
     const items = Array.from({ length: 200 }, (_, n) => ({

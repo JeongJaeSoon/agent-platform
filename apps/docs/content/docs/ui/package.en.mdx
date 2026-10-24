@@ -63,7 +63,13 @@ The classes the kit's components use are already in `styles.css`, so you do not 
 
 ## Fonts
 
-The package ships no fonts. `--ap-font-sans` (Geist, then Pretendard Variable) and `--ap-font-mono` (Geist Mono first) pick the typeface, and if the app does not load those fonts, text falls back to the system fonts at the end of each list. To show Hangul in Pretendard, the app loads it itself. This repository's web console uses the dynamic subset from the `pretendard` package.
+The package ships no fonts. The font lists live in `--ap-font-sans` (Geist, then Pretendard Variable) and `--ap-font-mono` (Geist Mono first), but `styles.css` applies them only to the kit's `ap-*` elements. Controls such as buttons and segmented controls inherit the app's font, so if the app sets no font on `body` (or `:root`), they render in the browser's default font, usually a serif such as Times. Put one line in the app's CSS:
+
+```css title="src/app.css"
+body { font-family: var(--ap-font-sans); }
+```
+
+With it, text falls back to the system fonts at the end of the list even when the app loads neither Geist nor Pretendard. To show Hangul in Pretendard, the app loads it itself. This repository's web console uses the dynamic subset from the `pretendard` package.
 
 ```sh
 npm install pretendard

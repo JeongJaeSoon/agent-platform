@@ -89,6 +89,8 @@ bun scripts/ui-pack-smoke.ts              # 빈 Vite+React 앱에 설치해 렌�
 - `tokens.css`·`theme.css`: 소스 그대로. Tailwind v4 앱은 `styles.css` 뒤에 `theme.css`를 import하면 같은 유틸리티 이름을 쓸 수 있다.
 - 폰트는 싣지 않는다. `styles.css`의 `fonts.css` import를 빼고 빌드하므로 `--ap-font-sans`·`--ap-font-mono`는 쓰는 쪽 앱이
   Geist·Pretendard를 로드하지 않으면 시스템 폰트로 떨어진다. `pretendard`도 배포 package.json의 의존성이 아니다.
+  `--ap-font-sans`는 `ap-*` 요소에만 걸리고 버튼 같은 컨트롤은 앱 글꼴을 물려받으므로, 앱이 `body`(또는 `:root`)에
+  글꼴을 주지 않으면 브라우저 기본 serif로 그려진다. 앱 CSS에 `body { font-family: var(--ap-font-sans); }` 한 줄을 둔다.
 - `package.json`: 저장소 것에서 만든다. exports는 `dist` 파일을 가리키고 `./test-support/*`는 뺀다. `react`·`react-dom`은 peer 그대로다.
 - `LICENSE`: 저장소 루트 것을 복사한다.
 

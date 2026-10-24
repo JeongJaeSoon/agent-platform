@@ -65,12 +65,6 @@ const RANK: Record<CheckpointReasonKind, number> = {
   blocking: 3,
 };
 
-export function checkpointReasonKind(
-  reason: CheckpointBlockReason,
-): CheckpointReasonKind {
-  return CHECKPOINT_REASONS[reason];
-}
-
 /** Whether a stored pending reason refuses new turns. */
 export function checkpointReasonHoldsWork(
   reason: CheckpointBlockReason | null,

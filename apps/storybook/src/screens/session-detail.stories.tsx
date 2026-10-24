@@ -41,8 +41,11 @@ const WRITE_REQUEST = {
 
 function SessionDetailPage({
   locale,
+  scoped = true,
 }: {
   readonly locale?: string | undefined;
+  /** False: a key without the session scopes, every action disabled. */
+  readonly scoped?: boolean | undefined;
 }) {
   const host = hostFor({ globals: locale === undefined ? {} : { locale } });
   return (
@@ -50,6 +53,7 @@ function SessionDetailPage({
       <SessionDetail
         id={SESSION.id}
         {...shared(host)}
+        unavailable={scoped ? undefined : host.unavailable}
         back={
           <Button asChild variant="outline">
             <a href="#sessions">
@@ -92,8 +96,11 @@ const meta = {
   title: "Screens/Session detail (v4)",
   component: SessionDetailPage,
   parameters: { layout: "fullscreen", api: routes() },
-  render: (_args, context) => (
-    <SessionDetailPage locale={context.globals.locale as string | undefined} />
+  render: (args, context) => (
+    <SessionDetailPage
+      {...args}
+      locale={context.globals.locale as string | undefined}
+    />
   ),
 } satisfies Meta<typeof SessionDetailPage>;
 
@@ -117,6 +124,37 @@ export const Member: Story = {
   name: "공유받은 구성원: 볼 수만 있음",
   parameters: {
     api: routes({ requests: { ...WRITE_REQUEST, answerable: false } }),
+  },
+};
+
+/** The operations card when the key may neither answer nor control. */
+export const Unscoped: Story = {
+  name: "운영: 권한 없는 key",
+  args: { scoped: false },
+};
+
+/** Until the pending requests arrive the card states only the rule. */
+export const PendingLoading: Story = {
+  name: "운영: 요청 불러오는 중",
+  parameters: {
+    api: { ...routes(), [`GET ${base}/pending-requests`]: pending },
+  },
+};
+
+/** An archived session takes no command; the card says so. */
+export const Closed: Story = {
+  name: "운영: 할 수 있는 조치 없음",
+  parameters: {
+    api: routes({
+      detail: {
+        ...TITLED,
+        status: "stopped",
+        admission_state: "closed",
+        current_turn_id: null,
+        pending_request_count: 0,
+      },
+      requests: { answerable: true, items: [] },
+    }),
   },
 };
 
