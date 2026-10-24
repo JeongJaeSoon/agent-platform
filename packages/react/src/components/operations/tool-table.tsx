@@ -31,6 +31,8 @@ export interface ToolTableProps {
   readonly onSelect?: ((name: string) => void) | undefined;
   /** A short note under a name, such as "셸 명령"; not an API field. */
   readonly describe?: ((name: string) => string | undefined) | undefined;
+  /** Placeholder rows while `tools` is read, e.g. the last count seen. */
+  readonly loadingRows?: number | undefined;
   readonly messages?: Partial<ToolTableMessages> | undefined;
 }
 
@@ -45,6 +47,7 @@ export function ToolTable({
   selected,
   onSelect,
   describe,
+  loadingRows = 3,
   messages: override,
 }: ToolTableProps): JSX.Element {
   const { messages, format } = useOperationsMessages("toolTable", override);
@@ -75,13 +78,26 @@ export function ToolTable({
           </GridTableColumnHeader>
         </GridTableHeader>
         {tools === undefined
-          ? [0, 1, 2].map((row) => (
+          ? Array.from({ length: loadingRows }, (_, row) => row).map((row) => (
               <GridTableRow key={row}>
-                <GridTableCell>
-                  {/* The table says it once; the bars are not read. */}
-                  <span aria-hidden="true" className="block w-full">
-                    <Skeleton />
-                  </span>
+                {/* A tool row's lines at their heights, so rows do not grow
+                    when the tools come; the table says it once. */}
+                <GridTableCell lines className="gap-1">
+                  <Skeleton
+                    decorative
+                    width="40%"
+                    height="1lh"
+                    className="justify-center"
+                  />
+                  {describe ? (
+                    <Skeleton
+                      decorative
+                      width="25%"
+                      height="1lh"
+                      className="justify-center text-caption"
+                    />
+                  ) : null}
+                  <Skeleton decorative height="0.25rem" />
                   {row === 0 ? (
                     <span className="sr-only">{messages.loading}</span>
                   ) : null}
