@@ -457,8 +457,10 @@ describe("구성원 화면", () => {
     const token = "k".repeat(43);
     const { api } = renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () =>
-        json(200, { items: [owner, gone], next_cursor: null }),
+      // Beyond the first page: only the dialog's search finds them.
+      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
+      "GET /v1/members?q=GONE%40example.com": () =>
+        json(200, { items: [gone], next_cursor: null }),
       ...noInvites,
       "POST /v1/invites": () =>
         json(201, {
@@ -473,12 +475,19 @@ describe("구성원 화면", () => {
     );
     const email = await screen.findByLabelText("이메일");
     await user.type(email, "GONE@example.com");
-    const hint = document.getElementById(
-      email.getAttribute("aria-describedby") ?? "",
+    await waitFor(() =>
+      expect(
+        document.getElementById(email.getAttribute("aria-describedby") ?? "")
+          ?.textContent,
+      ).toContain("다시 초대하지 말고 목록에서 다시 활성화하세요"),
     );
-    expect(hint?.textContent).toContain(
-      "다시 초대하지 말고 목록에서 다시 활성화하세요",
-    );
+    // The server is asked about the typed address once typing pauses, not
+    // for every member.
+    expect(
+      api.calls
+        .filter((c) => c.path === "/v1/members")
+        .map((c) => new URLSearchParams(c.search).get("q")),
+    ).toEqual([null, null, "GONE@example.com"]);
     await user.clear(email);
     await user.type(email, "new@example.com");
     await user.click(screen.getByRole("button", { name: "초대 링크 만들기" }));

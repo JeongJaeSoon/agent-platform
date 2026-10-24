@@ -457,6 +457,13 @@ describe("팀 화면", () => {
       server.routes,
     );
     const user = await setupUser();
+    // Every member is read only once the pointer reaches the picker; the
+    // page head asks for the first two alone.
+    const picker = await screen.findByLabelText("추가할 사람");
+    expect(
+      api.calls.filter((c) => c.path === "/v1/members").map((c) => c.search),
+    ).toEqual(["?limit=2"]);
+    await user.hover(picker);
     await screen.findByRole("option", { name: "Mate (mate@example.com)" });
     await user.selectOptions(screen.getByLabelText("추가할 사람"), MATE_ID);
     await user.click(screen.getByRole("button", { name: "구성원 추가" }));

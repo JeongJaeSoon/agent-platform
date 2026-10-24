@@ -20,6 +20,10 @@ exports[`query keys 1`] = `
   "apiKeys": [
     "api-keys",
   ],
+  "firstMembers": [
+    "members",
+    "first",
+  ],
   "invites": [
     "invites",
   ],
@@ -167,6 +171,27 @@ exports[`query options and the request each query makes 1`] = `
     "options": {
       "queryKey": [
         "api-keys",
+      ],
+      "retry": false,
+    },
+  },
+  "firstMembersQuery": {
+    "calls": [
+      [
+        "/v1/members",
+        {
+          "params": {
+            "query": {
+              "limit": 2,
+            },
+          },
+        },
+      ],
+    ],
+    "options": {
+      "queryKey": [
+        "members",
+        "first",
       ],
       "retry": false,
     },

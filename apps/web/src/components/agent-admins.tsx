@@ -113,7 +113,13 @@ function AdminList({
   // not leave a refused decision on every visit.
   const listsMembers = useHasPermission("member.manage");
   const listsTeams = useHasPermission("team.manage");
-  const members = useQuery({ ...membersQuery(client), enabled: listsMembers });
+  // Every member is read once someone reaches for the person picker, not
+  // with the page.
+  const [picking, setPicking] = useState(false);
+  const members = useQuery({
+    ...membersQuery(client),
+    enabled: listsMembers && picking,
+  });
   const teams = useQuery({ ...teamsQuery(client), enabled: listsTeams });
   const [person, setPerson] = useState("");
   const [team, setTeam] = useState("");
@@ -253,6 +259,8 @@ function AdminList({
       )}
       <form
         className="web-form web-form--inline"
+        onPointerEnter={() => setPicking(true)}
+        onFocus={() => setPicking(true)}
         onSubmit={(event) => {
           event.preventDefault();
           if (pickedPerson)
@@ -270,7 +278,10 @@ function AdminList({
             id={personId}
             className="ap-input"
             value={person}
-            disabled={people.length === 0}
+            disabled={
+              !listsMembers || (!members.isPending && people.length === 0)
+            }
+            aria-busy={members.isFetching}
             onChange={(event) => setPerson(event.target.value)}
           >
             <option value="">{t("agentAdmins.pickPlaceholder")}</option>
