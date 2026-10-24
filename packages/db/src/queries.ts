@@ -12,6 +12,7 @@ import {
   isNotNull,
   isNull,
   lt,
+  ne,
   or,
   type SQL,
   sql,
@@ -42,6 +43,7 @@ export async function createApiKey(
     scopes: readonly SessionScope[] | null;
     workspaceId?: string | null;
     kind?: ApiKeyKind;
+    name?: string | null;
     createdByUserId?: string | null;
     expiresAt?: Date | null;
     agentId?: string | null;
@@ -51,6 +53,9 @@ export async function createApiKey(
     .insert(apiKeys)
     .values({
       ...input,
+      // Without a kind, a key is the agent's when it names one and the CLI's
+      // operator key otherwise, which the table refuses inside a workspace.
+      kind: input.kind ?? (input.agentId == null ? "operator" : "agent"),
       scopes: input.scopes === null ? null : [...input.scopes],
     })
     .returning({
@@ -64,7 +69,7 @@ export async function createApiKey(
   return created;
 }
 
-export type ApiKeyKind = "personal" | "service";
+export type ApiKeyKind = "personal" | "agent" | "operator";
 
 export type ApiKeyRecord = {
   id: string;
@@ -83,7 +88,7 @@ export function liveApiKey() {
     isNull(apiKeys.revokedAt),
     or(isNull(apiKeys.expiresAt), gt(apiKeys.expiresAt, DB_NOW)),
     or(
-      eq(apiKeys.kind, "service"),
+      ne(apiKeys.kind, "personal"),
       and(isNull(users.disabledAt), isNotNull(memberships.userId)),
     ),
   );

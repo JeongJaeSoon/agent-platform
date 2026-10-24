@@ -1238,7 +1238,7 @@ export interface paths {
         put?: never;
         /**
          * Disable a member of the workspace
-         * @description In the same transaction: the membership is disabled, every web session of the person is revoked (open event streams end), their personal keys in the workspace are revoked, and the sessions they asked for wait for an owner's takeover. Service keys are untouched. Only an owner disables an owner: an admin targeting one answers 403 OWNER_PROTECTED and nothing changes. Disabling yourself, or the last live owner, answers 409 LAST_OWNER. When several apply, the first answers: no `member.manage` (403 FORBIDDEN), yourself (409), no such member (404), an owner targeted by an admin (403 OWNER_PROTECTED), the last live owner (409). Writes a `disable_member` receipt unless the membership was already disabled (`receipt_id` null).
+         * @description In the same transaction: the membership is disabled, every web session of the person is revoked (open event streams end), their personal keys in the workspace are revoked, and the sessions they asked for wait for an owner's takeover. Agent keys are untouched. Only an owner disables an owner: an admin targeting one answers 403 OWNER_PROTECTED and nothing changes. Disabling yourself, or the last live owner, answers 409 LAST_OWNER. When several apply, the first answers: no `member.manage` (403 FORBIDDEN), yourself (409), no such member (404), an owner targeted by an admin (403 OWNER_PROTECTED), the last live owner (409). Writes a `disable_member` receipt unless the membership was already disabled (`receipt_id` null).
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -1797,16 +1797,16 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The caller's personal keys and the service keys they manage
-         * @description Owners and admins see every service key; an agent's admin sees that agent's keys. Secrets are never returned.
+         * The caller's personal keys and the agent keys they manage
+         * @description Owners and admins see every agent key; an agent's admin sees that agent's keys. Secrets are never returned.
          *
          *     **Auth:** cookie session only; no scope.
          */
         get: operations["listApiKeys"];
         put?: never;
         /**
-         * Issue a personal key, a service key, or one bound to an agent
-         * @description A personal key is the caller's own; a service key takes an owner or an admin, and one with `agent_id` also that agent's admin. `scopes` may not exceed what the caller holds now, and a key with `agent_id` never holds `sessions:approve` (403 SCOPE_NOT_GRANTABLE). An API key never issues one. The secret is returned once; only its sha256 is stored. Writes a `create_api_key` receipt.
+         * Issue a personal key or an agent key
+         * @description A personal key is the caller's own; an agent key names its agent in `agent_id` and takes an owner, an admin, or that agent's admin. No key reaches a whole workspace: an agent key without `agent_id` is a 400. `name` (1-64 characters once trimmed) is optional. `scopes` may not exceed what the caller holds now, and an agent key never holds `sessions:approve` (403 SCOPE_NOT_GRANTABLE). An API key never issues one. The secret is returned once; only its sha256 is stored. Writes a `create_api_key` receipt.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -2517,7 +2517,9 @@ export interface components {
         };
         CreateApiKeyRequest: {
             /** @enum {string} */
-            kind: "personal" | "service";
+            kind: "personal" | "agent";
+            /** @description A label the issuer gives the key, so a list tells one integration's key from another's. */
+            name?: string;
             scopes: ("sessions:read" | "sessions:write" | "sessions:approve" | "sessions:control" | "sessions:recover")[];
             /** Format: uuid */
             agent_id?: string;
@@ -4099,7 +4101,8 @@ export interface components {
                 /** Format: uuid */
                 id: string;
                 /** @enum {string} */
-                kind: "personal" | "service";
+                kind: "personal" | "agent";
+                name: string | null;
                 /** Format: uuid */
                 workspace_id: string;
                 agent_id: string | null;
@@ -4127,7 +4130,8 @@ export interface components {
                 /** Format: uuid */
                 id: string;
                 /** @enum {string} */
-                kind: "personal" | "service";
+                kind: "personal" | "agent";
+                name: string | null;
                 /** Format: uuid */
                 workspace_id: string;
                 agent_id: string | null;
@@ -4152,7 +4156,8 @@ export interface components {
                 /** Format: uuid */
                 id: string;
                 /** @enum {string} */
-                kind: "personal" | "service";
+                kind: "personal" | "agent";
+                name: string | null;
                 /** Format: uuid */
                 workspace_id: string;
                 agent_id: string | null;

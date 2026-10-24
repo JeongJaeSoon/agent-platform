@@ -312,7 +312,8 @@ integration("teams as agent admins on PostgreSQL", () => {
         id: randomUUID(),
         workspaceId,
         keyHash: new Uint8Array(32).map(() => Math.floor(Math.random() * 256)),
-        kind: "service",
+        kind: "agent",
+        name: null,
         agentId,
         createdByUserId: idOf(managed),
         scopes: ["sessions:read"],
@@ -324,7 +325,7 @@ integration("teams as agent admins on PostgreSQL", () => {
       (
         await keys.list(
           workspaceId,
-          { personalOf: idOf(managed), allServiceKeysFor: MANAGERS },
+          { personalOf: idOf(managed), allAgentKeysFor: MANAGERS },
           50,
         )
       ).map((k) => k.id);
@@ -367,7 +368,8 @@ integration("teams as agent admins on PostgreSQL", () => {
         id: randomUUID(),
         workspaceId,
         keyHash: new Uint8Array(32).map(() => Math.floor(Math.random() * 256)),
-        kind: "service",
+        kind: "agent",
+        name: null,
         agentId,
         createdByUserId: idOf(managed),
         scopes: ["sessions:read"],

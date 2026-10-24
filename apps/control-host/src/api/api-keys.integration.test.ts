@@ -346,16 +346,18 @@ integration("API keys by authority over HTTP on PostgreSQL", () => {
   let personalKey = "";
   let agentKeyId = "";
 
-  test("an agent's admin issues a key bound to it, and no other service key", async () => {
+  test("an agent's admin issues a named key bound to it, and no other key", async () => {
     const bound = await issue(asCookie(cookies.member), {
-      kind: "service",
+      kind: "agent",
+      name: "  ci-deploy  ",
       agent_id: agentIds.mine,
       scopes: ["sessions:read", "sessions:write"],
     });
     expect(bound.status).toBe(201);
     const created = createApiKeyResponseSchema.parse(await bound.json());
     expect(created.key).toMatchObject({
-      kind: "service",
+      kind: "agent",
+      name: "ci-deploy",
       agent_id: agentIds.mine,
       created_by: memberId,
       created_by_user: { id: memberId, display_name: "member@example.com" },
@@ -364,22 +366,21 @@ integration("API keys by authority over HTTP on PostgreSQL", () => {
     agentKey = created.secret;
     agentKeyId = created.key.id;
 
-    for (const body of [
-      { kind: "service", scopes: ["sessions:read"] },
-      { kind: "service", agent_id: agentIds.owners, scopes: ["sessions:read"] },
-    ]) {
-      const refused = await issue(asCookie(cookies.member), body);
-      expect(refused.status).toBe(403);
-      expect(await errorOf(refused)).toMatchObject({
-        code: "FORBIDDEN",
-        details: { reason_code: "role" },
-      });
-    }
+    const refused = await issue(asCookie(cookies.member), {
+      kind: "agent",
+      agent_id: agentIds.owners,
+      scopes: ["sessions:read"],
+    });
+    expect(refused.status).toBe(403);
+    expect(await errorOf(refused)).toMatchObject({
+      code: "FORBIDDEN",
+      details: { reason_code: "role" },
+    });
     // A member who administers nothing has no agent key either.
     expect(
       (
         await issue(asCookie(cookies.other), {
-          kind: "service",
+          kind: "agent",
           agent_id: agentIds.mine,
           scopes: ["sessions:read"],
         })
@@ -455,15 +456,34 @@ integration("API keys by authority over HTTP on PostgreSQL", () => {
     }
   });
 
+  test("no key reaches a whole workspace: one without an agent is refused, even for the owner", async () => {
+    const before = await db.select({ id: apiKeys.id }).from(apiKeys);
+    for (const body of [
+      { kind: "agent", scopes: ["sessions:read"] },
+      { kind: "service", scopes: ["sessions:read"] },
+      { kind: "service", agent_id: agentIds.owners, scopes: ["sessions:read"] },
+      { kind: "personal", name: " ", scopes: ["sessions:read"] },
+      { kind: "personal", name: "x".repeat(65), scopes: ["sessions:read"] },
+    ]) {
+      const refused = await issue(asCookie(cookies.owner), body);
+      expect(refused.status).toBe(400);
+      expect((await errorOf(refused)).code).toBe("BAD_REQUEST");
+    }
+    expect(await db.select({ id: apiKeys.id }).from(apiKeys)).toHaveLength(
+      before.length,
+    );
+  });
+
   test("never above the issuer's scopes: an admin cannot hand out recover", async () => {
     const refused = await issue(asCookie(cookies.admin), {
-      kind: "service",
+      kind: "agent",
+      agent_id: agentIds.owners,
       scopes: ["sessions:read", "sessions:recover"],
     });
     expect(refused.status).toBe(403);
     expect((await errorOf(refused)).code).toBe("SCOPE_NOT_GRANTABLE");
     const approve = await issue(asCookie(cookies.owner), {
-      kind: "service",
+      kind: "agent",
       agent_id: agentIds.owners,
       scopes: ["sessions:approve"],
     });
@@ -471,7 +491,8 @@ integration("API keys by authority over HTTP on PostgreSQL", () => {
     expect(
       (
         await issue(asCookie(cookies.admin), {
-          kind: "service",
+          kind: "agent",
+          agent_id: agentIds.owners,
           scopes: ["sessions:read"],
         })
       ).status,
@@ -486,15 +507,15 @@ integration("API keys by authority over HTTP on PostgreSQL", () => {
     const denialsBefore = (await decisionsFor("api_key.manage")).length;
     const members = await list(cookies.member);
     expect(members.map((key) => key.kind).sort()).toEqual([
+      "agent",
       "personal",
-      "service",
     ]);
     expect(await list(cookies.other)).toEqual([]);
     // A listing asks nothing it would record a denial for.
     expect((await decisionsFor("api_key.manage")).length).toBe(denialsBefore);
-    // The admin's own service key; nobody's personal key but their own.
+    // The admin's agent key; nobody's personal key but their own.
     expect(
-      (await list(cookies.owner)).every((key) => key.kind === "service"),
+      (await list(cookies.owner)).every((key) => key.kind === "agent"),
     ).toBe(true);
   });
 
@@ -544,7 +565,7 @@ integration("API keys by authority over HTTP on PostgreSQL", () => {
     ).toBe(true);
   });
 
-  test("a personal key dies with its issuer, a service key outlives them", async () => {
+  test("a personal key dies with its issuer, an agent key outlives them", async () => {
     const response = await issue(asCookie(cookies.member), {
       kind: "personal",
       scopes: ["sessions:read"],
@@ -596,6 +617,7 @@ integration("API keys by authority over HTTP on PostgreSQL", () => {
           "id",
           "kind",
           "last_used_at",
+          "name",
           "revoked_at",
           "scopes",
           "workspace_id",

@@ -173,6 +173,8 @@ integration("session list relations, search and counts on PostgreSQL", () => {
       keyHash: randomBytes(32),
       ownerId: workspaceId,
       workspaceId,
+      kind: "agent",
+      agentId: agentX,
     });
 
     let at = Date.parse("2026-10-24T00:00:00Z");
@@ -648,6 +650,8 @@ integration(
         keyHash: randomBytes(32),
         ownerId: workspaceId,
         workspaceId,
+        kind: "personal",
+        createdByUserId: userId,
       });
       const rows = {
         personalKey: { createdByUserId: userId, createdByApiKeyId: keyId },

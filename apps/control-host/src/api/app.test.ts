@@ -271,7 +271,7 @@ describe("API authentication", () => {
               id: "key-a",
               ownerId: "owner-a",
               workspaceId: null,
-              kind: "service" as const,
+              kind: "operator" as const,
               createdByUserId: null,
               creatorRole: null,
               scopes: ["sessions:read" as const],

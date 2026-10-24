@@ -98,12 +98,15 @@ function parseScopes(value: string): SessionScope[] {
   return SESSION_SCOPE_VALUES.filter((scope) => words.includes(scope));
 }
 
+// Inside a workspace the CLI issues a member's personal key only: no key
+// acts across a workspace as itself, and an agent's key is issued by a
+// person who administers that agent.
 export type KeyIssue =
   | { ownerId: string; scopes: readonly SessionScope[] }
   | {
       workspaceId: string;
       scopes: readonly SessionScope[];
-      personalFor?: string;
+      personalFor: string;
     };
 
 export async function issueApiKey(
@@ -129,20 +132,16 @@ export async function issueApiKey(
     ...("workspaceId" in input
       ? {
           workspaceId: normalizedOwnerId,
-          ...(input.personalFor === undefined
-            ? {}
-            : {
-                kind: "personal" as const,
-                createdByUserId: input.personalFor,
-              }),
+          kind: "personal" as const,
+          createdByUserId: input.personalFor,
         }
-      : {}),
+      : { kind: "operator" as const }),
   });
   return { keyId, plaintext };
 }
 
 const USAGE = `Usage: bun run apps/control-host/src/api/keys.ts create <owner_id> --scopes <scope>[,<scope>...]
-       bun run apps/control-host/src/api/keys.ts create --workspace <workspace_id> --scopes <scope>[,<scope>...] [--personal <user_id>]
+       bun run apps/control-host/src/api/keys.ts create --workspace <workspace_id> --personal <user_id> --scopes <scope>[,<scope>...]
        bun run apps/control-host/src/api/keys.ts revoke <key_id>
 Scopes: ${SESSION_SCOPE_VALUES.join(", ")}`;
 
@@ -151,7 +150,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export type KeysCommand =
   | ({ command: "create" } & (
       | { ownerId: string; scopes: SessionScope[] }
-      | { workspaceId: string; scopes: SessionScope[]; personalFor?: string }
+      | { workspaceId: string; scopes: SessionScope[]; personalFor: string }
     ))
   | { command: "revoke"; keyId: string };
 
@@ -188,13 +187,17 @@ export function parseKeysCommand(argv: string[]): KeysCommand {
     if (parsed.values.scopes === undefined) {
       throw new Error(`--scopes is required\n${USAGE}`);
     }
+    const workspaceId = uuidOption(workspace, "--workspace");
+    if (personal === undefined) {
+      throw new Error(
+        `--workspace needs --personal: a key in a workspace is a member's own\n${USAGE}`,
+      );
+    }
     return {
       command: "create",
-      workspaceId: uuidOption(workspace, "--workspace"),
+      workspaceId,
       scopes: parseScopes(parsed.values.scopes),
-      ...(personal === undefined
-        ? {}
-        : { personalFor: uuidOption(personal, "--personal") }),
+      personalFor: uuidOption(personal, "--personal"),
     };
   }
   if (personal !== undefined) {
@@ -253,6 +256,21 @@ async function main(): Promise<void> {
       );
       return;
     }
+    if (
+      !("workspaceId" in command) &&
+      UUID.test(command.ownerId) &&
+      (await findWorkspace(
+        drizzle(pool, { schema }),
+        command.ownerId.toLowerCase(),
+      ))
+    ) {
+      // Its partition would be the workspace's: a key across all of it.
+      console.error(
+        `${command.ownerId} is a workspace; issue a member's key with --workspace and --personal`,
+      );
+      process.exitCode = 1;
+      return;
+    }
     if ("workspaceId" in command) {
       const db = drizzle(pool, { schema });
       if (!(await findWorkspace(db, command.workspaceId))) {
@@ -261,9 +279,8 @@ async function main(): Promise<void> {
         return;
       }
       if (
-        command.personalFor !== undefined &&
         (await findLiveRole(db, command.personalFor, command.workspaceId)) ===
-          null
+        null
       ) {
         console.error(
           `User ${command.personalFor} is not a live member of workspace ${command.workspaceId}`,

@@ -307,7 +307,7 @@ export function linkedAccountsQuery(client: ApiClient) {
   });
 }
 
-/** The caller's personal keys and the service keys they may revoke. */
+/** The caller's personal keys and the agent keys they may revoke. */
 export function apiKeysQuery(client: ApiClient) {
   return queryOptions({
     queryKey: queryKeys.apiKeys,
