@@ -131,4 +131,20 @@ describe("Alert", () => {
     const heading = getByRole("heading", { level: 3 });
     expect(heading.getAttribute("data-slot")).toBe("alert-title");
   });
+
+  test("Alert와 asChild 제목에 준 ref가 그려진 요소를 가리킨다", () => {
+    const root = createRef<HTMLDivElement>();
+    const title = createRef<HTMLDivElement>();
+    const { container, getByRole } = render(
+      <Alert ref={root}>
+        <AlertTitle asChild ref={title}>
+          <h3>키 안내</h3>
+        </AlertTitle>
+      </Alert>,
+    );
+    expect(
+      root.current === container.querySelector("[data-slot='alert']"),
+    ).toBe(true);
+    expect(title.current === getByRole("heading", { level: 3 })).toBe(true);
+  });
 });
