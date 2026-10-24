@@ -13,7 +13,7 @@ import {
   gitRefNameAcceptable,
 } from "@werft-ai/storage";
 
-export const DEFAULT_GIT_PUSH_TIMEOUT_MS = 5 * 60_000;
+const DEFAULT_GIT_PUSH_TIMEOUT_MS = 5 * 60_000;
 
 /**
  * The git under the platform's push: a throwaway bare repository fed only the

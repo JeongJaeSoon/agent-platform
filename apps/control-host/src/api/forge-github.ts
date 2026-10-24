@@ -23,9 +23,9 @@ import {
  */
 export const REFRESH_BEFORE_EXPIRY_MS = 10 * 60_000;
 /** GitHub's limit on a pull request or comment body, in characters. */
-export const GITHUB_MAX_BODY_LENGTH = 65_536;
+const GITHUB_MAX_BODY_LENGTH = 65_536;
 export const RATE_LIMIT_RETRIES = 2;
-export const RATE_LIMIT_MAX_WAIT_SECONDS = 60;
+const RATE_LIMIT_MAX_WAIT_SECONDS = 60;
 const REQUEST_TIMEOUT_MS = 15_000;
 const MAX_COMMENT_PAGES = 10;
 const COMMENTS_PER_PAGE = 100;

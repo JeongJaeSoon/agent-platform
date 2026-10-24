@@ -6,6 +6,8 @@ import type {
   ReconciledOrphan,
 } from "@werft-ai/db";
 
+import { booleanFlag } from "../boolean-flag.ts";
+
 export type ReconcileOptions = {
   dryRun: boolean;
   limit: number;
@@ -168,10 +170,4 @@ export async function runReconciler(input: {
     inputReturns,
     decisionsExpired,
   };
-}
-
-function booleanFlag(value: string, name: string): boolean {
-  if (value === "1" || value === "true") return true;
-  if (value === "0" || value === "false") return false;
-  throw new Error(`${name} must be true, false, 1, or 0`);
 }
