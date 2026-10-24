@@ -3,9 +3,11 @@ import {
   activateAgentResponseSchema,
   agentDetailSchema,
   agentIdParamsSchema,
+  countAgentsResponseSchema,
   createAgentReleaseRequestSchema,
   createAgentReleaseResponseSchema,
   createAgentRequestSchema,
+  listAgentsQuerySchema,
   listAgentsResponseSchema,
   updateAgentRequestSchema,
 } from "@werft-ai/contracts";
@@ -16,15 +18,26 @@ import {
   jsonWithSchema,
   parseJsonBody,
 } from "../app.ts";
-import { mapped, requireParams } from "./errors.ts";
+import { mapped, requireParams, requireQuery } from "./errors.ts";
 
 export function registerAgentRoutes(
   router: ApiRouter,
   service: Omit<AgentService, "resolveRelease">,
 ) {
   apiRoute(router, "listAgents", async (context) => {
-    const page = await mapped(() => service.listAgents(context.get("caller")));
+    const query = requireQuery(context, listAgentsQuerySchema);
+    const page = await mapped(() =>
+      service.listAgents(context.get("caller"), query),
+    );
     return jsonWithSchema(context, listAgentsResponseSchema, page);
+  });
+
+  // Before getAgent, so "counts" is never read as an agent id.
+  apiRoute(router, "countAgents", async (context) => {
+    const counts = await mapped(() =>
+      service.countAgents(context.get("caller")),
+    );
+    return jsonWithSchema(context, countAgentsResponseSchema, counts);
   });
 
   apiRoute(router, "createAgent", async (context) => {

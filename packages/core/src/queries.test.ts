@@ -112,3 +112,31 @@ test("a member page asks the server for one page, the search going with it", asy
   const page = { items: [], next_cursor: "cursor-3" };
   expect(found.getNextPageParam(page, [page], null, [null])).toBe("cursor-3");
 });
+
+test("the agent list reads every page, 100 at a time, and hands back all of them", async () => {
+  const pages: Record<
+    string,
+    { items: { id: string }[]; next_cursor: string | null }
+  > = {
+    first: { items: [{ id: "a" }, { id: "b" }], next_cursor: "c2" },
+    c2: { items: [{ id: "c" }], next_cursor: "c3" },
+    c3: { items: [], next_cursor: null },
+  };
+  const calls: unknown[] = [];
+  const client = {
+    GET: (_path: string, init: { params: { query: { cursor?: string } } }) => {
+      calls.push(init.params.query);
+      const data = pages[init.params.query.cursor ?? "first"];
+      return Promise.resolve({ data, response: new Response(null) });
+    },
+  } as unknown as ApiClient;
+  const { queryFn } = queries.agentsQuery(client);
+  const all = await queryFn({} as Parameters<typeof queryFn>[0]);
+  expect(all.items.map((agent) => agent.id)).toEqual(["a", "b", "c"]);
+  expect(all.next_cursor).toBeNull();
+  expect(calls).toEqual([
+    { limit: 100 },
+    { cursor: "c2", limit: 100 },
+    { cursor: "c3", limit: 100 },
+  ]);
+});
