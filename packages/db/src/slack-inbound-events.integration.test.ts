@@ -280,6 +280,54 @@ integration("slack_inbound_events on PostgreSQL", () => {
     }
   });
 
+  test("a claim waits for another claimer's uncommitted lease before judging the thread", async () => {
+    const app = await agentApp();
+    const inbox = createPostgresSlackInboundEventStore(db);
+    const team = slackId("T");
+    const key = `${app.slackAppId}:C3:1`;
+    await inbox.record({
+      ...event(app, team, "EvLOCKHEAD"),
+      status: "received",
+      payload: {},
+      conversationKey: key,
+    });
+    // Another claimer mid-claim: holds the claim lock and has leased the
+    // head, not committed yet.
+    const claimer = await pool.connect();
+    try {
+      await claimer.query("BEGIN");
+      await claimer.query(
+        "SELECT pg_advisory_xact_lock(hashtext('slack_inbound_events.claim'))",
+      );
+      await claimer.query(
+        `UPDATE slack_inbound_events
+         SET claim_token = gen_random_uuid(), lease_expires_at = now() + interval '60 seconds', attempts = attempts + 1
+         WHERE event_id = 'EvLOCKHEAD'`,
+      );
+      await inbox.record({
+        ...event(app, team, "EvLOCKEARLY"),
+        eventTime: new Date("2026-10-24T09:00:00Z"),
+        status: "received",
+        payload: {},
+        conversationKey: key,
+      });
+      let settled = false;
+      const pending = inbox
+        .claim({ limit: 10, leaseMs: 60_000, maxAttempts: 5 })
+        .finally(() => {
+          settled = true;
+        });
+      await new Promise((done) => setTimeout(done, 300));
+      expect(settled).toBe(false);
+      await claimer.query("COMMIT");
+      const taken = (await pending).map((claim) => claim.eventId);
+      expect(taken).not.toContain("EvLOCKEARLY");
+      expect(taken).not.toContain("EvLOCKHEAD");
+    } finally {
+      claimer.release();
+    }
+  });
+
   test("the table refuses a dropped row with a payload or a reason on a kept one", async () => {
     const app = await agentApp();
     const base = {
