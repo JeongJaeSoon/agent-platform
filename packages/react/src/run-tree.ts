@@ -10,7 +10,13 @@ import type { StatusEventPhase } from "@werft-ai/contracts";
  * the earlier one by (occurredAt, id) wins.
  */
 
-export type ToolCallState = "ok" | "error" | "running" | "waiting";
+/** "interrupted": its turn or the session ended before a result came. */
+export type ToolCallState =
+  | "ok"
+  | "error"
+  | "running"
+  | "waiting"
+  | "interrupted";
 /** The same values as the ui's StatusDotStatus. */
 export type RunStatus = "wait" | "run" | "idle" | "done" | "failed";
 
@@ -33,7 +39,7 @@ export interface RunTreeNode {
   /** Null for the session's own run; a subagent's subagent_type, else its tool name. */
   readonly label: string | null;
   readonly status: RunStatus;
-  /** "approval" while one of the run's calls waits on a person's permission; a question only makes it "wait". */
+  /** "approval" while a call of a run still going waits on a person's permission; a question only makes it "wait". */
   readonly edge: "delegation" | "approval";
   /** Oldest first. */
   readonly tools: readonly ToolNode[];
@@ -42,7 +48,10 @@ export interface RunTreeNode {
   /** The call that spawned this run, in its parent's tools; null for the root and a run whose call has not arrived. */
   readonly spawn: ToolNode | null;
   readonly startedAt: string | null;
-  /** The spawning call's result; the session's own run has no end in its events. */
+  /**
+   * The spawning call's result. The session's own run starts at its first
+   * event and ends at the latest status saying it is not working.
+   */
   readonly endedAt: string | null;
   readonly ms: number | null;
   /** Calls of this run that ended in an error. */
@@ -62,7 +71,7 @@ export interface RunTree {
 
 export type RunTreeFrame = Pick<
   SessionEventFrame,
-  "id" | "occurredAt" | "payload"
+  "id" | "occurredAt" | "turnId" | "payload"
 >;
 
 export interface RunTreeBuilder {
@@ -114,6 +123,7 @@ interface ToolRecord {
   readonly label: string;
   readonly parent: string | null;
   readonly start: Stamp;
+  readonly turn: string | null;
 }
 
 interface RunRecord {
@@ -203,6 +213,11 @@ export function createRunTreeBuilder(): RunTreeBuilder {
   // A question is answered once the session moves on from needs_input.
   let answeredUntil: Stamp | null = null;
   const openQuestions = new Set<string>();
+  // Calls without a result, and what ends them without one.
+  const open = new Set<string>();
+  const endedTurns = new Set<string>();
+  let sessionEndedAt: Stamp | null = null;
+  let sessionFirst: Stamp | null = null;
 
   const dirtyTools = new Set<string>();
   const dirtyRuns = new Set<string>([ROOT_RUN_ID]);
@@ -217,6 +232,9 @@ export function createRunTreeBuilder(): RunTreeBuilder {
     tools: [],
     children: [],
   });
+
+  const unanswered = (question: Stamp) =>
+    answeredUntil === null || before(answeredUntil, question);
 
   const runFirst = (id: string) => {
     const spawn = tools.get(id);
@@ -311,6 +329,7 @@ export function createRunTreeBuilder(): RunTreeBuilder {
     dirtyRuns.add(parent);
     if (results.get(record.id)?.error) errors -= 1;
     tools.delete(record.id);
+    open.delete(record.id);
   };
 
   const addTool = (record: ToolRecord) => {
@@ -324,7 +343,9 @@ export function createRunTreeBuilder(): RunTreeBuilder {
     );
     if (runs.has(record.id)) attach(record.id);
     else if (SPAWNING_TOOLS.has(record.name)) ensureRun(record.id, null);
-    if (questions.has(record.id) && !results.has(record.id))
+    if (!results.has(record.id)) open.add(record.id);
+    const question = questions.get(record.id);
+    if (question && !results.has(record.id) && unanswered(question))
       openQuestions.add(record.id);
     if (results.get(record.id)?.error) errors += 1;
     touchTool(record.id);
@@ -334,6 +355,10 @@ export function createRunTreeBuilder(): RunTreeBuilder {
     if (seen.has(frame.id)) return false;
     seen.add(frame.id);
     const at = stamp(frame);
+    if (sessionFirst === null || before(at, sessionFirst)) {
+      sessionFirst = at;
+      dirtyRuns.add(ROOT_RUN_ID);
+    }
     const { payload } = frame;
     switch (payload.event) {
       case "assistant":
@@ -366,6 +391,7 @@ export function createRunTreeBuilder(): RunTreeBuilder {
             label: field(use.input, "subagent_type") ?? use.name,
             parent,
             start,
+            turn: frame.turnId,
           });
           if (known) {
             for (const id of [...looped]) {
@@ -388,7 +414,15 @@ export function createRunTreeBuilder(): RunTreeBuilder {
         if (tools.has(id)) errors += (error ? 1 : 0) - (known?.error ? 1 : 0);
         results.set(id, { end: at, error });
         openQuestions.delete(id);
+        open.delete(id);
         touchTool(id);
+        break;
+      }
+      case "result": {
+        const turn = frame.turnId;
+        if (turn === null || endedTurns.has(turn)) break;
+        endedTurns.add(turn);
+        for (const id of open) if (tools.get(id)?.turn === turn) touchTool(id);
         break;
       }
       case "question": {
@@ -398,21 +432,38 @@ export function createRunTreeBuilder(): RunTreeBuilder {
         questions.set(id, at);
         if (payload.data.kind === "permission") permissions.add(id);
         else permissions.delete(id);
-        if (tools.has(id) && !results.has(id)) openQuestions.add(id);
+        if (tools.has(id) && !results.has(id) && unanswered(at))
+          openQuestions.add(id);
         touchTool(id);
         break;
       }
       case "status": {
+        const { phase } = payload.data;
         if (lastStatus === null || before(lastStatus.stamp, at)) {
-          lastStatus = { stamp: at, phase: payload.data.phase };
-          dirtyRuns.add(ROOT_RUN_ID);
+          // The root's status and end follow the latest status.
+          if (lastStatus?.phase !== phase || !LIVE_PHASES.has(phase))
+            dirtyRuns.add(ROOT_RUN_ID);
+          lastStatus = { stamp: at, phase };
+        }
+        if (phase !== "needs_input" && unanswered(at)) {
+          answeredUntil = at;
+          for (const id of openQuestions) {
+            if (unanswered(questions.get(id) as Stamp)) continue;
+            openQuestions.delete(id);
+            touchTool(id);
+          }
         }
         if (
-          payload.data.phase !== "needs_input" &&
-          (answeredUntil === null || before(answeredUntil, at))
+          !LIVE_PHASES.has(phase) &&
+          (sessionEndedAt === null || before(sessionEndedAt, at))
         ) {
-          answeredUntil = at;
-          for (const id of openQuestions) touchTool(id);
+          const previous = sessionEndedAt;
+          sessionEndedAt = at;
+          for (const id of open) {
+            const start = (tools.get(id) as ToolRecord).start;
+            if (before(start, at) && !(previous && before(start, previous)))
+              touchTool(id);
+          }
         }
         break;
       }
@@ -425,11 +476,14 @@ export function createRunTreeBuilder(): RunTreeBuilder {
   const toolState = (id: string): ToolCallState => {
     const result = results.get(id);
     if (result) return result.error ? "error" : "ok";
+    const tool = tools.get(id) as ToolRecord;
+    if (
+      (tool.turn !== null && endedTurns.has(tool.turn)) ||
+      (sessionEndedAt !== null && before(tool.start, sessionEndedAt))
+    )
+      return "interrupted";
     const question = questions.get(id);
-    return question &&
-      (answeredUntil === null || before(answeredUntil, question))
-      ? "waiting"
-      : "running";
+    return question && unanswered(question) ? "waiting" : "running";
   };
 
   const toolNode = (id: string): ToolNode => {
@@ -452,6 +506,17 @@ export function createRunTreeBuilder(): RunTreeBuilder {
     return node;
   };
 
+  // The session's own run spans its first event to the latest status that
+  // says it is not working.
+  const rootSpan = (ended: boolean) => {
+    const end = ended ? (lastStatus?.stamp ?? null) : null;
+    return {
+      startedAt: sessionFirst?.at ?? null,
+      endedAt: end?.at ?? null,
+      ms: end && sessionFirst ? Math.max(0, end.t - sessionFirst.t) : null,
+    };
+  };
+
   const buildRun = (id: string): RunTreeNode => {
     const run = runs.get(id) as RunRecord;
     const own = run.tools.map(toolNode);
@@ -461,12 +526,17 @@ export function createRunTreeBuilder(): RunTreeBuilder {
     const spawn = id !== ROOT_RUN_ID && tools.has(id) ? toolNode(id) : null;
     const waiting = own.some((tool) => tool.state === "waiting");
     const phase = lastStatus?.phase;
+    const ended = phase !== undefined && !LIVE_PHASES.has(phase);
+    // A run whose spawning call has its result is over, whatever its own calls say.
+    const over =
+      spawn !== null && spawn.state !== "running" && spawn.state !== "waiting";
     let status: RunStatus;
-    if (id === ROOT_RUN_ID && phase && !LIVE_PHASES.has(phase))
+    if (id === ROOT_RUN_ID && phase !== undefined && ended)
       status = PHASE_STATUS[phase];
-    else if (waiting) status = "wait";
     else if (spawn?.state === "ok") status = "done";
     else if (spawn?.state === "error") status = "failed";
+    else if (spawn?.state === "interrupted") status = "done";
+    else if (waiting) status = "wait";
     else if (id !== ROOT_RUN_ID) status = "run";
     else if (own.some((tool) => tool.state === "running")) status = "run";
     else status = phase ? PHASE_STATUS[phase] : "idle";
@@ -475,17 +545,22 @@ export function createRunTreeBuilder(): RunTreeBuilder {
       id,
       label: id === ROOT_RUN_ID ? null : (tools.get(id)?.label ?? "Task"),
       status,
-      edge: own.some(
-        (tool) => tool.state === "waiting" && permissions.has(tool.id),
-      )
-        ? "approval"
-        : "delegation",
+      edge:
+        !over &&
+        !(id === ROOT_RUN_ID && ended) &&
+        own.some((tool) => tool.state === "waiting" && permissions.has(tool.id))
+          ? "approval"
+          : "delegation",
       tools: own,
       children,
       spawn,
-      startedAt: spawn?.startedAt ?? run.first?.at ?? null,
-      endedAt: spawn?.endedAt ?? null,
-      ms: spawn?.ms ?? null,
+      ...(id === ROOT_RUN_ID
+        ? rootSpan(ended)
+        : {
+            startedAt: spawn?.startedAt ?? run.first?.at ?? null,
+            endedAt: spawn?.endedAt ?? null,
+            ms: spawn?.ms ?? null,
+          }),
       failed: own.filter((tool) => tool.state === "error").length,
     };
     runCache.set(id, node);

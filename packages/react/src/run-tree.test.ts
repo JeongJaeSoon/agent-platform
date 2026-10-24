@@ -11,6 +11,8 @@ import {
 const T0 = Date.parse("2026-10-25T01:00:00.000Z");
 const at = (seconds: number) => new Date(T0 + seconds * 1000).toISOString();
 
+const TURN = "b7e1c2d3-4f5a-4b6c-8d7e-9f0a1b2c3d4e";
+
 let cursor = 0;
 const next = () => {
   cursor += 1;
@@ -27,6 +29,7 @@ function use(
   return {
     id: next(),
     occurredAt: at(seconds),
+    turnId: TURN,
     payload: {
       event: "tool_use",
       data: {
@@ -45,6 +48,7 @@ function result(seconds: number, id: string, isError = false): RunTreeFrame {
   return {
     id: next(),
     occurredAt: at(seconds),
+    turnId: TURN,
     payload: {
       event: "tool_result",
       data: {
@@ -65,6 +69,7 @@ function question(
   return {
     id: next(),
     occurredAt: at(seconds),
+    turnId: TURN,
     payload: {
       event: "question",
       data: {
@@ -82,7 +87,20 @@ function status(seconds: number, phase: StatusEventPhase): RunTreeFrame {
   return {
     id: next(),
     occurredAt: at(seconds),
+    turnId: TURN,
     payload: { event: "status", data: { phase } },
+  };
+}
+
+function turnEnd(seconds: number, turnId = TURN): RunTreeFrame {
+  return {
+    id: next(),
+    occurredAt: at(seconds),
+    turnId,
+    payload: {
+      event: "result",
+      data: { type: "result", subtype: "success", session_id: "engine-1" },
+    },
   };
 }
 
@@ -218,6 +236,90 @@ describe("buildRunTree", () => {
       edge: "delegation",
     });
     expect(answered.root.children[0]?.tools[1]?.state).toBe("running");
+  });
+
+  test("a call whose turn ended without a result is interrupted", () => {
+    const frames = [...nested(), turnEnd(7)];
+    const tree = buildRunTree(frames);
+    const reviewer = tree.root.children[0];
+    expect(reviewer?.tools[1]).toMatchObject({
+      id: "bash-1",
+      state: "interrupted",
+      endedAt: null,
+      ms: null,
+    });
+    expect(tree.root.tools[1]?.state).toBe("interrupted");
+    expect(reviewer).toMatchObject({ status: "done", edge: "delegation" });
+    // Another turn's end leaves the calls of this one alone.
+    const other = buildRunTree([...nested(), turnEnd(7, "another-turn")]);
+    expect(other.root.children[0]?.tools[1]?.state).toBe("running");
+    expect(buildRunTree([...frames].reverse())).toEqual(tree);
+  });
+
+  test("a call open when the session stopped is interrupted; a later one is not", () => {
+    const frames = [
+      status(0, "running"),
+      use(1, "bash-1", "Bash", { command: "make" }),
+      status(2, "stopped"),
+      status(3, "running"),
+      use(4, "bash-2", "Bash", { command: "make again" }),
+    ];
+    const tree = buildRunTree(frames);
+    expect(tree.root.tools.map((tool) => tool.state)).toEqual([
+      "interrupted",
+      "running",
+    ]);
+    for (let seed = 1; seed <= 10; seed += 1) {
+      expect(buildRunTree(shuffle(frames, seed))).toEqual(tree);
+    }
+  });
+
+  test("a run whose spawning call ended is over even with a call left waiting", () => {
+    const tree = buildRunTree([
+      use(1, "task-a", "Task", {}),
+      use(2, "bash-1", "Bash", {}, "task-a"),
+      question(3, "bash-1"),
+      result(4, "task-a", true),
+    ]);
+    expect(tree.root.children[0]).toMatchObject({
+      status: "failed",
+      edge: "delegation",
+      endedAt: at(4),
+    });
+  });
+
+  test("the session's own run spans its first event to its stop", () => {
+    const tree = buildRunTree([
+      status(0, "running"),
+      use(1, "bash-1", "Bash", {}),
+      result(2, "bash-1"),
+      status(3, "stopped"),
+    ]);
+    expect(tree.root).toMatchObject({
+      status: "done",
+      startedAt: at(0),
+      endedAt: at(3),
+      ms: 3000,
+    });
+    const working = buildRunTree([status(0, "running")]);
+    expect(working.root).toMatchObject({ startedAt: at(0), endedAt: null });
+  });
+
+  test("a question answered earlier does not rebuild its run on every status", () => {
+    const builder = createRunTreeBuilder();
+    for (const frame of [
+      use(1, "task-a", "Task", {}),
+      use(2, "bash-1", "Bash", {}, "task-a"),
+      question(3, "bash-1"),
+      status(4, "running"),
+    ]) {
+      builder.push(frame);
+    }
+    const before = builder.tree();
+    builder.push(status(5, "running"));
+    expect(builder.tree().root.children[0]).toBe(
+      before.root.children[0] as never,
+    );
   });
 
   test("a question waits without the approval edge", () => {
@@ -357,6 +459,7 @@ describe("buildRunTree", () => {
       {
         id: "c-many",
         occurredAt: at(1),
+        turnId: TURN,
         payload: {
           event: "tool_use",
           data: {
@@ -442,6 +545,11 @@ describe("buildRunTree", () => {
       status(8, "running"),
       result(9, "bash-1", true),
       result(10, "task-a"),
+      use(11, "task-c", "Task", {}, "task-b"),
+      use(11.5, "c", "Task", {}, "task-c"),
+      use(11.7, "task-c", "Task", {}, "c"),
+      turnEnd(12),
+      status(13, "stopped"),
     ];
     for (let seed = 1; seed <= 20; seed += 1) {
       const order = shuffle(frames, seed);
