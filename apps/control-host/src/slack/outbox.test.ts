@@ -733,6 +733,36 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     expect(posted()).toHaveLength(1);
   });
 
+  test("a 5xx whose body breaks off mid-read is uncertain, never resent", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    await endTurn(await sessionOf(fixture), 1, "completed", [[text("hi")]]);
+    const live = createSlackBotApi({ apiUrl: slack.url });
+    const broken = createSlackBotApi({
+      apiUrl: slack.url,
+      fetch: (async () =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.error(new Error("connection reset"));
+            },
+          }),
+          { status: 503 },
+        )) as unknown as typeof fetch,
+    });
+    const slackApi = { ...live, postMessage: broken.postMessage };
+    expect(await outboxPass({ slack: slackApi })).toMatchObject({
+      uncertain: 2,
+      retried: 0,
+    });
+    expect(
+      (await rows()).map((row) => [row.kind, row.status, row.errorCode]),
+    ).toEqual([
+      ["reply", "uncertain", "unreadable_answer"],
+      ["failure_notice", "uncertain", "unreadable_answer"],
+    ]);
+  });
+
   test("ok without a ts fails and is never sent again", async () => {
     const fixture = await agentInSlack();
     await mention(fixture, THREAD);
@@ -908,6 +938,22 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     });
     expect(posted()).toEqual([]);
     expect((await rows())[0]).toMatchObject({ status: "pending", attempts: 0 });
+  });
+
+  test("a bot token that will not load fails the row on the fifth attempt", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    await endTurn(await sessionOf(fixture), 1, "completed", [[text("hi")]]);
+    for (let attempt = 1; attempt <= 5; attempt += 1) {
+      await outboxPass({ botToken: async () => null });
+      expect((await rows())[0]).toMatchObject({
+        status: attempt < 5 ? "pending" : "failed",
+        errorCode: "no_bot_token",
+        attempts: attempt,
+      });
+      await db.update(slackOutbox).set({ nextAttemptAt: sql`now()` });
+    }
+    expect(posted()).toEqual([]);
   });
 
   test("a send with no answer is uncertain; the bot token is in no log line or row", async () => {

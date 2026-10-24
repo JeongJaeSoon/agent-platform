@@ -16,7 +16,10 @@ import {
 } from "./slack-config-api.ts";
 import { type SlackInboxLogger, slackInboundBackoffMs } from "./slack-inbox.ts";
 import { escapeSlackControls } from "./slack-presentation.ts";
-import { classifySlackSendResult } from "./slack-send-result.ts";
+import {
+  classifySlackSendResult,
+  SLACK_SEND_MAX_ATTEMPTS,
+} from "./slack-send-result.ts";
 
 /** chat.postMessage truncates `text` past this many characters. */
 export const SLACK_TEXT_MAX = 40_000;
@@ -206,12 +209,13 @@ function settleFor(
   claim: SlackOutboxClaim,
   response: SlackSendResponse,
 ): SlackOutboxSettle {
-  // Slack took the request but its answer could not be read: it may hold
-  // the message, so this is no failure to retry.
+  // A 2xx or 5xx whose answer could not be read: Slack may hold the
+  // message, so this is no failure to retry. A 4xx, 429 included, is
+  // judged by its status and Retry-After alone.
   if (
     response.body === null &&
-    response.httpStatus >= 200 &&
-    response.httpStatus < 300
+    ((response.httpStatus >= 200 && response.httpStatus < 300) ||
+      response.httpStatus >= 500)
   ) {
     return { status: "uncertain", errorCode: "unreadable_answer" };
   }
@@ -402,7 +406,7 @@ export async function drainSlackOutbox(deps: {
       }
       if (botToken === null) {
         await settle(
-          claim.attempts >= SLACK_OUTBOX_MAX_ATTEMPTS
+          claim.attempts >= SLACK_SEND_MAX_ATTEMPTS
             ? { status: "failed", errorCode: "no_bot_token" }
             : {
                 status: "pending",
