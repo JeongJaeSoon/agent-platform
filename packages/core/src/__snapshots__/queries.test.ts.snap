@@ -149,6 +149,7 @@ exports[`query options and the request each query makes 1`] = `
         {
           "params": {
             "query": {
+              "include": "summary",
               "limit": 100,
             },
           },

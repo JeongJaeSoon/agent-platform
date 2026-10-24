@@ -3,15 +3,19 @@ import { createHash } from "node:crypto";
 
 import { canonicalJson } from "../shared/index.ts";
 import {
+  AGENT_SUMMARY_INSTRUCTIONS_MAX,
   type AgentCard,
   activateAgentRequestSchema,
   agentCardSchema,
+  agentListItemSchema,
   agentReleaseSchema,
   agentSchema,
   agentVersionSchema,
   createAgentRequestSchema,
   DEFAULT_TOOL_POLICY,
   draftAgentRequestSchema,
+  listAgentsQuerySchema,
+  listAgentsResponseSchema,
   policyPinsSchema,
   updateAgentRequestSchema,
 } from "./agents.ts";
@@ -541,5 +545,76 @@ describe("agent, version and release", () => {
     expect(draftAgentRequestSchema.safeParse({ prompt: "" }).success).toBe(
       false,
     );
+  });
+});
+
+describe("agent list summary", () => {
+  const agent = {
+    id: AGENT_ID,
+    workspace_id: WORKSPACE_ID,
+    slug: "finance-analyst",
+    name: "재무 분석가",
+    status: "active",
+    active_release_id: null,
+    activation_revision: -1,
+    created_by: null,
+    created_at: AT,
+    updated_at: AT,
+  } as const;
+  const summary = {
+    version: {
+      version_no: 1,
+      role: card.role,
+      instructions: card.instructions,
+      mcp_servers: [],
+      credential_refs: ["github"],
+    },
+    runtime_profile_id: null,
+    bound_credential_refs: [],
+    admins: ["Kim"],
+  };
+
+  test("is asked for, and a page without it is the agents as before", () => {
+    expect(listAgentsQuerySchema.parse({ limit: 50 })).toEqual({ limit: 50 });
+    expect(
+      listAgentsQuerySchema.parse({ limit: 50, include: "summary" }).include,
+    ).toBe("summary");
+    expect(
+      listAgentsQuerySchema.safeParse({ limit: 50, include: "detail" }).success,
+    ).toBe(false);
+    const page = { items: [agent], next_cursor: null };
+    expect(listAgentsResponseSchema.parse(page)).toEqual(page);
+    expect(
+      agentSchema.parse(listAgentsResponseSchema.parse(page).items[0]),
+    ).toEqual(agent);
+  });
+
+  test("carries a clipped card, never the whole one", () => {
+    expect(agentListItemSchema.parse({ ...agent, summary })).toEqual({
+      ...agent,
+      summary,
+    });
+    const long = "가".repeat(AGENT_SUMMARY_INSTRUCTIONS_MAX + 1);
+    expect(
+      agentListItemSchema.safeParse({
+        ...agent,
+        summary: {
+          ...summary,
+          version: { ...summary.version, instructions: long },
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      agentListItemSchema.safeParse({
+        ...agent,
+        summary: { ...summary, version: { ...summary.version, card } },
+      }).success,
+    ).toBe(false);
+    expect(
+      agentListItemSchema.safeParse({
+        ...agent,
+        summary: { ...summary, key: "x" },
+      }).success,
+    ).toBe(false);
   });
 });

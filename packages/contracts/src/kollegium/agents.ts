@@ -351,8 +351,44 @@ export const agentDetailSchema = z
     active_release: agentReleaseSchema.nullable(),
   })
   .strict();
-export const listAgentsQuerySchema = paginationQuerySchema;
-export const listAgentsResponseSchema = pageSchema(agentSchema);
+/** How much of a version's instructions a list summary carries. */
+export const AGENT_SUMMARY_INSTRUCTIONS_MAX = 300;
+
+/**
+ * What a list shows of an agent beyond its row, read in one go for the page
+ * so a list of cards does not ask once per agent. Only with
+ * `include=summary`; without it the items are exactly `agentSchema`.
+ */
+export const agentSummarySchema = z
+  .object({
+    /** The version people talk to, or the newest draft before any release. */
+    version: z
+      .object({
+        version_no: z.number().int().positive(),
+        role: z.string().min(1).max(200),
+        /** The first AGENT_SUMMARY_INSTRUCTIONS_MAX characters. */
+        instructions: z.string().min(1).max(AGENT_SUMMARY_INSTRUCTIONS_MAX),
+        mcp_servers: z.array(mcpServerIdSchema),
+        credential_refs: z.array(credentialRefSchema),
+      })
+      .strict(),
+    /** The active release's, or null before any activation. */
+    runtime_profile_id: z.string().min(1).max(128).nullable(),
+    /** Names with a live binding on the agent. */
+    bound_credential_refs: z.array(credentialRefSchema),
+    /** Admins by display name (email when unset), then admin teams by name. */
+    admins: z.array(z.string()),
+  })
+  .strict();
+
+export const agentListItemSchema = agentSchema
+  .extend({ summary: agentSummarySchema.optional() })
+  .strict();
+
+export const listAgentsQuerySchema = paginationQuerySchema.extend({
+  include: z.literal("summary").optional(),
+});
+export const listAgentsResponseSchema = pageSchema(agentListItemSchema);
 const agentCountSchema = z.number().int().nonnegative();
 export const countAgentsResponseSchema = z.object({
   counts: z
@@ -448,6 +484,8 @@ export type AgentRule = z.infer<typeof agentRuleSchema>;
 export type AgentCapabilities = z.infer<typeof agentCapabilitiesSchema>;
 export type AgentCard = z.infer<typeof agentCardSchema>;
 export type Agent = z.infer<typeof agentSchema>;
+export type AgentSummary = z.infer<typeof agentSummarySchema>;
+export type AgentListItem = z.infer<typeof agentListItemSchema>;
 export type AgentVersion = z.infer<typeof agentVersionSchema>;
 export type EffectiveTools = z.infer<typeof effectiveToolsSchema>;
 export type AgentRelease = z.infer<typeof agentReleaseSchema>;

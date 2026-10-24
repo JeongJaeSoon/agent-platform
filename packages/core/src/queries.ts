@@ -239,7 +239,10 @@ export function invitesQuery(client: ApiClient) {
   });
 }
 
-/** Every agent of the workspace, every page read, oldest first. */
+/**
+ * Every agent of the workspace, every page read, oldest first, each with the
+ * summary its card shows, so a list of cards does not read each agent.
+ */
 export function agentsQuery(client: ApiClient) {
   return queryOptions({
     queryKey: queryKeys.agents,
@@ -250,9 +253,11 @@ export function agentsQuery(client: ApiClient) {
         const page = (await unwrap(
           client.GET("/v1/agents", {
             params: {
-              query: cursor
-                ? { cursor, limit: READ_ALL_PAGE_LIMIT }
-                : { limit: READ_ALL_PAGE_LIMIT },
+              query: {
+                include: "summary",
+                limit: READ_ALL_PAGE_LIMIT,
+                ...(cursor ? { cursor } : {}),
+              },
             },
           }),
         )) as ListAgentsResponse;

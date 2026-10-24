@@ -2,6 +2,7 @@ import type {
   AgentCard,
   AgentDetail,
   AgentRelease,
+  AgentSummary,
   AgentVersion,
   CountAgentsResponse,
   ListAgentsResponse,
@@ -52,6 +53,14 @@ export interface AgentStore {
     workspaceId: string,
     query: PaginationQuery,
   ): Promise<ListAgentsResponse>;
+  /**
+   * The list summary of each agent named, keyed by id, read for the whole
+   * page at once; an id not in the workspace is left out.
+   */
+  summaries(
+    workspaceId: string,
+    agentIds: readonly string[],
+  ): Promise<Map<string, AgentSummary>>;
   /** What `list` holds read to the end, and how many of it `userId` administers. */
   count(
     workspaceId: string,

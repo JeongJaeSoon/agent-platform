@@ -116,7 +116,21 @@ export function createAgentService(deps: {
       query: ListAgentsQuery,
     ): Promise<ListAgentsResponse> {
       await onWorkspace(caller, "agent.manage");
-      return store.list(caller.ownerId, query);
+      const page = await store.list(caller.ownerId, query);
+      if (query.include !== "summary") return page;
+      // Listing needs agent.manage on the workspace, which already reads
+      // every agent's detail, admins and bindings, so no per-agent check.
+      const summaries = await store.summaries(
+        caller.ownerId,
+        page.items.map((agent) => agent.id),
+      );
+      return {
+        ...page,
+        items: page.items.map((agent) => {
+          const summary = summaries.get(agent.id);
+          return summary ? { ...agent, summary } : agent;
+        }),
+      };
     },
 
     async countAgents(caller: Caller): Promise<CountAgentsResponse> {
