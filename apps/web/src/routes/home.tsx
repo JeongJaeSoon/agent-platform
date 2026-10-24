@@ -130,7 +130,12 @@ export function useNow(): number {
  */
 export function HomeScreen() {
   const { t, locale } = useI18n();
-  const { reader, agents: managed, failure: readerFailure } = useReader();
+  const {
+    reader,
+    agents: managed,
+    failure: readerFailure,
+    deciding,
+  } = useReader();
   const name = useMe()?.user?.display_name;
   const intro =
     reader === "owner" || reader === "admin"
@@ -289,7 +294,7 @@ export function HomeScreen() {
   if (
     !settled &&
     requestsSettled &&
-    (reader !== undefined || readerFailure !== undefined) &&
+    !deciding &&
     [members, invites, agents, sessions, waiting, keys, teams].every(
       (query) => !query.isLoading,
     )
@@ -586,9 +591,7 @@ export function HomeScreen() {
       // not move down when the words arrive.
       description={
         intro ??
-        (reader === undefined && readerFailure === undefined ? (
-          <span aria-hidden="true">{"\u00a0"}</span>
-        ) : undefined)
+        (deciding ? <span aria-hidden="true">{"\u00a0"}</span> : undefined)
       }
     >
       {settled ? null : <HomeSkeleton />}
@@ -667,6 +670,8 @@ function useReader(): {
   readonly agents: readonly Agent[];
   /** The agents could not be read, so a member's cards are not known. */
   readonly failure: { error: unknown; retry: () => void } | undefined;
+  /** The agents that tell the reader apart are still on their way. */
+  readonly deciding: boolean;
 } {
   const { client } = useAgentPlatform();
   const role = useRole();
@@ -677,7 +682,10 @@ function useReader(): {
   });
   const agents = administered.data?.items ?? [];
   const failure = undefined;
-  if (role === "owner") return { reader: "owner", agents, failure };
+  // A session without a role (an API key) never gets a reader; nothing is
+  // on its way for it either.
+  const deciding = administered.isLoading;
+  if (role === "owner") return { reader: "owner", agents, failure, deciding };
   if (administered.isError)
     return {
       reader: undefined,
@@ -686,14 +694,16 @@ function useReader(): {
         error: administered.error,
         retry: () => void administered.refetch(),
       },
+      deciding,
     };
   if (role === undefined || !administered.isSuccess)
-    return { reader: undefined, agents, failure };
-  if (role === "admin") return { reader: "admin", agents, failure };
+    return { reader: undefined, agents, failure, deciding };
+  if (role === "admin") return { reader: "admin", agents, failure, deciding };
   return {
     reader: agents.length > 0 ? "manager" : "requester",
     agents,
     failure,
+    deciding,
   };
 }
 

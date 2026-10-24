@@ -457,9 +457,15 @@ describe("구성원 화면", () => {
     const token = "k".repeat(43);
     const { api } = renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me()),
-      // Beyond the first page: only the dialog's search finds them.
+      // Beyond the first page: only the dialog's search finds them, on its
+      // second page, after an address that merely contains the typed one.
       "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
       "GET /v1/members?q=GONE%40example.com": () =>
+        json(200, {
+          items: [{ ...gone, user_id: USER_ID, email: "xgone@example.com" }],
+          next_cursor: "c2",
+        }),
+      "GET /v1/members?q=GONE%40example.com&cursor=c2": () =>
         json(200, { items: [gone], next_cursor: null }),
       ...noInvites,
       "POST /v1/invites": () =>
@@ -487,7 +493,7 @@ describe("구성원 화면", () => {
       api.calls
         .filter((c) => c.path === "/v1/members")
         .map((c) => new URLSearchParams(c.search).get("q")),
-    ).toEqual([null, null, "GONE@example.com"]);
+    ).toEqual([null, null, "GONE@example.com", "GONE@example.com"]);
     await user.clear(email);
     await user.type(email, "new@example.com");
     await user.click(screen.getByRole("button", { name: "초대 링크 만들기" }));
@@ -502,6 +508,39 @@ describe("구성원 화면", () => {
       email: "new@example.com",
       role: "member",
     });
+  });
+
+  test("검색어 한도(200자)보다 긴 주소도 앞부분으로 찾아 같은 주소면 재활성을 안내한다", async () => {
+    const long = `${"g".repeat(230)}@example.com`;
+    const { api } = renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": (request) =>
+        json(200, {
+          items: new URL(request.url).searchParams.has("q")
+            ? [{ ...gone, email: long }]
+            : [owner],
+          next_cursor: null,
+        }),
+      ...noInvites,
+    });
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "구성원 초대" }),
+    );
+    const email = await screen.findByLabelText("이메일");
+    await user.click(email);
+    await user.paste(long);
+    await waitFor(() =>
+      expect(
+        document.getElementById(email.getAttribute("aria-describedby") ?? "")
+          ?.textContent,
+      ).toContain("다시 초대하지 말고 목록에서 다시 활성화하세요"),
+    );
+    expect(
+      api.calls
+        .map((c) => new URLSearchParams(c.search).get("q"))
+        .filter((q) => q !== null),
+    ).toEqual([long.slice(0, 200)]);
   });
 
   test("대기 중인 초대를 확인받고 회수한다", async () => {

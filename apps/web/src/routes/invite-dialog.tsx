@@ -344,16 +344,31 @@ function DetailsStep({
   // account has no password (Google sign-in only): the invite asks for one.
   // Enabling the membership is the way back for everyone. The server
   // searches for the typed address once typing pauses, instead of the
-  // dialog reading every member.
+  // dialog reading every member; it matches what contains the term, so the
+  // longest term it takes still finds a longer address.
   const typed = useSearchTerm(email);
-  const searched =
-    typed?.includes("@") && typed.length <= SEARCH_MAX ? typed : undefined;
+  const searched = typed?.includes("@")
+    ? typed.slice(0, SEARCH_MAX)
+    : undefined;
   const matches = useMemberPages(searched, { enabled: searched !== undefined });
-  const disabledMatch = matches.data?.pages[0]?.items.find(
-    (member) =>
-      member.disabled_at !== null &&
-      member.email.toLowerCase() === email.trim().toLowerCase(),
-  );
+  const address = email.trim().toLowerCase();
+  const sameAddress = matches.data?.pages
+    .flatMap((page) => page.items)
+    .find((member) => member.email.toLowerCase() === address);
+  const disabledMatch =
+    sameAddress && sameAddress.disabled_at !== null ? sameAddress : undefined;
+  // Other addresses containing this one may fill the first pages. A page
+  // that failed stops the search: the hint is advice, not a check.
+  const { hasNextPage, isFetching, isError, fetchNextPage } = matches;
+  const keepLooking =
+    searched !== undefined &&
+    !sameAddress &&
+    hasNextPage &&
+    !isFetching &&
+    !isError;
+  useEffect(() => {
+    if (keepLooking) void fetchNextPage();
+  }, [keepLooking, fetchNextPage]);
 
   return (
     <form
