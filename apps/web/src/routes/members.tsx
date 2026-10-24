@@ -710,19 +710,25 @@ function MemberEditDialog({
   readonly onClosed: () => void;
 }) {
   const { t } = useI18n();
-  const [role, setRole] = useState<string>(member.role);
+  // Until a role is picked the dialog follows the row, so a refetch that
+  // changed the role elsewhere is not saved back over.
+  const [picked, setPicked] = useState<string>();
+  const role = picked ?? member.role;
   const legendId = useId();
   const reasonId = useId();
   const roleReasonId = useId();
   const verdicts = member.actions.change_role;
-  const others = WORKSPACE_ROLE_VALUES.filter((value) => value !== member.role);
-  const [firstOther] = others;
-  // Every other role refused alike is the row's reason, not a role's.
-  const reason =
-    firstOther !== undefined &&
-    others.every((value) => !verdicts[value].allowed)
-      ? reasonOf(t, "role", verdicts[firstOther])
-      : undefined;
+  const refusals = WORKSPACE_ROLE_VALUES.filter(
+    (value) => value !== member.role,
+  ).map((value) => verdicts[value]);
+  // Every other role refused is the row's reason, not a role's. A state
+  // reason (disabled, suspended) refuses every role, so it outranks the
+  // owner grant this caller lacks.
+  const rowRefusal = refusals.every((verdict) => !verdict.allowed)
+    ? (refusals.find((verdict) => verdict.reason !== "owner_protected") ??
+      refusals[0])
+    : undefined;
+  const reason = rowRefusal ? reasonOf(t, "role", rowRefusal) : undefined;
   const blocked = reason !== undefined;
   // One role refused on its own is a role this caller cannot grant.
   const withheld = (value: WorkspaceRole) => {
@@ -760,7 +766,7 @@ function MemberEditDialog({
           ) : null}
           <RadioGroup
             value={role}
-            onValueChange={setRole}
+            onValueChange={setPicked}
             disabled={blocked || busy}
             aria-labelledby={legendId}
             // A disabled radio is out of the arrow-key loop, so its reason

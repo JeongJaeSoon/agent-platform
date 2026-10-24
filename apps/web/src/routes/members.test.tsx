@@ -1389,6 +1389,68 @@ describe("구성원 페이지와 서버 검색", () => {
     );
   });
 
+  test("관리자가 보는 비활성 구성원은 소유자 선택지의 이유가 아니라 비활성 이유로 막힌다", async () => {
+    const off = { allowed: false, reason: "member_disabled" } as const;
+    renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me(undefined, "admin")),
+      "GET /v1/members": () =>
+        json(
+          200,
+          memberPage({
+            items: [
+              { ...owner, role: "admin" },
+              {
+                ...gone,
+                actions: {
+                  ...openActions(gone),
+                  change_role: {
+                    owner: { allowed: false, reason: "owner_protected" },
+                    admin: off,
+                    member: off,
+                  },
+                },
+              },
+            ],
+            next_cursor: null,
+          }),
+        ),
+      ...noInvites,
+    });
+    const user = await setupUser();
+    expect(await roleRule(user, "Gone")).toEqual({
+      disabled: true,
+      reason: "비활성 구성원의 역할은 다시 활성화한 뒤 바꿀 수 있습니다.",
+    });
+  });
+
+  test("고르지 않은 열린 편집은 다시 받은 행의 역할을 따라, 바뀐 역할을 되돌리지 않는다", async () => {
+    let mate: MemberView = teammate;
+    const { api, services } = renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [owner, mate], next_cursor: null })),
+      ...noInvites,
+    });
+    const user = await setupUser();
+    const edit = await openEdit(user, "Mate");
+    const save = within(edit).getByRole("button", {
+      name: "저장",
+    }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    // Another owner made Mate an admin since the dialog opened.
+    mate = { ...teammate, role: "admin" };
+    await act(() => services.queryClient.refetchQueries());
+    await waitFor(() =>
+      expect(
+        within(edit)
+          .getByRole("radio", { name: "관리자" })
+          .getAttribute("aria-checked"),
+      ).toBe("true"),
+    );
+    expect(save.disabled).toBe(true);
+    expect(api.calls.some((call) => call.method === "PATCH")).toBe(false);
+  });
+
   test("서버가 409로 거절하면 목록을 다시 받는다", async () => {
     const { api } = renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me()),
