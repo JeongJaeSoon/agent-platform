@@ -18,6 +18,11 @@ export {
 export { EmptyState, type EmptyStateProps } from "./empty-state.tsx";
 export { ErrorState, type ErrorStateProps } from "./error-state.tsx";
 export {
+  FilterMenu,
+  type FilterMenuOption,
+  type FilterMenuProps,
+} from "./filter-menu.tsx";
+export {
   type KeyValueItem,
   KeyValueList,
   type KeyValueListProps,
