@@ -133,6 +133,8 @@ describe("SettingRow", () => {
     const title = getByText("DM 받기").parentElement;
     expect(classes(title)).toContain("row-start-1");
     expect(classes(title)).toContain("leading-5");
+    // A taller control (a select, a button) centres a one-line title on it.
+    expect(classes(title)).toContain("self-center");
     const lines = getByText("에이전트가 DM으로도 답합니다.").parentElement;
     for (const name of ["col-span-2", "row-start-2", "sm:col-span-1"]) {
       expect(classes(lines)).toContain(name);

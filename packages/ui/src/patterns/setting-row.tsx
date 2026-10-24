@@ -58,7 +58,7 @@ export function SettingRow({
   const below = Boolean(description) || (meta !== undefined && meta !== null);
   const body = (
     <>
-      <span className="col-start-1 row-start-1 flex min-w-0 flex-wrap items-center gap-2 leading-5">
+      <span className="col-start-1 row-start-1 flex min-w-0 flex-wrap items-center gap-2 self-center leading-5">
         {labelled ? (
           <FieldLabel htmlFor={ownId(control)} className={TITLE}>
             {title}
