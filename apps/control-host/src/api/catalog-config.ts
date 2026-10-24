@@ -31,7 +31,7 @@ export const DEFAULT_CONFIG_DIR = resolve(
 );
 export const PROFILES_FILE = "profiles.yaml";
 export const REPOSITORIES_FILE = "repositories.yaml";
-export const MCP_SERVERS_FILE = "mcp-servers.yaml";
+const MCP_SERVERS_FILE = "mcp-servers.yaml";
 export const ALLOW_UNATTENDED_SETTING = "PLATFORM_ALLOW_UNATTENDED_PERMISSIONS";
 export const PLATFORM_FILE = "platform.yaml";
 export const SECRET_KEY_SETTING = "PLATFORM_SECRET_KEY";

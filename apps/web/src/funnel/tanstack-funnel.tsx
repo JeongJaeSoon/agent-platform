@@ -83,7 +83,7 @@ const tanstackRouterOver =
     };
   };
 
-export const tanstackFunnelRouter = tanstackRouterOver({ restart: false });
+const tanstackFunnelRouter = tanstackRouterOver({ restart: false });
 
 export const useFunnel = createFunnel(tanstackFunnelRouter);
 

@@ -16,16 +16,13 @@ import {
 } from "@werft-ai/platform";
 import {
   KubernetesApiError,
-  KubernetesClient,
+  type KubernetesClient,
   KubernetesTimeoutError,
-  kubernetesConnectionFromEnv,
   type PersistentVolumeClaim,
   type Pod,
 } from "./client.ts";
 import {
   type KubernetesBackendConfig,
-  type KubernetesBackendEnvironment,
-  kubernetesConfigFromEnv,
   validateKubernetesConfig,
 } from "./config.ts";
 import {
@@ -767,19 +764,6 @@ export type HostResolver = (host: string) => Promise<string[]>;
 export async function lookupAddresses(host: string): Promise<string[]> {
   const found = await Bun.dns.lookup(host, { backend: "libc" });
   return found.map(({ address }) => address);
-}
-
-/** The backend as the scheduler builds it: settings and credentials from env. */
-export async function kubernetesBackendFromEnv(
-  environment: KubernetesBackendEnvironment,
-  overrides: Partial<KubernetesBackendConfig> = {},
-): Promise<KubernetesBackend> {
-  const config = { ...kubernetesConfigFromEnv(environment), ...overrides };
-  const client = new KubernetesClient(
-    await kubernetesConnectionFromEnv(environment),
-    { timeoutMs: config.requestTimeoutMs },
-  );
-  return new KubernetesBackend(config, client);
 }
 
 /** What is wrong with the claim under this session's name, or null. */
