@@ -72,19 +72,13 @@
    * badge or label being targeted, because a part under `…Trigger asChild`
    * loses its data-slot; every tone turns neutral, status dots included.
    * The actions cell keeps full contrast: a raised GridTableCell, an
-   * `actions` TableCell, or any cell holding a button other than the row
-   * opener (a Button under a trigger has lost its slot, not its tag). Colour
-   * alone never says "inactive"; the caller names it in text.
+   * `actions` TableCell, or any cell holding a Button, found by its
+   * `data-ap-button` mark because a trigger's asChild replaces its slot and
+   * may change its tag. Colour alone never says "inactive"; the caller
+   * names it in text.
    */
   :is([data-slot="grid-table-row"], [data-slot="table-row"])[data-inactive]
-    > :not(
-      [data-raised],
-      [data-variant="actions"],
-      :has(
-          button:not([data-slot="grid-table-row-opener"]),
-          [data-slot="button"]
-        )
-    ) {
+    > :not([data-raised], [data-variant="actions"], :has([data-ap-button])) {
     --ap-color-foreground: var(--ap-color-subtle-foreground);
     --ap-color-muted-foreground: var(--ap-color-subtle-foreground);
     --ap-color-accent: var(--ap-color-subtle-foreground);
