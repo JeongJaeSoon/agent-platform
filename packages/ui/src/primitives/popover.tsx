@@ -21,6 +21,13 @@ export function PopoverTrigger(
   return <PopoverPrimitive.Trigger data-slot="popover-trigger" {...props} />;
 }
 
+/** Positions the content against this element instead of the trigger. */
+export function PopoverAnchor(
+  props: ComponentProps<typeof PopoverPrimitive.Anchor>,
+): JSX.Element {
+  return <PopoverPrimitive.Anchor data-slot="popover-anchor" {...props} />;
+}
+
 export function PopoverContent({
   className,
   sideOffset = 4,
