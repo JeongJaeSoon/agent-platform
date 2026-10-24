@@ -193,6 +193,17 @@ describe("SessionCounts", () => {
   });
 });
 
+describe("ToolTable loading", () => {
+  test("읽는 중 표는 상태 알림 없이 읽는 중이라는 말을 한 번만 둔다", () => {
+    const { queryAllByRole, getAllByText, getByRole } = withPlatform(
+      <ToolTable tools={undefined} label="도구와 명령" onSelect={() => {}} />,
+    );
+    expect(queryAllByRole("status")).toHaveLength(0);
+    expect(getAllByText("도구 목록을 읽는 중")).toHaveLength(1);
+    expect(getByRole("table").getAttribute("aria-busy")).toBe("true");
+  });
+});
+
 describe("ToolCalls", () => {
   test("볼 수 없는 세션은 링크가 없고, 결과 모름은 성공으로 그리지 않는다", () => {
     const { getAllByRole, getAllByText, queryAllByRole } = withPlatform(
