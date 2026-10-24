@@ -145,7 +145,7 @@ const ADDED_COLUMNS: Record<string, string[]> = {
     "expires_at",
     // 0142
     "agent_id",
-    // 0160
+    // 0161
     "last_used_at",
   ],
   receipts: ["actor", "request_id"],
