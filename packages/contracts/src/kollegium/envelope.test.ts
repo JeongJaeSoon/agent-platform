@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   CHAT_ENVELOPE_VERSION,
   type ChatInboundEnvelope,
-  type ChatOutboundEnvelope,
+  type ChatOutboundEnvelopeInput,
   chatInboundEnvelopeSchema,
   chatOutboundEnvelopeSchema,
   muteDecisionSchema,
@@ -49,7 +49,7 @@ const scope: ScopedSessionBinding = {
   profileId: "claude-coding-v1",
 };
 
-const outbound: ChatOutboundEnvelope = {
+const outbound: ChatOutboundEnvelopeInput = {
   deliveryId: "dlv_1",
   sourceEventId: "T01:A02:Ev03",
   scope,
@@ -214,6 +214,33 @@ describe("ScopedSessionBinding and ChatOutboundEnvelope", () => {
     expect(mismatched.error?.issues.map((issue) => issue.path)).toEqual([
       ["audience", "surfaceBindingId"],
     ]);
+  });
+
+  test("a delivery goes to the thread unless it says otherwise", () => {
+    expect(chatOutboundEnvelopeSchema.parse(outbound).visibility).toBe(
+      "thread",
+    );
+    expect(
+      chatOutboundEnvelopeSchema.parse({ ...outbound, visibility: "thread" })
+        .visibility,
+    ).toBe("thread");
+  });
+
+  test("channel and requester-only deliveries are named but not supported yet", () => {
+    for (const visibility of ["channel", "requester_only"]) {
+      const result = chatOutboundEnvelopeSchema.safeParse({
+        ...outbound,
+        visibility,
+      });
+      expect(result.success).toBe(false);
+      expect(
+        result.error?.issues.map((issue) => [issue.path, issue.message]),
+      ).toEqual([[["visibility"], "unsupported visibility"]]);
+    }
+    expect(
+      chatOutboundEnvelopeSchema.safeParse({ ...outbound, visibility: "dm" })
+        .success,
+    ).toBe(false);
   });
 
   test("the surface ref a session link is keyed by is never null", () => {
