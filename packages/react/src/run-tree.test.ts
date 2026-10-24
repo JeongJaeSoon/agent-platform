@@ -313,6 +313,21 @@ describe("buildRunTree", () => {
     expect(buildRunTree([...frames].reverse())).toEqual(tree);
   });
 
+  test("runs drawn apart keep one order however their calls arrive", () => {
+    const frames = [
+      use(3, "a", "Task", {}, "b"),
+      use(6, "s", "Task", {}, "s"),
+      use(5, "b", "Task", {}, "c"),
+      use(8, "c", "Task", {}, "a"),
+    ];
+    const tree = buildRunTree(frames);
+    expect(tree.detached.map((run) => run.id)).toEqual(["a", "b", "s", "c"]);
+    for (let seed = 1; seed <= 30; seed += 1) {
+      expect(buildRunTree(shuffle(frames, seed))).toEqual(tree);
+    }
+    expect(buildRunTree([...frames].reverse())).toEqual(tree);
+  });
+
   test("a run that names itself as its parent is drawn apart", () => {
     const tree = buildRunTree([use(1, "x", "Task", {}, "x")]);
     expect(tree.detached.map((run) => [run.id, run.tools.length])).toEqual([
@@ -548,6 +563,26 @@ describe("PERF", () => {
       `PERF run-tree: full build of ${frames.length} events median ${full.toFixed(2)} ms (runs: ${fullRuns.map((ms) => ms.toFixed(1)).join(", ")}); one appended event median ${step.toFixed(3)} ms over ${stepRuns.length} steps; ratio ${(full / step).toFixed(0)}x`,
     );
     expect(step).toBeLessThan(full / 10);
+  });
+
+  test("one event in a run of 10,000 calls rebuilds that run's list only", () => {
+    const frames: RunTreeFrame[] = [];
+    for (let i = 0; i < 10_000; i += 1) {
+      frames.push(use(i, `wide-${i}`, "Read", { file_path: `f${i}` }));
+      frames.push(result(i + 0.5, `wide-${i}`));
+    }
+    const builder = createRunTreeBuilder();
+    for (const frame of frames) builder.push(frame);
+    const before = builder.tree();
+    const started = performance.now();
+    builder.push(use(20_000, "wide-new", "Read", { file_path: "new" }));
+    const after = builder.tree();
+    const ms = performance.now() - started;
+    console.log(
+      `PERF run-tree: one appended event in a single run of 10000 calls ${ms.toFixed(3)} ms`,
+    );
+    expect(after.root.tools.length).toBe(10_001);
+    expect(after.root.tools[0]).toBe(before.root.tools[0] as never);
   });
 
   test("20,000 events arriving newest first", () => {

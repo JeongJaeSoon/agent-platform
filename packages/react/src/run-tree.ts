@@ -191,7 +191,8 @@ export function createRunTreeBuilder(): RunTreeBuilder {
   // Calls whose latest question asks for a permission, not for an answer.
   const permissions = new Set<string>();
   const runs = new Map<string, RunRecord>();
-  const detached: string[] = [];
+  // Sorted when read: a detached run's key changes once its call arrives.
+  const detached = new Set<string>();
   // Runs drawn apart because their chain loops; a replaced call may undo it.
   const looped = new Set<string>();
   let lastStatus: {
@@ -237,8 +238,7 @@ export function createRunTreeBuilder(): RunTreeBuilder {
       dirtyRuns.add(run.parentRun);
       run.parentRun = null;
     }
-    remove(detached, id);
-    insertSorted(detached, id, runFirst);
+    detached.add(id);
     dirtyRuns.add(id);
   };
 
@@ -281,7 +281,7 @@ export function createRunTreeBuilder(): RunTreeBuilder {
       return;
     }
     looped.delete(runId);
-    remove(detached, runId);
+    detached.delete(runId);
     if (run.parentRun !== null) {
       remove((runs.get(run.parentRun) as RunRecord).children, runId);
       dirtyRuns.add(run.parentRun);
@@ -298,10 +298,6 @@ export function createRunTreeBuilder(): RunTreeBuilder {
       if (at && (run.first === null || before(at, run.first))) {
         run.first = at;
         dirtyRuns.add(id);
-        if (id !== ROOT_RUN_ID && run.parentRun === null && !tools.has(id)) {
-          remove(detached, id);
-          insertSorted(detached, id, runFirst);
-        }
       }
       return;
     }
@@ -536,7 +532,14 @@ export function createRunTreeBuilder(): RunTreeBuilder {
       }
     }
     const root = runNode(ROOT_RUN_ID);
-    const apart = detached.map(runNode);
+    const apart = [...detached]
+      .sort((a, b) => {
+        const [first, second] = [runFirst(a), runFirst(b)];
+        if (before(first, second)) return -1;
+        if (before(second, first)) return 1;
+        return a < b ? -1 : 1;
+      })
+      .map(runNode);
     dirtyRuns.clear();
     dirtyTools.clear();
     last = {
