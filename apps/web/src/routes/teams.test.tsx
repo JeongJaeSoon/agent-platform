@@ -7,6 +7,7 @@ import {
   type TeamDetail,
   teamDetailSchema,
 } from "@werft-ai/contracts";
+import { queryKeys } from "@werft-ai/core";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
 import { ADMINISTERED_LIST_LIMIT } from "../components/agent-admins.tsx";
 import { AGENT_ID, agentServer } from "../test-support/fake-agents.ts";
@@ -461,6 +462,31 @@ describe("팀 화면", () => {
       await screen.findByRole("option", { name: "Mate (mate@example.com)" }),
     ).toBeTruthy();
     expect(memberReads()).toEqual(["?limit=2", "?limit=100"]);
+  });
+
+  test("전에 읽은 목록에 후보가 없었어도 칸은 열려 있고, 키보드로 오면 다시 읽는다", async () => {
+    const server = teamServer();
+    const { api, services } = renderAt("/members/teams", server.routes);
+    await screen.findByRole("link", { name: "결제팀" });
+    // An earlier visit read a list with nobody to add; Mate joined since.
+    services.queryClient.setQueryData(queryKeys.members, {
+      items: [],
+      next_cursor: null,
+    });
+    const user = await setupUser();
+    await user.click(screen.getByRole("link", { name: "결제팀" }));
+    const picker = (await screen.findByLabelText(
+      "추가할 사람",
+    )) as HTMLSelectElement;
+    expect(picker.disabled).toBe(false);
+    const before = api.calls.filter((c) => c.path === "/v1/members").length;
+    act(() => picker.focus());
+    expect(
+      await screen.findByRole("option", { name: "Mate (mate@example.com)" }),
+    ).toBeTruthy();
+    expect(
+      api.calls.filter((c) => c.path === "/v1/members").length,
+    ).toBeGreaterThan(before);
   });
 
   test("구성원을 수락 없이 넣고 빼며, 이름을 바꾸고 지운다", async () => {

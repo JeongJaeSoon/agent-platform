@@ -279,7 +279,8 @@ function AdminList({
             className="ap-input"
             value={person}
             disabled={
-              !listsMembers || (!members.isPending && people.length === 0)
+              !listsMembers ||
+              (picking && !members.isPending && people.length === 0)
             }
             aria-busy={members.isFetching}
             onChange={(event) => setPerson(event.target.value)}
