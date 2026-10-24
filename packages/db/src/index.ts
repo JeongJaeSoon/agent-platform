@@ -42,6 +42,7 @@ export * from "./slack-config-tokens.ts";
 export * from "./slack-inbound-events.ts";
 export * from "./slack-install-states.ts";
 export * from "./slack-installations.ts";
+export * from "./slack-outbox.ts";
 export * from "./surface-bindings.ts";
 export { expireOverdueInterrupts } from "./turn-interrupts.ts";
 export * from "./usage-reader.ts";
