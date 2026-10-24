@@ -25,18 +25,53 @@ import { queryKeys } from "../api/queries.ts";
 import { ReasonButton, refusalText, useRole } from "../auth/guard.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 
-/** The 팀 tab's head button: a team's name in a dialog, then the new team. */
+/**
+ * The 팀 tab's head button: a team's name in a dialog, then the new team.
+ * `onCreated` gets the new team's name, and null when another try starts.
+ */
 export function TeamCreateDialog({
   reason,
   onCreated,
 }: {
   readonly reason: string | undefined;
-  readonly onCreated: (name: string) => void;
+  readonly onCreated: (name: string | null) => void;
 }) {
   const { t } = useI18n();
+  const { client } = useAgentPlatform();
+  const queryClient = useQueryClient();
+  const role = useRole();
   const [open, setOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const create = useMutation<TeamChangeResponse, ApiError, string>({
+    mutationFn: (name) => unwrap(client.POST("/v1/teams", { body: { name } })),
+    onMutate: () => {
+      setError(null);
+      onCreated(null);
+    },
+    onSuccess: async ({ team }) => {
+      setOpen(false);
+      onCreated(team.name);
+      await queryClient.invalidateQueries({ queryKey: queryKeys.teams });
+    },
+    onError: (failure) =>
+      setError(
+        failure.code === "ALREADY_EXISTS"
+          ? t("teams.nameTaken")
+          : refusalText(t, failure, "team.manage", role),
+      ),
+  });
+
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        // Open until the request answers, so its answer lands in this opening.
+        if (create.isPending) return;
+        setError(null);
+        setOpen(next);
+      }}
+    >
       {/* As the trigger, the button gets the focus back when the dialog closes. */}
       <DialogTrigger asChild>
         <ReasonButton
@@ -50,9 +85,10 @@ export function TeamCreateDialog({
       </DialogTrigger>
       <DialogContent>
         <TeamCreateForm
-          onCreated={(name) => {
-            setOpen(false);
-            onCreated(name);
+          pending={create.isPending}
+          error={error}
+          onSubmit={(name) => {
+            if (!create.isPending) create.mutate(name);
           }}
         />
       </DialogContent>
@@ -62,36 +98,20 @@ export function TeamCreateDialog({
 
 // Mounted while the dialog is open, so each opening starts empty.
 function TeamCreateForm({
-  onCreated,
+  pending,
+  error,
+  onSubmit,
 }: {
-  readonly onCreated: (name: string) => void;
+  readonly pending: boolean;
+  readonly error: string | null;
+  readonly onSubmit: (name: string) => void;
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
-  const queryClient = useQueryClient();
-  const role = useRole();
   const [name, setName] = useState("");
-  const [error, setError] = useState<string | null>(null);
-
-  const create = useMutation<TeamChangeResponse, ApiError, string>({
-    mutationFn: (body) =>
-      unwrap(client.POST("/v1/teams", { body: { name: body } })),
-    onMutate: () => setError(null),
-    onSuccess: async ({ team }) => {
-      onCreated(team.name);
-      await queryClient.invalidateQueries({ queryKey: queryKeys.teams });
-    },
-    onError: (failure) =>
-      setError(
-        failure.code === "ALREADY_EXISTS"
-          ? t("teams.nameTaken")
-          : refusalText(t, failure, "team.manage", role),
-      ),
-  });
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (!create.isPending) create.mutate(name.trim());
+    onSubmit(name.trim());
   };
 
   return (
@@ -113,13 +133,18 @@ function TeamCreateForm({
           maxLength={100}
           autoComplete="off"
           value={name}
-          readOnly={create.isPending}
+          readOnly={pending}
           onChange={(event) => setName(event.target.value)}
         />
       </Field>
       <DialogFooter>
         <DialogClose asChild>
-          <Button type="button" variant="outline">
+          <Button
+            type="button"
+            variant="outline"
+            className="aria-disabled:opacity-50"
+            aria-disabled={pending || undefined}
+          >
             {t("common.cancel")}
           </Button>
         </DialogClose>
@@ -127,9 +152,9 @@ function TeamCreateForm({
         <Button
           type="submit"
           className="aria-disabled:opacity-50"
-          aria-disabled={create.isPending || undefined}
+          aria-disabled={pending || undefined}
         >
-          {create.isPending ? t("teams.creating") : t("teams.create")}
+          {pending ? t("teams.creating") : t("teams.create")}
         </Button>
       </DialogFooter>
     </form>

@@ -200,7 +200,14 @@ describe("팀 화면", () => {
     expect((await within(again).findByRole("alert")).textContent).toBe(
       "같은 이름의 팀이 이미 있습니다 — 다른 이름을 쓰세요.",
     );
-    expect(screen.getByRole("dialog")).toBe(again);
+    // Refused, the dialog stays with the name to fix, and the earlier
+    // notice is gone: it was about another team.
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    expect(
+      (within(again).getByLabelText("팀 이름") as HTMLInputElement).value,
+    ).toBe("결제팀");
+    // Behind the modal dialog the page is aria-hidden.
+    expect(screen.getByRole("status", { hidden: true }).textContent).toBe("");
   });
 
   test("팀 목록을 못 불러오면 헤더에 팀 만들기 대신 목록 자리에 다시 시도를 보인다", async () => {
@@ -277,6 +284,10 @@ describe("팀 화면", () => {
     expect(busy.hasAttribute("disabled")).toBe(false);
     expect(document.activeElement === busy).toBe(true);
     await user.keyboard("{Enter}");
+    // Neither Escape nor 취소 drops a request on its way.
+    await user.keyboard("{Escape}");
+    await user.click(within(dialog).getByRole("button", { name: "취소" }));
+    expect(screen.queryByRole("dialog", { name: "팀 만들기" })).not.toBeNull();
     answer?.(
       json(201, {
         team: {
@@ -292,6 +303,7 @@ describe("팀 화면", () => {
       "지원팀 팀을 만들었습니다.",
     );
     expect(api.calls.filter((c) => c.method === "POST")).toHaveLength(1);
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   test("구성원에게는 만들기 폼·전체 목록·권한 없음 화면이 없고 서버에 묻지 않는다", async () => {

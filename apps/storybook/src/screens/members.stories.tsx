@@ -14,11 +14,13 @@ import {
   cn,
   DestructiveActionDialog,
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
   EmptyState,
   ErrorState,
   Field,
@@ -279,17 +281,24 @@ const inviteButton = (
     구성원 초대
   </Button>
 );
-const teamCreateButton = (
-  <Button type="button">
-    <Plus aria-hidden="true" />팀 만들기
-  </Button>
-);
-
-/* The 팀 tab's head button opens this (v4 toolbar ②); the console's
-   TeamCreateDialog. `taken` shows the server's answer for a used name. */
-function TeamCreateDialog({ taken = false }: { readonly taken?: boolean }) {
+/* The 팀 tab's head button and the dialog it opens (v4 toolbar ②); the
+   console's TeamCreateDialog. `taken` shows the server's answer for a used
+   name. */
+function TeamCreateAction({
+  initialOpen = false,
+  taken = false,
+}: {
+  readonly initialOpen?: boolean;
+  readonly taken?: boolean;
+}) {
+  const [open, setOpen] = useState(initialOpen);
   return (
-    <Dialog open onOpenChange={fn()}>
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button type="button">
+          <Plus aria-hidden="true" />팀 만들기
+        </Button>
+      </DialogTrigger>
       <DialogContent>
         <form
           className="flex flex-col gap-4"
@@ -310,12 +319,19 @@ function TeamCreateDialog({ taken = false }: { readonly taken?: boolean }) {
           ) : null}
           <Field>
             <FieldLabel>팀 이름</FieldLabel>
-            <Input name="team" maxLength={100} defaultValue="결제팀" />
+            <Input
+              name="team"
+              maxLength={100}
+              autoComplete="off"
+              defaultValue={taken ? "결제팀" : ""}
+            />
           </Field>
           <DialogFooter>
-            <Button type="button" variant="outline">
-              취소
-            </Button>
+            <DialogClose asChild>
+              <Button type="button" variant="outline">
+                취소
+              </Button>
+            </DialogClose>
             <Button type="submit">팀 만들기</Button>
           </DialogFooter>
         </form>
@@ -956,11 +972,14 @@ function MembersScreen({ screen }: { readonly screen: Screen }) {
   else {
     // Each tab's one primary action in the head; a team's page has none.
     const action =
-      tab !== "teams"
-        ? inviteButton
-        : DETAIL_SCREENS.includes(screen)
-          ? undefined
-          : teamCreateButton;
+      tab !== "teams" ? (
+        inviteButton
+      ) : DETAIL_SCREENS.includes(screen) ? undefined : (
+        <TeamCreateAction
+          initialOpen={screen.startsWith("team-create")}
+          taken={screen === "team-create-taken"}
+        />
+      );
     const content =
       tab === "members" ? (
         <MembersTab
@@ -1010,9 +1029,6 @@ function MembersScreen({ screen }: { readonly screen: Screen }) {
           consequence="로그인과 이 사람의 개인 key가 바로 끊깁니다. 이 사람이 만든 서비스 key는 계속 동작합니다."
           confirmLabel="비활성화"
         />
-      ) : null}
-      {screen === "team-create" || screen === "team-create-taken" ? (
-        <TeamCreateDialog taken={screen === "team-create-taken"} />
       ) : null}
       {screen === "team-delete" ? (
         <DestructiveActionDialog

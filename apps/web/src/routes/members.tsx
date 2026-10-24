@@ -143,16 +143,18 @@ export function MembersLayout() {
   const teamsFailed = teams.isError && !isApiError(teams.error, "FORBIDDEN");
   // The dialog closes on success; the page says what came of it.
   const [created, setCreated] = useState<string | null>(null);
-  useEffect(() => {
-    if (!onTeamList) setCreated(null);
-  }, [onTeamList]);
+  // Fresh on each arrival: a request that answered elsewhere is old news.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs on the path change
+  useEffect(() => setCreated(null), [onTeamList]);
 
   // Each tab's one primary action, in the same place (v4 toolbar ②).
   const action = onTeams ? (
     onTeamList && managesTeams && !teamsFailed ? (
       <TeamCreateDialog
         reason={teamReason}
-        onCreated={(name) => setCreated(t("teams.created", { name }))}
+        onCreated={(name) =>
+          setCreated(name === null ? null : t("teams.created", { name }))
+        }
       />
     ) : undefined
   ) : manages && !failed ? (
