@@ -371,7 +371,8 @@ describe("홈 요약", () => {
     `GET /v1/usage/summary?scope=${scope}&since=${since}`;
   const expiringKey = {
     id: "9c8b7a6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
-    kind: "service",
+    kind: "agent",
+    name: null,
     workspace_id: WORKSPACE_ID,
     agent_id: AGENT_ID,
     created_by: USER_ID,
@@ -499,7 +500,7 @@ describe("홈 요약", () => {
       within(overview)
         .getByRole("link", { name: "결제 담당" })
         .getAttribute("href"),
-    ).toBe("/settings/api-keys/service");
+    ).toBe("/settings/api-keys/agents");
 
     expect(screen.getByText("최근 30일 · UTC 기준")).toBeTruthy();
     // The install's sum is partial; the viewer's own is whole.

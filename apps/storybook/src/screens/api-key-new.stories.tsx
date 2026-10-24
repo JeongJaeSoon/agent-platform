@@ -26,11 +26,10 @@ import { MOBILE, ScreenShell } from "./screen-kit.tsx";
  * mockup (Console.dc.html L818-823) it takes only the look: the way back
  * above the title, a `card flush` form with a 16px body, and the
  * `form-foot` strip with cancel and generate on the right. The fields stay
- * the console's own; the mockup's name, kind radios and expiry presets have
- * no API.
+ * the console's own; the mockup's kind radios and expiry presets have no API.
  */
 
-type Kind = "personal" | "service";
+type Kind = "personal" | "agent";
 type State = "ready" | "noScope" | "failed";
 
 // The scopes an owner holds (GET /v1/auth/me), in the console's words.
@@ -67,16 +66,16 @@ const SCREEN: Record<
   { readonly list: string; readonly title: string; readonly intro: string }
 > = {
   personal: {
-    list: "내 key",
+    list: "개인 key",
     title: "새 개인 key",
     intro:
       "나로 동작하는 key입니다. CLI나 스크립트가 내 권한 안에서 API를 부를 때 씁니다.",
   },
-  service: {
-    list: "서비스 key",
-    title: "새 서비스 key",
+  agent: {
+    list: "에이전트 key",
+    title: "새 에이전트 key",
     intro:
-      "사람이 아니라 워크스페이스나 에이전트에 속한 key입니다. 발급한 사람이 떠나도 계속 동작합니다.",
+      "사람이 아니라 에이전트 하나에 속한 key입니다. 그 에이전트의 세션에만 닿고, 발급한 사람이 떠나도 계속 동작합니다.",
   },
 };
 
@@ -88,12 +87,16 @@ function NewKeyScreen({
   readonly state: State;
 }) {
   const screen = SCREEN[kind];
+  // An agent key never approves, so its form does not offer it.
+  const scopes = SCOPES.filter(
+    (scope) => kind === "personal" || scope.scope !== "sessions:approve",
+  );
   // As in the console, generate waits for at least one scope.
   const [chosen, setChosen] = useState<readonly string[]>(
     state === "noScope" ? [] : ["sessions:read"],
   );
   return (
-    <ScreenShell current="settings" crumb={["내 설정", screen.list]}>
+    <ScreenShell current="settings" crumb={["내 설정", "API key"]}>
       <div className="flex w-full flex-col gap-2">
         <Link
           href={`#${kind}`}
@@ -112,27 +115,40 @@ function NewKeyScreen({
           <Card flush>
             <form onSubmit={(event) => event.preventDefault()}>
               <div className="flex flex-col items-start gap-4 p-4">
-                {kind === "service" ? (
+                {kind === "agent" ? (
                   <Field>
-                    <FieldLabel>대상</FieldLabel>
+                    <FieldLabel>에이전트</FieldLabel>
                     <div>
-                      <NativeSelect defaultValue="workspace">
-                        <NativeSelectOption value="workspace">
-                          워크스페이스 전체 (에이전트 지정 없음)
+                      <NativeSelect defaultValue="review" required>
+                        <NativeSelectOption value="" disabled>
+                          에이전트를 고르세요
+                        </NativeSelectOption>
+                        <NativeSelectOption value="review">
+                          리뷰 봇
                         </NativeSelectOption>
                       </NativeSelect>
                     </div>
                     <FieldDescription>
-                      에이전트를 고르면 그 에이전트의 세션에서만 쓸 수 있는
-                      에이전트 전용 key가 됩니다.
+                      key를 쓸 에이전트입니다. 발급한 뒤에는 바꿀 수 없습니다.
                     </FieldDescription>
                   </Field>
                 ) : null}
+                <Field className="w-full">
+                  <FieldLabel>이름(필수 아님)</FieldLabel>
+                  <Input
+                    className="max-w-sm"
+                    autoComplete="off"
+                    maxLength={64}
+                  />
+                  <FieldDescription>
+                    목록에서 이 key를 알아보는 이름입니다. 예: ci-deploy
+                  </FieldDescription>
+                </Field>
                 <FieldSet className="w-full gap-3">
                   <FieldLegend variant="label" className="mb-0">
                     권한
                   </FieldLegend>
-                  {SCOPES.map((scope) => (
+                  {scopes.map((scope) => (
                     <Field key={scope.scope} orientation="horizontal">
                       <Checkbox
                         checked={chosen.includes(scope.scope)}
@@ -149,16 +165,15 @@ function NewKeyScreen({
                           {scope.name} {scope.scope}
                         </FieldLabel>
                         <FieldDescription>{scope.hint}</FieldDescription>
-                        {kind === "service" &&
-                        scope.scope === "sessions:approve" ? (
-                          <FieldDescription>
-                            에이전트 전용 key에는 넣을 수 없습니다. 에이전트가
-                            사람 대신 승인할 수는 없습니다.
-                          </FieldDescription>
-                        ) : null}
                       </FieldContent>
                     </Field>
                   ))}
+                  {kind === "agent" ? (
+                    <FieldDescription>
+                      '요청에 답하기'(sessions:approve)는 에이전트 key에 넣을 수
+                      없습니다. 승인과 질문 답변은 사람이 합니다.
+                    </FieldDescription>
+                  ) : null}
                 </FieldSet>
                 <Field>
                   <FieldLabel>만료일(필수 아님)</FieldLabel>
@@ -200,7 +215,7 @@ const meta = {
   parameters: { layout: "fullscreen" },
   args: { kind: "personal", state: "ready" },
   argTypes: {
-    kind: { control: "inline-radio", options: ["personal", "service"] },
+    kind: { control: "inline-radio", options: ["personal", "agent"] },
     state: {
       control: "inline-radio",
       options: ["ready", "noScope", "failed"],
@@ -212,9 +227,9 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const NewPersonalKey: Story = { name: "Owner · new personal key" };
-export const NewServiceKey: Story = {
-  name: "Owner · new service key",
-  args: { kind: "service" },
+export const NewAgentKey: Story = {
+  name: "Owner · new agent key",
+  args: { kind: "agent" },
 };
 export const NewKeyNoScope: Story = {
   name: "No scope picked (generate disabled)",

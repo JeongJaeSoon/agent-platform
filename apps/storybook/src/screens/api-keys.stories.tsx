@@ -21,19 +21,20 @@ import { MOBILE, ScreenShell } from "./screen-kit.tsx";
  * API keys as apps/web draws it (routes/api-keys.tsx). From the v4 mockup
  * (Console.dc.html L795-812) it takes only the route tabs with counts and the
  * `key-meta` line's `·` separators with a 4px 8px gap (L444); the rest is the
- * console's own screen. The mockup's key name, last use and issuer have no
- * API, so they are not drawn.
+ * console's own screen. The mockup's last use and issuer have no API, so
+ * they are not drawn.
  */
 
 type Viewer = "owner" | "member";
 type List = "ready" | "loading" | "empty" | "error";
-type Tab = "personal" | "service";
-type Kind = "personal" | "service" | "agent";
+type Kind = "personal" | "agent";
+type Tab = Kind | "org";
 
 interface KeyRow {
   readonly id: string;
   readonly kind: Kind;
-  /** The bound agent's name, for a key bound to one. */
+  readonly name?: string;
+  /** The bound agent's name, for an agent key. */
   readonly agent?: string;
   readonly scopes: readonly string[];
   readonly approves: boolean;
@@ -43,11 +44,12 @@ interface KeyRow {
 }
 
 // Values GET /v1/api-keys returns, in the console's words (i18n/api-keys.ts).
-const KEYS: Record<Tab, readonly KeyRow[]> = {
+const KEYS: Record<Kind, readonly KeyRow[]> = {
   personal: [
     {
       id: "0f9c2e4a-6b1d-4c3e-8a7f-2d5b9e1c3a40",
       kind: "personal",
+      name: "laptop",
       scopes: ["세션 보기", "세션 만들기"],
       approves: false,
       created_at: "2026-10-11T00:00:00.000Z",
@@ -63,10 +65,12 @@ const KEYS: Record<Tab, readonly KeyRow[]> = {
       expiry: "none",
     },
   ],
-  service: [
+  agent: [
     {
       id: "c4b8d2e6-1a3f-4b5c-8d7e-9f0a1b2c3d4e",
-      kind: "service",
+      kind: "agent",
+      name: "ci-deploy",
+      agent: "배포 봇",
       scopes: ["세션 보기", "세션 만들기"],
       approves: false,
       created_at: "2026-10-01T01:30:00.000Z",
@@ -91,8 +95,7 @@ const KIND: Record<
   { readonly label: string; readonly variant: "gray" | "blue" }
 > = {
   personal: { label: "개인 key", variant: "gray" },
-  service: { label: "서비스 key", variant: "blue" },
-  agent: { label: "에이전트 전용 key", variant: "gray" },
+  agent: { label: "에이전트 key", variant: "blue" },
 };
 
 const FACTS: Record<Kind, readonly string[]> = {
@@ -102,42 +105,35 @@ const FACTS: Record<Kind, readonly string[]> = {
     "발급한 사람이 볼 수 있는 세션에 닿습니다.",
     "'요청에 답하기'(sessions:approve) 권한을 넣을 수 있습니다.",
   ],
-  service: [
+  agent: [
     "사람이 아니라 key 자체로 동작합니다. 이 key로 시작한 세션은 key의 세션입니다.",
     "발급한 사람이 떠나도 계속 유효합니다. 필요 없어지면 직접 폐기하세요.",
-    "워크스페이스 전체에 공유된 세션과 이 key로 시작한 세션에 닿습니다. 에이전트를 가리지 않습니다.",
-    "'요청에 답하기'(sessions:approve) 권한을 넣을 수 있습니다.",
-  ],
-  agent: [
-    "서비스 key처럼 key 자체로 동작합니다.",
-    "발급한 사람이 떠나도 계속 유효합니다. 필요 없어지면 직접 폐기하세요.",
-    "서비스 key가 닿는 세션 가운데 고른 에이전트의 세션에만 닿습니다.",
-    "'요청에 답하기'(sessions:approve) 권한은 넣을 수 없습니다. 에이전트가 사람 대신 승인하지 않습니다.",
+    "고른 에이전트의 세션에만 닿습니다. 세션을 시작할 때도 그 에이전트의 release를 지정해야 합니다.",
+    "'요청에 답하기'(sessions:approve) 권한이 없습니다. 승인과 질문 답변은 사람이 합니다.",
   ],
 };
 
 const SCREEN: Record<
   Tab,
-  {
-    readonly title: string;
-    readonly intro: string;
-    readonly empty: string;
-    readonly kinds: readonly Kind[];
-  }
+  { readonly title: string; readonly intro: string; readonly empty: string }
 > = {
   personal: {
-    title: "내 key",
+    title: "개인 key",
     intro:
       "나로 동작하는 key입니다. CLI나 스크립트가 내 권한 안에서 API를 부를 때 씁니다.",
     empty: "아직 만든 개인 key가 없습니다.",
-    kinds: ["personal"],
   },
-  service: {
-    title: "서비스 key",
+  agent: {
+    title: "에이전트 key",
     intro:
-      "사람이 아니라 워크스페이스나 에이전트에 속한 key입니다. 발급한 사람이 떠나도 계속 동작합니다.",
-    empty: "아직 서비스 key가 없습니다.",
-    kinds: ["service", "agent"],
+      "사람이 아니라 에이전트 하나에 속한 key입니다. 그 에이전트의 세션에만 닿고, 발급한 사람이 떠나도 계속 동작합니다.",
+    empty: "아직 에이전트 key가 없습니다.",
+  },
+  org: {
+    title: "조직 관리 key",
+    intro:
+      "사람에 묶이지 않는 조직 소유 key입니다. Terraform·CI·SCIM 같은 자동화가 워크스페이스 관리 API를 부를 때 씁니다.",
+    empty: "준비 중입니다",
   },
 };
 
@@ -176,20 +172,24 @@ function Expiry({ row }: { readonly row: KeyRow }) {
 
 function Row({ row }: { readonly row: KeyRow }) {
   const kind = KIND[row.kind];
-  const scopes = row.scopes.join(", ");
-  const label = row.agent ? `${kind.label} · ${row.agent}` : kind.label;
+  const name = row.name ?? "이름 없음";
+  const title = row.agent ? `${row.agent} · ${name}` : name;
+  const label = `${kind.label} · ${title}`;
   return (
     <li className="flex min-h-12 flex-col items-start gap-2 border-b px-4 py-3 last:border-b-0 sm:flex-row sm:items-center sm:gap-3">
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex flex-wrap items-center gap-2">
           <div className="min-w-0 font-semibold text-sm leading-5 [overflow-wrap:anywhere]">
-            {row.agent ? `${row.agent} · ${scopes}` : scopes}
+            {title}
           </div>
           <Badge variant={kind.variant}>{kind.label}</Badge>
-          <Badge variant={row.approves ? "green" : "gray"}>
-            {row.approves ? "승인 가능" : "승인 불가"}
-          </Badge>
+          {row.kind === "personal" ? (
+            <Badge variant={row.approves ? "green" : "gray"}>
+              {row.approves ? "승인 가능" : "승인 불가"}
+            </Badge>
+          ) : null}
         </div>
+        <div className={META}>{row.scopes.join(", ")}</div>
         <div className={META}>
           <div className="inline-flex min-w-0 items-center gap-1">
             <div>ID</div>
@@ -211,7 +211,7 @@ function Row({ row }: { readonly row: KeyRow }) {
           <Dot />
           <Expiry row={row} />
         </div>
-        {row.kind === "service" ? (
+        {row.kind === "agent" ? (
           <div className="text-muted-foreground text-xs">
             발급자가 떠나도 유효
           </div>
@@ -233,7 +233,7 @@ function Row({ row }: { readonly row: KeyRow }) {
   );
 }
 
-function Body({ tab, list }: { readonly tab: Tab; readonly list: List }) {
+function Body({ tab, list }: { readonly tab: Kind; readonly list: List }) {
   if (list === "loading") {
     return (
       <div className="flex flex-col gap-4 rounded-card border p-4">
@@ -274,60 +274,72 @@ function ApiKeysScreen({
   readonly tab: Tab;
   readonly list: List;
 }) {
-  // A member issues no service keys and sees only their own list.
-  const shown: Tab = viewer === "member" ? "personal" : tab;
+  // A member who administers an agent sees the agent tab; only the holders
+  // of api_key.manage see the organization admin key's place.
+  const tabs: readonly Tab[] =
+    viewer === "member" ? ["personal", "agent"] : ["personal", "agent", "org"];
+  const shown: Tab = tabs.includes(tab) ? tab : "personal";
   const counted = list === "ready" || list === "empty";
-  const count = (of: Tab) => (list === "ready" ? KEYS[of].length : 0);
+  const count = (of: Kind) => (list === "ready" ? KEYS[of].length : 0);
   return (
     <ScreenShell
       current="settings"
-      crumb={["내 설정", SCREEN[shown].title]}
+      crumb={["내 설정", "API key"]}
       role={viewer}
     >
       <div className="flex flex-col gap-[var(--ap-space-block)]">
         <PageHeader
-          title={SCREEN[shown].title}
+          title="API key"
           description={SCREEN[shown].intro}
           actions={
-            <Button type="button">
-              <Plus aria-hidden="true" className="size-4" />새 key
-            </Button>
+            shown === "org" ? undefined : (
+              <Button type="button">
+                <Plus aria-hidden="true" className="size-4" />새 key
+              </Button>
+            )
           }
         />
-        {viewer === "member" ? null : (
-          <LinkTabs aria-label="key 목록">
-            {(["personal", "service"] as const).map((of) => (
-              <LinkTab
-                key={of}
-                href={`#${of}`}
-                current={of === shown}
-                // Counts wait for the list, as in the console.
-                count={counted ? count(of) : undefined}
-                countLabel={counted ? `${count(of)}개` : undefined}
-              >
-                {SCREEN[of].title}
-              </LinkTab>
-            ))}
-          </LinkTabs>
-        )}
-        <Body tab={shown} list={list} />
-        <Alert asChild aria-label="key 종류">
-          <section>
-            <AlertTitle>key 종류</AlertTitle>
-            <AlertDescription className="mt-2 flex flex-col gap-3">
-              {SCREEN[shown].kinds.map((kind) => (
-                <div key={kind} className="flex flex-col items-start gap-2">
-                  <Badge variant={KIND[kind].variant}>{KIND[kind].label}</Badge>
+        <LinkTabs aria-label="key 목록">
+          {tabs.map((of) => (
+            <LinkTab
+              key={of}
+              href={`#${of}`}
+              current={of === shown}
+              // Counts wait for the list, as in the console.
+              count={counted && of !== "org" ? count(of) : undefined}
+              countLabel={
+                counted && of !== "org" ? `${count(of)}개` : undefined
+              }
+            >
+              {SCREEN[of].title}
+            </LinkTab>
+          ))}
+        </LinkTabs>
+        {shown === "org" ? (
+          <EmptyState
+            title="준비 중입니다"
+            description="아직 발급할 수 없습니다. 세션을 다루는 자동화에는 에이전트 key를 쓰세요."
+          />
+        ) : (
+          <>
+            <Body tab={shown} list={list} />
+            <Alert asChild aria-label="key 종류">
+              <section>
+                <AlertTitle>key 종류</AlertTitle>
+                <AlertDescription className="mt-2 flex flex-col items-start gap-2">
+                  <Badge variant={KIND[shown].variant}>
+                    {KIND[shown].label}
+                  </Badge>
                   <ul className="m-0 flex list-disc flex-col gap-1 pl-4">
-                    {FACTS[kind].map((fact) => (
+                    {FACTS[shown].map((fact) => (
                       <li key={fact}>{fact}</li>
                     ))}
                   </ul>
-                </div>
-              ))}
-            </AlertDescription>
-          </section>
-        </Alert>
+                </AlertDescription>
+              </section>
+            </Alert>
+          </>
+        )}
       </div>
     </ScreenShell>
   );
@@ -340,7 +352,7 @@ const meta = {
   args: { viewer: "owner", tab: "personal", list: "ready" },
   argTypes: {
     viewer: { control: "inline-radio", options: ["owner", "member"] },
-    tab: { control: "inline-radio", options: ["personal", "service"] },
+    tab: { control: "inline-radio", options: ["personal", "agent", "org"] },
     list: {
       control: "inline-radio",
       options: ["ready", "loading", "empty", "error"],
@@ -351,13 +363,17 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const ApiKeys: Story = { name: "Owner · my keys" };
-export const ApiKeysService: Story = {
-  name: "Owner · service keys",
-  args: { tab: "service" },
+export const ApiKeys: Story = { name: "Owner · personal keys" };
+export const ApiKeysAgent: Story = {
+  name: "Owner · agent keys",
+  args: { tab: "agent" },
+};
+export const ApiKeysOrg: Story = {
+  name: "Owner · organization admin keys (coming soon)",
+  args: { tab: "org" },
 };
 export const ApiKeysMember: Story = {
-  name: "Member (no service tab)",
+  name: "Agent admin member (no organization tab)",
   args: { viewer: "member" },
 };
 export const ApiKeysLoading: Story = {

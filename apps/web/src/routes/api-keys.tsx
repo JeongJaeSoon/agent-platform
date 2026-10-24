@@ -62,6 +62,7 @@ import {
   useMe,
   useRole,
 } from "../auth/guard.tsx";
+import { API_KEY_NAME_MAX } from "../auth/limits.ts";
 import { FormError, Notice } from "../components/auth-page.tsx";
 import { copyText } from "../components/copy.ts";
 import { LoadFailure } from "../components/load-failure.tsx";
@@ -84,11 +85,12 @@ const ICON = "size-3.5 shrink-0";
 const KEY_COPY = "-my-1 -mr-1 -ml-1.5 h-6 min-w-6 gap-1 px-1 text-xs";
 
 type IssueRequest = Pick<CreateApiKeyRequest, "kind" | "scopes"> & {
+  name?: string;
   agent_id?: string;
   expires_at?: string;
 };
 
-// D26: a key bound to an agent never stands in for a person's approval.
+// D26: an agent key never stands in for a person's approval.
 const AGENT_KEY_WITHHELD: readonly SessionScope[] = ["sessions:approve"];
 
 const SCOPE_NAME: Record<SessionScope, MessageKey> = {
@@ -108,29 +110,17 @@ const SCOPE_HINT: Record<SessionScope, MessageKey> = {
   "sessions:recover": "apiKeys.scopeHint.recover",
 };
 
-// The contract has two kinds; a service key bound to an agent is the third
-// the screen names.
-type KeyKind = "personal" | "service" | "agent";
-type ApiKeyKind = ApiKeyView["kind"];
-
-const kindOf = (key: Pick<ApiKeyView, "kind" | "agent_id">): KeyKind =>
-  key.kind === "personal"
-    ? "personal"
-    : key.agent_id === null
-      ? "service"
-      : "agent";
+type KeyKind = ApiKeyView["kind"];
 
 const KIND_NAME: Record<KeyKind, MessageKey> = {
   personal: "apiKeys.kind.personal",
-  service: "apiKeys.kind.service",
   agent: "apiKeys.kind.agent",
 };
 
 // A kind is not a state, so no state tone; the badge's words tell them apart.
 const KIND_BADGE: Record<KeyKind, BadgeProps["variant"]> = {
   personal: "gray",
-  service: "blue",
-  agent: "gray",
+  agent: "blue",
 };
 
 // Who it acts as, what its issuer leaving does, which sessions it reaches,
@@ -143,12 +133,6 @@ const KIND_FACTS: Record<KeyKind, readonly MessageKey[]> = {
     "apiKeys.guide.personal.sessions",
     "apiKeys.guide.personal.approve",
   ],
-  service: [
-    "apiKeys.guide.service.actsAs",
-    "apiKeys.guide.service.issuerLeaves",
-    "apiKeys.guide.service.sessions",
-    "apiKeys.guide.service.approve",
-  ],
   agent: [
     "apiKeys.guide.agent.actsAs",
     "apiKeys.guide.agent.issuerLeaves",
@@ -157,32 +141,29 @@ const KIND_FACTS: Record<KeyKind, readonly MessageKey[]> = {
   ],
 };
 
-/** Each screen of keys: its route, the kinds it lists and its words. */
+/** Each tab of keys: its route and its words. */
 const SCREEN = {
   personal: {
     list: "/settings/api-keys",
     create: "/settings/api-keys/new",
-    kinds: ["personal"],
-    title: "apiKeys.mineTitle",
-    intro: "apiKeys.mineIntro",
+    title: "apiKeys.personalTitle",
+    intro: "apiKeys.personalIntro",
     newTitle: "apiKeys.newPersonalTitle",
-    empty: "apiKeys.emptyMine",
+    empty: "apiKeys.emptyPersonal",
   },
-  service: {
-    list: "/settings/api-keys/service",
-    create: "/settings/api-keys/service/new",
-    kinds: ["service", "agent"],
-    title: "apiKeys.service",
-    intro: "apiKeys.serviceIntro",
-    newTitle: "apiKeys.newServiceTitle",
-    empty: "apiKeys.emptyService",
+  agent: {
+    list: "/settings/api-keys/agents",
+    create: "/settings/api-keys/agents/new",
+    title: "apiKeys.agentTitle",
+    intro: "apiKeys.agentIntro",
+    newTitle: "apiKeys.newAgentTitle",
+    empty: "apiKeys.emptyAgent",
   },
 } as const satisfies Record<
-  ApiKeyKind,
+  KeyKind,
   {
     list: string;
     create: string;
-    kinds: readonly KeyKind[];
     title: MessageKey;
     intro: MessageKey;
     newTitle: MessageKey;
@@ -199,7 +180,7 @@ function KindBadge({ kind }: { readonly kind: KeyKind }) {
   );
 }
 
-function KeyKindGuide({ kinds }: { readonly kinds: readonly KeyKind[] }) {
+function KeyKindGuide({ kind }: { readonly kind: KeyKind }) {
   const { t } = useI18n();
   const titleId = useId();
   return (
@@ -211,20 +192,17 @@ function KeyKindGuide({ kinds }: { readonly kinds: readonly KeyKind[] }) {
           </h2>
         </AlertTitle>
         <AlertDescription className="mt-2 flex flex-col gap-3">
-          {kinds.map((kind) => (
-            <div
-              key={kind}
-              className="flex flex-col items-start gap-2"
-              data-testid={`guide-${kind}`}
-            >
-              <KindBadge kind={kind} />
-              <ul className="m-0 flex list-disc flex-col gap-1 pl-4">
-                {KIND_FACTS[kind].map((fact) => (
-                  <li key={fact}>{t(fact)}</li>
-                ))}
-              </ul>
-            </div>
-          ))}
+          <div
+            className="flex flex-col items-start gap-2"
+            data-testid={`guide-${kind}`}
+          >
+            <KindBadge kind={kind} />
+            <ul className="m-0 flex list-disc flex-col gap-1 pl-4">
+              {KIND_FACTS[kind].map((fact) => (
+                <li key={fact}>{t(fact)}</li>
+              ))}
+            </ul>
+          </div>
         </AlertDescription>
       </section>
     </Alert>
@@ -290,55 +268,72 @@ function useBindableAgents(): {
 }
 
 /**
- * Whether this person issues service keys at all: an owner or admin for the
- * workspace, an agent's admin for that agent (design 4.1). While the agents
- * load it is not yet known, and the service screen stays out of the way.
+ * Whether this person issues agent keys at all: an owner or admin for every
+ * agent, an agent's admin for that agent (design 4.1). While the agents load
+ * it is not yet known, and the agent tab stays out of the way.
  */
-function useIssuesServiceKeys(): boolean {
-  const workspaceWide = useHasPermission("api_key.manage");
+function useIssuesAgentKeys(): boolean {
+  const everyAgent = useHasPermission("api_key.manage");
   const { agents, error } = useBindableAgents();
-  return workspaceWide || agents.length > 0 || error !== null;
+  return everyAgent || agents.length > 0 || error !== null;
 }
 
 /** Why this person cannot make a key of this kind, if they cannot. */
-function useCreateReason(kind: ApiKeyKind): string | undefined {
+function useCreateReason(kind: KeyKind): string | undefined {
   const { t } = useI18n();
   const role = useRole();
   const own = useHasPermission("api_key.manage_own");
-  const service = useIssuesServiceKeys();
+  const agentKeys = useIssuesAgentKeys();
   if (kind === "personal")
     return own ? undefined : permissionReason(t, "api_key.manage_own", role);
-  return service ? undefined : t("apiKeys.noAgents");
+  return agentKeys ? undefined : t("apiKeys.noAgents");
 }
+
+const ORG_LIST = "/settings/api-keys/org";
 
 function KeyScreenNav({
   current,
   keys,
 }: {
-  readonly current: ApiKeyKind;
+  readonly current: KeyKind | "org";
   /** The listed keys; until they load, the tabs show no counts. */
   readonly keys: readonly ApiKeyView[] | undefined;
 }) {
   const { t } = useI18n();
-  const service = useIssuesServiceKeys();
-  if (!service && current === "personal") return null;
+  const agentKeys = useIssuesAgentKeys();
+  // The admin key's place is the workspace managers'; the server says who.
+  const org = useHasPermission("api_key.manage");
+  if (!agentKeys && !org && current === "personal") return null;
+  const tabs: { id: KeyKind | "org"; to: string; title: MessageKey }[] = [
+    { id: "personal", to: SCREEN.personal.list, title: SCREEN.personal.title },
+  ];
+  if (agentKeys || current === "agent")
+    tabs.push({
+      id: "agent",
+      to: SCREEN.agent.list,
+      title: SCREEN.agent.title,
+    });
+  if (org) tabs.push({ id: "org", to: ORG_LIST, title: "apiKeys.orgTitle" });
   return (
     <LinkTabs aria-label={t("apiKeys.nav")}>
-      {(["personal", "service"] as const).map((kind) => {
-        const count = keys?.filter((key) => key.kind === kind).length;
+      {tabs.map((tab) => {
+        const count =
+          tab.id === "org"
+            ? undefined
+            : keys?.filter((key) => key.kind === tab.id).length;
         return (
           <LinkTab
-            key={kind}
+            key={tab.id}
             asChild
-            current={kind === current}
+            current={tab.id === current}
             count={count}
             countLabel={
               count === undefined ? undefined : t("apiKeys.navCount", { count })
             }
           >
-            {/* The personal list's path is the service list's parent. */}
-            <Link to={SCREEN[kind].list} activeOptions={{ exact: true }}>
-              {t(SCREEN[kind].title)}
+            {/* The personal list's path is the other tabs' parent. */}
+            <Link to={tab.to} activeOptions={{ exact: true }}>
+              {t(tab.title)}
             </Link>
           </LinkTab>
         );
@@ -348,12 +343,12 @@ function KeyScreenNav({
 }
 
 /**
- * API keys (design 4.2), one screen per kind laid out like GitHub's tokens:
+ * API keys (design 4.2), one tab per kind laid out like GitHub's tokens:
  * a narrow list, a separate page to make one, the secret shown once. A
- * personal key acts as the person who made it and stops with them; a service
- * key belongs to the workspace and keeps working after its issuer leaves.
+ * personal key acts as the person who made it and stops with them; an agent
+ * key belongs to one agent and keeps working after its issuer leaves.
  */
-function KeysScreen({ kind }: { readonly kind: ApiKeyKind }) {
+function KeysScreen({ kind }: { readonly kind: KeyKind }) {
   const { t } = useI18n();
   const { client } = useAgentPlatform();
   const navigate = useNavigate();
@@ -366,7 +361,7 @@ function KeysScreen({ kind }: { readonly kind: ApiKeyKind }) {
     // The head comes first, as on every page; the two key screens' tabs open
     // its body.
     <Page
-      title={t(screen.title)}
+      title={t("apiKeys.title")}
       description={t(screen.intro)}
       actions={
         <ReasonButton
@@ -402,7 +397,7 @@ function KeysScreen({ kind }: { readonly kind: ApiKeyKind }) {
           onOutcome={setOutcome}
         />
       )}
-      <KeyKindGuide kinds={screen.kinds} />
+      <KeyKindGuide kind={kind} />
     </Page>
   );
 }
@@ -411,8 +406,29 @@ export function ApiKeysScreen() {
   return <KeysScreen kind="personal" />;
 }
 
-export function ServiceKeysScreen() {
-  return <KeysScreen kind="service" />;
+export function AgentKeysScreen() {
+  return <KeysScreen kind="agent" />;
+}
+
+/**
+ * The organization admin key's place, held until it exists: no list, no
+ * issuing, only what it will be.
+ */
+export function OrgKeysScreen() {
+  const { t } = useI18n();
+  const { client } = useAgentPlatform();
+  const keys = useQuery(apiKeysQuery(client));
+  if (!useHasPermission("api_key.manage"))
+    return <StatusScreen kind="forbidden" />;
+  return (
+    <Page title={t("apiKeys.title")} description={t("apiKeys.orgIntro")}>
+      <KeyScreenNav current="org" keys={keys.data?.items} />
+      <EmptyState
+        title={t("apiKeys.orgPending")}
+        description={t("apiKeys.orgPendingBody")}
+      />
+    </Page>
+  );
 }
 
 function CopyButton({
@@ -590,12 +606,10 @@ function KeyList({
         aria-label={t("apiKeys.listTitle")}
       >
         {items.map((key) => {
-          const kind = kindOf(key);
           const agent = agentName(key.agent_id);
-          const label =
-            agent === null
-              ? t(KIND_NAME[kind])
-              : `${t(KIND_NAME[kind])} · ${agent}`;
+          const name = key.name ?? t("apiKeys.unnamed");
+          const title = agent === null ? name : `${agent} · ${name}`;
+          const label = `${t(KIND_NAME[key.kind])} · ${title}`;
           const scopes = key.scopes
             .map((scope) => t(SCOPE_NAME[scope]))
             .join(", ");
@@ -608,17 +622,24 @@ function KeyList({
             >
               <div className="flex min-w-0 flex-1 flex-col gap-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="min-w-0 font-semibold text-sm leading-5 [overflow-wrap:anywhere]">
-                    {agent === null ? scopes : `${agent} · ${scopes}`}
-                  </span>
-                  <KindBadge kind={kind} />
-                  <Badge
-                    variant={approves ? "green" : "gray"}
-                    data-approve={approves}
+                  <span
+                    className="min-w-0 font-semibold text-sm leading-5 [overflow-wrap:anywhere]"
+                    data-unnamed={key.name === null}
                   >
-                    {t(approves ? "apiKeys.approveYes" : "apiKeys.approveNo")}
-                  </Badge>
+                    {title}
+                  </span>
+                  <KindBadge kind={key.kind} />
+                  {/* An agent key never approves, so only a person's says. */}
+                  {key.kind === "personal" ? (
+                    <Badge
+                      variant={approves ? "green" : "gray"}
+                      data-approve={approves}
+                    >
+                      {t(approves ? "apiKeys.approveYes" : "apiKeys.approveNo")}
+                    </Badge>
+                  ) : null}
                 </div>
+                <span className={cn(META, "leading-4")}>{scopes}</span>
                 <div
                   className={cn(
                     META,
@@ -638,7 +659,7 @@ function KeyList({
                     revokedAt={key.revoked_at}
                   />
                 </div>
-                {key.kind === "service" ? (
+                {key.kind === "agent" ? (
                   <span className={META}>
                     {t("apiKeys.survivesIssuerShort")}
                   </span>
@@ -687,12 +708,13 @@ function ScopePicker({
   available,
   chosen,
   onChange,
-  withheld = [],
+  note,
 }: {
   readonly available: readonly SessionScope[];
   readonly chosen: readonly SessionScope[];
   readonly onChange: (scopes: SessionScope[]) => void;
-  readonly withheld?: readonly SessionScope[];
+  /** What the list leaves out and why. */
+  readonly note?: MessageKey;
 }) {
   const { t } = useI18n();
   return (
@@ -717,12 +739,10 @@ function ScopePicker({
               {t(SCOPE_NAME[scope])} <code className="font-mono">{scope}</code>
             </FieldLabel>
             <FieldDescription>{t(SCOPE_HINT[scope])}</FieldDescription>
-            {withheld.includes(scope) ? (
-              <FieldDescription>{t("apiKeys.agentNoApprove")}</FieldDescription>
-            ) : null}
           </FieldContent>
         </Field>
       ))}
+      {note ? <FieldDescription>{t(note)}</FieldDescription> : null}
     </FieldSet>
   );
 }
@@ -750,6 +770,35 @@ function ExpiryField({
       <FieldDescription>{t("apiKeys.expiresHint")}</FieldDescription>
     </Field>
   );
+}
+
+function NameField({
+  value,
+  onChange,
+}: {
+  readonly value: string;
+  readonly onChange: (value: string) => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <Field className="w-full">
+      <FieldLabel>{t("apiKeys.name")}</FieldLabel>
+      <Input
+        className="max-w-sm"
+        autoComplete="off"
+        maxLength={API_KEY_NAME_MAX}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      <FieldDescription>{t("apiKeys.nameHint")}</FieldDescription>
+    </Field>
+  );
+}
+
+/** The request's name: blank is none, as the server would trim it to. */
+function nameOf(value: string): { name?: string } {
+  const name = value.trim();
+  return name ? { name } : {};
 }
 
 function useIssue(
@@ -781,7 +830,7 @@ function useIssue(
  * going back or reloading drops it, and nothing new is issued from here
  * while it shows.
  */
-function NewKeyScreen({ kind }: { readonly kind: ApiKeyKind }) {
+function NewKeyScreen({ kind }: { readonly kind: KeyKind }) {
   const { t } = useI18n();
   const screen = SCREEN[kind];
   const [outcome, setOutcome] = useState<Outcome | null>(null);
@@ -814,7 +863,7 @@ function NewKeyScreen({ kind }: { readonly kind: ApiKeyKind }) {
             send={(body) => issue.mutate(body)}
           />
         ) : (
-          <ServiceKeyForm
+          <AgentKeyForm
             busy={issue.isPending}
             send={(body) => issue.mutate(body)}
           />
@@ -828,8 +877,8 @@ export function NewApiKeyScreen() {
   return <NewKeyScreen kind="personal" />;
 }
 
-export function NewServiceKeyScreen() {
-  return <NewKeyScreen kind="service" />;
+export function NewAgentKeyScreen() {
+  return <NewKeyScreen kind="agent" />;
 }
 
 function IssuedSecret({
@@ -842,7 +891,7 @@ function IssuedSecret({
   const { t } = useI18n();
   const [failed, setFailed] = useState(false);
   const secretRef = useRef<HTMLInputElement>(null);
-  const kind = kindOf(issued.key);
+  const kind = issued.key.kind;
   // The form it replaces held focus; put it on the value so it is not missed.
   useEffect(() => {
     secretRef.current?.focus();
@@ -972,6 +1021,7 @@ function FormFoot({
 
 function PersonalKeyForm({ busy, send }: FormProps) {
   const held = useMe()?.scopes ?? [];
+  const [name, setName] = useState("");
   const [scopes, setScopes] = useState<SessionScope[]>(["sessions:read"]);
   const [expires, setExpires] = useState("");
   const reason = useCreateReason("personal");
@@ -982,6 +1032,7 @@ function PersonalKeyForm({ busy, send }: FormProps) {
     const expiresAt = expiryOf(expires);
     send({
       kind: "personal",
+      ...nameOf(name),
       scopes: granted,
       ...(expiresAt ? { expires_at: expiresAt } : {}),
     });
@@ -991,6 +1042,7 @@ function PersonalKeyForm({ busy, send }: FormProps) {
     <Card flush>
       <form onSubmit={submit}>
         <div className={FORM_BODY}>
+          <NameField value={name} onChange={setName} />
           <ScopePicker available={held} chosen={scopes} onChange={setScopes} />
           <ExpiryField value={expires} onChange={setExpires} />
         </div>
@@ -1004,34 +1056,29 @@ function PersonalKeyForm({ busy, send }: FormProps) {
   );
 }
 
-// The target select's value for a key bound to no agent.
-const WORKSPACE = "workspace";
-
-function ServiceKeyForm({ busy, send }: FormProps) {
+function AgentKeyForm({ busy, send }: FormProps) {
   const { t } = useI18n();
   const held = useMe()?.scopes ?? [];
-  const workspaceWide = useHasPermission("api_key.manage");
   const { agents, pending, error: agentsError } = useBindableAgents();
+  const [name, setName] = useState("");
   const [scopes, setScopes] = useState<SessionScope[]>(["sessions:read"]);
-  const [target, setTarget] = useState(workspaceWide ? WORKSPACE : "");
+  const [agentId, setAgentId] = useState("");
   const [expires, setExpires] = useState("");
-  const chosenAgent = agents.find((agent) => agent.id === target);
-  const forAgent = target !== WORKSPACE;
+  const chosenAgent = agents.find((agent) => agent.id === agentId);
+  const available = held.filter((scope) => !AGENT_KEY_WITHHELD.includes(scope));
 
   // What the key would actually carry; the button judges by these.
-  const granted = scopes.filter(
-    (scope) =>
-      held.includes(scope) &&
-      (!forAgent || !AGENT_KEY_WITHHELD.includes(scope)),
-  );
+  const granted = scopes.filter((scope) => available.includes(scope));
 
   const reason = agentsError
     ? t(errorKey(agentsError.code))
-    : !workspaceWide && agents.length === 0 && !pending
+    : agents.length === 0 && !pending
       ? t("apiKeys.noAgents")
-      : chosenAgent && granted.length === 0
-        ? t("apiKeys.agentNeedsScope")
-        : undefined;
+      : chosenAgent === undefined
+        ? t("apiKeys.pickAgent")
+        : granted.length === 0
+          ? t("apiKeys.agentNeedsScope")
+          : undefined;
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -1040,11 +1087,13 @@ function ServiceKeyForm({ busy, send }: FormProps) {
       event.currentTarget.reportValidity();
       return;
     }
+    if (!chosenAgent) return;
     const expiresAt = expiryOf(expires);
     send({
-      kind: "service",
+      kind: "agent",
+      ...nameOf(name),
+      agent_id: chosenAgent.id,
       scopes: granted,
-      ...(chosenAgent ? { agent_id: chosenAgent.id } : {}),
       ...(expiresAt ? { expires_at: expiresAt } : {}),
     });
   };
@@ -1054,23 +1103,18 @@ function ServiceKeyForm({ busy, send }: FormProps) {
       <form onSubmit={submit}>
         <div className={FORM_BODY}>
           <Field>
-            <FieldLabel>{t("apiKeys.target")}</FieldLabel>
+            <FieldLabel>{t("apiKeys.agent")}</FieldLabel>
             {/* The field stretches its children; a block keeps the select its own width. */}
             <div>
               <NativeSelect
-                value={target}
-                disabled={!workspaceWide && agents.length === 0}
-                onChange={(event) => setTarget(event.target.value)}
+                value={agentId}
+                required
+                disabled={agents.length === 0}
+                onChange={(event) => setAgentId(event.target.value)}
               >
-                {workspaceWide ? (
-                  <NativeSelectOption value={WORKSPACE}>
-                    {t("apiKeys.targetWorkspace")}
-                  </NativeSelectOption>
-                ) : (
-                  <NativeSelectOption value="">
-                    {t("apiKeys.pickAgent")}
-                  </NativeSelectOption>
-                )}
+                <NativeSelectOption value="" disabled>
+                  {t("apiKeys.pickAgent")}
+                </NativeSelectOption>
                 {agents.map((agent) => (
                   <NativeSelectOption key={agent.id} value={agent.id}>
                     {agent.name}
@@ -1080,22 +1124,19 @@ function ServiceKeyForm({ busy, send }: FormProps) {
             </div>
             <FieldDescription>{t("apiKeys.agentHint")}</FieldDescription>
           </Field>
+          <NameField value={name} onChange={setName} />
           <ScopePicker
-            available={held}
+            available={available}
             chosen={scopes}
             onChange={setScopes}
-            withheld={AGENT_KEY_WITHHELD}
+            note="apiKeys.agentNoApprove"
           />
           <ExpiryField value={expires} onChange={setExpires} />
         </div>
         <FormFoot
-          listTo={SCREEN.service.list}
+          listTo={SCREEN.agent.list}
           reason={reason}
-          disabled={
-            busy ||
-            granted.length === 0 ||
-            (forAgent && chosenAgent === undefined)
-          }
+          disabled={busy || granted.length === 0 || chosenAgent === undefined}
         />
       </form>
     </Card>

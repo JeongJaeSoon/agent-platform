@@ -9,46 +9,45 @@ export const apiKeysKo = {
     "발급한 사람이 볼 수 있는 세션에 닿습니다.",
   "apiKeys.guide.personal.approve":
     "'요청에 답하기'(sessions:approve) 권한을 넣을 수 있습니다.",
-  "apiKeys.guide.service.actsAs":
+  "apiKeys.guide.agent.actsAs":
     "사람이 아니라 key 자체로 동작합니다. 이 key로 시작한 세션은 key의 세션입니다.",
-  "apiKeys.guide.service.issuerLeaves":
-    "발급한 사람이 떠나도 계속 유효합니다. 필요 없어지면 직접 폐기하세요.",
-  "apiKeys.guide.service.sessions":
-    "워크스페이스 전체에 공유된 세션과 이 key로 시작한 세션에 닿습니다. 에이전트를 가리지 않습니다.",
-  "apiKeys.guide.service.approve":
-    "'요청에 답하기'(sessions:approve) 권한을 넣을 수 있습니다.",
-  "apiKeys.guide.agent.actsAs": "서비스 key처럼 key 자체로 동작합니다.",
   "apiKeys.guide.agent.issuerLeaves":
     "발급한 사람이 떠나도 계속 유효합니다. 필요 없어지면 직접 폐기하세요.",
   "apiKeys.guide.agent.sessions":
-    "서비스 key가 닿는 세션 가운데 고른 에이전트의 세션에만 닿습니다.",
+    "고른 에이전트의 세션에만 닿습니다. 세션을 시작할 때도 그 에이전트의 release를 지정해야 합니다.",
   "apiKeys.guide.agent.approve":
-    "'요청에 답하기'(sessions:approve) 권한은 넣을 수 없습니다. 에이전트가 사람 대신 승인하지 않습니다.",
+    "'요청에 답하기'(sessions:approve) 권한이 없습니다. 승인과 질문 답변은 사람이 합니다.",
   "apiKeys.nav": "key 목록",
   "apiKeys.navCount": "{count}개",
-  "apiKeys.mineTitle": "내 key",
-  "apiKeys.mineIntro":
+  "apiKeys.personalTitle": "개인 key",
+  "apiKeys.personalIntro":
     "나로 동작하는 key입니다. CLI나 스크립트가 내 권한 안에서 API를 부를 때 씁니다.",
-  "apiKeys.service": "서비스 key",
-  "apiKeys.serviceIntro":
-    "사람이 아니라 워크스페이스나 에이전트에 속한 key입니다. 발급한 사람이 떠나도 계속 동작합니다.",
+  "apiKeys.agentTitle": "에이전트 key",
+  "apiKeys.agentIntro":
+    "사람이 아니라 에이전트 하나에 속한 key입니다. 그 에이전트의 세션에만 닿고, 발급한 사람이 떠나도 계속 동작합니다.",
+  "apiKeys.orgTitle": "조직 관리 key",
+  "apiKeys.orgIntro":
+    "사람에 묶이지 않는 조직 소유 key입니다. Terraform·CI·SCIM 같은 자동화가 워크스페이스 관리 API를 부를 때 씁니다.",
+  "apiKeys.orgPending": "준비 중입니다",
+  "apiKeys.orgPendingBody":
+    "아직 발급할 수 없습니다. 세션을 다루는 자동화에는 에이전트 key를 쓰세요.",
   "apiKeys.new": "새 key",
   "apiKeys.newPersonalTitle": "새 개인 key",
-  "apiKeys.newServiceTitle": "새 서비스 key",
+  "apiKeys.newAgentTitle": "새 에이전트 key",
   "apiKeys.generate": "key 만들기",
-  "apiKeys.emptyMine": "아직 만든 개인 key가 없습니다.",
-  "apiKeys.emptyService": "아직 서비스 key가 없습니다.",
+  "apiKeys.emptyPersonal": "아직 만든 개인 key가 없습니다.",
+  "apiKeys.emptyAgent": "아직 에이전트 key가 없습니다.",
   "apiKeys.survivesIssuerShort": "발급자가 떠나도 유효",
-  "apiKeys.target": "대상",
-  "apiKeys.targetWorkspace": "워크스페이스 전체 (에이전트 지정 없음)",
+  "apiKeys.agent": "에이전트",
   "apiKeys.pickAgent": "에이전트를 고르세요",
   "apiKeys.agentHint":
-    "에이전트를 고르면 그 에이전트의 세션에서만 쓸 수 있는 에이전트 전용 key가 됩니다.",
+    "key를 쓸 에이전트입니다. 발급한 뒤에는 바꿀 수 없습니다.",
   "apiKeys.noAgents": "관리하는 에이전트가 없습니다.",
-  "apiKeys.agentNeedsScope":
-    "권한을 하나 이상 고르세요. 에이전트 전용 key에는 sessions:approve를 넣을 수 없습니다.",
+  "apiKeys.agentNeedsScope": "권한을 하나 이상 고르세요.",
   "apiKeys.agentNoApprove":
-    "에이전트 전용 key에는 넣을 수 없습니다. 에이전트가 사람 대신 승인할 수는 없습니다.",
+    "'요청에 답하기'(sessions:approve)는 에이전트 key에 넣을 수 없습니다. 승인과 질문 답변은 사람이 합니다.",
+  "apiKeys.name": "이름(필수 아님)",
+  "apiKeys.nameHint": "목록에서 이 key를 알아보는 이름입니다. 예: ci-deploy",
   "apiKeys.scopes": "권한",
   "apiKeys.scope.read": "세션 보기",
   "apiKeys.scope.write": "세션 만들기",
@@ -76,9 +75,9 @@ export const apiKeysKo = {
     "복사하지 못했습니다. 위 칸의 값을 직접 선택해 복사하세요.",
   "apiKeys.toList": "목록으로",
   "apiKeys.listTitle": "발급된 key",
+  "apiKeys.unnamed": "이름 없음",
   "apiKeys.kind.personal": "개인 key",
-  "apiKeys.kind.service": "서비스 key",
-  "apiKeys.kind.agent": "에이전트 전용 key",
+  "apiKeys.kind.agent": "에이전트 key",
   "apiKeys.createdAt": "발급 {at}",
   "apiKeys.expiresAt": "만료 {at}",
   "apiKeys.expiresSoon": "곧 만료 · {at}",
@@ -110,46 +109,46 @@ export const apiKeysEn: Record<keyof typeof apiKeysKo, string> = {
     "Reaches the sessions that person can see.",
   "apiKeys.guide.personal.approve":
     "Can include Answer requests (sessions:approve).",
-  "apiKeys.guide.service.actsAs":
+  "apiKeys.guide.agent.actsAs":
     "Acts as the key itself, not as a person. Sessions it starts belong to the key.",
-  "apiKeys.guide.service.issuerLeaves":
-    "Stays valid after its issuer leaves; revoke it yourself when it is no longer needed.",
-  "apiKeys.guide.service.sessions":
-    "Reaches sessions shared with the whole workspace and the sessions it started, for any agent.",
-  "apiKeys.guide.service.approve":
-    "Can include Answer requests (sessions:approve).",
-  "apiKeys.guide.agent.actsAs": "Acts as the key itself, like a service key.",
   "apiKeys.guide.agent.issuerLeaves":
     "Stays valid after its issuer leaves; revoke it yourself when it is no longer needed.",
   "apiKeys.guide.agent.sessions":
-    "Reaches only the chosen agent's sessions among those a service key reaches.",
+    "Reaches only the chosen agent's sessions, and starts sessions only on that agent's releases.",
   "apiKeys.guide.agent.approve":
-    "Cannot include Answer requests (sessions:approve): an agent never approves on a person's behalf.",
+    "Never holds Answer requests (sessions:approve): approvals and answers come from a person.",
   "apiKeys.nav": "Key lists",
   "apiKeys.navCount": "{count} keys",
-  "apiKeys.mineTitle": "My keys",
-  "apiKeys.mineIntro":
+  "apiKeys.personalTitle": "Personal keys",
+  "apiKeys.personalIntro":
     "Keys that act as you. Use them when the CLI or a script calls the API with your permissions.",
-  "apiKeys.service": "Service keys",
-  "apiKeys.serviceIntro":
-    "Keys that belong to the workspace or an agent, not a person. They keep working after their issuer leaves.",
+  "apiKeys.agentTitle": "Agent keys",
+  "apiKeys.agentIntro":
+    "Keys that belong to one agent, not a person. They reach that agent's sessions only and keep working after their issuer leaves.",
+  "apiKeys.orgTitle": "Organization admin keys",
+  "apiKeys.orgIntro":
+    "Keys the organization owns, tied to no person, for automation such as Terraform, CI or SCIM that calls the workspace admin API.",
+  "apiKeys.orgPending": "Coming soon",
+  "apiKeys.orgPendingBody":
+    "You can't issue one yet. For automation that works with sessions, use an agent key.",
   "apiKeys.new": "New key",
   "apiKeys.newPersonalTitle": "New personal key",
-  "apiKeys.newServiceTitle": "New service key",
+  "apiKeys.newAgentTitle": "New agent key",
   "apiKeys.generate": "Generate key",
-  "apiKeys.emptyMine": "You have no personal keys yet.",
-  "apiKeys.emptyService": "No service keys yet.",
+  "apiKeys.emptyPersonal": "You have no personal keys yet.",
+  "apiKeys.emptyAgent": "No agent keys yet.",
   "apiKeys.survivesIssuerShort": "Stays valid after the issuer leaves",
-  "apiKeys.target": "For",
-  "apiKeys.targetWorkspace": "The whole workspace (no agent)",
+  "apiKeys.agent": "Agent",
   "apiKeys.pickAgent": "Choose an agent",
   "apiKeys.agentHint":
-    "Choosing an agent makes an agent key that works only with that agent's sessions.",
+    "The agent the key works for. It cannot be changed after the key is issued.",
   "apiKeys.noAgents": "You do not administer any agent.",
-  "apiKeys.agentNeedsScope":
-    "Choose at least one permission. An agent key cannot include sessions:approve.",
+  "apiKeys.agentNeedsScope": "Choose at least one permission.",
   "apiKeys.agentNoApprove":
-    "Not available for agent keys — an agent key cannot approve on a person's behalf.",
+    "Answer requests (sessions:approve) is not available for agent keys: approvals and answers come from a person.",
+  "apiKeys.name": "Name (not required)",
+  "apiKeys.nameHint":
+    "Shown in the list so you can tell this key apart, for example ci-deploy.",
   "apiKeys.scopes": "Permissions",
   "apiKeys.scope.read": "View sessions",
   "apiKeys.scope.write": "Create sessions",
@@ -178,8 +177,8 @@ export const apiKeysEn: Record<keyof typeof apiKeysKo, string> = {
     "Couldn't copy. Select the value above and copy it yourself.",
   "apiKeys.toList": "Back to keys",
   "apiKeys.listTitle": "Issued keys",
+  "apiKeys.unnamed": "Unnamed",
   "apiKeys.kind.personal": "Personal key",
-  "apiKeys.kind.service": "Service key",
   "apiKeys.kind.agent": "Agent key",
   "apiKeys.createdAt": "Issued {at}",
   "apiKeys.expiresAt": "Expires {at}",
@@ -212,47 +211,44 @@ export const apiKeysJa: Record<keyof typeof apiKeysKo, string> = {
     "その人が閲覧できるセッションにアクセスできます。",
   "apiKeys.guide.personal.approve":
     "「リクエストへの回答」（sessions:approve）を含められます。",
-  "apiKeys.guide.service.actsAs":
-    "人ではなく、キー自体として動作します。このキーで開始したセッションはキーのものになります。",
-  "apiKeys.guide.service.issuerLeaves":
-    "発行者が離れても有効なままです。不要になったら自分で取り消してください。",
-  "apiKeys.guide.service.sessions":
-    "すべてのエージェントについて、ワークスペース全体に共有されたセッションと、このキーで開始したセッションにアクセスできます。",
-  "apiKeys.guide.service.approve":
-    "「リクエストへの回答」（sessions:approve）を含められます。",
   "apiKeys.guide.agent.actsAs":
-    "サービスキーと同じく、キー自体として動作します。",
+    "人ではなく、キー自体として動作します。このキーで開始したセッションはキーのものになります。",
   "apiKeys.guide.agent.issuerLeaves":
     "発行者が離れても有効なままです。不要になったら自分で取り消してください。",
   "apiKeys.guide.agent.sessions":
-    "サービスキーがアクセスできるセッションのうち、選択したエージェントのセッションのみにアクセスできます。",
+    "選択したエージェントのセッションにのみアクセスできます。セッションを開始するときも、そのエージェントのリリースを指定する必要があります。",
   "apiKeys.guide.agent.approve":
-    "「リクエストへの回答」（sessions:approve）は含められません。エージェントが人の代わりに承認することはありません。",
+    "「リクエストへの回答」（sessions:approve）は持てません。承認と質問への回答は人が行います。",
   "apiKeys.nav": "キーの一覧",
   "apiKeys.navCount": "{count}件",
-  "apiKeys.mineTitle": "自分のキー",
-  "apiKeys.mineIntro":
+  "apiKeys.personalTitle": "個人キー",
+  "apiKeys.personalIntro":
     "あなたとして動作するキーです。CLI やスクリプトがあなたの権限の範囲で API を呼び出すときに使います。",
-  "apiKeys.service": "サービスキー",
-  "apiKeys.serviceIntro":
-    "人ではなく、ワークスペースやエージェントに属するキーです。発行した人が離れても動作し続けます。",
+  "apiKeys.agentTitle": "エージェントキー",
+  "apiKeys.agentIntro":
+    "人ではなく、1 つのエージェントに属するキーです。そのエージェントのセッションにのみアクセスでき、発行した人が離れても動作し続けます。",
+  "apiKeys.orgTitle": "組織管理キー",
+  "apiKeys.orgIntro":
+    "人に紐づかない、組織が所有するキーです。Terraform・CI・SCIM などの自動化がワークスペース管理 API を呼び出すときに使います。",
+  "apiKeys.orgPending": "準備中です",
+  "apiKeys.orgPendingBody":
+    "まだ発行できません。セッションを扱う自動化にはエージェントキーを使ってください。",
   "apiKeys.new": "新しいキー",
   "apiKeys.newPersonalTitle": "新しい個人キー",
-  "apiKeys.newServiceTitle": "新しいサービスキー",
+  "apiKeys.newAgentTitle": "新しいエージェントキー",
   "apiKeys.generate": "キーを作成",
-  "apiKeys.emptyMine": "まだ個人キーを作成していません。",
-  "apiKeys.emptyService": "サービスキーはまだありません。",
+  "apiKeys.emptyPersonal": "まだ個人キーを作成していません。",
+  "apiKeys.emptyAgent": "エージェントキーはまだありません。",
   "apiKeys.survivesIssuerShort": "発行者が離れても有効",
-  "apiKeys.target": "対象",
-  "apiKeys.targetWorkspace": "ワークスペース全体（エージェント指定なし）",
+  "apiKeys.agent": "エージェント",
   "apiKeys.pickAgent": "エージェントを選択",
-  "apiKeys.agentHint":
-    "エージェントを選択すると、そのエージェントのセッションでのみ使えるエージェントキーになります。",
+  "apiKeys.agentHint": "キーを使うエージェントです。発行後は変更できません。",
   "apiKeys.noAgents": "管理しているエージェントがありません。",
-  "apiKeys.agentNeedsScope":
-    "権限を 1 つ以上選択してください。エージェントキーには sessions:approve を含められません。",
+  "apiKeys.agentNeedsScope": "権限を 1 つ以上選択してください。",
   "apiKeys.agentNoApprove":
-    "エージェントキーでは使えません。エージェントキーは人の代わりに承認できません。",
+    "「リクエストへの回答」（sessions:approve）はエージェントキーに含められません。承認と質問への回答は人が行います。",
+  "apiKeys.name": "名前（任意）",
+  "apiKeys.nameHint": "一覧でこのキーを見分けるための名前です。例: ci-deploy",
   "apiKeys.scopes": "権限",
   "apiKeys.scope.read": "セッションの閲覧",
   "apiKeys.scope.write": "セッションの作成",
@@ -281,8 +277,8 @@ export const apiKeysJa: Record<keyof typeof apiKeysKo, string> = {
     "コピーできませんでした。上の値を選択して手動でコピーしてください。",
   "apiKeys.toList": "一覧に戻る",
   "apiKeys.listTitle": "発行済みのキー",
+  "apiKeys.unnamed": "名前なし",
   "apiKeys.kind.personal": "個人キー",
-  "apiKeys.kind.service": "サービスキー",
   "apiKeys.kind.agent": "エージェントキー",
   "apiKeys.createdAt": "{at}に発行",
   "apiKeys.expiresAt": "{at}に期限切れ",

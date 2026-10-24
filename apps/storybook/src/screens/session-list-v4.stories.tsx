@@ -141,7 +141,7 @@ const ROWS: readonly Row[] = [
       "claude-sonnet-5",
       "demo-repo",
       "2026-10-20T00:40:17.000Z",
-      // A service key's session: an agent, nobody recorded as its starter.
+      // An agent key's session: an agent, nobody recorded as its starter.
       "Release helper",
     ),
   },
