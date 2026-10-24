@@ -43,7 +43,7 @@ export const apiKeyViewSchema = z
     revoked_at: timestampSchema.nullable(),
     last_used_at: timestampSchema.nullable().meta({
       description:
-        "When the key last authenticated a request, recorded at most once a minute. Null means it has not been used since last-use recording began, not that it was never used.",
+        "When the key last authenticated a request, recorded at most once a minute. A use made while another request is writing a session with the key is recorded on the next use instead, so it can lag by more. Null means no use has been recorded since last-use recording began, not that the key was never used.",
     }),
   })
   .strict();

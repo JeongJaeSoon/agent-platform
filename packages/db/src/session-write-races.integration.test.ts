@@ -894,6 +894,40 @@ integration("session writes re-judge their requester on PostgreSQL", () => {
     }, 30_000);
   });
 
+  test("concurrent uses record a key once, and a revoke in flight leaves it unrecorded", async () => {
+    const ws = await workspace();
+    for (let round = 0; round < 10; round++) {
+      const live = await key(ws, { service: true });
+      const touched = await Promise.all(
+        Array.from({ length: 8 }, () => touchApiKey(db, live.id)),
+      );
+      expect(touched.filter(Boolean)).toHaveLength(1);
+
+      const revoked = await key(ws, { service: true });
+      const revoker = await pool.connect();
+      try {
+        await revoker.query("BEGIN");
+        await revoker.query("SELECT 1 FROM api_keys WHERE id = $1 FOR UPDATE", [
+          revoked.id,
+        ]);
+        await revoker.query(
+          "UPDATE api_keys SET revoked_at = clock_timestamp() WHERE id = $1",
+          [revoked.id],
+        );
+        expect(await touchApiKey(db, revoked.id)).toBe(false);
+        await revoker.query("COMMIT");
+      } finally {
+        revoker.release();
+      }
+      expect(await touchApiKey(db, revoked.id)).toBe(false);
+      const [row] = await db
+        .select({ at: apiKeys.lastUsedAt })
+        .from(apiKeys)
+        .where(eq(apiKeys.id, revoked.id));
+      expect(row?.at).toBeNull();
+    }
+  }, 60_000);
+
   // Every write in the lock order run against each other, round after round:
   // a cycle among them would end one with a deadlock (40P01).
   test("inputs, answers and every revocation they race run together without deadlock", async () => {
