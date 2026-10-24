@@ -129,7 +129,8 @@ function data(role: Role, days: Days, empty = false, partial?: number[]) {
  * The Loading stories draw a screen from the same fixtures with each value
  * swapped for a bar at its line height and each chart or meter for a box of
  * its height, so the layout stands before the data and nothing moves when it
- * comes. Parts with a loading state of their own get `undefined`.
+ * comes. Parts with a loading state of their own get `undefined`. The
+ * placeholders are hidden from assistive tech; the screen says it once.
  */
 const Loading = createContext(false);
 
@@ -142,7 +143,11 @@ function Value({
 }) {
   return useContext(Loading) ? (
     // Inline so a value that shares a line ("7 / 10") keeps that line's box.
-    <span className="inline-block align-top" style={{ width }}>
+    <span
+      aria-hidden="true"
+      className="inline-block align-top"
+      style={{ width }}
+    >
       <Skeleton height="1lh" className="justify-center" />
     </span>
   ) : (
@@ -163,11 +168,13 @@ function Box({
   readonly chart?: boolean;
 }) {
   return (
-    <Skeleton
-      shape={chart ? "block" : "text"}
-      height={height}
-      className="justify-center"
-    />
+    <div aria-hidden="true">
+      <Skeleton
+        shape={chart ? "block" : "text"}
+        height={height}
+        className="justify-center"
+      />
+    </div>
   );
 }
 
@@ -397,18 +404,23 @@ function Overview({ screen }: { readonly screen: ScreenData }) {
   };
   const loading = useContext(Loading);
   return (
-    <div className="flex min-w-0 flex-col gap-8">
+    <div
+      aria-busy={loading || undefined}
+      className="flex min-w-0 flex-col gap-8"
+    >
       <SessionCounts
         counts={
           loading ? undefined : screen.empty ? zero : SESSION_COUNTS.counts
         }
         slots={
-          screen.role === "owner"
-            ? {
-                used: LIMITS.usage.execution_slots_used,
-                limit: LIMITS.limits.execution_slot_limit,
-              }
-            : undefined
+          screen.role !== "owner"
+            ? undefined
+            : loading
+              ? null
+              : {
+                  used: LIMITS.usage.execution_slots_used,
+                  limit: LIMITS.limits.execution_slot_limit,
+                }
         }
         statusLink={statusLink}
       />
@@ -428,7 +440,7 @@ function Overview({ screen }: { readonly screen: ScreenData }) {
           actions={<More href="#operations/tools">도구 활동</More>}
         >
           {loading ? (
-            <RowList variant="joined" aria-busy="true">
+            <RowList variant="joined" aria-hidden="true">
               {TOOLS.findings.map(({ kind }) => (
                 <RowListItem key={kind} className="min-h-16">
                   <Skeleton width="60%" lines={2} />
@@ -479,7 +491,10 @@ function Usage({ screen }: { readonly screen: ScreenData }) {
     );
   }
   return (
-    <div className="flex min-w-0 flex-col gap-8">
+    <div
+      aria-busy={loading || undefined}
+      className="flex min-w-0 flex-col gap-8"
+    >
       <Kpis screen={screen} />
       <Text variant="meta" className="-mt-4 leading-4">
         {scope} · {first} – {last} (UTC) · 비용·토큰·실행 시간은 세션을 시작한
@@ -676,7 +691,9 @@ function Tools({
           }
         >
           {loading ? (
-            <Skeleton lines={3} />
+            <div aria-hidden="true">
+              <Skeleton lines={3} />
+            </div>
           ) : (
             <ToolCalls calls={calls} timeZone="Asia/Seoul" />
           )}
@@ -687,9 +704,14 @@ function Tools({
     <DetailLayout rail={rail}>
       <Head tab="tools" viewer={screen.role} />
       <Filters role={screen.role} days={screen.days} />
-      <div className="flex min-w-0 flex-col gap-8">
+      <div
+        aria-busy={loading || undefined}
+        className="flex min-w-0 flex-col gap-8"
+      >
         {screen.empty ? null : loading ? (
-          <Skeleton lines={2} height="3rem" className="justify-around" />
+          <div aria-hidden="true">
+            <Skeleton lines={2} height="3rem" className="justify-around" />
+          </div>
         ) : (
           <ToolsSummary tools={tools} period={`최근 ${screen.days}일`} />
         )}
@@ -788,7 +810,10 @@ function Limits({ limits = LIMITS }: { readonly limits?: typeof LIMITS }) {
     ],
   ];
   return (
-    <div className="flex min-w-0 flex-col gap-8">
+    <div
+      aria-busy={loading || undefined}
+      className="flex min-w-0 flex-col gap-8"
+    >
       <Section
         title="실행 용량"
         description="설치 전체에 적용됩니다 · 오후 9:40 기준"
@@ -880,6 +905,9 @@ function OperationsScreen({
 }) {
   return (
     <Loading.Provider value={screen.loading ?? false}>
+      <output className="sr-only">
+        {screen.loading ? "운영 화면을 읽는 중" : ""}
+      </output>
       {tab === "tools" ? (
         <ScreenShell
           current="operations"
@@ -927,7 +955,17 @@ export const OverviewMember: Story = { args: { screen: data("member", 30) } };
 export const OverviewEmpty: Story = {
   args: { screen: data("owner", 30, true) },
 };
-export const OverviewLoading: Story = { args: { screen: LOADING } };
+/** No value or meter is drawn yet; the screen and the counts each say so once. */
+export const OverviewLoading: Story = {
+  args: { screen: LOADING },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    expect(canvas.queryAllByRole("meter")).toHaveLength(0);
+    expect(
+      canvas.getAllByRole("status").map((status) => status.textContent),
+    ).toEqual(["운영 화면을 읽는 중", "세션 수를 읽는 중"]);
+  },
+};
 export const OverviewDark: Story = { globals: DARK };
 export const OverviewMobile: Story = {
   name: "Overview Owner (390px)",
@@ -950,6 +988,11 @@ export const UsageCostIncomplete: Story = {
 };
 export const UsageLoading: Story = {
   args: { tab: "usage", screen: LOADING },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    expect(canvas.queryAllByRole("meter")).toHaveLength(0);
+    expect(canvas.getAllByRole("status")).toHaveLength(1);
+  },
 };
 export const UsageDark: Story = { args: { tab: "usage" }, globals: DARK };
 export const UsageMobile: Story = {
