@@ -443,7 +443,15 @@ async function changeMemberRole(
   const { actor } = input;
   const userId = input.userId.toLowerCase();
   return db.transaction(async (tx) => {
-    await lockActorAccount(tx, actor.userId);
+    // Both people's user rows first, as setAccess takes them: re-checked
+    // after a membership lock wait, a joined user row is still the old
+    // snapshot's, so a target suspended meanwhile would read as live.
+    await tx
+      .select({ id: users.id })
+      .from(users)
+      .where(inArray(users.id, [userId, actor.userId]))
+      .orderBy(asc(users.id))
+      .for("share");
     // Every owner row, the target and the actor, locked in user_id order —
     // the order offboarding takes its two rows in — so two owners demoting
     // each other queue, and the second one counts what the first left.

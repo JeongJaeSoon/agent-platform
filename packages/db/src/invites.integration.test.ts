@@ -507,6 +507,40 @@ integration("invite store on PostgreSQL", () => {
     }
   });
 
+  test("a role change waiting on a suspension of its target answers account_disabled", async () => {
+    const ws = await workspace();
+    const owner = await member(ws, "owner");
+    const target = await member(ws, "member");
+    const other = await pool.connect();
+    try {
+      // An account disable's order: the user row, then its memberships.
+      await other.query("BEGIN");
+      await other.query("UPDATE users SET disabled_at = now() WHERE id = $1", [
+        target,
+      ]);
+      await other.query(
+        "SELECT 1 FROM memberships WHERE user_id = $1 FOR UPDATE",
+        [target],
+      );
+      const changing = store.changeMemberRole({
+        userId: target,
+        role: "admin",
+        actor: acting(ws, owner),
+        receiptId: randomUUID(),
+      });
+      await Bun.sleep(300);
+      await other.query("COMMIT");
+      expect(await changing).toEqual({ outcome: "account_disabled" });
+    } finally {
+      other.release();
+    }
+    const [row] = await db
+      .select({ role: memberships.role })
+      .from(memberships)
+      .where(eq(memberships.userId, target));
+    expect(row?.role).toBe("member");
+  });
+
   test("roles: nobody changes their own, and two owners demoting each other leave one", async () => {
     const ws = await workspace();
     const first = await member(ws, "owner");
