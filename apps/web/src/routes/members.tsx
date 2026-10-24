@@ -253,7 +253,9 @@ export function MembersScreen() {
               variant="outline"
               size="sm"
               className="self-start"
-              disabled={members.isFetchingNextPage}
+              // A refresh after a change rereads every page; asking for the
+              // next one now would cancel it and keep the stale rows.
+              disabled={members.isFetching}
               onClick={() => members.fetchNextPage()}
             >
               {members.isFetchingNextPage

@@ -818,6 +818,56 @@ describe("구성원 페이지와 서버 검색", () => {
     expect(screenReads(api.calls)).toEqual(["", "?cursor=2", "?cursor=4"]);
   });
 
+  test("구성원을 바꾼 뒤 받은 페이지를 다시 읽는 동안에는 더 보기를 막는다", async () => {
+    let hold = false;
+    let release: () => void = () => {};
+    const rows = [...crowd];
+    renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": pagedMembers(rows, 2, () =>
+        hold
+          ? new Promise((resolve) => {
+              release = () => resolve(undefined);
+            })
+          : Promise.resolve(undefined),
+      ),
+      ...noInvites,
+      [`POST /v1/members/${crowd[0]?.user_id}/disable`]: () => {
+        rows[0] = {
+          ...crowd[0],
+          disabled_at: "2026-10-11T00:00:00.000Z",
+        } as MemberView;
+        hold = true;
+        return json(200, { member: rows[0], receipt_id: null });
+      },
+    });
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "Person 0 비활성화" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "비활성화" }));
+    await screen.findByText("Person 0 계정을 비활성화했습니다.");
+    const more = screen.getByRole("button", { name: "더 보기" });
+    await waitFor(() =>
+      expect((more as HTMLButtonElement).disabled).toBe(true),
+    );
+    hold = false;
+    release();
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("button", { name: "Person 0 편집" })
+          .closest("[role=row]")
+          ?.getAttribute("data-disabled"),
+      ).toBe("true"),
+    );
+    expect(
+      (screen.getByRole("button", { name: "더 보기" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+  });
+
   test("다음 페이지가 실패하면 받은 행은 두고 빨간 알림과 다시 시도를 보인다", async () => {
     let failing = true;
     const { api } = renderAt("/members", {

@@ -107,8 +107,8 @@ test("a member page asks the server for one page, the search going with it", asy
     ["/v1/members", { params: { query: {} } }],
     ["/v1/members", { params: { query: { q: "kim", cursor: "cursor-2" } } }],
   ]);
-  expect(all.queryKey).toEqual(["members", "pages", { q: null }]);
-  expect(found.queryKey).toEqual(["members", "pages", { q: "kim" }]);
+  expect(all.queryKey as unknown).toEqual(["members", "pages", { q: null }]);
+  expect(found.queryKey as unknown).toEqual(["members", "pages", { q: "kim" }]);
   const page = { items: [], next_cursor: "cursor-3" };
   expect(found.getNextPageParam(page, [page], null, [null])).toBe("cursor-3");
 });
