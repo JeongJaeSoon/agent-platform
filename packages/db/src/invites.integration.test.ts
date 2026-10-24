@@ -6,15 +6,17 @@ import {
   type ActingOwner,
   BootstrapDoneError,
   callerFor,
+  InvalidCursorError,
 } from "@werft-ai/platform";
 import {
   createTempDatabase,
   type TempDatabase,
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { encodeMemberCursor } from "./cursors.ts";
 import { bootstrapOwner } from "./identity.ts";
 import { createPostgresInviteStore } from "./invites.ts";
 import * as schema from "./schema.ts";
@@ -543,7 +545,7 @@ integration("invite store on PostgreSQL", () => {
       "actor_inactive",
       "changed",
     ]);
-    const owners = (await store.listMembers(ws)).filter(
+    const owners = (await store.listMembers(ws, { limit: 100 })).items.filter(
       (m) => m.role === "owner",
     );
     expect(owners).toHaveLength(1);
@@ -554,10 +556,155 @@ integration("invite store on PostgreSQL", () => {
     const userId = await member(ws, "member");
     const at = new Date("2026-10-01T00:00:00.000Z");
     await db.update(users).set({ disabledAt: at }).where(eq(users.id, userId));
-    const listed = (await store.listMembers(ws)).find(
+    const listed = (await store.listMembers(ws, { limit: 100 })).items.find(
       (m) => m.userId === userId,
     );
     expect(listed?.disabledAt?.toISOString()).toBe(at.toISOString());
+  });
+
+  async function named(
+    workspaceId: string,
+    displayName: string,
+    email: string,
+    createdAt: string,
+  ) {
+    const userId = randomUUID();
+    await db
+      .insert(users)
+      .values({ id: userId, email, passwordHash: null, displayName });
+    await db.insert(memberships).values({
+      workspaceId,
+      userId,
+      role: "member",
+      createdAt: sql`${createdAt}::timestamptz`,
+    });
+    return userId;
+  }
+
+  async function walk(workspaceId: string, limit: number, q?: string) {
+    const pages: string[][] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await store.listMembers(workspaceId, { limit, q, cursor });
+      pages.push(page.items.map((m) => m.userId));
+      cursor = page.next_cursor ?? undefined;
+    } while (cursor !== undefined);
+    return pages;
+  }
+
+  test("member pages walk every member once, oldest first, ties by user id", async () => {
+    const ws = await workspace();
+    const tag = randomUUID().slice(0, 8);
+    // Same microsecond for three rows, so only the user id orders them.
+    const stamps = [
+      "2026-01-01 00:00:00.000001+00",
+      "2026-01-01 00:00:00.000002+00",
+      "2026-01-01 00:00:00.000002+00",
+      "2026-01-01 00:00:00.000002+00",
+      "2026-01-01 00:00:00.000003+00",
+      "2026-01-02 00:00:00+00",
+      "2026-01-03 00:00:00+00",
+    ];
+    const ids: { id: string; at: string }[] = [];
+    for (const [index, at] of stamps.entries()) {
+      ids.push({
+        id: await named(
+          ws,
+          `P${index}`,
+          `p${index}-${tag}@example.invalid`,
+          at,
+        ),
+        at,
+      });
+    }
+    const expected = ids
+      .sort((a, b) =>
+        a.at === b.at ? (a.id < b.id ? -1 : 1) : a.at < b.at ? -1 : 1,
+      )
+      .map((row) => row.id);
+    const pages = await walk(ws, 3);
+    expect(pages.map((page) => page.length)).toEqual([3, 3, 1]);
+    expect(pages.flat()).toEqual(expected);
+    expect((await walk(ws, 100)).flat()).toEqual(expected);
+  });
+
+  test("a page of exactly limit members is the last one", async () => {
+    const ws = await workspace();
+    for (const index of [0, 1, 2, 3]) {
+      await member(ws, index === 0 ? "owner" : "member");
+    }
+    const first = await store.listMembers(ws, { limit: 2 });
+    expect(first.items).toHaveLength(2);
+    expect(first.next_cursor).not.toBeNull();
+    const second = await store.listMembers(ws, {
+      limit: 2,
+      cursor: first.next_cursor ?? undefined,
+    });
+    expect(second.items).toHaveLength(2);
+    expect(second.next_cursor).toBeNull();
+    expect(await store.listMembers(ws, { limit: 4 })).toMatchObject({
+      next_cursor: null,
+    });
+  });
+
+  test("q matches name or email in part, ignoring case, wildcards literal", async () => {
+    const ws = await workspace();
+    const other = await workspace();
+    const tag = randomUUID().slice(0, 8);
+    const at = "2026-01-01 00:00:00+00";
+    const kim = await named(ws, "Kim Minji", `mj-${tag}@corp.invalid`, at);
+    const lee = await named(ws, "Lee", `lee.kim-${tag}@corp.invalid`, at);
+    const percent = await named(ws, "100% Kim", `pc-${tag}@corp.invalid`, at);
+    const under = await named(ws, "a_b", `ab-${tag}@corp.invalid`, at);
+    const slash = await named(ws, "back\\slash", `bs-${tag}@corp.invalid`, at);
+    const plain = await named(ws, "axb", `axb-${tag}@corp.invalid`, at);
+    await named(other, "Kim Elsewhere", `kim-${tag}@other.invalid`, at);
+    const disabled = await named(
+      ws,
+      "Kim Gone",
+      `gone-${tag}@corp.invalid`,
+      at,
+    );
+    await db
+      .update(memberships)
+      .set({ disabledAt: new Date() })
+      .where(eq(memberships.userId, disabled));
+    const ids = async (q: string) => (await walk(ws, 100, q)).flat().sort();
+    expect(await ids("kim")).toEqual([kim, lee, percent, disabled].sort());
+    expect(await ids("MINJI")).toEqual([kim]);
+    // Emails are stored lowercase; the query side still ignores case.
+    expect(await ids(`LEE.KIM-${tag}`)).toEqual([lee]);
+    expect(await ids("%")).toEqual([percent]);
+    expect(await ids("a_b")).toEqual([under]);
+    expect(await ids("_")).toEqual([under]);
+    expect(await ids("\\")).toEqual([slash]);
+    expect(await ids("x")).toEqual([plain]);
+    expect(await ids("elsewhere")).toEqual([]);
+    expect((await walk(ws, 1, "kim")).map((page) => page.length)).toEqual([
+      1, 1, 1, 1,
+    ]);
+  });
+
+  test("a cursor the store did not mint is InvalidCursorError", async () => {
+    const ws = await workspace();
+    const forged = [
+      "not-base64-json",
+      Buffer.from("{}").toString("base64url"),
+      encodeMemberCursor({ created_at: "2026-01-01", user_id: randomUUID() }),
+      encodeMemberCursor({
+        created_at: "2026-01-01 00:00:00+00",
+        user_id: "not-a-uuid",
+      }),
+      encodeMemberCursor({
+        created_at: "2026-13-01 00:00:00+00",
+        user_id: randomUUID(),
+      }),
+    ];
+    for (const cursor of forged) {
+      await expect(
+        store.listMembers(ws, { limit: 10, cursor }),
+      ).rejects.toBeInstanceOf(InvalidCursorError);
+    }
   });
 });
 

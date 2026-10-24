@@ -79,7 +79,7 @@ const RETRY_CASES: ReadonlyArray<{
     path: "/members",
     routes: { ...meOk, "GET /v1/invites": () => json(200, { items: [] }) },
     failingKey: "GET /v1/members",
-    answer: () => json(200, { items: [] }),
+    answer: () => json(200, { items: [], next_cursor: null }),
     after: /아직 구성원이 없습니다/,
   },
   {
@@ -119,7 +119,7 @@ const RETRY_CASES: ReadonlyArray<{
     path: "/",
     routes: {
       ...meOk,
-      "GET /v1/members": () => json(200, { items: [] }),
+      "GET /v1/members": () => json(200, { items: [], next_cursor: null }),
       "GET /v1/invites": () => json(200, { items: [] }),
       "GET /v1/agents": () => json(200, { items: [] }),
       "GET /v1/sessions": () => json(200, { items: [], next_cursor: null }),

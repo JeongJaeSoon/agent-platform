@@ -10,7 +10,11 @@ function recordingClient() {
   const client = {
     GET: (...args: unknown[]) => {
       calls.push(args);
-      return Promise.resolve({ data: {}, response: new Response(null) });
+      // An empty last page, so a query that reads every page stops.
+      return Promise.resolve({
+        data: { items: [], next_cursor: null },
+        response: new Response(null),
+      });
     },
   } as unknown as ApiClient;
   return { client, calls };
@@ -58,4 +62,35 @@ test("the session list asks for the next page by the last page's cursor", async 
   ]);
   const page = { items: [], next_cursor: "cursor-3" };
   expect(getNextPageParam(page, [page], null, [null])).toBe("cursor-3");
+});
+
+test("the member list reads every page, 100 at a time, and hands back all of them", async () => {
+  const pages: Record<
+    string,
+    { items: { user_id: string }[]; next_cursor: string | null }
+  > = {
+    first: { items: [{ user_id: "a" }, { user_id: "b" }], next_cursor: "c2" },
+    c2: { items: [{ user_id: "c" }], next_cursor: "c3" },
+    c3: { items: [], next_cursor: null },
+  };
+  const calls: unknown[] = [];
+  const client = {
+    GET: (_path: string, init: { params: { query: { cursor?: string } } }) => {
+      calls.push(init.params.query);
+      const data = pages[init.params.query.cursor ?? "first"];
+      return Promise.resolve({ data, response: new Response(null) });
+    },
+  } as unknown as ApiClient;
+  const { queryFn } = queries.membersQuery(client);
+  expect(
+    (await queryFn({} as Parameters<typeof queryFn>[0])) as unknown,
+  ).toEqual({
+    items: [{ user_id: "a" }, { user_id: "b" }, { user_id: "c" }],
+    next_cursor: null,
+  });
+  expect(calls).toEqual([
+    { limit: 100 },
+    { cursor: "c2", limit: 100 },
+    { cursor: "c3", limit: 100 },
+  ]);
 });
