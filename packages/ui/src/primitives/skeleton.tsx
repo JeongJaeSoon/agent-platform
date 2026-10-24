@@ -15,8 +15,8 @@ export interface SkeletonProps {
   /** Sit on a line of text, as one value in "7 / 10", keeping the line's box. */
   readonly inline?: boolean | undefined;
   /**
-   * Hidden from assistive tech, with no label, for a screen that says it is
-   * loading once rather than at every placeholder.
+   * Hidden from assistive tech, for a screen that says it is loading once
+   * rather than at every placeholder.
    */
   readonly decorative?: boolean | undefined;
 }
@@ -55,7 +55,7 @@ export function Skeleton({
         // Placeholder bars have no identity beyond their position.
         <span key={index} className="ap-skeleton__bar" />
       ))}
-      {decorative ? null : <span className="ap-visually-hidden">{label}</span>}
+      <span className="ap-visually-hidden">{label}</span>
     </output>
   );
 }
