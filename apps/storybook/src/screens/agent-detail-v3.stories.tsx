@@ -8,7 +8,6 @@ import {
   Badge,
   Button,
   Card,
-  CardTitle,
   ConfirmDialog,
   DestructiveActionDialog,
   Dialog,
@@ -24,12 +23,11 @@ import {
   FieldLabel,
   KeyValueList,
   Link,
-  NativeSelect,
-  NativeSelectOption,
   PageHeader,
   RowList,
   RowListItem,
   SettingRow,
+  Skeleton,
   Switch,
   Tabs,
   TabsContent,
@@ -37,9 +35,16 @@ import {
   TabsTrigger,
   Textarea,
 } from "@werft-ai/ui";
-import { ArrowLeft, Copy, LoaderCircle, Plus } from "lucide-react";
+import { Copy, LoaderCircle, Plus } from "lucide-react";
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 
+import {
+  AgentCardTab,
+  AgentHead,
+  AgentOverview,
+  AgentTabs,
+  type AgentView,
+} from "./agent-detail-parts.tsx";
 import { MOBILE, PartRequest, ScreenShell } from "./screen-kit.tsx";
 import {
   ChannelCombobox,
@@ -61,13 +66,28 @@ import {
  * buttons all reach their result lines.
  */
 
-const AGENT = {
+const AGENT: AgentView = {
   name: "Release Notes",
   slug: "release-notes",
-  active: "version 1 · claude-coding-local",
-  latest: "version 1 · 2026. 10. 23. 21:48",
-  role: "배포가 끝나면 릴리즈 노트 초안을 씁니다",
-  model: "claude-sonnet-5",
+  released: true,
+  card: {
+    role: "배포가 끝나면 릴리즈 노트 초안을 씁니다",
+    instructions:
+      "배포가 끝나면 그 사이 merge된 PR을 모아 릴리즈 노트 초안을 쓴다.",
+    language: "ko",
+    model: "claude-sonnet-5",
+    capabilities: {
+      tools: null,
+      forbidden: [],
+      mcp: [],
+      credential_refs: [],
+    },
+    rules: [],
+  },
+  version: "version 1",
+  profile: "claude-coding-local",
+  versionAt: "2026. 10. 23. 21:48",
+  releases: 1,
 };
 const BOT = "@release-notes";
 const HOME = "#release-notes";
@@ -78,9 +98,11 @@ const REQUEST = {
   at: "2026. 10. 23. 15:02",
 };
 const PUBLIC_JOINED = [HOME, "#dev-platform"];
-// More than one ChannelCombobox page, so the add list shows "더 보기".
+// More than one ChannelCombobox page, so the add list shows "더 보기"; the
+// long name checks that a row truncates the name, never the tag.
 const PUBLIC_UNJOINED = [
   "#general",
+  "#platform-release-announcements-and-deploy-coordination",
   "#random",
   "#design",
   "#eng-announce",
@@ -93,16 +115,20 @@ const PUBLIC = [...PUBLIC_JOINED, ...PUBLIC_UNJOINED];
 const APP_ID = "A07PLACEHLD";
 const EVENT_URL =
   "https://agents.verify.example/v1/slack/events/ebc9271d-5cec-4c73-bd7d-7efbda71d2a9";
-// SLACK_BINDING_MODE_VALUES: mention, off.
-const REACTIONS = ["멘션할 때", "꺼짐"];
+// SLACK_BINDING_MODE_VALUES: mention, off, so a Switch. The binding
+// contract's `ambient` (kollegium surfaces.ts) would bring back a select.
+const MENTION = "멘션할 때";
+const OFF = "꺼짐";
 const SEEDED_REACTIONS: Readonly<Record<string, string>> = {
-  [HOME]: REACTIONS[0] ?? "",
-  "#dev-platform": "꺼짐",
-  [REQUEST.channel]: REACTIONS[0] ?? "",
+  [HOME]: MENTION,
+  "#dev-platform": OFF,
+  [REQUEST.channel]: MENTION,
 };
 const CHECKED = "2026. 10. 23. 21:50";
 const CHECK_FAILED = "2026. 10. 23. 22:10";
 const RECHECKED = "2026. 10. 23. 22:14";
+/** How long GET .../slack-bindings takes to answer in the first-load story. */
+const CHANNELS_LOAD_MS = 600;
 const WELCOMED = { at: "2026. 10. 23. 21:52", release: "rel_3f9a" };
 const FAILED_CHANNEL = {
   name: "#launch-2025",
@@ -137,10 +163,6 @@ const SEGMENTS: readonly (readonly [Segment, string])[] = [
   ["settings", "설정"],
 ];
 
-const PANEL_CARD = "min-w-0 gap-3 p-4";
-const OVERVIEW_FACTS =
-  "m-0 grid grid-cols-1 gap-x-4 gap-y-1 text-control sm:grid-cols-[140px_minmax(0,1fr)] sm:gap-y-3";
-const TERM = "m-0 text-muted-foreground";
 const VALUE = "m-0 font-medium [overflow-wrap:anywhere]";
 const SECTION = "flex flex-col gap-[var(--ap-space-block)]";
 const SECONDARY = "text-caption text-muted-foreground";
@@ -180,35 +202,19 @@ function SummaryRail() {
               label: "식별자",
               value: <div className="font-mono">{AGENT.slug}</div>,
             },
-            { label: "활성 release", value: AGENT.active },
-            { label: "최신 version", value: AGENT.latest },
+            {
+              label: "활성 release",
+              value: `${AGENT.version} · ${AGENT.profile}`,
+            },
+            {
+              label: "최신 version",
+              value: `${AGENT.version} · ${AGENT.versionAt}`,
+            },
           ]}
         />
         <div className={MUTED_TEXT}>새 세션은 최신 version으로 시작합니다.</div>
       </DetailRailSection>
     </DetailRail>
-  );
-}
-
-function CardSummary() {
-  return (
-    <Card className={PANEL_CARD}>
-      <CardTitle role="heading" aria-level={2}>
-        개요
-      </CardTitle>
-      <dl className={OVERVIEW_FACTS}>
-        <dt className={TERM}>역할</dt>
-        <dd className={VALUE}>{AGENT.role}</dd>
-        <dt className={TERM}>모델</dt>
-        <dd className={`${VALUE} font-mono text-caption`}>{AGENT.model}</dd>
-        <dt className={TERM}>언어</dt>
-        <dd className={VALUE}>한국어</dd>
-        <dt className={TERM}>도구</dt>
-        <dd className={VALUE}>모든 도구</dd>
-        <dt className={TERM}>금지</dt>
-        <dd className={VALUE}>없음</dd>
-      </dl>
-    </Card>
   );
 }
 
@@ -243,7 +249,7 @@ function CopyButton({ text }: { readonly text: string }) {
   );
 }
 
-function ReactionSelect({
+function ReactionSwitch({
   channel,
   value,
   onChange,
@@ -253,18 +259,11 @@ function ReactionSelect({
   readonly onChange: (value: string) => void;
 }) {
   return (
-    <NativeSelect
-      size="sm"
-      aria-label={`${channel} 반응`}
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
-    >
-      {REACTIONS.map((reaction) => (
-        <NativeSelectOption key={reaction} value={reaction}>
-          {reaction}
-        </NativeSelectOption>
-      ))}
-    </NativeSelect>
+    <Switch
+      aria-label={`${channel} ${MENTION} 반응`}
+      checked={value === MENTION}
+      onCheckedChange={(next) => onChange(next ? MENTION : OFF)}
+    />
   );
 }
 
@@ -396,6 +395,8 @@ interface ScreenProps {
   readonly slackOn?: boolean | undefined;
   // Without "#": Storybook URL args reject it, and new-agent links pass this.
   readonly home?: string | undefined;
+  /** The channel list's first load: held, or answered after CHANNELS_LOAD_MS. */
+  readonly channelsLoad?: "hold" | "once" | undefined;
 }
 
 function AgentDetailScreen(props: ScreenProps) {
@@ -407,6 +408,12 @@ function AgentDetailScreen(props: ScreenProps) {
   const [walking, setWalking] = useState(false);
   const [on, setOn] = useState(props.slackOn ?? true);
   const [checkedAt, setCheckedAt] = useState(CHECKED);
+  const [loaded, setLoaded] = useState(props.channelsLoad === undefined);
+  useEffect(() => {
+    if (props.channelsLoad !== "once") return;
+    const timer = setTimeout(() => setLoaded(true), CHANNELS_LOAD_MS);
+    return () => clearTimeout(timer);
+  }, [props.channelsLoad]);
   // The archived channel fails on its own; re-registering events keeps it.
   const [joinFailed, setJoinFailed] = useState(props.slack === "error");
   const [dm, setDm] = useState(true);
@@ -443,7 +450,7 @@ function AgentDetailScreen(props: ScreenProps) {
   // default only applies to channels connected afterwards.
   const [reactions, setReactions] =
     useState<Record<string, string>>(SEEDED_REACTIONS);
-  const [defaultReaction, setDefaultReaction] = useState(REACTIONS[0] ?? "");
+  const [defaultReaction, setDefaultReaction] = useState(MENTION);
   const [expanded, setExpanded] = useState(false);
   const [homePick, setHomePick] = useState("");
   const [addPick, setAddPick] = useState("");
@@ -482,8 +489,7 @@ function AgentDetailScreen(props: ScreenProps) {
     setOutcome(text);
     if (next) setSegment(next);
   };
-  const reactionOf = (channel: string) =>
-    reactions[channel] ?? REACTIONS[0] ?? "";
+  const reactionOf = (channel: string) => reactions[channel] ?? MENTION;
   const reset = (text: string) => {
     setDialog(undefined);
     setSlack("none");
@@ -685,6 +691,30 @@ function AgentDetailScreen(props: ScreenProps) {
 
   const homeMark = (name: string) =>
     name === home ? <Badge>홈 채널</Badge> : undefined;
+  // Content heights of the SettingRow each placeholder stands for, so nothing
+  // moves on load: title line, line gap, description. Below 640px a row with a
+  // button keeps it on the title line, which grows to the button's height.
+  const SWITCH_ROW = "min-h-[calc(1.25rem+var(--ap-row-line-gap)+1rem)]";
+  const BUTTON_ROW =
+    "min-h-[calc(1.75rem+var(--ap-row-line-gap)+1rem)] sm:min-h-[calc(1.25rem+var(--ap-row-line-gap)+1rem)]";
+  const connectedRows = [
+    ...joined.map(() => SWITCH_ROW),
+    ...(request === "approved" ? [SWITCH_ROW] : []),
+    ...(joinFailed ? [BUTTON_ROW] : []),
+  ];
+  const skeletonRows = (heights: readonly string[]) =>
+    heights.map((height, index) => (
+      // biome-ignore lint/suspicious/noArrayIndexKey: placeholders have no identity.
+      <RowListItem key={index}>
+        <div className={`flex w-full items-center ${height}`}>
+          <Skeleton
+            lines={2}
+            className="w-full"
+            label="채널을 불러오는 중입니다"
+          />
+        </div>
+      </RowListItem>
+    ));
   const channels = (
     <>
       {pending ? (
@@ -693,20 +723,24 @@ function AgentDetailScreen(props: ScreenProps) {
           hint="승인하기 전에는 이 채널의 메시지를 받지 않습니다. 이 목록은 승인할 수 있는 사람(이 에이전트의 관리자, 워크스페이스 소유자·관리자)에게만 보입니다."
         >
           <RowList variant="joined">
-            <SettingRow
-              title={REQUEST.channel}
-              description={`비공개 · ${REQUEST.by}가 ${REQUEST.at}에 초대`}
-              actions={
-                <Button
-                  type="button"
-                  size="sm"
-                  aria-label={`${REQUEST.channel} 검토`}
-                  onClick={() => openDialog("review")}
-                >
-                  검토
-                </Button>
-              }
-            />
+            {loaded ? (
+              <SettingRow
+                title={REQUEST.channel}
+                description={`비공개 · ${REQUEST.by}가 ${REQUEST.at}에 초대`}
+                actions={
+                  <Button
+                    type="button"
+                    size="sm"
+                    aria-label={`${REQUEST.channel} 검토`}
+                    onClick={() => openDialog("review")}
+                  >
+                    검토
+                  </Button>
+                }
+              />
+            ) : (
+              skeletonRows([BUTTON_ROW])
+            )}
           </RowList>
         </Section>
       ) : null}
@@ -735,30 +769,33 @@ function AgentDetailScreen(props: ScreenProps) {
         }
       >
         <RowList variant="joined">
-          {joined.map((name) => (
-            <SettingRow
-              key={name}
-              title={name}
-              badge={homeMark(name)}
-              description="공개"
-              status={<StateWord>반응</StateWord>}
-              control={
-                <ReactionSelect
-                  channel={name}
-                  value={reactionOf(name)}
-                  onChange={(value) => changeReaction(name, value)}
+          {loaded ? null : skeletonRows(connectedRows)}
+          {!loaded
+            ? null
+            : joined.map((name) => (
+                <SettingRow
+                  key={name}
+                  title={name}
+                  badge={homeMark(name)}
+                  description="공개"
+                  status={<StateWord>{reactionOf(name)}</StateWord>}
+                  control={
+                    <ReactionSwitch
+                      channel={name}
+                      value={reactionOf(name)}
+                      onChange={(value) => changeReaction(name, value)}
+                    />
+                  }
                 />
-              }
-            />
-          ))}
-          {request === "approved" ? (
+              ))}
+          {loaded && request === "approved" ? (
             <SettingRow
               title={REQUEST.channel}
               badge={homeMark(REQUEST.channel)}
               description={`비공개 · ${REQUEST.by} 초대 · 승인함`}
-              status={<StateWord>반응</StateWord>}
+              status={<StateWord>{reactionOf(REQUEST.channel)}</StateWord>}
               control={
-                <ReactionSelect
+                <ReactionSwitch
                   channel={REQUEST.channel}
                   value={reactionOf(REQUEST.channel)}
                   onChange={(value) => changeReaction(REQUEST.channel, value)}
@@ -766,7 +803,7 @@ function AgentDetailScreen(props: ScreenProps) {
               }
             />
           ) : null}
-          {joinFailed ? (
+          {loaded && joinFailed ? (
             <SettingRow
               title={FAILED_CHANNEL.name}
               badge={<Badge variant="red">오류</Badge>}
@@ -850,24 +887,19 @@ function AgentDetailScreen(props: ScreenProps) {
       />
       <SettingRow
         title="새 채널의 기본 반응"
-        description="새로 추가하거나 승인한 채널이 이 반응으로 시작합니다. 이미 연결된 채널은 그대로입니다."
+        description="켜면 새로 추가하거나 승인한 채널이 멘션할 때 반응하고, 끄면 반응하지 않습니다. 이미 연결된 채널은 그대로입니다."
+        status={<StateWord>{defaultReaction}</StateWord>}
         control={
-          <NativeSelect
-            size="sm"
-            value={defaultReaction}
-            onChange={(event) => {
-              setDefaultReaction(event.target.value);
+          <Switch
+            checked={defaultReaction === MENTION}
+            onCheckedChange={(next) => {
+              const value = next ? MENTION : OFF;
+              setDefaultReaction(value);
               show(
-                `새 채널의 기본 반응을 '${event.target.value}'(으)로 바꿨습니다. 바로 저장됐고, 이미 연결된 채널은 그대로입니다.`,
+                `새 채널의 기본 반응을 '${value}'(으)로 바꿨습니다. 바로 저장됐고, 이미 연결된 채널은 그대로입니다.`,
               );
             }}
-          >
-            {REACTIONS.map((reaction) => (
-              <NativeSelectOption key={reaction} value={reaction}>
-                {reaction}
-              </NativeSelectOption>
-            ))}
-          </NativeSelect>
+          />
         }
       />
     </RowList>
@@ -1016,7 +1048,7 @@ function AgentDetailScreen(props: ScreenProps) {
         step={connectStep}
         wizard={false}
         bot={BOT}
-        description={AGENT.role}
+        description={AGENT.card.role}
         channels={homeGroups}
         home={home || HOME}
         onStep={(next, picked) => {
@@ -1079,45 +1111,26 @@ function AgentDetailScreen(props: ScreenProps) {
   );
 
   const tabs = (
-    <Tabs
+    <AgentTabs<"slack">
       value={tab}
-      onValueChange={(next) => setTab(next as DetailTab)}
-      className="min-w-0 gap-[var(--ap-space-block)]"
+      onValueChange={setTab}
+      extra={
+        <TabsTrigger value="slack">
+          Slack
+          {status && status[0] !== "연결됨" ? (
+            <Badge variant={status[1]}>{status[0]}</Badge>
+          ) : null}
+        </TabsTrigger>
+      }
     >
-      <div className="border-b">
-        <TabsList variant="line" aria-label="에이전트 상세" className="h-9 p-0">
-          {(["overview", "card", "release", "admins"] as const).map((key) => (
-            <TabsTrigger
-              key={key}
-              value={key}
-              className="h-9 text-control after:bottom-0"
-            >
-              {
-                {
-                  overview: "개요",
-                  card: "카드",
-                  release: "배포",
-                  admins: "관리자",
-                }[key]
-              }
-            </TabsTrigger>
-          ))}
-          <TabsTrigger
-            value="slack"
-            className="h-9 text-control after:bottom-0"
-          >
-            Slack
-            {status && status[0] !== "연결됨" ? (
-              <Badge variant={status[1]}>{status[0]}</Badge>
-            ) : null}
-          </TabsTrigger>
-        </TabsList>
-      </div>
-      <TabsContent value="overview" className="flex flex-col gap-8 pt-4">
-        <CardSummary />
+      <TabsContent value="overview">
+        <AgentOverview agent={AGENT} className="gap-6" />
       </TabsContent>
-      {(["card", "release", "admins"] as const).map((key) => (
-        <TabsContent key={key} value={key} className="flex flex-col gap-8 pt-4">
+      <TabsContent value="card">
+        <AgentCardTab agent={AGENT} />
+      </TabsContent>
+      {(["release", "admins"] as const).map((key) => (
+        <TabsContent key={key} value={key}>
           <div className={MUTED_TEXT}>
             이 탭은 이 story에서 머리만 둡니다. 내용은 실제 화면 그대로입니다.
           </div>
@@ -1125,27 +1138,24 @@ function AgentDetailScreen(props: ScreenProps) {
       ))}
       <TabsContent
         value="slack"
-        className="flex flex-col gap-[var(--ap-space-block)] pt-4"
+        className="flex flex-col gap-[var(--ap-space-block)]"
       >
         {slackPanel}
       </TabsContent>
-    </Tabs>
+    </AgentTabs>
   );
 
   return (
-    <ScreenShell current="agents" crumb={["에이전트"]} width="flush">
+    <ScreenShell
+      current="agents"
+      crumb={["에이전트", AGENT.name]}
+      width="flush"
+    >
       <DetailLayout rail={<SummaryRail />}>
-        <PageHeader
-          title={AGENT.name}
-          description={<Badge variant="green">활성</Badge>}
-          actions={
-            <Button asChild variant="outline" size="sm">
-              <a href={storyHref("screens-agent-list-v3--agent-list-slack-ok")}>
-                <ArrowLeft aria-hidden="true" className="size-3.5" />
-                에이전트 목록
-              </a>
-            </Button>
-          }
+        <AgentHead
+          agent={AGENT}
+          backHref={storyHref("screens-agent-list-v3--agent-list-slack-ok")}
+          badgeBesideName
         />
         {tabs}
       </DetailLayout>
@@ -1263,7 +1273,10 @@ const meta = {
   parameters: { layout: "fullscreen" },
   args: { tab: "slack", slack: "connected", segment: "overview" },
   // Storybook drops URL args without an argType.
-  argTypes: { home: { control: "text" } },
+  argTypes: {
+    home: { control: "text" },
+    channelsLoad: { control: "inline-radio", options: ["hold", "once"] },
+  },
 } satisfies Meta<typeof AgentDetailScreen>;
 
 export default meta;
@@ -1368,6 +1381,22 @@ export const AgentDetailSlackChannelsDark: Story = {
 export const AgentDetailSlackChannelsMobile: Story = {
   ...AgentDetailSlackChannels,
   name: "Slack › 채널 (390px)",
+  globals: MOBILE,
+};
+
+/** First load of the channel list: the rows hold their place as skeletons. */
+export const AgentDetailSlackChannelsLoading: Story = {
+  name: "Slack › 채널: 불러오는 중",
+  args: { slack: "todo", segment: "channels", channelsLoad: "hold" },
+};
+export const AgentDetailSlackChannelsLoadingDark: Story = {
+  ...AgentDetailSlackChannelsLoading,
+  name: "Slack › 채널: 불러오는 중 (dark)",
+  globals: DARK,
+};
+export const AgentDetailSlackChannelsLoadingMobile: Story = {
+  ...AgentDetailSlackChannelsLoading,
+  name: "Slack › 채널: 불러오는 중 (390px)",
   globals: MOBILE,
 };
 

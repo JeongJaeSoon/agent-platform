@@ -143,13 +143,20 @@ export interface ChannelGroup {
 }
 
 const CHANNEL_PAGE = 5;
+/** How long the stand-in search takes to answer, as a server would. */
+export const CHANNEL_SEARCH_MS = 400;
 
 /**
  * Picks one channel with the kit's Combobox. The story pages through fixed
  * demo channels the way a server search would (a query, CHANNEL_PAGE at a
  * time, "더 보기"), so it filters itself (`filter="none"`): the kit's own
- * filter would only see the pages already loaded. The rows carry only a
- * 공개/비공개 tag; what picking does is said once, above or below the list.
+ * filter would only see the pages already loaded. The search acts like
+ * GET .../slack/channels?q=: the kit asks once typing pauses, the list keeps
+ * the last answer while the next loads, a query asked before is answered
+ * from what came back instead of asked again, and an answer a newer query
+ * overtook is dropped. `data-channel-searches` counts the requests sent.
+ * The rows carry only a 공개/비공개 tag; what picking does is said once,
+ * above or below the list.
  */
 export function ChannelCombobox({
   label,
@@ -168,9 +175,40 @@ export function ChannelCombobox({
   /** Under the list: how a private channel gets here. */
   readonly privateHint: ReactNode;
 }) {
-  const [query, setQuery] = useState("");
+  // The query whose answer the list shows; the opening list needs no request.
+  const [needle, setNeedle] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [searches, setSearches] = useState(0);
+  const answered = useRef(new Set([""]));
+  const latest = useRef("");
+  const timers = useRef(new Set<ReturnType<typeof setTimeout>>());
+  useEffect(() => {
+    const pending = timers.current;
+    return () => {
+      for (const timer of pending) clearTimeout(timer);
+    };
+  }, []);
+  const search = (query: string) => {
+    const next = query.trim().replace(/^#/, "").toLowerCase();
+    latest.current = next;
+    setShown(CHANNEL_PAGE);
+    if (answered.current.has(next)) {
+      setNeedle(next);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setSearches((count) => count + 1);
+    const timer = setTimeout(() => {
+      timers.current.delete(timer);
+      answered.current.add(next);
+      if (latest.current !== next) return;
+      setNeedle(next);
+      setLoading(false);
+    }, CHANNEL_SEARCH_MS);
+    timers.current.add(timer);
+  };
   const [shown, setShown] = useState(CHANNEL_PAGE);
-  const needle = query.trim().replace(/^#/, "").toLowerCase();
   const matches = groups.flatMap((group) =>
     group.options.filter((option) =>
       option.name.replace(/^#/, "").toLowerCase().includes(needle),
@@ -181,19 +219,18 @@ export function ChannelCombobox({
   const options: ComboboxOption[] = matches.slice(0, shown).map((option) => ({
     value: option.name,
     label: option.name,
-    description: (
+    // Public in the info tone; green already means connected on this screen.
+    description: option.private ? (
       <Badge variant="gray">
-        {option.private
-          ? option.disabled
-            ? "비공개 · 승인 대기"
-            : "비공개"
-          : "공개"}
+        {option.disabled ? "비공개 · 승인 대기" : "비공개"}
       </Badge>
+    ) : (
+      <Badge variant="blue">공개</Badge>
     ),
     disabled: option.disabled ?? false,
   }));
   return (
-    <Field>
+    <Field data-channel-searches={searches}>
       <FieldLabel>{label}</FieldLabel>
       {hint ? <FieldDescription>{hint}</FieldDescription> : null}
       <Combobox
@@ -201,10 +238,9 @@ export function ChannelCombobox({
         value={value || null}
         onValueChange={(next) => onChange(next)}
         filter="none"
-        onQueryChange={(next) => {
-          setQuery(next);
-          setShown(CHANNEL_PAGE);
-        }}
+        onQueryChange={search}
+        loading={loading}
+        loadingMessage="채널을 찾는 중입니다."
         hasMore={matches.length > shown}
         onLoadMore={() => setShown((current) => current + CHANNEL_PAGE)}
         loadMoreLabel={`더 보기 (${matches.length - shown}개 남음)`}

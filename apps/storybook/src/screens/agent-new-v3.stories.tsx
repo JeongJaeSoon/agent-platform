@@ -26,12 +26,18 @@ const STEPS = [
   { id: "activate", label: "켜기" },
   { id: "slack", label: "Slack 연결", description: "선택" },
 ];
+const LONG_CHANNEL = "#platform-release-announcements-and-deploy-coordination";
 const CHANNELS: readonly ChannelGroup[] = [
   {
     label: "공개 채널",
-    options: ["#release-notes", "#dev-platform", "#general", "#random"].map(
-      (name) => ({ name }),
-    ),
+    // The long name checks that a row truncates the name, never the tag.
+    options: [
+      "#release-notes",
+      "#dev-platform",
+      LONG_CHANNEL,
+      "#general",
+      "#random",
+    ].map((name) => ({ name })),
   },
   {
     label: "비공개 채널",
