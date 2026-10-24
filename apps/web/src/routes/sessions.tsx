@@ -26,14 +26,12 @@ import {
   type SessionActionProps,
   SessionDetail,
 } from "@werft-ai/react/blocks";
-import { LoadMoreButton } from "@werft-ai/react/components";
+import { ListToolbar, LoadMoreButton } from "@werft-ai/react/components";
 import {
   Button,
   buttonVariants,
   EmptyState,
-  NativeSelect,
-  NativeSelectOption,
-  SearchInput,
+  FilterMenu,
   SegmentedControl,
   SegmentedControlItem,
 } from "@werft-ai/ui";
@@ -155,11 +153,11 @@ export function SessionsScreen() {
           refusal={(error) => t(errorKey(error.code))}
         />
         <div className="flex min-w-0 flex-col gap-4">
-          {/* The groupings and their counts on the left, search on the right. */}
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex flex-wrap items-center gap-2">
+          <ListToolbar
+            filter={
               <SegmentedControl
                 aria-label={t("sessionList.filter.label")}
+                size="toolbar"
                 value={tab}
                 onValueChange={pick}
               >
@@ -176,33 +174,31 @@ export function SessionsScreen() {
                   </SegmentedControlItem>
                 ))}
               </SegmentedControl>
-              <NativeSelect
-                aria-label={t("sessionList.relation.label")}
+            }
+            filters={
+              <FilterMenu
+                label={t("sessionList.relation.label")}
+                options={[
+                  { value: "all", label: t("sessionList.relation.all") },
+                  ...SESSION_RELATIONS.map((name) => ({
+                    value: name,
+                    label: t(`sessionList.relation.${name}`),
+                  })),
+                ]}
                 value={relation ?? "all"}
-                onChange={(event) => pickRelation(event.target.value)}
-              >
-                <NativeSelectOption value="all">
-                  {t("sessionList.relation.all")}
-                </NativeSelectOption>
-                {SESSION_RELATIONS.map((name) => (
-                  <NativeSelectOption key={name} value={name}>
-                    {t(`sessionList.relation.${name}`)}
-                  </NativeSelectOption>
-                ))}
-              </NativeSelect>
-            </div>
-            <SearchInput
-              ref={search}
-              type="search"
-              aria-label={t("sessionList.search")}
-              placeholder={t("sessionList.search")}
-              maxLength={SEARCH_MAX}
-              // At the row's end, 240–280px; alone on its line, full width.
-              wrapperClassName="max-w-none flex-[1_1_100%] sm:ml-auto sm:w-[260px] sm:flex-none"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-          </div>
+                onValueChange={pickRelation}
+              />
+            }
+            search={{
+              ref: search,
+              type: "search",
+              "aria-label": t("sessionList.search"),
+              placeholder: t("sessionList.search"),
+              maxLength: SEARCH_MAX,
+              value: query,
+              onChange: (event) => setQuery(event.target.value),
+            }}
+          />
           {tab === "all" && relation === undefined && q === undefined ? (
             <AllSessions onClear={clear} />
           ) : (
