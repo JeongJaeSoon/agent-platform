@@ -26,6 +26,7 @@ import {
   useStepper,
 } from "@werft-ai/react";
 import {
+  Alert,
   Button,
   ConfirmDialog,
   Field,
@@ -53,6 +54,7 @@ import {
   type CardErrors,
   EMPTY_DRAFT,
 } from "./agent-card-form.tsx";
+import { Notice } from "./auth-page.tsx";
 import { StepHeading, useStepMoved } from "./step-heading.tsx";
 
 /**
@@ -667,12 +669,14 @@ function ReleaseForm({
         {cardModel !== undefined &&
         profileModel !== undefined &&
         cardModel !== profileModel ? (
-          <FieldDescription className="web-notice">
-            {t("agent.releases.modelMismatch", {
-              card: cardModel,
-              profile: profileModel,
-            })}
-          </FieldDescription>
+          <Alert variant="amber">
+            <FieldDescription>
+              {t("agent.releases.modelMismatch", {
+                card: cardModel,
+                profile: profileModel,
+              })}
+            </FieldDescription>
+          </Alert>
         ) : null}
         <FieldError>{errors.runtime_profile_id?.message}</FieldError>
       </Field>
@@ -728,9 +732,9 @@ function ActivateStep({
     <section className={AGENT_FORM}>
       <StepHeading focus={focus}>{t("agents.flow.activate")}</StepHeading>
       {/* Mounted before the result, so the result is read when it lands. */}
-      <output className={activate.isSuccess ? "web-notice" : undefined}>
+      <Notice>
         {activate.isSuccess ? t("agents.flow.done", { name }) : null}
-      </output>
+      </Notice>
       {activate.isSuccess ? (
         <div>
           <Button asChild>

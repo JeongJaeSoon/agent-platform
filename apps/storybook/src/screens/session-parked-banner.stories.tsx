@@ -1,16 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { StatusLabel } from "@werft-ai/react/components";
 import {
+  Alert,
+  AlertActions,
   Badge,
   Button,
-  Card,
-  CardAction,
-  CardContent,
-  CardDescription,
-  CardHeader,
   formatTimestamp,
 } from "@werft-ai/ui";
-import type { ReactNode } from "react";
 
 /*
  * S-A3: the banner at the head of a session's detail while its requests
@@ -24,74 +20,37 @@ type BannerState = "parked" | "expired" | "resuming" | "humanPause";
 
 const EXPIRES_AT = formatTimestamp("2026-10-22T01:00:00.000Z", "ko");
 
-type Tone = "info" | "warning" | "danger";
-const TONE = {
-  info: { variant: "blue", label: "안내" },
-  warning: { variant: "amber", label: "주의" },
-  danger: { variant: "red", label: "오류" },
-} as const;
-
-// Stands in for the Alert part ui-kit accepted and packages/ui lacks yet.
-function AlertStandIn({
-  tone,
-  children,
-  action,
-}: {
-  readonly tone: Tone;
-  readonly children: ReactNode;
-  readonly action?: ReactNode;
-}) {
-  return (
-    <Card data-tone={tone}>
-      <CardHeader>
-        <CardDescription className="flex items-start gap-2">
-          <Badge variant={TONE[tone].variant}>{TONE[tone].label}</Badge>
-          {children}
-        </CardDescription>
-        <CardAction>
-          <Badge variant="amber" data-part-request="Alert">
-            부품 요청 중: Alert
-          </Badge>
-        </CardAction>
-      </CardHeader>
-      {action ? <CardContent>{action}</CardContent> : null}
-    </Card>
-  );
-}
-
 const RESUME = <Button type="button">다시 시작</Button>;
 
 function SessionParkedBannerBody({ state }: { readonly state: BannerState }) {
   if (state === "parked") {
     return (
-      <AlertStandIn tone="warning">
+      <Alert variant="amber">
         답을 기다리다 일시정지했습니다. 아래 요청에 답하면 이어서 진행합니다.{" "}
         {EXPIRES_AT}까지.
-      </AlertStandIn>
+      </Alert>
     );
   }
   if (state === "expired") {
     return (
-      <AlertStandIn tone="warning" action={RESUME}>
+      <Alert variant="amber">
         요청이 모두 만료돼 일시정지 상태로 남아 있습니다. 다시 시작하면 거부된
         것으로 이어집니다.
-      </AlertStandIn>
+        <AlertActions>{RESUME}</AlertActions>
+      </Alert>
     );
   }
   if (state === "resuming") {
-    return (
-      <AlertStandIn tone="info">
-        답을 받아 이어서 진행하는 중입니다.
-      </AlertStandIn>
-    );
+    return <Alert variant="blue">답을 받아 이어서 진행하는 중입니다.</Alert>;
   }
   return (
-    <AlertStandIn tone="warning" action={RESUME}>
+    <Alert variant="amber">
       <div className="story-row items-center">
         <StatusLabel axis="admission" state="paused" label="일시정지됨" />
         답은 저장했습니다. 다시 시작하면 반영됩니다.
       </div>
-    </AlertStandIn>
+      <AlertActions>{RESUME}</AlertActions>
+    </Alert>
   );
 }
 

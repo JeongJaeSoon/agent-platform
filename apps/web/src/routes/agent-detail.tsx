@@ -13,6 +13,10 @@ import type {
 } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
 import {
+  Alert,
+  AlertActions,
+  AlertDescription,
+  AlertTitle,
   Badge,
   Button,
   buttonVariants,
@@ -34,7 +38,6 @@ import { RevisionDiff } from "../components/revision-diff.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 import { CardEditor } from "./agent-detail/card-editor.tsx";
-import { ALERT, ALERT_TITLE } from "./agent-detail/classes.ts";
 import {
   Credentials,
   CredentialUnbound,
@@ -369,48 +372,57 @@ function AgentView({
               </TakesFocus>
               <TakesFocus on={conflict}>
                 {conflict ? (
-                  <section
-                    className={ALERT}
+                  <Alert
+                    asChild
+                    variant="red"
                     data-status="conflict"
                     role="alert"
                   >
-                    <h3 className={ALERT_TITLE}>{t("agent.conflict.title")}</h3>
-                    <p className="m-0">
-                      {reloaded
-                        ? t("agent.conflict.reloaded", {
-                            seen: releaseLabel(conflict.seenActiveReleaseId),
-                            now: releaseLabel(agent.active_release_id),
-                          })
-                        : t("agent.conflict.body")}
-                    </p>
-                    {reloaded ? (
-                      <RevisionDiff
-                        before={
-                          detail.versions.find(
-                            (v) => v.id === seenRelease?.version_id,
-                          )?.card ?? null
-                        }
-                        after={
-                          detail.active_release
-                            ? (detail.versions.find(
-                                (v) =>
-                                  v.id === detail.active_release?.version_id,
-                              )?.card ?? null)
-                            : null
-                        }
-                        beforeLabel={releaseLabel(conflict.seenActiveReleaseId)}
-                        afterLabel={releaseLabel(agent.active_release_id)}
-                      />
-                    ) : (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={onReload}
-                      >
-                        {t("agent.conflict.reload")}
-                      </Button>
-                    )}
-                  </section>
+                    <section>
+                      <AlertTitle asChild>
+                        <h3 className="m-0">{t("agent.conflict.title")}</h3>
+                      </AlertTitle>
+                      <AlertDescription>
+                        {reloaded
+                          ? t("agent.conflict.reloaded", {
+                              seen: releaseLabel(conflict.seenActiveReleaseId),
+                              now: releaseLabel(agent.active_release_id),
+                            })
+                          : t("agent.conflict.body")}
+                      </AlertDescription>
+                      {reloaded ? (
+                        <RevisionDiff
+                          before={
+                            detail.versions.find(
+                              (v) => v.id === seenRelease?.version_id,
+                            )?.card ?? null
+                          }
+                          after={
+                            detail.active_release
+                              ? (detail.versions.find(
+                                  (v) =>
+                                    v.id === detail.active_release?.version_id,
+                                )?.card ?? null)
+                              : null
+                          }
+                          beforeLabel={releaseLabel(
+                            conflict.seenActiveReleaseId,
+                          )}
+                          afterLabel={releaseLabel(agent.active_release_id)}
+                        />
+                      ) : (
+                        <AlertActions>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={onReload}
+                          >
+                            {t("agent.conflict.reload")}
+                          </Button>
+                        </AlertActions>
+                      )}
+                    </section>
+                  </Alert>
                 ) : null}
               </TakesFocus>
             </>

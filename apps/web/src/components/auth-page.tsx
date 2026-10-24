@@ -1,4 +1,4 @@
-import { Card } from "@werft-ai/ui";
+import { Alert, Card } from "@werft-ai/ui";
 import type { ReactNode } from "react";
 import { Main } from "./main.tsx";
 
@@ -33,5 +33,20 @@ export function FormError({ children }: { readonly children: ReactNode }) {
 
 export const ASIDE = "m-0 text-muted-foreground text-sm";
 
-export const NOTICE =
-  "m-0 block rounded-card border border-[var(--ap-tone-progress-border)] bg-[var(--ap-tone-progress-bg)] px-4 py-3 text-[var(--ap-tone-progress-fg)]";
+/**
+ * What an action came to, as a live region. Without children it stays
+ * mounted but out of sight, so text put in later is still read out.
+ */
+export function Notice({ children }: { readonly children?: ReactNode }) {
+  const shown = children !== null && children !== undefined && children !== "";
+  return (
+    <Alert
+      asChild
+      variant="blue"
+      icon={shown ? undefined : null}
+      className={shown ? undefined : "sr-only"}
+    >
+      <output>{children}</output>
+    </Alert>
+  );
+}

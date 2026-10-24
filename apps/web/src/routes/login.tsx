@@ -20,7 +20,7 @@ import {
   ASIDE,
   AuthPage,
   FormError,
-  NOTICE,
+  Notice,
 } from "../components/auth-page.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
@@ -34,12 +34,12 @@ declare module "@tanstack/react-router" {
 }
 
 const NOTICES = ["bootstrap_done", "logged_out", "created"] as const;
-type Notice = (typeof NOTICES)[number];
+type NoticeKind = (typeof NOTICES)[number];
 
 export interface LoginSearch {
   /** Where to go after logging in; a same-origin path only. */
   readonly redirect?: string;
-  readonly notice?: Notice;
+  readonly notice?: NoticeKind;
 }
 
 /**
@@ -107,19 +107,21 @@ export function LoginScreen() {
   return (
     <AuthPage title={t("login.title")}>
       {viewer.data?.user ? (
-        <output className={NOTICE}>
-          {t("login.signedIn", { email: viewer.data.user.email })}{" "}
-          <TextLink asChild underline="always">
-            <Link to="/">{t("login.signedInHome")}</Link>
-          </TextLink>
-        </output>
+        <Notice>
+          <span>
+            {t("login.signedIn", { email: viewer.data.user.email })}{" "}
+            <TextLink asChild underline="always">
+              <Link to="/">{t("login.signedInHome")}</Link>
+            </TextLink>
+          </span>
+        </Notice>
       ) : null}
       {search.redirect ? (
         <StatusScreen kind="login-required" action={false} />
       ) : null}
       {/* A failed attempt makes "the owner is ready" old news. */}
       {search.notice && !login.error ? (
-        <output className={NOTICE}>{t(NOTICE_KEY[search.notice])}</output>
+        <Notice>{t(NOTICE_KEY[search.notice])}</Notice>
       ) : null}
       <form className="flex flex-col gap-4" onSubmit={submit}>
         <Field>

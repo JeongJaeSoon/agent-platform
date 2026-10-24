@@ -19,6 +19,10 @@ import type {
 } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
 import {
+  Alert,
+  AlertActions,
+  AlertDescription,
+  AlertTitle,
   Button,
   ConfirmDialog,
   cn,
@@ -36,8 +40,6 @@ import { StatusScreen } from "../../components/status-screen.tsx";
 import { type Translate, useI18n } from "../../i18n/i18n.tsx";
 import { agentRefusal } from "../agents.tsx";
 import {
-  ALERT,
-  ALERT_TITLE,
   HINT,
   MUTED,
   PRIMARY,
@@ -307,17 +309,23 @@ export function CredentialUnbound({
 }) {
   const { t } = useI18n();
   return (
-    <section className={ALERT} data-status="conflict" role="alert">
-      <h3 className={ALERT_TITLE}>{t("agent.unbound.title")}</h3>
-      <p className="m-0">
-        {missing.length > 0
-          ? t("agent.unbound.body", { names: missing.join(", ") })
-          : t("agent.unbound.bodyUnnamed")}
-      </p>
-      <Button type="button" variant="outline" onClick={onGo}>
-        {t("agent.unbound.go")}
-      </Button>
-    </section>
+    <Alert asChild variant="red" data-status="conflict" role="alert">
+      <section>
+        <AlertTitle asChild>
+          <h3 className="m-0">{t("agent.unbound.title")}</h3>
+        </AlertTitle>
+        <AlertDescription>
+          {missing.length > 0
+            ? t("agent.unbound.body", { names: missing.join(", ") })
+            : t("agent.unbound.bodyUnnamed")}
+        </AlertDescription>
+        <AlertActions>
+          <Button type="button" variant="outline" onClick={onGo}>
+            {t("agent.unbound.go")}
+          </Button>
+        </AlertActions>
+      </section>
+    </Alert>
   );
 }
 
