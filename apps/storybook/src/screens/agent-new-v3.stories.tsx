@@ -82,7 +82,12 @@ function NewAgentScreen({
               if (picked) setHome(picked);
               setStep(next === "allowed" ? "pick" : next);
             }}
-            skipHref={storyHref(`${DETAIL}-slack-none`)}
+            // After a failed event registration the app is already installed.
+            skipHref={storyHref(
+              step === "error"
+                ? `${DETAIL}-slack-error`
+                : `${DETAIL}-slack-none`,
+            )}
             agentHref={
               step === "later"
                 ? storyHref(`${DETAIL}-slack-no-home`)

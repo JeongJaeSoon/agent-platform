@@ -103,6 +103,7 @@ const SEEDED_REACTIONS: Readonly<Record<string, string>> = {
 const CHECKED = "2026. 10. 23. 21:50";
 const CHECK_FAILED = "2026. 10. 23. 22:10";
 const RECHECKED = "2026. 10. 23. 22:14";
+const WELCOMED = { at: "2026. 10. 23. 21:52", release: "rel_3f9a" };
 const FAILED_CHANNEL = {
   name: "#launch-2025",
   reason: "보관된 채널입니다(is_archived)",
@@ -406,11 +407,18 @@ function AgentDetailScreen(props: ScreenProps) {
   const [walking, setWalking] = useState(false);
   const [on, setOn] = useState(props.slackOn ?? true);
   const [checkedAt, setCheckedAt] = useState(CHECKED);
+  // The archived channel fails on its own; re-registering events keeps it.
+  const [joinFailed, setJoinFailed] = useState(props.slack === "error");
   const [dm, setDm] = useState(true);
   const [outcome, setOutcome] = useState<string | null>(null);
   const fresh = props.slack === "installed" || props.slack === "none";
   const [request, setRequest] = useState<RequestState>(
-    fresh ? "none" : props.slack === "todo" ? "pending" : "approved",
+    // home-v3 lists both the request and the event error for this agent.
+    fresh
+      ? "none"
+      : props.slack === "todo" || props.slack === "error"
+        ? "pending"
+        : "approved",
   );
   const seededHome = props.home ? `#${props.home}` : HOME;
   const [home, setHome] = useState(
@@ -467,7 +475,7 @@ function AgentDetailScreen(props: ScreenProps) {
     );
   }
 
-  const pending = request === "pending" && slack === "todo";
+  const pending = request === "pending";
   const status =
     slack === "installed" || slack === "none" ? undefined : STATUS[slack];
   const show = (text: string, next?: Segment) => {
@@ -480,6 +488,7 @@ function AgentDetailScreen(props: ScreenProps) {
     setDialog(undefined);
     setSlack("none");
     setOn(true);
+    setJoinFailed(false);
     setHome("");
     setJoined([]);
     setRequest("none");
@@ -580,7 +589,7 @@ function AgentDetailScreen(props: ScreenProps) {
   // Re-registering only clears the event-address error; a pending request or
   // a missing home channel still needs its own action.
   function reregister() {
-    if (slack === "error") setSlack("connected");
+    if (slack === "error") setSlack(pending ? "todo" : "connected");
     setCheckedAt(RECHECKED);
     show(
       `이벤트 주소를 다시 등록했습니다. Slack이 ${RECHECKED}에 확인했습니다.`,
@@ -757,7 +766,7 @@ function AgentDetailScreen(props: ScreenProps) {
               }
             />
           ) : null}
-          {slack === "error" ? (
+          {joinFailed ? (
             <SettingRow
               title={FAILED_CHANNEL.name}
               badge={<Badge variant="red">오류</Badge>}
@@ -932,7 +941,7 @@ function AgentDetailScreen(props: ScreenProps) {
           title="환영 기록"
           meta={
             home
-              ? value(`${home} · 2026. 10. 23. 21:52 · rel_3f9a`, false)
+              ? value(`${home} · ${WELCOMED.at} · ${WELCOMED.release}`, false)
               : value("아직 보낸 인사가 없습니다.", false)
           }
         />
@@ -1145,7 +1154,7 @@ function AgentDetailScreen(props: ScreenProps) {
         onClose={() => setDialog(undefined)}
         onReject={(reason) => {
           setRequest("rejected");
-          setSlack("connected");
+          if (slack === "todo") setSlack("connected");
           setDialog(undefined);
           show(
             `거절함 · ${REQUEST.channel} · 봇이 채널에서 나감. 채널에는 아무것도 보내지 않았습니다. 사유: ${reason}`,
@@ -1158,7 +1167,7 @@ function AgentDetailScreen(props: ScreenProps) {
             ...current,
             [REQUEST.channel]: defaultReaction,
           }));
-          setSlack("connected");
+          if (slack === "todo") setSlack("connected");
           setDialog(undefined);
           show(
             `승인함 · ${REQUEST.channel} · 알림 보냄. 봇이 "이 채널에 추가됐습니다"를 1건 보냈습니다.`,
