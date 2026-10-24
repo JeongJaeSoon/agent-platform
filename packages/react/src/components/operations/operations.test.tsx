@@ -233,6 +233,19 @@ describe("ToolTable loading", () => {
   });
 });
 
+describe("ToolCalls loading", () => {
+  test("읽는 중에는 loadingRows만큼 숨긴 자리표시 행을 두고 상태 알림은 내지 않는다", () => {
+    const { container, queryAllByRole } = withPlatform(
+      <ToolCalls calls={undefined} loadingRows={5} />,
+    );
+    expect(container.querySelectorAll("li")).toHaveLength(5);
+    expect(queryAllByRole("status")).toHaveLength(0);
+    expect(container.querySelector("ul")?.getAttribute("aria-busy")).toBe(
+      "true",
+    );
+  });
+});
+
 describe("ToolCalls", () => {
   test("볼 수 없는 세션은 링크가 없고, 결과 모름은 성공으로 그리지 않는다", () => {
     const { getAllByRole, getAllByText, queryAllByRole } = withPlatform(

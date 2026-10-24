@@ -1,4 +1,4 @@
-import { Badge, EmptyState } from "@werft-ai/ui";
+import { Badge, EmptyState, Skeleton } from "@werft-ai/ui";
 import type { JSX } from "react";
 
 import { useAgentPlatform } from "../../provider.tsx";
@@ -9,12 +9,17 @@ import { useOperationsMessages } from "./use-messages.ts";
 const OUTCOME_BADGE = { ok: "green", failed: "red", unknown: "gray" } as const;
 
 export interface ToolCallsProps {
-  /** GET /v1/usage/tools/{name}/calls `calls`. */
-  readonly calls: readonly UsageToolCall[];
+  /** GET /v1/usage/tools/{name}/calls `calls`; undefined while read. */
+  readonly calls: readonly UsageToolCall[] | undefined;
   /** The zone the call times are read in; the viewer's by default. */
   readonly timeZone?: string | undefined;
+  /** Placeholder rows while `calls` is read; the host says it is loading. */
+  readonly loadingRows?: number | undefined;
   readonly messages?: Partial<ToolCallsMessages> | undefined;
 }
+
+const ROW =
+  "grid min-h-10 grid-cols-[1fr_auto_72px] items-center gap-3 border-b last:border-b-0";
 
 /**
  * One tool's latest calls: the session (a link only when the viewer may read
@@ -24,6 +29,7 @@ export interface ToolCallsProps {
 export function ToolCalls({
   calls,
   timeZone,
+  loadingRows = 3,
   messages: override,
 }: ToolCallsProps): JSX.Element {
   const { messages, format } = useOperationsMessages("toolCalls", override);
@@ -39,14 +45,37 @@ export function ToolCalls({
       <p className="m-0 -mt-1 mb-2 text-caption text-subtle-foreground leading-4">
         {messages.note}
       </p>
-      {calls.length === 0 ? (
+      {calls === undefined ? (
+        // A call row's two lines at their heights, so the list does not grow
+        // when the calls come.
+        <ul aria-busy="true" className="m-0 list-none p-0">
+          {Array.from({ length: loadingRows }, (_, row) => row).map((row) => (
+            <li key={row} className={ROW}>
+              <span className="flex min-w-0 flex-col">
+                <Skeleton
+                  decorative
+                  width="50%"
+                  height="1lh"
+                  className="justify-center"
+                />
+                <Skeleton
+                  decorative
+                  width="35%"
+                  height="1rem"
+                  className="justify-center"
+                />
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : calls.length === 0 ? (
         <EmptyState title={messages.empty} />
       ) : (
         <ul className="m-0 list-none p-0">
           {calls.map((call) => (
             <li
               key={`${call.occurred_at}-${call.session_id ?? call.agent}`}
-              className="grid min-h-10 grid-cols-[1fr_auto_72px] items-center gap-3 border-b last:border-b-0"
+              className={ROW}
             >
               <span className="flex min-w-0 flex-col [&>*]:truncate">
                 {call.session_id !== null ? (

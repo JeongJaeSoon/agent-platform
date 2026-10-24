@@ -699,11 +699,11 @@ function Tools({
             </SegmentedControl>
           }
         >
-          {loading ? (
-            <Skeleton decorative lines={3} />
-          ) : (
-            <ToolCalls calls={calls} timeZone="Asia/Seoul" />
-          )}
+          <ToolCalls
+            calls={loading ? undefined : calls}
+            loadingRows={calls.length}
+            timeZone="Asia/Seoul"
+          />
         </DetailRailSection>
       </DetailRail>
     ) : undefined;
@@ -955,16 +955,17 @@ const arrive = new Map<Tab, () => void>();
 function Arriving({ tab }: { readonly tab: Tab }) {
   const [loading, setLoading] = useState(true);
   useEffect(() => {
-    arrive.set(tab, () => setLoading(false));
+    const done = () => setLoading(false);
+    arrive.set(tab, done);
     return () => {
-      arrive.delete(tab);
+      if (arrive.get(tab) === done) arrive.delete(tab);
     };
   }, [tab]);
   return <OperationsScreen tab={tab} screen={{ ...LOADING, loading }} />;
 }
 
 const BLOCKS =
-  "h1, h2, h3, [role=table], [role=row], [data-slot=card], [role=tablist]";
+  "h1, h2, h3, [role=table], [role=row], [data-slot=card], [role=tablist], aside, li";
 const layout = (root: HTMLElement) =>
   [...root.querySelectorAll(BLOCKS)].map((block) => {
     const { top, left, width, height } = block.getBoundingClientRect();
