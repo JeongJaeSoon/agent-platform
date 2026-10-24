@@ -1,8 +1,15 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { SessionSummary } from "@werft-ai/contracts";
+import type { PendingRequest, SessionSummary } from "@werft-ai/contracts";
 import { waitingSessionsQuery } from "@werft-ai/core";
-import { Badge } from "@werft-ai/ui";
-import { type ReactNode, useId, useLayoutEffect, useRef } from "react";
+import { Badge, cn } from "@werft-ai/ui";
+import {
+  type ReactNode,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { useAgentPlatform } from "../provider.tsx";
 import { usePendingRequests } from "../sessions.ts";
 import {
@@ -18,8 +25,36 @@ export interface ApprovalInboxProps extends SessionActionProps {
   readonly loading: ReactNode;
   /** The host's words for a read that failed, with the way to ask again. */
   readonly renderError: (error: unknown, retry: () => void) => ReactNode;
-  /** "row" draws each permission request as one line instead of a card. */
+  /**
+   * "row" draws each permission request as one line instead of a card;
+   * "summary" draws each request as a line under its session's name, in one
+   * framed list.
+   */
   readonly layout?: ApprovalLayout | undefined;
+  /** The heading's words, in place of the block's own. */
+  readonly title?: ReactNode;
+  /** Drawn at the heading's end, such as a link to every waiting session. */
+  readonly action?: ReactNode;
+  /** Shown when nothing waits, in place of the block's one line. */
+  readonly empty?: ReactNode;
+  /** The time the summary layout's waits are counted to. */
+  readonly now?: number | undefined;
+}
+
+/**
+ * The time, moved on every minute while `ticking`: a poll that returns the
+ * same data does not re-render, and the waits would stay as first drawn.
+ */
+function useMinute(ticking: boolean): number {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    if (!ticking) return;
+    // Switched on late (another layout, a dropped `now`): start from now.
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(id);
+  }, [ticking]);
+  return now;
 }
 
 /**
@@ -32,11 +67,16 @@ export function ApprovalInbox({
   unavailable,
   refusal,
   layout,
+  title,
+  action,
+  empty,
+  now: givenNow,
 }: ApprovalInboxProps) {
   const { t } = useBlockText();
   const { client } = useAgentPlatform();
   const titleId = useId();
   const waiting = useQuery(waitingSessionsQuery(client));
+  const now = useMinute(layout === "summary" && givenNow === undefined);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const shown = useRef<readonly string[]>([]);
 
@@ -77,11 +117,20 @@ export function ApprovalInbox({
     }
     body =
       items.length === 0 ? (
-        <p className="m-0 text-muted-foreground text-body">
-          {t("inbox.empty")}
-        </p>
+        (empty ?? (
+          <p className="m-0 text-muted-foreground text-body">
+            {t("inbox.empty")}
+          </p>
+        ))
       ) : (
-        <ul className="m-0 flex list-none flex-col gap-[var(--ap-space-block)] p-0">
+        <ul
+          className={cn(
+            "m-0 flex list-none flex-col p-0",
+            layout === "summary"
+              ? "divide-y rounded-card border bg-card"
+              : "gap-[var(--ap-space-block)]",
+          )}
+        >
           {items.map((session) => (
             <WaitingSession
               key={session.id}
@@ -90,6 +139,7 @@ export function ApprovalInbox({
               refusal={refusal}
               renderError={renderError}
               layout={layout}
+              now={givenNow ?? now}
             />
           ))}
         </ul>
@@ -100,16 +150,19 @@ export function ApprovalInbox({
       className="flex min-w-0 flex-col gap-[var(--ap-space-block)]"
       aria-labelledby={titleId}
     >
-      <div className="flex items-center gap-2">
-        <h2
-          id={titleId}
-          ref={titleRef}
-          tabIndex={-1}
-          className="m-0 font-semibold text-body"
-        >
-          {t("inbox.title")}
-        </h2>
-        {count}
+      <div className="flex min-h-7 items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <h2
+            id={titleId}
+            ref={titleRef}
+            tabIndex={-1}
+            className="m-0 font-semibold text-body"
+          >
+            {title ?? t("inbox.title")}
+          </h2>
+          {count}
+        </div>
+        {action}
       </div>
       {body}
     </section>
@@ -122,10 +175,12 @@ function WaitingSession({
   refusal,
   renderError,
   layout,
+  now,
 }: SessionActionProps & {
   readonly session: SessionSummary;
   readonly renderError: ApprovalInboxProps["renderError"];
   readonly layout: ApprovalInboxProps["layout"];
+  readonly now: number;
 }) {
   const { t } = useBlockText();
   const { renderLink, client } = useAgentPlatform();
@@ -138,11 +193,48 @@ function WaitingSession({
     "aria-label": `${t("inbox.open")} ${session.id}`,
     children: <code>{session.id.slice(0, 8)}…</code>,
   });
+  const short = session.id.slice(0, 8);
+  const summary = layout === "summary";
+  const heading = summary
+    ? renderLink({
+        to: "session",
+        id: session.id,
+        className: "text-foreground hover:underline focus-visible:underline",
+        "aria-label": `${t("inbox.open")} ${session.title ?? session.id}`,
+        children: session.title ?? short,
+      })
+    : undefined;
+  const meta = (request: PendingRequest) => {
+    const waited = t("inbox.waited", {
+      minutes: Math.max(
+        0,
+        Math.floor((now - Date.parse(request.created_at)) / 60_000),
+      ),
+    });
+    // Untitled, the name line already is the short id.
+    return session.title ? (
+      <span className="whitespace-nowrap">
+        {short}
+        <span aria-hidden="true"> · </span>
+        {waited}
+      </span>
+    ) : (
+      waited
+    );
+  };
   return (
-    <li className="flex min-w-0 flex-col gap-2">
+    <li className={cn("flex min-w-0 flex-col", summary ? null : "gap-2")}>
       {/* Without a card to carry it, the session still needs its way in. */}
       {pending.data?.items.length ? null : (
-        <p className="m-0 text-caption">{link}</p>
+        <p
+          className={cn(
+            "m-0 text-caption",
+            summary &&
+              "px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)]",
+          )}
+        >
+          {link}
+        </p>
       )}
       {pending.data ? (
         <PendingAnswers
@@ -151,6 +243,8 @@ function WaitingSession({
           answerable={pending.data.answerable}
           subject={link}
           layout={layout}
+          heading={heading}
+          meta={summary ? meta : undefined}
           unavailable={unavailable}
           refusal={refusal}
           // No event stream is open here; the badge and this list learn the
@@ -163,7 +257,14 @@ function WaitingSession({
           }
         />
       ) : pending.error ? (
-        renderError(pending.error, () => void pending.refetch())
+        <div
+          className={cn(
+            summary &&
+              "px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)]",
+          )}
+        >
+          {renderError(pending.error, () => void pending.refetch())}
+        </div>
       ) : null}
     </li>
   );

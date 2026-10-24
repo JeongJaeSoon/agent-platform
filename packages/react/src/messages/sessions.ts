@@ -165,6 +165,7 @@ export const sessionsKo = {
   "inbox.countMore": "답을 기다리는 세션 {count}개 이상",
   "inbox.empty": "답을 기다리는 세션이 없습니다.",
   "inbox.open": "세션 열기",
+  "inbox.waited": "{minutes}분째 대기",
 
   "session.events": "이벤트",
   "session.events.empty": "아직 이벤트가 없습니다.",
@@ -368,6 +369,7 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "inbox.countMore": "{count}+ sessions waiting for an answer",
   "inbox.empty": "No session is waiting for an answer.",
   "inbox.open": "Open session",
+  "inbox.waited": "Waiting {minutes} min",
 
   "session.events": "Events",
   "session.events.empty": "No events yet.",
@@ -574,6 +576,7 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
   "inbox.countMore": "回答待ちのセッション {count}件以上",
   "inbox.empty": "回答を待っているセッションはありません。",
   "inbox.open": "セッションを開く",
+  "inbox.waited": "{minutes} 分待機中",
 
   "session.events": "イベント",
   "session.events.empty": "イベントはまだありません。",

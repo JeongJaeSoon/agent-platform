@@ -3,7 +3,7 @@ import type {
   PendingRequest,
   SessionDetail as SessionDetailData,
 } from "@werft-ai/contracts";
-import { Button, ConfirmDialog } from "@werft-ai/ui";
+import { Badge, Button, ConfirmDialog, cn } from "@werft-ai/ui";
 import { type LucideIcon, Play, Power, Square } from "lucide-react";
 import {
   type Dispatch,
@@ -43,28 +43,34 @@ export interface SessionActionProps {
   readonly refusal?: ((error: ApiError) => string) | undefined;
 }
 
-/** A permission request as the full card or as one line of a list. */
-export type ApprovalLayout = "card" | "row";
+/**
+ * A permission request as the full card, as one line of a list, or as a
+ * list line under its session's name (`heading`), the answer at its end.
+ */
+export type ApprovalLayout = "card" | "row" | "summary";
 
 type Outcome = { readonly kind: "notice" | "error"; readonly text: string };
 
 function OutcomeLine({
   outcome,
   ref,
+  className,
 }: {
   readonly outcome: Outcome | null;
   readonly ref?: Ref<HTMLOutputElement>;
+  readonly className?: string | undefined;
 }) {
   // Always mounted, so a screen reader hears the line when it changes.
   return (
     <output
       ref={ref}
       tabIndex={-1}
-      className={
+      className={cn(
         outcome?.kind === "error"
           ? "m-0 text-destructive text-body"
-          : "m-0 text-muted-foreground text-body"
-      }
+          : "m-0 text-muted-foreground text-body",
+        className,
+      )}
     >
       {outcome?.text}
     </output>
@@ -82,6 +88,33 @@ function Reason({ id, text }: { readonly id?: string; readonly text: string }) {
     <p id={id} className="m-0 text-muted-foreground text-body">
       {text}
     </p>
+  );
+}
+
+/** The summary layout's line for a request that is answered below it. */
+function SummaryLine({
+  heading,
+  badge,
+  meta,
+}: {
+  readonly heading: ReactNode;
+  readonly badge: string;
+  readonly meta: ReactNode;
+}) {
+  return (
+    <div className="flex min-w-0 flex-col gap-0.5 px-[var(--ap-row-padding-x)] pt-[var(--ap-row-padding-y)] pb-2">
+      <p className="m-0 flex min-w-0 items-center gap-2 font-medium text-control leading-5">
+        <span className="min-w-16 truncate">{heading}</span>
+        <Badge variant="amber" className="min-w-0 max-w-max shrink">
+          <span className="truncate">{badge}</span>
+        </Badge>
+      </p>
+      {meta === undefined ? null : (
+        <p className="m-0 text-caption text-muted-foreground leading-4 [overflow-wrap:anywhere]">
+          {meta}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -119,6 +152,8 @@ export function PendingAnswers({
   subject,
   answerable = true,
   layout = "card",
+  heading,
+  meta,
 }: SessionActionProps & {
   readonly sessionId: string;
   readonly items: readonly PendingRequest[];
@@ -130,10 +165,17 @@ export function PendingAnswers({
   readonly subject?: ReactNode;
   /** How a permission request is drawn; a question is always a card. */
   readonly layout?: ApprovalLayout | undefined;
+  /** The session as the summary layout's first line names it. */
+  readonly heading?: ReactNode;
+  /** The summary layout's second line for a request, such as its wait. */
+  readonly meta?: ((request: PendingRequest) => ReactNode) | undefined;
 }) {
   const { t, locale } = useBlockText();
-  const Approval = layout === "row" ? ApprovalRow : ApprovalCard;
+  const summary = layout === "summary";
+  const Approval = layout === "card" ? ApprovalCard : ApprovalRow;
   const short = sessionId.slice(0, 8);
+  // A summary line always names its session, given a heading or not.
+  const lineHeading = heading ?? subject ?? short;
   const answer = useAnswer(sessionId);
   const refused = useRefusal(refusal);
   const [outcome, setOutcome] = useState<
@@ -142,6 +184,21 @@ export function PendingAnswers({
   const reason =
     unavailable?.answer ??
     (answerable ? undefined : t("session.answer.notAnswerer"));
+  // A list line has no room above it; why the reader may not answer joins
+  // the line instead.
+  const metaFor = (request: PendingRequest) => {
+    const lead = meta?.(request);
+    if (reason === undefined) return lead;
+    return lead === undefined ? (
+      reason
+    ) : (
+      <>
+        {lead}
+        <span aria-hidden="true"> · </span>
+        {reason}
+      </>
+    );
+  };
   const busyId = answer.isPending ? answer.variables?.request_id : undefined;
   const listRef = useRef<HTMLDivElement>(null);
   const noticeRef = useRef<HTMLOutputElement>(null);
@@ -206,10 +263,19 @@ export function PendingAnswers({
     <div
       ref={listRef}
       data-slot="pending-answers"
-      className="flex flex-col gap-2"
+      className={cn("flex flex-col", summary ? null : "gap-2")}
     >
-      <OutcomeLine ref={noticeRef} outcome={shownHere ? outcome : null} />
-      {reason === undefined ? null : <Reason text={reason} />}
+      <OutcomeLine
+        ref={noticeRef}
+        outcome={shownHere ? outcome : null}
+        // In a list line an empty notice must not open a gap.
+        className={
+          summary
+            ? "px-[var(--ap-row-padding-x)] [&:not(:empty)]:pt-[var(--ap-row-padding-y)]"
+            : undefined
+        }
+      />
+      {reason === undefined || summary ? null : <Reason text={reason} />}
       {items.length === 0 ? (
         showEmpty ? (
           <p className="m-0 text-muted-foreground text-body">
@@ -217,13 +283,21 @@ export function PendingAnswers({
           </p>
         ) : null
       ) : (
-        <ul className="m-0 flex list-none flex-col gap-2 p-0">
+        <ul
+          className={cn(
+            "m-0 flex list-none flex-col p-0",
+            summary ? "divide-y" : "gap-2",
+          )}
+        >
           {items.map((request) => (
             <li key={request.request_id}>
               {request.kind === "permission" ? (
                 <Approval
                   request={request}
                   subject={subject}
+                  {...(summary
+                    ? { heading: lineHeading, meta: metaFor(request) }
+                    : undefined)}
                   locale={locale}
                   pending={busyId === request.request_id}
                   disabled={reason !== undefined || busyId !== undefined}
@@ -261,32 +335,46 @@ export function PendingAnswers({
                 />
               ) : (
                 <>
-                  {/* QuestionCard has no title-line slot yet. */}
-                  {subject === undefined ? null : (
+                  {summary ? (
+                    <SummaryLine
+                      heading={lineHeading}
+                      badge={t("session.pending.question")}
+                      meta={metaFor(request)}
+                    />
+                  ) : subject === undefined ? null : (
+                    // QuestionCard has no title-line slot yet.
                     <p className="m-0 mb-2 text-caption">{subject}</p>
                   )}
-                  <QuestionCard
-                    request={request}
-                    locale={locale}
-                    pending={busyId === request.request_id}
-                    disabled={reason !== undefined || busyId !== undefined}
-                    error={errorFor(request)}
-                    messages={{
-                      title: t("session.pending.question"),
-                      expires,
-                      expired: t("session.pending.expired"),
-                      freeText: t("session.answer.freeText"),
-                      unanswered: t("session.answer.unanswered"),
-                      submit: t("session.answer.submit"),
-                    }}
-                    onSubmit={(answers) =>
-                      send({
-                        request_id: request.request_id,
-                        kind: "question",
-                        answers,
-                      })
+                  <div
+                    className={
+                      summary
+                        ? "px-[var(--ap-row-padding-x)] pb-[var(--ap-row-padding-y)]"
+                        : undefined
                     }
-                  />
+                  >
+                    <QuestionCard
+                      request={request}
+                      locale={locale}
+                      pending={busyId === request.request_id}
+                      disabled={reason !== undefined || busyId !== undefined}
+                      error={errorFor(request)}
+                      messages={{
+                        title: t("session.pending.question"),
+                        expires,
+                        expired: t("session.pending.expired"),
+                        freeText: t("session.answer.freeText"),
+                        unanswered: t("session.answer.unanswered"),
+                        submit: t("session.answer.submit"),
+                      }}
+                      onSubmit={(answers) =>
+                        send({
+                          request_id: request.request_id,
+                          kind: "question",
+                          answers,
+                        })
+                      }
+                    />
+                  </div>
                 </>
               )}
             </li>
