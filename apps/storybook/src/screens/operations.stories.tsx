@@ -27,15 +27,18 @@ import {
   LinkTabs,
   Meter,
   PageHeader,
+  RowList,
+  RowListItem,
   SearchInput,
   Section,
   SegmentedControl,
   SegmentedControlItem,
+  Skeleton,
   Sparkline,
   StatCard,
   Text,
 } from "@werft-ai/ui";
-import { type ReactNode, useState } from "react";
+import { createContext, type ReactNode, useContext, useState } from "react";
 import { expect, userEvent, within } from "storybook/test";
 
 import { TOOL_NOTE, TOOLS } from "../domain/operations/operations-fixtures.ts";
@@ -95,6 +98,7 @@ interface ScreenData {
   readonly days: Days;
   readonly series: UsageSeriesResponse;
   readonly empty: boolean;
+  readonly loading?: boolean;
 }
 
 function data(role: Role, days: Days, empty = false, partial?: number[]) {
@@ -120,6 +124,52 @@ function data(role: Role, days: Days, empty = false, partial?: number[]) {
 }
 
 // ---------- shared blocks ----------
+
+/*
+ * The Loading stories draw a screen from the same fixtures with each value
+ * swapped for a bar at its line height and each chart or meter for a box of
+ * its height, so the layout stands before the data and nothing moves when it
+ * comes. Parts with a loading state of their own get `undefined`.
+ */
+const Loading = createContext(false);
+
+function Value({
+  children,
+  width = "3rem",
+}: {
+  readonly children: ReactNode;
+  readonly width?: string;
+}) {
+  return useContext(Loading) ? (
+    // Inline so a value that shares a line ("7 / 10") keeps that line's box.
+    <span className="inline-block align-top" style={{ width }}>
+      <Skeleton height="1lh" className="justify-center" />
+    </span>
+  ) : (
+    children
+  );
+}
+
+// BarChart's rendered height, full and compact, x labels included.
+const BAR_CHART_HEIGHT = "11.25rem";
+const RAIL_CHART_HEIGHT = "5.25rem";
+
+// A block skeleton is at least 4rem; shorter boxes center a text bar.
+function Box({
+  height,
+  chart = false,
+}: {
+  readonly height: string;
+  readonly chart?: boolean;
+}) {
+  return (
+    <Skeleton
+      shape={chart ? "block" : "text"}
+      height={height}
+      className="justify-center"
+    />
+  );
+}
 
 function Filters({ role, days }: { readonly role: Role; readonly days: Days }) {
   const [scope, setScope] = useState(role === "owner" ? "installation" : "me");
@@ -191,42 +241,43 @@ function More({
 
 function Kpis({ screen }: { readonly screen: ScreenData }) {
   const s = summaryOf(screen.series);
+  const loading = useContext(Loading);
   const field = (pick: (b: UsageSeriesResponse["buckets"][number]) => number) =>
     screen.series.buckets.map(pick);
+  const spark = (values: readonly number[], label: string) =>
+    loading ? (
+      <Box height="2rem" />
+    ) : (
+      <Sparkline values={values} label={label} />
+    );
   return (
     <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,14rem),1fr))] gap-4">
       <StatCard
         label="세션"
-        value={nf.format(s.session_count)}
-        chart={
-          <Sparkline
-            values={field((b) => b.session_count)}
-            label="일자별 세션 수"
-          />
-        }
+        value={<Value>{nf.format(s.session_count)}</Value>}
+        chart={spark(
+          field((b) => b.session_count),
+          "일자별 세션 수",
+        )}
         description="이 기간에 시작한 세션"
       />
       <StatCard
         label="실행 시간"
-        value={dur(s.run_seconds)}
-        chart={
-          <Sparkline
-            values={field((b) => b.run_seconds)}
-            label="일자별 실행 시간"
-          />
-        }
+        value={<Value width="6rem">{dur(s.run_seconds)}</Value>}
+        chart={spark(
+          field((b) => b.run_seconds),
+          "일자별 실행 시간",
+        )}
         description="turn 시작부터 끝까지, 답을 기다린 시간 포함"
       />
       <StatCard
         label="비용"
         badge={<Badge>추정</Badge>}
-        value={usd(s.cost_usd)}
-        chart={
-          <Sparkline
-            values={field((b) => Number(b.cost_usd))}
-            label="일자별 비용"
-          />
-        }
+        value={<Value width="5rem">{usd(s.cost_usd)}</Value>}
+        chart={spark(
+          field((b) => Number(b.cost_usd)),
+          "일자별 비용",
+        )}
         description={
           s.cost_complete
             ? undefined
@@ -235,10 +286,11 @@ function Kpis({ screen }: { readonly screen: ScreenData }) {
       />
       <StatCard
         label="토큰"
-        value={tok(s.token_count)}
-        chart={
-          <Sparkline values={field((b) => b.token_count)} label="일자별 토큰" />
-        }
+        value={<Value width="4rem">{tok(s.token_count)}</Value>}
+        chart={spark(
+          field((b) => b.token_count),
+          "일자별 토큰",
+        )}
         description="비용을 센 호출의 토큰"
       />
     </div>
@@ -260,6 +312,7 @@ function CostTable({
   readonly tokens?: boolean;
 }) {
   const max = Math.max(...rows.map((r) => Number(r.cost_usd)));
+  const loading = useContext(Loading);
   return (
     <Card flush>
       <GridTable
@@ -289,26 +342,30 @@ function CostTable({
                 as="span"
                 className={mono ? "font-mono text-control" : undefined}
               >
-                {row.label}
+                <Value width="8rem">{row.label}</Value>
               </Text>
-              <Meter
-                size="inline"
-                value={Number(row.cost_usd)}
-                max={max}
-                label={`${row.label} 비용 비율`}
-                className="w-full"
-              />
+              {loading ? (
+                <Box height="0.25rem" />
+              ) : (
+                <Meter
+                  size="inline"
+                  value={Number(row.cost_usd)}
+                  max={max}
+                  label={`${row.label} 비용 비율`}
+                  className="w-full"
+                />
+              )}
             </GridTableCell>
             <GridTableCell align="end" className="tabular-nums">
-              {row.session_count}
+              <Value width="1.5rem">{row.session_count}</Value>
             </GridTableCell>
             {tokens ? (
               <GridTableCell align="end" hideNarrow className="tabular-nums">
-                {tok(row.token_count)}
+                <Value>{tok(row.token_count)}</Value>
               </GridTableCell>
             ) : null}
             <GridTableCell align="end" className="tabular-nums">
-              {usd(row.cost_usd)}
+              <Value>{usd(row.cost_usd)}</Value>
             </GridTableCell>
           </GridTableRow>
         ))}
@@ -338,10 +395,13 @@ function Overview({ screen }: { readonly screen: ScreenData }) {
     failed: 0,
     stopped: 0,
   };
+  const loading = useContext(Loading);
   return (
     <div className="flex min-w-0 flex-col gap-8">
       <SessionCounts
-        counts={screen.empty ? zero : SESSION_COUNTS.counts}
+        counts={
+          loading ? undefined : screen.empty ? zero : SESSION_COUNTS.counts
+        }
         slots={
           screen.role === "owner"
             ? {
@@ -367,7 +427,19 @@ function Overview({ screen }: { readonly screen: ScreenData }) {
           description="도구 호출 기록에서 찾았습니다"
           actions={<More href="#operations/tools">도구 활동</More>}
         >
-          <Findings data={screen.empty ? { tools: [], findings: [] } : TOOLS} />
+          {loading ? (
+            <RowList variant="joined" aria-busy="true">
+              {TOOLS.findings.map(({ kind }) => (
+                <RowListItem key={kind} className="min-h-16">
+                  <Skeleton width="60%" lines={2} />
+                </RowListItem>
+              ))}
+            </RowList>
+          ) : (
+            <Findings
+              data={screen.empty ? { tools: [], findings: [] } : TOOLS}
+            />
+          )}
         </Section>
         <Section
           title="비용이 큰 에이전트"
@@ -397,6 +469,7 @@ function Usage({ screen }: { readonly screen: ScreenData }) {
   const first = screen.series.buckets[0]?.date ?? "";
   const last = screen.series.buckets.at(-1)?.date ?? "";
   const scope = screen.role === "owner" ? "설치 전체" : "내 사용량";
+  const loading = useContext(Loading);
   if (screen.empty) {
     return (
       <div className="flex min-w-0 flex-col gap-8">
@@ -426,29 +499,33 @@ function Usage({ screen }: { readonly screen: ScreenData }) {
       >
         <Card>
           <CardContent>
-            <BarChart
-              label={`일자별 추정 비용, ${screen.days}일`}
-              data={screen.series.buckets.map((b) => ({
-                x: b.date,
-                y: Number(b.cost_usd),
-                partial: !b.cost_complete,
-              }))}
-              yMax={
-                Math.ceil(
-                  Math.max(
-                    ...screen.series.buckets.map((b) => Number(b.cost_usd)),
-                  ) / 20,
-                ) * 20
-              }
-              formatX={monthDay}
-              formatY={(y) => `$${Math.round(y)}`}
-              formatTip={(d) => {
-                const bucket = screen.series.buckets.find(
-                  (b) => b.date === d.x,
-                );
-                return `${monthDay(d.x)} · ${usd(d.y)} · 세션 ${bucket?.session_count ?? 0}개${d.partial ? " · 보고 안 된 비용 있음" : ""}`;
-              }}
-            />
+            {loading ? (
+              <Box chart height={BAR_CHART_HEIGHT} />
+            ) : (
+              <BarChart
+                label={`일자별 추정 비용, ${screen.days}일`}
+                data={screen.series.buckets.map((b) => ({
+                  x: b.date,
+                  y: Number(b.cost_usd),
+                  partial: !b.cost_complete,
+                }))}
+                yMax={
+                  Math.ceil(
+                    Math.max(
+                      ...screen.series.buckets.map((b) => Number(b.cost_usd)),
+                    ) / 20,
+                  ) * 20
+                }
+                formatX={monthDay}
+                formatY={(y) => `$${Math.round(y)}`}
+                formatTip={(d) => {
+                  const bucket = screen.series.buckets.find(
+                    (b) => b.date === d.x,
+                  );
+                  return `${monthDay(d.x)} · ${usd(d.y)} · 세션 ${bucket?.session_count ?? 0}개${d.partial ? " · 보고 안 된 비용 있음" : ""}`;
+                }}
+              />
+            )}
           </CardContent>
         </Card>
       </Section>
@@ -472,22 +549,28 @@ function Usage({ screen }: { readonly screen: ScreenData }) {
               <GridTableRow key={key}>
                 <GridTableCell>{label}</GridTableCell>
                 <GridTableCell>
-                  <Meter
-                    size="inline"
-                    value={totals[key]}
-                    max={total}
-                    label={`${label} 토큰 비율`}
-                    className="w-full"
-                  />
+                  {loading ? (
+                    <Box height="0.25rem" />
+                  ) : (
+                    <Meter
+                      size="inline"
+                      value={totals[key]}
+                      max={total}
+                      label={`${label} 토큰 비율`}
+                      className="w-full"
+                    />
+                  )}
                 </GridTableCell>
                 <GridTableCell align="end" className="tabular-nums">
-                  {tok(totals[key])}
+                  <Value>{tok(totals[key])}</Value>
                 </GridTableCell>
                 <GridTableCell
                   align="end"
                   className="text-subtle-foreground tabular-nums"
                 >
-                  {Math.round((100 * totals[key]) / total)}%
+                  <Value width="2rem">
+                    {Math.round((100 * totals[key]) / total)}%
+                  </Value>
                 </GridTableCell>
               </GridTableRow>
             ))}
@@ -520,6 +603,7 @@ function Tools({
   const [sort, setSort] = useState("calls");
   const [callSort, setCallSort] = useState("recent");
   const [selected, setSelected] = useState("Bash");
+  const loading = useContext(Loading);
   const tools = screen.empty ? [] : TOOLS.tools;
   const tool = TOOLS.tools.find((t) => t.name === selected) ?? TOOLS.tools[0];
   const detail = tool ? toolDetail(tool) : { calls: [], perDay: [] };
@@ -557,17 +641,24 @@ function Tools({
                 label: "실패",
                 value: `${tool.failed}번 (${((100 * tool.failed) / tool.calls).toFixed(1)}%)`,
               },
-            ]}
+            ].map((item) => ({
+              ...item,
+              value: <Value width="4rem">{item.value}</Value>,
+            }))}
           />
         </DetailRailSection>
         <DetailRailSection title="일자별 호출" description="최근 14일">
-          <BarChart
-            compact
-            data={detail.perDay.map((d) => ({ x: d.date, y: d.calls }))}
-            yMax={peak.calls}
-            label={`${tool.name} 일자별 호출, 최근 14일, 합계 ${nf.format(perDayTotal)}번, 가장 많은 날 ${monthDay(peak.date)} ${peak.calls}번`}
-            formatX={monthDay}
-          />
+          {loading ? (
+            <Box chart height={RAIL_CHART_HEIGHT} />
+          ) : (
+            <BarChart
+              compact
+              data={detail.perDay.map((d) => ({ x: d.date, y: d.calls }))}
+              yMax={peak.calls}
+              label={`${tool.name} 일자별 호출, 최근 14일, 합계 ${nf.format(perDayTotal)}번, 가장 많은 날 ${monthDay(peak.date)} ${peak.calls}번`}
+              formatX={monthDay}
+            />
+          )}
         </DetailRailSection>
         <DetailRailSection
           title="최근 호출"
@@ -584,7 +675,11 @@ function Tools({
             </SegmentedControl>
           }
         >
-          <ToolCalls calls={calls} timeZone="Asia/Seoul" />
+          {loading ? (
+            <Skeleton lines={3} />
+          ) : (
+            <ToolCalls calls={calls} timeZone="Asia/Seoul" />
+          )}
         </DetailRailSection>
       </DetailRail>
     ) : undefined;
@@ -593,10 +688,19 @@ function Tools({
       <Head tab="tools" viewer={screen.role} />
       <Filters role={screen.role} days={screen.days} />
       <div className="flex min-w-0 flex-col gap-8">
-        {screen.empty ? null : (
+        {screen.empty ? null : loading ? (
+          <Skeleton lines={2} height="3rem" className="justify-around" />
+        ) : (
           <ToolsSummary tools={tools} period={`최근 ${screen.days}일`} />
         )}
-        <Section title="도구와 명령" badge={<Badge>{tools.length}</Badge>}>
+        <Section
+          title="도구와 명령"
+          badge={
+            <Badge>
+              <Value width="0.75rem">{tools.length}</Value>
+            </Badge>
+          }
+        >
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <SegmentedControl
               aria-label="정렬"
@@ -620,7 +724,7 @@ function Tools({
             />
           </div>
           <ToolTable
-            tools={tools}
+            tools={loading ? undefined : tools}
             label="도구와 명령"
             selected={selected}
             onSelect={setSelected}
@@ -635,6 +739,7 @@ function Tools({
 function Limits({ limits = LIMITS }: { readonly limits?: typeof LIMITS }) {
   const L = limits.limits;
   const U = limits.usage;
+  const loading = useContext(Loading);
   const perSession = (
     <Text as="span" variant="sub" className="text-subtle-foreground">
       세션마다 셉니다
@@ -691,27 +796,39 @@ function Limits({ limits = LIMITS }: { readonly limits?: typeof LIMITS }) {
         <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,14rem),1fr))] gap-4">
           <StatCard
             label="사용 중인 slot"
-            value={U.execution_slots_used}
-            outOf={L.execution_slot_limit}
+            value={<Value width="4rem">{U.execution_slots_used}</Value>}
+            outOf={<Value width="1.5rem">{L.execution_slot_limit}</Value>}
             chart={
-              <Meter
-                value={U.execution_slots_used}
-                max={L.execution_slot_limit}
-                label="slot 사용률"
-              />
+              loading ? (
+                <Box height="0.5rem" />
+              ) : (
+                <Meter
+                  value={U.execution_slots_used}
+                  max={L.execution_slot_limit}
+                  label="slot 사용률"
+                />
+              )
             }
-            description={`빈 slot ${L.execution_slot_limit - U.execution_slots_used}개`}
+            description={
+              <Value width="5rem">
+                {`빈 slot ${L.execution_slot_limit - U.execution_slots_used}개`}
+              </Value>
+            }
           />
           <StatCard
             label="입력 메시지 저장"
-            value={bytes(U.storage.used_bytes)}
-            outOf={bytes(L.storage_limit_bytes)}
+            value={<Value width="4rem">{bytes(U.storage.used_bytes)}</Value>}
+            outOf={<Value width="3rem">{bytes(L.storage_limit_bytes)}</Value>}
             chart={
-              <Meter
-                value={U.storage.used_bytes}
-                max={L.storage_limit_bytes}
-                label="입력 메시지 저장 사용률"
-              />
+              loading ? (
+                <Box height="0.5rem" />
+              ) : (
+                <Meter
+                  value={U.storage.used_bytes}
+                  max={L.storage_limit_bytes}
+                  label="입력 메시지 저장 사용률"
+                />
+              )
             }
             description="입력 메시지만 셉니다"
           />
@@ -734,8 +851,12 @@ function Limits({ limits = LIMITS }: { readonly limits?: typeof LIMITS }) {
             {rows.map(([item, now, limit, note]) => (
               <GridTableRow key={item}>
                 <GridTableCell>{item}</GridTableCell>
-                <GridTableCell className="tabular-nums">{now}</GridTableCell>
-                <GridTableCell className="tabular-nums">{limit}</GridTableCell>
+                <GridTableCell className="tabular-nums">
+                  <Value>{now}</Value>
+                </GridTableCell>
+                <GridTableCell className="tabular-nums">
+                  <Value>{limit}</Value>
+                </GridTableCell>
                 <GridTableCell hideNarrow className="text-muted-foreground">
                   {note}
                 </GridTableCell>
@@ -757,32 +878,33 @@ function OperationsScreen({
   readonly screen: ScreenData;
   readonly hideSessions?: boolean | undefined;
 }) {
-  if (tab === "tools") {
-    return (
-      <ScreenShell
-        current="operations"
-        crumb={["업무", "운영"]}
-        role={screen.role}
-        width="flush"
-      >
-        <Tools screen={screen} hideSessions={hideSessions} />
-      </ScreenShell>
-    );
-  }
   return (
-    <ScreenShell
-      current="operations"
-      crumb={["업무", "운영"]}
-      role={screen.role}
-    >
-      <Head tab={tab} viewer={screen.role} />
-      {tab === "usage" ? (
-        <Filters role={screen.role} days={screen.days} />
-      ) : null}
-      {tab === "overview" ? <Overview screen={screen} /> : null}
-      {tab === "usage" ? <Usage screen={screen} /> : null}
-      {tab === "limits" ? <Limits /> : null}
-    </ScreenShell>
+    <Loading.Provider value={screen.loading ?? false}>
+      {tab === "tools" ? (
+        <ScreenShell
+          current="operations"
+          crumb={["업무", "운영"]}
+          role={screen.role}
+          width="flush"
+        >
+          <Tools screen={screen} hideSessions={hideSessions} />
+        </ScreenShell>
+      ) : (
+        <ScreenShell
+          current="operations"
+          crumb={["업무", "운영"]}
+          role={screen.role}
+        >
+          <Head tab={tab} viewer={screen.role} />
+          {tab === "usage" ? (
+            <Filters role={screen.role} days={screen.days} />
+          ) : null}
+          {tab === "overview" ? <Overview screen={screen} /> : null}
+          {tab === "usage" ? <Usage screen={screen} /> : null}
+          {tab === "limits" ? <Limits /> : null}
+        </ScreenShell>
+      )}
+    </Loading.Provider>
   );
 }
 
@@ -797,6 +919,7 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 const DARK = { theme: "dark" } as const;
+const LOADING = { ...data("owner", 30), loading: true };
 
 export const OverviewOwner: Story = {};
 export const OverviewAdmin: Story = { args: { screen: data("admin", 30) } };
@@ -804,6 +927,7 @@ export const OverviewMember: Story = { args: { screen: data("member", 30) } };
 export const OverviewEmpty: Story = {
   args: { screen: data("owner", 30, true) },
 };
+export const OverviewLoading: Story = { args: { screen: LOADING } };
 export const OverviewDark: Story = { globals: DARK };
 export const OverviewMobile: Story = {
   name: "Overview Owner (390px)",
@@ -823,6 +947,9 @@ export const UsageEmpty: Story = {
 /** A past day with unreported cost is hatched too, not only today. */
 export const UsageCostIncomplete: Story = {
   args: { tab: "usage", screen: data("owner", 30, false, [5, 12, 29]) },
+};
+export const UsageLoading: Story = {
+  args: { tab: "usage", screen: LOADING },
 };
 export const UsageDark: Story = { args: { tab: "usage" }, globals: DARK };
 export const UsageMobile: Story = {
@@ -871,6 +998,9 @@ export const ToolsRailBelow1280: Story = {
 export const ToolsEmpty: Story = {
   args: { tab: "tools", screen: data("owner", 30, true) },
 };
+export const ToolsLoading: Story = {
+  args: { tab: "tools", screen: LOADING },
+};
 export const ToolsDark: Story = { args: { tab: "tools" }, globals: DARK };
 export const ToolsMobile: Story = {
   name: "Tools Owner (390px)",
@@ -899,6 +1029,9 @@ export const LimitsTokenLimitSet: Story = {
       />
     </ScreenShell>
   ),
+};
+export const LimitsLoading: Story = {
+  args: { tab: "limits", screen: LOADING },
 };
 export const LimitsDark: Story = { args: { tab: "limits" }, globals: DARK };
 export const LimitsMobile: Story = {
