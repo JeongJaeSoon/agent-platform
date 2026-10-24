@@ -36,6 +36,9 @@ describe("operations fixtures", () => {
       if (tool.failed === 0) {
         expect(calls.some((c) => c.outcome === "failed")).toBe(false);
       }
+      for (const { duration_ms } of calls) {
+        expect(duration_ms ?? 0).toBeLessThanOrEqual(tool.max_ms);
+      }
     }
     const bash = TOOLS.tools.find((t) => t.name === "Bash");
     expect(bash && toolDetail(bash).perDay.map((d) => d.calls)).toEqual(

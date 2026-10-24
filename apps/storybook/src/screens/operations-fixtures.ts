@@ -295,7 +295,9 @@ export function toolDetail(tool: UsageTool): {
     calls: BASH_CALLS.map((call) => ({
       ...call,
       duration_ms:
-        call.duration_ms === null ? null : Math.round(call.duration_ms * pace),
+        call.duration_ms === null
+          ? null
+          : Math.min(tool.max_ms, Math.round(call.duration_ms * pace)),
       outcome:
         tool.failed === 0 && call.outcome === "failed" ? "ok" : call.outcome,
     })),
