@@ -3,7 +3,13 @@ import type { StatusDotStatus } from "@werft-ai/ui";
 
 export type RunStatus = StatusDotStatus;
 
-export type ToolCallState = "ok" | "error" | "running" | "waiting";
+/** "interrupted": its turn or the session ended before a result came. */
+export type ToolCallState =
+  | "ok"
+  | "error"
+  | "running"
+  | "waiting"
+  | "interrupted";
 
 export interface MapToolCall {
   readonly id: string;

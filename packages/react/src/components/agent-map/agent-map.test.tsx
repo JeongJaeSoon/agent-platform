@@ -8,8 +8,16 @@ import type { MapNode, MapSession } from "./types.ts";
 const { render } = await setupDom();
 // After setupDom: these load @werft-ai/ui (see detail-layout.test.tsx).
 const { AgentPlatformProvider } = await import("../../provider.tsx");
-const { AgentMap, LaneBoard, laneOf, RelationGraph, RelationTree, ToolChips } =
-  await import("./index.ts");
+const {
+  AgentMap,
+  buildRunTree,
+  LaneBoard,
+  laneOf,
+  RelationGraph,
+  RelationTree,
+  runRows,
+  ToolChips,
+} = await import("./index.ts");
 
 const NOW = Date.parse("2026-10-25T01:30:00Z");
 const ago = (minutes: number) => new Date(NOW - minutes * 60_000).toISOString();
@@ -100,6 +108,7 @@ describe("ToolChips", () => {
           { id: "2", name: "Bash", target: "b", state: "error" },
           { id: "3", name: "Grep", target: "c", state: "running" },
           { id: "4", name: "Bash", target: "d", state: "waiting" },
+          { id: "5", name: "Bash", target: "e", state: "interrupted" },
         ]}
         hidden={14}
       />,
@@ -110,8 +119,64 @@ describe("ToolChips", () => {
       "Bashb실패",
       "Grepc실행 중",
       "Bashd승인 대기",
+      "Bashe중단",
       "+14",
     ]);
+    // No colour of the design names an interrupted call, so its word shows.
+    expect(view.getByText("중단", { ignore: ".sr-only" })).toBeTruthy();
+    expect(view.queryByText("실패", { ignore: ".sr-only" })).toBeNull();
+  });
+});
+
+describe("the run tree feeds the relation panel", () => {
+  test("its rows render as they come from the session's events", () => {
+    const frame = (
+      id: string,
+      seconds: number,
+      payload: Parameters<typeof buildRunTree>[0][number]["payload"],
+    ) => ({
+      id,
+      occurredAt: new Date(NOW + seconds * 1000).toISOString(),
+      turnId: null,
+      payload,
+    });
+    const use = (
+      id: string,
+      name: string,
+      input: Record<string, unknown>,
+      parent: string | null,
+    ) => ({
+      event: "tool_use" as const,
+      data: {
+        type: "assistant" as const,
+        message: { content: [{ type: "tool_use", id, name, input }] },
+        parent_tool_use_id: parent,
+      },
+    });
+    const rows: readonly MapNode[] = runRows(
+      buildRunTree([
+        frame(
+          "c1",
+          1,
+          use("task-a", "Task", { subagent_type: "Explore" }, null),
+        ),
+        frame("c2", 2, use("bash-1", "Bash", { command: "make" }, "task-a")),
+        frame("c3", 3, {
+          event: "tool_result",
+          data: { type: "tool_result", tool_use_id: "bash-1", is_error: true },
+        }),
+        frame("c4", 4, use("grep-1", "Grep", { pattern: "retry" }, "task-a")),
+        frame("c5", 5, { event: "status", data: { phase: "stopped" } }),
+      ]),
+    );
+    const view = withPlatform(
+      <RelationTree session={session({ id: "s" })} nodes={rows} now={NOW} />,
+    );
+    expect(view.getByText("Explore")).toBeTruthy();
+    const items = view.getAllByRole("listitem").map((li) => li.textContent);
+    expect(items).toContain("Bashmake실패");
+    // The session stopped before grep-1 had its result.
+    expect(items).toContain("Grepretry중단");
   });
 });
 

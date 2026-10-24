@@ -85,6 +85,7 @@ export const AGENT_MAP_MESSAGES: Readonly<Record<Locale, AgentMapMessages>> = {
         error: "실패",
         running: "실행 중",
         waiting: "승인 대기",
+        interrupted: "중단",
       })[state],
     lane: (lane) =>
       ({
@@ -144,6 +145,7 @@ export const AGENT_MAP_MESSAGES: Readonly<Record<Locale, AgentMapMessages>> = {
         error: "失敗",
         running: "実行中",
         waiting: "承認待ち",
+        interrupted: "中断",
       })[state],
     lane: (lane) =>
       ({
@@ -202,6 +204,7 @@ export const AGENT_MAP_MESSAGES: Readonly<Record<Locale, AgentMapMessages>> = {
         error: "failed",
         running: "running",
         waiting: "awaiting approval",
+        interrupted: "interrupted",
       })[state],
     lane: (lane) =>
       ({
