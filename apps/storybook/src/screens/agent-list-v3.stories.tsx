@@ -16,7 +16,7 @@ import {
   TabsList,
   TabsTrigger,
 } from "@werft-ai/ui";
-import { LayoutGrid, List } from "lucide-react";
+import { ArrowRight, LayoutGrid, List } from "lucide-react";
 
 import { MOBILE, ScreenShell } from "./screen-kit.tsx";
 import { storyHref } from "./slack-kit.tsx";
@@ -24,8 +24,8 @@ import { storyHref } from "./slack-kit.tsx";
 /*
  * The agent list's Slack column (v3-ia.md §3.5) on apps/web agents.tsx's
  * table view: between the state and the updated time at 1280; below 480px
- * the column hides with the updated one and its word moves into the first
- * cell as a link.
+ * the column hides with the updated one, and only a row that needs work
+ * keeps its word, as a link at the end of the name's line (94S-758).
  */
 
 type Slack = "connected" | "action" | "error" | "none";
@@ -115,20 +115,30 @@ function AgentTable({ rows }: { readonly rows: readonly Row[] }) {
             const href = storyHref(row.story);
             return (
               <TableRow key={row.slug}>
-                <TableCell>
+                {/* max-w-0 lets a narrow table truncate the name instead of growing. */}
+                <TableCell className="w-full max-w-0 @[480px]:max-w-none">
                   <div className="flex min-w-0 flex-col gap-[var(--ap-row-line-gap)] leading-4">
-                    <Link
-                      href={storyHref(`${DETAIL}-overview-tab`)}
-                      className="leading-5 [overflow-wrap:anywhere]"
-                    >
-                      {row.name}
-                    </Link>
+                    <div className="flex min-w-0 items-baseline gap-2">
+                      <Link
+                        href={storyHref(`${DETAIL}-overview-tab`)}
+                        className="min-w-0 truncate leading-5 @[480px]:whitespace-normal @[480px]:[overflow-wrap:anywhere]"
+                      >
+                        {row.name}
+                      </Link>
+                      {row.slack === "action" || row.slack === "error" ? (
+                        <Link
+                          href={href}
+                          aria-label={`${row.name} Slack ${word}`}
+                          className="ml-auto inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-caption @[480px]:hidden"
+                        >
+                          Slack {word}
+                          <ArrowRight aria-hidden="true" className="size-3" />
+                        </Link>
+                      ) : null}
+                    </div>
                     <div className="font-mono text-caption text-muted-foreground [overflow-wrap:anywhere]">
                       {row.slug}
                     </div>
-                    <Link href={href} className="text-caption @[480px]:hidden">
-                      {row.why ? `Slack ${word} · ${row.why}` : `Slack ${word}`}
-                    </Link>
                     <div className={`${SECONDARY} @[480px]:hidden`}>
                       {UPDATED} 수정
                     </div>

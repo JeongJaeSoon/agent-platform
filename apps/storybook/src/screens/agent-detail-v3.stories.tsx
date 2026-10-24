@@ -1,5 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import {
+  DetailLayout,
+  DetailRail,
+  DetailRailSection,
+} from "@werft-ai/react/components";
+import {
   Badge,
   Button,
   Card,
@@ -31,7 +36,6 @@ import {
   TabsList,
   TabsTrigger,
   Textarea,
-  useDetailLayout,
 } from "@werft-ai/ui";
 import { ArrowLeft, Copy, LoaderCircle, Plus } from "lucide-react";
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
@@ -41,8 +45,6 @@ import {
   ChannelCombobox,
   type ChannelGroup,
   type ConnectStep,
-  DetailRailSectionStandIn,
-  DetailRailStandIn,
   Heading,
   MUTED_TEXT,
   OutcomeStandIn,
@@ -158,14 +160,12 @@ function Section({
   );
 }
 
-function SummaryRail({ narrow }: { readonly narrow: boolean }) {
+function SummaryRail() {
   return (
-    <DetailRailStandIn label="에이전트 요약" narrow={narrow}>
-      <div className="pt-[var(--ap-space-block)]">
-        <PartRequest name="Detail rail" />
-      </div>
-      <DetailRailSectionStandIn title="요약">
+    <DetailRail label="에이전트 요약">
+      <DetailRailSection title="요약">
         <KeyValueList
+          className="gap-0 divide-y [&>div]:py-2"
           items={[
             {
               label: "식별자",
@@ -176,8 +176,8 @@ function SummaryRail({ narrow }: { readonly narrow: boolean }) {
           ]}
         />
         <div className={MUTED_TEXT}>새 세션은 최신 version으로 시작합니다.</div>
-      </DetailRailSectionStandIn>
-    </DetailRailStandIn>
+      </DetailRailSection>
+    </DetailRail>
   );
 }
 
@@ -422,7 +422,6 @@ function AgentDetailScreen(props: ScreenProps) {
   const [expanded, setExpanded] = useState(false);
   const [homePick, setHomePick] = useState("");
   const [addPick, setAddPick] = useState("");
-  const layout = useDetailLayout();
   // A link that switches segment unmounts itself, so focus moves to the
   // destination tab once it renders.
   const segmentTabs = useRef<Partial<Record<Segment, HTMLButtonElement>>>({});
@@ -1105,26 +1104,23 @@ function AgentDetailScreen(props: ScreenProps) {
     </Tabs>
   );
 
-  const panel = <SummaryRail key="panel" narrow={layout.narrow} />;
-  const body = <div key="body">{tabs}</div>;
-
   return (
-    <ScreenShell current="agents" crumb={["에이전트"]}>
-      <PageHeader
-        title={AGENT.name}
-        description={<Badge variant="green">활성</Badge>}
-        actions={
-          <Button asChild variant="outline" size="sm">
-            <a href={storyHref("screens-agent-list-v3--agent-list-slack-ok")}>
-              <ArrowLeft aria-hidden="true" className="size-3.5" />
-              에이전트 목록
-            </a>
-          </Button>
-        }
-      />
-      <div ref={layout.ref} className={layout.className}>
-        {layout.narrow ? [panel, body] : [body, panel]}
-      </div>
+    <ScreenShell current="agents" crumb={["에이전트"]} width="flush">
+      <DetailLayout rail={<SummaryRail />}>
+        <PageHeader
+          title={AGENT.name}
+          description={<Badge variant="green">활성</Badge>}
+          actions={
+            <Button asChild variant="outline" size="sm">
+              <a href={storyHref("screens-agent-list-v3--agent-list-slack-ok")}>
+                <ArrowLeft aria-hidden="true" className="size-3.5" />
+                에이전트 목록
+              </a>
+            </Button>
+          }
+        />
+        {tabs}
+      </DetailLayout>
       <ReviewDialog
         open={dialog === "review"}
         onClose={() => setDialog(undefined)}

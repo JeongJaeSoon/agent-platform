@@ -48,51 +48,6 @@ export function Heading({
   );
 }
 
-/**
- * Stand-in for packages/react DetailRail (V4-RAIL, not landed): the
- * Cloudflare-style right rail, a left rule instead of a card, scrolling on
- * its own. Stacked on narrow pages it takes a top rule. Widths and spacing
- * come from the existing detail layout tokens until V4-RAIL measures them.
- */
-export function DetailRailStandIn({
-  label,
-  narrow,
-  children,
-}: {
-  readonly label: string;
-  readonly narrow: boolean;
-  readonly children: ReactNode;
-}) {
-  return (
-    <aside
-      aria-label={label}
-      className={`flex min-w-0 flex-col ${narrow ? "border-t" : "sticky top-0 max-h-dvh self-stretch overflow-y-auto border-l pl-6"}`}
-    >
-      {children}
-    </aside>
-  );
-}
-
-/** Stand-in for DetailRailSection: a title, then rows, ruled from the next. */
-export function DetailRailSectionStandIn({
-  title,
-  children,
-}: {
-  readonly title: string;
-  readonly children: ReactNode;
-}) {
-  const titleId = useId();
-  return (
-    <section
-      aria-labelledby={titleId}
-      className="flex flex-col gap-3 border-b py-[var(--ap-space-block)] last:border-b-0"
-    >
-      <Heading id={titleId}>{title}</Heading>
-      {children}
-    </section>
-  );
-}
-
 /** Stand-in for the console's `web-notice` / `web-form__error` result line. */
 export function OutcomeStandIn({
   tone = "progress",
