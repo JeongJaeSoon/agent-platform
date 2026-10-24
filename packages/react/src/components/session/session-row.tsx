@@ -1,25 +1,37 @@
-/* biome-ignore-all lint/a11y/useSemanticElements: container-responsive columns use a div-grid table. */
-/* biome-ignore-all lint/a11y/useFocusableInteractive: static table rows delegate keyboard navigation to their cell links. */
 import type {
   AdmissionState,
   SessionStatus,
   SessionSummary,
 } from "@werft-ai/contracts";
-import { cn, RelativeTime, type TimestampLocale } from "@werft-ai/ui";
-import type { JSX, ReactNode } from "react";
+import {
+  GridTableCell,
+  GridTableRow,
+  GridTableRowOpener,
+  RelativeTime,
+  type TimestampLocale,
+} from "@werft-ai/ui";
+import { Fragment, isValidElement, type JSX, type ReactNode } from "react";
 
 import { StatusLabel } from "../status/status-label.tsx";
 import { SessionStatusLabel } from "./session-status-label.tsx";
 import { useMinute } from "./use-minute.ts";
 
 /**
- * Shared by the header row and every session row, which are separate grids.
- * From 480px the state columns fit their longest label on one line: "Waiting
- * for an answer" and "Needs recovery" in English. Narrower, the id needs the
- * room more and a long label wraps.
+ * @deprecated The div-grid classes SessionTable used before GridTable, kept
+ * for rows a caller lays out itself. SessionTable uses SESSION_TEMPLATE.
  */
 export const SESSION_COLUMNS =
   "grid grid-cols-[minmax(0,1fr)_120px] @[480px]:grid-cols-[minmax(0,1fr)_160px_136px] @[820px]:grid-cols-[minmax(0,5fr)_160px_136px_minmax(0,3fr)_minmax(120px,2fr)]";
+
+/**
+ * SessionTable's column template. The state columns fit their longest label
+ * on one line: "Waiting for an answer" and "Needs recovery" in English. At
+ * 820px of table width and below, admission and runtime drop out for
+ * SESSION_NARROW_TEMPLATE, where a long status label wraps.
+ */
+export const SESSION_TEMPLATE =
+  "minmax(0,5fr) 160px 136px minmax(0,3fr) minmax(120px,2fr)";
+export const SESSION_NARROW_TEMPLATE = "minmax(0,1fr) 120px 72px";
 
 export interface SessionRowMessages {
   readonly status: (status: SessionStatus) => string;
@@ -42,6 +54,42 @@ export interface SessionRowLink {
   readonly className: string;
   readonly "aria-label": string;
   readonly title: string;
+  /** Marks the link as the row's opener for the row's hover and cell rules. */
+  readonly "data-slot"?: string | undefined;
+}
+
+/*
+ * The opener's own look, also given to the link itself: a renderLink that
+ * returns more than one element (a fragment) cannot be the opener's Slot
+ * child, so its link has to cover the row and show focus on its own.
+ */
+const OPENER_LINK =
+  "absolute inset-0 z-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2";
+
+/** The row's one link, over the whole row, from the screen's renderLink. */
+export function SessionRowOpener({
+  name,
+  title,
+  renderLink,
+}: {
+  /** What the link is called, e.g. "세션 열기: 배포 점검". */
+  readonly name: string;
+  readonly title: string;
+  readonly renderLink: (link: SessionRowLink) => ReactNode;
+}): ReactNode {
+  const link = renderLink({
+    children: null,
+    "aria-label": name,
+    title,
+    className: OPENER_LINK,
+    "data-slot": "grid-table-row-opener",
+  });
+  if (!isValidElement(link) || link.type === Fragment) return link;
+  return (
+    <GridTableRowOpener aria-label={name} asChild={true}>
+      {link}
+    </GridTableRowOpener>
+  );
 }
 
 export interface SessionRowProps {
@@ -65,59 +113,30 @@ export function SessionRow({
 }: SessionRowProps): JSX.Element {
   const clock = useMinute(now === undefined);
   const { runtime } = session;
-  const timestamp = (
-    <>
-      <span className="sr-only">
-        {session.last_event_at ? messages.lastEvent : messages.created}{" "}
-      </span>
-      {/* Above the row link's overlay, so hovering and focus reach it. */}
-      <RelativeTime
-        value={session.last_event_at ?? session.created_at}
-        locale={locale}
-        now={now ?? clock}
-        // The narrow layout's cell cuts what overflows; the ring stays inside.
-        // Important: apps/web's unlayered focus rule sets a 2px offset.
-        className="relative focus-visible:-outline-offset-2!"
-      />
-    </>
-  );
   return (
-    <div
-      role="row"
+    <GridTableRow
       data-slot="session-row"
       data-status={session.status}
-      className={cn(
-        SESSION_COLUMNS,
-        "relative min-h-[var(--ap-row-min-height)] min-w-0 items-center gap-4 border-b px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)] text-control last:border-b-0",
-        className,
-      )}
+      className={className}
     >
-      <span
-        role="cell"
-        className="min-w-0 truncate font-mono text-caption leading-5"
-      >
-        {renderLink({
-          children: session.id,
-          "aria-label": session.id,
-          title: session.id,
-          className:
-            "after:absolute after:inset-0 after:rounded-control outline-none hover:underline focus-visible:underline focus-visible:after:ring-2 focus-visible:after:ring-ring",
-        })}
-        <span className="mt-[var(--ap-row-line-gap)] block text-left font-sans text-caption text-muted-foreground leading-4 @[480px]:hidden">
-          {timestamp}
-        </span>
-      </span>
+      <GridTableCell className="font-mono text-caption">
+        <SessionRowOpener
+          name={session.id}
+          title={session.id}
+          renderLink={renderLink}
+        />
+        <span className="min-w-0 truncate">{session.id}</span>
+      </GridTableCell>
       {/* flex, not a line box: an inline badge would sit on the baseline and
           make the row 1–2px taller than its padding says. */}
-      <span role="cell" className="flex">
+      <GridTableCell>
         <SessionStatusLabel
-          className="@[480px]:whitespace-nowrap"
           status={session.status}
           label={messages.status(session.status)}
           axisLabel={messages.statusAxis}
         />
-      </span>
-      <span role="cell" className="hidden @[820px]:flex">
+      </GridTableCell>
+      <GridTableCell hideNarrow={true}>
         <StatusLabel
           className="whitespace-nowrap"
           axis="admission"
@@ -125,25 +144,35 @@ export function SessionRow({
           label={messages.admission(session.admission_state)}
           axisLabel={messages.admissionAxis}
         />
-      </span>
-      <span
-        role="cell"
-        className="hidden min-w-0 truncate text-muted-foreground @[820px]:block"
+      </GridTableCell>
+      <GridTableCell hideNarrow={true} className="text-muted-foreground">
+        <span className="min-w-0 truncate">
+          <span className="sr-only">{messages.runtime}: </span>
+          {runtime
+            ? `${runtime.profile_id} · ${runtime.kind} ${runtime.version}`
+            : messages.none}
+          {session.queued_turn_count > 0
+            ? ` · ${messages.queuedTurns(session.queued_turn_count)}`
+            : null}
+        </span>
+      </GridTableCell>
+      <GridTableCell
+        align="end"
+        className="overflow-hidden whitespace-nowrap text-caption text-muted-foreground"
       >
-        <span className="sr-only">{messages.runtime}: </span>
-        {runtime
-          ? `${runtime.profile_id} · ${runtime.kind} ${runtime.version}`
-          : messages.none}
-        {session.queued_turn_count > 0
-          ? ` · ${messages.queuedTurns(session.queued_turn_count)}`
-          : null}
-      </span>
-      <span
-        role="cell"
-        className="hidden text-right text-muted-foreground text-caption @[480px]:block"
-      >
-        {timestamp}
-      </span>
-    </div>
+        <span className="sr-only">
+          {session.last_event_at ? messages.lastEvent : messages.created}{" "}
+        </span>
+        {/* Above the row's opener, so hovering and focus reach it. */}
+        <RelativeTime
+          value={session.last_event_at ?? session.created_at}
+          locale={locale}
+          now={now ?? clock}
+          // The cell cuts what overflows; the ring stays inside.
+          // Important: apps/web's unlayered focus rule sets a 2px offset.
+          className="relative truncate focus-visible:-outline-offset-2!"
+        />
+      </GridTableCell>
+    </GridTableRow>
   );
 }

@@ -3,6 +3,7 @@ import {
   type InfiniteData,
   type UseInfiniteQueryResult,
   useInfiniteQuery,
+  useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
 import {
@@ -12,7 +13,12 @@ import {
   useSearch,
 } from "@tanstack/react-router";
 import { isApiError, unwrap } from "@werft-ai/client";
-import type { ListSessionsResponse, SessionStatus } from "@werft-ai/contracts";
+import type {
+  CountSessionsResponse,
+  ListSessionsResponse,
+  SessionRelation,
+  SessionStatus,
+} from "@werft-ai/contracts";
 import { queryKeys } from "@werft-ai/core";
 import { useAgentPlatform, useSessions } from "@werft-ai/react";
 import {
@@ -24,6 +30,8 @@ import {
   Button,
   buttonVariants,
   EmptyState,
+  NativeSelect,
+  NativeSelectOption,
   SearchInput,
   SegmentedControl,
   SegmentedControlItem,
@@ -36,7 +44,7 @@ import { Page } from "../components/page.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
 import { SessionOutputs, SessionOutputsCount } from "./session-outputs.tsx";
-import { matchesSessionQuery, SessionsOverview } from "./session-overview.tsx";
+import { SessionsOverview } from "./session-overview.tsx";
 
 export function loadError(error: unknown, onRetry: () => void) {
   if (isApiError(error, "FORBIDDEN")) {
@@ -57,16 +65,50 @@ export const SESSION_FILTERS = [
 ] as const satisfies readonly SessionStatus[];
 export type SessionFilter = (typeof SESSION_FILTERS)[number];
 
+/** The relation filter's choices past "all", in the design's order. */
+export const SESSION_RELATIONS = [
+  "started",
+  "shared",
+  "administered",
+] as const satisfies readonly SessionRelation[];
+export type SessionRelationFilter = (typeof SESSION_RELATIONS)[number];
+
 export interface SessionsSearch {
   /** Absent for every session, so a plain sessions link opens them all. */
   readonly status?: SessionFilter;
+  /** Absent for every relation, the API's own default. */
+  readonly relation?: SessionRelationFilter;
 }
 
 export function sessionsSearch(
   search: Record<string, unknown>,
 ): SessionsSearch {
   const status = SESSION_FILTERS.find((name) => name === search.status);
-  return status ? { status } : {};
+  const relation = SESSION_RELATIONS.find((name) => name === search.relation);
+  return { ...(status ? { status } : {}), ...(relation ? { relation } : {}) };
+}
+
+/** The API's own bound on `q`; the box takes no more. */
+const SEARCH_MAX = 200;
+const SEARCH_SETTLE_MS = 300;
+
+/**
+ * What the search box sends: trimmed, once typing pauses, and nothing for
+ * an empty box, which the API would refuse. Emptied, it applies at once.
+ */
+function useSearchTerm(query: string): string | undefined {
+  const typed = query.trim();
+  const [settled, setSettled] = useState(typed);
+  useEffect(() => {
+    // Emptied, the old term goes at once, so the next one waits its turn.
+    if (typed === "") {
+      setSettled("");
+      return;
+    }
+    const id = setTimeout(() => setSettled(typed), SEARCH_SETTLE_MS);
+    return () => clearTimeout(id);
+  }, [typed]);
+  return typed === "" || settled === "" ? undefined : settled;
 }
 
 /** The console cannot start a session yet; the button says why. */
@@ -93,31 +135,40 @@ export function SessionsScreen() {
   const unavailable = useUnavailable();
   // Validated again: the root route passes the raw query through, so an
   // unknown `status` still reaches this route's search.
-  const tab =
-    sessionsSearch(useSearch({ from: "/authed/sessions" })).status ?? "all";
+  const address = sessionsSearch(useSearch({ from: "/authed/sessions" }));
+  const tab = address.status ?? "all";
+  const relation = address.relation;
   const navigate = useNavigate({ from: "/sessions" });
   const [query, setQuery] = useState("");
+  const q = useSearchTerm(query);
   const search = useRef<HTMLInputElement>(null);
-  const pick = (next: string) =>
+  const counts = useSessionCounts(relation, q);
+  const go = (next: SessionsSearch) =>
     void navigate({
-      search: next === "all" ? {} : { status: next as SessionFilter },
+      search: next,
       // Replace, not push: flipping through the filters would otherwise fill
       // the back button with filter entries.
       replace: true,
+    });
+  const pick = (next: string) =>
+    go({
+      ...(next === "all" ? {} : { status: next as SessionFilter }),
+      ...(relation ? { relation } : {}),
+    });
+  const pickRelation = (next: string) =>
+    go({
+      ...(address.status ? { status: address.status } : {}),
+      ...(next === "all" ? {} : { relation: next as SessionRelationFilter }),
     });
   // The clear button leaves with the empty state, so focus would fall to
   // the page; it goes back to the search box instead.
   const clear = () => {
     setQuery("");
-    pick("all");
+    go({});
     search.current?.focus();
   };
   return (
-    <Page
-      title={t("sessions.title")}
-      description={t("sessions.intro")}
-      actions={<NewSessionButton />}
-    >
+    <Page title={t("sessions.title")} description={t("sessions.intro")}>
       <div className="flex flex-col gap-[var(--ap-space-block)]">
         <ApprovalInbox
           layout="row"
@@ -127,38 +178,64 @@ export function SessionsScreen() {
           refusal={(error) => t(errorKey(error.code))}
         />
         <div className="flex min-w-0 flex-col gap-4">
+          {/* The groupings and their counts on the left, search on the right. */}
           <div className="flex flex-wrap items-center gap-2">
-            {/* The per-status counts wait on an API (94S-811). */}
-            <SegmentedControl
-              aria-label={t("sessionList.filter.label")}
-              value={tab}
-              onValueChange={pick}
-            >
-              <SegmentedControlItem value="all">
-                {t("sessionList.filter.all")}
-              </SegmentedControlItem>
-              {SESSION_FILTERS.map((name) => (
-                <SegmentedControlItem key={name} value={name}>
-                  {t(`sessions.status.${name}`)}
+            <div className="flex flex-wrap items-center gap-2">
+              <SegmentedControl
+                aria-label={t("sessionList.filter.label")}
+                value={tab}
+                onValueChange={pick}
+              >
+                <SegmentedControlItem value="all" count={counts.data?.total}>
+                  {t("sessionList.filter.all")}
                 </SegmentedControlItem>
-              ))}
-            </SegmentedControl>
+                {SESSION_FILTERS.map((name) => (
+                  <SegmentedControlItem
+                    key={name}
+                    value={name}
+                    count={counts.data?.counts[name]}
+                  >
+                    {t(`sessions.status.${name}`)}
+                  </SegmentedControlItem>
+                ))}
+              </SegmentedControl>
+              <NativeSelect
+                aria-label={t("sessionList.relation.label")}
+                value={relation ?? "all"}
+                onChange={(event) => pickRelation(event.target.value)}
+              >
+                <NativeSelectOption value="all">
+                  {t("sessionList.relation.all")}
+                </NativeSelectOption>
+                {SESSION_RELATIONS.map((name) => (
+                  <NativeSelectOption key={name} value={name}>
+                    {t(`sessionList.relation.${name}`)}
+                  </NativeSelectOption>
+                ))}
+              </NativeSelect>
+            </div>
             <SearchInput
               ref={search}
               type="search"
               aria-label={t("sessionList.search")}
               placeholder={t("sessionList.search")}
+              maxLength={SEARCH_MAX}
+              // At the row's end, 240–280px; alone on its line, full width.
+              wrapperClassName="max-w-none flex-[1_1_100%] sm:ml-auto sm:w-[260px] sm:flex-none"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
             />
           </div>
-          {tab === "all" ? (
-            <AllSessions query={query} onClear={clear} />
+          {tab === "all" && relation === undefined && q === undefined ? (
+            <AllSessions onClear={clear} />
           ) : (
-            <SessionsInStatus
+            <FilteredSessions
               key={tab}
-              status={tab}
-              query={query}
+              filter={{
+                ...(tab === "all" ? {} : { status: tab }),
+                ...(relation ? { relation } : {}),
+                ...(q ? { q } : {}),
+              }}
               onClear={clear}
             />
           )}
@@ -201,20 +278,22 @@ function useFollowListRefresh() {
   }, [queryClient]);
 }
 
-function useStatusSessions(status: SessionFilter) {
+interface SessionsFilter {
+  readonly status?: SessionFilter;
+  readonly relation?: SessionRelationFilter;
+  readonly q?: string;
+}
+
+function useFilteredSessions(filter: SessionsFilter) {
   const { client } = useAgentPlatform();
-  useFollowListRefresh();
   return useInfiniteQuery({
     // Under the sessions key, so what refreshes the list refreshes this too.
-    queryKey: [...STATUS_LISTS, status],
+    queryKey: [...STATUS_LISTS, filter],
     queryFn: ({ pageParam }) =>
       unwrap(
         client.GET("/v1/sessions", {
           params: {
-            query: {
-              status,
-              ...(pageParam ? { cursor: pageParam } : {}),
-            },
+            query: { ...filter, ...(pageParam ? { cursor: pageParam } : {}) },
           },
         }),
       ) as Promise<ListSessionsResponse>,
@@ -224,8 +303,27 @@ function useStatusSessions(status: SessionFilter) {
   });
 }
 
+/** The tabs' numbers, for the relation and search the list is read with. */
+function useSessionCounts(
+  relation: SessionRelationFilter | undefined,
+  q: string | undefined,
+) {
+  const { client } = useAgentPlatform();
+  // Here, read whatever the tab: the counts follow every list refresh, and
+  // so does the filtered list under the same key.
+  useFollowListRefresh();
+  const filter = { ...(relation ? { relation } : {}), ...(q ? { q } : {}) };
+  return useQuery({
+    queryKey: [...STATUS_LISTS, "counts", filter],
+    queryFn: () =>
+      unwrap(
+        client.GET("/v1/sessions/counts", { params: { query: filter } }),
+      ) as Promise<CountSessionsResponse>,
+    retry: false,
+  });
+}
+
 interface SessionsViewProps {
-  readonly query: string;
   readonly onClear: () => void;
 }
 
@@ -233,54 +331,38 @@ function AllSessions(props: SessionsViewProps) {
   return <SessionsView {...props} sessions={useSessions()} />;
 }
 
-function SessionsInStatus({
-  status,
+function FilteredSessions({
+  filter,
   ...props
-}: SessionsViewProps & { readonly status: SessionFilter }) {
+}: SessionsViewProps & { readonly filter: SessionsFilter }) {
   return (
     <SessionsView
       {...props}
-      status={status}
-      sessions={useStatusSessions(status)}
+      filter={filter}
+      sessions={useFilteredSessions(filter)}
     />
   );
 }
 
-/**
- * The caller's sessions, every status or one, a page at a time. The search
- * box has no API behind it, so it narrows only the pages read so far.
- */
+/** The caller's sessions for the filters picked, a page at a time. */
 function SessionsView({
   sessions,
-  status,
-  query,
+  filter = {},
   onClear,
 }: SessionsViewProps & {
   readonly sessions: UseInfiniteQueryResult<InfiniteData<ListSessionsResponse>>;
-  readonly status?: SessionFilter;
+  readonly filter?: SessionsFilter;
 }) {
   const { t } = useI18n();
   const items = sessions.data?.pages.flatMap((page) => page.items) ?? [];
-  const shown = items.filter((session) => matchesSessionQuery(session, query));
 
   if (sessions.isPending) return <StatusScreen kind="loading" />;
   if (sessions.error && items.length === 0) {
     return loadError(sessions.error, () => void sessions.refetch());
   }
   if (items.length === 0) {
-    return (
-      <EmptyState
-        title={
-          status === undefined
-            ? t("sessions.empty")
-            : t("sessionList.filter.empty")
-        }
-      />
-    );
-  }
-  return (
-    <div className="flex flex-col items-start gap-4">
-      {shown.length === 0 ? (
+    if (filter.relation || filter.q) {
+      return (
         <EmptyState
           className="w-full"
           title={t("sessionList.noMatch")}
@@ -291,9 +373,21 @@ function SessionsView({
             </Button>
           }
         />
-      ) : (
-        <SessionsOverview sessions={shown} />
-      )}
+      );
+    }
+    return (
+      <EmptyState
+        title={
+          filter.status === undefined
+            ? t("sessions.empty")
+            : t("sessionList.filter.empty")
+        }
+      />
+    );
+  }
+  return (
+    <div className="flex flex-col items-start gap-4">
+      <SessionsOverview sessions={items} />
       {sessions.error
         ? loadError(
             sessions.error,
@@ -317,8 +411,7 @@ function SessionsView({
         </Button>
       ) : null}
       <p className="m-0 text-caption text-subtle-foreground">
-        {t("sessionList.shown", { count: shown.length })} ·{" "}
-        {t("sessionList.searchScope")}
+        {t("sessionList.shown", { count: items.length })}
       </p>
     </div>
   );

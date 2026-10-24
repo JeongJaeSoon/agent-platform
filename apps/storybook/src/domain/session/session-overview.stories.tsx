@@ -10,6 +10,18 @@ const HEAD = {
   session: "Session",
   status: "Status",
   model: "Model",
+  agent: "Agent · Model",
+  repository: "Repository",
+  startedBy: "Started by",
+  recent: "Recent",
+};
+
+/** v4 `.t-sess-home`: the same table without the started-by column. */
+const HOME_HEAD = {
+  session: "Session",
+  status: "Status",
+  model: "Model",
+  agent: "Agent · Model",
   repository: "Repository",
   recent: "Recent",
 };
@@ -28,6 +40,17 @@ const MESSAGES = {
   noRepository: "No repository",
   unknown: "—",
   recent: "Recent",
+  open: (name: string) => `Open session: ${name}`,
+};
+
+const AGENT = {
+  id: "0192f0c4-7d3a-7b4e-9f00-0000000000a1",
+  name: "Release helper",
+  release_version_no: 3,
+};
+const STARTER = {
+  user_id: "0192f0c4-7d3a-7b4e-9f00-0000000000b1",
+  display_name: "Alex Rivera",
 };
 
 const meta = {
@@ -40,7 +63,12 @@ const meta = {
     </SessionOverviewTable>
   ),
   args: {
-    session: { ...SESSION, title: "Write hello.txt and commit" },
+    session: {
+      ...SESSION,
+      title: "Write hello.txt and commit",
+      agent: AGENT,
+      created_by: STARTER,
+    },
     renderLink: (link) => <a href={`/sessions/${SESSION.id}`} {...link} />,
     messages: MESSAGES,
     locale: "en",
@@ -52,11 +80,23 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
 
-/** Created before titles existed: the id's head, and no repository. */
+/**
+ * Created before titles existed: the id's head, no repository, and neither
+ * an agent nor a recorded starter.
+ */
 export const Untitled: Story = {
   args: {
     session: { ...SESSION, title: null, repository_id: null, repository: null },
   },
+};
+
+/** The home page's five columns, for a table that names no starter. */
+export const HomeColumns: Story = {
+  render: (args) => (
+    <SessionOverviewTable label="Recent sessions" messages={HOME_HEAD}>
+      <SessionOverviewRow {...args} />
+    </SessionOverviewTable>
+  ),
 };
 
 /** The wait comes from the oldest pending request's created_at. */
