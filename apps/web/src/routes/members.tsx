@@ -247,7 +247,9 @@ export function MembersScreen() {
               }
             />
           ) : null}
-          {members.hasNextPage && !members.isFetchNextPageError ? (
+          {/* After any failed read the alert's retry is the way on: more
+              rows on top of a failed refresh would keep the stale ones. */}
+          {members.hasNextPage && !members.error ? (
             <Button
               type="button"
               variant="outline"

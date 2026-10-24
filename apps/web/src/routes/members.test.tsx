@@ -868,6 +868,77 @@ describe("구성원 페이지와 서버 검색", () => {
     ).toBe(false);
   });
 
+  test("구성원을 바꾼 뒤 다시 읽기가 실패하면 더 보기 대신 다시 시도만 보인다", async () => {
+    let failing = false;
+    const rows = [...crowd];
+    renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": pagedMembers(rows, 2, () =>
+        Promise.resolve(
+          failing ? apiError(500, "INTERNAL_ERROR", "boom") : undefined,
+        ),
+      ),
+      ...noInvites,
+      [`POST /v1/members/${crowd[0]?.user_id}/disable`]: () => {
+        rows[0] = {
+          ...crowd[0],
+          disabled_at: "2026-10-11T00:00:00.000Z",
+        } as MemberView;
+        failing = true;
+        return json(200, { member: rows[0], receipt_id: null });
+      },
+    });
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "Person 0 비활성화" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "비활성화" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.getAttribute("data-variant")).toBe("red");
+    expect(screen.queryByRole("button", { name: "더 보기" })).toBeNull();
+
+    failing = false;
+    await user.click(within(alert).getByRole("button", { name: "다시 시도" }));
+    await screen.findByRole("button", { name: "더 보기" });
+    expect(
+      screen
+        .getByRole("button", { name: "Person 0 편집" })
+        .closest("[role=row]")
+        ?.getAttribute("data-disabled"),
+    ).toBe("true");
+  });
+
+  test("늦게 온 이전 검색 결과는 지금 검색 결과를 덮지 않는다", async () => {
+    let release: () => void = () => {};
+    const { api } = renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": pagedMembers(
+        [owner, teammate, ...crowd],
+        2,
+        (search) =>
+          search.get("q") === "Person"
+            ? new Promise((resolve) => {
+                release = () => resolve(undefined);
+              })
+            : Promise.resolve(undefined),
+      ),
+      ...noInvites,
+    });
+    const user = await setupUser();
+    await screen.findByRole("button", { name: "Owner 편집" });
+    const box = screen.getByRole("searchbox");
+    await user.type(box, "Person");
+    await waitFor(() => expect(screenReads(api.calls)).toContain("?q=Person"));
+    await user.clear(box);
+    await user.type(box, "Mate");
+    await waitFor(() => expect(rowNames()).toEqual(["Mate"]));
+    release();
+    await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+    expect(rowNames()).toEqual(["Mate"]);
+    expect(screen.queryByRole("button", { name: "더 보기" })).toBeNull();
+  });
+
   test("다음 페이지가 실패하면 받은 행은 두고 빨간 알림과 다시 시도를 보인다", async () => {
     let failing = true;
     const { api } = renderAt("/members", {
