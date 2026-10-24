@@ -41,8 +41,6 @@ services:
     depends_on:
       mock-slack:
         condition: service_healthy
-  # The slack role's bot calls (users.info, the thread status) go to the
-  # same fake.
   slack:
     environment:
       SLACK_OIDC_REDIRECT_URI: http://127.0.0.1:3000/settings/linked-accounts/slack

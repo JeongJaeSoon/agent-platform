@@ -942,8 +942,6 @@ export function sessionCatalogView(
   const profiles: Record<string, CatalogProfileView> = {};
   for (const [id, profile] of Object.entries(config.profiles)) {
     const { kind, ...refFields } = profile.provider.auth;
-    // `per_token` and `required` are the defaults: dropped, so a profile
-    // keeps the fingerprint it had before the field existed.
     const { billing, ...provider } = profile.provider;
     const { repository, ...settings } = profile;
     profiles[id] = {
@@ -997,8 +995,6 @@ export function resolveSessionCatalog(
     return value;
   };
   const profiles: Record<string, CatalogProfile> = {};
-  // The view's profiles with each value added, so a fingerprint taken from
-  // either is the same.
   for (const [id, profile] of Object.entries(
     sessionCatalogView(config).profiles,
   )) {

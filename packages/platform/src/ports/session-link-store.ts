@@ -1,5 +1,5 @@
 /**
- * A Slack thread's session (94S-791). Reserved before the session exists;
+ * A Slack thread's session. Reserved before the session exists;
  * `sessionId` is null until `createSession`, keyed by the link's id, has
  * answered once.
  */

@@ -290,8 +290,6 @@ export function createSessionService(deps: {
   inputs: InputAcceptance;
   controls: SessionControl;
   reader: SessionReader;
-  // Admission reads settings and where a credential comes from, never a
-  // value: a process without provider keys creates sessions too.
   catalog: SessionCatalogView;
   // Resolves a release a session pins; absent, no session may name one.
   releases?: {

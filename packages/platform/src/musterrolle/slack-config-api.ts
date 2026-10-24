@@ -283,7 +283,7 @@ export function createSlackConfigApi(
   };
 }
 
-/** The progress line under a thread's last message (94S-791). */
+/** The progress line under a thread's last message. */
 export const SLACK_SET_STATUS_METHOD = "agents.sessions.setStatus";
 
 /** The calls a bot token makes about the people and places it hears from. */
@@ -347,7 +347,6 @@ export function createSlackBotApi(options?: SlackApiOptions): SlackBotApi {
         conversationInfoAnswer,
       );
       if (channel.is_im) return "dm";
-      // A group DM is as closed as a private channel.
       return channel.is_private || channel.is_mpim
         ? "private_channel"
         : "public_channel";

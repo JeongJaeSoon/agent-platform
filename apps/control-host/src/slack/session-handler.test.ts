@@ -74,8 +74,6 @@ import {
 } from "../api/catalog-config.ts";
 import { slackRoleStartup, slackSessionHandler } from "./main.ts";
 
-// The api's catalog names the provider key; neither this role's catalog nor
-// its environment ever holds it.
 const PROFILES = `profiles:
   general:
     runtime_kind: claude_agent_sdk
@@ -98,7 +96,6 @@ const PERSON = "U0OWNER";
 const CHANNEL = "C0OPS";
 const BOT_CREDENTIAL = "fake-bot-credential";
 const MANAGERS = ["owner", "admin"] as const;
-// The api's limits; no provider key is among them.
 const LIMITS = {
   EXECUTION_SLOT_LIMIT: "10",
   MAX_TURN_SECONDS: "3600",
@@ -133,8 +130,6 @@ afterAll(async () => {
 
 let db: Database;
 
-// PGlite always; a real PostgreSQL too when QUEUE_DATABASE_URL names one,
-// where concurrent first messages truly race.
 const ENGINES = testDatabaseUrl() ? ["PGlite", "PostgreSQL"] : ["PGlite"];
 
 function useDatabase(engine: string) {
@@ -181,7 +176,6 @@ async function loadCatalog() {
 
 type Fixture = Awaited<ReturnType<typeof agentInSlack>>;
 
-/** An owner, an agent released and active, its app installed and linked. */
 async function agentInSlack() {
   const workspaceId = randomUUID();
   await db.insert(workspaces).values({
@@ -210,7 +204,6 @@ async function agentInSlack() {
     { kind: "web" },
     randomUUID(),
   );
-  // Only the api resolves the key, to seed the release it pins.
   const agentsService = createAgentService({
     authorization: createAuthorizationPolicy({
       identity: createDatabaseIdentityReader(db),
@@ -305,7 +298,6 @@ async function agentInSlack() {
 
 let eventCounter = 0;
 
-/** Stores the event as the events route does, ready for a claim. */
 async function deliver(
   fixture: Fixture,
   event: Record<string, unknown>,
@@ -325,7 +317,6 @@ async function deliver(
     eventTime: new Date(),
     status: "received",
     payload: { type: "event_callback", event_id: eventId, event },
-    // Off for the concurrency tests, which take a thread's events at once.
     conversationKey:
       options.thread === false
         ? null
@@ -443,7 +434,6 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
       createdByUserId: fixture.ownerId,
       channel: "slack",
     });
-    // The bot's mention is no part of what the agent reads.
     const by = fixture.ownerId;
     expect(await turnsOf(session?.id)).toEqual([
       { sequence: 1, message: "summarize the thread", actorId: by },
@@ -460,8 +450,6 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
       profileId: "general",
       createdBy: fixture.ownerId,
     });
-    // The requester as Slack named them: the linked (team, user) account,
-    // on the Slack input's decision and the session service's, per post.
     const allowed = await db
       .select({ linkedAccountId: authzDecisions.linkedAccountId })
       .from(authzDecisions)
@@ -470,7 +458,6 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     expect(allowed.map((row) => row.linkedAccountId)).toEqual(
       Array(4).fill(account?.id ?? ""),
     );
-    // The thread shows it is being worked on, at its root, each time.
     const processing = {
       channelId: CHANNEL,
       threadTs: "100.000100",
@@ -553,7 +540,6 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
       message("300.000500", { subtype: "message_deleted" }),
     );
     await drain(handle);
-    // Only the plain mention opened anything: no edit, delete or bot post.
     const opened = await links();
     expect(opened.map((link) => link.threadId)).toEqual(["300.000300"]);
     expect(notices).toEqual([]);
@@ -676,7 +662,6 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
   test("a pass that died after reserving the thread leaves one session once retried", async () => {
     const fixture = await agentInSlack();
     await deliver(fixture, mention("100.000100"));
-    // The dead pass: claimed and reserved, gone before createSession.
     const [claim] = await claimAll(1);
     expect(claim).toBeDefined();
     const [installation] = await db.select().from(slackInstallations);
@@ -713,7 +698,6 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     expect(await sessionsOf(fixture)).toEqual([]);
     expect(await links()).toEqual([]);
 
-    // The uninstall lands after the decision, just before the effects.
     const inbox = createPostgresSlackInboundEventStore(db);
     const revoking = handler({
       async renew(fence, leaseMs) {

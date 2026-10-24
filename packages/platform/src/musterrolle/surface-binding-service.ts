@@ -84,8 +84,6 @@ export function createSurfaceBindingService(deps: {
       request: PutSlackBindingRequest,
     ): Promise<PutSlackBindingResponse> {
       await permitted(caller, agentId);
-      // The kind decides who may see what the agent remembers there, so it
-      // is Slack's answer, never the caller's.
       const channelKind =
         request.channel_id === null
           ? "dm"

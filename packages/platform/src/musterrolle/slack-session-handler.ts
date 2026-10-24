@@ -35,8 +35,6 @@ import {
   type SlackInboxLogger,
 } from "./slack-inbox.ts";
 
-// The fields of a channel message this handler reads; anything else in the
-// event is Slack's and passes untouched.
 const slackMessageSchema = z.object({
   type: z.enum(["app_mention", "message"]),
   channel: z.string().min(1),
@@ -49,8 +47,7 @@ const slackMessageSchema = z.object({
   channel_type: z.string().optional(),
 });
 
-/** Slack's `channel_type` as the binding's kind; undefined when unknown. */
-const CHANNEL_KIND_OF: Record<string, SurfaceChannelKind> = {
+const CHANNEL_KIND_OF: Partial<Record<string, SurfaceChannelKind>> = {
   channel: "public_channel",
   group: "private_channel",
   mpim: "private_channel",
@@ -66,8 +63,10 @@ const SET_STATUS_SKIPPED = new Set([
 
 export const SLACK_PROCESSING_STATUS = "processing";
 
-/** Session refusals a later attempt may not meet. */
-const RETRYABLE = new Set(["RATE_LIMITED", "BACKEND_UNAVAILABLE"]);
+const RETRYABLE_SESSION_CODES = new Set([
+  "RATE_LIMITED",
+  "BACKEND_UNAVAILABLE",
+]);
 
 class SlackLeaseLost extends Error {
   constructor() {
@@ -111,7 +110,7 @@ export type SlackSessionHandlerDeps = {
 };
 
 /**
- * The `slack` role's handler (94S-791): a mention, a DM or a reply in a
+ * The `slack` role's handler: a mention, a DM or a reply in a
  * linked thread becomes a turn of the thread's one session. A refusal
  * leaves a notice for 94S-792 and no session.
  */
@@ -128,8 +127,6 @@ export function createSlackSessionHandler(
     if (!parsed.success) return;
     const event = parsed.data;
     const ids = { id: claim.id, event_id: claim.eventId };
-    // The events route drops these already; an edit, a delete or a bot's
-    // message stored before it did is still no turn.
     if (
       event.bot_id !== undefined ||
       (event.subtype !== undefined && event.subtype !== "thread_broadcast")
@@ -157,7 +154,6 @@ export function createSlackSessionHandler(
       agent.installationId,
       surfaceRef,
     );
-    // A revoked thread takes a rebind, never a quiet new session.
     if (found !== null && found.revokedAt !== null) return;
     const mentioned =
       event.type === "app_mention" ||
@@ -216,8 +212,6 @@ export function createSlackSessionHandler(
       return;
     }
 
-    // A new thread runs the agent's active release; a linked one keeps the
-    // release its link was reserved with.
     let release: { id: string; runtime_profile_id: string } | null = null;
     let resource: SlackInput["resource"];
     if (found === null) {
@@ -267,8 +261,6 @@ export function createSlackSessionHandler(
     }
     const caller = slackCallerOf(decision, requestId);
 
-    // The batch's lease may have run while this event waited: hold it again,
-    // and see the uninstall that may have landed since the claim.
     const held = await deps.inbox.renew(claim, deps.leaseMs);
     if (held === null) throw new SlackLeaseLost();
     if (held.installationStatus === "revoked") {
@@ -279,7 +271,6 @@ export function createSlackSessionHandler(
     if (found !== null) {
       link = found;
     } else {
-      // Allowed on a binding the decision read; gone since, it is retried.
       if (binding === null || release === null) {
         throw new Error("The channel's binding is gone since the decision");
       }
@@ -302,8 +293,6 @@ export function createSlackSessionHandler(
     await setProcessing(botToken, event.channel, threadTs, ids);
 
     try {
-      // The session opens with the link's first message; its other event,
-      // or a retry before the link knew its session, replays that turn.
       if (link.sessionId === null || link.openedByTs === event.ts) {
         await openSession(caller, link, event.ts, message, dm);
       } else {
@@ -315,7 +304,7 @@ export function createSlackSessionHandler(
     } catch (error) {
       if (
         !(error instanceof SessionServiceError) ||
-        RETRYABLE.has(error.code)
+        RETRYABLE_SESSION_CODES.has(error.code)
       ) {
         throw error;
       }
@@ -335,8 +324,6 @@ export function createSlackSessionHandler(
     dm: boolean,
   ): Promise<void> {
     if (link.openedByTs !== ts && link.sessionId === null) {
-      // The opening message never got its session (its event gave out);
-      // this one opens it instead, under its own key.
       deps.logger.warn("Slack thread's opening message ran out; reopened", {
         link_id: link.id,
       });

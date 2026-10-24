@@ -2354,10 +2354,6 @@ export const agentReleases = pgTable(
   ],
 );
 
-// One Slack thread's session (94S-791). The row is reserved before the
-// session exists, so a thread opens one session however its first events
-// race; `session_id` is filled once `createSession` (keyed by the row's id)
-// has answered. `(installation_id, surface_ref)` stays taken after a revoke.
 export const sessionLinks = pgTable(
   "session_links",
   {
@@ -2397,7 +2393,6 @@ export const sessionLinks = pgTable(
       columns: [table.workspaceId, table.agentId],
       foreignColumns: [agents.workspaceId, agents.id],
     }),
-    // The release is the agent's own, whatever wrote the row.
     foreignKey({
       name: "session_links_release_fk",
       columns: [table.agentId, table.releaseId],

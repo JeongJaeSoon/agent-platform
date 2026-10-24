@@ -110,11 +110,6 @@ export async function slackRoleStartup(
   return { catalog, secretKeySet: secretKey !== null, secretKey };
 }
 
-/**
- * The handler of one pass. Sessions go through the api's session service
- * over the catalog view: settings and credential names, never a value, so
- * this role holds no provider key. The master key opens bot tokens only.
- */
 export function slackSessionHandler(deps: {
   db: Database;
   pool: Pick<Pool, "connect">;

@@ -494,9 +494,7 @@ services:
       SLACK_ROLE_HEALTH_STALE_SEC: ${SLACK_ROLE_HEALTH_STALE_SEC:-90}
       SLACK_ROLE_BATCH_SIZE: ${SLACK_ROLE_BATCH_SIZE:-10}
       SLACK_ROLE_LEASE_SEC: ${SLACK_ROLE_LEASE_SEC:-60}
-      # It creates sessions (94S-791): admitted under the api's limits.
       <<: *installation-limits
-      # Where a refusal notice sends a person to link their Slack account.
       SLACK_OIDC_REDIRECT_URI: ${SLACK_OIDC_REDIRECT_URI:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       # Slack's outbound calls (94S-792) decrypt bot tokens here.

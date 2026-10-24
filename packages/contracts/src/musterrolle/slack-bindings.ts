@@ -25,7 +25,7 @@ const slackChannelIdSchema = z
 /**
  * Replaces the binding for one channel, or the install's DM binding, whole:
  * a missing `ceiling` is the default one. `home: true` moves the agent's
- * home here. The server asks Slack what kind of channel it is (94S-791);
+ * home here. The server asks Slack what kind of channel it is;
  * `channel_kind`, when sent, only has to agree on whether it is the DM row.
  */
 export const putSlackBindingRequestSchema = z

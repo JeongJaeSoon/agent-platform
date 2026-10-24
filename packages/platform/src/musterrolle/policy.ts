@@ -594,8 +594,6 @@ export function createAuthorizationPolicy(
     // next session.
     if (resource.release_id !== undefined) {
       if (action !== "session.submit") return ["error", []];
-      // A session resource names its release's own agent; a binding or a
-      // link names its agent apart from the release, so they must agree.
       if (resource.kind !== "session") {
         if (agents.agentOfRelease === undefined) return ["error", []];
         const releaseAgent = await agents.agentOfRelease(

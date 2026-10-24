@@ -279,7 +279,6 @@ export function createPostgresSurfaceBindingStore(
         .limit(1);
       if (!live) {
         const { actions, disclosure } = DEFAULT_SURFACE_CEILING;
-        // The live DM index takes the second of two first DMs.
         await db.execute(sql`
           INSERT INTO ${surfaceBindings} (id, workspace_id, agent_id, surface,
             installation_id, surface_kind, mode, ceiling_actions,
