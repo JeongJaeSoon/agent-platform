@@ -267,9 +267,16 @@ const inviteButton = (
     구성원 초대
   </Button>
 );
-/* The console's create row: the name and its button share one line, and the
-   button drops under the field only when the line is too narrow for both. */
-function TeamCreateRow({ name = "" }: { readonly name?: string | undefined }) {
+/* The console's name row (create and rename): the name and its button share
+   one line, and the button drops under the field only when the line is too
+   narrow for both. */
+function TeamNameRow({
+  name = "",
+  submit,
+}: {
+  readonly name?: string | undefined;
+  readonly submit: ReactNode;
+}) {
   return (
     <form
       className="flex max-w-xl flex-wrap items-end gap-2"
@@ -279,7 +286,7 @@ function TeamCreateRow({ name = "" }: { readonly name?: string | undefined }) {
         <FieldLabel>팀 이름</FieldLabel>
         <Input name="team" maxLength={100} defaultValue={name} />
       </Field>
-      <Button type="submit">팀 만들기</Button>
+      {submit}
     </form>
   );
 }
@@ -403,7 +410,10 @@ function TeamsTab({
 }) {
   return (
     <div className="flex flex-col gap-4 pt-4">
-      <TeamCreateRow name={draft} />
+      <TeamNameRow
+        name={draft}
+        submit={<Button type="submit">팀 만들기</Button>}
+      />
       <ListBody state={state} label="팀 목록">
         {empty ? (
           <EmptyState
@@ -465,6 +475,7 @@ function TeamDetailView({
 }: {
   readonly emptyMembers?: boolean;
 }) {
+  const settingsHeadingId = useId();
   const membersHeadingId = useId();
   const agentsHeadingId = useId();
   return (
@@ -479,12 +490,7 @@ function TeamDetailView({
             팀이 관리자로 지정된 에이전트는 팀원 모두가 관리합니다.
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button type="button" variant="outline">
-            이름 바꾸기
-          </Button>
-          <Button type="button">구성원 추가</Button>
-        </div>
+        <Button type="button">구성원 추가</Button>
       </div>
       <div className="flex flex-col gap-2">
         <PartRequest name="StatStrip" />
@@ -505,6 +511,22 @@ function TeamDetailView({
           ))}
         </div>
       </div>
+      <section
+        aria-labelledby={settingsHeadingId}
+        className="flex flex-col gap-3"
+      >
+        <h3 id={settingsHeadingId} className="m-0 font-semibold">
+          팀 설정
+        </h3>
+        <TeamNameRow
+          name="플랫폼팀"
+          submit={
+            <Button type="submit" variant="outline" disabled>
+              이름 바꾸기
+            </Button>
+          }
+        />
+      </section>
       <section
         aria-labelledby={membersHeadingId}
         className="flex flex-col gap-3"
