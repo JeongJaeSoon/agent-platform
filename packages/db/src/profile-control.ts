@@ -11,6 +11,7 @@ import {
 import { and, eq, isNull, or, sql } from "drizzle-orm";
 import {
   controlClock,
+  controlReplay,
   findIdempotent,
   type IdempotencyScope,
   lockIdempotencyScope,
@@ -63,18 +64,8 @@ export function changeProfileAtomic(
   return transactionWithBindingRetry(db, async (tx, attempt) => {
     await lockIdempotencyScope(tx, scope);
     const existing = await findIdempotent(tx, scope);
-    if (existing) {
-      if (existing.payloadHash !== input.payloadHash) {
-        return { outcome: "conflict" };
-      }
-      return {
-        outcome: "replayed",
-        response: {
-          receipt_id: existing.receiptId,
-          receipt_status: existing.status,
-        },
-      };
-    }
+    const replay = controlReplay(existing, input.payloadHash);
+    if (replay) return replay;
     const session = await lockSessionForControl(tx, {
       sessionId,
       ownerId: scope.principal,

@@ -60,7 +60,7 @@ export function openResumeReceipt(sessionId: string) {
   );
 }
 
-async function queuedTurnCount(tx: Database, sessionId: string) {
+export async function queuedTurnCount(tx: Database, sessionId: string) {
   const [row] = await tx
     .select({ queued: count() })
     .from(turns)
@@ -68,7 +68,7 @@ async function queuedTurnCount(tx: Database, sessionId: string) {
   return row?.queued ?? 0;
 }
 
-export async function resumeReceiptResult(
+async function resumeReceiptResult(
   tx: Database,
   session: Pick<SessionRow, "id" | "checkpointRevision">,
 ): Promise<ResumeReceiptResult> {
