@@ -344,9 +344,8 @@ describe("워크스페이스 설정", () => {
       value: { writeText: async (text: string) => void written.push(text) },
     });
     await user.click(await screen.findByRole("button", { name: "복사" }));
-    expect((await screen.findByRole("status")).textContent).toBe(
-      "워크스페이스 ID를 복사했습니다.",
-    );
+    const message = await screen.findByText("워크스페이스 ID를 복사했습니다.");
+    expect(message.closest("[aria-live=polite]")).not.toBeNull();
     expect(written).toEqual([WORKSPACE_ID]);
   });
 
@@ -364,9 +363,10 @@ describe("워크스페이스 설정", () => {
       },
     });
     await user.click(await screen.findByRole("button", { name: "복사" }));
-    expect((await screen.findByRole("alert")).textContent).toBe(
+    const message = await screen.findByText(
       "복사하지 못했습니다. ID를 직접 선택해 복사하세요.",
     );
+    expect(message.closest("[aria-live=polite]")).not.toBeNull();
     expect(globalThis.getSelection?.()?.toString()).toBe(WORKSPACE_ID);
   });
 

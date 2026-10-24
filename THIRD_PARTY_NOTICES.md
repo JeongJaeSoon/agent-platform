@@ -130,6 +130,7 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | @radix-ui/react-radio-group | 1.4.7 | MIT | worker |
 | @radix-ui/react-roving-focus | 1.1.19 | MIT | worker |
 | @radix-ui/react-slot | 1.3.3 | MIT | worker |
+| @radix-ui/react-switch | 1.3.7 | MIT | worker |
 | @radix-ui/react-tabs | 1.1.21 | MIT | worker |
 | @radix-ui/react-use-callback-ref | 1.1.4 | MIT | worker |
 | @radix-ui/react-use-controllable-state | 1.2.6 | MIT | worker |
