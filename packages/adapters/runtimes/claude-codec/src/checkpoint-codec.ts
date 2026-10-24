@@ -144,8 +144,6 @@ const manifestSchema = z
   })
   .strict();
 
-export type ClaudeCheckpointManifest = z.infer<typeof manifestSchema>;
-
 export const CLAUDE_RUNTIME_FINGERPRINT = {
   cliVersion: CLAUDE_CODE_VERSION,
   engine: CLAUDE_CHECKPOINT_ENGINE,
