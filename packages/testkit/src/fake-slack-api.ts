@@ -82,8 +82,25 @@ export type FakeSlackWebApi = {
   channels: Map<string, FakeSlackChannel>;
   /** Every thread status agents.sessions.setStatus accepted, in order. */
   statuses: { channelId: string; threadTs: string; status: string }[];
+  /** Every message chat.postMessage and chat.postEphemeral accepted. */
+  messages: FakeSlackMessage[];
+  /** A send method named here answers ok:true without a ts, then forgets. */
+  missingTs: Set<string>;
   /** A method named here answers ok:false with this error. */
   failures: Map<string, string>;
+};
+
+/** A chat.postMessage or chat.postEphemeral the fake accepted. */
+export type FakeSlackMessage = {
+  method: "chat.postMessage" | "chat.postEphemeral";
+  channelId: string;
+  threadTs: string | null;
+  /** The ephemeral's reader. */
+  userId: string | null;
+  text: string;
+  ts: string;
+  /** The request's own fields, as sent, other than the above. */
+  options: Record<string, string>;
 };
 
 export type FakeSlackUser = {
@@ -147,6 +164,32 @@ export function createFakeSlackWebApi(
   const users = new Map<string, FakeSlackUser>();
   const channels = new Map<string, FakeSlackChannel>();
   const statuses: FakeSlackWebApi["statuses"] = [];
+  const messages: FakeSlackMessage[] = [];
+  const missingTs = new Set<string>();
+  let messageCounter = 0;
+
+  const post = (
+    method: FakeSlackMessage["method"],
+    context: Context,
+    userId: string | null,
+  ) => {
+    installedBot(context);
+    const { channel, thread_ts, text, user: _, ...options } = context.params;
+    if (!channel) throw new SlackError("channel_not_found");
+    if (!text) throw new SlackError("no_text");
+    messageCounter += 1;
+    const ts = `${Math.floor(Date.now() / 1000)}.${String(messageCounter).padStart(6, "0")}`;
+    messages.push({
+      method,
+      channelId: channel,
+      threadTs: thread_ts ?? null,
+      userId,
+      text,
+      ts,
+      options,
+    });
+    return ts;
+  };
   const failures = new Map<string, string>();
   let appCounter = 0;
   const conversations: FakeSlackListedChannel[] = [];
@@ -318,6 +361,21 @@ export function createFakeSlackWebApi(
           is_mpim: channel.isMpim ?? false,
         },
       };
+    },
+
+    // Posted, but the answer names no message: Slack holds it all the same.
+    "chat.postMessage"(context) {
+      const ts = post("chat.postMessage", context, null);
+      if (missingTs.delete("chat.postMessage")) return {};
+      return { channel: context.params.channel, ts };
+    },
+
+    "chat.postEphemeral"(context) {
+      const user = context.params.user;
+      if (!user) throw new SlackError("user_not_found");
+      const ts = post("chat.postEphemeral", context, user);
+      if (missingTs.delete("chat.postEphemeral")) return {};
+      return { message_ts: ts };
     },
 
     "agents.sessions.setStatus"(context) {
@@ -514,6 +572,8 @@ export function createFakeSlackWebApi(
     users,
     channels,
     statuses,
+    messages,
+    missingTs,
     failures,
     authorize,
     sendEvent,
@@ -606,6 +666,27 @@ export function createFakeSlackWebApi(
       }
       if (url.pathname === "/fake/statuses" && request.method === "GET") {
         return Response.json({ ok: true, statuses });
+      }
+      if (url.pathname === "/fake/messages" && request.method === "GET") {
+        return Response.json({ ok: true, messages });
+      }
+      // For curl on the local stack: {method} answers its next send with
+      // ok:true and no ts.
+      if (url.pathname === "/fake/missing-ts" && request.method === "POST") {
+        const input = (await request.json().catch(() => null)) as {
+          method?: unknown;
+        } | null;
+        if (
+          input?.method !== "chat.postMessage" &&
+          input?.method !== "chat.postEphemeral"
+        ) {
+          return Response.json(
+            { ok: false, error: "invalid_request" },
+            { status: 400 },
+          );
+        }
+        missingTs.add(input.method);
+        return Response.json({ ok: true });
       }
       if (url.pathname === "/fake/config-tokens" && request.method === "POST") {
         return Response.json({ ok: true, refresh_token: issueConfigToken() });
