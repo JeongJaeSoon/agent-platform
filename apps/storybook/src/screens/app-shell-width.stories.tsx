@@ -1,56 +1,62 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Card, CardContent, PageHeader } from "@werft-ai/ui";
+import { Button, Card, CardContent, Page } from "@werft-ai/ui";
+import { Plus } from "lucide-react";
 
-import { type ContentWidth, MOBILE, ScreenShell } from "./screen-kit.tsx";
+import { MOBILE, ScreenShell } from "./screen-kit.tsx";
 
 /*
- * The content column beside the sidebar (V4-CENTER): it grows to 1620px for
- * lists, tables and details (Vercel) or 1100px for forms and settings
- * (Cloudflare), then centres; narrower, only the gutters remain.
+ * The one page frame (V4-PAGE-FRAME): lists, settings, forms and details
+ * all grow to 1620px beside the sidebar, then centre; narrower, only the
+ * gutters remain. A form or settings page keeps the page's width and stops
+ * its sections at 1100px inside it.
  */
 
-function ShellWidth({ width }: { readonly width: ContentWidth }) {
+function Frame({ kind }: { readonly kind: "list" | "settings" }) {
   return (
-    <ScreenShell current="home" crumb={["홈"]} width={width}>
-      <div className="flex flex-col gap-[var(--ap-space-page-head)]">
-        <PageHeader
-          title={width === "wide" ? "목록 화면" : "설정 화면"}
-          description={
-            width === "wide"
-              ? "목록·표·상세는 최대 1620px까지 넓어진 뒤 가운데에 놓입니다."
-              : "설정·폼은 최대 1100px까지 넓어진 뒤 가운데에 놓입니다."
-          }
-        />
+    <ScreenShell
+      current={kind === "list" ? "home" : "settings"}
+      crumb={[kind === "list" ? "홈" : "워크스페이스 설정"]}
+    >
+      <Page
+        title={kind === "list" ? "목록 화면" : "설정 화면"}
+        width={kind === "list" ? "full" : "form"}
+        description="모든 화면이 같은 틀에서 최대 1620px까지 넓어진 뒤 가운데에 놓입니다."
+        actions={
+          kind === "list" ? (
+            <Button type="button">
+              <Plus aria-hidden="true" className="size-4" />
+              새로 만들기
+            </Button>
+          ) : undefined
+        }
+      >
         <Card>
           <CardContent className="py-6 text-muted-foreground">
-            콘텐츠 영역
+            {kind === "list" ? "콘텐츠 영역" : "폼 열은 안쪽에서 1100px까지"}
           </CardContent>
         </Card>
-      </div>
+      </Page>
     </ScreenShell>
   );
 }
 
 const meta = {
-  title: "Screens/AppShell content width (v4)",
-  component: ShellWidth,
+  title: "Screens/AppShell page frame (v4)",
+  component: Frame,
   parameters: { layout: "fullscreen" },
-  args: { width: "wide" },
+  args: { kind: "list" },
   argTypes: {
-    width: { control: "inline-radio", options: ["wide", "narrow"] },
+    kind: { control: "inline-radio", options: ["list", "settings"] },
   },
-} satisfies Meta<typeof ShellWidth>;
+} satisfies Meta<typeof Frame>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const Wide: Story = { name: "Wide (lists, details)" };
-export const Narrow: Story = {
-  name: "Narrow (forms, settings)",
-  args: { width: "narrow" },
-};
-export const WideDark: Story = {
-  name: "Wide (dark)",
+export const List: Story = { name: "List" };
+export const Settings: Story = { name: "Settings", args: { kind: "settings" } };
+export const ListDark: Story = {
+  name: "List (dark)",
   globals: { theme: "dark" },
 };
-export const Mobile: Story = { name: "Wide (390px)", globals: MOBILE };
+export const Mobile: Story = { name: "List (390px)", globals: MOBILE };

@@ -10,7 +10,7 @@ import {
   formatTimestamp,
   LinkTab,
   LinkTabs,
-  PageHeader,
+  Page,
   Skeleton,
 } from "@werft-ai/ui";
 import { CircleAlert, Clock, Copy, Plus } from "lucide-react";
@@ -284,16 +284,15 @@ function ApiKeysScreen({
       crumb={["내 설정", SCREEN[shown].title]}
       role={viewer}
     >
-      <div className="flex flex-col gap-[var(--ap-space-block)]">
-        <PageHeader
-          title={SCREEN[shown].title}
-          description={SCREEN[shown].intro}
-          actions={
-            <Button type="button">
-              <Plus aria-hidden="true" className="size-4" />새 key
-            </Button>
-          }
-        />
+      <Page
+        title={SCREEN[shown].title}
+        description={SCREEN[shown].intro}
+        actions={
+          <Button type="button">
+            <Plus aria-hidden="true" className="size-4" />새 key
+          </Button>
+        }
+      >
         {viewer === "member" ? null : (
           <LinkTabs aria-label="key 목록">
             {(["personal", "service"] as const).map((of) => (
@@ -328,7 +327,7 @@ function ApiKeysScreen({
             </AlertDescription>
           </section>
         </Alert>
-      </div>
+      </Page>
     </ScreenShell>
   );
 }

@@ -18,6 +18,10 @@ describe("styles.css", () => {
     expect(css).not.toContain("@theme");
   });
 
+  test("holds the scrollbar's room, so a page that scrolls keeps the others' x", () => {
+    expect(css).toMatch(/html \{\s*scrollbar-gutter: stable;/);
+  });
+
   test("Japanese wraps between characters, not only at spaces", () => {
     expect(css).toMatch(/:lang\(ja\) body \{\s*word-break: normal;/);
   });

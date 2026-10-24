@@ -164,14 +164,14 @@ Tailwind에는 `theme.css`가 이어 붙인다(`--color-surface: var(--ap-color-
 
 | 사이 | 값 |
 |---|---|
-| topbar 아래 → 페이지 제목 | `--ap-space-page-top` 32px(390px 폭은 16px) |
+| topbar 아래 → 페이지 제목, 마지막 섹션 → 페이지 끝 | `--ap-space-page-top` 24px. 768px 미만은 상하좌우 모두 16px |
 | 페이지 머리(제목·설명) → 첫 섹션 | `--ap-space-page-head` 24px |
 | 섹션 ↔ 섹션 | `--ap-space-section` 32px. 상세 화면의 패널과 본문이 위아래로 쌓여도 두 섹션으로 본다 |
 | 섹션 안 블록 ↔ 블록, 섹션 제목 → 내용 | `--ap-space-block` 16px |
 | 폼 필드 ↔ 필드 | 16px. 라디오·체크박스 묶음 안은 12px |
 | 카드 안 | padding 16px, 목록 행 padding 12px 16px |
 
-- 본문 폭은 화면 단위로 둘 중 하나다. 목록·표·상세 화면(홈, 세션, 에이전트, 구성원, 팀, 내 key·서비스 key 목록)은 `--ap-w-wide`(1200px), 폼 하나나 설정 한 열인 화면(에이전트 만들기, key 만들기, 연동 계정, 언어·테마, 워크스페이스 설정)은 `--ap-w-narrow`(840px)다. 메뉴 묶음이 아니라 본문이 무엇인지로 고른다. 둘 다 왼쪽에 붙고 gutter를 더한다.
+- 페이지 틀은 하나다(`PageFrame`, V4-PAGE-FRAME). 목록·설정·폼·상세 모두 좌우 여백 16px(768px부터 24px) 안에서 `--ap-w-page`(1620px)까지 넓어진 뒤 가운데에 놓인다. 화면마다 폭이나 여백을 따로 적지 않는다. 폼 하나나 설정 한 열인 화면(에이전트 만들기, key 만들기, 연동 계정, 언어·테마, 워크스페이스 설정)은 페이지와 머리 폭은 그대로 두고 `<Page width="form">`으로 섹션 열만 `--ap-w-form`(1100px)에서 멈춘다. 세션 상세는 오른쪽 레일 때문에 `DetailLayout`이 본문만 같은 틀에 넣는다.
 - 화면마다 콘텐츠 왼쪽 선은 하나다. 제목, 설명, 탭 글자, 표 첫 열 글자, 카드 테두리가 같은 x에 선다. line 탭은 좌우 padding 없이 `gap-6`으로 띄워 첫 탭 글자가 선 위에 온다.
 - 목록으로 돌아가는 링크는 제목 위 줄이 아니라 `PageHeader`의 `actions`(outline sm 버튼, 왼쪽 화살표)에 둔다. 그래야 제목 y가 화면마다 같다.
 - 사이드바 머리는 topbar와 높이(`--ap-topbar-h`)와 아래 경계선이 같아 한 줄로 이어진다.
@@ -186,7 +186,7 @@ Tailwind에는 `theme.css`가 이어 붙인다(`--color-surface: var(--ap-color-
 |---|---|---|
 | foundations · `src/foundations/` | 없음 | `tokens.css`·`styles.css`·`theme.css`·`fonts.css`(+`fonts/`), `cn`, `useReducedMotion`, `formatTimestamp` |
 | primitives · `src/primitives/` | foundations | shadcn 항목 `Button`·`Badge`·`Card*`·`Input`·`Textarea`·`NativeSelect*`·`Checkbox`·`RadioGroup*`·`Tabs*`·`Dialog*`·`Field*`, 그리고 `Skeleton`. 도메인을 모른다. 의미 있는 상태는 `Badge`가 아니라 `StatusLabel`로 |
-| patterns · `src/patterns/` | primitives | `ConfirmDialog`·`DestructiveActionDialog`(결과 설명이 필수이고, 파괴적 동작은 이름을 입력해야 열린다), `EmptyState`, `ErrorState`(제목·할 일·원문·재시도·증거 링크. 할 일 문구는 쓰는 쪽이 준다), 페이지 머리 `PageHeader`(h1 + 설명 + 동작), `Stepper`, 상세 화면 두 칸 배치 `useDetailLayout` |
+| patterns · `src/patterns/` | primitives | `ConfirmDialog`·`DestructiveActionDialog`(결과 설명이 필수이고, 파괴적 동작은 이름을 입력해야 열린다), `EmptyState`, `ErrorState`(제목·할 일·원문·재시도·증거 링크. 할 일 문구는 쓰는 쪽이 준다), 페이지 틀 `PageFrame`(여백 + 1620px 가운데 열)과 그 안의 `Page`(머리 + 32px 간격 섹션), 페이지 머리 `PageHeader`(h1 + 설명 + 동작 여러 개), `Stepper`, 상세 화면 두 칸 배치 `useDetailLayout` |
 
 계약 타입을 받는 도메인 조각은 `packages/react/src/components`(`@werft-ai/react/components`)에 있다: `StatusLabel`(admission·turn·receipt·execution **네 축**을 따로 그린다), `ReceiptSummary`·`ReceiptLink`(`unknown`은 성공으로 그리지 않는다), `ApiErrorState`(`error.code`별 "할 일"을 채운 `ErrorState`), `Session*`·`Timeline`·`Message`·`Composer`·`ApprovalCard`·`ApprovalRow`·`QuestionCard`·`StageIndicator`.
 

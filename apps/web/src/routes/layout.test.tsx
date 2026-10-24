@@ -80,57 +80,62 @@ describe("app shell", () => {
     await waitFor(() => expect(header?.textContent).toBe("메뉴 열기내 key"));
   });
 
-  test("lists and forms take different widths", async () => {
-    renderAt("/", signedIn);
-    await screen.findByRole("heading", { name: "홈" });
-    expect(contentColumn()?.dataset.contentWidth).toBe("wide");
-    expect(contentColumn()?.className).toContain("mx-auto");
-    expect(contentColumn()?.className).toContain("max-w-[101.25rem]");
-  });
+  // V4-PAGE-FRAME: settings and forms used to stop at 1100px.
+  for (const [path, title] of [
+    ["/", "홈"],
+    ["/sessions", "세션"],
+    ["/settings/api-keys", "내 key"],
+    ["/settings/workspace", "워크스페이스 설정"],
+    ["/settings/workspace/", "워크스페이스 설정"],
+    ["/settings/preferences", "언어·테마"],
+    ["/settings/linked-accounts", "연동 계정"],
+    ["/settings/api-keys/new", "새 개인 key"],
+  ] as const) {
+    test(`${path} sits in the one page frame`, async () => {
+      renderAt(path, signedIn);
+      await screen.findByRole("heading", { level: 1, name: title });
+      const frame = contentColumn();
+      expect(frame?.dataset.slot).toBe("page-frame");
+      expect(frame?.className).toContain("md:px-6");
+      expect(
+        frame?.querySelector('[data-slot="page-frame-body"]')?.className,
+      ).toContain("max-w-[var(--ap-w-page)]");
+    });
+  }
+
+  // One form or settings column stops inside the frame; lists use it all.
+  for (const [path, title, width] of [
+    ["/sessions", "세션", "full"],
+    ["/settings/api-keys", "내 key", "full"],
+    ["/settings/workspace", "워크스페이스 설정", "form"],
+    ["/settings/preferences", "언어·테마", "form"],
+    ["/settings/linked-accounts", "연동 계정", "form"],
+    ["/settings/api-keys/new", "새 개인 key", "form"],
+    ["/agents/new", "새 에이전트", "form"],
+  ] as const) {
+    test(`${path} takes the ${width} column`, async () => {
+      renderAt(path, signedIn);
+      const heading = await screen.findByRole("heading", {
+        level: 1,
+        name: title,
+      });
+      expect(
+        heading
+          .closest('[data-slot="page"]')
+          ?.querySelector("[data-width]")
+          ?.getAttribute("data-width"),
+      ).toBe(width);
+    });
+  }
 
   test("a session's detail lays out the whole area itself", async () => {
     renderAt(`/sessions/${FIRST}`, signedIn);
     await waitFor(() =>
-      expect(contentColumn()?.dataset.contentWidth).toBe("flush"),
+      expect(contentColumn()?.dataset.slot).toBe("page-flush"),
     );
     const main = document.getElementById("main");
     expect(main?.className).not.toContain("p-4");
-    expect(contentColumn()?.className).not.toContain("mx-auto");
     expect(contentColumn()?.className).not.toContain("max-w-");
-  });
-
-  test("the session list keeps the gutters and the list width", async () => {
-    renderAt("/sessions", signedIn);
-    await waitFor(() =>
-      expect(contentColumn()?.dataset.contentWidth).toBe("wide"),
-    );
-    expect(document.getElementById("main")?.className).toContain("p-4");
-    expect(contentColumn()?.className).toContain("max-w-[101.25rem]");
-  });
-
-  test("a trailing slash keeps the screen's width", async () => {
-    renderAt("/settings/workspace/", signedIn);
-    await screen.findByRole("heading", { level: 1 });
-    expect(contentColumn()?.dataset.contentWidth).toBe("narrow");
-    expect(contentColumn()?.className).toContain("max-w-[68.75rem]");
-  });
-
-  test("a key list with a trailing slash stays a list", async () => {
-    renderAt("/settings/api-keys/", signedIn);
-    await screen.findByRole("heading", { level: 1, name: "내 key" });
-    expect(contentColumn()?.dataset.contentWidth).toBe("wide");
-  });
-
-  test("the key lists take the list width", async () => {
-    renderAt("/settings/api-keys", signedIn);
-    await screen.findByRole("heading", { level: 1, name: "내 key" });
-    expect(contentColumn()?.dataset.contentWidth).toBe("wide");
-  });
-
-  test("making a key takes the form width", async () => {
-    renderAt("/settings/api-keys/new", signedIn);
-    await screen.findByRole("heading", { level: 1, name: "새 개인 key" });
-    expect(contentColumn()?.dataset.contentWidth).toBe("narrow");
   });
 
   test("the top bar makes nothing; each list offers its own", async () => {

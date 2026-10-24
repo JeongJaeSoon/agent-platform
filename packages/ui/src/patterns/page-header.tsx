@@ -7,8 +7,16 @@ export interface PageHeaderProps {
   readonly title: ReactNode;
   /** One line on what the page is for; screen readers hear it with the title. */
   readonly description?: ReactNode | undefined;
-  /** The page's own actions, such as its one primary button. */
+  /**
+   * The page's own actions, such as its primary button; several sit in a
+   * row (a view switch, then the primary button).
+   */
   readonly actions?: ReactNode | undefined;
+  /**
+   * A `PageBreadcrumb` on the line above the title, where another page's
+   * title starts; the way back to a list goes here, not in `actions`.
+   */
+  readonly breadcrumb?: ReactNode | undefined;
   readonly className?: string | undefined;
 }
 
@@ -20,6 +28,7 @@ export function PageHeader({
   title,
   description,
   actions,
+  breadcrumb,
   className,
 }: PageHeaderProps): JSX.Element {
   const descriptionId = useId();
@@ -34,6 +43,7 @@ export function PageHeader({
       )}
     >
       <div className="flex min-w-0 flex-col gap-1">
+        {breadcrumb}
         <h1
           className="m-0 font-semibold text-foreground text-title"
           aria-describedby={hasDescription ? descriptionId : undefined}

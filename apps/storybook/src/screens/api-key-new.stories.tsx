@@ -11,12 +11,13 @@ import {
   FieldLegend,
   FieldSet,
   Input,
-  Link,
   NativeSelect,
   NativeSelectOption,
-  PageHeader,
+  Page,
+  PageBreadcrumb,
+  PageBreadcrumbCurrent,
+  PageBreadcrumbLink,
 } from "@werft-ai/ui";
-import { ArrowLeft } from "lucide-react";
 import { useState } from "react";
 
 import { MOBILE, ScreenShell } from "./screen-kit.tsx";
@@ -94,102 +95,104 @@ function NewKeyScreen({
   );
   return (
     <ScreenShell current="settings" crumb={["내 설정", screen.list]}>
-      <div className="flex w-full flex-col gap-2">
-        <Link
-          href={`#${kind}`}
-          className="inline-flex items-center gap-1 self-start text-control"
-        >
-          <ArrowLeft aria-hidden="true" className="size-3.5" />
-          {screen.list}
-        </Link>
-        <PageHeader title={screen.title} description={screen.intro} />
-        <div className="flex flex-col gap-[var(--ap-space-section)]">
-          {state === "failed" ? (
-            <div role="alert" className="text-destructive">
-              처리하지 못했습니다 — 잠시 뒤 다시 시도하세요.
-            </div>
-          ) : null}
-          <Card flush>
-            <form onSubmit={(event) => event.preventDefault()}>
-              <div className="flex flex-col items-start gap-4 p-4">
-                {kind === "service" ? (
-                  <Field>
-                    <FieldLabel>대상</FieldLabel>
-                    <div>
-                      <NativeSelect defaultValue="workspace">
-                        <NativeSelectOption value="workspace">
-                          워크스페이스 전체 (에이전트 지정 없음)
-                        </NativeSelectOption>
-                      </NativeSelect>
-                    </div>
-                    <FieldDescription>
-                      에이전트를 고르면 그 에이전트의 세션에서만 쓸 수 있는
-                      에이전트 전용 key가 됩니다.
-                    </FieldDescription>
-                  </Field>
-                ) : null}
-                <FieldSet className="w-full gap-3">
-                  <FieldLegend variant="label" className="mb-0">
-                    권한
-                  </FieldLegend>
-                  {SCOPES.map((scope) => (
-                    <Field key={scope.scope} orientation="horizontal">
-                      <Checkbox
-                        checked={chosen.includes(scope.scope)}
-                        onCheckedChange={(checked) =>
-                          setChosen(
-                            checked === true
-                              ? [...chosen, scope.scope]
-                              : chosen.filter((s) => s !== scope.scope),
-                          )
-                        }
-                      />
-                      <FieldContent>
-                        <FieldLabel>
-                          {scope.name} {scope.scope}
-                        </FieldLabel>
-                        <FieldDescription>{scope.hint}</FieldDescription>
-                        {kind === "service" &&
-                        scope.scope === "sessions:approve" ? (
-                          <FieldDescription>
-                            에이전트 전용 key에는 넣을 수 없습니다. 에이전트가
-                            사람 대신 승인할 수는 없습니다.
-                          </FieldDescription>
-                        ) : null}
-                      </FieldContent>
-                    </Field>
-                  ))}
-                </FieldSet>
+      <Page
+        title={screen.title}
+        description={screen.intro}
+        width="form"
+        breadcrumb={
+          <PageBreadcrumb label="위치">
+            <PageBreadcrumbLink href={`#${kind}`}>
+              {screen.list}
+            </PageBreadcrumbLink>
+            <PageBreadcrumbCurrent>{screen.title}</PageBreadcrumbCurrent>
+          </PageBreadcrumb>
+        }
+      >
+        {state === "failed" ? (
+          <div role="alert" className="text-destructive">
+            처리하지 못했습니다 — 잠시 뒤 다시 시도하세요.
+          </div>
+        ) : null}
+        <Card flush>
+          <form onSubmit={(event) => event.preventDefault()}>
+            <div className="flex flex-col items-start gap-4 p-4">
+              {kind === "service" ? (
                 <Field>
-                  <FieldLabel>만료일(필수 아님)</FieldLabel>
+                  <FieldLabel>대상</FieldLabel>
                   <div>
-                    <Input
-                      type="date"
-                      className="w-auto"
-                      // As in the console: no past day (local YYYY-MM-DD).
-                      min={new Date().toLocaleDateString("sv")}
-                    />
+                    <NativeSelect defaultValue="workspace">
+                      <NativeSelectOption value="workspace">
+                        워크스페이스 전체 (에이전트 지정 없음)
+                      </NativeSelectOption>
+                    </NativeSelect>
                   </div>
                   <FieldDescription>
-                    비워 두면 폐기할 때까지 유효합니다.
+                    에이전트를 고르면 그 에이전트의 세션에서만 쓸 수 있는
+                    에이전트 전용 key가 됩니다.
                   </FieldDescription>
                 </Field>
-              </div>
-              <CardFooter
-                variant="form"
-                className="flex-wrap items-start justify-end"
-              >
-                <Button type="button" variant="outline">
-                  취소
-                </Button>
-                <Button type="submit" disabled={chosen.length === 0}>
-                  key 만들기
-                </Button>
-              </CardFooter>
-            </form>
-          </Card>
-        </div>
-      </div>
+              ) : null}
+              <FieldSet className="w-full gap-3">
+                <FieldLegend variant="label" className="mb-0">
+                  권한
+                </FieldLegend>
+                {SCOPES.map((scope) => (
+                  <Field key={scope.scope} orientation="horizontal">
+                    <Checkbox
+                      checked={chosen.includes(scope.scope)}
+                      onCheckedChange={(checked) =>
+                        setChosen(
+                          checked === true
+                            ? [...chosen, scope.scope]
+                            : chosen.filter((s) => s !== scope.scope),
+                        )
+                      }
+                    />
+                    <FieldContent>
+                      <FieldLabel>
+                        {scope.name} {scope.scope}
+                      </FieldLabel>
+                      <FieldDescription>{scope.hint}</FieldDescription>
+                      {kind === "service" &&
+                      scope.scope === "sessions:approve" ? (
+                        <FieldDescription>
+                          에이전트 전용 key에는 넣을 수 없습니다. 에이전트가
+                          사람 대신 승인할 수는 없습니다.
+                        </FieldDescription>
+                      ) : null}
+                    </FieldContent>
+                  </Field>
+                ))}
+              </FieldSet>
+              <Field>
+                <FieldLabel>만료일(필수 아님)</FieldLabel>
+                <div>
+                  <Input
+                    type="date"
+                    className="w-auto"
+                    // As in the console: no past day (local YYYY-MM-DD).
+                    min={new Date().toLocaleDateString("sv")}
+                  />
+                </div>
+                <FieldDescription>
+                  비워 두면 폐기할 때까지 유효합니다.
+                </FieldDescription>
+              </Field>
+            </div>
+            <CardFooter
+              variant="form"
+              className="flex-wrap items-start justify-end"
+            >
+              <Button type="button" variant="outline">
+                취소
+              </Button>
+              <Button type="submit" disabled={chosen.length === 0}>
+                key 만들기
+              </Button>
+            </CardFooter>
+          </form>
+        </Card>
+      </Page>
     </ScreenShell>
   );
 }

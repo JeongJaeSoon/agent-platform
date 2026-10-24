@@ -36,9 +36,12 @@ import {
   LinkTabs,
   NativeSelect,
   NativeSelectOption,
-  Link as TextLink,
+  Page,
+  PageBreadcrumb,
+  PageBreadcrumbCurrent,
+  PageBreadcrumbLink,
 } from "@werft-ai/ui";
-import { ArrowLeft, Check, CircleAlert, Clock, Copy, Plus } from "lucide-react";
+import { Check, CircleAlert, Clock, Copy, Plus } from "lucide-react";
 import {
   type FormEvent,
   type RefObject,
@@ -66,7 +69,6 @@ import { FormError, Notice } from "../components/auth-page.tsx";
 import { copyText } from "../components/copy.ts";
 import { LoadFailure } from "../components/load-failure.tsx";
 import type { Outcome } from "../components/outcome.tsx";
-import { Page } from "../components/page.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import {
   errorKey,
@@ -75,8 +77,6 @@ import {
   useI18n,
 } from "../i18n/i18n.tsx";
 
-// v4 key form (Console.dc.html L818): the way back sits 8px above the title.
-const PAGE = "flex w-full flex-col gap-2";
 const SECTION_TITLE = "m-0 font-semibold text-body";
 const META = "text-muted-foreground text-xs";
 const ICON = "size-3.5 shrink-0";
@@ -792,35 +792,37 @@ function NewKeyScreen({ kind }: { readonly kind: ApiKeyKind }) {
   const issued = issue.data;
 
   return (
-    <div className={PAGE}>
-      <TextLink
-        asChild
-        className="inline-flex items-center gap-1 self-start text-control"
-      >
-        <Link to={screen.list}>
-          <ArrowLeft aria-hidden="true" className="size-3.5" />
-          {t(screen.title)}
-        </Link>
-      </TextLink>
-      <Page title={t(screen.newTitle)} description={t(screen.intro)}>
-        {outcome?.kind === "error" ? (
-          <FormError>{outcome.text}</FormError>
-        ) : null}
-        {issued ? (
-          <IssuedSecret issued={issued} listTo={screen.list} />
-        ) : kind === "personal" ? (
-          <PersonalKeyForm
-            busy={issue.isPending}
-            send={(body) => issue.mutate(body)}
-          />
-        ) : (
-          <ServiceKeyForm
-            busy={issue.isPending}
-            send={(body) => issue.mutate(body)}
-          />
-        )}
-      </Page>
-    </div>
+    <Page
+      width="form"
+      title={t(screen.newTitle)}
+      description={t(screen.intro)}
+      breadcrumb={
+        <PageBreadcrumb label={t("shell.breadcrumb")}>
+          <PageBreadcrumbLink asChild>
+            {/* The list is this page's parent, not the page itself. */}
+            <Link to={screen.list} activeOptions={{ exact: true }}>
+              {t(screen.title)}
+            </Link>
+          </PageBreadcrumbLink>
+          <PageBreadcrumbCurrent>{t(screen.newTitle)}</PageBreadcrumbCurrent>
+        </PageBreadcrumb>
+      }
+    >
+      {outcome?.kind === "error" ? <FormError>{outcome.text}</FormError> : null}
+      {issued ? (
+        <IssuedSecret issued={issued} listTo={screen.list} />
+      ) : kind === "personal" ? (
+        <PersonalKeyForm
+          busy={issue.isPending}
+          send={(body) => issue.mutate(body)}
+        />
+      ) : (
+        <ServiceKeyForm
+          busy={issue.isPending}
+          send={(body) => issue.mutate(body)}
+        />
+      )}
+    </Page>
   );
 }
 
