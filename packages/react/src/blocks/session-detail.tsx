@@ -109,15 +109,20 @@ export function SessionDetail({
   const events = useSessionEvents(id, readable);
 
   if (detail === undefined) {
-    if (session.isPending) return loading;
-    if (isApiError(session.error, "NOT_FOUND")) {
-      return (
-        <p className="m-0 text-destructive" role="alert">
-          {t("session.notFound")}
-        </p>
-      );
-    }
-    return renderError(session.error, () => void session.refetch());
+    // The host leaves the gutters to this layout, rail or not.
+    return (
+      <DetailLayout>
+        {session.isPending ? (
+          loading
+        ) : isApiError(session.error, "NOT_FOUND") ? (
+          <p className="m-0 text-destructive" role="alert">
+            {t("session.notFound")}
+          </p>
+        ) : (
+          renderError(session.error, () => void session.refetch())
+        )}
+      </DetailLayout>
+    );
   }
   const pendingCount = pending.data?.items.length;
   const hostTabs = tabs?.(detail) ?? [];
@@ -190,41 +195,47 @@ export function SessionDetail({
   const rail = (
     <DetailRail label={t("session.panel")}>
       <DetailRailSection title={t("session.pending")}>
-        {pending.data ? (
-          <PendingAnswers
-            sessionId={id}
-            items={pending.data.items}
-            answerable={pending.data.answerable}
-            showEmpty={false}
-            unavailable={unavailable}
-            refusal={refusal}
-          />
-        ) : pending.error ? (
-          renderError(pending.error, () => void pending.refetch())
-        ) : (
-          <output className="text-caption text-muted-foreground">
-            {t("sessions.loadingMore")}
-          </output>
-        )}
-        {pendingCount === 0 ? (
-          <div className="flex items-start gap-2">
-            <CircleCheck
-              className="mt-0.5 size-4 shrink-0 text-[var(--ap-tone-success-fg)]"
-              strokeWidth={1.5}
-              aria-hidden="true"
+        <div
+          // With nothing to show, the answers block keeps its live region
+          // mounted but leaves the flow, so it does not open a gap.
+          className="flex flex-col gap-3 [&>[data-slot=pending-answers]:not(:has(li,p,output:not(:empty)))]:absolute"
+        >
+          {pending.data ? (
+            <PendingAnswers
+              sessionId={id}
+              items={pending.data.items}
+              answerable={pending.data.answerable}
+              showEmpty={false}
+              unavailable={unavailable}
+              refusal={refusal}
             />
-            <p className="m-0 flex min-w-0 flex-col gap-0.5">
-              <span className="font-medium text-control">
-                {t("session.pending.emptyTitle")}
-              </span>
-              <span className="text-caption text-muted-foreground leading-[1.5]">
-                {t(idleNote(detail.status), {
-                  status: t(`sessions.status.${detail.status}`),
-                })}
-              </span>
-            </p>
-          </div>
-        ) : null}
+          ) : pending.error ? (
+            renderError(pending.error, () => void pending.refetch())
+          ) : (
+            <output className="text-caption text-muted-foreground">
+              {t("sessions.loadingMore")}
+            </output>
+          )}
+          {pendingCount === 0 ? (
+            <div className="flex items-start gap-2">
+              <CircleCheck
+                className="mt-0.5 size-4 shrink-0 text-[var(--ap-tone-success-fg)]"
+                strokeWidth={1.5}
+                aria-hidden="true"
+              />
+              <p className="m-0 flex min-w-0 flex-col gap-0.5">
+                <span className="font-medium text-control">
+                  {t("session.pending.emptyTitle")}
+                </span>
+                <span className="text-caption text-muted-foreground leading-[1.5]">
+                  {t(idleNote(detail.status), {
+                    status: t(`sessions.status.${detail.status}`),
+                  })}
+                </span>
+              </p>
+            </div>
+          ) : null}
+        </div>
       </DetailRailSection>
       <Operations
         session={detail}

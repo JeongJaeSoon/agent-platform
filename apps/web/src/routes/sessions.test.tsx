@@ -2317,6 +2317,31 @@ describe("세션 상세 레이아웃", () => {
     expect(layout?.lastElementChild?.tagName).toBe("ASIDE");
   });
 
+  test.each([
+    ["loading", () => new Promise<Response>(() => {})],
+    [
+      "error",
+      () =>
+        json(500, {
+          error: { code: "INTERNAL_ERROR", message: "detail failed" },
+        }),
+    ],
+  ] as const)(
+    "세션을 읽는 중·실패(%s)도 상세 레이아웃의 여백 안에 둔다",
+    async (state, read) => {
+      renderAt(`/sessions/${SESSION_ID}`, {
+        ...detailRoutes,
+        [`GET /v1/sessions/${SESSION_ID}`]: read,
+      });
+      const shown =
+        state === "loading"
+          ? await screen.findByText("불러오는 중입니다")
+          : await screen.findByRole("button", { name: "다시 시도" });
+      expect(shown.closest('[data-slot="detail-layout-body"]')).toBeTruthy();
+      expect(screen.queryByRole("complementary")).toBeNull();
+    },
+  );
+
   test("레일은 어느 폭에서나 본문 다음에 읽고, 요청이 없어도 작성창은 본문에 있다", async () => {
     renderAt(`/sessions/${SESSION_ID}`, {
       ...detailRoutes,
