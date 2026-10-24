@@ -46,6 +46,7 @@ import {
   type ChannelGroup,
   type ConnectStep,
   Heading,
+  homePrivateHint,
   MUTED_TEXT,
   OutcomeStandIn,
   SlackConnectCard,
@@ -483,36 +484,25 @@ function AgentDetailScreen(props: ScreenProps) {
     {
       label: "공개 채널",
       options: [
-        ...joined.map((name) => ({
-          name,
-          note: name === home ? "현재 홈 채널" : "공개 · 연결됨",
-        })),
+        ...joined.map((name) => ({ name })),
         ...PUBLIC.filter((name) => !joined.includes(name)).map((name) => ({
           name,
-          note: "공개 · 고르면 봇이 참여",
         })),
       ],
     },
     {
       label: "비공개 채널",
+      // Only the invited channel: the bot is in it, so Slack shows its name.
       options:
-        request === "approved"
+        request === "approved" || request === "pending"
           ? [
               {
                 name: REQUEST.channel,
-                note:
-                  REQUEST.channel === home ? "현재 홈 채널" : "비공개 · 승인됨",
+                private: true,
+                disabled: request === "pending",
               },
             ]
-          : request === "pending"
-            ? [
-                {
-                  name: REQUEST.channel,
-                  note: "비공개 · 승인 대기, 승인한 뒤 고를 수 있음",
-                  disabled: true,
-                },
-              ]
-            : [],
+          : [],
     },
   ];
   const addGroups: readonly ChannelGroup[] = [
@@ -520,7 +510,6 @@ function AgentDetailScreen(props: ScreenProps) {
       label: "공개 채널",
       options: PUBLIC.filter((name) => !joined.includes(name)).map((name) => ({
         name,
-        note: "공개 · 고르면 봇이 참여",
       })),
     },
   ];
@@ -1173,6 +1162,7 @@ function AgentDetailScreen(props: ScreenProps) {
           groups={homeGroups}
           value={homePick}
           onChange={setHomePick}
+          privateHint={homePrivateHint(BOT)}
         />
       </ConfirmDialog>
       <ConfirmDialog
@@ -1191,18 +1181,13 @@ function AgentDetailScreen(props: ScreenProps) {
           );
         }}
       >
-        <div className="flex flex-col gap-4">
-          <ChannelCombobox
-            label="채널"
-            groups={addGroups}
-            value={addPick}
-            onChange={setAddPick}
-          />
-          <div className={MUTED_TEXT}>
-            비공개 채널은 목록에 없습니다. 그 채널에서 {INVITE}를 보내면 승인
-            대기에 나타납니다.
-          </div>
-        </div>
+        <ChannelCombobox
+          label="채널"
+          groups={addGroups}
+          value={addPick}
+          onChange={setAddPick}
+          privateHint={`비공개 채널은 Slack에서 ${INVITE} 후 채널 탭의 승인 대기에 나타납니다.`}
+        />
       </ConfirmDialog>
       <ConfirmDialog
         open={dialog === "disconnect"}

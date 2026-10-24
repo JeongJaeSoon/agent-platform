@@ -1,4 +1,5 @@
 import {
+  Badge,
   Button,
   Card,
   CardTitle,
@@ -11,6 +12,8 @@ import {
   Textarea,
 } from "@werft-ai/ui";
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
+
+import { PartRequest } from "./screen-kit.tsx";
 
 /*
  * Slack console v3 stand-ins (mockups/v3-ia.md §6), shared by the agent
@@ -123,9 +126,13 @@ export function ReasonButton({
   );
 }
 
+/**
+ * Slack only names the private channels the bot is in (groups:read), so a
+ * private option is one the bot was invited to.
+ */
 export interface ChannelOption {
   readonly name: string;
-  readonly note: string;
+  readonly private?: boolean | undefined;
   /** A private channel still waiting for approval cannot be picked. */
   readonly disabled?: boolean | undefined;
 }
@@ -141,39 +148,54 @@ const CHANNEL_PAGE = 5;
  * Picks one channel with the kit's Combobox. The story pages through fixed
  * demo channels the way a server search would (a query, CHANNEL_PAGE at a
  * time, "더 보기"), so it filters itself (`filter="none"`): the kit's own
- * filter would only see the pages already loaded.
+ * filter would only see the pages already loaded. The rows carry only a
+ * 공개/비공개 tag; what picking does is said once, above or below the list.
  */
 export function ChannelCombobox({
   label,
   groups,
   value,
   onChange,
-  description,
+  hint,
+  privateHint,
 }: {
   readonly label: string;
   readonly groups: readonly ChannelGroup[];
   readonly value: string;
   readonly onChange: (value: string) => void;
-  readonly description?: ReactNode;
+  /** Above the list; a dialog that already says it leaves this out. */
+  readonly hint?: ReactNode;
+  /** Under the list: how a private channel gets here. */
+  readonly privateHint: ReactNode;
 }) {
   const [query, setQuery] = useState("");
   const [shown, setShown] = useState(CHANNEL_PAGE);
   const needle = query.trim().replace(/^#/, "").toLowerCase();
-  // Each note already says 공개 or 비공개, so the group label is not repeated.
   const matches = groups.flatMap((group) =>
     group.options.filter((option) =>
       option.name.replace(/^#/, "").toLowerCase().includes(needle),
     ),
   );
+  // Stand-in: the kit's option has no trailing slot, so the tag takes the
+  // second line (PartRequest "Combobox option tag").
   const options: ComboboxOption[] = matches.slice(0, shown).map((option) => ({
     value: option.name,
     label: option.name,
-    description: option.note,
+    description: (
+      <Badge variant="gray">
+        {option.private
+          ? option.disabled
+            ? "비공개 · 승인 대기"
+            : "비공개"
+          : "공개"}
+      </Badge>
+    ),
     disabled: option.disabled ?? false,
   }));
   return (
     <Field>
       <FieldLabel>{label}</FieldLabel>
+      {hint ? <FieldDescription>{hint}</FieldDescription> : null}
       <Combobox
         options={options}
         value={value || null}
@@ -190,7 +212,8 @@ export function ChannelCombobox({
         resultCountMessage={(count) => `채널 ${count}개`}
         placeholder="채널 이름으로 검색"
       />
-      {description ? <FieldDescription>{description}</FieldDescription> : null}
+      <FieldDescription>{privateHint}</FieldDescription>
+      <PartRequest name="Combobox option tag" />
     </Field>
   );
 }
@@ -204,7 +227,12 @@ export type ConnectStep =
   | "blocked";
 
 export const HOME_CHANNEL_HINT =
-  "봇이 인사하고 멘션에 답하는 채널입니다. 공개 채널은 고르면 봇이 참여해 인사를 1건 보냅니다. 비공개 채널은 그 채널에서 /invite로 초대하고 승인한 뒤에 고를 수 있습니다.";
+  "봇이 인사하고 멘션에 답하는 채널입니다. 공개 채널은 고르면 봇이 참여해 인사를 1건 보냅니다.";
+
+/** Where a private channel comes from, under a home channel list. */
+export function homePrivateHint(bot: string): string {
+  return `비공개 채널은 Slack에서 /invite ${bot} 후 여기에 나타납니다. 승인한 뒤에 고를 수 있습니다.`;
+}
 
 /**
  * Connecting an agent to Slack: allow, pick the home channel, the result
@@ -303,7 +331,8 @@ export function SlackConnectCard({
           groups={channels}
           value={picked}
           onChange={setPicked}
-          description={HOME_CHANNEL_HINT}
+          hint={HOME_CHANNEL_HINT}
+          privateHint={homePrivateHint(bot)}
         />
         <div className={ACTIONS}>
           <Button type="button" variant="ghost" onClick={() => onStep("later")}>

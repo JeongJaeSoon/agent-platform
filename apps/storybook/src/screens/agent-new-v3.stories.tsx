@@ -30,18 +30,13 @@ const CHANNELS: readonly ChannelGroup[] = [
   {
     label: "공개 채널",
     options: ["#release-notes", "#dev-platform", "#general", "#random"].map(
-      (name) => ({ name, note: "공개 · 고르면 봇이 참여" }),
+      (name) => ({ name }),
     ),
   },
   {
     label: "비공개 채널",
-    options: [
-      {
-        name: "#finance-private",
-        note: "비공개 · 승인 대기, 승인한 뒤 고를 수 있음",
-        disabled: true,
-      },
-    ],
+    // Invited by /invite, so the bot is in it and Slack shows its name.
+    options: [{ name: "#finance-private", private: true, disabled: true }],
   },
 ];
 const NO_CHANNELS: readonly ChannelGroup[] = [
