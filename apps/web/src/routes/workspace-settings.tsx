@@ -15,6 +15,7 @@ import {
   Input,
   SecretField,
   Skeleton,
+  Switch,
 } from "@werft-ai/ui";
 import { Lock } from "lucide-react";
 import { type FormEvent, type ReactNode, useId, useState } from "react";
@@ -371,6 +372,7 @@ function SlackGuest({ onOutcome }: { readonly onOutcome: OnOutcome }) {
   const enabled = me?.workspace?.settings.slack_guest_enabled ?? false;
   const labelId = useId();
   const hintId = useId();
+  const reasonId = useId();
   const reason = useHasPermission("workspace.manage")
     ? undefined
     : permissionReason(t, "workspace.manage", role);
@@ -408,23 +410,27 @@ function SlackGuest({ onOutcome }: { readonly onOutcome: OnOutcome }) {
       description={t("workspace.guestHint")}
       descriptionId={hintId}
     >
-      <div className="flex flex-wrap items-baseline gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <div id={labelId}>{t("workspace.guestLabel")}</div>
-        <ReasonButton
-          className={buttonVariants({
-            variant: enabled ? "default" : "outline",
-            size: "sm",
-          })}
-          role="switch"
-          aria-checked={enabled}
+        <Switch
+          checked={enabled}
           aria-labelledby={labelId}
-          aria-describedby={hintId}
-          reason={reason}
-          disabled={save.isPending || me?.workspace === undefined}
-          onClick={() => save.mutate(!enabled)}
-        >
+          aria-describedby={reason === undefined ? hintId : reasonId}
+          disabled={
+            reason !== undefined ||
+            save.isPending ||
+            me?.workspace === undefined
+          }
+          onCheckedChange={(next) => save.mutate(next)}
+        />
+        <span className={META}>
           {t(enabled ? "workspace.guestOn" : "workspace.guestOff")}
-        </ReasonButton>
+        </span>
+        {reason === undefined ? null : (
+          <span id={reasonId} className="text-caption text-muted-foreground">
+            {reason}
+          </span>
+        )}
       </div>
     </SettingsCard>
   );
