@@ -5,6 +5,7 @@ import {
   bootstrapResponseSchema,
   CSRF_HEADER_NAME,
   CSRF_HEADER_VALUE,
+  countSessionsResponseSchema,
   createSessionResponseSchema,
   listAdminSessionsResponseSchema,
   listSessionsResponseSchema,
@@ -326,6 +327,16 @@ integration("session share scopes over HTTP on PostgreSQL", () => {
       .items.map((item) => item.id);
   };
 
+  const counted = async (who: Who, query = "") => {
+    const response = await send(
+      "GET",
+      `/v1/sessions/counts${query}`,
+      asCookie(cookies[who]),
+    );
+    expect(response.status).toBe(200);
+    return countSessionsResponseSchema.parse(await response.json()).total;
+  };
+
   // Every surface a session has, read or written.
   const surfaces: [string, (who: Who) => Promise<Response>][] = [
     [
@@ -491,6 +502,27 @@ integration("session share scopes over HTTP on PostgreSQL", () => {
     }
   });
 
+  test("the list and detail say who started it and that it came from the web; only its creator has started it", async () => {
+    const detail = await send(
+      "GET",
+      `/v1/sessions/${sessionId}`,
+      asCookie(cookies.outsider),
+    );
+    expect(await detail.json()).toMatchObject({
+      agent: null,
+      created_by: { user_id: ids.creator, display_name: "creator" },
+      channel: "web",
+    });
+    expect(await listed("creator", "?relation=started")).toEqual([sessionId]);
+    expect(await counted("creator", "?relation=started")).toBe(1);
+    // Seen by the whole workspace, so under `all` and nowhere else.
+    for (const relation of ["started", "shared", "administered"]) {
+      expect(await listed("teammate", `?relation=${relation}`)).toEqual([]);
+      expect(await counted("teammate", `?relation=${relation}`)).toBe(0);
+    }
+    expect(await counted("teammate")).toBe(1);
+  });
+
   test("everyone sees a workspace-wide session; only its creator, owner and admin answer it (94S-798)", async () => {
     const got = [];
     for (const who of [
@@ -624,10 +656,33 @@ integration("session share scopes over HTTP on PostgreSQL", () => {
     );
   });
 
+  test("outside the share no filter or count shows a private session", async () => {
+    for (const who of ["owner", "admin", "teammate", "outsider"] as const) {
+      for (const query of [
+        "",
+        "?relation=shared",
+        "?relation=administered",
+        `?q=${sessionId.slice(0, 8)}`,
+      ]) {
+        expect(await listed(who, query)).not.toContain(sessionId);
+        expect({ who, query, total: await counted(who, query) }).toEqual({
+          who,
+          query,
+          total: 0,
+        });
+      }
+    }
+    expect(await counted("creator", "?relation=started")).toBe(1);
+  });
+
   test("shared with a team, its members see it and nobody else does", async () => {
     await share("team", [teamId]);
     expect(await listed("teammate")).toContain(sessionId);
     expect(await listed("outsider")).not.toContain(sessionId);
+    expect(await listed("teammate", "?relation=shared")).toEqual([sessionId]);
+    expect(await counted("teammate", "?relation=shared")).toBe(1);
+    expect(await listed("creator", "?relation=shared")).toEqual([]);
+    expect(await counted("outsider")).toBe(0);
     const detail = await send(
       "GET",
       `/v1/sessions/${sessionId}`,

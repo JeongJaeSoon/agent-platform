@@ -842,6 +842,11 @@ integration("pending requests and answers on PostgreSQL", () => {
           { userId: null, apiKeyId: null },
         )
       ).items.length;
+    const counted = await reader.countSessions(
+      owner.ownerId,
+      {},
+      { userId: null, apiKeyId: null },
+    );
     const [stored] = await db
       .select({ session: sessions.status, turn: turns.status })
       .from(sessions)
@@ -855,6 +860,8 @@ integration("pending requests and answers on PostgreSQL", () => {
       listed: listed.items[0]?.status,
       filteredNeedsInput: await filtered("needs_input"),
       filteredRunning: await filtered("running"),
+      countedNeedsInput: counted.counts.needs_input,
+      countedRunning: counted.counts.running,
       stored,
     };
   }
@@ -866,6 +873,8 @@ integration("pending requests and answers on PostgreSQL", () => {
     listed: "needs_input",
     filteredNeedsInput: 1,
     filteredRunning: 0,
+    countedNeedsInput: 1,
+    countedRunning: 0,
     // Never written: the columns keep saying what the execution is doing.
     stored: { session: "running", turn: "running" },
   } as const;
@@ -877,6 +886,8 @@ integration("pending requests and answers on PostgreSQL", () => {
     listed: "running",
     filteredNeedsInput: 0,
     filteredRunning: 1,
+    countedNeedsInput: 0,
+    countedRunning: 1,
     stored: { session: "running", turn: "running" },
   } as const;
 
