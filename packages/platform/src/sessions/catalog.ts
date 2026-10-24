@@ -427,6 +427,29 @@ export type SessionCatalog = {
   mcp_servers?: Record<string, CatalogMcpServer>;
 };
 
+type ProviderView<P> = P extends { auth: infer A }
+  ? Omit<P, "auth"> & { auth: Omit<A, "value"> }
+  : never;
+
+/**
+ * A profile as session admission reads it: every setting and where its
+ * credential comes from, never the credential. A `CatalogProfile` is one.
+ */
+export type CatalogProfileView = Omit<CatalogProfile, "provider"> & {
+  provider: ProviderView<CatalogProfile["provider"]>;
+};
+export type CatalogRepositoryView = Omit<CatalogRepository, "auth">;
+
+/**
+ * The catalog without credential values: what creating a session and
+ * appending to one read. A `SessionCatalog` is one; `sessionCatalogView`
+ * builds one from the config for a process that holds no provider key.
+ */
+export type SessionCatalogView = {
+  profiles: Record<string, CatalogProfileView>;
+  repositories: Record<string, CatalogRepositoryView>;
+};
+
 /** A remote MCP server the session's agent release names, as claimed. */
 export type SessionMcp = {
   releaseId: string;
@@ -551,12 +574,12 @@ export type EgressUpstream = {
   headers: Array<[string, string]>;
 };
 
-export function repositoryModeOf(profile: CatalogProfile): RepositoryMode {
+export function repositoryModeOf(profile: CatalogProfileView): RepositoryMode {
   return profile.repository ?? "required";
 }
 
 /** Whether the profile declared `billing: none`: no cost, no dollar limit. */
-export function isUnmetered(profile: CatalogProfile): boolean {
+export function isUnmetered(profile: CatalogProfileView): boolean {
   return profile.provider.billing === "none";
 }
 
@@ -615,8 +638,12 @@ function withoutRepositorySecret(repository: CatalogRepository) {
   return { ...repository, auth };
 }
 
-function withoutSecret(profile: CatalogProfile) {
-  const { value: _value, ...auth } = profile.provider.auth;
+function withoutSecret(profile: CatalogProfileView) {
+  const {
+    value: _value,
+    ...auth
+  }: CatalogProfileView["provider"]["auth"] & { value?: unknown } =
+    profile.provider.auth;
   return { ...profile, provider: { ...profile.provider, auth } };
 }
 
@@ -639,7 +666,7 @@ const PROFILE_FINGERPRINT_VERSION = 2;
  * (which also covers the owner, the model and the engine's components); a
  * session snapshots this one together with its model.
  */
-export function profileFingerprint(profile: CatalogProfile): string {
+export function profileFingerprint(profile: CatalogProfileView): string {
   const {
     models: _models,
     model: _model,
@@ -652,13 +679,13 @@ export function profileFingerprint(profile: CatalogProfile): string {
   });
 }
 
-function profileFingerprintV1(profile: CatalogProfile): string {
+function profileFingerprintV1(profile: CatalogProfileView): string {
   const { models: _models, ...runs } = withoutSecret(profile);
   return sha256({ fingerprint_version: 1, profile: runs });
 }
 
 /** The models a session of this profile may name, the default first. */
-export function profileModels(profile: CatalogProfile): string[] {
+export function profileModels(profile: CatalogProfileView): string[] {
   return [...new Set([profile.model, ...(profile.models ?? [])])];
 }
 
@@ -667,13 +694,13 @@ export function profileModels(profile: CatalogProfile): string[] {
  * profile does not offer that model. Everything downstream — fingerprint,
  * runtime config, egress route — takes this, never the catalog entry.
  */
-export function profileWithModel(
-  profile: CatalogProfile,
+export function profileWithModel<P extends CatalogProfileView>(
+  profile: P,
   model: string = profile.model,
-): CatalogProfile | null {
+): P | null {
   if (!profileModels(profile).includes(model)) return null;
   const { models: _models, ...rest } = profile;
-  return { ...rest, model };
+  return { ...rest, model } as unknown as P;
 }
 
 /** What a row holds a profile to: its fingerprint and the model it names. */
@@ -686,7 +713,7 @@ export type ProfilePin = {
 // one a version 1 fingerprint was taken with. Undefined when the profile no
 // longer hashes to it.
 function pinnedModel(
-  profile: CatalogProfile,
+  profile: CatalogProfileView,
   pin: ProfilePin & { fingerprint: string },
 ): string | null | undefined {
   if (pin.fingerprint === profileFingerprint(profile)) return pin.model;
@@ -702,7 +729,7 @@ function pinnedModel(
  * provider egress token are held to: neither runs a model of its own.
  */
 export function profilePinned(
-  profile: CatalogProfile,
+  profile: CatalogProfileView,
   fingerprint: string,
 ): boolean {
   return pinnedModel(profile, { fingerprint, model: null }) !== undefined;
@@ -713,10 +740,10 @@ export function profilePinned(
  * was taken off the list, or the profile changed). A row from before the pin
  * runs the default model, which its first claim then pins.
  */
-export function sessionProfile(
-  profile: CatalogProfile,
+export function sessionProfile<P extends CatalogProfileView>(
+  profile: P,
   pin: ProfilePin,
-): CatalogProfile | null {
+): P | null {
   if (pin.fingerprint === null) return profileWithModel(profile);
   const model = pinnedModel(profile, { ...pin, fingerprint: pin.fingerprint });
   return model == null ? null : profileWithModel(profile, model);
@@ -728,7 +755,7 @@ export function sessionProfile(
  * leaves it to the row. Null when it does not say or the catalog moved.
  */
 export function fingerprintModel(
-  catalog: SessionCatalog,
+  catalog: Pick<SessionCatalogView, "profiles">,
   profileId: string,
   fingerprint: string,
 ): string | null {
@@ -745,7 +772,7 @@ export function fingerprintModel(
  * fingerprint, which names its model itself (`model` null: any row model).
  */
 export function profilePins(
-  profile: CatalogProfile,
+  profile: CatalogProfileView,
 ): Array<{ fingerprint: string; model: string | null }> {
   const models = profileModels(profile);
   const current = profileFingerprint(profile);
@@ -801,11 +828,14 @@ export function catalogRevision(catalog: SessionCatalog): string {
 }
 
 /** The pair a session may run as, or null when the catalog forbids it. */
-export function allowedPair(
-  catalog: SessionCatalog,
+export function allowedPair<
+  P extends CatalogProfileView,
+  R extends CatalogRepositoryView,
+>(
+  catalog: { profiles: Record<string, P>; repositories: Record<string, R> },
   profileId: string,
   repositoryId: string,
-): { profile: CatalogProfile; repository: CatalogRepository } | null {
+): { profile: P; repository: R } | null {
   const profile = Object.hasOwn(catalog.profiles, profileId)
     ? catalog.profiles[profileId]
     : undefined;
@@ -824,11 +854,14 @@ export function allowedPair(
  * repository mode lets a session go without one. Null when the catalog
  * forbids it.
  */
-export function allowedRun(
-  catalog: SessionCatalog,
+export function allowedRun<
+  P extends CatalogProfileView,
+  R extends CatalogRepositoryView,
+>(
+  catalog: { profiles: Record<string, P>; repositories: Record<string, R> },
   profileId: string,
   repositoryId: string | null,
-): { profile: CatalogProfile; repository: CatalogRepository | null } | null {
+): { profile: P; repository: R | null } | null {
   if (repositoryId !== null)
     return allowedPair(catalog, profileId, repositoryId);
   const profile = Object.hasOwn(catalog.profiles, profileId)
@@ -900,6 +933,38 @@ export function catalogCredentialRefs(
 export const MIN_CREDENTIAL_BYTES = 8;
 
 /**
+ * The catalog without credential values, read from the config alone: no
+ * reference is looked up, so it needs no key and fails on none.
+ */
+export function sessionCatalogView(
+  config: SessionCatalogConfig,
+): SessionCatalogView {
+  const profiles: Record<string, CatalogProfileView> = {};
+  for (const [id, profile] of Object.entries(config.profiles)) {
+    const { kind, ...refFields } = profile.provider.auth;
+    // `per_token` and `required` are the defaults: dropped, so a profile
+    // keeps the fingerprint it had before the field existed.
+    const { billing, ...provider } = profile.provider;
+    const { repository, ...settings } = profile;
+    profiles[id] = {
+      ...settings,
+      provider: {
+        ...provider,
+        auth: { kind, ref: credentialRefOf(refFields) },
+        ...(billing === "none" ? { billing } : {}),
+      },
+      ...(repository === "required" ? {} : { repository }),
+    } as CatalogProfileView;
+  }
+  const repositories: Record<string, CatalogRepositoryView> = {};
+  for (const [id, repository] of Object.entries(config.repositories)) {
+    const { auth: _auth, ...rest } = repository;
+    repositories[id] = rest;
+  }
+  return { profiles, repositories };
+}
+
+/**
  * The resolved catalog. `lookup` hands back each reference's value, already
  * fetched (a Secrets Manager read is the loader's job, not this pure step);
  * an absent or empty value fails naming where the reference sits, never a
@@ -932,22 +997,16 @@ export function resolveSessionCatalog(
     return value;
   };
   const profiles: Record<string, CatalogProfile> = {};
-  for (const [id, profile] of Object.entries(config.profiles)) {
-    const { kind, ...refFields } = profile.provider.auth;
-    const ref = credentialRefOf(refFields);
-    const value = resolved(`profiles.${id}.provider.auth`, ref);
-    // `per_token` and `required` are the defaults: dropped, so a profile
-    // keeps the fingerprint it had before the field existed.
-    const { billing, ...provider } = profile.provider;
-    const { repository, ...settings } = profile;
+  // The view's profiles with each value added, so a fingerprint taken from
+  // either is the same.
+  for (const [id, profile] of Object.entries(
+    sessionCatalogView(config).profiles,
+  )) {
+    const { auth } = profile.provider;
+    const value = resolved(`profiles.${id}.provider.auth`, auth.ref);
     profiles[id] = {
-      ...settings,
-      provider: {
-        ...provider,
-        auth: { kind, value, ref },
-        ...(billing === "none" ? { billing } : {}),
-      },
-      ...(repository === "required" ? {} : { repository }),
+      ...profile,
+      provider: { ...profile.provider, auth: { ...auth, value } },
     } as CatalogProfile;
   }
   const repositories: Record<string, CatalogRepository> = {};
