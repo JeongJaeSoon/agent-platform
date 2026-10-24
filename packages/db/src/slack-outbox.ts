@@ -107,10 +107,8 @@ export function createPostgresSlackOutboxStore(db: Database): SlackOutboxStore {
                   "failed",
                   "outcome_unknown",
                 ]),
-                // Turns from before the thread, or long over, stay quiet: a
-                // first deploy or a slack role down for a day posts no backlog.
+                // A turn from before the thread is not the thread's to answer.
                 gte(turns.createdAt, sessionLinks.createdAt),
-                sql`coalesce(${turns.endedAt}, ${turns.createdAt}) > now() - interval '1 day'`,
               ),
               sql`EXISTS (${actionableOfTurn(db)})`,
             ),

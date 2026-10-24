@@ -3,6 +3,7 @@ import type { SlackNoticeSink } from "../ports/slack-notice-sink.ts";
 import type {
   SlackOutboxClaim,
   SlackOutboxEntry,
+  SlackOutboxLost,
   SlackOutboxSettle,
   SlackOutboxStore,
   SlackUnansweredTurn,
@@ -87,23 +88,32 @@ export function slackOutboxText(body: SlackOutboxEntry["body"]): string {
     body.link_url !== undefined && isSafeLink(body.link_url)
       ? `\n\n<${body.link_url}|${SLACK_OUTBOX_MESSAGES.link}>`
       : "";
-  const text = escapeSlackControls(
-    body.text,
-    body.mention_user_ids === undefined
-      ? undefined
-      : { userIds: body.mention_user_ids },
-  );
-  const room = SLACK_TEXT_MAX - link.length;
-  if (text.length <= room) return text + link;
-  let cut = room - 1;
-  // Not inside an escape such as `&lt;`, nor between a surrogate pair.
-  const amp = text.lastIndexOf("&", cut);
-  if (amp !== -1 && amp > cut - 6 && !text.slice(amp, cut).includes(";")) {
-    cut = amp;
+  const escaped = (value: string) =>
+    escapeSlackControls(value, {
+      maskedLinks: "expand",
+      ...(body.mention_user_ids === undefined
+        ? {}
+        : { userIds: body.mention_user_ids }),
+    });
+  const text = escaped(body.text);
+  const room = SLACK_TEXT_MAX - link.length - 1;
+  if (text.length <= room + 1) return text + link;
+  let piece = text;
+  let cut = room;
+  while (piece.length > room) {
+    // Not inside an escape such as `&lt;`, nor between a surrogate pair.
+    const amp = text.lastIndexOf("&", cut);
+    if (amp !== -1 && amp > cut - 6 && !text.slice(amp, cut).includes(";")) {
+      cut = amp;
+    }
+    const code = text.charCodeAt(cut - 1);
+    if (code >= 0xd800 && code <= 0xdbff) cut -= 1;
+    // A cut can open a code fence whose close fell away, and Slack shows an
+    // unclosed fence as plain text: what it held must be escaped too.
+    piece = escaped(text.slice(0, cut));
+    cut -= piece.length - room;
   }
-  const code = text.charCodeAt(cut - 1);
-  if (code >= 0xd800 && code <= 0xdbff) cut -= 1;
-  return `${text.slice(0, cut)}…${link}`;
+  return `${piece}…${link}`;
 }
 
 /** Refusal notices become ephemeral outbox rows, one per onceKey. */
@@ -255,22 +265,33 @@ export async function drainSlackOutbox(deps: {
     uncertain: 0,
     lost: 0,
   };
-  for (const { id, ...row } of await deps.outbox.expireSending()) {
-    drain.uncertain += 1;
-    deps.logger.warn("Slack send outlived its lease; marked uncertain", {
-      id,
-      kind: row.kind,
-      channel_id: row.channelId,
-    });
-    if (row.kind !== "reply" || row.sessionId === null) continue;
+  // A reply Slack may or may not hold: the thread hears so, once.
+  const noticeUncertain = async (row: SlackOutboxLost) => {
+    if (row.kind !== "reply" || row.sessionId === null) return;
     const link_url = sessionUrl(deps.consoleOrigin, row.sessionId);
     const text = SLACK_OUTBOX_MESSAGES.uncertain;
     await deps.outbox.enqueue({
-      ...row,
+      workspaceId: row.workspaceId,
+      agentId: row.agentId,
+      slackAppId: row.slackAppId,
+      installationId: row.installationId,
       kind: "failure_notice",
+      channelId: row.channelId,
+      threadTs: row.threadTs,
+      slackUserId: null,
+      sessionId: row.sessionId,
       body: link_url === undefined ? { text } : { text, link_url },
-      dedupeKey: `uncertain:${id}`,
+      dedupeKey: `uncertain:${row.id}`,
     });
+  };
+  for (const lost of await deps.outbox.expireSending()) {
+    drain.uncertain += 1;
+    deps.logger.warn("Slack send outlived its lease; marked uncertain", {
+      id: lost.id,
+      kind: lost.kind,
+      channel_id: lost.channelId,
+    });
+    await noticeUncertain(lost);
   }
   drain.enqueued = await enqueueSlackTurnAnswers({
     outbox: deps.outbox,
@@ -365,6 +386,9 @@ export async function drainSlackOutbox(deps: {
         };
       }
       const settled = await settle(outcome);
+      if (settled && outcome.status === "uncertain") {
+        await noticeUncertain(claim);
+      }
       if (
         settled &&
         outcome.status !== "pending" &&

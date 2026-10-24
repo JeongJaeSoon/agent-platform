@@ -45,6 +45,12 @@ describe("slackOutboxText", () => {
     );
   });
 
+  test("writes a masked link out so its label cannot hide the address", () => {
+    expect(
+      slackOutboxText({ text: "<https://evil.example/login|웹에서 승인>" }),
+    ).toBe("웹에서 승인 (https://evil.example/login)");
+  });
+
   test("lets through only the mentions the body names", () => {
     expect(
       slackOutboxText({
@@ -82,6 +88,20 @@ describe("slackOutboxText", () => {
     expect(emoji).toEndWith(`a…${link}`);
     // Throws on a lone surrogate.
     expect(() => encodeURIComponent(emoji)).not.toThrow();
+  });
+
+  test("a cut that leaves a code fence open escapes what the fence held", () => {
+    const cut = slackOutboxText({
+      text: `\`\`\`\n<!channel> <@U2>\n${"a".repeat(SLACK_TEXT_MAX)}\n\`\`\``,
+      mention_user_ids: ["U1"],
+    });
+    expect(cut.length).toBeLessThanOrEqual(SLACK_TEXT_MAX);
+    expect(cut).toStartWith("```\n&lt;!channel&gt; &lt;@U2&gt;\n");
+    expect(cut).toEndWith("a…");
+    // A fence still closed after the cut keeps its text as written.
+    expect(
+      slackOutboxText({ text: `\`<!here>\` ${"b".repeat(SLACK_TEXT_MAX)}` }),
+    ).toStartWith("`<!here>` b");
   });
 
   test("leaves text that fits alone", () => {

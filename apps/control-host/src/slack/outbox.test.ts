@@ -58,6 +58,7 @@ import {
   SLACK_OUTBOX_MESSAGES,
   SLACK_RETRY_AFTER_MAX_MS,
   SLACK_TEXT_MAX,
+  SlackApiError,
   slackBotToken,
   slackConversationKey,
 } from "@werft-ai/platform";
@@ -479,6 +480,19 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     });
   });
 
+  test("a turn that ended while the role was down for days still answers once", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    await endTurn(await sessionOf(fixture), 1, "completed", [[text("late")]]);
+    await db
+      .update(turns)
+      .set({ endedAt: sql`now() - interval '3 days'` })
+      .where(eq(turns.status, "completed"));
+    expect(await outboxPass()).toMatchObject({ enqueued: 1, sent: 1 });
+    expect(await outboxPass()).toMatchObject({ enqueued: 0 });
+    expect(posted()).toHaveLength(1);
+  });
+
   test("a long answer is cut to Slack's limit with its link kept whole", async () => {
     const fixture = await agentInSlack();
     await mention(fixture, THREAD);
@@ -749,17 +763,51 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     const fixture = await agentInSlack();
     await mention(fixture, THREAD);
     await endTurn(await sessionOf(fixture), 1, "completed", [[text("hi")]]);
+    const down = createSlackBotApi({ apiUrl: "http://127.0.0.1:1/api" });
+    expect(await outboxPass({ slack: down })).toMatchObject({ uncertain: 2 });
     expect(
-      await outboxPass({
-        slack: createSlackBotApi({ apiUrl: "http://127.0.0.1:1/api" }),
-      }),
-    ).toMatchObject({ uncertain: 1 });
-    expect((await rows())[0]).toMatchObject({
-      status: "uncertain",
-      errorCode: "unreachable",
-    });
+      (await rows()).map((row) => [row.kind, row.status, row.errorCode]),
+    ).toEqual([
+      ["reply", "uncertain", "unreachable"],
+      ["failure_notice", "uncertain", "unreachable"],
+    ]);
     await outboxPass();
     expect(posted()).toEqual([]);
+    expect(JSON.stringify(logged)).not.toContain(BOT_CREDENTIAL);
+    expect(JSON.stringify(await rows())).not.toContain(BOT_CREDENTIAL);
+  });
+
+  test("a reply whose send got no answer is never resent, and the thread hears so once", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await endTurn(sessionId, 1, "completed", [[text("hi")]]);
+    const live = createSlackBotApi({ apiUrl: slack.url });
+    let dropped = false;
+    const flaky = {
+      ...live,
+      postMessage: (...args: Parameters<typeof live.postMessage>) => {
+        if (dropped) return live.postMessage(...args);
+        dropped = true;
+        return Promise.reject(
+          new SlackApiError("chat.postMessage", "timeout", false),
+        );
+      },
+    };
+    expect(await outboxPass({ slack: flaky })).toMatchObject({
+      uncertain: 1,
+      sent: 1,
+    });
+    await outboxPass();
+    expect(posted().map((message) => message.text)).toEqual([
+      `${SLACK_OUTBOX_MESSAGES.uncertain}\n\n<${CONSOLE}/sessions/${sessionId}|${SLACK_OUTBOX_MESSAGES.link}>`,
+    ]);
+    expect(
+      (await rows()).map((row) => [row.kind, row.status, row.errorCode]),
+    ).toEqual([
+      ["reply", "uncertain", "timeout"],
+      ["failure_notice", "sent", null],
+    ]);
     expect(JSON.stringify(logged)).not.toContain(BOT_CREDENTIAL);
     expect(JSON.stringify(await rows())).not.toContain(BOT_CREDENTIAL);
   });
