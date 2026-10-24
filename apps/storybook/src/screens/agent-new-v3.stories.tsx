@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { PageHeader, Stepper } from "@werft-ai/ui";
+import { Page, Stepper } from "@werft-ai/ui";
 import { useState } from "react";
 
 import { MOBILE, PartRequest, ScreenShell } from "./screen-kit.tsx";
@@ -62,11 +62,11 @@ function NewAgentScreen({
   const [home, setHome] = useState(HOME);
   return (
     <ScreenShell current="agents" crumb={["에이전트"]}>
-      <div className="flex max-w-[var(--ap-w-narrow)] flex-col">
-        <PageHeader
-          title="새 에이전트"
-          description="빈 카드에서 네 단계로 만들고, 다섯째 Slack 연결은 선택입니다. '하는 일'까지 마치면 초안으로 저장되어, 그 뒤에 나가도 목록에 초안으로 남습니다."
-        />
+      <Page
+        width="form"
+        title="새 에이전트"
+        description="빈 카드에서 네 단계로 만들고, 다섯째 Slack 연결은 선택입니다. '하는 일'까지 마치면 초안으로 저장되어, 그 뒤에 나가도 목록에 초안으로 남습니다."
+      >
         <div className="flex flex-col gap-[var(--ap-space-block)]">
           <div className="flex flex-wrap gap-1">
             <PartRequest name="Stepper (v3)" />
@@ -104,7 +104,7 @@ function NewAgentScreen({
             )}
           />
         </div>
-      </div>
+      </Page>
     </ScreenShell>
   );
 }
