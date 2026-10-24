@@ -176,5 +176,10 @@ describe("Switch", () => {
     expect(spinner()?.getAttribute("aria-hidden")).toBe("true");
     expect(spinner()?.className).toContain("animate-spin");
     expect(spinner()?.className).toContain("motion-reduce:animate-none");
+
+    rerender(
+      <Switch aria-label="게스트 허용" checked={false} aria-disabled={true} />,
+    );
+    expect(spinner()?.parentElement?.dataset.state).toBe("unchecked");
   });
 });

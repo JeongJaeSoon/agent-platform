@@ -377,6 +377,10 @@ describe("tokens.css", () => {
         ),
       ],
     ];
+    // Suffix match for the same reason as the input border test above.
+    expect(
+      parse(THEME).find((d) => d.property.endsWith("-control-checked"))?.value,
+    ).toBe("var(--ap-color-control-checked)");
     const failures = themes.flatMap(([theme, palette]) =>
       pairs.flatMap(([fg, bg, floor]) => {
         const a = palette.get(fg) ?? "";

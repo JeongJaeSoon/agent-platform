@@ -17,6 +17,7 @@ const COPY = {
     disabledOff: "비활성(꺼짐)",
     disabledOn: "비활성(켜짐)",
     busy: "저장 중(켜짐)",
+    busyOff: "저장 중(꺼짐)",
   },
   ja: {
     label: "ゲストを許可",
@@ -26,6 +27,7 @@ const COPY = {
     disabledOff: "無効(オフ)",
     disabledOn: "無効(オン)",
     busy: "保存中(オン)",
+    busyOff: "保存中(オフ)",
   },
   en: {
     label: "Allow guests",
@@ -35,6 +37,7 @@ const COPY = {
     disabledOff: "Disabled (off)",
     disabledOn: "Disabled (on)",
     busy: "Saving (on)",
+    busyOff: "Saving (off)",
   },
 } as const;
 
@@ -108,6 +111,7 @@ export const States: Story = {
       [copy.disabledOff, { disabled: true }],
       [copy.disabledOn, { disabled: true, defaultChecked: true }],
       [copy.busy, { "aria-disabled": true, defaultChecked: true }],
+      [copy.busyOff, { "aria-disabled": true }],
     ] as const;
     return (
       <div className="flex flex-col gap-4">
