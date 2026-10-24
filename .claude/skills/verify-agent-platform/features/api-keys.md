@@ -5,7 +5,7 @@
 ## Sub-features
 
 - `key-create` `scripts/local.sh key <owner> --scopes …`가 key를 stdout에 한 번, `key_id …`를 stderr에 낸다. owner만 주면 workspace 없는 운영자 key다.
-- `key-workspace` `scripts/local.sh key --workspace <workspace id> --personal <user id> --scopes …`는 그 member의 개인 key다. `GET /v1/auth/me`가 `principal.kind: "api_key"`와 workspace를 돌려준다. `--personal` 없는 `--workspace`는 exit 2 "--workspace needs --personal: a key in a workspace is a member's own", owner 자리에 workspace id를 주면 "… is a workspace; issue a member's key with --workspace and --personal"로 거절한다(workspace 전체 key는 없다).
+- `key-workspace` `scripts/local.sh key --workspace <workspace id> --personal <user id> --scopes …`는 그 member의 개인 key다. `GET /v1/auth/me`가 `principal.kind: "api_key"`와 workspace를 돌려준다. `--personal` 없는 `--workspace`는 exit 1 "--workspace needs --personal: a key in a workspace is a member's own", owner 자리에 workspace id를 주면 "… is a workspace; issue a member's key with --workspace and --personal"로 거절한다(workspace 전체 key는 없다).
 - `key-whoami` `GET /v1`이 `owner_id`를 돌려준다.
 - `key-scope-denied` scope 밖의 호출은 403 `This credential does not hold <scope>`.
 - `key-revoke` `keys.ts revoke <key_id>` 뒤 같은 key는 401.

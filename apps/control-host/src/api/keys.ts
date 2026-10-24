@@ -256,21 +256,6 @@ async function main(): Promise<void> {
       );
       return;
     }
-    if (
-      !("workspaceId" in command) &&
-      UUID.test(command.ownerId) &&
-      (await findWorkspace(
-        drizzle(pool, { schema }),
-        command.ownerId.toLowerCase(),
-      ))
-    ) {
-      // Its partition would be the workspace's: a key across all of it.
-      console.error(
-        `${command.ownerId} is a workspace; issue a member's key with --workspace and --personal`,
-      );
-      process.exitCode = 1;
-      return;
-    }
     if ("workspaceId" in command) {
       const db = drizzle(pool, { schema });
       if (!(await findWorkspace(db, command.workspaceId))) {

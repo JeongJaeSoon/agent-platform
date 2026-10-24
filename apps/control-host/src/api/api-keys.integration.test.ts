@@ -46,7 +46,12 @@ import {
   DatabaseIdentityStore,
   LoginLockout,
 } from "./auth.ts";
-import { DatabaseApiKeyStore, generateApiKey, hashApiKey } from "./keys.ts";
+import {
+  DatabaseApiKeyStore,
+  generateApiKey,
+  hashApiKey,
+  issueApiKey,
+} from "./keys.ts";
 import { registerAgentRoutes } from "./routes/agents.ts";
 import { registerApiKeyRoutes } from "./routes/api-keys.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
@@ -472,6 +477,22 @@ integration("API keys by authority over HTTP on PostgreSQL", () => {
     expect(await db.select({ id: apiKeys.id }).from(apiKeys)).toHaveLength(
       before.length,
     );
+  });
+
+  test("the key CLI's store refuses an operator key on a workspace's own partition", async () => {
+    const store = new DatabaseApiKeyStore(db);
+    const operator = (ownerId: string) =>
+      issueApiKey(store, { ownerId, scopes: ["sessions:read"] });
+    await expect(operator(workspaceId)).rejects.toThrow("is a workspace");
+    // Partitions compare as text: the upper-cased id is a partition of its own.
+    await operator(workspaceId.toUpperCase());
+    const rows = await db
+      .select({ ownerId: apiKeys.ownerId, kind: apiKeys.kind })
+      .from(apiKeys)
+      .where(eq(apiKeys.kind, "operator"));
+    expect(rows).toEqual([
+      { ownerId: workspaceId.toUpperCase(), kind: "operator" },
+    ]);
   });
 
   test("never above the issuer's scopes: an admin cannot hand out recover", async () => {

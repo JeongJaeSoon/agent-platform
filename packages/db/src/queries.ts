@@ -29,6 +29,7 @@ import {
   unassignedSessions,
   users,
   workers,
+  workspaces,
 } from "./schema.ts";
 
 export type Database = PgDatabase<PgQueryResultHKT, typeof schema>;
@@ -49,13 +50,28 @@ export async function createApiKey(
     agentId?: string | null;
   },
 ) {
+  // Without a kind, a key is the agent's when it names one and the CLI's
+  // operator key otherwise, which the table refuses inside a workspace.
+  const kind = input.kind ?? (input.agentId == null ? "operator" : "agent");
+  if (kind === "operator") {
+    // Partitions compare as text, so only the workspace's exact id is its own.
+    const [workspace] = await db
+      .select({ id: workspaces.id })
+      .from(workspaces)
+      .where(sql`${workspaces.id}::text = ${input.ownerId}`)
+      .limit(1);
+    if (workspace) {
+      // Its partition would be the workspace's: a key across all of it.
+      throw new Error(
+        `${input.ownerId} is a workspace; issue a member's key with --workspace and --personal`,
+      );
+    }
+  }
   const [created] = await db
     .insert(apiKeys)
     .values({
       ...input,
-      // Without a kind, a key is the agent's when it names one and the CLI's
-      // operator key otherwise, which the table refuses inside a workspace.
-      kind: input.kind ?? (input.agentId == null ? "operator" : "agent"),
+      kind,
       scopes: input.scopes === null ? null : [...input.scopes],
     })
     .returning({
