@@ -10,6 +10,11 @@ import { useAgentPlatform } from "@werft-ai/react";
 import {
   Button,
   buttonVariants,
+  Card,
+  CardAction,
+  CardDescription,
+  CardHeader,
+  CardTitle,
   ConfirmDialog,
   EmptyState,
   Field,
@@ -49,7 +54,10 @@ import { StatusScreen } from "../components/status-screen.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 
 const FORM = "flex flex-col items-start gap-4";
-const NAME_FIELD = "max-w-md";
+// The name and its button share a row; the button drops under the field only
+// when the row is too narrow for both.
+const INLINE_FORM = "flex max-w-xl flex-wrap items-end gap-2";
+const NAME_FIELD = "min-w-0 flex-[1_1_14rem]";
 const SECONDARY = "text-muted-foreground text-sm [overflow-wrap:anywhere]";
 
 function ListError({
@@ -142,7 +150,7 @@ export function TeamsScreen() {
     <TeamsTab>
       <OutcomeLine outcome={outcome} />
       {failed ? null : (
-        <form className={FORM} onSubmit={submit}>
+        <form className={INLINE_FORM} onSubmit={submit}>
           <TeamNameField value={name} onChange={setName} />
           <ReasonButton
             type="submit"
@@ -238,6 +246,7 @@ function TeamPage({ id }: { readonly id: string }) {
           <OutcomeLine outcome={outcome} />
           <TeamSettings team={team.data} onOutcome={setOutcome} />
           <TeamMembers team={team.data} onOutcome={setOutcome} />
+          <TeamDangerZone team={team.data} onOutcome={setOutcome} />
         </>
       )}
     </div>
@@ -254,10 +263,8 @@ function TeamSettings({
   const { t } = useI18n();
   const { client } = useAgentPlatform();
   const queryClient = useQueryClient();
-  const navigate = useNavigate();
   const role = useRole();
   const [name, setName] = useState(team.name);
-  const [confirming, setConfirming] = useState(false);
   const titleId = useId();
   const path = { params: { path: { team_id: team.id } } };
 
@@ -289,21 +296,6 @@ function TeamSettings({
     onError: fail,
   });
 
-  const remove = useMutation<unknown, ApiError>({
-    mutationFn: () => unwrap(client.DELETE("/v1/teams/{team_id}", path)),
-    onMutate: () => onOutcome(null),
-    onSuccess: async () => {
-      setConfirming(false);
-      queryClient.removeQueries({ queryKey: queryKeys.team(team.id) });
-      await queryClient.invalidateQueries({ queryKey: queryKeys.teams });
-      await navigate({ to: "/members/teams" });
-    },
-    onError: (error) => {
-      setConfirming(false);
-      fail(error);
-    },
-  });
-
   const submit = (event: FormEvent) => {
     event.preventDefault();
     rename.mutate();
@@ -314,7 +306,7 @@ function TeamSettings({
       <h3 id={titleId} className={SECTION_TITLE}>
         {t("teams.settings")}
       </h3>
-      <form className={FORM} onSubmit={submit}>
+      <form className={INLINE_FORM} onSubmit={submit}>
         <TeamNameField value={name} onChange={setName} />
         <Button
           type="submit"
@@ -324,16 +316,70 @@ function TeamSettings({
           {t("teams.rename")}
         </Button>
       </form>
-      <p className={`${MUTED} text-sm`}>{t("teams.deleteHint")}</p>
-      <Button
-        type="button"
-        variant="destructive"
-        className="self-start"
-        disabled={remove.isPending}
-        onClick={() => setConfirming(true)}
-      >
-        {t("teams.delete")}
-      </Button>
+    </section>
+  );
+}
+
+/** Deleting the team, last on the page and set apart in a red-edged card. */
+function TeamDangerZone({
+  team,
+  onOutcome,
+}: {
+  readonly team: TeamDetail;
+  readonly onOutcome: (outcome: Outcome | null) => void;
+}) {
+  const { t } = useI18n();
+  const { client } = useAgentPlatform();
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const role = useRole();
+  const [confirming, setConfirming] = useState(false);
+  const titleId = useId();
+
+  const remove = useMutation<unknown, ApiError>({
+    mutationFn: () =>
+      unwrap(
+        client.DELETE("/v1/teams/{team_id}", {
+          params: { path: { team_id: team.id } },
+        }),
+      ),
+    onMutate: () => onOutcome(null),
+    onSuccess: async () => {
+      setConfirming(false);
+      queryClient.removeQueries({ queryKey: queryKeys.team(team.id) });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.teams });
+      await navigate({ to: "/members/teams" });
+    },
+    onError: (error) => {
+      setConfirming(false);
+      onOutcome({
+        kind: "error",
+        text: refusalText(t, error, "team.manage", role),
+      });
+    },
+  });
+
+  return (
+    <section className={SECTION} aria-labelledby={titleId}>
+      <h3 id={titleId} className={SECTION_TITLE}>
+        {t("teams.dangerZone")}
+      </h3>
+      <Card className="border-[var(--ap-tone-danger-border)]">
+        <CardHeader>
+          <CardTitle>{t("teams.delete")}</CardTitle>
+          <CardDescription>{t("teams.deleteHint")}</CardDescription>
+          <CardAction>
+            <Button
+              type="button"
+              variant="danger"
+              disabled={remove.isPending}
+              onClick={() => setConfirming(true)}
+            >
+              {t("teams.delete")}
+            </Button>
+          </CardAction>
+        </CardHeader>
+      </Card>
       <ConfirmDialog
         open={confirming}
         onOpenChange={setConfirming}

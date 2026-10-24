@@ -267,7 +267,22 @@ const inviteButton = (
     구성원 초대
   </Button>
 );
-const teamButton = <Button type="button">팀 만들기</Button>;
+/* The console's create row: the name and its button share one line, and the
+   button drops under the field only when the line is too narrow for both. */
+function TeamCreateRow({ name = "" }: { readonly name?: string | undefined }) {
+  return (
+    <form
+      className="flex max-w-xl flex-wrap items-end gap-2"
+      onSubmit={(event) => event.preventDefault()}
+    >
+      <Field className="min-w-0 flex-[1_1_14rem]">
+        <FieldLabel>팀 이름</FieldLabel>
+        <Input name="team" maxLength={100} defaultValue={name} />
+      </Field>
+      <Button type="submit">팀 만들기</Button>
+    </form>
+  );
+}
 
 type ListState = "ready" | "loading" | "error";
 
@@ -380,18 +395,20 @@ function MembersTab({
 function TeamsTab({
   state = "ready",
   empty = false,
+  draft,
 }: {
   readonly state?: ListState;
   readonly empty?: boolean;
+  readonly draft?: string | undefined;
 }) {
   return (
     <div className="flex flex-col gap-4 pt-4">
+      <TeamCreateRow name={draft} />
       <ListBody state={state} label="팀 목록">
         {empty ? (
           <EmptyState
             title="아직 팀이 없습니다"
             description="팀을 만들고 에이전트 상세에서 관리자로 지정하면 팀원 모두가 그 에이전트를 관리합니다."
-            action={teamButton}
           />
         ) : (
           <TableContainer label="팀">
@@ -592,7 +609,11 @@ function TeamDetailView({
           {
             title: "팀 삭제",
             body: "팀을 지우면 이 팀이 관리자로 있던 에이전트 3개의 관리에서 빠집니다. 구성원 계정은 그대로입니다.",
-            action: "팀 삭제",
+            action: (
+              <Button type="button" variant="danger">
+                팀 삭제
+              </Button>
+            ),
           },
         ]}
       />
@@ -788,35 +809,6 @@ function MemberEditDialog({
   );
 }
 
-function TeamCreateDialog() {
-  return (
-    <Dialog open>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>팀 만들기</DialogTitle>
-          <DialogDescription>
-            팀을 만든 뒤 구성원을 넣고, 에이전트 상세에서 이 팀을 관리자로
-            지정합니다.
-          </DialogDescription>
-        </DialogHeader>
-        <Field>
-          <FieldLabel>팀 이름</FieldLabel>
-          <Input name="team" maxLength={100} />
-          <FieldDescription>
-            100자까지. 워크스페이스 안에서 겹치지 않아야 합니다.
-          </FieldDescription>
-        </Field>
-        <DialogFooter>
-          <Button type="button" variant="outline">
-            취소
-          </Button>
-          <Button type="button">팀 만들기</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 function MyTeams() {
   return (
     <>
@@ -889,12 +881,7 @@ function MembersScreen({ screen }: { readonly screen: Screen }) {
   let body: ReactNode;
   if (screen === "member-view") body = <MyTeams />;
   else {
-    const action =
-      tab === "teams"
-        ? DETAIL_SCREENS.includes(screen)
-          ? undefined
-          : teamButton
-        : inviteButton;
+    const action = tab === "teams" ? undefined : inviteButton;
     const content =
       tab === "members" ? (
         <MembersTab
@@ -915,7 +902,10 @@ function MembersScreen({ screen }: { readonly screen: Screen }) {
         screen === "team-delete" ? (
         <TeamDetailView emptyMembers={screen === "team-empty"} />
       ) : (
-        <TeamsTab empty={screen === "teams-empty"} />
+        <TeamsTab
+          empty={screen === "teams-empty"}
+          draft={screen === "team-create" ? "결제팀" : undefined}
+        />
       );
     body = (
       <>
@@ -945,7 +935,6 @@ function MembersScreen({ screen }: { readonly screen: Screen }) {
           confirmLabel="비활성화"
         />
       ) : null}
-      {screen === "team-create" ? <TeamCreateDialog /> : null}
       {screen === "team-delete" ? (
         <DestructiveActionDialog
           open
@@ -992,7 +981,15 @@ export const MemberEditOwnerAsAdmin: Story = {
 export const MemberDisable: Story = { args: { screen: "member-disable" } };
 export const Teams: Story = { args: { screen: "teams" } };
 export const TeamsEmpty: Story = { args: { screen: "teams-empty" } };
-export const TeamCreate: Story = { args: { screen: "team-create" } };
+export const TeamCreate: Story = {
+  name: "Team create (one line)",
+  args: { screen: "team-create" },
+};
+export const TeamCreateMobile: Story = {
+  name: "Team create (390px)",
+  args: { screen: "team-create" },
+  globals: MOBILE,
+};
 export const TeamDetail: Story = {
   name: "Team detail (A: inside 팀 tab)",
   args: { screen: "team" },
