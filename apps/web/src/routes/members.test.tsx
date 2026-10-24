@@ -250,7 +250,7 @@ describe("구성원 화면", () => {
     );
   });
 
-  test("화면을 연 뒤 관리자로 내려가 소유자 부여가 403 OWNER_PROTECTED로 거절되면 그 이유를 보인다", async () => {
+  test("소유자 부여가 서버에서 403 OWNER_PROTECTED로 거절되면 그 이유를 보인다", async () => {
     renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": () =>
