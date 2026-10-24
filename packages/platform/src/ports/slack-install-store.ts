@@ -38,4 +38,15 @@ export interface SlackInstallStore {
     teamId: string;
     botUserId: string;
   }): Promise<RecordSlackInstallResult>;
+  /**
+   * Marks the app's install in the team `revoked`, as Slack reported it
+   * uninstalled or its bot token revoked. Revoking again keeps the first
+   * time; `not_found` when the app was never installed there. With
+   * `sentAt`, an install verified after it is left alone (`superseded`):
+   * Slack retries a report for up to hours, past a reinstall.
+   */
+  revokeInstallation(
+    key: { appId: string; teamId: string },
+    sentAt?: Date | null,
+  ): Promise<"revoked" | "not_found" | "superseded">;
 }

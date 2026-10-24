@@ -27,6 +27,30 @@ export type SessionUsageRecord = {
   queuedInputCount: number;
 };
 
+/**
+ * Whose sessions a summary adds up: every owner's, or the ones one person
+ * (a personal key counts as its creator) or one keyless caller started in
+ * one owner partition.
+ */
+export type UsageSummaryFilter =
+  | { kind: "installation" }
+  | { kind: "user"; ownerId: string; userId: string }
+  | { kind: "api_key"; ownerId: string; apiKeyId: string };
+
+/** Sessions created in [since, until), read in one statement. */
+export type UsageSummaryRecord = {
+  readAt: Date;
+  /** `until` as asked, or `readAt` when it was not. */
+  until: Date;
+  sessionCount: number;
+  /** The sum of `sessions.cost_usd` as the database prints the numeric. */
+  costUsd: string;
+  providerTokens: number;
+  /** Ended turns without a cost report plus open turns. */
+  incompleteTurnCount: number;
+  runSeconds: number;
+};
+
 export interface UsageReader {
   installationUsage(): Promise<InstallationUsage>;
   /** null when the session is not visible to the owner. */
@@ -34,4 +58,8 @@ export interface UsageReader {
     ownerId: string,
     sessionId: string,
   ): Promise<SessionUsageRecord | null>;
+  usageSummary(
+    filter: UsageSummaryFilter,
+    period: { since: Date; until?: Date },
+  ): Promise<UsageSummaryRecord>;
 }

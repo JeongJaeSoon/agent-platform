@@ -97,7 +97,12 @@ export const PERMISSIONS: Record<WorkspaceRole, AuthMeResponse["permissions"]> =
   {
     member: MEMBER_PERMISSIONS,
     admin: ADMIN_PERMISSIONS,
-    owner: [...ADMIN_PERMISSIONS, "audit_retention.manage", "agent.restore"],
+    owner: [
+      ...ADMIN_PERMISSIONS,
+      "audit_retention.manage",
+      "agent.restore",
+      "usage.installation_read",
+    ],
   };
 
 /** Only an owner may hold sessions:recover; the contract rejects it on others. */

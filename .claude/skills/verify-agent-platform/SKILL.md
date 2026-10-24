@@ -11,7 +11,7 @@ description: Drive the agent-platform stack the way a user does — launch it lo
 |---|---|---|
 | web API (cookie) | `/v1/auth/**`(bootstrap·login-methods·login·me·logout, Google), 초대·구성원·팀·에이전트·권한별 key·연동 계정·공유·감사 열람·워크스페이스 설정 | `ap_web` (curl + CSRF 헤더 + cookie), 자격 값이 본문에 드는 요청은 `web-user.mjs` |
 | 웹 콘솔 | `apps/web`을 API가 같은 origin에서 서빙: `/login`·`/bootstrap`·`/`·`/members`·`/invite/{token}`·`/sessions`·`/teams`·`/agents`·`/settings/*` | 이 run의 headless Chrome(`browser.mjs`: 폭·다크·오류·로딩 스크린샷), 서빙 헤더는 curl |
-| API | `/v1/sessions/**`, `/v1/receipts`, `/v1/limits`, `/docs`, `/readyz` | `ap_get`·`ap_post` (Bearer key) |
+| API | `/v1/sessions/**`, `/v1/receipts`, `/v1/usage/summary`, `/docs`, `/readyz` (`/v1/limits`는 owner cookie로 `ap_web`) | `ap_get`·`ap_post` (Bearer key) |
 | CLI | key CLI(`apps/control-host/src/api/keys.ts`)의 `create`·`revoke` | `ap_key`·`ap_revoke` |
 
 기능별 절차는 [features/README.md](features/README.md)에 있다. 증명할 때는 map에 적힌 진입점을 모두 몬다.
