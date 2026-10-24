@@ -39,12 +39,14 @@ export type SlackSendOutcome =
   | { kind: "failed"; code: string };
 
 function retryAfterMs(header: string | null): number {
-  const seconds = Number(header);
-  return (
-    (Number.isFinite(seconds) && seconds > 0
-      ? seconds
-      : DEFAULT_RETRY_AFTER_SECONDS) * 1000
-  );
+  // Retry-After is a count of whole seconds; Number() alone would also take
+  // hex, exponents and values that overflow once turned into milliseconds.
+  const trimmed = header?.trim() ?? "";
+  const seconds = /^\d+$/.test(trimmed) ? Number(trimmed) : 0;
+  const ms = seconds * 1000;
+  return seconds > 0 && Number.isSafeInteger(ms)
+    ? ms
+    : DEFAULT_RETRY_AFTER_SECONDS * 1000;
 }
 
 function field(body: unknown, key: string): unknown {

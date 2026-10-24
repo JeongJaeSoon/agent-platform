@@ -73,7 +73,24 @@ describe("escapeSlackControls without a policy", () => {
     expect(escapeSlackControls("run `echo <!here>` then <!here>")).toBe(
       "run `echo <!here>` then &lt;!here&gt;",
     );
-    expect(escapeSlackControls("open ``` <!here>")).toBe("open ``` <!here>");
+  });
+
+  test("an unclosed backtick or fence shields nothing", () => {
+    expect(escapeSlackControls("unmatched ` then <!here>")).toBe(
+      "unmatched ` then &lt;!here&gt;",
+    );
+    expect(escapeSlackControls("open ``` <!here>")).toBe(
+      "open ``` &lt;!here&gt;",
+    );
+    expect(escapeSlackControls("`a` and ` <@U1>")).toBe(
+      "`a` and ` &lt;@U1&gt;",
+    );
+    expect(escapeSlackControls("a `b\n<!channel>\nc` d")).toBe(
+      "a `b\n&lt;!channel&gt;\nc` d",
+    );
+    expect(escapeSlackControls("``` <!here> `x` <!here>")).toBe(
+      "``` &lt;!here&gt; `x` &lt;!here&gt;",
+    );
   });
 });
 

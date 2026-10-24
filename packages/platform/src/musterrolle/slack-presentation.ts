@@ -78,10 +78,16 @@ function mapOutsideCode(value: string, map: (part: string) => string): string {
   let index = 0;
 
   while (index < value.length) {
+    // Slack renders an unclosed fence, an unclosed backtick or a backtick
+    // pair split by a line break as plain text, so none of them may shield
+    // what follows from escaping.
     if (value.startsWith("```", index)) {
-      output += map(value.slice(plainStart, index));
       const end = value.indexOf("```", index + 3);
-      if (end === -1) return output + value.slice(index);
+      if (end === -1) {
+        index += 3;
+        continue;
+      }
+      output += map(value.slice(plainStart, index));
       output += value.slice(index, end + 3);
       index = end + 3;
       plainStart = index;
@@ -89,9 +95,12 @@ function mapOutsideCode(value: string, map: (part: string) => string): string {
     }
 
     if (value[index] === "`") {
-      output += map(value.slice(plainStart, index));
       const end = value.indexOf("`", index + 1);
-      if (end === -1) return output + value.slice(index);
+      if (end === -1 || value.slice(index, end).includes("\n")) {
+        index += 1;
+        continue;
+      }
+      output += map(value.slice(plainStart, index));
       output += value.slice(index, end + 1);
       index = end + 1;
       plainStart = index;

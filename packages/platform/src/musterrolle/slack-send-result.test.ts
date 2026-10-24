@@ -57,7 +57,7 @@ describe("classifySlackSendResult", () => {
     ).toEqual({ kind: "retry_after", waitMs: 2000 });
   });
 
-  test.each([null, "", "abc", "0", "-3"])(
+  test.each([null, "", "abc", "0", "-3", "0x10", "1e3", "1.5", "1e308"])(
     "a missing or unusable Retry-After (%p) waits one second",
     (retryAfterHeader) => {
       expect(
