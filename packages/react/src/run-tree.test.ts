@@ -313,6 +313,54 @@ describe("buildRunTree", () => {
     expect(buildRunTree([...frames].reverse())).toEqual(tree);
   });
 
+  test("a run that names itself as its parent is drawn apart", () => {
+    const tree = buildRunTree([use(1, "x", "Task", {}, "x")]);
+    expect(tree.detached.map((run) => [run.id, run.tools.length])).toEqual([
+      ["x", 1],
+    ]);
+    expect(tree.root.children).toEqual([]);
+  });
+
+  test("an earlier frame that breaks a loop puts the runs back in any order", () => {
+    const frames = [
+      use(1, "x", "Task", {}),
+      use(2, "x", "Task", {}, "y"),
+      use(3, "y", "Task", {}, "x"),
+    ];
+    const tree = buildRunTree(frames);
+    expect(runRows(tree).map((run) => run.id)).toEqual([ROOT_RUN_ID, "x", "y"]);
+    expect(tree.detached).toEqual([]);
+    for (let seed = 1; seed <= 10; seed += 1) {
+      expect(buildRunTree(shuffle(frames, seed))).toEqual(tree);
+    }
+    expect(buildRunTree([...frames].reverse())).toEqual(tree);
+  });
+
+  test("calls sharing one frame keep their block order", () => {
+    const ids = Array.from({ length: 12 }, (_, i) => `t${i}`);
+    const tree = buildRunTree([
+      {
+        id: "c-many",
+        occurredAt: at(1),
+        payload: {
+          event: "tool_use",
+          data: {
+            type: "assistant",
+            message: {
+              content: ids.map((id) => ({
+                type: "tool_use",
+                id,
+                name: "Read",
+                input: {},
+              })),
+            },
+          },
+        },
+      },
+    ]);
+    expect(tree.root.tools.map((tool) => tool.id)).toEqual(ids);
+  });
+
   test("frames that disagree about one call: the earlier one wins in any order", () => {
     const frames = [
       use(1, "x", "Bash", { command: "first" }),

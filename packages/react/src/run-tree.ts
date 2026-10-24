@@ -192,6 +192,8 @@ export function createRunTreeBuilder(): RunTreeBuilder {
   const permissions = new Set<string>();
   const runs = new Map<string, RunRecord>();
   const detached: string[] = [];
+  // Runs drawn apart because their chain loops; a replaced call may undo it.
+  const looped = new Set<string>();
   let lastStatus: {
     readonly stamp: Stamp;
     readonly phase: StatusEventPhase;
@@ -240,6 +242,24 @@ export function createRunTreeBuilder(): RunTreeBuilder {
     dirtyRuns.add(id);
   };
 
+  // The runs on the parent_tool_use_id loop through runId, following the
+  // calls as they stand now; empty when its chain ends at the root or an
+  // unknown call.
+  const loopThrough = (runId: string) => {
+    const loop: string[] = [];
+    const visited = new Set<string>();
+    for (
+      let up = tools.get(runId)?.parent ?? null;
+      up !== null && !visited.has(up);
+      up = tools.get(up)?.parent ?? null
+    ) {
+      loop.push(up);
+      if (up === runId) return loop;
+      visited.add(up);
+    }
+    return [];
+  };
+
   const attach = (runId: string) => {
     const run = runs.get(runId) as RunRecord;
     const spawn = tools.get(runId);
@@ -248,23 +268,19 @@ export function createRunTreeBuilder(): RunTreeBuilder {
       setApart(runId);
       return;
     }
-    // Only a run with children can close a parent_tool_use_id loop. Every run
-    // on the loop is drawn apart, so the result does not depend on which
+    // A loop needs a call inside this run (or the run as its own parent).
+    // Every run on it is drawn apart, so the result does not depend on which
     // link arrived last.
-    if (run.children.length > 0) {
-      const loop: string[] = [];
-      for (
-        let up: string | null = parent;
-        up !== null && up !== ROOT_RUN_ID;
-        up = runs.get(up)?.parentRun ?? null
-      ) {
-        loop.push(up);
-        if (up === runId) {
-          for (const id of loop) setApart(id);
-          return;
-        }
+    const loop =
+      run.tools.length > 0 || parent === runId ? loopThrough(runId) : [];
+    if (loop.length > 0) {
+      for (const id of loop) {
+        looped.add(id);
+        setApart(id);
       }
+      return;
     }
+    looped.delete(runId);
     remove(detached, runId);
     if (run.parentRun !== null) {
       remove((runs.get(run.parentRun) as RunRecord).children, runId);
@@ -331,7 +347,12 @@ export function createRunTreeBuilder(): RunTreeBuilder {
         toolUses(payload.data.message).forEach((use, index) => {
           // Calls sharing a frame keep their block order.
           const start =
-            index === 0 ? at : { ...at, id: `${at.id}\u0000${index}` };
+            index === 0
+              ? at
+              : {
+                  ...at,
+                  id: `${at.id}\u0000${String(index).padStart(9, "0")}`,
+                };
           const known = tools.get(use.id);
           if (known && !before(start, known.start)) {
             // Whether a run exists must not depend on which frame came first.
@@ -350,6 +371,11 @@ export function createRunTreeBuilder(): RunTreeBuilder {
             parent,
             start,
           });
+          if (known) {
+            for (const id of [...looped]) {
+              if (loopThrough(id).length === 0) attach(id);
+            }
+          }
         });
         break;
       }
