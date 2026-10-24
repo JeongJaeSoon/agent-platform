@@ -423,7 +423,13 @@ export function Combobox({
                   )}
                 </span>
                 {option.end !== undefined && (
-                  <span className="flex shrink-0 items-center">
+                  <span
+                    className={cn(
+                      "flex shrink-0 items-center",
+                      // One line tall at the top, so it centres on the label.
+                      option.description !== undefined && "h-[1lh] self-start",
+                    )}
+                  >
                     {option.end}
                   </span>
                 )}

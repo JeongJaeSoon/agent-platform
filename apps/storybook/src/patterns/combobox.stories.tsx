@@ -22,6 +22,7 @@ const COPY = {
     private: "비공개 채널",
     publicTag: "공개",
     privateTag: "비공개",
+    invited: "봇 초대됨 · 승인 대기",
     empty: "맞는 결과가 없습니다.",
     loading: "불러오는 중…",
     loadMore: "더 보기",
@@ -37,6 +38,7 @@ const COPY = {
     private: "非公開チャンネル",
     publicTag: "公開",
     privateTag: "非公開",
+    invited: "ボット招待済み · 承認待ち",
     empty: "一致する結果はありません。",
     loading: "読み込み中…",
     loadMore: "さらに表示",
@@ -52,6 +54,7 @@ const COPY = {
     private: "Private channel",
     publicTag: "Public",
     privateTag: "Private",
+    invited: "Bot invited · awaiting approval",
     empty: "No matches.",
     loading: "Loading…",
     loadMore: "Load more",
@@ -109,6 +112,8 @@ const CHANNELS = [
 const CONNECTED = new Set(["general", "deploys"]);
 // A name too long for 390px, so its line ends in an ellipsis before the tag.
 const LONG_CHANNEL = "customer-success-escalations-apac-weekend-oncall";
+// With a second line, so the tag must still sit on the name's line.
+const INVITED_CHANNEL = "incident-war-room";
 const PAGE = 5;
 const LATENCY_MS = 600;
 
@@ -169,6 +174,7 @@ function ChannelTagPicker({ copy }: { readonly copy: Copy }) {
         {isPrivate ? copy.privateTag : copy.publicTag}
       </Badge>
     ),
+    ...(name === INVITED_CHANNEL ? { description: copy.invited } : {}),
     disabled: CONNECTED.has(name),
   }));
   return (
@@ -335,21 +341,48 @@ export const EndTag: Story = {
   play: async ({ canvasElement, globals }) => {
     const copy = copyFor({ globals });
     await openWithArrow(canvasElement);
-    const long = page()
-      .getAllByRole("option")
-      .find((option) => option.textContent?.startsWith(`#${LONG_CHANNEL}`));
-    const [text, end] = Array.from(long?.children ?? []) as HTMLElement[];
-    const label = text?.querySelector("span");
-    const row = long?.getBoundingClientRect();
-    const tag = end?.getBoundingClientRect();
-    // Numbers, not elements: the play log serialises what expect gets.
-    await expect(end?.textContent).toBe(copy.publicTag);
-    await expect(Boolean(label && label.scrollWidth > label.clientWidth)).toBe(
+    const options = page().getAllByRole("option");
+    const parts = (name: string) => {
+      const option = options.find((o) => o.textContent?.startsWith(`#${name}`));
+      const [text, end] = Array.from(option?.children ?? []) as HTMLElement[];
+      return { option, label: text?.querySelector("span"), end };
+    };
+    const middle = (el: Element | null | undefined) => {
+      const box = el?.getBoundingClientRect();
+      return box ? box.top + box.height / 2 : Number.NaN;
+    };
+    // Numbers and booleans, not elements: the play log serialises what
+    // expect gets.
+    const long = parts(LONG_CHANNEL);
+    await expect(long.end?.textContent).toBe(copy.publicTag);
+    await expect(
+      Boolean(
+        long.label &&
+          getComputedStyle(long.label).textOverflow === "ellipsis" &&
+          long.label.scrollWidth > long.label.clientWidth,
+      ),
+    ).toBe(true);
+    const tag = long.end?.getBoundingClientRect();
+    const row = long.option?.getBoundingClientRect();
+    const name = long.label?.getBoundingClientRect();
+    await expect(
+      Boolean(
+        tag &&
+          row &&
+          name &&
+          long.end &&
+          tag.right <= row.right &&
+          name.right <= tag.left &&
+          long.end.scrollWidth <= Math.ceil(tag.width),
+      ),
+    ).toBe(true);
+    await expect(Math.abs(middle(long.end) - middle(long.label)) <= 1).toBe(
       true,
     );
-    await expect(Boolean(row && tag && tag.right <= row.right)).toBe(true);
+    const invited = parts(INVITED_CHANNEL);
+    await expect(invited.end?.textContent).toBe(copy.privateTag);
     await expect(
-      Boolean(label && tag && label.getBoundingClientRect().right <= tag.left),
+      Math.abs(middle(invited.end) - middle(invited.label)) <= 1,
     ).toBe(true);
   },
 };
