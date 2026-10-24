@@ -28,6 +28,7 @@ export interface SessionCountsMessages {
     limit: string,
   ) => readonly [string, string];
   readonly slotsMeter: string;
+  readonly loading: string;
 }
 
 export interface FindingsMessages {
@@ -155,6 +156,7 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         slots: "동시 실행 slot · 설치 전체",
         slotsUsed: (used, limit) => [used, ` / ${limit} 사용`],
         slotsMeter: "동시 실행 slot 사용률, 설치 전체",
+        loading: "세션 수를 읽는 중",
       },
       findings: {
         most_time: "가장 오래 걸리는 도구: ",
@@ -212,6 +214,7 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         slots: "同時実行スロット · インストール全体",
         slotsUsed: (used, limit) => [used, ` / ${limit} 使用中`],
         slotsMeter: "同時実行スロット使用率、インストール全体",
+        loading: "セッション数を読み込み中",
       },
       findings: {
         most_time: "最も時間がかかるツール: ",
@@ -270,6 +273,7 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         slots: "Concurrent slots · Whole installation",
         slotsUsed: (used, limit) => [used, ` / ${limit} in use`],
         slotsMeter: "Concurrent slot use, whole installation",
+        loading: "Loading session counts",
       },
       findings: {
         most_time: "Takes the most time: ",
