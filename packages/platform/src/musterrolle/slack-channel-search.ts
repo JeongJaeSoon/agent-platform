@@ -175,10 +175,10 @@ type Snapshot = {
   readAt: number;
 };
 
-type Slot = {
-  snapshot: Snapshot | null;
-  /** Slack's Retry-After, as a time: no call to Slack for this app before it. */
-  blockedUntil: number;
+type Read = {
+  snapshot: Promise<Snapshot>;
+  /** False once the key is invalidated: the result answers its callers only. */
+  keep: boolean;
 };
 
 export type SlackChannelLookup = {
@@ -188,8 +188,7 @@ export type SlackChannelLookup = {
 
 /**
  * Per-process cache of each app's channel list, keyed by our slack app id.
- * Concurrent misses on one key share one read. A read already running when
- * the key is invalidated still answers its callers but is not kept.
+ * Concurrent misses on one key share one read.
  */
 export function createSlackChannelCache(options?: {
   ttlMs?: number;
@@ -202,18 +201,30 @@ export function createSlackChannelCache(options?: {
   const maxApps = options?.maxApps ?? SLACK_CHANNEL_CACHE_MAX_APPS;
   const now = options?.now ?? (() => Date.now());
   // Map order is the LRU order: oldest first.
-  const slots = new Map<string, Slot>();
-  // Reads in flight are not evicted with their slot: a key pushed out
-  // mid-read still shares that read and keeps its result.
-  const reads = new Map<string, Promise<Snapshot>>();
+  const snapshots = new Map<string, Snapshot>();
+  // Neither is evicted with the snapshot: a key pushed out mid-read still
+  // shares that read, and Slack's Retry-After holds until it passes.
+  const reads = new Map<string, Read>();
+  /** Slack's Retry-After, as a time: no call to Slack for the app before it. */
+  const blockedUntil = new Map<string, number>();
 
-  function touch(key: string, slot: Slot) {
-    slots.delete(key);
-    slots.set(key, slot);
-    while (slots.size > maxApps) {
-      slots.delete(slots.keys().next().value as string);
+  function keep(key: string, snapshot: Snapshot) {
+    snapshots.delete(key);
+    snapshots.set(key, snapshot);
+    while (snapshots.size > maxApps) {
+      snapshots.delete(snapshots.keys().next().value as string);
     }
   }
+
+  function block(key: string, until: number) {
+    const at = now();
+    for (const [other, time] of blockedUntil) {
+      if (time <= at) blockedUntil.delete(other);
+    }
+    blockedUntil.set(key, until);
+  }
+
+  const blocked = (key: string) => now() < (blockedUntil.get(key) ?? 0);
 
   async function readAll(
     key: string,
@@ -234,9 +245,7 @@ export function createSlackChannelCache(options?: {
       } while (cursor !== null);
     } catch (error) {
       if (error instanceof SlackRateLimitedError) {
-        const slot = slots.get(key) ?? { snapshot: null, blockedUntil: 0 };
-        slot.blockedUntil = now() + error.retryAfterSeconds * 1000;
-        touch(key, slot);
+        block(key, now() + error.retryAfterSeconds * 1000);
       }
       throw error;
     }
@@ -257,37 +266,33 @@ export function createSlackChannelCache(options?: {
         (cursor: string | null) => Promise<SlackChannelPage>
       >,
     ): Promise<SlackChannelLookup> {
-      const slot = slots.get(key);
-      const cached = slot?.snapshot ?? null;
-      if (slot && cached && now() - cached.readAt < ttlMs) {
-        touch(key, slot);
+      const cached = snapshots.get(key) ?? null;
+      if (cached && now() - cached.readAt < ttlMs) {
+        keep(key, cached);
         return { snapshot: cached, cache: "hit" };
       }
-      if (slot && now() < slot.blockedUntil) {
+      if (blocked(key)) {
         if (cached) {
-          touch(key, slot);
+          keep(key, cached);
           return { snapshot: cached, cache: "stale" };
         }
         throw new SlackRateLimitedError(
           "conversations.list",
-          Math.ceil((slot.blockedUntil - now()) / 1000),
+          Math.ceil(((blockedUntil.get(key) ?? 0) - now()) / 1000),
         );
       }
       let read = reads.get(key);
       if (read === undefined) {
-        const started = (async () => readAll(key, await listPage()))();
+        const started: Read = {
+          snapshot: (async () => readAll(key, await listPage()))(),
+          keep: true,
+        };
         read = started;
         reads.set(key, started);
-        started.then(
+        started.snapshot.then(
           (snapshot) => {
-            if (reads.get(key) !== started) return;
-            reads.delete(key);
-            const current = slots.get(key) ?? {
-              snapshot: null,
-              blockedUntil: 0,
-            };
-            current.snapshot = snapshot;
-            touch(key, current);
+            if (reads.get(key) === started) reads.delete(key);
+            if (started.keep) keep(key, snapshot);
           },
           () => {
             if (reads.get(key) === started) reads.delete(key);
@@ -295,9 +300,9 @@ export function createSlackChannelCache(options?: {
         );
       }
       try {
-        return { snapshot: await read, cache: "miss" };
+        return { snapshot: await read.snapshot, cache: "miss" };
       } catch (error) {
-        const fallback = slots.get(key)?.snapshot ?? null;
+        const fallback = snapshots.get(key) ?? null;
         if (error instanceof SlackRateLimitedError && fallback) {
           return { snapshot: fallback, cache: "stale" };
         }
@@ -310,23 +315,23 @@ export function createSlackChannelCache(options?: {
      * while Slack is rate limiting the app, as the first page was.
      */
     held(key: string, snapshotId: string): SlackChannelLookup | null {
-      const slot = slots.get(key);
-      if (!slot?.snapshot || slot.snapshot.id !== snapshotId) return null;
-      touch(key, slot);
-      return {
-        snapshot: slot.snapshot,
-        cache: now() < slot.blockedUntil ? "stale" : "hit",
-      };
+      const snapshot = snapshots.get(key);
+      if (snapshot?.id !== snapshotId) return null;
+      keep(key, snapshot);
+      return { snapshot, cache: blocked(key) ? "stale" : "hit" };
     },
 
-    /** Forgets the list, keeping any rate limit Slack set. */
+    /**
+     * Forgets the list, keeping any rate limit Slack set. A read in flight
+     * still answers whoever waits on it, but is not kept.
+     */
     invalidate(key: string): void {
-      reads.delete(key);
-      const slot = slots.get(key);
-      if (slot) slot.snapshot = null;
+      snapshots.delete(key);
+      const read = reads.get(key);
+      if (read) read.keep = false;
     },
 
-    size: () => slots.size,
+    size: () => snapshots.size,
   };
 }
 

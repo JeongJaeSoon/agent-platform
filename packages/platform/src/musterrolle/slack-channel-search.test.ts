@@ -29,6 +29,7 @@ import {
   SLACK_CHANNEL_CACHE_MAX_APPS,
   SLACK_CHANNEL_CACHE_MAX_CHANNELS,
   SLACK_CHANNEL_CACHE_TTL_MS,
+  SlackRateLimitedError,
 } from "./slack-channel-search.ts";
 import type { SurfaceBindingService } from "./surface-binding-service.ts";
 
@@ -363,6 +364,50 @@ describe("searching an agent's Slack channels", () => {
     await Promise.all([first, second]);
     expect(reads).toBe(4);
     expect((await cache.lookup("a", quick)).cache).toBe("hit");
+  });
+
+  test("an invalidate mid-read keeps sharing the read but not its result", async () => {
+    let reads = 0;
+    let release: () => void = () => {};
+    const cache = createSlackChannelCache();
+    const slow = async () => async () => {
+      reads += 1;
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return { channels: [], nextCursor: null };
+    };
+    const first = cache.lookup("a", slow);
+    await Bun.sleep(0);
+    cache.invalidate("a");
+    const second = cache.lookup("a", slow);
+    await Bun.sleep(0);
+    release();
+    await Promise.all([first, second]);
+    expect(reads).toBe(1);
+    const third = cache.lookup("a", slow);
+    await Bun.sleep(0);
+    release();
+    expect((await third).cache).toBe("miss");
+    expect(reads).toBe(2);
+  });
+
+  test("a rate limit outlives the LRU pushing its app out", async () => {
+    let reads = 0;
+    const cache = createSlackChannelCache({ maxApps: 2 });
+    const limited = async () => async () => {
+      reads += 1;
+      throw new SlackRateLimitedError("conversations.list", 7_200);
+    };
+    const quick = async () => async () => ({ channels: [], nextCursor: null });
+    await cache.lookup("a", limited).catch(() => null);
+    for (const key of ["b", "c", "d"]) await cache.lookup(key, quick);
+    const again = await cache.lookup("a", limited).then(
+      () => null,
+      (error: unknown) => error,
+    );
+    expect(again).toBeInstanceOf(SlackRateLimitedError);
+    expect(reads).toBe(1);
   });
 
   test("a binding PUT in this process drops the agent's cached channels", async () => {
