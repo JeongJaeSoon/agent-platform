@@ -43,6 +43,7 @@ const MODELS = ["claude-haiku-5", "claude-sonnet-5"];
 const CARD_BODY = "flex flex-col gap-3 p-4";
 const META = "text-caption text-subtle-foreground";
 const ICON = "size-3.5 shrink-0";
+const STATUS = `${META} min-w-6 text-right`;
 // The card draws the box; the rows only keep the rule under the body.
 const ROWS = "rounded-none border-x-0 border-b-0 bg-transparent";
 
@@ -150,7 +151,11 @@ function GuestRow({
   return (
     <SettingRow
       title="Slack 게스트도 에이전트를 쓸 수 있게 하기"
-      status={<div className={META}>{enabled ? "켜짐" : "꺼짐"}</div>}
+      status={
+        <div aria-hidden="true" className={STATUS}>
+          {enabled ? "켜짐" : "꺼짐"}
+        </div>
+      }
       control={
         <Switch
           checked={enabled}

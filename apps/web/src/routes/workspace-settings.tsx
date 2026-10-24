@@ -47,6 +47,8 @@ const CARD_BODY = "flex flex-col gap-3 p-4";
 const SUB = "text-description";
 const META = "text-caption text-subtle-foreground";
 const ICON = "size-3.5 shrink-0";
+// Wide enough for the longer of On/Off, so the label does not reflow on a flip.
+const STATUS = `${META} min-w-6 text-right`;
 // The card draws the box; the rows only keep the rule under the body.
 const ROWS = "rounded-none border-x-0 border-b-0 bg-transparent";
 
@@ -437,7 +439,8 @@ function SlackGuest({ onOutcome }: { readonly onOutcome: OnOutcome }) {
             )
           }
           status={
-            <div className={META}>
+            // aria-checked already says it; the words are for sighted users.
+            <div aria-hidden="true" className={STATUS}>
               {t(enabled ? "workspace.guestOn" : "workspace.guestOff")}
             </div>
           }
