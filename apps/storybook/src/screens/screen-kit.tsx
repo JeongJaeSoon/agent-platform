@@ -104,9 +104,7 @@ export function ScreenShell({
       </nav>
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-12 w-full items-center gap-2 px-4 md:px-6">
-          <nav aria-label="위치" className="text-muted-foreground">
-            {crumb.join(" › ")}
-          </nav>
+          <p className="m-0 text-muted-foreground">{crumb.join(" › ")}</p>
         </header>
         {flush ? (
           <main className="flex w-full flex-1 flex-col border-t">
