@@ -3,7 +3,7 @@ import { Link, Outlet, useLocation } from "@tanstack/react-router";
 import { ApiError, isApiError, unwrap } from "@werft-ai/client";
 import type { Invite, MemberView, WorkspaceRole } from "@werft-ai/contracts";
 import { useAgentPlatform, useMemberPages } from "@werft-ai/react";
-import { ListToolbar } from "@werft-ai/react/components";
+import { ListToolbar, LoadMoreButton } from "@werft-ai/react/components";
 import {
   Alert,
   AlertActions,
@@ -247,24 +247,26 @@ export function MembersScreen() {
               }
             />
           ) : null}
-          {/* After any failed read the alert's retry is the way on: more
-              rows on top of a failed refresh would keep the stale ones. */}
-          {members.hasNextPage && !members.error ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="self-start"
-              // A refresh after a change rereads every page; asking for the
-              // next one now would cancel it and keep the stale rows.
-              disabled={members.isFetching}
-              onClick={() => members.fetchNextPage()}
-            >
-              {members.isFetchingNextPage
-                ? t("sessions.loadingMore")
-                : t("sessions.more")}
-            </Button>
-          ) : null}
+          {/* After a failed refresh the alert's retry is the way on: more
+              rows on top of it would keep the stale ones. A failed next
+              page keeps the button, and the keyboard on it. */}
+          <LoadMoreButton
+            hasMore={
+              members.hasNextPage &&
+              (!members.error || members.isFetchNextPageError)
+            }
+            loading={members.isFetchingNextPage}
+            // A refresh after a change rereads every page; asking for the
+            // next one now would cancel it and keep the stale rows.
+            busy={members.isFetching}
+            onLoadMore={() =>
+              void members.fetchNextPage({ cancelRefetch: false })
+            }
+            messages={{
+              more: t("sessions.more"),
+              loading: t("sessions.loadingMore"),
+            }}
+          />
         </div>
       )}
     </div>
