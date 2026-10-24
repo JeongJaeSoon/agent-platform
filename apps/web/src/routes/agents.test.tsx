@@ -104,6 +104,8 @@ const RELEASE_TAB = `${DETAIL}?tab=release`;
 const PROFILE = "claude-coding-local";
 const showTab = async (user: User, name: string) =>
   user.click(await screen.findByRole("tab", { name }));
+const showList = async (user: User, name: string) =>
+  user.click(await screen.findByRole("button", { name }));
 // The state badge of the card or row an agent's name links from.
 const stateOf = (link: HTMLElement) =>
   link.closest("tr, [data-slot=card]")?.querySelector("[data-state]");
@@ -485,9 +487,9 @@ describe("에이전트 목록 탭과 보기", () => {
       "GET /v1/agents": () => json(200, { items: [] }),
       "GET /v1/administered-agents": () => json(200, { items: [] }),
     });
-    expect(await screen.findByRole("tab", { name: "전체 0" })).toBeDefined();
+    expect(await screen.findByRole("button", { name: "전체 0" })).toBeDefined();
     expect(
-      await screen.findByRole("tab", { name: "관리하는 에이전트 0" }),
+      await screen.findByRole("button", { name: "관리하는 에이전트 0" }),
     ).toBeDefined();
     expect(screen.getByRole("button", { name: "카드" })).toBeDefined();
     expect(screen.getByText("아직 에이전트가 없습니다.")).toBeDefined();
@@ -510,12 +512,12 @@ describe("에이전트 목록 탭과 보기", () => {
         json(200, { items: [server.detail().agent] }),
     });
     expect(
-      (await screen.findByRole("tab", { name: "전체 2" })).getAttribute(
-        "aria-selected",
+      (await screen.findByRole("button", { name: "전체 2" })).getAttribute(
+        "aria-pressed",
       ),
     ).toBe("true");
     const user = await setupUser();
-    await showTab(user, "관리하는 에이전트 1");
+    await showList(user, "관리하는 에이전트 1");
     await waitFor(() =>
       expect(screen.queryByRole("link", { name: "다른 에이전트" })).toBeNull(),
     );
@@ -535,7 +537,7 @@ describe("에이전트 목록 탭과 보기", () => {
       "GET /v1/agents": () => json(200, { items: [base] }),
       "GET /v1/administered-agents": () => json(200, { items }),
     });
-    await showTab(await setupUser(), "관리하는 에이전트 200+");
+    await showList(await setupUser(), "관리하는 에이전트 200+");
     expect(await screen.findByText("처음 200개만 보입니다.")).toBeDefined();
   });
 

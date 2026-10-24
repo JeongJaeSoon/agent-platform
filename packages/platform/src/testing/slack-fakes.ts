@@ -5,7 +5,12 @@
  * the service exercises the same outcomes the Postgres stores give.
  */
 import { randomBytes } from "node:crypto";
-import { BOT_SCOPES, type SlackAppSecretPurpose } from "@werft-ai/contracts";
+import {
+  BOT_SCOPES,
+  type SlackAppSecretPurpose,
+  type SlackInboundDropReason,
+  type SlackInboundEventStatus,
+} from "@werft-ai/contracts";
 import type {
   CreatedSlackApp,
   RotatedConfigToken,
@@ -35,8 +40,10 @@ import type {
   SlackConfigTokenStore,
 } from "../ports/slack-config-token-store.ts";
 import type {
+  SlackInboundClaim,
   SlackInboundEventInput,
   SlackInboundEventStore,
+  SlackInboundFence,
 } from "../ports/slack-inbound-event-store.ts";
 import type {
   SlackInstallState,
@@ -834,14 +841,49 @@ export function createMemoryAgentIdentityStore(
   return { store, identities, receipts, archived };
 }
 
-export function createMemorySlackInboundEventStore() {
+type MemoryInboundRow = SlackInboundEventInput & {
+  id: string;
+  state: SlackInboundEventStatus;
+  claimToken: string | null;
+  leaseExpiresAt: number | null;
+  attempts: number;
+  nextAttemptAt: number | null;
+  dropped?: SlackInboundDropReason;
+};
+
+/**
+ * Keyed by `app|event`, like the table. The claim side is a plain lease on
+ * `now()`, in arrival order, without the table's per-thread ordering; the
+ * PostgreSQL store's own tests hold that.
+ */
+export function createMemorySlackInboundEventStore(
+  options: {
+    now?: () => number;
+    installationStatus?: () => SlackInboundClaim["installationStatus"];
+  } = {},
+) {
+  const now = options.now ?? Date.now;
   const rows = new Map<string, SlackInboundEventInput>();
+  const lease = new Map<string, MemoryInboundRow>();
   const calls = { seen: 0, record: 0 };
   const faults = { record: 0 };
+  const held = (fence: SlackInboundFence) => {
+    const row = [...lease.values()].find((r) => r.id === fence.id);
+    return row !== undefined &&
+      row.claimToken === fence.claimToken &&
+      (row.leaseExpiresAt ?? 0) > now()
+      ? row
+      : undefined;
+  };
+  const release = (row: MemoryInboundRow, state: SlackInboundEventStatus) => {
+    row.state = state;
+    row.claimToken = null;
+    row.leaseExpiresAt = null;
+  };
   const store: SlackInboundEventStore = {
-    async seen(teamId, eventId) {
+    async seen(appId, eventId) {
       calls.seen += 1;
-      return rows.has(`${teamId}|${eventId}`);
+      return rows.has(`${appId}|${eventId}`);
     },
     async record(event) {
       calls.record += 1;
@@ -849,11 +891,77 @@ export function createMemorySlackInboundEventStore() {
         faults.record -= 1;
         throw new Error("inbox write failed");
       }
-      const key = `${event.teamId}|${event.eventId}`;
+      const key = `${event.appId}|${event.eventId}`;
       if (rows.has(key)) return "duplicate";
       rows.set(key, event);
+      lease.set(key, {
+        ...event,
+        id: crypto.randomUUID(),
+        state: event.status,
+        claimToken: null,
+        leaseExpiresAt: null,
+        attempts: 0,
+        nextAttemptAt: null,
+      });
       return "recorded";
     },
+    async claim({ limit, leaseMs, maxAttempts }) {
+      const out: SlackInboundClaim[] = [];
+      for (const row of lease.values()) {
+        if (out.length >= limit) break;
+        if (row.state !== "received" || row.status === "dropped") continue;
+        if (row.claimToken !== null && (row.leaseExpiresAt ?? 0) > now()) {
+          continue;
+        }
+        if (row.nextAttemptAt !== null && row.nextAttemptAt > now()) continue;
+        if (row.attempts >= maxAttempts) {
+          release(row, "failed");
+          continue;
+        }
+        row.claimToken = crypto.randomUUID();
+        row.leaseExpiresAt = now() + leaseMs;
+        row.attempts += 1;
+        out.push({
+          id: row.id,
+          claimToken: row.claimToken,
+          attempts: row.attempts,
+          workspaceId: row.workspaceId,
+          agentId: row.agentId,
+          slackAppId: row.slackAppId,
+          teamId: row.teamId,
+          appId: row.appId,
+          eventId: row.eventId,
+          eventType: row.eventType,
+          eventSubtype: row.eventSubtype,
+          eventTime: row.eventTime,
+          conversationKey: row.conversationKey,
+          payload: row.payload,
+          installationStatus: options.installationStatus?.() ?? "verified",
+        });
+      }
+      return out;
+    },
+    async complete(fence) {
+      const row = held(fence);
+      if (row) release(row, "processed");
+      return row !== undefined;
+    },
+    async drop(fence, reason) {
+      const row = held(fence);
+      if (row) {
+        release(row, "dropped");
+        row.dropped = reason;
+      }
+      return row !== undefined;
+    },
+    async fail(fence, { retryInMs, maxAttempts }) {
+      const row = held(fence);
+      if (row === undefined) return "lost";
+      const spent = row.attempts >= maxAttempts;
+      release(row, spent ? "failed" : "received");
+      row.nextAttemptAt = spent ? null : now() + retryInMs;
+      return spent ? "failed" : "retry";
+    },
   };
-  return { store, rows, calls, faults };
+  return { store, rows, lease, calls, faults };
 }

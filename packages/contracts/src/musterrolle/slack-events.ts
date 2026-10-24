@@ -15,13 +15,19 @@ export const SLACK_SIGNATURE_WINDOW_SECONDS = 300;
 /**
  * `received`: waiting for the channel to act on it. `dropped`: kept only so
  * a retry stays deduplicated and the drop can be read back; its payload is
- * not stored. `processed`: handled where it arrived (an uninstall).
+ * not stored. `processed`: handled, where it arrived (an uninstall) or by
+ * the `slack` role. `failed`: the role gave up on it after
+ * SLACK_INBOUND_MAX_ATTEMPTS attempts.
  */
 export const SLACK_INBOUND_EVENT_STATUS_VALUES = [
   "received",
   "dropped",
   "processed",
+  "failed",
 ] as const;
+
+/** Claims of one event, lease expiries included, before it is `failed`. */
+export const SLACK_INBOUND_MAX_ATTEMPTS = 5;
 
 /**
  * Why an event was dropped at the door: the install checks of
