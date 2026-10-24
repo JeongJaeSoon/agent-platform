@@ -5,6 +5,7 @@ import {
   DetailRailSection,
 } from "@werft-ai/react/components";
 import { Badge, KeyValueList, PageHeader } from "@werft-ai/ui";
+import { expect } from "storybook/test";
 
 import { MOBILE, ScreenShell } from "../../screens/screen-kit.tsx";
 
@@ -114,6 +115,42 @@ const meta = {
       sections={(context.parameters.sections as number | undefined) ?? 3}
     />
   ),
+  // At whatever width the story runs: from 768px the rail keeps 24px inside
+  // on every side and, from 1280px, 24px on each side of a section's line
+  // (V4-RAIL-PAD); narrower, it keeps the body's gutter.
+  play: async ({ canvasElement }) => {
+    const content = canvasElement.querySelector<HTMLElement>(
+      '[data-slot="detail-rail-content"]',
+    );
+    if (content === null) throw new Error("no rail content");
+    const padding = (element: Element) => {
+      const style = getComputedStyle(element);
+      return [
+        style.paddingTop,
+        style.paddingRight,
+        style.paddingBottom,
+        style.paddingLeft,
+      ];
+    };
+    const width = window.innerWidth;
+    await expect(padding(content)).toEqual(
+      width >= 768
+        ? ["24px", "24px", "24px", "24px"]
+        : ["24px", "16px", "16px", "16px"],
+    );
+    if (width < 1280) return;
+    const sections = content.querySelectorAll(
+      '[data-slot="detail-rail-section"]',
+    );
+    await expect(sections.length).toBeGreaterThanOrEqual(3);
+    for (const [index, section] of sections.entries()) {
+      const [top, , bottom] = padding(section);
+      await expect([top, bottom]).toEqual([
+        index === 0 ? "0px" : "24px",
+        index === sections.length - 1 ? "0px" : "24px",
+      ]);
+    }
+  },
 } satisfies Meta<typeof DetailLayout>;
 
 export default meta;
@@ -144,4 +181,10 @@ export const Mobile: Story = { name: "390px", globals: MOBILE };
 export const MobileDark: Story = {
   name: "390px (dark)",
   globals: { ...MOBILE, theme: "dark" },
+};
+
+/** The rail at the screen's right edge, where its sections' spacing shows. */
+export const Desktop: Story = {
+  name: "1440px",
+  globals: { viewport: { value: "desktop1440", isRotated: false } },
 };
