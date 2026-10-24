@@ -1,6 +1,6 @@
 /**
- * npm advisories against bun.lock, split by whether a fix exists (
- * release policy of ): `bun.github/scripts/npm-audit.ts <result dir>`.
+ * npm advisories against every bun.lock in `LOCKFILES`, split by whether a
+ * fix exists: `bun .github/scripts/npm-audit.ts <result dir>`.
  *
  * `bun audit` names the advisories but not whether a patched version exists.
  * That comes from the GitHub advisory database, the source Grype uses for
@@ -42,6 +42,8 @@ export type Finding = {
   fix: string | null;
   /** Set when an entry of the exceptions file covers it. */
   excepted?: string;
+  /** The `LOCKFILES` directory whose bun.lock holds it. */
+  lockfile?: string;
 };
 
 export type Exception = {
@@ -53,6 +55,13 @@ export type Exception = {
 };
 
 export const BLOCKING = new Set(["high", "critical"]);
+
+/**
+ * Directories, from the repository root, of every bun.lock. The compat
+ * harness installs on its own, outside the workspace, so its lockfile is
+ * audited separately; tests/supply-chain.test.ts fails on one left out.
+ */
+export const LOCKFILES = [".", "scripts/agent-sdk-compat"];
 
 /** name → every version bun.lock resolves it to. */
 export function lockedVersions(lockText: string): Map<string, Set<string>> {
@@ -180,7 +189,7 @@ async function fetchRanges(id: string): Promise<GhsaRange[]> {
 }
 
 const line = (finding: Finding) =>
-  `${finding.severity} ${finding.package} ${finding.version} → ${finding.fix ?? "no fix"} ${finding.id}${finding.excepted ? ` (excepted: ${finding.excepted})` : ""}`;
+  `${finding.lockfile ?? "."} ${finding.severity} ${finding.package} ${finding.version} → ${finding.fix ?? "no fix"} ${finding.id}${finding.excepted ? ` (excepted: ${finding.excepted})` : ""}`;
 
 async function main(results: string) {
   const root = join(import.meta.dir, "..", "..");
@@ -188,52 +197,64 @@ async function main(results: string) {
   const resultFile = join(results, "npm.txt");
   writeFileSync(resultFile, "error\n");
 
-  // The whole bun.lock, dev dependencies included: a compromised build tool
+  // Each whole bun.lock, dev dependencies included: a compromised build tool
   // is a supply-chain problem too. `bun audit` exits 1 both for advisories
   // and for a failed request, so only its JSON tells them apart.
-  const run = Bun.spawnSync(["bun", "audit", "--json"], { cwd: root });
-  let audit: Audit;
-  try {
-    audit = JSON.parse(run.stdout.toString()) as Audit;
-    if (typeof audit !== "object" || audit === null || Array.isArray(audit))
-      throw new Error("not an object");
-  } catch {
-    console.error(run.stderr.toString());
-    console.error("bun audit got no answer from the advisory service");
-    process.exit(1);
+  const audits = new Map<string, Audit>();
+  for (const dir of LOCKFILES) {
+    const run = Bun.spawnSync(["bun", "audit", "--json"], {
+      cwd: join(root, dir),
+    });
+    try {
+      const audit = JSON.parse(run.stdout.toString()) as Audit;
+      if (typeof audit !== "object" || audit === null || Array.isArray(audit))
+        throw new Error("not an object");
+      audits.set(dir, audit);
+    } catch {
+      console.error(run.stderr.toString());
+      console.error(
+        `${dir}: bun audit got no answer from the advisory service`,
+      );
+      process.exit(1);
+    }
   }
 
   const ids = new Set(
-    Object.values(audit)
-      .flat()
+    [...audits.values()]
+      .flatMap((audit) => Object.values(audit).flat())
       .filter((advisory) => BLOCKING.has(advisory.severity))
       .map((advisory) => ghsaOf(advisory.url)),
   );
   const ranges = new Map<string, GhsaRange[]>();
   for (const id of ids) ranges.set(id, await fetchRanges(id));
 
-  const all = applyExceptions(
-    findings(
-      audit,
-      lockedVersions(readFileSync(join(root, "bun.lock"), "utf8")),
-      ranges,
+  const exceptions = parseExceptions(
+    readFileSync(
+      join(root, ".github", "vulnerability-exceptions.json"),
+      "utf8",
     ),
-    parseExceptions(
-      readFileSync(
-        join(root, ".github", "vulnerability-exceptions.json"),
-        "utf8",
+  );
+  const today = new Date().toISOString().slice(0, 10);
+  const all = [...audits].flatMap(([dir, audit]) =>
+    applyExceptions(
+      findings(
+        audit,
+        lockedVersions(readFileSync(join(root, dir, "bun.lock"), "utf8")),
+        ranges,
       ),
-    ),
-    new Date().toISOString().slice(0, 10),
+      exceptions,
+      today,
+    ).map((finding) => ({ ...finding, lockfile: dir })),
   );
   const count = blocking(all).length;
   const unfixed = all.filter((finding) => finding.fix === null);
 
-  for (const [name, advisories] of Object.entries(audit))
-    for (const advisory of advisories)
-      console.log(
-        `${advisory.severity}\t${name} ${advisory.vulnerable_versions}\t${advisory.url}`,
-      );
+  for (const [dir, audit] of audits)
+    for (const [name, advisories] of Object.entries(audit))
+      for (const advisory of advisories)
+        console.log(
+          `${dir}\t${advisory.severity}\t${name} ${advisory.vulnerable_versions}\t${advisory.url}`,
+        );
   const summary = [
     "### npm: vulnerabilities",
     "",
