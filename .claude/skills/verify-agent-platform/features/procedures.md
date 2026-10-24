@@ -19,7 +19,7 @@ B=.claude/skills/verify-agent-platform/scripts/browser.mjs
 
 ID 저장은 아래 `printf`처럼 값이 UUID인 ID에만 쓴다. key·cookie·OAuth 값은 `ids.sh`에 저장하지 않는다. 새 run에서는 그 run의 파일만 복원한다.
 
-기대: doctor exit 0. 출력 SHA가 검사할 checkout이다. 이후 JSON은 `head -1` 뒤 jq, 상태는 원래 출력 마지막 줄로 판정한다. POST 세션 요청에는 `ap_post`가 Idempotency-Key를 붙인다. cookie로 세션 POST를 만들 때도 이 헤더가 필요하므로 이 절차는 개인 key를 쓴다.
+기대: doctor exit 0. 출력 SHA가 검사할 checkout이다. 이후 JSON은 `head -1` 뒤 jq, 상태는 원래 출력 마지막 줄로 판정한다. POST에는 `ap_post`·`ap_web`이 Idempotency-Key를 붙인다.
 
 ## P-API-READY — 공개 운영 표면
 

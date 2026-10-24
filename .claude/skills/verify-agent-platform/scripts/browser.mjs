@@ -242,9 +242,12 @@ async function capture(name, full = false) {
   writeFileSync(shotPath(name), Buffer.from(r.data, "base64"));
   return shotPath(name);
 }
-// The invite token is a path segment; never print it.
+// The invite token is a path segment and OAuth callbacks carry code/state in
+// the query; never print them.
 const masked = (text) =>
-  String(text).replace(/\/invite\/[^/?#\s|]+/g, "/invite/(token)");
+  String(text)
+    .replace(/\/invite\/[^/?#\s|]+/g, "/invite/(token)")
+    .replace(/([?&](?:code|state)=)[^&#\s|]+/g, "$1(hidden)");
 const here = async () =>
   masked(await evaluate("location.pathname + location.search"));
 // "@N" is the Nth field in <main> (from 0), for forms whose inputs have no name.
