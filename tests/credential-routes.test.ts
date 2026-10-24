@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { isIP } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PGlite } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 import type { BootstrapClaimResponse } from "@werft-ai/contracts";
 import {
   createEgressAuthorizer,
@@ -38,13 +38,13 @@ import {
   type GitHttpServer,
   startGitHttpServer,
 } from "@werft-ai/testkit/git-http";
+import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import {
   createIsolatedWorkspace,
   type IsolatedWorkspace,
 } from "@werft-ai/testkit/workspace";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
-import { migrate } from "drizzle-orm/pglite/migrator";
 import { engineProfile } from "../apps/worker/src/composition.ts";
 import {
   claimSecrets,
@@ -73,8 +73,8 @@ let proxy: CredentialProxyServer | undefined;
 let isolated: IsolatedWorkspace | undefined;
 let scratch: string | undefined;
 
-beforeEach(() => {
-  client = new PGlite();
+beforeEach(async () => {
+  client = await migratedPGlite();
 });
 
 afterEach(async () => {
@@ -108,9 +108,6 @@ type Topology = {
 async function topology(): Promise<Topology> {
   if (client === undefined) throw new Error("no database");
   const db = drizzle(client, { schema });
-  await migrate(db, {
-    migrationsFolder: join(import.meta.dir, "..", "packages/db/migrations"),
-  });
   const providerValue = `catalog-provider-${crypto.randomUUID()}`;
   const repositoryPassword = `catalog-repository-${crypto.randomUUID()}`;
   const basic = `Basic ${Buffer.from(`reader:${repositoryPassword}`).toString("base64")}`;
