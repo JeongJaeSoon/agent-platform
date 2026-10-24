@@ -11,19 +11,17 @@ import {
   Button,
   EmptyState,
   ErrorState,
-  Input,
   Link,
   PageHeader,
+  SearchInput,
+  SegmentedControl,
+  SegmentedControlItem,
   Skeleton,
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
 } from "@werft-ai/ui";
-import { Plus, Search } from "lucide-react";
+import { Plus } from "lucide-react";
 import { useState } from "react";
 
-import { MOBILE, PartRequest, ScreenShell } from "./screen-kit.tsx";
+import { MOBILE, ScreenShell } from "./screen-kit.tsx";
 
 /*
  * Console v4 session list (Console.dc.html, SESSIONS): one segmented status
@@ -149,9 +147,6 @@ const FILTERS: readonly (readonly [SessionStatus | "all", string])[] = [
 const statusWord = (status: SessionStatus) =>
   FILTERS.find(([key]) => key === status)?.[1] ?? status;
 
-const SEGMENT =
-  "h-7 flex-none rounded-control border-0 px-2 text-control text-muted-foreground hover:text-foreground data-[state=active]:bg-(--ap-color-active) data-[state=active]:text-foreground data-[state=active]:shadow-none";
-
 const ROW_MESSAGES = {
   status: statusWord,
   statusAxis: "작업 상태",
@@ -200,40 +195,32 @@ function SessionListV4Body({
       />
       <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center gap-2">
-          <PartRequest name="SegmentedControl" />
           <Badge variant="red">
             탭 개수·에이전트·시작한 사람 열: API 변경 필요 (94S-811)
           </Badge>
         </div>
-        <Tabs value={tab} onValueChange={setTab} className="min-w-0 gap-4">
+        <div className="flex min-w-0 flex-col gap-4">
           <div className="flex flex-wrap items-center gap-2">
-            <TabsList
+            <SegmentedControl
               aria-label="상태로 보기"
-              className="h-auto max-w-full flex-nowrap justify-start gap-0.5 overflow-x-auto overflow-y-hidden rounded-[8px] border bg-card p-0.5"
+              value={tab}
+              onValueChange={setTab}
             >
               {FILTERS.map(([key, label]) => (
-                <TabsTrigger key={key} value={key} className={SEGMENT}>
+                <SegmentedControlItem key={key} value={key}>
                   {label}
-                </TabsTrigger>
+                </SegmentedControlItem>
               ))}
-            </TabsList>
-            <div className="relative min-w-[140px] max-w-[320px] flex-[1_1_160px]">
-              <Search
-                className="pointer-events-none absolute top-2 left-2.5 size-4 text-subtle-foreground"
-                strokeWidth={1.5}
-                aria-hidden="true"
-              />
-              <Input
-                type="search"
-                aria-label="제목이나 ID로 찾기"
-                placeholder="제목이나 ID로 찾기"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                className="pl-8"
-              />
-            </div>
+            </SegmentedControl>
+            <SearchInput
+              type="search"
+              aria-label="제목이나 ID로 찾기"
+              placeholder="제목이나 ID로 찾기"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
           </div>
-          <TabsContent value={tab}>
+          <div>
             {state === "loading" ? (
               <div className="flex flex-col gap-3" aria-busy="true">
                 <Skeleton className="h-10 w-full" />
@@ -288,8 +275,8 @@ function SessionListV4Body({
                 ))}
               </SessionOverviewTable>
             )}
-          </TabsContent>
-        </Tabs>
+          </div>
+        </div>
         {state === "ready" ? (
           <div className="text-caption text-subtle-foreground">
             {shown.length}개 표시 · 검색은 지금 불러온 세션 안에서만 찾습니다.

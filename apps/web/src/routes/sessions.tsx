@@ -24,13 +24,11 @@ import {
   Button,
   buttonVariants,
   EmptyState,
-  Input,
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
+  SearchInput,
+  SegmentedControl,
+  SegmentedControlItem,
 } from "@werft-ai/ui";
-import { ArrowLeft, Plus, Search } from "lucide-react";
+import { ArrowLeft, Plus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { ReasonButton, useCan } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
@@ -103,8 +101,8 @@ export function SessionsScreen() {
   const pick = (next: string) =>
     void navigate({
       search: next === "all" ? {} : { status: next as SessionFilter },
-      // Replace, not push, as on the agent tabs: arrowing across the tabs
-      // would otherwise fill the back button with tab entries.
+      // Replace, not push: flipping through the filters would otherwise fill
+      // the back button with filter entries.
       replace: true,
     });
   // The clear button leaves with the empty state, so focus would fall to
@@ -128,57 +126,47 @@ export function SessionsScreen() {
           unavailable={unavailable}
           refusal={(error) => t(errorKey(error.code))}
         />
-        <Tabs value={tab} onValueChange={pick} className="min-w-0 gap-4">
+        <div className="flex min-w-0 flex-col gap-4">
           <div className="flex flex-wrap items-center gap-2">
-            {/* Console v4 .seg until the ui-kit's SegmentedControl lands. The
-                per-status counts wait on an API (94S-811). */}
-            <TabsList
+            {/* The per-status counts wait on an API (94S-811). */}
+            <SegmentedControl
               aria-label={t("sessionList.filter.label")}
-              className="h-auto max-w-full flex-nowrap justify-start gap-0.5 overflow-x-auto overflow-y-hidden rounded-[8px] border bg-card p-0.5"
+              value={tab}
+              onValueChange={pick}
             >
-              <TabsTrigger value="all" className={SEGMENT}>
+              <SegmentedControlItem value="all">
                 {t("sessionList.filter.all")}
-              </TabsTrigger>
+              </SegmentedControlItem>
               {SESSION_FILTERS.map((name) => (
-                <TabsTrigger key={name} value={name} className={SEGMENT}>
+                <SegmentedControlItem key={name} value={name}>
                   {t(`sessions.status.${name}`)}
-                </TabsTrigger>
+                </SegmentedControlItem>
               ))}
-            </TabsList>
-            <div className="relative min-w-[140px] max-w-[320px] flex-[1_1_160px]">
-              <Search
-                className="pointer-events-none absolute top-2 left-2.5 size-4 text-subtle-foreground"
-                strokeWidth={1.5}
-                aria-hidden="true"
-              />
-              <Input
-                ref={search}
-                type="search"
-                aria-label={t("sessionList.search")}
-                placeholder={t("sessionList.search")}
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                className="pl-8"
-              />
-            </div>
+            </SegmentedControl>
+            <SearchInput
+              ref={search}
+              type="search"
+              aria-label={t("sessionList.search")}
+              placeholder={t("sessionList.search")}
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
           </div>
-          <TabsContent value="all">
+          {tab === "all" ? (
             <AllSessions query={query} onClear={clear} />
-          </TabsContent>
-          {SESSION_FILTERS.map((name) => (
-            <TabsContent key={name} value={name}>
-              <SessionsInStatus status={name} query={query} onClear={clear} />
-            </TabsContent>
-          ))}
-        </Tabs>
+          ) : (
+            <SessionsInStatus
+              key={tab}
+              status={tab}
+              query={query}
+              onClear={clear}
+            />
+          )}
+        </div>
       </div>
     </Page>
   );
 }
-
-/** Console v4 .seg-item: 28px, 8px across, grey fill when picked. */
-const SEGMENT =
-  "h-7 flex-none rounded-control border-0 px-2 text-control text-muted-foreground hover:text-foreground data-[state=active]:bg-(--ap-color-active) data-[state=active]:text-foreground data-[state=active]:shadow-none";
 
 const STATUS_LISTS = [...queryKeys.sessions, "status"] as const;
 
