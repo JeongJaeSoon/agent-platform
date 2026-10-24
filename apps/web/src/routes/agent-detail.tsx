@@ -26,7 +26,7 @@ import {
   TabsTrigger,
 } from "@werft-ai/ui";
 import { ArrowLeft } from "lucide-react";
-import { useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { agentQuery, queryKeys } from "../api/queries.ts";
 import { ReasonButton, useRole } from "../auth/guard.tsx";
 import { AgentAdmins } from "../components/agent-admins.tsx";
@@ -63,7 +63,15 @@ import { agentRefusal } from "./agents.tsx";
 // Console v4: 24px under the tabs, sections 32px apart.
 const PANEL = "@container flex flex-col gap-8 pt-2";
 
-export const AGENT_TABS = ["overview", "card", "release", "admins"] as const;
+const SlackTab = lazy(() => import("./agent-detail/slack.tsx"));
+
+export const AGENT_TABS = [
+  "overview",
+  "card",
+  "release",
+  "admins",
+  "slack",
+] as const;
 export type AgentTab = (typeof AGENT_TABS)[number];
 
 export interface AgentSearch {
@@ -174,6 +182,10 @@ function AgentView({
   // Held here as well, because the URL settles a render later: a result
   // opening its tab must be visible in the same render that focuses it.
   const [tab, setTab] = useState(urlTab);
+  const [slackOpened, setSlackOpened] = useState(urlTab === "slack");
+  useEffect(() => {
+    if (tab === "slack") setSlackOpened(true);
+  }, [tab]);
   const [seenUrlTab, setSeenUrlTab] = useState(urlTab);
   if (urlTab !== seenUrlTab) {
     setSeenUrlTab(urlTab);
@@ -443,6 +455,23 @@ function AgentView({
       <TabsContent {...tabPanel("admins")}>
         <AgentAdmins agentId={agent.id} onOutcome={outcomeAt("admins")} />
         <PlacedOutcome placed={placed} at="admins" />
+      </TabsContent>
+      <TabsContent {...tabPanel("slack")}>
+        {tab === "slack" || slackOpened ? (
+          <Suspense
+            fallback={
+              <div
+                className="min-h-96 animate-pulse rounded-lg bg-muted"
+                aria-busy="true"
+              />
+            }
+          >
+            <SlackTab
+              agentId={agent.id}
+              active={agent.active_release_id !== null}
+            />
+          </Suspense>
+        ) : null}
       </TabsContent>
     </Tabs>
   );

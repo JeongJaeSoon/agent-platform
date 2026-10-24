@@ -2,6 +2,7 @@ import {
   createRootRouteWithContext,
   createRoute,
   createRouter,
+  lazyRouteComponent,
   type RouterHistory,
   redirect,
 } from "@tanstack/react-router";
@@ -9,6 +10,7 @@ import { isApiError } from "@werft-ai/client";
 import { meQuery } from "./api/queries.ts";
 import { Main } from "./components/main.tsx";
 import { StatusScreen } from "./components/status-screen.tsx";
+import { slackInstallSearch } from "./routes/agent-detail/slack-install-search.ts";
 import {
   AgentDetailScreen,
   type AgentSearch,
@@ -198,6 +200,16 @@ const linkedAccounts = createRoute({
   component: LinkedAccountsScreen,
 });
 
+const slackInstall = createRoute({
+  getParentRoute: () => authed,
+  path: "/agents/$id/slack/callback",
+  validateSearch: slackInstallSearch,
+  component: lazyRouteComponent(
+    () => import("./routes/agent-detail/slack-install-callback.tsx"),
+    "SlackInstallCallback",
+  ),
+});
+
 // Slack sends the browser back here (SLACK_OIDC_REDIRECT_URI).
 const slackLink = createRoute({
   getParentRoute: () => authed,
@@ -286,6 +298,7 @@ const routeTree = root.addChildren([
     session,
     linkedAccounts,
     slackLink,
+    slackInstall,
     apiKeys,
     newApiKey,
     serviceKeys,

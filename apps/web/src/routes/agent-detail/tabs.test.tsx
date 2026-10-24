@@ -27,7 +27,7 @@ describe("에이전트 상세 탭", () => {
       within(list)
         .getAllByRole("tab")
         .map((tab) => tab.textContent),
-    ).toEqual(["개요", "카드", "배포", "관리자"]);
+    ).toEqual(["개요", "카드", "배포", "관리자", "Slack"]);
     expect(selected()).toBe("개요");
     expect(tabIn(history)).toBeNull();
     // Only the chosen panel is in the accessibility tree.
@@ -42,6 +42,7 @@ describe("에이전트 상세 탭", () => {
     await waitFor(() => expect(selected()).toBe("배포"));
     expect(tabIn(history)).toBe("release");
     await user.keyboard("{End}");
+    await user.keyboard("{ArrowLeft}");
     await waitFor(() => expect(selected()).toBe("관리자"));
     expect(tabIn(history)).toBe("admins");
     await user.click(screen.getByRole("tab", { name: "개요" }));
@@ -377,6 +378,6 @@ describe("에이전트 상세 탭", () => {
       within(list)
         .getAllByRole("tab")
         .map((tab) => tab.textContent),
-    ).toEqual(["Overview", "Card", "Release", "Admins"]);
+    ).toEqual(["Overview", "Card", "Release", "Admins", "Slack"]);
   });
 });
