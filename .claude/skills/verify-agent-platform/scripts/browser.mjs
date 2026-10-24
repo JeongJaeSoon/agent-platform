@@ -551,6 +551,7 @@ switch (cmd) {
       readFileSync(new URL("./measure-layout.js", import.meta.url), "utf8"),
     );
     if (typeof m === "string") throw new Error(m);
+    m.path = masked(m.path);
     const file = join(run, "evidence", "layout", `${args[0]}.json`);
     mkdirSync(join(run, "evidence", "layout"), { recursive: true });
     writeFileSync(file, `${JSON.stringify(m, null, 1)}\n`);
