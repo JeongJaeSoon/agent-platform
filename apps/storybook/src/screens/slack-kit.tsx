@@ -372,7 +372,7 @@ export function ChannelCombobox({
               aria-disabled={option.disabled || undefined}
               data-active={index === active || undefined}
               onClick={() => pick(index)}
-              className="h-auto justify-between gap-3 px-2 py-1.5 text-left font-normal aria-disabled:cursor-not-allowed aria-disabled:opacity-60 aria-selected:bg-accent data-active:bg-accent"
+              className="h-auto justify-between gap-3 px-2 py-2 text-left font-normal aria-disabled:cursor-not-allowed aria-disabled:opacity-60 aria-selected:bg-accent data-active:bg-accent"
             >
               <div className="flex min-w-0 flex-col">
                 <div className="font-medium">{option.name}</div>
