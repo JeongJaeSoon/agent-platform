@@ -1,7 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, Outlet, useLocation } from "@tanstack/react-router";
 import { ApiError, isApiError, unwrap } from "@werft-ai/client";
-import type { Invite, MemberView, WorkspaceRole } from "@werft-ai/contracts";
+import type {
+  Invite,
+  MemberRefusal,
+  MemberRow,
+  MemberVerdict,
+  MemberView,
+  WorkspaceRole,
+} from "@werft-ai/contracts";
 import { useAgentPlatform, useMemberPages } from "@werft-ai/react";
 import { ListToolbar, LoadMoreButton } from "@werft-ai/react/components";
 import {
@@ -51,7 +58,6 @@ import {
 import {
   permissionReason,
   roleLabel,
-  useGrantableRoles,
   useHasPermission,
   useMe,
   usePermissionReason,
@@ -90,38 +96,63 @@ type Outcome =
   | { readonly kind: "notice"; readonly text: string }
   | { readonly kind: "error"; readonly text: string };
 
+type MemberAction = "role" | "disable" | "enable";
+
+// What each server reason says beside the control it withholds. `unchanged`
+// withholds nothing: the write would answer 200 and change nothing.
+const REASONS: Record<
+  MemberAction,
+  Partial<Record<MemberRefusal, MessageKey>>
+> = {
+  role: {
+    self_protected: "members.roleSelf",
+    owner_protected: "members.roleOwnerProtected",
+    last_owner: "members.roleLastOwner",
+    member_disabled: "members.edit.disabledNote",
+    account_disabled: "members.roleAccountDisabled",
+  },
+  disable: {
+    self_protected: "members.disableSelf",
+    owner_protected: "members.disableOwnerProtected",
+    last_owner: "members.disableLastOwner",
+  },
+  enable: {
+    owner_protected: "members.enableOwnerProtected",
+    account_disabled: "members.enableAccountDisabled",
+  },
+};
+
+function reasonOf(
+  t: Translate,
+  action: MemberAction,
+  verdict: MemberVerdict,
+): string | undefined {
+  if (verdict.allowed || verdict.reason === "unchanged") return undefined;
+  const key = REASONS[action][verdict.reason];
+  return t(key ?? errorKey(verdict.reason.toUpperCase()));
+}
+
 /**
- * What a refused member action says. A 403 reads exactly like the reason on a
- * disabled button, so the page and the server never describe the same
- * refusal in two ways; the server's own sentence follows it.
+ * What a refused member action says. The server's reasons are its error
+ * codes lower-cased, so a 403 or 409 reads exactly like the reason on the
+ * control the row withholds; the server's own sentence follows it.
  */
 function refusal(
   t: Translate,
   error: ApiError,
   role: string | undefined,
-  target?: {
-    readonly action: "role" | "disable" | "enable";
-    readonly member: MemberView;
-    readonly self: boolean;
-  },
+  action?: MemberAction,
 ) {
   if (error.code === "FORBIDDEN")
     return permissionReason(t, "member.manage", role);
-  // The same words as the reason beside the control the row withholds.
-  if (target?.action === "role" && error.code === "LAST_OWNER")
-    return t("members.roleLastOwner");
-  if (target?.action === "disable" && error.code === "LAST_OWNER")
-    return t(target.self ? "members.disableSelf" : "members.disableLastOwner");
-  if (target?.member.role === "owner" && error.code === "OWNER_PROTECTED") {
-    return t(
-      target.action === "role"
-        ? "members.roleOwnerProtected"
-        : target.action === "disable"
-          ? "members.disableOwnerProtected"
-          : "members.enableOwnerProtected",
-    );
-  }
-  return t(errorKey(error.code));
+  const reason = error.code.toLowerCase() as MemberRefusal;
+  // OWNER_PROTECTED on a role change is either the owner's row or the owner
+  // role asked for; the error alone does not say which.
+  const key =
+    action && !(action === "role" && reason === "owner_protected")
+      ? REASONS[action][reason]
+      : undefined;
+  return t(key ?? errorKey(error.code));
 }
 
 /**
@@ -267,12 +298,7 @@ export function MembersScreen() {
         />
       ) : (
         <div className="flex flex-col gap-4">
-          <MemberTable
-            items={items}
-            // Who is the last owner is known only from every member at once.
-            ownersKnown={!members.hasNextPage && q === undefined}
-            onOutcome={setOutcome}
-          />
+          <MemberTable items={items} onOutcome={setOutcome} />
           {members.error ? (
             <MoreFailure
               error={members.error}
@@ -368,91 +394,48 @@ function OutcomeNote({ outcome }: { readonly outcome: Outcome | null }) {
 
 function MemberTable({
   items,
-  ownersKnown,
   onOutcome,
 }: {
-  readonly items: readonly MemberView[];
-  /** Every owner is among the items; else the server says who is the last. */
-  readonly ownersKnown: boolean;
+  readonly items: readonly MemberRow[];
   readonly onOutcome: (outcome: Outcome | null) => void;
 }) {
   const { t } = useI18n();
   const { client } = useAgentPlatform();
   const queryClient = useQueryClient();
   const role = useRole();
-  const [confirming, setConfirming] = useState<MemberView | null>(null);
-  // Roles change in 구성원 편집, not in the row (rows only disable).
-  const [editing, setEditing] = useState<MemberView | null>(null);
+  const [confirming, setConfirming] = useState<MemberRow | null>(null);
+  // Roles change in 구성원 편집, not in the row (rows only disable). It
+  // follows the row as the list is read again, not the row it opened on.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const editing = items.find((member) => member.user_id === editingId);
   // The name button that opened 구성원 편집 gets the keyboard back, and a
   // saved role opens its confirmation only once the editor has handed it
   // back, so the confirmation returns there too rather than to <body>.
   const editOpener = useRef<HTMLElement | null>(null);
-  const saved = useRef<{ member: MemberView; role: WorkspaceRole } | null>(
-    null,
-  );
+  const saved = useRef<{ member: MemberRow; role: WorkspaceRole } | null>(null);
   // A saved role still waits here for the confirmation.
   const [roleChange, setRoleChange] = useState<{
-    member: MemberView;
+    member: MemberRow;
     role: WorkspaceRole;
   } | null>(null);
   const self = useMe()?.user?.id;
-  const activeOwners = items.filter(
-    (member) => member.role === "owner" && member.disabled_at === null,
-  ).length;
-  // What the server refuses, or keeps for an owner, the row withholds and
-  // says why before anyone asks.
-  const withheld = (
-    member: MemberView,
-    reasons: { self: MessageKey; owner: MessageKey; lastOwner: MessageKey },
-  ) =>
-    member.user_id === self
-      ? t(reasons.self)
-      : role === "admin" && member.role === "owner"
-        ? t(reasons.owner)
-        : ownersKnown && member.role === "owner" && activeOwners === 1
-          ? t(reasons.lastOwner)
-          : undefined;
-  const roleReason = (member: MemberView) =>
-    withheld(member, {
-      self: "members.roleSelf",
-      owner: "members.roleOwnerProtected",
-      lastOwner: "members.roleLastOwner",
-    });
-  const keepReason = (member: MemberView) =>
-    withheld(member, {
-      self: "members.disableSelf",
-      owner: "members.disableOwnerProtected",
-      lastOwner: "members.disableLastOwner",
-    });
-  // A disabled row is never the viewer, and owners never run out while one
-  // is live, so only the owner rule applies to bringing it back.
-  const enableReason = (member: MemberView) =>
-    role === "admin" && member.role === "owner"
-      ? t("members.enableOwnerProtected")
-      : undefined;
 
   const settle = async (text: string) => {
     onOutcome({ kind: "notice", text });
     await queryClient.invalidateQueries({ queryKey: queryKeys.members });
   };
-  const fail = (
-    error: ApiError,
-    action: "role" | "disable" | "enable",
-    member: MemberView,
-  ) =>
-    onOutcome({
-      kind: "error",
-      text: refusal(t, error, role, {
-        action,
-        member,
-        self: member.user_id === self,
-      }),
-    });
+  const fail = (error: ApiError, action: MemberAction) => {
+    onOutcome({ kind: "error", text: refusal(t, error, role, action) });
+    // A refusal means the rows' verdicts were stale: read them again.
+    if (error.status === 403 || error.status === 409) {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.members });
+    }
+  };
 
   const changeRole = useMutation<
     MemberView,
     ApiError,
-    { member: MemberView; role: WorkspaceRole }
+    { member: MemberRow; role: WorkspaceRole }
   >({
     mutationFn: ({ member, role: next }) =>
       unwrap(
@@ -470,13 +453,13 @@ function MemberTable({
           role: roleLabel(t, updated.role),
         }),
       ),
-    onError: (error, { member }) => fail(error, "role", member),
+    onError: (error) => fail(error, "role"),
   });
 
   const setAccess = useMutation<
     { member: MemberView; receipt_id: string | null },
     ApiError,
-    { member: MemberView; enable: boolean }
+    { member: MemberRow; enable: boolean }
   >({
     mutationFn: ({ member, enable }) => {
       const params = {
@@ -499,9 +482,9 @@ function MemberTable({
           : t("members.disabled", { name }),
       );
     },
-    onError: (error, { member, enable }) => {
+    onError: (error, { enable }) => {
       setConfirming(null);
-      fail(error, enable ? "enable" : "disable", member);
+      fail(error, enable ? "enable" : "disable");
     },
   });
 
@@ -537,8 +520,8 @@ function MemberTable({
             {items.map((member) => {
               const disabled = member.disabled_at !== null;
               const keepWhy = disabled
-                ? enableReason(member)
-                : keepReason(member);
+                ? reasonOf(t, "enable", member.actions.enable)
+                : reasonOf(t, "disable", member.actions.disable);
               const busy =
                 (changeRole.isPending &&
                   changeRole.variables?.member.user_id === member.user_id) ||
@@ -586,7 +569,7 @@ function MemberTable({
                       )}
                       onClick={(event) => {
                         editOpener.current = event.currentTarget;
-                        setEditing(member);
+                        setEditingId(member.user_id);
                       }}
                     />
                     {/* v4 .strong: body text at weight 500, not link blue;
@@ -650,16 +633,11 @@ function MemberTable({
       {editing ? (
         <MemberEditDialog
           member={editing}
-          reason={
-            editing.disabled_at === null
-              ? roleReason(editing)
-              : t("members.edit.disabledNote")
-          }
           busy={changeRole.isPending}
-          onClose={() => setEditing(null)}
+          onClose={() => setEditingId(null)}
           onSave={(next) => {
             saved.current = { member: editing, role: next };
-            setEditing(null);
+            setEditingId(null);
           }}
           onClosed={() => {
             if (editOpener.current?.isConnected) editOpener.current.focus();
@@ -713,19 +691,18 @@ function MemberTable({
 
 /**
  * 구성원 편집 (v3 MemberEdit): the role, picked here and saved through the
- * same confirmation the row used to raise. What the row would withhold, this
- * shows as the reason and keeps every choice disabled.
+ * same confirmation the row used to raise. When the server offers no other
+ * role, its reason shows and every choice is disabled; a single role it
+ * withholds is disabled with its reason in place of the role's help.
  */
 function MemberEditDialog({
   member,
-  reason,
   busy,
   onClose,
   onSave,
   onClosed,
 }: {
-  readonly member: MemberView;
-  readonly reason: string | undefined;
+  readonly member: MemberRow;
   readonly busy: boolean;
   readonly onClose: () => void;
   readonly onSave: (role: WorkspaceRole) => void;
@@ -734,14 +711,32 @@ function MemberEditDialog({
 }) {
   const { t } = useI18n();
   const [role, setRole] = useState<string>(member.role);
-  const grantable = useGrantableRoles();
   const legendId = useId();
   const reasonId = useId();
-  const grantReasonId = useId();
+  const roleReasonId = useId();
+  const verdicts = member.actions.change_role;
+  const others = WORKSPACE_ROLE_VALUES.filter((value) => value !== member.role);
+  const [firstOther] = others;
+  // Every other role refused alike is the row's reason, not a role's.
+  const reason =
+    firstOther !== undefined &&
+    others.every((value) => !verdicts[value].allowed)
+      ? reasonOf(t, "role", verdicts[firstOther])
+      : undefined;
   const blocked = reason !== undefined;
-  // A disabled radio is out of the arrow-key loop, so its reason also
-  // describes the group a keyboard user does reach.
-  const grantLimited = grantable.length < WORKSPACE_ROLE_VALUES.length;
+  // One role refused on its own is a role this caller cannot grant.
+  const withheld = (value: WorkspaceRole) => {
+    const verdict = verdicts[value];
+    if (blocked || verdict.allowed) return undefined;
+    return verdict.reason === "owner_protected"
+      ? t("members.roleOwnerGrant")
+      : reasonOf(t, "role", verdict);
+  };
+  const withheldIds = WORKSPACE_ROLE_VALUES.filter(
+    (value) => withheld(value) !== undefined,
+  )
+    .map((value) => `${roleReasonId}-${value}`)
+    .join(" ");
   return (
     <Dialog open onOpenChange={(open) => (open ? undefined : onClose())}>
       <DialogContent
@@ -768,20 +763,20 @@ function MemberEditDialog({
             onValueChange={setRole}
             disabled={blocked || busy}
             aria-labelledby={legendId}
-            aria-describedby={
-              blocked ? reasonId : grantLimited ? grantReasonId : undefined
-            }
+            // A disabled radio is out of the arrow-key loop, so its reason
+            // also describes the group a keyboard user does reach.
+            aria-describedby={blocked ? reasonId : withheldIds || undefined}
           >
             {WORKSPACE_ROLE_VALUES.map((value) => {
-              const withheld = !grantable.includes(value);
+              const why = withheld(value);
               return (
                 <Field key={value} orientation="horizontal">
-                  <RadioGroupItem value={value} disabled={withheld} />
+                  <RadioGroupItem value={value} disabled={why !== undefined} />
                   <FieldLabel>{roleLabel(t, value)}</FieldLabel>
-                  <FieldDescription id={withheld ? grantReasonId : undefined}>
-                    {withheld
-                      ? t("members.roleOwnerGrant")
-                      : t(`members.roleHelp.${value}`)}
+                  <FieldDescription
+                    id={why ? `${roleReasonId}-${value}` : undefined}
+                  >
+                    {why ?? t(`members.roleHelp.${value}`)}
                   </FieldDescription>
                 </Field>
               );
@@ -795,10 +790,7 @@ function MemberEditDialog({
           <Button
             type="button"
             disabled={
-              blocked ||
-              busy ||
-              role === member.role ||
-              !grantable.includes(role as WorkspaceRole)
+              blocked || busy || !verdicts[role as WorkspaceRole]?.allowed
             }
             onClick={() => onSave(role as WorkspaceRole)}
           >

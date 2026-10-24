@@ -10,7 +10,10 @@ import {
   json,
   me,
   memberMe,
+  memberPage,
+  openActions,
   RECEIPT_ID,
+  refusedActions,
   USER_ID,
   WORKSPACE_ID,
 } from "../test-support/fake-api.ts";
@@ -154,7 +157,10 @@ describe("구성원 화면", () => {
     renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": () =>
-        json(200, { items: [owner, teammate, gone], next_cursor: null }),
+        json(
+          200,
+          memberPage({ items: [owner, teammate, gone], next_cursor: null }),
+        ),
       ...noInvites,
     });
     const user = await setupUser();
@@ -209,7 +215,7 @@ describe("구성원 화면", () => {
     renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": () =>
-        json(200, { items: [owner, teammate], next_cursor: null }),
+        json(200, memberPage({ items: [owner, teammate], next_cursor: null })),
       ...noInvites,
     });
     const region = await screen.findByRole("table", { name: "구성원 표" });
@@ -224,7 +230,7 @@ describe("구성원 화면", () => {
     const { api } = renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": () =>
-        json(200, { items: [owner, current], next_cursor: null }),
+        json(200, memberPage({ items: [owner, current], next_cursor: null })),
       ...noInvites,
       "PATCH /v1/members/2c7e1d4a-5b6f-4a8e-9d0c-1e2f3a4b5c6d": () =>
         new Promise((resolve) => {
@@ -262,7 +268,10 @@ describe("구성원 화면", () => {
     renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": () =>
-        json(200, { items: [owner, boss, teammate], next_cursor: null }),
+        json(
+          200,
+          memberPage({ items: [owner, boss, teammate], next_cursor: null }),
+        ),
       ...noInvites,
       [`PATCH /v1/members/${GONE_ID}`]: () =>
         apiError(409, "LAST_OWNER", "The last owner cannot be demoted"),
@@ -278,7 +287,7 @@ describe("구성원 화면", () => {
     renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": () =>
-        json(200, { items: [owner, teammate], next_cursor: null }),
+        json(200, memberPage({ items: [owner, teammate], next_cursor: null })),
       ...noInvites,
       [`PATCH /v1/members/${teammate.user_id}`]: () =>
         apiError(403, "OWNER_PROTECTED", "Only an owner can grant owner"),
@@ -290,49 +299,14 @@ describe("구성원 화면", () => {
     );
   });
 
-  test("관리자에게 소유자 선택지는 비활성이고 그 자리에 이유를 두며, 화살표 키는 그 선택지를 건너뛴다", async () => {
-    const { api } = renderAt("/members", {
-      "GET /v1/auth/me": () => json(200, me(undefined, "admin")),
-      "GET /v1/members": () =>
-        json(200, {
-          items: [{ ...owner, role: "admin" }, teammate],
-          next_cursor: null,
-        }),
-      ...noInvites,
-    });
-    const user = await setupUser();
-    const edit = await openEdit(user, "Mate");
-    const radio = (name: string) =>
-      within(edit).getByRole("radio", { name }) as HTMLButtonElement;
-    expect(radio("소유자").disabled).toBe(true);
-    expect(descriptionOf(radio("소유자"))).toBe(
-      "소유자 역할은 소유자만 줄 수 있습니다.",
-    );
-    // The radio is out of the arrow-key loop; the group carries the reason.
-    expect(descriptionOf(within(edit).getByRole("radiogroup"))).toBe(
-      "소유자 역할은 소유자만 줄 수 있습니다.",
-    );
-    expect(radio("관리자").disabled).toBe(false);
-    expect(radio("구성원").disabled).toBe(false);
-    radio("구성원").focus();
-    await user.keyboard("{ArrowDown>}");
-    await waitFor(() =>
-      expect(document.activeElement === radio("관리자")).toBe(true),
-    );
-    await user.keyboard("{/ArrowDown}{ArrowDown>}");
-    await waitFor(() =>
-      expect(document.activeElement === radio("구성원")).toBe(true),
-    );
-    await user.keyboard("{/ArrowDown}");
-    expect(api.calls.some((call) => call.method === "PATCH")).toBe(false);
-  });
-
-  test("소유자를 고른 뒤 관리자로 내려가면 저장이 막힌다", async () => {
-    let role: "owner" | "admin" = "owner";
+  test("소유자를 고른 뒤 서버가 소유자 부여를 막으면 저장이 막힌다", async () => {
+    let mate: typeof teammate & {
+      actions?: ReturnType<typeof openActions>;
+    } = teammate;
     const { api, services } = renderAt("/members", {
-      "GET /v1/auth/me": () => json(200, me(undefined, role)),
+      "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": () =>
-        json(200, { items: [owner, teammate], next_cursor: null }),
+        json(200, memberPage({ items: [owner, mate], next_cursor: null })),
       ...noInvites,
     });
     const user = await setupUser();
@@ -342,7 +316,17 @@ describe("구성원 화면", () => {
       name: "저장",
     }) as HTMLButtonElement;
     expect(save.disabled).toBe(false);
-    role = "admin";
+    // Stepped down to admin since: the row now withholds the owner role.
+    mate = {
+      ...teammate,
+      actions: {
+        ...openActions(teammate),
+        change_role: {
+          ...openActions(teammate).change_role,
+          owner: { allowed: false, reason: "owner_protected" },
+        },
+      },
+    };
     await act(() => services.queryClient.refetchQueries());
     await waitFor(() => expect(save.disabled).toBe(true));
     expect(
@@ -356,7 +340,7 @@ describe("구성원 화면", () => {
     renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": () =>
-        json(200, { items: [owner, teammate], next_cursor: null }),
+        json(200, memberPage({ items: [owner, teammate], next_cursor: null })),
       ...noInvites,
     });
     const user = await setupUser();
@@ -371,14 +355,22 @@ describe("구성원 화면", () => {
   });
 
   test("관리자는 비활성 소유자를 다시 활성화하지 못하고, 이유를 버튼의 툴팁에 둔다", async () => {
-    const boss = { ...gone, display_name: "Boss", role: "owner" as const };
+    const boss = {
+      ...gone,
+      display_name: "Boss",
+      role: "owner" as const,
+      actions: refusedActions("owner_protected"),
+    };
     renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me(undefined, "admin")),
       "GET /v1/members": () =>
-        json(200, {
-          items: [{ ...owner, role: "admin" }, teammate, boss],
-          next_cursor: null,
-        }),
+        json(
+          200,
+          memberPage({
+            items: [{ ...owner, role: "admin" }, teammate, boss],
+            next_cursor: null,
+          }),
+        ),
       ...noInvites,
     });
     const row = (await screen.findByText("Boss")).closest(
@@ -403,7 +395,7 @@ describe("구성원 화면", () => {
     renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": () =>
-        json(200, { items: [owner, boss], next_cursor: null }),
+        json(200, memberPage({ items: [owner, boss], next_cursor: null })),
       ...noInvites,
       [`POST /v1/members/${GONE_ID}/enable`]: () =>
         apiError(403, "OWNER_PROTECTED", "Only an owner may enable an owner"),
@@ -422,7 +414,7 @@ describe("구성원 화면", () => {
     const { api } = renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": () =>
-        json(200, { items: [owner, current], next_cursor: null }),
+        json(200, memberPage({ items: [owner, current], next_cursor: null })),
       ...noInvites,
       [`POST /v1/members/${OTHER_ID}/disable`]: () => {
         current = { ...teammate, disabled_at: "2026-10-11T00:00:00.000Z" };
@@ -459,7 +451,7 @@ describe("구성원 화면", () => {
     renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": () =>
-        json(200, { items: [owner, current], next_cursor: null }),
+        json(200, memberPage({ items: [owner, current], next_cursor: null })),
       ...noInvites,
       [`POST /v1/members/${GONE_ID}/enable`]: () => {
         current = { ...gone, disabled_at: null };
@@ -483,14 +475,18 @@ describe("구성원 화면", () => {
       "GET /v1/auth/me": () => json(200, me()),
       // Beyond the first page: only the dialog's search finds them, on its
       // second page, after an address that merely contains the typed one.
-      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [owner], next_cursor: null })),
       "GET /v1/members?q=GONE%40example.com": () =>
-        json(200, {
-          items: [{ ...gone, user_id: USER_ID, email: "xgone@example.com" }],
-          next_cursor: "c2",
-        }),
+        json(
+          200,
+          memberPage({
+            items: [{ ...gone, user_id: USER_ID, email: "xgone@example.com" }],
+            next_cursor: "c2",
+          }),
+        ),
       "GET /v1/members?q=GONE%40example.com&cursor=c2": () =>
-        json(200, { items: [gone], next_cursor: null }),
+        json(200, memberPage({ items: [gone], next_cursor: null })),
       ...noInvites,
       "POST /v1/invites": () =>
         json(201, {
@@ -572,7 +568,8 @@ describe("구성원 화면", () => {
     let revoked = false;
     const { api } = renderAt("/members/invites", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [owner], next_cursor: null })),
       "GET /v1/invites": () => json(200, { items: revoked ? [] : [invite] }),
       [`DELETE /v1/invites/${invite.id}`]: () => {
         revoked = true;
@@ -597,7 +594,8 @@ describe("구성원 화면", () => {
   test("초대 회수를 취소하면 아무것도 보내지 않는다", async () => {
     const { api } = renderAt("/members/invites", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [owner], next_cursor: null })),
       "GET /v1/invites": () => json(200, { items: [pendingInvite] }),
     });
     const user = await setupUser();
@@ -626,7 +624,7 @@ describe("구성원 화면", () => {
       renderAt("/members", {
         "GET /v1/auth/me": () => json(200, me()),
         "GET /v1/members": () =>
-          json(200, { items: [owner], next_cursor: null }),
+          json(200, memberPage({ items: [owner], next_cursor: null })),
         ...noInvites,
         "POST /v1/invites": () =>
           json(201, {
@@ -674,7 +672,7 @@ describe("되돌리기 어려운 동작의 확인", () => {
   const routes = (calls: string[]) => ({
     "GET /v1/auth/me": () => json(200, me()),
     "GET /v1/members": () =>
-      json(200, { items: [owner, teammate], next_cursor: null }),
+      json(200, memberPage({ items: [owner, teammate], next_cursor: null })),
     ...noInvites,
     [`PATCH /v1/members/${OTHER_ID}`]: () => {
       calls.push("PATCH");
@@ -746,20 +744,26 @@ describe("되돌리기 어려운 동작의 확인", () => {
     expect(calls).toEqual([]);
   });
 
-  test("자기 자신과 하나뿐인 소유자는 비활성화를 막고 이유를 붙인다", async () => {
-    const other = member({
-      user_id: GONE_ID,
-      email: "boss@example.com",
-      display_name: "Boss",
-      role: "owner",
-    });
+  test("자기 자신과 서버가 소유자라 막은 행은 비활성화를 막고 이유를 붙인다", async () => {
+    const other = {
+      ...member({
+        user_id: GONE_ID,
+        email: "boss@example.com",
+        display_name: "Boss",
+        role: "owner",
+      }),
+      actions: refusedActions("owner_protected"),
+    };
     renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me(undefined, "admin")),
       "GET /v1/members": () =>
-        json(200, {
-          items: [{ ...owner, role: "admin" }, other, teammate],
-          next_cursor: null,
-        }),
+        json(
+          200,
+          memberPage({
+            items: [{ ...owner, role: "admin" }, other, teammate],
+            next_cursor: null,
+          }),
+        ),
       ...noInvites,
     });
     const reasonOf = async (name: string) => {
@@ -790,7 +794,7 @@ describe("되돌리기 어려운 동작의 확인", () => {
     renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me(undefined, "owner")),
       "GET /v1/members": () =>
-        json(200, { items: [owner, teammate], next_cursor: null }),
+        json(200, memberPage({ items: [owner, teammate], next_cursor: null })),
       ...noInvites,
     });
     const buttonOf = async (name: string) =>
@@ -818,17 +822,23 @@ describe("되돌리기 어려운 동작의 확인", () => {
     renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me(undefined, "admin")),
       "GET /v1/members": () =>
-        json(200, {
-          items: [
-            { ...owner, role: "admin" },
-            {
-              ...gone,
-              display_name: "Boss",
-              role: "owner",
-            },
-          ],
-          next_cursor: null,
-        }),
+        json(
+          200,
+          memberPage({
+            items: [
+              { ...owner, role: "admin" },
+              {
+                ...gone,
+                display_name: "Boss",
+                actions: {
+                  ...openActions(gone),
+                  change_role: refusedActions("member_disabled").change_role,
+                },
+              },
+            ],
+            next_cursor: null,
+          }),
+        ),
       ...noInvites,
     });
     const user = await setupUser();
@@ -839,19 +849,25 @@ describe("되돌리기 어려운 동작의 확인", () => {
   });
 
   test("역할도 같은 규칙으로 편집에서 막고, 비활성화 이유는 버튼 위 툴팁으로 연다", async () => {
-    const boss = member({
-      user_id: GONE_ID,
-      email: "boss@example.com",
-      display_name: "Boss",
-      role: "owner",
-    });
+    const boss = {
+      ...member({
+        user_id: GONE_ID,
+        email: "boss@example.com",
+        display_name: "Boss",
+        role: "owner",
+      }),
+      actions: refusedActions("owner_protected"),
+    };
     renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me(undefined, "admin")),
       "GET /v1/members": () =>
-        json(200, {
-          items: [{ ...owner, role: "admin" }, boss, teammate],
-          next_cursor: null,
-        }),
+        json(
+          200,
+          memberPage({
+            items: [{ ...owner, role: "admin" }, boss, teammate],
+            next_cursor: null,
+          }),
+        ),
       ...noInvites,
     });
     const user = await setupUser();
@@ -905,10 +921,13 @@ function pagedMembers(
       : all;
     const from = Number(search.get("cursor") ?? 0);
     const to = from + Number(search.get("limit") ?? size);
-    return json(200, {
-      items: found.slice(from, to),
-      next_cursor: to < found.length ? String(to) : null,
-    });
+    return json(
+      200,
+      memberPage({
+        items: found.slice(from, to),
+        next_cursor: to < found.length ? String(to) : null,
+      }),
+    );
   };
 }
 
@@ -1224,7 +1243,7 @@ describe("구성원 페이지와 서버 검색", () => {
     };
   };
 
-  test("아직 안 불러온 페이지에 소유자가 더 있을 수 있으면 마지막 소유자로 막지 않는다", async () => {
+  test("화면은 마지막 소유자를 스스로 세지 않는다: 다음 페이지 전에도 뒤에도 서버가 연 행은 열려 있다", async () => {
     renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me()),
       // The viewer, the other owner, is on the second page.
@@ -1244,7 +1263,7 @@ describe("구성원 페이지와 서버 검색", () => {
     });
   });
 
-  test("검색 결과로는 마지막 소유자를 알 수 없으니 막지 않는다", async () => {
+  test("검색 결과의 행도 서버가 준 동작 그대로다", async () => {
     renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": pagedMembers([owner, boss, teammate], 2),
@@ -1260,18 +1279,137 @@ describe("구성원 페이지와 서버 검색", () => {
     });
   });
 
-  test("검색 없이 끝까지 불러왔으면 하나뿐인 소유자는 미리 막고 이유를 붙인다", async () => {
-    renderAt("/members", {
+  test("계정이 정지된 행은 서버가 준 이유로 다시 활성화와 역할 편집을 막는다", async () => {
+    const suspended = {
+      ...gone,
+      actions: {
+        change_role: refusedActions("account_disabled").change_role,
+        disable: { allowed: true },
+        enable: { allowed: false, reason: "account_disabled" },
+      },
+    } as const;
+    const { api } = renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me()),
-      // The list already says the viewer is an admin now.
-      "GET /v1/members": pagedMembers([boss, { ...owner, role: "admin" }], 2),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [owner, suspended], next_cursor: null })),
       ...noInvites,
     });
-    expect(await disableOf("Boss")).toEqual({
+    const user = await setupUser();
+    const enable = (await screen.findByRole("button", {
+      name: "다시 활성화",
+    })) as HTMLButtonElement;
+    expect(enable.disabled).toBe(true);
+    expect(descriptionOf(lockOf(enable))).toBe(
+      "계정이 정지된 사람은 여기서 다시 활성화할 수 없습니다 — 계정 정지를 먼저 풀어야 합니다.",
+    );
+    expect(await roleRule(user, "Gone")).toEqual({
       disabled: true,
       reason:
-        "하나뿐인 소유자는 비활성화할 수 없습니다 — 다른 사람을 먼저 소유자로 정하세요.",
+        "계정이 정지된 사람의 역할은 바꿀 수 없습니다 — 계정 정지를 먼저 풀어야 합니다.",
     });
+    expect(api.calls.some((call) => call.method !== "GET")).toBe(false);
+  });
+
+  test("관리자에게 서버가 막은 소유자 선택지만 비활성이고, 그 자리와 묶음에 이유를 둔다", async () => {
+    const mate = {
+      ...teammate,
+      actions: {
+        ...openActions(teammate),
+        change_role: {
+          owner: { allowed: false, reason: "owner_protected" },
+          admin: { allowed: true },
+          member: { allowed: false, reason: "unchanged" },
+        },
+      },
+    } as const;
+    const { api } = renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me(undefined, "admin")),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [owner, mate], next_cursor: null })),
+      ...noInvites,
+    });
+    const user = await setupUser();
+    const edit = await openEdit(user, "Mate");
+    const radio = (name: string) =>
+      within(edit).getByRole("radio", { name }) as HTMLButtonElement;
+    expect(radio("소유자").disabled).toBe(true);
+    expect(descriptionOf(radio("소유자"))).toBe(
+      "소유자 역할은 소유자만 줄 수 있습니다.",
+    );
+    expect(descriptionOf(within(edit).getByRole("radiogroup"))).toBe(
+      "소유자 역할은 소유자만 줄 수 있습니다.",
+    );
+    expect(radio("관리자").disabled).toBe(false);
+    expect(radio("구성원").disabled).toBe(false);
+    // Arrow keys skip the withheld radio.
+    radio("구성원").focus();
+    await user.keyboard("{ArrowDown>}");
+    await waitFor(() =>
+      expect(document.activeElement === radio("관리자")).toBe(true),
+    );
+    await user.keyboard("{/ArrowDown}{ArrowDown>}");
+    await waitFor(() =>
+      expect(document.activeElement === radio("구성원")).toBe(true),
+    );
+    await user.keyboard("{/ArrowDown}");
+    await user.click(radio("구성원"));
+    const save = within(edit).getByRole("button", {
+      name: "저장",
+    }) as HTMLButtonElement;
+    // The role it already has saves nothing.
+    expect(save.disabled).toBe(true);
+    await user.click(radio("관리자"));
+    expect(save.disabled).toBe(false);
+    expect(api.calls.some((call) => call.method === "PATCH")).toBe(false);
+  });
+
+  test("열린 편집은 다시 받은 행의 허용 동작을 따른다", async () => {
+    let mate: typeof teammate & {
+      actions?: ReturnType<typeof refusedActions>;
+    } = teammate;
+    const { services } = renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [owner, mate], next_cursor: null })),
+      ...noInvites,
+    });
+    const user = await setupUser();
+    const edit = await openEdit(user, "Mate");
+    await user.click(within(edit).getByRole("radio", { name: "관리자" }));
+    const save = within(edit).getByRole("button", {
+      name: "저장",
+    }) as HTMLButtonElement;
+    expect(save.disabled).toBe(false);
+    // Another owner's change since: the server now refuses this row.
+    mate = { ...teammate, actions: refusedActions("owner_protected") };
+    await act(() => services.queryClient.refetchQueries());
+    await waitFor(() => expect(save.disabled).toBe(true));
+    expect(descriptionOf(within(edit).getByRole("radiogroup"))).toBe(
+      "소유자의 역할은 관리자가 바꿀 수 없습니다.",
+    );
+  });
+
+  test("서버가 409로 거절하면 목록을 다시 받는다", async () => {
+    const { api } = renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [owner, teammate], next_cursor: null })),
+      ...noInvites,
+      [`PATCH /v1/members/${OTHER_ID}`]: () =>
+        apiError(409, "MEMBER_DISABLED", "The membership is disabled"),
+    });
+    const user = await setupUser();
+    await screen.findByRole("button", { name: "Mate 편집" });
+    const reads = () =>
+      api.calls.filter(
+        (call) => call.method === "GET" && call.path === "/v1/members",
+      ).length;
+    const before = reads();
+    await changeRole(user, "Mate", "admin");
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "비활성 구성원의 역할은 다시 활성화한 뒤 바꿀 수 있습니다.",
+    );
+    await waitFor(() => expect(reads()).toBeGreaterThan(before));
   });
 });
 describe("구성원 · 팀 · 초대 탭", () => {
@@ -1288,7 +1426,7 @@ describe("구성원 · 팀 · 초대 탭", () => {
     renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": () =>
-        json(200, { items: [owner, teammate], next_cursor: null }),
+        json(200, memberPage({ items: [owner, teammate], next_cursor: null })),
       ...noInvites,
     });
     await screen.findByRole("button", { name: "Mate 편집" });
@@ -1307,7 +1445,8 @@ describe("구성원 · 팀 · 초대 탭", () => {
   test("초대 탭은 대기 중인 초대를 보이고 초대 버튼을 둔다", async () => {
     renderAt("/members/invites", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [owner], next_cursor: null })),
       "GET /v1/invites": () => json(200, { items: [pendingInvite] }),
     });
     expect(await screen.findByText("late@example.com")).toBeDefined();
@@ -1324,7 +1463,7 @@ describe("구성원 · 팀 · 초대 탭", () => {
       "GET /v1/members": () =>
         fail
           ? apiError(500, "INTERNAL", "boom")
-          : json(200, { items: [owner], next_cursor: null }),
+          : json(200, memberPage({ items: [owner], next_cursor: null })),
       "GET /v1/invites": () => json(200, { items: [pendingInvite] }),
     });
     expect(await screen.findByText("late@example.com")).toBeDefined();
@@ -1374,7 +1513,7 @@ describe("권한", () => {
     renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": () =>
-        json(200, { items: [owner, teammate], next_cursor: null }),
+        json(200, memberPage({ items: [owner, teammate], next_cursor: null })),
       ...noInvites,
       [`PATCH /v1/members/${OTHER_ID}`]: forbidden,
     });
@@ -1391,7 +1530,7 @@ describe("권한", () => {
     renderAt("/members", {
       "GET /v1/auth/me": () => json(200, future),
       "GET /v1/members": () =>
-        json(200, { items: [owner, teammate], next_cursor: null }),
+        json(200, memberPage({ items: [owner, teammate], next_cursor: null })),
       ...noInvites,
     });
     const button = await screen.findByRole("button", {

@@ -24,9 +24,9 @@ export const WORKSPACE_ROLE_VALUES: readonly WorkspaceRole[] = [
 const BELOW_OWNER = WORKSPACE_ROLE_VALUES.filter((value) => value !== "owner");
 
 /**
- * The roles the signed-in user may give someone, by invite or role change.
- * packages/db/src/invites.ts refuses owner from anyone but an owner
- * (owner_protected).
+ * The roles the signed-in user may invite someone as. packages/db/src/invites.ts
+ * refuses owner from anyone but an owner (owner_protected); a role change
+ * reads the member row's own verdicts instead.
  */
 export function useGrantableRoles(): readonly WorkspaceRole[] {
   return useRole() === "owner" ? WORKSPACE_ROLE_VALUES : BELOW_OWNER;
