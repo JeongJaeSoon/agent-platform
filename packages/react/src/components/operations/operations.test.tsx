@@ -166,6 +166,18 @@ describe("SessionCounts", () => {
       />,
     );
     expect(owner.getByRole("meter").getAttribute("aria-valuenow")).toBe("7");
+    expect(owner.getByRole("status").textContent).toBe("");
+  });
+
+  test("처음 읽는 동안 slot 줄은 자리를 지키고, 상태 알림은 하나다", () => {
+    const { getAllByRole, queryByRole, getByText } = withPlatform(
+      <SessionCounts counts={undefined} slots={null} statusLink={link} />,
+    );
+    expect(getByText("동시 실행 slot · 설치 전체")).toBeTruthy();
+    expect(queryByRole("meter")).toBeNull();
+    expect(getAllByRole("status").map((s) => s.textContent)).toEqual([
+      "세션 수를 읽는 중",
+    ]);
   });
 });
 

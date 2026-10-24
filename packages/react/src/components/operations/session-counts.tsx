@@ -31,10 +31,12 @@ export interface SessionCountsProps {
   /**
    * GET /v1/limits `usage.execution_slots_used` and
    * `limits.execution_slot_limit`, for the installation operator only.
-   * Without it there is no slot line.
+   * Without it there is no slot line; `null` keeps the line while it is
+   * first read.
    */
   readonly slots?:
     | { readonly used: number; readonly limit: number }
+    | null
     | undefined;
   /** The session list filtered to one status, as the host's link. */
   readonly statusLink: (
@@ -85,22 +87,38 @@ export function SessionCounts({
               </SessionCount>
             ))}
           </div>
-          {slots ? (
+          {slots === undefined ? null : (
             <div className="flex flex-col gap-2 border-t p-4">
               <div className="flex items-center justify-between gap-3">
                 <span className="text-muted-foreground">{messages.slots}</span>
-                <span className="tabular-nums">
-                  <b className="font-bold">{used}</b>
-                  {rest}
-                </span>
+                {slots ? (
+                  <span className="tabular-nums">
+                    <b className="font-bold">{used}</b>
+                    {rest}
+                  </span>
+                ) : (
+                  <span aria-hidden="true" className="inline-block w-16">
+                    <Skeleton height="1lh" className="justify-center" />
+                  </span>
+                )}
               </div>
-              <Meter
-                value={slots.used}
-                max={slots.limit}
-                label={messages.slotsMeter}
-              />
+              {slots ? (
+                <Meter
+                  value={slots.used}
+                  max={slots.limit}
+                  label={messages.slotsMeter}
+                />
+              ) : (
+                <span aria-hidden="true" className="block">
+                  <Skeleton height="0.5rem" className="justify-center" />
+                </span>
+              )}
             </div>
-          ) : null}
+          )}
+          {/* One message for every placeholder above, which are hidden. */}
+          <output className="sr-only">
+            {counts === undefined || slots === null ? messages.loading : ""}
+          </output>
         </Card>
       )}
     </Section>
@@ -124,7 +142,9 @@ function SessionCount({
         {children}
       </span>
       {count === undefined ? (
-        <Skeleton className="my-1.5 h-5 w-8" />
+        <span aria-hidden="true" className="block">
+          <Skeleton className="my-1.5 h-5 w-8" />
+        </span>
       ) : (
         <span className="font-semibold text-number tabular-nums">
           {format(count)}

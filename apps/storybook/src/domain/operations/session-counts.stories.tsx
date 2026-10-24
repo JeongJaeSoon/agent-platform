@@ -46,7 +46,7 @@ export const SlotsFull: Story = { args: { slots: { used: 10, limit: 10 } } };
 /** A member or admin: no slot line. */
 export const MemberScope: Story = { args: { slots: undefined } };
 
-export const Loading: Story = { args: { counts: undefined } };
+export const Loading: Story = { args: { counts: undefined, slots: null } };
 
 export const ErrorState: Story = {
   name: "Error",
