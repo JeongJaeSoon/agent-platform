@@ -6,7 +6,7 @@ import { setupUser } from "@werft-ai/ui/test-support/dom";
 import { apiError, json, me, USER_ID } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
-const { renderAt, screen, waitFor, within } = await appHarness();
+const { act, renderAt, screen, waitFor, within } = await appHarness();
 
 const TOKEN = "k".repeat(43);
 const owner: MemberView = {
@@ -99,6 +99,59 @@ describe("초대 보내기 대화상자", () => {
       email: "new@example.com",
       role: "admin",
     });
+  });
+
+  test("관리자에게 역할의 소유자 선택지는 비활성이고, 칸 아래에 이유를 둔다", async () => {
+    const { api } = renderAt("/members/invites", {
+      "GET /v1/auth/me": () => json(200, me(undefined, "admin")),
+      "GET /v1/members": () =>
+        json(200, { items: [{ ...owner, role: "admin" }], next_cursor: null }),
+      "GET /v1/invites": () => json(200, { items: [] }),
+      "POST /v1/invites": created,
+    });
+    const { dialog } = await open();
+    const select = within(dialog).getByLabelText("역할") as HTMLSelectElement;
+    expect(
+      [...select.options].map((option) => [option.value, option.disabled]),
+    ).toEqual([
+      ["owner", true],
+      ["admin", false],
+      ["member", false],
+    ]);
+    expect(
+      document.getElementById(select.getAttribute("aria-describedby") ?? "")
+        ?.textContent,
+    ).toBe("소유자 역할은 소유자만 줄 수 있습니다.");
+    expect(invitePosts(api)).toHaveLength(0);
+  });
+
+  test("소유자를 고른 뒤 관리자로 내려가면 초대 링크 만들기가 막힌다", async () => {
+    let role: "owner" | "admin" = "owner";
+    const { api, services } = renderAt("/members/invites", {
+      "GET /v1/auth/me": () => json(200, me(undefined, role)),
+      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
+      "GET /v1/invites": () => json(200, { items: [] }),
+      "POST /v1/invites": created,
+    });
+    const { user, dialog } = await open();
+    await user.type(within(dialog).getByLabelText("이메일"), "new@example.com");
+    await user.selectOptions(within(dialog).getByLabelText("역할"), "owner");
+    const submit = within(dialog).getByRole("button", {
+      name: "초대 링크 만들기",
+    }) as HTMLButtonElement;
+    expect(submit.disabled).toBe(false);
+    role = "admin";
+    await act(() => services.queryClient.refetchQueries());
+    await waitFor(() => expect(submit.disabled).toBe(true));
+    expect(invitePosts(api)).toHaveLength(0);
+  });
+
+  test("소유자에게는 역할 선택지가 모두 열려 있고 이유 줄이 없다", async () => {
+    renderMembers();
+    const { dialog } = await open();
+    const select = within(dialog).getByLabelText("역할") as HTMLSelectElement;
+    expect([...select.options].every((option) => !option.disabled)).toBe(true);
+    expect(select.hasAttribute("aria-describedby")).toBe(false);
   });
 
   test("링크의 token은 단계 기록(history.state)에 남지 않는다", async () => {

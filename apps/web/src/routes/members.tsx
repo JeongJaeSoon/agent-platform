@@ -45,6 +45,7 @@ import { invitesQuery, membersQuery, queryKeys } from "../api/queries.ts";
 import {
   permissionReason,
   roleLabel,
+  useGrantableRoles,
   useHasPermission,
   useMe,
   usePermissionReason,
@@ -552,7 +553,7 @@ function MemberTable({
                       blue stays for links that move (→). */}
                     {/* Below md the "you" badge drops to its own line under
                       the name, so the name gets the whole column (QA L-17). */}
-                    <span className="grid max-w-full grid-cols-[minmax(0,auto)_auto_auto] items-center gap-y-[var(--ap-row-line-gap)] font-medium text-foreground @max-md:grid-cols-[minmax(0,auto)_auto] group-data-[disabled=true]:text-muted-foreground">
+                    <span className="grid max-w-full grid-cols-[minmax(0,auto)_auto] items-center gap-y-[var(--ap-row-line-gap)] font-medium text-foreground @max-md:grid-cols-[minmax(0,auto)] group-data-[disabled=true]:text-muted-foreground">
                       <span className="truncate">{member.display_name}</span>
                       {member.user_id === self ? (
                         <Badge
@@ -562,7 +563,6 @@ function MemberTable({
                           {t("members.you")}
                         </Badge>
                       ) : null}
-                      <span aria-hidden="true">&nbsp;›</span>
                     </span>
                     <span
                       className="text-muted-foreground text-xs"
@@ -696,9 +696,14 @@ function MemberEditDialog({
 }) {
   const { t } = useI18n();
   const [role, setRole] = useState<string>(member.role);
+  const grantable = useGrantableRoles();
   const legendId = useId();
   const reasonId = useId();
+  const grantReasonId = useId();
   const blocked = reason !== undefined;
+  // A disabled radio is out of the arrow-key loop, so its reason also
+  // describes the group a keyboard user does reach.
+  const grantLimited = grantable.length < WORKSPACE_ROLE_VALUES.length;
   return (
     <Dialog open onOpenChange={(open) => (open ? undefined : onClose())}>
       <DialogContent
@@ -725,17 +730,24 @@ function MemberEditDialog({
             onValueChange={setRole}
             disabled={blocked || busy}
             aria-labelledby={legendId}
-            aria-describedby={blocked ? reasonId : undefined}
+            aria-describedby={
+              blocked ? reasonId : grantLimited ? grantReasonId : undefined
+            }
           >
-            {WORKSPACE_ROLE_VALUES.map((value) => (
-              <Field key={value} orientation="horizontal">
-                <RadioGroupItem value={value} />
-                <FieldLabel>{roleLabel(t, value)}</FieldLabel>
-                <FieldDescription>
-                  {t(`members.roleHelp.${value}`)}
-                </FieldDescription>
-              </Field>
-            ))}
+            {WORKSPACE_ROLE_VALUES.map((value) => {
+              const withheld = !grantable.includes(value);
+              return (
+                <Field key={value} orientation="horizontal">
+                  <RadioGroupItem value={value} disabled={withheld} />
+                  <FieldLabel>{roleLabel(t, value)}</FieldLabel>
+                  <FieldDescription id={withheld ? grantReasonId : undefined}>
+                    {withheld
+                      ? t("members.roleOwnerGrant")
+                      : t(`members.roleHelp.${value}`)}
+                  </FieldDescription>
+                </Field>
+              );
+            })}
           </RadioGroup>
         </FieldSet>
         <DialogFooter>
@@ -744,7 +756,12 @@ function MemberEditDialog({
           </Button>
           <Button
             type="button"
-            disabled={blocked || busy || role === member.role}
+            disabled={
+              blocked ||
+              busy ||
+              role === member.role ||
+              !grantable.includes(role as WorkspaceRole)
+            }
             onClick={() => onSave(role as WorkspaceRole)}
           >
             {t("members.edit.save")}

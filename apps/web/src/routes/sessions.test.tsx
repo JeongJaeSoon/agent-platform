@@ -120,6 +120,16 @@ beforeEach(() => {
 });
 const EVENTS_ROUTE = `GET /v1/sessions/${SESSION_ID}/events`;
 
+/** Opens the relation chip and picks one by its label. */
+async function pickRelation(
+  user: Awaited<ReturnType<typeof setupUser>>,
+  label: string,
+) {
+  await user.click(screen.getByRole("button", { name: /^관계 / }));
+  const menu = await screen.findByRole("dialog", { name: "관계" });
+  await user.click(within(menu).getByRole("button", { name: label }));
+}
+
 function summary(id: string, overrides: Partial<SessionSummary> = {}) {
   return {
     id,
@@ -736,10 +746,7 @@ describe("sessions list", () => {
           : json(200, { items: [summary(OTHER_ID)], next_cursor: null }),
     });
     await screen.findByRole("link", { name: opener(OTHER_ID) });
-    await user.selectOptions(
-      screen.getByRole("combobox", { name: "나와의 관계" }),
-      "administered",
-    );
+    await pickRelation(user, "관리하는 에이전트");
     await waitFor(() => expect(answer).toBeDefined());
     expect(screen.queryByRole("link", { name: opener(OTHER_ID) })).toBeNull();
     act(() => answer?.());
@@ -761,15 +768,19 @@ describe("sessions list", () => {
       },
     });
     await screen.findByRole("link", { name: opener(SESSION_ID) });
-    const relation = screen.getByRole("combobox", { name: "나와의 관계" });
+    await user.click(screen.getByRole("button", { name: "관계 모든 관계" }));
+    const menu = await screen.findByRole("dialog", { name: "관계" });
     expect(
-      within(relation)
-        .getAllByRole("option")
+      within(menu)
+        .getAllByRole("button")
         .map((option) => option.textContent),
     ).toEqual(["모든 관계", "내가 시작", "공유받음", "관리하는 에이전트"]);
 
-    await user.selectOptions(relation, "shared");
+    await user.click(within(menu).getByRole("button", { name: "공유받음" }));
     await screen.findByRole("link", { name: opener(OTHER_ID) });
+    expect(
+      screen.getByRole("button", { name: "관계 공유받음" }).dataset.filtered,
+    ).toBe("");
     expect(history.location.search).toContain("relation=shared");
     expect(
       api.calls.some(
@@ -1052,10 +1063,7 @@ describe("sessions list", () => {
     }
     await screen.findByRole("link", { name: opener(SESSION_ID) });
     expect(counts()).toHaveLength(1);
-    await user.selectOptions(
-      screen.getByRole("combobox", { name: "나와의 관계" }),
-      "started",
-    );
+    await pickRelation(user, "내가 시작");
     await waitFor(() => expect(counts()).toHaveLength(2));
     expect(counts()[1]?.search).toBe("?relation=started");
   });

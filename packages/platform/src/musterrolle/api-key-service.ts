@@ -22,26 +22,11 @@ import {
   type Caller,
   MANAGEMENT_ROLES,
 } from "./policy.ts";
+import { ACTOR_INACTIVE, NOT_FOUND, OUTRANKED } from "./service-errors.ts";
 
 // Keys issued by a person (design 4.1): their own personal key, or the key
 // of an agent they administer. An API key is never a person, so the policy
 // refuses it here.
-
-const NOT_FOUND = () =>
-  new SessionServiceError("NOT_FOUND", "Resource not found");
-// The caller's role fell between the decision and the write.
-const OUTRANKED = () =>
-  new SessionServiceError(
-    "FORBIDDEN",
-    "The caller no longer holds this right",
-    undefined,
-    { reason_code: "role" },
-  );
-const ACTOR_INACTIVE = () =>
-  new SessionServiceError(
-    "FORBIDDEN",
-    "This principal is no longer a member of the workspace",
-  );
 
 export function viewOf(key: WorkspaceKey): ApiKeyView {
   return {

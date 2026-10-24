@@ -14,13 +14,11 @@ import {
   SessionServiceError,
 } from "../sessions/session-service.ts";
 import type { AuthorizationPolicy, Caller } from "./policy.ts";
+import { NOT_FOUND } from "./service-errors.ts";
 
 // Session share scopes (design 4.6). Reading a share is reading the session;
 // changing it is `session.share`, which the policy gives a person's session
 // to its creator alone and a key's session to its managers (D21).
-
-const NOT_FOUND = () =>
-  new SessionServiceError("NOT_FOUND", "Resource not found");
 
 function shareView(share: SessionShare): SessionShareView {
   return {

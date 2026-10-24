@@ -7,7 +7,7 @@ import {
 
 import { cn } from "../foundations/cn.ts";
 import { Field, FieldDescription, FieldLabel } from "../primitives/field.tsx";
-import { RowLines, RowListItem } from "../primitives/row-list.tsx";
+import { RowListItem } from "../primitives/row-list.tsx";
 
 export type SettingRowProps = Omit<ComponentProps<"li">, "title"> & {
   readonly title: ReactNode;
@@ -16,7 +16,7 @@ export type SettingRowProps = Omit<ComponentProps<"li">, "title"> & {
   readonly description?: ReactNode | undefined;
   /** Lines under the description, such as a value or a time. */
   readonly meta?: ReactNode | undefined;
-  /** Words for the control's state, before it. Not part of its name. */
+  /** Words for the control's state, before it. Not part of its name; hidden below 640px. */
   readonly status?: ReactNode | undefined;
   /**
    * One form control (Switch, NativeSelect). The title becomes its name and
@@ -39,8 +39,9 @@ function ownId(control: ReactNode): string | undefined {
 
 /**
  * One setting in a `RowList variant="joined"`: title and description on the
- * left, the control on the right. Below 640px the control goes under the
- * text, at the right edge.
+ * left, the control on the right. Below 640px the control stays on the
+ * title's first line and the description runs under both, full width; the
+ * status words drop out there, since the control's own state says the same.
  */
 export function SettingRow({
   title,
@@ -54,33 +55,41 @@ export function SettingRow({
   ...props
 }: SettingRowProps): JSX.Element {
   const labelled = control !== undefined && control !== null;
+  const below = Boolean(description) || (meta !== undefined && meta !== null);
   const body = (
     <>
-      <RowLines>
-        <span className="flex flex-wrap items-center gap-2">
-          {labelled ? (
-            <FieldLabel htmlFor={ownId(control)} className={TITLE}>
-              {title}
-            </FieldLabel>
-          ) : (
-            <span className={TITLE}>{title}</span>
-          )}
-          {badge}
+      <span className="col-start-1 row-start-1 flex min-w-0 flex-wrap items-center gap-2 self-center leading-5">
+        {labelled ? (
+          <FieldLabel htmlFor={ownId(control)} className={TITLE}>
+            {title}
+          </FieldLabel>
+        ) : (
+          <span className={TITLE}>{title}</span>
+        )}
+        {badge}
+      </span>
+      {below ? (
+        <span className="col-span-2 row-start-2 flex min-w-0 flex-col gap-[var(--ap-row-line-gap)] leading-4 sm:col-span-1">
+          {description ? (
+            labelled ? (
+              <FieldDescription className={cn(DESCRIPTION, "nth-last-2:mt-0")}>
+                {description}
+              </FieldDescription>
+            ) : (
+              <p className={DESCRIPTION}>{description}</p>
+            )
+          ) : null}
+          {meta}
         </span>
-        {description ? (
-          labelled ? (
-            <FieldDescription className={cn(DESCRIPTION, "nth-last-2:mt-0")}>
-              {description}
-            </FieldDescription>
-          ) : (
-            <p className={DESCRIPTION}>{description}</p>
-          )
-        ) : null}
-        {meta}
-      </RowLines>
+      ) : null}
       {labelled || status || actions ? (
-        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 self-end sm:self-auto">
-          {status}
+        <div
+          className={cn(
+            "col-start-2 row-start-1 flex flex-wrap items-center justify-end gap-2 self-start sm:self-center",
+            below && "sm:row-span-2",
+          )}
+        >
+          {status ? <span className="hidden sm:contents">{status}</span> : null}
           {control}
           {actions}
         </div>
@@ -91,7 +100,7 @@ export function SettingRow({
     <RowListItem
       data-slot="setting-row"
       className={cn(
-        "flex-col flex-nowrap items-stretch sm:flex-row sm:items-center",
+        "grid grid-cols-[minmax(0,1fr)_auto] content-center items-start gap-y-[var(--ap-row-line-gap)] sm:items-center",
         className,
       )}
       {...props}

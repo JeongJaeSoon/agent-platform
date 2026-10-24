@@ -20,6 +20,7 @@ import {
   type Caller,
   MANAGEMENT_ROLES,
 } from "./policy.ts";
+import { ACTOR_INACTIVE, NOT_FOUND, OUTRANKED } from "./service-errors.ts";
 import {
   type CreatedSlackApp,
   SlackApiError,
@@ -41,8 +42,6 @@ const FINISH_ATTEMPTS = 3;
 // Slack's answer when the app it is asked to delete no longer exists.
 const GONE_CODES = new Set(["app_not_found", "invalid_app_id", "app_deleted"]);
 
-const NOT_FOUND = () =>
-  new SessionServiceError("NOT_FOUND", "Resource not found");
 const FORBIDDEN_WEB_ONLY = () =>
   new SessionServiceError(
     "FORBIDDEN",
@@ -50,18 +49,7 @@ const FORBIDDEN_WEB_ONLY = () =>
     undefined,
     { reason_code: "web_session_required" },
   );
-const ACTOR_INACTIVE = () =>
-  new SessionServiceError(
-    "FORBIDDEN",
-    "This principal is no longer a member of the workspace",
-  );
-const OUTRANKED = () =>
-  new SessionServiceError(
-    "FORBIDDEN",
-    "The caller no longer holds this right",
-    undefined,
-    { reason_code: "role" },
-  );
+
 const STORE_OFF = () =>
   new SessionServiceError(
     "BACKEND_UNAVAILABLE",

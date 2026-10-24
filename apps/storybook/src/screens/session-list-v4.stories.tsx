@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { SessionStatus, SessionSummary } from "@werft-ai/contracts";
 import {
+  ListToolbar,
   SessionOverviewRow,
   SessionOverviewTable,
   SessionStatusLabel,
@@ -11,11 +12,9 @@ import {
   Button,
   EmptyState,
   ErrorState,
+  FilterMenu,
   Link,
-  NativeSelect,
-  NativeSelectOption,
   PageHeader,
-  SearchInput,
   SegmentedControl,
   SegmentedControlItem,
   Skeleton,
@@ -27,7 +26,7 @@ import { MOBILE, ScreenShell } from "./screen-kit.tsx";
 /*
  * Console v4 session list (Console.dc.html, SESSIONS, `.t-sess`): the
  * segmented status filter with the counts GET /v1/sessions/counts reads, a
- * search box and a relation select the API answers (`q`, `relation`), and the
+ * relation chip and a search box the API answers (`q`, `relation`), and the
  * six-column table: title, status, agent · model, repository, started by,
  * recent. Rows carry only SessionSummary fields and the oldest pending
  * request's wait. The real screen keeps its one-line approval inbox above
@@ -232,10 +231,11 @@ function SessionListV4Body({
       />
       <div className="flex flex-col gap-4">
         <div className="flex min-w-0 flex-col gap-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex flex-wrap items-center gap-2">
+          <ListToolbar
+            filter={
               <SegmentedControl
                 aria-label="상태로 보기"
+                size="toolbar"
                 value={tab}
                 onValueChange={setTab}
               >
@@ -249,28 +249,24 @@ function SessionListV4Body({
                   </SegmentedControlItem>
                 ))}
               </SegmentedControl>
-              <NativeSelect
-                aria-label="나와의 관계"
+            }
+            filters={
+              <FilterMenu
+                label="관계"
+                options={RELATIONS.map(([value, label]) => ({ value, label }))}
                 value={relation}
-                onChange={(event) => setRelation(event.target.value)}
-              >
-                {RELATIONS.map(([key, label]) => (
-                  <NativeSelectOption key={key} value={key}>
-                    {label}
-                  </NativeSelectOption>
-                ))}
-              </NativeSelect>
-            </div>
-            <SearchInput
-              type="search"
-              aria-label="제목이나 ID로 찾기"
-              placeholder="제목이나 ID로 찾기"
-              maxLength={200}
-              wrapperClassName="max-w-none flex-[1_1_100%] sm:ml-auto sm:w-[260px] sm:flex-none"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-          </div>
+                onValueChange={setRelation}
+              />
+            }
+            search={{
+              type: "search",
+              "aria-label": "제목이나 ID로 찾기",
+              placeholder: "제목이나 ID로 찾기",
+              maxLength: 200,
+              value: query,
+              onChange: (event) => setQuery(event.target.value),
+            }}
+          />
           <div>
             {state === "loading" ? (
               <div className="flex flex-col gap-3" aria-busy="true">

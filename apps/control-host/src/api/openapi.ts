@@ -32,6 +32,7 @@ import {
   commentPullRequestResponseSchema,
   completeSlackInstallRequestSchema,
   completeSlackInstallResponseSchema,
+  countAgentsResponseSchema,
   countSessionsQuerySchema,
   countSessionsResponseSchema,
   createAgentReleaseRequestSchema,
@@ -71,6 +72,7 @@ import {
   listAdministeredAgentsResponseSchema,
   listAdminSessionsResponseSchema,
   listAgentIdentitiesResponseSchema,
+  listAgentsQuerySchema,
   listAgentsResponseSchema,
   listApiKeysResponseSchema,
   listCredentialBindingsResponseSchema,
@@ -191,6 +193,7 @@ const openApiDocumentResponseSchema = z.looseObject({
 const requestComponents = {
   CreateSessionRequest: createSessionRequestSchema,
   ListSessionsQuery: listSessionsQuerySchema,
+  ListAgentsQuery: listAgentsQuerySchema,
   ListMembersQuery: listMembersQuerySchema,
   CountSessionsQuery: countSessionsQuerySchema,
   UsageSummaryQuery: usageSummaryQuerySchema,
@@ -307,6 +310,7 @@ const responseComponents = {
   SessionUsageResponse: sessionUsageResponseSchema,
   ListSessionOutputsResponse: listSessionOutputsResponseSchema,
   ListAgentsResponse: listAgentsResponseSchema,
+  CountAgentsResponse: countAgentsResponseSchema,
   ListProfilesResponse: listProfilesResponseSchema,
   AgentDetail: agentDetailSchema,
   CreateAgentReleaseResponse: createAgentReleaseResponseSchema,
@@ -575,6 +579,18 @@ const ALL_SCOPES = [
   "sessions:control",
   "sessions:recover",
 ];
+const EXAMPLE_AGENT = {
+  id: EXAMPLE_AGENT_ID,
+  workspace_id: EXAMPLE_WORKSPACE.id,
+  slug: "finance",
+  name: "Finance analyst",
+  status: "active",
+  active_release_id: null,
+  activation_revision: -1,
+  created_by: EXAMPLE_USER_ID,
+  created_at: "2026-10-11T08:00:00Z",
+  updated_at: "2026-10-11T08:00:00Z",
+};
 const EXAMPLE_SESSION_SUMMARY = {
   id: EXAMPLE_SESSION_ID,
   title: "Fix the flaky checkout test",
@@ -2485,9 +2501,38 @@ export const API_ROUTE_DECLARATIONS = [
     operationId: "listAgents",
     tag: "Agents",
     summary: "The workspace's agents",
-    description: "Up to 500, oldest first. API keys are refused.",
+    description:
+      "Lists the workspace's agents oldest `created_at` first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. API keys are refused.",
     auth: "session",
-    success: { status: 200, schema: "ListAgentsResponse" },
+    query: "ListAgentsQuery",
+    success: {
+      status: 200,
+      schema: "ListAgentsResponse",
+      description: "One page of agents.",
+      example: {
+        items: [EXAMPLE_AGENT],
+        next_cursor:
+          "eyJjcmVhdGVkX2F0IjoiMjAyNi0xMC0xMSAwODowMDowMCswMCIsImlkIjoiOGQyYzRmMWEtNmIzZS00YTlkLWI3YzUtMmUxZjBhOWI4YzdkIn0",
+      },
+    },
+    errors: [400, 401, 403, 503],
+  },
+  {
+    method: "get",
+    path: "/v1/agents/counts",
+    operationId: "countAgents",
+    tag: "Agents",
+    summary:
+      "How many agents the workspace has, and how many the caller administers",
+    description:
+      "`all` is how many agents GET /v1/agents lists read to the last page; `administered` is how many of them the caller administers now, directly or through a team they are a live member of. Answered for the same callers as the list. API keys are refused. It changes nothing.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "CountAgentsResponse",
+      description: "The two counts.",
+      example: { counts: { all: 128, administered: 3 } },
+    },
     errors: [401, 403, 503],
   },
   {

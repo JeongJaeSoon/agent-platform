@@ -113,6 +113,20 @@ curl -sS "$API/v1/agents/$AID/activate" "${WEB[@]}" \
 }
 ```
 
+### List and count
+
+```bash
+curl -sS "$API/v1/agents?limit=50" "${WEB[@]}" | jq -c '{n: (.items | length), next_cursor}'
+curl -sS "$API/v1/agents/counts" "${WEB[@]}" | jq -c
+```
+
+```text
+{"n":1,"next_cursor":null}
+{"counts":{"all":1,"administered":1}}
+```
+
+The list returns agents oldest first, `limit` at a time (default 50, at most 100). Send the response's `next_cursor` back as `cursor` for the next page; it is `null` on the last one. Without `cursor` you get the first page only. `GET /v1/agents/counts` returns how many agents the list holds read to its end (`all`) and how many of them you administer yourself or through a team (`administered`). Both need the same permission as the list, and API keys are refused.
+
 ## Bind to a session
 
 Put `agent_release_id` in `POST /v1/sessions`. `profile_id` must be that release's profile (otherwise 409 `RELEASE_PROFILE_MISMATCH`). Use an agent key of that agent. Issue it with the web login cookie by sending `kind: "agent"` and `agent_id` to `POST /v1/api-keys` ([API key](/api-keys)). Keep the secret in a variable only.

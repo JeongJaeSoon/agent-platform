@@ -113,6 +113,20 @@ curl -sS "$API/v1/agents/$AID/activate" "${WEB[@]}" \
 }
 ```
 
+### 목록과 개수
+
+```bash
+curl -sS "$API/v1/agents?limit=50" "${WEB[@]}" | jq -c '{n: (.items | length), next_cursor}'
+curl -sS "$API/v1/agents/counts" "${WEB[@]}" | jq -c
+```
+
+```text
+{"n":1,"next_cursor":null}
+{"counts":{"all":1,"administered":1}}
+```
+
+목록은 오래된 에이전트부터 `limit`개(기본 50, 최대 100)씩 온다. 응답의 `next_cursor`를 `cursor`로 보내면 다음 페이지이고, 마지막 페이지에서는 `null`이다. `cursor` 없이 부르면 첫 페이지만 온다. `GET /v1/agents/counts`는 목록을 끝까지 읽었을 때의 개수(`all`)와 그중 내가 직접 또는 팀으로 관리하는 개수(`administered`)를 준다. 둘 다 목록과 같은 권한이 있어야 하고 API key는 거절된다.
+
 ## 세션에 묶기
 
 `POST /v1/sessions`에 `agent_release_id`를 넣는다. `profile_id`는 그 release의 프로필이어야 한다(아니면 409 `RELEASE_PROFILE_MISMATCH`). key는 그 에이전트의 에이전트 key를 쓴다. 웹 로그인 cookie로 `POST /v1/api-keys`에 `kind: "agent"`와 `agent_id`를 넣어 발급한다([API key](/api-keys)). 비밀값은 변수에만 담는다.
