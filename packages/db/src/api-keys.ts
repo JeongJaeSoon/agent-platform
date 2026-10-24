@@ -18,7 +18,8 @@ import {
   isNull,
   or,
 } from "drizzle-orm";
-import { administers, lockedAdministers } from "./agent-admins.ts";
+import { administers } from "./administers.ts";
+import { lockedAdministers } from "./agent-admins.ts";
 import { lockActorAccount, receiptActorOf } from "./control-shared.ts";
 import { DB_NOW } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
