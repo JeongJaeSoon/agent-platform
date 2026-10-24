@@ -286,7 +286,7 @@ export function HomeScreen() {
     combine: (lists) => lists.every((list) => !list.isLoading),
   });
   const teams = useQuery(myTeamsQuery(client));
-  // Which sections show, and how tall the inbox and the oversight card are,
+  // Which sections show, and how tall the inbox and the cards are,
   // wait on these reads. Until all have answered the body is one
   // placeholder, so nothing drawn early is pushed down when they do. Once
   // shown it stays, through later reads and retries.
@@ -295,9 +295,17 @@ export function HomeScreen() {
     !settled &&
     requestsSettled &&
     !deciding &&
-    [members, invites, agents, sessions, waiting, keys, teams].every(
-      (query) => !query.isLoading,
-    )
+    [
+      members,
+      invites,
+      agents,
+      sessions,
+      waiting,
+      keys,
+      teams,
+      myUsage,
+      installUsage,
+    ].every((query) => !query.isLoading)
   )
     setSettled(true);
   const agentItems = agents.data?.items ?? [];

@@ -449,48 +449,63 @@ describe("홈 요약", () => {
     };
   };
 
-  test("배치를 정하는 목록이 다 올 때까지 본문은 자리표시 하나이고, 오면 한 번에 보인다", async () => {
-    let answer: () => void = () => {};
-    const asked = new Promise<void>((resolve) => {
-      answer = resolve;
-    });
-    renderAt("/", {
-      ...homeRoutes(),
-      // The inbox row grows once its requests arrive; until then nothing
-      // below it may be drawn.
-      [`GET /v1/sessions/${waitingSession.id}/pending-requests`]: async () => {
-        await asked;
-        return json(200, {
-          answerable: true,
-          items: [request("2026-10-23T09:00:00.000Z")],
-        });
-      },
-    });
-    await screen.findByRole("heading", { name: "홈" });
-    await waitFor(() =>
+  // Each read that changes which sections show or how tall they are: the
+  // inbox row grows once its requests arrive, a card gains its footer once
+  // its usage does.
+  for (const [what, route, body] of [
+    [
+      "대기 세션의 요청",
+      `GET /v1/sessions/${waitingSession.id}/pending-requests`,
+      () => ({
+        answerable: true,
+        items: [request("2026-10-23T09:00:00.000Z")],
+      }),
+    ],
+    ["내 사용량", summaryRoute("me"), () => summary("me", 3)],
+  ] as const) {
+    test(`${what}이 올 때까지 본문은 자리표시 하나이고, 오면 한 번에 보인다`, async () => {
+      let answer: () => void = () => {};
+      const asked = new Promise<void>((resolve) => {
+        answer = resolve;
+      });
+      let held = false;
+      renderAt("/", {
+        ...homeRoutes(),
+        [route]: async () => {
+          held = true;
+          await asked;
+          return json(200, body());
+        },
+      });
+      await screen.findByRole("heading", { name: "홈" });
+      await waitFor(() => expect(held).toBe(true));
+      // Every other read answers at once; give them time to land.
+      await act(() => new Promise((resolve) => setTimeout(resolve, 300)));
+      await waitFor(() =>
+        expect(
+          screen
+            .getAllByRole("status")
+            .some((s) => s.getAttribute("aria-busy") === "true"),
+        ).toBe(true),
+      );
+      expect(screen.queryByRole("region", { name: "한눈에 보기" })).toBeNull();
+      expect(
+        screen.queryByRole("region", { name: /^답이 필요한 요청/ }),
+      ).toBeNull();
+      act(() => answer());
+      expect(
+        await screen.findByRole("region", { name: "한눈에 보기" }),
+      ).toBeTruthy();
+      expect(
+        screen.getByRole("region", { name: /^답이 필요한 요청/ }),
+      ).toBeTruthy();
       expect(
         screen
-          .getAllByRole("status")
+          .queryAllByRole("status")
           .some((s) => s.getAttribute("aria-busy") === "true"),
-      ).toBe(true),
-    );
-    expect(screen.queryByRole("region", { name: "한눈에 보기" })).toBeNull();
-    expect(
-      screen.queryByRole("region", { name: /^답이 필요한 요청/ }),
-    ).toBeNull();
-    act(() => answer());
-    expect(
-      await screen.findByRole("region", { name: "한눈에 보기" }),
-    ).toBeTruthy();
-    expect(
-      screen.getByRole("region", { name: /^답이 필요한 요청/ }),
-    ).toBeTruthy();
-    expect(
-      screen
-        .queryAllByRole("status")
-        .some((s) => s.getAttribute("aria-busy") === "true"),
-    ).toBe(false);
-  });
+      ).toBe(false);
+    });
+  }
 
   test("카드 세 장에 최근 30일 사용량과 미계측을 나눠 보이고, 답변 대기는 가장 오래된 요청 하나만 가리킨다", async () => {
     renderAt("/", homeRoutes());
