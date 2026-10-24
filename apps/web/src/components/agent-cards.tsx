@@ -94,10 +94,7 @@ function AgentCard({
     <Card className="w-full" data-agent={agent.slug}>
       <CardHeader>
         <div className="flex min-w-0 items-center gap-3">
-          {/* Stands in for an initials avatar until @werft-ai/ui has one. */}
-          <Badge variant="gray" aria-hidden="true" className="font-mono">
-            {initials(agent.name)}
-          </Badge>
+          <AgentAvatar name={agent.name} />
           <div className="flex min-w-0 flex-col gap-1">
             <CardTitle className="[overflow-wrap:anywhere]">
               <Link asChild>
@@ -304,6 +301,21 @@ function adminNames(view: AgentAdminsView, none: string) {
     ...view.teams.map((team) => team.name),
   ];
   return names.length === 0 ? none : names.join(", ");
+}
+
+/**
+ * The design's 32px square initials mark (console v4 `.avatar.lg.sq`).
+ * Stands in until @werft-ai/ui has an Avatar.
+ */
+export function AgentAvatar({ name }: { readonly name: string }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="grid size-8 flex-none place-items-center rounded-control bg-active font-semibold text-caption text-muted-foreground"
+    >
+      {initials(name)}
+    </span>
+  );
 }
 
 /** Up to two letters: the first of the first two words, or the first two. */

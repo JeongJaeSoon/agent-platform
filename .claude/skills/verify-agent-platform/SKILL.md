@@ -11,7 +11,7 @@ description: Drive the agent-platform stack the way a user does — launch it lo
 |---|---|---|
 | web API (cookie) | `/v1/auth/**`(bootstrap·login-methods·login·me·logout, Google), 초대·구성원·팀·에이전트·권한별 key·연동 계정·공유·감사 열람·워크스페이스 설정 | `ap_web` (curl + CSRF 헤더 + cookie), 자격 값이 본문에 드는 요청은 `web-user.mjs` |
 | 웹 콘솔 | `apps/web`을 API가 같은 origin에서 서빙: `/login`·`/bootstrap`·`/`·`/members`·`/invite/{token}`·`/sessions`·`/teams`·`/agents`·`/settings/*` | 이 run의 headless Chrome(`browser.mjs`: 폭·다크·오류·로딩 스크린샷), 서빙 헤더는 curl |
-| API | `/v1/sessions/**`, `/v1/receipts`, `/v1/limits`, `/docs`, `/readyz` | `ap_get`·`ap_post` (Bearer key) |
+| API | `/v1/sessions/**`, `/v1/receipts`, `/v1/usage/summary`, `/docs`, `/readyz` (`/v1/limits`는 owner cookie로 `ap_web`) | `ap_get`·`ap_post` (Bearer key) |
 | CLI | key CLI(`apps/control-host/src/api/keys.ts`)의 `create`·`revoke` | `ap_key`·`ap_revoke` |
 
 기능별 절차는 [features/README.md](features/README.md)에 있다. 증명할 때는 map에 적힌 진입점을 모두 몬다.
@@ -47,7 +47,8 @@ Claude Code의 Bash 호출은 매번 새 셸이다. 그래서 `up.sh`가 run 디
 .claude/skills/verify-agent-platform/scripts/up.sh
 ```
 
-- 선택형 overlay는 인자로 더한다: `up.sh infra/compose.mock-slack.yml`(Slack 계정 연결의 mock IdP, [musterrolle.md](features/musterrolle.md) c). `COMPOSE_FILE`에 이어 붙으므로 이후 `lib.sh`·`down.sh`도 같은 스택을 본다.
+- 선택형 overlay는 인자로 더한다: `up.sh infra/compose.mock-slack.yml`. mock Slack 하나가 Sign in with Slack IdP와 Slack Web API의 가짜(config token 발급 `/fake/config-tokens`, 앱 생성, 설치 동의 `/fake/oauth/authorize`)를 맡고, api의 `SLACK_OIDC_REDIRECT_URI`·`SLACK_API_URL`을 그쪽으로 돌린다. fallback OIDC client는 비워 두므로 계정 연결은 워크스페이스의 link 앱으로 한다. `COMPOSE_FILE`에 이어 붙으므로 이후 `lib.sh`·`down.sh`도 같은 스택을 본다.
+- Slack 비밀값(config token, 앱의 secret·bot token)은 master key가 있어야 저장된다. Slack 시나리오([musterrolle.md](features/musterrolle.md) c·g, [web-settings.md](features/web-settings.md) 4)는 run마다 `openssl rand -hex 32`로 만든 버리는 값을 `PLATFORM_SECRET_KEY`로 export하고 같은 Bash 호출에서 `up.sh`를 부른다(그 문서의 한 줄). 사람의 Keychain 항목은 읽지 않는다. 그 밖의 시나리오는 key 없이 띄우고, api 로그에 `Secret store is off` 경고 한 줄이 남은 채 ready다.
 - Orca 프로그램 안에서 돌면 무거운 작업 잠금으로 감싼다: `orch heavy <program> -- .claude/skills/verify-agent-platform/scripts/up.sh`. 내릴 때도 같다.
 - 하는 일: run 디렉터리와 `ports.yml`(postgres·localstack·gitea·api 포트를 `127.0.0.1::<port>` ephemeral로, secrets는 비공개, api에 이 run의 `BOOTSTRAP_TOKEN`)을 만들고 `COMPOSE_PROJECT_NAME=verify-ap-… EXECUTION_INSTALLATION_ID=… COMPOSE_FILE=compose.yaml:ports.yml LOCAL_DEMO_ACCOUNTS=0 scripts/local.sh up --fake-model`을 돌린다(데모 계정 없이: 기능 절차가 bootstrap부터 한다). 끝나면 `docker compose port api 3000`으로 API 주소를 `state.env`에 적고 run 디렉터리를 stdout에, `run id: …`를 stderr에 출력한다. run id는 시작할 때도 stderr에 한 번 나온다. **이 run id를 기록한다.** 이후 모든 단계와 내릴 때 이것을 넘긴다. 빌드가 중간에 실패해도 시작할 때 나온 run id로 `down.sh`를 돌린다.
 - 준비 표시: stderr 끝에 `{"status":"ready","checks":{"database":"ok","schema":"ok","config":"ok"}}`. 로그는 `evidence/up.log`.

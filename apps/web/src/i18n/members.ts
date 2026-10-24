@@ -81,6 +81,10 @@ export const membersKo = {
   "members.roleHelp.admin": "구성원·팀·초대를 관리합니다.",
   "members.roleHelp.member": "자기 세션과 맡은 에이전트만 다룹니다.",
   "members.invite.open": "구성원 초대",
+  "members.tabs": "구성원 보기",
+  "members.tab.members": "구성원",
+  "members.tab.teams": "팀",
+  "members.tab.invites": "초대",
 };
 
 export const membersEn: Record<keyof typeof membersKo, string> = {
@@ -165,6 +169,10 @@ export const membersEn: Record<keyof typeof membersKo, string> = {
   "members.roleHelp.member":
     "Works with their own sessions and the agents they manage.",
   "members.invite.open": "Invite member",
+  "members.tabs": "Members views",
+  "members.tab.members": "Members",
+  "members.tab.teams": "Teams",
+  "members.tab.invites": "Invites",
 };
 
 export const membersJa: Record<keyof typeof membersKo, string> = {
@@ -251,4 +259,8 @@ export const membersJa: Record<keyof typeof membersKo, string> = {
   "members.roleHelp.member":
     "自分のセッションと管理するエージェントだけを扱います。",
   "members.invite.open": "メンバーを招待",
+  "members.tabs": "メンバーの表示",
+  "members.tab.members": "メンバー",
+  "members.tab.teams": "チーム",
+  "members.tab.invites": "招待",
 };

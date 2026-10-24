@@ -172,6 +172,9 @@ export const FAILED_EVENTS: readonly RawEvent[] = [
 export const SESSION: SessionSummary = {
   id: "0192f0c4-7d3a-7b4e-9f00-00000000a001",
   title: null,
+  agent: null,
+  created_by: null,
+  channel: null,
   revision: 4,
   admission_state: "active",
   status: "running",
@@ -183,6 +186,11 @@ export const SESSION: SessionSummary = {
     permission_mode: "default",
   },
   repository_id: "agent-platform",
+  repository: {
+    id: "agent-platform",
+    full_name: "werft-ai/agent-platform",
+    branch: "main",
+  },
   current_turn_id: "turn_01",
   queued_turn_count: 1,
   last_event_at: "2026-10-21T01:00:44.000Z",

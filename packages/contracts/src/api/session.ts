@@ -1,6 +1,8 @@
 import { z } from "zod";
 
+import { surfaceKindSchema } from "../kollegium/surfaces.ts";
 import {
+  agentIdSchema,
   agentReleaseIdSchema,
   pageSchema,
   paginationQuerySchema,
@@ -9,6 +11,7 @@ import {
   sessionIdSchema,
   timestampSchema,
   turnIdSchema,
+  userIdSchema,
 } from "../shared/index.ts";
 import { receiptStatusSchema } from "./receipt.ts";
 
@@ -272,6 +275,21 @@ export const sessionTitleSchema = z
     description: `Stored with runs of whitespace and line breaks collapsed to one space and the ends trimmed; at most ${SESSION_TITLE_MAX_GRAPHEMES} characters (grapheme clusters) after that.`,
   });
 
+export const sessionRepositorySchema = z.object({
+  id: z.string().min(1).nullable().meta({
+    description:
+      "The catalog key, as `repository_id`. Null for a session created before the catalog existed.",
+  }),
+  full_name: z.string().min(1).nullable().meta({
+    description:
+      "A name to show: the path of the repository's http(s) URL without host, credentials, query or `.git` (`owner/name`, or `group/sub/name`), or else the catalog key; null when neither exists. Never the URL itself, which may embed a credential.",
+  }),
+  branch: z.string().min(1).meta({
+    description:
+      "The branch the session's workspace was cloned from. Not the branch a push writes to (`agent/<session-id>`).",
+  }),
+});
+
 export const sessionSummarySchema = z.object({
   id: sessionIdSchema,
   // Defaults so a reader ahead of its server, during a rollout, reads a
@@ -284,6 +302,31 @@ export const sessionSummarySchema = z.object({
     .meta({
       description: `The session's name: the \`title\` it was created or renamed with, or else one derived from its first message (whitespace collapsed, cut to ${SESSION_TITLE_MAX_GRAPHEMES} characters with a trailing ellipsis). Null for sessions created before titles existed and for a first message with no text.`,
     }),
+  // The three below default to null for the same rollout reason as title.
+  agent: z
+    .object({
+      id: agentIdSchema,
+      name: z.string().min(1),
+      release_version_no: z.number().int().positive(),
+    })
+    .nullable()
+    .default(null)
+    .meta({
+      description:
+        "The agent the session was created for and the version number of the release it is pinned to. `name` is the agent's name now, not when the session started. Null for a session created without `agent_release_id`.",
+    }),
+  created_by: z
+    .object({ user_id: userIdSchema, display_name: z.string() })
+    .nullable()
+    .default(null)
+    .meta({
+      description:
+        "Who started the session: the signed-in person, or for an API key the person who created the key. It stays the same after a takeover hands the session to someone else. Null for sessions from before people were recorded and for a key with no creator.",
+    }),
+  channel: surfaceKindSchema.nullable().default(null).meta({
+    description:
+      "Where the request that created the session came from: `web` for the console, `api` for an API key, `slack` for a chat surface. Null for an older session whose creating request cannot be told from what was recorded.",
+  }),
   revision: revisionSchema,
   admission_state: admissionStateSchema,
   status: sessionStatusSchema.meta({ description: NEEDS_INPUT_PROJECTION }),
@@ -295,6 +338,11 @@ export const sessionSummarySchema = z.object({
   // legacy rows) carry no key and surface null; the stored repo URL is
   // never exposed because it may embed credentials.
   repository_id: z.string().min(1).nullable(),
+  // Defaults like title, so a reader ahead of its server reads none.
+  repository: sessionRepositorySchema.nullable().default(null).meta({
+    description:
+      "The repository the session was created against, as the session recorded it then: a later catalog change or removal does not alter it. Null for a session created without a repository.",
+  }),
   current_turn_id: turnIdSchema.nullable(),
   queued_turn_count: z.number().int().nonnegative(),
   last_event_at: timestampSchema.nullable(),
@@ -357,13 +405,51 @@ export const createSessionResponseSchema = z.object({
 export const updateSessionRequestSchema = z
   .object({ title: sessionTitleSchema })
   .strict();
-export const listSessionsQuerySchema = paginationQuerySchema.extend({
-  status: sessionStatusSchema.optional().meta({
+export const SESSION_RELATION_VALUES = [
+  "all",
+  "started",
+  "shared",
+  "administered",
+] as const;
+export const sessionRelationSchema = z.enum(SESSION_RELATION_VALUES);
+export const SESSION_SEARCH_MAX_CHARS = 200;
+const sessionFilterQuerySchema = z.object({
+  relation: sessionRelationSchema.optional().meta({
     description:
-      "Filters on the status each item reports, needs_input included as derived when read.",
+      "Narrows the sessions the caller can read, never widens them; omitted, `all`. `started`: the caller started it (for an API key, the key or the person who created it). `shared`: someone else's session shared with the caller by name or through a team the caller is a member of; sessions every workspace member sees appear only under `all`. `administered`: a session of an agent the caller administers, directly or through a team.",
+  }),
+  q: z.string().trim().min(1).max(SESSION_SEARCH_MAX_CHARS).optional().meta({
+    description:
+      "Matches a session whose title contains it, ignoring case, or whose id starts with it.",
   }),
 });
+export const listSessionsQuerySchema = paginationQuerySchema
+  .extend({
+    status: sessionStatusSchema.optional().meta({
+      description:
+        "Filters on the status each item reports, needs_input included as derived when read.",
+    }),
+  })
+  .extend(sessionFilterQuerySchema.shape);
 export const listSessionsResponseSchema = pageSchema(sessionSummarySchema);
+export const countSessionsQuerySchema = sessionFilterQuerySchema;
+const sessionCountSchema = z.number().int().nonnegative();
+export const countSessionsResponseSchema = z.object({
+  counts: z
+    .object({
+      queued: sessionCountSchema,
+      running: sessionCountSchema,
+      needs_input: sessionCountSchema,
+      idle: sessionCountSchema,
+      failed: sessionCountSchema,
+      stopped: sessionCountSchema,
+    } satisfies Record<SessionStatus, z.ZodType>)
+    .meta({
+      description:
+        "For each status, how many items GET /v1/sessions would list with that `status` and the same `relation` and `q`, read to the last page.",
+    }),
+  total: sessionCountSchema,
+});
 export const getSessionResponseSchema = sessionDetailSchema;
 
 export type SessionStatus = z.infer<typeof sessionStatusSchema>;
@@ -382,6 +468,7 @@ export type SessionAttention = z.infer<typeof sessionAttentionSchema>;
 export type PauseBlockedReason = z.infer<typeof pauseBlockedReasonSchema>;
 export type CloseBlockedReason = z.infer<typeof closeBlockedReasonSchema>;
 export type SessionDurability = z.infer<typeof sessionDurabilitySchema>;
+export type SessionRepository = z.infer<typeof sessionRepositorySchema>;
 export type SessionSummary = z.infer<typeof sessionSummarySchema>;
 export type SessionDetail = z.infer<typeof sessionDetailSchema>;
 export type CreateSessionRequest = z.infer<typeof createSessionRequestSchema>;
@@ -389,4 +476,7 @@ export type CreateSessionResponse = z.infer<typeof createSessionResponseSchema>;
 export type UpdateSessionRequest = z.infer<typeof updateSessionRequestSchema>;
 export type ListSessionsQuery = z.infer<typeof listSessionsQuerySchema>;
 export type ListSessionsResponse = z.infer<typeof listSessionsResponseSchema>;
+export type SessionRelation = z.infer<typeof sessionRelationSchema>;
+export type CountSessionsQuery = z.infer<typeof countSessionsQuerySchema>;
+export type CountSessionsResponse = z.infer<typeof countSessionsResponseSchema>;
 export type GetSessionResponse = z.infer<typeof getSessionResponseSchema>;

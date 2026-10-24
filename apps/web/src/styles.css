@@ -241,39 +241,6 @@ select:focus-visible,
   white-space: nowrap;
 }
 
-/*
- * temporary until @werft-ai/ui tokens land: the status-dot tokens under
- * ui-kit T1/T2's names and values (Console.dc.html), and the colour of home's
- * links to other screens, which alone take the design's blue. Delete this
- * block once T1 lands.
- */
-:root {
-  --home-link: #0060d1;
-  --ap-color-status-dot-wait: #9a4f00;
-  --ap-color-status-dot-run: #0060d1;
-  --ap-color-status-dot-idle: #8f8f8f;
-  --ap-color-status-dot-done: #0f7a33;
-  --ap-color-status-dot-failed: #c4282d;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --home-link: #52a8ff;
-    --ap-color-status-dot-wait: #f1a33b;
-    --ap-color-status-dot-run: #52a8ff;
-    --ap-color-status-dot-idle: #6f6f6f;
-    --ap-color-status-dot-done: #5cc77a;
-    --ap-color-status-dot-failed: #ff6b6f;
-  }
-}
-:root[data-theme="dark"] {
-  --home-link: #52a8ff;
-  --ap-color-status-dot-wait: #f1a33b;
-  --ap-color-status-dot-run: #52a8ff;
-  --ap-color-status-dot-idle: #6f6f6f;
-  --ap-color-status-dot-done: #5cc77a;
-  --ap-color-status-dot-failed: #ff6b6f;
-}
-
 @media (min-width: 48rem) {
   .web-auth {
     padding: var(--ap-space-8) var(--ap-space-6);

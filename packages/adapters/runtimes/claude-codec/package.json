@@ -11,6 +11,6 @@
   "dependencies": {
     "@werft-ai/contracts": "workspace:*",
     "@werft-ai/runtime-core": "workspace:*",
-    "zod": "4.6.5"
+    "zod": "4.6.7"
   }
 }

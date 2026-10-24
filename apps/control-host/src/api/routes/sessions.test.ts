@@ -107,6 +107,9 @@ function app(
     },
     reader: {
       listSessions: async () => ({ items: [], next_cursor: null }),
+      countSessions: async () => {
+        throw new Error("not reached");
+      },
       getSession: async () => null,
       listTurns: async () => null,
       getTurn: async () => null,
@@ -196,6 +199,7 @@ describe("POST /v1/sessions validation", () => {
     const response = await app({
       acceptInputAtomic: async (input) => {
         expect(input.repository).toBeNull();
+        expect(input.channel).toBe("api");
         return { outcome: "replayed", response: replayed };
       },
     }).request("/v1/sessions", {
@@ -303,6 +307,79 @@ describe("GET /v1/sessions validation", () => {
     expect(
       (await app().request("/v1/sessions?limit=100", { headers })).status,
     ).toBe(200);
+  });
+
+  test("rejects an unknown relation and an empty or overlong q, list and counts alike", async () => {
+    const headers = { "X-Owner-Id": "owner-a" };
+    for (const path of ["/v1/sessions", "/v1/sessions/counts"]) {
+      for (const query of [
+        "relation=mine",
+        "q=",
+        "q=%20%20",
+        `q=${"x".repeat(201)}`,
+      ]) {
+        expect(
+          (await app().request(`${path}?${query}`, { headers })).status,
+        ).toBe(400);
+      }
+    }
+  });
+
+  test("passes relation and q to the reader, trimmed", async () => {
+    const seen: unknown[] = [];
+    const counts = {
+      counts: {
+        queued: 0,
+        running: 1,
+        needs_input: 0,
+        idle: 2,
+        failed: 0,
+        stopped: 0,
+      },
+      total: 3,
+    };
+    const reader = app({
+      listSessions: async (_owner, query) => {
+        seen.push(query);
+        return { items: [], next_cursor: null };
+      },
+      countSessions: async (_owner, query) => {
+        seen.push(query);
+        return counts;
+      },
+      getSession: async () => {
+        throw new Error("counts is not a session id");
+      },
+    });
+    const headers = { "X-Owner-Id": "owner-a" };
+    expect(
+      (
+        await reader.request("/v1/sessions?relation=shared&q=%20Fix%20", {
+          headers,
+        })
+      ).status,
+    ).toBe(200);
+    const response = await reader.request(
+      "/v1/sessions/counts?relation=administered&q=abc",
+      { headers },
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(counts);
+    expect(seen).toEqual([
+      { limit: 50, relation: "shared", q: "Fix" },
+      { relation: "administered", q: "abc" },
+    ]);
+  });
+
+  test("answers a counts read that cannot reach storage with a retryable 503", async () => {
+    const response = await app({
+      countSessions: async () => {
+        throw Object.assign(new Error("connection terminated"), {
+          code: "57P01",
+        });
+      },
+    }).request("/v1/sessions/counts", { headers: { "X-Owner-Id": "owner-a" } });
+    expect(response.status).toBe(503);
   });
 
   test("treats a malformed session id as not found", async () => {
@@ -886,6 +963,9 @@ describe("POST /v1/sessions/{id}/recovery-decisions validation", () => {
       },
       reader: {
         listSessions: async () => ({ items: [], next_cursor: null }),
+        countSessions: async () => {
+          throw new Error("not reached");
+        },
         getSession: async () => null,
         listTurns: async () => null,
         getTurn: async () => null,
@@ -1038,10 +1118,14 @@ describe("session titles (94S-804)", () => {
   const record: SessionDetailRecord = {
     id: sessionId,
     title: "Renamed",
+    agent: null,
+    created_by: null,
+    channel: null,
     revision: 2,
     admission_state: "active",
     status: "idle",
     repository_id: "sample-app",
+    repository: { id: "sample-app", full_name: "sample-app", branch: "main" },
     current_turn_id: null,
     queued_turn_count: 0,
     last_event_at: null,

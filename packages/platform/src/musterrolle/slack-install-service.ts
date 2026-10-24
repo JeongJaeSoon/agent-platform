@@ -4,6 +4,7 @@ import {
   type CompleteSlackInstallRequest,
   type CompleteSlackInstallResponse,
   SLACK_INSTALL_STATE_TTL_SECONDS,
+  type SlackFinalizeWarning,
   type StartSlackInstallResponse,
 } from "@werft-ai/contracts";
 import type { AgentIdentityStore } from "../ports/agent-identity-store.ts";
@@ -48,12 +49,40 @@ export type SlackInstalled = {
   identityId: string;
 };
 
+export type SlackFinalizeResult = {
+  finalized: boolean;
+  warnings: SlackFinalizeWarning[];
+};
+
 /**
  * Runs once the install is verified and the identity linked: registering
- * events (94S-789), then the home channel and welcome (94S-794). A failure
- * leaves the install in place and is reported as `finalized: false`.
+ * events (94S-789), then the home channel and welcome (94S-794), joined with
+ * `composeSlackFinalize`. A step that cannot run says so in its result; one
+ * that throws leaves the install in place and is reported as
+ * `finalized: false`.
  */
-export type SlackInstallFinalize = (installed: SlackInstalled) => Promise<void>;
+export type SlackInstallFinalize = (
+  installed: SlackInstalled,
+) => Promise<SlackFinalizeResult>;
+
+/**
+ * The steps in order: every step runs, `finalized` only when all of them
+ * did, warnings in step order. A step that throws stops the rest.
+ */
+export function composeSlackFinalize(
+  ...steps: SlackInstallFinalize[]
+): SlackInstallFinalize {
+  return async (installed) => {
+    const warnings: SlackFinalizeWarning[] = [];
+    let finalized = true;
+    for (const step of steps) {
+      const result = await step(installed);
+      finalized &&= result.finalized;
+      warnings.push(...result.warnings);
+    }
+    return { finalized, warnings };
+  };
+}
 
 type StateRefusal =
   | "not_found"
@@ -139,7 +168,12 @@ export function createSlackInstallService(deps: {
 }) {
   const { authorization, identities, api } = deps;
   const now = deps.now ?? (() => new Date());
-  const finalize = deps.finalize ?? (async () => {});
+  const finalize =
+    deps.finalize ??
+    (async (): Promise<SlackFinalizeResult> => ({
+      finalized: true,
+      warnings: [],
+    }));
 
   function ready() {
     if (
@@ -373,9 +407,10 @@ export function createSlackInstallService(deps: {
           throw unsettled("The install was revoked while it was linked");
       }
 
-      let finalized = true;
+      let finalized = false;
+      let warnings: SlackFinalizeWarning[] = [];
       try {
-        await finalize({
+        ({ finalized, warnings } = await finalize({
           workspaceId: app.workspaceId,
           agentId,
           slackAppId: app.id,
@@ -384,9 +419,10 @@ export function createSlackInstallService(deps: {
           botUserId: bot.botUserId,
           installationId: recorded.installationId,
           identityId: identity.id,
-        });
+        }));
       } catch {
         finalized = false;
+        warnings = [{ code: "finalize_failed" }];
       }
       return {
         slack_app: slackAppView(stored),
@@ -400,6 +436,7 @@ export function createSlackInstallService(deps: {
         agent_identity: agentIdentityView(identity),
         receipt_id: receiptId,
         finalized,
+        warnings,
       };
     },
   };

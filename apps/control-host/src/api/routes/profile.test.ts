@@ -69,10 +69,14 @@ const catalog: SessionCatalog = {
 const record: SessionDetailRecord = {
   id: sessionId,
   title: null,
+  agent: null,
+  created_by: null,
+  channel: null,
   revision: 7,
   admission_state: "active",
   status: "idle",
   repository_id: "app",
+  repository: { id: "app", full_name: "app", branch: "main" },
   current_turn_id: null,
   queued_turn_count: 0,
   last_event_at: null,
@@ -129,6 +133,7 @@ function change(
     },
     reader: {
       listSessions: notReached,
+      countSessions: notReached,
       getSession: async (ownerId, id) =>
         ownerId === "owner-a" && id === sessionId ? session : null,
       listTurns: notReached,

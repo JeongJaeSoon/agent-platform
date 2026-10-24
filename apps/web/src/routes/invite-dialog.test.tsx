@@ -36,7 +36,7 @@ const createdEach = () => {
 };
 
 function renderMembers(invite: () => Response = created) {
-  return renderAt("/members", {
+  return renderAt("/members/invites", {
     "GET /v1/auth/me": () => json(200, me()),
     "GET /v1/members": () => json(200, { items: [owner] }),
     "GET /v1/invites": () => json(200, { items: [] }),

@@ -39,7 +39,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  */
 export function administers(
   db: Database,
-  workspaceId: string,
+  workspaceId: string | SQLWrapper,
   userId: string | SQLWrapper,
   agentId: string | SQLWrapper,
 ): SQL {

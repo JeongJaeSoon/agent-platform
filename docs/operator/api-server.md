@@ -296,7 +296,7 @@ curl -H 'Authorization: Bearer <issued-key>' http://127.0.0.1:3000/v1
 
 웹 콘솔은 같은 `/v1`을 cookie 세션으로 호출한다. 처음 한 번 `POST /v1/auth/bootstrap`이 첫 owner와 기본 workspace를 만드는데, `BOOTSTRAP_TOKEN`이 일치하고 live owner가 없을 때만 통과한다. 토큰을 먼저 보므로 틀린 토큰은 owner 유무와 관계없이 `401`이고, 맞는 토큰인데 live owner가 있으면 `409 BOOTSTRAP_DONE`이다. `BOOTSTRAP_TOKEN`을 주지 않으면 API가 기동 시 하나를 생성해 stderr에 `BOOTSTRAP_TOKEN=…` 한 줄로 출력한다(live owner가 없을 때만, 구조화 로그는 토큰 필드를 가리므로 거기엔 없다). 로그인은 `POST /v1/auth/login`(email·password, argon2id)이며 `__Host-ap_session` cookie(`HttpOnly; Secure; SameSite=Lax; Path=/`, Domain 없음, 14일 sliding)를 세운다. `__Host-` 접두사라 형제 서브도메인이 같은 이름의 cookie를 심어 가리지 못한다. 미들웨어는 `Authorization` 헤더가 있으면 그것만 평가하고(잘못되거나 비었거나 Bearer가 아닌 헤더를 cookie로 대체하지 않음) 헤더가 없을 때만 cookie를 본다. cookie principal의 상태 변경 요청은 `X-Requested-With: agent-platform-web` 헤더가 없으면 `403`이다(bearer 경로에는 적용되지 않음). login은 cookie를 세우므로 호출자와 무관하게 같은 헤더가 필요하다(없거나 cross-site면 `403`, login CSRF로 피해자를 공격자 계정에 로그인시키는 것을 막는다). 사용자당 live 세션은 10개까지이고, login이 그 사용자의 만료·폐기된 row를 지우고 가장 오래된 세션부터 밀어낸다. 로그인 실패는 email당 5회/15분 뒤 `429`. 주소를 바꿔 가며 시도해도 비밀번호 검증(argon2id)은 프로세스당 동시 4개·대기 64개까지만 받고 넘치면 조회 전에 `429`(`Retry-After: 1`)로 끊는다. IP 단위·replica 공통 제한은 ingress가 맡는다. `GET /v1/auth/me`가 선택된 principal·user·workspace와, 그 역할이 지금 워크스페이스에서 가진 관리 action 목록(`permissions`, 역할 표 그대로. 웹은 이것으로 화면 전체를 못 쓰는 메뉴를 숨긴다. API key는 빈 목록)을 돌려준다. `AUTH_MODE=none`에서는 cookie 경로가 꺼지고 `X-Owner-Id`만 본다. 기동 로그(stderr)를 설치자가 아닌 사람도 읽는 배포에서는 `BOOTSTRAP_TOKEN`을 직접 넣어 자동 생성 경로를 쓰지 않는다 — 자동 생성 토큰은 첫 owner가 생길 때까지 그 로그를 읽는 누구에게나 bootstrap 권한을 준다. 설정한 값은 32~256자여야 하며 벗어나면 API가 기동하지 않는다. 빈 값(`BOOTSTRAP_TOKEN=`)도 설정 실패로 보고 기동하지 않는다.
 
-로컬 개발 스택의 데모 계정 CLI(`apps/control-host/src/api/demo-accounts.ts`)는 운영 설치에 쓰지 않는다. `scripts/local.sh up`이 자기 compose 스택의 api 컨테이너에서 `DEMO_ACCOUNTS=local`을 주고 부를 때만 공개된 비밀번호의 owner·member를 만들고, 그 값이 없거나 Kubernetes 안이거나 `DATABASE_URL`이 로컬 postgres가 아니면 아무것도 쓰지 않고 거부한다([quickstart § 웹 콘솔 데모 계정](../quickstart.md#웹-콘솔-데모-계정)).
+로컬 개발 스택의 데모 계정 CLI(`apps/control-host/src/api/demo-accounts.ts`)는 운영 설치에 쓰지 않는다. `scripts/local.sh up`이 자기 compose 스택의 api 컨테이너에서 `DEMO_ACCOUNTS=local`을 주고 부를 때만 공개된 비밀번호의 owner·member를 만들고, 그 값이 없거나 Kubernetes 안이거나 `DATABASE_URL`이 로컬 postgres가 아니면 아무것도 쓰지 않고 거부한다([quickstart § 웹 콘솔 데모 계정](../quickstart.md#웹-콘솔-데모-계정)). 데모 에이전트·세션 CLI(`apps/control-host/src/api/demo-data.ts`)도 같은 조건으로 거부하고, 쓰는 프로필이 fake Messages API를 부르지 않아도 거부한다.
 
 ```bash
 curl -s -X POST http://127.0.0.1:3000/v1/auth/bootstrap -H 'Content-Type: application/json' \
@@ -555,6 +555,8 @@ curl -s -b jar -X POST "http://127.0.0.1:3000/v1/agents/$AGENT_ID/admins" \
 
 세션 이름을 바꾸는 것(`PATCH /v1/sessions/{id}`, `session.rename`)도 답하는 사람과 같은 사람만 한다. scope는 `sessions:write`이고, 응답이 세션 상세라 `sessions:read`도 함께 본다. 공유로 보기만 하는 사람은 `403`(`reason_code: role`, "holds sessions:write but may not use it on this session"), 볼 수 없는 사람은 `404`다. 거절은 판정 행으로 남고, 허용은 남지 않는다. 이름은 제어가 아니어서 세션 `revision`도 receipt도 바뀌지 않는다. 바뀐 이름은 `status` 이벤트의 `title`로 스트림에 실린다. 생성 때 `title`이 없으면 첫 메시지에서 결정적 규칙으로 만들고, 이 기능 전의 세션은 `sessions.title`이 `NULL`이다(backfill 없음, migration 0155).
 
+세션 목록의 `relation`(`started`·`shared`·`administered`)과 `q`, 그리고 `GET /v1/sessions/counts`는 위의 공유 범위 판정과 AND로만 묶인다. 그래서 어느 값도 볼 수 있는 범위를 넓히지 않고, 공유 밖 세션은 목록에도 개수에도 잡히지 않는다. `administered`는 지금 `agent_admins`와 admin 팀의 살아 있는 구성원을 읽을 때마다 다시 본다. 에이전트 관리자라는 이유만으로 공유 밖 세션을 보게 하는 규칙은 아직 없다. 목록·상세의 `created_by`와 `relation=started`는 1번 턴의 `turns.actor_id`로 시작한 사람을 읽고, 그 값이 없으면(#427 전 세션) `created_by_user_id`로 대신한다. 인수는 `created_by_user_id`만 바꾸므로 인수 뒤에도 시작한 사람은 그대로다. 볼 수 있는지는 지금처럼 `created_by_user_id`로 판정하므로 이 규칙이 범위를 넓히지 않는다. 목록·상세의 `channel`은 세션을 만든 요청의 surface(`web`·`api`·`slack`)를 `sessions.channel`에 적은 값이다. migration 0158은 이 열 전의 세션을 행이 증명하는 만큼만 채운다. `created_by_api_key_id`가 있으면 `api`(API key 호출만 이 열을 쓴다), 없고 `created_by_user_id`가 있으면 `web`(사람은 웹 로그인으로만 들어온다)이고, 둘 다 없으면 `NULL`이다.
+
 범위를 바꾸는 것(`session.share`)은 사람의 세션이면 만든 사람만, key가 만든 세션이면 owner·admin과 그 에이전트의 관리자만 한다. 세션을 볼 수 있지만 바꿀 수 없는 사람은 `403`, 볼 수 없는 사람은 `404`다. API key는 바꾸지 못한다. 바꾼 경우에만 `share_session` receipt(`result.scope`)와 판정 행이 남는다.
 
 owner·admin은 범위 밖 세션을 두 길로만 다룬다. 둘 다 사유(`justification`, 1000자까지)가 필요하고, 사유는 `authz_decisions.justification`에 남는다.
@@ -684,7 +686,7 @@ owner·admin이 콘솔 세션(cookie)으로만 쓴다. 값은 돌려주지 않�
 
 **에이전트의 Slack 앱 만들기**
 
-활성 release가 있는 에이전트마다 Slack 앱을 하나 만든다. 앱 이름은 에이전트 이름, bot 이름은 slug, agent view 설명은 활성 release의 role이다. bot scope는 `assistant:write`·`app_mentions:read`·`chat:write`·`im:history`·`channels:history`·`groups:history`·`channels:read`·`groups:read`·`users:read`·`channels:join`·`groups:write`이고 user scope는 없다. 생성 manifest에는 event subscription이 없다(이벤트는 events route가 생긴 뒤 manifest 갱신으로 붙인다). OAuth redirect는 `<콘솔 origin>/agents/{id}/slack/callback`이고, 콘솔 origin은 `SLACK_OIDC_REDIRECT_URI`의 origin이다. 이 값이 없으면 앱을 만들지 않는다(`503`).
+활성 release가 있는 에이전트마다 Slack 앱을 하나 만든다. 앱 이름은 에이전트 이름, bot 이름은 slug, agent view 설명은 활성 release의 role이다. bot scope는 `assistant:write`·`app_mentions:read`·`chat:write`·`im:history`·`channels:history`·`groups:history`·`channels:read`·`groups:read`·`users:read`·`channels:join`·`groups:write`이고 user scope는 없다. 생성 manifest에는 event subscription이 없다. 설치가 끝날 때 마무리 ①이 manifest를 다시 보내 붙인다(아래 "Slack 이벤트 수신"). OAuth redirect는 `<콘솔 origin>/agents/{id}/slack/callback`이고, 콘솔 origin은 `SLACK_OIDC_REDIRECT_URI`의 origin이다. 이 값이 없으면 앱을 만들지 않는다(`503`).
 
 | 요청 | 하는 일 |
 |---|---|
@@ -736,7 +738,7 @@ printf '{"value":"%s"}' "$(cat ~/.config/agent-platform/slack-config-token)" |
 | 요청 | 하는 일 |
 |---|---|
 | `POST /v1/agents/{id}/slack/install/start` | `{authorize_url, expires_at}`. 부를 때마다 새 state를 만든다 |
-| `POST /v1/slack/install/complete` `{agent_id, state, code}` 또는 `{agent_id, state, error}` | state를 쓰고 설치를 끝낸다. `{slack_app, installation, agent_identity, receipt_id, finalized}` |
+| `POST /v1/slack/install/complete` `{agent_id, state, code}` 또는 `{agent_id, state, error}` | state를 쓰고 설치를 끝낸다. `{slack_app, installation, agent_identity, receipt_id, finalized, warnings}` |
 
 - 둘 다 owner·admin·그 에이전트 관리자(`binding.manage`)가 콘솔 세션(cookie)과 `X-Requested-With`로만 한다. API key는 `403`(`reason_code: web_session_required`), member는 `403`이다. 앱이 없으면 `404`, 만드는 중이면 `409 SLACK_APP_CREATING`, 지우는 중이면 `409 REVISION_CONFLICT`, config token이 없으면 `409 CONFIG_TOKEN_INVALID`다. master key가 없으면 `503`이다.
 - state는 무작위 32바이트이고 DB(`slack_install_states`)에는 sha256 해시만 둔다. 행은 workspace·에이전트·앱(`slack_app_id`)·시작한 사용자·config token의 team·redirect URL에 묶이고 600초 산다. complete는 권한을 확인한 뒤 state를 지우면서 읽는다. 그 뒤로는 결과와 관계없이 다시 쓸 수 없다. 만료된 행은 다음 start가 지운다.
@@ -745,8 +747,47 @@ printf '{"value":"%s"}' "$(cat ~/.config/agent-platform/slack-config-token)" |
 - 통과하면 이 순서다: bot token을 `slack_app:<id>/slack_bot_token`에 저장하고 `slack_apps.bot_token_ref`를 채운다 → 그 token으로 `auth.test`·`bots.info`를 불러 app·team을 다시 확인한다 → 설치 행을 등록·확인한다 → `agent_identities`에 연결한다(`credential_ref`는 bot token의 이름 `slack_app:<id>/slack_bot_token`, `link_agent_identity` receipt). 같은 설치가 다른 workspace에 있으면 `409 SLACK_INSTALL_CONFLICT`, 앱이 다른 에이전트에 연결돼 있으면 `409 AGENT_IDENTITY_TAKEN`이다.
 - bot token을 저장한 뒤의 모든 거절(`auth.test`·`bots.info` 불일치나 무응답, `SLACK_INSTALL_CONFLICT`, `AGENT_IDENTITY_TAKEN`, `CREDENTIAL_REF_IN_USE`, `REVISION_CONFLICT`, 보관된 에이전트, 그 사이 권한을 잃은 사람의 `403` 등)에는 저장한 token이 남고, 설치를 등록한 뒤의 거절이면 확인된 설치 행도 남는다. 그래서 `secrets.slack_bot_token.configured`는 설치됐다는 뜻이 아니다. 설치됐는지는 에이전트의 `slack_bot` 신원으로 본다. 원인을 고친 뒤 start부터 다시 하면 token이 바뀐다.
 - 다시 설치하면 bot token이 새 버전으로 바뀌고 설치 행·연결은 그대로 하나다(`receipt_id: null`).
-- 끝나면 마무리 단계(`SlackInstallFinalize`, 이벤트 연결·환영 메시지는 뒤 티켓)를 한 번 부른다. 마무리가 실패해도 설치는 남고 `finalized: false`다.
+- 끝나면 마무리 단계(`SlackInstallFinalize`)를 한 번 부른다. 지금은 ① 이벤트 연결뿐이다(아래 "Slack 이벤트 수신"). 환영 메시지는 뒤 티켓이다. 마무리가 실패하거나 `SLACK_EVENTS_PUBLIC_URL`이 없으면 설치는 남고 `finalized: false`다. 이유는 `warnings`(`events_url_unset`, `reinstall_required`, 단계가 실패하면 `finalize_failed`)에 온다.
 - complete 응답에는 `Referrer-Policy: no-referrer`가 붙는다. bot token·code·state는 응답·로그·오류·receipt에 나오지 않는다. 로그는 `Slack app installed`와 id만 남긴다.
+
+**Slack 이벤트 수신**
+
+Slack은 에이전트 앱의 이벤트를 `POST /v1/slack/events/{agent_id}`로 보낸다. 로그인이 없는 공개 route이고, Slack의 서명(`X-Slack-Signature` v0, `X-Slack-Request-Timestamp`)이 인증이다. 받은 이벤트는 `slack_inbound_events`에 한 행씩 쌓기만 한다. 세션은 만들지 않는다(처리는 뒤 티켓).
+
+| 변수 | 기본값 | 허용 범위 |
+|---|---|---|
+| `SLACK_EVENTS_PUBLIC_URL` | 없음(마무리 ①을 건너뛴다. `finalized: false`, `warnings: [{code: "events_url_unset"}]`) | query 없는 https URL. Slack이 닿는 공개 origin(path가 있으면 그 아래)이다. request URL은 `<값>/v1/slack/events/<agent_id>`이다. 콘솔 주소와 따로 둔다 |
+
+- 검사 순서: 레이트 리미터(전체 분당 1000, 에이전트마다 분당 600. 넘으면 `429 RATE_LIMITED`와 `Retry-After`) → 본문 256 KiB(넘으면 서명을 보기 전에 `413`) → 서명(그 앱의 signing secret으로 HMAC-SHA256, 상수 시간 비교) → 시각(±300초) → JSON 파싱(`400`) → `event_id` 중복. 리미터는 DB를 읽기 전에 돈다.
+- 모르는 에이전트, 앱이 없는 에이전트, signing secret이 없는 앱, 틀리거나 오래된 서명은 모두 같은 `401 UNAUTHORIZED`("Request signature is not valid")다. 응답으로 에이전트가 있는지 알 수 없다. signing secret은 성공한 조회만 60초 동안 프로세스에 둔다. 앱을 만들거나 지우면 그 프로세스의 캐시를 바로 지운다. 다른 replica는 60초 안에 따라온다.
+- `url_verification`은 서명이 맞을 때만 `{challenge}`로 답한다. 나머지는 `{ok: true}`이고 3초 안에 답한다. Slack 재시도(`X-Slack-Retry-Num`)는 `(team_id, event_id)` unique로 한 행이 된다. inbox 쓰기가 실패하면 `503`이라 Slack이 다시 보낸다.
+- 행의 `status`는 `received`(처리할 것)·`dropped`(`drop_reason`이 있고 본문은 두지 않는다)·`processed`(앱 해제처럼 받을 때 끝낸 것)다. 본문(`payload`)은 Slack의 옛 `token` 칸을 뺀 이벤트 전체다.
+- 버리는 이유(`drop_reason`): `app_mismatch`(이벤트의 `api_app_id`가 URL 에이전트의 앱이 아님), `unsupported_event`(구독하지 않은 종류), `bot_message`(`bot_id`가 있음), `own_bot_user`(이 앱의 bot 사용자가 보냄), `message_subtype`(subtype이 없거나 `thread_broadcast`인 message만 받는다), `user_tokens_only`(bot token이 없는 `tokens_revoked`), 그리고 `agentForSlackEvent`의 이유(`unidentified`·`not_installed` 등. 위 "에이전트의 Slack 앱 연결"). `app_mention`은 bot이 보낸 것만 버린다. `member_joined_channel`은 bot 규칙 없이 저장만 한다.
+- `app_uninstalled`와 bot token을 담은 `tokens_revoked`는 그 설치를 `revoked`로 바꾸고 `processed`로 남는다.
+- 로그는 id·결과·`status`·`drop_reason`·재시도 번호만 남긴다. 본문·메시지 글·서명·헤더 값은 응답·로그·오류에 나오지 않는다.
+
+마무리 ①은 설치가 끝날 때 앱 manifest 전체를 다시 보낸다(`apps.manifest.update`). 이름·bot 이름·설명·scope는 앱을 만들 때와 같고, `settings.event_subscriptions`에 request URL과 bot event `app_mention`·`message.im`·`message.channels`·`message.groups`·`member_joined_channel`·`app_uninstalled`·`tokens_revoked`가 붙는다. Slack이 `permissions_updated: true`로 답하면(scope가 바뀌어 다시 설치해야 함) `warnings`에 `reinstall_required`가 오고 로그에 남는다. 아직 따로 저장하지는 않는다.
+
+설치를 다시 하지 않고 manifest만 다시 보내려면(예: 공개 주소를 바꾼 뒤) API 컨테이너 안에서 실행한다. 같은 결과를 몇 번이고 보낸다.
+
+```bash
+bun run apps/control-host/src/api/slack-app.ts finalize --agent "$AGENT_ID"
+# {"outcome":"finalized","slack_app_id":"…","app_id":"A…","agent_id":"…","request_url":"https://…/v1/slack/events/<agent_id>","warnings":[]}
+```
+
+종료 코드는 위 `create`와 같고, 더해서 `4`는 그 에이전트에 만든 앱이 없음, `8`은 `SLACK_EVENTS_PUBLIC_URL`이 없어 아무것도 보내지 않음이다.
+
+로컬 스택에서 실제 Slack이 이벤트를 보내게 하려면 events path만 인터넷에 연다. 콘솔은 위 0처럼 tailnet 안(`tailscale serve`)에 둔다. Funnel은 path가 아니라 port 단위로 켜진다. 콘솔을 funnel과 같은 port(443·8443·10000)에 serve하면 콘솔과 `/v1` 전체가 인터넷에 열리니, 콘솔은 그 셋이 아닌 port에 둔다.
+
+```bash
+PORT=<API_PORT> scripts/slack-funnel.sh on   # https://<host>.ts.net/v1/slack/events → http://127.0.0.1:<API_PORT>/v1/slack/events
+scripts/slack-funnel.sh status
+scripts/slack-funnel.sh off                  # on과 같은 --https·--set-path로 내린다
+```
+
+공개 port는 `SLACK_FUNNEL_HTTPS_PORT`(443 기본, 8443, 10000)다. 그 뒤 API에 `SLACK_EVENTS_PUBLIC_URL=https://<host>.ts.net`(443이 아니면 `:<port>`)을 주고 다시 띄운 다음, 설치를 하거나 `slack-app finalize`를 실행한다. Helm chart의 Ingress는 사내 전용이라 Slack이 닿지 않는다. Slack용 입구는 `/v1/slack/events` Prefix만 넘기는 인터넷 쪽 Ingress·LB를 따로 두고, 그 주소를 `api.extraEnv.SLACK_EVENTS_PUBLIC_URL`에 준다.
+
+로컬 mock overlay의 가짜 Slack은 서명된 이벤트도 보낸다. `POST http://mock-slack:4020/fake/events` `{url, app_id, team_id, event, event_id?, age_seconds?, retry_num?}`는 그 앱의 signing secret으로 서명해 `url`로 보내고 `{ok, status, body, event_id}`를 돌려준다. `challenge`를 주면 `url_verification`을 보낸다. signing secret은 출력하지 않는다.
 
 ### 에이전트의 Slack 채널 설정
 

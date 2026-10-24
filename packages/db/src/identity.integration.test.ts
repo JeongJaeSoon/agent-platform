@@ -130,6 +130,8 @@ const ADDED_COLUMNS: Record<string, string[]> = {
     "repository_mode",
     // 0155
     "title",
+    // 0158
+    "channel",
   ],
   turns: ["actor_id"],
   // kind arrives as 'service'
@@ -207,8 +209,8 @@ integration("0100 identity migration on PostgreSQL", () => {
       const logger = createLogger({ sinks: [sink] });
       const first = await migrateDatabase(database.url, { logger });
       const second = await migrateDatabase(database.url, { logger });
-      expect(first).toEqual({ adopted: 0, applied: 57, total: 66 });
-      expect(second).toEqual({ adopted: 0, applied: 0, total: 66 });
+      expect(first).toEqual({ adopted: 0, applied: 59, total: 68 });
+      expect(second).toEqual({ adopted: 0, applied: 0, total: 68 });
       expect(sink.records.map(({ message }) => message)).toEqual([
         "db.migrate.applied",
         "db.migrate.noop",
