@@ -19,6 +19,7 @@ import type {
 } from "../ports/slack-inbound-event-store.ts";
 import type { SlackInstallStore } from "../ports/slack-install-store.ts";
 import { agentForSlackEvent } from "./agent-identity-service.ts";
+import { slackConversationKey } from "./slack-inbox.ts";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Bounds how long another API replica keeps a deleted app's secret. */
@@ -121,7 +122,7 @@ export type SlackEventsOutcome =
 
 type Classified =
   | { status: "dropped"; dropReason: SlackInboundDropReason }
-  | { status: Exclude<SlackInboundEventStatus, "dropped"> };
+  | { status: "received" | "processed" };
 
 const ACCEPTED_TYPES = new Set<string>(SLACK_INBOUND_EVENT_TYPES);
 const ACCEPTED_SUBTYPES = new Set<string>(SLACK_ACCEPTED_MESSAGE_SUBTYPES);
@@ -237,7 +238,7 @@ export function createSlackEventsService(deps: {
       if (!callback.success) return { kind: "bad_request" };
       const envelope: SlackEventCallback = callback.data;
       const ids = { eventId: envelope.event_id, teamId: envelope.team_id };
-      if (await deps.inbox.seen(envelope.team_id, envelope.event_id)) {
+      if (await deps.inbox.seen(envelope.api_app_id, envelope.event_id)) {
         return { kind: "ack", result: "duplicate", ...ids };
       }
 
@@ -260,7 +261,15 @@ export function createSlackEventsService(deps: {
       const row: SlackInboundEventInput =
         classified.status === "dropped"
           ? { ...base, ...classified }
-          : { ...base, status: classified.status, payload };
+          : {
+              ...base,
+              status: classified.status,
+              payload,
+              conversationKey: slackConversationKey(
+                app.slackAppId,
+                envelope.event,
+              ),
+            };
       const result = await deps.inbox.record(row);
       return {
         kind: "ack",

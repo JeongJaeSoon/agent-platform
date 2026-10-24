@@ -2,7 +2,7 @@
 # Installs the chart on a local kind cluster with its default values, over
 # the development stand-ins in deps.yaml, and checks what a fresh install
 # must reach: the migrate Job complete, the api answering /readyz and /docs,
-# the egress proxy, the reconciler and the scheduler Ready.
+# the egress proxy, the reconciler, the scheduler and slack Ready.
 #
 #   deploy/kind/up.sh        create (or reuse) the cluster and registry, build,
 #                            push, install, check
@@ -202,7 +202,7 @@ fullname="$RELEASE"
 case "$RELEASE" in *agent-platform*) ;; *) fullname="${RELEASE}-agent-platform" ;; esac
 
 kubectl -n "$NAMESPACE" wait --for=condition=complete "job/${fullname}-migrate" --timeout=60s
-for deploy in api egress-proxy reconciler scheduler; do
+for deploy in api egress-proxy reconciler scheduler slack; do
   kubectl -n "$NAMESPACE" rollout status "deploy/${fullname}-${deploy}" --timeout=600s
 done
 

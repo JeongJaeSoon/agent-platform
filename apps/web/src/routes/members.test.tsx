@@ -87,8 +87,8 @@ function roleIn(name: string) {
   // Also while a dialog hides the page from the accessibility tree.
   const row = screen
     .getByRole("button", { name: `${name} 편집`, hidden: true })
-    .closest("tr");
-  return (row as HTMLElement).querySelectorAll("td")[1]?.textContent;
+    .closest("[role=row]");
+  return (row as HTMLElement).querySelectorAll("[role=cell]")[1]?.textContent;
 }
 
 /** Whether 구성원 편집 lets the role change, and the reason when not. */
@@ -140,7 +140,7 @@ describe("구성원 화면", () => {
         .map((radio) => radio.getAttribute("value")),
     ).toEqual([...WORKSPACE_ROLE_VALUES]);
     await user.click(within(edit).getByRole("button", { name: "취소" }));
-    const region = screen.getByRole("region", { name: "구성원 표" });
+    const region = screen.getByRole("table", { name: "구성원 표" });
     expect(
       within(region)
         .getAllByRole("columnheader")
@@ -148,11 +148,11 @@ describe("구성원 화면", () => {
     ).toEqual(["구성원", "역할", "관리"]);
     const mateRow = within(region)
       .getByRole("button", { name: "Mate 편집" })
-      .closest("tr") as HTMLElement;
+      .closest("[role=row]") as HTMLElement;
     expect(mateRow.textContent).toContain("mate@example.com");
     expect(roleIn("Mate")).toBe("구성원");
     expect(roleIn("Owner")).toBe("소유자");
-    const goneRow = screen.getByText(/^Gone/).closest("tr");
+    const goneRow = screen.getByText(/^Gone/).closest("[role=row]");
     expect(goneRow?.getAttribute("data-disabled")).toBe("true");
     expect(within(goneRow as HTMLElement).getByText("비활성")).toBeDefined();
     expect(
@@ -168,7 +168,7 @@ describe("구성원 화면", () => {
       "GET /v1/members": () => json(200, { items: [owner, teammate] }),
       ...noInvites,
     });
-    const region = await screen.findByRole("region", { name: "구성원 표" });
+    const region = await screen.findByRole("table", { name: "구성원 표" });
     await screen.findByRole("button", { name: "Mate 편집" });
     expect(within(region).queryByRole("combobox")).toBeNull();
     expect(within(region).queryByRole("button", { name: /삭제/ })).toBeNull();
@@ -251,7 +251,9 @@ describe("구성원 화면", () => {
         json(200, { items: [{ ...owner, role: "admin" }, teammate, boss] }),
       ...noInvites,
     });
-    const row = (await screen.findByText("Boss")).closest("tr") as HTMLElement;
+    const row = (await screen.findByText("Boss")).closest(
+      "[role=row]",
+    ) as HTMLElement;
     const enable = within(row).getByRole("button", {
       name: "다시 활성화",
     }) as HTMLButtonElement;
@@ -308,7 +310,9 @@ describe("구성원 화면", () => {
     expect(
       await screen.findByText("Mate 계정을 비활성화했습니다."),
     ).toBeDefined();
-    const row = (await screen.findByText("Mate")).closest("tr") as HTMLElement;
+    const row = (await screen.findByText("Mate")).closest(
+      "[role=row]",
+    ) as HTMLElement;
     await waitFor(() =>
       expect(
         within(row).getByRole("button", { name: "다시 활성화" }),
@@ -645,7 +649,7 @@ describe("되돌리기 어려운 동작의 확인", () => {
     const why = screen.getByRole("button", {
       name: "Boss을(를) 비활성화할 수 없는 이유",
     });
-    expect(why.closest("td")?.textContent).toBe(
+    expect(why.closest("[role=cell]")?.textContent).toBe(
       "비활성화소유자는 관리자가 비활성화할 수 없습니다.",
     );
     why.focus();
@@ -695,7 +699,7 @@ describe("구성원 · 팀 · 초대 탭", () => {
     expect(await screen.findByText("late@example.com")).toBeDefined();
     expect(tabsOf()[2]).toEqual(["초대", "/members/invites", "page"]);
     expect(screen.getByRole("button", { name: "구성원 초대" })).toBeDefined();
-    expect(screen.queryByRole("region", { name: "구성원 표" })).toBeNull();
+    expect(screen.queryByRole("table", { name: "구성원 표" })).toBeNull();
   });
 
   test("초대 탭에서 구성원 목록을 못 불러오면 초대 버튼 대신 오류와 다시 시도를 보인다", async () => {

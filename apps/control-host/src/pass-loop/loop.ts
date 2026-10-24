@@ -62,6 +62,16 @@ export const PASS_LOOP_ROLES = {
     stopGraceSec: 30,
     statusFile: "/tmp/scheduler-status.json",
   },
+  // SLACK_ROLE, not SLACK: SLACK_API_URL and SLACK_OIDC_* are the api's.
+  slack: {
+    prefix: "SLACK_ROLE",
+    intervalSec: 2,
+    passTimeoutSec: 60,
+    maxConsecutiveFailures: 3,
+    healthStaleSec: 90,
+    stopGraceSec: 10,
+    statusFile: "/tmp/slack-status.json",
+  },
 } as const satisfies Record<string, PassLoopRole>;
 
 export type PassLoopRoleName = keyof typeof PASS_LOOP_ROLES;

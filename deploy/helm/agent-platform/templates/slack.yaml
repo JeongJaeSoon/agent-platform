@@ -1,0 +1,106 @@
+{{- if .Values.slack.enabled }}
+{{- $health := list "bun" "run" "apps/control-host/src/main.ts" "slack" "--health" -}}
+{{- $unattended := "PLATFORM_ALLOW_UNATTENDED_PERMISSIONS" -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ap.fullname" . }}-slack
+  labels:
+    {{- include "ap.labels" (dict "root" . "component" "slack") | nindent 4 }}
+spec:
+  replicas: {{ .Values.slack.replicas }}
+  selector:
+    matchLabels:
+      {{- include "ap.selectorLabels" (dict "root" . "component" "slack") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ap.labels" (dict "root" . "component" "slack") | nindent 8 }}
+      annotations:
+        checksum/catalog: {{ include (print $.Template.BasePath "/catalog-configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "ap.fullname" . }}-workload
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: {{ .Values.slack.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- include "ap.podSecurityContext" . | nindent 8 }}
+      {{- include "ap.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: slack
+          image: {{ include "ap.image" (dict "root" . "name" "controlHost") }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          args: ["bun", "run", "apps/control-host/src/main.ts", "slack"]
+          env:
+            {{- include "ap.secretEnv" (dict "root" . "key" "DATABASE_URL") | nindent 12 }}
+            - name: PLATFORM_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.name }}
+                  key: PLATFORM_SECRET_KEY
+                  optional: true
+            - name: SLACK_ROLE_INTERVAL_SEC
+              value: {{ .Values.slack.intervalSec | quote }}
+            - name: SLACK_ROLE_PASS_TIMEOUT_SEC
+              value: {{ .Values.slack.passTimeoutSec | quote }}
+            - name: SLACK_ROLE_MAX_CONSECUTIVE_FAILURES
+              value: {{ .Values.slack.maxConsecutiveFailures | quote }}
+            - name: SLACK_ROLE_HEALTH_STALE_SEC
+              value: {{ .Values.slack.healthStaleSec | quote }}
+            - name: SLACK_ROLE_BATCH_SIZE
+              value: {{ .Values.slack.batchSize | quote }}
+            - name: SLACK_ROLE_LEASE_SEC
+              value: {{ .Values.slack.leaseSec | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.config.logLevel | quote }}
+            - name: PLATFORM_CONFIG_DIR
+              value: /app/config
+            {{- if and (hasKey .Values.api.extraEnv $unattended) (not (hasKey .Values.slack.extraEnv $unattended)) }}
+            - name: {{ $unattended }}
+              value: {{ index .Values.api.extraEnv $unattended | toString | quote }}
+            {{- end }}
+            {{- include "ap.extraEnv" .Values.slack.extraEnv | nindent 12 }}
+          startupProbe:
+            exec:
+              command: {{ toJson $health }}
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: {{ div (add .Values.slack.intervalSec .Values.slack.passTimeoutSec 39) 10 }}
+          readinessProbe:
+            exec:
+              command: {{ toJson $health }}
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command: {{ toJson $health }}
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.slack.resources | nindent 12 }}
+          securityContext:
+            {{- include "ap.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            {{- include "ap.tmpMount" . | nindent 12 }}
+            - name: catalog
+              mountPath: /app/config
+              readOnly: true
+      volumes:
+        {{- include "ap.tmpVolume" . | nindent 8 }}
+        - name: catalog
+          configMap:
+            name: {{ include "ap.fullname" . }}-catalog
+      {{- with .Values.slack.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.slack.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.slack.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

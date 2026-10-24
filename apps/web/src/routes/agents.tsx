@@ -4,25 +4,22 @@ import { type ApiError, isApiError } from "@werft-ai/client";
 import type { Agent } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
 import {
-  Badge,
-  Button,
   buttonVariants,
   cn,
   EmptyState,
   formatTimestamp,
   RowLines,
+  SegmentedControl,
+  SegmentedControlItem,
   Table,
   TableBody,
   TableCell,
   TableHead,
   TableHeader,
   TableRow,
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
 } from "@werft-ai/ui";
 import { LayoutGrid, List } from "lucide-react";
+import { useState } from "react";
 import { administeredAgentsQuery, agentsQuery } from "../api/queries.ts";
 import {
   permissionReason,
@@ -132,7 +129,7 @@ export function AgentsScreen() {
 
 const VIEW_ICON = { cards: LayoutGrid, table: List } as const;
 
-/** The design's two tabs, each shown as cards or as the table. */
+/** The design's two lists, each shown as cards or as the table. */
 function AgentList({ agents }: { readonly agents: readonly Agent[] }) {
   const { t } = useI18n();
   const { client } = useAgentPlatform();
@@ -144,76 +141,86 @@ function AgentList({ agents }: { readonly agents: readonly Agent[] }) {
   // The server stops at this many, so a full page may have left some out.
   const truncated =
     (administered.data?.items.length ?? 0) >= ADMINISTERED_LIST_LIMIT;
+  const [scope, setScope] = useState<"all" | "administered">("all");
   return (
-    <Tabs defaultValue="all" className="gap-4">
+    <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <TabsList>
-          <TabsTrigger value="all">
+        <SegmentedControl
+          aria-label={t("agents.tabs.label")}
+          value={scope}
+          onValueChange={(next) => setScope(next as typeof scope)}
+        >
+          <SegmentedControlItem value="all" count={agents.length}>
             {t("agents.tabs.all")}
-            <Badge variant="gray">{agents.length}</Badge>
-          </TabsTrigger>
-          <TabsTrigger value="administered">
+          </SegmentedControlItem>
+          <SegmentedControlItem
+            value="administered"
+            count={
+              administered.data && !truncated
+                ? administered.data.items.length
+                : undefined
+            }
+          >
             {t("agents.tabs.administered")}
-            {administered.data ? (
-              <Badge variant="gray">
-                {truncated
-                  ? `${ADMINISTERED_LIST_LIMIT}+`
-                  : administered.data.items.length}
-              </Badge>
+            {truncated ? (
+              // The count slot takes a number; past the server's page the
+              // honest count is "at least this many".
+              <>
+                {" "}
+                <span
+                  data-slot="item-count"
+                  className="text-caption text-subtle-foreground tabular-nums"
+                >
+                  {`${ADMINISTERED_LIST_LIMIT}+`}
+                </span>
+              </>
             ) : null}
-          </TabsTrigger>
-        </TabsList>
-        <fieldset className="m-0 inline-flex min-w-0 gap-1 border-0 p-0">
-          <legend className="sr-only">{t("agents.view.label")}</legend>
+          </SegmentedControlItem>
+        </SegmentedControl>
+        <SegmentedControl
+          aria-label={t("agents.view.label")}
+          value={view}
+          onValueChange={(next) => setView(next as AgentView)}
+        >
           {AGENT_VIEWS.map((option) => {
             const Icon = VIEW_ICON[option];
             return (
-              <Button
-                key={option}
-                type="button"
-                size="sm"
-                variant={view === option ? "secondary" : "ghost"}
-                aria-pressed={view === option}
-                onClick={() => setView(option)}
-              >
+              <SegmentedControlItem key={option} value={option}>
                 <Icon aria-hidden="true" />
                 {t(`agents.view.${option}`)}
-              </Button>
+              </SegmentedControlItem>
             );
           })}
-        </fieldset>
+        </SegmentedControl>
       </div>
-      <TabsContent value="all">
-        {agents.length === 0 ? (
+      {scope === "all" ? (
+        agents.length === 0 ? (
           <EmptyState title={t("agents.empty")} />
         ) : (
           <AgentsIn view={view} agents={agents} />
-        )}
-      </TabsContent>
-      <TabsContent value="administered">
-        {administered.isPending ? (
-          <StatusScreen kind="loading" />
-        ) : administered.error ? (
-          <LoadFailure
-            error={administered.error}
-            onRetry={() => void administered.refetch()}
-          />
-        ) : administered.data.items.length === 0 ? (
-          <EmptyState title={t("agentAdmins.mine.empty")} />
-        ) : (
-          <>
-            {truncated ? (
-              <p className="m-0 mb-3 text-caption text-muted-foreground">
-                {t("agentAdmins.mine.truncated", {
-                  count: ADMINISTERED_LIST_LIMIT,
-                })}
-              </p>
-            ) : null}
-            <AgentsIn view={view} agents={administered.data.items} />
-          </>
-        )}
-      </TabsContent>
-    </Tabs>
+        )
+      ) : administered.isPending ? (
+        <StatusScreen kind="loading" />
+      ) : administered.error ? (
+        <LoadFailure
+          error={administered.error}
+          onRetry={() => void administered.refetch()}
+        />
+      ) : administered.data.items.length === 0 ? (
+        <EmptyState title={t("agentAdmins.mine.empty")} />
+      ) : (
+        <div>
+          {truncated ? (
+            <p className="m-0 mb-3 text-caption text-muted-foreground">
+              {t("agentAdmins.mine.truncated", {
+                count: ADMINISTERED_LIST_LIMIT,
+              })}
+            </p>
+          ) : null}
+          <AgentsIn view={view} agents={administered.data.items} />
+        </div>
+      )}
+    </div>
   );
 }
 
