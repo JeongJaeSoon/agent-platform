@@ -182,9 +182,11 @@ const NARROW_ROLE = "@max-md:flex-col @max-md:items-start";
 /** Name that opens 구성원 편집 (role lives there, not in the row). */
 function NameButton({
   children,
+  badge,
   onClick,
 }: {
   readonly children: ReactNode;
+  readonly badge?: ReactNode;
   readonly onClick: () => void;
 }) {
   return (
@@ -192,11 +194,18 @@ function NameButton({
       type="button"
       className={cn(
         linkVariants(),
-        "block max-w-full truncate text-left font-medium text-foreground focus-visible:underline",
+        "grid w-fit max-w-full grid-cols-[minmax(0,auto)_auto_auto] items-center gap-y-[var(--ap-row-line-gap)] text-left font-medium text-foreground focus-visible:underline @max-md:grid-cols-[minmax(0,auto)_auto]",
       )}
       onClick={onClick}
     >
-      {children} ›
+      <span className="truncate">{children}</span>
+      {/* As in apps/web: below md the badge takes the line under the name. */}
+      {badge ? (
+        <span className="ms-1.5 flex @max-md:col-start-1 @max-md:row-start-2 @max-md:ms-0">
+          {badge}
+        </span>
+      ) : null}
+      <span aria-hidden="true">&nbsp;›</span>
     </button>
   );
 }
@@ -340,7 +349,6 @@ function MembersTab({
       </div>
       <ListBody state={state} label="구성원 목록">
         <div className="flex flex-wrap gap-2">
-          <PartRequest name="LockedButton+Tooltip" />
           <PartRequest name="Avatar (UIKIT-V4-DATA-PARTS)" />
         </div>
         {/* Console v4 .t-mem without agents managed and last active: GET
@@ -364,9 +372,15 @@ function MembersTab({
                 <TableRow key={member.id}>
                   <TableCell variant="text" className={NARROW_NAME}>
                     <RowLines>
-                      <NameButton onClick={() => onEdit(member)}>
+                      <NameButton
+                        badge={
+                          member.id === ME[viewer] ? (
+                            <Badge variant="gray">나</Badge>
+                          ) : null
+                        }
+                        onClick={() => onEdit(member)}
+                      >
                         {member.name}
-                        {member.id === ME[viewer] ? " (나)" : ""}
                       </NameButton>
                       <span
                         className="text-muted-foreground text-xs"

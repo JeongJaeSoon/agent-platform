@@ -15,6 +15,7 @@ import {
   Input,
   SecretField,
   Skeleton,
+  Switch,
 } from "@werft-ai/ui";
 import { Lock } from "lucide-react";
 import { type FormEvent, type ReactNode, useId, useState } from "react";
@@ -27,7 +28,7 @@ import {
   useMe,
   useRole,
 } from "../auth/guard.tsx";
-import { FormError, NOTICE } from "../components/auth-page.tsx";
+import { FormError, Notice } from "../components/auth-page.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import type { Outcome } from "../components/outcome.tsx";
 import { Page } from "../components/page.tsx";
@@ -63,7 +64,7 @@ export function WorkspaceSettingsScreen() {
         outcome.kind === "error" ? (
           <FormError>{outcome.text}</FormError>
         ) : (
-          <output className={NOTICE}>{outcome.text}</output>
+          <Notice>{outcome.text}</Notice>
         )
       ) : null}
       <div className={CARDS}>
@@ -313,6 +314,7 @@ function AuditRetention({ onOutcome }: { readonly onOutcome: OnOutcome }) {
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
+    if (save.isPending) return;
     save.mutate(Number(days));
   };
 
@@ -329,9 +331,14 @@ function AuditRetention({ onOutcome }: { readonly onOutcome: OnOutcome }) {
           </div>
           <ReasonButton
             type="submit"
-            className={buttonVariants({ size: "sm" })}
+            className={buttonVariants({
+              size: "sm",
+              className: "aria-disabled:opacity-45",
+            })}
             reason={reason}
-            disabled={save.isPending || days.trim() === ""}
+            // aria-disabled, not disabled: a disabled button drops its focus.
+            aria-disabled={save.isPending || undefined}
+            disabled={days.trim() === ""}
           >
             {t("workspace.save")}
           </ReasonButton>
@@ -369,8 +376,10 @@ function SlackGuest({ onOutcome }: { readonly onOutcome: OnOutcome }) {
   const role = useRole();
   const workspaceId = me?.workspace?.id ?? "";
   const enabled = me?.workspace?.settings.slack_guest_enabled ?? false;
+  const switchId = useId();
   const labelId = useId();
   const hintId = useId();
+  const reasonId = useId();
   const reason = useHasPermission("workspace.manage")
     ? undefined
     : permissionReason(t, "workspace.manage", role);
@@ -408,23 +417,27 @@ function SlackGuest({ onOutcome }: { readonly onOutcome: OnOutcome }) {
       description={t("workspace.guestHint")}
       descriptionId={hintId}
     >
-      <div className="flex flex-wrap items-baseline gap-2">
-        <div id={labelId}>{t("workspace.guestLabel")}</div>
-        <ReasonButton
-          className={buttonVariants({
-            variant: enabled ? "default" : "outline",
-            size: "sm",
-          })}
-          role="switch"
-          aria-checked={enabled}
+      <div className="flex flex-wrap items-center gap-2">
+        <label id={labelId} htmlFor={switchId}>
+          {t("workspace.guestLabel")}
+        </label>
+        <Switch
+          id={switchId}
+          checked={enabled}
           aria-labelledby={labelId}
-          aria-describedby={hintId}
-          reason={reason}
-          disabled={save.isPending || me?.workspace === undefined}
-          onClick={() => save.mutate(!enabled)}
-        >
+          aria-describedby={reason === undefined ? hintId : reasonId}
+          aria-disabled={save.isPending || undefined}
+          disabled={reason !== undefined || me?.workspace === undefined}
+          onCheckedChange={(next) => save.mutate(next)}
+        />
+        <span className={META}>
           {t(enabled ? "workspace.guestOn" : "workspace.guestOff")}
-        </ReasonButton>
+        </span>
+        {reason === undefined ? null : (
+          <span id={reasonId} className="text-caption text-muted-foreground">
+            {reason}
+          </span>
+        )}
       </div>
     </SettingsCard>
   );

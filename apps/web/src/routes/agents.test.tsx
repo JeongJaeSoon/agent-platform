@@ -755,8 +755,8 @@ describe("새 에이전트", () => {
     });
     await user.click(screen.getByRole("button", { name: "에이전트 켜기" }));
     expect(
-      (await screen.findByText(/결제 담당을\(를\) 켰습니다/)).tagName,
-    ).toBe("OUTPUT");
+      (await screen.findByText(/결제 담당을\(를\) 켰습니다/)).closest("output"),
+    ).not.toBeNull();
     expect(posted(api, `/v1/agents/${AGENT_ID}/activate`)).toEqual({
       release_id: server.releases[0]?.id,
       expected_revision: -1,

@@ -8,6 +8,7 @@ import type {
 } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
 import {
+  Alert,
   Badge,
   Button,
   cn,
@@ -25,7 +26,6 @@ import {
 import { type FormEvent, type ReactNode, useId, useState } from "react";
 import { profilesQuery, queryKeys } from "../../api/queries.ts";
 import { useRole } from "../../auth/guard.tsx";
-import { NOTICE } from "../../components/auth-page.tsx";
 import type { Outcome } from "../../components/outcome.tsx";
 import { errorKey, useI18n } from "../../i18n/i18n.tsx";
 import { agentRefusal } from "../agents.tsx";
@@ -156,12 +156,14 @@ export function Releases({
           )}
         </div>
         {mismatch ? (
-          <output className={NOTICE}>
-            {t("agent.releases.modelMismatch", {
-              card: cardModel,
-              profile: profileModel,
-            })}
-          </output>
+          <Alert asChild variant="amber">
+            <output>
+              {t("agent.releases.modelMismatch", {
+                card: cardModel,
+                profile: profileModel,
+              })}
+            </output>
+          </Alert>
         ) : null}
         <Button
           type="submit"

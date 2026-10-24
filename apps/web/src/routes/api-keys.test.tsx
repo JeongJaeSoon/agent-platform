@@ -60,10 +60,12 @@ function key(overrides: Partial<ApiKeyView> = {}): ApiKeyView {
     workspace_id: WORKSPACE_ID,
     agent_id: AGENT_ID,
     created_by: USER_ID,
+    created_by_user: null,
     scopes: ["sessions:read"],
     created_at: "2026-10-11T00:00:00.000Z",
     expires_at: null,
     revoked_at: null,
+    last_used_at: null,
     ...overrides,
   };
 }

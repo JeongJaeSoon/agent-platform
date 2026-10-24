@@ -4,6 +4,9 @@
 
 ## Sub-features
 
+- `list` `GET /v1/sessions`: `relation=all|started|shared|administered`, `q`(제목 부분 일치·ID prefix), `status`, pagination. `GET /v1/sessions/counts`는 같은 relation·q의 `counts`(queued·running·needs_input·idle·failed·stopped)와 `total`을 반환한다. channel·created_by는 query가 아니라 응답 필드다.
+- `identity` 목록·상세의 `agent`(id·name·release_version_no), `created_by`(user_id·display_name), `channel`, `repository`(id·full_name·branch). legacy 또는 해당 정보 없는 세션은 null이다. repository.branch는 clone 기준이고 push 작업 브랜치는 `agent/<session-id>`다.
+- `model` 생성 body의 선택 model은 profile 허용 목록 안에서 고른다. 생략하면 release 카드 모델, release도 없으면 profile 기본값. 목록·상세의 model과 runtime.model로 확인한다. profile 변경은 새 profile 기본 모델을 쓴다. 웹 생성 버튼은 아직 사용할 수 없고 상세·목록은 runtime.model을 표시한다.
 - `session-create` `POST /v1/sessions` → 201 `queued`, turn 1.
 - `title` 생성 body의 선택 `title`, 없으면 첫 메시지에서 만든 제목이 목록·상세의 `title`에 있다. `PATCH /v1/sessions/{id}` `{title}`(Idempotency-Key 없음, `sessions:write`와 `sessions:read`)로 바꾸면 200 상세가 오고 SSE에 `title`을 실은 `status` 이벤트가 생긴다. curl: `curl -sS -X PATCH "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' -d '{"title":"renamed"}'`.
 - `turn-complete` turn이 `completed`가 된다.
@@ -50,7 +53,7 @@ created=$(ap_post /v1/sessions "$(body 'GATE-SPEC {"id":"v1","steps":[],"final":
 ap_web GET /v1/sessions | head -1 | jq -c '[.items[] | {id, status}]'   # member cookie로 SID가 보인다
 ```
 
-- 화면은 member로 로그인한 브라우저에서 `node .claude/skills/verify-agent-platform/scripts/browser.mjs <run id> login member` 뒤 `open /sessions`. 제목 "세션" 아래 "답변 대기" 영역(없으면 "답을 기다리는 세션이 없습니다."), 그 아래 표에 SID 한 줄(작업 상태 "쉬는 중", 세션 상태 "열림", 런타임 `claude-coding-local · claude_agent_sdk …`). 권한 요청 대본으로 만든 세션이면 "답변 대기"에 "답을 기다리는 세션 1개", "권한 요청: Bash"와 "요청 내용 보기"·"허용"·"거부"가 있고, 표의 작업 상태는 "답변 대기"다. `click 허용` 뒤 turn 1이 `completed`, 영역은 다시 비고 행은 "쉬는 중"이 된다. 사이드바 머리의 답변 대기 버튼은 없을 때 `aria-label` "답변 대기 없음"이다.
+- 화면은 member로 로그인한 브라우저에서 `node .claude/skills/verify-agent-platform/scripts/browser.mjs <run id> login member` 뒤 `open /sessions`. 제목 "세션" 아래 "답변 대기" 영역(없으면 "답을 기다리는 세션이 없습니다."), 그 아래 세션·상태·모델·저장소·최근 열의 행에 제목과 모델·저장소가 보인다. 완료된 행 상태는 "쉬는 중"이다. 권한 요청 대본으로 만든 세션이면 "답변 대기"에 "답을 기다리는 세션 1개", "권한 요청: Bash"와 "요청 내용 보기"·"허용"·"거부"가 있고, 표의 작업 상태는 "답변 대기"다. `click 허용` 뒤 turn 1이 `completed`, 영역은 다시 비고 행은 "쉬는 중"이 된다. 사이드바 세션 항목의 답변 대기 배지은 없을 때 `aria-label` "답변 대기 없음"이다.
 - 개인 key의 scope는 그 사람의 지금 scope 안에서만 된다(member는 `recover` 없음, 넘으면 `403 SCOPE_NOT_GRANTABLE`).
 - 2026-10-21 run `20261021-031642-23898`에서 이 순서로 member 세션을 만들었고(turn 1 `completed`), member cookie의 `GET /v1/sessions`와 브라우저 `/sessions`에 그 세션이 보였다. 같은 workspace의 owner cookie 목록에도 보였다.
 - 2026-10-23 run `20261023-155226-40022`(main `6971cdf0`)에서 생성 → 완료 → 닫기 → 권한 요청(answers 202 → completed)을, run `20261023-160737-96495`(main `e7490124`, JeongJaeSoon/agent-platform#568 포함)에서 닫기(202 → `closing`·메시지 `409 SESSION_CLOSING` → 네 번째 조회에 `closed`/`stopped` → 메시지 `409 SESSION_CLOSED`)와 member 개인 key 세션의 `/sessions` "답변 대기" → "허용" → completed를 확인했다.
@@ -62,3 +65,5 @@ ap_web GET /v1/sessions | head -1 | jq -c '[.items[] | {id, status}]'   # member
 - `finalDelayMs`로 느린 turn을 만들 수 있다(interrupt·terminate 시험용).
 - 본문에 `agent_release_id`를 넣으면 세션이 그 에이전트 release에 묶인다(`profile_id`가 release와 다르면 `409 RELEASE_PROFILE_MISMATCH`). 에이전트 전용 key는 자기 에이전트 release로만 만들고 읽는다(나머지는 `403` `agent_ceiling`, [musterrolle.md](./musterrolle.md) d). 운영자 key·workspace key는 release 없이 만든다.
 - 세션 POST는 인증 방식과 상관없이 `Idempotency-Key`가 없으면 `400`, 같은 key에 다른 본문이면 `409 IDEMPOTENCY_CONFLICT`다.
+
+현재 화면·필터·모델 검증은 [procedures.md](procedures.md)의 P-API-SESSIONS-LIST·P-WEB-SESSIONS를 따른다. 소스: `packages/contracts/src/api/session.ts`, `apps/web/src/routes/sessions.tsx`, `packages/react/src/blocks/session-detail.tsx`.

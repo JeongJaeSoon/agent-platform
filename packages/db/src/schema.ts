@@ -1813,6 +1813,8 @@ export const apiKeys = pgTable(
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     /** A service key that reaches this agent's sessions and nothing else. */
     agentId: uuid("agent_id"),
+    // Unindexed so the throttled touch stays a HOT update (touchApiKey).
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
   },
   (table) => [
     foreignKey({
@@ -2351,6 +2353,75 @@ export const agentReleases = pgTable(
       "agent_releases_approval_check",
       sql`(${table.approvedBy} IS NULL) = (${table.approvedAt} IS NULL)`,
     ),
+  ],
+);
+
+export const sessionLinks = pgTable(
+  "session_links",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id").notNull(),
+    ownerId: text("owner_id").notNull(),
+    sessionId: uuid("session_id").references(() => sessions.id),
+    surface: text().$type<"slack">().notNull().default("slack"),
+    installationId: uuid("installation_id").notNull(),
+    surfaceBindingId: uuid("surface_binding_id")
+      .notNull()
+      .references(() => surfaceBindings.id),
+    surfaceRef: text("surface_ref").notNull(),
+    channelId: text("channel_id").notNull(),
+    threadId: text("thread_id").notNull(),
+    /**
+     * The message whose turn opens the session: its other event (Slack sends
+     * a mention as `app_mention` and as `message`) replays that turn.
+     */
+    openedByTs: text("opened_by_ts").notNull(),
+    agentId: uuid("agent_id").notNull(),
+    releaseId: text("release_id").notNull(),
+    profileId: text("profile_id").notNull(),
+    role: text().$type<"primary" | "mirror">().notNull().default("primary"),
+    visibility: text().$type<"full" | "summary">().notNull().default("full"),
+    muted: boolean().notNull().default(false),
+    revision: integer().notNull().default(1),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (table) => [
+    foreignKey({
+      name: "session_links_agent_fk",
+      columns: [table.workspaceId, table.agentId],
+      foreignColumns: [agents.workspaceId, agents.id],
+    }),
+    foreignKey({
+      name: "session_links_release_fk",
+      columns: [table.agentId, table.releaseId],
+      foreignColumns: [agentReleases.agentId, agentReleases.id],
+    }),
+    foreignKey({
+      name: "session_links_installation_fk",
+      columns: [table.workspaceId, table.installationId],
+      foreignColumns: [slackInstallations.workspaceId, slackInstallations.id],
+    }),
+    unique("session_links_surface_ref_key").on(
+      table.installationId,
+      table.surfaceRef,
+    ),
+    uniqueIndex("session_links_session_uniq")
+      .on(table.sessionId)
+      .where(sql`${table.sessionId} IS NOT NULL`),
+    check("session_links_surface_check", sql`${table.surface} = 'slack'`),
+    check(
+      "session_links_role_check",
+      sql`${table.role} IN ('primary', 'mirror')`,
+    ),
+    check(
+      "session_links_visibility_check",
+      sql`${table.visibility} IN ('full', 'summary')`,
+    ),
+    check("session_links_revision_check", sql`${table.revision} >= 1`),
   ],
 );
 

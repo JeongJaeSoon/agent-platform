@@ -1,6 +1,9 @@
 // Every public page cursor is minted and checked here. Anything a decoder
 // does not recognise is InvalidCursorError, which the routes answer with 400.
-import { sessionIdSchema as uuidSchema } from "@werft-ai/contracts";
+import {
+  userIdSchema,
+  sessionIdSchema as uuidSchema,
+} from "@werft-ai/contracts";
 import { InvalidCursorError } from "@werft-ai/platform";
 import { SEQUENCE_MAX } from "./control-shared.ts";
 
@@ -85,6 +88,23 @@ export function decodeTurnCursor(value: string): TurnCursor {
     parsed.sequence >= 1 &&
     parsed.sequence <= SEQUENCE_MAX
       ? { sequence: parsed.sequence }
+      : undefined,
+  );
+}
+
+// Members page oldest membership first; created_at is text for the same reason.
+export type MemberCursor = { created_at: string; user_id: string };
+
+export function encodeMemberCursor(cursor: MemberCursor): string {
+  return encodeJsonCursor(cursor);
+}
+
+export function decodeMemberCursor(value: string): MemberCursor {
+  return decodeJsonCursor(value, (parsed) =>
+    typeof parsed.created_at === "string" &&
+    PG_TIMESTAMPTZ_TEXT.test(parsed.created_at) &&
+    userIdSchema.safeParse(parsed.user_id).success
+      ? { created_at: parsed.created_at, user_id: parsed.user_id as string }
       : undefined,
   );
 }

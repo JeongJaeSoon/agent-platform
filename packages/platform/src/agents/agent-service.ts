@@ -19,6 +19,7 @@ import {
   profileModels,
   profilePinned,
   type SessionCatalog,
+  type SessionCatalogView,
 } from "../sessions/catalog.ts";
 import {
   requirePermitted,
@@ -39,6 +40,39 @@ const ACTOR_INACTIVE = () =>
     "FORBIDDEN",
     "This principal is no longer a member of the workspace",
   );
+
+/**
+ * The release a session pins, refused when the catalog no longer runs its
+ * profile as it was released. Reads no credential value.
+ */
+export async function resolveAgentRelease(
+  deps: {
+    store: Pick<AgentStore, "findRelease">;
+    catalog: Pick<SessionCatalogView, "profiles">;
+  },
+  workspaceId: string,
+  releaseId: string,
+): Promise<AgentRelease> {
+  const release = await deps.store.findRelease(workspaceId, releaseId);
+  if (!release) throw NOT_FOUND();
+  assertReleaseIdentity(release);
+  const { profiles } = deps.catalog;
+  const profile = Object.hasOwn(profiles, release.runtime_profile_id)
+    ? profiles[release.runtime_profile_id]
+    : undefined;
+  const model = releaseModel(release);
+  if (
+    !profile ||
+    !profilePinned(profile, release.profile_digest) ||
+    (model !== undefined && !profileModels(profile).includes(model))
+  ) {
+    throw new SessionServiceError(
+      "PROFILE_DIGEST_MISMATCH",
+      `Runtime profile ${release.runtime_profile_id} changed since this release; release the version again`,
+    );
+  }
+  return release;
+}
 
 export function createAgentService(deps: {
   authorization: AuthorizationPolicy;
@@ -78,29 +112,8 @@ export function createAgentService(deps: {
     return personOf(caller);
   }
 
-  async function resolveRelease(
-    workspaceId: string,
-    releaseId: string,
-  ): Promise<AgentRelease> {
-    const release = await store.findRelease(workspaceId, releaseId);
-    if (!release) throw NOT_FOUND();
-    assertReleaseIdentity(release);
-    const profile = Object.hasOwn(catalog.profiles, release.runtime_profile_id)
-      ? catalog.profiles[release.runtime_profile_id]
-      : undefined;
-    const model = releaseModel(release);
-    if (
-      !profile ||
-      !profilePinned(profile, release.profile_digest) ||
-      (model !== undefined && !profileModels(profile).includes(model))
-    ) {
-      throw new SessionServiceError(
-        "PROFILE_DIGEST_MISMATCH",
-        `Runtime profile ${release.runtime_profile_id} changed since this release; release the version again`,
-      );
-    }
-    return release;
-  }
+  const resolveRelease = (workspaceId: string, releaseId: string) =>
+    resolveAgentRelease({ store, catalog }, workspaceId, releaseId);
 
   return {
     resolveRelease,

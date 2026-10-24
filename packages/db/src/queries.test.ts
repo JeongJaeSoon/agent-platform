@@ -7,6 +7,7 @@ import {
   createApiKey,
   findApiKey,
   reconcileOrphanedSessions,
+  touchApiKey,
 } from "./queries.ts";
 import * as schema from "./schema.ts";
 import {
@@ -491,8 +492,52 @@ describe("API key queries", () => {
       createdByUserId: null,
       creatorRole: null,
       agentId: null,
+      touchDue: true,
     });
     expect(await findApiKey(db, new Uint8Array(32))).toBeNull();
+  });
+
+  test("a use is recorded once per interval, and never on a revoked key", async () => {
+    const digest = new Uint8Array(32).fill(5);
+    const id = crypto.randomUUID();
+    await createApiKey(db, {
+      id,
+      ownerId: "owner-a",
+      keyHash: digest,
+      scopes: ["sessions:read"],
+    });
+    const lastUsed = async () =>
+      (
+        await db
+          .select({ at: apiKeys.lastUsedAt })
+          .from(apiKeys)
+          .where(eq(apiKeys.id, id))
+      )[0]?.at ?? null;
+    expect(await lastUsed()).toBeNull();
+
+    expect(await touchApiKey(db, id)).toBe(true);
+    const first = await lastUsed();
+    expect(first).not.toBeNull();
+    expect((await findApiKey(db, digest))?.touchDue).toBe(false);
+    expect(await touchApiKey(db, id)).toBe(false);
+    expect(await lastUsed()).toEqual(first);
+
+    // Past the interval the next use moves it again.
+    const stale = new Date(Date.now() - 61_000);
+    await db
+      .update(apiKeys)
+      .set({ lastUsedAt: stale })
+      .where(eq(apiKeys.id, id));
+    expect((await findApiKey(db, digest))?.touchDue).toBe(true);
+    expect(await touchApiKey(db, id)).toBe(true);
+    expect((await lastUsed())?.getTime()).toBeGreaterThan(stale.getTime());
+
+    await db
+      .update(apiKeys)
+      .set({ lastUsedAt: stale, revokedAt: new Date() })
+      .where(eq(apiKeys.id, id));
+    expect(await touchApiKey(db, id)).toBe(false);
+    expect(await lastUsed()).toEqual(stale);
   });
 
   test("a key issued before scopes resolves with null scopes", async () => {

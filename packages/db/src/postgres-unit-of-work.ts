@@ -61,6 +61,7 @@ import {
 } from "drizzle-orm";
 import { contextGapAttention } from "./context-gap.ts";
 import {
+  containsPattern,
   findIdempotent,
   type IdempotencyScope,
   lockIdempotencyScope,
@@ -107,6 +108,7 @@ import {
   executions,
   idempotencyKeys,
   receipts,
+  sessionShares,
   sessions,
   turns,
   users,
@@ -114,9 +116,9 @@ import {
 import { recordStatus } from "./session-events.ts";
 import { sessionRelationIs, sessionVisibleTo } from "./session-shares.ts";
 
-const CREATE_SESSION = "create_session";
+export const CREATE_SESSION = "create_session";
 const APPEND_MESSAGE = "append_message";
-const SESSIONS_RESOURCE = "sessions";
+export const SESSIONS_RESOURCE = "sessions";
 
 async function recordAcceptance(
   tx: Database,
@@ -278,6 +280,17 @@ export function createPostgresSessionUnitOfWork(
           createdByUserId: actor?.userId ?? null,
           createdByApiKeyId: actor?.apiKeyId ?? null,
         });
+        if (input.shareScope !== undefined) {
+          if (!actor?.workspaceId) {
+            throw new Error("a share scope needs the session's workspace");
+          }
+          await tx.insert(sessionShares).values({
+            sessionId,
+            ownerId: scope.principal,
+            workspaceId: actor.workspaceId,
+            scope: input.shareScope,
+          });
+        }
         await insertQueuedTurn(tx, {
           sessionId,
           sequence: 1,
@@ -464,7 +477,6 @@ export function createPostgresSessionUnitOfWork(
 }
 
 const CREATED_AT_TEXT = sql<string>`${sessions.createdAt}::text`;
-const LIKE_SPECIAL = /[\\%_]/g;
 const ID_PREFIX = /^[0-9a-f-]+$/;
 // The newest event in stream order (ids are commit order within a session),
 // one index probe where max(created_at) visited every event of every listed
@@ -767,7 +779,7 @@ export function createPostgresSessionReader(
       q === undefined
         ? undefined
         : or(
-            sql`${sessions.title} ILIKE ${`%${q.replace(LIKE_SPECIAL, "\\$&")}%`}`,
+            sql`${sessions.title} ILIKE ${containsPattern(q)}`,
             ID_PREFIX.test(q)
               ? sql`${sessions.id}::text LIKE ${`${q}%`}`
               : undefined,

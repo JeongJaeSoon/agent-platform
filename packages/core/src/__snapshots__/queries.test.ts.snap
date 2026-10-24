@@ -32,6 +32,7 @@ exports[`query keys 1`] = `
   "me": [
     "me",
   ],
+  "memberPages": [Function],
   "members": [
     "members",
   ],
@@ -224,10 +225,44 @@ exports[`query options and the request each query makes 1`] = `
       "staleTime": 30000,
     },
   },
+  "memberPagesQuery": {
+    "calls": [
+      [
+        "/v1/members",
+        {
+          "params": {
+            "query": {
+              "q": "id-1",
+            },
+          },
+        },
+      ],
+    ],
+    "options": {
+      "gcTime": 0,
+      "getNextPageParam": [Function],
+      "initialPageParam": null,
+      "queryKey": [
+        "members",
+        "pages",
+        {
+          "q": "id-1",
+        },
+      ],
+      "retry": false,
+    },
+  },
   "membersQuery": {
     "calls": [
       [
         "/v1/members",
+        {
+          "params": {
+            "query": {
+              "limit": 100,
+            },
+          },
+        },
       ],
     ],
     "options": {

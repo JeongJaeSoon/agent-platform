@@ -262,6 +262,27 @@
           }
         }
       },
+      "ListMembersQuery": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": "string",
+            "minLength": 1
+          },
+          "limit": {
+            "default": 50,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "q": {
+            "description": "Matches a member whose display name or email contains it, ignoring case. `%` and `_` match themselves.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      },
       "CountSessionsQuery": {
         "type": "object",
         "properties": {
@@ -360,6 +381,29 @@
             "maximum": 100
           }
         }
+      },
+      "SearchSlackChannelsQuery": {
+        "type": "object",
+        "properties": {
+          "q": {
+            "default": "",
+            "description": "A prefix of the channel name, any case; a leading `#` is ignored. Empty matches every channel.",
+            "type": "string",
+            "maxLength": 80
+          },
+          "cursor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "limit": {
+            "default": 20,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          }
+        },
+        "additionalProperties": false
       },
       "PostSessionAnswerRequest": {
         "oneOf": [
@@ -1987,7 +2031,6 @@
         },
         "required": [
           "channel_id",
-          "channel_kind",
           "mode"
         ],
         "additionalProperties": false
@@ -5280,10 +5323,22 @@
             "items": {
               "$ref": "#/components/schemas/MemberView"
             }
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
-          "items"
+          "items",
+          "next_cursor"
         ],
         "additionalProperties": false
       },
@@ -9812,6 +9867,32 @@
                   }
                 ]
               },
+              "created_by_user": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "display_name": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "display_name"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Who issued the key, with their display name as it is now. It stays after the issuer leaves the workspace or their account is disabled. Null on a key issued before keys recorded who issued them."
+              },
               "scopes": {
                 "type": "array",
                 "items": {
@@ -9853,6 +9934,19 @@
                     "type": "null"
                   }
                 ]
+              },
+              "last_used_at": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "When the key last authenticated a request, recorded at most once a minute. A use made while another request is writing a session with the key is recorded on the next use instead, so it can lag by more. Null means no use has been recorded since last-use recording began, not that the key was never used."
               }
             },
             "required": [
@@ -9861,10 +9955,12 @@
               "workspace_id",
               "agent_id",
               "created_by",
+              "created_by_user",
               "scopes",
               "created_at",
               "expires_at",
-              "revoked_at"
+              "revoked_at",
+              "last_used_at"
             ],
             "additionalProperties": false
           },
@@ -9936,6 +10032,32 @@
                     }
                   ]
                 },
+                "created_by_user": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "display_name": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "display_name"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Who issued the key, with their display name as it is now. It stays after the issuer leaves the workspace or their account is disabled. Null on a key issued before keys recorded who issued them."
+                },
                 "scopes": {
                   "type": "array",
                   "items": {
@@ -9977,6 +10099,19 @@
                       "type": "null"
                     }
                   ]
+                },
+                "last_used_at": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "When the key last authenticated a request, recorded at most once a minute. A use made while another request is writing a session with the key is recorded on the next use instead, so it can lag by more. Null means no use has been recorded since last-use recording began, not that the key was never used."
                 }
               },
               "required": [
@@ -9985,10 +10120,12 @@
                 "workspace_id",
                 "agent_id",
                 "created_by",
+                "created_by_user",
                 "scopes",
                 "created_at",
                 "expires_at",
-                "revoked_at"
+                "revoked_at",
+                "last_used_at"
               ],
               "additionalProperties": false
             }
@@ -10046,6 +10183,32 @@
                   }
                 ]
               },
+              "created_by_user": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "display_name": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "display_name"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Who issued the key, with their display name as it is now. It stays after the issuer leaves the workspace or their account is disabled. Null on a key issued before keys recorded who issued them."
+              },
               "scopes": {
                 "type": "array",
                 "items": {
@@ -10087,6 +10250,19 @@
                     "type": "null"
                   }
                 ]
+              },
+              "last_used_at": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "When the key last authenticated a request, recorded at most once a minute. A use made while another request is writing a session with the key is recorded on the next use instead, so it can lag by more. Null means no use has been recorded since last-use recording began, not that the key was never used."
               }
             },
             "required": [
@@ -10095,10 +10271,12 @@
               "workspace_id",
               "agent_id",
               "created_by",
+              "created_by_user",
               "scopes",
               "created_at",
               "expires_at",
-              "revoked_at"
+              "revoked_at",
+              "last_used_at"
             ],
             "additionalProperties": false
           },
@@ -11605,6 +11783,67 @@
         "required": [
           "slack_binding",
           "receipt_id"
+        ],
+        "additionalProperties": false
+      },
+      "SearchSlackChannelsResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 255
+                },
+                "is_private": {
+                  "type": "boolean"
+                },
+                "is_member": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "is_private",
+                "is_member"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "stale": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor",
+          "truncated",
+          "stale"
         ],
         "additionalProperties": false
       },
@@ -28361,13 +28600,45 @@
           "Members"
         ],
         "summary": "Members of the workspace, oldest first",
-        "description": "**Auth:** cookie session only; no scope.",
+        "description": "Lists the workspace's members, disabled ones included, oldest membership first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. `q` keeps the members whose display name or email contains it, ignoring case.\n\n**Auth:** cookie session only; no scope.",
         "security": [
           {
             "cookieSession": []
           }
         ],
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "description": "Matches a member whose display name or email contains it, ignoring case. `%` and `_` match themselves.",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Success",
@@ -28380,6 +28651,41 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ListMembersResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "- `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BAD_REQUEST"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
                 }
               }
             }
@@ -35265,7 +35571,7 @@
           "Agents"
         ],
         "summary": "Set how the agent answers in one Slack channel or its DMs",
-        "description": "Replaces the binding of `channel_id` in the agent's Slack app install, or the install's one DM binding when `channel_kind` is `dm` and `channel_id` is null, creating it the first time. `mode` is `off` (the channel takes nothing; a mention there is refused) or `mention`. `home: true` makes this channel the agent's home and clears the previous one; a DM is never home. A missing `ceiling` is the default: every Slack action, shown in full. The agent needs a live Slack app identity (409 SLACK_NOT_INSTALLED); a concurrent change to the same channel or home answers 409 REVISION_CONFLICT. No Slack call is made: the bot does not join the channel here. Owners, admins and the agent's admins; API keys are refused. Writes a `set_surface_binding` receipt.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "Replaces the binding of `channel_id` in the agent's Slack app install, or the install's one DM binding when `channel_id` is null, creating it the first time. The channel's kind is what Slack's `conversations.info` answers with the bot token; `channel_kind`, when sent, only has to agree on whether this is the DM row (400 when Slack names a DM or does not know the channel, 503 when Slack cannot be read). `mode` is `off` (the channel takes nothing; a mention there is refused) or `mention`. `home: true` makes this channel the agent's home and clears the previous one; a DM is never home. A missing `ceiling` is the default: every Slack action, shown in full. The agent needs a live Slack app identity (409 SLACK_NOT_INSTALLED); a concurrent change to the same channel or home answers 409 REVISION_CONFLICT. The bot does not join the channel here. Owners, admins and the agent's admins; API keys are refused. Writes a `set_surface_binding` receipt.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -35572,6 +35878,318 @@
           },
           "503": {
             "description": "- `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BACKEND_UNAVAILABLE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/agents/{id}/slack/channels": {
+      "get": {
+        "operationId": "searchSlackChannels",
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Search the channels the agent's Slack bot can see",
+        "description": "Channels whose name starts with `q` (any case, a leading `#` ignored), by name, `limit` per page (default 20, at most 50): every public channel of the install and the private ones the bot is already in. `is_member` says whether the bot is in the channel. The server reads the app's whole list from Slack (`conversations.list` with the bot token) and keeps it for 60 seconds per app, up to 10,000 channels (`truncated: true` past that); a binding change in the same API process drops it sooner. Pass `next_cursor` back as `cursor` with the same `q` for the next page; once the list it pages through has been replaced the cursor answers 400 CURSOR_EXPIRED, and the search starts over. When Slack rate limits, the last list read is returned with `stale: true`, or 503 with Slack's `Retry-After` when there is none; Slack is not asked again before then. The agent needs an installed Slack app with a bot token (409 SLACK_NOT_INSTALLED). Owners, admins and the agent's admins.\n\n**Auth:** cookie session only; no scope.",
+        "security": [
+          {
+            "cookieSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": "",
+              "description": "A prefix of the channel name, any case; a leading `#` is ignored. Empty matches every channel.",
+              "type": "string",
+              "maxLength": 80
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page of matching channels.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "example": {
+                  "items": [
+                    {
+                      "id": "C0DEPLOY1",
+                      "name": "deploy",
+                      "is_private": false,
+                      "is_member": true
+                    },
+                    {
+                      "id": "G0DESIGN1",
+                      "name": "design",
+                      "is_private": true,
+                      "is_member": true
+                    }
+                  ],
+                  "next_cursor": "eyJzIjoiYWJjIiwibyI6MiwicSI6ImRlIn0",
+                  "truncated": false,
+                  "stale": false
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/SearchSlackChannelsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "- `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying.\n- `CURSOR_EXPIRED`: The cursor fell outside retained history; reread the resource state and start a new stream. Reserved: alpha does not trim events.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BAD_REQUEST",
+                                "CURSOR_EXPIRED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "- `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "UNAUTHORIZED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "- `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "FORBIDDEN"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "- `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "NOT_FOUND"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "- `SLACK_NOT_INSTALLED`: The workspace has no verified Slack install for this team.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "SLACK_NOT_INSTALLED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "description": "- `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. Also when Slack is rate limiting with no list read yet (`Retry-After` is Slack's), when Slack does not answer, or when the API runs without a master key (PLATFORM_SECRET_KEY).",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"

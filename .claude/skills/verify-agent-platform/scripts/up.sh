@@ -6,6 +6,7 @@
 #
 #   up.sh                      new project verify-ap-<run id>
 #   up.sh infra/compose.x.yml  the same, with opt-in overlays on top
+#   VERIFY_DEMO_ACCOUNTS=1 up.sh  include the local demo accounts and data
 set -euo pipefail
 
 repo=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
@@ -63,8 +64,8 @@ echo "run id: $run_id  (record it; later: lib.sh $run_id, doctor.sh $run_id, dow
 
 # shellcheck disable=SC1091
 . "$run/state.env"
-# The features bootstrap the first owner themselves, so no demo accounts.
-LOCAL_DEMO_ACCOUNTS=0 "$repo/scripts/local.sh" up --fake-model 2>&1 | tee "$run/evidence/up.log" >&2
+# Bootstrap runs start empty; demo verification explicitly opts in.
+LOCAL_DEMO_ACCOUNTS=${VERIFY_DEMO_ACCOUNTS:-0} "$repo/scripts/local.sh" up --fake-model 2>&1 | tee "$run/evidence/up.log" >&2
 
 api=$(docker compose --profile apps port api 3000 | head -n 1)
 echo "VERIFY_API=http://127.0.0.1:${api##*:}" >>"$run/state.env"

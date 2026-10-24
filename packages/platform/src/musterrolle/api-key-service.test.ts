@@ -59,10 +59,12 @@ function fakeStore() {
         kind: input.kind,
         agentId: input.agentId,
         createdByUserId: input.createdByUserId,
+        createdByDisplayName: "Issuer",
         scopes: [...input.scopes],
         createdAt: new Date("2026-10-11T00:00:00.000Z"),
         expiresAt: input.expiresAt,
         revokedAt: null,
+        lastUsedAt: null,
       };
       keys.set(key.id, key);
       return { outcome: "issued", key };

@@ -75,13 +75,7 @@ function Avatar({ name }: { readonly name: string }) {
   );
 }
 
-function Head({
-  agent,
-  manager,
-}: {
-  readonly agent: Agent;
-  readonly manager: boolean;
-}) {
+function Head({ agent }: { readonly agent: Agent }) {
   return (
     <PageHeader
       title={
@@ -105,7 +99,6 @@ function Head({
             <ArrowLeft aria-hidden="true" />
             에이전트 목록
           </Button>
-          {manager ? null : <PartRequest name="Tooltip" />}
           <LockedButton
             label="이 에이전트로 새 세션"
             reason="웹에서는 아직 세션을 시작할 수 없습니다. API로 시작하세요."
@@ -440,7 +433,7 @@ function AgentDetailScreen({
         />
       ) : (
         <>
-          <Head agent={agent} manager={manager} />
+          <Head agent={agent} />
           <AgentTabs current={tab}>
             {tab === "overview" ? (
               <Overview agent={agent} />

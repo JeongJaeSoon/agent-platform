@@ -1099,7 +1099,7 @@ describe("session detail", () => {
       screen.getByRole("tabpanel").querySelector("output.sr-only")?.textContent,
     ).toBe("작업 중");
     expect(
-      screen.getByRole("complementary", { name: "답변과 승인" }),
+      screen.getByRole("complementary", { name: "세션 요약" }),
     ).toBeTruthy();
 
     act(() =>
@@ -2072,7 +2072,7 @@ describe("세션 상세 레이아웃", () => {
         name: "다음 지시",
       });
       expect(composer.closest('[role="tabpanel"]')).toBeTruthy();
-      const aside = screen.getByRole("complementary", { name: "답변과 승인" });
+      const aside = screen.getByRole("complementary", { name: "세션 요약" });
       if (state === "error")
         await within(aside).findByRole("button", { name: "다시 시도" });
       else expect(within(aside).getByText("불러오는 중…")).toBeTruthy();
@@ -2108,7 +2108,7 @@ describe("세션 상세 레이아웃", () => {
     expect(header.textContent).toContain("model-default");
     await waitFor(() => expect(header.textContent).toContain("$0.4200"));
 
-    const panel = screen.getByRole("complementary", { name: "답변과 승인" });
+    const panel = screen.getByRole("complementary", { name: "세션 요약" });
     expect(within(panel).getByText("답할 수 있는 사람")).toBeTruthy();
     expect(
       await within(panel).findByText("나는 이 세션의 요청에 답할 수 있습니다."),
@@ -2116,8 +2116,15 @@ describe("세션 상세 레이아웃", () => {
     // The session's API carries no agent, starter or branch yet.
     expect(header.textContent).toContain("에이전트 정보 없음");
     expect(header.textContent).toContain("시작한 사람·경로 정보 없음");
+    // The rail repeats the facts the header carries, as rows.
+    const info = within(panel).getByRole("region", { name: "세션 정보" });
+    expect(info.textContent).toContain("model-default");
+    expect(info.textContent).toContain("demo");
+    await waitFor(() => expect(info.textContent).toContain("$0.4200"));
+    expect(within(info).getAllByText("아직 볼 수 없습니다")).toHaveLength(2);
     await setupInfo();
-    expect(screen.getAllByText("아직 볼 수 없습니다")).toHaveLength(3);
+    // Two in the rail, three in the info tab.
+    expect(screen.getAllByText("아직 볼 수 없습니다")).toHaveLength(5);
   });
 
   test.each([
@@ -2161,8 +2168,13 @@ describe("세션 상세 레이아웃", () => {
   test("운영 카드는 답할 수 있는 사람과 지금 할 수 있는 조치를 모으고 제어 버튼은 헤더에만 둔다", async () => {
     renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
     const ops = await screen.findByRole("region", { name: "운영" });
-    const panel = screen.getByRole("complementary", { name: "답변과 승인" });
-    expect(panel.lastElementChild).toBe(ops);
+    const panel = screen.getByRole("complementary", { name: "세션 요약" });
+    expect(
+      within(panel)
+        .getAllByRole("region")
+        .filter((region) => region.dataset.slot === "detail-rail-section")
+        .map((region) => region.querySelector("h2")?.textContent),
+    ).toEqual(["답변 대기 요청", "운영", "세션 정보"]);
     expect(
       within(ops)
         .getAllByRole("heading", { level: 3 })
@@ -2204,7 +2216,7 @@ describe("세션 상세 레이아웃", () => {
         json(200, { ...pending, answerable: false }),
     });
     const panel = await screen.findByRole("complementary", {
-      name: "답변과 승인",
+      name: "세션 요약",
     });
     expect(
       await within(panel).findByText(
@@ -2213,74 +2225,42 @@ describe("세션 상세 레이아웃", () => {
     ).toBeTruthy();
   });
 
-  test("작성 중인 다음 지시는 요청이 생기고 사라져도, 폭이 바뀌어도 남는다", async () => {
-    const original = globalThis.ResizeObserver;
-    let resize: ResizeObserverCallback | undefined;
-    class Observer {
-      constructor(callback: ResizeObserverCallback) {
-        resize = callback;
-      }
-      observe() {}
-      unobserve() {}
-      disconnect() {}
-    }
-    globalThis.ResizeObserver = Observer as unknown as typeof ResizeObserver;
-    try {
-      const user = await setupUser();
-      let open: ListPendingRequestsResponse["items"] = [];
-      renderAt(`/sessions/${SESSION_ID}`, {
-        ...detailRoutes,
-        [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
-          json(200, { answerable: true, items: open }),
-        [`POST /v1/sessions/${SESSION_ID}/answers`]: () => {
-          open = [];
-          return json(202, {
-            receipt_id: RECEIPT_ID,
-            receipt_status: "accepted",
-          });
-        },
-      });
-      const draft = () =>
-        (
-          screen.getByRole("textbox", {
-            name: "다음 지시",
-          }) as HTMLTextAreaElement
-        ).value;
-      await screen.findByText("답변 대기 · 요청이 오면 여기에 먼저 나옵니다.");
-      await user.click(screen.getByRole("textbox", { name: "다음 지시" }));
-      await user.keyboard("next step draft");
-      await waitFor(() => expect(stream.requests).toHaveLength(1));
-      await act(async () => stream.open());
+  test("작성 중인 다음 지시는 요청이 생기고 사라져도 남는다", async () => {
+    const user = await setupUser();
+    let open: ListPendingRequestsResponse["items"] = [];
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+        json(200, { answerable: true, items: open }),
+      [`POST /v1/sessions/${SESSION_ID}/answers`]: () => {
+        open = [];
+        return json(202, {
+          receipt_id: RECEIPT_ID,
+          receipt_status: "accepted",
+        });
+      },
+    });
+    const draft = () =>
+      (
+        screen.getByRole("textbox", {
+          name: "다음 지시",
+        }) as HTMLTextAreaElement
+      ).value;
+    await screen.findByText("답변 대기 · 요청이 오면 여기에 먼저 나옵니다.");
+    await user.click(screen.getByRole("textbox", { name: "다음 지시" }));
+    await user.keyboard("next step draft");
+    await waitFor(() => expect(stream.requests).toHaveLength(1));
+    await act(async () => stream.open());
 
-      open = pending.items.map((item) => ({ ...item, expires_at: LATER }));
-      act(() => stream.emit("ev_1", "status", { phase: "running" }));
-      const allow = await screen.findByRole("button", { name: "허용" });
-      expect(draft()).toBe("next step draft");
+    open = pending.items.map((item) => ({ ...item, expires_at: LATER }));
+    act(() => stream.emit("ev_1", "status", { phase: "running" }));
+    const allow = await screen.findByRole("button", { name: "허용" });
+    expect(draft()).toBe("next step draft");
 
-      await waitFor(() => expect(resize).toBeDefined());
-      act(() =>
-        resize?.(
-          [{ contentRect: { width: 390 } } as ResizeObserverEntry],
-          {} as ResizeObserver,
-        ),
-      );
-      expect(draft()).toBe("next step draft");
-
-      allow.focus();
-      await user.keyboard("{Enter}");
-      await screen.findByText("답변 대기 · 요청이 오면 여기에 먼저 나옵니다.");
-      expect(draft()).toBe("next step draft");
-
-      act(() =>
-        resize?.(
-          [{ contentRect: { width: 1000 } } as ResizeObserverEntry],
-          {} as ResizeObserver,
-        ),
-      );
-      expect(draft()).toBe("next step draft");
-    } finally {
-      globalThis.ResizeObserver = original;
-    }
+    allow.focus();
+    await user.keyboard("{Enter}");
+    await screen.findByText("답변 대기 · 요청이 오면 여기에 먼저 나옵니다.");
+    expect(draft()).toBe("next step draft");
   });
 
   test("다른 세션으로 옮기면 앞 세션의 초안을 가져가지 않는다", async () => {
@@ -2329,65 +2309,65 @@ describe("세션 상세 레이아웃", () => {
           .closest('[role="tabpanel"]'),
       ).toBeTruthy(),
     );
-    const layout = document.querySelector(
-      '[data-slot="session-detail-layout"]',
-    );
-    expect(layout?.firstElementChild?.getAttribute("data-slot")).toBe("tabs");
+    const layout = document.querySelector('[data-slot="detail-layout"]');
+    const body = layout?.firstElementChild?.firstElementChild;
+    expect(body?.getAttribute("data-slot")).toBe("detail-layout-body");
+    expect(body?.querySelector('[data-slot="page-header"]')).toBeTruthy();
+    expect(body?.lastElementChild?.getAttribute("data-slot")).toBe("tabs");
     expect(layout?.lastElementChild?.tagName).toBe("ASIDE");
   });
 
-  test("900px 미만은 패널부터 읽고, 요청이 없어도 작성창은 본문에 있다", async () => {
-    const original = globalThis.ResizeObserver;
-    let resize: ResizeObserverCallback | undefined;
-    class Observer {
-      constructor(callback: ResizeObserverCallback) {
-        resize = callback;
-      }
-      observe() {}
-      unobserve() {}
-      disconnect() {}
-    }
-    globalThis.ResizeObserver = Observer as unknown as typeof ResizeObserver;
-    try {
+  test.each([
+    ["loading", () => new Promise<Response>(() => {})],
+    [
+      "error",
+      () =>
+        json(500, {
+          error: { code: "INTERNAL_ERROR", message: "detail failed" },
+        }),
+    ],
+  ] as const)(
+    "세션을 읽는 중·실패(%s)도 상세 레이아웃의 여백 안에 둔다",
+    async (state, read) => {
       renderAt(`/sessions/${SESSION_ID}`, {
         ...detailRoutes,
-        [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
-          json(200, { answerable: true, items: [] }),
+        [`GET /v1/sessions/${SESSION_ID}`]: read,
       });
-      await screen.findByText("답변 대기 · 요청이 오면 여기에 먼저 나옵니다.");
-      const composer = screen.getByRole("textbox", { name: "다음 지시" });
-      expect(composer.closest("aside")).toBeNull();
-      expect(composer.closest('[role="tabpanel"]')).toBeTruthy();
-      expect(
-        screen.getAllByText("답변 대기 · 요청이 오면 여기에 먼저 나옵니다."),
-      ).toHaveLength(1);
-      expect(
-        screen
-          .getByText("답변 대기 · 요청이 오면 여기에 먼저 나옵니다.")
-          .closest("section")?.textContent,
-      ).toContain("기다리는 요청 없음");
-      await waitFor(() => expect(resize).toBeDefined());
-      act(() =>
-        resize?.(
-          [{ contentRect: { width: 390 } } as ResizeObserverEntry],
-          {} as ResizeObserver,
-        ),
-      );
-      const layout = document.querySelector(
-        '[data-slot="session-detail-layout"]',
-      );
-      expect(layout?.firstElementChild?.tagName).toBe("ASIDE");
-      expect(layout?.lastElementChild?.getAttribute("data-slot")).toBe("tabs");
-      act(() =>
-        resize?.(
-          [{ contentRect: { width: 1000 } } as ResizeObserverEntry],
-          {} as ResizeObserver,
-        ),
-      );
-      expect(layout?.firstElementChild?.getAttribute("data-slot")).toBe("tabs");
-    } finally {
-      globalThis.ResizeObserver = original;
-    }
+      const shown =
+        state === "loading"
+          ? await screen.findByText("불러오는 중입니다")
+          : await screen.findByRole("button", { name: "다시 시도" });
+      expect(shown.closest('[data-slot="detail-layout-body"]')).toBeTruthy();
+      expect(screen.queryByRole("complementary")).toBeNull();
+    },
+  );
+
+  test("레일은 어느 폭에서나 본문 다음에 읽고, 요청이 없어도 작성창은 본문에 있다", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+        json(200, { answerable: true, items: [] }),
+    });
+    await screen.findByText("답변 대기 · 요청이 오면 여기에 먼저 나옵니다.");
+    const composer = screen.getByRole("textbox", { name: "다음 지시" });
+    expect(composer.closest("aside")).toBeNull();
+    expect(composer.closest('[role="tabpanel"]')).toBeTruthy();
+    expect(
+      screen.getAllByText("답변 대기 · 요청이 오면 여기에 먼저 나옵니다."),
+    ).toHaveLength(1);
+    expect(
+      screen
+        .getByText("답변 대기 · 요청이 오면 여기에 먼저 나옵니다.")
+        .closest("section")?.textContent,
+    ).toContain("기다리는 요청 없음");
+    // One landmark, after the body in the DOM: below 1280px CSS stacks it
+    // under the body instead of moving it ahead.
+    const [aside, ...others] = screen.getAllByRole("complementary");
+    expect(others).toHaveLength(0);
+    expect(
+      composer.compareDocumentPosition(aside as Node) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 });
 

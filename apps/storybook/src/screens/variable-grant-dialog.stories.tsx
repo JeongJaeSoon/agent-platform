@@ -1,10 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import {
+  Alert,
   Badge,
-  Card,
-  CardAction,
-  CardDescription,
-  CardHeader,
   Checkbox,
   ConfirmDialog,
   Field,
@@ -15,7 +12,7 @@ import {
   RadioGroup,
   RadioGroupItem,
 } from "@werft-ai/ui";
-import { type ReactNode, useState } from "react";
+import { useState } from "react";
 
 /*
  * S-E3: which agents may receive a workspace variable. The dialog's
@@ -26,40 +23,6 @@ const API_CHANGE = <Badge variant="red">API 변경 필요</Badge>;
 
 type Choice = "selected" | "all";
 type GrantState = Choice | "saved";
-
-type Tone = "info" | "warning" | "danger";
-const TONE = {
-  info: { variant: "blue", label: "안내" },
-  warning: { variant: "amber", label: "주의" },
-  danger: { variant: "red", label: "오류" },
-} as const;
-
-// Stands in for the Alert part ui-kit accepted and packages/ui lacks yet.
-function AlertStandIn({
-  tone,
-  role,
-  children,
-}: {
-  readonly tone: Tone;
-  readonly role?: "status";
-  readonly children: ReactNode;
-}) {
-  return (
-    <Card data-tone={tone} role={role}>
-      <CardHeader>
-        <CardDescription className="flex items-start gap-2">
-          <Badge variant={TONE[tone].variant}>{TONE[tone].label}</Badge>
-          {children}
-        </CardDescription>
-        <CardAction>
-          <Badge variant="amber" data-part-request="Alert">
-            부품 요청 중: Alert
-          </Badge>
-        </CardAction>
-      </CardHeader>
-    </Card>
-  );
-}
 
 const AGENTS = [
   { id: "agt_pay", name: "결제 담당", declares: true, granted: true },
@@ -97,10 +60,10 @@ function GrantDialog({ initial }: { readonly initial: Choice }) {
           </Field>
         </RadioGroup>
         {choice === "all" ? (
-          <AlertStandIn tone="warning">
+          <Alert variant="amber">
             모든 에이전트를 고르면 사실상 모든 멤버가 이 값을 쓸 수 있습니다.
             멤버가 새로 만든 에이전트와 무인 모드로 도는 세션도 포함됩니다.
-          </AlertStandIn>
+          </Alert>
         ) : (
           <ul className="story-stack">
             {AGENTS.map((agent) => (
@@ -130,9 +93,9 @@ function VariableGrantDialogScreen({ state }: { readonly state: GrantState }) {
     return (
       <div className="story-stack">
         {API_CHANGE}
-        <AlertStandIn tone="info" role="status">
+        <Alert variant="blue" role="status">
           허락을 저장했습니다. 다음 세션부터 반영됩니다.
-        </AlertStandIn>
+        </Alert>
       </div>
     );
   }

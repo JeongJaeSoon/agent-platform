@@ -511,6 +511,7 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
   const authenticator = createAuthenticator({
     authMode,
     keyStore,
+    logger,
     ...(options.identity ? { identity: options.identity } : {}),
   });
   // Ahead of both /v1 routers, so the public routes are bounded too.

@@ -1,10 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import {
+  Alert,
   Badge,
-  Card,
-  CardAction,
-  CardDescription,
-  CardHeader,
   ConfirmDialog,
   Field,
   FieldDescription,
@@ -93,19 +90,9 @@ function VariableEditorDialogScreen({
     return (
       <div className="story-stack">
         {API_CHANGE}
-        <Card data-tone="info" role="status">
-          <CardHeader>
-            <CardDescription className="flex items-start gap-2">
-              <Badge variant="blue">안내</Badge>
-              저장했습니다. 다음 세션부터 반영됩니다.
-            </CardDescription>
-            <CardAction>
-              <Badge variant="amber" data-part-request="Alert">
-                부품 요청 중: Alert
-              </Badge>
-            </CardAction>
-          </CardHeader>
-        </Card>
+        <Alert variant="blue" role="status">
+          저장했습니다. 다음 세션부터 반영됩니다.
+        </Alert>
       </div>
     );
   }

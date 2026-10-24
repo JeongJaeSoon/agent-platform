@@ -1,4 +1,5 @@
 import {
+  listMembersQuerySchema,
   listMembersResponseSchema,
   listTakeoversResponseSchema,
   memberUserParamsSchema,
@@ -17,7 +18,7 @@ import {
   jsonWithSchema,
   parseJsonBody,
 } from "../app.ts";
-import { mapped, requireParams } from "./errors.ts";
+import { mapped, requireParams, requireQuery } from "./errors.ts";
 
 export function registerMemberRoutes(
   router: ApiRouter,
@@ -33,8 +34,11 @@ export function registerMemberRoutes(
   roles: Pick<InviteService, "listMembers" | "changeMemberRole">,
 ) {
   apiRoute(router, "listMembers", async (context) => {
-    const items = await mapped(() => roles.listMembers(context.get("caller")));
-    return jsonWithSchema(context, listMembersResponseSchema, { items });
+    const query = requireQuery(context, listMembersQuerySchema);
+    const page = await mapped(() =>
+      roles.listMembers(context.get("caller"), query),
+    );
+    return jsonWithSchema(context, listMembersResponseSchema, page);
   });
 
   apiRoute(router, "updateMember", async (context) => {

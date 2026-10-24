@@ -1,11 +1,16 @@
 export const membersKo = {
   "members.title": "구성원",
   "members.empty": "아직 구성원이 없습니다.",
+  "members.search": "이름이나 이메일로 찾기",
+  "members.noMatch": "검색어에 맞는 구성원이 없습니다",
+  "members.noMatchHint": "다른 이름이나 이메일로 찾아 보세요.",
+  "members.clearSearch": "검색어 지우기",
   "members.column.name": "구성원",
   "members.column.role": "역할",
   "members.column.actions": "관리",
   "members.tableLabel": "구성원 표",
   "members.state.disabled": "비활성",
+  "members.you": "나",
   "members.roleChanged": "{name}의 역할을 {role}(으)로 바꿨습니다.",
   "members.roleChangeTitle": "{name}의 역할을 {role}(으)로 바꿀까요?",
   "members.roleChangeConsequence":
@@ -19,14 +24,13 @@ export const membersKo = {
   "members.disableOwnerProtected": "소유자는 관리자가 비활성화할 수 없습니다.",
   "members.enableOwnerProtected":
     "소유자는 관리자가 다시 활성화할 수 없습니다.",
-  "members.enableWhy": "{name}을(를) 다시 활성화할 수 없는 이유",
-  "members.disableWhy": "{name}을(를) 비활성화할 수 없는 이유",
   "members.roleSelf": "자기 자신의 역할은 바꿀 수 없습니다.",
   "members.roleLastOwner":
     "하나뿐인 소유자의 역할은 바꿀 수 없습니다 — 다른 사람을 먼저 소유자로 정하세요.",
   "members.roleOwnerProtected": "소유자의 역할은 관리자가 바꿀 수 없습니다.",
   "members.disable": "비활성화",
   "members.disableFor": "{name} 비활성화",
+  "members.enableFor": "{name} 다시 활성화",
   "members.disableTitle": "{name} 계정을 비활성화할까요?",
   "members.disableConsequence":
     "이 사람의 웹 로그인과 개인 API key가 바로 끊기고, 이 사람이 시작한 세션은 소유자가 넘겨받을 때까지 멈춥니다. 다시 활성화해도 끊긴 로그인과 key는 돌아오지 않습니다.",
@@ -90,11 +94,16 @@ export const membersKo = {
 export const membersEn: Record<keyof typeof membersKo, string> = {
   "members.title": "Members",
   "members.empty": "No members yet.",
+  "members.search": "Find by name or email",
+  "members.noMatch": "No members match",
+  "members.noMatchHint": "Try another name or email.",
+  "members.clearSearch": "Clear search",
   "members.column.name": "Member",
   "members.column.role": "Role",
   "members.column.actions": "Manage",
   "members.tableLabel": "Members table",
   "members.state.disabled": "Disabled",
+  "members.you": "You",
   "members.roleChanged": "{name} is now {role}.",
   "members.roleChangeTitle": "Make {name} {role}?",
   "members.roleChangeConsequence":
@@ -107,14 +116,13 @@ export const membersEn: Record<keyof typeof membersKo, string> = {
     "The only owner cannot be disabled — make someone else an owner first.",
   "members.disableOwnerProtected": "An admin cannot disable an owner.",
   "members.enableOwnerProtected": "An admin cannot re-enable an owner.",
-  "members.enableWhy": "Why {name} cannot be re-enabled",
-  "members.disableWhy": "Why {name} cannot be disabled",
   "members.roleSelf": "You cannot change your own role.",
   "members.roleLastOwner":
     "The only owner's role cannot change — make someone else an owner first.",
   "members.roleOwnerProtected": "An admin cannot change an owner's role.",
   "members.disable": "Disable",
   "members.disableFor": "Disable {name}",
+  "members.enableFor": "Re-enable {name}",
   "members.disableTitle": "Disable {name}?",
   "members.disableConsequence":
     "Their web logins and personal API keys stop working right away, and sessions they started wait until an owner takes them over. Re-enabling them does not restore those logins or keys.",
@@ -178,11 +186,16 @@ export const membersEn: Record<keyof typeof membersKo, string> = {
 export const membersJa: Record<keyof typeof membersKo, string> = {
   "members.title": "メンバー",
   "members.empty": "メンバーはまだいません。",
+  "members.search": "名前やメールで探す",
+  "members.noMatch": "検索語に合うメンバーはいません",
+  "members.noMatchHint": "別の名前やメールで探してみてください。",
+  "members.clearSearch": "検索語をクリア",
   "members.column.name": "メンバー",
   "members.column.role": "ロール",
   "members.column.actions": "管理",
   "members.tableLabel": "メンバー一覧表",
   "members.state.disabled": "無効",
+  "members.you": "自分",
   "members.roleChanged": "{name}のロールを{role}に変更しました。",
   "members.roleChangeTitle": "{name}のロールを{role}に変更しますか？",
   "members.roleChangeConsequence":
@@ -195,14 +208,13 @@ export const membersJa: Record<keyof typeof membersKo, string> = {
     "唯一のオーナーは無効化できません。先にほかの人をオーナーにしてください。",
   "members.disableOwnerProtected": "管理者はオーナーを無効化できません。",
   "members.enableOwnerProtected": "管理者はオーナーを再有効化できません。",
-  "members.enableWhy": "{name}を再有効化できない理由",
-  "members.disableWhy": "{name}を無効化できない理由",
   "members.roleSelf": "自分自身のロールは変更できません。",
   "members.roleLastOwner":
     "唯一のオーナーのロールは変更できません。先にほかの人をオーナーにしてください。",
   "members.roleOwnerProtected": "管理者はオーナーのロールを変更できません。",
   "members.disable": "無効化",
   "members.disableFor": "{name}を無効化",
+  "members.enableFor": "{name}を再有効化",
   "members.disableTitle": "{name}のアカウントを無効化しますか？",
   "members.disableConsequence":
     "この人の Web ログインと個人 API キーはすぐに使えなくなり、この人が開始したセッションはオーナーが引き継ぐまで停止します。再有効化しても、切断されたログインとキーは元に戻りません。",

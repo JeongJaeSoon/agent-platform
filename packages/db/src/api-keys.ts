@@ -18,6 +18,7 @@ import {
   isNull,
   or,
 } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { administers } from "./administers.ts";
 import { lockedAdministers } from "./agent-admins.ts";
 import { lockActorAccount, receiptActorOf } from "./control-shared.ts";
@@ -66,19 +67,33 @@ const keyColumns = {
   createdAt: apiKeys.createdAt,
   expiresAt: apiKeys.expiresAt,
   revokedAt: apiKeys.revokedAt,
+  lastUsedAt: apiKeys.lastUsedAt,
 };
 
-function keyOf(row: {
-  id: string;
-  workspaceId: string | null;
-  kind: string;
-  agentId: string | null;
-  createdByUserId: string | null;
-  scopes: string[] | null;
-  createdAt: Date;
-  expiresAt: Date | null;
-  revokedAt: Date | null;
-}): WorkspaceKey {
+// Aliased: the list's visibility subqueries join users themselves. Users are
+// never deleted, so a disabled or departed issuer still has their name; only
+// a key with no recorded issuer goes without.
+const issuer = alias(users, "issuer");
+const keyWithIssuerColumns = {
+  ...keyColumns,
+  createdByDisplayName: issuer.displayName,
+};
+
+function keyOf(
+  row: {
+    id: string;
+    workspaceId: string | null;
+    kind: string;
+    agentId: string | null;
+    createdByUserId: string | null;
+    scopes: string[] | null;
+    createdAt: Date;
+    expiresAt: Date | null;
+    revokedAt: Date | null;
+    lastUsedAt: Date | null;
+  },
+  createdByDisplayName: string | null,
+): WorkspaceKey {
   if (row.workspaceId === null) {
     throw new Error(`api key ${row.id} read outside a workspace`);
   }
@@ -87,6 +102,7 @@ function keyOf(row: {
     workspaceId: row.workspaceId,
     kind: row.kind as WorkspaceKey["kind"],
     scopes: (row.scopes ?? []) as SessionScope[],
+    createdByDisplayName,
   };
 }
 
@@ -147,8 +163,9 @@ export function createPostgresWorkspaceKeyStore(
   ): Promise<WorkspaceKey | null> {
     if (!UUID.test(keyId)) return null;
     const query = tx
-      .select(keyColumns)
+      .select(keyWithIssuerColumns)
       .from(apiKeys)
+      .leftJoin(issuer, eq(issuer.id, apiKeys.createdByUserId))
       .where(
         and(
           eq(apiKeys.id, keyId.toLowerCase()),
@@ -156,8 +173,8 @@ export function createPostgresWorkspaceKeyStore(
         ),
       )
       .limit(1);
-    const [row] = await (lock ? query.for("update") : query);
-    return row ? keyOf(row) : null;
+    const [row] = await (lock ? query.for("update", { of: apiKeys }) : query);
+    return row ? keyOf(row, row.createdByDisplayName) : null;
   }
 
   return {
@@ -169,6 +186,11 @@ export function createPostgresWorkspaceKeyStore(
           input.createdByUserId,
         );
         if (role === null) return { outcome: "actor_inactive" };
+        const [creator] = await tx
+          .select({ displayName: users.displayName })
+          .from(users)
+          .where(eq(users.id, input.createdByUserId));
+        if (!creator) throw new Error("a locked issuer has no users row");
         if (input.agentId !== null) {
           const [agent] = await tx
             .select({ id: agents.id })
@@ -211,7 +233,7 @@ export function createPostgresWorkspaceKeyStore(
           })
           .returning(keyColumns);
         if (!row) throw new Error("api key insert returned no row");
-        const key = keyOf(row);
+        const key = keyOf(row, creator.displayName);
         await writeReceipt(tx, input.principal, {
           id: input.receiptId,
           operation: "create_api_key",
@@ -251,12 +273,13 @@ export function createPostgresWorkspaceKeyStore(
         or(seesEveryServiceKey, administered),
       );
       const rows = await db
-        .select(keyColumns)
+        .select(keyWithIssuerColumns)
         .from(apiKeys)
+        .leftJoin(issuer, eq(issuer.id, apiKeys.createdByUserId))
         .where(and(eq(apiKeys.workspaceId, workspaceId), or(own, service)))
         .orderBy(desc(apiKeys.createdAt), desc(apiKeys.id))
         .limit(limit);
-      return rows.map(keyOf);
+      return rows.map((row) => keyOf(row, row.createdByDisplayName));
     },
 
     revoke(input) {
@@ -287,7 +310,7 @@ export function createPostgresWorkspaceKeyStore(
           .where(eq(apiKeys.id, key.id))
           .returning(keyColumns);
         if (!row) throw new Error(`api key ${key.id} vanished in its tx`);
-        const revoked = keyOf(row);
+        const revoked = keyOf(row, key.createdByDisplayName);
         await writeReceipt(tx, input.principal, {
           id: input.receiptId,
           operation: "revoke_api_key",

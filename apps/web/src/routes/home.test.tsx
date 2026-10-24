@@ -92,7 +92,7 @@ describe("bootstrap checklist", () => {
     const server = agentServer();
     const { api } = renderAt("/", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner] }),
+      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
       "GET /v1/invites": () => json(200, { items: [] }),
       "GET /v1/agents": server.routes["GET /v1/agents"],
       ...noSessions,
@@ -127,7 +127,7 @@ describe("bootstrap checklist", () => {
     const agent = { ...server.detail().agent, active_release_id: "rel-1" };
     renderAt("/", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner] }),
+      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
       "GET /v1/invites": () =>
         json(200, {
           items: [
@@ -160,7 +160,10 @@ describe("bootstrap checklist", () => {
     renderAt("/", {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": () =>
-        json(200, { items: [owner, { ...owner, user_id: AGENT_ID }] }),
+        json(200, {
+          items: [owner, { ...owner, user_id: AGENT_ID }],
+          next_cursor: null,
+        }),
       "GET /v1/invites": () => json(200, { items: [] }),
       "GET /v1/agents": server.routes["GET /v1/agents"],
       ...noSessions,
@@ -174,7 +177,7 @@ describe("bootstrap checklist", () => {
   test("구성원은 혼자인데 초대 조회가 실패하면 초대 단계는 모른다", async () => {
     renderAt("/", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner] }),
+      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
       "GET /v1/invites": () => apiError(500, "INTERNAL", "boom"),
       "GET /v1/agents": () => json(200, { items: [], next_cursor: null }),
       ...noSessions,
@@ -185,9 +188,10 @@ describe("bootstrap checklist", () => {
     );
   });
 
-  test("관리 권한이 없으면 모르는 단계는 모른다고 적는다", async () => {
+  test("관리 권한이 없으면 시작하기를 보이지 않고 구성원·초대·에이전트 목록을 묻지 않는다", async () => {
+    // What the server answers a member; the record shows it was never asked.
     const forbidden = () => apiError(403, "FORBIDDEN", "not allowed");
-    renderAt("/", {
+    const { api } = renderAt("/", {
       "GET /v1/auth/me": () => json(200, memberMe()),
       "GET /v1/members": forbidden,
       "GET /v1/invites": forbidden,
@@ -195,33 +199,69 @@ describe("bootstrap checklist", () => {
       "GET /v1/administered-agents": () => json(200, { items: [] }),
       ...noSessions,
     });
-    const read = await states();
+    await screen.findByRole("heading", { name: "홈" });
+    // The member's own cards load after the session list: home has settled.
+    await screen.findAllByText("내 사용량");
     await waitFor(() =>
-      expect(read()).toEqual(["done", "unknown", "unknown", "pending"]),
+      expect(api.calls.some((c) => c.path === "/v1/sessions")).toBe(true),
     );
-    expect(screen.getAllByText("확인할 수 없음")).toHaveLength(2);
+    expect(
+      api.calls
+        .filter((c) =>
+          ["/v1/members", "/v1/invites", "/v1/agents"].includes(c.path),
+        )
+        .map((c) => `${c.method} ${c.path}`),
+    ).toEqual([]);
+    expect(screen.queryByRole("region", { name: "시작하기" }) === null).toBe(
+      true,
+    );
   });
 
-  test("내 세션이 하나라도 있으면 세션 단계는 완료다", async () => {
-    renderAt("/", {
+  test("내 세션이 있어도 관리 권한이 없으면 시작하기는 없다", async () => {
+    // What the server answers a member; the record shows it was never asked.
+    const forbidden = () => apiError(403, "FORBIDDEN", "not allowed");
+    const { api } = renderAt("/", {
       "GET /v1/auth/me": () => json(200, memberMe()),
-      "GET /v1/members": () => apiError(403, "FORBIDDEN", "not allowed"),
-      "GET /v1/invites": () => apiError(403, "FORBIDDEN", "not allowed"),
-      "GET /v1/agents": () => apiError(403, "FORBIDDEN", "not allowed"),
+      "GET /v1/members": forbidden,
+      "GET /v1/invites": forbidden,
+      "GET /v1/agents": forbidden,
       "GET /v1/administered-agents": () => json(200, { items: [] }),
+      "GET /v1/sessions": () =>
+        json(200, { items: [oneSession], next_cursor: null }),
+    });
+    await screen.findByRole("heading", { name: "홈" });
+    await screen.findByRole("table", { name: "최근 세션" });
+    expect(
+      api.calls
+        .filter((c) =>
+          ["/v1/members", "/v1/invites", "/v1/agents"].includes(c.path),
+        )
+        .map((c) => `${c.method} ${c.path}`),
+    ).toEqual([]);
+    expect(screen.queryByRole("region", { name: "시작하기" }) === null).toBe(
+      true,
+    );
+  });
+
+  test("소유자에게는 내 세션이 하나라도 있으면 세션 단계가 완료다", async () => {
+    renderAt("/", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
+      "GET /v1/invites": () => json(200, { items: [] }),
+      "GET /v1/agents": () => json(200, { items: [], next_cursor: null }),
       "GET /v1/sessions": () =>
         json(200, { items: [oneSession], next_cursor: null }),
     });
     const read = await states();
     await waitFor(() =>
-      expect(read()).toEqual(["done", "unknown", "unknown", "done"]),
+      expect(read()).toEqual(["done", "pending", "pending", "done"]),
     );
   });
 
   test("세션 목록을 읽지 못하면 세션 단계는 모른다", async () => {
     renderAt("/", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner] }),
+      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
       "GET /v1/invites": () => json(200, { items: [] }),
       "GET /v1/agents": () => json(200, { items: [], next_cursor: null }),
       "GET /v1/sessions": () => apiError(500, "INTERNAL", "boom"),
@@ -230,6 +270,50 @@ describe("bootstrap checklist", () => {
     await waitFor(() =>
       expect(read()).toEqual(["done", "pending", "pending", "unknown"]),
     );
+  });
+});
+
+describe("최근 세션 표", () => {
+  test("좁은 표(820px 이하)에서는 에이전트·저장소 열이 머리와 칸이 함께 빠지고 남는 세 열이 좁은 열 틀과 맞는다", async () => {
+    renderAt("/", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
+      "GET /v1/invites": () => json(200, { items: [] }),
+      "GET /v1/agents": () => json(200, { items: [], next_cursor: null }),
+      "GET /v1/sessions": () =>
+        json(200, {
+          items: [oneSession, { ...oneSession, id: USER_ID }],
+          next_cursor: null,
+        }),
+    });
+    const table = await screen.findByRole("table", { name: "최근 세션" });
+    // GridTable hides by a container query on the table's own width.
+    expect(table.getAttribute("data-narrow-at")).toBe("820");
+    const narrowTracks = (table as HTMLElement).style
+      .getPropertyValue("--grid-table-narrow-columns")
+      .trim()
+      .split(/\s+(?![^(]*\))/);
+    expect(narrowTracks).toHaveLength(3);
+    const hidden = (cell: Element) =>
+      cell.getAttribute("data-hide-narrow") === "true" &&
+      cell.className
+        .split(/\s+/)
+        .includes("[@container(max-width:820px)]:hidden");
+    const headers = within(table).getAllByRole("columnheader");
+    expect(headers.map(hidden)).toEqual([false, false, true, true, false]);
+    expect(headers.filter(hidden).map((header) => header.textContent)).toEqual([
+      "에이전트",
+      "저장소",
+    ]);
+    const kept = headers.filter((header) => !hidden(header));
+    expect(kept).toHaveLength(narrowTracks.length);
+    const rows = within(table).getAllByRole("row").slice(1);
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      const cells = within(row).getAllByRole("cell");
+      expect(cells.map(hidden)).toEqual(headers.map(hidden));
+      expect(cells.filter((cell) => !hidden(cell))).toHaveLength(kept.length);
+    }
   });
 });
 
@@ -291,10 +375,12 @@ describe("홈 요약", () => {
     workspace_id: WORKSPACE_ID,
     agent_id: AGENT_ID,
     created_by: USER_ID,
+    created_by_user: null,
     scopes: ["sessions:read"],
     created_at: "2026-10-01T00:00:00.000Z",
     expires_at: inDays(3),
     revoked_at: null,
+    last_used_at: null,
   };
   /** Each card as title, headline and its label/value rows. */
   const cards = (overview: HTMLElement) =>
@@ -340,7 +426,7 @@ describe("홈 요약", () => {
     };
     return {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner] }),
+      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
       "GET /v1/invites": () => json(200, { items: [] }),
       "GET /v1/agents": () =>
         json(200, {
@@ -689,6 +775,7 @@ describe("홈 요약", () => {
               role: "member",
             },
           ],
+          next_cursor: null,
         }),
     });
     // The recent table reads the same session list the last step does.
@@ -701,7 +788,7 @@ describe("홈 요약", () => {
   test("목록 하나라도 읽는 중이면 시작하기를 그리지 않는다", async () => {
     const { api } = renderAt("/", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner] }),
+      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
       "GET /v1/invites": () => json(200, { items: [] }),
       "GET /v1/agents": () => new Promise<Response>(() => {}),
       ...noSessions,
@@ -1013,7 +1100,7 @@ describe("내가 속한 팀", () => {
   test("팀을 관리하는 사람에게는 팀 화면 링크다", async () => {
     renderAt("/", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner] }),
+      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
       "GET /v1/invites": () => json(200, { items: [] }),
       "GET /v1/agents": () => json(200, { items: [], next_cursor: null }),
       "GET /v1/my-teams": () => json(200, { items: [TEAM] }),
@@ -1081,7 +1168,7 @@ describe("내가 관리하는 에이전트", () => {
     const server = agentServer();
     const { api } = renderAt("/", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner] }),
+      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
       "GET /v1/invites": () => json(200, { items: [] }),
       "GET /v1/agents": server.routes["GET /v1/agents"],
       ...noSessions,
