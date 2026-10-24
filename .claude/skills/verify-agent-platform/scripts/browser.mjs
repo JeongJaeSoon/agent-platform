@@ -410,7 +410,9 @@ switch (cmd) {
       'fetch("/v1/linked-accounts/slack/start",{method:"POST",headers:{"x-requested-with":"agent-platform-web"}}).then(r=>r.json()).then(j=>j.authorize_url ?? "")',
     );
     if (!/^https?:/.test(authorize ?? ""))
-      throw new Error("link start gave no authorize_url (logged in? Slack set up?)");
+      throw new Error(
+        "link start gave no authorize_url (logged in? Slack set up?)",
+      );
     const location = execFileSync(
       "docker",
       [
@@ -433,7 +435,8 @@ switch (cmd) {
         input: team ? `${authorize}&mock_team=${team}` : authorize,
       },
     ).trim();
-    if (!/^https?:/.test(location)) throw new Error("mock consent gave no redirect");
+    if (!/^https?:/.test(location))
+      throw new Error("mock consent gave no redirect");
     // The redirect names the overlay's 127.0.0.1:3000 origin, not this run's port.
     const back = new URL(location);
     await navigate(url(back.pathname + back.search));
