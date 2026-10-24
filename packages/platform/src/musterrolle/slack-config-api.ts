@@ -557,6 +557,7 @@ export function createSlackBotApi(
         user: input.userId,
         thread_ts: input.threadTs,
         text: input.text,
+        link_names: false,
       });
       const body = answer.body as Record<string, unknown> | null;
       return body !== null && typeof body === "object" && "message_ts" in body

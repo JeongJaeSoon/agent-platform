@@ -4,7 +4,18 @@ import type {
   SlackOutboxStore,
   SlackUnansweredTurn,
 } from "@werft-ai/platform";
-import { and, asc, eq, gte, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  gte,
+  inArray,
+  isNull,
+  ne,
+  or,
+  type SQL,
+  sql,
+} from "drizzle-orm";
 import { actionableOfTurn } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
 import {
@@ -41,6 +52,26 @@ const released = { claimToken: null, leaseExpiresAt: null } as const;
 // token), and both fail this.
 const fenced = (fence: SlackOutboxFence) =>
   and(eq(t.id, fence.id), eq(t.claimToken, fence.claimToken));
+
+// Where a row may still go: an installation not revoked, and for a session's
+// row its thread's link still live, unmuted and showing full answers. Checked
+// again at claim, since a row can wait out a backoff after the link changed.
+const addressed = (row: SQL) => sql`(
+  EXISTS (
+    SELECT 1 FROM slack_installations i
+    WHERE i.id = ${row}.installation_id AND i.status <> 'revoked'
+  )
+  AND (${row}.session_id IS NULL OR EXISTS (
+    SELECT 1 FROM session_links l
+    WHERE l.session_id = ${row}.session_id
+      AND l.installation_id = ${row}.installation_id
+      AND l.channel_id = ${row}.channel_id
+      AND l.thread_id = ${row}.thread_ts
+      AND l.revoked_at IS NULL
+      AND NOT l.muted
+      AND l.visibility = 'full'
+  ))
+)`;
 
 export function createPostgresSlackOutboxStore(db: Database): SlackOutboxStore {
   return {
@@ -176,6 +207,19 @@ export function createPostgresSlackOutboxStore(db: Database): SlackOutboxStore {
         .returning({ id: t.id, ...entry });
     },
 
+    async closeUnaddressed() {
+      return db
+        .update(t)
+        .set({ status: "failed", errorCode: "not_addressed", ...released })
+        .where(
+          and(
+            eq(t.status, "pending"),
+            sql`NOT ${addressed(sql.raw('"slack_outbox"'))}`,
+          ),
+        )
+        .returning({ id: t.id, kind: t.kind, channelId: t.channelId });
+    },
+
     async untoldUncertain(limit) {
       // The key platform's drain gives the notice, spelled in SQL.
       return db
@@ -209,6 +253,7 @@ export function createPostgresSlackOutboxStore(db: Database): SlackOutboxStore {
             WHERE c.status = 'pending'
               AND (c.claim_token IS NULL OR c.lease_expires_at <= now())
               AND (c.next_attempt_at IS NULL OR c.next_attempt_at <= now())
+              AND ${addressed(sql.raw("c"))}
             ORDER BY c.created_at, c.id
             LIMIT ${limit}
             FOR UPDATE OF c SKIP LOCKED

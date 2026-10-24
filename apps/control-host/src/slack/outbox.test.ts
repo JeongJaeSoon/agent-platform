@@ -35,6 +35,7 @@ import {
   memberships,
   pendingRequests,
   registerSlackInstallation,
+  sessionLinks,
   sessions,
   slackApps,
   slackOutbox,
@@ -521,6 +522,43 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     expect((await rows()).map((row) => row.kind)).toEqual(["failure_notice"]);
   });
 
+  test("a failure notice whose send outlived its lease still clears the status", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    await endTurn(await sessionOf(fixture), 1, "failed");
+    const outbox = createPostgresSlackOutboxStore(db);
+    await outboxPass({ botToken: null });
+    const [claim] = await outbox.claim({ limit: 10, leaseMs: 30_000 });
+    if (!claim) throw new Error("nothing claimed");
+    expect(await outbox.beginSend(claim)).toBe(true);
+    await db
+      .update(slackOutbox)
+      .set({ leaseExpiresAt: sql`now() - interval '1 second'` });
+    slack.statuses.length = 0;
+
+    expect(await outboxPass()).toMatchObject({ uncertain: 1, claimed: 0 });
+    expect(posted()).toEqual([]);
+    expect(slack.statuses).toEqual([
+      { channelId: CHANNEL, threadTs: THREAD, status: "active" },
+    ]);
+  });
+
+  test("a reply whose thread was muted or unlinked while it waited is not sent", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    await endTurn(await sessionOf(fixture), 1, "completed", [[text("hi")]]);
+    await outboxPass({ botToken: null });
+    await db.update(sessionLinks).set({ muted: true });
+
+    expect(await outboxPass()).toMatchObject({ failed: 1, claimed: 0 });
+    await outboxPass();
+    expect(posted()).toEqual([]);
+    expect((await rows())[0]).toMatchObject({
+      status: "failed",
+      errorCode: "not_addressed",
+    });
+  });
+
   test("a turn waiting on an approval says so once, while a client can still answer", async () => {
     const fixture = await agentInSlack();
     await mention(fixture, THREAD);
@@ -585,7 +623,7 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
         userId: STRANGER,
         text: `${SLACK_NOTICE_MESSAGES.connect}\n\n<${CONSOLE}/settings/linked-accounts|${SLACK_OUTBOX_MESSAGES.link}>`,
         ts: expect.any(String),
-        options: {},
+        options: { link_names: "false" },
       },
     ]);
     const [row] = await rows();

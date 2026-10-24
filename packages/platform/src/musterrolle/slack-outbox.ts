@@ -284,12 +284,48 @@ export async function drainSlackOutbox(deps: {
       dedupeKey: `uncertain:${row.id}`,
     });
   };
+  // The turn is over from the thread's side: clear "is thinking".
+  const clearThreadStatus = async (
+    botToken: string,
+    row: Pick<SlackOutboxEntry, "channelId" | "threadTs">,
+    ids: Record<string, unknown>,
+  ) => {
+    try {
+      await deps.slack.setStatus(botToken, {
+        channelId: row.channelId,
+        threadTs: row.threadTs,
+        status: "active",
+      });
+    } catch (error) {
+      deps.logger.warn("Slack setStatus after the answer failed", {
+        ...ids,
+        error:
+          error instanceof SlackApiError
+            ? error.code
+            : error instanceof Error
+              ? error.message
+              : String(error),
+      });
+    }
+  };
+  // A lost reply's notice clears the status once sent; a lost notice has
+  // nothing after it to do so.
+  const lostNotices: SlackOutboxLost[] = [];
   for (const lost of await deps.outbox.expireSending()) {
     drain.uncertain += 1;
     deps.logger.warn("Slack send outlived its lease; marked uncertain", {
       id: lost.id,
       kind: lost.kind,
       channel_id: lost.channelId,
+    });
+    if (lost.kind === "failure_notice") lostNotices.push(lost);
+  }
+  for (const closed of await deps.outbox.closeUnaddressed()) {
+    drain.failed += 1;
+    deps.logger.info("Slack send dropped; its thread no longer takes it", {
+      id: closed.id,
+      kind: closed.kind,
+      channel_id: closed.channelId,
     });
   }
   // Also those a pass marked and died before telling, or told with a failed
@@ -303,6 +339,14 @@ export async function drainSlackOutbox(deps: {
     limit: deps.batchSize,
   });
   if (deps.botToken === null) return drain;
+  for (const lost of lostNotices) {
+    const botToken = await deps
+      .botToken(lost.workspaceId, lost.slackAppId)
+      .catch(() => null);
+    if (botToken !== null) {
+      await clearThreadStatus(botToken, lost, { id: lost.id, kind: lost.kind });
+    }
+  }
 
   while (now() < deps.deadline) {
     const batch = await deps.outbox.claim({
@@ -399,24 +443,7 @@ export async function drainSlackOutbox(deps: {
         claim.kind !== "notice" &&
         claim.kind !== "input_notice"
       ) {
-        // The turn is over from the thread's side: clear "is thinking".
-        try {
-          await deps.slack.setStatus(botToken, {
-            channelId: claim.channelId,
-            threadTs: claim.threadTs,
-            status: "active",
-          });
-        } catch (error) {
-          deps.logger.warn("Slack setStatus after the answer failed", {
-            ...ids,
-            error:
-              error instanceof SlackApiError
-                ? error.code
-                : error instanceof Error
-                  ? error.message
-                  : String(error),
-          });
-        }
+        await clearThreadStatus(botToken, claim, ids);
       }
     }
   }

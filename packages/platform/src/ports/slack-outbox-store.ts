@@ -101,6 +101,13 @@ export interface SlackOutboxStore {
   unansweredTurns(limit: number): Promise<SlackUnansweredTurn[]>;
   /** Moves `sending` rows whose lease ran out to `uncertain`. */
   expireSending(): Promise<SlackOutboxLost[]>;
+  /**
+   * Fails `pending` rows with nowhere left to go: a revoked installation, or
+   * a link revoked, muted or turned to summary since the row was enqueued.
+   */
+  closeUnaddressed(): Promise<
+    Pick<SlackOutboxLost, "id" | "kind" | "channelId">[]
+  >;
   /** `uncertain` replies whose thread has not been told so yet. */
   untoldUncertain(limit: number): Promise<SlackOutboxLost[]>;
   /**
