@@ -13,6 +13,13 @@ import {
 import { appHarness } from "../test-support/render-app.tsx";
 import { statusPageQuery, useNow, waitedFor } from "./home.tsx";
 
+// Text a sighted user reads: a Tooltip keeps a hidden copy of its note.
+function shownText(element: Element): string {
+  const copy = element.cloneNode(true) as Element;
+  for (const hidden of copy.querySelectorAll("[hidden]")) hidden.remove();
+  return copy.textContent ?? "";
+}
+
 const { act, renderAt, renderHook, screen, waitFor, within } =
   await appHarness();
 
@@ -44,6 +51,7 @@ const oneSession = {
   repository_id: "demo",
   current_turn_id: null,
   queued_turn_count: 0,
+  model: "model-default",
   last_event_at: null,
   created_at: "2026-10-01T00:00:00.000Z",
   updated_at: "2026-10-01T00:00:00.000Z",
@@ -402,7 +410,7 @@ describe("홈 요약", () => {
     ).toEqual(["wait", "idle"]);
     expect(
       [...recent.querySelectorAll("tr")].map((row) =>
-        [...row.children].map((cell) => cell.textContent),
+        [...row.children].map((cell) => shownText(cell)),
       ),
     ).toEqual([
       ["세션", "작업 상태", "에이전트", "저장소", "최근 활동"],
@@ -426,6 +434,15 @@ describe("홈 요약", () => {
         .getAllByRole("link")
         .map((l) => l.getAttribute("href")),
     ).toEqual([`/sessions/${waitingSession.id}`, `/sessions/${oneSession.id}`]);
+    // Focus opens the exact time the short wait count stands for.
+    const waited = recent.querySelectorAll("tr")[1]?.querySelector("time");
+    expect(waited?.tabIndex).toBe(0);
+    act(() => waited?.focus());
+    await waitFor(() =>
+      expect(document.querySelector('[role="tooltip"]')?.textContent).toMatch(
+        /^2026년 10월 23일 \d{2}:\d{2}:\d{2}/,
+      ),
+    );
     // A titled session links by its title; one without a title, by its id.
     expect(
       within(recent)
@@ -534,9 +551,13 @@ describe("홈 요약", () => {
       name: askedEarly.id.slice(0, 8),
     });
     expect(oldest.getAttribute("href")).toBe(`/sessions/${askedEarly.id}`);
-    expect(
-      oldest.parentElement?.querySelector("time")?.getAttribute("title"),
-    ).toBe("2026. 10. 23. 18:00");
+    const time = oldest.parentElement?.querySelector("time");
+    act(() => time?.focus());
+    await waitFor(() =>
+      expect(document.querySelector('[role="tooltip"]')?.textContent).toMatch(
+        /^2026년 10월 23일 18:00/,
+      ),
+    );
   });
 
   test("답이 필요한 요청은 세션 이름 줄로 보이고, 전체 보기는 답변 대기 목록으로 간다", async () => {

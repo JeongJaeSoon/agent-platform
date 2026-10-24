@@ -342,6 +342,20 @@ describe("resolveReleaseContent", () => {
     );
     expect(!resolved.ok && resolved.error.field).toBe("card.model");
   });
+
+  test("takes a card on any model the profile offers and runs the card's", () => {
+    const listed = { ...profile, models: ["claude-opus-5"] };
+    const resolved = resolveReleaseContent(
+      { ...card, model: "claude-opus-5" },
+      "coding",
+      listed,
+    );
+    if (!resolved.ok) throw new Error(resolved.error.message);
+    expect(resolved.content.runtime_config_snapshot.model).toBe(
+      "claude-opus-5",
+    );
+    expect(resolved.content.profile_digest).toBe(profileFingerprint(profile));
+  });
 });
 
 describe("a card naming a remote MCP server", () => {

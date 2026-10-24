@@ -223,6 +223,7 @@ async function plans(
     id: string;
     manifest_ref: string | null;
     manifest_version: string | null;
+    model: string | null;
     owner_id: string;
     profile_fingerprint: string | null;
     profile_id: string | null;
@@ -232,26 +233,29 @@ async function plans(
     revision: number;
   }>(
     `SELECT s.id, s.checkpoint_revision AS revision, c.manifest_ref, c.manifest_version,
-            s.owner_id, s.profile_id, s.profile_fingerprint, s.repository_id, s.repository_mode, s.repo_url, s.branch
+            s.owner_id, s.profile_id, s.profile_fingerprint, s.model, s.repository_id, s.repository_mode, s.repo_url, s.branch
      FROM sessions s LEFT JOIN checkpoints c
        ON c.session_id = s.id AND c.revision = s.checkpoint_revision
      WHERE s.checkpoint_revision IS NOT NULL ORDER BY s.id`,
   );
   // The profiles each session's restorable checkpoints were made under other
   // than its own, newest first, as a claim offers them
-  // (worker-unit-of-work.ts withRestoreProfiles).
+  // (worker-unit-of-work.ts withRestoreProfiles, worker-gateway.ts
+  // restoreRuntimesOf).
   const { rows: earlier } = await pool.query<{
+    model: string | null;
     profile_fingerprint: string;
     profile_id: string;
     session_id: string;
   }>(
-    `SELECT c.session_id, c.profile_id, c.profile_fingerprint
+    `SELECT c.session_id, c.profile_id, c.profile_fingerprint, c.model
      FROM checkpoints c JOIN sessions s ON s.id = c.session_id
      WHERE c.revision <= s.checkpoint_revision
        AND c.profile_id IS NOT NULL AND c.profile_fingerprint IS NOT NULL
-       AND (c.profile_id, c.profile_fingerprint)
-           IS DISTINCT FROM (s.profile_id, s.profile_fingerprint)
-     GROUP BY c.session_id, c.profile_id, c.profile_fingerprint
+       AND NOT (c.profile_id IS NOT DISTINCT FROM s.profile_id
+                AND c.profile_fingerprint IS NOT DISTINCT FROM s.profile_fingerprint
+                AND (c.model IS NULL OR c.model IS NOT DISTINCT FROM s.model))
+     GROUP BY c.session_id, c.profile_id, c.profile_fingerprint, c.model
      ORDER BY c.session_id, max(c.revision) DESC`,
   );
   const earlierKeys = new Map<string, string[]>();
@@ -270,6 +274,7 @@ async function plans(
         claims[pointer.id] = sessionClaim(
           {
             branch: pointer.branch,
+            model: pointer.model,
             ownerId: pointer.owner_id,
             profileFingerprint: pointer.profile_fingerprint,
             profileId: pointer.profile_id,
@@ -295,6 +300,7 @@ async function plans(
           .map((row) => ({
             profileId: row.profile_id,
             profileFingerprint: row.profile_fingerprint,
+            model: row.model,
           })),
         catalog,
       );

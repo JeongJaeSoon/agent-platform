@@ -340,8 +340,7 @@ function SessionMeta({
         <Button
           type="button"
           variant="ghost"
-          size="icon"
-          className="size-7"
+          size="icon-sm"
           aria-label={label}
           title={label}
           onClick={() => {

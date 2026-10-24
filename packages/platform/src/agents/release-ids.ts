@@ -13,8 +13,17 @@ import {
   type CatalogProfile,
   pinnedMcpTools,
   profileFingerprint,
+  profileModels,
   type SessionCatalog,
 } from "../sessions/catalog.ts";
+
+// The model a release's sessions run unless they name another: its card's.
+export function releaseModel(
+  release: Pick<AgentRelease, "runtime_config_snapshot"> | null,
+): string | undefined {
+  const model = release?.runtime_config_snapshot.model;
+  return typeof model === "string" ? model : undefined;
+}
 
 // Ported from Kollegium v1 `packages/core/src/ids.ts` (Apache-2.0,
 // JeongJaeSoon/kollegium @ d711706).
@@ -91,11 +100,12 @@ export function resolveReleaseContent(
       content: Omit<ReleaseIdentity, "agent_id" | "card_sha256">;
     }
   | { ok: false; error: ReleaseCompatibilityError } {
-  if (card.model !== profile.model) {
+  if (!profileModels(profile).includes(card.model)) {
     return {
       ok: false,
       error: {
         field: "card.model",
+        // apps/web parses this wording; it means none of the profile's models.
         message: `model ${card.model} is not the model of runtime profile ${profileId}`,
       },
     };
@@ -135,7 +145,7 @@ export function resolveReleaseContent(
       // No credential here, not even the attempt's egress token: the worker
       // gets that at claim.
       runtime_config_snapshot: {
-        model: profile.model,
+        model: card.model,
         tools,
         permission_mode: profile.permission_mode,
         provider: {

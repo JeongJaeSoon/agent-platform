@@ -24,6 +24,7 @@ const RUNNABLE: RepositoryPair[] = [
   {
     profileId: "profile-a",
     profileFingerprint: fingerprint("a"),
+    model: null,
     repositoryId: "repo-a",
     url: "https://example.invalid/a.git",
     branch: "main",
@@ -31,6 +32,7 @@ const RUNNABLE: RepositoryPair[] = [
   {
     profileId: "profile-b",
     profileFingerprint: fingerprint("b"),
+    model: "model-b",
     repositoryId: "repo-a",
     url: "https://example.invalid/a.git",
     branch: "release",
@@ -39,12 +41,18 @@ const RUNNABLE: RepositoryPair[] = [
 
 type Row = Pick<
   typeof sessions.$inferInsert,
-  "profileId" | "profileFingerprint" | "repositoryId" | "repoUrl" | "branch"
+  | "profileId"
+  | "profileFingerprint"
+  | "model"
+  | "repositoryId"
+  | "repoUrl"
+  | "branch"
 >;
 
 // Each pair as it is, then with one field changed at a time, crossed with
 // every fingerprint a row can carry: none (before), either pair's
-// and one the catalog never had.
+// and one the catalog never had; and with every model: none (before the
+// column), profile-b's and another.
 function rows(): Row[] {
   const out: Row[] = [];
   for (const pair of RUNNABLE) {
@@ -65,7 +73,9 @@ function rows(): Row[] {
     ];
     for (const variant of variants) {
       for (const print of [null, fingerprint("a"), fingerprint("b"), "x"]) {
-        out.push({ ...variant, profileFingerprint: print });
+        for (const model of [null, "model-b", "model-z"]) {
+          out.push({ ...variant, profileFingerprint: print, model });
+        }
       }
     }
   }
@@ -93,10 +103,13 @@ afterAll(async () => {
 });
 
 describe("runnable judgement", () => {
-  for (const [name, runnable] of [
-    ["both pairs", RUNNABLE],
-    ["one pair", RUNNABLE.slice(1)],
-    ["no pair", []],
+  // profile-a: no fingerprint or its own, whatever the model (2 × 3);
+  // profile-b: no fingerprint with any model (3), its own only with its
+  // model (1).
+  for (const [name, runnable, matched] of [
+    ["both pairs", RUNNABLE, 10],
+    ["one pair", RUNNABLE.slice(1), 4],
+    ["no pair", [], 0],
   ] as const) {
     test(`SQL and JS pick the same sessions with ${name} runnable`, async () => {
       const all = await db.select().from(sessions);
@@ -113,8 +126,7 @@ describe("runnable judgement", () => {
         .map((row) => row.id)
         .sort();
       expect(inSql).toEqual(inJs);
-      // Per pair: its own fingerprint and none match, the other two do not.
-      expect(inJs).toHaveLength(runnable.length * 2);
+      expect(inJs).toHaveLength(matched);
     });
   }
 
@@ -136,6 +148,7 @@ describe("runnable judgement", () => {
     const without: RunnablePair = {
       profileId: "profile-a",
       profileFingerprint: fingerprint("a"),
+      model: null,
       repositoryId: null,
     };
     const all = await db.select().from(sessions);
@@ -170,6 +183,35 @@ describe("runnable judgement", () => {
     expect(pick(RUNNABLE).some((id) => none.some((row) => row.id === id))).toBe(
       false,
     );
+    await db.insert(sessions).values(
+      [null, "model-b", "model-z"].map((model) => ({
+        id: crypto.randomUUID(),
+        ownerId: "owner-a",
+        profileId: "profile-b",
+        profileFingerprint: fingerprint("b"),
+        model,
+        repositoryMode: "none" as const,
+        repositoryId: null,
+        repoUrl: null,
+        branch: null,
+      })),
+    );
+    const v2: RunnablePair = {
+      profileId: "profile-b",
+      profileFingerprint: fingerprint("b"),
+      model: "model-b",
+      repositoryId: null,
+    };
+    const rows = await db.select().from(sessions);
+    const inJs = rows
+      .filter((row) => runnablePairOf(row, [v2]) !== undefined)
+      .map((row) => row);
+    expect(
+      inJs
+        .filter((row) => row.profileFingerprint !== null)
+        .map((row) => row.model),
+    ).toEqual(["model-b"]);
+    expect(await inSql([v2])).toEqual(inJs.map((row) => row.id).sort());
   });
 });
 

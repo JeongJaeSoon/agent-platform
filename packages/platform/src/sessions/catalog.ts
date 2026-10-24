@@ -624,22 +624,37 @@ function sha256(value: unknown): string {
   return `sha256:${createHash("sha256").update(canonicalJson(value), "utf8").digest("hex")}`;
 }
 
-// Bumped when the hashed shape changes, so an old fingerprint can never
-// equal a new one by accident.
-const FINGERPRINT_VERSION = 1;
+// Bumped when the hashed shape changes, so an old value can never equal a
+// new one by accident.
+const BINDING_FINGERPRINT_VERSION = 1;
+
+// 2: the model and the repository mode left the hash; they live in the
+// row's `model` and `repository_mode`.
+const PROFILE_FINGERPRINT_VERSION = 2;
 
 /**
- * Identifies what a profile runs: every setting and where its credential
- * comes from, never the credential. Two ids with the same settings share
- * one. This is not the checkpoint fingerprint (which also covers the owner
- * and the engine's components); snapshots and compares this one.
+ * Identifies what a profile runs apart from which of its models: every
+ * setting and where its credential comes from, never the credential. Two ids
+ * with the same settings share one. This is not the checkpoint fingerprint
+ * (which also covers the owner, the model and the engine's components); a
+ * session snapshots this one together with its model.
  */
 export function profileFingerprint(profile: CatalogProfile): string {
-  const { models: _models, ...runs } = withoutSecret(profile);
+  const {
+    models: _models,
+    model: _model,
+    repository: _repository,
+    ...runs
+  } = withoutSecret(profile);
   return sha256({
-    fingerprint_version: FINGERPRINT_VERSION,
+    fingerprint_version: PROFILE_FINGERPRINT_VERSION,
     profile: runs,
   });
+}
+
+function profileFingerprintV1(profile: CatalogProfile): string {
+  const { models: _models, ...runs } = withoutSecret(profile);
+  return sha256({ fingerprint_version: 1, profile: runs });
 }
 
 /** The models a session of this profile may name, the default first. */
@@ -661,22 +676,88 @@ export function profileWithModel(
   return { ...rest, model };
 }
 
+/** What a row holds a profile to: its fingerprint and the model it names. */
+export type ProfilePin = {
+  fingerprint: string | null;
+  model: string | null;
+};
+
+// The model `fingerprint` pins this profile to: the row's for version 2, the
+// one a version 1 fingerprint was taken with. Undefined when the profile no
+// longer hashes to it.
+function pinnedModel(
+  profile: CatalogProfile,
+  pin: ProfilePin & { fingerprint: string },
+): string | null | undefined {
+  if (pin.fingerprint === profileFingerprint(profile)) return pin.model;
+  return profileModels(profile).find((model) => {
+    const runs = profileWithModel(profile, model);
+    return runs !== null && profileFingerprintV1(runs) === pin.fingerprint;
+  });
+}
+
 /**
- * The profile a session pinned to `fingerprint` runs: the offered model
- * whose settings still hash to it, or null when none does (the model was
- * taken off the list, or the profile changed). A row from before the pin
+ * Whether `fingerprint` still names this profile's settings, under either
+ * version, whichever model it was taken with. What a release digest and a
+ * provider egress token are held to: neither runs a model of its own.
+ */
+export function profilePinned(
+  profile: CatalogProfile,
+  fingerprint: string,
+): boolean {
+  return pinnedModel(profile, { fingerprint, model: null }) !== undefined;
+}
+
+/**
+ * The profile a row pinned to `pin` runs, or null when none does (the model
+ * was taken off the list, or the profile changed). A row from before the pin
  * runs the default model, which its first claim then pins.
  */
 export function sessionProfile(
   profile: CatalogProfile,
-  fingerprint: string | null,
+  pin: ProfilePin,
 ): CatalogProfile | null {
-  if (fingerprint === null) return profileWithModel(profile);
-  for (const model of profileModels(profile)) {
-    const runs = profileWithModel(profile, model);
-    if (runs && profileFingerprint(runs) === fingerprint) return runs;
-  }
-  return null;
+  if (pin.fingerprint === null) return profileWithModel(profile);
+  const model = pinnedModel(profile, { ...pin, fingerprint: pin.fingerprint });
+  return model == null ? null : profileWithModel(profile, model);
+}
+
+/**
+ * The model a row pinned to `fingerprint` under `profileId` runs, as far as
+ * the fingerprint itself says: a version 1 one names it, a version 2 one
+ * leaves it to the row. Null when it does not say or the catalog moved.
+ */
+export function fingerprintModel(
+  catalog: SessionCatalog,
+  profileId: string,
+  fingerprint: string,
+): string | null {
+  const profile = Object.hasOwn(catalog.profiles, profileId)
+    ? catalog.profiles[profileId]
+    : undefined;
+  if (!profile) return null;
+  return sessionProfile(profile, { fingerprint, model: null })?.model ?? null;
+}
+
+/**
+ * Every pin a row of this profile may hold, its default model first: the
+ * version 2 fingerprint once per offered model, then each model's version 1
+ * fingerprint, which names its model itself (`model` null: any row model).
+ */
+export function profilePins(
+  profile: CatalogProfile,
+): Array<{ fingerprint: string; model: string | null }> {
+  const models = profileModels(profile);
+  const current = profileFingerprint(profile);
+  return [
+    ...models.map((model) => ({ fingerprint: current, model })),
+    ...models.flatMap((model) => {
+      const runs = profileWithModel(profile, model);
+      return runs
+        ? [{ fingerprint: profileFingerprintV1(runs), model: null }]
+        : [];
+    }),
+  ];
 }
 
 /**
@@ -690,7 +771,7 @@ export function repositoryBinding(
   repository: CatalogRepository,
 ): string {
   return sha256({
-    fingerprint_version: FINGERPRINT_VERSION,
+    fingerprint_version: BINDING_FINGERPRINT_VERSION,
     id,
     repository: withoutRepositorySecret(repository),
   });
@@ -703,7 +784,7 @@ export function repositoryBinding(
  */
 export function catalogRevision(catalog: SessionCatalog): string {
   return sha256({
-    fingerprint_version: FINGERPRINT_VERSION,
+    fingerprint_version: BINDING_FINGERPRINT_VERSION,
     profiles: Object.fromEntries(
       Object.entries(catalog.profiles).map(([id, profile]) => [
         id,

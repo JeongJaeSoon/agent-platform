@@ -7,7 +7,7 @@ import { setupUser } from "@werft-ai/ui/test-support/dom";
 import { apiError, json, me } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
-const { renderAt, screen, waitFor } = await appHarness();
+const { act, renderAt, screen, waitFor } = await appHarness();
 
 async function openOutputs() {
   await (await setupUser()).click(
@@ -28,6 +28,7 @@ const detail = {
   repository_id: "demo",
   current_turn_id: "1",
   queued_turn_count: 0,
+  model: null,
   last_event_at: AT,
   created_at: AT,
   updated_at: AT,
@@ -112,6 +113,14 @@ describe("session outputs", () => {
       `/v1/sessions/${SESSION_ID}/outputs/out%2Freport.md`,
     );
     expect(report.getAttribute("download")).toBe("report.md");
+    // The name a sighted user sees on hover or focus is the Tooltip's.
+    expect(report.hasAttribute("title")).toBe(false);
+    act(() => report.focus());
+    await waitFor(() =>
+      expect(document.querySelector('[role="tooltip"]')?.textContent).toBe(
+        "report.md 내려받기",
+      ),
+    );
     const nested = screen.getByRole("link", {
       name: "sub/보고서 (최종).csv 내려받기",
     });

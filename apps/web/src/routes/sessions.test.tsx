@@ -134,6 +134,7 @@ function summary(id: string, overrides: Partial<SessionSummary> = {}) {
     repository_id: "demo",
     current_turn_id: "1",
     queued_turn_count: 0,
+    model: "model-default",
     last_event_at: AT,
     created_at: AT,
     updated_at: AT,
@@ -482,9 +483,14 @@ describe("sessions list", () => {
     expect(within(row).getByText("Working")).toBeTruthy();
     expect(screen.getByRole("searchbox", { name: "Find by title or ID" }));
     expect(screen.queryByText(/세션/)).toBeNull();
-    // The exact time rides on the short one until the ui-kit's tooltip.
-    expect(row.querySelector("time")?.getAttribute("title")).toBe(
-      "Oct 11, 2026, 17:14",
+    // Focus opens the exact time in a Tooltip; no title attribute is left.
+    const time = row.querySelector("time") as HTMLElement;
+    expect(time.hasAttribute("title")).toBe(false);
+    act(() => time.focus());
+    await waitFor(() =>
+      expect(document.querySelector('[role="tooltip"]')?.textContent).toMatch(
+        /^October 11, 2026/,
+      ),
     );
   });
 

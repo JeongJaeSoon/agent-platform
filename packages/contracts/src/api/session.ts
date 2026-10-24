@@ -334,6 +334,10 @@ export const sessionSummarySchema = z.object({
   // say: a legacy row with no profile key, or a key the catalog no longer
   // has (detail reports CATALOG_MISMATCH). Never an estimate.
   runtime: sessionRuntimeViewSchema.nullable(),
+  model: z.string().min(1).nullable().meta({
+    description:
+      "The model the session was created to run: the one named at create, else the agent release's card model, else the profile's default. Changing the session's profile sets it to the new profile's default. Null for a session from before the field whose model could not be told from its catalog entry.",
+  }),
   // Catalog key only. Sessions created before the catalog existed (M0
   // legacy rows) carry no key and surface null; the stored repo URL is
   // never exposed because it may embed credentials.
@@ -391,7 +395,7 @@ export const createSessionRequestSchema = z
     agent_release_id: agentReleaseIdSchema.optional(),
     model: z.string().min(1).optional().meta({
       description:
-        "One of the models the profile offers (its `model` or one of its `models` in the catalog). Omitted, the profile's default `model`. Kept until the session's profile is changed, after which the new profile's default `model` runs.",
+        "One of the models the profile offers (its `model` or one of its `models` in the catalog). Omitted, the model of the agent release's card when `agent_release_id` is sent, else the profile's default `model`. Kept until the session's profile is changed, after which the new profile's default `model` runs.",
     }),
   })
   .strict();

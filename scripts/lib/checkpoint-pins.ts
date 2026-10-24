@@ -160,6 +160,7 @@ export function planRuntime(
 export function sessionClaim(
   session: {
     readonly branch: string | null;
+    readonly model: string | null;
     readonly ownerId: string;
     readonly profileFingerprint: string | null;
     readonly profileId: string | null;
@@ -186,7 +187,10 @@ export function sessionClaim(
         : `profile ${session.profileId ?? "(none)"} and repository ${session.repositoryId ?? "(none)"} at the session's URL and branch are not an allowed pair in the catalog`,
     );
   }
-  const profile = sessionProfile(run.profile, session.profileFingerprint);
+  const profile = sessionProfile(run.profile, {
+    fingerprint: session.profileFingerprint,
+    model: session.model,
+  });
   if (profile === null) {
     throw new Error(
       `profile ${session.profileId} has other settings in the catalog than the session was created with`,
@@ -247,15 +251,18 @@ export function earlierProfileClaims(
   earlier: readonly {
     readonly profileId: string;
     readonly profileFingerprint: string;
+    readonly model: string | null;
   }[],
   catalog: SessionCatalog,
 ): [key: string, claim: SessionClaim][] {
   return earlier
-    .flatMap(({ profileId, profileFingerprint: made }) => {
+    .flatMap(({ profileId, profileFingerprint: made, model }) => {
       const listed = Object.hasOwn(catalog.profiles, profileId)
         ? catalog.profiles[profileId]
         : undefined;
-      const profile = listed ? sessionProfile(listed, made) : null;
+      const profile = listed
+        ? sessionProfile(listed, { fingerprint: made, model })
+        : null;
       if (!profile) return [];
       return [
         [

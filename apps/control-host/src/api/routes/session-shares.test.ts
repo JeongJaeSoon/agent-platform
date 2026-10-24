@@ -48,6 +48,7 @@ const DETAIL: SessionDetail = {
   admission_state: "active",
   status: "running",
   runtime: null,
+  model: null,
   repository_id: null,
   repository: null,
   current_turn_id: null,
