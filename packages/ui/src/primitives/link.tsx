@@ -1,6 +1,5 @@
 import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
-import { ChevronRight } from "lucide-react";
 import {
   type ComponentProps,
   cloneElement,
@@ -20,8 +19,8 @@ const FOCUS_OUTLINE =
 /*
  * Console v35 links: `hover` is the standalone link (a name in a list, a
  * "view all"), `always` the link inside a sentence, which keeps the text's
- * weight. `variant="table"` is a row's name link: a trailing chevron says it
- * opens the row, and it underlines on keyboard focus too.
+ * weight. `variant="table"` is a row's name link: no underline until hover,
+ * and it underlines on keyboard focus too.
  */
 export const linkVariants = cva(
   `text-link underline-offset-2 ${FOCUS_OUTLINE}`,
@@ -34,7 +33,7 @@ export const linkVariants = cva(
       variant: {
         default: "",
         table:
-          "inline-flex items-center gap-1 font-medium no-underline hover:underline focus-visible:underline",
+          "font-medium no-underline hover:underline focus-visible:underline",
       },
     },
     defaultVariants: { underline: "hover", variant: "default" },
@@ -106,20 +105,9 @@ export function Link({
   const newTab =
     (child?.props.target ?? props.target)?.toLowerCase() === "_blank";
   const rel = safeRel(newTab, props.rel, child?.props.rel);
-  const chevron =
-    variant === "table" ? (
-      <ChevronRight aria-hidden="true" className="size-4 shrink-0" />
-    ) : null;
-  const label =
+  const trailing =
     newTab && newTabLabel != null ? (
       <span className="sr-only">{newTabLabel}</span>
-    ) : null;
-  const trailing =
-    chevron || label ? (
-      <>
-        {chevron}
-        {label}
-      </>
     ) : null;
   const shared = {
     "data-slot": "link",

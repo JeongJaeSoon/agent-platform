@@ -730,6 +730,8 @@ describe("되돌리기 어려운 동작의 확인", () => {
     const button = await buttonOf("Owner");
     expect(within(rowOf(button)).getByText("나")).toBeDefined();
     expect(within(rowOf(await buttonOf("Mate"))).queryByText("나")).toBeNull();
+    // The row's hover and pointer say it opens; no "›" beside the name.
+    expect(rowOf(button).textContent).not.toContain("›");
     // Only the disable button: no (i) beside it to push it out of line.
     const cell = button.closest("[role=cell]") as HTMLElement;
     expect(within(cell).getAllByRole("button")).toHaveLength(1);

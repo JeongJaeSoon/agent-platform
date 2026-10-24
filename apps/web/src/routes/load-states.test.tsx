@@ -63,7 +63,7 @@ const RETRY_CASES: ReadonlyArray<{
     path: "/agents",
     routes: meOk,
     failingKey: "GET /v1/agents",
-    answer: () => json(200, { items: [] }),
+    answer: () => json(200, { items: [], next_cursor: null }),
     after: /아직 에이전트가 없습니다/,
   },
   {
@@ -128,7 +128,7 @@ const RETRY_CASES: ReadonlyArray<{
       ...meOk,
       "GET /v1/members": () => json(200, { items: [], next_cursor: null }),
       "GET /v1/invites": () => json(200, { items: [] }),
-      "GET /v1/agents": () => json(200, { items: [] }),
+      "GET /v1/agents": () => json(200, { items: [], next_cursor: null }),
       "GET /v1/sessions": () => json(200, { items: [], next_cursor: null }),
     },
     failingKey: "GET /v1/my-teams",
