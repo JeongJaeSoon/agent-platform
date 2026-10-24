@@ -13,6 +13,8 @@ import {
   isNull,
   lt,
   or,
+  type SQL,
+  sql,
 } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { DB_NOW, dbNow } from "./db-clock.ts";
@@ -87,9 +89,13 @@ export function liveApiKey() {
   );
 }
 
-export function selectLiveApiKey(db: Database) {
+export function selectLiveApiKey<Extra extends Record<string, SQL>>(
+  db: Database,
+  extra?: Extra,
+) {
   return db
     .select({
+      ...(extra as Extra),
       id: apiKeys.id,
       ownerId: apiKeys.ownerId,
       workspaceId: apiKeys.workspaceId,
@@ -129,14 +135,54 @@ export function apiKeyRecordOf(row: {
   };
 }
 
+// A key's last use is recorded at most this often, so steady traffic on one
+// key does not turn every request into a write.
+export const API_KEY_TOUCH_INTERVAL_MS = 60_000;
+
+const touchDue = () =>
+  or(
+    isNull(apiKeys.lastUsedAt),
+    lt(
+      apiKeys.lastUsedAt,
+      sql`clock_timestamp() - ${API_KEY_TOUCH_INTERVAL_MS}::double precision * interval '1 millisecond'`,
+    ),
+  );
+
 export async function findApiKey(
   db: Database,
   keyHash: Uint8Array,
-): Promise<ApiKeyRecord | null> {
-  const [match] = await selectLiveApiKey(db)
+): Promise<(ApiKeyRecord & { touchDue: boolean }) | null> {
+  const [match] = await selectLiveApiKey(db, {
+    touchDue: sql<boolean>`coalesce(${touchDue()}, false)`,
+  })
     .where(and(eq(apiKeys.keyHash, keyHash), liveApiKey()))
     .limit(1);
-  return match ? apiKeyRecordOf(match) : null;
+  if (!match) return null;
+  const { touchDue: due, ...row } = match;
+  return { ...apiKeyRecordOf(row), touchDue: due };
+}
+
+/**
+ * Records that the key authenticated, once per interval. Its own statement,
+ * never inside a session write: those hold the key row FOR SHARE and a revoke
+ * holds it FOR UPDATE (requester-locks.ts), so a locked row is skipped rather
+ * than waited on, and the next use records it. A revoked key is left as it is.
+ */
+export async function touchApiKey(
+  db: Database,
+  keyId: string,
+): Promise<boolean> {
+  const due = db
+    .select({ id: apiKeys.id })
+    .from(apiKeys)
+    .where(and(eq(apiKeys.id, keyId), isNull(apiKeys.revokedAt), touchDue()))
+    .for("no key update", { skipLocked: true });
+  const touched = await db
+    .update(apiKeys)
+    .set({ lastUsedAt: DB_NOW })
+    .where(inArray(apiKeys.id, due))
+    .returning({ id: apiKeys.id });
+  return touched.length > 0;
 }
 
 export type ApiKeyRevocation =

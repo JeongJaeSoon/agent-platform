@@ -11,7 +11,7 @@ import {
   type TempDatabase,
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresAgentAdminStore } from "./agent-admins.ts";
@@ -22,6 +22,7 @@ import { createPostgresTeamStore } from "./member-teams.ts";
 import { createPostgresMemberStore } from "./members.ts";
 import { createPostgresPendingRequests } from "./pending-requests.ts";
 import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
+import { findApiKey, touchApiKey } from "./queries.ts";
 import * as schema from "./schema.ts";
 import {
   agentReleases,
@@ -754,6 +755,53 @@ integration("session writes re-judge their requester on PostgreSQL", () => {
       );
     }, 30_000);
 
+    // 94S-881: the other way round, authenticating a key never waits for an
+    // input that holds its row; recording the use skips the row instead.
+    test("a key's auth and last-use touch neither wait for nor deadlock with an input holding the key", async () => {
+      const ws = await workspace();
+      const owner = await person(ws, "owner");
+      for (let round = 0; round < 10; round++) {
+        const live =
+          round % 2 === 0
+            ? await key(ws, { service: true })
+            : await key(ws, { personalOf: owner });
+        const sessionId = await session(live.caller);
+        const [stored] = await db
+          .select({ hash: apiKeys.keyHash })
+          .from(apiKeys)
+          .where(eq(apiKeys.id, live.id));
+        if (!stored) throw new Error("no key row");
+        let written = false;
+        const write = append(live.caller, sessionId, undefined, HOLD).then(
+          (result) => {
+            written = true;
+            return result;
+          },
+        );
+        await Bun.sleep(300);
+
+        const started = performance.now();
+        expect((await findApiKey(db, stored.hash))?.touchDue).toBe(true);
+        expect(await touchApiKey(db, live.id)).toBe(false);
+        const elapsed = performance.now() - started;
+        expect(elapsed).toBeLessThan(250);
+        // The row was held: a plain update has to wait for it.
+        const plain = db.transaction(async (tx) => {
+          await tx.execute(sql`SET LOCAL lock_timeout = '100ms'`);
+          await tx
+            .update(apiKeys)
+            .set({ lastUsedAt: new Date() })
+            .where(eq(apiKeys.id, live.id));
+        });
+        expect(plain).rejects.toMatchObject({ cause: { code: "55P03" } });
+        await plain.catch(() => undefined);
+        expect(written).toBe(false);
+
+        expect(await write).toMatchObject({ outcome: "accepted" });
+        expect(await touchApiKey(db, live.id)).toBe(true);
+      }
+    }, 60_000);
+
     test("a share change, a team member's removal and a team's archive wait for an input", async () => {
       const ws = await workspace();
       const owner = await person(ws, "owner");
@@ -884,6 +932,8 @@ integration("session writes re-judge their requester on PostgreSQL", () => {
         admin(owner, agentId, { kind: "user", id: idOf(helper) }, !flip),
         revokeKey(owner, service.id),
         revokeKey(owner, personal.id),
+        touchApiKey(db, service.id),
+        touchApiKey(db, personal.id),
         unlink(viewer, slack.id),
         setRole(owner, helper, flip ? "admin" : "member"),
         setDisabled(owner, viewer, flip),
