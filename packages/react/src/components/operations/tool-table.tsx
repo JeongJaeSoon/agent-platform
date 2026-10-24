@@ -78,8 +78,13 @@ export function ToolTable({
           ? [0, 1, 2].map((row) => (
               <GridTableRow key={row}>
                 <GridTableCell>
-                  <Skeleton />
-                  <span className="sr-only">{messages.loading}</span>
+                  {/* The table says it once; the bars are not read. */}
+                  <span aria-hidden="true" className="block w-full">
+                    <Skeleton />
+                  </span>
+                  {row === 0 ? (
+                    <span className="sr-only">{messages.loading}</span>
+                  ) : null}
                 </GridTableCell>
                 <GridTableCell />
                 <GridTableCell hideNarrow />
