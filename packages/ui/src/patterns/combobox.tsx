@@ -188,7 +188,6 @@ export function Combobox({
   const anchorRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const lastQuery = useRef("");
   const latestOnQueryChange = useRef(onQueryChange);
   latestOnQueryChange.current = onQueryChange;
   useEffect(() => () => clearTimeout(timer.current), []);
@@ -224,7 +223,6 @@ export function Combobox({
   }
 
   function query(next: string) {
-    lastQuery.current = next;
     latestOnQueryChange.current?.(next);
   }
 
@@ -241,7 +239,9 @@ export function Combobox({
     onValueChange?.(option.value, option);
     changeInput(clearOnSelect ? "" : option.label);
     setShowAll(true);
-    if (filter === "none" && lastQuery.current !== "") query("");
+    // Even when nothing was sent yet: the caller may already be waiting on
+    // the typing that this choice cancelled.
+    if (filter === "none") query("");
     close();
   }
 

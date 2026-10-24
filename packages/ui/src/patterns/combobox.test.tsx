@@ -451,6 +451,25 @@ describe("Combobox", () => {
     expect(box.value).toBe("");
   });
 
+  test('filter="none"에서 첫 디바운스 전에 골라도 빈 검색어를 보낸다', async () => {
+    const { fireEvent } = await import("@testing-library/react");
+    const onQueryChange = mock();
+    const { getByRole, getByText } = render(
+      <Combobox
+        aria-label="구성원"
+        options={MEMBERS}
+        emptyMessage="없음"
+        filter="none"
+        debounceMs={5}
+        onQueryChange={onQueryChange}
+      />,
+    );
+    fireEvent.change(input(getByRole), { target: { value: "p" } });
+    fireEvent.click(getByText("Park Sora"));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(onQueryChange.mock.calls).toEqual([[""]]);
+  });
+
   test("Field 안에서는 FieldLabel이 입력과 목록의 이름이 된다", async () => {
     const user = await setupUser();
     const { getByRole } = render(
