@@ -215,7 +215,11 @@ function SlackOverview({
               {bindings.isPending ? (
                 placeholder
               ) : (
-                <span>{t(dm ? modeKey(dm.mode) : "slack.notConfigured")}</span>
+                <span>
+                  {bindings.isError && !bindings.data
+                    ? "—"
+                    : t(dm ? modeKey(dm.mode) : "slack.notConfigured")}
+                </span>
               )}
             </div>
           </RowListItem>
@@ -263,13 +267,15 @@ function SlackOverview({
                         placeholder
                       ) : (
                         <span>
-                          {homeName
-                            ? `#${homeName}`
-                            : home?.external_surface_id
-                              ? t("slack.channelId", {
-                                  id: home.external_surface_id,
-                                })
-                              : t("slack.homeUnset")}
+                          {bindings.isError && !bindings.data
+                            ? "—"
+                            : homeName
+                              ? `#${homeName}`
+                              : home?.external_surface_id
+                                ? t("slack.channelId", {
+                                    id: home.external_surface_id,
+                                  })
+                                : t("slack.homeUnset")}
                         </span>
                       )}
                       <Button
@@ -737,7 +743,7 @@ function SlackChannels({
       ) : null}
       {bindings.isPending ? (
         <ChannelSkeleton />
-      ) : bindings.isError ? null : rows.length === 0 ? (
+      ) : bindings.isError && !bindings.data ? null : rows.length === 0 ? (
         <EmptyState
           title={t("slack.noConnectedChannels")}
           description={t("slack.addChannelHint")}
@@ -941,7 +947,9 @@ function SlackDmSetting({ agentId }: { readonly agentId: string }) {
       description={t("slack.dmHint")}
       status={
         <span className="text-control text-muted-foreground">
-          {t(dm ? modeKey(dm.mode) : "slack.notConfigured")}
+          {bindings.isError && !bindings.data
+            ? "—"
+            : t(dm ? modeKey(dm.mode) : "slack.notConfigured")}
         </span>
       }
       meta={

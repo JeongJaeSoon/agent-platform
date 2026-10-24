@@ -103,6 +103,13 @@ describe("Slack management", () => {
         apiError(403, "FORBIDDEN", "refused"),
     });
     const user = await setupUser();
+    await screen.findByText("홈 채널");
+    await waitFor(() =>
+      expect(screen.queryByText("설정 안 됨") === null).toBe(true),
+    );
+    expect(screen.queryByText("선택 안 됨") === null).toBe(true);
+    await user.click(screen.getByRole("tab", { name: "설정" }));
+    expect(screen.queryByText("설정 안 됨") === null).toBe(true);
     await user.click(await screen.findByRole("tab", { name: "채널" }));
     await waitFor(() =>
       expect(document.querySelector("[data-slot=field-error]") !== null).toBe(
