@@ -137,7 +137,7 @@ export function apiKeyRecordOf(row: {
 
 // A key's last use is recorded at most this often, so steady traffic on one
 // key does not turn every request into a write.
-export const API_KEY_TOUCH_INTERVAL_MS = 60_000;
+const API_KEY_TOUCH_INTERVAL_MS = 60_000;
 
 const touchDue = () =>
   or(
