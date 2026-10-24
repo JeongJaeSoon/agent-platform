@@ -77,6 +77,9 @@ class CommittingCheckpoints implements WorkerCheckpointPort {
  * after it starts. A turn the budget cuts that early can reach its capture
  * while one is still alive or unreaped, and the host rightly refuses it as a
  * background writer; this waits them out, within a bound, before answering.
+ * The host does not wait: a first turn that ends without a model request
+ * (`/clear`) loses its checkpoint this way, and a bounded grace in
+ * WorkerHost.capture is the open follow-up.
  */
 class SettledEngineProcesses extends EngineProcesses {
   override async descendants(): Promise<number[]> {
