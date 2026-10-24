@@ -60,10 +60,31 @@ const oneSession = {
 async function states() {
   await screen.findByRole("heading", { name: "홈" });
   // Home has other lists; the checklist is the region named for it.
+  // Steps marks done or to do; an unreadable step says so in its text.
   return () =>
-    within(screen.getByRole("region", { name: "시작하기" }))
-      .getAllByRole("listitem")
-      .map((step) => step.getAttribute("data-state"));
+    checklistSteps().map((step) =>
+      step.getAttribute("data-state") === "done"
+        ? "done"
+        : step.textContent?.includes("확인할 수 없음")
+          ? "unknown"
+          : "pending",
+    );
+}
+
+function checklistSteps() {
+  return within(screen.getByRole("region", { name: "시작하기" })).getAllByRole(
+    "listitem",
+  );
+}
+
+/** Each step's action link: its text and where it goes, done or not. */
+function stepLinks() {
+  return checklistSteps().map((step) => {
+    const link = within(step).queryByRole("link");
+    return link
+      ? [link.textContent, link.getAttribute("href"), link.className]
+      : null;
+  });
 }
 
 describe("bootstrap checklist", () => {
@@ -83,21 +104,18 @@ describe("bootstrap checklist", () => {
     await waitFor(() =>
       expect(read()).toEqual(["done", "pending", "pending", "pending"]),
     );
+    // The owner step has nothing to open; the next step to do gets the
+    // primary button, the rest the outline one.
+    const links = stepLinks();
+    expect(links.map((link) => link?.slice(0, 2) ?? null)).toEqual([
+      null,
+      ["구성원 목록", "/members"],
+      ["에이전트 목록", "/agents"],
+      ["세션 목록", "/sessions"],
+    ]);
     expect(
-      screen
-        .getByRole("link", { name: "첫 세션 확인하기" })
-        .getAttribute("href"),
-    ).toBe("/sessions");
-    expect(
-      screen
-        .getByRole("link", { name: "구성원 초대하기" })
-        .getAttribute("href"),
-    ).toBe("/members");
-    expect(
-      screen
-        .getByRole("link", { name: "에이전트 준비하기" })
-        .getAttribute("href"),
-    ).toBe("/agents");
+      links.map((link) => (link?.[2] ?? "").includes("bg-primary")),
+    ).toEqual([false, true, false, false]);
   });
 
   test("초대를 보냈고 활성 release가 있는 에이전트가 있으면 두 단계가 완료다", async () => {
@@ -409,9 +427,9 @@ describe("홈 요약", () => {
       ),
     ).toEqual(["wait", "idle"]);
     expect(
-      [...recent.querySelectorAll("tr")].map((row) =>
-        [...row.children].map((cell) => shownText(cell)),
-      ),
+      within(recent)
+        .getAllByRole("row")
+        .map((row) => [...row.children].map((cell) => shownText(cell))),
     ).toEqual([
       ["세션", "작업 상태", "에이전트", "저장소", "최근 활동"],
       [
@@ -435,7 +453,7 @@ describe("홈 요약", () => {
         .map((l) => l.getAttribute("href")),
     ).toEqual([`/sessions/${waitingSession.id}`, `/sessions/${oneSession.id}`]);
     // Focus opens the exact time the short wait count stands for.
-    const waited = recent.querySelectorAll("tr")[1]?.querySelector("time");
+    const waited = within(recent).getAllByRole("row")[1]?.querySelector("time");
     expect(waited?.tabIndex).toBe(0);
     act(() => waited?.focus());
     await waitFor(() =>
@@ -443,12 +461,16 @@ describe("홈 요약", () => {
         /^2026년 10월 23일 \d{2}:\d{2}:\d{2}/,
       ),
     );
-    // A titled session links by its title; one without a title, by its id.
+    // Each row opens from one link named for the session: a titled one by
+    // its title, one without a title by its short id.
     expect(
       within(recent)
         .getAllByRole("link")
-        .map((l) => l.textContent),
-    ).toEqual([waitingSession.title, oneSession.id.slice(0, 8)]);
+        .map((l) => l.getAttribute("aria-label")),
+    ).toEqual([
+      `세션 열기: ${waitingSession.title}`,
+      `세션 열기: ${oneSession.id.slice(0, 8)}`,
+    ]);
   });
 
   test("설치 전체 사용량 권한이 없으면 전체 카드를 숨기고 한도·전체 합계를 묻지 않는다", async () => {
@@ -646,7 +668,7 @@ describe("홈 요약", () => {
     ).toBeNull();
   });
 
-  test("시작하기를 다 마치면 checklist는 요약 아래로 내려간다", async () => {
+  test("시작하기는 다 마쳐도 맨 위에 있다", async () => {
     renderAt("/", {
       ...homeRoutes(),
       "GET /v1/members": () =>
@@ -669,9 +691,7 @@ describe("홈 요약", () => {
     const order = [...document.querySelectorAll("main section > div h2")].map(
       (heading) => heading.textContent,
     );
-    expect(order.indexOf("시작하기")).toBeGreaterThan(
-      order.findIndex((title) => title?.startsWith("최근 세션")),
-    );
+    expect(order[0]).toBe("시작하기");
   });
 
   test.each([

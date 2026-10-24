@@ -111,11 +111,11 @@ describe("workspace shell", () => {
     const steps = within(
       screen.getByRole("region", { name: "시작하기" }),
     ).getAllByRole("listitem");
-    expect(steps.map((step) => step.getAttribute("data-done"))).toEqual([
-      "true",
-      "false",
-      "false",
-      "false",
+    expect(steps.map((step) => step.getAttribute("data-state"))).toEqual([
+      "done",
+      "todo",
+      "todo",
+      "todo",
     ]);
   });
 

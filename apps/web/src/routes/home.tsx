@@ -19,24 +19,25 @@ import { useAgentPlatform, useSessions } from "@werft-ai/react";
 import { ApprovalInbox } from "@werft-ai/react/blocks";
 import {
   Badge,
+  Button,
   Card,
   cn,
   formatExactTime,
   formatTimestamp,
+  GridTable,
+  GridTableCell,
+  GridTableColumnHeader,
+  GridTableHeader,
+  GridTableRow,
+  GridTableRowOpener,
   RelativeTime,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableHeader,
-  TableRow,
+  Steps,
   Link as TextLink,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@werft-ai/ui";
-import { ArrowRight, Check, Folder, GitBranch, Inbox } from "lucide-react";
+import { ArrowRight, Folder, GitBranch, Inbox } from "lucide-react";
 import { type ReactNode, useEffect, useId, useState } from "react";
 import {
   administeredAgentsQuery,
@@ -83,13 +84,18 @@ function stateOf(query: {
   return query.isSuccess && query.data ? "done" : "pending";
 }
 
-const STATE_KEY = {
-  done: "common.done",
-  pending: "common.pending",
-  unknown: "home.checklist.unknown",
-} as const satisfies Record<StepState, MessageKey>;
+const STEP_ACTION = {
+  "/members": "home.checklist.toMembers",
+  "/agents": "home.checklist.toAgents",
+  "/sessions": "home.checklist.toSessions",
+} as const satisfies Record<NonNullable<Step["to"]>, MessageKey>;
 
 const RECENT_LIMIT = 5;
+const RECENT_COLUMNS =
+  "minmax(0,2.2fr) 120px minmax(0,1.2fr) minmax(0,1.2fr) 72px";
+// Without the agent and repository columns: the agent is always "—" for now,
+// and the title needs the width at 390px.
+const RECENT_NARROW_COLUMNS = "minmax(0,1fr) 116px 64px";
 const STALE_WAIT_MS = 30 * 60 * 1000;
 const MINUTE_MS = 60 * 1000;
 
@@ -107,9 +113,9 @@ export function useNow(): number {
 }
 
 /**
- * The requests waiting on the viewer, answerable in place, then counts with
- * the session that waited longest, the newest sessions and the bootstrap
- * checklist. Each checklist step is read from the server: someone
+ * The bootstrap checklist, done or not, then the requests waiting on the
+ * viewer, answerable in place, counts with the session that waited longest
+ * and the newest sessions. Each checklist step is read from the server: someone
  * was invited once an invite exists or a second member joined, an agent is
  * ready once one has an active release, and a session started once the
  * viewer's own session list has one.
@@ -208,8 +214,6 @@ export function HomeScreen() {
       hint: "home.checklist.sessionHint",
     },
   ];
-  const allDone = steps.every((step) => step.state === "done");
-  const checklist = <Checklist steps={steps} />;
 
   const waitingCount = waiting.data
     ? count(waiting.data.items.length, waiting.data.next_cursor !== null)
@@ -540,7 +544,7 @@ export function HomeScreen() {
       description={intro}
       actions={<NewSessionButton />}
     >
-      {allDone ? null : checklist}
+      <Checklist steps={steps} />
       <ApprovalInbox
         layout="summary"
         title={t("home.requests.title")}
@@ -585,7 +589,6 @@ export function HomeScreen() {
       >
         <RecentSessionTable waitingSince={requests?.since} now={now} />
       </HomeSection>
-      {allDone ? checklist : null}
       <AdministeredAgents showEmpty={false} />
       <MyTeams showEmpty={false} />
     </Page>
@@ -983,33 +986,43 @@ function RecentSessionTable({
         {t("sessions.empty")}
       </p>
     );
+  // The row opener's focus ring sits outside the row: no overflow clipping.
   return (
-    <TableContainer label={t("home.recent.title")}>
-      <Table aria-label={t("home.recent.title")}>
-        <TableHeader>
-          <TableRow>
-            <TableHead>{t("sessions.column.id")}</TableHead>
-            <TableHead>{t("sessions.column.status")}</TableHead>
-            <TableHead>{t("home.recent.agent")}</TableHead>
-            <TableHead>{t("home.recent.repository")}</TableHead>
-            <TableHead className="whitespace-nowrap text-right">
-              {t("home.recent.activity")}
-            </TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {items.slice(0, RECENT_LIMIT).map((session) => (
-            <RecentRow
-              key={session.id}
-              session={session}
-              locale={locale}
-              waitingSince={waitingSince?.[session.id]}
-              now={now}
-            />
-          ))}
-        </TableBody>
-      </Table>
-    </TableContainer>
+    <div className="rounded-card border bg-card">
+      <GridTable
+        aria-label={t("home.recent.title")}
+        columns={RECENT_COLUMNS}
+        narrowAt={820}
+        narrowColumns={RECENT_NARROW_COLUMNS}
+      >
+        <GridTableHeader>
+          <GridTableColumnHeader>
+            {t("sessions.column.id")}
+          </GridTableColumnHeader>
+          <GridTableColumnHeader>
+            {t("sessions.column.status")}
+          </GridTableColumnHeader>
+          <GridTableColumnHeader hideNarrow={true}>
+            {t("home.recent.agent")}
+          </GridTableColumnHeader>
+          <GridTableColumnHeader hideNarrow={true}>
+            {t("home.recent.repository")}
+          </GridTableColumnHeader>
+          <GridTableColumnHeader align="end" className="whitespace-nowrap">
+            {t("home.recent.activity")}
+          </GridTableColumnHeader>
+        </GridTableHeader>
+        {items.slice(0, RECENT_LIMIT).map((session) => (
+          <RecentRow
+            key={session.id}
+            session={session}
+            locale={locale}
+            waitingSince={waitingSince?.[session.id]}
+            now={now}
+          />
+        ))}
+      </GridTable>
+    </div>
   );
 }
 
@@ -1027,42 +1040,41 @@ function RecentRow({
   const { t } = useI18n();
   const at = session.last_event_at ?? session.created_at;
   return (
-    <TableRow data-status={session.status}>
-      <TableCell>
+    <GridTableRow data-status={session.status}>
+      <GridTableCell lines={true}>
+        <GridTableRowOpener
+          asChild
+          aria-label={t("home.recent.open", {
+            title: session.title ?? session.id.slice(0, 8),
+          })}
+        >
+          <Link to="/sessions/$id" params={{ id: session.id }} />
+        </GridTableRowOpener>
         {session.title ? (
-          <div className="flex max-w-80 flex-col">
-            <TextLink asChild className="truncate">
-              <Link
-                to="/sessions/$id"
-                params={{ id: session.id }}
-                title={session.title}
-              >
-                {session.title}
-              </Link>
-            </TextLink>
+          <>
+            <span
+              className="max-w-full truncate font-medium"
+              title={session.title}
+            >
+              {session.title}
+            </span>
             <span
               className="font-mono text-caption text-muted-foreground"
               title={session.id}
             >
               {session.id.slice(0, 8)}
             </span>
-          </div>
+          </>
         ) : (
-          <TextLink asChild className="font-mono">
-            <Link
-              to="/sessions/$id"
-              params={{ id: session.id }}
-              aria-label={session.id}
-              title={session.id}
-            >
-              {session.id.slice(0, 8)}
-            </Link>
-          </TextLink>
+          <span className="font-mono font-medium" title={session.id}>
+            {session.id.slice(0, 8)}
+          </span>
         )}
-      </TableCell>
-      <TableCell>
+      </GridTableCell>
+      {/* Raised: the wait's exact time opens on its own hover and focus. */}
+      <GridTableCell raised={true}>
         <div
-          className="flex items-center gap-2 whitespace-nowrap text-control"
+          className="flex min-w-0 items-center gap-2 whitespace-nowrap text-control"
           data-state={session.status}
         >
           <StatusDot dot={SESSION_DOT[session.status]} />
@@ -1091,20 +1103,23 @@ function RecentRow({
             ) : null}
           </span>
         </div>
-      </TableCell>
+      </GridTableCell>
       {/* Sessions do not name their agent yet. */}
-      <TableCell className="text-muted-foreground">
+      <GridTableCell hideNarrow={true} className="text-muted-foreground">
         {t("home.overview.unknown")}
-      </TableCell>
-      <TableCell className="whitespace-nowrap">
-        <span className="flex items-center gap-2">
+      </GridTableCell>
+      <GridTableCell hideNarrow={true}>
+        <span className="flex min-w-0 items-center gap-2">
           {session.repository_id ? (
             <>
               <GitBranch
                 className="size-3.5 shrink-0 text-muted-foreground"
                 aria-hidden="true"
               />
-              <span className="font-mono text-caption">
+              <span
+                className="truncate font-mono text-caption"
+                title={session.repository_id}
+              >
                 {session.repository_id}
               </span>
             </>
@@ -1114,17 +1129,22 @@ function RecentRow({
                 className="size-3.5 shrink-0 text-muted-foreground"
                 aria-hidden="true"
               />
-              <span className="text-caption text-muted-foreground">
+              <span className="truncate text-caption text-muted-foreground">
                 {t("home.recent.noRepository")}
               </span>
             </>
           )}
         </span>
-      </TableCell>
-      <TableCell className="whitespace-nowrap text-right text-muted-foreground">
+      </GridTableCell>
+      {/* Raised for the exact time's tooltip, as the status cell. */}
+      <GridTableCell
+        align="end"
+        raised={true}
+        className="whitespace-nowrap text-muted-foreground"
+      >
         <RelativeTime value={at} locale={locale} now={now} />
-      </TableCell>
-    </TableRow>
+      </GridTableCell>
+    </GridTableRow>
   );
 }
 
@@ -1132,6 +1152,7 @@ function Checklist({ steps }: { readonly steps: readonly Step[] }) {
   const { t } = useI18n();
   const titleId = useId();
   const done = steps.filter((step) => step.state === "done").length;
+  const next = steps.find((step) => step.state !== "done");
   return (
     <section
       className="flex min-w-0 flex-col gap-[var(--ap-space-block)]"
@@ -1146,53 +1167,36 @@ function Checklist({ steps }: { readonly steps: readonly Step[] }) {
           {t("home.checklist.progress", { done, total: steps.length })}
         </span>
       </div>
-      <Card className="px-4 py-1">
-        <ol className="m-0 flex list-none flex-col p-0">
-          {steps.map((step, index) => (
-            <li
-              key={step.key}
-              className="flex min-h-16 items-center gap-3 border-t py-3 first:border-t-transparent"
-              data-done={step.state === "done"}
-              data-state={step.state}
-            >
-              <span
-                aria-hidden="true"
-                className={cn(
-                  "flex size-6 shrink-0 items-center justify-center rounded-full border border-border-strong font-semibold text-caption text-muted-foreground",
-                  step.state === "done" &&
-                    "border-primary bg-primary text-primary-foreground",
-                )}
-              >
-                {step.state === "done" ? (
-                  <Check className="size-3.5" strokeWidth={2} />
-                ) : (
-                  index + 1
-                )}
-              </span>
-              <span className="flex min-w-0 flex-1 flex-col gap-1">
-                {step.to ? (
-                  <TextLink
-                    asChild
-                    underline="always"
-                    className="font-medium text-control"
-                  >
-                    <Link to={step.to}>{t(step.key)}</Link>
-                  </TextLink>
-                ) : (
-                  <span className="font-medium text-control">
-                    {t(step.key)}
-                  </span>
-                )}
-                <span className="text-caption text-muted-foreground">
+      <Card className="p-4">
+        <Steps
+          completedLabel={t("common.done")}
+          items={steps.map((step) => ({
+            id: step.key,
+            title: t(step.key),
+            // Steps marks done or not; an unreadable step says so in words.
+            description:
+              step.state === "unknown" ? (
+                <>
                   {t(step.hint)}
-                </span>
-              </span>
-              <span className="shrink-0 text-caption text-muted-foreground">
-                {t(STATE_KEY[step.state])}
-              </span>
-            </li>
-          ))}
-        </ol>
+                  {" · "}
+                  <span>{t("home.checklist.unknown")}</span>
+                </>
+              ) : (
+                t(step.hint)
+              ),
+            done: step.state === "done",
+            action: step.to ? (
+              <Button
+                asChild
+                size="sm"
+                variant={step === next ? "default" : "outline"}
+                className="shrink-0"
+              >
+                <Link to={step.to}>{t(STEP_ACTION[step.to])}</Link>
+              </Button>
+            ) : undefined,
+          }))}
+        />
       </Card>
     </section>
   );
