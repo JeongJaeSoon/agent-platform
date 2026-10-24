@@ -2,6 +2,8 @@ import {
   INVITE_LIST_LIMIT,
   INVITE_TTL_DAYS,
   type Invite,
+  type ListMembersQuery,
+  type ListMembersResponse,
   type MemberView,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
@@ -144,10 +146,13 @@ export function createInviteService(deps: {
       }
     },
 
-    async listMembers(caller: Caller): Promise<MemberView[]> {
+    async listMembers(
+      caller: Caller,
+      query: ListMembersQuery,
+    ): Promise<ListMembersResponse> {
       const actor = await actingOwner(caller);
-      const rows = await store.listMembers(actor.workspaceId);
-      return rows.map(memberView);
+      const page = await store.listMembers(actor.workspaceId, query);
+      return { ...page, items: page.items.map(memberView) };
     },
 
     async changeMemberRole(

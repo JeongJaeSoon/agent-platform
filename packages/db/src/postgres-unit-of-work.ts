@@ -61,6 +61,7 @@ import {
 } from "drizzle-orm";
 import { contextGapAttention } from "./context-gap.ts";
 import {
+  containsPattern,
   findIdempotent,
   type IdempotencyScope,
   lockIdempotencyScope,
@@ -463,7 +464,6 @@ export function createPostgresSessionUnitOfWork(
 }
 
 const CREATED_AT_TEXT = sql<string>`${sessions.createdAt}::text`;
-const LIKE_SPECIAL = /[\\%_]/g;
 const ID_PREFIX = /^[0-9a-f-]+$/;
 // The newest event in stream order (ids are commit order within a session),
 // one index probe where max(created_at) visited every event of every listed
@@ -766,7 +766,7 @@ export function createPostgresSessionReader(
       q === undefined
         ? undefined
         : or(
-            sql`${sessions.title} ILIKE ${`%${q.replace(LIKE_SPECIAL, "\\$&")}%`}`,
+            sql`${sessions.title} ILIKE ${containsPattern(q)}`,
             ID_PREFIX.test(q)
               ? sql`${sessions.id}::text LIKE ${`${q}%`}`
               : undefined,

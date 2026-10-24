@@ -28,6 +28,13 @@ import {
   workerLaunches,
 } from "./schema.ts";
 
+const LIKE_SPECIAL = /[\\%_]/g;
+
+/** A (I)LIKE pattern matching `text` anywhere, its wildcards taken literally. */
+export function containsPattern(text: string): string {
+  return `%${text.replace(LIKE_SPECIAL, "\\$&")}%`;
+}
+
 const TURN_ID = /^[1-9]\d{0,9}$/;
 // turns.sequence is a PostgreSQL integer; a larger id cannot exist and must
 // not reach the query, where it would fail with 22003 instead of not-found.

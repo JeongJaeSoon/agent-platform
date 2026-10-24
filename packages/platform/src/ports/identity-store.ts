@@ -1,4 +1,4 @@
-import type { WorkspaceRole } from "@werft-ai/contracts";
+import type { ListMembersQuery, WorkspaceRole } from "@werft-ai/contracts";
 import type { Principal } from "../musterrolle/policy.ts";
 
 export type IdentityUser = {
@@ -318,7 +318,11 @@ export interface InviteStore {
   }): Promise<RevokeInviteResult>;
   peekInvite(tokenHash: Uint8Array): Promise<InvitePeek>;
   acceptInvite(input: AcceptInviteInput): Promise<AcceptInviteResult>;
-  listMembers(workspaceId: string): Promise<MemberRecord[]>;
+  /** Throws InvalidCursorError for a cursor it did not mint. */
+  listMembers(
+    workspaceId: string,
+    query: ListMembersQuery,
+  ): Promise<{ items: MemberRecord[]; next_cursor: string | null }>;
   changeMemberRole(input: {
     userId: string;
     role: MembershipRole;
