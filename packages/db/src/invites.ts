@@ -11,7 +11,13 @@ import type {
   MembershipRole,
   RevokeInviteResult,
 } from "@werft-ai/platform";
-import { InvalidCursorError } from "@werft-ai/platform";
+import {
+  InvalidCursorError,
+  MEMBER_MANAGER_ROLES,
+  managesMembers,
+  mayGrantRole,
+  memberVerdict,
+} from "@werft-ai/platform";
 import { and, asc, desc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
 import {
   containsPattern,
@@ -87,9 +93,6 @@ const liveMember = and(
   isNull(users.disabledAt),
 );
 
-// Who manages members (design 4.1). An admin never touches the owner role.
-const MEMBER_MANAGERS = ["owner", "admin"];
-
 /**
  * The actor's role while they still manage members, else null. FOR SHARE, so
  * a demotion or offboarding of the actor waits for this write.
@@ -97,7 +100,7 @@ const MEMBER_MANAGERS = ["owner", "admin"];
 async function liveManagerRole(
   tx: Database,
   actor: ActingOwner,
-): Promise<string | null> {
+): Promise<MembershipRole | null> {
   await lockActorAccount(tx, actor.userId);
   const [row] = await tx
     .select({ role: memberships.role })
@@ -107,12 +110,12 @@ async function liveManagerRole(
       and(
         eq(memberships.workspaceId, actor.workspaceId),
         eq(memberships.userId, actor.userId),
-        inArray(memberships.role, MEMBER_MANAGERS),
+        inArray(memberships.role, [...MEMBER_MANAGER_ROLES]),
         liveMember,
       ),
     )
     .for("share", { of: memberships });
-  return row?.role ?? null;
+  return (row?.role as MembershipRole | undefined) ?? null;
 }
 
 async function writeReceipt(
@@ -159,7 +162,7 @@ async function createInvite(
     await tx.select({ id: invites.id }).from(invites).where(live).for("update");
     const actorRole = await liveManagerRole(tx, actor);
     if (actorRole === null) return { outcome: "actor_inactive" };
-    if (actorRole !== "owner" && input.role === "owner") {
+    if (!mayGrantRole(actorRole, input.role)) {
       return { outcome: "owner_protected" };
     }
     const [member] = await tx
@@ -467,22 +470,26 @@ async function changeMemberRole(
     const live = (row: (typeof locked)[number]) =>
       row.membershipDisabledAt === null && row.userDisabledAt === null;
     const acting = locked.find((row) => row.userId === actor.userId);
-    if (!acting || !live(acting) || !MEMBER_MANAGERS.includes(acting.role)) {
+    if (!acting || !live(acting) || !managesMembers(acting.role)) {
       return { outcome: "actor_inactive" };
     }
     const target = locked.find((row) => row.userId === userId);
-    if (!target || target.membershipDisabledAt !== null) {
-      return { outcome: "not_found" };
-    }
-    if (
-      acting.role !== "owner" &&
-      (target.role === "owner" || input.role === "owner")
-    ) {
-      return { outcome: "owner_protected" };
-    }
+    if (!target) return { outcome: "not_found" };
     const member = memberRecord(target);
-    if (target.role === input.role) {
-      return { outcome: "changed", member };
+    const verdict = memberVerdict(
+      { userId: acting.userId, role: acting.role as MembershipRole },
+      {
+        userId: target.userId,
+        role: target.role as MembershipRole,
+        membershipDisabled: target.membershipDisabledAt !== null,
+        accountDisabled: target.userDisabledAt !== null,
+      },
+      { kind: "change_role", role: input.role },
+    );
+    if (!verdict.allowed) {
+      return verdict.reason === "unchanged"
+        ? { outcome: "unchanged", member }
+        : { outcome: verdict.reason };
     }
     const otherLiveOwners = locked.filter(
       (row) => row.role === "owner" && live(row) && row.userId !== userId,
@@ -533,6 +540,8 @@ export function createPostgresInviteStore(db: Database): InviteStore {
       const rows = await db
         .select({
           ...memberColumns,
+          membershipDisabledAt: memberships.disabledAt,
+          userDisabledAt: users.disabledAt,
           cursorAt: sql<string>`${memberships.createdAt}::text`,
         })
         .from(memberships)
@@ -565,7 +574,13 @@ export function createPostgresInviteStore(db: Database): InviteStore {
       const page = rows.slice(0, query.limit);
       const last = page[page.length - 1];
       return {
-        items: page.map(({ cursorAt: _, ...row }) => memberRecord(row)),
+        items: page.map(
+          ({ cursorAt: _, membershipDisabledAt, userDisabledAt, ...row }) => ({
+            ...memberRecord(row),
+            membershipDisabled: membershipDisabledAt !== null,
+            accountDisabled: userDisabledAt !== null,
+          }),
+        ),
         next_cursor:
           rows.length > query.limit && last
             ? encodeMemberCursor({

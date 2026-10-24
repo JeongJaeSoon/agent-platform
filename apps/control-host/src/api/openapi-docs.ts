@@ -179,6 +179,12 @@ export const ERROR_CODE_WHEN: Partial<Record<ApiErrorCode, When>> = {
   INVITE_EXPIRED:
     "The invite was revoked, replaced by a newer one, or has expired. Ask for a new invite.",
   LAST_OWNER: "The change would leave the workspace with no live owner.",
+  SELF_PROTECTED:
+    "A manager cannot change their own role or disable or enable themselves; another manager does it.",
+  MEMBER_DISABLED:
+    "The membership is disabled. Enable it before changing the role.",
+  ACCOUNT_DISABLED:
+    "The account is suspended. Lift the suspension before changing the role or enabling the membership.",
   OWNER_PROTECTED:
     "Only an owner may grant the owner role or change an owner's role or access (disable, suspend, enable).",
   SCOPE_NOT_GRANTABLE:
