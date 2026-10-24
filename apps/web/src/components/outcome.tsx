@@ -1,3 +1,5 @@
+import { Notice } from "./auth-page.tsx";
+
 /** What the last action on a screen came to, shown above its content. */
 export type Outcome =
   | { readonly kind: "notice"; readonly text: string }
@@ -10,6 +12,6 @@ export function OutcomeLine({ outcome }: { readonly outcome: Outcome | null }) {
       {outcome.text}
     </p>
   ) : (
-    <output className="web-notice">{outcome.text}</output>
+    <Notice>{outcome.text}</Notice>
   );
 }

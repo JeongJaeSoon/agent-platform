@@ -2,7 +2,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ApiError, unwrap } from "@werft-ai/client";
 import type { AgentCard, AgentDetail, AgentVersion } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
-import { Button, cn, Field, FieldLabel, Input } from "@werft-ai/ui";
+import {
+  Alert,
+  AlertActions,
+  Button,
+  Field,
+  FieldLabel,
+  Input,
+} from "@werft-ai/ui";
 import { type FormEvent, type ReactNode, useId, useState } from "react";
 import { profilesQuery, queryKeys } from "../../api/queries.ts";
 import { useRole } from "../../auth/guard.tsx";
@@ -13,7 +20,6 @@ import {
   cardFromDraft,
   draftFromCard,
 } from "../../components/agent-card-form.tsx";
-import { NOTICE } from "../../components/auth-page.tsx";
 import type { Outcome } from "../../components/outcome.tsx";
 import { useI18n } from "../../i18n/i18n.tsx";
 import { agentRefusal } from "../agents.tsx";
@@ -119,18 +125,20 @@ export function CardEditor({
       </h2>
       <p className={MUTED}>{t("agent.card.intro")}</p>
       {stale && latest ? (
-        <div className={cn(NOTICE, "flex flex-col items-start gap-2")}>
+        <Alert variant="amber">
           <output>
             {t("agent.card.stale", { version: latest.version_no })}
           </output>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => setEdit(startEdit(detail))}
-          >
-            {t("agent.card.takeLatest")}
-          </Button>
-        </div>
+          <AlertActions>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setEdit(startEdit(detail))}
+            >
+              {t("agent.card.takeLatest")}
+            </Button>
+          </AlertActions>
+        </Alert>
       ) : null}
       <form className={AGENT_FORM} onSubmit={submit}>
         <Field>

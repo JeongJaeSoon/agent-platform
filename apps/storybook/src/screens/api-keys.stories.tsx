@@ -1,5 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
   Badge,
   Button,
   EmptyState,
@@ -10,7 +13,7 @@ import {
   PageHeader,
   Skeleton,
 } from "@werft-ai/ui";
-import { CircleAlert, Clock, Copy, Info, Plus } from "lucide-react";
+import { CircleAlert, Clock, Copy, Plus } from "lucide-react";
 
 import { MOBILE, ScreenShell } from "./screen-kit.tsx";
 
@@ -308,25 +311,23 @@ function ApiKeysScreen({
           </LinkTabs>
         )}
         <Body tab={shown} list={list} />
-        <section
-          className="flex flex-col gap-3 rounded-card border bg-muted p-4 text-sm"
-          aria-label="key 종류"
-        >
-          <div className="flex items-center gap-2 font-semibold text-sm">
-            <Info aria-hidden="true" className="size-4 shrink-0" />
-            key 종류
-          </div>
-          {SCREEN[shown].kinds.map((kind) => (
-            <div key={kind} className="flex flex-col items-start gap-2">
-              <Badge variant={KIND[kind].variant}>{KIND[kind].label}</Badge>
-              <ul className="m-0 flex list-disc flex-col gap-1 pl-4">
-                {FACTS[kind].map((fact) => (
-                  <li key={fact}>{fact}</li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </section>
+        <Alert asChild aria-label="key 종류">
+          <section>
+            <AlertTitle>key 종류</AlertTitle>
+            <AlertDescription className="mt-2 flex flex-col gap-3">
+              {SCREEN[shown].kinds.map((kind) => (
+                <div key={kind} className="flex flex-col items-start gap-2">
+                  <Badge variant={KIND[kind].variant}>{KIND[kind].label}</Badge>
+                  <ul className="m-0 flex list-disc flex-col gap-1 pl-4">
+                    {FACTS[kind].map((fact) => (
+                      <li key={fact}>{fact}</li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </AlertDescription>
+          </section>
+        </Alert>
       </div>
     </ScreenShell>
   );

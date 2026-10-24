@@ -1,5 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
   Badge,
   Card,
   EmptyState,
@@ -190,30 +193,22 @@ function UsageScreen({
         <div className="flex flex-wrap gap-2">
           <PartRequest name="StatCard" />
           <PartRequest name="Meter" />
-          <PartRequest name="Banner" />
         </div>
         <div className="flex flex-col gap-4">
           {state === "ready" || state === "empty" ? (
-            <div className="flex items-start gap-2 rounded-card border bg-card px-4 py-3 text-control text-muted-foreground">
-              <Clock
-                aria-hidden="true"
-                className="mt-0.5 size-4 shrink-0"
-                strokeWidth={1.5}
-              />
-              <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                <p className="m-0 font-medium text-foreground">
-                  {scope === "installation"
-                    ? "설치 전체"
-                    : "내가 시작한 세션 기준"}{" "}
-                  · 2026-10-01 00:00 ~ 10-22 10:30 (UTC)
-                </p>
-                <p className="m-0">
-                  {scope === "installation"
-                    ? "이 기간에 시작한 모든 세션을 합산합니다. 이 범위는 설치 운영자만 볼 수 있습니다. 2026. 10. 22. 19:30에 읽은 값입니다."
-                    : "이 기간에 내가 웹이나 내 key로 시작한 세션만 셉니다. 공유받은 세션은 빠집니다. 2026. 10. 22. 19:30에 읽은 값입니다."}
-                </p>
-              </div>
-            </div>
+            <Alert icon={<Clock strokeWidth={1.5} />}>
+              <AlertTitle>
+                {scope === "installation"
+                  ? "설치 전체"
+                  : "내가 시작한 세션 기준"}{" "}
+                · 2026-10-01 00:00 ~ 10-22 10:30 (UTC)
+              </AlertTitle>
+              <AlertDescription>
+                {scope === "installation"
+                  ? "이 기간에 시작한 모든 세션을 합산합니다. 이 범위는 설치 운영자만 볼 수 있습니다. 2026. 10. 22. 19:30에 읽은 값입니다."
+                  : "이 기간에 내가 웹이나 내 key로 시작한 세션만 셉니다. 공유받은 세션은 빠집니다. 2026. 10. 22. 19:30에 읽은 값입니다."}
+              </AlertDescription>
+            </Alert>
           ) : null}
           {state === "loading" ? (
             <div

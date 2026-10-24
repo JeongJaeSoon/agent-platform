@@ -4,7 +4,7 @@ import {
   type FunnelReset,
   type FunnelRouter,
 } from "@werft-ai/react";
-import { Button } from "@werft-ai/ui";
+import { Alert, AlertActions, Button } from "@werft-ai/ui";
 import { useEffect, useState } from "react";
 import { useI18n } from "../i18n/i18n.tsx";
 
@@ -112,12 +112,14 @@ export function FunnelResetNotice({
   return (
     <div aria-live="polite">
       {ready && funnel.reset ? (
-        <div className="web-notice flex items-start justify-between gap-3">
+        <Alert variant="blue">
           <p className="m-0">{t("flow.reset")}</p>
-          <Button variant="ghost" size="sm" onClick={funnel.dismissReset}>
-            {t("flow.reset.dismiss")}
-          </Button>
-        </div>
+          <AlertActions>
+            <Button variant="ghost" size="sm" onClick={funnel.dismissReset}>
+              {t("flow.reset.dismiss")}
+            </Button>
+          </AlertActions>
+        </Alert>
       ) : null}
     </div>
   );

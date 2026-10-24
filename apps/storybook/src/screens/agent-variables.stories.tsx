@@ -1,10 +1,11 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { ApiErrorState } from "@werft-ai/react/components";
 import {
+  Alert,
+  AlertActions,
   Badge,
   Button,
   Card,
-  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
@@ -36,41 +37,6 @@ const API_CHANGE = <Badge variant="red">API 변경 필요</Badge>;
 
 type PanelState = "loading" | "error" | "none" | "ready" | "warnings";
 
-type Tone = "info" | "warning" | "danger";
-const TONE = {
-  info: { variant: "blue", label: "안내" },
-  warning: { variant: "amber", label: "주의" },
-  danger: { variant: "red", label: "오류" },
-} as const;
-
-// Stands in for the Alert part ui-kit accepted and packages/ui lacks yet.
-function AlertStandIn({
-  tone,
-  children,
-  action,
-}: {
-  readonly tone: Tone;
-  readonly children: ReactNode;
-  readonly action?: ReactNode;
-}) {
-  return (
-    <Card className="basis-full" data-tone={tone}>
-      <CardHeader>
-        <CardDescription className="flex items-start gap-2">
-          <Badge variant={TONE[tone].variant}>{TONE[tone].label}</Badge>
-          {children}
-        </CardDescription>
-        <CardAction>
-          <Badge variant="amber" data-part-request="Alert">
-            부품 요청 중: Alert
-          </Badge>
-        </CardAction>
-      </CardHeader>
-      {action ? <CardContent>{action}</CardContent> : null}
-    </Card>
-  );
-}
-
 interface Row {
   readonly name: string;
   readonly source?: "agent" | "workspace";
@@ -94,34 +60,32 @@ const WARNINGS: readonly Row[] = [
   {
     name: "DEPLOY_REGION",
     notice: (
-      <AlertStandIn tone="warning">
+      <Alert className="basis-full" variant="amber">
         워크스페이스 값이 있지만 이 에이전트에 허락되지 않았습니다. 워크스페이스
         관리자에게 요청하세요.
-      </AlertStandIn>
+      </Alert>
     ),
   },
   {
     name: "API_BASE_URL",
     notice: (
-      <AlertStandIn
-        tone="warning"
-        action={
+      <Alert className="basis-full" variant="amber">
+        값이 없습니다. 이대로면 세션이 시작되지 않습니다.
+        <AlertActions>
           <Button type="button" variant="outline" size="sm">
             에이전트 값 추가
           </Button>
-        }
-      >
-        값이 없습니다. 이대로면 세션이 시작되지 않습니다.
-      </AlertStandIn>
+        </AlertActions>
+      </Alert>
     ),
   },
   {
     name: "AP_SESSION_ID",
     notice: (
-      <AlertStandIn tone="danger">
+      <Alert className="basis-full" variant="red">
         AP_SESSION_ID은 이제 예약 이름이라 세션이 시작되지 않습니다. 카드에서
         이름을 바꾸세요.
-      </AlertStandIn>
+      </Alert>
     ),
   },
 ];
