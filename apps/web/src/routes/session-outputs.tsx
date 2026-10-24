@@ -5,7 +5,14 @@ import type {
   SessionDetail,
 } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
-import { buttonVariants, EmptyState, Link } from "@werft-ai/ui";
+import {
+  buttonVariants,
+  EmptyState,
+  Link,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@werft-ai/ui";
 import { Download } from "lucide-react";
 import { useId } from "react";
 import { LoadFailure } from "../components/load-failure.tsx";
@@ -113,18 +120,24 @@ export function SessionOutputs({
                 </span>
               </div>
               {item.omitted === null ? (
-                <Link
-                  href={`/v1/sessions/${encodeURIComponent(session.id)}/outputs/${encodeURIComponent(item.path)}`}
-                  download={name.slice(name.lastIndexOf("/") + 1)}
-                  aria-label={t("session.outputs.download", { name })}
-                  title={t("session.outputs.download", { name })}
-                  className={buttonVariants({
-                    variant: "outline",
-                    size: "icon",
-                  })}
-                >
-                  <Download className="size-3.5" aria-hidden="true" />
-                </Link>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Link
+                      href={`/v1/sessions/${encodeURIComponent(session.id)}/outputs/${encodeURIComponent(item.path)}`}
+                      download={name.slice(name.lastIndexOf("/") + 1)}
+                      aria-label={t("session.outputs.download", { name })}
+                      className={buttonVariants({
+                        variant: "outline",
+                        size: "icon",
+                      })}
+                    >
+                      <Download className="size-3.5" aria-hidden="true" />
+                    </Link>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {t("session.outputs.download", { name })}
+                  </TooltipContent>
+                </Tooltip>
               ) : null}
             </li>
           );
