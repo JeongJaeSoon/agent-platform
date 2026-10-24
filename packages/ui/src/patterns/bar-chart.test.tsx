@@ -79,15 +79,65 @@ describe("BarChart", () => {
     expect(tipText()).toBe(TIPS[15]);
     fireEvent.pointerDown(plot, { clientX: 399 });
     expect(tipText()).toBe(TIPS[29]);
-    fireEvent.pointerLeave(plot);
-    expect(
-      container
-        .querySelector("[data-slot=bar-chart-tip]")
-        ?.hasAttribute("hidden"),
-    ).toBe(true);
+    const tipBox = container.querySelector(
+      "[data-slot=bar-chart-tip]",
+    ) as HTMLElement;
+    // Onto the tip keeps it; out of the chart hides it.
+    fireEvent.pointerLeave(plot, { relatedTarget: tipBox });
+    expect(tipBox.hidden).toBe(false);
+    fireEvent.pointerLeave(
+      container.querySelector("[data-slot=bar-chart]") as HTMLElement,
+    );
+    expect(tipBox.hidden).toBe(true);
     for (const bar of getAllByRole("button").slice(1)) {
       expect(bar.className).toContain("pointer-events-none");
     }
+  });
+
+  test("Escape는 포인터나 포커스를 옮기지 않고 툴팁을 닫는다", async () => {
+    const user = await setupUser();
+    const { container, getAllByRole, getByRole } = render(<Chart />);
+    const tipBox = () =>
+      container.querySelector("[data-slot=bar-chart-tip]") as HTMLElement;
+    getByRole("button", { name: "앞" }).focus();
+    await user.tab();
+    expect(tipBox().hidden).toBe(false);
+    await user.keyboard("{Escape}");
+    expect(tipBox().hidden).toBe(true);
+    expect(document.activeElement === getAllByRole("button")[30]).toBe(true);
+  });
+
+  test("데이터가 바뀌어도 Tab 정지는 하나이고 마지막 막대다", () => {
+    const one = (data: typeof DATA) => (
+      <BarChart data={data} label="일자별 비용" formatX={day} />
+    );
+    const { getAllByRole, queryAllByRole, rerender } = render(one(DATA));
+    const stops = () =>
+      getAllByRole("button").flatMap((bar, i) =>
+        bar.tabIndex === 0 ? [i] : [],
+      );
+    rerender(one(DATA.slice(0, 7)));
+    expect(stops()).toEqual([6]);
+    rerender(one([]));
+    expect(queryAllByRole("button")).toHaveLength(0);
+    rerender(one(DATA));
+    expect(stops()).toEqual([29]);
+  });
+
+  test("기본 툴팁은 보고 안 된 날에 partialLabel을 붙인다", () => {
+    const { getAllByRole } = render(
+      <BarChart
+        data={DATA}
+        label="일자별 비용"
+        formatX={day}
+        partialLabel="보고 안 된 비용 있음"
+      />,
+    );
+    const names = getAllByRole("button").map((b) =>
+      b.getAttribute("aria-label"),
+    );
+    expect(names[12]).toBe("10/13 · 22 · 보고 안 된 비용 있음");
+    expect(names[11]).toBe("10/12 · 21");
   });
 
   test("막대의 이름은 툴팁 문장이고, 보고 안 된 날은 빗금으로 표시한다", () => {

@@ -63,14 +63,15 @@ const monthDay = (x: string) =>
 const usd = (y: number) =>
   `$${y.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+// Takes the copy, not the story context: Storybook's source snippet walks a
+// rendered element's props, and the context reaches the DOM.
 function Chart({
   data,
-  context,
+  copy,
 }: {
   readonly data: readonly BarChartDatum[];
-  readonly context: Globals;
+  readonly copy: (typeof COPY)[keyof typeof COPY];
 }) {
-  const copy = copyFor(context);
   return (
     <div className="flex flex-col gap-3">
       <BarChartLegend
@@ -104,7 +105,7 @@ const meta = {
   title: "Patterns/BarChart",
   component: BarChart,
   args: { data: DAYS, label: COPY.ko.label, formatX: monthDay },
-  render: (args, context) => <Chart data={args.data} context={context} />,
+  render: (args, context) => <Chart data={args.data} copy={copyFor(context)} />,
 } satisfies Meta<typeof BarChart>;
 
 export default meta;
