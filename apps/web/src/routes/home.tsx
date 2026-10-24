@@ -7,6 +7,7 @@ import type {
   InstallationLimitsResponse,
   ListSessionsResponse,
   SessionSummary,
+  UsageSummaryResponse,
 } from "@werft-ai/contracts";
 import {
   apiKeysQuery,
@@ -30,7 +31,7 @@ import {
   TableRow,
   Link as TextLink,
 } from "@werft-ai/ui";
-import { ArrowRight, Check, Folder, GitBranch } from "lucide-react";
+import { ArrowRight, Check, Folder, GitBranch, Inbox } from "lucide-react";
 import { type ReactNode, useEffect, useId, useState } from "react";
 import {
   administeredAgentsQuery,
@@ -39,7 +40,7 @@ import {
   linkedAccountsQuery,
   membersQuery,
 } from "../api/queries.ts";
-import { useMe, useRole } from "../auth/guard.tsx";
+import { useHasPermission, useMe, useRole } from "../auth/guard.tsx";
 import { AdministeredAgents } from "../components/agent-admins.tsx";
 import { AgentStateBadge } from "../components/agent-state.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
@@ -55,6 +56,7 @@ import {
 import { agentState } from "./agents.tsx";
 import { expiryState } from "./api-keys.tsx";
 import { loadError, NewSessionButton, useUnavailable } from "./sessions.tsx";
+import { duration, usageSummaryQuery } from "./usage.tsx";
 
 /** Done, not yet, or not knowable here (the list refused this viewer, or failed). */
 type StepState = "done" | "pending" | "unknown";
@@ -107,9 +109,9 @@ export function useNow(): number {
  * ready once one has an active release, and a session started once the
  * viewer's own session list has one.
  *
- * The overview cards follow the design canvas. A figure no API serves yet
- * (spend, run time, tokens, linked-account expiry) reads "not measured"
- * instead of a number.
+ * The overview cards follow the design canvas. The usage figures cover the
+ * last 30 UTC days; a figure no API serves yet (output storage, an agent's
+ * own counts) reads "not measured" instead of a number.
  */
 export function HomeScreen() {
   const { t, locale } = useI18n();
@@ -135,11 +137,20 @@ export function HomeScreen() {
   const agents = useQuery(agentsQuery(client));
   const sessions = useSessions();
   const waiting = useQuery(waitingSessionsQuery(client));
+  // The install's figures are the owner's alone; anyone else would get 403.
+  const operator = useHasPermission("usage.installation_read");
   const limits = useQuery({
     queryKey: ["limits"],
     queryFn: () =>
       unwrap(client.GET("/v1/limits")) as Promise<InstallationLimitsResponse>,
+    enabled: operator,
     retry: false,
+  });
+  const since = last30Days(now);
+  const myUsage = useQuery(usageSummaryQuery(client, "me", since));
+  const installUsage = useQuery({
+    ...usageSummaryQuery(client, "installation", since),
+    enabled: operator,
   });
   const keys = useQuery(apiKeysQuery(client));
   const requester = reader === "requester";
@@ -247,17 +258,31 @@ export function HomeScreen() {
   const attention =
     requests && keys.isSuccess ? requests.stale + expiring.length : null;
   const unmeasured = <Unmeasured />;
-  // The design shows the installation's figures to its owner only; a viewer
-  // the server refuses does not get the card either.
-  const installCard = isApiError(limits.error, "FORBIDDEN") ? null : (
+  const unknown = t("home.overview.unknown");
+  const number = new Intl.NumberFormat(locale);
+  // A partial sum must not pass for the whole spend.
+  const costNote = (summary: UsageSummaryResponse | undefined) =>
+    t(
+      summary && !summary.cost_complete
+        ? "home.glance.costPartial"
+        : "home.glance.estimatedCost",
+    );
+  const installSummary = installUsage.isError ? undefined : installUsage.data;
+  const mySummary = myUsage.isError ? undefined : myUsage.data;
+  const installCard = operator ? (
     <GlanceCard
       key="install"
       eyebrow={t("home.glance.installation")}
       title={t("home.glance.installationTitle")}
-      value={unmeasured}
-      note={t("home.glance.estimatedCost")}
+      value={installSummary ? `$${installSummary.cost_usd}` : unknown}
+      note={costNote(installSummary)}
       rows={[
-        { label: t("home.glance.sessions"), value: unmeasured },
+        {
+          label: t("home.glance.sessions"),
+          value: installSummary
+            ? number.format(installSummary.session_count)
+            : unknown,
+        },
         {
           label: t("home.glance.slots"),
           value: limits.data
@@ -270,14 +295,14 @@ export function HomeScreen() {
         { label: t("home.glance.outputs"), value: unmeasured },
       ]}
       footer={
-        limits.data
+        installSummary
           ? t("home.glance.refreshed", {
-              at: formatTimestamp(limits.data.refreshed_at, locale),
+              at: formatTimestamp(installSummary.refreshed_at, locale),
             })
           : null
       }
     />
-  );
+  ) : null;
   const oversightCard = (
     <GlanceCard
       key="oversight"
@@ -361,14 +386,29 @@ export function HomeScreen() {
       key="mine"
       eyebrow={t("home.glance.mine")}
       title={t("home.glance.mineTitle")}
-      value={unmeasured}
-      note={t("home.glance.estimatedCost")}
+      value={mySummary ? `$${mySummary.cost_usd}` : unknown}
+      note={costNote(mySummary)}
       rows={[
-        // No list says who started a session yet, so even the count waits.
-        { label: t("home.glance.sessions"), value: unmeasured },
-        { label: t("home.glance.runTime"), value: unmeasured },
-        { label: t("home.glance.tokens"), value: unmeasured },
+        {
+          label: t("home.glance.sessions"),
+          value: mySummary ? number.format(mySummary.session_count) : unknown,
+        },
+        {
+          label: t("home.glance.runTime"),
+          value: mySummary ? duration(mySummary.run_seconds, t) : unknown,
+        },
+        {
+          label: t("home.glance.tokens"),
+          value: mySummary ? number.format(mySummary.token_count) : unknown,
+        },
       ]}
+      footer={
+        mySummary
+          ? t("home.glance.refreshed", {
+              at: formatTimestamp(mySummary.refreshed_at, locale),
+            })
+          : null
+      }
     />
   );
   // A failed refetch keeps the old page; added to fresh ones it would count a
@@ -502,7 +542,15 @@ export function HomeScreen() {
     >
       {allDone ? null : checklist}
       <ApprovalInbox
-        layout="row"
+        layout="summary"
+        title={t("home.requests.title")}
+        action={
+          <ArrowLink to="/sessions" search={{ status: "needs_input" }}>
+            {t("home.requests.all")}
+          </ArrowLink>
+        }
+        empty={<NoRequests />}
+        now={now}
         loading={<StatusScreen kind="loading" />}
         renderError={loadError}
         unavailable={unavailable}
@@ -511,10 +559,9 @@ export function HomeScreen() {
       <HomeSection
         title={t("home.overview.title")}
         action={
-          // The design's "last 30 days" basis waits for a usage period (94S-814).
-          reader === "owner" ? (
+          cards ? (
             <p className="m-0 text-caption text-muted-foreground">
-              {t("home.overview.ownerBasis")}
+              {t("home.overview.basis")}
             </p>
           ) : undefined
         }
@@ -623,6 +670,13 @@ function pageCount(page: ListSessionsResponse | undefined): string {
 }
 
 /** A first page that has more reads as "at least". */
+/** The UTC day 30 days back: one query key a whole day, not each render. */
+function last30Days(now: number): string {
+  const day = new Date(now);
+  day.setUTCDate(day.getUTCDate() - 30);
+  return day.toISOString().slice(0, 10);
+}
+
 function count(items: number, more: boolean) {
   return more ? `${items}+` : String(items);
 }
@@ -695,9 +749,11 @@ function HomeSection({
 
 function ArrowLink({
   to,
+  search,
   children,
 }: {
   readonly to: "/sessions" | "/settings/linked-accounts";
+  readonly search?: { readonly status: "needs_input" };
   readonly children: ReactNode;
 }) {
   return (
@@ -705,11 +761,27 @@ function ArrowLink({
       asChild
       className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-(color:--ap-color-link) text-control"
     >
-      <Link to={to}>
+      <Link to={to} {...(search ? { search } : {})}>
         {children}
         <ArrowRight className="size-3.5" aria-hidden="true" />
       </Link>
     </TextLink>
+  );
+}
+
+/** The design's empty inbox: what will show up here, and when. */
+function NoRequests() {
+  const { t } = useI18n();
+  return (
+    <div className="flex flex-col items-center gap-2 rounded-card border bg-card px-4 py-6 text-center text-control text-muted-foreground">
+      <span className="mb-1 grid size-10 place-items-center rounded-[8px] border bg-(--ap-color-surface-sunken) text-subtle-foreground">
+        <Inbox className="size-4" strokeWidth={1.5} aria-hidden="true" />
+      </span>
+      <p className="m-0 font-semibold text-body text-foreground">
+        {t("home.requests.empty")}
+      </p>
+      <p className="m-0">{t("home.requests.emptyHint")}</p>
+    </div>
   );
 }
 

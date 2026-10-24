@@ -1,5 +1,5 @@
 {
-  "id": "d67dbfcf-0e5b-4b12-b490-e0d16d975e4f",
+  "id": "57d47695-37df-457a-bc18-84e501f562ec",
   "prevId": "f21d3b42-173c-4611-93b0-dcdab366e733",
   "version": "7",
   "dialect": "postgresql",
@@ -1231,6 +1231,12 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
+        },
+        "model": {
+          "name": "model",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -1612,6 +1618,12 @@
         },
         "profile_fingerprint": {
           "name": "profile_fingerprint",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "model": {
+          "name": "model",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -4988,6 +5000,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "model": {
+          "name": "model",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "unmetered": {
           "name": "unmetered",
           "type": "boolean",
@@ -5740,85 +5758,9 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
-        },
-        "conversation_key": {
-          "name": "conversation_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "claim_token": {
-          "name": "claim_token",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "lease_expires_at": {
-          "name": "lease_expires_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "attempts": {
-          "name": "attempts",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "next_attempt_at": {
-          "name": "next_attempt_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
         }
       },
-      "indexes": {
-        "slack_inbound_events_due_idx": {
-          "name": "slack_inbound_events_due_idx",
-          "columns": [
-            {
-              "expression": "next_attempt_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"slack_inbound_events\".\"status\" = 'received'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "slack_inbound_events_conversation_idx": {
-          "name": "slack_inbound_events_conversation_idx",
-          "columns": [
-            {
-              "expression": "conversation_key",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "event_time",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "received_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"slack_inbound_events\".\"status\" = 'received'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
+      "indexes": {},
       "foreignKeys": {
         "slack_inbound_events_workspace_id_workspaces_id_fk": {
           "name": "slack_inbound_events_workspace_id_workspaces_id_fk",
@@ -5850,17 +5792,17 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
-        "slack_inbound_events_app_event_key": {
-          "name": "slack_inbound_events_app_event_key",
+        "slack_inbound_events_team_event_key": {
+          "name": "slack_inbound_events_team_event_key",
           "nullsNotDistinct": false,
-          "columns": ["app_id", "event_id"]
+          "columns": ["team_id", "event_id"]
         }
       },
       "policies": {},
       "checkConstraints": {
         "slack_inbound_events_status_check": {
           "name": "slack_inbound_events_status_check",
-          "value": "\"slack_inbound_events\".\"status\" IN ('received','dropped','processed','failed')"
+          "value": "\"slack_inbound_events\".\"status\" IN ('received','dropped','processed')"
         },
         "slack_inbound_events_drop_reason_check": {
           "name": "slack_inbound_events_drop_reason_check",
@@ -5869,14 +5811,6 @@
         "slack_inbound_events_dropped_check": {
           "name": "slack_inbound_events_dropped_check",
           "value": "(\"slack_inbound_events\".\"status\" = 'dropped') = (\"slack_inbound_events\".\"drop_reason\" IS NOT NULL) AND (\"slack_inbound_events\".\"status\" = 'dropped') = (\"slack_inbound_events\".\"payload\" IS NULL)"
-        },
-        "slack_inbound_events_conversation_check": {
-          "name": "slack_inbound_events_conversation_check",
-          "value": "\"slack_inbound_events\".\"status\" <> 'dropped' OR \"slack_inbound_events\".\"conversation_key\" IS NULL"
-        },
-        "slack_inbound_events_claim_check": {
-          "name": "slack_inbound_events_claim_check",
-          "value": "(\"slack_inbound_events\".\"claim_token\" IS NULL) = (\"slack_inbound_events\".\"lease_expires_at\" IS NULL) AND (\"slack_inbound_events\".\"status\" = 'received' OR \"slack_inbound_events\".\"claim_token\" IS NULL)"
         }
       },
       "isRLSEnabled": false

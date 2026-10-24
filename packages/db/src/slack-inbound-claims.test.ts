@@ -409,7 +409,7 @@ describe("claiming the Slack inbox", () => {
   });
 });
 
-describe("migration 0159 over 0158 rows", () => {
+describe("migration 0160 over 0159 rows", () => {
   test("keeps them, keys the received ones, and swaps the unique key", async () => {
     const pg = new PGlite();
     try {
@@ -422,7 +422,7 @@ describe("migration 0159 over 0158 rows", () => {
           if (statement.trim().length > 0) await pg.exec(statement);
         }
       };
-      const target = files.findIndex((name) => name.startsWith("0159_"));
+      const target = files.findIndex((name) => name.startsWith("0160_"));
       expect(target).toBeGreaterThan(0);
       for (const file of files.slice(0, target)) await apply(file);
 

@@ -17,7 +17,7 @@ The web console of the local stack is at `http://127.0.0.1:3000/`.
 2. After logging in, open "Agents" in the left sidebar and click "New" at the top right. The "New agent" screen opens with four steps: Name → What it does → Release → Turn on.
 3. In the "Name" step, enter a name. The identifier (slug) is filled in from the name, and you can change it. Click "Next".
 4. In the "What it does" step, enter the role, instructions, reply language, model, tools it may use, and blocked tools, then click "Save draft and continue". The agent is saved as a draft and version 1 is created.
-5. In the "Release" step, choose a run profile and click "Create release". The profile must use the same model as the card.
+5. In the "Release" step, choose a run profile and click "Create release". The card's model must be one the profile can run.
 6. In the "Turn on" step, click "Turn the agent on". New sessions now start with this release. "Do this later" leaves the agent as a draft and opens its detail screen.
 
 Owners, admins, and members can all create agents, and the person who creates one becomes that agent's administrator.
@@ -73,7 +73,7 @@ If the same workspace already has the same slug, the response is 409 `ALREADY_EX
 
 ### Create a release
 
-A release binds one version to one run profile. If the card's `model` differs from the profile's model, or the card has a tool the profile does not have, the response is 422.
+A release binds one version to one run profile. If the card's `model` is not one the profile can run (its `model` or `models`), or the card has a tool the profile does not have, the response is 422. A session created with the release runs the card's model unless it names another.
 
 ```bash
 release=$(curl -sS "$API/v1/agents/$AID/releases" "${WEB[@]}" \

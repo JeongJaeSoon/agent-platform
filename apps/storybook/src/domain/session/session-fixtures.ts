@@ -185,6 +185,7 @@ export const SESSION: SessionSummary = {
     model: "claude-sonnet-4-5",
     permission_mode: "default",
   },
+  model: "claude-sonnet-4-5",
   repository_id: "agent-platform",
   repository: {
     id: "agent-platform",

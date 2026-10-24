@@ -28,9 +28,64 @@ describe("Stepper", () => {
     ]);
     const current = [...document.querySelectorAll('[aria-current="step"]')];
     expect(current.map((node) => node.textContent)).toEqual(["2모델"]);
-    expect(items[0]?.textContent).toContain("완료");
+    // The word is on screen now, not only for screen readers.
+    const done = items[0]?.querySelector('[data-slot="stepper-step-status"]');
+    expect(done?.textContent).toBe(", 완료");
+    expect(done?.getAttribute("aria-hidden")).toBeNull();
+    expect(done?.closest(".sr-only")).toBeNull();
     // Display only: nothing to tab to.
     expect(document.querySelectorAll("button")).toHaveLength(0);
+  });
+
+  test("status 글자를 이름 뒤에 보이고, 끝난 단계는 completedLabel이 앞선다", () => {
+    const { getAllByRole } = render(
+      <Stepper
+        label="만들기 단계"
+        completedLabel="done"
+        steps={[
+          { id: "a", label: "이름", status: "선택" },
+          { id: "b", label: "Slack 연결", status: "선택" },
+          { id: "c", label: "켜기" },
+        ]}
+        currentStepId="b"
+      />,
+    );
+    const statuses = getAllByRole("listitem").map((item) => {
+      const node = item.querySelector('[data-slot="stepper-step-status"]');
+      return [node?.textContent, node?.getAttribute("aria-hidden")];
+    });
+    expect(statuses).toEqual([
+      [", done", null],
+      [", 선택", null],
+      // A step without a status keeps an empty line that readers skip.
+      ["", "true"],
+    ]);
+    // Name first, then status, in reading order.
+    const first = getAllByRole("listitem")[0];
+    expect(first?.textContent).toBe("1이름, done");
+  });
+
+  test("연결선은 마지막 단계 뒤에 없고 끝난 구간만 success 색이다", () => {
+    render(<Stepper label="만들기 단계" steps={STEPS} currentStepId="tools" />);
+    const lines = [
+      ...document.querySelectorAll('[data-slot="stepper-connector"]'),
+    ];
+    expect(lines).toHaveLength(3);
+    expect(lines.every((line) => line.getAttribute("aria-hidden"))).toBe(true);
+    expect(
+      lines.map((line) => line.className.includes("--ap-tone-success-border")),
+    ).toEqual([true, true, false]);
+  });
+
+  test("끝난 단계 원에 기호 없이 번호가 남는다", () => {
+    render(
+      <Stepper label="만들기 단계" steps={STEPS} currentStepId="review" />,
+    );
+    const circles = [
+      ...document.querySelectorAll("li > div > span:first-child"),
+    ].map((node) => node.textContent);
+    expect(circles).toEqual(["1", "2", "3", "4"]);
+    expect(document.querySelector("svg")).toBeNull();
   });
 
   test("Tab은 현재 단계에 서고 화살표·Home·End가 고를 수 있는 단계 사이를 돈다", async () => {

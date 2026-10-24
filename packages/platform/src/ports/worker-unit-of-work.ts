@@ -52,8 +52,9 @@ export type WorkerBinding = {
   // arrived; what the worker tracks, on its own monotonic clock.
   leaseRemainingMs: number;
   profileId: string | null;
-  // Pins which of the profile's models the session runs.
+  // With `model`, pins what the session runs (catalog.ts sessionProfile).
   profileFingerprint: string | null;
+  model: string | null;
   // The session's profile declared `billing: none` when it was accepted.
   unmetered: boolean;
   // The session's owner partition, straight from the row; the claim hands
@@ -69,6 +70,7 @@ export type WorkerBinding = {
   restoreProfiles: ReadonlyArray<{
     profileId: string;
     profileFingerprint: string;
+    model: string | null;
   }>;
   // What the session had spent when bound, read under the claim's row lock.
   costUsd: number;
@@ -84,10 +86,12 @@ export type WorkerBinding = {
 // another URL must not carry the old grant to the new one, and a profile id
 // whose settings changed must not run a session created under the old ones
 // its fingerprint here must equal the one the session was
-// accepted with.
+// accepted with, and its model the session's unless null (a version 1
+// fingerprint names its model itself).
 export type RepositoryPair = {
   profileId: string;
   profileFingerprint: string;
+  model: string | null;
   repositoryId: string;
   url: string;
   branch: string;
@@ -101,6 +105,7 @@ export type RunnablePair =
   | {
       profileId: string;
       profileFingerprint: string;
+      model: string | null;
       repositoryId: null;
     };
 
@@ -145,6 +150,7 @@ export type EgressIssue = {
     id: string;
     profileId: string | null;
     profileFingerprint: string | null;
+    model: string | null;
     repositoryMode: "repository" | "none";
     repositoryId: string | null;
     mcp?: SessionMcp | null;

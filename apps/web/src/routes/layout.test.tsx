@@ -23,6 +23,7 @@ const waiting = (id: string) => ({
   repository_id: "demo",
   current_turn_id: "1",
   queued_turn_count: 0,
+  model: "model-default",
   last_event_at: AT,
   created_at: AT,
   updated_at: AT,
@@ -50,7 +51,7 @@ describe("app shell", () => {
       ),
     ).toEqual([
       ["홈", "세션", "에이전트"],
-      ["구성원", "팀", "워크스페이스 설정"],
+      ["구성원", "워크스페이스 설정"],
       ["연동 계정", "내 key", "언어·테마"],
     ]);
     expect(groups[0]?.getAttribute("aria-labelledby")).toBeTruthy();
@@ -60,8 +61,9 @@ describe("app shell", () => {
   test("a member is not offered the screens that need management rights", async () => {
     renderAt("/", { "GET /v1/auth/me": () => json(200, memberMe()) });
     const nav = await screen.findByRole("navigation", { name: "주요 메뉴" });
-    await within(nav).findByRole("link", { name: "팀" });
-    expect(within(nav).queryByRole("link", { name: "구성원" })).toBeNull();
+    // 구성원 holds the teams a member is in, so everyone has it.
+    await within(nav).findByRole("link", { name: "구성원" });
+    expect(within(nav).queryByRole("link", { name: "팀" })).toBeNull();
     expect(
       within(nav).queryByRole("link", { name: "워크스페이스 설정" }),
     ).toBeNull();
@@ -321,7 +323,7 @@ describe("app shell", () => {
     expect(document.activeElement === trigger).toBe(true);
 
     await user.click(trigger);
-    await user.click(screen.getByRole("link", { name: "팀" }));
+    await user.click(screen.getByRole("link", { name: "구성원" }));
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
   });
 
@@ -344,7 +346,7 @@ describe("app shell", () => {
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
     expect(sidebar?.dataset.open).toBe("true");
     await user.click(
-      within(sidebar as HTMLElement).getByRole("link", { name: "팀" }),
+      within(sidebar as HTMLElement).getByRole("link", { name: "구성원" }),
     );
     expect(sidebar?.dataset.open).toBe("false");
     expect(

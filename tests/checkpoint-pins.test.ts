@@ -712,6 +712,7 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
     );
   const sessionOf = async (overrides: {
     branch?: string;
+    model?: string | null;
     profileFingerprint?: string | null;
     profileId?: string | null;
     repositoryId?: string | null;
@@ -719,12 +720,12 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
     const resolved = await catalog();
     const repository = resolved.repositories[REPOSITORY_ID];
     if (repository === undefined) throw new Error("no sample repository");
+    const profile = resolved.profiles[PROFILE_ID] as CatalogProfile;
     return {
       branch: repository.branch,
+      model: profile.model,
       ownerId: "owner-a",
-      profileFingerprint: profileFingerprint(
-        resolved.profiles[PROFILE_ID] as CatalogProfile,
-      ),
+      profileFingerprint: profileFingerprint(profile),
       profileId: PROFILE_ID,
       repoUrl: repository.url,
       repositoryId: REPOSITORY_ID,
@@ -820,6 +821,7 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
         await sessionOf({
           profileId: "switch-haiku",
           profileFingerprint: profileFingerprint(switchedProfile),
+          model: switchedProfile.model,
         }),
         switchedCatalog,
       ),
@@ -868,6 +870,7 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
       profileFingerprint: profileFingerprint(
         switched.profiles[id] as CatalogProfile,
       ),
+      model: (switched.profiles[id] as CatalogProfile).model,
     });
     const session = {
       id: "s1",
@@ -889,8 +892,12 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
       earlierProfileClaims(
         session,
         [
-          { profileId: PROFILE_ID, profileFingerprint: "sha256:other" },
-          { profileId: "gone", profileFingerprint: "sha256:x" },
+          {
+            profileId: PROFILE_ID,
+            profileFingerprint: "sha256:other",
+            model: null,
+          },
+          { profileId: "gone", profileFingerprint: "sha256:x", model: null },
         ],
         switched,
       ),
@@ -916,6 +923,7 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
         {
           profileId: PROFILE_ID,
           profileFingerprint: profileFingerprint(onLong),
+          model: "model-long",
         },
       ],
       offering,
@@ -1008,6 +1016,7 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
     };
     const session = {
       branch: null,
+      model: general.model,
       ownerId: "owner-a",
       profileFingerprint: profileFingerprint(general),
       profileId: "general",
@@ -1028,6 +1037,7 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
         {
           profileId: "general",
           profileFingerprint: profileFingerprint(general),
+          model: general.model,
         },
       ],
       withGeneral,

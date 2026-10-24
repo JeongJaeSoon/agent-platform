@@ -134,6 +134,7 @@ function summary(id: string, overrides: Partial<SessionSummary> = {}) {
     repository_id: "demo",
     current_turn_id: "1",
     queued_turn_count: 0,
+    model: "model-default",
     last_event_at: AT,
     created_at: AT,
     updated_at: AT,
@@ -2090,5 +2091,78 @@ describe("세션 상세 레이아웃", () => {
     } finally {
       globalThis.ResizeObserver = original;
     }
+  });
+});
+
+describe("세션 상세 머리 경로", () => {
+  const trail = async () => {
+    const [header] = await screen.findAllByRole("banner");
+    return within(header as HTMLElement);
+  };
+
+  test("세션 목록으로 가는 링크 다음에 세션 제목이 온다", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () =>
+        json(200, { ...detail, title: "결제 오류 고치기" }),
+    });
+    const bar = await trail();
+    expect(await bar.findByText("결제 오류 고치기")).toBeTruthy();
+    expect(bar.getByRole("link", { name: "세션" }).getAttribute("href")).toBe(
+      "/sessions",
+    );
+  });
+
+  test("주소 끝에 /가 붙어도 세션 제목을 보인다", async () => {
+    renderAt(`/sessions/${SESSION_ID}/`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () =>
+        json(200, { ...detail, title: "결제 오류 고치기" }),
+    });
+    const bar = await trail();
+    expect(await bar.findByText("결제 오류 고치기")).toBeTruthy();
+  });
+
+  test("제목이 없으면 머리글처럼 짧은 id를 보인다", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
+    const bar = await trail();
+    expect(await bar.findByText(SESSION_ID.slice(0, 8))).toBeTruthy();
+  });
+
+  test("열어 둔 세션을 다시 불러오다 실패하면 예전 제목을 지운다", async () => {
+    let visible = true;
+    const { services } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () =>
+        visible
+          ? json(200, { ...detail, title: "결제 오류 고치기" })
+          : apiError(404, "NOT_FOUND", "Resource not found"),
+    });
+    const bar = await trail();
+    expect(await bar.findByText("결제 오류 고치기")).toBeTruthy();
+
+    visible = false;
+    await act(() =>
+      services.queryClient.refetchQueries({
+        queryKey: ["sessions", SESSION_ID],
+        exact: true,
+      }),
+    );
+    expect(await screen.findByText(/이 세션을 찾을 수 없습니다/)).toBeTruthy();
+    expect(bar.queryByText("결제 오류 고치기")).toBeNull();
+    expect(bar.queryByRole("link")).toBeNull();
+  });
+
+  test("세션을 불러오지 못하면 빈 이름 앞에 구분선을 남기지 않고 항목 이름만 둔다", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () =>
+        apiError(404, "NOT_FOUND", "no such session"),
+    });
+    expect(await screen.findByText(/이 세션을 찾을 수 없습니다/)).toBeTruthy();
+    const bar = await trail();
+    expect(bar.queryByRole("link")).toBeNull();
+    expect(bar.getByText("세션")).toBeTruthy();
+    expect(bar.queryByText("/")).toBeNull();
   });
 });

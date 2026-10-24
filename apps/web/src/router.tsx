@@ -50,6 +50,7 @@ import {
   sessionsSearch,
 } from "./routes/sessions.tsx";
 import { TeamDetailScreen, TeamsScreen } from "./routes/teams.tsx";
+import { UsageScreen } from "./routes/usage.tsx";
 import { WorkspaceSettingsScreen } from "./routes/workspace-settings.tsx";
 import type { Services } from "./services.tsx";
 
@@ -242,6 +243,12 @@ const workspaceSettings = createRoute({
   component: WorkspaceSettingsScreen,
 });
 
+const usage = createRoute({
+  getParentRoute: () => authed,
+  path: "/usage",
+  component: UsageScreen,
+});
+
 const agents = createRoute({
   getParentRoute: () => authed,
   path: "/agents",
@@ -285,6 +292,7 @@ const routeTree = root.addChildren([
     newServiceKey,
     preferences,
     workspaceSettings,
+    usage,
   ]),
 ]);
 

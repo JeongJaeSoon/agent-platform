@@ -852,6 +852,11 @@ export const sessions = pgTable(
     // hashes to it. Null on rows from before it, pinned by their
     // next claim.
     profileFingerprint: text("profile_fingerprint"),
+    // The model the session runs, one the profile offers. What a version 2
+    // fingerprint pins it to alongside; a version 1 fingerprint names the
+    // model itself, and the API backfills this from it at start. Null where
+    // neither says.
+    model: text(),
     // The profile declared `billing: none` when the session was accepted.
     // Fixed on the row, not read from each API's catalog: during a rollout
     // a replica that does not know the profile must not price its calls.
@@ -1482,6 +1487,8 @@ export const checkpoints = pgTable(
     // is checked against it. Null on rows from before the column.
     profileId: text("profile_id"),
     profileFingerprint: text("profile_fingerprint"),
+    // The attempt's model; null where the fingerprint names it (version 1).
+    model: text(),
   },
   (table) => [primaryKey({ columns: [table.sessionId, table.revision] })],
 );
@@ -1544,6 +1551,9 @@ export const attempts = pgTable(
     // next claim; null on rows from before the column.
     profileId: text("profile_id"),
     profileFingerprint: text("profile_fingerprint"),
+    // The session's model when this attempt claimed it; null where the
+    // fingerprint names it (version 1).
+    model: text(),
   },
   (table) => [
     index("attempts_session_started_idx").on(table.sessionId, table.startedAt),

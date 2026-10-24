@@ -566,6 +566,7 @@ integration("sessions API on PostgreSQL", () => {
         model: "claude-sonnet-5",
         permission_mode: "default",
       },
+      model: "claude-sonnet-5",
       repository_id: "sample-app",
       current_turn_id: null,
       queued_turn_count: 1,
