@@ -512,7 +512,10 @@ describe("PATCH /v1/members/{user_id}", () => {
     const response = await patch(
       app(store(), {
         roles: roleStore({
-          changeMemberRole: async () => ({ outcome: "unchanged", member: MEMBER }),
+          changeMemberRole: async () => ({
+            outcome: "unchanged",
+            member: MEMBER,
+          }),
         }),
       }),
       { role: "member" },

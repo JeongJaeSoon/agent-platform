@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { SessionStatus } from "@werft-ai/contracts";
 import type {
-  MembershipRole,
   MemberStore,
+  MembershipRole,
   SetAccessResult,
   TakeOverResult,
   TakeoverRecord,
@@ -246,7 +246,9 @@ async function setAccess(
           row.role === "owner" && managing.get(row.workspaceId) !== "owner",
       );
       if (outranked) return { outcome: "outranked" };
-      const reached = touched.filter((row) => row.membershipDisabledAt === null);
+      const reached = touched.filter(
+        (row) => row.membershipDisabledAt === null,
+      );
       current = accounts.find((row) => row.id === userId)?.disabledAt ?? null;
       const elsewhere = reached.some((row) => !managing.has(row.workspaceId));
       if (elsewhere) return { outcome: "elsewhere" };

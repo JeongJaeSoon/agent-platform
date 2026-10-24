@@ -13,7 +13,9 @@ const OTHER = "019a0000-0000-7000-8000-0000000000b1";
 
 function target(
   role: WorkspaceRole,
-  off: Partial<Pick<MemberTarget, "membershipDisabled" | "accountDisabled">> = {},
+  off: Partial<
+    Pick<MemberTarget, "membershipDisabled" | "accountDisabled">
+  > = {},
 ): MemberTarget {
   return {
     userId: OTHER,
