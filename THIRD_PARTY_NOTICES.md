@@ -157,7 +157,7 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | ajv-formats | 3.0.1 | MIT | worker |
 | aria-hidden | 1.2.6 | MIT | worker |
 | before-after-hook | 4.0.0 | Apache-2.0 | control-host, worker |
-| body-parser | 2.3.0 | MIT | worker |
+| body-parser | 2.4.0 | MIT | worker |
 | bottleneck | 2.19.5 | MIT | control-host, worker |
 | bowser | 2.14.1 | MIT | control-host, worker |
 | bun-types | 1.3.14 | MIT | control-host, worker |
@@ -250,7 +250,7 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | postgres-date | 1.0.7 | MIT | control-host, worker |
 | postgres-interval | 1.2.0 | MIT | control-host, worker |
 | proxy-addr | 2.0.8 | MIT | worker |
-| qs | 6.16.0 | BSD-3-Clause | worker |
+| qs | 6.16.1 | BSD-3-Clause | worker |
 | range-parser | 1.3.0 | MIT | worker |
 | raw-body | 3.0.2 | MIT | worker |
 | react | 19.3.0 | MIT | worker |
@@ -291,7 +291,7 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | wrappy | 1.0.2 | ISC | worker |
 | xtend | 4.0.2 | MIT | control-host, worker |
 | yaml | 2.9.1 | ISC | control-host, worker |
-| zod | 4.6.5 | MIT | control-host, worker |
+| zod | 4.6.7 | MIT | control-host, worker |
 | zod-to-json-schema | 3.25.2 | ISC | worker |
 
 ## 라이선스 파일이 없는 npm 패키지

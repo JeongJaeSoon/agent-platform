@@ -77,18 +77,20 @@ describe("LinkTabs", () => {
     expect(current[0]?.getAttribute("href")).toBe("?status=running");
   });
 
-  test("개수는 이름 뒤에 읽히고 0도 그리며 없으면 배지가 없다", () => {
+  test("개수는 이름 뒤에 읽히고 0도 그리며 없으면 개수가 없다", () => {
     const { getByRole } = render(statusTabs(""));
     expect(getByRole("link", { name: "전체 12" })).toBeTruthy();
-    // Browsers join an inline badge to the label without a space; Testing
+    // Browsers join an inline count to the label without a space; Testing
     // Library's name computation adds one, so the text is checked too.
     expect(getByRole("link", { name: "실행 중 3" }).textContent).toBe(
       "실행 중 3",
     );
     const zero = getByRole("link", { name: "답변 대기 0" });
-    expect(zero.querySelector('[data-slot="badge"]')?.textContent).toBe("0");
+    expect(zero.querySelector('[data-slot="item-count"]')?.textContent).toBe(
+      "0",
+    );
     const none = getByRole("link", { name: "끝남" });
-    expect(none.querySelector('[data-slot="badge"]')).toBeNull();
+    expect(none.querySelector('[data-slot="item-count"]')).toBeNull();
   });
 
   test("큰 수도 그대로 그린다", () => {
@@ -100,7 +102,7 @@ describe("LinkTabs", () => {
       </LinkTabs>,
     );
     const link = getByRole("link", { name: "전체 123456" });
-    expect(link.querySelector('[data-slot="badge"]')?.textContent).toBe(
+    expect(link.querySelector('[data-slot="item-count"]')?.textContent).toBe(
       "123456",
     );
   });
@@ -114,9 +116,9 @@ describe("LinkTabs", () => {
       </LinkTabs>,
     );
     const link = getByRole("link", { name: "실행 중 3개 실행 중" });
-    const badge = link.querySelector('[data-slot="badge"]');
-    expect(badge?.getAttribute("aria-hidden")).toBe("true");
-    expect(badge?.textContent).toBe("3");
+    const number = link.querySelector('[data-slot="item-count"]');
+    expect(number?.getAttribute("aria-hidden")).toBe("true");
+    expect(number?.textContent).toBe("3");
   });
 
   test("asChild는 넘긴 라우터 링크를 그 자리에 그리고 href·onClick·모양을 지킨다", async () => {
@@ -144,7 +146,7 @@ describe("LinkTabs", () => {
     expect(link.getAttribute("data-slot")).toBe("link-tab");
     const classes = link.className.split(" ");
     expect(classes).toContain("router-link");
-    expect(classes).toContain("border-b-2");
+    expect(classes).toContain("after:inset-x-2");
     await (await setupUser()).click(link);
     expect(onClick).toHaveBeenCalledTimes(1);
     const other = getByRole("link", { name: "서비스 키" });
@@ -198,35 +200,39 @@ describe("LinkTabs", () => {
     expect(marked(render(tabs(true)).container)).toEqual(["서비스 key"]);
   });
 
-  test("KeyScreenNav와 같은 치수 클래스와 focus-visible 윤곽을 쓴다", () => {
+  test("Tabs line과 같은 v4 치수 클래스와 focus-visible 윤곽을 쓴다", () => {
     const { getByRole } = render(statusTabs("running"));
     const list = getByRole("list").className.split(" ");
-    expect(list).toContain("gap-6");
+    expect(list).toContain("gap-1");
     expect(list).toContain("border-b");
     const classes = getByRole("link", { name: "실행 중 3" }).className.split(
       " ",
     );
     for (const name of [
-      "-mb-px",
-      "border-b-2",
-      "border-transparent",
-      "py-2",
+      "h-9",
+      "px-2",
+      "gap-2",
+      "font-medium",
       "text-control",
       "text-muted-foreground",
       "no-underline!",
       "hover:text-foreground",
-      "aria-[current=page]:border-foreground",
-      "aria-[current=page]:font-semibold",
       "aria-[current=page]:text-foreground",
+      "after:inset-x-2",
+      "after:bottom-[-1px]",
+      "after:h-0.5",
+      "after:rounded-[1px]",
+      "aria-[current=page]:after:opacity-100",
       "focus-visible:outline-2",
       "focus-visible:outline-offset-2",
       "focus-visible:outline-focus-ring",
     ]) {
       expect(classes).toContain(name);
     }
-    // Link's own colour and weight would change the tab's look.
+    // Link's own colour would change the tab's look, and v4 keeps one weight
+    // for the current tab and the rest.
     expect(classes).not.toContain("text-link");
-    expect(classes).not.toContain("font-medium");
+    expect(classes.some((name) => name.includes("font-semibold"))).toBe(false);
     // Room for the outline inside the scroll clip, but no negative right
     // margin: that would widen the page past a parent with no padding.
     const nav = getByRole("navigation").className.split(" ");

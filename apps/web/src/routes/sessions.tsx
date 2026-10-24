@@ -1,5 +1,7 @@
 import {
   hashKey,
+  type InfiniteData,
+  type UseInfiniteQueryResult,
   useInfiniteQuery,
   useQueryClient,
 } from "@tanstack/react-query";
@@ -12,35 +14,31 @@ import {
 import { isApiError, unwrap } from "@werft-ai/client";
 import type { ListSessionsResponse, SessionStatus } from "@werft-ai/contracts";
 import { queryKeys } from "@werft-ai/core";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useAgentPlatform, useSessions } from "@werft-ai/react";
 import {
   ApprovalInbox,
   type SessionActionProps,
   SessionDetail,
-  SessionList,
 } from "@werft-ai/react/blocks";
-import {
-  SessionRow,
-  type SessionRowMessages,
-  SessionTable,
-} from "@werft-ai/react/components";
 import {
   Button,
   buttonVariants,
   EmptyState,
+  Input,
   Tabs,
   TabsContent,
   TabsList,
   TabsTrigger,
 } from "@werft-ai/ui";
-import { ArrowLeft, Plus } from "lucide-react";
-import { useEffect } from "react";
+import { ArrowLeft, Plus, Search } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { ReasonButton, useCan } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { Page } from "../components/page.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
 import { SessionOutputs, SessionOutputsCount } from "./session-outputs.tsx";
+import { matchesSessionQuery, SessionsOverview } from "./session-overview.tsx";
 
 export function loadError(error: unknown, onRetry: () => void) {
   if (isApiError(error, "FORBIDDEN")) {
@@ -78,8 +76,9 @@ export function NewSessionButton() {
   const { t } = useI18n();
   return (
     // Narrow screens wrap the reason under the button, so the title keeps
-    // the width of the row.
-    <div className="max-sm:w-min">
+    // the width of the row. The button keeps its own width (console v4
+    // .btn) rather than stretching to the reason's.
+    <div className="max-sm:w-min [&_.web-guarded]:items-end [&_.web-guarded__reason]:text-right">
       <ReasonButton
         className={buttonVariants()}
         reason={t("sessionList.newUnavailable")}
@@ -99,6 +98,22 @@ export function SessionsScreen() {
   const tab =
     sessionsSearch(useSearch({ from: "/authed/sessions" })).status ?? "all";
   const navigate = useNavigate({ from: "/sessions" });
+  const [query, setQuery] = useState("");
+  const search = useRef<HTMLInputElement>(null);
+  const pick = (next: string) =>
+    void navigate({
+      search: next === "all" ? {} : { status: next as SessionFilter },
+      // Replace, not push, as on the agent tabs: arrowing across the tabs
+      // would otherwise fill the back button with tab entries.
+      replace: true,
+    });
+  // The clear button leaves with the empty state, so focus would fall to
+  // the page; it goes back to the search box instead.
+  const clear = () => {
+    setQuery("");
+    pick("all");
+    search.current?.focus();
+  };
   return (
     <Page
       title={t("sessions.title")}
@@ -107,57 +122,52 @@ export function SessionsScreen() {
     >
       <div className="flex flex-col gap-[var(--ap-space-block)]">
         <ApprovalInbox
+          layout="row"
           loading={<StatusScreen kind="loading" />}
           renderError={loadError}
           unavailable={unavailable}
           refusal={(error) => t(errorKey(error.code))}
         />
-        <Tabs
-          value={tab}
-          // Replace, not push, as on the agent tabs: arrowing across the tabs
-          // would otherwise fill the back button with tab entries.
-          onValueChange={(next) =>
-            void navigate({
-              search: next === "all" ? {} : { status: next as SessionFilter },
-              replace: true,
-            })
-          }
-          className="min-w-0 gap-[var(--ap-space-block)]"
-        >
-          <div className="border-b">
+        <Tabs value={tab} onValueChange={pick} className="min-w-0 gap-4">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Console v4 .seg until the ui-kit's SegmentedControl lands. The
+                per-status counts wait on an API (94S-811). */}
             <TabsList
-              variant="line"
               aria-label={t("sessionList.filter.label")}
-              // English names overflow 390px; the tabs wrap rather than scroll,
-              // since a scroll box clips the active tab's underline.
-              className="flex-wrap justify-start gap-y-0 p-0 group-data-[orientation=horizontal]/tabs:h-auto"
+              className="h-auto max-w-full flex-nowrap justify-start gap-0.5 overflow-x-auto overflow-y-hidden rounded-[8px] border bg-card p-0.5"
             >
-              <TabsTrigger
-                value="all"
-                className="h-9 text-control after:bottom-0"
-              >
+              <TabsTrigger value="all" className={SEGMENT}>
                 {t("sessionList.filter.all")}
               </TabsTrigger>
               {SESSION_FILTERS.map((name) => (
-                <TabsTrigger
-                  key={name}
-                  value={name}
-                  className="h-9 text-control after:bottom-0"
-                >
+                <TabsTrigger key={name} value={name} className={SEGMENT}>
                   {t(`sessions.status.${name}`)}
                 </TabsTrigger>
               ))}
             </TabsList>
+            <div className="relative min-w-[140px] max-w-[320px] flex-[1_1_160px]">
+              <Search
+                className="pointer-events-none absolute top-2 left-2.5 size-4 text-subtle-foreground"
+                strokeWidth={1.5}
+                aria-hidden="true"
+              />
+              <Input
+                ref={search}
+                type="search"
+                aria-label={t("sessionList.search")}
+                placeholder={t("sessionList.search")}
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                className="pl-8"
+              />
+            </div>
           </div>
           <TabsContent value="all">
-            <SessionList
-              loading={<StatusScreen kind="loading" />}
-              renderError={loadError}
-            />
+            <AllSessions query={query} onClear={clear} />
           </TabsContent>
           {SESSION_FILTERS.map((name) => (
             <TabsContent key={name} value={name}>
-              <SessionsInStatus status={name} />
+              <SessionsInStatus status={name} query={query} onClear={clear} />
             </TabsContent>
           ))}
         </Tabs>
@@ -165,6 +175,10 @@ export function SessionsScreen() {
     </Page>
   );
 }
+
+/** Console v4 .seg-item: 28px, 8px across, grey fill when picked. */
+const SEGMENT =
+  "h-7 flex-none rounded-control border-0 px-2 text-control text-muted-foreground hover:text-foreground data-[state=active]:bg-(--ap-color-active) data-[state=active]:text-foreground data-[state=active]:shadow-none";
 
 const STATUS_LISTS = [...queryKeys.sessions, "status"] as const;
 
@@ -199,22 +213,20 @@ function useFollowListRefresh() {
   }, [queryClient]);
 }
 
-/**
- * One status of the caller's sessions, a page at a time. The session list
- * block reads every status only; this follows its rows and paging.
- */
-function SessionsInStatus({ status }: { readonly status: SessionFilter }) {
-  const { t, locale } = useI18n();
-  const { client, renderLink } = useAgentPlatform();
+function useStatusSessions(status: SessionFilter) {
+  const { client } = useAgentPlatform();
   useFollowListRefresh();
-  const sessions = useInfiniteQuery({
+  return useInfiniteQuery({
     // Under the sessions key, so what refreshes the list refreshes this too.
     queryKey: [...STATUS_LISTS, status],
     queryFn: ({ pageParam }) =>
       unwrap(
         client.GET("/v1/sessions", {
           params: {
-            query: pageParam ? { status, cursor: pageParam } : { status },
+            query: {
+              status,
+              ...(pageParam ? { cursor: pageParam } : {}),
+            },
           },
         }),
       ) as Promise<ListSessionsResponse>,
@@ -222,51 +234,78 @@ function SessionsInStatus({ status }: { readonly status: SessionFilter }) {
     getNextPageParam: (page) => page.next_cursor,
     retry: false,
   });
+}
+
+interface SessionsViewProps {
+  readonly query: string;
+  readonly onClear: () => void;
+}
+
+function AllSessions(props: SessionsViewProps) {
+  return <SessionsView {...props} sessions={useSessions()} />;
+}
+
+function SessionsInStatus({
+  status,
+  ...props
+}: SessionsViewProps & { readonly status: SessionFilter }) {
+  return (
+    <SessionsView
+      {...props}
+      status={status}
+      sessions={useStatusSessions(status)}
+    />
+  );
+}
+
+/**
+ * The caller's sessions, every status or one, a page at a time. The search
+ * box has no API behind it, so it narrows only the pages read so far.
+ */
+function SessionsView({
+  sessions,
+  status,
+  query,
+  onClear,
+}: SessionsViewProps & {
+  readonly sessions: UseInfiniteQueryResult<InfiniteData<ListSessionsResponse>>;
+  readonly status?: SessionFilter;
+}) {
+  const { t } = useI18n();
   const items = sessions.data?.pages.flatMap((page) => page.items) ?? [];
+  const shown = items.filter((session) => matchesSessionQuery(session, query));
 
   if (sessions.isPending) return <StatusScreen kind="loading" />;
   if (sessions.error && items.length === 0) {
     return loadError(sessions.error, () => void sessions.refetch());
   }
   if (items.length === 0) {
-    return <EmptyState title={t("sessionList.filter.empty")} />;
+    return (
+      <EmptyState
+        title={
+          status === undefined
+            ? t("sessions.empty")
+            : t("sessionList.filter.empty")
+        }
+      />
+    );
   }
-  const messages: SessionRowMessages = {
-    status: (value) => t(`sessions.status.${value}`),
-    admission: (state) => t(`sessions.admission.${state}`),
-    statusAxis: t("sessions.column.status"),
-    admissionAxis: t("sessions.column.admission"),
-    runtime: t("sessions.column.runtime"),
-    lastEvent: t("sessions.column.lastEvent"),
-    created: t("sessions.column.created"),
-    queuedTurns: (count) => `${t("session.queuedTurns")} ${count}`,
-    none: t("sessions.none"),
-  };
   return (
     <div className="flex flex-col items-start gap-4">
-      <SessionTable
-        label={t("sessions.tableLabel")}
-        messages={{
-          id: t("sessions.column.id"),
-          status: t("sessions.column.status"),
-          admission: t("sessions.column.admission"),
-          runtime: t("sessions.column.runtime"),
-          lastEvent: t("sessions.column.lastEvent"),
-          created: t("sessions.column.created"),
-        }}
-      >
-        {items.map((session) => (
-          <SessionRow
-            key={session.id}
-            session={session}
-            messages={messages}
-            locale={locale}
-            renderLink={(link) =>
-              renderLink({ to: "session", id: session.id, ...link })
-            }
-          />
-        ))}
-      </SessionTable>
+      {shown.length === 0 ? (
+        <EmptyState
+          className="w-full"
+          title={t("sessionList.noMatch")}
+          description={t("sessionList.noMatchHint")}
+          action={
+            <Button type="button" variant="outline" size="sm" onClick={onClear}>
+              {t("sessionList.clearFilters")}
+            </Button>
+          }
+        />
+      ) : (
+        <SessionsOverview sessions={shown} />
+      )}
       {sessions.error
         ? loadError(
             sessions.error,
@@ -289,6 +328,10 @@ function SessionsInStatus({ status }: { readonly status: SessionFilter }) {
             : t("sessions.more")}
         </Button>
       ) : null}
+      <p className="m-0 text-caption text-subtle-foreground">
+        {t("sessionList.shown", { count: shown.length })} ·{" "}
+        {t("sessionList.searchScope")}
+      </p>
     </div>
   );
 }

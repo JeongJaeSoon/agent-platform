@@ -37,6 +37,16 @@ export {
   type QuestionRequest,
 } from "./session/question-card.tsx";
 export {
+  SESSION_OVERVIEW_COLUMNS,
+  type SessionOverviewHeadMessages,
+  SessionOverviewRow,
+  type SessionOverviewRowMessages,
+  type SessionOverviewRowProps,
+  SessionOverviewTable,
+  type SessionOverviewTableProps,
+  shortSessionId,
+} from "./session/session-overview.tsx";
+export {
   SessionRow,
   type SessionRowLink,
   type SessionRowMessages,

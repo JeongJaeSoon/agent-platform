@@ -31,6 +31,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
   "routes/sessions.test.ts": [
     "POST /v1/sessions",
     "GET /v1/sessions",
+    "GET /v1/sessions/counts",
     "GET /v1/sessions/{id}",
     "PATCH /v1/sessions/{id}",
     "POST /v1/sessions/{id}/messages",
@@ -67,7 +68,11 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
   "routes/pause.test.ts": ["POST /v1/sessions/{id}/pause"],
   "routes/close.test.ts": ["POST /v1/sessions/{id}/close"],
   "routes/profile.test.ts": ["POST /v1/sessions/{id}/profile"],
-  "routes/usage.test.ts": ["GET /v1/limits", "GET /v1/sessions/{id}/usage"],
+  "routes/usage.test.ts": [
+    "GET /v1/limits",
+    "GET /v1/sessions/{id}/usage",
+    "GET /v1/usage/summary",
+  ],
   "routes/outputs.test.ts": [
     "GET /v1/sessions/{id}/outputs",
     "GET /v1/sessions/{id}/outputs/{path}",
@@ -156,6 +161,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/agents/{id}/slack/install/start",
     "POST /v1/slack/install/complete",
   ],
+  "routes/slack-events.test.ts": ["POST /v1/slack/events/{agent_id}"],
 };
 
 // Declared for clients but produced by nothing yet: alpha never trims

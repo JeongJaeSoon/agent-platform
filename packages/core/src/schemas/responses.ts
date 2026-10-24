@@ -12,6 +12,7 @@ import {
   bootstrapResponseSchema,
   commentPullRequestResponseSchema,
   completeSlackInstallResponseSchema,
+  countSessionsResponseSchema,
   createAgentReleaseResponseSchema,
   createApiKeyResponseSchema,
   createCredentialBindingResponseSchema,
@@ -69,6 +70,7 @@ import {
   setAccessResponseSchema,
   setSessionShareResponseSchema,
   slackConfigTokenSummarySchema,
+  slackEventsResponseSchema,
   slackGuestResponseSchema,
   slackLinkCallbackResponseSchema,
   startGoogleLoginResponseSchema,
@@ -77,6 +79,7 @@ import {
   teamChangeResponseSchema,
   teamDetailSchema,
   terminateSessionResponseSchema,
+  usageSummaryResponseSchema,
 } from "@werft-ai/contracts";
 // biome-ignore lint/style/noRestrictedImports: the schemas entry is where the core may name zod; the root entry still may not.
 import type { ZodType } from "zod";
@@ -113,8 +116,10 @@ export const responseSchemas = {
   "POST /v1/agents/{id}/slack/app": createSlackAppResponseSchema,
   "POST /v1/agents/{id}/slack/install/start": startSlackInstallResponseSchema,
   "POST /v1/slack/install/complete": completeSlackInstallResponseSchema,
+  "POST /v1/slack/events/{agent_id}": slackEventsResponseSchema,
   "GET /v1/auth/me": authMeResponseSchema,
   "GET /v1/sessions": listSessionsResponseSchema,
+  "GET /v1/sessions/counts": countSessionsResponseSchema,
   "POST /v1/sessions": createSessionResponseSchema,
   "GET /v1/sessions/{id}": getSessionResponseSchema,
   "PATCH /v1/sessions/{id}": getSessionResponseSchema,
@@ -199,5 +204,6 @@ export const responseSchemas = {
   "GET /v1/administered-agents": listAdministeredAgentsResponseSchema,
   "GET /v1/profiles": listProfilesResponseSchema,
   "GET /v1/limits": installationLimitsResponseSchema,
+  "GET /v1/usage/summary": usageSummaryResponseSchema,
   "GET /v1/receipts/{id}": getReceiptResponseSchema,
 } as const satisfies Partial<Record<OperationKey, ZodType>>;

@@ -45,6 +45,7 @@ function pause(
     },
     reader: {
       listSessions: notReached,
+      countSessions: notReached,
       getSession: notReached,
       listTurns: notReached,
       getTurn: notReached,

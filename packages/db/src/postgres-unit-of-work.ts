@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import {
   attemptStateSchema,
   type CheckpointBlockReason,
+  type CountSessionsQuery,
+  type CountSessionsResponse,
   type CreateSessionResponse,
   checkpointBlockReasonSchema,
   createSessionResponseSchema,
@@ -14,6 +16,7 @@ import {
   type ReceiptSessionTarget,
   readStoredEvent,
   receiptSchema,
+  SESSION_STATUS_VALUES,
   type SessionStatus,
   SSE_SCHEMA_VERSION,
   sseEventSchema,
@@ -53,6 +56,7 @@ import {
   isNull,
   max,
   notExists,
+  or,
   sql,
 } from "drizzle-orm";
 import { contextGapAttention } from "./context-gap.ts";
@@ -93,6 +97,9 @@ import {
 } from "./requester-locks.ts";
 import { startupFailedAttention } from "./restore-failures.ts";
 import {
+  agentReleases,
+  agents,
+  agentVersions,
   attempts,
   checkpoints,
   events,
@@ -101,9 +108,10 @@ import {
   receipts,
   sessions,
   turns,
+  users,
 } from "./schema.ts";
 import { recordStatus } from "./session-events.ts";
-import { sessionVisibleTo } from "./session-shares.ts";
+import { sessionRelationIs, sessionVisibleTo } from "./session-shares.ts";
 
 const CREATE_SESSION = "create_session";
 const APPEND_MESSAGE = "append_message";
@@ -259,6 +267,7 @@ export function createPostgresSessionUnitOfWork(
           ownerId: scope.principal,
           ...repository,
           title: input.title ?? null,
+          channel: input.channel ?? null,
           profileId: input.profileId,
           profileFingerprint: input.profileFingerprint ?? null,
           model: input.model ?? null,
@@ -454,6 +463,8 @@ export function createPostgresSessionUnitOfWork(
 }
 
 const CREATED_AT_TEXT = sql<string>`${sessions.createdAt}::text`;
+const LIKE_SPECIAL = /[\\%_]/g;
+const ID_PREFIX = /^[0-9a-f-]+$/;
 // The newest event in stream order (ids are commit order within a session),
 // one index probe where max(created_at) visited every event of every listed
 // session. Qualified by hand: drizzle renders a single-table
@@ -645,6 +656,45 @@ export function createPostgresSessionReader(
   ): Promise<SessionRecord[]> {
     if (rows.length === 0) return [];
     const ids = rows.map(({ session }) => session.id);
+    const releaseIds = [
+      ...new Set(rows.flatMap(({ session }) => session.agentReleaseId ?? [])),
+    ];
+    // Turn 1's actor started the session; a takeover rewrites
+    // created_by_user_id but leaves it. Rows from before #427 fall back.
+    const firstTurns = await executor
+      .select({ sessionId: turns.sessionId, actorId: turns.actorId })
+      .from(turns)
+      .where(and(inArray(turns.sessionId, ids), eq(turns.sequence, 1)));
+    const starterOf = (session: SessionRow) =>
+      firstTurns.find((turn) => turn.sessionId === session.id)?.actorId ??
+      session.createdByUserId;
+    const creatorIds = [
+      ...new Set(rows.flatMap(({ session }) => starterOf(session) ?? [])),
+    ];
+    const releases =
+      releaseIds.length === 0
+        ? []
+        : await executor
+            .select({
+              releaseId: agentReleases.id,
+              id: agents.id,
+              name: agents.name,
+              release_version_no: agentVersions.versionNo,
+            })
+            .from(agentReleases)
+            .innerJoin(agents, eq(agents.id, agentReleases.agentId))
+            .innerJoin(
+              agentVersions,
+              eq(agentVersions.id, agentReleases.versionId),
+            )
+            .where(inArray(agentReleases.id, releaseIds));
+    const creators =
+      creatorIds.length === 0
+        ? []
+        : await executor
+            .select({ user_id: users.id, display_name: users.displayName })
+            .from(users)
+            .where(inArray(users.id, creatorIds));
     const openTurns = await executor
       .select({
         sessionId: turns.sessionId,
@@ -664,9 +714,23 @@ export function createPostgresSessionReader(
       const current = mine
         .filter((turn) => turn.status !== "queued")
         .sort((a, b) => b.sequence - a.sequence)[0];
+      const release = releases.find(
+        (candidate) => candidate.releaseId === row.agentReleaseId,
+      );
       return {
         id: row.id,
         title: row.title,
+        agent: release
+          ? {
+              id: release.id,
+              name: release.name,
+              release_version_no: release.release_version_no,
+            }
+          : null,
+        created_by:
+          creators.find((creator) => creator.user_id === starterOf(row)) ??
+          null,
+        channel: row.channel,
         revision: row.revision,
         admission_state: row.admissionState,
         status: publicStatus(row.status, awaitingInput),
@@ -685,7 +749,67 @@ export function createPostgresSessionReader(
     });
   }
 
+  // What listSessions and countSessions both read, so a count is always the
+  // list read to its end.
+  function sessionFilter(
+    ownerId: string,
+    query: CountSessionsQuery,
+    viewer: SessionViewer,
+  ) {
+    const q = query.q?.toLowerCase();
+    return and(
+      eq(sessions.ownerId, ownerId),
+      sessionVisibleTo(viewer),
+      query.relation === undefined || query.relation === "all"
+        ? undefined
+        : sessionRelationIs(db, viewer, query.relation),
+      q === undefined
+        ? undefined
+        : or(
+            sql`${sessions.title} ILIKE ${`%${q.replace(LIKE_SPECIAL, "\\$&")}%`}`,
+            ID_PREFIX.test(q)
+              ? sql`${sessions.id}::text LIKE ${`${q}%`}`
+              : undefined,
+          ),
+    );
+  }
+
   return {
+    async countSessions(
+      ownerId: string,
+      query: CountSessionsQuery,
+      viewer: SessionViewer,
+    ): Promise<CountSessionsResponse> {
+      const listed = db
+        .select({
+          status: sessions.status,
+          awaitingInput: sql<boolean>`exists (${actionableOfSession(db)})`.as(
+            "awaiting_input",
+          ),
+        })
+        .from(sessions)
+        .where(sessionFilter(ownerId, query, viewer))
+        .as("listed");
+      const rows = await db
+        .select({
+          status: listed.status,
+          awaitingInput: listed.awaitingInput,
+          count: sql<number>`count(*)::int`,
+        })
+        .from(listed)
+        .groupBy(listed.status, listed.awaitingInput);
+      const counts = Object.fromEntries(
+        SESSION_STATUS_VALUES.map((status) => [status, 0]),
+      ) as CountSessionsResponse["counts"];
+      let total = 0;
+      for (const row of rows) {
+        const status = publicStatus(row.status, row.awaitingInput);
+        counts[status] += row.count;
+        total += row.count;
+      }
+      return { counts, total };
+    },
+
     async listSessions(
       ownerId: string,
       query: ListSessionsQuery,
@@ -702,8 +826,7 @@ export function createPostgresSessionReader(
         .from(sessions)
         .where(
           and(
-            eq(sessions.ownerId, ownerId),
-            sessionVisibleTo(viewer),
+            sessionFilter(ownerId, query, viewer),
             query.status ? publicStatusIs(query.status) : undefined,
             cursor
               ? sql`(${sessions.createdAt}, ${sessions.id}) < (${cursor.created_at}::timestamptz, ${cursor.id}::uuid)`

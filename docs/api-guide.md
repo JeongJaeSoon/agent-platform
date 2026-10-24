@@ -365,25 +365,27 @@ wait_for "/v1/sessions/$SID" .admission_state active
 
 ## 8. 사용량·비용·한도 조회
 
-OpenAPI: [`getSessionUsage`](api/index.html), [`getInstallationLimits`](api/index.html)
+OpenAPI: [`getSessionUsage`](api/index.html), [`getUsageSummary`](api/index.html), [`getInstallationLimits`](api/index.html)
 
-**목적.** 세션의 추정 provider 비용과 입력 queue 상태, 설치 전체의 실행 slot·저장소·turn 상한을 읽는다.
+**목적.** 세션의 추정 provider 비용과 입력 queue 상태, 기간 동안 내가 시작한 세션의 합계, 설치 전체의 실행 slot·저장소·turn 상한을 읽는다.
 
-**순서.** 세션별 `/usage`와 설치별 `/v1/limits`를 각각 읽는다. 비용은 청구액이 아니라 platform 가격표로 계산한 추정치이며, `cost.complete`가 false면 아직 열린 turn이 있거나 보고가 빠져 실제 합계를 알 수 없다.
+**순서.** 세션별 `/usage`, 기간 합계 `/v1/usage/summary`, 설치별 `/v1/limits`를 각각 읽는다. `/v1/limits`와 `scope=installation`은 로그인한 workspace owner만 읽는다(웹 콘솔의 cookie). API key는 403이다. 비용은 청구액이 아니라 platform 가격표로 계산한 추정치이며, `cost.complete`가 false면 아직 열린 turn이 있거나 보고가 빠져 실제 합계를 알 수 없다.
 
 ```bash
 usage=$(curl -sS "$API/v1/sessions/$SID/usage" "${AUTH[@]}")
 echo "$usage" | jq .
 echo "$usage" | jq -e '.period == "session_lifetime" and .cost.kind == "estimated"'
 
-limits=$(curl -sS "$API/v1/limits" "${AUTH[@]}")
-echo "$limits" | jq .
-echo "$limits" | jq -e '.scope == "installation" and .limits.execution_slot_limit >= 0 and .usage.execution_slots_used >= 0'
+summary=$(curl -sS "$API/v1/usage/summary?scope=me&since=$(date -u +%Y-%m-01)" "${AUTH[@]}")
+echo "$summary" | jq .
+echo "$summary" | jq -e '.scope == "me" and .basis.sessions == "created_in_period"'
+
+curl -sS -o /dev/null -w '%{http_code}\n' "$API/v1/limits" "${AUTH[@]}" | grep -qx 403
 ```
 
-**기대 응답.** 세션 응답은 `cost.amount_usd`, `complete`, 보고/미보고/open turn 수, 비용 상한, 누적 provider token 수(`token_count`)와 token 상한(`token_limit`), queued input 수를 준다. `token_limit`이 null이면 설치에 token 상한이 없다. `budget_exceeded`는 비용과 token 중 어느 상한에든 닿으면 true다. 세션의 profile이 과금 없음(`billing: none`)을 선언했으면 `cost.kind`가 `"unmetered"`다. 이때 비용은 늘지 않고 비용 상한이 그 세션에 적용되지 않아 `cost_limit_usd`가 null이지만, token 상한은 그대로 걸린다([configuration.md](operator/configuration.md#과금-없는-profile-billing-none)). 설치 응답은 설정된 상한(`session_token_limit` 포함)과 현재 execution slot·queued input·저장소 사용량을 준다.
+**기대 응답.** 세션 응답은 `cost.amount_usd`, `complete`, 보고/미보고/open turn 수, 비용 상한, 누적 provider token 수(`token_count`)와 token 상한(`token_limit`), queued input 수를 준다. `token_limit`이 null이면 설치에 token 상한이 없다. `budget_exceeded`는 비용과 token 중 어느 상한에든 닿으면 true다. 세션의 profile이 과금 없음(`billing: none`)을 선언했으면 `cost.kind`가 `"unmetered"`다. 이때 비용은 늘지 않고 비용 상한이 그 세션에 적용되지 않아 `cost_limit_usd`가 null이지만, token 상한은 그대로 걸린다([configuration.md](operator/configuration.md#과금-없는-profile-billing-none)). 합계 응답은 기간(`period`, UTC)에 만든 세션의 수, 비용 합(`cost_usd`, 각 세션 `cost.amount_usd`의 합), 그 가운데 하나라도 미완이면 false인 `cost_complete`, token 합, turn 벽시계 시간 합(`run_seconds`)을 준다. 개인 key는 만든 사람의 세션을, 만든 사람이 없는 key는 그 key가 시작한 세션을 더한다. 공유받은 세션은 더하지 않는다. owner가 읽는 설치 응답은 설정된 상한(`session_token_limit` 포함)과 현재 execution slot·queued input·저장소 사용량을 준다.
 
-**흔한 오류.** 404 `NOT_FOUND`면 세션이 없거나 현재 owner에게 보이지 않는다. `complete: false`를 0원으로 해석하지 않는다. 503이면 DB나 사용량 집계를 포함한 설치 상태를 확인한다.
+**흔한 오류.** 404 `NOT_FOUND`면 세션이 없거나 현재 owner에게 보이지 않는다. 403 `FORBIDDEN`은 owner가 아닌 호출자가 `/v1/limits`나 `scope=installation`을 읽었다는 뜻이다. 400은 `since`가 없거나 offset 없는 시각이거나 `until`이 `since`보다 앞설 때다. `complete: false`를 0원으로 해석하지 않는다. 503이면 DB나 사용량 집계를 포함한 설치 상태를 확인한다.
 
 ## 9. Idempotency-Key로 안전하게 재시도하기
 

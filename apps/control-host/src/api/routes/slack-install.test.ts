@@ -169,6 +169,7 @@ function appWith(enabled: boolean) {
               finalizeFaults.next -= 1;
               throw new Error("finalize failed");
             }
+            return { finalized: true, warnings: [] };
           },
           now: () => clock,
         }),
@@ -658,6 +659,7 @@ describe("completing an install", () => {
       workspaceId: OTHER_WORKSPACE,
       status: "verified",
       botUserId: "U0ELSEWHERE",
+      verifiedAt: null,
     });
     const { code: grant, state } = approve(
       await start(CONFLICT_AGENT, owner()),
@@ -690,6 +692,7 @@ describe("completing an install", () => {
     expect(response.status).toBe(200);
     expect(response.json).toMatchObject({
       finalized: false,
+      warnings: [{ code: "finalize_failed" }],
       installation: { status: "verified" },
     });
   });

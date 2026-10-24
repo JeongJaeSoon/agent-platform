@@ -172,6 +172,9 @@ export const FAILED_EVENTS: readonly RawEvent[] = [
 export const SESSION: SessionSummary = {
   id: "0192f0c4-7d3a-7b4e-9f00-00000000a001",
   title: null,
+  agent: null,
+  created_by: null,
+  channel: null,
   revision: 4,
   admission_state: "active",
   status: "running",
