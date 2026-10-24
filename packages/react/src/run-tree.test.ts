@@ -1,0 +1,425 @@
+import { describe, expect, test } from "bun:test";
+import {
+  buildRunTree,
+  createRunTreeBuilder,
+  ROOT_RUN_ID,
+  type RunTreeFrame,
+  runRows,
+} from "./run-tree.ts";
+
+const T0 = Date.parse("2026-10-25T01:00:00.000Z");
+const at = (seconds: number) => new Date(T0 + seconds * 1000).toISOString();
+
+let cursor = 0;
+const next = () => {
+  cursor += 1;
+  return `c${String(cursor).padStart(6, "0")}`;
+};
+
+function use(
+  seconds: number,
+  id: string,
+  name: string,
+  input: Record<string, unknown>,
+  parent: string | null = null,
+): RunTreeFrame {
+  return {
+    id: next(),
+    occurredAt: at(seconds),
+    payload: {
+      event: "tool_use",
+      data: {
+        type: "assistant",
+        message: {
+          role: "assistant",
+          content: [{ type: "tool_use", id, name, input }],
+        },
+        parent_tool_use_id: parent,
+      },
+    },
+  };
+}
+
+function result(seconds: number, id: string, isError = false): RunTreeFrame {
+  return {
+    id: next(),
+    occurredAt: at(seconds),
+    payload: {
+      event: "tool_result",
+      data: {
+        type: "tool_result",
+        tool_use_id: id,
+        content: "…",
+        is_error: isError,
+      },
+    },
+  };
+}
+
+function question(
+  seconds: number,
+  id: string,
+  kind: "permission" | "question" = "permission",
+): RunTreeFrame {
+  return {
+    id: next(),
+    occurredAt: at(seconds),
+    payload: {
+      event: "question",
+      data: {
+        request_id: "8f1c2d3e-4b5a-4c6d-8e7f-9a0b1c2d3e4f",
+        tool_use_id: id,
+        kind,
+        tool: "Bash",
+        input: {},
+      },
+    },
+  };
+}
+
+function status(
+  seconds: number,
+  phase: "running" | "needs_input" | "idle",
+): RunTreeFrame {
+  return {
+    id: next(),
+    occurredAt: at(seconds),
+    payload: { event: "status", data: { phase } },
+  };
+}
+
+/** Root reads a file, spawns a reviewer that spawns an explorer, which greps. */
+function nested(): RunTreeFrame[] {
+  return [
+    status(0, "running"),
+    use(1, "read-1", "Read", { file_path: "retry.ts" }),
+    result(1.2, "read-1"),
+    use(2, "task-a", "Task", {
+      subagent_type: "code-reviewer",
+      description: "review",
+    }),
+    use(
+      3,
+      "task-b",
+      "Task",
+      { subagent_type: "Explore", description: "find" },
+      "task-a",
+    ),
+    use(4, "grep-1", "Grep", { pattern: "maxAttempts" }, "task-b"),
+    result(4.31, "grep-1"),
+    result(5, "task-b"),
+    use(6, "bash-1", "Bash", { command: "bun test" }, "task-a"),
+  ];
+}
+
+const shuffle = <T>(list: readonly T[], seed: number) => {
+  const out = [...list];
+  let s = seed;
+  for (let i = out.length - 1; i > 0; i -= 1) {
+    s = (s * 1_103_515_245 + 12_345) % 2_147_483_648;
+    const j = s % (i + 1);
+    [out[i], out[j]] = [out[j] as T, out[i] as T];
+  }
+  return out;
+};
+
+describe("buildRunTree", () => {
+  test("nests runs by parent_tool_use_id two levels deep", () => {
+    const tree = buildRunTree(nested());
+    expect(runRows(tree).map((run) => [run.id, run.label])).toEqual([
+      [ROOT_RUN_ID, null],
+      ["task-a", "code-reviewer"],
+      ["task-b", "Explore"],
+    ]);
+    expect(tree.root.tools.map((tool) => tool.id)).toEqual([
+      "read-1",
+      "task-a",
+    ]);
+    const reviewer = tree.root.children[0];
+    expect(reviewer?.spawn?.id).toBe("task-a");
+    expect(reviewer?.tools.map((tool) => [tool.id, tool.target])).toEqual([
+      ["task-b", "find"],
+      ["bash-1", "bun test"],
+    ]);
+    expect(reviewer?.children[0]?.tools.map((tool) => tool.id)).toEqual([
+      "grep-1",
+    ]);
+    expect(tree.detached).toEqual([]);
+    expect(tree.tools).toBe(5);
+  });
+
+  test("pairs a call with its result and measures the time between", () => {
+    const tree = buildRunTree(nested());
+    const grep = tree.root.children[0]?.children[0]?.tools[0];
+    expect(grep).toMatchObject({
+      name: "Grep",
+      target: "maxAttempts",
+      state: "ok",
+      startedAt: at(4),
+      endedAt: at(4.31),
+      ms: 310,
+    });
+    const explorer = tree.root.children[0]?.children[0];
+    expect(explorer).toMatchObject({
+      status: "done",
+      startedAt: at(3),
+      endedAt: at(5),
+      ms: 2000,
+    });
+  });
+
+  test("a call without a result is still running, and so is its run", () => {
+    const tree = buildRunTree(nested());
+    const reviewer = tree.root.children[0];
+    expect(reviewer?.tools[1]).toMatchObject({
+      id: "bash-1",
+      state: "running",
+      endedAt: null,
+      ms: null,
+    });
+    expect(reviewer).toMatchObject({
+      status: "run",
+      endedAt: null,
+      ms: null,
+      edge: "delegation",
+    });
+    // The Task call has no result yet, so the session's own run is still working.
+    expect(tree.root.status).toBe("run");
+  });
+
+  test("an error result fails the call, and a failed Task fails its run", () => {
+    const tree = buildRunTree([
+      ...nested(),
+      result(7, "bash-1", true),
+      result(8, "task-a", true),
+    ]);
+    const reviewer = tree.root.children[0];
+    expect(reviewer?.tools[1]?.state).toBe("error");
+    expect(reviewer).toMatchObject({ status: "failed", failed: 1 });
+    expect(tree.root.tools[1]?.state).toBe("error");
+    expect(tree.root.failed).toBe(1);
+    expect(tree.errors).toBe(2);
+  });
+
+  test("a call waiting on a person reads as approval until the session moves on", () => {
+    const frames = [
+      ...nested(),
+      question(7, "bash-1"),
+      status(7, "needs_input"),
+    ];
+    const waiting = buildRunTree(frames);
+    expect(waiting.root.children[0]).toMatchObject({
+      status: "wait",
+      edge: "approval",
+    });
+    expect(waiting.root.children[0]?.tools[1]?.state).toBe("waiting");
+
+    const answered = buildRunTree([...frames, status(9, "running")]);
+    expect(answered.root.children[0]).toMatchObject({
+      status: "run",
+      edge: "delegation",
+    });
+    expect(answered.root.children[0]?.tools[1]?.state).toBe("running");
+  });
+
+  test("a question waits without the approval edge", () => {
+    const tree = buildRunTree([...nested(), question(7, "bash-1", "question")]);
+    expect(tree.root.children[0]).toMatchObject({
+      status: "wait",
+      edge: "delegation",
+    });
+    expect(tree.root.children[0]?.tools[1]?.state).toBe("waiting");
+  });
+
+  test("with no open call the session's run follows its latest status", () => {
+    const tree = buildRunTree([
+      status(0, "running"),
+      use(1, "read-1", "Read", { file_path: "a.ts" }),
+      result(2, "read-1"),
+      status(3, "idle"),
+    ]);
+    expect(tree.root.status).toBe("idle");
+    expect(buildRunTree([]).root).toMatchObject({
+      status: "idle",
+      tools: [],
+      children: [],
+    });
+  });
+
+  test("a replay after reconnecting takes each event once", () => {
+    const frames = nested();
+    const builder = createRunTreeBuilder();
+    for (const frame of frames) expect(builder.push(frame)).toBe(true);
+    const before = builder.tree();
+    // The stream resumes and delivers the last few frames again, then all of them.
+    for (const frame of [...frames.slice(-3), ...frames])
+      expect(builder.push(frame)).toBe(false);
+    expect(builder.tree()).toBe(before);
+    expect(before.tools).toBe(5);
+    expect(builder.tree()).toEqual(buildRunTree(frames));
+  });
+
+  test("the same events in any arrival order make the same tree", () => {
+    const frames = [
+      ...nested(),
+      question(7, "bash-1"),
+      result(8, "bash-1", true),
+    ];
+    const expected = buildRunTree(frames);
+    for (let seed = 1; seed <= 50; seed += 1) {
+      expect(buildRunTree(shuffle(frames, seed))).toEqual(expected);
+    }
+    // The hardest order: results first, the grandchild before its parents.
+    expect(buildRunTree([...frames].reverse())).toEqual(expected);
+  });
+
+  test("a run whose spawning call has not arrived stays apart until it does", () => {
+    const frames = nested();
+    const withoutTask = frames.filter(
+      (frame) =>
+        !(
+          frame.payload.event === "tool_use" &&
+          JSON.stringify(frame.payload).includes('"id":"task-a"')
+        ),
+    );
+    const builder = createRunTreeBuilder();
+    for (const frame of withoutTask) builder.push(frame);
+    const apart = builder.tree();
+    expect(apart.root.children).toEqual([]);
+    expect(apart.detached.map((run) => [run.id, run.label, run.spawn])).toEqual(
+      [["task-a", "Task", null]],
+    );
+    expect(apart.detached[0]?.children[0]?.id).toBe("task-b");
+
+    const taskA = frames.find(
+      (frame) => !withoutTask.includes(frame),
+    ) as RunTreeFrame;
+    builder.push(taskA);
+    expect(builder.tree()).toEqual(buildRunTree(frames));
+  });
+
+  test("a parent_tool_use_id loop is drawn apart instead of looping", () => {
+    const tree = buildRunTree([
+      use(1, "task-x", "Task", {}, "task-y"),
+      use(2, "task-y", "Task", {}, "task-x"),
+    ]);
+    expect(runRows(tree).map((run) => run.id)).toEqual([
+      ROOT_RUN_ID,
+      "task-y",
+      "task-x",
+    ]);
+    expect(tree.root.children).toEqual([]);
+  });
+
+  test("a call carrying the root's id is left out", () => {
+    const tree = buildRunTree([
+      use(1, ROOT_RUN_ID, "Task", {}),
+      use(2, "read-1", "Read", {}),
+    ]);
+    expect(runRows(tree).map((run) => run.id)).toEqual([ROOT_RUN_ID]);
+    expect(tree.root.tools.map((tool) => tool.id)).toEqual(["read-1"]);
+  });
+
+  test("an event names no target when its input has none", () => {
+    const tree = buildRunTree([use(1, "todo-1", "TodoWrite", { todos: [] })]);
+    expect(tree.root.tools[0]?.target).toBe("");
+  });
+});
+
+describe("createRunTreeBuilder", () => {
+  test("a new event rebuilds only the runs it touches", () => {
+    const builder = createRunTreeBuilder();
+    for (const frame of [
+      ...nested(),
+      use(7, "task-c", "Task", { subagent_type: "Plan" }),
+      use(8, "read-2", "Read", { file_path: "plan.md" }, "task-c"),
+    ]) {
+      builder.push(frame);
+    }
+    const before = builder.tree();
+    builder.push(result(9, "read-2"));
+    const after = builder.tree();
+
+    const [reviewer, planner] = after.root.children;
+    expect(reviewer).toBe(before.root.children[0]);
+    expect(planner).not.toBe(before.root.children[1]);
+    expect(planner?.tools[0]?.state).toBe("ok");
+    // The root is rebuilt to hold the new planner, but its calls are reused.
+    expect(after.root).not.toBe(before.root);
+    after.root.tools.forEach((tool, i) => {
+      expect(tool).toBe(before.root.tools[i] as typeof tool);
+    });
+    expect(builder.tree()).toBe(after);
+  });
+});
+
+describe("PERF", () => {
+  /**
+   * 20,000 events, the scale of packages/db/bench/session-reads.ts: 40
+   * subagents (half nested one level deeper) and 9,960 calls with results.
+   */
+  function large() {
+    const frames: RunTreeFrame[] = [status(0, "running")];
+    const parents: (string | null)[] = [null];
+    for (let i = 0; i < 40; i += 1) {
+      const parent = i % 2 === 1 ? `task-${i - 1}` : null;
+      frames.push(
+        use(i, `task-${i}`, "Task", { subagent_type: `agent-${i}` }, parent),
+      );
+      parents.push(`task-${i}`);
+    }
+    for (let i = 0; frames.length < 20_000; i += 1) {
+      const parent = parents[i % parents.length] ?? null;
+      frames.push(
+        use(40 + i, `call-${i}`, "Bash", { command: `step ${i}` }, parent),
+      );
+      if (frames.length < 20_000)
+        frames.push(result(40.5 + i, `call-${i}`, i % 97 === 0));
+    }
+    return frames;
+  }
+
+  test("20,000 events build in one pass and one more event costs a fraction", () => {
+    const frames = large();
+    expect(frames.length).toBe(20_000);
+
+    const fullRuns: number[] = [];
+    let tree = buildRunTree([]);
+    for (let run = 0; run < 5; run += 1) {
+      const started = performance.now();
+      tree = buildRunTree(frames);
+      fullRuns.push(performance.now() - started);
+    }
+    expect(runRows(tree).length).toBe(41);
+
+    const builder = createRunTreeBuilder();
+    for (const frame of frames) builder.push(frame);
+    builder.tree();
+    const stepRuns: number[] = [];
+    const leaf = "task-39";
+    for (let i = 0; i < 200; i += 1) {
+      const previous = builder.tree();
+      const started = performance.now();
+      builder.push(
+        use(100_000 + i, `extra-${i}`, "Read", { file_path: `f${i}` }, leaf),
+      );
+      const next = builder.tree();
+      stepRuns.push(performance.now() - started);
+      // Only the touched run and its ancestors are new objects.
+      expect(
+        next.root.children
+          .filter((run, j) => run !== previous.root.children[j])
+          .map((run) => run.id),
+      ).toEqual(["task-38"]);
+    }
+
+    const median = (list: number[]) =>
+      [...list].sort((a, b) => a - b)[Math.floor(list.length / 2)] as number;
+    const full = median(fullRuns);
+    const step = median(stepRuns);
+    console.log(
+      `PERF run-tree: full build of ${frames.length} events median ${full.toFixed(2)} ms (runs: ${fullRuns.map((ms) => ms.toFixed(1)).join(", ")}); one appended event median ${step.toFixed(3)} ms over ${stepRuns.length} steps; ratio ${(full / step).toFixed(0)}x`,
+    );
+    expect(step).toBeLessThan(full / 10);
+  });
+});
