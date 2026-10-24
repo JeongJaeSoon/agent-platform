@@ -34,6 +34,7 @@ import {
   GridTableRowOpener,
   LinkTab,
   LinkTabs,
+  Page,
   RadioGroup,
   RadioGroupItem,
   RowLines,
@@ -59,7 +60,6 @@ import {
 } from "../auth/guard.tsx";
 import { FormError, Notice } from "../components/auth-page.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
-import { Page } from "../components/page.tsx";
 import { SEARCH_MAX, useSearchTerm } from "../components/search-term.ts";
 import { StatusScreen } from "../components/status-screen.tsx";
 import {

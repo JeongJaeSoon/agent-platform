@@ -2482,7 +2482,7 @@ describe("세션 상세 레이아웃", () => {
     );
     const layout = document.querySelector('[data-slot="detail-layout"]');
     const body = layout?.firstElementChild?.firstElementChild;
-    expect(body?.getAttribute("data-slot")).toBe("detail-layout-body");
+    expect(body?.getAttribute("data-slot")).toBe("page-frame-body");
     expect(body?.querySelector('[data-slot="page-header"]')).toBeTruthy();
     expect(body?.lastElementChild?.getAttribute("data-slot")).toBe("tabs");
     expect(layout?.lastElementChild?.tagName).toBe("ASIDE");
@@ -2508,7 +2508,7 @@ describe("세션 상세 레이아웃", () => {
         state === "loading"
           ? await screen.findByText("불러오는 중입니다")
           : await screen.findByRole("button", { name: "다시 시도" });
-      expect(shown.closest('[data-slot="detail-layout-body"]')).toBeTruthy();
+      expect(shown.closest('[data-slot="page-frame-body"]')).toBeTruthy();
       expect(screen.queryByRole("complementary")).toBeNull();
     },
   );

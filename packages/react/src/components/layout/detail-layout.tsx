@@ -1,4 +1,4 @@
-import { cn, Section } from "@werft-ai/ui";
+import { cn, PageFrame, Section } from "@werft-ai/ui";
 import {
   type ComponentProps,
   type JSX,
@@ -17,8 +17,8 @@ export type DetailLayoutProps = Omit<ComponentProps<"div">, "children"> & {
 /**
  * A detail page with a right rail (Cloudflare's domain overview). The host
  * gives it the whole area under the top bar, with no padding of its own: the
- * body centres in what the rail leaves, up to the list width (V4-CENTER),
- * and the rail runs from the top bar to the bottom of the screen. Below
+ * body sits in the same `PageFrame` as every other page, centred in what the
+ * rail leaves, and the rail runs from the top bar to the bottom of the screen. Below
  * 1280px the rail follows the body, so DOM, focus and reading order agree
  * at every width.
  */
@@ -37,15 +37,7 @@ export function DetailLayout({
       )}
       {...props}
     >
-      {/* Gutters outside the width, as ShellMain has them: 1620px of content. */}
-      <div className="flex min-w-0 flex-col p-4 pt-6 md:px-6 md:pt-[var(--ap-space-page-top)] md:pb-[var(--ap-space-section)]">
-        <div
-          data-slot="detail-layout-body"
-          className="mx-auto flex w-full min-w-0 max-w-[101.25rem] flex-1 flex-col"
-        >
-          {children}
-        </div>
-      </div>
+      <PageFrame>{children}</PageFrame>
       {rail}
     </div>
   );
