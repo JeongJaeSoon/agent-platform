@@ -31,7 +31,7 @@ import {
   TableRow,
   Link as TextLink,
 } from "@werft-ai/ui";
-import { ArrowRight, Check, Folder, GitBranch } from "lucide-react";
+import { ArrowRight, Check, Folder, GitBranch, Inbox } from "lucide-react";
 import { type ReactNode, useEffect, useId, useState } from "react";
 import {
   administeredAgentsQuery,
@@ -542,7 +542,15 @@ export function HomeScreen() {
     >
       {allDone ? null : checklist}
       <ApprovalInbox
-        layout="row"
+        layout="summary"
+        title={t("home.requests.title")}
+        action={
+          <ArrowLink to="/sessions" search={{ status: "needs_input" }}>
+            {t("home.requests.all")}
+          </ArrowLink>
+        }
+        empty={<NoRequests />}
+        now={now}
         loading={<StatusScreen kind="loading" />}
         renderError={loadError}
         unavailable={unavailable}
@@ -741,9 +749,11 @@ function HomeSection({
 
 function ArrowLink({
   to,
+  search,
   children,
 }: {
   readonly to: "/sessions" | "/settings/linked-accounts";
+  readonly search?: { readonly status: "needs_input" };
   readonly children: ReactNode;
 }) {
   return (
@@ -751,11 +761,27 @@ function ArrowLink({
       asChild
       className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-(color:--ap-color-link) text-control"
     >
-      <Link to={to}>
+      <Link to={to} {...(search ? { search } : {})}>
         {children}
         <ArrowRight className="size-3.5" aria-hidden="true" />
       </Link>
     </TextLink>
+  );
+}
+
+/** The design's empty inbox: what will show up here, and when. */
+function NoRequests() {
+  const { t } = useI18n();
+  return (
+    <div className="flex flex-col items-center gap-2 rounded-card border bg-card px-4 py-6 text-center text-control text-muted-foreground">
+      <span className="mb-1 grid size-10 place-items-center rounded-[8px] border bg-(--ap-color-surface-sunken) text-subtle-foreground">
+        <Inbox className="size-4" strokeWidth={1.5} aria-hidden="true" />
+      </span>
+      <p className="m-0 font-semibold text-body text-foreground">
+        {t("home.requests.empty")}
+      </p>
+      <p className="m-0">{t("home.requests.emptyHint")}</p>
+    </div>
   );
 }
 

@@ -124,21 +124,20 @@ describe("팀 화면", () => {
     expect(teamDetailSchema.safeParse(teamServer().team).success).toBe(true);
   });
 
-  test("팀 메뉴는 모두에게, 구성원 메뉴는 member.manage가 있는 역할에만 보인다", async () => {
-    const shown = renderAt("/", { "GET /v1/auth/me": () => json(200, me()) });
-    const nav = await screen.findByRole("navigation", { name: "주요 메뉴" });
-    expect(within(nav).getByRole("link", { name: "팀" })).toBeDefined();
-    expect(within(nav).getByRole("link", { name: "구성원" })).toBeDefined();
-    shown.container.remove();
+  test("팀은 구성원 메뉴 아래에 있어 구성원 메뉴가 모두에게 보이고 팀 메뉴는 따로 없다", async () => {
+    for (const who of [me(), memberMe()]) {
+      const shown = renderAt("/", { "GET /v1/auth/me": () => json(200, who) });
+      const nav = await screen.findByRole("navigation", { name: "주요 메뉴" });
+      expect(within(nav).getByRole("link", { name: "구성원" })).toBeDefined();
+      expect(within(nav).queryByRole("link", { name: "팀" })).toBeNull();
+      shown.container.remove();
+    }
+  });
 
-    renderAt("/", { "GET /v1/auth/me": () => json(200, memberMe()) });
-    const memberNav = await screen.findByRole("navigation", {
-      name: "주요 메뉴",
-    });
-    expect(within(memberNav).getByRole("link", { name: "팀" })).toBeDefined();
-    expect(
-      within(memberNav).queryByRole("link", { name: "구성원" }),
-    ).toBeNull();
+  test("사이드바에서 빠져도 팀 주소는 그대로 열린다", async () => {
+    const server = teamServer();
+    renderAt("/teams", server.routes);
+    expect(await screen.findByRole("link", { name: "결제팀" })).toBeDefined();
   });
 
   test("목록을 보이고 만든다. 같은 이름은 그렇게 말한다", async () => {
