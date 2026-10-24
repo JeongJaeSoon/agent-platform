@@ -1,4 +1,3 @@
-import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { Check, Search } from "lucide-react";
 import {
   type ChangeEvent,
@@ -13,7 +12,11 @@ import {
 
 import { cn } from "../foundations/cn.ts";
 import { Input } from "../primitives/input.tsx";
-import { Popover, PopoverContent } from "../primitives/popover.tsx";
+import {
+  Popover,
+  PopoverAnchor,
+  PopoverContent,
+} from "../primitives/popover.tsx";
 
 /*
  * ARIA 1.2 combobox with a list popup, single select. Focus never leaves the
@@ -268,7 +271,7 @@ export function Combobox({
         if (!next) close();
       }}
     >
-      <PopoverPrimitive.Anchor asChild>
+      <PopoverAnchor asChild>
         <div
           ref={anchorRef}
           data-slot="combobox"
@@ -308,12 +311,11 @@ export function Combobox({
             {status}
           </div>
         </div>
-      </PopoverPrimitive.Anchor>
+      </PopoverAnchor>
+      {/* biome-ignore lint/a11y/useValidAriaRole: undefined drops the dialog role Radix sets; the box only holds the listbox and is never focused, since focus stays in the input. */}
       <PopoverContent
         align="start"
         data-slot="combobox-content"
-        // A plain box around the listbox, not the dialog Radix makes it, and
-        // never focused, since focus stays in the input.
         role={undefined}
         tabIndex={undefined}
         id={contentId}

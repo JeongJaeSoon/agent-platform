@@ -118,14 +118,15 @@ function fetchChannels(q: string, cursor: number): Promise<ChannelPage> {
   );
 }
 
+type Copy = ReturnType<typeof copyFor>;
+
 function MemberPicker({
-  context,
+  copy,
   options = MEMBERS,
 }: {
-  readonly context: Globals;
+  readonly copy: Copy;
   readonly options?: readonly ComboboxOption[];
 }) {
-  const copy = copyFor(context);
   const [value, setValue] = useState<string | null>(null);
   return (
     <div className="max-w-105">
@@ -149,8 +150,7 @@ function MemberPicker({
  * The caller owns the server search: it debounces through the kit, pages with
  * the cursor and drops a response that a newer query has overtaken.
  */
-function ChannelPicker({ context }: { readonly context: Globals }) {
-  const copy = copyFor(context);
+function ChannelPicker({ copy }: { readonly copy: Copy }) {
   const [query, setQuery] = useState("");
   const [items, setItems] = useState<ChannelPage["items"]>([]);
   const [next, setNext] = useState<number | null>(null);
@@ -210,7 +210,7 @@ const meta = {
   title: "Patterns/Combobox",
   component: Combobox,
   args: { options: MEMBERS, emptyMessage: COPY.ko.empty },
-  render: (_args, context) => <MemberPicker context={context} />,
+  render: (_args, context) => <MemberPicker copy={copyFor(context)} />,
 } satisfies Meta<typeof Combobox>;
 
 export default meta;
@@ -282,17 +282,18 @@ export const InternalFilterEnglish: Story = {
 
 /** Search on the server: loading, results, then the next page. */
 export const ServerSearch: Story = {
-  render: (_args, context) => <ChannelPicker context={context} />,
+  render: (_args, context) => <ChannelPicker copy={copyFor(context)} />,
   play: async ({ canvasElement, globals }) => {
     const copy = copyFor({ globals });
     await openWithArrow(canvasElement);
-    await waitFor(() => expect(page().getAllByRole("option")).toHaveLength(5));
+    // Counts, not the elements: the play log serialises what expect gets.
+    await waitFor(() => expect(page().getAllByRole("option").length).toBe(5));
     await userEvent.click(page().getByRole("button", { name: copy.loadMore }));
     await expect(page().getByRole("listbox")).toHaveAttribute(
       "aria-busy",
       "true",
     );
-    await waitFor(() => expect(page().getAllByRole("option")).toHaveLength(10));
+    await waitFor(() => expect(page().getAllByRole("option").length).toBe(10));
   },
 };
 
@@ -304,7 +305,7 @@ export const ServerSearchDark: Story = {
 
 /** A query that matches nothing on the server. */
 export const ServerSearchEmpty: Story = {
-  render: (_args, context) => <ChannelPicker context={context} />,
+  render: (_args, context) => <ChannelPicker copy={copyFor(context)} />,
   play: async ({ canvasElement, globals }) => {
     const copy = copyFor({ globals });
     const box = await openWithArrow(canvasElement);
@@ -326,11 +327,35 @@ export const Empty: Story = {
   },
 };
 
+/** Options without a second line keep the 40px row. */
+export const OneLine: Story = {
+  render: (_args, context) => {
+    const copy = copyFor(context);
+    return (
+      <div className="max-w-105">
+        <Combobox
+          aria-label={copy.channel}
+          options={CHANNELS.map(([name]) => ({
+            value: name,
+            label: `#${name}`,
+            disabled: CONNECTED.has(name),
+          }))}
+          emptyMessage={copy.empty}
+        />
+      </div>
+    );
+  },
+  play: async ({ canvasElement }) => {
+    await openWithArrow(canvasElement);
+    await expect(page().getAllByRole("option").length).toBe(CHANNELS.length);
+  },
+};
+
 /** Everyone is already on the team: arrows have nowhere to go. */
 export const AllDisabled: Story = {
   render: (_args, context) => (
     <MemberPicker
-      context={context}
+      copy={copyFor(context)}
       options={MEMBERS.map((option) => ({ ...option, disabled: true }))}
     />
   ),

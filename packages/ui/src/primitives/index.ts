@@ -73,7 +73,12 @@ export {
   NativeSelectOptGroup,
   NativeSelectOption,
 } from "./native-select.tsx";
-export { Popover, PopoverContent, PopoverTrigger } from "./popover.tsx";
+export {
+  Popover,
+  PopoverAnchor,
+  PopoverContent,
+  PopoverTrigger,
+} from "./popover.tsx";
 export { RadioGroup, RadioGroupItem } from "./radio-group.tsx";
 export { RelativeTime, type RelativeTimeProps } from "./relative-time.tsx";
 export {
