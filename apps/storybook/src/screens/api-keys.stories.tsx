@@ -318,7 +318,7 @@ function ApiKeysScreen({
         {shown === "org" ? (
           <EmptyState
             title="준비 중입니다"
-            description="아직 발급할 수 없습니다. 세션을 다루는 자동화에는 에이전트 key를 쓰세요."
+            description="아직 발급할 수 없습니다. 세션을 다루는 자동화에는 에이전트 key를 쓰세요. 발급할 수 있게 되면 만료일은 반드시 정해야 합니다."
           />
         ) : (
           <>

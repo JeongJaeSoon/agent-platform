@@ -426,16 +426,20 @@ describe("API key", () => {
     expect(
       within(secret).getByText(apiKeysKo["apiKeys.secretOnce"]),
     ).toBeDefined();
-    expect(
-      api.calls.filter((c) => c.method === "POST").map((c) => c.body),
-    ).toEqual([
-      {
-        kind: "agent",
-        name: "ci-deploy",
-        scopes: ["sessions:read"],
-        agent_id: AGENT_ID,
-      },
-    ]);
+    const posts = api.calls.filter((c) => c.method === "POST");
+    expect(posts).toHaveLength(1);
+    const { expires_at, ...sent } = posts[0]?.body as Record<string, unknown>;
+    expect(sent).toEqual({
+      kind: "agent",
+      name: "ci-deploy",
+      scopes: ["sessions:read"],
+      agent_id: AGENT_ID,
+    });
+    // Untouched, the date stays 90 days out and the key ends with that day.
+    const end = new Date();
+    end.setDate(end.getDate() + 90);
+    end.setHours(23, 59, 59, 0);
+    expect(expires_at).toBe(end.toISOString());
     expect(api.calls.some((c) => c.path === "/v1/agents")).toBe(false);
     // Nothing else is issued from here while the secret shows.
     expect(screen.queryByRole("button", { name: "key 만들기" })).toBeNull();
@@ -590,11 +594,44 @@ describe("API key", () => {
     );
   });
 
+  test("새 에이전트 key는 90일 뒤 만료로 시작하고, 날짜를 비우면 만료 없이 만든다", async () => {
+    const { api } = renderAt(NEW_AGENT, { ...ownerOk, ...keysServer() });
+    const user = await setupUser();
+    await screen.findByRole("option", { name: "Billing" });
+    const date = screen.getByLabelText(/^만료일/) as HTMLInputElement;
+    const day = new Date();
+    day.setDate(day.getDate() + 90);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    expect(date.value).toBe(
+      `${day.getFullYear()}-${pad(day.getMonth() + 1)}-${pad(day.getDate())}`,
+    );
+    expect(
+      screen.getByText(apiKeysKo["apiKeys.agentExpiresHint"]),
+    ).toBeDefined();
+    await user.selectOptions(screen.getByLabelText("에이전트"), AGENT_ID);
+    await user.clear(date);
+    await user.click(screen.getByRole("button", { name: "key 만들기" }));
+    await screen.findByRole("region", { name: "새 key" });
+    const [body] = api.calls
+      .filter((c) => c.method === "POST")
+      .map((c) => c.body as Record<string, unknown>);
+    expect(body?.kind).toBe("agent");
+    expect(body && "expires_at" in body).toBe(false);
+  });
+
+  test("새 개인 key의 만료일은 비어 있다", async () => {
+    renderAt(NEW_PERSONAL, { ...ownerOk, ...keysServer() });
+    expect(
+      ((await screen.findByLabelText(/^만료일/)) as HTMLInputElement).value,
+    ).toBe("");
+  });
+
   test("에이전트 key도 지난 날짜를 만료일로 보내지 않는다", async () => {
     const { api } = renderAt(NEW_AGENT, { ...ownerOk, ...keysServer() });
     const user = await setupUser();
     await screen.findByRole("option", { name: "Billing" });
     await user.selectOptions(screen.getByLabelText("에이전트"), AGENT_ID);
+    await user.clear(screen.getByLabelText(/^만료일/));
     await user.type(screen.getByLabelText(/^만료일/), "2020-01-01");
     await user.click(screen.getByRole("button", { name: "key 만들기" }));
     expect(api.calls.some((c) => c.method === "POST")).toBe(false);

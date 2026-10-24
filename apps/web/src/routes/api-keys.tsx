@@ -222,11 +222,16 @@ function keyRefusal(
 }
 
 /** Today in the browser's time zone, as an `<input type="date">` value. */
-function today(): string {
-  const now = new Date();
+/** A local calendar day, `days` from today, as a date input's value. */
+function localDay(days = 0): string {
+  const day = new Date();
+  day.setDate(day.getDate() + days);
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  return `${day.getFullYear()}-${pad(day.getMonth() + 1)}-${pad(day.getDate())}`;
 }
+
+// A new agent key outlives its issuer, so it starts with an end date.
+const AGENT_KEY_DEFAULT_DAYS = 90;
 
 /** The end of the chosen day, in the browser's time zone. */
 function expiryOf(day: string): string | undefined {
@@ -750,9 +755,11 @@ function ScopePicker({
 function ExpiryField({
   value,
   onChange,
+  hint = "apiKeys.expiresHint",
 }: {
   readonly value: string;
   readonly onChange: (value: string) => void;
+  readonly hint?: MessageKey;
 }) {
   const { t } = useI18n();
   return (
@@ -762,12 +769,12 @@ function ExpiryField({
         <Input
           type="date"
           className="w-auto"
-          min={today()}
+          min={localDay()}
           value={value}
           onChange={(event) => onChange(event.target.value)}
         />
       </div>
-      <FieldDescription>{t("apiKeys.expiresHint")}</FieldDescription>
+      <FieldDescription>{t(hint)}</FieldDescription>
     </Field>
   );
 }
@@ -1063,7 +1070,9 @@ function AgentKeyForm({ busy, send }: FormProps) {
   const [name, setName] = useState("");
   const [scopes, setScopes] = useState<SessionScope[]>(["sessions:read"]);
   const [agentId, setAgentId] = useState("");
-  const [expires, setExpires] = useState("");
+  const [expires, setExpires] = useState(() =>
+    localDay(AGENT_KEY_DEFAULT_DAYS),
+  );
   const chosenAgent = agents.find((agent) => agent.id === agentId);
   const available = held.filter((scope) => !AGENT_KEY_WITHHELD.includes(scope));
 
@@ -1083,7 +1092,7 @@ function AgentKeyForm({ busy, send }: FormProps) {
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     // The browser blocks a past date before submitting; a test DOM may not.
-    if (expires !== "" && expires < today()) {
+    if (expires !== "" && expires < localDay()) {
       event.currentTarget.reportValidity();
       return;
     }
@@ -1131,7 +1140,11 @@ function AgentKeyForm({ busy, send }: FormProps) {
             onChange={setScopes}
             note="apiKeys.agentNoApprove"
           />
-          <ExpiryField value={expires} onChange={setExpires} />
+          <ExpiryField
+            value={expires}
+            onChange={setExpires}
+            hint="apiKeys.agentExpiresHint"
+          />
         </div>
         <FormFoot
           listTo={SCREEN.agent.list}

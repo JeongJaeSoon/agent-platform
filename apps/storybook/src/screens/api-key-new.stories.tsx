@@ -183,10 +183,20 @@ function NewKeyScreen({
                       className="w-auto"
                       // As in the console: no past day (local YYYY-MM-DD).
                       min={new Date().toLocaleDateString("sv")}
+                      // An agent key starts 90 days out, as in the console.
+                      defaultValue={
+                        kind === "agent"
+                          ? new Date(
+                              Date.now() + 90 * 24 * 60 * 60 * 1000,
+                            ).toLocaleDateString("sv")
+                          : undefined
+                      }
                     />
                   </div>
                   <FieldDescription>
-                    비워 두면 폐기할 때까지 유효합니다.
+                    {kind === "agent"
+                      ? "기본은 90일 뒤입니다. 비워 두면 폐기할 때까지 유효합니다."
+                      : "비워 두면 폐기할 때까지 유효합니다."}
                   </FieldDescription>
                 </Field>
               </div>

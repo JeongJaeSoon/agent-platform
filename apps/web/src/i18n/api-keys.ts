@@ -30,7 +30,7 @@ export const apiKeysKo = {
     "사람에 묶이지 않는 조직 소유 key입니다. Terraform·CI·SCIM 같은 자동화가 워크스페이스 관리 API를 부를 때 씁니다.",
   "apiKeys.orgPending": "준비 중입니다",
   "apiKeys.orgPendingBody":
-    "아직 발급할 수 없습니다. 세션을 다루는 자동화에는 에이전트 key를 쓰세요.",
+    "아직 발급할 수 없습니다. 세션을 다루는 자동화에는 에이전트 key를 쓰세요. 발급할 수 있게 되면 만료일은 반드시 정해야 합니다.",
   "apiKeys.new": "새 key",
   "apiKeys.newPersonalTitle": "새 개인 key",
   "apiKeys.newAgentTitle": "새 에이전트 key",
@@ -64,6 +64,8 @@ export const apiKeysKo = {
     "복구가 필요한 세션을 어떻게 이을지 정합니다: 턴 버리기·완료 확정·닫기·새로 시작·복원 재시도.",
   "apiKeys.expires": "만료일(필수 아님)",
   "apiKeys.expiresHint": "비워 두면 폐기할 때까지 유효합니다.",
+  "apiKeys.agentExpiresHint":
+    "기본은 90일 뒤입니다. 비워 두면 폐기할 때까지 유효합니다.",
   "apiKeys.secretTitle": "새 key",
   "apiKeys.createdTitle": "key를 만들었습니다",
   "apiKeys.secretOnce":
@@ -130,7 +132,7 @@ export const apiKeysEn: Record<keyof typeof apiKeysKo, string> = {
     "Keys the organization owns, tied to no person, for automation such as Terraform, CI or SCIM that calls the workspace admin API.",
   "apiKeys.orgPending": "Coming soon",
   "apiKeys.orgPendingBody":
-    "You can't issue one yet. For automation that works with sessions, use an agent key.",
+    "You can't issue one yet. For automation that works with sessions, use an agent key. Once they're available, every one will need an expiry date.",
   "apiKeys.new": "New key",
   "apiKeys.newPersonalTitle": "New personal key",
   "apiKeys.newAgentTitle": "New agent key",
@@ -166,6 +168,8 @@ export const apiKeysEn: Record<keyof typeof apiKeysKo, string> = {
     "Decide how a session that needs recovery goes on: abandon a turn, confirm it completed, close, start fresh or retry the restore.",
   "apiKeys.expires": "Expires on (not required)",
   "apiKeys.expiresHint": "Leave empty to keep the key until you revoke it.",
+  "apiKeys.agentExpiresHint":
+    "Defaults to 90 days from today. Leave empty to keep the key until you revoke it.",
   "apiKeys.secretTitle": "New key",
   "apiKeys.createdTitle": "Key created",
   "apiKeys.secretOnce":
@@ -232,7 +236,7 @@ export const apiKeysJa: Record<keyof typeof apiKeysKo, string> = {
     "人に紐づかない、組織が所有するキーです。Terraform・CI・SCIM などの自動化がワークスペース管理 API を呼び出すときに使います。",
   "apiKeys.orgPending": "準備中です",
   "apiKeys.orgPendingBody":
-    "まだ発行できません。セッションを扱う自動化にはエージェントキーを使ってください。",
+    "まだ発行できません。セッションを扱う自動化にはエージェントキーを使ってください。発行できるようになったら、有効期限の設定が必須になります。",
   "apiKeys.new": "新しいキー",
   "apiKeys.newPersonalTitle": "新しい個人キー",
   "apiKeys.newAgentTitle": "新しいエージェントキー",
@@ -266,6 +270,8 @@ export const apiKeysJa: Record<keyof typeof apiKeysKo, string> = {
     "復旧が必要なセッションの続け方を決めます。ターンの破棄、完了の確認、クローズ、新規開始、復元の再試行ができます。",
   "apiKeys.expires": "有効期限（任意）",
   "apiKeys.expiresHint": "空欄にすると、取り消すまでキーは有効なままです。",
+  "apiKeys.agentExpiresHint":
+    "既定は今日から 90 日後です。空欄にすると、取り消すまでキーは有効なままです。",
   "apiKeys.secretTitle": "新しいキー",
   "apiKeys.createdTitle": "キーを作成しました",
   "apiKeys.secretOnce":

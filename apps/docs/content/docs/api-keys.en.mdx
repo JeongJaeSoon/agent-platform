@@ -28,7 +28,9 @@ There is no key without an agent, that is, no key that reaches the whole workspa
 
 A key can carry a `name` (1 to 64 characters after trimming, not required) so you can tell it apart in the list. Without one it is `null`.
 
-Organization admin keys, owned by the organization and tied to no person (for automation such as Terraform, CI or SCIM), do not exist yet. The web console's API key screen shows their place as "Coming soon", to owners and admins only.
+Without `expires_at`, a key stays valid until you revoke it. The web console's new agent key screen fills in an expiry date 90 days out; clear it to issue a key with no expiry.
+
+Organization admin keys, owned by the organization and tied to no person (for automation such as Terraform, CI or SCIM), do not exist yet. The web console's API key screen shows their place as "Coming soon", to owners and admins only. Once they exist, each one will need an expiry date.
 
 ## Issue a key
 
