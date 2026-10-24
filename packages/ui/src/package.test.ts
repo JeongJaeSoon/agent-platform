@@ -23,6 +23,7 @@ const ALLOWED_RUNTIME_DEPENDENCIES = [
   "@radix-ui/react-popover",
   "@radix-ui/react-radio-group",
   "@radix-ui/react-slot",
+  "@radix-ui/react-switch",
   "@radix-ui/react-tabs",
   "class-variance-authority",
   "clsx",
