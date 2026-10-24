@@ -3,6 +3,7 @@ import {
   type JSX,
   type KeyboardEvent,
   type PointerEvent,
+  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -27,8 +28,13 @@ export interface BarChartProps {
   readonly formatX: (x: string) => string;
   /** The five y ticks; full chart only. */
   readonly formatY?: ((y: number) => string) | undefined;
-  /** One bar's tooltip, which is also its accessible name. */
+  /**
+   * One bar's tooltip, which is also its accessible name. A custom one must
+   * say when the bar is partial; the hatching alone is not read out.
+   */
   readonly formatTip?: ((datum: BarChartDatum) => string) | undefined;
+  /** What the default tooltip adds to a partial bar, such as "Some cost not reported". */
+  readonly partialLabel?: string | undefined;
   /** The top of the y axis; by default the largest value rounded up. */
   readonly yMax?: number | undefined;
   /**
@@ -67,7 +73,13 @@ export function BarChart({
   label,
   formatX,
   formatY = String,
-  formatTip = (datum) => `${formatX(datum.x)} · ${formatY(datum.y)}`,
+  partialLabel,
+  formatTip = (datum) =>
+    [
+      formatX(datum.x),
+      formatY(datum.y),
+      ...(datum.partial && partialLabel ? [partialLabel] : []),
+    ].join(" · "),
   yMax,
   compact = false,
   className,
@@ -155,6 +167,9 @@ function FullChart({
   // The bar that takes Tab (the latest by default) and the one showing a tip.
   const [focusIndex, setFocusIndex] = useState(data.length - 1);
   const [tipIndex, setTipIndex] = useState<number | null>(null);
+  // New data can leave the remembered bar out of range; the latest takes Tab.
+  const current =
+    focusIndex >= 0 && focusIndex < data.length ? focusIndex : data.length - 1;
   const [tipLeft, setTipLeft] = useState(0);
   const figure = useRef<HTMLElement>(null);
   const tip = useRef<HTMLDivElement>(null);
@@ -172,6 +187,17 @@ function FullChart({
     setTipLeft(Math.min(Math.max(0, centre), box.width - width));
   }, [tipIndex]);
 
+  // Escape hides the tip wherever focus is, without moving the pointer or
+  // focus (WCAG 1.4.13).
+  useEffect(() => {
+    if (tipIndex === null) return;
+    const hide = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") setTipIndex(null);
+    };
+    window.addEventListener("keydown", hide);
+    return () => window.removeEventListener("keydown", hide);
+  }, [tipIndex]);
+
   const point = (event: PointerEvent<HTMLDivElement>) => {
     const box = event.currentTarget.getBoundingClientRect();
     if (box.width <= 0) return;
@@ -183,8 +209,8 @@ function FullChart({
 
   const move = (event: KeyboardEvent<HTMLDivElement>) => {
     const to = {
-      ArrowLeft: focusIndex - 1,
-      ArrowRight: focusIndex + 1,
+      ArrowLeft: current - 1,
+      ArrowRight: current + 1,
       Home: 0,
       End: data.length - 1,
     }[event.key];
@@ -199,6 +225,9 @@ function FullChart({
       ref={figure}
       data-slot="bar-chart"
       aria-label={label}
+      // Leaving the chart, not the plot, hides the tip, so the pointer can
+      // move onto the tip without losing it (WCAG 1.4.13).
+      onPointerLeave={() => setTipIndex(null)}
       className={cn(
         "relative m-0 grid grid-cols-[48px_1fr] gap-x-2",
         className,
@@ -219,13 +248,13 @@ function FullChart({
         data-slot="bar-chart-plot"
         onKeyDown={move}
         // Bars on a phone are narrower than a 24px target (WCAG 2.5.8), so the
-        // pointer reads the whole plot and points at the nearest bar; the bar
-        // buttons are for the keyboard and assistive tech.
+        // whole plot is the one pointer target and the pointer's x picks the
+        // bar, as on a slider track; the bar buttons are for the keyboard and
+        // assistive tech. A horizontal drag scrubs, a vertical one scrolls.
         onPointerMove={point}
         onPointerDown={point}
-        onPointerLeave={() => setTipIndex(null)}
         className={cn(
-          "relative flex items-end gap-0.5 border-border-strong border-b bg-[linear-gradient(var(--ap-chart-grid)_1px,transparent_1px)]",
+          "relative flex touch-pan-y items-end gap-0.5 border-border-strong border-b bg-[linear-gradient(var(--ap-chart-grid)_1px,transparent_1px)]",
           PLOT_HEIGHT.full,
         )}
       >
@@ -239,7 +268,7 @@ function FullChart({
               }}
               type="button"
               aria-label={text}
-              tabIndex={index === focusIndex ? 0 : -1}
+              tabIndex={index === current ? 0 : -1}
               data-active={index === tipIndex || undefined}
               data-partial={datum.partial || undefined}
               onFocus={() => {
@@ -277,7 +306,7 @@ function FullChart({
         aria-hidden="true"
         hidden={tipDatum === undefined}
         data-slot="bar-chart-tip"
-        className="pointer-events-none absolute -top-2 left-(--tip-left) z-2 whitespace-nowrap rounded-card bg-surface px-3 py-2 text-caption leading-4 shadow-pop"
+        className="absolute -top-2 left-(--tip-left) z-2 whitespace-nowrap rounded-card bg-surface px-3 py-2 text-caption leading-4 shadow-pop"
         style={{ "--tip-left": `${tipLeft}px` } as CSSProperties}
       >
         {tipDatum ? formatTip(tipDatum) : null}
