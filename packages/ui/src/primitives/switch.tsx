@@ -13,15 +13,28 @@ export type SwitchProps = ComponentProps<typeof SwitchPrimitive.Root>;
  * track in `input` (the control boundary needs 3:1 against the card), a card
  * thumb when off, no thumb shadow and no `dark:` variants. The state is
  * `aria-checked`; any "on"/"off" words belong to the caller, outside.
+ * `aria-disabled` looks like `disabled` but keeps focus and only refuses the
+ * toggle, for a switch that is busy saving rather than withheld.
  */
-export function Switch({ className, ...props }: SwitchProps): JSX.Element {
+export function Switch({
+  className,
+  onClick,
+  ...props
+}: SwitchProps): JSX.Element {
+  const busy =
+    props["aria-disabled"] === true || props["aria-disabled"] === "true";
   return (
     <SwitchPrimitive.Root
       data-slot="switch"
       className={cn(
-        "peer inline-flex h-5 w-9 shrink-0 items-center rounded-full border-2 border-transparent transition-[background-color] duration-[var(--ap-motion-fast)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-primary data-[state=unchecked]:bg-input motion-reduce:transition-none",
+        "peer inline-flex h-5 w-9 shrink-0 items-center rounded-full border-2 border-transparent transition-[background-color] duration-[var(--ap-motion-fast)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:cursor-not-allowed disabled:opacity-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 data-[state=checked]:bg-primary data-[state=unchecked]:bg-input motion-reduce:transition-none",
         className,
       )}
+      onClick={(event) => {
+        onClick?.(event);
+        // Radix skips its toggle when the click's default is prevented.
+        if (busy) event.preventDefault();
+      }}
       {...useFieldControl(props)}
     >
       <SwitchPrimitive.Thumb

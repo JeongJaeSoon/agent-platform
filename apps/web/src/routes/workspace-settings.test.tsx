@@ -292,6 +292,88 @@ describe("워크스페이스 설정", () => {
     ).toEqual([{ slack_guest_enabled: true }, { slack_guest_enabled: false }]);
   });
 
+  test("저장 중에도 포커스가 스위치에 남고, 그동안 다시 누른 Space는 보내지 않는다", async () => {
+    let enabled = false;
+    let release = () => {};
+    const { api } = renderAt("/settings/workspace", {
+      "GET /v1/auth/me": () => json(200, withGuest(me(), enabled)),
+      [`POST ${GUEST}`]: async (request: Request) => {
+        const sent = (await request.json()) as { slack_guest_enabled: boolean };
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        enabled = sent.slack_guest_enabled;
+        return json(200, { slack_guest_enabled: enabled });
+      },
+    });
+    const toggle = await screen.findByRole("switch", GUEST_SWITCH);
+    const user = await setupUser();
+    toggle.focus();
+    await user.keyboard(" ");
+    await waitFor(() =>
+      expect(toggle.getAttribute("aria-disabled")).toBe("true"),
+    );
+    expect(document.activeElement === toggle).toBe(true);
+    await user.keyboard(" ");
+    release();
+    await waitFor(() =>
+      expect(toggle.getAttribute("aria-checked")).toBe("true"),
+    );
+    await waitFor(() =>
+      expect(toggle.hasAttribute("aria-disabled")).toBe(false),
+    );
+    expect(document.activeElement === toggle).toBe(true);
+    await user.keyboard(" ");
+    release();
+    await waitFor(() =>
+      expect(toggle.getAttribute("aria-checked")).toBe("false"),
+    );
+    expect(
+      api.calls.filter((c) => c.path === GUEST).map((c) => c.body),
+    ).toEqual([{ slack_guest_enabled: true }, { slack_guest_enabled: false }]);
+  });
+
+  test("라벨 글자를 눌러도 게스트 사용이 바뀐다", async () => {
+    const { api } = renderAt("/settings/workspace", {
+      "GET /v1/auth/me": () => json(200, withGuest(me(), false)),
+      [`POST ${GUEST}`]: () => json(200, { slack_guest_enabled: true }),
+    });
+    await screen.findByRole("switch", GUEST_SWITCH);
+    const user = await setupUser();
+    await user.click(screen.getByText(GUEST_SWITCH.name));
+    expect((await screen.findByRole("status")).textContent).toBe(
+      "이제 Slack 게스트도 에이전트를 쓸 수 있습니다.",
+    );
+    expect(
+      api.calls.filter((c) => c.path === GUEST).map((c) => c.body),
+    ).toEqual([{ slack_guest_enabled: true }]);
+  });
+
+  test("보존 기간 저장 중에도 포커스가 저장 버튼에 남고, 다시 눌러도 한 번만 보낸다", async () => {
+    let release = () => {};
+    const { api } = renderAt("/settings/workspace", {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`POST ${RETENTION}`]: async () => {
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        return json(200, { audit_retention_days: 90 });
+      },
+    });
+    const button = await screen.findByRole("button", { name: "저장" });
+    const user = await setupUser();
+    await user.click(button);
+    await waitFor(() =>
+      expect(button.getAttribute("aria-disabled")).toBe("true"),
+    );
+    expect(document.activeElement === button).toBe(true);
+    await user.keyboard("{Enter}");
+    release();
+    expect((await screen.findByRole("status")).textContent).toContain("90");
+    expect(document.activeElement === button).toBe(true);
+    expect(api.calls.filter((c) => c.path === RETENTION)).toHaveLength(1);
+  });
+
   test("워크스페이스 설정 권한이 없으면 스위치가 이유와 함께 닫혀 있고, 서버에 묻지 않는다", async () => {
     const body = me();
     const { api } = renderAt("/settings/workspace", {

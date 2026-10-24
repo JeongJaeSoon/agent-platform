@@ -63,6 +63,45 @@ describe("Switch", () => {
     expect(control.getAttribute("aria-checked")).toBe("false");
   });
 
+  test("aria-disabled면 포커스는 남고 클릭·Space·라벨로 바뀌지 않는다", async () => {
+    const user = await setupUser();
+    const onCheckedChange = mock((_checked: boolean) => {});
+    const { getByRole, getByText } = render(
+      <>
+        <Field orientation="horizontal">
+          <Switch aria-disabled={true} onCheckedChange={onCheckedChange} />
+          <FieldLabel>게스트 허용</FieldLabel>
+        </Field>
+        <button type="button">다음</button>
+      </>,
+    );
+    const control = getByRole("switch", { name: "게스트 허용" });
+    await user.tab();
+    expect(document.activeElement === control).toBe(true);
+    await user.keyboard(" ");
+    await user.click(control);
+    await user.click(getByText("게스트 허용"));
+    expect(onCheckedChange.mock.calls).toEqual([]);
+    expect(control.getAttribute("aria-checked")).toBe("false");
+    expect(document.activeElement === control).toBe(true);
+    await user.tab();
+    expect(document.activeElement === getByRole("button")).toBe(true);
+  });
+
+  test("라벨 글자를 누르면 바뀐다", async () => {
+    const user = await setupUser();
+    const onCheckedChange = mock((_checked: boolean) => {});
+    const { getByRole, getByText } = render(
+      <Field orientation="horizontal">
+        <Switch onCheckedChange={onCheckedChange} />
+        <FieldLabel>게스트 허용</FieldLabel>
+      </Field>,
+    );
+    await user.click(getByText("게스트 허용"));
+    expect(onCheckedChange.mock.calls).toEqual([[true]]);
+    expect(getByRole("switch").getAttribute("aria-checked")).toBe("true");
+  });
+
   test("Tab 정지는 하나다", async () => {
     const user = await setupUser();
     const { getByRole } = render(
