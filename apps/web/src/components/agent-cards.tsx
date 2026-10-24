@@ -48,9 +48,13 @@ export function AgentCards({ agents }: { readonly agents: readonly Agent[] }) {
 function AgentCardItem({ agent }: { readonly agent: Agent }) {
   const { client } = useAgentPlatform();
   const [ref, seen] = useSeen<HTMLLIElement>();
-  // A card scrolled past stays subscribed, so coming back to the window
-  // would read all three again for every card seen, however long ago.
-  const options = { enabled: seen, refetchOnWindowFocus: false };
+  // A card scrolled past stays subscribed, so coming back to the window or
+  // the network would read all three again for every card seen.
+  const options = {
+    enabled: seen,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  };
   const detail = useQuery({ ...agentQuery(client, agent.id), ...options });
   const admins = useQuery({
     ...agentAdminsQuery(client, agent.id),

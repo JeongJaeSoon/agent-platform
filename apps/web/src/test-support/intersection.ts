@@ -1,7 +1,8 @@
 /**
- * happy-dom's IntersectionObserver never reports. This one reports an
- * observed element as in view once `inView` says so: at observe, and again
- * on each show(). Everything is in view until a test says otherwise.
+ * happy-dom's IntersectionObserver never reports. This one reports every
+ * observed element, in view or not as `inView` says, at observe and again on
+ * each show(), as a real one reports at observe. Everything is in view until
+ * a test says otherwise.
  */
 export function fakeIntersection() {
   const live = new Set<FakeObserver>();
@@ -26,12 +27,13 @@ export function fakeIntersection() {
       return [];
     }
     report() {
-      const entries = [...this.targets]
-        .filter((target) => inView(target))
-        .map(
-          (target) =>
-            ({ target, isIntersecting: true }) as IntersectionObserverEntry,
-        );
+      const entries = [...this.targets].map(
+        (target) =>
+          ({
+            target,
+            isIntersecting: inView(target),
+          }) as IntersectionObserverEntry,
+      );
       if (entries.length > 0)
         this.callback(entries, this as unknown as IntersectionObserver);
     }
