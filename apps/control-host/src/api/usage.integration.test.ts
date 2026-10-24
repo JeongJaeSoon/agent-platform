@@ -14,6 +14,8 @@ import {
   workerLaunches,
 } from "@werft-ai/db";
 import {
+  type Caller,
+  callerFor,
   createAuthorizationPolicy,
   createUsageService,
   type InputLimits,
@@ -74,6 +76,22 @@ integration("usage API on PostgreSQL", () => {
   }, 60_000);
 
   const inputs = () => createPostgresSessionUnitOfWork(db);
+
+  // The installation's figures are the signed-in owner's alone.
+  function installationOwner(): Caller {
+    const workspaceId = crypto.randomUUID();
+    return callerFor(
+      {
+        kind: "user",
+        id: crypto.randomUUID(),
+        workspace_id: workspaceId,
+        role: "owner",
+        scopes: ["sessions:read"],
+      },
+      { kind: "web" },
+      crypto.randomUUID(),
+    );
+  }
 
   function get(path: string, owner: string) {
     return app.request(`http://localhost${path}`, {
@@ -345,7 +363,8 @@ integration("usage API on PostgreSQL", () => {
       budget_exceeded: true,
     });
     expect(
-      (await tokenLimited.getInstallationLimits()).limits.session_token_limit,
+      (await tokenLimited.getInstallationLimits(installationOwner())).limits
+        .session_token_limit,
     ).toBe(1_000);
   });
 
@@ -401,9 +420,10 @@ integration("usage API on PostgreSQL", () => {
     expect((await get(`/v1/sessions/${id}/usage`, owner)).status).toBe(200);
   });
 
-  test("an unauthenticated caller gets 401 from both routes", async () => {
+  test("an unauthenticated caller gets 401 from every route", async () => {
     for (const path of [
       "/v1/limits",
+      "/v1/usage/summary?scope=me&since=2026-10-01",
       `/v1/sessions/${crypto.randomUUID()}/usage`,
     ]) {
       const response = await app.request(`http://localhost${path}`);
@@ -440,9 +460,13 @@ integration("usage API on PostgreSQL", () => {
       .from(storageUsage)
       .where(eq(storageUsage.scope, "installation"));
 
-    const response = await get("/v1/limits", `owner-${crypto.randomUUID()}`);
-    expect(response.status).toBe(200);
-    const body = installationLimitsResponseSchema.parse(await response.json());
+    const body = installationLimitsResponseSchema.parse(
+      await createUsageService({
+        authorization: createAuthorizationPolicy(),
+        reader: createPostgresUsageReader(db),
+        limits,
+      }).getInstallationLimits(installationOwner()),
+    );
 
     expect(body).toMatchObject({
       scope: "installation",

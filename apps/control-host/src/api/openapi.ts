@@ -32,6 +32,8 @@ import {
   commentPullRequestResponseSchema,
   completeSlackInstallRequestSchema,
   completeSlackInstallResponseSchema,
+  countSessionsQuerySchema,
+  countSessionsResponseSchema,
   createAgentReleaseRequestSchema,
   createAgentReleaseResponseSchema,
   createAgentRequestSchema,
@@ -159,6 +161,8 @@ import {
   updateMemberRequestSchema,
   updateSessionRequestSchema,
   updateTeamRequestSchema,
+  usageSummaryQuerySchema,
+  usageSummaryResponseSchema,
   WEB_SESSION_COOKIE_NAME,
   workspaceParamsSchema,
 } from "@werft-ai/contracts";
@@ -184,6 +188,8 @@ const openApiDocumentResponseSchema = z.looseObject({
 const requestComponents = {
   CreateSessionRequest: createSessionRequestSchema,
   ListSessionsQuery: listSessionsQuerySchema,
+  CountSessionsQuery: countSessionsQuerySchema,
+  UsageSummaryQuery: usageSummaryQuerySchema,
   PostSessionMessageRequest: postSessionMessageRequestSchema,
   ListTurnsQuery: listTurnsQuerySchema,
   PostSessionAnswerRequest: postSessionAnswerRequestSchema,
@@ -238,6 +244,7 @@ const responseComponents = {
   ReadyResponse: readyResponseSchema,
   CreateSessionResponse: createSessionResponseSchema,
   ListSessionsResponse: listSessionsResponseSchema,
+  CountSessionsResponse: countSessionsResponseSchema,
   SessionSummary: sessionSummarySchema,
   SessionRepository: sessionRepositorySchema,
   SessionDetail: getSessionResponseSchema,
@@ -291,6 +298,7 @@ const responseComponents = {
   PasswordResetResponse: passwordResetResponseSchema,
   AuthMeResponse: authMeResponseSchema,
   InstallationLimitsResponse: installationLimitsResponseSchema,
+  UsageSummaryResponse: usageSummaryResponseSchema,
   SessionUsageResponse: sessionUsageResponseSchema,
   ListSessionOutputsResponse: listSessionOutputsResponseSchema,
   ListAgentsResponse: listAgentsResponseSchema,
@@ -564,6 +572,16 @@ const ALL_SCOPES = [
 const EXAMPLE_SESSION_SUMMARY = {
   id: EXAMPLE_SESSION_ID,
   title: "Fix the flaky checkout test",
+  agent: {
+    id: "8f6c1d2e-4b3a-4c5d-9e8f-7a6b5c4d3e2f",
+    name: "Checkout fixer",
+    release_version_no: 3,
+  },
+  created_by: {
+    user_id: "1b2c3d4e-5f60-4718-8a9b-0c1d2e3f4a5b",
+    display_name: "Mina Park",
+  },
+  channel: "web",
   revision: 7,
   admission_state: "active",
   status: "running",
@@ -1146,6 +1164,7 @@ export const API_ROUTE_DECLARATIONS = [
           "binding.manage",
           "session.audit_read",
           "session.admin_list",
+          "usage.installation_read",
         ],
       },
     },
@@ -1206,7 +1225,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Sessions",
     summary: "List the owner's sessions, newest first",
     description:
-      "Lists the sessions of the credential's owner, newest `created_at` first, closed ones included, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. `status` keeps only sessions reporting that status, `needs_input` included. It changes nothing.",
+      "Lists the sessions of the credential's owner that the caller can read, newest `created_at` first, closed ones included, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. `status` keeps only sessions reporting that status, `needs_input` included; `relation` keeps the ones the caller started, was shared or administers the agent of; `q` searches titles and id prefixes. Every filter only narrows what the caller can read. It changes nothing.",
     scope: "read",
     query: "ListSessionsQuery",
     success: {
@@ -1216,6 +1235,34 @@ export const API_ROUTE_DECLARATIONS = [
       example: {
         items: [EXAMPLE_SESSION_SUMMARY],
         next_cursor: null,
+      },
+    },
+    errors: [400, 401, 503],
+  },
+  {
+    method: "get",
+    path: "/v1/sessions/counts",
+    operationId: "countSessions",
+    tag: "Sessions",
+    summary: "Count the sessions a list would return, per status",
+    description:
+      "Counts, for each status, the sessions `GET /v1/sessions` would list with that `status` and the same `relation` and `q` when read to its last page; `total` is their sum. A session the caller cannot read is never counted. It changes nothing.",
+    scope: "read",
+    query: "CountSessionsQuery",
+    success: {
+      status: 200,
+      schema: "CountSessionsResponse",
+      description: "The number of sessions per status.",
+      example: {
+        counts: {
+          queued: 0,
+          running: 2,
+          needs_input: 1,
+          idle: 5,
+          failed: 1,
+          stopped: 3,
+        },
+        total: 12,
       },
     },
     errors: [400, 401, 503],
@@ -3063,7 +3110,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Limits & receipts",
     summary: "Installation limits and installation-wide usage",
     description:
-      "Reads the limits this installation runs under (execution slots, queued input per session, storage, turn length, per-session cost and token limits, provider retries) and the usage against the installation-wide ones, summed over every owner. Use it to explain `STORAGE_LIMIT_EXCEEDED`, a full input queue, or sessions waiting in `queued` for a slot. It changes nothing.",
+      "Reads the limits this installation runs under (execution slots, queued input per session, storage, turn length, per-session cost and token limits, provider retries) and the usage against the installation-wide ones, summed over every owner. Use it to explain `STORAGE_LIMIT_EXCEEDED`, a full input queue, or sessions waiting in `queued` for a slot.\n\nOnly the workspace owner, signed in, reads it: any other member and every API key get 403. It changes nothing.",
     scope: "read",
     success: {
       status: 200,
@@ -3093,6 +3140,41 @@ export const API_ROUTE_DECLARATIONS = [
       },
     },
     errors: [401, 503],
+  },
+  {
+    method: "get",
+    path: "/v1/usage/summary",
+    operationId: "getUsageSummary",
+    tag: "Limits & receipts",
+    summary: "Cost, tokens and run time of the sessions created in a period",
+    description:
+      "Adds up the sessions created in `[since, until)`: how many, their estimated provider cost, their tokens, and how long their turns ran. `since` and `until` take a date (`2026-10-01`, that day's 00:00 UTC) or a timestamp with an offset, which is moved to UTC; without `until` the period ends when the figures are read, so `since` must then be in the past.\n\n- `scope=me`: the sessions the caller started. A personal API key counts as the person who created it; a key nobody created counts the sessions it started itself. Sessions shared with the caller are not added. A key bound to an agent gets 403, as it does from `GET /v1/sessions`.\n- `scope=installation`: every session of every owner. Only the workspace owner, signed in, reads it: any other member and every API key get 403.\n\n`cost_usd` is the sum of `cost.amount_usd` from `GET /v1/sessions/{id}/usage` over the same sessions: an estimate, not a bill. `cost_complete: false` means one of them has a turn still open or one that ended without reporting its cost, so the true total is unknown. `run_seconds` is wall-clock turn time, waiting for an answer included; an open turn counts up to `refreshed_at`. Sessions from before tokens were metered count 0 tokens. It changes nothing.",
+    scope: "read",
+    query: "UsageSummaryQuery",
+    success: {
+      status: 200,
+      schema: "UsageSummaryResponse",
+      description: "The figures as of `refreshed_at`.",
+      example: {
+        scope: "me",
+        period: {
+          since: "2026-10-01T00:00:00.000Z",
+          until: "2026-10-11T08:15:43.000Z",
+        },
+        refreshed_at: "2026-10-11T08:15:43.000Z",
+        session_count: 12,
+        cost_usd: "3.218400",
+        cost_complete: false,
+        token_count: 1824500,
+        run_seconds: 5410,
+        basis: {
+          sessions: "created_in_period",
+          cost: "provider_usage_estimate",
+          run_time: "turn_wall_clock",
+        },
+      },
+    },
+    errors: [400, 401, 503],
   },
   {
     method: "get",

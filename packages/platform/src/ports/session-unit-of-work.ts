@@ -1,5 +1,7 @@
 import type {
   AdmissionState,
+  CountSessionsQuery,
+  CountSessionsResponse,
   CreateSessionResponse,
   ListSessionsQuery,
   ListTurnsQuery,
@@ -8,6 +10,7 @@ import type {
   SessionDetail,
   SessionSummary,
   SseEvent,
+  SurfaceKind,
   TurnDetail,
   TurnSummary,
 } from "@werft-ai/contracts";
@@ -32,6 +35,9 @@ export type AcceptSessionInput = {
   idempotencyKey: string;
   payloadHash: string;
   profileId: string;
+  // The surface the creating request came from, kept as the session's
+  // channel; left out, the session records none.
+  channel?: SurfaceKind;
   // As given, or derived from the message; null when neither has text.
   title?: string | null;
   // null when the catalog no longer lists the profile/repository: a replay
@@ -132,6 +138,12 @@ export interface SessionReader {
     query: ListSessionsQuery,
     viewer: SessionViewer,
   ): Promise<{ items: SessionRecord[]; next_cursor: string | null }>;
+  // What listSessions would return across every page, per status.
+  countSessions(
+    ownerId: string,
+    query: CountSessionsQuery,
+    viewer: SessionViewer,
+  ): Promise<CountSessionsResponse>;
   getSession(
     ownerId: string,
     sessionId: string,
