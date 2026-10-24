@@ -338,8 +338,8 @@ describe("approval inbox", () => {
       [`POST /v1/sessions/${SESSION_ID}/answers`]: () =>
         json(202, { receipt_id: RECEIPT_ID, receipt_status: "accepted" }),
     });
-    const tab = await screen.findByRole("tabpanel");
-    await within(tab).findByRole("link", { name: SESSION_ID });
+    const list = await screen.findByRole("table");
+    await within(list).findByRole("link", { name: SESSION_ID });
     const waitingReads = () =>
       api.calls.filter((call) => call.search === "?status=needs_input").length;
     await waitFor(() => expect(waitingReads()).toBe(2));
@@ -655,20 +655,20 @@ describe("sessions list", () => {
       },
     });
 
-    const tabs = await screen.findByRole("tablist", { name: "상태로 보기" });
+    const tabs = await screen.findByRole("group", { name: "상태로 보기" });
     expect(
       within(tabs)
-        .getAllByRole("tab")
+        .getAllByRole("button")
         .map((tab) => tab.textContent),
     ).toEqual(["전체", "답변 대기", "작업 중", "쉬는 중", "멈춤", "실패"]);
     expect(
       within(tabs)
-        .getByRole("tab", { name: "전체" })
-        .getAttribute("aria-selected"),
+        .getByRole("button", { name: "전체" })
+        .getAttribute("aria-pressed"),
     ).toBe("true");
     await screen.findByRole("link", { name: SESSION_ID });
 
-    await user.click(within(tabs).getByRole("tab", { name: "실패" }));
+    await user.click(within(tabs).getByRole("button", { name: "실패" }));
     await screen.findByRole("link", { name: OTHER_ID });
     expect(screen.queryByRole("link", { name: SESSION_ID })).toBeNull();
     expect(history.location.search).toContain("status=failed");
@@ -679,10 +679,10 @@ describe("sessions list", () => {
       ),
     ).toBe(true);
 
-    await user.click(within(tabs).getByRole("tab", { name: "멈춤" }));
+    await user.click(within(tabs).getByRole("button", { name: "멈춤" }));
     expect(await screen.findByText("이 상태의 세션이 없습니다.")).toBeTruthy();
 
-    await user.click(within(tabs).getByRole("tab", { name: "전체" }));
+    await user.click(within(tabs).getByRole("button", { name: "전체" }));
     await screen.findByRole("link", { name: SESSION_ID });
     expect(history.location.search).not.toContain("status=");
   });
@@ -701,7 +701,7 @@ describe("sessions list", () => {
     });
     await screen.findByRole("link", { name: SESSION_ID });
     // The full list stays cached, unmounted, behind the status tab.
-    await user.click(screen.getByRole("tab", { name: "실패" }));
+    await user.click(screen.getByRole("button", { name: "실패" }));
     await screen.findByRole("link", { name: OTHER_ID });
     const failedReads = () =>
       api.calls.filter((call) => call.search === "?status=failed").length;
@@ -728,8 +728,8 @@ describe("sessions list", () => {
             })
           : json(200, { items: [summary(SESSION_ID)], next_cursor: null }),
     });
-    const tab = await screen.findByRole("tab", { name: "쉬는 중" });
-    expect(tab.getAttribute("aria-selected")).toBe("true");
+    const tab = await screen.findByRole("button", { name: "쉬는 중" });
+    expect(tab.getAttribute("aria-pressed")).toBe("true");
     await screen.findByRole("link", { name: OTHER_ID });
   });
 
@@ -739,8 +739,8 @@ describe("sessions list", () => {
       "GET /v1/sessions": () =>
         json(200, { items: [summary(SESSION_ID)], next_cursor: null }),
     });
-    const tab = await screen.findByRole("tab", { name: "전체" });
-    expect(tab.getAttribute("aria-selected")).toBe("true");
+    const tab = await screen.findByRole("button", { name: "전체" });
+    expect(tab.getAttribute("aria-pressed")).toBe("true");
     await screen.findByRole("link", { name: SESSION_ID });
   });
 
