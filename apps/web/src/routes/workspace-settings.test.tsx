@@ -263,6 +263,22 @@ describe("워크스페이스 설정", () => {
     expect(screen.getByText("켜짐")).toBeDefined();
   });
 
+  test("게스트 스위치는 설정 행의 오른쪽 끝에 있고, 켜짐·꺼짐 글자는 그 왼쪽에 있다", async () => {
+    renderAt("/settings/workspace", {
+      "GET /v1/auth/me": () => json(200, withGuest(adminMe(), false)),
+    });
+    const toggle = await screen.findByRole("switch", GUEST_SWITCH);
+    const row = toggle.closest('[data-slot="setting-row"]');
+    expect(
+      row?.closest('[role="region"]')?.getAttribute("aria-labelledby"),
+    ).toBe(screen.getByRole("heading", { name: "Slack 게스트" }).id);
+    expect(row?.lastElementChild?.lastElementChild).toBe(toggle);
+    expect(toggle.previousElementSibling?.textContent).toBe("꺼짐");
+    expect(row?.querySelector(`label[for="${toggle.id}"]`)?.textContent).toBe(
+      GUEST_SWITCH.name,
+    );
+  });
+
   test("키보드로 스위치에 가서 Space로 켜고 Enter로 끈다", async () => {
     let enabled = false;
     const { api } = renderAt("/settings/workspace", {
