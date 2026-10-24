@@ -63,7 +63,7 @@ import {
 } from "../i18n/i18n.tsx";
 import { agentState } from "./agents.tsx";
 import { expiryState } from "./api-keys.tsx";
-import { loadError, NewSessionButton, useUnavailable } from "./sessions.tsx";
+import { loadError, useUnavailable } from "./sessions.tsx";
 import { duration, usageSummaryQuery } from "./usage.tsx";
 
 /** Done, not yet, or not knowable here (the list refused this viewer, or failed). */
@@ -115,12 +115,12 @@ export function useNow(): number {
 }
 
 /**
- * The bootstrap checklist, done or not, then the requests waiting on the
- * viewer, answerable in place, counts with the session that waited longest
- * and the newest sessions. Each checklist step is read from the server: someone
- * was invited once an invite exists or a second member joined, an agent is
- * ready once one has an active release, and a session started once the
- * viewer's own session list has one.
+ * The bootstrap checklist until every step is done, then the requests waiting
+ * on the viewer, answerable in place, counts with the session that waited
+ * longest and the newest sessions. Each checklist step is read from the
+ * server: someone was invited once an invite exists or a second member
+ * joined, an agent is ready once one has an active release, and a session
+ * started once the viewer's own session list has one.
  *
  * The overview cards follow the design canvas. The usage figures cover the
  * last 30 UTC days; a figure no API serves yet (output storage, an agent's
@@ -216,6 +216,12 @@ export function HomeScreen() {
       hint: "home.checklist.sessionHint",
     },
   ];
+
+  // Shown only once every list has answered, so it does not flash in and
+  // out while loading, and gone once every step is done.
+  const checklistShown =
+    [members, invites, agents, sessions].every((query) => !query.isPending) &&
+    steps.some((step) => step.state !== "done");
 
   const waitingCount = waiting.data
     ? count(waiting.data.items.length, waiting.data.next_cursor !== null)
@@ -541,12 +547,8 @@ export function HomeScreen() {
             : null;
 
   return (
-    <Page
-      title={t("nav.home")}
-      description={intro}
-      actions={<NewSessionButton />}
-    >
-      <Checklist steps={steps} />
+    <Page title={t("nav.home")} description={intro}>
+      {checklistShown ? <Checklist steps={steps} /> : null}
       <ApprovalInbox
         layout="summary"
         title={t("home.requests.title")}
