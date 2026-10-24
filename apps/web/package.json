@@ -15,7 +15,7 @@
     "@werft-ai/core": "workspace:*",
     "@werft-ai/react": "workspace:*",
     "@werft-ai/ui": "workspace:*",
-    "@happy-dom/global-registrator": "^20.14.5",
+    "@happy-dom/global-registrator": "^21.0.4",
     "@hookform/resolvers": "5.9.1",
     "@radix-ui/react-dialog": "^1.1.23",
     "@radix-ui/react-slot": "^1.3.3",
