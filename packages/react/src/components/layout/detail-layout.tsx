@@ -1,5 +1,11 @@
 import { cn, Section } from "@werft-ai/ui";
-import type { ComponentProps, JSX, ReactNode } from "react";
+import {
+  type ComponentProps,
+  type JSX,
+  type ReactNode,
+  useEffect,
+  useState,
+} from "react";
 
 export type DetailLayoutProps = Omit<ComponentProps<"div">, "children"> & {
   /** The page itself: its header, tabs and content. */
@@ -31,11 +37,14 @@ export function DetailLayout({
       )}
       {...props}
     >
-      <div
-        data-slot="detail-layout-body"
-        className="mx-auto flex w-full min-w-0 max-w-[101.25rem] flex-col p-4 pt-6 md:px-6 md:pt-[var(--ap-space-page-top)] md:pb-[var(--ap-space-section)]"
-      >
-        {children}
+      {/* Gutters outside the width, as ShellMain has them: 1620px of content. */}
+      <div className="flex min-w-0 flex-col p-4 pt-6 md:px-6 md:pt-[var(--ap-space-page-top)] md:pb-[var(--ap-space-section)]">
+        <div
+          data-slot="detail-layout-body"
+          className="mx-auto flex w-full min-w-0 max-w-[101.25rem] flex-1 flex-col"
+        >
+          {children}
+        </div>
       </div>
       {rail}
     </div>
@@ -65,6 +74,8 @@ export function DetailRail({
   className,
   ...props
 }: DetailRailProps): JSX.Element {
+  const [content, setContent] = useState<HTMLDivElement | null>(null);
+  const scrollable = useOverflows(content, children);
   return (
     <aside
       data-slot="detail-rail"
@@ -76,13 +87,36 @@ export function DetailRail({
       {...props}
     >
       <div
+        ref={setContent}
         data-slot="detail-rail-content"
+        // Only while it scrolls on its own: a keyboard needs a stop to
+        // scroll it, and the band below 1280px would gain a useless one.
+        {...(scrollable
+          ? { tabIndex: 0, role: "group", "aria-label": label }
+          : undefined)}
         className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,22rem),1fr))] items-start gap-x-8 p-4 pt-6 md:px-6 md:pt-[var(--ap-space-page-top)] md:pb-[var(--ap-space-section)] xl:sticky xl:top-0 xl:flex xl:max-h-[calc(100dvh-var(--ap-topbar-h))] xl:flex-col xl:items-stretch xl:divide-y xl:overflow-y-auto xl:p-8"
       >
         {children}
       </div>
     </aside>
   );
+}
+
+function useOverflows(element: HTMLElement | null, children: ReactNode) {
+  const [overflows, setOverflows] = useState(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: new children may change the height
+  useEffect(() => {
+    if (!element) return;
+    const check = () =>
+      setOverflows(element.scrollHeight > element.clientHeight);
+    check();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(check);
+    observer.observe(element);
+    for (const child of element.children) observer.observe(child);
+    return () => observer.disconnect();
+  }, [element, children]);
+  return overflows;
 }
 
 export interface DetailRailSectionProps {

@@ -2310,7 +2310,7 @@ describe("세션 상세 레이아웃", () => {
       ).toBeTruthy(),
     );
     const layout = document.querySelector('[data-slot="detail-layout"]');
-    const body = layout?.firstElementChild;
+    const body = layout?.firstElementChild?.firstElementChild;
     expect(body?.getAttribute("data-slot")).toBe("detail-layout-body");
     expect(body?.querySelector('[data-slot="page-header"]')).toBeTruthy();
     expect(body?.lastElementChild?.getAttribute("data-slot")).toBe("tabs");
