@@ -97,7 +97,7 @@ function NewKeyScreen({
       <div className="flex w-full flex-col gap-2">
         <Link
           href={`#${kind}`}
-          className="inline-flex items-center gap-1 self-start text-body"
+          className="inline-flex items-center gap-1 self-start text-control"
         >
           <ArrowLeft aria-hidden="true" className="size-3.5" />
           {screen.list}

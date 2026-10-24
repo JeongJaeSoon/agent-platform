@@ -802,7 +802,7 @@ function NewKeyScreen({ kind }: { readonly kind: ApiKeyKind }) {
     <div className={PAGE}>
       <TextLink
         asChild
-        className="inline-flex items-center gap-1 self-start text-body"
+        className="inline-flex items-center gap-1 self-start text-control"
       >
         <Link to={screen.list}>
           <ArrowLeft aria-hidden="true" className="size-3.5" />
