@@ -294,10 +294,12 @@ describe("홈 요약", () => {
     workspace_id: WORKSPACE_ID,
     agent_id: AGENT_ID,
     created_by: USER_ID,
+    created_by_user: null,
     scopes: ["sessions:read"],
     created_at: "2026-10-01T00:00:00.000Z",
     expires_at: inDays(3),
     revoked_at: null,
+    last_used_at: null,
   };
   /** Each card as title, headline and its label/value rows. */
   const cards = (overview: HTMLElement) =>

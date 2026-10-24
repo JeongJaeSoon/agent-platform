@@ -4104,11 +4104,19 @@ export interface components {
                 workspace_id: string;
                 agent_id: string | null;
                 created_by: string | null;
+                /** @description Who issued the key, with their display name as it is now. It stays after the issuer leaves the workspace or their account is disabled. Null on a key issued before keys recorded who issued them. */
+                created_by_user: {
+                    /** Format: uuid */
+                    id: string;
+                    display_name: string;
+                } | null;
                 scopes: ("sessions:read" | "sessions:write" | "sessions:approve" | "sessions:control" | "sessions:recover")[];
                 /** Format: date-time */
                 created_at: string;
                 expires_at: string | null;
                 revoked_at: string | null;
+                /** @description When the key last authenticated a request, recorded at most once a minute. A use made while another request is writing a session with the key is recorded on the next use instead, so it can lag by more. Null means no use has been recorded since last-use recording began, not that the key was never used. */
+                last_used_at: string | null;
             };
             secret: string;
             /** Format: uuid */
@@ -4124,11 +4132,19 @@ export interface components {
                 workspace_id: string;
                 agent_id: string | null;
                 created_by: string | null;
+                /** @description Who issued the key, with their display name as it is now. It stays after the issuer leaves the workspace or their account is disabled. Null on a key issued before keys recorded who issued them. */
+                created_by_user: {
+                    /** Format: uuid */
+                    id: string;
+                    display_name: string;
+                } | null;
                 scopes: ("sessions:read" | "sessions:write" | "sessions:approve" | "sessions:control" | "sessions:recover")[];
                 /** Format: date-time */
                 created_at: string;
                 expires_at: string | null;
                 revoked_at: string | null;
+                /** @description When the key last authenticated a request, recorded at most once a minute. A use made while another request is writing a session with the key is recorded on the next use instead, so it can lag by more. Null means no use has been recorded since last-use recording began, not that the key was never used. */
+                last_used_at: string | null;
             }[];
         };
         RevokeApiKeyResponse: {
@@ -4141,11 +4157,19 @@ export interface components {
                 workspace_id: string;
                 agent_id: string | null;
                 created_by: string | null;
+                /** @description Who issued the key, with their display name as it is now. It stays after the issuer leaves the workspace or their account is disabled. Null on a key issued before keys recorded who issued them. */
+                created_by_user: {
+                    /** Format: uuid */
+                    id: string;
+                    display_name: string;
+                } | null;
                 scopes: ("sessions:read" | "sessions:write" | "sessions:approve" | "sessions:control" | "sessions:recover")[];
                 /** Format: date-time */
                 created_at: string;
                 expires_at: string | null;
                 revoked_at: string | null;
+                /** @description When the key last authenticated a request, recorded at most once a minute. A use made while another request is writing a session with the key is recorded on the next use instead, so it can lag by more. Null means no use has been recorded since last-use recording began, not that the key was never used. */
+                last_used_at: string | null;
             };
             receipt_id: string | null;
         };

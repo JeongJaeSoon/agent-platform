@@ -446,6 +446,7 @@ export interface AuthenticatorOptions {
   keyStore: ApiKeyStore;
   // Absent: no cookie path, the app is API-key only as in alpha.
   identity?: IdentityStore;
+  logger?: StructuredLogger;
 }
 
 type Authenticated = {
@@ -507,7 +508,7 @@ export interface Authenticator {
 export function createAuthenticator(
   options: AuthenticatorOptions,
 ): Authenticator {
-  const { authMode, keyStore, identity } = options;
+  const { authMode, keyStore, identity, logger } = options;
   return {
     async authenticate(context: Context) {
       if (authMode === "none") {
@@ -533,6 +534,15 @@ export function createAuthenticator(
         const key = await keyStore.find(keyHash);
         if (!key) {
           return null;
+        }
+        if (key.touchDue && keyStore.touch) {
+          // Not awaited: a last-use time is not worth a request's latency.
+          keyStore.touch(key.id).catch((error: unknown) => {
+            logger?.warn("API key last use not recorded", {
+              key_id: key.id,
+              error_name: error instanceof Error ? error.name : "UnknownError",
+            });
+          });
         }
         const principal = apiKeyPrincipal(key);
         return {

@@ -24,10 +24,12 @@ import {
   type IssuePasswordResetResult,
   type ResolvedWebSession,
 } from "@werft-ai/platform";
+import { Hono } from "hono";
 import { BODY_IDLE_TIMEOUT_SECONDS } from "./app.ts";
 import {
   apiKeyPrincipal,
   bootstrapGateFromEnv,
+  createAuthenticator,
   createBootstrapGate,
   csrfViolation,
   hashPassword,
@@ -1709,4 +1711,62 @@ describe("CSRF", () => {
 
 test("hashPassword produces argon2id", async () => {
   expect(await hashPassword("x".repeat(12))).toStartWith("$argon2id$");
+});
+
+describe("an API key's last use", () => {
+  function harness(touchDue: boolean, touch: (keyId: string) => Promise<void>) {
+    const sink = new MemoryLogSink();
+    const authenticator = createAuthenticator({
+      authMode: "api-key",
+      logger: new StructuredLogger({ sinks: [sink] }),
+      keyStore: {
+        find: async () => ({
+          id: "key-1",
+          ownerId: "ws",
+          workspaceId: "ws",
+          scopes: ["sessions:read"],
+          kind: "service",
+          createdByUserId: null,
+          creatorRole: null,
+          touchDue,
+        }),
+        touch,
+      },
+    });
+    const app = new Hono();
+    app.get("/", async (context) =>
+      context.text((await authenticator.authenticate(context)) ? "in" : "out"),
+    );
+    const call = async () =>
+      (
+        await app.request("/", { headers: { Authorization: "Bearer csp_x" } })
+      ).text();
+    return { sink, call };
+  }
+
+  test("is recorded only when due", async () => {
+    const touched: string[] = [];
+    const due = harness(true, async (keyId) => {
+      touched.push(keyId);
+    });
+    expect(await due.call()).toBe("in");
+    const fresh = harness(false, async (keyId) => {
+      touched.push(keyId);
+    });
+    expect(await fresh.call()).toBe("in");
+    expect(touched).toEqual(["key-1"]);
+  });
+
+  test("a touch that fails or hangs does not hold up the request", async () => {
+    const failing = harness(true, async () => {
+      throw new Error("connection refused");
+    });
+    expect(await failing.call()).toBe("in");
+    await Bun.sleep(0);
+    expect(failing.sink.records).toContainEqual(
+      expect.objectContaining({ message: "API key last use not recorded" }),
+    );
+    const hanging = harness(true, () => new Promise(() => {}));
+    expect(await hanging.call()).toBe("in");
+  });
 });

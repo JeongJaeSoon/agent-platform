@@ -24,10 +24,15 @@ const VIEW: ApiKeyView = {
   workspace_id: WORKSPACE,
   agent_id: null,
   created_by: "019a0000-0000-7000-8000-0000000000a1",
+  created_by_user: {
+    id: "019a0000-0000-7000-8000-0000000000a1",
+    display_name: "Issuer",
+  },
   scopes: ["sessions:read"],
   created_at: "2026-10-11T00:00:00.000Z",
   expires_at: null,
   revoked_at: null,
+  last_used_at: null,
 };
 
 const outage = () =>
