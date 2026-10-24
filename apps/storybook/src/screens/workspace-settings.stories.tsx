@@ -528,17 +528,18 @@ function WorkspaceSettingsScreen({
           ))}
         </LinkTabs>
       ) : null}
-      {page === "slack" ? (
-        <div className="flex flex-col gap-4">
+      {/* Stays mounted while hidden so its saved state survives sub-nav moves. */}
+      {page ? (
+        <div hidden={page !== "slack"} className="flex flex-col gap-4">
           <SlackConnectionPage
             viewer={viewer}
             token={token}
             editing={editing}
           />
         </div>
-      ) : page === "apps" ? (
-        <SlackAppsPage />
-      ) : (
+      ) : null}
+      {page === "apps" ? <SlackAppsPage /> : null}
+      {page && page !== "general" ? null : (
         <div className="flex flex-col gap-4">
           <SettingsCard
             title="워크스페이스 이름"

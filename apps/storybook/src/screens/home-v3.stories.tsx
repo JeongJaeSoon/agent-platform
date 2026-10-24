@@ -14,6 +14,7 @@ import { Heading, MUTED_TEXT, storyHref } from "./slack-kit.tsx";
  */
 
 const DETAIL = "screens-agent-detail-v3--agent-detail";
+const LIST = "screens-agent-list-v3--agent-list-slack-mixed";
 const SECONDARY = "text-caption text-muted-foreground";
 
 interface Todo {
@@ -41,14 +42,15 @@ const TODOS: readonly Todo[] = [
     title: "#ops-private 연결 승인 요청",
     sub: "On-call Helper · lee.ops가 2026. 10. 23. 14:40에 초대",
     action: "검토",
-    // The review story only draws Release Notes' #finance-private request.
-    story: `${DETAIL}-dialog-review`,
+    // Detail stories only draw Release Notes, so other agents' items open
+    // the agent list where their rows are.
+    story: LIST,
   },
   {
     title: "Slack 홈 채널 미선택",
     sub: "Docs Tidy · 봇이 아직 어느 채널에도 인사하지 않았습니다",
     action: "고치기",
-    story: `${DETAIL}-slack-no-home`,
+    story: LIST,
   },
 ];
 const SHOWN = 3;
@@ -65,7 +67,7 @@ function HomeTodo({ todos }: { readonly todos: readonly Todo[] }) {
         <Heading id={titleId}>지금 할 일</Heading>
         {todos.length > SHOWN ? (
           <Link
-            href={storyHref("screens-agent-list-v3--agent-list-slack-mixed")}
+            href={storyHref(LIST)}
             className="inline-flex items-center gap-1 text-control"
           >
             전체 보기 {todos.length}건

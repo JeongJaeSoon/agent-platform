@@ -73,10 +73,12 @@ const REQUEST = {
 };
 const PUBLIC_JOINED = [HOME, "#dev-platform"];
 const PUBLIC_UNJOINED = ["#general", "#random"];
+const PUBLIC = [...PUBLIC_JOINED, ...PUBLIC_UNJOINED];
 const APP_ID = "A07PLACEHLD";
 const EVENT_URL =
   "https://agents.verify.example/v1/slack/events/ebc9271d-5cec-4c73-bd7d-7efbda71d2a9";
-const REACTIONS = ["멘션할 때", "모든 메시지", "꺼짐"];
+// SLACK_BINDING_MODE_VALUES: mention, off.
+const REACTIONS = ["멘션할 때", "꺼짐"];
 const SEEDED_REACTIONS: Readonly<Record<string, string>> = {
   [HOME]: REACTIONS[0] ?? "",
   "#dev-platform": "꺼짐",
@@ -409,7 +411,16 @@ function AgentDetailScreen(props: ScreenProps) {
   const [home, setHome] = useState(
     fresh || props.slack === "nohome" ? "" : HOME,
   );
-  const [added, setAdded] = useState<readonly string[]>([]);
+  // Public channels the bot is in; the home joins it when it is public.
+  const [joined, setJoined] = useState<readonly string[]>(
+    fresh ? [] : PUBLIC_JOINED,
+  );
+  const join = (channel: string) =>
+    PUBLIC.includes(channel)
+      ? setJoined((current) =>
+          current.includes(channel) ? current : [...current, channel],
+        )
+      : undefined;
   // Each channel keeps the reaction it was connected with; changing the
   // default only applies to channels connected afterwards.
   const [reactions, setReactions] =
@@ -439,12 +450,6 @@ function AgentDetailScreen(props: ScreenProps) {
   }
 
   const pending = request === "pending" && slack === "todo";
-  const installing = slack === "installed" || slack === "none";
-  const joined = [
-    ...new Set(
-      [home, ...(installing ? [] : PUBLIC_JOINED), ...added].filter(Boolean),
-    ),
-  ];
   const status =
     slack === "installed" || slack === "none" ? undefined : STATUS[slack];
   const show = (text: string, next?: Segment) => {
@@ -457,7 +462,7 @@ function AgentDetailScreen(props: ScreenProps) {
     setDialog(undefined);
     setSlack("none");
     setHome("");
-    setAdded([]);
+    setJoined([]);
     setRequest("none");
     setReactions(SEEDED_REACTIONS);
     setOutcome(text);
@@ -475,26 +480,28 @@ function AgentDetailScreen(props: ScreenProps) {
   const homeGroups: readonly ChannelGroup[] = [
     {
       label: "공개 채널",
-      options: installing
-        ? [...PUBLIC_JOINED, ...PUBLIC_UNJOINED].map((name) => ({
-            name,
-            note: "공개 · 고르면 봇이 참여",
-          }))
-        : [
-            ...joined.map((name) => ({
-              name,
-              note: name === home ? "현재 홈 채널" : "공개 · 연결됨",
-            })),
-            ...PUBLIC_UNJOINED.filter((name) => !joined.includes(name)).map(
-              (name) => ({ name, note: "공개 · 고르면 봇이 참여" }),
-            ),
-          ],
+      options: [
+        ...joined.map((name) => ({
+          name,
+          note: name === home ? "현재 홈 채널" : "공개 · 연결됨",
+        })),
+        ...PUBLIC.filter((name) => !joined.includes(name)).map((name) => ({
+          name,
+          note: "공개 · 고르면 봇이 참여",
+        })),
+      ],
     },
     {
       label: "비공개 채널",
       options:
         request === "approved"
-          ? [{ name: REQUEST.channel, note: "비공개 · 승인됨" }]
+          ? [
+              {
+                name: REQUEST.channel,
+                note:
+                  REQUEST.channel === home ? "현재 홈 채널" : "비공개 · 승인됨",
+              },
+            ]
           : request === "pending"
             ? [
                 {
@@ -509,9 +516,10 @@ function AgentDetailScreen(props: ScreenProps) {
   const addGroups: readonly ChannelGroup[] = [
     {
       label: "공개 채널",
-      options: PUBLIC_UNJOINED.filter((name) => !joined.includes(name)).map(
-        (name) => ({ name, note: "공개 · 고르면 봇이 참여" }),
-      ),
+      options: PUBLIC.filter((name) => !joined.includes(name)).map((name) => ({
+        name,
+        note: "공개 · 고르면 봇이 참여",
+      })),
     },
   ];
 
@@ -762,7 +770,7 @@ function AgentDetailScreen(props: ScreenProps) {
               title={
                 <ChannelLines
                   name={REQUEST.channel}
-                  sub={`비공개 · ${REQUEST.by} 초대 · 승인함`}
+                  sub={`비공개 · ${REQUEST.by} 초대 · 승인함${REQUEST.channel === home ? " · 홈 채널" : ""}`}
                 />
               }
               control={() => (
@@ -849,7 +857,13 @@ function AgentDetailScreen(props: ScreenProps) {
             <>
               <CopyButton text={APP_ID} />
               <Button asChild variant="outline" size="sm">
-                <a href="#slack-app">Slack에서 열기</a>
+                <a
+                  href={`https://api.slack.com/apps/${APP_ID}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Slack에서 열기
+                </a>
               </Button>
             </>
           )}
@@ -970,6 +984,7 @@ function AgentDetailScreen(props: ScreenProps) {
             setCallback("working");
           } else if (next === "done" && picked) {
             setHome(picked);
+            join(picked);
             setSlack("connected");
             setSegment("overview");
             show(
@@ -1080,7 +1095,7 @@ function AgentDetailScreen(props: ScreenProps) {
         description={<Badge variant="green">활성</Badge>}
         actions={
           <Button asChild variant="outline" size="sm">
-            <a href="#agents">
+            <a href={storyHref("screens-agent-list-v3--agent-list-slack-ok")}>
               <ArrowLeft aria-hidden="true" className="size-3.5" />
               에이전트 목록
             </a>
@@ -1126,6 +1141,7 @@ function AgentDetailScreen(props: ScreenProps) {
         onConfirm={() => {
           const same = homePick === home;
           setHome(homePick);
+          join(homePick);
           if (slack === "nohome") setSlack("connected");
           setDialog(undefined);
           show(
@@ -1150,7 +1166,7 @@ function AgentDetailScreen(props: ScreenProps) {
         confirmLabel="추가"
         confirmDisabled={!addPick}
         onConfirm={() => {
-          setAdded((current) => [...current, addPick]);
+          join(addPick);
           setReactions((current) => ({
             ...current,
             [addPick]: defaultReaction,
