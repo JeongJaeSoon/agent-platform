@@ -19,7 +19,8 @@ import {
   or,
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
-import { administers, lockedAdministers } from "./agent-admins.ts";
+import { administers } from "./administers.ts";
+import { lockedAdministers } from "./agent-admins.ts";
 import { lockActorAccount, receiptActorOf } from "./control-shared.ts";
 import { DB_NOW } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
@@ -60,6 +61,7 @@ const keyColumns = {
   id: apiKeys.id,
   workspaceId: apiKeys.workspaceId,
   kind: apiKeys.kind,
+  name: apiKeys.name,
   agentId: apiKeys.agentId,
   createdByUserId: apiKeys.createdByUserId,
   scopes: apiKeys.scopes,
@@ -83,6 +85,7 @@ function keyOf(
     id: string;
     workspaceId: string | null;
     kind: string;
+    name: string | null;
     agentId: string | null;
     createdByUserId: string | null;
     scopes: string[] | null;
@@ -93,7 +96,7 @@ function keyOf(
   },
   createdByDisplayName: string | null,
 ): WorkspaceKey {
-  if (row.workspaceId === null) {
+  if (row.workspaceId === null || row.kind === "operator") {
     throw new Error(`api key ${row.id} read outside a workspace`);
   }
   return {
@@ -145,6 +148,7 @@ async function writeReceipt(
     // What the key may do, never the key itself.
     result: {
       kind: input.key.kind,
+      name: input.key.name,
       agent_id: input.key.agentId,
       scopes: input.key.scopes,
     },
@@ -226,6 +230,7 @@ export function createPostgresWorkspaceKeyStore(
             workspaceId: input.workspaceId,
             scopes: [...input.scopes],
             kind: input.kind,
+            name: input.name,
             agentId: input.agentId,
             createdByUserId: input.createdByUserId,
             expiresAt: input.expiresAt,
@@ -251,7 +256,7 @@ export function createPostgresWorkspaceKeyStore(
       );
       // Read in the same statement as the keys: the caller's role may have
       // changed since they signed in.
-      const seesEveryServiceKey = exists(
+      const seesEveryAgentKey = exists(
         db
           .select({ userId: memberships.userId })
           .from(memberships)
@@ -259,7 +264,7 @@ export function createPostgresWorkspaceKeyStore(
           .where(
             and(
               liveMembership(workspaceId, filter.personalOf),
-              inArray(memberships.role, [...filter.allServiceKeysFor]),
+              inArray(memberships.role, [...filter.allAgentKeysFor]),
             ),
           ),
       );
@@ -267,15 +272,15 @@ export function createPostgresWorkspaceKeyStore(
         isNotNull(apiKeys.agentId),
         administers(db, workspaceId, filter.personalOf, apiKeys.agentId),
       );
-      const service = and(
-        eq(apiKeys.kind, "service"),
-        or(seesEveryServiceKey, administered),
+      const agentKey = and(
+        eq(apiKeys.kind, "agent"),
+        or(seesEveryAgentKey, administered),
       );
       const rows = await db
         .select(keyWithIssuerColumns)
         .from(apiKeys)
         .leftJoin(issuer, eq(issuer.id, apiKeys.createdByUserId))
-        .where(and(eq(apiKeys.workspaceId, workspaceId), or(own, service)))
+        .where(and(eq(apiKeys.workspaceId, workspaceId), or(own, agentKey)))
         .orderBy(desc(apiKeys.createdAt), desc(apiKeys.id))
         .limit(limit);
       return rows.map((row) => keyOf(row, row.createdByDisplayName));
@@ -295,7 +300,7 @@ export function createPostgresWorkspaceKeyStore(
           !(await holdsRight(tx, input.workspaceId, userId, {
             role,
             roles: input.revokerRoles,
-            agentId: key.kind === "service" ? key.agentId : null,
+            agentId: key.kind === "agent" ? key.agentId : null,
           }))
         ) {
           return { outcome: "outranked" };

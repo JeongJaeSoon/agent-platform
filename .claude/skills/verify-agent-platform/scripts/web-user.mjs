@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Web-user requests whose bodies carry a credential: bootstrap, login,
-// invite and accept, personal or service key. The values are made here and
+// invite and accept, personal or agent key. The values are made here and
 // kept in the run directory (700), so they never appear in a command line
 // or in the output. Prints the response body (credential fields dropped)
 // and the HTTP status on the last line, like ap_web.
@@ -12,7 +12,7 @@
 //   web-user.mjs <run> login-no-csrf <who>          without x-requested-with (403)
 //   web-user.mjs <run> invite <inviter> <who> <role>  token → users/<who>.invite, credentials → users/<who>
 //   web-user.mjs <run> accept <who>                 accept users/<who>.invite, cookie as login
-//   web-user.mjs <run> key <who> <personal|service> <scope,scope>  secret → keys/<who>
+//   web-user.mjs <run> key <who> <personal|agent> <scope,scope> [agent id]  secret → keys/<who>
 //   web-user.mjs <run> demo-login <owner|member>  source-defined demo credentials
 //   web-user.mjs <run> slack-config <who> <workspace>  mock config token, never printed
 //   web-user.mjs <run> slack-install <who> <agent id>  mock OAuth with the person's cookie
@@ -148,6 +148,7 @@ function composeBun(source, args = [], input) {
       cwd: state.VERIFY_REPO,
       env: { ...process.env, ...state },
       encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"],
       input,
     },
   ).trim();
@@ -210,13 +211,18 @@ switch (cmd) {
     try {
       grant = JSON.parse(
         composeBun(
-          'const url = new URL(await Bun.stdin.text()); const r = await fetch("http://mock-slack:4020/fake/oauth/authorize" + url.search); if (!r.ok) throw new Error("mock authorize failed"); console.log(await r.text());',
+          'let status; try { const url = new URL(await Bun.stdin.text()); const r = await fetch("http://mock-slack:4020/fake/oauth/authorize" + url.search); status = r.status; if (!r.ok) throw new Error(); console.log(await r.text()); } catch { console.error(`mock authorize failed (HTTP ${status ?? "unavailable"})`); process.exit(1); }',
           [],
           start.json.authorize_url,
         ),
       );
-    } catch {
-      throw new Error("mock authorize failed");
+    } catch (error) {
+      // Child errors can include the authorization URL; only a status is safe.
+      const status =
+        /^mock authorize failed \(HTTP (\d{3}|unavailable)\)\s*$/.exec(
+          String(error.stderr ?? ""),
+        )?.[1] ?? "unavailable";
+      throw new Error(`mock authorize failed (HTTP ${status})`);
     }
     if (typeof grant.state !== "string" || typeof grant.code !== "string")
       throw new Error("mock authorize response missing state/code");
@@ -357,13 +363,19 @@ switch (cmd) {
     break;
   }
   case "key": {
-    const [kind, scopes] = rest;
-    if (!kind || !scopes)
-      throw new Error("usage: key <who> <personal|service> <scope,scope>");
+    const [kind, scopes, agentId] = rest;
+    if (!kind || !scopes || (kind === "agent") !== Boolean(agentId))
+      throw new Error(
+        "usage: key <who> <personal|agent> <scope,scope> [agent id, for agent]",
+      );
     const r = await call(
       "POST",
       "/v1/api-keys",
-      { kind, scopes: scopes.split(",") },
+      {
+        kind,
+        scopes: scopes.split(","),
+        ...(agentId ? { agent_id: agentId } : {}),
+      },
       { cookie: cookieOf(who) },
     );
     if (r.json?.secret) {

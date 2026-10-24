@@ -68,7 +68,9 @@ integration("usage summary on PostgreSQL", () => {
   };
   const personalKey = crypto.randomUUID();
   const ownersKey = crypto.randomUUID();
-  const serviceKey = crypto.randomUUID();
+  const agentKey = crypto.randomUUID();
+  const agentId = crypto.randomUUID();
+  const agentReleaseId = `rel-${crypto.randomUUID()}`;
 
   beforeAll(async () => {
     database = await createTempDatabase({ prefix: "usage_summary_it" });
@@ -104,10 +106,31 @@ integration("usage summary on PostgreSQL", () => {
         role: who === "owner" ? "owner" : who === "admin" ? "admin" : "member",
       });
     }
+    await db
+      .insert(schema.agents)
+      .values({ id: agentId, workspaceId, slug: "bot", name: "Bot" });
+    const versionId = crypto.randomUUID();
+    await db.insert(schema.agentVersions).values({
+      id: versionId,
+      agentId,
+      versionNo: 1,
+      card: {},
+      contentSha256: "a".repeat(64),
+    });
+    await db.insert(schema.agentReleases).values({
+      id: agentReleaseId,
+      agentId,
+      versionId,
+      cardSha256: "a".repeat(64),
+      runtimeProfileId: "claude-coding-v1",
+      profileDigest: "digest",
+      runtimeConfigSnapshot: {},
+      effectiveTools: [],
+    });
     for (const [id, creator] of [
       [personalKey, ids.alice],
       [ownersKey, ids.owner],
-      [serviceKey, null],
+      [agentKey, null],
     ] as const) {
       await createApiKey(db, {
         id,
@@ -115,7 +138,8 @@ integration("usage summary on PostgreSQL", () => {
         keyHash: crypto.getRandomValues(new Uint8Array(32)),
         scopes: ["sessions:read", "sessions:write"],
         workspaceId,
-        kind: creator === null ? "service" : "personal",
+        kind: creator === null ? "agent" : "personal",
+        agentId: creator === null ? agentId : null,
         createdByUserId: creator,
       });
     }
@@ -160,6 +184,7 @@ integration("usage summary on PostgreSQL", () => {
     createdAt: string,
     costUsd: number,
     tokens: number,
+    release?: string,
   ) {
     const created = await createPostgresSessionUnitOfWork(db).acceptInputAtomic(
       {
@@ -170,6 +195,7 @@ integration("usage summary on PostgreSQL", () => {
         profileId: "claude-coding-v1",
         repository: "none",
         message: "count me",
+        ...(release ? { agentReleaseId: release } : {}),
       },
     );
     if (created.outcome !== "accepted") throw new Error(created.outcome);
@@ -226,7 +252,13 @@ integration("usage summary on PostgreSQL", () => {
       200,
     );
     await session(user("bob", "member"), "2001-03-04T00:00:00Z", 4, 4_000);
-    await session(key(serviceKey, null), "2001-03-05T00:00:00Z", 8, 8_000);
+    await session(
+      key(agentKey, null),
+      "2001-03-05T00:00:00Z",
+      8,
+      8_000,
+      agentReleaseId,
+    );
     await session(testCaller("legacy-owner"), "2001-03-06T00:00:00Z", 16, 1);
 
     const alice = await summary(user("alice", "member"), {
@@ -248,9 +280,10 @@ integration("usage summary on PostgreSQL", () => {
     expect(
       await summary(user("bob", "member"), { scope: "me", ...period }),
     ).toMatchObject({ session_count: 1, cost_usd: "4.000000" });
+    // A summary names no agent, so an agent key reads none (agent_ceiling).
     expect(
-      await summary(key(serviceKey, null), { scope: "me", ...period }),
-    ).toMatchObject({ session_count: 1, cost_usd: "8.000000" });
+      await refusal(summary(key(agentKey, null), { scope: "me", ...period })),
+    ).toBe("FORBIDDEN");
     // An owner reading their own figure sees none of the others'.
     expect(
       await summary(user("owner", "owner"), { scope: "me", ...period }),
@@ -294,7 +327,7 @@ integration("usage summary on PostgreSQL", () => {
       ["admin", user("admin", "admin")],
       ["member", user("alice", "member")],
       ["owner's personal key", key(ownersKey, ids.owner)],
-      ["service key", key(serviceKey, null)],
+      ["agent key", key(agentKey, null)],
       ["legacy key", testCaller("legacy-owner")],
       // The role is read again: a token minted as owner does not outlive it.
       ["member claiming owner", user("alice", "owner")],

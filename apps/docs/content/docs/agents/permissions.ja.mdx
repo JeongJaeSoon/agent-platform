@@ -50,7 +50,7 @@ curl: (28) Operation timed out after 5006 milliseconds with 4482 bytes received
 
 ## 承認: 人だけが行う
 
-権限リクエストと質問に答えるには `sessions:approve` scope が必要である。worker 内のエージェントが持つ認証情報は `/v1` で 401 になるため、自分で承認することはできない。エージェント専用キーは `sessions:approve` を持てない。答え方は [承認待ちと再開](/sessions/waiting-and-resume) にある。
+権限リクエストと質問に答えるには `sessions:approve` scope が必要である。worker 内のエージェントが持つ認証情報は `/v1` で 401 になるため、自分で承認することはできない。エージェントキーは `sessions:approve` を持てない。答え方は [承認待ちと再開](/sessions/waiting-and-resume) にある。
 
 セッションを見られるからといって、そのセッションのリクエストに答えられるわけではない。権限リクエストと質問に答え、push・PR を承認するのは次の人だけである。
 
@@ -62,7 +62,7 @@ curl: (28) Operation timed out after 5006 milliseconds with 4482 bytes received
 
 ## エージェント管理者
 
-エージェントを作成した人が、そのエージェントの管理者になる。管理者は member であっても、そのエージェントのカード修正、リリース、有効化、認証情報の紐付け、管理者の指定、エージェント専用キーの発行を行える。人やチームを管理者として追加でき、チームの場合はそのチームのメンバー全員が管理者になる。[作成](/agents/create)の `AID` と `WEB` を引き続き使う。
+エージェントを作成した人が、そのエージェントの管理者になる。管理者は member であっても、そのエージェントのカード修正、リリース、有効化、認証情報の紐付け、管理者の指定、エージェントキーの発行を行える。人やチームを管理者として追加でき、チームの場合はそのチームのメンバー全員が管理者になる。[作成](/agents/create)の `AID` と `WEB` を引き続き使う。
 
 ```bash
 curl -sS "$API/v1/agents/$AID/admins" "${WEB[@]}" | jq '{users: [.users[].email], teams}'
@@ -106,4 +106,4 @@ curl -sS "$API/v1/agents/$AID/credential-bindings" "${WEB[@]}" | jq -c '[.items[
 ## 次のステップ
 
 - [承認待ちと再開](/sessions/waiting-and-resume): 権限リクエストに答える
-- [API キー](/api-keys): 個人キー、サービスキー、エージェント専用キー
+- [API キー](/api-keys): 個人キーとエージェントキー

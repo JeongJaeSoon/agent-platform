@@ -73,12 +73,13 @@ import {
   recordUnboundRefusal,
 } from "./credential-bindings.ts";
 import {
+  decodeCreatedAtCursor,
   decodeEventCursor,
-  decodeSessionCursor,
   decodeTurnCursor,
+  encodeCreatedAtCursor,
   encodeEventCursor,
-  encodeSessionCursor,
   encodeTurnCursor,
+  rethrowCursorCastError,
 } from "./cursors.ts";
 import { drainAttention } from "./drain.ts";
 import { enqueueWithin } from "./enqueue.ts";
@@ -827,7 +828,7 @@ export function createPostgresSessionReader(
       query: ListSessionsQuery,
       viewer: SessionViewer,
     ) {
-      const cursor = query.cursor ? decodeSessionCursor(query.cursor) : null;
+      const cursor = query.cursor ? decodeCreatedAtCursor(query.cursor) : null;
       const rows = await db
         .select({
           session: sessions,
@@ -847,22 +848,14 @@ export function createPostgresSessionReader(
         )
         .orderBy(desc(sessions.createdAt), desc(sessions.id))
         .limit(query.limit + 1)
-        .catch((error: unknown) => {
-          // A well-formed but out-of-range timestamp (month 13) only fails
-          // at the cast: SQLSTATE 22007/22008 mean the cursor, not the DB.
-          const code = (error as { cause?: { code?: unknown } })?.cause?.code;
-          if (code === "22007" || code === "22008") {
-            throw new InvalidCursorError();
-          }
-          throw error;
-        });
+        .catch(rethrowCursorCastError);
       const page = rows.slice(0, query.limit);
       const last = page[page.length - 1];
       return {
         items: await summarize(db, page),
         next_cursor:
           rows.length > query.limit && last
-            ? encodeSessionCursor({
+            ? encodeCreatedAtCursor({
                 created_at: last.cursorAt,
                 id: last.session.id,
               })

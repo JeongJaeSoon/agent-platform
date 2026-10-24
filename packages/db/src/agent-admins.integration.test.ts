@@ -43,7 +43,7 @@ import {
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
-const SERVICE_ISSUERS: readonly WorkspaceRole[] = ["owner", "admin"];
+const AGENT_KEY_ISSUERS: readonly WorkspaceRole[] = ["owner", "admin"];
 
 const PROFILE: CatalogProfile = {
   runtime_kind: "claude_agent_sdk",
@@ -262,13 +262,18 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
       name: "bot",
       card: CARD,
     });
-    const row = (agentId: string, kind: "personal" | "service") => ({
+    const row = (
+      agentId: string | null,
+      kind: string,
+      name: string | null = null,
+    ) => ({
       id: randomUUID(),
       keyHash: new Uint8Array(32).map(() => Math.floor(Math.random() * 256)),
       ownerId: workspaceId,
       workspaceId,
       scopes: ["sessions:read"],
       kind,
+      name,
       createdByUserId: owner.actor?.userId ?? null,
       agentId,
     });
@@ -276,12 +281,29 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
       await refusal(db.insert(apiKeys).values(row(agent.agent.id, "personal"))),
     ).toContain("api_keys_agent_check");
     expect(
-      await refusal(
-        db.insert(apiKeys).values(row(foreign.agent.id, "service")),
-      ),
+      await refusal(db.insert(apiKeys).values(row(foreign.agent.id, "agent"))),
     ).toContain("api_keys_agent_fk");
+    // No key reaches a whole workspace as itself (94S-929).
     expect(
-      await refusal(db.insert(apiKeys).values(row(agent.agent.id, "service"))),
+      await refusal(db.insert(apiKeys).values(row(null, "agent"))),
+    ).toContain("api_keys_agent_check");
+    expect(
+      await refusal(db.insert(apiKeys).values(row(null, "operator"))),
+    ).toContain("api_keys_operator_check");
+    expect(
+      await refusal(db.insert(apiKeys).values(row(null, "service"))),
+    ).toContain("api_keys_kind_check");
+    for (const name of ["", " ci", "x".repeat(65)]) {
+      expect(
+        await refusal(
+          db.insert(apiKeys).values(row(agent.agent.id, "agent", name)),
+        ),
+      ).toContain("api_keys_name_check");
+    }
+    expect(
+      await refusal(
+        db.insert(apiKeys).values(row(agent.agent.id, "agent", "ci-deploy")),
+      ),
     ).toBe("accepted");
   });
 
@@ -302,7 +324,7 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
     const store = createPostgresWorkspaceKeyStore(db);
     const issue = (
       by: Caller,
-      kind: "personal" | "service",
+      kind: "personal" | "agent",
       agentId: string | null,
     ) =>
       store.issue({
@@ -311,26 +333,29 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
         workspaceId,
         keyHash: new Uint8Array(32).map(() => Math.floor(Math.random() * 256)),
         kind,
+        name: null,
         agentId,
         createdByUserId: by.actor?.userId ?? "",
         scopes: ["sessions:read", "sessions:write"],
         expiresAt: null,
         receiptId: randomUUID(),
         issuerRoles:
-          kind === "personal" ? ["owner", "admin", "member"] : SERVICE_ISSUERS,
+          kind === "personal"
+            ? ["owner", "admin", "member"]
+            : AGENT_KEY_ISSUERS,
       });
 
-    const bound = await issue(member, "service", agent.agent.id);
+    const bound = await issue(member, "agent", agent.agent.id);
     const personal = await issue(member, "personal", null);
-    const workspaceWide = await issue(owner, "service", null);
+    const othersKey = await issue(owner, "agent", other.agent.id);
     if (
       bound.outcome !== "issued" ||
       personal.outcome !== "issued" ||
-      workspaceWide.outcome !== "issued"
+      othersKey.outcome !== "issued"
     ) {
       throw new Error("issue failed");
     }
-    expect(await issue(member, "service", randomUUID())).toEqual({
+    expect(await issue(member, "agent", randomUUID())).toEqual({
       outcome: "agent_not_found",
     });
 
@@ -341,7 +366,7 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
           workspaceId,
           {
             personalOf: member.actor?.userId ?? "",
-            allServiceKeysFor: SERVICE_ISSUERS,
+            allAgentKeysFor: AGENT_KEY_ISSUERS,
           },
           50,
         ),
@@ -353,12 +378,12 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
           workspaceId,
           {
             personalOf: owner.actor?.userId ?? "",
-            allServiceKeysFor: SERVICE_ISSUERS,
+            allAgentKeysFor: AGENT_KEY_ISSUERS,
           },
           50,
         ),
       ),
-    ).toEqual(ids([bound.key, workspaceWide.key]));
+    ).toEqual(ids([bound.key, othersKey.key]));
 
     // The key reaches sessions pinned to its agent's release, no others.
     const [version] = await db
@@ -440,7 +465,7 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
       workspaceId,
       keyId: bound.key.id,
       receiptId: randomUUID(),
-      revokerRoles: SERVICE_ISSUERS,
+      revokerRoles: AGENT_KEY_ISSUERS,
     });
     expect(revoked).toMatchObject({ outcome: "revoked" });
     expect(
@@ -449,7 +474,7 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
         workspaceId,
         keyId: bound.key.id,
         receiptId: randomUUID(),
-        revokerRoles: SERVICE_ISSUERS,
+        revokerRoles: AGENT_KEY_ISSUERS,
       }),
     ).toMatchObject({ outcome: "already_revoked" });
     expect(await read(pinned)).toBe("disabled");
@@ -492,21 +517,27 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
       name: "bot",
       card: CARD,
     });
+    const other = await agentsService().createAgent(owner, {
+      slug: "other",
+      name: "other",
+      card: CARD,
+    });
     const store = createPostgresWorkspaceKeyStore(db);
-    const workspaceWide = await store.issue({
+    const othersKey = await store.issue({
       principal: owner,
       id: randomUUID(),
       workspaceId,
       keyHash: new Uint8Array(32).map(() => Math.floor(Math.random() * 256)),
-      kind: "service",
-      agentId: null,
+      kind: "agent",
+      name: null,
+      agentId: other.agent.id,
       createdByUserId: owner.actor?.userId ?? "",
       scopes: ["sessions:read"],
       expiresAt: null,
       receiptId: randomUUID(),
-      issuerRoles: SERVICE_ISSUERS,
+      issuerRoles: AGENT_KEY_ISSUERS,
     });
-    expect(workspaceWide.outcome).toBe("issued");
+    expect(othersKey.outcome).toBe("issued");
     // The policy allowed `demoted` as an owner; the role falls before the write.
     await db
       .update(memberships)
@@ -518,7 +549,7 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
         ),
       );
     const issue = (
-      agentId: string | null,
+      agentId: string,
       scopes: ("sessions:read" | "sessions:recover")[],
     ) =>
       store.issue({
@@ -526,15 +557,16 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
         id: randomUUID(),
         workspaceId,
         keyHash: new Uint8Array(32).map(() => Math.floor(Math.random() * 256)),
-        kind: "service",
+        kind: "agent",
+        name: null,
         agentId,
         createdByUserId: userId,
         scopes,
         expiresAt: null,
         receiptId: randomUUID(),
-        issuerRoles: SERVICE_ISSUERS,
+        issuerRoles: AGENT_KEY_ISSUERS,
       });
-    expect(await issue(null, ["sessions:read"])).toEqual({
+    expect(await issue(other.agent.id, ["sessions:read"])).toEqual({
       outcome: "outranked",
     });
     expect(await issue(agent.agent.id, ["sessions:read"])).toEqual({
@@ -561,21 +593,21 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
 
     const listed = await store.list(
       workspaceId,
-      { personalOf: userId, allServiceKeysFor: SERVICE_ISSUERS },
+      { personalOf: userId, allAgentKeysFor: AGENT_KEY_ISSUERS },
       50,
     );
     expect(listed.map((key) => key.id)).toEqual([bound.key.id]);
 
-    if (workspaceWide.outcome !== "issued") throw new Error("not issued");
+    if (othersKey.outcome !== "issued") throw new Error("not issued");
     const revoke = (keyId: string) =>
       store.revoke({
         principal: demoted,
         workspaceId,
         keyId,
         receiptId: randomUUID(),
-        revokerRoles: SERVICE_ISSUERS,
+        revokerRoles: AGENT_KEY_ISSUERS,
       });
-    expect(await revoke(workspaceWide.key.id)).toEqual({
+    expect(await revoke(othersKey.key.id)).toEqual({
       outcome: "outranked",
     });
     expect(await revoke(bound.key.id)).toMatchObject({ outcome: "revoked" });

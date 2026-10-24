@@ -147,6 +147,8 @@ const ADDED_COLUMNS: Record<string, string[]> = {
     "agent_id",
     // 0162
     "last_used_at",
+    // 0163
+    "name",
   ],
   receipts: ["actor", "request_id"],
 };
@@ -213,8 +215,8 @@ integration("0100 identity migration on PostgreSQL", () => {
       const logger = createLogger({ sinks: [sink] });
       const first = await migrateDatabase(database.url, { logger });
       const second = await migrateDatabase(database.url, { logger });
-      expect(first).toEqual({ adopted: 0, applied: 63, total: 72 });
-      expect(second).toEqual({ adopted: 0, applied: 0, total: 72 });
+      expect(first).toEqual({ adopted: 0, applied: 64, total: 73 });
+      expect(second).toEqual({ adopted: 0, applied: 0, total: 73 });
       expect(sink.records.map(({ message }) => message)).toEqual([
         "db.migrate.applied",
         "db.migrate.noop",
@@ -407,12 +409,12 @@ integration("0100 identity migration on PostgreSQL", () => {
           ],
           [
             "23514",
-            `INSERT INTO api_keys (id, key_hash, owner_id, scopes) VALUES ($1, sha256('k2'::bytea), 'o', ARRAY['sessions:admin'])`,
+            `INSERT INTO api_keys (id, key_hash, owner_id, kind, scopes) VALUES ($1, sha256('k2'::bytea), 'o', 'operator', ARRAY['sessions:admin'])`,
             [randomUUID()],
           ],
           [
             "23514",
-            `INSERT INTO api_keys (id, key_hash, owner_id, scopes) VALUES ($1, sha256('k3'::bytea), 'o', ARRAY[['sessions:read']])`,
+            `INSERT INTO api_keys (id, key_hash, owner_id, kind, scopes) VALUES ($1, sha256('k3'::bytea), 'o', 'operator', ARRAY[['sessions:read']])`,
             [randomUUID()],
           ],
           [
