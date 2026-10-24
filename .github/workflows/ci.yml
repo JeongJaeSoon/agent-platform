@@ -72,7 +72,7 @@ jobs:
           - part: "unit: packages"
             unit: packages
           # apps/worker/ and apps/web/ apart from the rest of apps/ and
-          # tests/: together they ran ~5m of a 6m ceiling (94S-890).
+          # tests/: as one part they ran about 5m of the 6m ceiling.
           - part: "unit: worker, web"
             unit: worker-web
           # The complement of the two above: the other apps, tests/, and any
