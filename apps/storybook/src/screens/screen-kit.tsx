@@ -55,10 +55,13 @@ function NavItem({
   );
 }
 
-/** apps/web's layout.tsx: lists and details wide, forms and settings narrow. */
-export type ContentWidth = "wide" | "narrow";
+/**
+ * apps/web's layout.tsx: lists and details wide, forms and settings narrow,
+ * and a session's detail, which lays out its rail and body itself, flush.
+ */
+export type ContentWidth = "wide" | "narrow" | "flush";
 
-const CONTENT_MAX_WIDTH: Record<ContentWidth, string> = {
+const CONTENT_MAX_WIDTH: Record<Exclude<ContentWidth, "flush">, string> = {
   wide: "max-w-[101.25rem]",
   narrow: "max-w-[68.75rem]",
 };
@@ -108,14 +111,25 @@ export function ScreenShell({
             {crumb.join(" › ")}
           </nav>
         </header>
-        <main className="w-full p-4 pt-6 md:px-6 md:pt-8 md:pb-8">
-          <div
-            data-content-width={width}
-            className={`mx-auto w-full min-w-0 ${CONTENT_MAX_WIDTH[width]}`}
-          >
-            {children}
-          </div>
-        </main>
+        {width === "flush" ? (
+          <main className="flex w-full flex-1 flex-col border-t">
+            <div
+              data-content-width={width}
+              className="flex w-full min-w-0 flex-1 flex-col"
+            >
+              {children}
+            </div>
+          </main>
+        ) : (
+          <main className="w-full p-4 pt-6 md:px-6 md:pt-8 md:pb-8">
+            <div
+              data-content-width={width}
+              className={`mx-auto w-full min-w-0 ${CONTENT_MAX_WIDTH[width]}`}
+            >
+              {children}
+            </div>
+          </main>
+        )}
       </div>
     </div>
   );

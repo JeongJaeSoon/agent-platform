@@ -88,6 +88,26 @@ describe("app shell", () => {
     expect(contentColumn()?.className).toContain("max-w-[101.25rem]");
   });
 
+  test("a session's detail lays out the whole area itself", async () => {
+    renderAt(`/sessions/${FIRST}`, signedIn);
+    await waitFor(() =>
+      expect(contentColumn()?.dataset.contentWidth).toBe("flush"),
+    );
+    const main = document.getElementById("main");
+    expect(main?.className).not.toContain("p-4");
+    expect(contentColumn()?.className).not.toContain("mx-auto");
+    expect(contentColumn()?.className).not.toContain("max-w-");
+  });
+
+  test("the session list keeps the gutters and the list width", async () => {
+    renderAt("/sessions", signedIn);
+    await waitFor(() =>
+      expect(contentColumn()?.dataset.contentWidth).toBe("wide"),
+    );
+    expect(document.getElementById("main")?.className).toContain("p-4");
+    expect(contentColumn()?.className).toContain("max-w-[101.25rem]");
+  });
+
   test("a trailing slash keeps the screen's width", async () => {
     renderAt("/settings/workspace/", signedIn);
     await screen.findByRole("heading", { level: 1 });
