@@ -72,6 +72,26 @@ class CommittingCheckpoints implements WorkerCheckpointPort {
   }
 }
 
+/**
+ * The engine runs git and rg helpers of its own a few hundred milliseconds
+ * after it starts. A turn the budget cuts that early can reach its capture
+ * while one is still alive or unreaped, and the host rightly refuses it as a
+ * background writer; this waits them out, within a bound, before answering.
+ * The host does not wait: a first turn that ends without a model request
+ * (`/clear`) loses its checkpoint this way, and a bounded grace in
+ * WorkerHost.capture is the open follow-up.
+ */
+class SettledEngineProcesses extends EngineProcesses {
+  override async descendants(): Promise<number[]> {
+    const deadline = performance.now() + 10_000;
+    for (;;) {
+      const found = await super.descendants();
+      if (found.length === 0 || performance.now() > deadline) return found;
+      await Bun.sleep(20);
+    }
+  }
+}
+
 function setup(
   endpoint: string,
   home: string,
@@ -132,7 +152,7 @@ describe("session budget inside a turn, through the composed runtime", () => {
       usage: THREE_DOLLARS,
     });
     const { config, runtimeConfig } = setup(server.url, home, workspace);
-    const engines = new EngineProcesses();
+    const engines = new SettledEngineProcesses();
 
     // First attempt: $5 left. $3 goes on, $6 is past it, so the turn ends
     // after its second request instead of running to the turn deadline.
