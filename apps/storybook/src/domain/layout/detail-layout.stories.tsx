@@ -142,6 +142,7 @@ const meta = {
     const sections = content.querySelectorAll(
       '[data-slot="detail-rail-section"]',
     );
+    await expect(sections.length).toBeGreaterThanOrEqual(3);
     for (const [index, section] of sections.entries()) {
       const [top, , bottom] = padding(section);
       await expect([top, bottom]).toEqual([
