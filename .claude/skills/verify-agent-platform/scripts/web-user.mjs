@@ -148,6 +148,7 @@ function composeBun(source, args = [], input) {
       cwd: state.VERIFY_REPO,
       env: { ...process.env, ...state },
       encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"],
       input,
     },
   ).trim();
@@ -210,13 +211,18 @@ switch (cmd) {
     try {
       grant = JSON.parse(
         composeBun(
-          'const url = new URL(await Bun.stdin.text()); const r = await fetch("http://mock-slack:4020/fake/oauth/authorize" + url.search); if (!r.ok) throw new Error("mock authorize failed"); console.log(await r.text());',
+          'let status; try { const url = new URL(await Bun.stdin.text()); const r = await fetch("http://mock-slack:4020/fake/oauth/authorize" + url.search); status = r.status; if (!r.ok) throw new Error(); console.log(await r.text()); } catch { console.error(`mock authorize failed (HTTP ${status ?? "unavailable"})`); process.exit(1); }',
           [],
           start.json.authorize_url,
         ),
       );
-    } catch {
-      throw new Error("mock authorize failed");
+    } catch (error) {
+      // Child errors can include the authorization URL; only a status is safe.
+      const status =
+        /^mock authorize failed \(HTTP (\d{3}|unavailable)\)\s*$/.exec(
+          String(error.stderr ?? ""),
+        )?.[1] ?? "unavailable";
+      throw new Error(`mock authorize failed (HTTP ${status})`);
     }
     if (typeof grant.state !== "string" || typeof grant.code !== "string")
       throw new Error("mock authorize response missing state/code");

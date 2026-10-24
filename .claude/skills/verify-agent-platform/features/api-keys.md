@@ -25,15 +25,15 @@ Preconditions:
 . .claude/skills/verify-agent-platform/scripts/lib.sh <run id>
 KEY=$(ap_key verify --scopes sessions:read,sessions:write 2>"$VERIFY_RUN/key.err")
 KID=$(sed -n 's/.*key_id \([^ ]*\).*/\1/p' "$VERIFY_RUN/key.err" | head -1)
-echo "key issued: ${KEY:0:6}… (len ${#KEY}) key_id: $KID"
+echo "key issued: len ${#KEY} key_id: $KID"
 ```
 
-- **발급.** 위 블록 → `key issued: csp_…`와 UUID `key_id`.
+- **발급.** 위 블록 → `key issued: len N`과 UUID `key_id`(key 값은 출력하지 않는다).
 - **누구인가.** `ap_get /v1` → `200` `{"status":"ok","owner_id":"verify"}`.
 - **scope 밖.** read·write key로 `ap_post "/v1/sessions/<SID>/pause" '{"expected_revision":1,"reason":"verify"}'` → `403` `This credential does not hold sessions:control`. `<SID>`는 [sessions.md](./sessions.md)에서 만든 세션이다(scope 검사가 먼저라 아무 UUID여도 403).
 - **폐기.** `ap_revoke "$KID"` → `revoked <key_id> owner=… revoked_at=…`.
 - **폐기 후.** `ap_get /v1` → `401` `UNAUTHORIZED`.
-- **증거.** `| tee "$EVIDENCE/api-keys.txt"`. key 값은 앞 6자만.
+- **증거.** `| tee "$EVIDENCE/api-keys.txt"`. key는 길이만 출력한다.
 
 ## Gotchas
 

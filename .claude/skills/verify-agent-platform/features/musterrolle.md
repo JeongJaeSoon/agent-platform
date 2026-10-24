@@ -87,9 +87,14 @@ Preconditions:
   AP_COOKIE_EXTRA=$(sed -n 's/^[Ss]et-[Cc]ookie: \(ap_slack_link=[^;]*\).*/\1/p' "$VERIFY_RUN/headers" | tr -d '\r')
   # authorize_url의 호스트(mock-slack)는 compose 네트워크 안에서만 닿는다: api 컨테이너에서 동의하고, 돌아온 주소를 callback 본문으로 바꾼다.
   # 주소에는 state가 들어 있으니 bun 인자가 아니라 stdin으로 넘긴다
-  BODY=$(printf '%s' "$START" | jq -r '.["authorize_url"]' | ap_compose exec -T api bun -e 'const r = await fetch((await Bun.stdin.text()).trim(), { redirect: "manual" }); const q = new URL(r.headers.get("location")).searchParams;
-  console.log(JSON.stringify(Object.fromEntries(["code", "state"].map((k) => [k, q.get(k)]))))')
-  ap_web POST /v1/linked-accounts/slack/callback "$BODY"; unset START BODY AP_COOKIE_EXTRA
+  if BODY=$(printf '%s' "$START" | jq -r '.["authorize_url"]' | ap_compose exec -T api bun -e 'let status; try { const r = await fetch((await Bun.stdin.text()).trim(), { redirect: "manual" }); status = r.status;
+  if (status !== 302) throw new Error(); const q = new URL(r.headers.get("location")).searchParams;
+  if (!q.get("code") || !q.get("state")) throw new Error();
+  console.log(JSON.stringify(Object.fromEntries(["code", "state"].map((k) => [k, q.get(k)]))));
+  } catch { console.error(`mock consent failed (HTTP ${status ?? "unavailable"})`); process.exit(1); }'); then
+    ap_web POST /v1/linked-accounts/slack/callback "$BODY"
+  fi
+  unset START BODY AP_COOKIE_EXTRA
   ap_web GET /v1/linked-accounts                               # LAID = items[0].id
   ap_compose exec -T postgres psql -U postgres -d sessions -c 'select kind, state, app_id from slack_apps order by created_at'
   # 5. 해제, 그리고 다른 team 계정 (member)
