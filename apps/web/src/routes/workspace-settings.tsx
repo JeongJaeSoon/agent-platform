@@ -27,7 +27,7 @@ import {
   useMe,
   useRole,
 } from "../auth/guard.tsx";
-import { FormError, NOTICE } from "../components/auth-page.tsx";
+import { FormError, Notice } from "../components/auth-page.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import type { Outcome } from "../components/outcome.tsx";
 import { Page } from "../components/page.tsx";
@@ -63,7 +63,7 @@ export function WorkspaceSettingsScreen() {
         outcome.kind === "error" ? (
           <FormError>{outcome.text}</FormError>
         ) : (
-          <output className={NOTICE}>{outcome.text}</output>
+          <Notice>{outcome.text}</Notice>
         )
       ) : null}
       <div className={CARDS}>
