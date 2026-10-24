@@ -121,7 +121,7 @@ const RETRY_CASES: ReadonlyArray<{
       ...meOk,
       "GET /v1/members": () => json(200, { items: [] }),
       "GET /v1/invites": () => json(200, { items: [] }),
-      "GET /v1/agents": () => json(200, { items: [] }),
+      "GET /v1/agents": () => json(200, { items: [], next_cursor: null }),
       "GET /v1/sessions": () => json(200, { items: [], next_cursor: null }),
     },
     failingKey: "GET /v1/my-teams",
