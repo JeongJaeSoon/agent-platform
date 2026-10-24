@@ -15,6 +15,8 @@ import {
   type BadgeProps,
   Button,
   buttonVariants,
+  Card,
+  CardFooter,
   Checkbox,
   ConfirmDialog,
   cn,
@@ -31,6 +33,7 @@ import {
   LinkTabs,
   NativeSelect,
   NativeSelectOption,
+  Link as TextLink,
 } from "@werft-ai/ui";
 import {
   ArrowLeft,
@@ -78,7 +81,8 @@ import {
   useI18n,
 } from "../i18n/i18n.tsx";
 
-const PAGE = "flex w-full flex-col gap-[var(--ap-space-block)]";
+// v4 key form (Console.dc.html L818): the way back sits 8px above the title.
+const PAGE = "flex w-full flex-col gap-2";
 const SECTION_TITLE = "m-0 font-semibold text-body";
 const META = "text-muted-foreground text-xs";
 const ICON = "size-3.5 shrink-0";
@@ -796,19 +800,16 @@ function NewKeyScreen({ kind }: { readonly kind: ApiKeyKind }) {
 
   return (
     <div className={PAGE}>
-      <Page
-        title={t(screen.newTitle)}
-        description={t(screen.intro)}
-        actions={
-          <Link
-            to={screen.list}
-            className={buttonVariants({ variant: "outline", size: "sm" })}
-          >
-            <ArrowLeft aria-hidden="true" className="size-3.5" />
-            {t(screen.title)}
-          </Link>
-        }
+      <TextLink
+        asChild
+        className="inline-flex items-center gap-1 self-start text-body"
       >
+        <Link to={screen.list}>
+          <ArrowLeft aria-hidden="true" className="size-3.5" />
+          {t(screen.title)}
+        </Link>
+      </TextLink>
+      <Page title={t(screen.newTitle)} description={t(screen.intro)}>
         {outcome?.kind === "error" ? (
           <FormError>{outcome.text}</FormError>
         ) : null}
@@ -945,7 +946,9 @@ interface FormProps {
   readonly send: (body: IssueRequest) => void;
 }
 
-const FORM = "flex flex-col items-start gap-4 rounded-card border p-4";
+// v4 key form (Console.dc.html L819-823): a `card flush` with a 16px body
+// and 16px gaps, then the `form-foot` strip with cancel and generate.
+const FORM_BODY = "flex flex-col items-start gap-4 p-4";
 
 function FormFoot({
   listTo,
@@ -958,7 +961,14 @@ function FormFoot({
 }) {
   const { t } = useI18n();
   return (
-    <div className="flex w-full flex-wrap items-start gap-2 border-t pt-4">
+    <CardFooter variant="form" className="flex-wrap items-start justify-end">
+      <Link
+        to={listTo}
+        data-slot="button"
+        className={buttonVariants({ variant: "outline" })}
+      >
+        {t("common.cancel")}
+      </Link>
       <ReasonButton
         type="submit"
         className={buttonVariants()}
@@ -967,14 +977,7 @@ function FormFoot({
       >
         {t("apiKeys.generate")}
       </ReasonButton>
-      <Link
-        to={listTo}
-        data-slot="button"
-        className={buttonVariants({ variant: "outline" })}
-      >
-        {t("common.cancel")}
-      </Link>
-    </div>
+    </CardFooter>
   );
 }
 
@@ -996,15 +999,19 @@ function PersonalKeyForm({ busy, send }: FormProps) {
   };
 
   return (
-    <form className={FORM} onSubmit={submit}>
-      <ScopePicker available={held} chosen={scopes} onChange={setScopes} />
-      <ExpiryField value={expires} onChange={setExpires} />
-      <FormFoot
-        listTo={SCREEN.personal.list}
-        reason={reason}
-        disabled={busy || granted.length === 0}
-      />
-    </form>
+    <Card flush>
+      <form onSubmit={submit}>
+        <div className={FORM_BODY}>
+          <ScopePicker available={held} chosen={scopes} onChange={setScopes} />
+          <ExpiryField value={expires} onChange={setExpires} />
+        </div>
+        <FormFoot
+          listTo={SCREEN.personal.list}
+          reason={reason}
+          disabled={busy || granted.length === 0}
+        />
+      </form>
+    </Card>
   );
 }
 
@@ -1054,50 +1061,54 @@ function ServiceKeyForm({ busy, send }: FormProps) {
   };
 
   return (
-    <form className={FORM} onSubmit={submit}>
-      <Field>
-        <FieldLabel>{t("apiKeys.target")}</FieldLabel>
-        {/* The field stretches its children; a block keeps the select its own width. */}
-        <div>
-          <NativeSelect
-            value={target}
-            disabled={!workspaceWide && agents.length === 0}
-            onChange={(event) => setTarget(event.target.value)}
-          >
-            {workspaceWide ? (
-              <NativeSelectOption value={WORKSPACE}>
-                {t("apiKeys.targetWorkspace")}
-              </NativeSelectOption>
-            ) : (
-              <NativeSelectOption value="">
-                {t("apiKeys.pickAgent")}
-              </NativeSelectOption>
-            )}
-            {agents.map((agent) => (
-              <NativeSelectOption key={agent.id} value={agent.id}>
-                {agent.name}
-              </NativeSelectOption>
-            ))}
-          </NativeSelect>
+    <Card flush>
+      <form onSubmit={submit}>
+        <div className={FORM_BODY}>
+          <Field>
+            <FieldLabel>{t("apiKeys.target")}</FieldLabel>
+            {/* The field stretches its children; a block keeps the select its own width. */}
+            <div>
+              <NativeSelect
+                value={target}
+                disabled={!workspaceWide && agents.length === 0}
+                onChange={(event) => setTarget(event.target.value)}
+              >
+                {workspaceWide ? (
+                  <NativeSelectOption value={WORKSPACE}>
+                    {t("apiKeys.targetWorkspace")}
+                  </NativeSelectOption>
+                ) : (
+                  <NativeSelectOption value="">
+                    {t("apiKeys.pickAgent")}
+                  </NativeSelectOption>
+                )}
+                {agents.map((agent) => (
+                  <NativeSelectOption key={agent.id} value={agent.id}>
+                    {agent.name}
+                  </NativeSelectOption>
+                ))}
+              </NativeSelect>
+            </div>
+            <FieldDescription>{t("apiKeys.agentHint")}</FieldDescription>
+          </Field>
+          <ScopePicker
+            available={held}
+            chosen={scopes}
+            onChange={setScopes}
+            withheld={AGENT_KEY_WITHHELD}
+          />
+          <ExpiryField value={expires} onChange={setExpires} />
         </div>
-        <FieldDescription>{t("apiKeys.agentHint")}</FieldDescription>
-      </Field>
-      <ScopePicker
-        available={held}
-        chosen={scopes}
-        onChange={setScopes}
-        withheld={AGENT_KEY_WITHHELD}
-      />
-      <ExpiryField value={expires} onChange={setExpires} />
-      <FormFoot
-        listTo={SCREEN.service.list}
-        reason={reason}
-        disabled={
-          busy ||
-          granted.length === 0 ||
-          (forAgent && chosenAgent === undefined)
-        }
-      />
-    </form>
+        <FormFoot
+          listTo={SCREEN.service.list}
+          reason={reason}
+          disabled={
+            busy ||
+            granted.length === 0 ||
+            (forAgent && chosenAgent === undefined)
+          }
+        />
+      </form>
+    </Card>
   );
 }
