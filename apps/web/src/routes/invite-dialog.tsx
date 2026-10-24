@@ -37,6 +37,7 @@ import { queryKeys } from "../api/queries.ts";
 import {
   ReasonButton,
   roleLabel,
+  useGrantableRoles,
   useRole,
   WORKSPACE_ROLE_VALUES,
 } from "../auth/guard.tsx";
@@ -334,6 +335,7 @@ function DetailsStep({
   readonly serverMessage: (error: unknown) => string;
 }) {
   const { t } = useI18n();
+  const grantable = useGrantableRoles();
   const form = useStepForm(inviteStep, {
     defaultValues: { email: "", role: DEFAULT_INVITE_ROLE },
   });
@@ -378,11 +380,18 @@ function DetailsStep({
         <FieldLabel>{t("members.invite.role")}</FieldLabel>
         <NativeSelect {...form.register("role")}>
           {WORKSPACE_ROLE_VALUES.map((value) => (
-            <NativeSelectOption key={value} value={value}>
+            <NativeSelectOption
+              key={value}
+              value={value}
+              disabled={!grantable.includes(value)}
+            >
               {roleLabel(t, value)}
             </NativeSelectOption>
           ))}
         </NativeSelect>
+        {grantable.length < WORKSPACE_ROLE_VALUES.length ? (
+          <FieldDescription>{t("members.roleOwnerGrant")}</FieldDescription>
+        ) : null}
         <FieldError>{errors.role?.message}</FieldError>
       </Field>
       <DialogFooter>

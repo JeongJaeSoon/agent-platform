@@ -28,6 +28,7 @@ export const membersKo = {
   "members.roleLastOwner":
     "하나뿐인 소유자의 역할은 바꿀 수 없습니다 — 다른 사람을 먼저 소유자로 정하세요.",
   "members.roleOwnerProtected": "소유자의 역할은 관리자가 바꿀 수 없습니다.",
+  "members.roleOwnerGrant": "소유자 역할은 소유자만 줄 수 있습니다.",
   "members.disable": "비활성화",
   "members.disableFor": "{name} 비활성화",
   "members.enableFor": "{name} 다시 활성화",
@@ -120,6 +121,7 @@ export const membersEn: Record<keyof typeof membersKo, string> = {
   "members.roleLastOwner":
     "The only owner's role cannot change — make someone else an owner first.",
   "members.roleOwnerProtected": "An admin cannot change an owner's role.",
+  "members.roleOwnerGrant": "Only an owner can grant the owner role.",
   "members.disable": "Disable",
   "members.disableFor": "Disable {name}",
   "members.enableFor": "Re-enable {name}",
@@ -212,6 +214,8 @@ export const membersJa: Record<keyof typeof membersKo, string> = {
   "members.roleLastOwner":
     "唯一のオーナーのロールは変更できません。先にほかの人をオーナーにしてください。",
   "members.roleOwnerProtected": "管理者はオーナーのロールを変更できません。",
+  "members.roleOwnerGrant":
+    "オーナーのロールを付与できるのはオーナーのみです。",
   "members.disable": "無効化",
   "members.disableFor": "{name}を無効化",
   "members.enableFor": "{name}を再有効化",

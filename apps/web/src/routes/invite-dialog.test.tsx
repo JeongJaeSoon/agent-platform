@@ -101,6 +101,38 @@ describe("초대 보내기 대화상자", () => {
     });
   });
 
+  test("관리자에게 역할의 소유자 선택지는 비활성이고, 칸 아래에 이유를 둔다", async () => {
+    const { api } = renderAt("/members/invites", {
+      "GET /v1/auth/me": () => json(200, me(undefined, "admin")),
+      "GET /v1/members": () =>
+        json(200, { items: [{ ...owner, role: "admin" }], next_cursor: null }),
+      "GET /v1/invites": () => json(200, { items: [] }),
+      "POST /v1/invites": created,
+    });
+    const { dialog } = await open();
+    const select = within(dialog).getByLabelText("역할") as HTMLSelectElement;
+    expect(
+      [...select.options].map((option) => [option.value, option.disabled]),
+    ).toEqual([
+      ["owner", true],
+      ["admin", false],
+      ["member", false],
+    ]);
+    expect(
+      document.getElementById(select.getAttribute("aria-describedby") ?? "")
+        ?.textContent,
+    ).toBe("소유자 역할은 소유자만 줄 수 있습니다.");
+    expect(invitePosts(api)).toHaveLength(0);
+  });
+
+  test("소유자에게는 역할 선택지가 모두 열려 있고 이유 줄이 없다", async () => {
+    renderMembers();
+    const { dialog } = await open();
+    const select = within(dialog).getByLabelText("역할") as HTMLSelectElement;
+    expect([...select.options].every((option) => !option.disabled)).toBe(true);
+    expect(select.hasAttribute("aria-describedby")).toBe(false);
+  });
+
   test("링크의 token은 단계 기록(history.state)에 남지 않는다", async () => {
     const { history } = renderMembers();
     const { user, dialog } = await open();

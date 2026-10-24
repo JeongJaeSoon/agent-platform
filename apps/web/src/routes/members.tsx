@@ -45,6 +45,7 @@ import { invitesQuery, membersQuery, queryKeys } from "../api/queries.ts";
 import {
   permissionReason,
   roleLabel,
+  useGrantableRoles,
   useHasPermission,
   useMe,
   usePermissionReason,
@@ -696,6 +697,7 @@ function MemberEditDialog({
 }) {
   const { t } = useI18n();
   const [role, setRole] = useState<string>(member.role);
+  const grantable = useGrantableRoles();
   const legendId = useId();
   const reasonId = useId();
   const blocked = reason !== undefined;
@@ -727,15 +729,20 @@ function MemberEditDialog({
             aria-labelledby={legendId}
             aria-describedby={blocked ? reasonId : undefined}
           >
-            {WORKSPACE_ROLE_VALUES.map((value) => (
-              <Field key={value} orientation="horizontal">
-                <RadioGroupItem value={value} />
-                <FieldLabel>{roleLabel(t, value)}</FieldLabel>
-                <FieldDescription>
-                  {t(`members.roleHelp.${value}`)}
-                </FieldDescription>
-              </Field>
-            ))}
+            {WORKSPACE_ROLE_VALUES.map((value) => {
+              const withheld = !grantable.includes(value);
+              return (
+                <Field key={value} orientation="horizontal">
+                  <RadioGroupItem value={value} disabled={withheld} />
+                  <FieldLabel>{roleLabel(t, value)}</FieldLabel>
+                  <FieldDescription>
+                    {withheld
+                      ? t("members.roleOwnerGrant")
+                      : t(`members.roleHelp.${value}`)}
+                  </FieldDescription>
+                </Field>
+              );
+            })}
           </RadioGroup>
         </FieldSet>
         <DialogFooter>
