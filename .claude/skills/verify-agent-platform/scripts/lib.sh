@@ -7,7 +7,7 @@
 # project, so refuse to define them at all.
 unset VERIFY_RUN VERIFY_REPO VERIFY_API VERIFY_BUILT_FROM VERIFY_BOOTSTRAP_TOKEN API EVIDENCE \
   COMPOSE_PROJECT_NAME COMPOSE_FILE EXECUTION_INSTALLATION_ID API_IMAGE WORKER_IMAGE EGRESS_PROXY_IMAGE
-unset -f ap_compose ap_key ap_revoke ap_get ap_post ap_web ap_as 2>/dev/null
+unset -f ap_compose ap_key ap_revoke ap_curl _ap_cookie_header ap_get ap_post ap_web ap_as 2>/dev/null
 # bash names a sourced file in BASH_SOURCE, zsh in $0.
 . "$(dirname "${BASH_SOURCE[0]:-$0}")/run.sh" "${1:-}" || return 1
 _verify_run=$VERIFY_RUN_DIR
@@ -27,30 +27,52 @@ ap_compose() { (cd "$VERIFY_REPO" && docker compose --profile apps --profile fak
 ap_key() { (cd "$VERIFY_REPO" && scripts/local.sh key "$@"); }
 ap_revoke() { ap_compose exec -T api bun run apps/control-host/src/api/keys.ts revoke "$1"; }
 
-# API-key calls. Session POSTs need an Idempotency-Key; ap_post adds one.
-ap_get() { curl -sS -w '\n%{http_code}\n' "$API$1" -H "Authorization: Bearer $KEY"; }
-ap_post() {
-  curl -sS -w '\n%{http_code}\n' "$API$1" -H "Authorization: Bearer $KEY" \
-    -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" -d "$2"
-}
-
-# Browser-style calls: the CSRF header the web client sends, and the session
-# cookie kept in $VERIFY_RUN/cookie (curl will not store a __Host- cookie
-# over http, so it is carried by hand).
+# Every secret (key, cookie, a body that may carry a token or OAuth code)
+# reaches curl through a <(…) pipe, never argv, where `ps` would show it.
+# `ap_curl key …` sends $KEY as a bearer token. `ap_curl cookie …` sends the
+# web client's CSRF header and $VERIFY_RUN/cookie, plus $AP_COOKIE_EXTRA when
+# set (assign it on its own line: a VAR=… prefix would export it to curl).
 # Works under bash and zsh (the Bash tool's shell), hence no variable named
 # `path` (zsh ties it to PATH) or `status` (read-only in zsh) and no unquoted ${x:+…} word splitting.
+_ap_cookie_header() {
+  local c=
+  [ -s "$VERIFY_RUN/cookie" ] && c=$(cat "$VERIFY_RUN/cookie")
+  [ -n "${AP_COOKIE_EXTRA:-}" ] && c="${c:+$c; }$AP_COOKIE_EXTRA"
+  [ -z "$c" ] || printf 'Cookie: %s\n' "$c"
+}
+ap_curl() {
+  local auth=$1
+  shift
+  case $auth in
+    key) curl -sS -H @<(printf 'Authorization: Bearer %s\n' "$KEY") "$@" ;;
+    cookie) curl -sS -H 'x-requested-with: agent-platform-web' -H @<(_ap_cookie_header) "$@" ;;
+    *) echo "ap_curl: first argument is key or cookie" >&2; return 2 ;;
+  esac
+}
+
+# ap_get, ap_post and ap_web leave the last response's headers in
+# $VERIFY_RUN/headers (X-Request-Id, Set-Cookie). Session POSTs need an
+# Idempotency-Key, so every POST gets a fresh one; other routes ignore it.
+ap_get() { ap_curl key -w '\n%{http_code}\n' -D "$VERIFY_RUN/headers" "$API$1"; }
+ap_post() {
+  ap_curl key -w '\n%{http_code}\n' -D "$VERIFY_RUN/headers" "$API$1" \
+    -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" --data-binary @<(printf '%s' "$2")
+}
+
+# Browser-style calls. curl will not store a __Host- cookie over http, so the
+# session cookie is carried by hand in $VERIFY_RUN/cookie.
 ap_web() {
-  local method=$1 route=$2 extra=() headers
-  [ -n "${3:-}" ] && extra+=(-d "$3")
-  [ -s "$VERIFY_RUN/cookie" ] && extra+=(-H "Cookie: $(cat "$VERIFY_RUN/cookie")")
-  headers=$(mktemp)
-  curl -sS -w '\n%{http_code}\n' -X "$method" "$API$route" -D "$headers" \
-    -H 'x-requested-with: agent-platform-web' -H 'Content-Type: application/json' \
-    "${extra[@]}"
+  local method=$1 route=$2 extra=(-w '\n%{http_code}\n' -D "$VERIFY_RUN/headers" -H 'Content-Type: application/json')
+  [ "$method" = POST ] && extra+=(-H "Idempotency-Key: $(uuidgen)")
+  # A <(…) stored in an array is closed before curl runs, so the body is inline.
+  if [ -n "${3:-}" ]; then
+    ap_curl cookie -X "$method" "$API$route" "${extra[@]}" --data-binary @<(printf '%s' "$3")
+  else
+    ap_curl cookie -X "$method" "$API$route" "${extra[@]}"
+  fi
   local curl_rc=$?
-  sed -n 's/^[Ss]et-[Cc]ookie: \(__Host-ap_session=[^;]*\).*/\1/p' "$headers" |
+  sed -n 's/^[Ss]et-[Cc]ookie: \(__Host-ap_session=[^;]*\).*/\1/p' "$VERIFY_RUN/headers" |
     tr -d '\r' | while read -r c; do printf '%s' "$c" >"$VERIFY_RUN/cookie"; done
-  rm -f "$headers"
   return "$curl_rc"
 }
 
