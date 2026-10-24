@@ -20,7 +20,6 @@ import {
   SegmentedControlItem,
   Skeleton,
 } from "@werft-ai/ui";
-import { Plus } from "lucide-react";
 import { useState } from "react";
 
 import { MOBILE, ScreenShell } from "./screen-kit.tsx";
@@ -230,49 +229,47 @@ function SessionListV4Body({
       <PageHeader
         title="세션"
         description="내가 만들었거나 나에게 공유된 세션입니다. 세션을 누르면 상태와 이벤트를 봅니다."
-        actions={
-          <Button type="button">
-            <Plus aria-hidden="true" />새 세션
-          </Button>
-        }
       />
       <div className="flex flex-col gap-4">
         <div className="flex min-w-0 flex-col gap-4">
           <div className="flex flex-wrap items-center gap-2">
-            <SegmentedControl
-              aria-label="상태로 보기"
-              value={tab}
-              onValueChange={setTab}
-            >
-              {FILTERS.map(([key, label]) => (
-                <SegmentedControlItem
-                  key={key}
-                  value={key}
-                  count={state === "ready" ? count(key) : undefined}
-                >
-                  {label}
-                </SegmentedControlItem>
-              ))}
-            </SegmentedControl>
+            <div className="flex flex-wrap items-center gap-2">
+              <SegmentedControl
+                aria-label="상태로 보기"
+                value={tab}
+                onValueChange={setTab}
+              >
+                {FILTERS.map(([key, label]) => (
+                  <SegmentedControlItem
+                    key={key}
+                    value={key}
+                    count={state === "ready" ? count(key) : undefined}
+                  >
+                    {label}
+                  </SegmentedControlItem>
+                ))}
+              </SegmentedControl>
+              <NativeSelect
+                aria-label="나와의 관계"
+                value={relation}
+                onChange={(event) => setRelation(event.target.value)}
+              >
+                {RELATIONS.map(([key, label]) => (
+                  <NativeSelectOption key={key} value={key}>
+                    {label}
+                  </NativeSelectOption>
+                ))}
+              </NativeSelect>
+            </div>
             <SearchInput
               type="search"
               aria-label="제목이나 ID로 찾기"
               placeholder="제목이나 ID로 찾기"
               maxLength={200}
+              wrapperClassName="max-w-none flex-[1_1_100%] sm:ml-auto sm:w-[260px] sm:flex-none"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
             />
-            <NativeSelect
-              aria-label="나와의 관계"
-              value={relation}
-              onChange={(event) => setRelation(event.target.value)}
-            >
-              {RELATIONS.map(([key, label]) => (
-                <NativeSelectOption key={key} value={key}>
-                  {label}
-                </NativeSelectOption>
-              ))}
-            </NativeSelect>
           </div>
           <div>
             {state === "loading" ? (

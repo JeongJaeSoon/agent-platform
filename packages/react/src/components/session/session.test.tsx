@@ -546,6 +546,12 @@ describe("SessionOverviewRow", () => {
     ];
     expect(cells).toHaveLength(6);
     expect(cells[2]?.textContent).toBe("Release helpermodel-claude-default");
+    // A cut agent name or model shows in full on hover.
+    expect(
+      [...(cells[2]?.querySelectorAll("[title]") ?? [])].map((el) =>
+        el.getAttribute("title"),
+      ),
+    ).toEqual(["Release helper", "model-claude-default"]);
     expect(cells[4]?.textContent).toBe("김하나");
     rerender(
       <SessionOverviewTable label="sessions" messages={head}>

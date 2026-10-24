@@ -228,12 +228,19 @@ export function SessionOverviewRow({
         </span>
       </GridTableCell>
       {agent ? (
+        // Above the opener, so hovering a cut name or model shows all of it.
         <GridTableCell lines={true}>
-          <span className="max-w-full truncate">
+          <span
+            className="relative max-w-full truncate"
+            title={session.agent?.name}
+          >
             {session.agent?.name ?? messages.unknown}
           </span>
           {session.model ? (
-            <span className="font-mono text-caption text-subtle-foreground">
+            <span
+              className="relative max-w-full truncate font-mono text-caption text-subtle-foreground"
+              title={session.model}
+            >
               {session.model}
             </span>
           ) : null}
