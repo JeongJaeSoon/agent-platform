@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { setupDom, setupUser } from "../test-support/dom.ts";
 
-const { render } = await setupDom();
+const { fireEvent, render } = await setupDom();
 const { BarChart, niceMax } = await import("./bar-chart.tsx");
 
 const DATA = Array.from({ length: 30 }, (_, i) => ({
@@ -64,6 +64,30 @@ describe("BarChart", () => {
     expect(document.activeElement === bars[29]).toBe(true);
     await user.keyboard("{End}{ArrowLeft}");
     expect(document.activeElement === bars[28]).toBe(true);
+  });
+
+  test("포인터는 플롯 전체에서 가장 가까운 막대의 툴팁을 띄우고, 막대 버튼은 포인터를 받지 않는다", () => {
+    const { container, getAllByRole } = render(<Chart />);
+    const plot = container.querySelector(
+      "[data-slot=bar-chart-plot]",
+    ) as HTMLElement;
+    plot.getBoundingClientRect = () =>
+      ({ left: 100, width: 300, top: 0, height: 160 }) as DOMRect;
+    const tipText = () =>
+      container.querySelector("[data-slot=bar-chart-tip]")?.textContent;
+    fireEvent.pointerMove(plot, { clientX: 100 + 10 * 15 + 3 });
+    expect(tipText()).toBe(TIPS[15]);
+    fireEvent.pointerDown(plot, { clientX: 399 });
+    expect(tipText()).toBe(TIPS[29]);
+    fireEvent.pointerLeave(plot);
+    expect(
+      container
+        .querySelector("[data-slot=bar-chart-tip]")
+        ?.hasAttribute("hidden"),
+    ).toBe(true);
+    for (const bar of getAllByRole("button").slice(1)) {
+      expect(bar.className).toContain("pointer-events-none");
+    }
   });
 
   test("막대의 이름은 툴팁 문장이고, 보고 안 된 날은 빗금으로 표시한다", () => {

@@ -2,6 +2,7 @@ import {
   type CSSProperties,
   type JSX,
   type KeyboardEvent,
+  type PointerEvent,
   useLayoutEffect,
   useRef,
   useState,
@@ -171,6 +172,15 @@ function FullChart({
     setTipLeft(Math.min(Math.max(0, centre), box.width - width));
   }, [tipIndex]);
 
+  const point = (event: PointerEvent<HTMLDivElement>) => {
+    const box = event.currentTarget.getBoundingClientRect();
+    if (box.width <= 0) return;
+    const at = Math.floor(
+      ((event.clientX - box.left) / box.width) * data.length,
+    );
+    setTipIndex(Math.min(Math.max(0, at), data.length - 1));
+  };
+
   const move = (event: KeyboardEvent<HTMLDivElement>) => {
     const to = {
       ArrowLeft: focusIndex - 1,
@@ -208,6 +218,12 @@ function FullChart({
       <div
         data-slot="bar-chart-plot"
         onKeyDown={move}
+        // Bars on a phone are narrower than a 24px target (WCAG 2.5.8), so the
+        // pointer reads the whole plot and points at the nearest bar; the bar
+        // buttons are for the keyboard and assistive tech.
+        onPointerMove={point}
+        onPointerDown={point}
+        onPointerLeave={() => setTipIndex(null)}
         className={cn(
           "relative flex items-end gap-0.5 border-border-strong border-b bg-[linear-gradient(var(--ap-chart-grid)_1px,transparent_1px)]",
           PLOT_HEIGHT.full,
@@ -226,21 +242,19 @@ function FullChart({
               tabIndex={index === focusIndex ? 0 : -1}
               data-active={index === tipIndex || undefined}
               data-partial={datum.partial || undefined}
-              onMouseEnter={() => setTipIndex(index)}
-              onMouseLeave={() => setTipIndex(null)}
               onFocus={() => {
                 setFocusIndex(index);
                 setTipIndex(index);
               }}
               onBlur={() => setTipIndex(null)}
-              className="group flex h-full min-w-0 flex-1 cursor-pointer items-end border-0 bg-transparent p-0 focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2"
+              className="group pointer-events-none flex h-full min-w-0 flex-1 items-end border-0 bg-transparent p-0 focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2"
             >
               <span
                 className={cn(
                   "block w-full rounded-t-[4px]",
                   datum.partial
                     ? HATCH
-                    : "bg-chart-mark group-hover:bg-chart-mark-active group-data-active:bg-chart-mark-active",
+                    : "bg-chart-mark group-data-active:bg-chart-mark-active",
                 )}
                 style={{ height: height(datum.y) }}
               />
