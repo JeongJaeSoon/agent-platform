@@ -98,9 +98,23 @@ describe("Text", () => {
   test("호출자의 크기 클래스가 variant의 줄을 지우지 않고, 호출자의 leading은 그것을 대신한다", () => {
     const meta = classesOf({ variant: "meta", className: "text-caption" });
     expect(meta).toContain("leading-normal");
-    const own = classesOf({ variant: "meta", className: "md:leading-5" });
-    expect(own).toContain("md:leading-5");
+    const own = classesOf({ variant: "meta", className: "leading-5" });
+    expect(own).toContain("leading-5");
     expect(own).not.toContain("leading-normal");
+    const shorthand = classesOf({ className: "text-lg/8" });
+    expect(shorthand).toContain("text-lg/8");
+    expect(shorthand).not.toContain("leading-5");
+  });
+
+  test("변형이 붙은 leading과 색 투명도는 기본 줄을 지우지 않는다", () => {
+    const responsive = classesOf({
+      variant: "meta",
+      className: "md:leading-5",
+    });
+    expect(responsive).toContain("md:leading-5");
+    expect(responsive).toContain("leading-normal");
+    const faded = classesOf({ className: "text-foreground/80" });
+    expect(faded).toContain("leading-5");
   });
 
   test("span으로 자를 때는 잘릴 상자를 만든다", () => {

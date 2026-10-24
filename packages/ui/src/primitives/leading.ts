@@ -1,10 +1,15 @@
+// A caller's own base line: `leading-*` with no variant, or a size with its
+// line (`text-lg/8`). A colour with opacity (`text-foreground/80`) is not one.
+const OWN_LEADING =
+  /(?:^|\s)(?:leading-\S|text-(?:caption|control|body|description|title|number|2xs|xs|sm|base|lg|\d?xl|\[[^\]\s]+\])\/)/;
+
 /**
  * tailwind-merge drops an earlier `leading-*` when a later class sets the font
  * size, so a caller's `text-*` would take the part's line height with it. The
- * part's line goes on after the merge, unless the caller set a line of its own.
+ * part's line goes on after the merge, unless the caller set a base line of
+ * its own; a variant line (`md:leading-5`) applies on top of it.
  */
 export function withLeading(classes: string, leading: string): string {
-  if (leading === "" || /(?:^|\s)(?:[\w-]+:)*leading-/.test(classes))
-    return classes;
+  if (leading === "" || OWN_LEADING.test(classes)) return classes;
   return `${classes} ${leading}`;
 }
