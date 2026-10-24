@@ -69,6 +69,7 @@ function summary(
           permission_mode: "default",
         }
       : null,
+    model,
     repository_id: repository,
     repository: repository
       ? { id: repository, full_name: `agent/${repository}`, branch: "main" }
