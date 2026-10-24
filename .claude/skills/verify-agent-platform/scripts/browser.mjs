@@ -16,6 +16,7 @@
 //   browser.mjs <run> press <text|css> [Key]      focus it, then a real key (Enter): click leaves focus where it was
 //   browser.mjs <run> key <Key> [count] | eval <expr>   @N: the Nth field in <main>, from 0
 //   browser.mjs <run> measure <name>              evidence/layout/<name>.json for layout-report.mjs
+//   browser.mjs <run> slack-consent [team]        in-page Slack link start, mock consent, open the callback
 //
 // Every page command takes W (default 1280), H (900) and THEME (light|dark)
 // from the environment, e.g. W=390 THEME=dark browser.mjs <run> shot home-390-dark.
@@ -390,6 +391,51 @@ switch (cmd) {
         "(document.querySelector('form [role=alert]')?.innerText ?? '').replace(/\\s+/g, ' ')",
       )}`,
     );
+    break;
+  }
+  case "slack-consent": {
+    // authorize_url carries the OAuth state and the callback URL the code, so
+    // both stay in this process: CDP in, bun's stdin, CDP out. Never argv.
+    if (!state.COMPOSE_PROJECT_NAME?.startsWith("verify-ap-"))
+      throw new Error("not a verification project");
+    if (!state.COMPOSE_FILE?.includes("infra/compose.mock-slack.yml"))
+      throw new Error("mock Slack overlay required");
+    const team = args[0];
+    if (team && !/^T[0-9A-Z]+$/.test(team))
+      throw new Error("mock team id like T0OTHER");
+    const authorize = await evaluate(
+      'fetch("/v1/linked-accounts/slack/start",{method:"POST",headers:{"x-requested-with":"agent-platform-web"}}).then(r=>r.json()).then(j=>j.authorize_url ?? "")',
+    );
+    if (!/^https?:/.test(authorize ?? ""))
+      throw new Error("link start gave no authorize_url (logged in? Slack set up?)");
+    const location = execFileSync(
+      "docker",
+      [
+        "compose",
+        "--profile",
+        "apps",
+        "--profile",
+        "fake-model",
+        "exec",
+        "-T",
+        "api",
+        "bun",
+        "-e",
+        'const r = await fetch((await Bun.stdin.text()).trim(), { redirect: "manual" }); console.log(r.headers.get("location") ?? "")',
+      ],
+      {
+        cwd: state.VERIFY_REPO,
+        env: { ...process.env, ...state },
+        encoding: "utf8",
+        input: team ? `${authorize}&mock_team=${team}` : authorize,
+      },
+    ).trim();
+    if (!/^https?:/.test(location)) throw new Error("mock consent gave no redirect");
+    // The redirect names the overlay's 127.0.0.1:3000 origin, not this run's port.
+    const back = new URL(location);
+    await navigate(url(back.pathname + back.search));
+    await settle();
+    console.log(`slack-consent -> ${await evaluate("location.pathname")}`);
     break;
   }
   case "shot": {

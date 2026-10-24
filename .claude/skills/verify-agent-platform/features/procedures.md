@@ -434,7 +434,7 @@ node "$B" "$RUN" shot home-request
 REQ=$(ap_get "/v1/sessions/$QSID/pending-requests" | head -1 | jq -r '.items[0].request_id')
 printf 'REQ=%s\n' "$REQ" >> "$VERIFY_RUN/ids.sh"
 ap_post "/v1/sessions/$QSID/answers" "$(jq -nc --arg r "$REQ" '{request_id:$r,kind:"permission",decision:"allow"}')"
-curl -sSN --max-time 5 "$API/v1/sessions/$QSID/events" -H "Authorization: Bearer $KEY" > "$EVIDENCE/pending-events.txt" || test "$?" = 28
+ap_curl key -N --max-time 5 "$API/v1/sessions/$QSID/events" > "$EVIDENCE/pending-events.txt" || test "$?" = 28
 ```
 
 기대: pending 200 `answerable:true`, items 한 개 `kind:"permission"`, `tool:"Bash"`. 홈 요청 카드와 세션 sidebar 대기 배지. 답 202. turn 1이 completed가 될 때까지 위 poll 방식으로 확인한다. 홈에서 카드가 사라지고 배지가 숨는다. SSE에 question/status/result 이벤트가 있고 curl timeout 28은 스트림 캡처 종료다.
