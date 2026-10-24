@@ -179,6 +179,18 @@ describe("SessionCounts", () => {
       "세션 수를 읽는 중",
     ]);
   });
+
+  test("화면이 알림을 맡으면 loading을 비워 상태 알림을 내지 않는다", () => {
+    const { queryAllByRole } = withPlatform(
+      <SessionCounts
+        counts={undefined}
+        slots={null}
+        statusLink={link}
+        messages={{ loading: "" }}
+      />,
+    );
+    expect(queryAllByRole("status")).toHaveLength(0);
+  });
 });
 
 describe("ToolCalls", () => {
