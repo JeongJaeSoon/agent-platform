@@ -101,7 +101,12 @@ describe("Text", () => {
     const own = classesOf({ variant: "meta", className: "leading-5" });
     expect(own).toContain("leading-5");
     expect(own).not.toContain("leading-normal");
-    for (const className of ["text-lg/8", "text-[15px]/6"]) {
+    for (const className of [
+      "text-lg/8",
+      "text-[15px]/6",
+      "text-[calc(1rem+2px)]/6",
+      "text-(length:--my-size)/6",
+    ]) {
       const shorthand = classesOf({ className });
       expect(shorthand).toContain(className);
       expect(shorthand).not.toContain("leading-5");
@@ -117,7 +122,11 @@ describe("Text", () => {
     expect(responsive).toContain("leading-normal");
     const hover = classesOf({ className: "hover:leading-6" });
     expect(hover).toContain("leading-5");
-    for (const className of ["text-foreground/80", "text-[#123456]/80"]) {
+    for (const className of [
+      "text-foreground/80",
+      "text-[#123456]/80",
+      "text-[color:var(--brand)]/80",
+    ]) {
       const faded = classesOf({ className });
       expect(faded).toContain(className);
       expect(faded).toContain("leading-5");
