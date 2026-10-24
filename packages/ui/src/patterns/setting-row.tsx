@@ -1,4 +1,9 @@
-import type { ComponentProps, JSX, ReactNode } from "react";
+import {
+  type ComponentProps,
+  isValidElement,
+  type JSX,
+  type ReactNode,
+} from "react";
 
 import { cn } from "../foundations/cn.ts";
 import { Field, FieldDescription, FieldLabel } from "../primitives/field.tsx";
@@ -25,6 +30,13 @@ export type SettingRowProps = Omit<ComponentProps<"li">, "title"> & {
 const TITLE = "m-0 font-medium text-control leading-5";
 const DESCRIPTION = "m-0 text-caption text-subtle-foreground leading-4";
 
+// A control keeps an id its caller gave it, so the title must point there
+// instead of at the Field's generated one.
+function ownId(control: ReactNode): string | undefined {
+  if (!isValidElement<{ id?: unknown }>(control)) return undefined;
+  return typeof control.props.id === "string" ? control.props.id : undefined;
+}
+
 /**
  * One setting in a `RowList variant="joined"`: title and description on the
  * left, the control on the right. Below 640px the control goes under the
@@ -47,7 +59,9 @@ export function SettingRow({
       <RowLines>
         <span className="flex flex-wrap items-center gap-2">
           {labelled ? (
-            <FieldLabel className={TITLE}>{title}</FieldLabel>
+            <FieldLabel htmlFor={ownId(control)} className={TITLE}>
+              {title}
+            </FieldLabel>
           ) : (
             <span className={TITLE}>{title}</span>
           )}

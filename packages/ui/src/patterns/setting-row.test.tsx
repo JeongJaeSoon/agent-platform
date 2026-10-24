@@ -1,12 +1,16 @@
 import { describe, expect, test } from "bun:test";
 
-import { setupDom } from "../test-support/dom.ts";
+import { setupDom, setupUser } from "../test-support/dom.ts";
 
 const { render } = await setupDom();
 // Radix decides at import time whether a DOM exists; see test-support/dom.ts.
-const { Badge, Button, RowList } = await import("../index.ts");
+const { Badge, Button, NativeSelect, NativeSelectOption, RowList } =
+  await import("../index.ts");
 const { Switch } = await import("../primitives/switch.tsx");
 const { SettingRow } = await import("./setting-row.tsx");
+
+const SWITCH_ID = "receive-dms";
+const SELECT_ID = "reaction";
 
 function describedBy(element: HTMLElement): string[] {
   return (element.getAttribute("aria-describedby") ?? "")
@@ -45,6 +49,33 @@ describe("SettingRow", () => {
     );
     const control = getByRole("switch", { name: "DM 받기" });
     expect(describedBy(control)).toEqual(["에이전트가 DM으로도 답합니다."]);
+  });
+
+  test("컨트롤이 자기 id를 가져도 제목이 이름이고 제목을 누르면 바뀐다", async () => {
+    const user = await setupUser();
+    const { getByRole, getByText } = render(
+      <RowList variant="joined">
+        <SettingRow
+          title="DM 받기"
+          description="에이전트가 DM으로도 답합니다."
+          control={<Switch id={SWITCH_ID} />}
+        />
+        <SettingRow
+          title="기본 반응"
+          control={
+            <NativeSelect id={SELECT_ID}>
+              <NativeSelectOption value="mention">멘션할 때</NativeSelectOption>
+            </NativeSelect>
+          }
+        />
+      </RowList>,
+    );
+    const control = getByRole("switch", { name: "DM 받기" });
+    expect(control.id).toBe(SWITCH_ID);
+    expect(describedBy(control)).toEqual(["에이전트가 DM으로도 답합니다."]);
+    expect(getByRole("combobox", { name: "기본 반응" }).id).toBe(SELECT_ID);
+    await user.click(getByText("DM 받기"));
+    expect(control.getAttribute("aria-checked")).toBe("true");
   });
 
   test("버튼은 자기 이름을 지킨다", () => {
