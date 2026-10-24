@@ -78,9 +78,11 @@ describe("PageHeader", () => {
     expect([...nav.querySelectorAll("li")].map((li) => li.textContent)).toEqual(
       ["내 key", "/", "새 개인 key"],
     );
-    expect(getByRole("link", { name: "내 key" }).getAttribute("href")).toBe(
-      "/settings/api-keys",
-    );
+    const back = getByRole("link", { name: "내 key" });
+    expect(back.getAttribute("href")).toBe("/settings/api-keys");
+    // The top bar's trail colour, not a link's blue.
+    expect(back.className.split(" ")).toContain("text-subtle-foreground");
+    expect(back.className.split(" ")).not.toContain("text-link");
     expect(container.querySelector("[aria-current=page]")?.textContent).toBe(
       "새 개인 key",
     );

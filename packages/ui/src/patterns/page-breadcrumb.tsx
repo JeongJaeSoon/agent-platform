@@ -1,4 +1,3 @@
-import { Slot } from "@radix-ui/react-slot";
 import {
   Children,
   type ComponentProps,
@@ -8,6 +7,7 @@ import {
 } from "react";
 
 import { cn } from "../foundations/cn.ts";
+import { Link, type LinkProps } from "../primitives/link.tsx";
 
 export interface PageBreadcrumbProps {
   /** The landmark's name, such as "위치". */
@@ -51,22 +51,17 @@ export function PageBreadcrumb({
   );
 }
 
-export type PageBreadcrumbLinkProps = ComponentProps<"a"> & {
-  /** Render the single child (a router link) with the crumb's look. */
-  readonly asChild?: boolean;
-};
+export type PageBreadcrumbLinkProps = Omit<LinkProps, "variant">;
 
+/** A crumb up the way; `asChild` takes a router link. */
 export function PageBreadcrumbLink({
-  asChild = false,
   className,
   ...props
 }: PageBreadcrumbLinkProps): JSX.Element {
-  const Comp = asChild ? Slot : "a";
   return (
-    <Comp
-      data-slot="page-breadcrumb-link"
+    <Link
       className={cn(
-        "text-subtle-foreground no-underline hover:text-foreground hover:underline",
+        "font-normal text-subtle-foreground hover:text-foreground",
         className,
       )}
       {...props}
