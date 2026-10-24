@@ -1,5 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { SegmentedControl, SegmentedControlItem } from "@werft-ai/ui";
+import {
+  SearchInput,
+  SegmentedControl,
+  SegmentedControlItem,
+} from "@werft-ai/ui";
 import { LayoutGrid, Table2 } from "lucide-react";
 import { useState } from "react";
 
@@ -264,4 +268,38 @@ export const Mobile: Story = {
     locale: "en",
     viewport: { value: "mobile390", isRotated: false },
   },
+};
+
+/**
+ * `size="toolbar"`: 32px with the control corner and the input edge, so it
+ * lines up with a search field and a filter chip in a list toolbar.
+ */
+export const ToolbarSize: Story = {
+  render: (_args, { globals }) => {
+    const copy = copyFor({ globals });
+    return (
+      <div className="flex items-center gap-2">
+        <SegmentedControl
+          aria-label={copy.status}
+          size="toolbar"
+          value="all"
+          onValueChange={() => undefined}
+        >
+          <SegmentedControlItem value="all" count={128}>
+            {copy.all}
+          </SegmentedControlItem>
+          <SegmentedControlItem value="running" count={3}>
+            {copy.running}
+          </SegmentedControlItem>
+        </SegmentedControl>
+        <SearchInput type="search" aria-label="찾기" placeholder="찾기" />
+      </div>
+    );
+  },
+};
+
+export const ToolbarSizeDark: Story = {
+  ...ToolbarSize,
+  name: "Toolbar size (dark)",
+  globals: { theme: "dark" },
 };
