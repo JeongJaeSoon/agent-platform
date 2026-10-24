@@ -81,7 +81,8 @@ export function agentServer() {
 
   const path = `/v1/agents/${AGENT_ID}`;
   const routes = {
-    "GET /v1/agents": () => json(200, { items: [detail().agent] }),
+    "GET /v1/agents": () =>
+      json(200, { items: [detail().agent], next_cursor: null }),
     // Only claude-coding-local releases; the first one is refused, as when
     // the catalog changed under an open page.
     "GET /v1/profiles": () =>

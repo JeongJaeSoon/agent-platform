@@ -20,13 +20,12 @@ import {
   SessionServiceError,
 } from "../sessions/session-service.ts";
 import type { AuthorizationPolicy, Caller } from "./policy.ts";
+import { NOT_FOUND } from "./service-errors.ts";
 
 // Teams (design 4.7). Every route asks the policy for `team.manage` on the
 // workspace (owner, admin: D23), and the store re-reads that role under a
 // share lock in the transaction that writes.
 
-const NOT_FOUND = () =>
-  new SessionServiceError("NOT_FOUND", "Resource not found");
 // The caller's role fell between the decision and the write.
 const OUTRANKED = () =>
   new SessionServiceError(

@@ -142,6 +142,13 @@ exports[`query options and the request each query makes 1`] = `
     "calls": [
       [
         "/v1/agents",
+        {
+          "params": {
+            "query": {
+              "limit": 100,
+            },
+          },
+        },
       ],
     ],
     "options": {

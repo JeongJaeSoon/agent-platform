@@ -16,7 +16,7 @@ import {
   type SQL,
   sql,
 } from "drizzle-orm";
-import { administers } from "./agent-admins.ts";
+import { administers } from "./administers.ts";
 import { lockPeople, receiptActorOf } from "./control-shared.ts";
 import type { Database } from "./queries.ts";
 import {

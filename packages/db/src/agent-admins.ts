@@ -4,17 +4,8 @@ import type {
   AgentAdmins,
   TeamActor,
 } from "@werft-ai/platform";
-import {
-  and,
-  asc,
-  eq,
-  exists,
-  isNull,
-  or,
-  type SQL,
-  type SQLWrapper,
-  sql,
-} from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
+import { administers, liveMember } from "./administers.ts";
 import { agentOf } from "./agents.ts";
 import { lockPeople, receiptActorOf } from "./control-shared.ts";
 import type { Database } from "./queries.ts";
@@ -22,7 +13,6 @@ import {
   agentAdmins,
   agentAdminTeams,
   agents,
-  memberships,
   memberTeamMembers,
   memberTeams,
   receipts,
@@ -30,55 +20,6 @@ import {
 } from "./schema.ts";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-/**
- * True where `userId` administers `agentId` in `workspaceId`: an admin row of
- * their own, or a live team they are a live member of. Team membership is
- * read here, at the decision, never cached (design 4.7). Whether the person
- * is still a live member of the workspace is the caller's to join.
- */
-export function administers(
-  db: Database,
-  workspaceId: string | SQLWrapper,
-  userId: string | SQLWrapper,
-  agentId: string | SQLWrapper,
-): SQL {
-  const direct = db
-    .select({ one: sql`1` })
-    .from(agentAdmins)
-    .where(
-      and(
-        eq(agentAdmins.workspaceId, workspaceId),
-        eq(agentAdmins.agentId, agentId),
-        eq(agentAdmins.userId, userId),
-      ),
-    );
-  const viaTeam = db
-    .select({ one: sql`1` })
-    .from(agentAdminTeams)
-    .innerJoin(
-      memberTeams,
-      and(
-        eq(memberTeams.id, agentAdminTeams.teamId),
-        isNull(memberTeams.archivedAt),
-      ),
-    )
-    .innerJoin(
-      memberTeamMembers,
-      and(
-        eq(memberTeamMembers.teamId, agentAdminTeams.teamId),
-        isNull(memberTeamMembers.removedAt),
-      ),
-    )
-    .where(
-      and(
-        eq(agentAdminTeams.workspaceId, workspaceId),
-        eq(agentAdminTeams.agentId, agentId),
-        eq(memberTeamMembers.userId, userId),
-      ),
-    );
-  return or(exists(direct), exists(viaTeam)) as SQL;
-}
 
 /**
  * `administers`, inside a write: the rows that make it true are share-locked
@@ -347,21 +288,7 @@ export function createPostgresAgentAdminStore(db: Database): AgentAdminStore {
           and(
             eq(agents.workspaceId, workspaceId),
             administers(db, workspaceId, userId.toLowerCase(), agents.id),
-            // A disabled member administers nothing.
-            exists(
-              db
-                .select({ one: sql`1` })
-                .from(memberships)
-                .innerJoin(users, eq(users.id, memberships.userId))
-                .where(
-                  and(
-                    eq(memberships.workspaceId, workspaceId),
-                    eq(memberships.userId, userId.toLowerCase()),
-                    isNull(memberships.disabledAt),
-                    isNull(users.disabledAt),
-                  ),
-                ),
-            ),
+            liveMember(db, workspaceId, userId.toLowerCase()),
           ),
         )
         .orderBy(asc(agents.createdAt), asc(agents.id))

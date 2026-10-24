@@ -3,7 +3,7 @@ import { Link, Outlet, useLocation } from "@tanstack/react-router";
 import { ApiError, isApiError, unwrap } from "@werft-ai/client";
 import type { Invite, MemberView, WorkspaceRole } from "@werft-ai/contracts";
 import { useAgentPlatform, useMemberPages } from "@werft-ai/react";
-import { ListToolbar } from "@werft-ai/react/components";
+import { ListToolbar, LoadMoreButton } from "@werft-ai/react/components";
 import {
   Alert,
   AlertActions,
@@ -40,11 +40,17 @@ import {
   RowList,
   RowListItem,
 } from "@werft-ai/ui";
-import { useId, useRef, useState } from "react";
-import { invitesQuery, membersQuery, queryKeys } from "../api/queries.ts";
+import { useEffect, useId, useRef, useState } from "react";
+import {
+  invitesQuery,
+  membersQuery,
+  queryKeys,
+  teamsQuery,
+} from "../api/queries.ts";
 import {
   permissionReason,
   roleLabel,
+  useGrantableRoles,
   useHasPermission,
   useMe,
   usePermissionReason,
@@ -63,6 +69,7 @@ import {
   useI18n,
 } from "../i18n/i18n.tsx";
 import { InviteDialog } from "./invite-dialog.tsx";
+import { TeamCreateDialog } from "./team-create-dialog.tsx";
 
 const SECTION = "flex flex-col gap-[var(--ap-space-block)]";
 const SECTION_TITLE = "m-0 font-semibold text-body";
@@ -127,20 +134,44 @@ export function MembersLayout() {
   // The list is also the permission probe: when it failed, nobody knows.
   const failed = members.isError && !isApiError(members.error, "FORBIDDEN");
   const onTeams = pathname.startsWith("/members/teams");
+  // The router also serves the list at "/members/teams/".
+  const onTeamList = pathname.replace(/\/$/, "") === "/members/teams";
+  const managesTeams = useHasPermission("team.manage");
+  const teams = useQuery({
+    ...teamsQuery(client),
+    enabled: managesTeams && onTeams,
+  });
+  const teamReason = usePermissionReason("team.manage", teams);
+  const teamsFailed = teams.isError && !isApiError(teams.error, "FORBIDDEN");
+  // The dialog closes on success; the page says what came of it.
+  const [created, setCreated] = useState<string | null>(null);
+  // Fresh on each arrival: a request that answered elsewhere is old news.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs on the path change
+  useEffect(() => setCreated(null), [onTeamList]);
+
+  // Each tab's one primary action, in the same place (v4 toolbar ②).
+  const action = onTeams ? (
+    onTeamList && managesTeams && !teamsFailed ? (
+      <TeamCreateDialog
+        reason={teamReason}
+        onCreated={(name) =>
+          setCreated(name === null ? null : t("teams.created", { name }))
+        }
+      />
+    ) : undefined
+  ) : manages && !failed ? (
+    <InviteDialog
+      reason={reason}
+      members={members.data?.items ?? []}
+      refusal={(error, role) => refusal(t, error, role)}
+    />
+  ) : undefined;
 
   return (
     <Page
       title={t("members.title")}
       description={t(manages ? "members.description" : "members.withheld")}
-      actions={
-        !manages || failed || onTeams ? undefined : (
-          <InviteDialog
-            reason={reason}
-            members={members.data?.items ?? []}
-            refusal={(error, role) => refusal(t, error, role)}
-          />
-        )
-      }
+      actions={action}
     >
       <div className="flex flex-col gap-[var(--ap-space-block)]">
         <LinkTabs aria-label={t("members.tabs")}>
@@ -164,6 +195,7 @@ export function MembersLayout() {
             </LinkTab>
           ) : null}
         </LinkTabs>
+        {onTeamList ? <Notice>{created ?? undefined}</Notice> : null}
         <Outlet />
       </div>
     </Page>
@@ -247,24 +279,26 @@ export function MembersScreen() {
               }
             />
           ) : null}
-          {/* After any failed read the alert's retry is the way on: more
-              rows on top of a failed refresh would keep the stale ones. */}
-          {members.hasNextPage && !members.error ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="self-start"
-              // A refresh after a change rereads every page; asking for the
-              // next one now would cancel it and keep the stale rows.
-              disabled={members.isFetching}
-              onClick={() => members.fetchNextPage()}
-            >
-              {members.isFetchingNextPage
-                ? t("sessions.loadingMore")
-                : t("sessions.more")}
-            </Button>
-          ) : null}
+          {/* After a failed refresh the alert's retry is the way on: more
+              rows on top of it would keep the stale ones. A failed next
+              page keeps the button, and the keyboard on it. */}
+          <LoadMoreButton
+            hasMore={
+              members.hasNextPage &&
+              (!members.error || members.isFetchNextPageError)
+            }
+            loading={members.isFetchingNextPage}
+            // A refresh after a change rereads every page; asking for the
+            // next one now would cancel it and keep the stale rows.
+            busy={members.isFetching}
+            onLoadMore={() =>
+              void members.fetchNextPage({ cancelRefetch: false })
+            }
+            messages={{
+              more: t("sessions.more"),
+              loading: t("sessions.loadingMore"),
+            }}
+          />
         </div>
       )}
     </div>
@@ -550,7 +584,7 @@ function MemberTable({
                       blue stays for links that move (→). */}
                     {/* Below md the "you" badge drops to its own line under
                       the name, so the name gets the whole column (QA L-17). */}
-                    <span className="grid max-w-full grid-cols-[minmax(0,auto)_auto_auto] items-center gap-y-[var(--ap-row-line-gap)] font-medium text-foreground @max-md:grid-cols-[minmax(0,auto)_auto] group-data-[disabled=true]:text-muted-foreground">
+                    <span className="grid max-w-full grid-cols-[minmax(0,auto)_auto] items-center gap-y-[var(--ap-row-line-gap)] font-medium text-foreground @max-md:grid-cols-[minmax(0,auto)] group-data-[disabled=true]:text-muted-foreground">
                       <span className="truncate">{member.display_name}</span>
                       {member.user_id === self ? (
                         <Badge
@@ -560,7 +594,6 @@ function MemberTable({
                           {t("members.you")}
                         </Badge>
                       ) : null}
-                      <span aria-hidden="true">&nbsp;›</span>
                     </span>
                     <span
                       className="text-muted-foreground text-xs"
@@ -694,9 +727,14 @@ function MemberEditDialog({
 }) {
   const { t } = useI18n();
   const [role, setRole] = useState<string>(member.role);
+  const grantable = useGrantableRoles();
   const legendId = useId();
   const reasonId = useId();
+  const grantReasonId = useId();
   const blocked = reason !== undefined;
+  // A disabled radio is out of the arrow-key loop, so its reason also
+  // describes the group a keyboard user does reach.
+  const grantLimited = grantable.length < WORKSPACE_ROLE_VALUES.length;
   return (
     <Dialog open onOpenChange={(open) => (open ? undefined : onClose())}>
       <DialogContent
@@ -723,17 +761,24 @@ function MemberEditDialog({
             onValueChange={setRole}
             disabled={blocked || busy}
             aria-labelledby={legendId}
-            aria-describedby={blocked ? reasonId : undefined}
+            aria-describedby={
+              blocked ? reasonId : grantLimited ? grantReasonId : undefined
+            }
           >
-            {WORKSPACE_ROLE_VALUES.map((value) => (
-              <Field key={value} orientation="horizontal">
-                <RadioGroupItem value={value} />
-                <FieldLabel>{roleLabel(t, value)}</FieldLabel>
-                <FieldDescription>
-                  {t(`members.roleHelp.${value}`)}
-                </FieldDescription>
-              </Field>
-            ))}
+            {WORKSPACE_ROLE_VALUES.map((value) => {
+              const withheld = !grantable.includes(value);
+              return (
+                <Field key={value} orientation="horizontal">
+                  <RadioGroupItem value={value} disabled={withheld} />
+                  <FieldLabel>{roleLabel(t, value)}</FieldLabel>
+                  <FieldDescription id={withheld ? grantReasonId : undefined}>
+                    {withheld
+                      ? t("members.roleOwnerGrant")
+                      : t(`members.roleHelp.${value}`)}
+                  </FieldDescription>
+                </Field>
+              );
+            })}
           </RadioGroup>
         </FieldSet>
         <DialogFooter>
@@ -742,7 +787,12 @@ function MemberEditDialog({
           </Button>
           <Button
             type="button"
-            disabled={blocked || busy || role === member.role}
+            disabled={
+              blocked ||
+              busy ||
+              role === member.role ||
+              !grantable.includes(role as WorkspaceRole)
+            }
             onClick={() => onSave(role as WorkspaceRole)}
           >
             {t("members.edit.save")}

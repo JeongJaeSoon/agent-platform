@@ -28,7 +28,7 @@ import {
   Section,
   Link as TextLink,
 } from "@werft-ai/ui";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, ChevronRight } from "lucide-react";
 import { type FormEvent, type ReactNode, useId, useState } from "react";
 import {
   membersQuery,
@@ -40,7 +40,6 @@ import {
   ReasonButton,
   refusalText,
   useHasPermission,
-  usePermissionReason,
   useRole,
 } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
@@ -60,6 +59,13 @@ const FORM = "flex flex-col items-start gap-4";
 const INLINE_FORM = "flex max-w-xl flex-wrap items-end gap-2";
 const NAME_FIELD = "min-w-0 flex-[1_1_14rem]";
 const SECONDARY = "text-muted-foreground text-sm [overflow-wrap:anywhere]";
+// A team row opens as a whole: the name link's box stretches over the row,
+// so the link, its name and its one Tab stop stay as they were, and its
+// keyboard ring is drawn around the row. `!` because styles.css rings every
+// focused link outside any layer, which beats a plain utility.
+const OPENS_ROW = "relative cursor-pointer hover:bg-hover";
+const ROW_LINK =
+  "[overflow-wrap:anywhere] after:absolute after:inset-0 after:rounded-card focus-visible:outline-none! focus-visible:after:outline-2 focus-visible:after:outline-focus-ring focus-visible:after:outline-offset-2";
 
 function ListError({
   error,
@@ -101,43 +107,9 @@ function TeamNameField({
 export function TeamsScreen() {
   const { t } = useI18n();
   const { client } = useAgentPlatform();
-  const queryClient = useQueryClient();
-  const role = useRole();
   const manages = useHasPermission("team.manage");
   const teams = useQuery({ ...teamsQuery(client), enabled: manages });
-  const reason = usePermissionReason("team.manage", teams);
-  // The list is also the permission probe: when it failed, nobody knows.
-  const failed = teams.isError && !isApiError(teams.error, "FORBIDDEN");
-  const [name, setName] = useState("");
-  const [outcome, setOutcome] = useState<Outcome | null>(null);
   const titleId = useId();
-
-  const create = useMutation<TeamChangeResponse, ApiError>({
-    mutationFn: () =>
-      unwrap(client.POST("/v1/teams", { body: { name: name.trim() } })),
-    onMutate: () => setOutcome(null),
-    onSuccess: async ({ team }) => {
-      setName("");
-      setOutcome({
-        kind: "notice",
-        text: t("teams.created", { name: team.name }),
-      });
-      await queryClient.invalidateQueries({ queryKey: queryKeys.teams });
-    },
-    onError: (error) =>
-      setOutcome({
-        kind: "error",
-        text:
-          error.code === "ALREADY_EXISTS"
-            ? t("teams.nameTaken")
-            : refusalText(t, error, "team.manage", role),
-      }),
-  });
-
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    create.mutate();
-  };
 
   if (!manages) {
     return (
@@ -147,22 +119,9 @@ export function TeamsScreen() {
     );
   }
 
+  // Creating a team is the page head's button (TeamCreateDialog).
   return (
     <TeamsTab>
-      <OutcomeLine outcome={outcome} />
-      {failed ? null : (
-        <form className={INLINE_FORM} onSubmit={submit}>
-          <TeamNameField value={name} onChange={setName} />
-          <ReasonButton
-            type="submit"
-            className={buttonVariants()}
-            reason={reason}
-            disabled={create.isPending}
-          >
-            {create.isPending ? t("teams.creating") : t("teams.create")}
-          </ReasonButton>
-        </form>
-      )}
       <section className={SECTION} aria-labelledby={titleId}>
         <h2 id={titleId} className={SECTION_TITLE}>
           {t("teams.listTitle")}
@@ -176,8 +135,8 @@ export function TeamsScreen() {
         ) : (
           <RowList>
             {teams.data.items.map((team) => (
-              <RowListItem key={team.id}>
-                <TextLink asChild className="[overflow-wrap:anywhere]">
+              <RowListItem key={team.id} className={OPENS_ROW}>
+                <TextLink asChild className={ROW_LINK}>
                   <Link
                     to="/members/teams/$teamId"
                     params={{ teamId: team.id }}
@@ -188,6 +147,10 @@ export function TeamsScreen() {
                 <span className={`${SECONDARY} ml-auto`}>
                   {t("teams.memberCount", { count: team.member_count })}
                 </span>
+                <ChevronRight
+                  aria-hidden="true"
+                  className="size-4 shrink-0 text-subtle-foreground"
+                />
               </RowListItem>
             ))}
           </RowList>

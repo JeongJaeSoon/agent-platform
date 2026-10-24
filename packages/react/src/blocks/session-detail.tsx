@@ -162,7 +162,13 @@ export function SessionDetail({
           </Field>
         ) : null}
       </div>
-      <TabsContent value="timeline" className="flex flex-1 flex-col gap-4">
+      {/* Kept mounted on other tabs: the composer holds a send in flight. */}
+      <TabsContent
+        value="timeline"
+        forceMount
+        hidden={tab !== "timeline"}
+        className="flex flex-1 flex-col gap-4 data-[state=inactive]:hidden"
+      >
         <div className="min-w-0 flex-1 rounded-card border bg-card">
           <Events events={events.events} state={events.state} debug={debug} />
         </div>

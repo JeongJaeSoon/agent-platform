@@ -21,7 +21,7 @@ function SessionListParkedBadgeBody({ state }: { readonly state: RowState }) {
           href={`#/sessions/${SESSION_ID}`}
           aria-label={SESSION_ID.slice(0, 8)}
         >
-          {SESSION_ID.slice(0, 8)} ›
+          {SESSION_ID.slice(0, 8)}
         </Link>
         <div className="story-row items-center">
           {state === "expired" ? null : (

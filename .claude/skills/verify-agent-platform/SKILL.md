@@ -20,7 +20,7 @@ description: Drive the agent-platform stack the way a user does — launch it lo
 
 - **자기 스택만.** `up.sh`가 새 compose project(`verify-ap-<run id>`)와 installation id를 만들고, 모든 단계가 그 project에만 compose를 건다. 기본 project `agent-platform`이나 다른 사람의 스택은 몰지도 내리지도 않는다.
 - **실제 모델 없이.** 항상 `--fake-model`이다. 세션은 프롬프트에 적은 GATE-SPEC 대본대로 돈다(`docs/quickstart.md` § 스크립트된 프롬프트). 실제 Claude(`local.sh up` 옵션 없음)는 유료라 이 스킬은 쓰지 않는다.
-- **비밀값을 출력하지 않는다.** API key는 변수에만 담고 앞 12자만 보인다. bootstrap token은 이 run이 만든 일회용 테스트 값이고 `state.env`(700 디렉터리)에만 있다.
+- **비밀값을 출력하지 않는다.** API key는 변수에만 담고 길이만 보인다. bootstrap token은 이 run이 만든 일회용 테스트 값이고 `state.env`(700 디렉터리)에만 있다.
 - **자격 값을 명령에 쓰지 않는다.** 명령 텍스트에 비밀번호 JSON 리터럴이 있으면 agent-guard PreToolUse hook이 "secret-like value detected in shell command"로 그 호출을 거부한다. bootstrap·login·초대 수락·웹 key 발급은 `web-user.mjs`가 run 디렉터리의 값으로 보내고, 화면 로그인·수락은 `browser.mjs`가 같은 값을 칸에 넣는다.
 - **프로세스는 PID·project로.** `pkill`·`killall`·이름 패턴 종료는 쓰지 않는다. 내릴 때는 `down.sh`가 이 run의 project와 installation label만 지운다.
 - **run은 항상 이름으로.** 같은 머신의 여러 세션이 같은 root에 run을 만든다. 그래서 "마지막 run" 같은 기본값은 없다. `up.sh`가 출력한 run id를 기록해 두고 `lib.sh`·`doctor.sh`·`down.sh`에 매번 넘긴다. 인자 없이 부르면 사용법과 살아 있는 run 목록만 출력하고 exit 2로 끝난다(아무것도 내리지 않는다). 목록의 다른 run은 다른 세션의 것이니 넘기지 않는다.
@@ -70,10 +70,12 @@ run, project, 이미지를 빌드한 소스(`up.sh` 때의 HEAD + 커밋하지 �
 
 | 함수 | 용도 |
 |---|---|
-| `ap_web METHOD PATH [JSON]` | 브라우저처럼 부른다: `x-requested-with: agent-platform-web` 헤더, `$VERIFY_RUN/cookie`의 세션 cookie를 보내고 응답의 `__Host-ap_session`을 저장한다. cookie 파일은 하나라 여러 사람을 몰 때는 사람마다 복사해 둔다([musterrolle.md](features/musterrolle.md) Preconditions). `Idempotency-Key`는 붙이지 않는다: 세션 POST(생성·메시지·답·제어·관리 종료)는 그 헤더를 더한 curl로 보낸다 |
+| `ap_web METHOD PATH [JSON]` | 브라우저처럼 부른다: `x-requested-with: agent-platform-web` 헤더, `$VERIFY_RUN/cookie`의 세션 cookie를 보내고 응답의 `__Host-ap_session`을 저장한다. cookie 파일은 하나라 여러 사람을 몰 때는 사람마다 복사해 둔다([musterrolle.md](features/musterrolle.md) Preconditions). POST에는 새 `Idempotency-Key`를 붙인다(세션 POST에 필요하고 나머지 route는 보지 않는다) |
 | `ap_key <owner> --scopes a,b` | key CLI로 key를 발급한다. stdout에 key, stderr에 `key_id …` |
 | `ap_revoke <key_id>` | key 폐기 |
 | `ap_get PATH` / `ap_post PATH JSON` | `$KEY`로 Bearer 호출. `ap_post`는 `Idempotency-Key`를 새로 붙인다 |
+| `ap_curl key\|cookie <curl 인자…>` | 위 셋의 바탕. `$KEY`(Bearer) 또는 cookie와 CSRF 헤더를 `-H @<(…)`로 넘기는 `curl -sS`. 스트림(`-N`)이나 key로 보내는 `PATCH`처럼 위 셋이 못 하는 호출에 쓴다. cookie 쪽은 `$AP_COOKIE_EXTRA`(따로 한 줄로 대입)를 세션 cookie 뒤에 붙인다 |
+| `$VERIFY_RUN/headers` | `ap_get`·`ap_post`·`ap_web`이 남기는 마지막 응답 헤더(`X-Request-Id`, `Set-Cookie`) |
 | `ap_compose …` | 이 run의 project에만 거는 `docker compose` (`logs api`, `ps` 등) |
 | `ap_as <who>` | `web-user.mjs`가 로그인시킨 사람의 cookie로 바꾸고, 그 사람의 웹 key가 있으면 `$KEY`에 담는다(길이만 출력) |
 
@@ -117,6 +119,7 @@ run, project, 이미지를 빌드한 소스(`up.sh` 때의 HEAD + 커밋하지 �
 - host bun이 `package.json`의 `packageManager`(bun 1.3.14)와 다르면 main에서도 실패하는 로컬 테스트가 있다. 이 스킬은 bun을 host에서 쓰지 않는다(key CLI도 api 컨테이너 안에서 돈다). 테스트 판정은 CI가 기준이다.
 - `local.sh status`·`key`·`down`은 env의 `COMPOSE_PROJECT_NAME`·`COMPOSE_FILE`을 따른다. `lib.sh`를 source하지 않은 셸에서 부르면 기본 project `agent-platform`을 건드린다.
 - `__Host-` cookie는 `Secure`라 curl이 http에서 저장하지 않는다. `ap_web`이 `Set-Cookie`에서 직접 꺼내 보낸다.
+- key·cookie·OAuth `state`/`code`·config 값은 명령줄 인자에 두지 않는다. `ps`로 같은 머신의 누구나 본다. curl은 `ap_curl`·`ap_get`·`ap_post`·`ap_web`으로만 부르고(헤더와 본문이 `<(…)`로 간다), 컨테이너 안 스크립트에는 stdin으로 넘긴다. `VAR=값 ap_web …`처럼 앞에 붙인 대입은 curl의 환경으로 export되니 쓰지 않는다. `<(…)`를 배열에 담아 두면 curl이 돌기 전에 닫힌다(exit 26).
 - 로그인은 실패가 쌓이면 잠긴다(429 `RATE_LIMITED`, `Retry-After`). 틀린 비밀번호 시험은 한두 번만.
 - bootstrap은 사용자가 0명일 때 한 번만 된다. 두 번째는 409 `BOOTSTRAP_DONE`. 처음부터 다시 하려면 `down.sh` 뒤 `up.sh`.
 - macOS에는 `timeout`이 없다. 필요하면 `perl -e 'alarm N; exec @ARGV' <cmd>`.
