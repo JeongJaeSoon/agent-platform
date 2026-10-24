@@ -4,6 +4,8 @@ export const teamsKo = {
     "팀은 사람 묶음입니다. 팀을 에이전트 관리자로 지정하면 팀의 구성원 모두가 그 에이전트를 관리합니다.",
   "teams.name": "팀 이름",
   "teams.create": "팀 만들기",
+  "teams.createDescription":
+    "이름을 정해 팀을 만듭니다. 구성원은 만든 뒤 팀 화면에서 넣습니다.",
   "teams.creating": "만드는 중…",
   "teams.created": "{name} 팀을 만들었습니다.",
   "teams.nameTaken": "같은 이름의 팀이 이미 있습니다 — 다른 이름을 쓰세요.",
@@ -48,6 +50,8 @@ export const teamsEn: Record<keyof typeof teamsKo, string> = {
     "A team is a group of people. Make a team an agent admin, and everyone on it can manage that agent.",
   "teams.name": "Team name",
   "teams.create": "Create team",
+  "teams.createDescription":
+    "Name the team to create it. Add people from the team's page afterwards.",
   "teams.creating": "Creating…",
   "teams.created": "Created the {name} team.",
   "teams.nameTaken":
@@ -94,6 +98,8 @@ export const teamsJa: Record<keyof typeof teamsKo, string> = {
     "チームはメンバーのグループです。チームをエージェントの管理者に指定すると、チームのメンバー全員がそのエージェントを管理できます。",
   "teams.name": "チーム名",
   "teams.create": "チームを作成",
+  "teams.createDescription":
+    "名前を決めてチームを作成します。メンバーは作成後にチームの画面で追加します。",
   "teams.creating": "作成中…",
   "teams.created": "チーム「{name}」を作成しました。",
   "teams.nameTaken":
