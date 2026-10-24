@@ -97,30 +97,58 @@ describe("SettingRow", () => {
     expect(container.querySelector("label")).toBe(null);
   });
 
-  test("640px 아래에서는 세로로 쌓고 컨트롤을 오른쪽에, 위에서는 한 줄 가운데 정렬", () => {
+  test("640px 아래에서도 컨트롤은 제목 첫 줄 오른쪽에 두고, 설명은 그 아래 전체 폭으로, 상태 글자는 뺀다", () => {
+    const { getByRole, getByText } = render(
+      <RowList variant="joined">
+        <SettingRow
+          title="DM 받기"
+          description="에이전트가 DM으로도 답합니다."
+          status="꺼짐"
+          control={<Switch />}
+        />
+      </RowList>,
+    );
+    const classes = (element: Element | null | undefined) =>
+      element?.className.split(" ") ?? [];
+    const row = getByRole("listitem");
+    for (const name of [
+      "grid",
+      "grid-cols-[minmax(0,1fr)_auto]",
+      "items-start",
+      "sm:items-center",
+    ]) {
+      expect(classes(row)).toContain(name);
+    }
+    expect(classes(row)).not.toContain("flex");
+    const slot = getByRole("switch").parentElement;
+    for (const name of [
+      "col-start-2",
+      "row-start-1",
+      "self-start",
+      "sm:self-center",
+      "sm:row-span-2",
+    ]) {
+      expect(classes(slot)).toContain(name);
+    }
+    const title = getByText("DM 받기").parentElement;
+    expect(classes(title)).toContain("row-start-1");
+    expect(classes(title)).toContain("leading-5");
+    const lines = getByText("에이전트가 DM으로도 답합니다.").parentElement;
+    for (const name of ["col-span-2", "row-start-2", "sm:col-span-1"]) {
+      expect(classes(lines)).toContain(name);
+    }
+    const status = getByText("꺼짐");
+    expect(classes(status)).toEqual(["hidden", "sm:contents"]);
+    expect(status.nextElementSibling).toBe(getByRole("switch"));
+  });
+
+  test("설명이 없으면 컨트롤이 두 줄에 걸치지 않는다", () => {
     const { getByRole } = render(
       <RowList variant="joined">
         <SettingRow title="DM 받기" control={<Switch />} />
       </RowList>,
     );
-    const row = getByRole("listitem");
-    const rowClasses = row.className.split(" ");
-    for (const name of [
-      "flex-col",
-      "flex-nowrap",
-      "items-stretch",
-      "gap-y-2",
-      "gap-x-3",
-      "sm:flex-row",
-      "sm:items-center",
-    ]) {
-      expect(rowClasses).toContain(name);
-    }
-    expect(rowClasses).not.toContain("flex-wrap");
-    expect(rowClasses).not.toContain("items-center");
     const slot = getByRole("switch").parentElement;
-    const slotClasses = slot?.className.split(" ") ?? [];
-    expect(slotClasses).toContain("self-end");
-    expect(slotClasses).toContain("sm:self-auto");
+    expect(slot?.className.split(" ")).not.toContain("sm:row-span-2");
   });
 });

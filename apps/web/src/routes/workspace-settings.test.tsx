@@ -273,9 +273,10 @@ describe("워크스페이스 설정", () => {
       row?.closest('[role="region"]')?.getAttribute("aria-labelledby"),
     ).toBe(screen.getByRole("heading", { name: "Slack 게스트" }).id);
     expect(row?.lastElementChild?.lastElementChild).toBe(toggle);
-    expect(toggle.previousElementSibling?.textContent).toBe("꺼짐");
-    expect(toggle.previousElementSibling?.getAttribute("aria-hidden")).toBe(
-      "true",
+    const status = toggle.previousElementSibling;
+    expect(status?.textContent).toBe("꺼짐");
+    expect(status?.querySelector('[aria-hidden="true"]')?.textContent).toBe(
+      "꺼짐",
     );
     expect(row?.querySelector(`label[for="${toggle.id}"]`)?.textContent).toBe(
       GUEST_SWITCH.name,
