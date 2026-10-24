@@ -727,7 +727,7 @@ describe("sessions list", () => {
     ).toEqual([]);
   });
 
-  test("a new relation shows its own answer, never the last relation's rows under it", async () => {
+  test("a new relation keeps the last rows, marked busy, until its own answer replaces them", async () => {
     const user = await setupUser();
     let answer: (() => void) | undefined;
     renderAt("/sessions?relation=shared", {
@@ -748,9 +748,47 @@ describe("sessions list", () => {
     await screen.findByRole("link", { name: opener(OTHER_ID) });
     await pickRelation(user, "관리하는 에이전트");
     await waitFor(() => expect(answer).toBeDefined());
-    expect(screen.queryByRole("link", { name: opener(OTHER_ID) })).toBeNull();
+    const kept = screen.getByRole("link", { name: opener(OTHER_ID) });
+    expect(kept.closest("[aria-busy=true]")).not.toBeNull();
+    expect(screen.queryByText(/불러오는 중/)).toBeNull();
     act(() => answer?.());
+    const fresh = await screen.findByRole("link", {
+      name: opener(SESSION_ID),
+    });
+    expect(screen.queryByRole("link", { name: opener(OTHER_ID) })).toBeNull();
+    expect(fresh.closest("[aria-busy=true]")).toBeNull();
+  });
+
+  test("a new status tab keeps the last rows on screen while it reads, with no loading in between", async () => {
+    const user = await setupUser();
+    let answer: (() => void) | undefined;
+    renderAt("/sessions", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": (request) =>
+        new URL(request.url).searchParams.get("status") === "failed"
+          ? new Promise<Response>((resolve) => {
+              answer = () =>
+                resolve(
+                  json(200, {
+                    items: [summary(OTHER_ID, { status: "failed" })],
+                    next_cursor: null,
+                  }),
+                );
+            })
+          : json(200, { items: [summary(SESSION_ID)], next_cursor: null }),
+    });
     await screen.findByRole("link", { name: opener(SESSION_ID) });
+    await user.click(screen.getByRole("button", { name: "실패" }));
+    await waitFor(() => expect(answer).toBeDefined());
+    expect(
+      screen
+        .getByRole("link", { name: opener(SESSION_ID) })
+        .closest("[aria-busy=true]"),
+    ).not.toBeNull();
+    expect(screen.queryByText(/불러오는 중/)).toBeNull();
+    act(() => answer?.());
+    await screen.findByRole("link", { name: opener(OTHER_ID) });
+    expect(screen.queryByRole("link", { name: opener(SESSION_ID) })).toBeNull();
   });
 
   test("the relation filter reads that relation, keeps it in the address and with the status tab", async () => {
