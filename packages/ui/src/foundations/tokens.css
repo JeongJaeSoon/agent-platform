@@ -63,6 +63,12 @@
     --ap-color-focus-ring: #0070f3;
     --ap-color-link: #0060d1;
     /*
+     * A switch that is on. Not the accent: a near-black "on" beside a grey
+     * "off" did not read as a state change. 3:1 on every surface, and the
+     * surface-coloured thumb 3:1 on it.
+     */
+    --ap-color-control-checked: #0060d1;
+    /*
      * A filled destructive button, white text on red, the same in dark: v4's
      * dark #e5484d holds white at only 3.9:1.
      */
@@ -260,6 +266,7 @@
       --ap-color-accent-foreground: #0a0a0a;
       --ap-color-focus-ring: #3291ff;
       --ap-color-link: #52a8ff;
+      --ap-color-control-checked: #3291ff;
       --ap-color-destructive-solid: #c4282d;
       --ap-color-destructive-foreground: #ffffff;
 
@@ -342,6 +349,7 @@
     --ap-color-accent-foreground: #0a0a0a;
     --ap-color-focus-ring: #3291ff;
     --ap-color-link: #52a8ff;
+    --ap-color-control-checked: #3291ff;
     --ap-color-destructive-solid: #c4282d;
     --ap-color-destructive-foreground: #ffffff;
 

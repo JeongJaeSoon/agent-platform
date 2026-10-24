@@ -40,6 +40,7 @@ import {
   type RestorePlanResult,
   sessionObjectPrefix,
 } from "../checkpoints/checkpoint-service.ts";
+import { own } from "../checkpoints/checkpoint-support.ts";
 import { checkpointPendingReason } from "../checkpoints/durability.ts";
 import { budgetExceeded } from "../limits/installation-limits.ts";
 import {
@@ -218,10 +219,6 @@ export type EgressGrant = {
   attempt_id: string;
   upstream: EgressUpstream;
 };
-
-function own<T>(record: Record<string, T>, key: string): T | undefined {
-  return Object.hasOwn(record, key) ? record[key] : undefined;
-}
 
 function fenceOf(scope: WorkerScope): WorkerFence {
   return {

@@ -112,6 +112,7 @@ const createdKey = (extra: Record<string, unknown> = {}) => ({
   key: {
     id: KEY_ID,
     kind: "personal",
+    name: null,
     workspace_id: WORKSPACE_ID,
     agent_id: null,
     created_by: null,

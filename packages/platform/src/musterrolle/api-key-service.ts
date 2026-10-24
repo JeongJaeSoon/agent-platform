@@ -22,31 +22,17 @@ import {
   type Caller,
   MANAGEMENT_ROLES,
 } from "./policy.ts";
+import { ACTOR_INACTIVE, NOT_FOUND, OUTRANKED } from "./service-errors.ts";
 
-// Keys issued by a person (design 4.1): their own personal key, a
-// workspace's service key, or a service key bound to an agent they
-// administer. An API key is never a person, so the policy refuses it here.
-
-const NOT_FOUND = () =>
-  new SessionServiceError("NOT_FOUND", "Resource not found");
-// The caller's role fell between the decision and the write.
-const OUTRANKED = () =>
-  new SessionServiceError(
-    "FORBIDDEN",
-    "The caller no longer holds this right",
-    undefined,
-    { reason_code: "role" },
-  );
-const ACTOR_INACTIVE = () =>
-  new SessionServiceError(
-    "FORBIDDEN",
-    "This principal is no longer a member of the workspace",
-  );
+// Keys issued by a person (design 4.1): their own personal key, or the key
+// of an agent they administer. An API key is never a person, so the policy
+// refuses it here.
 
 export function viewOf(key: WorkspaceKey): ApiKeyView {
   return {
     id: key.id,
     kind: key.kind,
+    name: key.name,
     workspace_id: key.workspaceId,
     agent_id: key.agentId,
     created_by: key.createdByUserId,
@@ -97,9 +83,9 @@ export function createApiKeyService(deps: {
     if (key.kind === "personal") {
       return ["api_key.manage_own", { kind: "workspace", id: caller.ownerId }];
     }
-    return key.agentId === null
-      ? ["api_key.manage", { kind: "workspace", id: caller.ownerId }]
-      : ["api_key.manage", { kind: "agent", id: key.agentId }];
+    // The contract and the table's CHECK both keep an agent key's agent.
+    if (key.agentId === null) throw NOT_FOUND();
+    return ["api_key.manage", { kind: "agent", id: key.agentId }];
   }
 
   return {
@@ -126,10 +112,10 @@ export function createApiKeyService(deps: {
           `The issuer does not hold ${beyond.join(", ")}`,
         );
       }
-      if (agentId !== null && body.scopes.includes("sessions:approve")) {
+      if (body.kind === "agent" && body.scopes.includes("sessions:approve")) {
         throw new SessionServiceError(
           "SCOPE_NOT_GRANTABLE",
-          "A key bound to an agent never approves (D26)",
+          "An agent key never approves (D26)",
         );
       }
       const expiresAt =
@@ -148,6 +134,7 @@ export function createApiKeyService(deps: {
         workspaceId: caller.ownerId,
         keyHash: hash,
         kind: body.kind,
+        name: body.name ?? null,
         agentId,
         createdByUserId: userId,
         scopes: [...new Set(body.scopes)],
@@ -179,14 +166,14 @@ export function createApiKeyService(deps: {
         id: caller.ownerId,
       });
       const userId = personOf(caller);
-      // Who sees every service key is the role table's, applied by the store
+      // Who sees every agent key is the role table's, applied by the store
       // to the role held now; a refused probe would record a denial for
       // each listing.
       const keys = await store.list(
         caller.ownerId,
         {
           personalOf: userId,
-          allServiceKeysFor: MANAGEMENT_ROLES["api_key.manage"] ?? [],
+          allAgentKeysFor: MANAGEMENT_ROLES["api_key.manage"] ?? [],
         },
         API_KEY_LIST_LIMIT,
       );

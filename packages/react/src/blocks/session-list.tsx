@@ -1,9 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import type { SessionSummary } from "@werft-ai/contracts";
 import { waitingSessionsQuery } from "@werft-ai/core";
-import { Button } from "@werft-ai/ui";
 import type { ReactNode } from "react";
 import {
+  LoadMoreButton,
   SessionRow,
   type SessionRowMessages,
   SessionTable,
@@ -45,19 +45,15 @@ export function SessionList({ loading, renderError }: SessionListProps) {
                 : sessions.refetch()),
           )
         : null}
-      {sessions.hasNextPage && !sessions.isFetchNextPageError ? (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={sessions.isFetchingNextPage}
-          onClick={() => sessions.fetchNextPage()}
-        >
-          {sessions.isFetchingNextPage
-            ? t("sessions.loadingMore")
-            : t("sessions.more")}
-        </Button>
-      ) : null}
+      <LoadMoreButton
+        hasMore={sessions.hasNextPage}
+        loading={sessions.isFetchingNextPage}
+        onLoadMore={() => void sessions.fetchNextPage({ cancelRefetch: false })}
+        messages={{
+          more: t("sessions.more"),
+          loading: t("sessions.loadingMore"),
+        }}
+      />
     </div>
   );
 }

@@ -27,7 +27,7 @@ const requiredEnv = ["DATABASE_URL", "AUTH_MODE"];
 
 describe("readiness probe", () => {
   test("journal head is the last migration tag", () => {
-    expect(expectedMigrationHead().tag).toBe("0162_api_key_last_used");
+    expect(expectedMigrationHead().tag).toBe("0163_api_key_agent_kind");
   });
 
   test("passes on a migrated database with the required configuration", async () => {
@@ -90,7 +90,7 @@ describe("readiness probe", () => {
     })();
     expect(result).toMatchObject({ ready: false, check: "schema" });
     expect(result.ready === false && result.reason).toContain(
-      "0162_api_key_last_used",
+      "0163_api_key_agent_kind",
     );
 
     // Same timestamp, different SQL behind it: not the schema this build ships.

@@ -21,6 +21,7 @@ const owner = { "X-Owner-Id": WORKSPACE, "Content-Type": "application/json" };
 const VIEW: ApiKeyView = {
   id: KEY,
   kind: "personal",
+  name: null,
   workspace_id: WORKSPACE,
   agent_id: null,
   created_by: "019a0000-0000-7000-8000-0000000000a1",
@@ -84,13 +85,23 @@ describe("POST /v1/api-keys", () => {
     expect(response.status).toBe(413);
   });
 
-  test("a personal key bound to an agent is malformed", async () => {
-    const response = await create(app({}), {
-      kind: "personal",
-      scopes: ["sessions:read"],
-      agent_id: KEY,
-    });
-    expect(response.status).toBe(400);
+  test("a personal key bound to an agent, an agent key bound to none, or a blank name is malformed", async () => {
+    let reached = false;
+    const service = {
+      issue: async () => {
+        reached = true;
+        throw new Error("unreachable");
+      },
+    };
+    for (const body of [
+      { kind: "personal", scopes: ["sessions:read"], agent_id: KEY },
+      { kind: "agent", scopes: ["sessions:read"] },
+      { kind: "service", scopes: ["sessions:read"] },
+      { kind: "personal", scopes: ["sessions:read"], name: "" },
+    ]) {
+      expect((await create(app(service), body)).status).toBe(400);
+    }
+    expect(reached).toBe(false);
   });
 
   test("a refusal names the policy's reason", async () => {
@@ -102,7 +113,7 @@ describe("POST /v1/api-keys", () => {
           });
         },
       }),
-      { kind: "service", scopes: ["sessions:read"] },
+      { kind: "agent", scopes: ["sessions:read"], agent_id: KEY },
     );
     expect(response.status).toBe(403);
     expect(await errorOf(response)).toMatchObject({
@@ -118,7 +129,7 @@ describe("POST /v1/api-keys", () => {
           throw new SessionServiceError("SCOPE_NOT_GRANTABLE", "no");
         },
       }),
-      { kind: "service", scopes: ["sessions:recover"] },
+      { kind: "personal", scopes: ["sessions:recover"] },
     );
     expect(response.status).toBe(403);
     expect((await errorOf(response)).code).toBe("SCOPE_NOT_GRANTABLE");
@@ -131,7 +142,7 @@ describe("POST /v1/api-keys", () => {
           throw new SessionServiceError("NOT_FOUND", "Resource not found");
         },
       }),
-      { kind: "service", scopes: ["sessions:read"], agent_id: KEY },
+      { kind: "agent", scopes: ["sessions:read"], agent_id: KEY },
     );
     expect(missing.status).toBe(404);
     const down = await create(app({ issue: outage }), {

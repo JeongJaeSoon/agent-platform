@@ -1,6 +1,6 @@
 import type { AgentAuthority } from "@werft-ai/platform";
 import { and, eq, isNull } from "drizzle-orm";
-import { administers } from "./agent-admins.ts";
+import { administers } from "./administers.ts";
 import type { Database } from "./queries.ts";
 import {
   agentReleases,

@@ -14,6 +14,7 @@ import {
   createAgentService,
   createAuthorizationPolicy,
   deriveReleaseId,
+  InvalidCursorError,
   resolveReleaseContent,
   type SessionCatalog,
   SessionServiceError,
@@ -26,16 +27,21 @@ import {
 import { asc, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { createPostgresAgentAdminStore } from "./agent-admins.ts";
 import { createPostgresAgentStore } from "./agents.ts";
 import { createPostgresCredentialBindingStore } from "./credential-bindings.ts";
 import { createDatabaseIdentityReader } from "./identity-reader.ts";
 import * as schema from "./schema.ts";
 import {
   agentActivationEvents,
+  agentAdmins,
+  agentAdminTeams,
   agentReleases,
   agents,
   agentVersions,
   memberships,
+  memberTeamMembers,
+  memberTeams,
   receipts,
   sessions,
   users,
@@ -43,6 +49,7 @@ import {
 } from "./schema.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
+const PAGE = { limit: 50 };
 
 const PROFILE: CatalogProfile = {
   runtime_kind: "claude_agent_sdk",
@@ -183,6 +190,256 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     });
   }
 
+  // Rows straight into agents, so created_at can tie and differ by 1µs.
+  async function seedAgents(workspaceId: string, createdAt: string[]) {
+    const ids: string[] = createdAt.map(() => randomUUID());
+    await pool.query(
+      `INSERT INTO agents (id, workspace_id, slug, name, created_at)
+       SELECT id, $1, 'seed-' || id, 'seed', at
+       FROM unnest($2::uuid[], $3::timestamptz[]) AS seed(id, at)`,
+      [workspaceId, ids, createdAt],
+    );
+    return ids;
+  }
+
+  async function walk(
+    agentsService: AgentService,
+    caller: Caller,
+    limit: number,
+  ) {
+    const pages: { ids: string[]; next_cursor: string | null }[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await agentsService.listAgents(caller, {
+        limit,
+        ...(cursor ? { cursor } : {}),
+      });
+      pages.push({
+        ids: page.items.map((agent) => agent.id),
+        next_cursor: page.next_cursor,
+      });
+      cursor = page.next_cursor ?? undefined;
+    } while (cursor);
+    return pages;
+  }
+
+  async function idsInOrder(workspaceId: string) {
+    const rows = await db
+      .select({ id: agents.id })
+      .from(agents)
+      .where(eq(agents.workspaceId, workspaceId))
+      .orderBy(asc(agents.createdAt), asc(agents.id));
+    return rows.map((row) => row.id);
+  }
+
+  test("pages walk created_at, id oldest first through ties and microseconds, and only the last page has no next_cursor", async () => {
+    const workspaceId = await workspace();
+    const owner = await person(workspaceId, "owner");
+    const agentsService = service();
+    const tie = "2026-01-01 00:00:00.000001+00";
+    await seedAgents(workspaceId, [
+      tie,
+      tie,
+      tie,
+      "2026-01-01 00:00:00.000002+00",
+      "2026-01-01 00:00:00+00",
+      tie,
+      "2026-01-02 00:00:00+00",
+    ]);
+    const pages = await walk(agentsService, owner, 3);
+    expect(pages.map((page) => page.ids.length)).toEqual([3, 3, 1]);
+    expect(pages.map((page) => page.next_cursor === null)).toEqual([
+      false,
+      false,
+      true,
+    ]);
+    expect(pages.flatMap((page) => page.ids)).toEqual(
+      await idsInOrder(workspaceId),
+    );
+
+    // Exactly limit agents: one full page, nothing after it.
+    const exact = await workspace();
+    const exactOwner = await person(exact, "owner");
+    await seedAgents(exact, [tie, tie, tie]);
+    expect(await walk(agentsService, exactOwner, 3)).toEqual([
+      { ids: await idsInOrder(exact), next_cursor: null },
+    ]);
+  });
+
+  test("more than the old 500 cap are all listed, and no cursor reads the first 50", async () => {
+    const workspaceId = await workspace();
+    const owner = await person(workspaceId, "owner");
+    const agentsService = service();
+    await seedAgents(
+      workspaceId,
+      Array.from({ length: 501 }, (_, i) =>
+        new Date(Date.UTC(2026, 0, 1) + i * 1000).toISOString(),
+      ),
+    );
+    const all = await idsInOrder(workspaceId);
+    const first = await agentsService.listAgents(owner, PAGE);
+    expect(first.items.map((agent) => agent.id)).toEqual(all.slice(0, 50));
+    expect(first.next_cursor).not.toBeNull();
+    const pages = await walk(agentsService, owner, 100);
+    expect(pages.map((page) => page.ids.length)).toEqual([
+      100, 100, 100, 100, 100, 1,
+    ]);
+    expect(pages.flatMap((page) => page.ids)).toEqual(all);
+  });
+
+  test("agents created during a walk never duplicate or hide the ones that were there", async () => {
+    const workspaceId = await workspace();
+    const owner = await person(workspaceId, "owner");
+    const agentsService = service();
+    const before = await seedAgents(
+      workspaceId,
+      Array.from({ length: 9 }, (_, i) => `2026-01-01 00:00:0${i}+00`),
+    );
+    const seen: string[] = [];
+    const first = await agentsService.listAgents(owner, { limit: 4 });
+    seen.push(...first.items.map((agent) => agent.id));
+    let cursor = first.next_cursor;
+    // Behind the cursor, between pages and after the end, while the walk runs.
+    const inserts = Promise.all([
+      seedAgents(workspaceId, ["2025-12-31 00:00:00+00"]),
+      seedAgents(workspaceId, ["2026-01-01 00:00:03.5+00"]),
+      seedAgents(workspaceId, ["2026-01-01 00:00:06.5+00"]),
+      newAgent(agentsService, owner),
+    ]);
+    while (cursor) {
+      const page = await agentsService.listAgents(owner, { limit: 4, cursor });
+      seen.push(...page.items.map((agent) => agent.id));
+      cursor = page.next_cursor;
+    }
+    await inserts;
+    expect(new Set(seen).size).toBe(seen.length);
+    for (const id of before) {
+      expect(seen.filter((one) => one === id)).toHaveLength(1);
+    }
+  });
+
+  test("a cursor only positions: another workspace's cursor shows nothing of that workspace, and a forged one is refused", async () => {
+    const mine = await workspace();
+    const theirs = await workspace();
+    const me = await person(mine, "owner");
+    const them = await person(theirs, "owner");
+    const member = await person(theirs, "member");
+    const agentsService = service();
+    await seedAgents(mine, ["2026-01-01 00:00:00+00"]);
+    const theirIds = await seedAgents(theirs, [
+      "2026-01-01 00:00:00+00",
+      "2026-01-01 00:00:01+00",
+      "2026-01-01 00:00:02+00",
+    ]);
+    const theirCursor = (await agentsService.listAgents(them, { limit: 1 }))
+      .next_cursor;
+    expect(theirCursor).not.toBeNull();
+    const page = await agentsService.listAgents(me, {
+      limit: 50,
+      cursor: theirCursor ?? "",
+    });
+    expect(page.items.some((agent) => theirIds.includes(agent.id))).toBe(false);
+    expect(page.items.every((agent) => agent.workspace_id === mine)).toBe(true);
+
+    // The cursor does not lift the role check on the next page.
+    expect(
+      await codeOf(
+        agentsService.listAgents(member, {
+          limit: 1,
+          cursor: theirCursor ?? "",
+        }),
+      ),
+    ).toBe("FORBIDDEN");
+
+    const encode = (value: unknown) =>
+      Buffer.from(JSON.stringify(value)).toString("base64url");
+    for (const forged of [
+      "not-a-cursor",
+      encode({ created_at: "2026-01-01", id: randomUUID() }),
+      encode({ created_at: "2026-13-01 00:00:00+00", id: randomUUID() }),
+      encode({ created_at: "2026-01-01 00:00:00+00", id: "x" }),
+    ]) {
+      const refused = await agentsService
+        .listAgents(them, { limit: 1, cursor: forged })
+        .then(
+          () => null,
+          (error: unknown) => error,
+        );
+      expect(refused, forged).toBeInstanceOf(InvalidCursorError);
+    }
+  });
+
+  test("counts are the list read to its end and the agents the caller administers now, as /v1/administered-agents lists them", async () => {
+    const workspaceId = await workspace();
+    const owner = await person(workspaceId, "owner");
+    const userId = owner.actor?.userId ?? "";
+    const agentsService = service();
+    const [direct, viaTeam, archivedTeam, removedFromTeam] = await seedAgents(
+      workspaceId,
+      Array.from({ length: 6 }, () => "2026-01-01 00:00:00+00"),
+    );
+    await seedAgents(await workspace(), ["2026-01-01 00:00:00+00"]);
+    await db.insert(agentAdmins).values({
+      workspaceId,
+      agentId: direct ?? "",
+      userId,
+    });
+    async function team(
+      agentIds: (string | undefined)[],
+      state: { archived?: boolean; removed?: boolean } = {},
+    ) {
+      const teamId = randomUUID();
+      await db.insert(memberTeams).values({
+        id: teamId,
+        workspaceId,
+        name: `team-${teamId.slice(0, 8)}`,
+        archivedAt: state.archived ? new Date() : null,
+      });
+      await db.insert(memberTeamMembers).values({
+        id: randomUUID(),
+        workspaceId,
+        teamId,
+        userId,
+        removedAt: state.removed ? new Date() : null,
+      });
+      for (const agentId of agentIds) {
+        await db
+          .insert(agentAdminTeams)
+          .values({ workspaceId, agentId: agentId ?? "", teamId });
+      }
+    }
+    await team([viaTeam, direct]);
+    await team([archivedTeam], { archived: true });
+    await team([removedFromTeam], { removed: true });
+
+    expect(await agentsService.countAgents(owner)).toEqual({
+      counts: { all: 6, administered: 2 },
+    });
+    const listed = await createPostgresAgentAdminStore(db).listAdministered(
+      workspaceId,
+      userId,
+      200,
+    );
+    expect(listed.map((agent) => agent.id).sort()).toEqual(
+      [direct ?? "", viaTeam ?? ""].sort(),
+    );
+
+    // A disabled member administers nothing, as the admin list says.
+    await db
+      .update(memberships)
+      .set({ disabledAt: new Date() })
+      .where(eq(memberships.userId, userId));
+    expect(
+      await createPostgresAgentStore(db).count(workspaceId, userId),
+    ).toEqual({ all: 6, administered: 0 });
+
+    const member = await person(workspaceId, "member");
+    expect(await codeOf(agentsService.countAgents(member))).toBe("FORBIDDEN");
+    expect(
+      await codeOf(agentsService.countAgents(serviceKey(workspaceId))),
+    ).toBe("FORBIDDEN");
+  });
+
   test("an owner creates an agent, adds versions, releases and activates one", async () => {
     const workspaceId = await workspace();
     const owner = await person(workspaceId, "owner");
@@ -274,7 +531,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     expect(detail.agent.active_release_id).toBe(released.release.id);
     expect(detail.active_release?.approved_by).toBe(owner.actor?.userId);
     expect(detail.releases).toHaveLength(1);
-    const list = await agentsService.listAgents(owner);
+    const list = await agentsService.listAgents(owner, PAGE);
     expect(list.items.map((agent) => agent.id)).toEqual([created.agent.id]);
   });
 
@@ -566,7 +823,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     expect(await codeOf(agentsService.getAgent(elsewhere, a.agent.id))).toBe(
       "NOT_FOUND",
     );
-    expect((await agentsService.listAgents(elsewhere)).items).toEqual([]);
+    expect((await agentsService.listAgents(elsewhere, PAGE)).items).toEqual([]);
   });
 
   test("versions and releases cannot be rewritten in place", async () => {
@@ -792,7 +1049,9 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     const created = await newAgent(agentsService, owner);
 
     for (const caller of [member, serviceKey(workspaceId)]) {
-      expect(await codeOf(agentsService.listAgents(caller))).toBe("FORBIDDEN");
+      expect(await codeOf(agentsService.listAgents(caller, PAGE))).toBe(
+        "FORBIDDEN",
+      );
       expect(
         await codeOf(agentsService.getAgent(caller, created.agent.id)),
       ).toBe("FORBIDDEN");

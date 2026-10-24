@@ -78,7 +78,8 @@ function memoryStore(tools: string[] = ["Read"]) {
   const releases = new Map<string, AgentRelease>();
   let activations = 0;
   const store: AgentStore = {
-    list: async () => [detail.agent],
+    list: async () => ({ items: [detail.agent], next_cursor: null }),
+    count: async () => ({ all: 1, administered: 0 }),
     get: async () => detail,
     findVersion: async () => ({
       id: VERSION,
@@ -159,6 +160,7 @@ async function codeOf(promise: Promise<unknown>): Promise<string> {
 }
 
 const release = { version_id: VERSION, runtime_profile_id: "coding" };
+const PAGE = { limit: 50 };
 
 describe("agent service", () => {
   test("only an owner manages agents: a member and an API key are refused before the store", async () => {
@@ -168,7 +170,11 @@ describe("agent service", () => {
       ...store,
       list: async () => {
         reached = true;
-        return [];
+        return { items: [], next_cursor: null };
+      },
+      count: async () => {
+        reached = true;
+        return { all: 0, administered: 0 };
       },
     });
     const key = callerFor(
@@ -182,12 +188,16 @@ describe("agent service", () => {
       { kind: "api" },
       crypto.randomUUID(),
     );
-    expect(await codeOf(service.listAgents(person("member")))).toBe(
+    expect(await codeOf(service.listAgents(person("member"), PAGE))).toBe(
       "FORBIDDEN",
     );
-    expect(await codeOf(service.listAgents(key))).toBe("FORBIDDEN");
+    expect(await codeOf(service.listAgents(key, PAGE))).toBe("FORBIDDEN");
+    expect(await codeOf(service.countAgents(person("member")))).toBe(
+      "FORBIDDEN",
+    );
+    expect(await codeOf(service.countAgents(key))).toBe("FORBIDDEN");
     expect(reached).toBe(false);
-    expect((await service.listAgents(owner)).items).toEqual([]);
+    expect((await service.listAgents(owner, PAGE)).items).toEqual([]);
   });
 
   test("a release is named by its content, and the same content again is the same release", async () => {

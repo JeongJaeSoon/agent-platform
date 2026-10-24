@@ -145,7 +145,7 @@ describe("bootstrap checklist", () => {
             },
           ],
         }),
-      "GET /v1/agents": () => json(200, { items: [agent] }),
+      "GET /v1/agents": () => json(200, { items: [agent], next_cursor: null }),
       ...noSessions,
     });
     const read = await states();
@@ -179,7 +179,7 @@ describe("bootstrap checklist", () => {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
       "GET /v1/invites": () => apiError(500, "INTERNAL", "boom"),
-      "GET /v1/agents": () => json(200, { items: [] }),
+      "GET /v1/agents": () => json(200, { items: [], next_cursor: null }),
       ...noSessions,
     });
     const read = await states();
@@ -248,7 +248,7 @@ describe("bootstrap checklist", () => {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
       "GET /v1/invites": () => json(200, { items: [] }),
-      "GET /v1/agents": () => json(200, { items: [] }),
+      "GET /v1/agents": () => json(200, { items: [], next_cursor: null }),
       "GET /v1/sessions": () =>
         json(200, { items: [oneSession], next_cursor: null }),
     });
@@ -263,7 +263,7 @@ describe("bootstrap checklist", () => {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
       "GET /v1/invites": () => json(200, { items: [] }),
-      "GET /v1/agents": () => json(200, { items: [] }),
+      "GET /v1/agents": () => json(200, { items: [], next_cursor: null }),
       "GET /v1/sessions": () => apiError(500, "INTERNAL", "boom"),
     });
     const read = await states();
@@ -279,7 +279,7 @@ describe("최근 세션 표", () => {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
       "GET /v1/invites": () => json(200, { items: [] }),
-      "GET /v1/agents": () => json(200, { items: [] }),
+      "GET /v1/agents": () => json(200, { items: [], next_cursor: null }),
       "GET /v1/sessions": () =>
         json(200, {
           items: [oneSession, { ...oneSession, id: USER_ID }],
@@ -371,7 +371,8 @@ describe("홈 요약", () => {
     `GET /v1/usage/summary?scope=${scope}&since=${since}`;
   const expiringKey = {
     id: "9c8b7a6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
-    kind: "service",
+    kind: "agent",
+    name: null,
     workspace_id: WORKSPACE_ID,
     agent_id: AGENT_ID,
     created_by: USER_ID,
@@ -429,7 +430,10 @@ describe("홈 요약", () => {
       "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
       "GET /v1/invites": () => json(200, { items: [] }),
       "GET /v1/agents": () =>
-        json(200, { items: [released, server.detail().agent] }),
+        json(200, {
+          items: [released, server.detail().agent],
+          next_cursor: null,
+        }),
       "GET /v1/sessions?status=needs_input": () =>
         json(200, { items: [waitingSession], next_cursor: null }),
       "GET /v1/sessions": () =>
@@ -499,7 +503,7 @@ describe("홈 요약", () => {
       within(overview)
         .getByRole("link", { name: "결제 담당" })
         .getAttribute("href"),
-    ).toBe("/settings/api-keys/service");
+    ).toBe("/settings/api-keys/agents");
 
     expect(screen.getByText("최근 30일 · UTC 기준")).toBeTruthy();
     // The install's sum is partial; the viewer's own is whole.
@@ -1099,7 +1103,7 @@ describe("내가 속한 팀", () => {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
       "GET /v1/invites": () => json(200, { items: [] }),
-      "GET /v1/agents": () => json(200, { items: [] }),
+      "GET /v1/agents": () => json(200, { items: [], next_cursor: null }),
       "GET /v1/my-teams": () => json(200, { items: [TEAM] }),
     });
     const link = await screen.findByRole("link", { name: "결제팀" });

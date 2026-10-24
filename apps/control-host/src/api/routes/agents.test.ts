@@ -6,6 +6,7 @@ import {
   activationCredentialUnboundDetailsSchema,
   agentDetailSchema,
   apiErrorResponseSchema,
+  countAgentsResponseSchema,
   createAgentReleaseResponseSchema,
   listAgentsResponseSchema,
 } from "@werft-ai/contracts";
@@ -18,6 +19,7 @@ import {
   createAgentService,
   createAuthorizationPolicy,
   deriveReleaseId,
+  InvalidCursorError,
   profileFingerprint,
 } from "@werft-ai/platform";
 import { recordRouteErrors } from "../route-error-coverage.ts";
@@ -128,7 +130,8 @@ const outage = () =>
 
 function store(overrides: Partial<AgentStore> = {}): AgentStore {
   return {
-    list: async () => [detail.agent],
+    list: async () => ({ items: [detail.agent], next_cursor: null }),
+    count: async () => ({ all: 1, administered: 0 }),
     get: async () => detail,
     findVersion: async () => detail.versions[0] ?? null,
     findRelease: async () => storedRelease(),
@@ -185,7 +188,9 @@ function app(
     options.person === false
       ? service
       : {
-          listAgents: (caller) => service.listAgents(asPerson(caller)),
+          listAgents: (caller, query) =>
+            service.listAgents(asPerson(caller), query),
+          countAgents: (caller) => service.countAgents(asPerson(caller)),
           getAgent: (caller, id) => service.getAgent(asPerson(caller), id),
           createAgent: (caller, body) =>
             service.createAgent(asPerson(caller), body),
@@ -234,7 +239,42 @@ describe("GET /v1/agents", () => {
     expect(response.status).toBe(200);
     expect(listAgentsResponseSchema.parse(await response.json())).toEqual({
       items: [detail.agent],
+      next_cursor: null,
     });
+  });
+
+  test("hands the store the cursor and limit, 50 by default, and returns its next_cursor", async () => {
+    const asked: unknown[] = [];
+    const api = app(
+      store({
+        list: async (_workspace, query) => {
+          asked.push(query);
+          return { items: [detail.agent], next_cursor: "next" };
+        },
+      }),
+    );
+    const first = await send(api, "GET", "/v1/agents");
+    expect((await first.json()).next_cursor).toBe("next");
+    await send(api, "GET", "/v1/agents?cursor=next&limit=100");
+    expect(asked).toEqual([{ limit: 50 }, { cursor: "next", limit: 100 }]);
+  });
+
+  test("answers 400 to a limit out of range and to a cursor the store did not issue", async () => {
+    for (const query of ["limit=0", "limit=101", "limit=x", "cursor="]) {
+      const response = await send(app(), "GET", `/v1/agents?${query}`);
+      expect(response.status, query).toBe(400);
+    }
+    const forged = await send(
+      app(
+        store({
+          list: () => Promise.reject(new InvalidCursorError()),
+        }),
+      ),
+      "GET",
+      "/v1/agents?cursor=forged",
+    );
+    expect(forged.status).toBe(400);
+    expect(await codeOf(forged)).toBe("BAD_REQUEST");
   });
 
   test("refuses an API key whatever its scopes", async () => {
@@ -249,6 +289,38 @@ describe("GET /v1/agents", () => {
     );
     expect(
       (await send(app(store({ list: outage })), "GET", "/v1/agents")).status,
+    ).toBe(503);
+  });
+});
+
+describe("GET /v1/agents/counts", () => {
+  test("counts the workspace's agents and the caller's own, not as an agent id", async () => {
+    const asked: string[] = [];
+    const api = app(
+      store({
+        count: async (workspaceId, userId) => {
+          asked.push(workspaceId, userId);
+          return { all: 501, administered: 3 };
+        },
+      }),
+    );
+    const response = await send(api, "GET", "/v1/agents/counts");
+    expect(response.status).toBe(200);
+    expect(countAgentsResponseSchema.parse(await response.json())).toEqual({
+      counts: { all: 501, administered: 3 },
+    });
+    expect(asked[0]).toBe("owner-a");
+  });
+
+  test("requires authentication, refuses an API key and maps an outage to 503", async () => {
+    expect(
+      (await send(app(), "GET", "/v1/agents/counts", undefined, {})).status,
+    ).toBe(401);
+    const refused = await send(keyOnly(), "GET", "/v1/agents/counts");
+    expect(refused.status).toBe(403);
+    expect(
+      (await send(app(store({ count: outage })), "GET", "/v1/agents/counts"))
+        .status,
     ).toBe(503);
   });
 });

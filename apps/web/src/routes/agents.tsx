@@ -3,7 +3,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { type ApiError, isApiError } from "@werft-ai/client";
 import type { Agent } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
-import { ListToolbar } from "@werft-ai/react/components";
+import { ListToolbar, ListViewSwitch } from "@werft-ai/react/components";
 import {
   Button,
   buttonVariants,
@@ -160,6 +160,7 @@ function AgentList({ agents }: { readonly agents: readonly Agent[] }) {
         filter={
           <SegmentedControl
             aria-label={t("agents.tabs.label")}
+            size="toolbar"
             value={scope}
             onValueChange={(next) => setScope(next as typeof scope)}
           >
@@ -191,6 +192,18 @@ function AgentList({ agents }: { readonly agents: readonly Agent[] }) {
             </SegmentedControlItem>
           </SegmentedControl>
         }
+        view={
+          <ListViewSwitch
+            aria-label={t("agents.view.label")}
+            value={view}
+            onValueChange={setView}
+            options={AGENT_VIEWS.map((option) => ({
+              value: option,
+              label: t(`agents.view.${option}`),
+              icon: VIEW_ICON[option],
+            }))}
+          />
+        }
         search={{
           ref: search,
           type: "search",
@@ -199,23 +212,6 @@ function AgentList({ agents }: { readonly agents: readonly Agent[] }) {
           value: query,
           onChange: (event) => setQuery(event.target.value),
         }}
-        view={
-          <SegmentedControl
-            aria-label={t("agents.view.label")}
-            value={view}
-            onValueChange={(next) => setView(next as AgentView)}
-          >
-            {AGENT_VIEWS.map((option) => {
-              const Icon = VIEW_ICON[option];
-              return (
-                <SegmentedControlItem key={option} value={option}>
-                  <Icon aria-hidden="true" />
-                  {t(`agents.view.${option}`)}
-                </SegmentedControlItem>
-              );
-            })}
-          </SegmentedControl>
-        }
       />
       {/* Outside the lists, so switching category or state keeps the same
           live region and a screen reader hears each new count. */}

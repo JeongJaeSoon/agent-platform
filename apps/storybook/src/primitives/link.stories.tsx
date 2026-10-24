@@ -172,7 +172,7 @@ export const Mobile390: Story = {
 
 /**
  * `variant="table"`: a row's name link, no underline until hover or keyboard
- * focus, with a chevron that says it opens the row.
+ * focus, and no chevron beside the name.
  */
 export const InTable: Story = {
   render: (_args, { globals }) => {
@@ -205,7 +205,7 @@ export const InTable: Story = {
   play: async ({ canvasElement }) => {
     const link = within(canvasElement).getAllByRole("link")[0] as HTMLElement;
     await expect(getComputedStyle(link).textDecorationLine).toBe("none");
-    await expect(link.querySelector("svg")).not.toBeNull();
+    await expect(link.querySelector("svg")).toBeNull();
     // The first Tab stops on the scrollable table container.
     await userEvent.tab();
     await userEvent.tab();
