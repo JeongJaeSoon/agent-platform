@@ -77,7 +77,7 @@ export function DetailRail({
     >
       <div
         data-slot="detail-rail-content"
-        className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,22rem),1fr))] items-start gap-x-8 p-4 pt-6 md:px-6 md:pt-[var(--ap-space-page-top)] md:pb-[var(--ap-space-section)] xl:sticky xl:top-0 xl:flex xl:max-h-[calc(100dvh-var(--ap-topbar-h))] xl:flex-col xl:divide-y xl:overflow-y-auto xl:p-8"
+        className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,22rem),1fr))] items-start gap-x-8 p-4 pt-6 md:px-6 md:pt-[var(--ap-space-page-top)] md:pb-[var(--ap-space-section)] xl:sticky xl:top-0 xl:flex xl:max-h-[calc(100dvh-var(--ap-topbar-h))] xl:flex-col xl:items-stretch xl:divide-y xl:overflow-y-auto xl:p-8"
       >
         {children}
       </div>
