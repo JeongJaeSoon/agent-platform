@@ -94,6 +94,28 @@ function routes(app: typeof APP | null = null, installed = false) {
 }
 
 describe("Slack management", () => {
+  test("does not claim there are no channels when bindings or search failed", async () => {
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack-bindings`]: () => apiError(403, "FORBIDDEN"),
+      [`GET ${PATH}/slack/channels`]: () => apiError(403, "FORBIDDEN"),
+    });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("tab", { name: "채널" }));
+    await waitFor(() =>
+      expect(document.querySelector("[data-slot=field-error]") !== null).toBe(
+        true,
+      ),
+    );
+    expect(screen.queryByText("연결된 채널이 없습니다") === null).toBe(true);
+    await user.click(screen.getByRole("button", { name: "채널 추가" }));
+    expect(
+      screen.queryByText(
+        "찾은 채널이 없습니다. 비공개 채널은 먼저 /invite로 초대하세요.",
+      ) === null,
+    ).toBe(true);
+  });
+
   test("explains an empty binding list and omits empty search result borders", async () => {
     renderAt(DETAIL, routes(APP, true));
     const user = await setupUser();

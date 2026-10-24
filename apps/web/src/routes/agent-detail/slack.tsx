@@ -737,7 +737,7 @@ function SlackChannels({
       ) : null}
       {bindings.isPending ? (
         <ChannelSkeleton />
-      ) : rows.length === 0 ? (
+      ) : bindings.isError ? null : rows.length === 0 ? (
         <EmptyState
           title={t("slack.noConnectedChannels")}
           description={t("slack.addChannelHint")}
@@ -871,7 +871,7 @@ function SlackChannels({
                 ))}
               </RowList>
             ) : null}
-            {!channels.isPending && listed.length === 0 ? (
+            {channels.isSuccess && listed.length === 0 ? (
               <p>{t("slack.noChannels")}</p>
             ) : null}
             {channels.data?.pages.some(
