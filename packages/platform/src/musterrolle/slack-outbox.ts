@@ -206,6 +206,15 @@ function settleFor(
   claim: SlackOutboxClaim,
   response: SlackSendResponse,
 ): SlackOutboxSettle {
+  // Slack took the request but its answer could not be read: it may hold
+  // the message, so this is no failure to retry.
+  if (
+    response.body === null &&
+    response.httpStatus >= 200 &&
+    response.httpStatus < 300
+  ) {
+    return { status: "uncertain", errorCode: "unreadable_answer" };
+  }
   const outcome = classifySlackSendResult({
     httpStatus: response.httpStatus,
     retryAfterHeader: response.retryAfterHeader,

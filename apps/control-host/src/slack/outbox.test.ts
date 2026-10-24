@@ -607,6 +607,44 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     expect(slack.statuses.map((status) => status.status)).not.toContain(
       "active",
     );
+
+    // Answered on the web while a second notice waited: it is not sent.
+    await db
+      .update(turns)
+      .set({ sequence: 2 })
+      .where(eq(turns.id, turn?.id ?? 0));
+    await outboxPass({ botToken: null });
+    await db.delete(pendingRequests);
+    expect(await outboxPass()).toMatchObject({ failed: 1, claimed: 0 });
+    expect(posted()).toHaveLength(1);
+    expect((await rows()).map((row) => [row.kind, row.errorCode])).toEqual([
+      ["input_notice", null],
+      ["input_notice", "not_addressed"],
+    ]);
+  });
+
+  test("a send Slack took but whose answer cannot be read is never resent", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    await endTurn(await sessionOf(fixture), 1, "completed", [[text("hi")]]);
+    const live = createSlackBotApi({ apiUrl: slack.url });
+    const garbled = {
+      ...live,
+      postMessage: async () => ({
+        httpStatus: 200,
+        retryAfterHeader: null,
+        body: null,
+      }),
+    };
+    expect(await outboxPass({ slack: garbled })).toMatchObject({
+      uncertain: 2,
+    });
+    expect(
+      (await rows()).map((row) => [row.kind, row.status, row.errorCode]),
+    ).toEqual([
+      ["reply", "uncertain", "unreadable_answer"],
+      ["failure_notice", "uncertain", "unreadable_answer"],
+    ]);
   });
 
   test("a refusal reaches only the person who typed, once per thread", async () => {

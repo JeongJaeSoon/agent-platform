@@ -53,11 +53,18 @@ const released = { claimToken: null, leaseExpiresAt: null } as const;
 const fenced = (fence: SlackOutboxFence) =>
   and(eq(t.id, fence.id), eq(t.claimToken, fence.claimToken));
 
-// Where a row may still go: an installation not revoked, and for a session's
-// row its thread's link still live, unmuted and showing full answers. Checked
-// again at claim, since a row can wait out a backoff after the link changed.
-const addressed = (row: SQL) => sql`(
-  EXISTS (
+// Where a row may still go: an installation not revoked, for a session's row
+// its thread's link still live, unmuted and showing full answers, and for an
+// input notice a request still waiting (its key ends in the turn). Checked
+// again at claim, since a row can wait out a backoff after any of it changed.
+const addressed = (db: Database, row: SQL) => sql`(
+  CASE WHEN ${row}.kind = 'input_notice' THEN EXISTS (
+    SELECT 1 FROM ${turns}
+    WHERE ${turns.sessionId} = ${row}.session_id
+      AND ${turns.sequence} = split_part(${row}.dedupe_key, ':', 3)::int
+      AND EXISTS (${actionableOfTurn(db)})
+  ) ELSE true END
+  AND EXISTS (
     SELECT 1 FROM slack_installations i
     WHERE i.id = ${row}.installation_id AND i.status <> 'revoked'
   )
@@ -214,7 +221,7 @@ export function createPostgresSlackOutboxStore(db: Database): SlackOutboxStore {
         .where(
           and(
             eq(t.status, "pending"),
-            sql`NOT ${addressed(sql.raw('"slack_outbox"'))}`,
+            sql`NOT ${addressed(db, sql.raw('"slack_outbox"'))}`,
           ),
         )
         .returning({ id: t.id, kind: t.kind, channelId: t.channelId });
@@ -253,7 +260,7 @@ export function createPostgresSlackOutboxStore(db: Database): SlackOutboxStore {
             WHERE c.status = 'pending'
               AND (c.claim_token IS NULL OR c.lease_expires_at <= now())
               AND (c.next_attempt_at IS NULL OR c.next_attempt_at <= now())
-              AND ${addressed(sql.raw("c"))}
+              AND ${addressed(db, sql.raw("c"))}
             ORDER BY c.created_at, c.id
             LIMIT ${limit}
             FOR UPDATE OF c SKIP LOCKED
