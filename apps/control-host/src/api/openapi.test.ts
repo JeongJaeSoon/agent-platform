@@ -330,6 +330,7 @@ describe("OpenAPI document", () => {
         "/v1/profiles",
         "/v1/receipts/{id}",
         "/v1/sessions",
+        "/v1/sessions/counts",
         "/v1/sessions/{id}",
         "/v1/sessions/{id}/answers",
         "/v1/sessions/{id}/audit-read",
