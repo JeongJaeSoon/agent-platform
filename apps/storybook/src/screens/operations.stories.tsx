@@ -36,19 +36,16 @@ import {
   Text,
 } from "@werft-ai/ui";
 import { type ReactNode, useState } from "react";
+import { expect, userEvent, within } from "storybook/test";
 
-import {
-  BASH_CALLS,
-  BASH_PER_DAY,
-  TOOL_NOTE,
-  TOOLS,
-} from "../domain/operations/operations-fixtures.ts";
+import { TOOL_NOTE, TOOLS } from "../domain/operations/operations-fixtures.ts";
 import {
   breakdown,
   LIMITS,
   SESSION_COUNTS,
   series,
   summaryOf,
+  toolDetail,
   type UsageBreakdownRow,
   type UsageSeriesResponse,
 } from "./operations-fixtures.ts";
@@ -524,11 +521,15 @@ function Tools({
   const [selected, setSelected] = useState("Bash");
   const tools = screen.empty ? [] : TOOLS.tools;
   const tool = TOOLS.tools.find((t) => t.name === selected) ?? TOOLS.tools[0];
+  const detail = tool ? toolDetail(tool) : { calls: [], perDay: [] };
   const calls = hideSessions
-    ? BASH_CALLS.map((call) => ({ ...call, session_id: null, title: null }))
-    : BASH_CALLS;
-  const peak = BASH_PER_DAY.reduce((a, b) => (b.calls > a.calls ? b : a));
-  const perDayTotal = BASH_PER_DAY.reduce((sum, d) => sum + d.calls, 0);
+    ? detail.calls.map((call) => ({ ...call, session_id: null, title: null }))
+    : detail.calls;
+  const peak = detail.perDay.reduce(
+    (a, b) => (b.calls > a.calls ? b : a),
+    detail.perDay[0] ?? { date: "", calls: 0 },
+  );
+  const perDayTotal = detail.perDay.reduce((sum, d) => sum + d.calls, 0);
   const rail =
     tool && !screen.empty ? (
       <DetailRail label="선택한 도구">
@@ -561,7 +562,7 @@ function Tools({
         <DetailRailSection title="일자별 호출" description="최근 14일">
           <BarChart
             compact
-            data={BASH_PER_DAY.map((d) => ({ x: d.date, y: d.calls }))}
+            data={detail.perDay.map((d) => ({ x: d.date, y: d.calls }))}
             yMax={peak.calls}
             label={`${tool.name} 일자별 호출, 최근 14일, 합계 ${nf.format(perDayTotal)}번, 가장 많은 날 ${monthDay(peak.date)} ${peak.calls}번`}
             formatX={monthDay}
@@ -830,6 +831,33 @@ export const UsageMobile: Story = {
 
 export const ToolsOwner: Story = { args: { tab: "tools" } };
 /** Owner, sessions outside what they may read: no title, no link. */
+/** Choosing another tool moves the whole rail to it, chart and calls too. */
+export const ToolsSelectRead: Story = {
+  args: { tab: "tools" },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Read 자세히 보기" }),
+    );
+    const rail = within(
+      canvas.getByRole("complementary", { name: "선택한 도구" }),
+    );
+    await expect(rail.getByRole("heading", { name: "Read" })).toBeVisible();
+    const read = TOOLS.tools.find((t) => t.name === "Read");
+    const total = read
+      ? toolDetail(read).perDay.reduce((sum, d) => sum + d.calls, 0)
+      : 0;
+    await expect(
+      rail.getByRole("img", {
+        name: new RegExp(
+          `^Read 일자별 호출, 최근 14일, 합계 ${nf.format(total)}번`,
+        ),
+      }),
+    ).toBeVisible();
+    await expect(rail.queryByText(/Bash/)).toBeNull();
+  },
+};
+
 export const ToolsHiddenSessions: Story = {
   args: { tab: "tools", hideSessions: true },
 };

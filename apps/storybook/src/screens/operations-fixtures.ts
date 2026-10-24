@@ -1,9 +1,17 @@
 import {
   countSessionsResponseSchema,
   installationLimitsResponseSchema,
+  type UsageSummaryResponse,
+  usageSummaryResponseSchema,
 } from "@werft-ai/contracts";
+import type { UsageTool, UsageToolCall } from "@werft-ai/react/components";
 
-import { COUNTS } from "../domain/operations/operations-fixtures.ts";
+import {
+  BASH_CALLS,
+  BASH_PER_DAY,
+  COUNTS,
+  TOOLS,
+} from "../domain/operations/operations-fixtures.ts";
 
 /*
  * The operations design's example data (ops-console
@@ -53,15 +61,6 @@ export interface UsageSeriesResponse {
   readonly period: { readonly since: string; readonly until: string };
   readonly refreshed_at: string;
   readonly buckets: readonly UsageSeriesBucket[];
-}
-
-// GET /v1/usage/summary, the fields the screens read.
-export interface UsageSummary {
-  readonly session_count: number;
-  readonly run_seconds: number;
-  readonly cost_usd: string;
-  readonly cost_complete: boolean;
-  readonly token_count: number;
 }
 
 // Proposed GET /v1/usage/breakdown (T6), one response per `by`.
@@ -134,10 +133,19 @@ export function series(
   };
 }
 
-/** The summary of the same period: the buckets' sums, as T5 promises. */
-export function summaryOf(response: UsageSeriesResponse): UsageSummary {
+/**
+ * GET /v1/usage/summary for the same period: the buckets' sums, as T5
+ * promises.
+ */
+export function summaryOf(
+  response: UsageSeriesResponse,
+  scope: UsageSummaryResponse["scope"] = "installation",
+): UsageSummaryResponse {
   const { buckets } = response;
-  return {
+  return usageSummaryResponseSchema.parse({
+    scope,
+    period: response.period,
+    refreshed_at: response.refreshed_at,
     session_count: buckets.reduce((sum, b) => sum + b.session_count, 0),
     run_seconds: buckets.reduce((sum, b) => sum + b.run_seconds, 0),
     cost_usd: buckets
@@ -145,7 +153,12 @@ export function summaryOf(response: UsageSeriesResponse): UsageSummary {
       .toFixed(2),
     cost_complete: buckets.every((b) => b.cost_complete),
     token_count: buckets.reduce((sum, b) => sum + b.token_count, 0),
-  };
+    basis: {
+      sessions: "created_in_period",
+      cost: "provider_usage_estimate",
+      run_time: "turn_wall_clock",
+    },
+  });
 }
 
 // Largest remainder: whole parts of `total` in proportion to `weights`.
@@ -182,7 +195,7 @@ const AGENTS = [
  * by=model and by=agent grouped from one set of (model, agent) source rows
  * apportioned from the summary, so both totals match it column by column.
  */
-export function breakdown(summary: UsageSummary): {
+export function breakdown(summary: UsageSummaryResponse): {
   readonly model: UsageBreakdownResponse;
   readonly agent: UsageBreakdownResponse;
 } {
@@ -260,4 +273,31 @@ export function breakdown(summary: UsageSummary): {
     };
   };
   return { model: group("model"), agent: group("agent") };
+}
+
+/**
+ * The rail of any selected tool: the design only drew Bash's, so the others
+ * take its curve and calls scaled to their own figures, and a tool that never
+ * failed shows no failed call.
+ */
+export function toolDetail(tool: UsageTool): {
+  readonly calls: readonly UsageToolCall[];
+  readonly perDay: readonly { readonly date: string; readonly calls: number }[];
+} {
+  const bash = TOOLS.tools.find((t) => t.name === "Bash") ?? tool;
+  const share = tool.calls / bash.calls;
+  const pace = tool.median_ms / bash.median_ms;
+  return {
+    perDay: BASH_PER_DAY.map((d) => ({
+      date: d.date,
+      calls: Math.round(d.calls * share),
+    })),
+    calls: BASH_CALLS.map((call) => ({
+      ...call,
+      duration_ms:
+        call.duration_ms === null ? null : Math.round(call.duration_ms * pace),
+      outcome:
+        tool.failed === 0 && call.outcome === "failed" ? "ok" : call.outcome,
+    })),
+  };
 }
