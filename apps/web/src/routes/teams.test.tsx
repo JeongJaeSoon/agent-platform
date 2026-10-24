@@ -234,7 +234,7 @@ describe("팀 화면", () => {
   test("만드는 중에 다른 탭으로 갔다 돌아오면 늦게 온 성공 알림을 새 방문에 띄우지 않는다", async () => {
     const server = teamServer();
     let answer: ((response: Response) => void) | undefined;
-    const { history } = renderAt("/members/teams", {
+    const { api, history } = renderAt("/members/teams", {
       ...server.routes,
       "POST /v1/teams": () =>
         new Promise<Response>((resolve) => {
@@ -269,7 +269,17 @@ describe("팀 화면", () => {
         receipt_id: RECEIPT_ID,
       }),
     );
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    // The success handler ends by refreshing the list: once that request
+    // goes out, the handler has run.
+    const lists = api.calls.filter(
+      (c) => c.method === "GET" && c.path === "/v1/teams",
+    ).length;
+    await waitFor(() =>
+      expect(
+        api.calls.filter((c) => c.method === "GET" && c.path === "/v1/teams")
+          .length,
+      ).toBeGreaterThan(lists),
+    );
     expect(screen.getByRole("status").textContent).toBe("");
   });
 
