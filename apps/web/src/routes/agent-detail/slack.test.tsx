@@ -97,8 +97,8 @@ describe("Slack management", () => {
   test("does not claim there are no channels when bindings or search failed", async () => {
     renderAt(DETAIL, {
       ...routes(APP, true),
-      [`GET ${PATH}/slack-bindings`]: () => apiError(403, "FORBIDDEN"),
-      [`GET ${PATH}/slack/channels`]: () => apiError(403, "FORBIDDEN"),
+      [`GET ${PATH}/slack-bindings`]: () => apiError(403, "FORBIDDEN", "refused"),
+      [`GET ${PATH}/slack/channels`]: () => apiError(403, "FORBIDDEN", "refused"),
     });
     const user = await setupUser();
     await user.click(await screen.findByRole("tab", { name: "채널" }));
