@@ -20,6 +20,7 @@ export * from "./musterrolle/slack-config-token.ts";
 export * from "./musterrolle/slack-decision.ts";
 export * from "./musterrolle/slack-events-finalize.ts";
 export * from "./musterrolle/slack-events-service.ts";
+export * from "./musterrolle/slack-inbox.ts";
 export * from "./musterrolle/slack-install-service.ts";
 export * from "./musterrolle/slack-link-app-service.ts";
 export * from "./musterrolle/slack-manifest.ts";

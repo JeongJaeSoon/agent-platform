@@ -474,6 +474,39 @@ services:
       postgres:
         condition: service_healthy
 
+  slack:
+    image: ${API_IMAGE:-agent-platform-control-host:dev}
+    profiles: ["apps", "slack"]
+    command: ["bun", "run", "apps/control-host/src/main.ts", "slack"]
+    restart: unless-stopped
+    stop_grace_period: 20s
+    healthcheck:
+      test: ["CMD", "bun", "run", "apps/control-host/src/main.ts", "slack", "--health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-dev}@postgres:5432/${POSTGRES_DB:-sessions}
+      SLACK_ROLE_INTERVAL_SEC: ${SLACK_ROLE_INTERVAL_SEC:-2}
+      SLACK_ROLE_PASS_TIMEOUT_SEC: ${SLACK_ROLE_PASS_TIMEOUT_SEC:-60}
+      SLACK_ROLE_MAX_CONSECUTIVE_FAILURES: ${SLACK_ROLE_MAX_CONSECUTIVE_FAILURES:-3}
+      SLACK_ROLE_HEALTH_STALE_SEC: ${SLACK_ROLE_HEALTH_STALE_SEC:-90}
+      SLACK_ROLE_BATCH_SIZE: ${SLACK_ROLE_BATCH_SIZE:-10}
+      SLACK_ROLE_LEASE_SEC: ${SLACK_ROLE_LEASE_SEC:-60}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Slack's outbound calls (94S-792) decrypt bot tokens here.
+      PLATFORM_SECRET_KEY:
+      PLATFORM_CONFIG_DIR: /app/config
+      AWS_REGION: ${AWS_REGION:-ap-northeast-1}
+    volumes:
+      - ../config:/app/config:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+
 networks:
   # Worker networks are not declared here: the scheduler creates one per
   # worker (internal, IPv6 off) and removes it with the worker.
