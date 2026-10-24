@@ -548,12 +548,14 @@ function MemberTable({
                     />
                     {/* v4 .strong: body text at weight 500, not link blue;
                       blue stays for links that move (→). */}
-                    <span className="flex min-w-0 max-w-full font-medium text-foreground group-data-[disabled=true]:text-muted-foreground">
+                    {/* Below md the "you" badge drops to its own line under
+                      the name, so the name gets the whole column (QA L-17). */}
+                    <span className="grid max-w-full grid-cols-[minmax(0,auto)_auto_auto] items-center gap-y-[var(--ap-row-line-gap)] font-medium text-foreground @max-md:grid-cols-[minmax(0,auto)_auto] group-data-[disabled=true]:text-muted-foreground">
                       <span className="truncate">{member.display_name}</span>
                       {member.user_id === self ? (
                         <Badge
                           variant="gray"
-                          className="ms-1.5 shrink-0 self-center"
+                          className="ms-1.5 @max-md:col-start-1 @max-md:row-start-2 @max-md:ms-0"
                         >
                           {t("members.you")}
                         </Badge>
