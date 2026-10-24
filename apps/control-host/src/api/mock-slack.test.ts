@@ -141,14 +141,28 @@ describe("fake Slack Web API", () => {
       await post(`${slack.url}/conversations.list`, params, "not-issued"),
     ).toEqual({ ok: false, error: "invalid_auth" });
 
-    slack.rateLimit("conversations.list", 7);
-    const limited = await fetch(`${slack.url}/conversations.list`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${bot}` },
-      body: new URLSearchParams(params),
-    });
+    const limit = (body: object) =>
+      fetch(`${root}/fake/rate-limits`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+    expect(
+      (await limit({ method: "toString", retry_after_seconds: 7 })).status,
+    ).toBe(400);
+    expect(
+      (await limit({ method: "conversations.list", retry_after_seconds: 7 }))
+        .status,
+    ).toBe(200);
+    const listed = () =>
+      fetch(`${slack.url}/conversations.list`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${bot}` },
+        body: new URLSearchParams(params),
+      });
+    const limited = await listed();
     expect(limited.status).toBe(429);
     expect(limited.headers.get("Retry-After")).toBe("7");
+    expect((await listed()).status).toBe(200);
   });
 
   test("beside the mock IdP, its own bot still answers auth.test", async () => {

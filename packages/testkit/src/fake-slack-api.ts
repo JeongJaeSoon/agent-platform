@@ -527,6 +527,29 @@ export function createFakeSlackWebApi(
           );
         }
       }
+      if (url.pathname === "/fake/rate-limits" && request.method === "POST") {
+        const input = (await request.json().catch(() => null)) as {
+          method?: unknown;
+          retry_after_seconds?: unknown;
+          times?: unknown;
+        } | null;
+        const valid =
+          typeof input?.method === "string" &&
+          Object.hasOwn(methods, input.method) &&
+          Number.isSafeInteger(input.retry_after_seconds) &&
+          Number.isSafeInteger(input.times ?? 1);
+        if (!valid) {
+          return Response.json(
+            { ok: false, error: "invalid_request" },
+            { status: 400 },
+          );
+        }
+        rateLimits.set(input.method as string, {
+          retryAfterSeconds: input.retry_after_seconds as number,
+          times: (input.times ?? 1) as number,
+        });
+        return Response.json({ ok: true });
+      }
       // For curl on the local stack: `bot_member` puts `app_id`'s bot in it.
       if (url.pathname === "/fake/channels" && request.method === "POST") {
         const input = (await request.json().catch(() => null)) as {
