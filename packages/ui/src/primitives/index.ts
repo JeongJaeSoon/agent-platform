@@ -31,6 +31,19 @@ export {
   type FieldProps,
   FieldSet,
 } from "./field.tsx";
+export {
+  GridTable,
+  GridTableCell,
+  type GridTableCellProps,
+  GridTableColumnHeader,
+  type GridTableColumnHeaderProps,
+  GridTableHeader,
+  type GridTableNarrowAt,
+  type GridTableProps,
+  GridTableRow,
+  GridTableRowOpener,
+  type GridTableRowOpenerProps,
+} from "./grid-table.tsx";
 export { Input } from "./input.tsx";
 export {
   Link,

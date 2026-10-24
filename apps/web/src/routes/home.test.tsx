@@ -340,7 +340,7 @@ describe("홈 요약", () => {
       ]),
     );
     // The waiting request is answerable from home, above the cards.
-    const inbox = screen.getByRole("region", { name: /^답변 대기/ });
+    const inbox = screen.getByRole("region", { name: /^답이 필요한 요청/ });
     expect(
       inbox.compareDocumentPosition(overview) &
         Node.DOCUMENT_POSITION_FOLLOWING,
@@ -470,6 +470,42 @@ describe("홈 요약", () => {
     expect(
       oldest.parentElement?.querySelector("time")?.getAttribute("title"),
     ).toBe("2026. 10. 23. 18:00");
+  });
+
+  test("답이 필요한 요청은 세션 이름 줄로 보이고, 전체 보기는 답변 대기 목록으로 간다", async () => {
+    renderAt("/", homeRoutes());
+    const inbox = await screen.findByRole("region", {
+      name: /^답이 필요한 요청/,
+    });
+    const name = await within(inbox).findByRole("link", {
+      name: `세션 열기 ${waitingSession.title}`,
+    });
+    expect(name.getAttribute("href")).toBe(`/sessions/${waitingSession.id}`);
+    expect(inbox.textContent).toMatch(
+      new RegExp(`${waitingSession.id.slice(0, 8)} · \\d+분째 대기`),
+    );
+    expect(
+      within(inbox)
+        .getByRole("link", { name: "전체 보기" })
+        .getAttribute("href"),
+    ).toBe("/sessions?status=needs_input");
+  });
+
+  test("답할 요청이 없으면 빈 상태가 무엇이 언제 나오는지 알린다", async () => {
+    renderAt("/", {
+      ...homeRoutes(),
+      "GET /v1/sessions?status=needs_input": () =>
+        json(200, { items: [], next_cursor: null }),
+    });
+    const inbox = await screen.findByRole("region", {
+      name: /^답이 필요한 요청/,
+    });
+    await within(inbox).findByText("지금 답할 요청이 없습니다");
+    expect(
+      within(inbox).getByText(
+        "세션이 권한이나 답을 기다리면 여기에 먼저 나옵니다.",
+      ),
+    ).toBeTruthy();
   });
 
   test("대기 세션 목록을 다시 읽다 실패하면 전에 고른 가장 오래된 요청을 내린다", async () => {

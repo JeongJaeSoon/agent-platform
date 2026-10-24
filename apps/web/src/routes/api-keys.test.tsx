@@ -237,6 +237,13 @@ describe("API key", () => {
     ).toBe("page");
     expect(screen.getByRole("button", { name: "새 key" })).toBeDefined();
     expect(screen.getByText("아직 서비스 key가 없습니다.")).toBeDefined();
+    // The personal list is the service list's parent path; only the screen
+    // being shown is current.
+    expect(
+      within(screen.getByRole("navigation", { name: "key 목록" }))
+        .getAllByRole("link")
+        .map((link) => link.getAttribute("aria-current")),
+    ).toEqual([null, "page"]);
   });
 
   test("key ID는 잘리지 않고 전체로 보이며 복사할 수 있다", async () => {

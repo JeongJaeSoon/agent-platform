@@ -419,7 +419,7 @@ export interface paths {
         };
         /**
          * List the owner's sessions, newest first
-         * @description Lists the sessions of the credential's owner, newest `created_at` first, closed ones included, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. `status` keeps only sessions reporting that status, `needs_input` included. It changes nothing.
+         * @description Lists the sessions of the credential's owner that the caller can read, newest `created_at` first, closed ones included, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. `status` keeps only sessions reporting that status, `needs_input` included; `relation` keeps the ones the caller started, was shared or administers the agent of; `q` searches titles and id prefixes. Every filter only narrows what the caller can read. It changes nothing.
          *
          *     **Scope:** `sessions:read` (API key or cookie session).
          */
@@ -432,6 +432,28 @@ export interface paths {
          *     **Scope:** `sessions:write` (API key or cookie session). **Idempotency-Key:** required.
          */
         post: operations["createSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/counts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Count the sessions a list would return, per status
+         * @description Counts, for each status, the sessions `GET /v1/sessions` would list with that `status` and the same `relation` and `q` when read to its last page; `total` is their sum. A session the caller cannot read is never counted. It changes nothing.
+         *
+         *     **Scope:** `sessions:read` (API key or cookie session).
+         */
+        get: operations["countSessions"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2122,6 +2144,22 @@ export interface components {
              * @enum {string}
              */
             status?: "queued" | "running" | "needs_input" | "idle" | "failed" | "stopped";
+            /**
+             * @description Narrows the sessions the caller can read, never widens them; omitted, `all`. `started`: the caller started it (for an API key, the key or the person who created it). `shared`: someone else's session shared with the caller by name or through a team the caller is a member of; sessions every workspace member sees appear only under `all`. `administered`: a session of an agent the caller administers, directly or through a team.
+             * @enum {string}
+             */
+            relation?: "all" | "started" | "shared" | "administered";
+            /** @description Matches a session whose title contains it, ignoring case, or whose id starts with it. */
+            q?: string;
+        };
+        CountSessionsQuery: {
+            /**
+             * @description Narrows the sessions the caller can read, never widens them; omitted, `all`. `started`: the caller started it (for an API key, the key or the person who created it). `shared`: someone else's session shared with the caller by name or through a team the caller is a member of; sessions every workspace member sees appear only under `all`. `administered`: a session of an agent the caller administers, directly or through a team.
+             * @enum {string}
+             */
+            relation?: "all" | "started" | "shared" | "administered";
+            /** @description Matches a session whose title contains it, ignoring case, or whose id starts with it. */
+            q?: string;
         };
         UsageSummaryQuery: {
             /** @enum {string} */
@@ -2543,6 +2581,18 @@ export interface components {
             items: components["schemas"]["SessionSummary"][];
             next_cursor: string | null;
         };
+        CountSessionsResponse: {
+            /** @description For each status, how many items GET /v1/sessions would list with that `status` and the same `relation` and `q`, read to the last page. */
+            counts: {
+                queued: number;
+                running: number;
+                needs_input: number;
+                idle: number;
+                failed: number;
+                stopped: number;
+            };
+            total: number;
+        };
         SessionSummary: {
             /** Format: uuid */
             id: string;
@@ -2551,6 +2601,30 @@ export interface components {
              * @default null
              */
             title: string | null;
+            /**
+             * @description The agent the session was created for and the version number of the release it is pinned to. `name` is the agent's name now, not when the session started. Null for a session created without `agent_release_id`.
+             * @default null
+             */
+            agent: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+                release_version_no: number;
+            } | null;
+            /**
+             * @description Who started the session: the signed-in person, or for an API key the person who created the key. It stays the same after a takeover hands the session to someone else. Null for sessions from before people were recorded and for a key with no creator.
+             * @default null
+             */
+            created_by: {
+                /** Format: uuid */
+                user_id: string;
+                display_name: string;
+            } | null;
+            /**
+             * @description Where the request that created the session came from: `web` for the console, `api` for an API key, `slack` for a chat surface. Null for an older session whose creating request cannot be told from what was recorded.
+             * @default null
+             */
+            channel: ("web" | "slack" | "api") | null;
             revision: number;
             /** @enum {string} */
             admission_state: "active" | "pausing" | "paused" | "resuming" | "stopping" | "stopped" | "recovery_required" | "closing" | "closed";
@@ -2599,6 +2673,30 @@ export interface components {
              * @default null
              */
             title: string | null;
+            /**
+             * @description The agent the session was created for and the version number of the release it is pinned to. `name` is the agent's name now, not when the session started. Null for a session created without `agent_release_id`.
+             * @default null
+             */
+            agent: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+                release_version_no: number;
+            } | null;
+            /**
+             * @description Who started the session: the signed-in person, or for an API key the person who created the key. It stays the same after a takeover hands the session to someone else. Null for sessions from before people were recorded and for a key with no creator.
+             * @default null
+             */
+            created_by: {
+                /** Format: uuid */
+                user_id: string;
+                display_name: string;
+            } | null;
+            /**
+             * @description Where the request that created the session came from: `web` for the console, `api` for an API key, `slack` for a chat surface. Null for an older session whose creating request cannot be told from what was recorded.
+             * @default null
+             */
+            channel: ("web" | "slack" | "api") | null;
             revision: number;
             /** @enum {string} */
             admission_state: "active" | "pausing" | "paused" | "resuming" | "stopping" | "stopped" | "recovery_required" | "closing" | "closed";
@@ -6540,6 +6638,8 @@ export interface operations {
                 cursor?: string;
                 limit?: number;
                 status?: "queued" | "running" | "needs_input" | "idle" | "failed" | "stopped";
+                relation?: "all" | "started" | "shared" | "administered";
+                q?: string;
             };
             header?: never;
             path?: never;
@@ -6560,6 +6660,16 @@ export interface operations {
                      *         {
                      *           "id": "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01",
                      *           "title": "Fix the flaky checkout test",
+                     *           "agent": {
+                     *             "id": "8f6c1d2e-4b3a-4c5d-9e8f-7a6b5c4d3e2f",
+                     *             "name": "Checkout fixer",
+                     *             "release_version_no": 3
+                     *           },
+                     *           "created_by": {
+                     *             "user_id": "1b2c3d4e-5f60-4718-8a9b-0c1d2e3f4a5b",
+                     *             "display_name": "Mina Park"
+                     *           },
+                     *           "channel": "web",
                      *           "revision": 7,
                      *           "admission_state": "active",
                      *           "status": "running",
@@ -6860,6 +6970,105 @@ export interface operations {
             };
         };
     };
+    countSessions: {
+        parameters: {
+            query?: {
+                relation?: "all" | "started" | "shared" | "administered";
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The number of sessions per status. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "counts": {
+                     *         "queued": 0,
+                     *         "running": 2,
+                     *         "needs_input": 1,
+                     *         "idle": 5,
+                     *         "failed": 1,
+                     *         "stopped": 3
+                     *       },
+                     *       "total": 12
+                     *     }
+                     */
+                    "application/json": components["schemas"]["CountSessionsResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, checked before the body or the resource is read. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
     getSession: {
         parameters: {
             query?: never;
@@ -6882,6 +7091,16 @@ export interface operations {
                      * @example {
                      *       "id": "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01",
                      *       "title": "Fix the flaky checkout test",
+                     *       "agent": {
+                     *         "id": "8f6c1d2e-4b3a-4c5d-9e8f-7a6b5c4d3e2f",
+                     *         "name": "Checkout fixer",
+                     *         "release_version_no": 3
+                     *       },
+                     *       "created_by": {
+                     *         "user_id": "1b2c3d4e-5f60-4718-8a9b-0c1d2e3f4a5b",
+                     *         "display_name": "Mina Park"
+                     *       },
+                     *       "channel": "web",
                      *       "revision": 7,
                      *       "admission_state": "active",
                      *       "status": "running",
@@ -7024,6 +7243,16 @@ export interface operations {
                      * @example {
                      *       "id": "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01",
                      *       "title": "Fix the flaky checkout test",
+                     *       "agent": {
+                     *         "id": "8f6c1d2e-4b3a-4c5d-9e8f-7a6b5c4d3e2f",
+                     *         "name": "Checkout fixer",
+                     *         "release_version_no": 3
+                     *       },
+                     *       "created_by": {
+                     *         "user_id": "1b2c3d4e-5f60-4718-8a9b-0c1d2e3f4a5b",
+                     *         "display_name": "Mina Park"
+                     *       },
+                     *       "channel": "web",
                      *       "revision": 7,
                      *       "admission_state": "active",
                      *       "status": "running",
