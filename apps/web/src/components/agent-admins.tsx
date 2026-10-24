@@ -280,7 +280,10 @@ function AdminList({
             value={person}
             disabled={
               !listsMembers ||
-              (picking && !members.isPending && people.length === 0)
+              (picking &&
+                !members.isPending &&
+                !members.isFetching &&
+                people.length === 0)
             }
             aria-busy={members.isFetching}
             onChange={(event) => setPerson(event.target.value)}

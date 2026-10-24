@@ -459,7 +459,12 @@ function TeamMembers({
           <FieldLabel>{t("teams.pickMember")}</FieldLabel>
           <NativeSelect
             value={picked}
-            disabled={picking && !members.isPending && candidates.length === 0}
+            disabled={
+              picking &&
+              !members.isPending &&
+              !members.isFetching &&
+              candidates.length === 0
+            }
             aria-busy={members.isFetching}
             onChange={(event) => setPicked(event.target.value)}
           >

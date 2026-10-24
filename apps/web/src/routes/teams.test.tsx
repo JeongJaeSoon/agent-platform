@@ -464,9 +464,19 @@ describe("팀 화면", () => {
     expect(memberReads()).toEqual(["?limit=2", "?limit=100"]);
   });
 
-  test("전에 읽은 목록에 후보가 없었어도 칸은 열려 있고, 키보드로 오면 다시 읽는다", async () => {
+  test("전에 읽은 목록에 후보가 없었어도 칸은 열려 있고, 다시 읽는 동안에도 키보드가 머문다", async () => {
+    let answer: () => void = () => {};
+    const asked = new Promise<void>((resolve) => {
+      answer = resolve;
+    });
     const server = teamServer();
-    const { api, services } = renderAt("/members/teams", server.routes);
+    const { services } = renderAt("/members/teams", {
+      ...server.routes,
+      "GET /v1/members?limit=100": async () => {
+        await asked;
+        return json(200, { items: [owner, mate], next_cursor: null });
+      },
+    });
     await screen.findByRole("link", { name: "결제팀" });
     // An earlier visit read a list with nobody to add; Mate joined since.
     services.queryClient.setQueryData(queryKeys.members, {
@@ -479,14 +489,15 @@ describe("팀 화면", () => {
       "추가할 사람",
     )) as HTMLSelectElement;
     expect(picker.disabled).toBe(false);
-    const before = api.calls.filter((c) => c.path === "/v1/members").length;
     act(() => picker.focus());
+    await waitFor(() => expect(picker.getAttribute("aria-busy")).toBe("true"));
+    expect(picker.disabled).toBe(false);
+    expect(document.activeElement === picker).toBe(true);
+    act(() => answer());
     expect(
       await screen.findByRole("option", { name: "Mate (mate@example.com)" }),
     ).toBeTruthy();
-    expect(
-      api.calls.filter((c) => c.path === "/v1/members").length,
-    ).toBeGreaterThan(before);
+    expect(document.activeElement === picker).toBe(true);
   });
 
   test("구성원을 수락 없이 넣고 빼며, 이름을 바꾸고 지운다", async () => {
