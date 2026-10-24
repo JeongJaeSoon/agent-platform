@@ -567,10 +567,14 @@ describe("에이전트 목록 탭과 보기", () => {
     expect(screen.getByRole("link", { name: "다른 에이전트" })).toBeDefined();
     expect(screen.getByRole("button", { name: "전체 2" })).toBeDefined();
 
+    const region = results();
     await showList(user, "관리하는 에이전트 1");
     expect(
       await screen.findByRole("link", { name: "다른 에이전트" }),
     ).toBeDefined();
+    // The same live region across categories, so the new count is heard.
+    expect(results() === region).toBe(true);
+    expect(results().textContent).toBe("1개 표시");
 
     await user.clear(search);
     await user.type(search, "없는 이름");

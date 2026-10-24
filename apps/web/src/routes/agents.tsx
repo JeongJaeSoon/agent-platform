@@ -152,6 +152,8 @@ function AgentList({ agents }: { readonly agents: readonly Agent[] }) {
     setQuery("");
     search.current?.focus();
   };
+  const list = scope === "all" ? agents : administered.data?.items;
+  const shown = list?.filter((agent) => matchesAgentQuery(agent, query));
   return (
     <div className="flex flex-col gap-4">
       <ListToolbar
@@ -215,11 +217,18 @@ function AgentList({ agents }: { readonly agents: readonly Agent[] }) {
           </SegmentedControl>
         }
       />
+      {/* Outside the lists, so switching category or state keeps the same
+          live region and a screen reader hears each new count. */}
+      <output className="sr-only">
+        {query.trim() === "" || shown === undefined
+          ? ""
+          : t("agents.shown", { count: shown.length })}
+      </output>
       {scope === "all" ? (
         agents.length === 0 ? (
           <EmptyState title={t("agents.empty")} />
         ) : (
-          <AgentsIn view={view} agents={agents} query={query} onClear={clear} />
+          <AgentsIn view={view} agents={shown ?? []} onClear={clear} />
         )
       ) : administered.isPending ? (
         <StatusScreen kind="loading" />
@@ -239,12 +248,7 @@ function AgentList({ agents }: { readonly agents: readonly Agent[] }) {
               })}
             </p>
           ) : null}
-          <AgentsIn
-            view={view}
-            agents={administered.data.items}
-            query={query}
-            onClear={clear}
-          />
+          <AgentsIn view={view} agents={shown ?? []} onClear={clear} />
         </div>
       )}
     </div>
@@ -264,47 +268,31 @@ function matchesAgentQuery(agent: Agent, query: string) {
 function AgentsIn({
   view,
   agents,
-  query,
   onClear,
 }: {
   readonly view: AgentView;
+  /** The list after the search. */
   readonly agents: readonly Agent[];
-  readonly query: string;
   readonly onClear: () => void;
 }) {
   const { t } = useI18n();
-  const shown = agents.filter((agent) => matchesAgentQuery(agent, query));
-  // Mounted before the first keystroke, so a screen reader hears each change.
-  const results = (
-    <output className="sr-only">
-      {query.trim() === "" ? "" : t("agents.shown", { count: shown.length })}
-    </output>
-  );
-  if (shown.length === 0) {
+  if (agents.length === 0) {
     return (
-      <>
-        {results}
-        <EmptyState
-          title={t("agents.noMatch")}
-          description={t("agents.noMatchHint")}
-          action={
-            <Button type="button" variant="outline" size="sm" onClick={onClear}>
-              {t("agents.clearSearch")}
-            </Button>
-          }
-        />
-      </>
+      <EmptyState
+        title={t("agents.noMatch")}
+        description={t("agents.noMatchHint")}
+        action={
+          <Button type="button" variant="outline" size="sm" onClick={onClear}>
+            {t("agents.clearSearch")}
+          </Button>
+        }
+      />
     );
   }
-  return (
-    <>
-      {results}
-      {view === "cards" ? (
-        <AgentCards agents={shown} />
-      ) : (
-        <AgentTable agents={shown} />
-      )}
-    </>
+  return view === "cards" ? (
+    <AgentCards agents={agents} />
+  ) : (
+    <AgentTable agents={agents} />
   );
 }
 
