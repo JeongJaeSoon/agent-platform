@@ -22,6 +22,13 @@ import { cn } from "../foundations/cn.ts";
  * widths are the ones v4 uses, each a fixed class Tailwind can see.
  */
 const NARROW = {
+  // A table beside a 400px rail at 1280px is about 600px wide and keeps
+  // every column; only a phone's drops some. Exclusive, because a half of a
+  // two-column row at 1280px is exactly 480px and keeps its columns.
+  480: {
+    row: "[@container(width<480px)]:grid-cols-[var(--grid-table-narrow-columns)]",
+    hide: "[@container(width<480px)]:hidden",
+  },
   640: {
     row: "[@container(max-width:640px)]:grid-cols-[var(--grid-table-narrow-columns)]",
     hide: "[@container(max-width:640px)]:hidden",
