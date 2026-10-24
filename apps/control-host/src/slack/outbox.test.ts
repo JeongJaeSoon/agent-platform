@@ -564,6 +564,43 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     ]);
   });
 
+  test("behind a turn holding the mark, answers past one pass's batch still go", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    // Turn 1 runs on; 2 to 14 end, more than a pass's batch of 10.
+    for (let sequence = 2; sequence <= 14; sequence += 1) {
+      await addTurn(sessionId, sequence);
+      await endTurn(sessionId, sequence, "completed", [
+        [text(`answer ${sequence}`)],
+      ]);
+    }
+    for (let pass = 0; pass < 3; pass += 1) await outboxPass();
+    expect(posted()).toHaveLength(13);
+    expect(await answeredThrough()).toBe(0);
+  });
+
+  test("an unknown outcome later confirmed completed still answers", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await db
+      .update(turns)
+      .set({ status: "outcome_unknown", endedAt: new Date() })
+      .where(eq(turns.sessionId, sessionId));
+    expect(await outboxPass()).toMatchObject({ sent: 1 });
+    await outboxPass();
+    expect(await answeredThrough()).toBe(0);
+
+    // An operator's confirm_completed.
+    await endTurn(sessionId, 1, "completed", [[text("answer 1")]]);
+    expect(await outboxPass()).toMatchObject({ sent: 1 });
+    expect(posted().map((message) => message.text.split("\n")[0])).toEqual([
+      SLACK_NOTICE_MESSAGES.failed,
+      "answer 1",
+    ]);
+  });
+
   test("cancelled, interrupted and pre-link turns move the mark past them", async () => {
     const fixture = await agentInSlack();
     await mention(fixture, THREAD);
@@ -658,7 +695,7 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     expect(turnsPlan).toContain("Index Cond: (id = ANY (");
     // Ranged on the link and its mark, not a walk of the whole index.
     expect(turnsPlan).toMatch(
-      /turns_session_sequence_uniq on turns[\s\S]*Index Cond: \(\(session_id = [^)]+\) AND \(sequence > /,
+      /turns_session_sequence_uniq[\s\S]*Index Cond: \(\(session_id = [^)]+\) AND \(sequence > /,
     );
     expect(await explain(plans.at(-1))).toContain("slack_outbox_uncertain_idx");
   });

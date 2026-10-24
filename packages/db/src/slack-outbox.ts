@@ -102,13 +102,14 @@ export function createPostgresSlackOutboxStore(db: Database): SlackOutboxStore {
                AND t.sequence > l2.answered_through
                AND NOT (
                  t.status IN ('interrupted', 'cancelled')
-                 OR (t.status IN ('completed', 'failed', 'outcome_unknown') AND (
-                   t.created_at < l2.created_at
-                   OR EXISTS (
-                     SELECT 1 FROM ${t} o
-                     WHERE o.dedupe_key = (CASE WHEN t.status = 'completed' THEN 'reply' ELSE 'failure' END)
-                       || ':' || l2.id || ':' || t.sequence
-                   )
+                 OR (t.status IN ('completed', 'failed', 'outcome_unknown')
+                   AND t.created_at < l2.created_at)
+                 -- Not outcome_unknown: an operator may yet confirm it
+                 -- completed, and then it owes its reply.
+                 OR (t.status IN ('completed', 'failed') AND EXISTS (
+                   SELECT 1 FROM ${t} o
+                   WHERE o.dedupe_key = (CASE WHEN t.status = 'completed' THEN 'reply' ELSE 'failure' END)
+                     || ':' || l2.id || ':' || t.sequence
                  ))
                )),
             (SELECT max(t.sequence) FROM ${turns} t WHERE t.session_id = l2.session_id),
@@ -172,12 +173,24 @@ export function createPostgresSlackOutboxStore(db: Database): SlackOutboxStore {
             // per link; joined on its own, the planner sorts every turn. The
             // LIMIT keeps the range per link (unlimited, it is flattened
             // into a scan of all turns), and a pass takes no more anyway.
+            // Turns with nothing left to send are skipped before it, so the
+            // ones behind a turn holding the mark are still reached.
             sql`${turns.id} = ANY (ARRAY(
               SELECT open.id FROM session_links ol
               CROSS JOIN LATERAL (
                 SELECT ot.id FROM ${turns} ot
                 WHERE ot.session_id = ol.session_id
                   AND ot.sequence > ol.answered_through
+                  AND ot.status NOT IN ('queued', 'interrupted', 'cancelled')
+                  AND NOT (ot.status IN ('completed', 'failed', 'outcome_unknown')
+                    AND ot.created_at < ol.created_at)
+                  AND NOT EXISTS (
+                    SELECT 1 FROM ${t} oo
+                    WHERE oo.dedupe_key = (CASE WHEN ot.status = 'completed' THEN 'reply'
+                        WHEN ot.status IN ('failed', 'outcome_unknown') THEN 'failure'
+                        ELSE 'input' END)
+                      || ':' || ol.id || ':' || ot.sequence
+                  )
                 ORDER BY ot.sequence
                 LIMIT ${limit}
               ) open
