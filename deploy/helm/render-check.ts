@@ -2,8 +2,10 @@
 // chart's promises: every container hardened, sized and pinned by digest,
 // probes on every long-running one, a token only where the scheduler needs
 // one, the scheduler Role exactly the kubernetes backend's verbs, worker
-// traffic held to the egress proxy (no DNS), and the Ingress routing only
-// the api's public paths on an ALB that is not internet-facing. Run from the
+// traffic held to the egress proxy (no DNS), the master key only on the api
+// and the slack role, slack holding no provider or AWS key and its egress
+// held to DNS, HTTPS and the database, and the Ingress routing only the
+// api's public paths on an ALB that is not internet-facing. Run from the
 // repository root:
 // `bun deploy/helm/render-check.ts` (CI's helm-chart job).
 
@@ -299,9 +301,15 @@ function checkObjectStoreKeys(
 
 const SECRET_KEY = "PLATFORM_SECRET_KEY";
 
-function checkSecretKey(label: string, manifests: Manifest[]): string[] {
+const SECRET_KEY_HOLDERS = ["api", "slack"];
+
+function checkSecretKey(
+  label: string,
+  manifests: Manifest[],
+  slack: boolean,
+): string[] {
   const errors: string[] = [];
-  let holders = 0;
+  const holders: Record<string, number> = { api: 0, slack: 0 };
   for (const m of manifests) {
     const pod = podSpecOf(m);
     if (pod === undefined) continue;
@@ -311,18 +319,90 @@ function checkSecretKey(label: string, manifests: Manifest[]): string[] {
       const entry = (c.env ?? []).find((v: any) => v.name === SECRET_KEY);
       if (entry === undefined) continue;
       const where = `${label}: ${m.kind}/${m.metadata.name}: container ${c.name}`;
-      if (component !== "api" || c.name !== "api") {
+      if (!SECRET_KEY_HOLDERS.includes(component) || c.name !== component) {
         errors.push(`${where} has ${SECRET_KEY}`);
         continue;
       }
-      holders++;
+      holders[component] = (holders[component] ?? 0) + 1;
       if (entry.valueFrom?.secretKeyRef?.optional !== true) {
         errors.push(`${where}: ${SECRET_KEY} is not an optional secretKeyRef`);
       }
     }
   }
-  if (holders !== 1) {
-    errors.push(`${label}: ${SECRET_KEY} is on ${holders} api containers`);
+  const want: Record<string, number> = { api: 1, slack: slack ? 1 : 0 };
+  for (const holder of SECRET_KEY_HOLDERS) {
+    if (holders[holder] !== want[holder]) {
+      errors.push(
+        `${label}: ${SECRET_KEY} is on ${holders[holder]} ${holder} containers, expected ${want[holder]}`,
+      );
+    }
+  }
+  return errors;
+}
+
+const SLACK_EGRESS = ["UDP/53", "TCP/53", "TCP/443", "TCP/5432"];
+const SLACK_SECRETS = ["DATABASE_URL", SECRET_KEY];
+
+function checkSlack(
+  label: string,
+  manifests: Manifest[],
+  enabled: boolean,
+): string[] {
+  const errors: string[] = [];
+  const want = enabled ? 1 : 0;
+  const ofSlack = (kind: string) =>
+    manifests.filter(
+      (m) =>
+        m.kind === kind &&
+        m.metadata.labels?.["app.kubernetes.io/component"] === "slack",
+    );
+  for (const kind of ["Deployment", "NetworkPolicy"]) {
+    const got = ofSlack(kind).length;
+    if (got !== want) {
+      errors.push(`${label}: expected ${want} slack ${kind}, got ${got}`);
+    }
+  }
+  for (const m of ofSlack("Deployment")) {
+    const where = `${label}: ${m.kind}/${m.metadata.name}`;
+    const pod = podSpecOf(m);
+    const workload = m.metadata.name.replace(/-slack$/, "-workload");
+    if (pod.serviceAccountName !== workload) {
+      errors.push(
+        `${where}: ServiceAccount ${pod.serviceAccountName} is not ${workload}`,
+      );
+    }
+    for (const c of [...(pod.initContainers ?? []), ...pod.containers]) {
+      const secrets = (c.env ?? [])
+        // biome-ignore lint/suspicious/noExplicitAny: rendered Kubernetes objects
+        .filter((v: any) => v.valueFrom?.secretKeyRef !== undefined)
+        // biome-ignore lint/suspicious/noExplicitAny: rendered Kubernetes objects
+        .map((v: any) => v.valueFrom.secretKeyRef.key as string);
+      const extra = secrets.filter((key) => !SLACK_SECRETS.includes(key));
+      if (extra.length > 0 || (c.envFrom ?? []).length > 0) {
+        errors.push(
+          `${where}: container ${c.name} holds Secret keys ${JSON.stringify(extra)} beyond ${JSON.stringify(SLACK_SECRETS)}`,
+        );
+      }
+    }
+  }
+  for (const policy of ofSlack("NetworkPolicy")) {
+    const spec = policy.spec;
+    const ports = (spec.egress ?? []).flatMap(
+      // biome-ignore lint/suspicious/noExplicitAny: rendered NetworkPolicy
+      (rule: any) => {
+        if (rule.ports === undefined) return ["any port"];
+        // biome-ignore lint/suspicious/noExplicitAny: rendered NetworkPolicy
+        return rule.ports.map((p: any) => `${p.protocol}/${p.port}`);
+      },
+    );
+    if (
+      JSON.stringify(spec.policyTypes) !== '["Egress"]' ||
+      JSON.stringify(ports) !== JSON.stringify(SLACK_EGRESS)
+    ) {
+      errors.push(
+        `${label}: NetworkPolicy/${policy.metadata.name}: egress ${JSON.stringify(ports)} is not ${JSON.stringify(SLACK_EGRESS)}`,
+      );
+    }
   }
   return errors;
 }
@@ -405,8 +485,10 @@ const MUST_FAIL: [string, string[], RegExp][] = [
   ],
 ];
 
+const slackOff = render(["-f", ciDigests, "--set", "slack.enabled=false"]);
 const errors = [
   ...check("default", render(["-f", ciDigests]), true),
+  ...check("slack off", slackOff, true),
   ...check(
     "scheduler off",
     render(["-f", ciDigests, "--set", "scheduler.enabled=false"]),
@@ -433,8 +515,20 @@ errors.push(
     render(["-f", ciDigests, "-f", awsExample]),
     false,
   ),
-  ...checkSecretKey("default", render(["-f", ciDigests])),
-  ...checkSecretKey("aws example", render(["-f", ciDigests, "-f", awsExample])),
+  ...checkSecretKey("default", render(["-f", ciDigests]), true),
+  ...checkSecretKey(
+    "aws example",
+    render(["-f", ciDigests, "-f", awsExample]),
+    true,
+  ),
+  ...checkSecretKey("slack off", slackOff, false),
+  ...checkSlack("default", render(["-f", ciDigests]), true),
+  ...checkSlack(
+    "aws example",
+    render(["-f", ciDigests, "-f", awsExample]),
+    true,
+  ),
+  ...checkSlack("slack off", slackOff, false),
   ...checkIngress("default", render(["-f", ciDigests]), false),
   ...checkIngress(
     "aws example",
@@ -469,5 +563,5 @@ if (errors.length > 0) {
   process.exit(1);
 }
 console.log(
-  `render-check: default and aws example renders pass, scheduler off and on; ${MUST_FAIL.length} bad inputs and an internet-facing ALB refused`,
+  `render-check: default and aws example renders pass, scheduler off and on, slack off; ${MUST_FAIL.length} bad inputs and an internet-facing ALB refused`,
 );

@@ -1,4 +1,9 @@
-import { cn, useReducedMotion } from "@werft-ai/ui";
+import {
+  cn,
+  StatusDot,
+  type StatusDotStatus,
+  useReducedMotion,
+} from "@werft-ai/ui";
 import type { JSX } from "react";
 
 import { AxisIcon } from "./axis-icon.tsx";
@@ -32,14 +37,15 @@ export interface StatusLabelProps<A extends StatusAxis> {
   readonly className?: string | undefined;
 }
 
-const DOT_FILL: Record<StatusTone, string> = {
-  attention: "bg-(--ap-color-status-dot-wait)",
-  caution: "bg-(--ap-color-status-dot-wait)",
-  progress: "bg-(--ap-color-status-dot-run)",
-  positive: "bg-(--ap-color-status-dot-done)",
-  danger: "bg-(--ap-color-status-dot-failed)",
-  neutral: "bg-(--ap-color-status-dot-idle)",
-  unknown: "bg-(--ap-color-status-dot-idle)",
+// A moving state turns the ring; this is the colour once it stands still.
+const TONE_DOT: Record<StatusTone, StatusDotStatus> = {
+  attention: "wait",
+  caution: "wait",
+  progress: "run",
+  positive: "done",
+  danger: "failed",
+  neutral: "idle",
+  unknown: "idle",
 };
 
 export function StatusLabel<A extends StatusAxis>({
@@ -71,15 +77,9 @@ export function StatusLabel<A extends StatusAxis>({
         data-tone={descriptor.tone}
         data-stale={stale || undefined}
       >
-        <span
-          aria-hidden="true"
+        <StatusDot
+          status={spinning ? "run" : TONE_DOT[descriptor.tone]}
           data-animated={spinning || undefined}
-          className={cn(
-            "flex-none rounded-full",
-            spinning
-              ? "size-2.5 animate-[ap-spin_0.9s_linear_infinite] border-[1.5px] border-(--ap-color-status-dot-run) border-r-transparent"
-              : cn("size-2", DOT_FILL[descriptor.tone]),
-          )}
         />
         <span className="ap-visually-hidden">
           {axisLabel ?? STATUS_AXIS_LABEL[axis]}:{" "}

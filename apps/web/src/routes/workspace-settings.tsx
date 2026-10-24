@@ -7,16 +7,17 @@ import type {
 import { useAgentPlatform } from "@werft-ai/react";
 import {
   Badge,
-  Button,
   buttonVariants,
   Card,
   CardDescription,
+  CardFooter,
   CardTitle,
   Input,
+  SecretField,
   Skeleton,
 } from "@werft-ai/ui";
-import { Check, Copy, Lock } from "lucide-react";
-import { type FormEvent, type ReactNode, useId, useRef, useState } from "react";
+import { Lock } from "lucide-react";
+import { type FormEvent, type ReactNode, useId, useState } from "react";
 import { profilesQuery, queryKeys } from "../api/queries.ts";
 import {
   permissionReason,
@@ -27,7 +28,6 @@ import {
   useRole,
 } from "../auth/guard.tsx";
 import { FormError, NOTICE } from "../components/auth-page.tsx";
-import { copyText } from "../components/copy.ts";
 import { LoadFailure } from "../components/load-failure.tsx";
 import type { Outcome } from "../components/outcome.tsx";
 import { Page } from "../components/page.tsx";
@@ -42,8 +42,6 @@ export const AUDIT_RETENTION_MAX_DAYS = 3650;
 const CARDS = "flex flex-col gap-4";
 const CARD_BODY = "flex flex-col gap-3 p-4";
 const SUB = "text-description";
-const FOOT =
-  "flex items-center justify-between gap-3 rounded-b-card border-t bg-muted px-4 py-3";
 const META = "text-caption text-subtle-foreground";
 const ICON = "size-3.5 shrink-0";
 
@@ -70,7 +68,7 @@ export function WorkspaceSettingsScreen() {
       ) : null}
       <div className={CARDS}>
         <WorkspaceName />
-        <WorkspaceId onOutcome={setOutcome} />
+        <WorkspaceId />
         <AllowedModels />
         {editable ? (
           <>
@@ -112,11 +110,11 @@ function SettingsCard({
         </CardDescription>
         {children}
       </div>
-      {foot ? <div className={FOOT}>{foot}</div> : null}
+      {foot ? <CardFooter variant="form">{foot}</CardFooter> : null}
     </>
   );
   return (
-    <Card role="region" aria-labelledby={titleId} className="gap-0 py-0">
+    <Card flush role="region" aria-labelledby={titleId}>
       {onSubmit ? (
         // noValidate: the server owns the limits and says why it refused.
         <form onSubmit={onSubmit} noValidate>
@@ -163,48 +161,18 @@ function WorkspaceName() {
   );
 }
 
-function WorkspaceId({ onOutcome }: { readonly onOutcome: OnOutcome }) {
+function WorkspaceId() {
   const { t } = useI18n();
   const id = useMe()?.workspace?.id ?? "";
-  const [copied, setCopied] = useState(false);
-  const value = useRef<HTMLDivElement>(null);
   return (
     <SettingsCard title={t("workspace.id")} description={t("workspace.idHint")}>
-      <div className="flex max-w-105 items-center gap-2 rounded-control border bg-muted px-3 py-2">
-        <div
-          ref={value}
-          className="min-w-0 flex-1 select-all font-mono text-caption [overflow-wrap:anywhere]"
-        >
-          {id}
-        </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={id === ""}
-          onClick={() => {
-            void copyText(id, { current: null }).then((ok) => {
-              setCopied(ok);
-              // Selected, the id is one keystroke from a manual copy.
-              if (!ok && value.current) {
-                globalThis.getSelection?.()?.selectAllChildren(value.current);
-              }
-              onOutcome(
-                ok
-                  ? { kind: "notice", text: t("workspace.idCopied") }
-                  : { kind: "error", text: t("apiKeys.copyIdFailed") },
-              );
-            });
-          }}
-        >
-          {copied ? (
-            <Check aria-hidden="true" className={ICON} strokeWidth={1.5} />
-          ) : (
-            <Copy aria-hidden="true" className={ICON} strokeWidth={1.5} />
-          )}
-          {t(copied ? "apiKeys.copied" : "apiKeys.copy")}
-        </Button>
-      </div>
+      <SecretField
+        className="max-w-105"
+        value={id}
+        copyLabel={t("apiKeys.copy")}
+        copiedMessage={t("workspace.idCopied")}
+        copyFailedMessage={t("apiKeys.copyIdFailed")}
+      />
     </SettingsCard>
   );
 }
@@ -242,7 +210,7 @@ function AllowedModels() {
         <ul className="m-0 flex list-none flex-wrap gap-1 p-0">
           {models.map((model) => (
             <li key={model}>
-              <Badge className="font-mono font-normal">{model}</Badge>
+              <Badge variant="mono">{model}</Badge>
             </li>
           ))}
         </ul>

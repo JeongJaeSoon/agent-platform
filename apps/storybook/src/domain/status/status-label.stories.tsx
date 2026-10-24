@@ -16,14 +16,25 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-function AxisRow<A extends StatusAxis>({ axis }: { axis: A }) {
+function AxisRow<A extends StatusAxis>({
+  axis,
+  appearance,
+}: {
+  axis: A;
+  appearance?: "pill" | "dot";
+}) {
   const states = Object.keys(STATUS_VOCABULARY[axis]) as StatusStateOf<A>[];
   return (
     <section>
       <h3>{axis}</h3>
       <div className="story-row">
         {states.map((state) => (
-          <StatusLabel key={String(state)} axis={axis} state={state} />
+          <StatusLabel
+            key={String(state)}
+            appearance={appearance}
+            axis={axis}
+            state={state}
+          />
         ))}
       </div>
     </section>
@@ -45,6 +56,27 @@ export const EveryState: Story = {
 export const EveryStateDark: Story = {
   ...EveryState,
   name: "Every state (dark)",
+  globals: { theme: "dark" },
+};
+
+/**
+ * Every state as a StatusDot: a moving state turns the ring, and stands still
+ * in its tone's colour when the reader asks for reduced motion.
+ */
+export const EveryStateDot: Story = {
+  name: "Every state (dot)",
+  render: () => (
+    <div className="story-stack">
+      {STATUS_AXIS_VALUES.map((axis) => (
+        <AxisRow key={axis} axis={axis} appearance="dot" />
+      ))}
+    </div>
+  ),
+};
+
+export const EveryStateDotDark: Story = {
+  ...EveryStateDot,
+  name: "Every state (dot, dark)",
   globals: { theme: "dark" },
 };
 
