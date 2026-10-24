@@ -811,7 +811,7 @@ prefix가 `SLACK_`가 아니라 `SLACK_ROLE_`인 것은 `SLACK_API_URL`·`SLACK_
 - 실패하면 lease를 풀고 `next_attempt_at = now() + backoff`(30초에서 두 배씩, 상한 5분)다. lease 만료로 다시 잡힌 것도 시도로 센다. 5번째 시도가 실패하거나 5번째 lease가 끝나면 `failed`다.
 - 처리 전에 그 설치가 지금 `revoked`이면(이벤트가 기다리는 사이 앱이 해제됨) 처리하지 않고 `dropped`·`installation_revoked`로 끝내며 본문과 `conversation_key`를 지운다.
 - 처리기는 아직 no-op이라 claim한 행은 `processed`가 된다(세션 연결은 뒤 티켓). 로그는 `Slack event claimed`(id·event_id·종류·시도 횟수)와 pass 요약 `Slack inbox pass`다.
-- 기동할 때 api와 같은 catalog(`PLATFORM_CONFIG_DIR`)를 같은 규칙으로 읽는다. 무인 profile이 있는데 `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS=true`가 없으면 api와 같은 이유로 기동을 거부한다. catalog의 credential은 풀지 않는다. provider key와 Secrets Manager 접근은 api에만 있다.
+- 기동할 때와 pass마다(`--once`로 손으로 돌린 pass도) api와 같은 catalog(`PLATFORM_CONFIG_DIR`)를 같은 규칙으로 읽는다. 무인 profile이 있는데 `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS=true`가 없으면 api와 같은 이유로 기동을 거부한다. catalog의 credential은 풀지 않는다. provider key와 Secrets Manager 접근은 api에만 있다.
 - master key(`PLATFORM_SECRET_KEY`)는 api와 이 역할에만 간다(bot token으로 Slack에 보내는 일이 이 역할에 붙는다). 값이 64 hex가 아니면 기동하지 않는다. compose는 이 역할에 Secrets Manager endpoint와 AWS 자격을 주지 않으므로 `platform.yaml`의 master key는 `value_env`로 적어야 이 역할이 뜬다(`secret_id`면 기동하지 못하고 재시작을 반복한다). worker·scheduler·reconciler에는 없다(`tests/images.test.ts`, `deploy/helm/render-check.ts`가 검사한다).
 - 0159 이전에 쌓인 `received`·`processed` 행은 migration이 같은 규칙으로 `conversation_key`를 채운다.
 

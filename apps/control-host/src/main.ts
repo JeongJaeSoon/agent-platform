@@ -70,7 +70,9 @@ async function runOnce(role: PassLoopRoleName): Promise<number> {
   if (role === "slack") {
     // No SIGTERM handler either: an event claimed by a pass that ends early
     // is claimed again once its lease runs out.
-    const { main } = await import("./slack/main.ts");
+    const { main, slackRoleStartup } = await import("./slack/main.ts");
+    // Every pass, the loop's or one run by hand, passes the startup gate.
+    await slackRoleStartup(process.env);
     await main();
     return 0;
   }

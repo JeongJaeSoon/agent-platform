@@ -86,6 +86,53 @@ describe("control host executable", () => {
   );
 
   test(
+    "slack --once passes the startup gate the loop does",
+    async () => {
+      const dir = await mkdtemp(join(tmpdir(), "slack-once-"));
+      try {
+        await writeFile(
+          join(dir, "profiles.yaml"),
+          `profiles:
+  coding:
+    runtime_kind: claude_agent_sdk
+    runtime_version: "0.3.270"
+    model: claude-sonnet-5
+    tools: [Read]
+    permission_mode: bypassPermissions
+    provider:
+      kind: anthropic
+      endpoint: https://api.anthropic.invalid
+      auth:
+        kind: api_key
+        value_env: PROVIDER_KEY
+`,
+        );
+        await writeFile(
+          join(dir, "repositories.yaml"),
+          `repositories:
+  sample-app:
+    url: http://gitea:3000/agent/sample-app.git
+    branch: main
+    profiles: [coding]
+`,
+        );
+        // The unused address shows the gate refuses before any connection.
+        const once = await run(["slack", "--once"], {
+          DATABASE_URL: "postgres://nobody@127.0.0.1:1/none",
+          PLATFORM_CONFIG_DIR: dir,
+        });
+        expect(once.exitCode).not.toBe(0);
+        expect(once.stderr).toContain(
+          "PLATFORM_ALLOW_UNATTENDED_PERMISSIONS=true",
+        );
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    },
+    TIMEOUT_MS,
+  );
+
+  test(
     "--health judges the role's own status file",
     async () => {
       const dir = await mkdtemp(join(tmpdir(), "control-host-health-"));
