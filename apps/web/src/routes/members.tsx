@@ -133,7 +133,8 @@ export function MembersLayout() {
   // The list is also the permission probe: when it failed, nobody knows.
   const failed = members.isError && !isApiError(members.error, "FORBIDDEN");
   const onTeams = pathname.startsWith("/members/teams");
-  const onTeamList = pathname === "/members/teams";
+  // The router also serves the list at "/members/teams/".
+  const onTeamList = pathname.replace(/\/$/, "") === "/members/teams";
   const managesTeams = useHasPermission("team.manage");
   const teams = useQuery({
     ...teamsQuery(client),

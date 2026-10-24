@@ -20,7 +20,7 @@ import {
   Input,
 } from "@werft-ai/ui";
 import { Plus } from "lucide-react";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { queryKeys } from "../api/queries.ts";
 import { ReasonButton, refusalText, useRole } from "../auth/guard.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
@@ -42,6 +42,15 @@ export function TeamCreateDialog({
   const role = useRole();
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Leaving the list unmounts this button; a request that answers after
+  // that is not news for the next visit.
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   const create = useMutation<TeamChangeResponse, ApiError, string>({
     mutationFn: (name) => unwrap(client.POST("/v1/teams", { body: { name } })),
@@ -50,8 +59,10 @@ export function TeamCreateDialog({
       onCreated(null);
     },
     onSuccess: async ({ team }) => {
-      setOpen(false);
-      onCreated(team.name);
+      if (mounted.current) {
+        setOpen(false);
+        onCreated(team.name);
+      }
       await queryClient.invalidateQueries({ queryKey: queryKeys.teams });
     },
     onError: (failure) =>

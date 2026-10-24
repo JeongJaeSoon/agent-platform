@@ -21,7 +21,7 @@ import {
 } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
-const { renderAt, screen, waitFor, within } = await appHarness();
+const { act, renderAt, screen, waitFor, within } = await appHarness();
 
 const TEAM_ID = "9e0f1a2b-3c4d-4e5f-8a6b-7c8d9e0f1a2b";
 const MATE_ID = "2c7e1d4a-5b6f-4a8e-9d0c-1e2f3a4b5c6d";
@@ -220,6 +220,57 @@ describe("팀 화면", () => {
       await screen.findByRole("button", { name: "다시 시도" }),
     ).toBeDefined();
     expect(screen.queryByRole("button", { name: "팀 만들기" })).toBeNull();
+  });
+
+  test("끝에 / 가 붙은 팀 목록 주소에서도 헤더에 팀 만들기가 있다", async () => {
+    const server = teamServer();
+    renderAt("/members/teams/", server.routes);
+    await screen.findByRole("link", { name: "결제팀" });
+    expect(
+      await screen.findByRole("button", { name: "팀 만들기" }),
+    ).toBeDefined();
+  });
+
+  test("만드는 중에 다른 탭으로 갔다 돌아오면 늦게 온 성공 알림을 새 방문에 띄우지 않는다", async () => {
+    const server = teamServer();
+    let answer: ((response: Response) => void) | undefined;
+    const { history } = renderAt("/members/teams", {
+      ...server.routes,
+      "POST /v1/teams": () =>
+        new Promise<Response>((resolve) => {
+          answer = resolve;
+        }),
+    });
+    await screen.findByRole("link", { name: "결제팀" });
+    const user = await setupUser();
+    const open = await waitFor(() => {
+      const button = screen.getByRole("button", { name: "팀 만들기" });
+      expect(button.hasAttribute("disabled")).toBe(false);
+      return button;
+    });
+    await user.click(open);
+    const dialog = await screen.findByRole("dialog", { name: "팀 만들기" });
+    await user.type(within(dialog).getByLabelText("팀 이름"), "지원팀{Enter}");
+    await within(dialog).findByRole("button", { name: "만드는 중…" });
+    act(() => history.push("/members"));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "팀 만들기" })).toBeNull(),
+    );
+    act(() => history.back());
+    await screen.findByRole("link", { name: "결제팀" });
+    answer?.(
+      json(201, {
+        team: {
+          ...server.team,
+          members: undefined,
+          name: "지원팀",
+          member_count: 0,
+        },
+        receipt_id: RECEIPT_ID,
+      }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(screen.getByRole("status").textContent).toBe("");
   });
 
   test("팀 상세에는 헤더 주 버튼이 없다", async () => {
