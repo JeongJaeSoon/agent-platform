@@ -166,7 +166,13 @@ export type ChangeProfileInput = {
   // Judged against the catalog for the session's repository and its
   // profile `judgedFrom`; null when the catalog refuses it, which is
   // answered only after a replay of the same key has been.
-  profile: { id: string; fingerprint: string; unmetered: boolean } | null;
+  profile: {
+    id: string;
+    fingerprint: string;
+    // The new profile's default, which the session runs from the change on.
+    model: string;
+    unmetered: boolean;
+  } | null;
   // The session's profile the judgement was made against; another one under
   // the lock means the session moved since it was read.
   judgedFrom: string | null;

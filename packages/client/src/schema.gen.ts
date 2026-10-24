@@ -427,7 +427,7 @@ export interface paths {
         put?: never;
         /**
          * Durably accept a session and its first input
-         * @description Creates a session for a catalog profile and repository and queues `message` as turn `1`. Whether `repository_id` is sent follows the profile's `repository_mode` (`GET /v1/profiles`): `required` needs it, `none` refuses it, `optional` takes either; a session created without one starts in an empty workspace, has no repository to push to (`POST /v1/sessions/{id}/push-requests` answers 409 PUSH_SOURCE_MISSING) and its detail's `repository_id` is null. The 201 means the input is stored, not that it ran: follow the turn with `GET /v1/sessions/{id}/turns/{turn_id}` or the event stream. `model` picks one of the models the profile offers (its `model` or `models` in the catalog); omitted, the profile's default runs. The model stays until the session's profile is changed (`POST /v1/sessions/{id}/profile`), which runs the new profile's default. A session waits in `queued` while no execution slot is free; it is never refused for that. `agent_release_id` pins the session to that release of an agent, so a key bound to the agent may create it; `profile_id` must be the release's runtime profile (409 RELEASE_PROFILE_MISMATCH). The run itself follows `profile_id`. Every credential the release names must still be bound to its agent; otherwise 409 CREDENTIAL_UNBOUND, whose `details` carry the guidance to show the requester and the agent's admins to ask (`SessionCredentialUnboundDetails`), never the missing names. The receipt settles with turn `1`: `succeeded` when it completes, `failed` when it fails or is interrupted or cancelled, `unknown` when its outcome is unknown.
+         * @description Creates a session for a catalog profile and repository and queues `message` as turn `1`. Whether `repository_id` is sent follows the profile's `repository_mode` (`GET /v1/profiles`): `required` needs it, `none` refuses it, `optional` takes either; a session created without one starts in an empty workspace, has no repository to push to (`POST /v1/sessions/{id}/push-requests` answers 409 PUSH_SOURCE_MISSING) and its detail's `repository_id` is null. The 201 means the input is stored, not that it ran: follow the turn with `GET /v1/sessions/{id}/turns/{turn_id}` or the event stream. `model` picks one of the models the profile offers (its `model` or `models` in the catalog); omitted, the model of the release's card runs when `agent_release_id` is sent, else the profile's default. The session's detail reports it as `model`. The model stays until the session's profile is changed (`POST /v1/sessions/{id}/profile`), which runs the new profile's default. A session waits in `queued` while no execution slot is free; it is never refused for that. `agent_release_id` pins the session to that release of an agent, so a key bound to the agent may create it; `profile_id` must be the release's runtime profile (409 RELEASE_PROFILE_MISMATCH). The run itself follows `profile_id`. Every credential the release names must still be bound to its agent; otherwise 409 CREDENTIAL_UNBOUND, whose `details` carry the guidance to show the requester and the agent's admins to ask (`SessionCredentialUnboundDetails`), never the missing names. The receipt settles with turn `1`: `succeeded` when it completes, `failed` when it fails or is interrupted or cancelled, `unknown` when its outcome is unknown.
          *
          *     **Scope:** `sessions:write` (API key or cookie session). **Idempotency-Key:** required.
          */
@@ -2132,7 +2132,7 @@ export interface components {
             /** @description At most 32768 bytes of UTF-8 */
             message: string;
             agent_release_id?: string;
-            /** @description One of the models the profile offers (its `model` or one of its `models` in the catalog). Omitted, the profile's default `model`. Kept until the session's profile is changed, after which the new profile's default `model` runs. */
+            /** @description One of the models the profile offers (its `model` or one of its `models` in the catalog). Omitted, the model of the agent release's card when `agent_release_id` is sent, else the profile's default `model`. Kept until the session's profile is changed, after which the new profile's default `model` runs. */
             model?: string;
         };
         ListSessionsQuery: {
@@ -2643,6 +2643,8 @@ export interface components {
                 /** @enum {string} */
                 permission_mode: "default" | "acceptEdits" | "dontAsk" | "plan" | "bypassPermissions" | "auto";
             } | null;
+            /** @description The model the session was created to run: the one named at create, else the agent release's card model, else the profile's default. Changing the session's profile sets it to the new profile's default. Null for a session from before the field whose model could not be told from its catalog entry. */
+            model: string | null;
             repository_id: string | null;
             /**
              * @description The repository the session was created against, as the session recorded it then: a later catalog change or removal does not alter it. Null for a session created without a repository.
@@ -2715,6 +2717,8 @@ export interface components {
                 /** @enum {string} */
                 permission_mode: "default" | "acceptEdits" | "dontAsk" | "plan" | "bypassPermissions" | "auto";
             } | null;
+            /** @description The model the session was created to run: the one named at create, else the agent release's card model, else the profile's default. Changing the session's profile sets it to the new profile's default. Null for a session from before the field whose model could not be told from its catalog entry. */
+            model: string | null;
             repository_id: string | null;
             /**
              * @description The repository the session was created against, as the session recorded it then: a later catalog change or removal does not alter it. Null for a session created without a repository.
@@ -6680,6 +6684,7 @@ export interface operations {
                      *             "model": "claude-sonnet-5",
                      *             "permission_mode": "default"
                      *           },
+                     *           "model": "claude-sonnet-5",
                      *           "repository_id": "sample-app",
                      *           "repository": {
                      *             "id": "sample-app",
@@ -7111,6 +7116,7 @@ export interface operations {
                      *         "model": "claude-sonnet-5",
                      *         "permission_mode": "default"
                      *       },
+                     *       "model": "claude-sonnet-5",
                      *       "repository_id": "sample-app",
                      *       "repository": {
                      *         "id": "sample-app",
@@ -7263,6 +7269,7 @@ export interface operations {
                      *         "model": "claude-sonnet-5",
                      *         "permission_mode": "default"
                      *       },
+                     *       "model": "claude-sonnet-5",
                      *       "repository_id": "sample-app",
                      *       "repository": {
                      *         "id": "sample-app",

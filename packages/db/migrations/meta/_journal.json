@@ -477,6 +477,13 @@
       "when": 1792794385461,
       "tag": "0158_session_channel",
       "breakpoints": true
+    },
+    {
+      "idx": 159,
+      "version": "7",
+      "when": 1792804127635,
+      "tag": "0159_session_model",
+      "breakpoints": true
     }
   ]
 }
