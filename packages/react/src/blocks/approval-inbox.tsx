@@ -2,14 +2,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { PendingRequest, SessionSummary } from "@werft-ai/contracts";
 import { waitingSessionsQuery } from "@werft-ai/core";
 import { Badge, cn } from "@werft-ai/ui";
-import {
-  type ReactNode,
-  useEffect,
-  useId,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
+import { type ReactNode, useId, useLayoutEffect, useRef } from "react";
+import { useMinute } from "../components/session/use-minute.ts";
 import { useAgentPlatform } from "../provider.tsx";
 import { usePendingRequests } from "../sessions.ts";
 import {
@@ -39,22 +33,6 @@ export interface ApprovalInboxProps extends SessionActionProps {
   readonly empty?: ReactNode;
   /** The time the summary layout's waits are counted to. */
   readonly now?: number | undefined;
-}
-
-/**
- * The time, moved on every minute while `ticking`: a poll that returns the
- * same data does not re-render, and the waits would stay as first drawn.
- */
-function useMinute(ticking: boolean): number {
-  const [now, setNow] = useState(Date.now);
-  useEffect(() => {
-    if (!ticking) return;
-    // Switched on late (another layout, a dropped `now`): start from now.
-    setNow(Date.now());
-    const id = setInterval(() => setNow(Date.now()), 60_000);
-    return () => clearInterval(id);
-  }, [ticking]);
-  return now;
 }
 
 /**
