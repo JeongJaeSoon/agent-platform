@@ -17,6 +17,7 @@ import {
   PageHeader,
 } from "@werft-ai/ui";
 import { ArrowLeft } from "lucide-react";
+import { useState } from "react";
 
 import { MOBILE, ScreenShell } from "./screen-kit.tsx";
 
@@ -87,6 +88,10 @@ function NewKeyScreen({
   readonly state: State;
 }) {
   const screen = SCREEN[kind];
+  // As in the console, generate waits for at least one scope.
+  const [chosen, setChosen] = useState<readonly string[]>(
+    state === "noScope" ? [] : ["sessions:read"],
+  );
   return (
     <ScreenShell current="settings" crumb={["내 설정", screen.list]}>
       <div className="flex w-full flex-col gap-2">
@@ -130,8 +135,13 @@ function NewKeyScreen({
                   {SCOPES.map((scope) => (
                     <Field key={scope.scope} orientation="horizontal">
                       <Checkbox
-                        defaultChecked={
-                          state !== "noScope" && scope.scope === "sessions:read"
+                        checked={chosen.includes(scope.scope)}
+                        onCheckedChange={(checked) =>
+                          setChosen(
+                            checked === true
+                              ? [...chosen, scope.scope]
+                              : chosen.filter((s) => s !== scope.scope),
+                          )
                         }
                       />
                       <FieldContent>
@@ -167,7 +177,7 @@ function NewKeyScreen({
                 <Button type="button" variant="outline">
                   취소
                 </Button>
-                <Button type="submit" disabled={state === "noScope"}>
+                <Button type="submit" disabled={chosen.length === 0}>
                   key 만들기
                 </Button>
               </CardFooter>
