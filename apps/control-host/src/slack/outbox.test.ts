@@ -165,7 +165,6 @@ function useDatabase(engine: string) {
     slack.statuses.length = 0;
     slack.messages.length = 0;
     slack.failures.clear();
-    slack.rateLimits.clear();
     slack.missingTs.clear();
     logged.length = 0;
   }, 60_000);
@@ -585,10 +584,7 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     const fixture = await agentInSlack();
     await mention(fixture, THREAD);
     await endTurn(await sessionOf(fixture), 1, "completed", [[text("hi")]]);
-    slack.rateLimits.set("chat.postMessage", {
-      retryAfter: "86400",
-      times: 1,
-    });
+    slack.rateLimit("chat.postMessage", 86_400);
     expect(await outboxPass()).toMatchObject({ retried: 1, sent: 0 });
     const [waiting] = await db
       .select({

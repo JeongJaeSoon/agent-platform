@@ -84,11 +84,6 @@ export type FakeSlackWebApi = {
   statuses: { channelId: string; threadTs: string; status: string }[];
   /** Every message chat.postMessage and chat.postEphemeral accepted. */
   messages: FakeSlackMessage[];
-  /**
-   * A method named here answers HTTP 429 with this Retry-After, `times`
-   * more times.
-   */
-  rateLimits: Map<string, { retryAfter: string; times: number }>;
   /** A send method named here answers ok:true without a ts, then forgets. */
   missingTs: Set<string>;
   /** A method named here answers ok:false with this error. */
@@ -170,7 +165,6 @@ export function createFakeSlackWebApi(
   const channels = new Map<string, FakeSlackChannel>();
   const statuses: FakeSlackWebApi["statuses"] = [];
   const messages: FakeSlackMessage[] = [];
-  const rateLimits: FakeSlackWebApi["rateLimits"] = new Map();
   const missingTs = new Set<string>();
   let messageCounter = 0;
 
@@ -579,7 +573,6 @@ export function createFakeSlackWebApi(
     channels,
     statuses,
     messages,
-    rateLimits,
     missingTs,
     failures,
     authorize,
@@ -677,28 +670,22 @@ export function createFakeSlackWebApi(
       if (url.pathname === "/fake/messages" && request.method === "GET") {
         return Response.json({ ok: true, messages });
       }
-      // For curl on the local stack: {method, retry_after?, times?} to rate
-      // limit a method, {method, missing_ts: true} to drop its next ts.
-      if (url.pathname === "/fake/send-faults" && request.method === "POST") {
-        const input = (await request.json()) as {
+      // For curl on the local stack: {method} answers its next send with
+      // ok:true and no ts.
+      if (url.pathname === "/fake/missing-ts" && request.method === "POST") {
+        const input = (await request.json().catch(() => null)) as {
           method?: unknown;
-          retry_after?: unknown;
-          times?: unknown;
-          missing_ts?: unknown;
-        };
-        if (typeof input.method !== "string" || !methods[input.method]) {
+        } | null;
+        if (
+          input?.method !== "chat.postMessage" &&
+          input?.method !== "chat.postEphemeral"
+        ) {
           return Response.json(
             { ok: false, error: "invalid_request" },
             { status: 400 },
           );
         }
-        if (input.missing_ts === true) missingTs.add(input.method);
-        else {
-          rateLimits.set(input.method, {
-            retryAfter: String(input.retry_after ?? "1"),
-            times: typeof input.times === "number" ? input.times : 1,
-          });
-        }
+        missingTs.add(input.method);
         return Response.json({ ok: true });
       }
       if (url.pathname === "/fake/config-tokens" && request.method === "POST") {
@@ -777,16 +764,6 @@ export function createFakeSlackWebApi(
           : null,
         params: await paramsOf(request, url),
       };
-      const limit = rateLimits.get(method);
-      if (limit !== undefined) {
-        if (limit.times <= 1) rateLimits.delete(method);
-        else limit.times -= 1;
-        calls.push({ method, ok: false, error: "ratelimited" });
-        return Response.json(
-          { ok: false, error: "ratelimited" },
-          { status: 429, headers: { "retry-after": limit.retryAfter } },
-        );
-      }
       try {
         const failure = failures.get(method);
         if (failure !== undefined) throw new SlackError(failure);
