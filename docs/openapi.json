@@ -237,6 +237,21 @@
           }
         }
       },
+      "ListAgentsQuery": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": "string",
+            "minLength": 1
+          },
+          "limit": {
+            "default": 50,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        }
+      },
       "CountSessionsQuery": {
         "type": "object",
         "properties": {
@@ -8587,10 +8602,22 @@
               ],
               "additionalProperties": false
             }
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
-          "items"
+          "items",
+          "next_cursor"
         ],
         "additionalProperties": false
       },
@@ -31549,16 +31576,37 @@
           "Agents"
         ],
         "summary": "The workspace's agents",
-        "description": "Up to 500, oldest first. API keys are refused.\n\n**Auth:** cookie session only; no scope.",
+        "description": "Lists the workspace's agents oldest `created_at` first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor this endpoint did not issue answers 400. API keys are refused.\n\n**Auth:** cookie session only; no scope.",
         "security": [
           {
             "cookieSession": []
           }
         ],
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          }
+        ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "One page of agents.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -31568,6 +31616,41 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ListAgentsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "- `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BAD_REQUEST"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
                 }
               }
             }

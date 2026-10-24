@@ -6,6 +6,7 @@ import {
   createAgentReleaseRequestSchema,
   createAgentReleaseResponseSchema,
   createAgentRequestSchema,
+  listAgentsQuerySchema,
   listAgentsResponseSchema,
   updateAgentRequestSchema,
 } from "@werft-ai/contracts";
@@ -16,14 +17,17 @@ import {
   jsonWithSchema,
   parseJsonBody,
 } from "../app.ts";
-import { mapped, requireParams } from "./errors.ts";
+import { mapped, requireParams, requireQuery } from "./errors.ts";
 
 export function registerAgentRoutes(
   router: ApiRouter,
   service: Omit<AgentService, "resolveRelease">,
 ) {
   apiRoute(router, "listAgents", async (context) => {
-    const page = await mapped(() => service.listAgents(context.get("caller")));
+    const query = requireQuery(context, listAgentsQuerySchema);
+    const page = await mapped(() =>
+      service.listAgents(context.get("caller"), query),
+    );
     return jsonWithSchema(context, listAgentsResponseSchema, page);
   });
 

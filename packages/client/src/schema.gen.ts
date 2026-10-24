@@ -1454,7 +1454,7 @@ export interface paths {
         };
         /**
          * The workspace's agents
-         * @description Up to 500, oldest first. API keys are refused.
+         * @description Lists the workspace's agents oldest `created_at` first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor this endpoint did not issue answers 400. API keys are refused.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -2151,6 +2151,11 @@ export interface components {
             relation?: "all" | "started" | "shared" | "administered";
             /** @description Matches a session whose title contains it, ignoring case, or whose id starts with it. */
             q?: string;
+        };
+        ListAgentsQuery: {
+            cursor?: string;
+            /** @default 50 */
+            limit: number;
         };
         CountSessionsQuery: {
             /**
@@ -3833,6 +3838,7 @@ export interface components {
                 /** Format: date-time */
                 updated_at: string;
             }[];
+            next_cursor: string | null;
         };
         ListProfilesResponse: {
             items: {
@@ -13660,14 +13666,17 @@ export interface operations {
     };
     listAgents: {
         parameters: {
-            query?: never;
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description One page of agents. */
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -13675,6 +13684,21 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ListAgentsResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
                 };
             };
             /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */

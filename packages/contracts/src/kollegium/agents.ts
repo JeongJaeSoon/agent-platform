@@ -6,6 +6,8 @@ import {
   agentVersionIdSchema,
   canonicalJson,
   INT4_MAX,
+  pageSchema,
+  paginationQuerySchema,
   receiptIdSchema,
   sha256HexSchema,
   timestampSchema,
@@ -349,9 +351,8 @@ export const agentDetailSchema = z
     active_release: agentReleaseSchema.nullable(),
   })
   .strict();
-export const listAgentsResponseSchema = z
-  .object({ items: z.array(agentSchema) })
-  .strict();
+export const listAgentsQuerySchema = paginationQuerySchema;
+export const listAgentsResponseSchema = pageSchema(agentSchema);
 
 /** Creates the agent and its first version; nothing is released. */
 export const createAgentRequestSchema = z
@@ -440,6 +441,7 @@ export type UpdateAgentRequest = z.infer<typeof updateAgentRequestSchema>;
 export type DraftAgentRequest = z.infer<typeof draftAgentRequestSchema>;
 export type DraftAgentResponse = z.infer<typeof draftAgentResponseSchema>;
 export type AgentDetail = z.infer<typeof agentDetailSchema>;
+export type ListAgentsQuery = z.infer<typeof listAgentsQuerySchema>;
 export type ListAgentsResponse = z.infer<typeof listAgentsResponseSchema>;
 export type PolicyPins = z.infer<typeof policyPinsSchema>;
 export type ToolPolicy = z.infer<typeof toolPolicySchema>;

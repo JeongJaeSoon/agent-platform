@@ -6,11 +6,17 @@ import {
   type AgentVersion,
   agentCardSchema,
   agentReleaseSchema,
+  type ListAgentsResponse,
   type ReceiptOperation,
 } from "@werft-ai/contracts";
 import type { ActivateResult, AgentStore, Principal } from "@werft-ai/platform";
 import { and, asc, eq, max, sql } from "drizzle-orm";
 import { actorStillMember, receiptActorOf } from "./control-shared.ts";
+import {
+  decodeCreatedAtCursor,
+  encodeCreatedAtCursor,
+  rethrowCursorCastError,
+} from "./cursors.ts";
 import { DB_NOW } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import {
@@ -145,14 +151,37 @@ async function lockAgent(tx: Database, workspaceId: string, agentId: string) {
 
 export function createPostgresAgentStore(db: Database): AgentStore {
   return {
-    async list(workspaceId, limit) {
+    async list(workspaceId, query): Promise<ListAgentsResponse> {
+      const cursor = query.cursor ? decodeCreatedAtCursor(query.cursor) : null;
       const rows = await db
-        .select()
+        .select({
+          agent: agents,
+          cursorAt: sql<string>`${agents.createdAt}::text`,
+        })
         .from(agents)
-        .where(eq(agents.workspaceId, workspaceId))
+        .where(
+          and(
+            eq(agents.workspaceId, workspaceId),
+            cursor
+              ? sql`(${agents.createdAt}, ${agents.id}) > (${cursor.created_at}::timestamptz, ${cursor.id}::uuid)`
+              : undefined,
+          ),
+        )
         .orderBy(asc(agents.createdAt), asc(agents.id))
-        .limit(limit);
-      return rows.map(agentOf);
+        .limit(query.limit + 1)
+        .catch(rethrowCursorCastError);
+      const page = rows.slice(0, query.limit);
+      const last = page[page.length - 1];
+      return {
+        items: page.map((row) => agentOf(row.agent)),
+        next_cursor:
+          rows.length > query.limit && last
+            ? encodeCreatedAtCursor({
+                created_at: last.cursorAt,
+                id: last.agent.id,
+              })
+            : null,
+      };
     },
 
     get: (workspaceId, agentId) => detailOf(db, workspaceId, agentId),

@@ -71,6 +71,7 @@ import {
   listAdministeredAgentsResponseSchema,
   listAdminSessionsResponseSchema,
   listAgentIdentitiesResponseSchema,
+  listAgentsQuerySchema,
   listAgentsResponseSchema,
   listApiKeysResponseSchema,
   listCredentialBindingsResponseSchema,
@@ -188,6 +189,7 @@ const openApiDocumentResponseSchema = z.looseObject({
 const requestComponents = {
   CreateSessionRequest: createSessionRequestSchema,
   ListSessionsQuery: listSessionsQuerySchema,
+  ListAgentsQuery: listAgentsQuerySchema,
   CountSessionsQuery: countSessionsQuerySchema,
   UsageSummaryQuery: usageSummaryQuerySchema,
   PostSessionMessageRequest: postSessionMessageRequestSchema,
@@ -2476,10 +2478,16 @@ export const API_ROUTE_DECLARATIONS = [
     operationId: "listAgents",
     tag: "Agents",
     summary: "The workspace's agents",
-    description: "Up to 500, oldest first. API keys are refused.",
+    description:
+      "Lists the workspace's agents oldest `created_at` first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor this endpoint did not issue answers 400. API keys are refused.",
     auth: "session",
-    success: { status: 200, schema: "ListAgentsResponse" },
-    errors: [401, 403, 503],
+    query: "ListAgentsQuery",
+    success: {
+      status: 200,
+      schema: "ListAgentsResponse",
+      description: "One page of agents.",
+    },
+    errors: [400, 401, 403, 503],
   },
   {
     method: "post",

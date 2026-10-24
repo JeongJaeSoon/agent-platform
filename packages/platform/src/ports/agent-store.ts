@@ -1,9 +1,10 @@
 import type {
-  Agent,
   AgentCard,
   AgentDetail,
   AgentRelease,
   AgentVersion,
+  ListAgentsResponse,
+  PaginationQuery,
 } from "@werft-ai/contracts";
 import type { Principal } from "../musterrolle/policy.ts";
 
@@ -45,7 +46,11 @@ export type ActivateResult =
   | Inactive;
 
 export interface AgentStore {
-  list(workspaceId: string, limit: number): Promise<Agent[]>;
+  /** One page, oldest first; a malformed cursor throws InvalidCursorError. */
+  list(
+    workspaceId: string,
+    query: PaginationQuery,
+  ): Promise<ListAgentsResponse>;
   get(workspaceId: string, agentId: string): Promise<AgentDetail | null>;
   findVersion(
     workspaceId: string,
