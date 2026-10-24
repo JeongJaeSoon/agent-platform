@@ -87,7 +87,12 @@ export function slackOutboxText(body: SlackOutboxEntry["body"]): string {
     body.link_url !== undefined && isSafeLink(body.link_url)
       ? `\n\n<${body.link_url}|${SLACK_OUTBOX_MESSAGES.link}>`
       : "";
-  const text = escapeSlackControls(body.text);
+  const text = escapeSlackControls(
+    body.text,
+    body.mention_user_ids === undefined
+      ? undefined
+      : { userIds: body.mention_user_ids },
+  );
   const room = SLACK_TEXT_MAX - link.length;
   if (text.length <= room) return text + link;
   let cut = room - 1;
@@ -160,7 +165,13 @@ export async function enqueueSlackTurnAnswers(deps: {
       threadTs: turn.threadTs,
       slackUserId: null,
       sessionId: turn.sessionId,
-      body: link_url === undefined ? { text } : { text, link_url },
+      body: {
+        text,
+        ...(link_url === undefined ? {} : { link_url }),
+        ...(turn.requesterSlackUserId === null
+          ? {}
+          : { mention_user_ids: [turn.requesterSlackUserId] }),
+      },
       dedupeKey: slackTurnDedupeKey(
         turn.state,
         turn.sessionLinkId,
@@ -195,10 +206,7 @@ function settleFor(
     case "sent":
       return { status: "sent", slackTs: outcome.ts };
     case "failed":
-      // Slack said ok but named no message: it may hold one, so no resend.
-      return outcome.code === "missing_ts"
-        ? { status: "uncertain", errorCode: outcome.code }
-        : { status: "failed", errorCode: outcome.code };
+      return { status: "failed", errorCode: outcome.code };
     case "retry_after":
       return claim.attempts >= SLACK_OUTBOX_MAX_ATTEMPTS
         ? { status: "failed", errorCode: "ratelimited" }

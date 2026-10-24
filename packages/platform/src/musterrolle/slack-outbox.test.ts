@@ -45,6 +45,15 @@ describe("slackOutboxText", () => {
     );
   });
 
+  test("lets through only the mentions the body names", () => {
+    expect(
+      slackOutboxText({
+        text: "<@U1> <@U2> <!here>",
+        mention_user_ids: ["U1"],
+      }),
+    ).toBe("<@U1> &lt;@U2&gt; &lt;!here&gt;");
+  });
+
   test("drops a link Slack would read as more than a link", () => {
     expect(
       slackOutboxText({ text: "hi", link_url: "https://x.example/a|b>" }),
@@ -71,7 +80,8 @@ describe("slackOutboxText", () => {
     });
     expect(emoji.length).toBeLessThanOrEqual(SLACK_TEXT_MAX);
     expect(emoji).toEndWith(`a…${link}`);
-    expect(emoji.isWellFormed()).toBe(true);
+    // Throws on a lone surrogate.
+    expect(() => encodeURIComponent(emoji)).not.toThrow();
   });
 
   test("leaves text that fits alone", () => {

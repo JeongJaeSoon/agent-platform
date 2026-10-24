@@ -793,7 +793,7 @@ scripts/slack-funnel.sh off                  # on과 같은 --https·--set-path�
 
 공개 port는 `SLACK_FUNNEL_HTTPS_PORT`(443 기본, 8443, 10000)다. 그 뒤 API에 `SLACK_EVENTS_PUBLIC_URL=https://<host>.ts.net`(443이 아니면 `:<port>`)을 주고 다시 띄운 다음, 설치를 하거나 `slack-app finalize`를 실행한다. Helm chart의 Ingress는 사내 전용이라 Slack이 닿지 않는다. Slack용 입구는 `/v1/slack/events` Prefix만 넘기는 인터넷 쪽 Ingress·LB를 따로 두고, 그 주소를 `api.extraEnv.SLACK_EVENTS_PUBLIC_URL`에 준다.
 
-로컬 mock overlay의 가짜 Slack은 서명된 이벤트도 보낸다. `POST http://mock-slack:4020/fake/events` `{url, app_id, team_id, event, event_id?, age_seconds?, retry_num?}`는 그 앱의 signing secret으로 서명해 `url`로 보내고 `{ok, status, body, event_id}`를 돌려준다. `challenge`를 주면 `url_verification`을 보낸다. signing secret은 출력하지 않는다. 같은 가짜가 `slack` 역할의 bot 호출에도 답한다: `users.info`(모르는 사용자는 `MOCK_SLACK_TEAM_ID`의 정회원), `conversations.info`(id가 `D`로 시작하면 DM, `G`면 비공개, 나머지는 공개), `agents.sessions.setStatus`(받은 상태는 `GET http://mock-slack:4020/fake/statuses`가 돌려준다). 셋 다 그 가짜가 발급한 bot token만 받는다.
+로컬 mock overlay의 가짜 Slack은 서명된 이벤트도 보낸다. `POST http://mock-slack:4020/fake/events` `{url, app_id, team_id, event, event_id?, age_seconds?, retry_num?}`는 그 앱의 signing secret으로 서명해 `url`로 보내고 `{ok, status, body, event_id}`를 돌려준다. `challenge`를 주면 `url_verification`을 보낸다. signing secret은 출력하지 않는다. 같은 가짜가 `slack` 역할의 bot 호출에도 답한다: `users.info`(모르는 사용자는 `MOCK_SLACK_TEAM_ID`의 정회원), `conversations.info`(id가 `D`로 시작하면 DM, `G`면 비공개, 나머지는 공개), `agents.sessions.setStatus`(받은 상태는 `GET http://mock-slack:4020/fake/statuses`가 돌려준다), `chat.postMessage`·`chat.postEphemeral`(받은 글과 요청 필드는 `GET http://mock-slack:4020/fake/messages`가 돌려준다). 모두 그 가짜가 발급한 bot token만 받는다. `POST http://mock-slack:4020/fake/send-faults` `{method, retry_after?, times?}`는 그 method가 `times`번 429와 `Retry-After`로 답하게 하고, `{method, missing_ts: true}`는 다음 한 번을 ts 없는 `ok:true`로 답하게 한다.
 
 **Slack inbox 처리 (`slack` 역할)**
 
@@ -838,18 +838,31 @@ Slack 스레드 하나는 세션 하나다. 그 묶음이 `session_links`의 행
 9. lease를 다시 쥐고(`renew`: `id`·`claim_token`이 같고 lease가 살아 있을 때 `lease_expires_at = now() + lease`) 설치 상태를 같은 문장에서 읽는다. lease를 잃었으면 아무것도 쓰지 않고 던진다(다른 pass가 이미 잡았다). 그 사이 설치가 `revoked`가 됐으면 `dropped`·`installation_revoked`다.
 10. 새 스레드면 연결 행을 잡는다: `INSERT … ON CONFLICT DO NOTHING RETURNING`, 없으면 `SELECT … FOR UPDATE`. 동시에 온 첫 메시지 둘도 행 하나를 같이 쓴다.
 11. 연결에 세션이 없거나 이 메시지가 연 메시지(`opened_by_ts`)면 `createSession`(idempotency key = 연결 행 id, body `{profile_id, agent_release_id, message}`, repository 없음)으로 만들고 연결 행에 붙인다. 아니면 `appendMessage`(idempotency key `<team>:<channel>:<ts>`, `mode: enqueue`)로 다음 턴을 넣는다. 둘 다 웹·API와 같은 session service 경로다. 세션 쪽 거절(`RATE_LIMITED`·`BACKEND_UNAVAILABLE` 말고)은 안내 "지금은 요청을 처리하지 못했어요"를 남기고 끝낸다. 그 둘은 던져서 다시 한다.
-12. Slack에 스레드 상태를 보낸다: `agents.sessions.setStatus` `{channel_id, thread_ts: <스레드 root>, status: "processing"}`. 세션 쓰기 뒤에 보내서 lease를 다시 쥔 때와 세션 쓰기 사이에 Slack 호출이 끼지 않는다. `not_authorized`·`feature_disabled`·`thread_ts_required`는 그 workspace가 상태를 보이지 않는다는 뜻이라 info 로그, 다른 실패는 warn 로그이고 어느 쪽도 처리를 막지 않는다. `active`로 되돌리는 것은 응답을 보내는 쪽(아직 없음)이 한다.
+12. Slack에 스레드 상태를 보낸다: `agents.sessions.setStatus` `{channel_id, thread_ts: <스레드 root>, status: "processing"}`. 세션 쓰기 뒤에 보내서 lease를 다시 쥔 때와 세션 쓰기 사이에 Slack 호출이 끼지 않는다. `not_authorized`·`feature_disabled`·`thread_ts_required`는 그 workspace가 상태를 보이지 않는다는 뜻이라 info 로그, 다른 실패는 warn 로그이고 어느 쪽도 처리를 막지 않는다. `active`로 되돌리는 것은 답을 보내는 outbox(아래 "Slack outbox")다.
 
 - 같은 메시지가 두 번 오는 일(Slack은 채널의 멘션 하나에 `app_mention`과 `message`를 둘 다 보내고, 재시도도 있다)은 key로 막는다. 첫 메시지는 연결 행 id라 두 번째 이벤트가 같은 세션을 돌려받고, 답글은 `<team>:<channel>:<ts>`가 턴과 같은 transaction의 receipt에 남아 두 번째 이벤트가 같은 턴을 돌려받는다. 따로 dedupe 표를 두지 않은 것은 이 key가 세션 쓰기와 한 transaction이라 "기록은 됐는데 턴은 없다"가 생기지 않기 때문이다.
 - pass가 연결 행을 잡은 뒤 `createSession` 전에 죽으면 lease가 끝난 뒤 다음 pass가 같은 key로 세션을 만든다. 연 메시지가 5번 다 실패한 채 연결 행에 세션이 없고 다음 답글이 오면, 그 key로 이미 만들어진 세션(receipt)이 있으면 그 세션을 붙이고 답글을 다음 턴으로 넣는다. 없으면 `opened_by_ts`를 그 답글로 넘기고 같은 연결 행 id key로 세션을 연다. 세션 key는 스레드마다 하나뿐이다.
 - 세션은 Slack 사람의 연결된 계정(`linked_accounts`의 `(team, user)`)으로 만든다. `created_by_user_id`·1번 턴의 `actor_id`가 그 사람이고 `channel`은 `slack`이며, 판정 행(`authz_decisions`)에 `linked_account_id`가 남는다. DM 세션은 공유 범위 `private`로 시작한다(만든 사람만 본다. owner·admin은 위 "세션 공유 범위와 감사 열람"의 두 길로만 다룬다. `GET /v1/sessions/{id}/share`로 확인한다). 채널 세션은 웹과 같은 기본 범위다.
 - 세션의 실행(worker claim·provider 호출)은 api와 worker가 한다. provider credential은 그때 api가 푼 catalog로 정해지므로, `slack` 역할이 만든 세션도 api의 key로 돈다.
-- 안내는 아직 보내지 않는다. `SlackNoticeSink`가 받아 로그 한 줄(`Slack notice held for delivery`, id·이유만, 문구·링크 없음)로 남긴다. 보내는 쪽은 ephemeral로 보낼 예정이다. 담는 것: workspace·에이전트·설치·`slack_app_id`·team·channel·스레드 root `thread_ts`·Slack user·이유·문구(`SlackNotice`)·한 번만 보낼 key `<installation_id>:<surface_ref>:<slack_user_id>`.
+- 거절 안내는 `SlackNoticeSink`가 받아 outbox에 `notice` 행으로 넣는다(아래 "Slack outbox"). 그 사람에게만 ephemeral로, 한 번만 보낼 key `<installation_id>:<surface_ref>:<slack_user_id>`로 스레드당 한 번 간다. 담는 것: workspace·에이전트·설치·`slack_app_id`·channel·스레드 root `thread_ts`·Slack user·문구(`SlackNotice`).
 
 | 설정 | 기본 | 의미 |
 |---|---|---|
-| `SLACK_API_URL` | `https://slack.com/api` | bot 호출(`users.info`·`conversations.info`·`agents.sessions.setStatus`)이 가는 곳. mock overlay는 `http://mock-slack:4020/api` |
-| `SLACK_OIDC_REDIRECT_URI` | 없음 | 안내의 연결 링크(`<콘솔 origin>/settings/linked-accounts`)를 이 값의 origin으로 만든다. 없으면 링크 없이 문구만 남는다 |
+| `SLACK_API_URL` | `https://slack.com/api` | bot 호출(`users.info`·`conversations.info`·`agents.sessions.setStatus`·`chat.postMessage`·`chat.postEphemeral`)이 가는 곳. mock overlay는 `http://mock-slack:4020/api` |
+| `SLACK_OIDC_REDIRECT_URI` | 없음 | 안내의 연결 링크(`<콘솔 origin>/settings/linked-accounts`)와 답의 세션 링크(`<콘솔 origin>/sessions/<id>`)를 이 값의 origin으로 만든다. 없으면 링크 없이 문구만 남는다 |
+
+**Slack outbox**
+
+`slack` 역할이 Slack에 보내는 글은 모두 `slack_outbox`(0162) 행 하나다. 같은 pass에서 inbox를 비운 뒤 같은 pass 예산 안에서 outbox를 비운다. 행 종류는 `reply`(턴의 답), `failure_notice`(모델이 끝내 실패한 턴, 또는 보냈는지 모르는 답), `input_notice`(웹에서만 줄 수 있는 승인을 기다리는 턴), `notice`(거절 안내)다. 행마다 `dedupe_key`가 unique라 같은 키는 한 번만 들어간다: `reply:<session_link_id>:<turn>`, `failure:…`, `input:…`, `notice:<onceKey>`.
+
+- 답 찾기: pass마다 살아 있는(회수·mute 안 됨, `visibility=full`) 연결의 세션에서 끝난 턴(`completed`·`failed`·`outcome_unknown`) 중 행이 없는 것을 읽어 넣는다. 연결보다 먼저 만든 턴과 끝난 지 하루가 넘은 턴은 넣지 않는다(첫 배포나 역할이 오래 멈춘 뒤 밀린 답을 쏟지 않는다). 답 글은 마지막 attempt의 top-level(`parent_tool_use_id`가 없는) assistant 이벤트 중 마지막 tool 호출 뒤의 글이다. 지연은 pass 간격만큼이다. 세션 쪽 코드는 outbox를 모른다.
+- 글: 792a의 `escapeSlackControls`로 `<!here>`·`<!channel>`·`<!everyone>`·`<!subteam^…>`·`<#C…>`·`<@U…>`·중첩 `<`를 글자로 바꾼다. 닫힌 code span 안은 그대로 둔다. 답은 그 턴을 요청한 사람의 연결된 Slack 계정 멘션만 남긴다. 끝에 콘솔 세션 링크 하나를 붙이고, 40,000자(Slack `chat.postMessage` `text` 한도)를 넘으면 잘라서 `…`와 링크를 붙인다. 한 턴은 메시지 하나다.
+- 요청: `chat.postMessage` `{channel, thread_ts: <스레드 root>, text, link_names: false, unfurl_links: false, unfurl_media: false}`, 안내는 `chat.postEphemeral` `{channel, user, thread_ts, text}`. bot token은 inbox와 같은 `slack_app:<id>/slack_bot_token`이다. master key가 없으면 행을 넣기만 하고 보내지 않는다.
+- 상태: `pending` → claim(`FOR UPDATE SKIP LOCKED`, `claim_token`, `lease_expires_at = now() + SLACK_ROLE_LEASE_SEC`, `attempts + 1`, 행은 아직 `pending`) → 요청 직전에 `sending` → 결과. 결과 판정은 792a `classifySlackSendResult`다. 성공은 `sent`(Slack `ts` 저장), 영구 오류는 `failed`(`error_code` 저장), 그 밖의 실패는 `pending`과 backoff(30초에서 두 배, 상한 5분, DB 시계)이고 5번째 시도에서 `failed`다. 429·`ratelimited`는 `Retry-After`만큼(5분으로 자름) 뒤로 미루고, 429도 시도로 세되 상한은 10번이다. 쓰기는 `id`·`claim_token`이 같을 때만 한다.
+- `uncertain`: Slack이 그 글을 가졌을 수 있어 다시 보내지 않는 행이다. `sending`인 채 lease가 끝난 행(보내는 도중 역할이 죽음)과 응답 없이 끊긴 요청이 여기로 간다. ts 없는 `ok:true`는 `failed`(`missing_ts`)이고 역시 다시 보내지 않는다. 다음 pass가 `Slack send outlived its lease; marked uncertain` 한 줄을 남기고, 답이면 스레드에 "답을 보냈는지 확인하지 못했어요. 웹에서 확인해 주세요"와 세션 링크를 한 번 보낸다.
+- 답·실패 안내가 끝나면(`sent`·`failed`·`uncertain`) `agents.sessions.setStatus` `active`로 "생각 중" 표시를 지운다. 이 호출이 실패해도 행 상태는 그대로이고 warn 로그만 남는다. 승인 대기 안내와 거절 안내는 상태를 바꾸지 않는다.
+- 로그는 pass 요약 `Slack outbox pass`(넣은 수·claim·sent·retried·failed·uncertain)와 보내지 못한 행의 `Slack send not delivered`(id·종류·channel·시도·상태·오류 코드)다. 글·token은 로그와 행에 남지 않는다(행의 `body`는 escape 전 원문이다).
+- 행 확인: `select kind, status, attempts, error_code, thread_ts from slack_outbox order by created_at`.
 
 ### 에이전트의 Slack 채널 설정
 

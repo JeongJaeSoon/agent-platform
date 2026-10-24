@@ -9,6 +9,7 @@ import { actionableOfTurn } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
 import {
   events,
+  linkedAccounts,
   sessionLinks,
   sessions,
   slackApps,
@@ -69,6 +70,7 @@ export function createPostgresSlackOutboxStore(db: Database): SlackOutboxStore {
           turnId: turns.sequence,
           status: turns.status,
           attemptId: turns.attemptId,
+          requesterSlackUserId: linkedAccounts.externalUserId,
         })
         .from(sessionLinks)
         .innerJoin(sessions, eq(sessions.id, sessionLinks.sessionId))
@@ -78,6 +80,19 @@ export function createPostgresSlackOutboxStore(db: Database): SlackOutboxStore {
         )
         .innerJoin(slackApps, eq(slackApps.appId, slackInstallations.appId))
         .innerJoin(turns, eq(turns.sessionId, sessions.id))
+        .leftJoin(
+          linkedAccounts,
+          and(
+            eq(linkedAccounts.workspaceId, sessionLinks.workspaceId),
+            eq(
+              linkedAccounts.userId,
+              sql`coalesce(${turns.actorId}, ${sessionLinks.createdBy})`,
+            ),
+            eq(linkedAccounts.provider, "slack"),
+            eq(linkedAccounts.externalTenant, slackInstallations.teamId),
+            eq(linkedAccounts.status, "active"),
+          ),
+        )
         .where(
           and(
             isNull(sessionLinks.revokedAt),

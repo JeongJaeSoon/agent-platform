@@ -227,7 +227,7 @@ async function agentInSlack() {
     catalog: await loadSessionCatalog({
       dir: root,
       env: { PROVIDER_KEY: "api-side-only" },
-      readSecret: async () => null,
+      readSecret: async () => undefined,
     }),
     credentials: createPostgresCredentialBindingStore(db),
   });
@@ -438,7 +438,11 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     const sessionId = await sessionOf(fixture);
     await endTurn(sessionId, 1, "completed", [
       [text("Let me look."), toolUse],
-      [text("Done: ping <!here> and <@U0ELSE>, but `<!here>` stays code.")],
+      [
+        text(
+          "Done: ping <!here>, <@U0ELSE> and <@U0OWNER>, but `<!here>` stays code.",
+        ),
+      ],
     ]);
 
     expect(await outboxPass()).toMatchObject({ enqueued: 1, sent: 1 });
@@ -450,7 +454,7 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
         channelId: CHANNEL,
         threadTs: THREAD,
         userId: null,
-        text: `Done: ping &lt;!here&gt; and &lt;@U0ELSE&gt;, but \`<!here>\` stays code.\n\n<${CONSOLE}/sessions/${sessionId}|${SLACK_OUTBOX_MESSAGES.link}>`,
+        text: `Done: ping &lt;!here&gt;, &lt;@U0ELSE&gt; and <@${PERSON}>, but \`<!here>\` stays code.\n\n<${CONSOLE}/sessions/${sessionId}|${SLACK_OUTBOX_MESSAGES.link}>`,
         ts: expect.any(String),
         options: {
           link_names: "false",
@@ -611,18 +615,43 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     expect((await rows())[0]).toMatchObject({ status: "sent", attempts: 2 });
   });
 
-  test("ok without a ts is uncertain and never sent again", async () => {
+  test("ok without a ts fails and is never sent again", async () => {
     const fixture = await agentInSlack();
     await mention(fixture, THREAD);
     await endTurn(await sessionOf(fixture), 1, "completed", [[text("hi")]]);
     slack.missingTs.add("chat.postMessage");
-    expect(await outboxPass()).toMatchObject({ uncertain: 1 });
+    expect(await outboxPass()).toMatchObject({ failed: 1 });
     await outboxPass();
     expect(posted()).toHaveLength(1);
     expect((await rows())[0]).toMatchObject({
-      status: "uncertain",
+      status: "failed",
       errorCode: "missing_ts",
     });
+  });
+
+  test("a transient error backs off and fails on the fifth attempt", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    await endTurn(await sessionOf(fixture), 1, "completed", [[text("hi")]]);
+    slack.failures.set("chat.postMessage", "internal_error");
+    const waits: number[] = [];
+    for (let attempt = 1; attempt <= 5; attempt += 1) {
+      await outboxPass();
+      const [row] = await db
+        .select({
+          status: slackOutbox.status,
+          attempts: slackOutbox.attempts,
+          waitMs: sql<number>`extract(epoch from ${slackOutbox.nextAttemptAt} - now()) * 1000`,
+        })
+        .from(slackOutbox);
+      expect(row?.attempts).toBe(attempt);
+      expect(row?.status).toBe(attempt < 5 ? "pending" : "failed");
+      if (attempt < 5) waits.push(Math.round(Number(row?.waitMs) / 1000));
+      await db.update(slackOutbox).set({ nextAttemptAt: sql`now()` });
+    }
+    expect(waits).toEqual([30, 60, 120, 240]);
+    expect((await rows())[0]).toMatchObject({ errorCode: "internal_error" });
+    expect(slack.statuses.at(-1)).toMatchObject({ status: "active" });
   });
 
   test("an error no retry clears fails the row at once", async () => {

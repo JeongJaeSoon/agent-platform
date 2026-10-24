@@ -23,8 +23,13 @@ export type SlackOutboxStatus =
   | "failed"
   | "uncertain";
 
-/** What goes out, before Slack controls are escaped. */
-export type SlackOutboxBody = SlackNotice;
+/**
+ * What goes out, before Slack controls are escaped. `mention_user_ids`: the
+ * only Slack users the text may notify (a reply's requester).
+ */
+export type SlackOutboxBody = SlackNotice & {
+  mention_user_ids?: string[];
+};
 
 export type SlackOutboxEntry = {
   workspaceId: string;
@@ -75,6 +80,8 @@ export type SlackUnansweredTurn = SlackLinkedTurnTarget & {
   /** The public turn id, 1-based within the session. */
   turnId: number;
   state: "completed" | "failed" | "needs_input";
+  /** The Slack account linked to whoever asked for the turn, if any. */
+  requesterSlackUserId: string | null;
   /**
    * The final attempt's top-level assistant and tool_use event payloads,
    * in order; empty unless the turn completed.
