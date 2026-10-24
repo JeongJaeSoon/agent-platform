@@ -89,6 +89,10 @@ export function RelationGraph({
   useLayoutEffect(() => {
     measure();
     const observer = new ResizeObserver(measure);
+    // A row can rewrap while the box keeps its size (the root card sets it).
+    for (const el of box.current?.querySelectorAll("[data-node], [data-row]") ??
+      [])
+      observer.observe(el);
     if (box.current) observer.observe(box.current);
     return () => observer.disconnect();
   }, [measure, session, nodes]);

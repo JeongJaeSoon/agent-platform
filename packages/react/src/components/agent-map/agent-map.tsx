@@ -46,8 +46,8 @@ export function AgentMap({
   messages: override,
 }: AgentMapProps): JSX.Element {
   const messages = useAgentMapMessages(override);
-  if (loading) return <AgentMapLoading messages={messages} />;
   const detail = view === "detail";
+  if (loading) return <AgentMapLoading detail={detail} messages={messages} />;
   return (
     <div className={COLUMNS}>
       <div className={detail ? "hidden md:block" : undefined}>
@@ -101,14 +101,20 @@ const CARD_ROWS = [
 ] as const;
 
 function AgentMapLoading({
+  detail,
   messages,
 }: {
+  readonly detail: boolean;
   readonly messages: AgentMapMessages;
 }): JSX.Element {
   return (
     <div className={COLUMNS}>
       <output className="sr-only">{messages.loading}</output>
-      <div aria-hidden="true" className="flex min-w-0 flex-col gap-4">
+      <div
+        aria-hidden="true"
+        data-stand-in="board"
+        className={`min-w-0 flex-col gap-4 ${detail ? "hidden md:flex" : "flex"}`}
+      >
         {(["attention", "running", "queued", "idle"] as const).map((lane) => (
           <section key={lane} className="flex flex-col gap-2">
             <h2 className="m-0 text-control font-semibold">
@@ -128,7 +134,11 @@ function AgentMapLoading({
           </section>
         ))}
       </div>
-      <Card aria-hidden="true" className="hidden min-w-0 gap-4 p-4 md:flex">
+      <Card
+        aria-hidden="true"
+        data-stand-in="panel"
+        className={`min-w-0 gap-4 p-4 ${detail ? "flex" : "hidden md:flex"}`}
+      >
         <Skeleton width="45%" label="" />
         <Skeleton width="60%" label="" />
         <div className="grid grid-cols-[176px_minmax(0,1fr)] gap-x-12 gap-y-3">

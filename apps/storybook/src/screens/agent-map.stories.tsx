@@ -6,6 +6,7 @@ import {
 } from "@werft-ai/react/agent-map";
 import { Button, PageHeader } from "@werft-ai/ui";
 import { type ReactNode, useState } from "react";
+import { expect, userEvent, within } from "storybook/test";
 
 import {
   ago,
@@ -41,6 +42,9 @@ function AgentMapScreen({
   readonly toolbar?: ReactNode;
 }) {
   const [selectedId, setSelectedId] = useState(initialSelected);
+  const [view, setView] = useState<"board" | "detail">(
+    detailOnly ? "detail" : "board",
+  );
   const session = sessions.find((s) => s.id === selectedId) ?? sessions[0];
   return (
     <ScreenShell current="sessions" crumb={["세션", "에이전트 지도"]}>
@@ -59,8 +63,12 @@ function AgentMapScreen({
           selected={
             session ? { session, nodes: nodes[session.id] ?? [] } : null
           }
-          onSelect={setSelectedId}
-          view={detailOnly ? "detail" : "board"}
+          onSelect={(id) => {
+            setSelectedId(id);
+            setView("detail");
+          }}
+          view={view}
+          onBack={() => setView("board")}
           loading={loading}
           now={NOW}
         />
@@ -233,6 +241,18 @@ export const WaitingSelected: Story = {
 export const MobileBoard: Story = {
   name: "Board (390px)",
   globals: MOBILE,
+  // Opens the already selected card, so the board comes back as it started.
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(
+      canvas.getByRole("button", { name: /대시보드 차트 접근성 점검/ }),
+    );
+    const back = canvas.getByRole("button", { name: "← 목록으로" });
+    await userEvent.click(back);
+    await expect(
+      canvas.queryByRole("button", { name: "← 목록으로" }),
+    ).not.toBeInTheDocument();
+  },
 };
 export const MobileDetail: Story = {
   name: "Detail only (390px tree)",

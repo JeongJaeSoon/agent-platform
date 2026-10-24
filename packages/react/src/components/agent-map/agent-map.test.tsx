@@ -208,11 +208,18 @@ describe("LaneBoard", () => {
     expect(strip.textContent).toContain("답변 대기 2 · 가장 오래 12분");
     const lines = [...strip.querySelectorAll("li")].map((li) => li.textContent);
     expect(lines[0]).toContain("Bash · b");
-    const [first] = view.getAllByRole("button", { name: "보기" });
+    const [first] = view.getAllByRole("button", { name: /^보기 / });
+    expect(first?.textContent).toBe("보기");
+    const shorter = view.getByRole("button", { name: /^보기 Bash · a/ });
+    expect(shorter === first).toBe(false);
     if (!first) throw new Error("no 보기");
     await user.click(first);
+    // The strip's "보기" names the session too; only the card is pressable.
     const pressed = (name: RegExp) =>
-      view.getByRole("button", { name }).getAttribute("aria-pressed");
+      view
+        .getAllByRole("button", { name })
+        .find((button) => button.hasAttribute("aria-pressed"))
+        ?.getAttribute("aria-pressed");
     expect(pressed(/오래 기다림/)).toBe("true");
     expect(pressed(/도는 중/)).toBe("false");
   });
@@ -249,6 +256,25 @@ describe("AgentMap", () => {
     expect(view.getByRole("status").textContent).toBe(
       "에이전트 지도를 읽는 중",
     );
+  });
+
+  test("loading in the detail view stands in for the panel, not the board, below md", () => {
+    const view = withPlatform(
+      <AgentMap
+        sessions={[]}
+        doneCount={0}
+        selected={null}
+        onSelect={() => {}}
+        view="detail"
+        loading
+      />,
+    );
+    const standIn = (name: string) =>
+      view.container
+        .querySelector(`[data-stand-in='${name}']`)
+        ?.className.split(" ");
+    expect(standIn("board")).toContain("hidden");
+    expect(standIn("panel")).not.toContain("hidden");
   });
 
   test("the detail view below md offers the way back", async () => {

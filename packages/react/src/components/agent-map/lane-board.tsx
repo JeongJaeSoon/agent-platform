@@ -1,6 +1,6 @@
 import { Badge, Button, RelativeTime } from "@werft-ai/ui";
 import { Bot, ShieldQuestion } from "lucide-react";
-import { type JSX, useRef } from "react";
+import { type JSX, useId, useRef } from "react";
 
 import { useAgentPlatform } from "../../provider.tsx";
 import { StatusLabel } from "../status/status-label.tsx";
@@ -156,6 +156,7 @@ function ApprovalStripItem({
   readonly messages: AgentMapMessages;
 }) {
   const ref = useRef<HTMLLIElement>(null);
+  const id = useId();
   useArrival(ref, session.fresh);
   return (
     <li
@@ -167,7 +168,7 @@ function ApprovalStripItem({
         aria-hidden="true"
         className="size-4 flex-none text-(color:--ap-tone-attention-fg)"
       />
-      <span className="flex min-w-0 flex-1 flex-col">
+      <span id={`${id}-what`} className="flex min-w-0 flex-1 flex-col">
         <span className="truncate text-control">{session.pending?.tool}</span>
         <span className="truncate text-caption text-muted-foreground">
           {messages.waitingLine(
@@ -181,6 +182,8 @@ function ApprovalStripItem({
         type="button"
         size="sm"
         variant="outline"
+        id={`${id}-open`}
+        aria-labelledby={`${id}-open ${id}-what`}
         onClick={() => onSelect(session.id)}
       >
         {messages.open}
