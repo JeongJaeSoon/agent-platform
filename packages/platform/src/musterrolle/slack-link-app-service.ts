@@ -13,6 +13,7 @@ import {
   type Caller,
   MANAGEMENT_ROLES,
 } from "./policy.ts";
+import { ACTOR_INACTIVE, NOT_FOUND, OUTRANKED } from "./service-errors.ts";
 import {
   SLACK_APP_CREATE_STALE_MS,
   slackAppView,
@@ -52,8 +53,6 @@ export type SlackLinkAppResult = {
   warnings: SlackWarning[];
 };
 
-const NOT_FOUND = () =>
-  new SessionServiceError("NOT_FOUND", "Resource not found");
 const FORBIDDEN_WEB_ONLY = () =>
   new SessionServiceError(
     "FORBIDDEN",
@@ -61,18 +60,7 @@ const FORBIDDEN_WEB_ONLY = () =>
     undefined,
     { reason_code: "web_session_required" },
   );
-const ACTOR_INACTIVE = () =>
-  new SessionServiceError(
-    "FORBIDDEN",
-    "This principal is no longer a member of the workspace",
-  );
-const OUTRANKED = () =>
-  new SessionServiceError(
-    "FORBIDDEN",
-    "The caller no longer holds this right",
-    undefined,
-    { reason_code: "role" },
-  );
+
 const NOT_CONFIGURED = (reason: "store_off" | "no_console" | "config_token") =>
   new SessionServiceError(
     "SLACK_LINK_NOT_CONFIGURED",
