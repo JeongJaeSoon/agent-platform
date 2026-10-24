@@ -376,6 +376,10 @@ export const EndTag: Story = {
           long.end.scrollWidth <= Math.ceil(tag.width),
       ),
     ).toBe(true);
+    const badge = long.end?.firstElementChild;
+    await expect(Boolean(badge && badge.scrollWidth <= badge.clientWidth)).toBe(
+      true,
+    );
     await expect(Math.abs(middle(long.end) - middle(long.label)) <= 1).toBe(
       true,
     );
