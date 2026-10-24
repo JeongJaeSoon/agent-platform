@@ -1,4 +1,13 @@
 export {
+  Alert,
+  AlertActions,
+  AlertDescription,
+  type AlertProps,
+  AlertTitle,
+  type AlertTitleProps,
+  alertVariants,
+} from "./alert.tsx";
+export {
   Avatar,
   type AvatarProps,
   avatarVariants,
