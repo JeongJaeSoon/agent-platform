@@ -561,8 +561,10 @@ function AgentDetailScreen(props: ScreenProps) {
       </Button>,
     ]);
   }
+  // Re-registering only clears the event-address error; a pending request or
+  // a missing home channel still needs its own action.
   function reregister() {
-    setSlack("connected");
+    if (slack === "error") setSlack("connected");
     show(
       "이벤트 주소를 다시 등록했습니다. Slack이 2026. 10. 23. 22:14에 확인했습니다.",
     );
@@ -902,10 +904,11 @@ function AgentDetailScreen(props: ScreenProps) {
         />
         <SettingRow
           title="환영 기록"
-          meta={value(
-            `${home || HOME} · 2026. 10. 23. 21:52 · rel_3f9a`,
-            false,
-          )}
+          meta={
+            home
+              ? value(`${home} · 2026. 10. 23. 21:52 · rel_3f9a`, false)
+              : value("아직 보낸 인사가 없습니다.", false)
+          }
         />
       </RowList>
     </>
