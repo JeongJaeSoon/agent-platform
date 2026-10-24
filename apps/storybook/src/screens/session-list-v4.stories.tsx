@@ -54,6 +54,9 @@ function summary(
   return {
     id,
     title,
+    agent: null,
+    created_by: null,
+    channel: null,
     revision: 1,
     admission_state: "active",
     status,

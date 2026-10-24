@@ -1,6 +1,8 @@
 import {
   changeSessionProfileRequestSchema,
   controlAcceptedResponseSchema,
+  countSessionsQuerySchema,
+  countSessionsResponseSchema,
   createSessionRequestSchema,
   createSessionResponseSchema,
   getSessionResponseSchema,
@@ -55,6 +57,15 @@ export function registerSessionRoutes(
       service.listSessions(context.get("caller"), query),
     );
     return jsonWithSchema(context, listSessionsResponseSchema, page);
+  });
+
+  // Before getSession, so "counts" is never read as a session id.
+  apiRoute(router, "countSessions", async (context) => {
+    const query = requireQuery(context, countSessionsQuerySchema);
+    const counts = await mapped(() =>
+      service.countSessions(context.get("caller"), query),
+    );
+    return jsonWithSchema(context, countSessionsResponseSchema, counts);
   });
 
   apiRoute(router, "getSession", async (context) => {
