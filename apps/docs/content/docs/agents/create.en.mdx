@@ -115,13 +115,14 @@ curl -sS "$API/v1/agents/$AID/activate" "${WEB[@]}" \
 
 ## Bind to a session
 
-Put `agent_release_id` in `POST /v1/sessions`. `profile_id` must be that release's profile (otherwise 409 `RELEASE_PROFILE_MISMATCH`). The agent lives in a workspace, so the key must also be a key of that workspace. With the operator CLI, issue it with `--workspace`.
+Put `agent_release_id` in `POST /v1/sessions`. `profile_id` must be that release's profile (otherwise 409 `RELEASE_PROFILE_MISMATCH`). Use an agent key of that agent. Issue it with the web login cookie by sending `kind: "agent"` and `agent_id` to `POST /v1/api-keys` ([API key](/api-keys)). Keep the secret in a variable only.
 
 ```bash
-WS=$(curl -sS "$API/v1/auth/me" "${WEB[@]}" | jq -r .workspace.id)
-WS_KEY=$(scripts/local.sh key --workspace "$WS" --scopes sessions:read,sessions:write)
+AGENT_KEY=$(curl -sS "$API/v1/api-keys" "${WEB[@]}" \
+  -d "$(jq -nc --arg a "$AID" '{kind: "agent", agent_id: $a, name: "research-bot", scopes: ["sessions:read", "sessions:write"]}')" \
+  | jq -r .secret)
 curl -sS "$API/v1/sessions" \
-  -H "Authorization: Bearer $WS_KEY" \
+  -H "Authorization: Bearer $AGENT_KEY" \
   -H 'Content-Type: application/json' \
   -H "Idempotency-Key: $(uuidgen)" \
   -d "$(jq -nc --arg r "$REL" --arg m 'GATE-SPEC {"id":"agent","steps":[],"final":"hello from research-bot"}' \
@@ -130,7 +131,6 @@ curl -sS "$API/v1/sessions" \
 ```
 
 ```text
-key_id …
 {
   "status": "queued",
   "turn_id": "1"

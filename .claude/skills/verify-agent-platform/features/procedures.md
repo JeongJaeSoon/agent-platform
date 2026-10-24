@@ -254,7 +254,7 @@ ap_web GET "/v1/agents/$AID/credential-bindings"
 
 기대: 최초 연결 200 `created:true`, binding.credential_ref verify-reference, receipt_id. 중복 연결 200 `created:false`, receipt_id null. 목록에 해당 이름, 삭제 200 revoked_at·revoke_notice·receipt_id. 마지막 활성 목록에서 빠진다. source: `packages/contracts/src/musterrolle/credential-bindings.ts`, `packages/platform/src/musterrolle/credential-binding-service.ts`.
 
-## P-API-KEYS — 개인 key·서비스 key·CLI
+## P-API-KEYS — 개인 key·에이전트 key·CLI
 
 전제: owner/member cookie. key secret은 helper만 받는다.
 
@@ -280,7 +280,7 @@ KEY=$SAVED_KEY
 unset OPKEY SAVED_KEY
 ```
 
-기대: 두 개인 key 201, 목록 200 `items`, key me 200 `principal.kind:"api_key"`. CLI key의 root는 200 `owner_id:"verify"`, read-only key POST는 403(scope 검사). 이어 revoked 출력과 같은 key로 401을 확인한다. 원시 CLI key는 이 블록의 변수로만 보관하고 마지막에 지운다. 사용자 개인 key는 뒤 절차에 쓰므로 아직 폐기하지 않는다. 에이전트 전용 key 상한은 [musterrolle.md](musterrolle.md) d(별도 사용자 이름 사용).
+기대: 두 개인 key 201, 목록 200 `items`, key me 200 `principal.kind:"api_key"`. CLI key의 root는 200 `owner_id:"verify"`, read-only key POST는 403(scope 검사). 이어 revoked 출력과 같은 key로 401을 확인한다. 원시 CLI key는 이 블록의 변수로만 보관하고 마지막에 지운다. 사용자 개인 key는 뒤 절차에 쓰므로 아직 폐기하지 않는다. 에이전트 key 상한은 [musterrolle.md](musterrolle.md) d(별도 사용자 이름 사용).
 
 ## P-API-SESSIONS-CREATE — 모델 선택·턴·receipt
 
@@ -517,9 +517,9 @@ node "$B" "$RUN" open /settings/api-keys
 node "$B" "$RUN" eval 'document.querySelector("main").innerText'
 node "$B" "$RUN" open /settings/api-keys/new
 node "$B" "$RUN" eval 'document.querySelector("main").innerText'
-node "$B" "$RUN" open /settings/api-keys/service
+node "$B" "$RUN" open /settings/api-keys/agents
 node "$B" "$RUN" eval 'document.querySelector("main").innerText'
-node "$B" "$RUN" open /settings/api-keys/service/new
+node "$B" "$RUN" open /settings/api-keys/agents/new
 node "$B" "$RUN" eval 'document.querySelector("main").innerText'
 node "$B" "$RUN" eval '({targets:[...document.querySelectorAll("main select option")].map(x=>x.textContent),submit:[...document.querySelectorAll("main button[type=submit]")].map(x=>({text:x.innerText,disabled:x.disabled,ariaDisabled:x.getAttribute("aria-disabled")}))})'
 node "$B" "$RUN" open /settings/preferences
@@ -529,7 +529,7 @@ node "$B" "$RUN" eval 'document.querySelector("main").innerText'
 node "$B" "$RUN" eval '({switches:document.querySelectorAll("main [role=switch]").length,links:[...document.querySelectorAll("[data-slot=app-sidebar] nav a")].map(x=>x.innerText)})'
 ```
 
-기대: 연동 목록 Slack “연결 안 됨”, GitHub·Google Workspace “준비 중”. key는 개인/서비스 LinkTabs와 로드 후 개수(권한이 없는 개인 목록에서는 탭을 숨길 수 있다). 폼은 권한 카드·만료일(필수 아님), 서비스 폼 대상 선택. 이 member는 P-API-TEAMS·AGENTS에서 Verify Helper 관리 팀에 속했으므로 그 에이전트 전용 서비스 key를 발급할 수 있다. 폼 대상은 “에이전트를 고르세요 / Verify Helper”이며 선택 전 제출은 비활성이다. workspace 서비스 key는 owner/admin만, 에이전트 전용은 해당 에이전트 관리자도 발급한다(`api-key-service.ts`의 `rightFor`, `api-keys.tsx`의 `ServiceKeyForm`). 역할 member만으로 발급 불가라고 판정하지 않는다. key를 화면에서 발급하면 “새 key”에 값이 한 번 보이므로 shot/eval을 하지 않고 “목록으로”를 누른다. 발급·폐기 API는 P-API-KEYS와 마지막 정리로 확인한다.
+기대: 연동 목록 Slack “연결 안 됨”, GitHub·Google Workspace “준비 중”. key는 개인/에이전트 LinkTabs와 로드 후 개수(관리하는 에이전트가 없는 member는 탭이 없다). member에게 “조직 관리 key” 탭은 없다. 폼은 이름·권한 카드·만료일(필수 아님), 에이전트 폼은 에이전트 선택. 이 member는 P-API-TEAMS·AGENTS에서 Verify Helper 관리 팀에 속했으므로 그 에이전트의 에이전트 key를 발급할 수 있다. 폼의 에이전트 칸은 “에이전트를 고르세요 / Verify Helper”이며 선택 전 제출은 비활성이다. owner/admin은 모든 에이전트, 에이전트 관리자는 그 에이전트의 key를 발급한다(`api-key-service.ts`의 `rightFor`, `api-keys.tsx`의 `AgentKeyForm`). 역할 member만으로 발급 불가라고 판정하지 않는다. key를 화면에서 발급하면 “새 key”에 값이 한 번 보이므로 shot/eval을 하지 않고 “목록으로”를 누른다. 발급·폐기 API는 P-API-KEYS와 마지막 정리로 확인한다.
 
 언어·테마 화면에서 한국어·日本語·English와 테마를 고른다. member workspace는 switch 없이 읽기 전용. owner로 다시 로그인한다.
 

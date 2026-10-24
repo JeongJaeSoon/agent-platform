@@ -1,11 +1,11 @@
 # API key
 
-운영자는 key CLI로 owner id(또는 `--workspace <id>`)와 scope를 정해 API key를 발급하고 폐기한다. 웹 사용자는 같은 key를 역할에 따라 `POST /v1/api-keys`로 발급한다([musterrolle.md](./musterrolle.md) d). 호출자는 `Authorization: Bearer <key>`로 `/v1`을 부르고, key가 가진 scope 밖의 동작은 403, 폐기된 key는 401을 받는다.
+운영자는 key CLI로 owner id(또는 `--workspace <id> --personal <user id>`)와 scope를 정해 API key를 발급하고 폐기한다. 웹 사용자는 같은 key를 역할에 따라 `POST /v1/api-keys`로 발급한다([musterrolle.md](./musterrolle.md) d). 호출자는 `Authorization: Bearer <key>`로 `/v1`을 부르고, key가 가진 scope 밖의 동작은 403, 폐기된 key는 401을 받는다.
 
 ## Sub-features
 
 - `key-create` `scripts/local.sh key <owner> --scopes …`가 key를 stdout에 한 번, `key_id …`를 stderr에 낸다. owner만 주면 workspace 없는 운영자 key다.
-- `key-workspace` `scripts/local.sh key --workspace <workspace id> --scopes … [--personal <user id>]`는 그 workspace의 서비스 key(또는 그 member의 개인 key)다. `GET /v1/auth/me`가 `principal.kind: "api_key"`와 workspace를 돌려준다.
+- `key-workspace` `scripts/local.sh key --workspace <workspace id> --personal <user id> --scopes …`는 그 member의 개인 key다. `GET /v1/auth/me`가 `principal.kind: "api_key"`와 workspace를 돌려준다. `--personal` 없는 `--workspace`는 exit 2 "--workspace needs --personal: a key in a workspace is a member's own", owner 자리에 workspace id를 주면 "… is a workspace; issue a member's key with --workspace and --personal"로 거절한다(workspace 전체 key는 없다).
 - `key-whoami` `GET /v1`이 `owner_id`를 돌려준다.
 - `key-scope-denied` scope 밖의 호출은 403 `This credential does not hold <scope>`.
 - `key-revoke` `keys.ts revoke <key_id>` 뒤 같은 key는 401.
@@ -40,4 +40,4 @@ echo "key issued: ${KEY:0:6}… (len ${#KEY}) key_id: $KID"
 - `local.sh key`는 env의 project를 따른다. `lib.sh`를 source하지 않은 셸에서 부르면 기본 스택에 발급한다.
 - `bun run keys …`(package.json)는 `--profile apps`만 주고 이 run의 `COMPOSE_FILE`·profile을 다 싣지 않는다. 이 스킬에서는 `ap_revoke`를 쓴다.
 - key는 다시 볼 수 없다. 잃으면 새로 발급한다.
-- 이 파일은 운영자 CLI의 key다. 사람이 웹(cookie)에서 발급하는 권한별 개인 key·서비스 key·에이전트 전용 key는 [musterrolle.md](./musterrolle.md) d다. API key로 `POST /v1/api-keys`를 부르면 `403` `reason_code: role`이다.
+- 이 파일은 운영자 CLI의 key다. 사람이 웹(cookie)에서 발급하는 권한별 개인 key·에이전트 key는 [musterrolle.md](./musterrolle.md) d다. API key로 `POST /v1/api-keys`를 부르면 `403` `reason_code: role`이다.

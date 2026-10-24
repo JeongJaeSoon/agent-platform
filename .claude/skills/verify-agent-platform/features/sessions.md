@@ -63,7 +63,7 @@ ap_web GET /v1/sessions | head -1 | jq -c '[.items[] | {id, status}]'   # member
 - 응답 마지막 줄이 상태 코드다. jq에 넘길 때는 `| head -1`.
 - worker 컨테이너는 끝나면 scheduler가 지운다. 로그가 필요하면 `docs/quickstart.md`의 "로그 보기" 루프에서 label을 `agent-platform.installation=$EXECUTION_INSTALLATION_ID`로 바꿔 건다.
 - `finalDelayMs`로 느린 turn을 만들 수 있다(interrupt·terminate 시험용).
-- 본문에 `agent_release_id`를 넣으면 세션이 그 에이전트 release에 묶인다(`profile_id`가 release와 다르면 `409 RELEASE_PROFILE_MISMATCH`). 에이전트 전용 key는 자기 에이전트 release로만 만들고 읽는다(나머지는 `403` `agent_ceiling`, [musterrolle.md](./musterrolle.md) d). 운영자 key·workspace key는 release 없이 만든다.
+- 본문에 `agent_release_id`를 넣으면 세션이 그 에이전트 release에 묶인다(`profile_id`가 release와 다르면 `409 RELEASE_PROFILE_MISMATCH`). 에이전트 key는 자기 에이전트 release로만 만들고 읽는다(나머지는 `403` `agent_ceiling`, [musterrolle.md](./musterrolle.md) d). 운영자 key·개인 key는 release 없이 만든다.
 - 세션 POST는 인증 방식과 상관없이 `Idempotency-Key`가 없으면 `400`, 같은 key에 다른 본문이면 `409 IDEMPOTENCY_CONFLICT`다.
 
 현재 화면·필터·모델 검증은 [procedures.md](procedures.md)의 P-API-SESSIONS-LIST·P-WEB-SESSIONS를 따른다. 소스: `packages/contracts/src/api/session.ts`, `apps/web/src/routes/sessions.tsx`, `packages/react/src/blocks/session-detail.tsx`.

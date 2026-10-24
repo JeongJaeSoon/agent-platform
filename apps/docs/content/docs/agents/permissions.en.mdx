@@ -50,7 +50,7 @@ The mode exists only in the catalog and cannot be changed by a session request.
 
 ## Approval: only a person does it
 
-Answering permission requests and questions needs the `sessions:approve` scope. The credential held by the agent inside the worker gets 401 on `/v1`, so it cannot approve for itself. An agent-only key cannot have `sessions:approve`. How to answer is described in [Waiting for approval and resuming](/sessions/waiting-and-resume).
+Answering permission requests and questions needs the `sessions:approve` scope. The credential held by the agent inside the worker gets 401 on `/v1`, so it cannot approve for itself. An agent key cannot have `sessions:approve`. How to answer is described in [Waiting for approval and resuming](/sessions/waiting-and-resume).
 
 Seeing a session does not mean answering for it. Only these people answer its permission requests and questions and approve its pushes and pull requests:
 
@@ -62,7 +62,7 @@ Someone who only sees the session through its share gets `403 FORBIDDEN` (`reaso
 
 ## Agent administrators
 
-The person who creates an agent becomes that agent's administrator. An administrator, even if only a member, can edit the agent's card, create releases, activate, connect credentials, assign administrators, and issue agent-only keys. You can add a person or a team as an administrator, and for a team, every member of that team is an administrator. This continues with `AID` and `WEB` from [Create](/agents/create).
+The person who creates an agent becomes that agent's administrator. An administrator, even if only a member, can edit the agent's card, create releases, activate, connect credentials, assign administrators, and issue agent keys. You can add a person or a team as an administrator, and for a team, every member of that team is an administrator. This continues with `AID` and `WEB` from [Create](/agents/create).
 
 ```bash
 curl -sS "$API/v1/agents/$AID/admins" "${WEB[@]}" | jq '{users: [.users[].email], teams}'
@@ -106,4 +106,4 @@ Removing a binding (`DELETE /v1/agents/{id}/credential-bindings/{binding_id}`) d
 ## Next steps
 
 - [Waiting for approval and resuming](/sessions/waiting-and-resume): Answer a permission request
-- [API key](/api-keys): Personal keys, service keys, and agent-only keys
+- [API key](/api-keys): Personal keys and agent keys
