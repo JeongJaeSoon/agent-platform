@@ -6,6 +6,7 @@ import {
   expect,
   test,
 } from "bun:test";
+import { focusManager } from "@tanstack/react-query";
 import type { ApiError } from "@werft-ai/client";
 import {
   agentDetailSchema,
@@ -512,6 +513,21 @@ describe("에이전트 카드", () => {
         expect(profile?.querySelector("[aria-busy=true]")).toBeNull(),
       );
       expect(detailCalls(api).length).toBe(42);
+    });
+
+    test("창으로 돌아와도 이미 불러온 카드를 다시 부르지 않는다", async () => {
+      const { api } = renderAt("/agents", { ...meOk, ...releasedServer() });
+      const card = await cardFor("결제 담당");
+      await waitFor(() => expect(card.textContent).toContain("관리자 Owner"));
+      await waitFor(() => expect(detailCalls(api).length).toBe(3));
+      act(() => {
+        focusManager.setFocused(false);
+        focusManager.setFocused(true);
+      });
+      // Let a refetch, if any, go out before counting.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(detailCalls(api).length).toBe(3);
+      focusManager.setFocused(undefined);
     });
   });
 });

@@ -22,6 +22,7 @@ const { renderAt, screen, waitFor, act, within, fireEvent } =
 
 const SESSION_ID = "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01";
 const OTHER_ID = "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d";
+const THIRD_ID = "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e";
 const AT = "2026-10-11T08:14:02.000Z";
 // Far enough ahead that a request still takes answers.
 const LATER = "2099-01-01T00:00:00.000Z";
@@ -788,6 +789,63 @@ describe("sessions list", () => {
     expect(screen.queryByText(/불러오는 중/)).toBeNull();
     act(() => answer?.());
     await screen.findByRole("link", { name: opener(OTHER_ID) });
+    expect(screen.queryByRole("link", { name: opener(SESSION_ID) })).toBeNull();
+  });
+
+  test("a new tab after more pages reads its own first page, never the last tab's cursor, and offers no more meanwhile", async () => {
+    const user = await setupUser();
+    let answer: (() => void) | undefined;
+    const { api } = renderAt("/sessions", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": (request) => {
+        const params = new URL(request.url).searchParams;
+        if (params.get("status") === "failed") {
+          return new Promise<Response>((resolve) => {
+            answer = () =>
+              resolve(
+                json(200, {
+                  items: [summary(OTHER_ID, { status: "failed" })],
+                  next_cursor: null,
+                }),
+              );
+          });
+        }
+        return params.get("cursor") === "next-1"
+          ? json(200, { items: [summary(THIRD_ID)], next_cursor: "next-2" })
+          : json(200, { items: [summary(SESSION_ID)], next_cursor: "next-1" });
+      },
+    });
+    await screen.findByRole("link", { name: opener(SESSION_ID) });
+    await user.click(screen.getByRole("button", { name: "더 보기" }));
+    await screen.findByRole("link", { name: opener(THIRD_ID) });
+
+    await user.click(screen.getByRole("button", { name: "실패" }));
+    await waitFor(() => expect(answer).toBeDefined());
+    expect(screen.getByRole("link", { name: opener(THIRD_ID) })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "더 보기" })).toBeNull();
+    act(() => answer?.());
+    await screen.findByRole("link", { name: opener(OTHER_ID) });
+    const failedReads = api.calls.filter((call) =>
+      call.search.includes("status=failed"),
+    );
+    expect(failedReads.map((call) => call.search)).toEqual(["?status=failed"]);
+    expect(api.calls.filter((call) => call.search.includes("next-2"))).toEqual(
+      [],
+    );
+  });
+
+  test("a new tab that fails says so instead of leaving the last tab's rows as its answer", async () => {
+    const user = await setupUser();
+    renderAt("/sessions", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": (request) =>
+        new URL(request.url).searchParams.get("status") === "failed"
+          ? apiError(503, "UNAVAILABLE", "down")
+          : json(200, { items: [summary(SESSION_ID)], next_cursor: null }),
+    });
+    await screen.findByRole("link", { name: opener(SESSION_ID) });
+    await user.click(screen.getByRole("button", { name: "실패" }));
+    await screen.findByRole("button", { name: "다시 시도" });
     expect(screen.queryByRole("link", { name: opener(SESSION_ID) })).toBeNull();
   });
 

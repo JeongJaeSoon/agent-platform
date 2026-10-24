@@ -45,17 +45,22 @@ export function AgentCards({ agents }: { readonly agents: readonly Agent[] }) {
  * agent to draw one screen. The keys are the detail screen's, so opening an
  * agent reuses what its card read.
  */
+const CARD_STALE_MS = 60_000;
+
 function AgentCardItem({ agent }: { readonly agent: Agent }) {
   const { client } = useAgentPlatform();
   const [ref, seen] = useSeen<HTMLLIElement>();
-  const detail = useQuery({ ...agentQuery(client, agent.id), enabled: seen });
+  // A card scrolled past stays subscribed; without a stale time, coming
+  // back to the window would read all three again for every card seen.
+  const options = { enabled: seen, staleTime: CARD_STALE_MS };
+  const detail = useQuery({ ...agentQuery(client, agent.id), ...options });
   const admins = useQuery({
     ...agentAdminsQuery(client, agent.id),
-    enabled: seen,
+    ...options,
   });
   const bindings = useQuery({
     ...credentialBindingsQuery(client, agent.id),
-    enabled: seen,
+    ...options,
   });
   return (
     <li ref={ref} className="flex">
@@ -180,7 +185,7 @@ function AgentCard({
         </dl>
       </CardContent>
       <CardFooter className="justify-between gap-3 border-t pt-4 text-control">
-        <span className="min-w-0 text-muted-foreground [overflow-wrap:anywhere]">
+        <span className="min-w-0 truncate text-muted-foreground">
           {t("agent.tabs.admins")}{" "}
           <Detail query={admins} inline>
             {admins.data
@@ -257,9 +262,8 @@ function Fact({
   return (
     <>
       <dt className="text-muted-foreground">{term}</dt>
-      <dd className="m-0 min-w-0 text-right [overflow-wrap:anywhere]">
-        {children}
-      </dd>
+      {/* One line, at least a badge tall, whether read or not. */}
+      <dd className="m-0 min-h-5 min-w-0 truncate text-right">{children}</dd>
     </>
   );
 }
@@ -283,7 +287,9 @@ function Names({
 }) {
   if (names.length === 0) return <>{none}</>;
   return (
-    <span className="inline-flex flex-wrap justify-end gap-1">
+    // One row like every other value; the clipped names are still read out,
+    // and the detail screen lists them in full.
+    <span className="flex gap-1 overflow-hidden [justify-content:safe_flex-end]">
       {names.map((name) => (
         <Badge key={name} variant="gray" className="font-mono">
           {name}
