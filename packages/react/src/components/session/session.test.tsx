@@ -235,7 +235,10 @@ describe("Timeline", () => {
       "session.event.thought",
     );
     expect(thought?.querySelector("details p")?.textContent).toBe("plan");
-    expect(thought?.textContent).toContain("turn t1");
+    // The turn is named once, in the head of its group.
+    expect(
+      document.querySelector('[data-slot="timeline-turn"]')?.textContent,
+    ).toContain("turn t1");
   });
 
   test("연결 중과 끊김은 상태로 알리고 그때는 빈 문구를 보이지 않는다", () => {
