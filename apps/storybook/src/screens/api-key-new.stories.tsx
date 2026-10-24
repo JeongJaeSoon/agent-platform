@@ -185,11 +185,7 @@ function NewKeyScreen({
                       min={new Date().toLocaleDateString("sv")}
                       // An agent key starts 90 days out, as in the console.
                       defaultValue={
-                        kind === "agent"
-                          ? new Date(
-                              Date.now() + 90 * 24 * 60 * 60 * 1000,
-                            ).toLocaleDateString("sv")
-                          : undefined
+                        kind === "agent" ? ninetyDaysOut() : undefined
                       }
                     />
                   </div>
@@ -219,6 +215,12 @@ function NewKeyScreen({
   );
 }
 
+/** As in the console: a calendar day, not 90 × 24 hours, so DST cannot shift it. */
+function ninetyDaysOut(): string {
+  const day = new Date();
+  day.setDate(day.getDate() + 90);
+  return day.toLocaleDateString("sv");
+}
 const meta = {
   title: "Screens/New API key (v4)",
   component: NewKeyScreen,

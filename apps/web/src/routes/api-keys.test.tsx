@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, setSystemTime, test } from "bun:test";
 import {
   type Agent,
   type ApiKeyView,
@@ -617,6 +617,42 @@ describe("API key", () => {
       .map((c) => c.body as Record<string, unknown>);
     expect(body?.kind).toBe("agent");
     expect(body && "expires_at" in body).toBe(false);
+  });
+
+  test("90일은 달력으로 센다: 1월 31일 밤에 열면 5월 1일", async () => {
+    setSystemTime(new Date(2026, 0, 31, 23, 30));
+    try {
+      renderAt(NEW_AGENT, { ...ownerOk, ...keysServer() });
+      expect(
+        ((await screen.findByLabelText(/^만료일/)) as HTMLInputElement).value,
+      ).toBe("2026-05-01");
+    } finally {
+      setSystemTime();
+    }
+  });
+
+  test("key 탭을 오가도 목록은 한 번만 받는다", async () => {
+    const { api } = renderAt(PERSONAL, { ...ownerOk, ...keysServer() });
+    const user = await setupUser();
+    // Each screen draws its own tabs, so look them up after every move.
+    for (const name of ["에이전트 key", "개인 key", "조직 관리 key"]) {
+      await user.click(
+        await screen.findByRole("link", { name: new RegExp(`^${name}`) }),
+      );
+      await waitFor(() =>
+        expect(
+          screen
+            .getByRole("link", { name: new RegExp(`^${name}`) })
+            .getAttribute("aria-current"),
+        ).toBe("page"),
+      );
+    }
+    expect(
+      await screen.findByText(apiKeysKo["apiKeys.orgPending"]),
+    ).toBeDefined();
+    expect(
+      api.calls.filter((c) => c.method === "GET" && c.path === "/v1/api-keys"),
+    ).toHaveLength(1);
   });
 
   test("새 개인 key의 만료일은 비어 있다", async () => {
