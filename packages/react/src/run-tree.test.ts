@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { StatusEventPhase } from "@werft-ai/contracts";
 import {
   buildRunTree,
   createRunTreeBuilder,
@@ -77,10 +78,7 @@ function question(
   };
 }
 
-function status(
-  seconds: number,
-  phase: "running" | "needs_input" | "idle",
-): RunTreeFrame {
+function status(seconds: number, phase: StatusEventPhase): RunTreeFrame {
   return {
     id: next(),
     occurredAt: at(seconds),
@@ -298,17 +296,98 @@ describe("buildRunTree", () => {
     expect(builder.tree()).toEqual(buildRunTree(frames));
   });
 
-  test("a parent_tool_use_id loop is drawn apart instead of looping", () => {
-    const tree = buildRunTree([
+  test("a parent_tool_use_id loop is drawn apart, whichever link came last", () => {
+    const frames = [
       use(1, "task-x", "Task", {}, "task-y"),
       use(2, "task-y", "Task", {}, "task-x"),
-    ]);
+      use(3, "read-1", "Read", {}, "task-x"),
+    ];
+    const tree = buildRunTree(frames);
     expect(runRows(tree).map((run) => run.id)).toEqual([
       ROOT_RUN_ID,
-      "task-y",
       "task-x",
+      "task-y",
     ]);
     expect(tree.root.children).toEqual([]);
+    expect(tree.detached.map((run) => run.children)).toEqual([[], []]);
+    expect(buildRunTree([...frames].reverse())).toEqual(tree);
+  });
+
+  test("frames that disagree about one call: the earlier one wins in any order", () => {
+    const frames = [
+      use(1, "x", "Bash", { command: "first" }),
+      use(1.5, "x", "Task", { description: "second" }, "elsewhere"),
+      result(2, "x"),
+      result(3, "x", true),
+    ];
+    const tree = buildRunTree(frames);
+    expect(tree.root.tools[0]).toMatchObject({
+      name: "Bash",
+      target: "first",
+      state: "ok",
+      endedAt: at(2),
+      ms: 1000,
+    });
+    expect(tree.errors).toBe(0);
+    for (let seed = 1; seed <= 30; seed += 1) {
+      expect(buildRunTree(shuffle(frames, seed))).toEqual(tree);
+    }
+  });
+
+  test("a question after a status in the same millisecond still waits", () => {
+    const frames = [
+      use(1, "bash-1", "Bash", { command: "git push" }),
+      status(2, "running"),
+      question(2, "bash-1"),
+      status(2, "needs_input"),
+    ];
+    const tree = buildRunTree(frames);
+    expect(tree.root.tools[0]?.state).toBe("waiting");
+    expect(tree.root).toMatchObject({ status: "wait", edge: "approval" });
+    expect(buildRunTree([...frames].reverse())).toEqual(tree);
+  });
+
+  test("a session that failed or stopped is not drawn as working", () => {
+    const open = [use(1, "bash-1", "Bash", { command: "make" })];
+    expect(buildRunTree([...open, status(2, "failed")]).root.status).toBe(
+      "failed",
+    );
+    expect(buildRunTree([...open, status(2, "stopped")]).root.status).toBe(
+      "done",
+    );
+    expect(buildRunTree([...open, status(2, "running")]).root.status).toBe(
+      "run",
+    );
+  });
+
+  test("a parent_tool_use_id chain 20,000 deep builds without overflowing", () => {
+    const frames = Array.from({ length: 20_000 }, (_, i) =>
+      use(i, `t${i}`, "Task", {}, i === 0 ? null : `t${i - 1}`),
+    );
+    for (const order of [frames, [...frames].reverse()]) {
+      const tree = buildRunTree(order);
+      expect(runRows(tree).length).toBe(20_001);
+      expect(tree.detached).toEqual([]);
+    }
+  });
+
+  test("the tree after every push equals a full build of what arrived", () => {
+    const frames = [
+      ...nested(),
+      question(7, "bash-1"),
+      status(7, "needs_input"),
+      status(8, "running"),
+      result(9, "bash-1", true),
+      result(10, "task-a"),
+    ];
+    for (let seed = 1; seed <= 20; seed += 1) {
+      const order = shuffle(frames, seed);
+      const builder = createRunTreeBuilder();
+      order.forEach((frame, i) => {
+        builder.push(frame);
+        expect(builder.tree()).toEqual(buildRunTree(order.slice(0, i + 1)));
+      });
+    }
   });
 
   test("a call carrying the root's id is left out", () => {
@@ -421,5 +500,16 @@ describe("PERF", () => {
       `PERF run-tree: full build of ${frames.length} events median ${full.toFixed(2)} ms (runs: ${fullRuns.map((ms) => ms.toFixed(1)).join(", ")}); one appended event median ${step.toFixed(3)} ms over ${stepRuns.length} steps; ratio ${(full / step).toFixed(0)}x`,
     );
     expect(step).toBeLessThan(full / 10);
+  });
+
+  test("20,000 events arriving newest first", () => {
+    const frames = large().reverse();
+    const started = performance.now();
+    const tree = buildRunTree(frames);
+    const ms = performance.now() - started;
+    console.log(
+      `PERF run-tree: full build of ${frames.length} events in reverse order ${ms.toFixed(2)} ms`,
+    );
+    expect(tree).toEqual(buildRunTree(large()));
   });
 });

@@ -6,7 +6,8 @@ import type { StatusEventPhase } from "@werft-ai/contracts";
  * session's own run, the subagent runs its Task/Agent calls spawned (linked
  * only by parent_tool_use_id, never across sessions), and each run's tool
  * calls paired with their results. The result does not depend on the order
- * frames arrive in or on a frame arriving twice.
+ * frames arrive in or on a frame arriving twice: where two frames disagree,
+ * the earlier one by (occurredAt, id) wins.
  */
 
 export type ToolCallState = "ok" | "error" | "running" | "waiting";
@@ -38,7 +39,7 @@ export interface RunTreeNode {
   readonly tools: readonly ToolNode[];
   /** In spawn order. */
   readonly children: readonly RunTreeNode[];
-  /** The call that spawned this run, in its parent's tools; null for the root and a detached run. */
+  /** The call that spawned this run, in its parent's tools; null for the root and a run whose call has not arrived. */
   readonly spawn: ToolNode | null;
   readonly startedAt: string | null;
   /** The spawning call's result; the session's own run has no end in its events. */
@@ -50,7 +51,10 @@ export interface RunTreeNode {
 
 export interface RunTree {
   readonly root: RunTreeNode;
-  /** Runs whose spawning call has not arrived (or fell out of the event window). */
+  /**
+   * Runs drawn apart from the root: their spawning call has not arrived (or
+   * fell out of the event window), or their parent_tool_use_id chain loops.
+   */
   readonly detached: readonly RunTreeNode[];
   readonly tools: number;
   readonly errors: number;
@@ -90,6 +94,12 @@ const PHASE_STATUS: Record<StatusEventPhase, RunStatus> = {
   interrupting: "run",
   engine_stopped: "done",
 };
+// Past these the session is not working, whatever calls are still open.
+const LIVE_PHASES = new Set<StatusEventPhase>([
+  "running",
+  "needs_input",
+  "interrupting",
+]);
 
 interface Stamp {
   readonly t: number;
@@ -124,9 +134,19 @@ function stamp(frame: RunTreeFrame): Stamp {
 
 function insertSorted(list: string[], id: string, key: (id: string) => Stamp) {
   const mine = key(id);
-  let index = list.length;
-  while (index > 0 && before(mine, key(list[index - 1] as string))) index -= 1;
-  list.splice(index, 0, id);
+  let low = 0;
+  let high = list.length;
+  while (low < high) {
+    const mid = (low + high) >>> 1;
+    if (before(mine, key(list[mid] as string))) high = mid;
+    else low = mid + 1;
+  }
+  list.splice(low, 0, id);
+}
+
+function remove(list: string[], id: string) {
+  const index = list.indexOf(id);
+  if (index >= 0) list.splice(index, 1);
 }
 
 function toolUses(message: unknown) {
@@ -178,7 +198,7 @@ export function createRunTreeBuilder(): RunTreeBuilder {
   } | null = null;
   let errors = 0;
   // A question is answered once the session moves on from needs_input.
-  let answeredUntil = Number.NEGATIVE_INFINITY;
+  let answeredUntil: Stamp | null = null;
   const openQuestions = new Set<string>();
 
   const dirtyTools = new Set<string>();
@@ -208,26 +228,52 @@ export function createRunTreeBuilder(): RunTreeBuilder {
     if (runs.has(id)) dirtyRuns.add(id);
   };
 
+  const setApart = (id: string) => {
+    const run = runs.get(id) as RunRecord;
+    if (run.parentRun !== null) {
+      remove((runs.get(run.parentRun) as RunRecord).children, id);
+      dirtyRuns.add(run.parentRun);
+      run.parentRun = null;
+    }
+    remove(detached, id);
+    insertSorted(detached, id, runFirst);
+    dirtyRuns.add(id);
+  };
+
   const attach = (runId: string) => {
+    const run = runs.get(runId) as RunRecord;
     const spawn = tools.get(runId);
-    let parent = spawn ? (spawn.parent ?? ROOT_RUN_ID) : null;
-    // A parent_tool_use_id chain that loops back would never end; such a run is drawn apart.
-    for (
-      let up = parent;
-      up !== null && up !== ROOT_RUN_ID;
-      up = runs.get(up)?.parentRun ?? null
-    ) {
-      if (up === runId) {
-        parent = null;
-        break;
+    const parent = spawn ? (spawn.parent ?? ROOT_RUN_ID) : null;
+    if (parent === null) {
+      setApart(runId);
+      return;
+    }
+    // Only a run with children can close a parent_tool_use_id loop. Every run
+    // on the loop is drawn apart, so the result does not depend on which
+    // link arrived last.
+    if (run.children.length > 0) {
+      const loop: string[] = [];
+      for (
+        let up: string | null = parent;
+        up !== null && up !== ROOT_RUN_ID;
+        up = runs.get(up)?.parentRun ?? null
+      ) {
+        loop.push(up);
+        if (up === runId) {
+          for (const id of loop) setApart(id);
+          return;
+        }
       }
     }
-    const run = runs.get(runId) as RunRecord;
+    remove(detached, runId);
+    if (run.parentRun !== null) {
+      remove((runs.get(run.parentRun) as RunRecord).children, runId);
+      dirtyRuns.add(run.parentRun);
+    }
     run.parentRun = parent;
-    if (parent === null) insertSorted(detached, runId, runFirst);
-    else
-      insertSorted((runs.get(parent) as RunRecord).children, runId, runFirst);
-    dirtyRuns.add(parent ?? runId);
+    insertSorted((runs.get(parent) as RunRecord).children, runId, runFirst);
+    dirtyRuns.add(parent);
+    dirtyRuns.add(runId);
   };
 
   const ensureRun = (id: string, at: Stamp | null) => {
@@ -237,15 +283,22 @@ export function createRunTreeBuilder(): RunTreeBuilder {
         run.first = at;
         dirtyRuns.add(id);
         if (id !== ROOT_RUN_ID && run.parentRun === null && !tools.has(id)) {
-          detached.splice(detached.indexOf(id), 1);
+          remove(detached, id);
           insertSorted(detached, id, runFirst);
         }
       }
       return;
     }
     runs.set(id, { id, parentRun: null, first: at, tools: [], children: [] });
-    dirtyRuns.add(id);
     attach(id);
+  };
+
+  const removeTool = (record: ToolRecord) => {
+    const parent = record.parent ?? ROOT_RUN_ID;
+    remove((runs.get(parent) as RunRecord).tools, record.id);
+    dirtyRuns.add(parent);
+    if (results.get(record.id)?.error) errors -= 1;
+    tools.delete(record.id);
   };
 
   const addTool = (record: ToolRecord) => {
@@ -257,13 +310,8 @@ export function createRunTreeBuilder(): RunTreeBuilder {
       record.id,
       (id) => (tools.get(id) as ToolRecord).start,
     );
-    if (runs.has(record.id)) {
-      // The run was detached until its spawning call arrived: move it under that call's run.
-      detached.splice(detached.indexOf(record.id), 1);
-      attach(record.id);
-    } else if (SPAWNING_TOOLS.has(record.name)) {
-      ensureRun(record.id, null);
-    }
+    if (runs.has(record.id)) attach(record.id);
+    else if (SPAWNING_TOOLS.has(record.name)) ensureRun(record.id, null);
     if (questions.has(record.id) && !results.has(record.id))
       openQuestions.add(record.id);
     if (results.get(record.id)?.error) errors += 1;
@@ -281,7 +329,16 @@ export function createRunTreeBuilder(): RunTreeBuilder {
         const parent = payload.data.parent_tool_use_id ?? null;
         ensureRun(parent ?? ROOT_RUN_ID, at);
         toolUses(payload.data.message).forEach((use, index) => {
-          if (tools.has(use.id)) return;
+          // Calls sharing a frame keep their block order.
+          const start =
+            index === 0 ? at : { ...at, id: `${at.id}\u0000${index}` };
+          const known = tools.get(use.id);
+          if (known && !before(start, known.start)) {
+            // Whether a run exists must not depend on which frame came first.
+            if (SPAWNING_TOOLS.has(use.name)) ensureRun(use.id, null);
+            return;
+          }
+          if (known) removeTool(known);
           const target = TARGET_KEYS.map((key) => field(use.input, key)).find(
             (v) => v !== undefined,
           );
@@ -291,8 +348,7 @@ export function createRunTreeBuilder(): RunTreeBuilder {
             target: target ?? "",
             label: field(use.input, "subagent_type") ?? use.name,
             parent,
-            // Calls sharing a frame keep their block order.
-            start: index === 0 ? at : { ...at, id: `${at.id}\u0000${index}` },
+            start,
           });
         });
         break;
@@ -303,9 +359,12 @@ export function createRunTreeBuilder(): RunTreeBuilder {
           is_error?: unknown;
         } | null;
         const id = data?.tool_use_id;
-        if (typeof id !== "string" || results.has(id)) break;
-        results.set(id, { end: at, error: data?.is_error === true });
-        if (data?.is_error === true && tools.has(id)) errors += 1;
+        if (typeof id !== "string") break;
+        const known = results.get(id);
+        if (known && !before(at, known.end)) break;
+        const error = data?.is_error === true;
+        if (tools.has(id)) errors += (error ? 1 : 0) - (known?.error ? 1 : 0);
+        results.set(id, { end: at, error });
         openQuestions.delete(id);
         touchTool(id);
         break;
@@ -326,8 +385,11 @@ export function createRunTreeBuilder(): RunTreeBuilder {
           lastStatus = { stamp: at, phase: payload.data.phase };
           dirtyRuns.add(ROOT_RUN_ID);
         }
-        if (payload.data.phase !== "needs_input" && at.t > answeredUntil) {
-          answeredUntil = at.t;
+        if (
+          payload.data.phase !== "needs_input" &&
+          (answeredUntil === null || before(answeredUntil, at))
+        ) {
+          answeredUntil = at;
           for (const id of openQuestions) touchTool(id);
         }
         break;
@@ -342,7 +404,10 @@ export function createRunTreeBuilder(): RunTreeBuilder {
     const result = results.get(id);
     if (result) return result.error ? "error" : "ok";
     const question = questions.get(id);
-    return question && question.t > answeredUntil ? "waiting" : "running";
+    return question &&
+      (answeredUntil === null || before(answeredUntil, question))
+      ? "waiting"
+      : "running";
   };
 
   const toolNode = (id: string): ToolNode => {
@@ -365,23 +430,24 @@ export function createRunTreeBuilder(): RunTreeBuilder {
     return node;
   };
 
-  const runNode = (id: string): RunTreeNode => {
-    const cached = runCache.get(id);
-    if (cached && !dirtyRuns.has(id)) return cached;
+  const buildRun = (id: string): RunTreeNode => {
     const run = runs.get(id) as RunRecord;
     const own = run.tools.map(toolNode);
-    const children = run.children.map(runNode);
+    const children = run.children.map(
+      (child) => runCache.get(child) as RunTreeNode,
+    );
     const spawn = id !== ROOT_RUN_ID && tools.has(id) ? toolNode(id) : null;
     const waiting = own.some((tool) => tool.state === "waiting");
+    const phase = lastStatus?.phase;
     let status: RunStatus;
-    if (waiting) status = "wait";
+    if (id === ROOT_RUN_ID && phase && !LIVE_PHASES.has(phase))
+      status = PHASE_STATUS[phase];
+    else if (waiting) status = "wait";
     else if (spawn?.state === "ok") status = "done";
     else if (spawn?.state === "error") status = "failed";
     else if (id !== ROOT_RUN_ID) status = "run";
     else if (own.some((tool) => tool.state === "running")) status = "run";
-    else status = lastStatus ? PHASE_STATUS[lastStatus.phase] : "idle";
-    const startedAt = spawn?.startedAt ?? run.first?.at ?? null;
-    const endedAt = spawn?.endedAt ?? null;
+    else status = phase ? PHASE_STATUS[phase] : "idle";
     const node: RunTreeNode = {
       kind: "run",
       id,
@@ -395,13 +461,39 @@ export function createRunTreeBuilder(): RunTreeBuilder {
       tools: own,
       children,
       spawn,
-      startedAt,
-      endedAt,
+      startedAt: spawn?.startedAt ?? run.first?.at ?? null,
+      endedAt: spawn?.endedAt ?? null,
       ms: spawn?.ms ?? null,
       failed: own.filter((tool) => tool.state === "error").length,
     };
     runCache.set(id, node);
     return node;
+  };
+
+  const fresh = (id: string) => runCache.has(id) && !dirtyRuns.has(id);
+
+  // Children first from an explicit stack: a deep parent_tool_use_id chain
+  // would overflow the call stack.
+  const runNode = (start: string): RunTreeNode => {
+    const stack = [start];
+    while (stack.length > 0) {
+      const id = stack[stack.length - 1] as string;
+      if (fresh(id)) {
+        stack.pop();
+        continue;
+      }
+      const pending = (runs.get(id) as RunRecord).children.filter(
+        (child) => !fresh(child),
+      );
+      if (pending.length > 0) {
+        for (const child of pending) stack.push(child);
+        continue;
+      }
+      stack.pop();
+      buildRun(id);
+      dirtyRuns.delete(id);
+    }
+    return runCache.get(start) as RunTreeNode;
   };
 
   const tree = () => {
@@ -446,11 +538,13 @@ export function buildRunTree(frames: readonly RunTreeFrame[]): RunTree {
 /** The relation panel's rows: the session's run, then every subagent run depth first. */
 export function runRows(tree: RunTree): readonly RunTreeNode[] {
   const rows: RunTreeNode[] = [];
-  const visit = (run: RunTreeNode) => {
+  const stack = [...tree.detached].reverse();
+  stack.push(tree.root);
+  for (let run = stack.pop(); run !== undefined; run = stack.pop()) {
     rows.push(run);
-    for (const child of run.children) visit(child);
-  };
-  visit(tree.root);
-  for (const run of tree.detached) visit(run);
+    for (let i = run.children.length - 1; i >= 0; i -= 1) {
+      stack.push(run.children[i] as RunTreeNode);
+    }
+  }
   return rows;
 }
