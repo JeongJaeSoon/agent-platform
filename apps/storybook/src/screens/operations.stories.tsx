@@ -125,7 +125,7 @@ function Filters({ role, days }: { readonly role: Role; readonly days: Days }) {
   const [scope, setScope] = useState(role === "owner" ? "installation" : "me");
   const [period, setPeriod] = useState(String(days));
   return (
-    <div className="mb-6 flex flex-wrap gap-2">
+    <div className="mb-6 flex flex-wrap items-center gap-2">
       {role === "owner" ? (
         <SegmentedControl
           aria-label="집계 범위"
@@ -142,6 +142,7 @@ function Filters({ role, days }: { readonly role: Role; readonly days: Days }) {
         aria-label="기간"
         value={period}
         onValueChange={setPeriod}
+        className="ml-auto"
       >
         <SegmentedControlItem value="7">7일</SegmentedControlItem>
         <SegmentedControlItem value="30">30일</SegmentedControlItem>
@@ -615,6 +616,7 @@ function Tools({
               aria-label="도구 찾기"
               type="search"
               placeholder="도구나 명령 찾기"
+              wrapperClassName="max-w-none flex-[1_1_100%] sm:ml-auto sm:w-60 sm:flex-none"
             />
           </div>
           <ToolTable
