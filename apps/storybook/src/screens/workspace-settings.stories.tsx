@@ -15,7 +15,7 @@ import {
 import { Lock } from "lucide-react";
 import { type ReactNode, useId } from "react";
 
-import { MOBILE, PartRequest, ScreenShell } from "./screen-kit.tsx";
+import { MOBILE, ScreenShell } from "./screen-kit.tsx";
 
 /*
  * v4 workspace settings (Console.dc.html L853-867), as apps/web draws it:
@@ -118,7 +118,7 @@ function ModelList({ models }: { readonly models: Models }) {
     <ul className="m-0 flex list-none flex-wrap gap-1 p-0">
       {MODELS.map((model) => (
         <li key={model}>
-          <Badge className="font-mono font-normal">{model}</Badge>
+          <Badge variant="mono">{model}</Badge>
         </li>
       ))}
     </ul>
@@ -154,9 +154,6 @@ function WorkspaceSettingsScreen({
             : "지금 설정입니다. 바꾸려면 워크스페이스 소유자나 관리자에게 요청하세요."
         }
       />
-      <div className="mb-4 flex flex-wrap gap-1">
-        <PartRequest name="Badge mono" />
-      </div>
       <div className="flex flex-col gap-4">
         <SettingsCard
           title="워크스페이스 이름"

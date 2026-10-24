@@ -210,7 +210,7 @@ function AllowedModels() {
         <ul className="m-0 flex list-none flex-wrap gap-1 p-0">
           {models.map((model) => (
             <li key={model}>
-              <Badge className="font-mono font-normal">{model}</Badge>
+              <Badge variant="mono">{model}</Badge>
             </li>
           ))}
         </ul>
