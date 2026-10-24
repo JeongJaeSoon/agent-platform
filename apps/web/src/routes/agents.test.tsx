@@ -230,6 +230,15 @@ describe("에이전트 목록", () => {
       ).not.toBeNull(),
     );
     expect(badges()).toEqual(expected);
+    // Only the archived row takes the inactive tone; its badge still says so.
+    expect(
+      ["draft", "live", "held", "old"].map((name) =>
+        screen
+          .getByRole("link", { name })
+          .closest("tr")
+          ?.hasAttribute("data-inactive"),
+      ),
+    ).toEqual([false, false, false, true]);
   });
 
   test("구성원은 전체 목록 대신 안내를 보고, 새 에이전트는 만들 수 있다", async () => {

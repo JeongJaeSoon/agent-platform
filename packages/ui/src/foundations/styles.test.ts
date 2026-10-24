@@ -466,6 +466,30 @@ describe("styles.css", () => {
     expect(literals.map((d) => `${d.selector} { ${d.property} }`)).toEqual([]);
   });
 
+  test("비활성 행은 버튼 없는 셀만 흐린 글자로, 배지는 무채색으로 그린다", () => {
+    const inactive = styleDeclarations.filter((d) =>
+      d.selector.includes("[data-inactive]"),
+    );
+    expect(inactive.length).toBeGreaterThan(0);
+    for (const d of inactive) {
+      // The action cell keeps its contrast: every rule skips it.
+      expect(d.selector).toContain(':not(:has([data-slot="button"]))');
+    }
+    const colourOf = (badge: boolean) =>
+      inactive.find(
+        (d) =>
+          d.property === "color" &&
+          d.selector.includes('[data-slot="badge"]') === badge,
+      )?.value;
+    // subtle-foreground is the faintest text that holds AA on every
+    // surface and tone bg (tokens.css test above).
+    expect(colourOf(false)).toBe("var(--ap-color-subtle-foreground)");
+    expect(colourOf(true)).toBe("var(--ap-color-subtle-foreground)");
+    expect(inactive.find((d) => d.property === "background-color")?.value).toBe(
+      "var(--ap-tone-neutral-bg)",
+    );
+  });
+
   test("한글 마이크로라벨을 uppercase로 바꾸지 않는다", () => {
     const uppercased = styleDeclarations.filter(
       (d) => d.property === "text-transform" && d.value !== "none",

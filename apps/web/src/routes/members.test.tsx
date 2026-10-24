@@ -56,7 +56,13 @@ const ROLE_NAME = { owner: "소유자", admin: "관리자", member: "구성원" 
 
 /** Opens 구성원 편집 for a member and returns the dialog. */
 async function openEdit(user: User, name: string) {
-  await user.click(await screen.findByRole("button", { name: `${name} 편집` }));
+  // An inactive row's opener adds "(비활성)" after the name.
+  await user.click(
+    await screen.findByRole("button", {
+      name: (label) =>
+        label === `${name} 편집` || label === `${name} 편집 (비활성)`,
+    }),
+  );
   return screen.findByRole("dialog", { name: "구성원 편집" });
 }
 
@@ -173,7 +179,25 @@ describe("구성원 화면", () => {
     expect(roleIn("Owner")).toBe("소유자");
     const goneRow = screen.getByText(/^Gone/).closest("[role=row]");
     expect(goneRow?.getAttribute("data-disabled")).toBe("true");
-    expect(within(goneRow as HTMLElement).getByText("비활성")).toBeDefined();
+    // The tone says "inactive" to the eye; the name says it to a reader, and
+    // no badge repeats it.
+    expect(goneRow?.getAttribute("data-inactive")).toBe("true");
+    expect(
+      within(goneRow as HTMLElement).queryByText("비활성", {
+        selector: "[data-slot=badge]",
+      }),
+    ).toBeNull();
+    expect(
+      within(goneRow as HTMLElement)
+        .getAllByRole("cell")[0]
+        ?.textContent?.includes("(비활성)"),
+    ).toBe(true);
+    expect(
+      within(goneRow as HTMLElement).getByRole("button", {
+        name: "Gone 편집 (비활성)",
+      }),
+    ).toBeDefined();
+    expect(mateRow.hasAttribute("data-inactive")).toBe(false);
     expect(
       within(goneRow as HTMLElement).getByRole("button", {
         name: "다시 활성화",
@@ -951,7 +975,7 @@ describe("구성원 페이지와 서버 검색", () => {
     await waitFor(() =>
       expect(
         screen
-          .getByRole("button", { name: "Person 0 편집" })
+          .getByRole("button", { name: "Person 0 편집 (비활성)" })
           .closest("[role=row]")
           ?.getAttribute("data-disabled"),
       ).toBe("true"),
@@ -995,7 +1019,7 @@ describe("구성원 페이지와 서버 검색", () => {
     await screen.findByRole("button", { name: "더 보기" });
     expect(
       screen
-        .getByRole("button", { name: "Person 0 편집" })
+        .getByRole("button", { name: "Person 0 편집 (비활성)" })
         .closest("[role=row]")
         ?.getAttribute("data-disabled"),
     ).toBe("true");
@@ -1099,7 +1123,7 @@ describe("구성원 페이지와 서버 검색", () => {
     const user = await setupUser();
     await screen.findByRole("button", { name: "Owner 편집" });
     await user.click(screen.getByRole("button", { name: "더 보기" }));
-    await screen.findByRole("button", { name: "Gone 편집" });
+    await screen.findByRole("button", { name: "Gone 편집 (비활성)" });
 
     const box = screen.getByRole("searchbox", {
       name: "이름이나 이메일로 찾기",
