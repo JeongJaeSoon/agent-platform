@@ -310,7 +310,22 @@ describe("팀 화면", () => {
       ),
     );
 
-    await user.click(screen.getByRole("button", { name: "팀 삭제" }));
+    // Deleting sits last on the page, in its own danger zone, behind a confirm.
+    const danger = screen.getByRole("region", { name: "위험 구역" });
+    expect(screen.getAllByRole("region").at(-1) === danger).toBe(true);
+    const teamPath = `/v1/teams/${TEAM_ID}`;
+    await user.click(within(danger).getByRole("button", { name: "팀 삭제" }));
+    await user.click(
+      within(await screen.findByRole("dialog")).getByRole("button", {
+        name: "취소",
+      }),
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(
+      api.calls.some((c) => c.method === "DELETE" && c.path === teamPath),
+    ).toBe(false);
+
+    await user.click(within(danger).getByRole("button", { name: "팀 삭제" }));
     const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getByRole("button", { name: "팀 삭제" }));
     await waitFor(() =>

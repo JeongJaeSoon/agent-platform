@@ -1,24 +1,28 @@
 #!/usr/bin/env bun
 // Prints the test files one unit part of `check` runs, one `./path` per line.
 //
-// `check` runs the suite without services in two parts named after the repo
-// layout: `packages` is every discovered file under packages/, and
-// `rest` is every other one — apps/ and tests/ today. `rest` is the complement
-// by construction, so a file cannot fall between the two parts, and a new
-// top-level directory the `test` filters pick up lands in `rest` rather than
-// nowhere.
+// `check` runs the suite without services in parts named after the repo
+// layout: `packages` is every discovered file under packages/, `worker-web`
+// every one under apps/worker/ and apps/web/, and `rest` every other one —
+// the other apps and tests/ today. `rest` is the complement by construction,
+// so a file cannot fall between the parts, and a new directory the `test`
+// filters pick up lands in `rest` rather than nowhere.
 //
-// usage: unit-part.ts <packages|rest>
+// usage: unit-part.ts <packages|worker-web|rest>
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { discover, testFilters } from "./test-files.ts";
 
-export const PARTS = ["packages", "rest"] as const;
+export const PARTS = ["packages", "worker-web", "rest"] as const;
 export type Part = (typeof PARTS)[number];
 
 export function partOf(path: string): Part {
-  return path.startsWith("packages/") ? "packages" : "rest";
+  if (path.startsWith("packages/")) return "packages";
+  if (path.startsWith("apps/worker/") || path.startsWith("apps/web/")) {
+    return "worker-web";
+  }
+  return "rest";
 }
 
 export function pick(files: string[], part: Part): string[] {

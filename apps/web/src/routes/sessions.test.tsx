@@ -25,6 +25,8 @@ const OTHER_ID = "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d";
 const AT = "2026-10-11T08:14:02.000Z";
 // Far enough ahead that a request still takes answers.
 const LATER = "2099-01-01T00:00:00.000Z";
+/** A session list row's opener, named as the screen names it. */
+const opener = (name: string) => `세션 열기: ${name}`;
 const TERMINATE_ACCEPTED = {
   receipt_id: RECEIPT_ID,
   receipt_status: "accepted",
@@ -340,7 +342,7 @@ describe("approval inbox", () => {
         json(202, { receipt_id: RECEIPT_ID, receipt_status: "accepted" }),
     });
     const list = await screen.findByRole("table");
-    await within(list).findByRole("link", { name: SESSION_ID });
+    await within(list).findByRole("link", { name: opener(SESSION_ID) });
     const waitingReads = () =>
       api.calls.filter((call) => call.search === "?status=needs_input").length;
     await waitFor(() => expect(waitingReads()).toBe(2));
@@ -400,18 +402,18 @@ describe("sessions list", () => {
             }),
     });
 
-    const link = await screen.findByRole("link", { name: SESSION_ID });
+    const link = await screen.findByRole("link", { name: opener(SESSION_ID) });
     expect(link.getAttribute("href")).toBe(`/sessions/${SESSION_ID}`);
     const row = link.closest('[role="row"]') as HTMLElement;
     // Untitled: the row shows the id's head, the link keeps the whole id.
-    expect(link.textContent).toBe(SESSION_ID.slice(0, 8));
+    expect(within(row).getByText(SESSION_ID.slice(0, 8))).toBeTruthy();
     expect(row.textContent).toContain("작업 상태: 쉬는 중");
     expect(within(row).getByText("model-default")).toBeTruthy();
     expect(within(row).getByText("demo")).toBeTruthy();
     expect(screen.getByText(/나에게 공유된 세션입니다/)).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "더 보기" }));
-    await screen.findByRole("link", { name: OTHER_ID });
+    await screen.findByRole("link", { name: opener(OTHER_ID) });
     expect(screen.queryByRole("button", { name: "더 보기" })).toBeNull();
     expect(
       api.calls.filter(
@@ -439,8 +441,8 @@ describe("sessions list", () => {
 
     await user.click(await screen.findByRole("button", { name: "더 보기" }));
     await user.click(await screen.findByRole("button", { name: "다시 시도" }));
-    await screen.findByRole("link", { name: OTHER_ID });
-    expect(screen.getByRole("link", { name: SESSION_ID })).toBeTruthy();
+    await screen.findByRole("link", { name: opener(OTHER_ID) });
+    expect(screen.getByRole("link", { name: opener(SESSION_ID) })).toBeTruthy();
     expect(nextCalls).toBe(2);
   });
 
@@ -458,7 +460,7 @@ describe("sessions list", () => {
             }),
     });
 
-    await screen.findByRole("link", { name: SESSION_ID });
+    await screen.findByRole("link", { name: opener(SESSION_ID) });
     await services.queryClient.invalidateQueries({ queryKey: ["sessions"] });
     await user.click(await screen.findByRole("button", { name: "다시 시도" }));
     await waitFor(() =>
@@ -477,7 +479,9 @@ describe("sessions list", () => {
       },
       "en",
     );
-    const link = await screen.findByRole("link", { name: SESSION_ID });
+    const link = await screen.findByRole("link", {
+      name: `Open session: ${SESSION_ID}`,
+    });
     const row = link.closest('[role="row"]') as HTMLElement;
     expect(screen.getByRole("table", { name: "Sessions table" })).toBeTruthy();
     expect(within(row).getByText("Working")).toBeTruthy();
@@ -501,7 +505,9 @@ describe("sessions list", () => {
       "GET /v1/sessions": () =>
         json(200, { items: [summary(SESSION_ID)], next_cursor: null }),
     });
-    await user.click(await screen.findByRole("link", { name: SESSION_ID }));
+    await user.click(
+      await screen.findByRole("link", { name: opener(SESSION_ID) }),
+    );
     await waitFor(() =>
       expect(history.location.pathname).toBe(`/sessions/${SESSION_ID}`),
     );
@@ -521,59 +527,281 @@ describe("sessions list", () => {
         }),
     });
     const titled = await screen.findByRole("link", {
-      name: "hello.txt 만들고 commit",
+      name: opener("hello.txt 만들고 commit"),
     });
     const row = titled.closest('[role="row"]') as HTMLElement;
     expect(within(row).getByText(SESSION_ID.slice(0, 8))).toBeTruthy();
-    const untitled = screen.getByRole("link", { name: OTHER_ID });
+    const untitled = screen.getByRole("link", { name: opener(OTHER_ID) });
     const bare = untitled.closest('[role="row"]') as HTMLElement;
     expect(within(bare).getByText("저장소 없음")).toBeTruthy();
-    // No runtime in the summary: the model is a placeholder, not a guess.
-    expect(within(bare).getAllByText("—")).toHaveLength(1);
+    // No agent and no starter in the summary: placeholders, not guesses.
+    expect(within(bare).getAllByText("—")).toHaveLength(2);
   });
 
-  test("the search box narrows the loaded sessions by title or id head", async () => {
-    const user = await setupUser();
+  test("a row shows its agent over the model and who started it", async () => {
     renderAt("/sessions", {
       "GET /v1/auth/me": () => json(200, memberMe()),
       "GET /v1/sessions": () =>
         json(200, {
           items: [
-            summary(SESSION_ID, { title: "README 정리" }),
-            summary(OTHER_ID, { title: "api6.txt 쓰고 push" }),
+            summary(SESSION_ID, {
+              title: "배포 점검",
+              agent: {
+                id: OTHER_ID,
+                name: "Release helper",
+                release_version_no: 2,
+              },
+              created_by: { user_id: OTHER_ID, display_name: "김하나" },
+            }),
           ],
           next_cursor: null,
         }),
     });
+    const link = await screen.findByRole("link", {
+      name: "세션 열기: 배포 점검",
+    });
+    const table = screen.getByRole("table", { name: "세션 표" });
+    expect(
+      within(table)
+        .getAllByRole("columnheader")
+        .map((head) => head.textContent),
+    ).toEqual([
+      "세션",
+      "상태",
+      "에이전트 · 모델",
+      "저장소",
+      "시작한 사람",
+      "최근",
+    ]);
+    const cells = within(
+      link.closest('[role="row"]') as HTMLElement,
+    ).getAllByRole("cell");
+    expect(cells.map((cell) => cell.textContent)).toEqual([
+      expect.stringContaining("배포 점검"),
+      expect.any(String),
+      "Release helpermodel-default",
+      expect.stringContaining("demo"),
+      "김하나",
+      expect.any(String),
+    ]);
+  });
+
+  test("the search box asks the API with the trimmed text, and an empty box sends none", async () => {
+    const user = await setupUser();
+    const { api } = renderAt("/sessions", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": (request) => {
+        const q = new URL(request.url).searchParams.get("q");
+        const items = [
+          summary(SESSION_ID, { title: "README 정리" }),
+          summary(OTHER_ID, { title: "api6.txt 쓰고 push" }),
+        ].filter(
+          (item) => q === null || (item.title ?? "").toLowerCase().includes(q),
+        );
+        return json(200, { items, next_cursor: null });
+      },
+    });
     const search = await screen.findByRole("searchbox", {
       name: "제목이나 ID로 찾기",
     });
-    await screen.findByRole("link", { name: "README 정리" });
-    expect(screen.getByText(/2개 표시/)).toBeTruthy();
-    expect(
-      screen.getByText(/검색은 지금 불러온 세션 안에서만 찾습니다/),
-    ).toBeTruthy();
+    await screen.findByRole("link", { name: "세션 열기: README 정리" });
+    expect(screen.getByText("2개 표시")).toBeTruthy();
+    expect((search as HTMLInputElement).maxLength).toBe(200);
 
-    await user.type(search, "readme");
+    await user.type(search, "  readme ");
+    expect(await screen.findByText("1개 표시")).toBeTruthy();
     expect(
-      screen.queryByRole("link", { name: "api6.txt 쓰고 push" }),
+      screen.queryByRole("link", { name: "세션 열기: api6.txt 쓰고 push" }),
     ).toBeNull();
-    expect(screen.getByText(/1개 표시/)).toBeTruthy();
+    const reads = api.calls.filter((call) => call.path === "/v1/sessions");
+    expect(reads.map((call) => call.search)).toContain("?q=readme");
+    // Only the settled text goes out, not each keystroke.
+    expect(
+      reads
+        .filter((call) => call.search.startsWith("?q="))
+        .map((c) => c.search),
+    ).toEqual(["?q=readme"]);
+    expect(
+      api.calls.some(
+        (call) =>
+          call.path === "/v1/sessions/counts" && call.search === "?q=readme",
+      ),
+    ).toBe(true);
 
     await user.clear(search);
-    await user.type(search, OTHER_ID.slice(0, 4));
-    expect(
-      screen.getByRole("link", { name: "api6.txt 쓰고 push" }),
-    ).toBeTruthy();
-    expect(screen.queryByRole("link", { name: "README 정리" })).toBeNull();
+    await user.type(search, "   ");
+    await screen.findByRole("link", { name: "세션 열기: api6.txt 쓰고 push" });
+    // Spaces alone are no search: the API would refuse an empty q.
+    expect(api.calls.some((call) => /[?&]q=(&|$)/.test(call.search))).toBe(
+      false,
+    );
 
     await user.clear(search);
     await user.type(search, "없는 세션");
-    expect(screen.getByText("조건에 맞는 세션이 없습니다")).toBeTruthy();
+    expect(await screen.findByText("조건에 맞는 세션이 없습니다")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "필터 지우기" }));
     expect((search as HTMLInputElement).value).toBe("");
     expect(document.activeElement === search).toBe(true);
-    expect(screen.getByRole("link", { name: "README 정리" })).toBeTruthy();
+    expect(
+      await screen.findByRole("link", { name: "세션 열기: README 정리" }),
+    ).toBeTruthy();
+  });
+
+  test("a search emptied and typed again within the pause never reads the old term", async () => {
+    const user = await setupUser();
+    const { api } = renderAt("/sessions", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": () =>
+        json(200, { items: [summary(SESSION_ID)], next_cursor: null }),
+    });
+    const search = await screen.findByRole("searchbox", {
+      name: "제목이나 ID로 찾기",
+    });
+    await screen.findByRole("link", { name: opener(SESSION_ID) });
+    await user.type(search, "alpha");
+    await waitFor(() =>
+      expect(api.calls.some((call) => call.search === "?q=alpha")).toBe(true),
+    );
+    const before = api.calls.length;
+    await user.clear(search);
+    await user.type(search, "beta");
+    await waitFor(() =>
+      expect(api.calls.some((call) => call.search === "?q=beta")).toBe(true),
+    );
+    expect(
+      api.calls.slice(before).filter((call) => call.search.includes("alpha")),
+    ).toEqual([]);
+  });
+
+  test("a new relation shows its own answer, never the last relation's rows under it", async () => {
+    const user = await setupUser();
+    let answer: (() => void) | undefined;
+    renderAt("/sessions?relation=shared", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": (request) =>
+        new URL(request.url).searchParams.get("relation") === "administered"
+          ? new Promise<Response>((resolve) => {
+              answer = () =>
+                resolve(
+                  json(200, {
+                    items: [summary(SESSION_ID)],
+                    next_cursor: null,
+                  }),
+                );
+            })
+          : json(200, { items: [summary(OTHER_ID)], next_cursor: null }),
+    });
+    await screen.findByRole("link", { name: opener(OTHER_ID) });
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "나와의 관계" }),
+      "administered",
+    );
+    await waitFor(() => expect(answer).toBeDefined());
+    expect(screen.queryByRole("link", { name: opener(OTHER_ID) })).toBeNull();
+    act(() => answer?.());
+    await screen.findByRole("link", { name: opener(SESSION_ID) });
+  });
+
+  test("the relation filter reads that relation, keeps it in the address and with the status tab", async () => {
+    const user = await setupUser();
+    const { api, history } = renderAt("/sessions", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": (request) => {
+        const params = new URL(request.url).searchParams;
+        if (params.get("relation") !== "shared") {
+          return json(200, { items: [summary(SESSION_ID)], next_cursor: null });
+        }
+        // The one shared session is running, so none of them failed.
+        const items = params.get("status") ? [] : [summary(OTHER_ID)];
+        return json(200, { items, next_cursor: null });
+      },
+    });
+    await screen.findByRole("link", { name: opener(SESSION_ID) });
+    const relation = screen.getByRole("combobox", { name: "나와의 관계" });
+    expect(
+      within(relation)
+        .getAllByRole("option")
+        .map((option) => option.textContent),
+    ).toEqual(["모든 관계", "내가 시작", "공유받음", "관리하는 에이전트"]);
+
+    await user.selectOptions(relation, "shared");
+    await screen.findByRole("link", { name: opener(OTHER_ID) });
+    expect(history.location.search).toContain("relation=shared");
+    expect(
+      api.calls.some(
+        (call) =>
+          call.path === "/v1/sessions" && call.search === "?relation=shared",
+      ),
+    ).toBe(true);
+
+    await user.click(screen.getByRole("button", { name: "실패" }));
+    await waitFor(() =>
+      expect(
+        api.calls.some(
+          (call) =>
+            call.path === "/v1/sessions" &&
+            call.search === "?status=failed&relation=shared",
+        ),
+      ).toBe(true),
+    );
+    expect(history.location.search).toContain("relation=shared");
+    expect(history.location.search).toContain("status=failed");
+    // Nothing failed among the shared ones: a filter emptied the list.
+    expect(await screen.findByText("조건에 맞는 세션이 없습니다")).toBeTruthy();
+  });
+
+  test("the status tabs carry the counts the API reads for the same relation and search", async () => {
+    renderAt("/sessions?relation=started", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": () =>
+        json(200, { items: [summary(SESSION_ID)], next_cursor: null }),
+      "GET /v1/sessions/counts": (request) =>
+        new URL(request.url).searchParams.get("relation") === "started"
+          ? json(200, {
+              counts: {
+                queued: 1,
+                running: 2,
+                needs_input: 3,
+                idle: 4,
+                failed: 0,
+                stopped: 5,
+              },
+              total: 15,
+            })
+          : apiError(400, "INVALID_REQUEST", "wrong relation"),
+    });
+    const tabs = await screen.findByRole("group", { name: "상태로 보기" });
+    await waitFor(() =>
+      expect(
+        within(tabs)
+          .getAllByRole("button")
+          .map((tab) => tab.textContent),
+      ).toEqual([
+        "전체 15",
+        "답변 대기 3",
+        "작업 중 2",
+        "쉬는 중 4",
+        "멈춤 5",
+        "실패 0",
+      ]),
+    );
+  });
+
+  test("counts that failed leave the tabs without numbers", async () => {
+    renderAt("/sessions", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": () =>
+        json(200, { items: [summary(SESSION_ID)], next_cursor: null }),
+      "GET /v1/sessions/counts": () =>
+        apiError(503, "BACKEND_UNAVAILABLE", "down"),
+    });
+    await screen.findByRole("link", { name: opener(SESSION_ID) });
+    const tabs = screen.getByRole("group", { name: "상태로 보기" });
+    expect(
+      within(tabs)
+        .getAllByRole("button")
+        .map((tab) => tab.textContent),
+    ).toEqual(["전체", "답변 대기", "작업 중", "쉬는 중", "멈춤", "실패"]);
   });
 
   test("a waiting row says how long its oldest request has waited", async () => {
@@ -672,11 +900,11 @@ describe("sessions list", () => {
         .getByRole("button", { name: "전체" })
         .getAttribute("aria-pressed"),
     ).toBe("true");
-    await screen.findByRole("link", { name: SESSION_ID });
+    await screen.findByRole("link", { name: opener(SESSION_ID) });
 
     await user.click(within(tabs).getByRole("button", { name: "실패" }));
-    await screen.findByRole("link", { name: OTHER_ID });
-    expect(screen.queryByRole("link", { name: SESSION_ID })).toBeNull();
+    await screen.findByRole("link", { name: opener(OTHER_ID) });
+    expect(screen.queryByRole("link", { name: opener(SESSION_ID) })).toBeNull();
     expect(history.location.search).toContain("status=failed");
     expect(
       api.calls.some(
@@ -689,7 +917,7 @@ describe("sessions list", () => {
     expect(await screen.findByText("이 상태의 세션이 없습니다.")).toBeTruthy();
 
     await user.click(within(tabs).getByRole("button", { name: "전체" }));
-    await screen.findByRole("link", { name: SESSION_ID });
+    await screen.findByRole("link", { name: opener(SESSION_ID) });
     expect(history.location.search).not.toContain("status=");
   });
 
@@ -705,10 +933,10 @@ describe("sessions list", () => {
             })
           : json(200, { items: [summary(SESSION_ID)], next_cursor: null }),
     });
-    await screen.findByRole("link", { name: SESSION_ID });
+    await screen.findByRole("link", { name: opener(SESSION_ID) });
     // The full list stays cached, unmounted, behind the status tab.
     await user.click(screen.getByRole("button", { name: "실패" }));
-    await screen.findByRole("link", { name: OTHER_ID });
+    await screen.findByRole("link", { name: opener(OTHER_ID) });
     const failedReads = () =>
       api.calls.filter((call) => call.search === "?status=failed").length;
     await waitFor(() => expect(failedReads()).toBe(1));
@@ -736,7 +964,7 @@ describe("sessions list", () => {
     });
     const tab = await screen.findByRole("button", { name: "쉬는 중" });
     expect(tab.getAttribute("aria-pressed")).toBe("true");
-    await screen.findByRole("link", { name: OTHER_ID });
+    await screen.findByRole("link", { name: opener(OTHER_ID) });
   });
 
   test("an unknown status in the address opens every session", async () => {
@@ -747,22 +975,45 @@ describe("sessions list", () => {
     });
     const tab = await screen.findByRole("button", { name: "전체" });
     expect(tab.getAttribute("aria-pressed")).toBe("true");
-    await screen.findByRole("link", { name: SESSION_ID });
+    await screen.findByRole("link", { name: opener(SESSION_ID) });
   });
 
-  test("the new session button is off and says why", async () => {
+  test("offers no new session button, which the web cannot start yet", async () => {
     renderAt("/sessions", {
       "GET /v1/auth/me": () => json(200, memberMe()),
       "GET /v1/sessions": () => json(200, { items: [], next_cursor: null }),
     });
-    const button = await screen.findByRole("button", { name: "새 세션" });
-    expect((button as HTMLButtonElement).disabled).toBe(true);
-    const reason = document.getElementById(
-      button.getAttribute("aria-describedby") ?? "",
+    await screen.findByText("아직 세션이 없습니다.");
+    expect(screen.queryByRole("button", { name: "새 세션" })).toBeNull();
+    expect(
+      screen.queryByText(
+        "웹에서는 아직 세션을 시작할 수 없습니다. API로 시작하세요.",
+      ),
+    ).toBeNull();
+  });
+
+  test("the counts are read once per relation and search, not per tab", async () => {
+    const user = await setupUser();
+    const { api } = renderAt("/sessions", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": () =>
+        json(200, { items: [summary(SESSION_ID)], next_cursor: null }),
+    });
+    await screen.findByRole("link", { name: opener(SESSION_ID) });
+    const counts = () =>
+      api.calls.filter((call) => call.path === "/v1/sessions/counts");
+    await waitFor(() => expect(counts()).toHaveLength(1));
+    for (const tab of ["실패", "쉬는 중", "전체"]) {
+      await user.click(screen.getByRole("button", { name: tab }));
+    }
+    await screen.findByRole("link", { name: opener(SESSION_ID) });
+    expect(counts()).toHaveLength(1);
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "나와의 관계" }),
+      "started",
     );
-    expect(reason?.textContent).toBe(
-      "웹에서는 아직 세션을 시작할 수 없습니다. API로 시작하세요.",
-    );
+    await waitFor(() => expect(counts()).toHaveLength(2));
+    expect(counts()[1]?.search).toBe("?relation=started");
   });
 
   test("the menu links to it", async () => {

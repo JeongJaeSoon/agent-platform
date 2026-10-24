@@ -21,7 +21,7 @@ import { PASS_LOOP_ROLES, passLoopConfigFromEnv } from "../pass-loop/loop.ts";
 
 type Environment = Readonly<Record<string, string | undefined>>;
 
-export function slackDatabaseUrl(environment: Environment): string {
+function slackDatabaseUrl(environment: Environment): string {
   const databaseUrl =
     environment.DATABASE_URL || environment.QUEUE_DATABASE_URL;
   if (!databaseUrl) {
