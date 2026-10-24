@@ -871,6 +871,13 @@ curl -s -b jar -X PUT "http://127.0.0.1:3000/v1/agents/$AGENT_ID/slack-bindings"
   -d '{"channel_id":"C0OPS","mode":"mention","home":true}'
 ```
 
+채널 고르기 화면은 `GET /v1/agents/{id}/slack/channels?q=&cursor=&limit=`로 채널을 찾는다. 서버가 에이전트 앱의 bot token으로 Slack `conversations.list`(Tier 2)를 200개씩 끝까지 읽어, 공개 채널 전부와 bot이 이미 들어간 비공개 채널을 이름순으로 api 프로세스 메모리에 60초 둔다. 앱당 10,000개까지 두고 넘으면 `truncated: true`, 앱은 500개까지 두고 가장 오래 안 쓴 것부터 버린다. 같은 프로세스에서 binding을 `PUT`하면 그 앱의 목록을 버리고, 다른 replica는 60초를 기다린다. `q`는 채널 이름의 접두어다(대소문자 무시, 앞의 `#`는 뗀다). `limit`은 기본 20, 최대 50이고 넘으면 `400`이다. 각 항목은 `{id, name, is_private, is_member}`다. 다음 페이지는 `next_cursor`를 같은 `q`와 함께 `cursor`로 넘긴다. 이 cursor는 서버의 것이라 Slack cursor가 아니고, 그 목록이 새로 읽혀 바뀌었으면 `400 CURSOR_EXPIRED`다. 처음부터 다시 검색한다. Slack이 `429`를 주면 `Retry-After`까지 Slack을 다시 부르지 않는다. 그동안 읽어 둔 목록이 있으면 그것을 `stale: true`로, 없으면 `503`과 Slack의 `Retry-After`를 돌려준다. 앱이 없거나 bot token이 없거나 Slack이 token을 거절하면 `409 SLACK_NOT_INSTALLED`, 다른 workspace의 에이전트는 `404`다. 권한은 위 binding과 같다. api 로그 `Slack channels searched`에는 `agent_id`·`slack_app_id`·`cache`(`hit`·`miss`·`stale`)·`count`만 남고 token은 남지 않는다.
+
+```bash
+curl -s -b jar "http://127.0.0.1:3000/v1/agents/$AGENT_ID/slack/channels?q=dev&limit=5"
+# {"items":[{"id":"C…","name":"dev","is_private":false,"is_member":true},…],"next_cursor":"eyJ…","truncated":false,"stale":false}
+```
+
 ### Slack 멘션·승인 판정과 guest 설정
 
 Slack 채널은 멘션·스레드 답글·승인 버튼마다 `authorizeSlackInput(deps, input)`(`@werft-ai/platform`) 하나를 부른다. 이 함수가 판정을 끝까지 한다: 에이전트 해석(`agentForSlackEvent`), 말하거나 누른 Slack 계정의 연결 해석(`resolveLinkedSubject`), `authorize`, 거절 안내 문구. 승인 버튼은 요청자가 아니라 **누른 사람**의 Slack user로 같은 함수를 부른다(`action: "session.approve"`). 누른 사람이 그 세션에 답할 사람(만든 사람, 에이전트 관리자, owner·admin)이 아니면 `role`로 거절되고 "이 요청을 승인할 권한이 없어요" 안내가 간다.

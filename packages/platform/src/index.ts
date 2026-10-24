@@ -16,6 +16,7 @@ export * from "./musterrolle/policy.ts";
 export * from "./musterrolle/session-share-service.ts";
 export * from "./musterrolle/slack-app-service.ts";
 export * from "./musterrolle/slack-bot-token.ts";
+export * from "./musterrolle/slack-channel-search.ts";
 export * from "./musterrolle/slack-config-api.ts";
 export * from "./musterrolle/slack-config-token.ts";
 export * from "./musterrolle/slack-decision.ts";
