@@ -432,6 +432,15 @@ function AgentDetailScreen(props: ScreenProps) {
   const [homePick, setHomePick] = useState("");
   const [addPick, setAddPick] = useState("");
   const layout = useDetailLayout();
+  // A link that switches segment unmounts itself, so focus moves to the
+  // destination tab once it renders.
+  const segmentTabs = useRef<Partial<Record<Segment, HTMLButtonElement>>>({});
+  const [focusSegment, setFocusSegment] = useState<Segment | null>(null);
+  useEffect(() => {
+    if (!focusSegment) return;
+    segmentTabs.current[focusSegment]?.focus();
+    setFocusSegment(null);
+  }, [focusSegment]);
 
   // The install callback finishes on its own and replaces itself with the tab.
   useEffect(() => {
@@ -582,6 +591,7 @@ function AgentDetailScreen(props: ScreenProps) {
   const goTo = (next: Segment) => {
     setSegment(next);
     setOutcome(null);
+    setFocusSegment(next);
   };
   const linkTo = (label: string, next: Segment, name?: string) => (
     <Button
@@ -1041,7 +1051,13 @@ function AgentDetailScreen(props: ScreenProps) {
     >
       <TabsList aria-label="Slack 메뉴">
         {SEGMENTS.map(([key, label]) => (
-          <TabsTrigger key={key} value={key}>
+          <TabsTrigger
+            key={key}
+            value={key}
+            ref={(element) => {
+              if (element) segmentTabs.current[key] = element;
+            }}
+          >
             {label}
           </TabsTrigger>
         ))}
