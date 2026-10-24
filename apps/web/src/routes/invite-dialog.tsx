@@ -40,7 +40,7 @@ import {
   useRole,
   WORKSPACE_ROLE_VALUES,
 } from "../auth/guard.tsx";
-import { FormError, NOTICE } from "../components/auth-page.tsx";
+import { FormError, Notice } from "../components/auth-page.tsx";
 import { copyText } from "../components/copy.ts";
 import { useDialogFunnel } from "../funnel/tanstack-funnel.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
@@ -251,7 +251,7 @@ function InviteFlow({
               {outcome?.kind === "error" ? (
                 <FormError>{outcome.text}</FormError>
               ) : outcome ? (
-                <output className={NOTICE}>{outcome.text}</output>
+                <Notice>{outcome.text}</Notice>
               ) : null}
               <DialogFooter>
                 <Button

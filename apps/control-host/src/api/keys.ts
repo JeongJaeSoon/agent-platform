@@ -16,13 +16,19 @@ import {
   findLiveRole,
   findWorkspace,
   revokeApiKey,
+  touchApiKey,
 } from "@werft-ai/db";
 import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
 import { createLogger } from "@werft-ai/observability";
 import { drizzle } from "drizzle-orm/node-postgres";
 
 export interface ApiKeyStore {
-  find(keyHash: Uint8Array): Promise<ApiKeyRecord | null>;
+  /** `touchDue`: the key's last use is older than the touch interval. */
+  find(
+    keyHash: Uint8Array,
+  ): Promise<(ApiKeyRecord & { touchDue?: boolean }) | null>;
+  /** Absent on stores that keep no last use. */
+  touch?(keyId: string): Promise<unknown>;
 }
 
 export type NewApiKey = {
@@ -51,8 +57,12 @@ export function generateApiKey(): string {
 export class DatabaseApiKeyStore implements ApiKeyStore, ApiKeyWriter {
   constructor(private readonly db: Database) {}
 
-  find(keyHash: Uint8Array): Promise<ApiKeyRecord | null> {
+  find(keyHash: Uint8Array) {
     return findApiKey(this.db, keyHash);
+  }
+
+  touch(keyId: string) {
+    return touchApiKey(this.db, keyId);
   }
 
   async create(input: NewApiKey): Promise<void> {

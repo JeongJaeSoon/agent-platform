@@ -378,6 +378,8 @@ curl -s -b jar https://<host>/v1/auth/me
 
 누가 했는지는 새로 쓰는 행에 남는다. cookie로 만든 세션은 `sessions.workspace_id`·`created_by_user_id`를, key로 만든 세션은 `created_by_api_key_id`를 기록한다(개인 key는 만든 사람도 함께 기록한다). turn은 `actor_id`를, receipt는 `actor`를 남긴다. service key는 key만 기록하고 사람은 기록하지 않는다. 0136 migration은 사람을 추측하지 않는다. `owner_id`가 workspace id인 세션만 `workspace_id`를 채우고(채운 수는 migration NOTICE로 나온다), 나머지 actor 컬럼은 기존 행에서 비워 둔다.
 
+멤버 목록은 owner나 admin의 cookie 세션으로 `GET /v1/members`다(`member.manage` 판정). 비활성 멤버도 포함해 오래된 membership부터 `limit`개씩(기본 50, 최대 100) 돌려준다. 응답 `next_cursor`를 다음 요청의 `cursor`로 넘기고, 마지막 페이지에서는 `null`이다. `q`(앞뒤 공백을 빼고 1–200자)는 이름이나 이메일에 그 글자가 들어 있는 멤버만 남긴다. 대소문자는 가리지 않고 `%`·`_`도 글자 그대로 찾는다. 길이를 벗어나거나 cursor가 틀리면 `400`이다.
+
 멤버를 내보내는 것은 owner나 admin의 cookie 세션으로 `POST /v1/members/{user_id}/disable`이다(`member.manage` 판정, member와 API key는 `403 FORBIDDEN`). 본문은 `{}` 또는 `{"reason": "…"}`(UTF-8 1KiB까지, 넘으면 `413`)이다. owner는 owner만 비활성으로 만들거나 되살린다. admin이 owner를 대상으로 하면 `403 OWNER_PROTECTED`이고 아무것도 바뀌지 않는다. 자기 자신과 마지막 live owner는 비활성으로 만들 수 없다(`409 LAST_OWNER`). 여러 규칙에 걸리면 앞의 것이 답한다: `member.manage`가 없으면 `403 FORBIDDEN`, 자기 자신이면 `409 LAST_OWNER`, 대상이 없으면 `404`, admin이 owner를 대상으로 하면 `403 OWNER_PROTECTED`, 마지막 live owner면 `409 LAST_OWNER`. 그래서 admin이 마지막 live owner를 비활성하면 `403 OWNER_PROTECTED`다. live owner인 호출자가 있는 한 마지막 live owner는 그 호출자 자신뿐이다. 한 transaction 안에서 membership을 비활성화하고, 그 사용자의 web session 전부와 그 workspace에서 만든 개인 key를 폐기하고, 그 workspace에 연결된 Slack 계정을 `revoked`로 바꾼다(열린 SSE는 keepalive 주기 안에 끊긴다). service key는 건드리지 않는다. 그 사람이 요청한 닫히지 않은 세션에는 인수 대기 표시를 한다. 인수 대기 세션은 돌고 있던 turn까지만 마치고 다음 turn을 배정받지 않는다. 새 launch·claim도 받지 않고, 새 메시지는 `409 TAKEOVER_REQUIRED`로 거절된다. owner가 `GET /v1/takeovers`로 목록을 보고 `POST /v1/sessions/{id}/takeover`로 인수하면, 그 owner가 세션의 요청자가 되고 `takeover` receipt가 남는다. 세션이 인수하는 owner에게 보이지 않는 공유 범위면 `{"justification"}`이 필요하다(아래 세션 공유 범위 절).
 
 `POST /v1/members/{user_id}/enable`은 membership을 되살린다. 폐기한 web session과 개인 key, 회수한 Slack 연결은 되살리지 않는다(Slack은 다시 연결한다). 사용자는 다시 로그인하고 key도 새로 받는다. 아직 아무도 인수하지 않은 세션은 인수 대기 표시를 지워 그 사람에게 돌려준다. Google로만 만든(비밀번호 없는) 계정도 이렇게 되살리면 연결된 Google 로그인으로 다시 들어온다. 이런 계정은 다시 초대하지 말고 enable한다. 초대 수락은 새 계정이거나 비밀번호로 확인한 계정만 받기 때문이다.
@@ -882,6 +884,13 @@ Slack 스레드 하나는 세션 하나다. 그 묶음이 `session_links`의 행
 curl -s -b jar -X PUT "http://127.0.0.1:3000/v1/agents/$AGENT_ID/slack-bindings" \
   -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' \
   -d '{"channel_id":"C0OPS","mode":"mention","home":true}'
+```
+
+채널 고르기 화면은 `GET /v1/agents/{id}/slack/channels?q=&cursor=&limit=`로 채널을 찾는다. 서버가 에이전트 앱의 bot token으로 Slack `conversations.list`(Tier 2)를 200개씩 끝까지 읽어, 공개 채널 전부와 bot이 이미 들어간 비공개 채널을 이름순으로 api 프로세스 메모리에 60초 둔다. 앱당 10,000개까지 두고 넘으면 `truncated: true`, 앱은 500개까지 두고 가장 오래 안 쓴 것부터 버린다. 같은 프로세스에서 binding을 `PUT`하면 그 앱의 목록을 버리고, 다른 replica는 60초를 기다린다. `q`는 채널 이름의 접두어다(대소문자 무시, 앞의 `#`는 뗀다). `limit`은 기본 20, 최대 50이고 넘으면 `400`이다. 각 항목은 `{id, name, is_private, is_member}`다. 다음 페이지는 `next_cursor`를 같은 `q`와 함께 `cursor`로 넘긴다. 이 cursor는 서버의 것이라 Slack cursor가 아니고, 그 목록이 새로 읽혀 바뀌었으면 `400 CURSOR_EXPIRED`다. 처음부터 다시 검색한다. Slack이 `429`를 주면 `Retry-After`까지 Slack을 다시 부르지 않는다. 그동안 읽어 둔 목록이 있으면 그것을 `stale: true`로, 없으면 `503`과 Slack의 `Retry-After`를 돌려준다. 앱이 없거나 bot token이 없거나 Slack이 token을 거절하면 `409 SLACK_NOT_INSTALLED`, 다른 workspace의 에이전트는 `404`다. 권한은 위 binding과 같다. api 로그 `Slack channels searched`에는 `agent_id`·`slack_app_id`·`cache`(`hit`·`miss`·`stale`)·`count`만 남고 token은 남지 않는다.
+
+```bash
+curl -s -b jar "http://127.0.0.1:3000/v1/agents/$AGENT_ID/slack/channels?q=dev&limit=5"
+# {"items":[{"id":"C…","name":"dev","is_private":false,"is_member":true},…],"next_cursor":"eyJ…","truncated":false,"stale":false}
 ```
 
 ### Slack 멘션·승인 판정과 guest 설정

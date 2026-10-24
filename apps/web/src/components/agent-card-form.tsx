@@ -6,6 +6,7 @@ import type {
   ProfileSummary,
 } from "@werft-ai/contracts";
 import {
+  Alert,
   Field,
   FieldDescription,
   FieldError,
@@ -305,9 +306,11 @@ function ModelSelect({
       </NativeSelect>
       <FieldDescription>{t("agentCard.modelHint")}</FieldDescription>
       {uncataloged ? (
-        <FieldDescription className="web-notice">
-          {t("agentCard.modelUncatalogedWarning")}
-        </FieldDescription>
+        <Alert variant="amber">
+          <FieldDescription>
+            {t("agentCard.modelUncatalogedWarning")}
+          </FieldDescription>
+        </Alert>
       ) : null}
       <FieldError>{error}</FieldError>
     </Field>

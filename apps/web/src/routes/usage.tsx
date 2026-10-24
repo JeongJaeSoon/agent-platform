@@ -7,6 +7,9 @@ import type {
 } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
 import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
   Badge,
   Card,
   EmptyState,
@@ -138,14 +141,9 @@ function Basis({ summary }: { readonly summary: UsageSummaryResponse }) {
   const installation = summary.scope === "installation";
   const period = `${utcStamp(summary.period.since)} ~ ${utcStamp(summary.period.until).slice(5)}`;
   return (
-    <div className="flex items-start gap-2 rounded-card border bg-card px-4 py-3 text-control text-muted-foreground">
-      <Clock
-        aria-hidden="true"
-        className="mt-0.5 size-4 shrink-0"
-        strokeWidth={1.5}
-      />
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <p className="m-0 font-medium text-foreground">
+    <Alert icon={<Clock strokeWidth={1.5} />}>
+      <AlertTitle asChild>
+        <p className="m-0">
           {t(
             installation
               ? "usage.basis.installationTitle"
@@ -153,13 +151,13 @@ function Basis({ summary }: { readonly summary: UsageSummaryResponse }) {
             { period },
           )}
         </p>
-        <p className="m-0">
-          {t(installation ? "usage.basis.installation" : "usage.basis.me", {
-            at: formatTimestamp(summary.refreshed_at, locale),
-          })}
-        </p>
-      </div>
-    </div>
+      </AlertTitle>
+      <AlertDescription>
+        {t(installation ? "usage.basis.installation" : "usage.basis.me", {
+          at: formatTimestamp(summary.refreshed_at, locale),
+        })}
+      </AlertDescription>
+    </Alert>
   );
 }
 

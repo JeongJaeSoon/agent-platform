@@ -76,6 +76,7 @@ import {
   listCredentialBindingsResponseSchema,
   listInvitesResponseSchema,
   listLinkedAccountsResponseSchema,
+  listMembersQuerySchema,
   listMembersResponseSchema,
   listMyTeamsResponseSchema,
   listPendingRequestsResponseSchema,
@@ -121,6 +122,8 @@ import {
   revokeCredentialBindingResponseSchema,
   type SessionScope,
   SLACK_INSTALL_STATE_TTL_SECONDS,
+  searchSlackChannelsQuerySchema,
+  searchSlackChannelsResponseSchema,
   sessionCredentialUnboundDetailsSchema,
   sessionDurabilitySchema,
   sessionIdParamsSchema,
@@ -188,10 +191,12 @@ const openApiDocumentResponseSchema = z.looseObject({
 const requestComponents = {
   CreateSessionRequest: createSessionRequestSchema,
   ListSessionsQuery: listSessionsQuerySchema,
+  ListMembersQuery: listMembersQuerySchema,
   CountSessionsQuery: countSessionsQuerySchema,
   UsageSummaryQuery: usageSummaryQuerySchema,
   PostSessionMessageRequest: postSessionMessageRequestSchema,
   ListTurnsQuery: listTurnsQuerySchema,
+  SearchSlackChannelsQuery: searchSlackChannelsQuerySchema,
   PostSessionAnswerRequest: postSessionAnswerRequestSchema,
   PostSessionAnswerResponse: postSessionAnswerResponseSchema,
   InterruptSessionRequest: interruptSessionRequestSchema,
@@ -328,6 +333,7 @@ const responseComponents = {
   RevokeAgentIdentityResponse: revokeAgentIdentityResponseSchema,
   ListSlackBindingsResponse: listSlackBindingsResponseSchema,
   PutSlackBindingResponse: putSlackBindingResponseSchema,
+  SearchSlackChannelsResponse: searchSlackChannelsResponseSchema,
   OpenApiDocument: openApiDocumentResponseSchema,
 } satisfies Record<string, z.ZodType>;
 
@@ -2297,9 +2303,12 @@ export const API_ROUTE_DECLARATIONS = [
     operationId: "listMembers",
     tag: "Members",
     summary: "Members of the workspace, oldest first",
+    description:
+      "Lists the workspace's members, disabled ones included, oldest membership first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. `q` keeps the members whose display name or email contains it, ignoring case.",
     auth: "session",
+    query: "ListMembersQuery",
     success: { status: 200, schema: "ListMembersResponse" },
-    errors: [401, 403, 503],
+    errors: [400, 401, 403, 503],
   },
   {
     method: "patch",
@@ -2668,6 +2677,50 @@ export const API_ROUTE_DECLARATIONS = [
     errors: [400, 401, 403, 404, 409, 413, 503],
     errorCodes: { 409: ["SLACK_NOT_INSTALLED", "REVISION_CONFLICT"] },
     idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/agents/{id}/slack/channels",
+    operationId: "searchSlackChannels",
+    tag: "Agents",
+    summary: "Search the channels the agent's Slack bot can see",
+    description:
+      "Channels whose name starts with `q` (any case, a leading `#` ignored), by name, `limit` per page (default 20, at most 50): every public channel of the install and the private ones the bot is already in. `is_member` says whether the bot is in the channel. The server reads the app's whole list from Slack (`conversations.list` with the bot token) and keeps it for 60 seconds per app, up to 10,000 channels (`truncated: true` past that); a binding change in the same API process drops it sooner. Pass `next_cursor` back as `cursor` with the same `q` for the next page; once the list it pages through has been replaced the cursor answers 400 CURSOR_EXPIRED, and the search starts over. When Slack rate limits, the last list read is returned with `stale: true`, or 503 with Slack's `Retry-After` when there is none; Slack is not asked again before then. The agent needs an installed Slack app with a bot token (409 SLACK_NOT_INSTALLED). Owners, admins and the agent's admins.",
+    auth: "session",
+    query: "SearchSlackChannelsQuery",
+    success: {
+      status: 200,
+      schema: "SearchSlackChannelsResponse",
+      description: "One page of matching channels.",
+      example: {
+        items: [
+          {
+            id: "C0DEPLOY1",
+            name: "deploy",
+            is_private: false,
+            is_member: true,
+          },
+          {
+            id: "G0DESIGN1",
+            name: "design",
+            is_private: true,
+            is_member: true,
+          },
+        ],
+        next_cursor: "eyJzIjoiYWJjIiwibyI6MiwicSI6ImRlIn0",
+        truncated: false,
+        stale: false,
+      },
+    },
+    errors: [400, 401, 403, 404, 409, 503],
+    errorCodes: {
+      400: ["BAD_REQUEST", "CURSOR_EXPIRED"],
+      409: ["SLACK_NOT_INSTALLED"],
+    },
+    errorNotes: {
+      BACKEND_UNAVAILABLE:
+        "Also when Slack is rate limiting with no list read yet (`Retry-After` is Slack's), when Slack does not answer, or when the API runs without a master key (PLATFORM_SECRET_KEY).",
+    },
   },
   {
     method: "get",

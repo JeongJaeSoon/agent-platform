@@ -50,10 +50,15 @@ export function viewOf(key: WorkspaceKey): ApiKeyView {
     workspace_id: key.workspaceId,
     agent_id: key.agentId,
     created_by: key.createdByUserId,
+    created_by_user:
+      key.createdByUserId === null || key.createdByDisplayName === null
+        ? null
+        : { id: key.createdByUserId, display_name: key.createdByDisplayName },
     scopes: [...key.scopes],
     created_at: key.createdAt.toISOString(),
     expires_at: key.expiresAt?.toISOString() ?? null,
     revoked_at: key.revokedAt?.toISOString() ?? null,
+    last_used_at: key.lastUsedAt?.toISOString() ?? null,
   };
 }
 

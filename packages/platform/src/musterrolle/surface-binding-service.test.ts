@@ -116,6 +116,9 @@ describe("channel kinds through the agent's own app", () => {
       throw new Error("not asked");
     },
     setStatus: async () => {},
+    listChannels: async () => {
+      throw new Error("not asked");
+    },
   });
   const kinds = (
     slack: SlackBotApi,

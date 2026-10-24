@@ -11,6 +11,9 @@ import type {
 } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
 import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
   Badge,
   type BadgeProps,
   Button,
@@ -35,16 +38,7 @@ import {
   NativeSelectOption,
   Link as TextLink,
 } from "@werft-ai/ui";
-import {
-  ArrowLeft,
-  Check,
-  CircleAlert,
-  Clock,
-  Copy,
-  Info,
-  Plus,
-  TriangleAlert,
-} from "lucide-react";
+import { ArrowLeft, Check, CircleAlert, Clock, Copy, Plus } from "lucide-react";
 import {
   type FormEvent,
   type RefObject,
@@ -68,7 +62,7 @@ import {
   useMe,
   useRole,
 } from "../auth/guard.tsx";
-import { FormError, NOTICE } from "../components/auth-page.tsx";
+import { FormError, Notice } from "../components/auth-page.tsx";
 import { copyText } from "../components/copy.ts";
 import { LoadFailure } from "../components/load-failure.tsx";
 import type { Outcome } from "../components/outcome.tsx";
@@ -209,32 +203,31 @@ function KeyKindGuide({ kinds }: { readonly kinds: readonly KeyKind[] }) {
   const { t } = useI18n();
   const titleId = useId();
   return (
-    <section
-      className="flex flex-col gap-3 rounded-card border bg-muted p-4 text-sm"
-      aria-labelledby={titleId}
-    >
-      <h2
-        id={titleId}
-        className="m-0 flex items-center gap-2 font-semibold text-sm"
-      >
-        <Info aria-hidden="true" className="size-4 shrink-0" />
-        {t("apiKeys.guideTitle")}
-      </h2>
-      {kinds.map((kind) => (
-        <div
-          key={kind}
-          className="flex flex-col items-start gap-2"
-          data-testid={`guide-${kind}`}
-        >
-          <KindBadge kind={kind} />
-          <ul className="m-0 flex list-disc flex-col gap-1 pl-4">
-            {KIND_FACTS[kind].map((fact) => (
-              <li key={fact}>{t(fact)}</li>
-            ))}
-          </ul>
-        </div>
-      ))}
-    </section>
+    <Alert asChild aria-labelledby={titleId}>
+      <section>
+        <AlertTitle asChild>
+          <h2 id={titleId} className="m-0">
+            {t("apiKeys.guideTitle")}
+          </h2>
+        </AlertTitle>
+        <AlertDescription className="mt-2 flex flex-col gap-3">
+          {kinds.map((kind) => (
+            <div
+              key={kind}
+              className="flex flex-col items-start gap-2"
+              data-testid={`guide-${kind}`}
+            >
+              <KindBadge kind={kind} />
+              <ul className="m-0 flex list-disc flex-col gap-1 pl-4">
+                {KIND_FACTS[kind].map((fact) => (
+                  <li key={fact}>{t(fact)}</li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </AlertDescription>
+      </section>
+    </Alert>
   );
 }
 
@@ -391,7 +384,7 @@ function KeysScreen({ kind }: { readonly kind: ApiKeyKind }) {
         outcome.kind === "error" ? (
           <FormError>{outcome.text}</FormError>
         ) : (
-          <output className={NOTICE}>{outcome.text}</output>
+          <Notice>{outcome.text}</Notice>
         )
       ) : null}
       {keys.isPending ? (
@@ -864,13 +857,9 @@ function IssuedSecret({
         <h2 className={SECTION_TITLE}>{t("apiKeys.createdTitle")}</h2>
         <KindBadge kind={kind} />
       </div>
-      <div
-        data-tone="caution"
-        className="flex items-start gap-2 rounded-card border border-[var(--ap-tone-border)] bg-[var(--ap-tone-bg)] px-4 py-3 text-[var(--ap-tone-fg)] text-sm"
-      >
-        <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+      <Alert variant="amber">
         <p className="m-0">{t("apiKeys.secretOnce")}</p>
-      </div>
+      </Alert>
       <Field>
         <FieldLabel>{t("apiKeys.secret")}</FieldLabel>
         <div className="flex items-center gap-2">

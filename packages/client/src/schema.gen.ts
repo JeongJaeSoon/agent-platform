@@ -1192,7 +1192,9 @@ export interface paths {
         };
         /**
          * Members of the workspace, oldest first
-         * @description **Auth:** cookie session only; no scope.
+         * @description Lists the workspace's members, disabled ones included, oldest membership first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. `q` keeps the members whose display name or email contains it, ignoring case.
+         *
+         *     **Auth:** cookie session only; no scope.
          */
         get: operations["listMembers"];
         put?: never;
@@ -1664,6 +1666,28 @@ export interface paths {
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         put: operations["putSlackBinding"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{id}/slack/channels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search the channels the agent's Slack bot can see
+         * @description Channels whose name starts with `q` (any case, a leading `#` ignored), by name, `limit` per page (default 20, at most 50): every public channel of the install and the private ones the bot is already in. `is_member` says whether the bot is in the channel. The server reads the app's whole list from Slack (`conversations.list` with the bot token) and keeps it for 60 seconds per app, up to 10,000 channels (`truncated: true` past that); a binding change in the same API process drops it sooner. Pass `next_cursor` back as `cursor` with the same `q` for the next page; once the list it pages through has been replaced the cursor answers 400 CURSOR_EXPIRED, and the search starts over. When Slack rate limits, the last list read is returned with `stale: true`, or 503 with Slack's `Retry-After` when there is none; Slack is not asked again before then. The agent needs an installed Slack app with a bot token (409 SLACK_NOT_INSTALLED). Owners, admins and the agent's admins.
+         *
+         *     **Auth:** cookie session only; no scope.
+         */
+        get: operations["searchSlackChannels"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -2152,6 +2176,13 @@ export interface components {
             /** @description Matches a session whose title contains it, ignoring case, or whose id starts with it. */
             q?: string;
         };
+        ListMembersQuery: {
+            cursor?: string;
+            /** @default 50 */
+            limit: number;
+            /** @description Matches a member whose display name or email contains it, ignoring case. `%` and `_` match themselves. */
+            q?: string;
+        };
         CountSessionsQuery: {
             /**
              * @description Narrows the sessions the caller can read, never widens them; omitted, `all`. `started`: the caller started it (for an API key, the key or the person who created it). `shared`: someone else's session shared with the caller by name or through a team the caller is a member of; sessions every workspace member sees appear only under `all`. `administered`: a session of an agent the caller administers, directly or through a team.
@@ -2179,6 +2210,16 @@ export interface components {
         ListTurnsQuery: {
             cursor?: string;
             /** @default 50 */
+            limit: number;
+        };
+        SearchSlackChannelsQuery: {
+            /**
+             * @description A prefix of the channel name, any case; a leading `#` is ignored. Empty matches every channel.
+             * @default
+             */
+            q: string;
+            cursor?: string;
+            /** @default 20 */
             limit: number;
         };
         PostSessionAnswerRequest: {
@@ -3212,6 +3253,7 @@ export interface components {
         };
         ListMembersResponse: {
             items: components["schemas"]["MemberView"][];
+            next_cursor: string | null;
         };
         MemberView: {
             /** Format: uuid */
@@ -4062,11 +4104,19 @@ export interface components {
                 workspace_id: string;
                 agent_id: string | null;
                 created_by: string | null;
+                /** @description Who issued the key, with their display name as it is now. It stays after the issuer leaves the workspace or their account is disabled. Null on a key issued before keys recorded who issued them. */
+                created_by_user: {
+                    /** Format: uuid */
+                    id: string;
+                    display_name: string;
+                } | null;
                 scopes: ("sessions:read" | "sessions:write" | "sessions:approve" | "sessions:control" | "sessions:recover")[];
                 /** Format: date-time */
                 created_at: string;
                 expires_at: string | null;
                 revoked_at: string | null;
+                /** @description When the key last authenticated a request, recorded at most once a minute. A use made while another request is writing a session with the key is recorded on the next use instead, so it can lag by more. Null means no use has been recorded since last-use recording began, not that the key was never used. */
+                last_used_at: string | null;
             };
             secret: string;
             /** Format: uuid */
@@ -4082,11 +4132,19 @@ export interface components {
                 workspace_id: string;
                 agent_id: string | null;
                 created_by: string | null;
+                /** @description Who issued the key, with their display name as it is now. It stays after the issuer leaves the workspace or their account is disabled. Null on a key issued before keys recorded who issued them. */
+                created_by_user: {
+                    /** Format: uuid */
+                    id: string;
+                    display_name: string;
+                } | null;
                 scopes: ("sessions:read" | "sessions:write" | "sessions:approve" | "sessions:control" | "sessions:recover")[];
                 /** Format: date-time */
                 created_at: string;
                 expires_at: string | null;
                 revoked_at: string | null;
+                /** @description When the key last authenticated a request, recorded at most once a minute. A use made while another request is writing a session with the key is recorded on the next use instead, so it can lag by more. Null means no use has been recorded since last-use recording began, not that the key was never used. */
+                last_used_at: string | null;
             }[];
         };
         RevokeApiKeyResponse: {
@@ -4099,11 +4157,19 @@ export interface components {
                 workspace_id: string;
                 agent_id: string | null;
                 created_by: string | null;
+                /** @description Who issued the key, with their display name as it is now. It stays after the issuer leaves the workspace or their account is disabled. Null on a key issued before keys recorded who issued them. */
+                created_by_user: {
+                    /** Format: uuid */
+                    id: string;
+                    display_name: string;
+                } | null;
                 scopes: ("sessions:read" | "sessions:write" | "sessions:approve" | "sessions:control" | "sessions:recover")[];
                 /** Format: date-time */
                 created_at: string;
                 expires_at: string | null;
                 revoked_at: string | null;
+                /** @description When the key last authenticated a request, recorded at most once a minute. A use made while another request is writing a session with the key is recorded on the next use instead, so it can lag by more. Null means no use has been recorded since last-use recording began, not that the key was never used. */
+                last_used_at: string | null;
             };
             receipt_id: string | null;
         };
@@ -4399,6 +4465,17 @@ export interface components {
             };
             /** Format: uuid */
             receipt_id: string;
+        };
+        SearchSlackChannelsResponse: {
+            items: {
+                id: string;
+                name: string;
+                is_private: boolean;
+                is_member: boolean;
+            }[];
+            next_cursor: string | null;
+            truncated: boolean;
+            stale: boolean;
         };
         OpenApiDocument: {
             /** @constant */
@@ -12210,7 +12287,11 @@ export interface operations {
     };
     listMembers: {
         parameters: {
-            query?: never;
+            query?: {
+                cursor?: string;
+                limit?: number;
+                q?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -12225,6 +12306,21 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ListMembersResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
                 };
             };
             /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
@@ -15301,6 +15397,149 @@ export interface operations {
             };
             500: components["responses"]["InternalError"];
             /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    searchSlackChannels: {
+        parameters: {
+            query?: {
+                q?: string;
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of matching channels. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "id": "C0DEPLOY1",
+                     *           "name": "deploy",
+                     *           "is_private": false,
+                     *           "is_member": true
+                     *         },
+                     *         {
+                     *           "id": "G0DESIGN1",
+                     *           "name": "design",
+                     *           "is_private": true,
+                     *           "is_member": true
+                     *         }
+                     *       ],
+                     *       "next_cursor": "eyJzIjoiYWJjIiwibyI6MiwicSI6ImRlIn0",
+                     *       "truncated": false,
+                     *       "stale": false
+                     *     }
+                     */
+                    "application/json": components["schemas"]["SearchSlackChannelsResponse"];
+                };
+            };
+            /**
+             * @description - `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying.
+             *     - `CURSOR_EXPIRED`: The cursor fell outside retained history; reread the resource state and start a new stream. Reserved: alpha does not trim events.
+             */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST" | "CURSOR_EXPIRED";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `SLACK_NOT_INSTALLED`: The workspace has no verified Slack install for this team. */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "SLACK_NOT_INSTALLED";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. Also when Slack is rate limiting with no list read yet (`Retry-After` is Slack's), when Slack does not answer, or when the API runs without a master key (PLATFORM_SECRET_KEY). */
             503: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];

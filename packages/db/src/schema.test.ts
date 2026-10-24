@@ -248,6 +248,7 @@ describe("database schema", () => {
       "id",
       "key_hash",
       "kind",
+      "last_used_at",
       "owner_id",
       "revoked_at",
       "scopes",

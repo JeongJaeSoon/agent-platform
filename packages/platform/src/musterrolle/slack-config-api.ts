@@ -1,4 +1,8 @@
-import type { SlackUser, SurfaceChannelKind } from "@werft-ai/contracts";
+import type {
+  SlackChannel,
+  SlackUser,
+  SurfaceChannelKind,
+} from "@werft-ai/contracts";
 import { z } from "zod";
 
 // The App Configuration API calls the platform makes with a workspace's
@@ -23,6 +27,27 @@ export class SlackApiError extends Error {
     super(`${method}: ${code}`);
     this.name = "SlackApiError";
   }
+}
+
+/** Used when a 429 carries no readable Retry-After. */
+const DEFAULT_RETRY_AFTER_SECONDS = 60;
+
+/** Slack answered 429: no call before `retryAfterSeconds` have passed. */
+export class SlackRateLimitedError extends SlackApiError {
+  constructor(
+    method: string,
+    readonly retryAfterSeconds: number,
+  ) {
+    super(method, "ratelimited", true);
+    this.name = "SlackRateLimitedError";
+  }
+}
+
+function retryAfterOf(response: Response): number {
+  const seconds = Number(response.headers.get("retry-after"));
+  return Number.isSafeInteger(seconds) && seconds > 0
+    ? seconds
+    : DEFAULT_RETRY_AFTER_SECONDS;
 }
 
 export type RotatedConfigToken = {
@@ -162,6 +187,10 @@ function slackCaller(options?: SlackApiOptions) {
           : "unreachable",
         false,
       );
+    }
+    if (response.status === 429) {
+      await response.body?.cancel();
+      throw new SlackRateLimitedError(method, retryAfterOf(response));
     }
     const body = (await response.json().catch(() => null)) as Record<
       string,
@@ -338,12 +367,28 @@ export function createSlackConfigApi(
 /** The progress line under a thread's last message. */
 export const SLACK_SET_STATUS_METHOD = "agents.sessions.setStatus";
 
+/** Slack advises no more than 200 per page. */
+export const SLACK_CHANNEL_PAGE_SIZE = 200;
+
+export type SlackChannelPage = {
+  channels: SlackChannel[];
+  nextCursor: string | null;
+};
+
 /** The calls a bot token makes about the people and places it hears from. */
 export interface SlackBotApi {
   /** `users.info`: the flags that tell a member from a guest or a stranger. */
   userInfo(botToken: string, userId: string): Promise<SlackUser>;
   /** `conversations.info`: what kind of place the channel is. */
   channelKind(botToken: string, channelId: string): Promise<SurfaceChannelKind>;
+  /**
+   * `conversations.list`: one page of the public channels and the private
+   * ones the bot is in. Slack's Tier 2 (20+ per minute).
+   */
+  listChannels(
+    botToken: string,
+    cursor: string | null,
+  ): Promise<SlackChannelPage>;
   setStatus(
     botToken: string,
     input: { channelId: string; threadTs: string; status: string },
@@ -399,6 +444,21 @@ const conversationInfoAnswer = z.object({
   }),
 });
 
+const listChannelsAnswer = z.object({
+  channels: z.array(
+    z.object({
+      id: slackId,
+      name: z.string().min(1).max(255),
+      is_private: z.boolean().default(false),
+      is_member: z.boolean().default(false),
+      is_archived: z.boolean().default(false),
+    }),
+  ),
+  response_metadata: z
+    .object({ next_cursor: z.string().max(4096).optional() })
+    .optional(),
+});
+
 export function createSlackBotApi(
   options?: SlackApiOptions,
 ): SlackBotApi & SlackBotSender {
@@ -436,6 +496,33 @@ export function createSlackBotApi(
       return channel.is_private || channel.is_mpim
         ? "private_channel"
         : "public_channel";
+    },
+
+    async listChannels(botToken, cursor) {
+      const answer = await call(
+        "conversations.list",
+        {
+          token: botToken,
+          body: new URLSearchParams({
+            types: "public_channel,private_channel",
+            exclude_archived: "true",
+            limit: String(SLACK_CHANNEL_PAGE_SIZE),
+            ...(cursor === null ? {} : { cursor }),
+          }),
+        },
+        listChannelsAnswer,
+      );
+      return {
+        channels: answer.channels
+          .filter((channel) => !channel.is_archived)
+          .map((channel) => ({
+            id: channel.id,
+            name: channel.name,
+            is_private: channel.is_private,
+            is_member: channel.is_member,
+          })),
+        nextCursor: answer.response_metadata?.next_cursor || null,
+      };
     },
 
     async setStatus(botToken, input) {

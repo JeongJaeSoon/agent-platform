@@ -17,7 +17,40 @@ export type FakeSlackApp = {
 /** One call as the fake saw it: method and outcome, never a token. */
 export type FakeSlackCall = { method: string; ok: boolean; error?: string };
 
+/** A channel of the fake's one team; `members` are the apps whose bot is in it. */
+export type FakeSlackListedChannel = {
+  id: string;
+  name: string;
+  isPrivate: boolean;
+  isArchived: boolean;
+  members: string[];
+};
+
+export type SeedSlackChannel = {
+  name: string;
+  isPrivate?: boolean;
+  isArchived?: boolean;
+  members?: string[];
+};
+
 export type FakeSlackWebApi = {
+  /** Every channel, in the order conversations.list pages through them. */
+  conversations: FakeSlackListedChannel[];
+  /**
+   * Adds channels with made-up ids (`C…` public, `G…` private), which
+   * conversations.info then describes too.
+   */
+  seedChannels(seeds: SeedSlackChannel[]): FakeSlackListedChannel[];
+  /**
+   * After `after` more calls of `method` go through, the next `times` answer
+   * 429 with this Retry-After.
+   */
+  rateLimit(
+    method: string,
+    retryAfterSeconds: number,
+    times?: number,
+    after?: number,
+  ): void;
   /** Answers `/api/<method>` and the fake's own routes; null for anything else. */
   handle(request: Request): Promise<Response | null>;
   /** A refresh token tooling.tokens.rotate takes once, as a pasted config token. */
@@ -165,6 +198,25 @@ export function createFakeSlackWebApi(
   };
   const failures = new Map<string, string>();
   let appCounter = 0;
+  const conversations: FakeSlackListedChannel[] = [];
+  const rateLimits = new Map<
+    string,
+    { retryAfterSeconds: number; times: number; after: number }
+  >();
+
+  const seedChannels = (seeds: SeedSlackChannel[]) =>
+    seeds.map((seed) => {
+      const channel: FakeSlackListedChannel = {
+        id: `${seed.isPrivate ? "G" : "C"}0${hex(5).toUpperCase()}`,
+        name: seed.name,
+        isPrivate: seed.isPrivate ?? false,
+        isArchived: seed.isArchived ?? false,
+        members: [...(seed.members ?? [])],
+      };
+      conversations.push(channel);
+      channels.set(channel.id, { isPrivate: channel.isPrivate });
+      return channel;
+    });
 
   const issueConfigToken = () => {
     const refresh = `xoxe-1-${hex(24)}`;
@@ -223,6 +275,58 @@ export function createFakeSlackWebApi(
           app_id: app.appId,
           user_id: `U${app.appId}BOT`,
           deleted: false,
+        },
+      };
+    },
+
+    // As Slack does, the page is cut at `limit` before it is filtered, so a
+    // page can come back short with more to read.
+    "conversations.list"(context) {
+      const app = installedBot(context);
+      const types = new Set(
+        (context.params.types ?? "public_channel").split(","),
+      );
+      const excludeArchived = ["true", "1"].includes(
+        context.params.exclude_archived ?? "",
+      );
+      const limit = Math.min(
+        Math.max(Number(context.params.limit ?? 100) || 100, 1),
+        1000,
+      );
+      let offset = 0;
+      if (context.params.cursor) {
+        const match = /^offset:(\d+)$/.exec(
+          Buffer.from(context.params.cursor, "base64").toString("utf8"),
+        );
+        if (!match) throw new SlackError("invalid_cursor");
+        offset = Number(match[1]);
+      }
+      const end = offset + limit;
+      const page = conversations
+        .slice(offset, end)
+        .filter(
+          (channel) =>
+            types.has(
+              channel.isPrivate ? "private_channel" : "public_channel",
+            ) &&
+            !(excludeArchived && channel.isArchived) &&
+            (!channel.isPrivate || channel.members.includes(app.appId)),
+        );
+      return {
+        channels: page.map((channel) => ({
+          id: channel.id,
+          name: channel.name,
+          is_channel: !channel.isPrivate,
+          is_group: channel.isPrivate,
+          is_private: channel.isPrivate,
+          is_archived: channel.isArchived,
+          is_member: channel.members.includes(app.appId),
+        })),
+        response_metadata: {
+          next_cursor:
+            end < conversations.length
+              ? Buffer.from(`offset:${end}`).toString("base64")
+              : "",
         },
       };
     },
@@ -462,6 +566,11 @@ export function createFakeSlackWebApi(
   return {
     apps,
     calls,
+    conversations,
+    seedChannels,
+    rateLimit(method, retryAfterSeconds, times = 1, after = 0) {
+      rateLimits.set(method, { retryAfterSeconds, times, after });
+    },
     issueConfigToken,
 
     installAnswer,
@@ -492,6 +601,75 @@ export function createFakeSlackWebApi(
             { status: 400 },
           );
         }
+      }
+      if (url.pathname === "/fake/rate-limits" && request.method === "POST") {
+        const input = (await request.json().catch(() => null)) as {
+          method?: unknown;
+          retry_after_seconds?: unknown;
+          times?: unknown;
+          after?: unknown;
+        } | null;
+        const valid =
+          typeof input?.method === "string" &&
+          Object.hasOwn(methods, input.method) &&
+          Number.isSafeInteger(input.retry_after_seconds) &&
+          Number.isSafeInteger(input.times ?? 1) &&
+          Number.isSafeInteger(input.after ?? 0);
+        if (!valid) {
+          return Response.json(
+            { ok: false, error: "invalid_request" },
+            { status: 400 },
+          );
+        }
+        rateLimits.set(input.method as string, {
+          retryAfterSeconds: input.retry_after_seconds as number,
+          times: (input.times ?? 1) as number,
+          after: (input.after ?? 0) as number,
+        });
+        return Response.json({ ok: true });
+      }
+      // For curl on the local stack: `bot_member` puts `app_id`'s bot in it.
+      if (url.pathname === "/fake/channels" && request.method === "POST") {
+        const input = (await request.json().catch(() => null)) as {
+          app_id?: unknown;
+          channels?: unknown;
+        } | null;
+        const seeds = Array.isArray(input?.channels) ? input.channels : null;
+        const appId =
+          typeof input?.app_id === "string" && apps.has(input.app_id)
+            ? input.app_id
+            : null;
+        const valid =
+          seeds !== null &&
+          seeds.length <= 1000 &&
+          seeds.every(
+            (seed) =>
+              typeof seed?.name === "string" &&
+              /^[a-z0-9_-]{1,80}$/.test(seed.name) &&
+              (seed.bot_member === undefined || appId !== null),
+          );
+        if (!valid) {
+          return Response.json(
+            { ok: false, error: "invalid_request" },
+            { status: 400 },
+          );
+        }
+        const added = seedChannels(
+          seeds.map((seed) => ({
+            name: seed.name,
+            isPrivate: seed.is_private === true,
+            isArchived: seed.is_archived === true,
+            members: seed.bot_member === true && appId ? [appId] : [],
+          })),
+        );
+        return Response.json({
+          ok: true,
+          channels: added.map((channel) => ({
+            id: channel.id,
+            name: channel.name,
+            is_private: channel.isPrivate,
+          })),
+        });
       }
       if (url.pathname === "/fake/statuses" && request.method === "GET") {
         return Response.json({ ok: true, statuses });
@@ -578,6 +756,20 @@ export function createFakeSlackWebApi(
         : null;
       const run = method === null ? undefined : methods[method];
       if (method === null || run === undefined) return null;
+      const limited = rateLimits.get(method);
+      if (limited && limited.after > 0) {
+        limited.after -= 1;
+      } else if (limited && limited.times > 0) {
+        limited.times -= 1;
+        calls.push({ method, ok: false, error: "ratelimited" });
+        return Response.json(
+          { ok: false, error: "ratelimited" },
+          {
+            status: 429,
+            headers: { "Retry-After": String(limited.retryAfterSeconds) },
+          },
+        );
+      }
       const authorization = request.headers.get("authorization");
       const context: Context = {
         token: authorization?.startsWith("Bearer ")

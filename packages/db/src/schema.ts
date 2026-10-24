@@ -1818,6 +1818,8 @@ export const apiKeys = pgTable(
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     /** A service key that reaches this agent's sessions and nothing else. */
     agentId: uuid("agent_id"),
+    // Unindexed so the throttled touch stays a HOT update (touchApiKey).
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
   },
   (table) => [
     foreignKey({

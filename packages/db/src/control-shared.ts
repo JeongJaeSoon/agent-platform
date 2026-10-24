@@ -28,6 +28,13 @@ import {
   workerLaunches,
 } from "./schema.ts";
 
+const LIKE_SPECIAL = /[\\%_]/g;
+
+/** A (I)LIKE pattern matching `text` anywhere, its wildcards taken literally. */
+export function containsPattern(text: string): string {
+  return `%${text.replace(LIKE_SPECIAL, "\\$&")}%`;
+}
+
 const TURN_ID = /^[1-9]\d{0,9}$/;
 // turns.sequence is a PostgreSQL integer; a larger id cannot exist and must
 // not reach the query, where it would fail with 22003 instead of not-found.
@@ -201,6 +208,25 @@ export async function findIdempotent(tx: Database, scope: IdempotencyScope) {
   return existing;
 }
 
+// A replay reports the receipt's current status, since the row is the only
+// record of it.
+export function controlReplay(
+  existing: Awaited<ReturnType<typeof findIdempotent>>,
+  payloadHash: string,
+) {
+  if (!existing) return undefined;
+  if (existing.payloadHash !== payloadHash) {
+    return { outcome: "conflict" as const };
+  }
+  return {
+    outcome: "replayed" as const,
+    response: {
+      receipt_id: existing.receiptId,
+      receipt_status: existing.status,
+    },
+  };
+}
+
 /**
  * The turn a control receipt reports as unconfirmed: the earliest one whose
  * outcome is unknown, from this exit or from one the session was already
@@ -230,12 +256,20 @@ export class BindingMoved extends Error {
 }
 
 // drizzle wraps the driver's error, so the code may sit on its cause.
-function isDeadlock(error: unknown): boolean {
+export function findPgError(
+  error: unknown,
+  code: string,
+): { constraint?: unknown } | undefined {
   for (let e = error; typeof e === "object" && e !== null; ) {
-    if ((e as { code?: unknown }).code === "40P01") return true;
+    const found = e as { code?: unknown; constraint?: unknown };
+    if (found.code === code) return found;
     e = (e as { cause?: unknown }).cause;
   }
-  return false;
+  return undefined;
+}
+
+function isDeadlock(error: unknown): boolean {
+  return findPgError(error, "40P01") !== undefined;
 }
 
 /**
