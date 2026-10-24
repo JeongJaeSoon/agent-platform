@@ -141,7 +141,7 @@ describe("SettingRow", () => {
     }
     const status = getByText("꺼짐");
     expect(classes(status)).toEqual(["hidden", "sm:contents"]);
-    expect(status.nextElementSibling).toBe(getByRole("switch"));
+    expect(status.nextElementSibling === getByRole("switch")).toBe(true);
   });
 
   test("설명이 없으면 컨트롤이 두 줄에 걸치지 않는다", () => {

@@ -37,7 +37,7 @@ const COPY = {
     export: "내보내기",
     long: "아주 긴 설정 이름이 한 줄을 넘어가면 제목이 다음 줄로 넘어가고 컨트롤은 제자리에 있습니다",
     longDesc:
-      "설명도 길어지면 글 칸 안에서 줄을 바꿉니다. 컨트롤은 줄어들지 않고, 좁은 화면에서는 글 아래 오른쪽 끝으로 내려갑니다. 그래도 페이지가 옆으로 넘치지 않습니다.",
+      "설명도 길어지면 줄을 바꿉니다. 컨트롤은 줄어들지 않고, 좁은 화면에서도 제목 첫 줄 오른쪽 끝에 남으며 설명이 그 아래 전체 폭으로 흐릅니다. 그래도 페이지가 옆으로 넘치지 않습니다.",
   },
   ja: {
     slack: "Slack 連携",
@@ -64,7 +64,7 @@ const COPY = {
     export: "エクスポート",
     long: "とても長い設定名が一行を超えると、タイトルは次の行に折り返し、コントロールはその場に残ります",
     longDesc:
-      "説明が長くなってもテキスト欄の中で折り返します。コントロールは縮まず、狭い画面ではテキストの下の右端に移ります。それでもページは横にはみ出しません。",
+      "説明が長くなっても折り返します。コントロールは縮まず、狭い画面でもタイトルの1行目の右端に残り、説明はその下に全幅で流れます。それでもページは横にはみ出しません。",
   },
   en: {
     slack: "Slack connection",
@@ -91,7 +91,7 @@ const COPY = {
     export: "Export",
     long: "A very long setting name wraps onto the next line while the control stays where it is",
     longDesc:
-      "A long description wraps inside the text column too. The control does not shrink, and on a narrow screen it moves under the text at the right edge, without the page scrolling sideways.",
+      "A long description wraps too. The control does not shrink; on a narrow screen it stays at the right end of the title's first line and the description runs full width below, without the page scrolling sideways.",
   },
 } as const;
 

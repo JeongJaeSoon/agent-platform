@@ -272,7 +272,10 @@ describe("워크스페이스 설정", () => {
     expect(
       row?.closest('[role="region"]')?.getAttribute("aria-labelledby"),
     ).toBe(screen.getByRole("heading", { name: "Slack 게스트" }).id);
-    expect(row?.lastElementChild?.lastElementChild).toBe(toggle);
+    // bun's toBe passes on unrelated DOM nodes; compare elements with ===.
+    const slot = toggle.parentElement;
+    expect(slot?.lastElementChild === toggle).toBe(true);
+    expect(slot?.parentElement?.parentElement === row).toBe(true);
     const status = toggle.previousElementSibling;
     expect(status?.textContent).toBe("꺼짐");
     expect(status?.querySelector('[aria-hidden="true"]')?.textContent).toBe(
