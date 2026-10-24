@@ -864,7 +864,7 @@ Slack 스레드 하나는 세션 하나다. 그 묶음이 `session_links`의 행
 - `uncertain`: Slack이 그 글을 가졌을 수 있어 다시 보내지 않는 행이다. `sending`인 채 lease가 끝난 행(보내는 도중 역할이 죽음), 응답 없이 끊긴 요청, 2xx나 5xx인데 본문을 읽을 수 없는 응답(`unreadable_answer`)이 여기로 간다. 4xx는 본문을 읽지 못해도 status와 `Retry-After`로 판정한다. 그래서 429는 `pending`으로 돌아간다. ts 없는 `ok:true`는 `failed`(`missing_ts`)이고 역시 다시 보내지 않는다. lease가 끝난 행은 다음 pass가 `Slack send outlived its lease; marked uncertain` 한 줄을 남긴다. 어느 쪽이든 답이면 스레드에 "답을 보냈는지 확인하지 못했어요. 웹에서 확인해 주세요"와 세션 링크를 한 번 보낸다.
 - 답·실패 안내가 끝나면(`sent`·`failed`·`uncertain`) `agents.sessions.setStatus` `active`로 "생각 중" 표시를 지운다. 보내는 도중 lease가 끝난 실패 안내도 다음 pass가 상태를 지운다(lease가 끝난 답은 뒤따르는 안내가 지운다). 이 호출이 실패해도 행 상태는 그대로이고 warn 로그만 남는다. 승인 대기 안내와 거절 안내는 상태를 바꾸지 않는다.
 - 로그는 pass 요약 `Slack outbox pass`(넣은 수·claim·sent·retried·failed·uncertain)와 보내지 못한 행의 `Slack send not delivered`(id·종류·channel·시도·상태·오류 코드)다. 글·token은 로그와 행에 남지 않는다(행의 `body`는 escape 전 원문이다).
-- 행 확인: `select kind, status, attempts, error_code, thread_ts from slack_outbox order by created_at`.
+- 행 확인: `select kind, status, attempts, error_code, thread_ts from slack_outbox order by seq`. `seq`는 보내는 순서다. 같은 시각에 들어간 행도 들어간 순서대로 나간다.
 
 ### 에이전트의 Slack 채널 설정
 

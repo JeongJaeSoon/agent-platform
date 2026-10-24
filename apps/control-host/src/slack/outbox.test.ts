@@ -494,6 +494,79 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     expect(posted()).toHaveLength(1);
   });
 
+  test("turns that started at the same instant answer in their thread's order", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    const { rows: columns } = (await db.execute(
+      sql`SELECT column_name FROM information_schema.columns
+          WHERE table_name = 'turns'
+            AND column_name NOT IN ('id', 'sequence', 'attempt_id')
+          ORDER BY ordinal_position`,
+    )) as unknown as { rows: { column_name: string }[] };
+    const copied = columns.map(({ column_name }) => `"${column_name}"`);
+    // Turn 3 gets the lower id: id order is not the thread's order.
+    for (const sequence of [3, 2]) {
+      await db.execute(
+        sql.raw(`INSERT INTO turns (sequence, ${copied.join(", ")})
+          SELECT ${sequence}, ${copied.map((column) => `t.${column}`).join(", ")}
+          FROM turns t WHERE t.session_id = '${sessionId}' AND t.sequence = 1`),
+      );
+    }
+    for (const sequence of [1, 2, 3]) {
+      await endTurn(sessionId, sequence, "completed", [
+        [text(`answer ${sequence}`)],
+      ]);
+    }
+
+    expect(await outboxPass()).toMatchObject({ enqueued: 3, sent: 3 });
+    expect(posted().map((message) => message.text.split("\n")[0])).toEqual([
+      "answer 1",
+      "answer 2",
+      "answer 3",
+    ]);
+  });
+
+  test("the pass reads only linked sessions' turns and untold uncertain rows by index", async () => {
+    if (engine !== "PostgreSQL") return;
+    const plans: string[] = [];
+    const traced = drizzlePostgres(
+      (db as unknown as { $client: Pool }).$client,
+      {
+        schema,
+        logger: {
+          logQuery: (query, params) => {
+            plans.push(JSON.stringify({ query, params }));
+          },
+        },
+      },
+    ) as unknown as Database;
+    const outbox = createPostgresSlackOutboxStore(traced);
+    await outbox.unansweredTurns(10);
+    await outbox.untoldUncertain(10);
+    const explain = async (captured: string | undefined) => {
+      const { query, params } = JSON.parse(captured ?? "{}");
+      const client = await (
+        db as unknown as { $client: Pool }
+      ).$client.connect();
+      try {
+        // Tables this small would be read whole; ask which index it would use.
+        await client.query("SET enable_seqscan = off");
+        const { rows } = await client.query(
+          `EXPLAIN (COSTS OFF) ${query}`,
+          params,
+        );
+        return rows.map((row) => row["QUERY PLAN"]).join("\n");
+      } finally {
+        client.release(true);
+      }
+    };
+    const turnsPlan = await explain(plans[0]);
+    expect(turnsPlan).not.toContain("turns_pkey on turns");
+    expect(turnsPlan).toContain("turns_session_sequence_uniq");
+    expect(await explain(plans.at(-1))).toContain("slack_outbox_uncertain_idx");
+  });
+
   test("a long answer is cut to Slack's limit with its link kept whole", async () => {
     const fixture = await agentInSlack();
     await mention(fixture, THREAD);

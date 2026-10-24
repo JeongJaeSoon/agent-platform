@@ -1,5 +1,5 @@
 {
-  "id": "554e5f60-ba03-447a-bcb3-5413b3648af2",
+  "id": "fdcfbe57-e502-4012-927a-fda5ba78539e",
   "prevId": "e7cb1114-3964-408d-a13f-968073777d81",
   "version": "7",
   "dialect": "postgresql",
@@ -6477,6 +6477,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "seq": {
+          "name": "seq",
+          "type": "bigserial",
+          "primaryKey": false,
+          "notNull": true
         }
       },
       "indexes": {
@@ -6523,6 +6529,22 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "slack_outbox_uncertain_idx": {
+          "name": "slack_outbox_uncertain_idx",
+          "columns": [
+            {
+              "expression": "seq",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"slack_outbox\".\"status\" = 'uncertain' AND \"slack_outbox\".\"kind\" = 'reply'",
           "concurrently": false,
           "method": "btree",
           "with": {}

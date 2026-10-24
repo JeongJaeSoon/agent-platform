@@ -117,7 +117,8 @@ export function createPostgresSlackOutboxStore(db: Database): SlackOutboxStore {
           eq(slackInstallations.id, sessionLinks.installationId),
         )
         .innerJoin(slackApps, eq(slackApps.appId, slackInstallations.appId))
-        .innerJoin(turns, eq(turns.sessionId, sessions.id))
+        // From the link, so only linked sessions' turns are read.
+        .innerJoin(turns, eq(turns.sessionId, sessionLinks.sessionId))
         .leftJoin(
           linkedAccounts,
           and(
@@ -156,7 +157,13 @@ export function createPostgresSlackOutboxStore(db: Database): SlackOutboxStore {
             )`,
           ),
         )
-        .orderBy(asc(turns.id))
+        // Not by turns.id, which walks every turn in the table; within a
+        // thread, its own order.
+        .orderBy(
+          asc(turns.createdAt),
+          asc(turns.sessionId),
+          asc(turns.sequence),
+        )
         .limit(limit);
       const completed = rows.filter(
         (row) => row.status === "completed" && row.attemptId !== null,
@@ -242,7 +249,7 @@ export function createPostgresSlackOutboxStore(db: Database): SlackOutboxStore {
             )`,
           ),
         )
-        .orderBy(asc(t.createdAt), asc(t.id))
+        .orderBy(asc(t.seq))
         .limit(limit);
     },
 
@@ -260,7 +267,7 @@ export function createPostgresSlackOutboxStore(db: Database): SlackOutboxStore {
               AND (c.claim_token IS NULL OR c.lease_expires_at <= now())
               AND (c.next_attempt_at IS NULL OR c.next_attempt_at <= now())
               AND ${addressed(db, sql.raw("c"))}
-            ORDER BY c.created_at, c.id
+            ORDER BY c.seq
             LIMIT ${limit}
             FOR UPDATE OF c SKIP LOCKED
           )`,
@@ -269,16 +276,12 @@ export function createPostgresSlackOutboxStore(db: Database): SlackOutboxStore {
           id: t.id,
           claimToken: t.claimToken,
           attempts: t.attempts,
-          createdAt: t.createdAt,
+          seq: t.seq,
           ...entry,
         });
       return rows
-        .sort(
-          (a, b) =>
-            a.createdAt.getTime() - b.createdAt.getTime() ||
-            a.id.localeCompare(b.id),
-        )
-        .map(({ createdAt: _, claimToken, attempts, ...row }) => ({
+        .sort((a, b) => a.seq - b.seq)
+        .map(({ seq: _, claimToken, attempts, ...row }) => ({
           ...row,
           // Counted once this attempt is decided: beginSend, or a settle
           // that never began, so a claim whose lease lapses unsent is free.

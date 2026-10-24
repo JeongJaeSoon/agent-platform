@@ -2464,6 +2464,8 @@ export const slackOutbox = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    // Send order: rows enqueued within one clock tick still go in order.
+    seq: bigserial({ mode: "number" }).notNull(),
   },
   (table) => [
     unique("slack_outbox_dedupe_key").on(table.dedupeKey),
@@ -2496,6 +2498,9 @@ export const slackOutbox = pgTable(
       .on(table.leaseExpiresAt)
       .where(sql`${table.status} = 'sending'`),
     index("slack_outbox_session_idx").on(table.sessionId),
+    index("slack_outbox_uncertain_idx")
+      .on(table.seq)
+      .where(sql`${table.status} = 'uncertain' AND ${table.kind} = 'reply'`),
   ],
 );
 
