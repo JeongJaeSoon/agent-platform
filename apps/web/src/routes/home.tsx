@@ -139,15 +139,20 @@ export function HomeScreen() {
   const now = useNow();
   const unavailable = useUnavailable();
   const { client } = useAgentPlatform();
+  // The server refuses these lists to anyone else; a member asks for none.
+  const managesMembers = useHasPermission("member.manage");
+  const managesAgents = useHasPermission("agent.manage");
   const members = useQuery({
     ...membersQuery(client),
     select: (page) => page.items.length > 1,
+    enabled: managesMembers,
   });
   const invites = useQuery({
     ...invitesQuery(client),
     select: (page) => page.items.length > 0,
+    enabled: managesMembers,
   });
-  const agents = useQuery(agentsQuery(client));
+  const agents = useQuery({ ...agentsQuery(client), enabled: managesAgents });
   const sessions = useSessions();
   const waiting = useQuery(waitingSessionsQuery(client));
   // The install's figures are the owner's alone; anyone else would get 403.
@@ -217,9 +222,12 @@ export function HomeScreen() {
     },
   ];
 
-  // Shown only once every list has answered, so it does not flash in and
-  // out while loading, and gone once every step is done.
+  // Only for those who can do the steps; shown once every list has answered,
+  // so it does not flash in and out while loading, and gone once every step
+  // is done.
   const checklistShown =
+    managesMembers &&
+    managesAgents &&
     [members, invites, agents, sessions].every((query) => !query.isPending) &&
     steps.some((step) => step.state !== "done");
 
