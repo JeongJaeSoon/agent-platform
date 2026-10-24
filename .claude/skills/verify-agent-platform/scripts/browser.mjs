@@ -249,7 +249,10 @@ const masked = (text) =>
   String(text)
     .replace(/\/invite\/[^/?#\s|]+/g, "/invite/(token)")
     .replace(/([?&](?:code|state)=)[^&#\s|]+/g, "$1(hidden)")
-    .replace(/((?:code|state)%(?:25)*3D)[^%&\s|]+/gi, "$1(hidden)");
+    .replace(
+      /((?:code|state)%((?:25)*)3D)[\s\S]*?(?=%(?:\2)(?:26|23)|[&#\s|]|$)/gi,
+      "$1(hidden)",
+    );
 const here = async () =>
   masked(await evaluate("location.pathname + location.search"));
 // "@N" is the Nth field in <main> (from 0), for forms whose inputs have no name.

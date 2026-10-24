@@ -94,6 +94,90 @@ function routes(app: typeof APP | null = null, installed = false) {
 }
 
 describe("Slack management", () => {
+  test("labels unresolved bindings as channel IDs without scanning every channel page", async () => {
+    const { api } = renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack-bindings`]: () => json(200, { items: [BINDING] }),
+      [`GET ${PATH}/slack/channels`]: () =>
+        json(200, {
+          items: [
+            {
+              id: "C999",
+              name: "another-channel",
+              is_private: false,
+              is_member: true,
+            },
+          ],
+          next_cursor: "next-page",
+          stale: false,
+          truncated: false,
+        }),
+    });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("tab", { name: "채널" }));
+    const list = await screen.findByRole("list", { name: "연결된 채널" });
+    expect(await within(list).findByText("채널 ID: C123")).toBeDefined();
+    await waitFor(() =>
+      expect(
+        api.calls.filter((call) => call.path === `${PATH}/slack/channels`),
+      ).toHaveLength(1),
+    );
+    expect(within(list).queryByText("#C123")).toBeNull();
+  });
+
+  test("reads DM and home on the overview and moves keyboard focus to channels", async () => {
+    const { api } = renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack-bindings`]: () =>
+        json(200, {
+          items: [
+            BINDING,
+            {
+              ...BINDING,
+              id: "00000000-0000-4000-8000-000000000002",
+              external_surface_id: null,
+              surface_kind: "dm",
+              home: false,
+              mode: "off",
+            },
+          ],
+        }),
+    });
+    const user = await setupUser();
+    const home = await screen.findByText("홈 채널");
+    await waitFor(() =>
+      expect(home.closest("dl")?.textContent).toContain("C123"),
+    );
+    const status = screen
+      .getByRole("heading", { name: "상태" })
+      .closest("section") as HTMLElement;
+    expect(within(status).getByText("꺼짐")).toBeDefined();
+    await user.click(screen.getByRole("button", { name: "홈 채널 바꾸기" }));
+    expect(
+      document.activeElement === screen.getByRole("tab", { name: "채널" }),
+    ).toBe(true);
+    expect(
+      api.calls.filter((call) => call.path === `${PATH}/slack-bindings`),
+    ).toHaveLength(1);
+  });
+
+  test("shows an ambient binding consistently and keeps it read-only", async () => {
+    const { api } = renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack-bindings`]: () =>
+        json(200, { items: [{ ...BINDING, mode: "ambient" }] }),
+    });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("tab", { name: "채널" }));
+    const toggle = await within(
+      await screen.findByRole("list", { name: "연결된 채널" }),
+    ).findByRole("switch");
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByText("항상 반응")).toBeDefined();
+    await user.click(toggle);
+    expect(api.calls.some((call) => call.method === "PUT")).toBe(false);
+  });
+
   test("changes home from the picker while preserving the channel mode and ceiling", async () => {
     let row = { ...BINDING, home: false, mode: "off" as const };
     const { api } = renderAt(DETAIL, {
@@ -120,7 +204,7 @@ describe("Slack management", () => {
     await user.click(
       await screen.findByRole("button", { name: "#general 홈 지정" }),
     );
-    await screen.findByText("채널 반응을 저장했습니다.");
+    await screen.findByText("홈 채널을 지정했습니다.");
     expect(api.calls.find((call) => call.method === "PUT")?.body).toEqual({
       channel_id: "C123",
       mode: "off",
@@ -168,7 +252,7 @@ describe("Slack management", () => {
     await user.click(
       await screen.findByRole("button", { name: "#general 연결" }),
     );
-    await screen.findByText("채널 반응을 저장했습니다.");
+    await screen.findByText("채널을 연결했습니다.");
     expect(
       api.calls
         .filter((call) => call.method === "PUT")
@@ -275,6 +359,9 @@ describe("Slack management", () => {
     await waitFor(() =>
       expect(toggle.getAttribute("aria-checked")).toBe("true"),
     );
+    expect(
+      await screen.findByText("다이렉트 메시지 설정을 저장했습니다."),
+    ).toBeDefined();
     expect(api.calls.find((call) => call.method === "PUT")?.body).toEqual({
       channel_id: null,
       mode: "mention",
@@ -335,7 +422,7 @@ describe("Slack management", () => {
     const user = await setupUser();
     await user.click(await screen.findByRole("tab", { name: "채널" }));
     const toggle = await screen.findByRole("switch", {
-      name: "C123 멘션할 때 반응",
+      name: "채널 ID: C123 멘션할 때 반응",
     });
     toggle.focus();
     await user.keyboard(" ");
@@ -376,7 +463,11 @@ describe("Slack management", () => {
   ] as const) {
     test(`shows ${label} from API state`, async () => {
       renderAt(DETAIL, routes(app, installed));
-      expect(await screen.findByText(label)).toBeDefined();
+      expect((await screen.findAllByText(label)).length).toBeGreaterThan(0);
+      if (installed) {
+        const user = await setupUser();
+        await user.click(screen.getByRole("tab", { name: "채널" }));
+      }
       expect(screen.getByText(/공개·비공개 채널 모두 \/invite/)).toBeDefined();
     });
   }

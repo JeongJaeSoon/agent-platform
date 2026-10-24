@@ -20,7 +20,9 @@ import {
   FieldError,
   FieldLabel,
   Input,
+  KeyValueList,
   RowList,
+  RowListItem,
   SettingRow,
   Skeleton,
   Switch,
@@ -37,6 +39,16 @@ import { useAppServices } from "../../services.tsx";
 type Binding =
   components["schemas"]["ListSlackBindingsResponse"]["items"][number];
 type BindingInput = components["schemas"]["PutSlackBindingRequest"];
+type BindingChange = {
+  readonly body: BindingInput;
+  readonly kind: "reaction" | "home" | "connect";
+};
+const modeKey = (mode: Binding["mode"]) =>
+  mode === "ambient"
+    ? "slack.ambient"
+    : mode === "off"
+      ? "slack.off"
+      : "slack.mention";
 
 export function slackFailure(error: unknown, t: Translate): string {
   const code = (error as { code?: string } | null)?.code ?? "INTERNAL_ERROR";
@@ -89,6 +101,174 @@ function useSlackState(agentId: string) {
     retry: false,
   });
   return { app, identities, key };
+}
+
+function useSlackBindings(agentId: string) {
+  const { client } = useAgentPlatform();
+  return useQuery({
+    queryKey: ["agents", agentId, "slack", "bindings"],
+    queryFn: () =>
+      unwrap(
+        client.GET("/v1/agents/{id}/slack-bindings", {
+          params: { path: { id: agentId } },
+        }),
+      ),
+    staleTime: 30_000,
+    retry: false,
+  });
+}
+
+function ChannelSkeleton() {
+  const { t } = useI18n();
+  return (
+    <RowList
+      variant="joined"
+      aria-busy="true"
+      aria-label={t("slack.channelsLoading")}
+    >
+      {["first", "second"].map((key) => (
+        <RowListItem key={key}>
+          <div className="flex min-h-[calc(1.25rem+var(--ap-row-line-gap)+1rem)] w-full items-center">
+            <Skeleton
+              lines={2}
+              className="w-full"
+              label={t("slack.channelsLoading")}
+            />
+          </div>
+        </RowListItem>
+      ))}
+    </RowList>
+  );
+}
+
+function SlackOverview({
+  agentId,
+  onChannels,
+}: {
+  readonly agentId: string;
+  readonly onChannels: () => void;
+}) {
+  const { t } = useI18n();
+  const { app, identities, key } = useSlackState(agentId);
+  const bindings = useSlackBindings(agentId);
+  const cache = useQueryClient();
+  const identity = identities.data?.items.find(
+    (item) => item.status === "active",
+  );
+  const dm = bindings.data?.items.find((row) => row.surface_kind === "dm");
+  const home = bindings.data?.items.find((row) => row.home);
+  const pages = cache.getQueriesData<{
+    pages: components["schemas"]["SearchSlackChannelsResponse"][];
+  }>({ queryKey: [...key, "channels"] });
+  const homeName = pages
+    .flatMap(([, data]) => data?.pages.flatMap((page) => page.items) ?? [])
+    .find((channel) => channel.id === home?.external_surface_id)?.name;
+  const error = app.error ?? identities.error ?? bindings.error;
+  const state = error
+    ? "error"
+    : identity
+      ? "connected"
+      : app.data?.slack_app
+        ? "reinstall"
+        : "none";
+  const placeholder = <Skeleton className="h-5 w-24" />;
+  return (
+    <div className="flex flex-col gap-[var(--ap-space-block)]">
+      {error ? <FieldError>{slackFailure(error, t)}</FieldError> : null}
+      <section className="flex flex-col gap-[var(--ap-space-block)]">
+        <h2 className="m-0 font-semibold text-body leading-5">
+          {t("slack.status")}
+        </h2>
+        <RowList variant="joined">
+          <RowListItem className="grid grid-cols-1 gap-x-6 sm:grid-cols-2">
+            <div className="flex min-h-8 items-center gap-2 text-control">
+              <span className="text-muted-foreground">
+                {t("slack.connection")}:
+              </span>
+              <span>{t(`slack.state.${state}`)}</span>
+            </div>
+            <div className="flex min-h-8 items-center gap-2 text-control">
+              <span className="text-muted-foreground">{t("slack.dm")}:</span>
+              {bindings.isPending ? (
+                placeholder
+              ) : (
+                <span>{t(dm ? modeKey(dm.mode) : "slack.notConfigured")}</span>
+              )}
+            </div>
+          </RowListItem>
+        </RowList>
+      </section>
+      <section className="flex flex-col gap-[var(--ap-space-block)]">
+        <h2 className="m-0 font-semibold text-body leading-5">
+          {t("slack.connection")}
+        </h2>
+        <RowList variant="joined">
+          <RowListItem>
+            <KeyValueList
+              variant="grid"
+              className="w-full"
+              items={[
+                {
+                  label: t("slack.status"),
+                  value: (
+                    <Badge
+                      variant={
+                        state === "connected"
+                          ? "green"
+                          : state === "error"
+                            ? "red"
+                            : "gray"
+                      }
+                    >
+                      {t(`slack.state.${state}`)}
+                    </Badge>
+                  ),
+                },
+                {
+                  label: t("slack.botId"),
+                  value: (
+                    <span className="font-mono">
+                      {identity?.bot_user_id ?? "—"}
+                    </span>
+                  ),
+                },
+                {
+                  label: t("slack.homeChannel"),
+                  value: (
+                    <div className="flex flex-col items-start gap-1">
+                      {bindings.isPending ? (
+                        placeholder
+                      ) : (
+                        <span>
+                          {homeName
+                            ? `#${homeName}`
+                            : home?.external_surface_id
+                              ? t("slack.channelId", {
+                                  id: home.external_surface_id,
+                                })
+                              : t("slack.homeUnset")}
+                        </span>
+                      )}
+                      <Button
+                        type="button"
+                        variant="link"
+                        size="sm"
+                        className="h-auto px-0"
+                        aria-label={t("slack.changeHome")}
+                        onClick={onChannels}
+                      >
+                        {t("slack.change")}
+                      </Button>
+                    </div>
+                  ),
+                },
+              ]}
+            />
+          </RowListItem>
+        </RowList>
+      </section>
+    </div>
+  );
 }
 
 export function SlackConnect({
@@ -407,16 +587,7 @@ function SlackChannels({
     const timer = setTimeout(() => setQuery(input.trim()), 300);
     return () => clearTimeout(timer);
   }, [input]);
-  const bindings = useQuery({
-    queryKey: [...key, "bindings"],
-    queryFn: () =>
-      unwrap(
-        client.GET("/v1/agents/{id}/slack-bindings", {
-          params: { path: { id: agentId } },
-        }),
-      ),
-    staleTime: 30_000,
-  });
+  const bindings = useSlackBindings(agentId);
   const channels = useInfiniteQuery({
     queryKey: [...key, "channels", query],
     initialPageParam: undefined as string | undefined,
@@ -440,15 +611,23 @@ function SlackChannels({
   });
   const update = useMutation({
     onMutate: () => setNotice(""),
-    mutationFn: (body: BindingInput) =>
+    mutationFn: ({ body }: BindingChange) =>
       unwrap(
         client.PUT("/v1/agents/{id}/slack-bindings", {
           params: { path: { id: agentId } },
           body,
         }),
       ),
-    onSuccess: async () => {
-      setNotice(t("slack.saved"));
+    onSuccess: async (_result, change) => {
+      setNotice(
+        t(
+          change.kind === "home"
+            ? "slack.homeSaved"
+            : change.kind === "connect"
+              ? "slack.channelConnected"
+              : "slack.saved",
+        ),
+      );
       setPicking(false);
       await cache.invalidateQueries({ queryKey: [...key, "bindings"] });
     },
@@ -477,30 +656,39 @@ function SlackChannels({
   const connectChannel = (channelId: string) => {
     const row = rows.find((item) => item.external_surface_id === channelId);
     update.mutate({
-      channel_id: channelId,
-      mode: row
-        ? row.mode === "off"
-          ? "off"
-          : "mention"
-        : defaultMention
-          ? "mention"
-          : "off",
-      home: pickHome || (row?.home ?? false),
-      ...(row ? { ceiling: row.ceiling } : {}),
+      kind: pickHome ? "home" : "connect",
+      body: {
+        channel_id: channelId,
+        mode: row
+          ? row.mode === "off"
+            ? "off"
+            : "mention"
+          : defaultMention
+            ? "mention"
+            : "off",
+        home: pickHome || (row?.home ?? false),
+        ...(row ? { ceiling: row.ceiling } : {}),
+      },
     });
   };
   const change = (row: Binding, checked: boolean) =>
     update.mutate({
-      channel_id: row.external_surface_id,
-      mode: checked ? "mention" : "off",
-      home: row.home,
-      ceiling: row.ceiling,
+      kind: "reaction",
+      body: {
+        channel_id: row.external_surface_id,
+        mode: checked ? "mention" : "off",
+        home: row.home,
+        ceiling: row.ceiling,
+      },
     });
   return (
     <section
       className="flex min-h-96 flex-col gap-[var(--ap-space-block)]"
       aria-label={t("slack.channels")}
     >
+      <p className="m-0 text-control text-muted-foreground">
+        {t("slack.joinHint")}
+      </p>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="m-0 font-semibold text-body leading-5">
           {t("slack.connectedChannels")}
@@ -542,7 +730,7 @@ function SlackChannels({
         </div>
       ) : null}
       {bindings.isPending ? (
-        <SlackSkeleton />
+        <ChannelSkeleton />
       ) : (
         <RowList variant="joined" aria-label={t("slack.connectedChannels")}>
           {rows.map((row) => {
@@ -551,7 +739,7 @@ function SlackChannels({
                 ? t("slack.dm")
                 : row.external_surface_id && names[row.external_surface_id]
                   ? `#${names[row.external_surface_id]}`
-                  : (row.external_surface_id ?? "");
+                  : t("slack.channelId", { id: row.external_surface_id ?? "" });
             return (
               <SettingRow
                 key={row.id}
@@ -568,13 +756,13 @@ function SlackChannels({
                 )}
                 status={
                   <span className="text-control text-muted-foreground">
-                    {t(row.mode === "off" ? "slack.off" : "slack.mention")}
+                    {t(modeKey(row.mode))}
                   </span>
                 }
                 control={
                   <Switch
                     aria-label={t("slack.reaction", { channel: name })}
-                    checked={row.mode === "mention"}
+                    checked={row.mode !== "off"}
                     aria-disabled={update.isPending || row.mode === "ambient"}
                     onCheckedChange={(checked) => {
                       if (!update.isPending && row.mode !== "ambient")
@@ -698,17 +886,7 @@ function SlackDmSetting({ agentId }: { readonly agentId: string }) {
   const { client } = useAgentPlatform();
   const cache = useQueryClient();
   const key = ["agents", agentId, "slack", "bindings"];
-  const bindings = useQuery({
-    queryKey: key,
-    queryFn: () =>
-      unwrap(
-        client.GET("/v1/agents/{id}/slack-bindings", {
-          params: { path: { id: agentId } },
-        }),
-      ),
-    staleTime: 30_000,
-    retry: false,
-  });
+  const bindings = useSlackBindings(agentId);
   const dm = bindings.data?.items.find((row) => row.surface_kind === "dm");
   const [notice, setNotice] = useState("");
   const update = useMutation({
@@ -727,7 +905,7 @@ function SlackDmSetting({ agentId }: { readonly agentId: string }) {
       ),
     onSuccess: async () => {
       await cache.invalidateQueries({ queryKey: key });
-      setNotice(t("slack.saved"));
+      setNotice(t("slack.dmSaved"));
     },
   });
   const unavailable =
@@ -739,7 +917,7 @@ function SlackDmSetting({ agentId }: { readonly agentId: string }) {
       description={t("slack.dmHint")}
       status={
         <span className="text-control text-muted-foreground">
-          {t(dm?.mode === "mention" ? "slack.mention" : "slack.off")}
+          {t(dm ? modeKey(dm.mode) : "slack.notConfigured")}
         </span>
       }
       meta={
@@ -756,7 +934,7 @@ function SlackDmSetting({ agentId }: { readonly agentId: string }) {
       control={
         <Switch
           aria-label={t("slack.dm")}
-          checked={dm?.mode === "mention"}
+          checked={dm !== undefined && dm.mode !== "off"}
           aria-disabled={unavailable}
           onCheckedChange={(checked) => {
             if (!unavailable) update.mutate(checked);
@@ -779,6 +957,7 @@ export default function SlackTab({
   const [channelsOpened, setChannelsOpened] = useState(false);
   const [settingsOpened, setSettingsOpened] = useState(false);
   const [defaultMention, setDefaultMention] = useState(true);
+  const channelsTab = useRef<HTMLButtonElement>(null);
   const { identities } = useSlackState(agentId);
   const installed =
     identities.data?.items.some((item) => item.status === "active") ?? false;
@@ -800,11 +979,20 @@ export default function SlackTab({
     >
       <TabsList aria-label={t("slack.sections")}>
         <TabsTrigger value="overview">{t("slack.overview")}</TabsTrigger>
-        <TabsTrigger value="channels">{t("slack.channels")}</TabsTrigger>
+        <TabsTrigger value="channels" ref={channelsTab}>
+          {t("slack.channels")}
+        </TabsTrigger>
         <TabsTrigger value="settings">{t("slack.settings")}</TabsTrigger>
       </TabsList>
       <TabsContent value="overview" forceMount hidden={segment !== "overview"}>
-        <SlackConnect agentId={agentId} active={active} manage={false} />
+        <SlackOverview
+          agentId={agentId}
+          onChannels={() => {
+            setChannelsOpened(true);
+            setSegment("channels");
+            channelsTab.current?.focus();
+          }}
+        />
       </TabsContent>
       <TabsContent value="settings" forceMount hidden={segment !== "settings"}>
         {settingsOpened ? (
