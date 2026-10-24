@@ -468,9 +468,9 @@ export const ClickableRows: Story = {
 
 /**
  * `inactive` rows: every cell but the actions turns faint and its badges lose
- * their hue, a badge under `TooltipTrigger asChild` included; the raised
- * actions cell keeps full contrast, its Button under a trigger too. The name
- * says "inactive" in text.
+ * their hue, a badge under `TooltipTrigger asChild` included; the actions
+ * cell keeps full contrast, its Button under a trigger too (which has lost
+ * its data-slot). The name says "inactive" in text.
  */
 export const InactiveRows: Story = {
   name: "Inactive rows",
@@ -522,7 +522,8 @@ export const InactiveRows: Story = {
                   <Badge variant="blue">관리자</Badge>
                 )}
               </GridTableCell>
-              <GridTableCell align="end" raised={true}>
+              {/* Not raised: the button alone keeps the cell at full contrast. */}
+              <GridTableCell align="end">
                 {row.tooltip ? (
                   <Tooltip>
                     <TooltipTrigger asChild={true}>{action}</TooltipTrigger>

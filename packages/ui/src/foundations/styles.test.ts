@@ -473,13 +473,13 @@ describe("styles.css", () => {
     expect(inactive.length).toBeGreaterThan(0);
     for (const d of inactive) {
       // The actions cell keeps its contrast. A Button under `TooltipTrigger
-      // asChild` takes the trigger's slot, so that cell has its own mark.
+      // asChild` takes the trigger's slot, so a plain <button> counts too.
       expect(
         d.selector
           .replace(/\s+/g, " ")
           .replace(/\( | (?=\))/g, (m) => m.trim()),
       ).toContain(
-        ':not([data-raised], [data-variant="actions"], :has([data-slot="button"]))',
+        ':not([data-raised], [data-variant="actions"], :has(button:not([data-slot="grid-table-row-opener"]), [data-slot="button"]))',
       );
     }
     const value = (property: string) =>

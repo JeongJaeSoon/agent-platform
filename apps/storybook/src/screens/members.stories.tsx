@@ -11,7 +11,6 @@ import {
   CardHeader,
   CardTitle,
   ConfirmDialog,
-  cn,
   DestructiveActionDialog,
   Dialog,
   DialogClose,
@@ -33,11 +32,11 @@ import {
   GridTableColumnHeader,
   GridTableHeader,
   GridTableRow,
+  GridTableRowOpener,
   Input,
   Link,
   LinkTab,
   LinkTabs,
-  linkVariants,
   PageHeader,
   RadioGroup,
   RadioGroupItem,
@@ -189,36 +188,6 @@ const MEMBER_COLUMNS =
   "minmax(0,1.6fr) 120px minmax(var(--ap-row-action-min-width),1fr)";
 const MEMBER_NARROW_COLUMNS =
   "minmax(0,1fr) 72px var(--ap-row-action-min-width)";
-
-/** Name that opens 구성원 편집 (role lives there, not in the row). */
-function NameButton({
-  children,
-  badge,
-  onClick,
-}: {
-  readonly children: ReactNode;
-  readonly badge?: ReactNode;
-  readonly onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      className={cn(
-        linkVariants(),
-        "grid w-fit max-w-full grid-cols-[minmax(0,auto)_auto] items-center gap-y-[var(--ap-row-line-gap)] text-left font-medium text-foreground focus-visible:underline @max-md:grid-cols-[minmax(0,auto)]",
-      )}
-      onClick={onClick}
-    >
-      <span className="truncate">{children}</span>
-      {/* As in apps/web: below md the badge takes the line under the name. */}
-      {badge ? (
-        <span className="ms-1.5 flex @max-md:col-start-1 @max-md:row-start-2 @max-md:ms-0">
-          {badge}
-        </span>
-      ) : null}
-    </button>
-  );
-}
 
 function access(member: Member, viewer: Role) {
   const self = member.id === ME[viewer];
@@ -439,19 +408,25 @@ function MembersTab({
               {MEMBERS.map((member) => (
                 <GridTableRow key={member.id} inactive={!member.active}>
                   <GridTableCell lines={true}>
-                    <NameButton
-                      badge={
-                        member.id === ME[viewer] ? (
-                          <Badge variant="gray">나</Badge>
-                        ) : null
-                      }
+                    {/* As in apps/web: the whole row opens 구성원 편집. */}
+                    <GridTableRowOpener
+                      aria-label={`${member.name} 편집${member.active ? "" : " (비활성)"}`}
                       onClick={() => onEdit(member)}
-                    >
-                      {member.name}
+                    />
+                    <span className="grid max-w-full grid-cols-[minmax(0,auto)_auto] items-center gap-y-[var(--ap-row-line-gap)] font-medium text-foreground @max-md:grid-cols-[minmax(0,auto)]">
+                      <span className="truncate">{member.name}</span>
                       {member.active ? null : (
                         <span className="sr-only"> (비활성)</span>
                       )}
-                    </NameButton>
+                      {member.id === ME[viewer] ? (
+                        <Badge
+                          variant="gray"
+                          className="ms-1.5 @max-md:col-start-1 @max-md:row-start-2 @max-md:ms-0"
+                        >
+                          나
+                        </Badge>
+                      ) : null}
+                    </span>
                     <span
                       className="text-muted-foreground text-xs"
                       title={member.email}
@@ -466,6 +441,7 @@ function MembersTab({
                   </GridTableCell>
                   <GridTableCell
                     align="end"
+                    raised={true}
                     className="[&_[data-slot=button]:not([data-size^=icon])]:min-w-[var(--ap-row-action-min-width)]"
                   >
                     {access(member, viewer)}
