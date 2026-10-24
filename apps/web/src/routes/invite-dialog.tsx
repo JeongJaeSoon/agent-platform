@@ -400,7 +400,10 @@ function DetailsStep({
             {t("common.cancel")}
           </Button>
         </DialogClose>
-        <Button type="submit" disabled={pending}>
+        <Button
+          type="submit"
+          disabled={pending || !grantable.includes(form.watch("role"))}
+        >
           {pending
             ? t("members.invite.submitting")
             : t("members.invite.submit")}

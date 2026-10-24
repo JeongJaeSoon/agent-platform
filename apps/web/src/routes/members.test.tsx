@@ -284,6 +284,10 @@ describe("구성원 화면", () => {
     expect(descriptionOf(radio("소유자"))).toBe(
       "소유자 역할은 소유자만 줄 수 있습니다.",
     );
+    // The radio is out of the arrow-key loop; the group carries the reason.
+    expect(descriptionOf(within(edit).getByRole("radiogroup"))).toBe(
+      "소유자 역할은 소유자만 줄 수 있습니다.",
+    );
     expect(radio("관리자").disabled).toBe(false);
     expect(radio("구성원").disabled).toBe(false);
     radio("구성원").focus();
@@ -296,6 +300,31 @@ describe("구성원 화면", () => {
       expect(document.activeElement === radio("구성원")).toBe(true),
     );
     await user.keyboard("{/ArrowDown}");
+    expect(api.calls.some((call) => call.method === "PATCH")).toBe(false);
+  });
+
+  test("소유자를 고른 뒤 관리자로 내려가면 저장이 막힌다", async () => {
+    let role: "owner" | "admin" = "owner";
+    const { api, services } = renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me(undefined, role)),
+      "GET /v1/members": () =>
+        json(200, { items: [owner, teammate], next_cursor: null }),
+      ...noInvites,
+    });
+    const user = await setupUser();
+    const edit = await openEdit(user, "Mate");
+    await user.click(within(edit).getByRole("radio", { name: "소유자" }));
+    const save = within(edit).getByRole("button", {
+      name: "저장",
+    }) as HTMLButtonElement;
+    expect(save.disabled).toBe(false);
+    role = "admin";
+    await act(() => services.queryClient.refetchQueries());
+    await waitFor(() => expect(save.disabled).toBe(true));
+    expect(
+      (within(edit).getByRole("radio", { name: "소유자" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
     expect(api.calls.some((call) => call.method === "PATCH")).toBe(false);
   });
 
