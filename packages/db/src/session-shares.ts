@@ -1,4 +1,4 @@
-import type { SessionShareScope } from "@werft-ai/contracts";
+import type { SessionRelation, SessionShareScope } from "@werft-ai/contracts";
 import type {
   SessionShare,
   SessionShareStore,
@@ -16,14 +16,17 @@ import {
   type SQL,
   sql,
 } from "drizzle-orm";
+import { administers } from "./agent-admins.ts";
 import { lockPeople, receiptActorOf } from "./control-shared.ts";
 import type { Database } from "./queries.ts";
 import {
+  agentReleases,
   memberTeams,
   receipts,
   sessionShares,
   sessionShareTargets,
   sessions,
+  turns,
 } from "./schema.ts";
 
 // Session share scopes (94S-584, design 4.6). Lock order: the people
@@ -35,31 +38,91 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const uuidOrNull = (value: string | null) =>
   value !== null && UUID.test(value) ? value.toLowerCase() : null;
 
+// The creator branches of sessionVisibleTo: the caller holds the session
+// now, which a takeover hands to someone else.
+function ownedBy(viewer: SessionViewer): SQL[] {
+  const userId = uuidOrNull(viewer.userId);
+  const apiKeyId = uuidOrNull(viewer.apiKeyId);
+  return [
+    ...(userId === null ? [] : [sql`${sessions.createdByUserId} = ${userId}`]),
+    // A key's session is its key's: the key stands where a creator would.
+    ...(apiKeyId === null
+      ? []
+      : [
+          sql`(${sessions.createdByUserId} IS NULL AND ${sessions.createdByApiKeyId} = ${apiKeyId})`,
+        ]),
+  ];
+}
+
+// The share branches of sessionVisibleTo: a people or team share names the
+// caller.
+function sharedWith(viewer: SessionViewer): SQL[] {
+  const userId = uuidOrNull(viewer.userId);
+  if (userId === null) return [];
+  return [
+    sql`EXISTS (SELECT 1 FROM session_shares sh JOIN session_share_targets st ON st.session_id = sh.session_id WHERE sh.session_id = ${sessions.id} AND sh.scope = 'people' AND st.user_id = ${userId})`,
+    sql`EXISTS (SELECT 1 FROM session_shares sh JOIN session_share_targets st ON st.session_id = sh.session_id JOIN member_teams mt ON mt.id = st.team_id AND mt.archived_at IS NULL JOIN member_team_members mm ON mm.team_id = mt.id AND mm.removed_at IS NULL WHERE sh.session_id = ${sessions.id} AND sh.scope = 'team' AND mm.user_id = ${userId})`,
+  ];
+}
+
+// Turn 1's actor, which a takeover leaves alone; created_by_user_id where
+// turn 1 names no one (rows from before #427). Qualified by hand: turns has
+// an id of its own.
+const starter = sql`coalesce((SELECT t.actor_id FROM ${turns} t WHERE t.session_id = ${sessions}.id AND t.sequence = 1), ${sessions}.created_by_user_id)`;
+
+// relation=started: the caller started the session, whoever holds it now.
+function startedBy(viewer: SessionViewer): SQL[] {
+  const userId = uuidOrNull(viewer.userId);
+  const apiKeyId = uuidOrNull(viewer.apiKeyId);
+  return [
+    ...(userId === null ? [] : [sql`${starter} = ${userId}`]),
+    ...(apiKeyId === null
+      ? []
+      : [
+          sql`(${starter} IS NULL AND ${sessions}.created_by_api_key_id = ${apiKeyId})`,
+        ]),
+  ];
+}
+
+const anyOf = (branches: SQL[]): SQL =>
+  branches.length === 0 ? sql`false` : sql`(${sql.join(branches, sql` OR `)})`;
+
 /**
  * Whether `viewer` sees the session row the enclosing query reads from
  * `sessions`. One predicate for a decision on one session and for a list,
  * so what a list shows and what a detail answers never disagree.
  */
 export function sessionVisibleTo(viewer: SessionViewer): SQL {
-  const userId = uuidOrNull(viewer.userId);
-  const apiKeyId = uuidOrNull(viewer.apiKeyId);
-  const branches: SQL[] = [
+  return anyOf([
     sql`coalesce((SELECT ${sessionShares.scope} FROM ${sessionShares} WHERE ${sessionShares.sessionId} = ${sessions.id}), 'workspace') = 'workspace'`,
-  ];
-  if (userId !== null) {
-    branches.push(
-      sql`${sessions.createdByUserId} = ${userId}`,
-      sql`EXISTS (SELECT 1 FROM session_shares sh JOIN session_share_targets st ON st.session_id = sh.session_id WHERE sh.session_id = ${sessions.id} AND sh.scope = 'people' AND st.user_id = ${userId})`,
-      sql`EXISTS (SELECT 1 FROM session_shares sh JOIN session_share_targets st ON st.session_id = sh.session_id JOIN member_teams mt ON mt.id = st.team_id AND mt.archived_at IS NULL JOIN member_team_members mm ON mm.team_id = mt.id AND mm.removed_at IS NULL WHERE sh.session_id = ${sessions.id} AND sh.scope = 'team' AND mm.user_id = ${userId})`,
-    );
+    ...ownedBy(viewer),
+    ...sharedWith(viewer),
+  ]);
+}
+
+/**
+ * How the session relates to `viewer`, to AND with sessionVisibleTo: on its
+ * own it is no grant. `administered` follows the admin rows at this read,
+ * as every decision does.
+ */
+export function sessionRelationIs(
+  db: Database,
+  viewer: SessionViewer,
+  relation: Exclude<SessionRelation, "all">,
+): SQL {
+  switch (relation) {
+    case "started":
+      return anyOf(startedBy(viewer));
+    case "shared":
+      // IS NOT TRUE: a session no person started compares NULL, not false.
+      return sql`(${anyOf(sharedWith(viewer))} AND ${anyOf(startedBy(viewer))} IS NOT TRUE)`;
+    case "administered": {
+      const userId = uuidOrNull(viewer.userId);
+      if (userId === null) return sql`false`;
+      // Qualified by hand: agent_releases has an id of its own.
+      return sql`EXISTS (SELECT 1 FROM ${agentReleases} ar WHERE ar.id = ${sessions}.agent_release_id AND ${administers(db, sql`${sessions}.workspace_id`, userId, sql`ar.agent_id`)})`;
+    }
   }
-  if (apiKeyId !== null) {
-    // A key's session is its key's: the key stands where a creator would.
-    branches.push(
-      sql`(${sessions.createdByUserId} IS NULL AND ${sessions.createdByApiKeyId} = ${apiKeyId})`,
-    );
-  }
-  return sql`(${sql.join(branches, sql` OR `)})`;
 }
 
 const sameSet = (a: readonly string[], b: readonly string[]) =>

@@ -10,6 +10,8 @@ import type {
   ChangeSessionProfileRequest,
   CloseSessionRequest,
   ControlAcceptedResponse,
+  CountSessionsQuery,
+  CountSessionsResponse,
   CreateSessionRequest,
   CreateSessionResponse,
   ListSessionsQuery,
@@ -45,6 +47,7 @@ import {
 } from "../musterrolle/policy.ts";
 import type { CredentialBindingStore } from "../ports/credential-binding-store.ts";
 import type { SessionControl } from "../ports/session-control.ts";
+import type { SessionViewer } from "../ports/session-share-store.ts";
 import type {
   EventPage,
   InputAcceptance,
@@ -64,6 +67,11 @@ import {
   sessionProfile,
 } from "./catalog.ts";
 import { deriveSessionTitle } from "./session-title.ts";
+
+const viewerOf = (actor: Caller): SessionViewer => ({
+  userId: actor.actor?.userId ?? null,
+  apiKeyId: actor.actor?.apiKeyId ?? null,
+});
 
 export class SessionServiceError extends Error {
   constructor(
@@ -534,6 +542,7 @@ export function createSessionService(deps: {
         idempotencyKey: input.idempotencyKey,
         payloadHash: payloadHash(input.body),
         profileId: input.body.profile_id,
+        channel: actor.subject.surface.kind,
         title:
           input.body.title === undefined
             ? deriveSessionTitle(input.body.message)
@@ -1077,10 +1086,11 @@ export function createSessionService(deps: {
         kind: "session",
         id: null,
       });
-      const page = await reader.listSessions(actor.ownerId, query, {
-        userId: actor.actor?.userId ?? null,
-        apiKeyId: actor.actor?.apiKeyId ?? null,
-      });
+      const page = await reader.listSessions(
+        actor.ownerId,
+        query,
+        viewerOf(actor),
+      );
       return {
         items: page.items.map(
           ({ profile_id, profile_fingerprint, ...item }) => ({
@@ -1090,6 +1100,17 @@ export function createSessionService(deps: {
         ),
         next_cursor: page.next_cursor,
       };
+    },
+
+    async countSessions(
+      actor: Caller,
+      query: CountSessionsQuery,
+    ): Promise<CountSessionsResponse> {
+      await requirePermitted(authorization, actor, "session.read", {
+        kind: "session",
+        id: null,
+      });
+      return reader.countSessions(actor.ownerId, query, viewerOf(actor));
     },
 
     async getSession(actor: Caller, sessionId: string): Promise<SessionDetail> {

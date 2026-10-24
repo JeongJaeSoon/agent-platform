@@ -179,6 +179,9 @@ function harness(
     },
     reader: {
       listSessions: async () => ({ items: [], next_cursor: null }),
+      countSessions: async () => {
+        throw new Error("not reached");
+      },
       getSession: async () => null,
       listTurns: async () => null,
       getTurn: async () => null,
@@ -435,6 +438,9 @@ describe("GET /v1/sessions/{id}/events", () => {
       },
       reader: {
         listSessions: async () => ({ items: [], next_cursor: null }),
+        countSessions: async () => {
+          throw new Error("not reached");
+        },
         getSession: async () => null,
         listTurns: async () => null,
         getTurn: async () => null,
@@ -537,6 +543,9 @@ describe("GET /v1/sessions/{id}/events", () => {
       },
       reader: {
         listSessions: async () => ({ items: [], next_cursor: null }),
+        countSessions: async () => {
+          throw new Error("not reached");
+        },
         getSession: async () => null,
         listTurns: async () => null,
         getTurn: async () => null,
@@ -591,6 +600,9 @@ describe("GET /v1/sessions/{id}/events", () => {
       },
       reader: {
         listSessions: async () => ({ items: [], next_cursor: null }),
+        countSessions: async () => {
+          throw new Error("not reached");
+        },
         getSession: async () => null,
         listTurns: async () => null,
         getTurn: async () => null,
@@ -647,6 +659,9 @@ describe("GET /v1/sessions/{id}/events", () => {
       },
       reader: {
         listSessions: async () => ({ items: [], next_cursor: null }),
+        countSessions: async () => {
+          throw new Error("not reached");
+        },
         getSession: async () => null,
         listTurns: async () => null,
         getTurn: async () => null,
@@ -710,6 +725,9 @@ describe("GET /v1/sessions/{id}/events", () => {
       },
       reader: {
         listSessions: async () => ({ items: [], next_cursor: null }),
+        countSessions: async () => {
+          throw new Error("not reached");
+        },
         getSession: async () => null,
         listTurns: async () => null,
         getTurn: async () => null,
@@ -779,6 +797,9 @@ describe("GET /v1/sessions/{id}/events", () => {
       },
       reader: {
         listSessions: async () => ({ items: [], next_cursor: null }),
+        countSessions: async () => {
+          throw new Error("not reached");
+        },
         getSession: async () => null,
         listTurns: async () => null,
         getTurn: async () => null,
@@ -857,6 +878,9 @@ describe("GET /v1/sessions/{id}/events", () => {
       },
       reader: {
         listSessions: async () => ({ items: [], next_cursor: null }),
+        countSessions: async () => {
+          throw new Error("not reached");
+        },
         getSession: async () => null,
         listTurns: async () => null,
         getTurn: async () => null,
@@ -949,6 +973,9 @@ describe("GET /v1/sessions/{id}/events", () => {
       },
       reader: {
         listSessions: async () => ({ items: [], next_cursor: null }),
+        countSessions: async () => {
+          throw new Error("not reached");
+        },
         getSession: async () => null,
         listTurns: async () => null,
         getTurn: async () => null,

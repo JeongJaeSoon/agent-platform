@@ -72,6 +72,9 @@ function app(getReceipt: SessionReader["getReceipt"]) {
     },
     reader: {
       listSessions: async () => ({ items: [], next_cursor: null }),
+      countSessions: async () => {
+        throw new Error("not reached");
+      },
       getSession: async () => null,
       listTurns: async () => null,
       getTurn: async () => null,

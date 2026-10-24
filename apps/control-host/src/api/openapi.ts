@@ -32,6 +32,8 @@ import {
   commentPullRequestResponseSchema,
   completeSlackInstallRequestSchema,
   completeSlackInstallResponseSchema,
+  countSessionsQuerySchema,
+  countSessionsResponseSchema,
   createAgentReleaseRequestSchema,
   createAgentReleaseResponseSchema,
   createAgentRequestSchema,
@@ -186,6 +188,7 @@ const openApiDocumentResponseSchema = z.looseObject({
 const requestComponents = {
   CreateSessionRequest: createSessionRequestSchema,
   ListSessionsQuery: listSessionsQuerySchema,
+  CountSessionsQuery: countSessionsQuerySchema,
   UsageSummaryQuery: usageSummaryQuerySchema,
   PostSessionMessageRequest: postSessionMessageRequestSchema,
   ListTurnsQuery: listTurnsQuerySchema,
@@ -241,6 +244,7 @@ const responseComponents = {
   ReadyResponse: readyResponseSchema,
   CreateSessionResponse: createSessionResponseSchema,
   ListSessionsResponse: listSessionsResponseSchema,
+  CountSessionsResponse: countSessionsResponseSchema,
   SessionSummary: sessionSummarySchema,
   SessionRepository: sessionRepositorySchema,
   SessionDetail: getSessionResponseSchema,
@@ -568,6 +572,16 @@ const ALL_SCOPES = [
 const EXAMPLE_SESSION_SUMMARY = {
   id: EXAMPLE_SESSION_ID,
   title: "Fix the flaky checkout test",
+  agent: {
+    id: "8f6c1d2e-4b3a-4c5d-9e8f-7a6b5c4d3e2f",
+    name: "Checkout fixer",
+    release_version_no: 3,
+  },
+  created_by: {
+    user_id: "1b2c3d4e-5f60-4718-8a9b-0c1d2e3f4a5b",
+    display_name: "Mina Park",
+  },
+  channel: "web",
   revision: 7,
   admission_state: "active",
   status: "running",
@@ -1211,7 +1225,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Sessions",
     summary: "List the owner's sessions, newest first",
     description:
-      "Lists the sessions of the credential's owner, newest `created_at` first, closed ones included, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. `status` keeps only sessions reporting that status, `needs_input` included. It changes nothing.",
+      "Lists the sessions of the credential's owner that the caller can read, newest `created_at` first, closed ones included, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. `status` keeps only sessions reporting that status, `needs_input` included; `relation` keeps the ones the caller started, was shared or administers the agent of; `q` searches titles and id prefixes. Every filter only narrows what the caller can read. It changes nothing.",
     scope: "read",
     query: "ListSessionsQuery",
     success: {
@@ -1221,6 +1235,34 @@ export const API_ROUTE_DECLARATIONS = [
       example: {
         items: [EXAMPLE_SESSION_SUMMARY],
         next_cursor: null,
+      },
+    },
+    errors: [400, 401, 503],
+  },
+  {
+    method: "get",
+    path: "/v1/sessions/counts",
+    operationId: "countSessions",
+    tag: "Sessions",
+    summary: "Count the sessions a list would return, per status",
+    description:
+      "Counts, for each status, the sessions `GET /v1/sessions` would list with that `status` and the same `relation` and `q` when read to its last page; `total` is their sum. A session the caller cannot read is never counted. It changes nothing.",
+    scope: "read",
+    query: "CountSessionsQuery",
+    success: {
+      status: 200,
+      schema: "CountSessionsResponse",
+      description: "The number of sessions per status.",
+      example: {
+        counts: {
+          queued: 0,
+          running: 2,
+          needs_input: 1,
+          idle: 5,
+          failed: 1,
+          stopped: 3,
+        },
+        total: 12,
       },
     },
     errors: [400, 401, 503],
