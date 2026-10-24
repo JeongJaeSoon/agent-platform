@@ -10,7 +10,7 @@ import {
 import { appHarness } from "../test-support/render-app.tsx";
 
 const harness = await appHarness();
-const { screen, waitFor } = harness;
+const { screen, waitFor, within } = harness;
 
 const PROFILES = {
   items: [
@@ -240,7 +240,8 @@ describe("워크스페이스 설정", () => {
         return json(200, { slack_guest_enabled: enabled });
       },
     });
-    const toggle = await screen.findByRole("switch", GUEST_SWITCH);
+    const region = await screen.findByRole("region", { name: "Slack 게스트" });
+    const toggle = within(region).getByRole("switch", GUEST_SWITCH);
     expect(toggle.getAttribute("aria-checked")).toBe("false");
     expect(screen.getByText("꺼짐")).toBeDefined();
     expect(document.querySelector('input[type="checkbox"]')).toBeNull();
@@ -308,6 +309,9 @@ describe("워크스페이스 설정", () => {
     expect(described).toContain(
       "워크스페이스 설정 변경 권한이 있어야 할 수 있습니다. 지금 역할: 소유자.",
     );
+    expect(
+      described.some((text) => text?.includes("자기 Slack 계정을 연결해야")),
+    ).toBe(true);
     const user = await setupUser();
     await user.click(toggle);
     expect(api.calls.some((c) => c.path === GUEST)).toBe(false);
