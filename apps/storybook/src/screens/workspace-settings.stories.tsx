@@ -8,7 +8,7 @@ import {
   CardTitle,
   ErrorState,
   Input,
-  PageHeader,
+  Page,
   RowList,
   SecretField,
   SettingRow,
@@ -191,112 +191,114 @@ function WorkspaceSettingsScreen({
       crumb={["워크스페이스", "워크스페이스 설정"]}
       role={viewer}
     >
-      <PageHeader
+      <Page
         title="워크스페이스 설정"
         description={
           editable
             ? "워크스페이스 전체에 적용되는 설정입니다."
             : "지금 설정입니다. 바꾸려면 워크스페이스 소유자나 관리자에게 요청하세요."
         }
-      />
-      <div className="flex flex-col gap-4">
-        <SettingsCard
-          title="워크스페이스 이름"
-          description="콘솔과 알림에 보이는 이름입니다."
-          foot={
-            <>
-              <div className="flex flex-wrap items-center gap-2">
-                <div className={META}>콘솔에서는 아직 바꿀 수 없습니다.</div>
-                <Badge variant="red">API 변경 필요: 94S-817</Badge>
-              </div>
-              <ReadOnlyMark />
-            </>
-          }
-        >
-          <label className="sr-only" htmlFor={nameId}>
-            워크스페이스 이름
-          </label>
-          <Input
-            id={nameId}
-            className="max-w-80"
-            value={WORKSPACE.name}
-            readOnly
-          />
-        </SettingsCard>
-        <SettingsCard
-          title="워크스페이스 ID"
-          description="API와 CLI에서 이 워크스페이스를 가리킬 때 씁니다."
-        >
-          <SecretField
-            className="max-w-105"
-            value={WORKSPACE.id}
-            copyLabel="복사"
-            copiedMessage="워크스페이스 ID를 복사했습니다."
-            copyFailedMessage="복사하지 못했습니다. ID를 직접 선택해 복사하세요."
-          />
-        </SettingsCard>
-        <SettingsCard
-          title="모델 허용 목록"
-          description="세션에서 고를 수 있는 모델의 상한입니다. 에이전트 제한과 프로필이 여기서 더 좁힙니다."
-          foot={
-            <>
-              <div className={META}>
-                설치 설정에서 관리합니다 · 콘솔에서는 읽기 전용
-              </div>
-              <ReadOnlyMark />
-            </>
-          }
-        >
-          <ModelList models={models} />
-        </SettingsCard>
-        <SettingsCard
-          title="감사 기록 보존 기간"
-          description="허용·거절한 요청 기록을 이 기간 동안 보관합니다."
-          foot={
-            editable ? (
+        width="form"
+      >
+        <div className="flex flex-col gap-4">
+          <SettingsCard
+            title="워크스페이스 이름"
+            description="콘솔과 알림에 보이는 이름입니다."
+            foot={
+              <>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className={META}>콘솔에서는 아직 바꿀 수 없습니다.</div>
+                  <Badge variant="red">API 변경 필요: 94S-817</Badge>
+                </div>
+                <ReadOnlyMark />
+              </>
+            }
+          >
+            <label className="sr-only" htmlFor={nameId}>
+              워크스페이스 이름
+            </label>
+            <Input
+              id={nameId}
+              className="max-w-80"
+              value={WORKSPACE.name}
+              readOnly
+            />
+          </SettingsCard>
+          <SettingsCard
+            title="워크스페이스 ID"
+            description="API와 CLI에서 이 워크스페이스를 가리킬 때 씁니다."
+          >
+            <SecretField
+              className="max-w-105"
+              value={WORKSPACE.id}
+              copyLabel="복사"
+              copiedMessage="워크스페이스 ID를 복사했습니다."
+              copyFailedMessage="복사하지 못했습니다. ID를 직접 선택해 복사하세요."
+            />
+          </SettingsCard>
+          <SettingsCard
+            title="모델 허용 목록"
+            description="세션에서 고를 수 있는 모델의 상한입니다. 에이전트 제한과 프로필이 여기서 더 좁힙니다."
+            foot={
               <>
                 <div className={META}>
-                  30일보다 짧게 할 수 없고, 소유자만 바꿀 수 있습니다.
+                  설치 설정에서 관리합니다 · 콘솔에서는 읽기 전용
                 </div>
-                <SaveButton reason={retentionReason} />
+                <ReadOnlyMark />
               </>
-            ) : undefined
-          }
-        >
-          {editable ? (
-            <>
-              <label className="sr-only" htmlFor={daysId}>
-                보존 기간(일)
-              </label>
-              <Input
-                id={daysId}
-                className="max-w-50"
-                type="number"
-                defaultValue={WORKSPACE.audit_retention_days}
-                disabled={retentionReason !== undefined}
-              />
-            </>
-          ) : (
-            <div>
-              감사 기록을 {WORKSPACE.audit_retention_days}일 보존합니다.
-            </div>
-          )}
-        </SettingsCard>
-        <SettingsCard
-          title="Slack 게스트"
-          description="켜도 게스트는 먼저 웹에서 자기 Slack 계정을 연결해야 합니다. Slack Connect로 들어온 다른 조직 사람은 켜져 있어도 에이전트를 쓸 수 없습니다. 소유자나 관리자가 바꿀 수 있습니다."
-          descriptionId={guestHintId}
-          rows={
-            editable ? (
-              <GuestRow hintId={guestHintId} saving={saving} />
-            ) : undefined
-          }
-        >
-          {editable ? null : (
-            <div>Slack 게스트는 에이전트를 쓸 수 없습니다.</div>
-          )}
-        </SettingsCard>
-      </div>
+            }
+          >
+            <ModelList models={models} />
+          </SettingsCard>
+          <SettingsCard
+            title="감사 기록 보존 기간"
+            description="허용·거절한 요청 기록을 이 기간 동안 보관합니다."
+            foot={
+              editable ? (
+                <>
+                  <div className={META}>
+                    30일보다 짧게 할 수 없고, 소유자만 바꿀 수 있습니다.
+                  </div>
+                  <SaveButton reason={retentionReason} />
+                </>
+              ) : undefined
+            }
+          >
+            {editable ? (
+              <>
+                <label className="sr-only" htmlFor={daysId}>
+                  보존 기간(일)
+                </label>
+                <Input
+                  id={daysId}
+                  className="max-w-50"
+                  type="number"
+                  defaultValue={WORKSPACE.audit_retention_days}
+                  disabled={retentionReason !== undefined}
+                />
+              </>
+            ) : (
+              <div>
+                감사 기록을 {WORKSPACE.audit_retention_days}일 보존합니다.
+              </div>
+            )}
+          </SettingsCard>
+          <SettingsCard
+            title="Slack 게스트"
+            description="켜도 게스트는 먼저 웹에서 자기 Slack 계정을 연결해야 합니다. Slack Connect로 들어온 다른 조직 사람은 켜져 있어도 에이전트를 쓸 수 없습니다. 소유자나 관리자가 바꿀 수 있습니다."
+            descriptionId={guestHintId}
+            rows={
+              editable ? (
+                <GuestRow hintId={guestHintId} saving={saving} />
+              ) : undefined
+            }
+          >
+            {editable ? null : (
+              <div>Slack 게스트는 에이전트를 쓸 수 없습니다.</div>
+            )}
+          </SettingsCard>
+        </div>
+      </Page>
     </ScreenShell>
   );
 }

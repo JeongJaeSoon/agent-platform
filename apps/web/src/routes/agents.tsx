@@ -377,7 +377,11 @@ export function NewAgentScreen() {
   const refuse = (error: unknown) =>
     isApiError(error) ? agentRefusal(t, error, role) : t(errorKey("UNKNOWN"));
   return (
-    <Page title={t("agents.newTitle")} description={t("agents.newIntro")}>
+    <Page
+      title={t("agents.newTitle")}
+      description={t("agents.newIntro")}
+      width="form"
+    >
       <NewAgentFlow refuse={refuse} />
     </Page>
   );

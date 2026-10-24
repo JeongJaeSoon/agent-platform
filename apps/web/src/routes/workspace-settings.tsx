@@ -63,6 +63,7 @@ export function WorkspaceSettingsScreen() {
   const editable = workspaceManage || retentionManage;
   return (
     <Page
+      width="form"
       title={t("workspace.title")}
       description={t(editable ? "workspace.description" : "workspace.readOnly")}
     >
