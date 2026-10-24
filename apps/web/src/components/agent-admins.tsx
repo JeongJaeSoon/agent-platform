@@ -164,10 +164,16 @@ function AdminList({
         text: t(add ? "agentAdmins.added" : "agentAdmins.removed", { name }),
       });
       // Naming or dropping the caller (or their team) changes what they
-      // administer.
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.administeredAgents,
-      });
+      // administer; the list's summaries name the admins.
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.administeredAgents,
+        }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.agents,
+          exact: true,
+        }),
+      ]);
     },
     onError: (error) =>
       onOutcome({

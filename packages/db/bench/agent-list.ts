@@ -96,7 +96,8 @@ const bindings = createPostgresCredentialBindingStore(
 const page = await agents.list(WORKSPACE, { limit: PAGE });
 const ids = page.items.map((agent) => agent.id);
 const summaries = await agents.summaries(WORKSPACE, ids);
-if (ids.length !== agentCount || summaries.size !== agentCount)
+const listed = Math.min(agentCount, PAGE);
+if (ids.length !== listed || summaries.size !== listed)
   throw new Error("seed failed");
 
 async function timed(fn: () => Promise<unknown>) {
@@ -117,11 +118,11 @@ console.table({
   [`list(limit ${PAGE})`]: await timed(() =>
     agents.list(WORKSPACE, { limit: PAGE }),
   ),
-  [`list + summaries(${agentCount})`]: await timed(async () => {
-    const listed = await agents.list(WORKSPACE, { limit: PAGE });
+  [`list + summaries(${listed})`]: await timed(async () => {
+    const first = await agents.list(WORKSPACE, { limit: PAGE });
     await agents.summaries(
       WORKSPACE,
-      listed.items.map((agent) => agent.id),
+      first.items.map((agent) => agent.id),
     );
   }),
   // The three reads one card makes without a summary, for one agent.
@@ -131,7 +132,7 @@ console.table({
     await admins.list(WORKSPACE, id);
     await bindings.list(WORKSPACE, id);
   }),
-  [`get + admins + bindings (${agentCount} agents)`]: await timed(async () => {
+  [`get + admins + bindings (${listed} agents)`]: await timed(async () => {
     for (const id of ids) {
       await agents.get(WORKSPACE, id);
       await admins.list(WORKSPACE, id);
@@ -140,40 +141,40 @@ console.table({
   }),
 });
 
-const listed = ids.map((id) => `'${id}'`).join(", ");
+const inList = ids.map((id) => `'${id}'`).join(", ");
 const plans: [string, string][] = [
   [
     "active release per agent",
     `SELECT a.id, r.runtime_profile_id, r.version_id FROM agents a
      LEFT JOIN agent_releases r ON r.id = a.active_release_id AND r.agent_id = a.id
-     WHERE a.workspace_id = '${WORKSPACE}' AND a.id IN (${listed})`,
+     WHERE a.workspace_id = '${WORKSPACE}' AND a.id IN (${inList})`,
   ],
   [
     "newest version of each unreleased agent",
     `SELECT DISTINCT ON (agent_id) agent_id, version_no, card->>'role',
             left(card->>'instructions', 300), card->'capabilities'
-     FROM agent_versions WHERE agent_id IN (${listed})
+     FROM agent_versions WHERE agent_id IN (${inList})
      ORDER BY agent_id, version_no DESC`,
   ],
   [
     "admins",
     `SELECT aa.agent_id, u.display_name FROM agent_admins aa
      JOIN users u ON u.id = aa.user_id
-     WHERE aa.workspace_id = '${WORKSPACE}' AND aa.agent_id IN (${listed})
+     WHERE aa.workspace_id = '${WORKSPACE}' AND aa.agent_id IN (${inList})
      ORDER BY aa.created_at, aa.user_id`,
   ],
   [
     "admin teams",
     `SELECT at.agent_id, t.name FROM agent_admin_teams at
      JOIN member_teams t ON t.id = at.team_id
-     WHERE at.workspace_id = '${WORKSPACE}' AND at.agent_id IN (${listed})
+     WHERE at.workspace_id = '${WORKSPACE}' AND at.agent_id IN (${inList})
      ORDER BY at.created_at, at.team_id`,
   ],
   [
     "live bindings",
     `SELECT target_id, credential_ref FROM credential_bindings
      WHERE workspace_id = '${WORKSPACE}' AND target = 'agent'
-       AND target_id IN (${listed}) AND revoked_at IS NULL
+       AND target_id IN (${inList}) AND revoked_at IS NULL
      ORDER BY credential_ref`,
   ],
 ];

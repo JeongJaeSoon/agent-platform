@@ -93,6 +93,15 @@ export function Credentials({
   const role = useRole();
   const titleId = useId();
   const agentId = detail.agent.id;
+  // The list's summaries say which names are bound.
+  const invalidateBindings = () =>
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: bindingsKey(agentId) }),
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.agents,
+        exact: true,
+      }),
+    ]);
   const [revoking, setRevoking] = useState<CredentialBindingView | null>(null);
 
   const bindings = useQuery(credentialBindingsQuery(client, agentId));
@@ -121,7 +130,7 @@ export function Credentials({
           { name: answer.binding.credential_ref },
         ),
       });
-      await queryClient.invalidateQueries({ queryKey: bindingsKey(agentId) });
+      await invalidateBindings();
     },
     onError: (error) => onOutcome({ kind: "error", text: refused(error) }),
   });
@@ -143,7 +152,7 @@ export function Credentials({
     // focused while the dialog still held focus would be lost.
     onSuccess: async (answer) => {
       setRevoking(null);
-      await queryClient.invalidateQueries({ queryKey: bindingsKey(agentId) });
+      await invalidateBindings();
       onOutcome({
         kind: "notice",
         text: t("agent.credentials.revoked", {

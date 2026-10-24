@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
+import { queryKeys } from "../../api/queries.ts";
 import { AGENT_ID, agentServer, CARD } from "../../test-support/fake-agents.ts";
 import { apiError, json, me } from "../../test-support/fake-api.ts";
 import { appHarness } from "../../test-support/render-app.tsx";
@@ -37,9 +38,18 @@ const posted = (api: { calls: { method: string; path: string }[] }) =>
 describe("자격 연결 단계", () => {
   test("카드가 쓰는 이름을 연결하고 해제한다", async () => {
     const server = serverNaming("github/app");
-    const { api } = renderAt(DETAIL, { ...meOk, ...server.routes });
+    const { api, services } = renderAt(DETAIL, { ...meOk, ...server.routes });
+    // The list's summaries say what is bound, so a change marks it stale.
+    const listed = () => {
+      services.queryClient.setQueryData(queryKeys.agents, {
+        items: [],
+        next_cursor: null,
+      });
+      return () => services.queryClient.getQueryState(queryKeys.agents);
+    };
     const user = await setupUser();
     const section = await step();
+    let list = listed();
 
     const unbound = await within(section).findByRole("list", {
       name: "연결되지 않은 자격",
@@ -57,6 +67,8 @@ describe("자격 연결 단계", () => {
     expect(posted(api).map((c) => (c as { body?: unknown }).body)).toEqual([
       { credential_ref: "github/app" },
     ]);
+    expect(list()?.isInvalidated).toBe(true);
+    list = listed();
     const bound = await within(section).findByRole("list", {
       name: "연결된 자격",
     });
@@ -80,6 +92,7 @@ describe("자격 연결 단계", () => {
       expect(document.activeElement?.contains(revoked)).toBe(true),
     );
     expect(screen.queryByRole("dialog")).toBeNull();
+    expect(list()?.isInvalidated).toBe(true);
     expect(
       api.calls.some(
         (c) =>
