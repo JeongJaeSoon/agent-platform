@@ -541,7 +541,7 @@ describe("에이전트 목록 탭과 보기", () => {
       ...meOk,
       ...server.routes,
       "GET /v1/agents": () =>
-        json(200, { items: [server.detail().agent, other] }),
+        json(200, { items: [server.detail().agent, other], next_cursor: null }),
       "GET /v1/administered-agents": () => json(200, { items: [other] }),
     });
     const all = await screen.findByRole("button", { name: "전체 2" });
