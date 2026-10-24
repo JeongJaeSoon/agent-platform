@@ -16,14 +16,16 @@ import {
   USAGE,
 } from "../blocks/block-fixtures.tsx";
 import { SESSION } from "../domain/session/session-fixtures.ts";
-import { MOBILE } from "./screen-kit.tsx";
+import { MOBILE, ScreenShell } from "./screen-kit.tsx";
 
 /*
  * Console v4 session detail (Console.dc.html, user feedback 2026-10-24) as
  * apps/web mounts the real block: the title and status, the meta line with
  * the design's icons, the way back with square commands beside it, the
- * composer under the timeline and the panel as tall as the body. What the
- * API does not carry yet (agent, who started it, branch) says so.
+ * composer under the timeline and, from 1280px, the right rail (V4-RAIL)
+ * from the top bar to the bottom of the screen; narrower, the rail follows
+ * the body. What the API does not carry yet (agent, who started it, branch)
+ * says so.
  */
 
 const TITLED = { ...DETAIL, title: "hello.txt 만들고 commit" };
@@ -41,15 +43,23 @@ const WRITE_REQUEST = {
 
 function SessionDetailPage({
   locale,
+  scoped = true,
 }: {
   readonly locale?: string | undefined;
+  /** False: a key without the session scopes, every action disabled. */
+  readonly scoped?: boolean | undefined;
 }) {
   const host = hostFor({ globals: locale === undefined ? {} : { locale } });
   return (
-    <div className="min-h-screen bg-background px-4 py-8 text-foreground md:px-8">
+    <ScreenShell
+      current="sessions"
+      crumb={["세션", "hello.txt 만들고 commit"]}
+      width="flush"
+    >
       <SessionDetail
         id={SESSION.id}
         {...shared(host)}
+        unavailable={scoped ? undefined : host.unavailable}
         back={
           <Button asChild variant="outline">
             <a href="#sessions">
@@ -67,7 +77,7 @@ function SessionDetailPage({
           },
         ]}
       />
-    </div>
+    </ScreenShell>
   );
 }
 
@@ -92,8 +102,11 @@ const meta = {
   title: "Screens/Session detail (v4)",
   component: SessionDetailPage,
   parameters: { layout: "fullscreen", api: routes() },
-  render: (_args, context) => (
-    <SessionDetailPage locale={context.globals.locale as string | undefined} />
+  render: (args, context) => (
+    <SessionDetailPage
+      {...args}
+      locale={context.globals.locale as string | undefined}
+    />
   ),
 } satisfies Meta<typeof SessionDetailPage>;
 
@@ -117,6 +130,37 @@ export const Member: Story = {
   name: "공유받은 구성원: 볼 수만 있음",
   parameters: {
     api: routes({ requests: { ...WRITE_REQUEST, answerable: false } }),
+  },
+};
+
+/** The operations card when the key may neither answer nor control. */
+export const Unscoped: Story = {
+  name: "운영: 권한 없는 key",
+  args: { scoped: false },
+};
+
+/** Until the pending requests arrive the card states only the rule. */
+export const PendingLoading: Story = {
+  name: "운영: 요청 불러오는 중",
+  parameters: {
+    api: { ...routes(), [`GET ${base}/pending-requests`]: pending },
+  },
+};
+
+/** An archived session takes no command; the card says so. */
+export const Closed: Story = {
+  name: "운영: 할 수 있는 조치 없음",
+  parameters: {
+    api: routes({
+      detail: {
+        ...TITLED,
+        status: "stopped",
+        admission_state: "closed",
+        current_turn_id: null,
+        pending_request_count: 0,
+      },
+      requests: { answerable: true, items: [] },
+    }),
   },
 };
 

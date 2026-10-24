@@ -6,7 +6,7 @@ import {
 import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import {
   type AuthorizationPolicy,
-  createSlackChannelApi,
+  createSlackBotApi,
   createSlackChannelSearchService,
   SessionServiceError,
   type SlackChannelSearchService,
@@ -103,7 +103,7 @@ function world() {
     agents: { agentOf: async () => AGENT },
     apps: apps.store,
     secrets: secrets.store,
-    api: createSlackChannelApi({
+    api: createSlackBotApi({
       apiUrl: "http://slack.test/api",
       fetch: (async (input: RequestInfo | URL, init?: RequestInit) =>
         (await slack.handle(new Request(input, init))) ??

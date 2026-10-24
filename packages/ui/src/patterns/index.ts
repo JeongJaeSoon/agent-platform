@@ -1,4 +1,9 @@
 export {
+  Combobox,
+  type ComboboxOption,
+  type ComboboxProps,
+} from "./combobox.tsx";
+export {
   ConfirmDialog,
   type ConfirmDialogProps,
 } from "./confirm-dialog.tsx";
@@ -25,6 +30,7 @@ export {
   type SecretFieldProps,
 } from "./secret-field.tsx";
 export { Section, type SectionProps } from "./section.tsx";
+export { SettingRow, type SettingRowProps } from "./setting-row.tsx";
 export { StatCard, type StatCardProps } from "./stat-card.tsx";
 export {
   Stepper,

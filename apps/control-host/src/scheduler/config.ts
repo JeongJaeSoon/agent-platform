@@ -33,7 +33,7 @@ export type SchedulerEnvironment = LocalDockerBackendEnvironment &
     WORKER_PIDS_LIMIT?: string | undefined;
   };
 
-export const SCHEDULER_BACKENDS = ["local_docker", "kubernetes"] as const;
+const SCHEDULER_BACKENDS = ["local_docker", "kubernetes"] as const;
 
 /** Only the chosen backend's settings are read, so neither needs the other's. */
 export type SchedulerExecution =

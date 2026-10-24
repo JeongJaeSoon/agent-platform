@@ -24,7 +24,7 @@ const APP_CSP = [
   "frame-ancestors 'none'",
 ].join("; ");
 
-export function isApiPath(path: string): boolean {
+function isApiPath(path: string): boolean {
   return API_PREFIXES.some(
     (prefix) => path === prefix || path.startsWith(`${prefix}/`),
   );

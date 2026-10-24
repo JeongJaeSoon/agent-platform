@@ -3,6 +3,15 @@ export {
   type ApiErrorStateProps,
 } from "./feedback/api-error-state.tsx";
 export { ERROR_GUIDANCE, guidanceFor } from "./feedback/error-guidance.ts";
+export {
+  DetailLayout,
+  type DetailLayoutProps,
+  DetailRail,
+  type DetailRailProps,
+  DetailRailSection,
+  type DetailRailSectionProps,
+} from "./layout/detail-layout.tsx";
+export { ListToolbar, type ListToolbarProps } from "./list/list-toolbar.tsx";
 export { ReceiptLink, type ReceiptLinkProps } from "./receipt/receipt-link.tsx";
 export {
   RECEIPT_OPERATION_LABEL,
@@ -38,6 +47,9 @@ export {
 } from "./session/question-card.tsx";
 export {
   SESSION_OVERVIEW_COLUMNS,
+  SESSION_OVERVIEW_HOME_TEMPLATE,
+  SESSION_OVERVIEW_NARROW_TEMPLATE,
+  SESSION_OVERVIEW_TEMPLATE,
   type SessionOverviewHeadMessages,
   SessionOverviewRow,
   type SessionOverviewRowMessages,
@@ -47,9 +59,12 @@ export {
   shortSessionId,
 } from "./session/session-overview.tsx";
 export {
+  SESSION_NARROW_TEMPLATE,
+  SESSION_TEMPLATE,
   SessionRow,
   type SessionRowLink,
   type SessionRowMessages,
+  SessionRowOpener,
   type SessionRowProps,
 } from "./session/session-row.tsx";
 export {

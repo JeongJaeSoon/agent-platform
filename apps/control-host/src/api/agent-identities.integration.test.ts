@@ -36,7 +36,7 @@ import {
   authorizeSlackInput,
   createAgentIdentityService,
   createAuthorizationPolicy,
-  createSlackChannelApi,
+  createSlackBotApi,
   createSlackChannelSearchService,
   createSurfaceBindingService,
 } from "@werft-ai/platform";
@@ -91,6 +91,7 @@ integration("agent identities over HTTP on PostgreSQL", () => {
     const slackBindings = createSurfaceBindingService({
       authorization,
       store: createPostgresSurfaceBindingStore(db),
+      channels: { kindOf: async () => "public_channel" },
     });
     app = createApiApp({
       authMode: "api-key",
@@ -108,7 +109,7 @@ integration("agent identities over HTTP on PostgreSQL", () => {
             agents: createDatabaseAgentAuthority(db),
             apps: { findForAgent: async () => null },
             secrets: { get: async () => null },
-            api: createSlackChannelApi({ apiUrl: "http://127.0.0.1:9/api" }),
+            api: createSlackBotApi({ apiUrl: "http://127.0.0.1:9/api" }),
           }),
         });
       },

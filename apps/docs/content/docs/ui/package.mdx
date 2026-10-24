@@ -63,7 +63,13 @@ import { Button, Card } from "@werft-ai/ui";
 
 ## 폰트
 
-패키지는 폰트를 싣지 않는다. 글꼴은 `--ap-font-sans`(Geist, Pretendard Variable 순)와 `--ap-font-mono`(Geist Mono부터)가 고르고, 앱이 그 글꼴을 로드하지 않으면 각 목록 끝의 시스템 폰트로 그려진다. 한글을 Pretendard로 보이려면 앱이 직접 로드한다. 이 저장소의 웹 콘솔은 `pretendard` 패키지의 dynamic subset을 쓴다.
+패키지는 폰트를 싣지 않는다. 글꼴 목록은 `--ap-font-sans`(Geist, Pretendard Variable 순)와 `--ap-font-mono`(Geist Mono부터)에 있지만, `styles.css`는 이 변수를 키트의 `ap-*` 요소에만 건다. 버튼·세그먼트 컨트롤 같은 컨트롤은 앱의 글꼴을 물려받으므로, 앱이 `body`(또는 `:root`)에 글꼴을 주지 않으면 브라우저 기본 글꼴(대개 Times 같은 serif)로 그려진다. 앱 CSS에 한 줄을 둔다.
+
+```css title="src/app.css"
+body { font-family: var(--ap-font-sans); }
+```
+
+이렇게 두면 앱이 Geist·Pretendard를 로드하지 않아도 목록 끝의 시스템 폰트로 그려진다. 한글을 Pretendard로 보이려면 앱이 직접 로드한다. 이 저장소의 웹 콘솔은 `pretendard` 패키지의 dynamic subset을 쓴다.
 
 ```sh
 npm install pretendard

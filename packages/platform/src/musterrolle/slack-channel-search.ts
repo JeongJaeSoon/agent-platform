@@ -15,9 +15,10 @@ import {
 } from "../sessions/session-service.ts";
 import type { AgentAuthority, AuthorizationPolicy, Caller } from "./policy.ts";
 import {
-  SLACK_API_URL,
-  SLACK_HTTP_TIMEOUT_MS,
   SlackApiError,
+  type SlackBotApi,
+  type SlackChannelPage,
+  SlackRateLimitedError,
 } from "./slack-config-api.ts";
 import type { SurfaceBindingService } from "./surface-binding-service.ts";
 
@@ -29,143 +30,15 @@ import type { SurfaceBindingService } from "./surface-binding-service.ts";
 //
 // conversations.list is Slack's Tier 2 (20+ per minute):
 // https://docs.slack.dev/reference/methods/conversations.list
-// When 94S-791's bot-token Slack client lands, `createSlackChannelApi` moves
-// into it as one more method.
 
 export const SLACK_CHANNEL_CACHE_TTL_MS = 60_000;
 /** Channels kept per app; past this the list says `truncated`. */
 export const SLACK_CHANNEL_CACHE_MAX_CHANNELS = 10_000;
 /** Apps cached at once; the least recently used is dropped first. */
 export const SLACK_CHANNEL_CACHE_MAX_APPS = 500;
-/** Slack advises no more than 200 per page. */
-export const SLACK_CHANNEL_PAGE_SIZE = 200;
-/** Used when a 429 carries no readable Retry-After. */
-const DEFAULT_RETRY_AFTER_SECONDS = 60;
-
 const ACTION = "binding.manage";
 
-/** Slack answered 429: no call before `retryAfterSeconds` have passed. */
-export class SlackRateLimitedError extends SlackApiError {
-  constructor(
-    method: string,
-    readonly retryAfterSeconds: number,
-  ) {
-    super(method, "ratelimited", true);
-    this.name = "SlackRateLimitedError";
-  }
-}
-
-export type SlackChannelPage = {
-  channels: SlackChannel[];
-  nextCursor: string | null;
-};
-
-export interface SlackChannelApi {
-  /** One page of the public channels and the private ones the bot is in. */
-  listChannels(
-    botToken: string,
-    cursor: string | null,
-  ): Promise<SlackChannelPage>;
-}
-
-const listAnswer = z.object({
-  channels: z.array(
-    z.object({
-      id: z.string().regex(/^[A-Z0-9]{1,64}$/),
-      name: z.string().min(1).max(255),
-      is_private: z.boolean().default(false),
-      is_member: z.boolean().default(false),
-      is_archived: z.boolean().default(false),
-    }),
-  ),
-  response_metadata: z
-    .object({ next_cursor: z.string().max(4096).optional() })
-    .optional(),
-});
-
-const ERROR_CODE = /^[a-z_]{1,64}$/;
-
-function retryAfterOf(response: Response): number {
-  const seconds = Number(response.headers.get("retry-after"));
-  return Number.isSafeInteger(seconds) && seconds > 0
-    ? seconds
-    : DEFAULT_RETRY_AFTER_SECONDS;
-}
-
-export function createSlackChannelApi(options?: {
-  apiUrl?: string;
-  fetch?: typeof fetch;
-  timeoutMs?: number;
-}): SlackChannelApi {
-  const apiUrl = (options?.apiUrl ?? SLACK_API_URL).replace(/\/+$/, "");
-  const fetchImpl = options?.fetch ?? fetch;
-  const timeoutMs = options?.timeoutMs ?? SLACK_HTTP_TIMEOUT_MS;
-  const method = "conversations.list";
-
-  return {
-    async listChannels(botToken, cursor) {
-      const body = new URLSearchParams({
-        types: "public_channel,private_channel",
-        exclude_archived: "true",
-        limit: String(SLACK_CHANNEL_PAGE_SIZE),
-        ...(cursor === null ? {} : { cursor }),
-      });
-      let response: Response;
-      try {
-        response = await fetchImpl(`${apiUrl}/${method}`, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${botToken}`,
-            "Content-Type": "application/x-www-form-urlencoded",
-          },
-          body: body.toString(),
-          signal: AbortSignal.timeout(timeoutMs),
-        });
-      } catch (error) {
-        throw new SlackApiError(
-          method,
-          error instanceof Error && error.name === "TimeoutError"
-            ? "timeout"
-            : "unreachable",
-          false,
-        );
-      }
-      if (response.status === 429) {
-        await response.body?.cancel();
-        throw new SlackRateLimitedError(method, retryAfterOf(response));
-      }
-      const answer = (await response.json().catch(() => null)) as Record<
-        string,
-        unknown
-      > | null;
-      if (answer === null || typeof answer !== "object") {
-        throw new SlackApiError(method, `http_${response.status}`, false);
-      }
-      if (answer.ok !== true) {
-        const code =
-          typeof answer.error === "string" && ERROR_CODE.test(answer.error)
-            ? answer.error
-            : `http_${response.status}`;
-        throw new SlackApiError(method, code, response.status < 500);
-      }
-      const parsed = listAnswer.safeParse(answer);
-      if (!parsed.success) {
-        throw new SlackApiError(method, "unexpected_answer", false);
-      }
-      return {
-        channels: parsed.data.channels
-          .filter((channel) => !channel.is_archived)
-          .map((channel) => ({
-            id: channel.id,
-            name: channel.name,
-            is_private: channel.is_private,
-            is_member: channel.is_member,
-          })),
-        nextCursor: parsed.data.response_metadata?.next_cursor || null,
-      };
-    },
-  };
-}
+export type SlackChannelApi = Pick<SlackBotApi, "listChannels">;
 
 type Snapshot = {
   id: string;

@@ -5,17 +5,19 @@ import {
   type SessionUsageResponse,
 } from "@werft-ai/contracts";
 import {
+  Badge,
   Button,
   Checkbox,
   Field,
   FieldLabel,
   formatTimestamp,
+  KeyValueList,
   PageHeader,
   Tabs,
   TabsContent,
   TabsList,
   TabsTrigger,
-  useDetailLayout,
+  Section as TitledBlock,
 } from "@werft-ai/ui";
 import {
   Bot,
@@ -26,9 +28,12 @@ import {
   type LucideIcon,
   UserRound,
 } from "lucide-react";
-import { type ReactNode, useId, useMemo, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import { CircleCheck, GitBranch } from "../components/console-icons.ts";
 import {
+  DetailLayout,
+  DetailRail,
+  DetailRailSection,
   SessionStatusLabel,
   StatusLabel,
   Timeline,
@@ -44,6 +49,7 @@ import {
   useSessionUsage,
 } from "../sessions.ts";
 import {
+  actionsFor,
   PendingAnswers,
   type SessionActionProps,
   SessionComposer,
@@ -98,21 +104,25 @@ export function SessionDetail({
     isApiError(session.error, "FORBIDDEN");
   const detail = lostAccess ? undefined : session.data;
   const readable = detail !== undefined;
-  const layout = useDetailLayout(readable);
   const usage = useSessionUsage(id, readable);
   const pending = usePendingRequests(id, readable);
   const events = useSessionEvents(id, readable);
 
   if (detail === undefined) {
-    if (session.isPending) return loading;
-    if (isApiError(session.error, "NOT_FOUND")) {
-      return (
-        <p className="m-0 text-destructive" role="alert">
-          {t("session.notFound")}
-        </p>
-      );
-    }
-    return renderError(session.error, () => void session.refetch());
+    // The host leaves the gutters to this layout, rail or not.
+    return (
+      <DetailLayout>
+        {session.isPending ? (
+          loading
+        ) : isApiError(session.error, "NOT_FOUND") ? (
+          <p className="m-0 text-destructive" role="alert">
+            {t("session.notFound")}
+          </p>
+        ) : (
+          renderError(session.error, () => void session.refetch())
+        )}
+      </DetailLayout>
+    );
   }
   const pendingCount = pending.data?.items.length;
   const hostTabs = tabs?.(detail) ?? [];
@@ -120,8 +130,8 @@ export function SessionDetail({
     <Tabs
       value={tab}
       onValueChange={setTab}
-      className="flex min-w-0 flex-col gap-6"
-      key="body"
+      // Grows so the body ends where the rail does.
+      className="flex min-w-0 flex-1 flex-col gap-6"
     >
       <div className="flex flex-wrap items-center justify-between gap-2 border-b">
         <TabsList variant="line" aria-label={t("session.tabs.label")}>
@@ -153,7 +163,6 @@ export function SessionDetail({
         ) : null}
       </div>
       <TabsContent value="timeline" className="flex flex-1 flex-col gap-4">
-        {/* Grows so the body ends where a taller panel does. */}
         <div className="min-w-0 flex-1 rounded-card border bg-card">
           <Events events={events.events} state={events.state} debug={debug} />
         </div>
@@ -183,77 +192,96 @@ export function SessionDetail({
       </TabsContent>
     </Tabs>
   );
-  const panel = (
-    <aside
-      key="panel"
-      aria-label={t("session.panel")}
-      // Stacked above the body, the cards keep about the panel's width side
-      // by side instead of stretching a question across the whole page. With
-      // nothing to show, the answers block keeps its live region mounted but
-      // leaves the grid, so it does not hold an empty cell.
-      className={
-        layout.narrow
-          ? "grid min-w-0 grid-cols-[repeat(auto-fill,minmax(min(100%,var(--ap-layout-detail-panel-width)),1fr))] items-start gap-4 [&>[data-slot=pending-answers]:not(:has(li,p,output:not(:empty)))]:absolute"
-          : // The last card grows so the panel ends where a taller body does.
-            "flex min-w-0 flex-col gap-4 [&>:last-child]:flex-1"
-      }
-    >
-      {pending.data ? (
-        <PendingAnswers
-          sessionId={id}
-          items={pending.data.items}
-          answerable={pending.data.answerable}
-          showEmpty={false}
-          unavailable={unavailable}
-          refusal={refusal}
-        />
-      ) : pending.error ? (
-        renderError(pending.error, () => void pending.refetch())
-      ) : null}
-      {pendingCount === 0 ? (
-        <Section
-          title={t("session.pending.emptyTitle")}
-          note={t(idleNote(detail.status), {
-            status: t(`sessions.status.${detail.status}`),
-          })}
-          mark={
-            <CircleCheck
-              className="size-4 shrink-0 text-[var(--ap-tone-success-fg)]"
-              strokeWidth={1.5}
-              aria-hidden="true"
+  const rail = (
+    <DetailRail label={t("session.panel")}>
+      <DetailRailSection title={t("session.pending")}>
+        <div
+          // With nothing to show, the answers block keeps its live region
+          // mounted but leaves the flow, so it does not open a gap.
+          className="flex flex-col gap-3 [&>[data-slot=pending-answers]:not(:has(li,p,output:not(:empty)))]:absolute"
+        >
+          {pending.data ? (
+            <PendingAnswers
+              sessionId={id}
+              items={pending.data.items}
+              answerable={pending.data.answerable}
+              showEmpty={false}
+              unavailable={unavailable}
+              refusal={refusal}
             />
-          }
+          ) : pending.error ? (
+            renderError(pending.error, () => void pending.refetch())
+          ) : (
+            <output className="text-caption text-muted-foreground">
+              {t("sessions.loadingMore")}
+            </output>
+          )}
+          {pendingCount === 0 ? (
+            <div className="flex items-start gap-2">
+              <CircleCheck
+                className="mt-0.5 size-4 shrink-0 text-[var(--ap-tone-success-fg)]"
+                strokeWidth={1.5}
+                aria-hidden="true"
+              />
+              <p className="m-0 flex min-w-0 flex-col gap-0.5">
+                <span className="font-medium text-control">
+                  {t("session.pending.emptyTitle")}
+                </span>
+                <span className="text-caption text-muted-foreground leading-[1.5]">
+                  {t(idleNote(detail.status), {
+                    status: t(`sessions.status.${detail.status}`),
+                  })}
+                </span>
+              </p>
+            </div>
+          ) : null}
+        </div>
+      </DetailRailSection>
+      <Operations
+        session={detail}
+        answerable={pending.data?.answerable}
+        unavailable={unavailable}
+        controls={controls?.(detail)}
+      />
+      <DetailRailSection title={t("session.info.title")}>
+        <KeyValueList
+          className={RAIL_ROWS}
+          items={[
+            {
+              label: t("session.info.agent"),
+              value: t("session.info.notProvided"),
+            },
+            {
+              label: t("session.meta.model"),
+              value: (
+                <span className="font-mono text-caption">
+                  {detail.runtime?.model ?? t("sessions.none")}
+                </span>
+              ),
+            },
+            {
+              label: t("session.meta.repository"),
+              value: detail.repository_id ?? t("session.repository.none"),
+            },
+            {
+              label: t("session.info.startedBy"),
+              value: t("session.info.notProvided"),
+            },
+            ...(usage.data
+              ? [
+                  {
+                    label: t("session.usage"),
+                    value: <Cost usage={usage.data} />,
+                  },
+                ]
+              : []),
+          ]}
         />
-      ) : pendingCount === undefined && !pending.error ? (
-        <div className="flex min-w-0 flex-col gap-3 rounded-card border bg-card p-4">
-          <output className="text-caption text-muted-foreground">
-            {t("sessions.loadingMore")}
-          </output>
-        </div>
-      ) : null}
-      <Section
-        title={t("session.answerers")}
-        note={t("session.answerers.roles")}
-      >
-        {pending.data ? (
-          <p className="m-0 text-body">
-            {/* The same condition that turns the answer buttons off. */}
-            {!pending.data.answerable
-              ? t("session.answerers.viewOnly")
-              : (unavailable?.answer ?? t("session.answerers.you"))}
-          </p>
-        ) : null}
-      </Section>
-      {controls ? (
-        // A host's controls may draw nothing; the empty card then goes.
-        <div className="flex min-w-0 flex-col gap-3 rounded-card border bg-card p-4 empty:hidden">
-          {controls(detail)}
-        </div>
-      ) : null}
-    </aside>
+      </DetailRailSection>
+    </DetailRail>
   );
   return (
-    <div className="flex min-w-0 flex-col">
+    <DetailLayout rail={rail}>
       <PageHeader
         // Wide, the meta line wraps under the title and the commands stay
         // top right (console v4 `.page-head`); narrow, the commands wrap below.
@@ -290,16 +318,8 @@ export function SessionDetail({
           />
         }
       />
-      <div
-        ref={layout.ref}
-        data-slot="session-detail-layout"
-        className={
-          layout.narrow ? layout.className : `${layout.className} items-stretch`
-        }
-      >
-        {layout.narrow ? [panel, body] : [body, panel]}
-      </div>
-    </div>
+      {body}
+    </DetailLayout>
   );
 }
 
@@ -375,9 +395,7 @@ function SessionMeta({
       </MetaItem>
       {usage ? (
         <MetaItem icon={Gauge} label={t("session.usage")}>
-          {usage.cost.kind === "unmetered"
-            ? t("session.usage.unmetered")
-            : `$${usage.cost.amount_usd}`}
+          <Cost usage={usage} />
         </MetaItem>
       ) : null}
     </span>
@@ -407,40 +425,96 @@ function MetaItem({
   );
 }
 
-function Section({
-  title,
-  note,
-  mark,
-  children,
+function Cost({ usage }: { readonly usage: SessionUsageResponse }) {
+  const { t } = useBlockText();
+  return usage.cost.kind === "unmetered"
+    ? t("session.usage.unmetered")
+    : `$${usage.cost.amount_usd}`;
+}
+
+// The rail's rows are split by lines instead of sitting in a card.
+const RAIL_ROWS = "gap-0 divide-y [&>div]:py-2";
+
+/**
+ * Who may answer and what the reader may do to the session. The API names
+ * no answerers, so the rule stands in for a list; the commands themselves
+ * stay in the header.
+ */
+function Operations({
+  session,
+  answerable,
+  unavailable,
+  controls,
 }: {
-  readonly title: string;
-  /** The line under the title. */
-  readonly note?: string;
-  /** Drawn at the head's far end, such as a done mark. */
-  readonly mark?: ReactNode;
-  readonly children?: ReactNode;
+  readonly session: SessionDetailData;
+  /** Unknown until the pending requests arrive. */
+  readonly answerable: boolean | undefined;
+  readonly unavailable: SessionActionProps["unavailable"];
+  /** What the host lets the reader change, under the rows. */
+  readonly controls?: ReactNode;
 }) {
-  const titleId = useId();
+  const { t } = useBlockText();
+  const actions = actionsFor(session);
   return (
-    <section
-      className="flex min-w-0 flex-col gap-3 rounded-card border bg-card p-4"
-      aria-labelledby={titleId}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex min-w-0 flex-col gap-0.5">
-          <h2 id={titleId} className="m-0 font-semibold text-body leading-5">
-            {title}
-          </h2>
-          {note ? (
-            <p className="m-0 text-caption text-muted-foreground leading-[1.5]">
-              {note}
+    <DetailRailSection title={t("session.ops")}>
+      <div className="flex min-w-0 flex-col gap-4">
+        <TitledBlock
+          titleAs="h3"
+          title={t("session.answerers")}
+          description={t("session.answerers.roles")}
+        >
+          {answerable === undefined ? null : (
+            <p className="m-0 text-body">
+              {/* The same condition that turns the answer buttons off. */}
+              {!answerable
+                ? t("session.answerers.viewOnly")
+                : (unavailable?.answer ?? t("session.answerers.you"))}
             </p>
-          ) : null}
-        </div>
-        {mark}
+          )}
+        </TitledBlock>
+        <TitledBlock
+          titleAs="h3"
+          title={t("session.ops.actions")}
+          description={t("session.ops.actions.note")}
+        >
+          <KeyValueList
+            className={RAIL_ROWS}
+            items={[
+              {
+                label: t("session.ops.available"),
+                value:
+                  actions.length === 0 ? (
+                    t("session.ops.none")
+                  ) : (
+                    // A narrow panel breaks the line between commands only.
+                    <span className="flex flex-wrap justify-end gap-x-1">
+                      {actions.map((action, index) => (
+                        <span key={action} className="whitespace-nowrap">
+                          {t(`session.control.${action}`)}
+                          {index < actions.length - 1 ? " · " : null}
+                        </span>
+                      ))}
+                    </span>
+                  ),
+              },
+              {
+                label: t("session.ops.mine"),
+                // The server judges each command again.
+                value:
+                  unavailable?.control === undefined ? (
+                    <Badge variant="green">{t("session.ops.allowed")}</Badge>
+                  ) : (
+                    <span className="text-muted-foreground">
+                      {unavailable.control}
+                    </span>
+                  ),
+              },
+            ]}
+          />
+        </TitledBlock>
+        {controls}
       </div>
-      {children}
-    </section>
+    </DetailRailSection>
   );
 }
 

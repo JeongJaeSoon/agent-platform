@@ -1,27 +1,64 @@
 import { integerSetting } from "@werft-ai/contracts/settings";
 import * as schema from "@werft-ai/db";
-import { createPostgresSlackInboundEventStore } from "@werft-ai/db";
-import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
-import { createLogger, logLevelFromEnv } from "@werft-ai/observability";
 import {
+  createDatabaseAgentAuthority,
+  createDatabaseIdentityReader,
+  createPostgresAgentIdentityStore,
+  createPostgresAgentStore,
+  createPostgresCredentialBindingStore,
+  createPostgresDecisionLog,
+  createPostgresLinkedAccountStore,
+  createPostgresSecretStore,
+  createPostgresSessionControl,
+  createPostgresSessionLinkStore,
+  createPostgresSessionReader,
+  createPostgresSessionShareStore,
+  createPostgresSessionUnitOfWork,
+  createPostgresSlackGuestSetting,
+  createPostgresSlackInboundEventStore,
+  createPostgresSurfaceBindingStore,
+  type Database,
+} from "@werft-ai/db";
+import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
+import {
+  createLogger,
+  logLevelFromEnv,
+  type StructuredLogger,
+} from "@werft-ai/observability";
+import {
+  createAuthorizationPolicy,
+  createLoggingSlackNoticeSink,
+  createSessionService,
+  createSlackBotApi,
+  createSlackSessionHandler,
   drainSlackInbox,
-  noopSlackInboundHandler,
+  installationLimitsFromEnv,
+  resolveAgentRelease,
+  type SecretKey,
   type SessionCatalogConfig,
+  type SlackInboundEventStore,
+  type SlackInboundHandler,
   type SlackInboxDrain,
+  type SlackNoticeSink,
+  sessionCatalogView,
+  slackBotToken,
 } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
+import type { Pool } from "pg";
 import {
   DEFAULT_CONFIG_DIR,
   loadCatalogConfig,
   loadSecretKey,
+  SECRET_KEY_SETTING,
   type SecretReader,
   secretsManagerReader,
 } from "../api/catalog-config.ts";
+import { consoleOriginFrom, slackApiUrlFrom } from "../api/slack-config.ts";
 import { PASS_LOOP_ROLES, passLoopConfigFromEnv } from "../pass-loop/loop.ts";
 
 type Environment = Readonly<Record<string, string | undefined>>;
 
-export function slackDatabaseUrl(environment: Environment): string {
+function slackDatabaseUrl(environment: Environment): string {
   const databaseUrl =
     environment.DATABASE_URL || environment.QUEUE_DATABASE_URL;
   if (!databaseUrl) {
@@ -60,13 +97,94 @@ export function slackRoleSettings(environment: Environment): {
 export async function slackRoleStartup(
   environment: Environment,
   readSecret: SecretReader = secretsManagerReader(environment),
-): Promise<{ catalog: SessionCatalogConfig; secretKeySet: boolean }> {
+): Promise<{
+  catalog: SessionCatalogConfig;
+  secretKeySet: boolean;
+  secretKey: SecretKey | null;
+}> {
   slackRoleSettings(environment);
   slackDatabaseUrl(environment);
   const dir = environment.PLATFORM_CONFIG_DIR ?? DEFAULT_CONFIG_DIR;
   const catalog = await loadCatalogConfig({ dir, env: environment });
   const secretKey = await loadSecretKey({ dir, env: environment, readSecret });
-  return { catalog, secretKeySet: secretKey !== null };
+  return { catalog, secretKeySet: secretKey !== null, secretKey };
+}
+
+export function slackSessionHandler(deps: {
+  db: Database;
+  pool: Pick<Pool, "connect">;
+  environment: Environment;
+  logger: StructuredLogger;
+  catalog: SessionCatalogConfig;
+  /** Null without a master key: an event that needs a bot token waits. */
+  secretKey: SecretKey | null;
+  leaseMs: number;
+  notices?: SlackNoticeSink;
+  slackApiUrl?: string;
+  inbox?: Pick<SlackInboundEventStore, "renew">;
+}): SlackInboundHandler {
+  const { db, environment, logger } = deps;
+  const catalog = sessionCatalogView(deps.catalog);
+  const credentials = createPostgresCredentialBindingStore(db);
+  const authorization = createAuthorizationPolicy({
+    identity: createDatabaseIdentityReader(db),
+    agents: createDatabaseAgentAuthority(db),
+    credentials,
+    slackGuests: createPostgresSlackGuestSetting(db),
+    sessions: createPostgresSessionShareStore(db),
+    decisions: createPostgresDecisionLog(db),
+  });
+  const agentStore = createPostgresAgentStore(db);
+  const sessions = createSessionService({
+    authorization,
+    inputs: createPostgresSessionUnitOfWork(db),
+    controls: createPostgresSessionControl(db, {
+      connect: () => deps.pool.connect(),
+      logger,
+    }),
+    reader: createPostgresSessionReader(db, { logger }),
+    catalog,
+    releases: {
+      resolveRelease: (workspaceId, releaseId) =>
+        resolveAgentRelease(
+          { store: agentStore, catalog },
+          workspaceId,
+          releaseId,
+        ),
+    },
+    credentials,
+    limits: installationLimitsFromEnv(environment),
+  });
+  const { secretKey } = deps;
+  const secrets =
+    secretKey === null ? null : createPostgresSecretStore(db, secretKey);
+  const consoleOrigin = consoleOriginFrom(environment);
+  return createSlackSessionHandler({
+    inbox: deps.inbox ?? createPostgresSlackInboundEventStore(db),
+    leaseMs: deps.leaseMs,
+    authorization,
+    agents: createPostgresAgentIdentityStore(db),
+    links: createPostgresLinkedAccountStore(db),
+    bindings: createPostgresSurfaceBindingStore(db),
+    sessionLinks: createPostgresSessionLinkStore(db),
+    sessions,
+    agentDetails: agentStore,
+    slack: createSlackBotApi({
+      apiUrl: deps.slackApiUrl ?? slackApiUrlFrom(environment),
+    }),
+    botToken: async (workspaceId, slackAppId) => {
+      if (secrets === null) {
+        throw new Error(`${SECRET_KEY_SETTING} is unset: no bot token opens`);
+      }
+      return slackBotToken(secrets, workspaceId, slackAppId);
+    },
+    notices: deps.notices ?? createLoggingSlackNoticeSink(logger),
+    logger,
+    connectUrl:
+      consoleOrigin === null
+        ? ""
+        : new URL("/settings/linked-accounts", consoleOrigin).toString(),
+  });
 }
 
 export async function main(
@@ -83,9 +201,19 @@ export async function main(
     JOB_POOL_TIMEOUTS,
   );
   try {
+    const db = drizzle(pool, { schema });
+    const { catalog, secretKey } = await slackRoleStartup(environment);
     const drain = await drainSlackInbox({
-      inbox: createPostgresSlackInboundEventStore(drizzle(pool, { schema })),
-      handler: noopSlackInboundHandler,
+      inbox: createPostgresSlackInboundEventStore(db),
+      handler: slackSessionHandler({
+        db,
+        pool,
+        environment,
+        logger,
+        catalog,
+        secretKey,
+        leaseMs: settings.leaseMs,
+      }),
       logger,
       batchSize: settings.batchSize,
       leaseMs: settings.leaseMs,

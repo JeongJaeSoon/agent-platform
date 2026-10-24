@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { createSlackBotApi } from "@werft-ai/platform";
 import {
   createFakeSlackWebApi,
   startFakeSlackApi,
@@ -170,5 +171,71 @@ describe("fake Slack Web API", () => {
     } finally {
       await idp.stop();
     }
+  });
+});
+
+describe("fake Slack bot calls, through the slack role's client", () => {
+  const slack = startFakeSlackApi({ teamId: "T0X" });
+  const bot = "fake-bot-credential";
+  slack.apps.set("A0BOT", {
+    appId: "A0BOT",
+    clientId: "1.1",
+    clientSecret: "unused",
+    signingSecret: "unused",
+    manifest: {},
+    botTokens: [bot],
+  });
+  const api = createSlackBotApi({ apiUrl: slack.url });
+  afterAll(() => slack.stop());
+
+  test("users.info answers a team member, or the user it was given", async () => {
+    expect(await api.userInfo(bot, "U0MEMBER")).toEqual({
+      id: "U0MEMBER",
+      team_id: "T0X",
+      is_restricted: false,
+      is_ultra_restricted: false,
+    });
+    slack.users.set("U0GUEST", { teamId: "T0OTHER", isStranger: true });
+    expect(await api.userInfo(bot, "U0GUEST")).toMatchObject({
+      team_id: "T0OTHER",
+      is_stranger: true,
+    });
+  });
+
+  test("conversations.info tells a DM, a private and a public channel apart", async () => {
+    expect(await api.channelKind(bot, "D0DM")).toBe("dm");
+    expect(await api.channelKind(bot, "G0CLOSED")).toBe("private_channel");
+    expect(await api.channelKind(bot, "C0OPEN")).toBe("public_channel");
+    slack.channels.set("C0GROUP", { isMpim: true });
+    expect(await api.channelKind(bot, "C0GROUP")).toBe("private_channel");
+  });
+
+  test("setStatus records the thread; a status without a thread, a set failure or another token is refused", async () => {
+    await api.setStatus(bot, {
+      channelId: "C0OPEN",
+      threadTs: "1.000100",
+      status: "processing",
+    });
+    expect(slack.statuses).toEqual([
+      { channelId: "C0OPEN", threadTs: "1.000100", status: "processing" },
+    ]);
+    await expect(
+      api.setStatus(bot, { channelId: "C0OPEN", threadTs: "", status: "x" }),
+    ).rejects.toMatchObject({ code: "thread_ts_required" });
+    await expect(api.userInfo("not-issued", "U0MEMBER")).rejects.toMatchObject({
+      code: "invalid_auth",
+    });
+    slack.failures.set("agents.sessions.setStatus", "not_authorized");
+    await expect(
+      api.setStatus(bot, {
+        channelId: "C0OPEN",
+        threadTs: "1.000100",
+        status: "processing",
+      }),
+    ).rejects.toMatchObject({ code: "not_authorized" });
+    expect(slack.statuses).toHaveLength(1);
+    expect(
+      await (await fetch(slack.url.replace(/\/api$/, "/fake/statuses"))).json(),
+    ).toEqual({ ok: true, statuses: slack.statuses });
   });
 });

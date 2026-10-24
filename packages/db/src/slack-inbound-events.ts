@@ -21,6 +21,12 @@ const leaseHeld = (fence: SlackInboundFence) =>
 
 const released = { claimToken: null, leaseExpiresAt: null } as const;
 
+const installationStatusOf = sql<SlackInboundClaim["installationStatus"]>`(
+  SELECT i.status FROM ${slackInstallations} i
+  WHERE i.app_id = slack_inbound_events.app_id
+    AND i.team_id = slack_inbound_events.team_id
+)`;
+
 // Thread order, the claim's ORDER BY and its head-of-conversation test
 // alike; event_time is Slack's, in whole seconds.
 const order = (alias: string) =>
@@ -129,11 +135,7 @@ export function createPostgresSlackInboundEventStore(
             receivedAt: t.receivedAt,
             conversationKey: t.conversationKey,
             payload: t.payload,
-            installationStatus: sql<SlackInboundClaim["installationStatus"]>`(
-              SELECT i.status FROM ${slackInstallations} i
-              WHERE i.app_id = slack_inbound_events.app_id
-                AND i.team_id = slack_inbound_events.team_id
-            )`,
+            installationStatus: installationStatusOf,
           });
         // RETURNING keeps no order; hand them out in thread order.
         return rows
@@ -152,6 +154,17 @@ export function createPostgresSlackInboundEventStore(
             payload: payload as Record<string, unknown>,
           }));
       });
+    },
+
+    async renew(fence, leaseMs) {
+      const [row] = await db
+        .update(t)
+        .set({
+          leaseExpiresAt: sql`now() + make_interval(secs => ${leaseMs / 1000})`,
+        })
+        .where(leaseHeld(fence))
+        .returning({ installationStatus: installationStatusOf });
+      return row ?? null;
     },
 
     async complete(fence) {

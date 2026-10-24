@@ -2467,7 +2467,11 @@ describe("WorkerHost with a resumed engine session", () => {
       [{ type: "await-input" }, { type: "await-input" }],
       {
         checkpoints: resumedFrom(),
-        timeouts: { maxTurnMs: 30, drainTimeoutMs: 60_000 },
+        timeouts: {
+          maxTurnMs: 30,
+          drainTimeoutMs: 60_000,
+          interruptGraceMs: 300,
+        },
         wrap: (run) =>
           new Proxy(run, {
             get(target, property) {
@@ -2498,7 +2502,11 @@ describe("WorkerHost with a resumed engine session", () => {
       [{ type: "await-input" }, { type: "await-input" }],
       {
         checkpoints: resumedFrom(),
-        timeouts: { maxTurnMs: 30, drainTimeoutMs: 60_000 },
+        timeouts: {
+          maxTurnMs: 30,
+          drainTimeoutMs: 60_000,
+          interruptGraceMs: 300,
+        },
         wrap: (run) =>
           new Proxy(run, {
             get(target, property) {
@@ -2683,7 +2691,11 @@ describe("WorkerHost with a resumed engine session", () => {
       {
         resumedTranscript: [uuidForTurn(1)],
         checkpoints: resumedFrom(),
-        timeouts: { maxTurnMs: 30, drainTimeoutMs: 10_000 },
+        timeouts: {
+          maxTurnMs: 30,
+          drainTimeoutMs: 10_000,
+          interruptGraceMs: 300,
+        },
         wrap: (run) =>
           new Proxy(run, {
             get(target, property) {

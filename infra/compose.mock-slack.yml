@@ -41,3 +41,10 @@ services:
     depends_on:
       mock-slack:
         condition: service_healthy
+  slack:
+    environment:
+      SLACK_OIDC_REDIRECT_URI: http://127.0.0.1:3000/settings/linked-accounts/slack
+      SLACK_API_URL: http://mock-slack:4020/api
+    depends_on:
+      mock-slack:
+        condition: service_healthy

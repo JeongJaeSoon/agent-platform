@@ -1,23 +1,42 @@
-/* biome-ignore-all lint/a11y/useSemanticElements: container-responsive columns use a div-grid table. */
-/* biome-ignore-all lint/a11y/useFocusableInteractive: static table rows delegate keyboard navigation to their cell links. */
 import type { SessionStatus, SessionSummary } from "@werft-ai/contracts";
-import { cn, RelativeTime, type TimestampLocale } from "@werft-ai/ui";
+import {
+  cn,
+  GridTable,
+  GridTableCell,
+  GridTableColumnHeader,
+  GridTableHeader,
+  GridTableRow,
+  RelativeTime,
+  StatusDot,
+  type StatusDotStatus,
+  type TimestampLocale,
+} from "@werft-ai/ui";
 import { Folder } from "lucide-react";
-import type { JSX, ReactNode } from "react";
+import { createContext, type JSX, type ReactNode, useContext } from "react";
 import { GitBranch } from "../console-icons.ts";
-import { StatusLabel } from "../status/status-label.tsx";
-import type { SessionRowLink } from "./session-row.tsx";
+import { type SessionRowLink, SessionRowOpener } from "./session-row.tsx";
 import { useMinute } from "./use-minute.ts";
 
 /**
- * The console's session list columns, shared by the header and every row.
- * Up to 820px the repository gives its room to the title; the status and
- * time columns keep a fixed width throughout.
+ * @deprecated The div-grid classes the session list used before GridTable,
+ * kept for rows a caller lays out itself. The table uses
+ * SESSION_OVERVIEW_TEMPLATE.
  */
 export const SESSION_OVERVIEW_COLUMNS =
   "grid grid-cols-[minmax(0,2fr)_116px_minmax(0,1.2fr)_64px] @[820px]:grid-cols-[minmax(0,2.2fr)_120px_minmax(0,1fr)_minmax(0,1.4fr)_72px]";
 
-const WIDE_ONLY = "hidden @[820px]:flex";
+/**
+ * Console v4 `.t-sess`: title, status, agent · model, repository, started
+ * by, recent. At 820px of table width and below, repository and started by
+ * drop out for SESSION_OVERVIEW_NARROW_TEMPLATE.
+ */
+export const SESSION_OVERVIEW_TEMPLATE =
+  "minmax(0,2.2fr) 120px minmax(0,1.1fr) minmax(0,1.1fr) minmax(0,1fr) 72px";
+/** v4 `.t-sess-home`: the same without the started-by column. */
+export const SESSION_OVERVIEW_HOME_TEMPLATE =
+  "minmax(0,2.2fr) 120px minmax(0,1.2fr) minmax(0,1.2fr) 72px";
+export const SESSION_OVERVIEW_NARROW_TEMPLATE =
+  "minmax(0,2fr) 116px minmax(0,1.2fr) 64px";
 
 /** The id a person can tell rows apart by; the full id stays in the title. */
 export function shortSessionId(id: string): string {
@@ -27,10 +46,18 @@ export function shortSessionId(id: string): string {
 export interface SessionOverviewHeadMessages {
   readonly session: string;
   readonly status: string;
+  /** The third column's name when `agent` is not given. */
   readonly model: string;
+  /** The third column's name, which holds the agent over its model. */
+  readonly agent?: string | undefined;
   readonly repository: string;
+  /** Given, the table has the started-by column (v4 `.t-sess`). */
+  readonly startedBy?: string | undefined;
   readonly recent: string;
 }
+
+/** Which of the optional columns the rows draw; the table decides. */
+const Columns = createContext({ agent: false, startedBy: false });
 
 export interface SessionOverviewTableProps {
   readonly label: string;
@@ -45,40 +72,49 @@ export function SessionOverviewTable({
   children,
   className,
 }: SessionOverviewTableProps): JSX.Element {
+  const startedBy = messages.startedBy !== undefined;
+  const agent = messages.agent !== undefined;
   return (
+    // The row opener's focus ring sits outside the row, so this frame must
+    // not clip overflow.
     <div
-      role="table"
-      aria-label={label}
-      className={cn(
-        "@container m-0 flex w-full min-w-0 flex-col overflow-hidden rounded-card border bg-card p-0",
-        className,
-      )}
+      className={cn("w-full min-w-0 rounded-card border bg-card", className)}
     >
-      <div
-        role="row"
-        className={cn(
-          SESSION_OVERVIEW_COLUMNS,
-          "min-h-[var(--ap-row-head-min-height)] items-center gap-4 border-b bg-surface-sunken px-[var(--ap-row-padding-x)] py-[var(--ap-row-head-padding-y)] font-medium text-caption text-subtle-foreground",
-        )}
+      <GridTable
+        aria-label={label}
+        columns={
+          startedBy ? SESSION_OVERVIEW_TEMPLATE : SESSION_OVERVIEW_HOME_TEMPLATE
+        }
+        narrowAt={820}
+        narrowColumns={SESSION_OVERVIEW_NARROW_TEMPLATE}
       >
-        {/* One line each: a narrow column cuts its name rather than wrap. */}
-        <span role="columnheader" className="truncate">
-          {messages.session}
-        </span>
-        <span role="columnheader" className="truncate">
-          {messages.status}
-        </span>
-        <span role="columnheader" className="truncate">
-          {messages.model}
-        </span>
-        <span role="columnheader" className={cn(WIDE_ONLY, "min-w-0")}>
-          {messages.repository}
-        </span>
-        <span role="columnheader" className="truncate text-right">
-          {messages.recent}
-        </span>
-      </div>
-      {children}
+        <GridTableHeader>
+          {/* One line each: a narrow column cuts its name rather than wrap. */}
+          <GridTableColumnHeader>
+            <span className="truncate">{messages.session}</span>
+          </GridTableColumnHeader>
+          <GridTableColumnHeader>
+            <span className="truncate">{messages.status}</span>
+          </GridTableColumnHeader>
+          <GridTableColumnHeader>
+            <span className="truncate">{messages.agent ?? messages.model}</span>
+          </GridTableColumnHeader>
+          <GridTableColumnHeader hideNarrow={true}>
+            <span className="truncate">{messages.repository}</span>
+          </GridTableColumnHeader>
+          {startedBy ? (
+            <GridTableColumnHeader hideNarrow={true}>
+              <span className="truncate">{messages.startedBy}</span>
+            </GridTableColumnHeader>
+          ) : null}
+          <GridTableColumnHeader align="end">
+            <span className="truncate">{messages.recent}</span>
+          </GridTableColumnHeader>
+        </GridTableHeader>
+        <Columns.Provider value={{ agent, startedBy }}>
+          {children}
+        </Columns.Provider>
+      </GridTable>
     </div>
   );
 }
@@ -88,15 +124,20 @@ export interface SessionOverviewRowMessages {
   /** The axis name a screen reader hears before the status. */
   readonly statusAxis: string;
   readonly noRepository: string;
-  /** Stands in for a session without a runtime model. */
+  /** Stands in for a value the session does not have: agent, model, starter. */
   readonly unknown: string;
   /** Heard before the time, which the row shows as a value only. */
   readonly recent: string;
+  /** Names the row's opener, e.g. "세션 열기: 배포 점검"; the name alone if unset. */
+  readonly open?: ((name: string) => string) | undefined;
 }
 
 export interface SessionOverviewRowProps {
   readonly session: SessionSummary;
-  /** Owned by the screen that routes; this package never builds URLs. */
+  /**
+   * Owned by the screen that routes; this package never builds URLs. The
+   * link it returns is the row's opener, so it must be one element.
+   */
   readonly renderLink: (link: SessionRowLink) => ReactNode;
   readonly messages: SessionOverviewRowMessages;
   /** After the status, such as how long an answer has been awaited. */
@@ -112,6 +153,15 @@ export interface SessionOverviewRowProps {
   readonly className?: string | undefined;
 }
 
+const STATUS_DOT: Record<SessionStatus, StatusDotStatus> = {
+  queued: "idle",
+  running: "run",
+  needs_input: "wait",
+  idle: "idle",
+  failed: "failed",
+  stopped: "done",
+};
+
 export function SessionOverviewRow({
   session,
   renderLink,
@@ -122,8 +172,11 @@ export function SessionOverviewRow({
   now,
   className,
 }: SessionOverviewRowProps): JSX.Element {
+  const { agent, startedBy } = useContext(Columns);
   const clock = useMinute(!renderTime && now === undefined);
   const shortId = shortSessionId(session.id);
+  // Untitled, the row shows the id's head; the opener's name keeps it whole.
+  const name = session.title ?? session.id;
   const at = session.last_event_at ?? session.created_at;
   // A server older than the repository field sends only the catalog key.
   const repositoryName = session.repository
@@ -131,63 +184,77 @@ export function SessionOverviewRow({
     : session.repository_id;
   const branch = session.repository?.branch;
   const RepositoryIcon = repositoryName ? GitBranch : Folder;
+  const statusLabel = messages.status(session.status);
   return (
-    <div
-      role="row"
+    <GridTableRow
       data-slot="session-overview-row"
       data-status={session.status}
-      className={cn(
-        SESSION_OVERVIEW_COLUMNS,
-        "relative min-h-[var(--ap-row-min-height)] min-w-0 items-center gap-4 border-b px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)] text-control last:border-b-0 hover:bg-(--ap-color-hover)",
-        className,
-      )}
+      className={className}
     >
-      <span role="cell" className="flex min-w-0 flex-col items-start gap-0.5">
-        <span className="max-w-full truncate font-medium text-foreground leading-5">
-          {renderLink({
-            children: session.title ?? shortId,
-            // Untitled, the row shows the id's head; the name keeps it whole.
-            "aria-label": session.title ?? session.id,
-            title: session.title ?? session.id,
-            className: cn(
-              "outline-none after:absolute after:inset-0 after:rounded-control hover:underline focus-visible:underline focus-visible:after:ring-2 focus-visible:after:ring-ring",
-              session.title ? null : "font-mono",
-            ),
-          })}
+      <GridTableCell lines={true}>
+        <SessionRowOpener
+          name={messages.open ? messages.open(name) : name}
+          // The opener covers the row, so its hover text is the one shown.
+          title={name}
+          renderLink={renderLink}
+        />
+        <span
+          className={cn(
+            "max-w-full truncate font-medium text-foreground",
+            session.title ? null : "font-mono",
+          )}
+        >
+          {session.title ?? shortId}
         </span>
         {session.title ? (
+          // Above the opener, so hovering shows the whole id.
           <span
-            className="relative max-w-full truncate font-mono text-caption text-subtle-foreground leading-4"
+            className="relative font-mono text-caption text-subtle-foreground"
             title={session.id}
           >
             {shortId}
           </span>
         ) : null}
-      </span>
-      <span role="cell" className="flex min-w-0">
-        <StatusLabel
-          appearance="dot"
-          axis="session"
-          state={session.status}
-          label={messages.status(session.status)}
-          axisLabel={messages.statusAxis}
-          detail={statusDetail}
-        />
-      </span>
-      <span
-        role="cell"
-        className="min-w-0 truncate font-mono text-caption text-muted-foreground"
-      >
-        {session.runtime?.model ?? messages.unknown}
-      </span>
-      <span role="cell" className={cn(WIDE_ONLY, "min-w-0 items-center gap-2")}>
+      </GridTableCell>
+      <GridTableCell>
+        <StatusDot status={STATUS_DOT[session.status]} />
+        <span className="sr-only">{messages.statusAxis}: </span>
+        {/* A narrow column cuts the label, never the wait after it. */}
+        <span className="flex min-w-0 whitespace-nowrap">
+          <span className="min-w-0 truncate">{statusLabel}</span>
+          {statusDetail ? (
+            <span className="flex-none whitespace-pre"> · {statusDetail}</span>
+          ) : null}
+        </span>
+      </GridTableCell>
+      {agent ? (
+        <GridTableCell lines={true}>
+          <span className="max-w-full truncate">
+            {session.agent?.name ?? messages.unknown}
+          </span>
+          {session.model ? (
+            <span className="font-mono text-caption text-subtle-foreground">
+              {session.model}
+            </span>
+          ) : null}
+        </GridTableCell>
+      ) : (
+        // A table that names no agent column keeps the model column it had.
+        <GridTableCell className="font-mono text-caption text-muted-foreground">
+          <span className="min-w-0 truncate">
+            {session.runtime?.model ?? messages.unknown}
+          </span>
+        </GridTableCell>
+      )}
+      <GridTableCell hideNarrow={true}>
         <RepositoryIcon
           className="size-3.5 flex-none text-subtle-foreground"
           strokeWidth={1.5}
           aria-hidden="true"
         />
         {repositoryName ? (
-          // A long name gives way first, so the branch stays in sight.
+          // A long name gives way first, so the branch stays in sight. Above
+          // the opener, so hovering shows the whole name.
           <span
             className="relative flex min-w-0 font-mono text-caption"
             title={branch ? `${repositoryName} · ${branch}` : repositoryName}
@@ -204,15 +271,22 @@ export function SessionOverviewRow({
             {messages.noRepository}
           </span>
         )}
-      </span>
-      <span
-        role="cell"
-        className="flex min-w-0 justify-end overflow-hidden whitespace-nowrap text-caption text-subtle-foreground"
+      </GridTableCell>
+      {startedBy ? (
+        <GridTableCell hideNarrow={true}>
+          <span className="truncate">
+            {session.created_by?.display_name || messages.unknown}
+          </span>
+        </GridTableCell>
+      ) : null}
+      <GridTableCell
+        align="end"
+        className="overflow-hidden whitespace-nowrap text-caption text-subtle-foreground"
       >
         <span className="sr-only">{messages.recent} </span>
-        {/* Above the row link's overlay, so hovering and focus reach the
-            time. A longer word than the column ("yesterday 15:14") is cut,
-            not spilled over the repository; the ring sits inside the cut. */}
+        {/* Above the opener, so hovering and focus reach the time. A longer
+            word than the column ("yesterday 15:14") is cut, not spilled over
+            the next column; the ring sits inside the cut. */}
         <span
           className={cn("relative min-w-0", renderTime ? "truncate" : "flex")}
         >
@@ -228,7 +302,7 @@ export function SessionOverviewRow({
             />
           )}
         </span>
-      </span>
-    </div>
+      </GridTableCell>
+    </GridTableRow>
   );
 }

@@ -17,6 +17,9 @@ export const homeKo = {
   "home.checklist.sessionHint": "API로 시작한 세션이 목록에 보입니다.",
   "home.checklist.unknown": "확인할 수 없음",
   "home.checklist.progress": "{done} / {total} 완료",
+  "home.checklist.toMembers": "구성원 목록",
+  "home.checklist.toAgents": "에이전트 목록",
+  "home.checklist.toSessions": "세션 목록",
   "home.overview.title": "한눈에 보기",
   "home.overview.unknown": "—",
   "home.overview.waiting": "답변 대기",
@@ -82,6 +85,7 @@ export const homeKo = {
   "home.glance.costPartial":
     "추정 비용 · 진행 중이거나 비용을 보고하지 않은 turn은 빠짐",
   "home.recent.activity": "최근 활동",
+  "home.recent.open": "세션 열기: {title}",
 };
 
 export const homeEn: Record<keyof typeof homeKo, string> = {
@@ -103,6 +107,9 @@ export const homeEn: Record<keyof typeof homeKo, string> = {
   "home.checklist.sessionHint": "Sessions started via the API show up here.",
   "home.checklist.unknown": "Unknown",
   "home.checklist.progress": "{done} of {total} done",
+  "home.checklist.toMembers": "Member list",
+  "home.checklist.toAgents": "Agent list",
+  "home.checklist.toSessions": "Session list",
   "home.overview.title": "At a glance",
   "home.overview.unknown": "—",
   "home.overview.waiting": "Waiting for an answer",
@@ -170,6 +177,7 @@ export const homeEn: Record<keyof typeof homeKo, string> = {
   "home.glance.costPartial":
     "Estimated cost · leaves out turns still running or without a reported cost",
   "home.recent.activity": "Last activity",
+  "home.recent.open": "Open session: {title}",
 };
 
 export const homeJa: Record<keyof typeof homeKo, string> = {
@@ -192,6 +200,9 @@ export const homeJa: Record<keyof typeof homeKo, string> = {
     "API で開始したセッションが一覧に表示されます。",
   "home.checklist.unknown": "確認できません",
   "home.checklist.progress": "{done} / {total} 完了",
+  "home.checklist.toMembers": "メンバー一覧",
+  "home.checklist.toAgents": "エージェント一覧",
+  "home.checklist.toSessions": "セッション一覧",
   "home.overview.title": "概要",
   "home.overview.unknown": "—",
   "home.overview.waiting": "回答待ち",
@@ -258,4 +269,5 @@ export const homeJa: Record<keyof typeof homeKo, string> = {
   "home.glance.costPartial":
     "推定コスト · 実行中またはコスト未報告の turn は含まない",
   "home.recent.activity": "最近のアクティビティ",
+  "home.recent.open": "セッションを開く: {title}",
 };

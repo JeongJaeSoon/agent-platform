@@ -22,16 +22,18 @@ import {
   createAuthorizationPolicy,
 } from "./policy.ts";
 import {
-  createSlackChannelApi,
   createSlackChannelCache,
   createSlackChannelSearchService,
   forgettingChannelsOnBindingPut,
   SLACK_CHANNEL_CACHE_MAX_APPS,
   SLACK_CHANNEL_CACHE_MAX_CHANNELS,
   SLACK_CHANNEL_CACHE_TTL_MS,
-  SlackRateLimitedError,
 } from "./slack-channel-search.ts";
-import { SlackApiError } from "./slack-config-api.ts";
+import {
+  createSlackBotApi,
+  SlackApiError,
+  SlackRateLimitedError,
+} from "./slack-config-api.ts";
 import type { SurfaceBindingService } from "./surface-binding-service.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
@@ -140,7 +142,7 @@ function world(options: { botToken?: boolean } = {}) {
     agents: agentAuthority,
     apps: apps.store,
     secrets: secrets.store,
-    api: createSlackChannelApi({
+    api: createSlackBotApi({
       apiUrl: "http://slack.test/api",
       fetch: (async (input: RequestInfo | URL, init?: RequestInit) =>
         (await slack.handle(new Request(input, init))) ??

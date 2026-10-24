@@ -18,6 +18,7 @@ export const teamsKo = {
   "teams.settings": "팀 설정",
   "teams.rename": "이름 바꾸기",
   "teams.renamed": "팀 이름을 {name}(으)로 바꿨습니다.",
+  "teams.dangerZone": "위험 구역",
   "teams.delete": "팀 삭제",
   "teams.deleteHint":
     "팀을 삭제하면 이 팀이 관리자로 있던 에이전트에서도 빠집니다.",
@@ -62,6 +63,7 @@ export const teamsEn: Record<keyof typeof teamsKo, string> = {
   "teams.settings": "Team settings",
   "teams.rename": "Rename",
   "teams.renamed": "Renamed the team to {name}.",
+  "teams.dangerZone": "Danger zone",
   "teams.delete": "Delete team",
   "teams.deleteHint":
     "Deleting a team also removes it from every agent it administers.",
@@ -107,6 +109,7 @@ export const teamsJa: Record<keyof typeof teamsKo, string> = {
   "teams.settings": "チーム設定",
   "teams.rename": "名前を変更",
   "teams.renamed": "チーム名を「{name}」に変更しました。",
+  "teams.dangerZone": "危険な操作",
   "teams.delete": "チームを削除",
   "teams.deleteHint":
     "チームを削除すると、このチームが管理者になっているエージェントからも外れます。",

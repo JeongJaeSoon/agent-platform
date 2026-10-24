@@ -2,8 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { PGlite } from "@electric-sql/pglite";
 import { expectedMigrationHead } from "@werft-ai/db";
 import { installationLimitProblems } from "@werft-ai/platform";
-import { drizzle } from "drizzle-orm/pglite";
-import { migrate } from "drizzle-orm/pglite/migrator";
+import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import {
   API_READINESS_REQUIRED_ENV,
   apiReadinessConfigProblems,
@@ -11,15 +10,11 @@ import {
 import { checkpointStorageConfigFromEnv } from "./checkpoints.ts";
 import { createReadinessProbe, type QueryRunner } from "./readiness.ts";
 
-const migrationsFolder = `${import.meta.dir}/../../../../packages/db/migrations`;
 const databases: PGlite[] = [];
 
 async function database(migrated: boolean): Promise<PGlite> {
-  const client = new PGlite();
+  const client = migrated ? await migratedPGlite() : new PGlite();
   databases.push(client);
-  if (migrated) {
-    await migrate(drizzle(client), { migrationsFolder });
-  }
   return client;
 }
 
@@ -32,7 +27,7 @@ const requiredEnv = ["DATABASE_URL", "AUTH_MODE"];
 
 describe("readiness probe", () => {
   test("journal head is the last migration tag", () => {
-    expect(expectedMigrationHead().tag).toBe("0160_slack_inbound_claims");
+    expect(expectedMigrationHead().tag).toBe("0161_session_links");
   });
 
   test("passes on a migrated database with the required configuration", async () => {
@@ -95,7 +90,7 @@ describe("readiness probe", () => {
     })();
     expect(result).toMatchObject({ ready: false, check: "schema" });
     expect(result.ready === false && result.reason).toContain(
-      "0160_slack_inbound_claims",
+      "0161_session_links",
     );
 
     // Same timestamp, different SQL behind it: not the schema this build ships.

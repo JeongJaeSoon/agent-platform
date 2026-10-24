@@ -466,7 +466,7 @@ export async function consumePasswordReset(
 }
 
 /** Ends every live session of the user; walks web_sessions_user_live_idx. */
-export async function revokeUserWebSessions(
+async function revokeUserWebSessions(
   db: Database,
   userId: string,
 ): Promise<number> {

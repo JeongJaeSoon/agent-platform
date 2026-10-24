@@ -18,7 +18,7 @@ export type FakeSlackApp = {
 export type FakeSlackCall = { method: string; ok: boolean; error?: string };
 
 /** A channel of the fake's one team; `members` are the apps whose bot is in it. */
-export type FakeSlackChannel = {
+export type FakeSlackListedChannel = {
   id: string;
   name: string;
   isPrivate: boolean;
@@ -35,9 +35,12 @@ export type SeedSlackChannel = {
 
 export type FakeSlackWebApi = {
   /** Every channel, in the order conversations.list pages through them. */
-  channels: FakeSlackChannel[];
-  /** Adds channels with made-up ids (`C…` public, `G…` private). */
-  seedChannels(seeds: SeedSlackChannel[]): FakeSlackChannel[];
+  conversations: FakeSlackListedChannel[];
+  /**
+   * Adds channels with made-up ids (`C…` public, `G…` private), which
+   * conversations.info then describes too.
+   */
+  seedChannels(seeds: SeedSlackChannel[]): FakeSlackListedChannel[];
   /** The next `times` calls of `method` answer 429 with this Retry-After. */
   rateLimit(method: string, retryAfterSeconds: number, times?: number): void;
   /** Answers `/api/<method>` and the fake's own routes; null for anything else. */
@@ -62,6 +65,30 @@ export type FakeSlackWebApi = {
   }>;
   /** Fields merged into every oauth.v2.access answer, to mimic a bad one. */
   installAnswer: Record<string, unknown>;
+  /** users.info answers; a user not here is a full member of the team. */
+  users: Map<string, FakeSlackUser>;
+  /**
+   * conversations.info answers; a channel not here is told by its id: D is
+   * a DM, G a private channel, anything else public.
+   */
+  channels: Map<string, FakeSlackChannel>;
+  /** Every thread status agents.sessions.setStatus accepted, in order. */
+  statuses: { channelId: string; threadTs: string; status: string }[];
+  /** A method named here answers ok:false with this error. */
+  failures: Map<string, string>;
+};
+
+export type FakeSlackUser = {
+  teamId?: string;
+  isRestricted?: boolean;
+  isUltraRestricted?: boolean;
+  isStranger?: boolean;
+};
+
+export type FakeSlackChannel = {
+  isIm?: boolean;
+  isPrivate?: boolean;
+  isMpim?: boolean;
 };
 
 export type SendSlackEventInput = {
@@ -109,8 +136,12 @@ export function createFakeSlackWebApi(
   const scopesOf = new Map<string, string>();
   const installAnswer: Record<string, unknown> = {};
   const manifestUpdateAnswer: Record<string, unknown> = {};
+  const users = new Map<string, FakeSlackUser>();
+  const channels = new Map<string, FakeSlackChannel>();
+  const statuses: FakeSlackWebApi["statuses"] = [];
+  const failures = new Map<string, string>();
   let appCounter = 0;
-  const channels: FakeSlackChannel[] = [];
+  const conversations: FakeSlackListedChannel[] = [];
   const rateLimits = new Map<
     string,
     { retryAfterSeconds: number; times: number }
@@ -118,24 +149,17 @@ export function createFakeSlackWebApi(
 
   const seedChannels = (seeds: SeedSlackChannel[]) =>
     seeds.map((seed) => {
-      const channel: FakeSlackChannel = {
+      const channel: FakeSlackListedChannel = {
         id: `${seed.isPrivate ? "G" : "C"}0${hex(5).toUpperCase()}`,
         name: seed.name,
         isPrivate: seed.isPrivate ?? false,
         isArchived: seed.isArchived ?? false,
         members: [...(seed.members ?? [])],
       };
-      channels.push(channel);
+      conversations.push(channel);
+      channels.set(channel.id, { isPrivate: channel.isPrivate });
       return channel;
     });
-
-  const botApp = (context: Context) => {
-    const app = [...apps.values()].find((candidate) =>
-      candidate.botTokens.includes(context.token ?? ""),
-    );
-    if (!app) throw new SlackError("invalid_auth");
-    return app;
-  };
 
   const issueConfigToken = () => {
     const refresh = `xoxe-1-${hex(24)}`;
@@ -152,6 +176,14 @@ export function createFakeSlackWebApi(
   const appOf = (appId: string | undefined) => {
     const app = appId === undefined ? undefined : apps.get(appId);
     if (!app) throw new SlackError("app_not_found");
+    return app;
+  };
+
+  const installedBot = (context: Context) => {
+    const app = [...apps.values()].find((candidate) =>
+      candidate.botTokens.includes(context.token ?? ""),
+    );
+    if (!app) throw new SlackError("invalid_auth");
     return app;
   };
 
@@ -193,7 +225,7 @@ export function createFakeSlackWebApi(
     // As Slack does, the page is cut at `limit` before it is filtered, so a
     // page can come back short with more to read.
     "conversations.list"(context) {
-      const app = botApp(context);
+      const app = installedBot(context);
       const types = new Set(
         (context.params.types ?? "public_channel").split(","),
       );
@@ -213,7 +245,7 @@ export function createFakeSlackWebApi(
         offset = Number(match[1]);
       }
       const end = offset + limit;
-      const page = channels
+      const page = conversations
         .slice(offset, end)
         .filter(
           (channel) =>
@@ -235,11 +267,58 @@ export function createFakeSlackWebApi(
         })),
         response_metadata: {
           next_cursor:
-            end < channels.length
+            end < conversations.length
               ? Buffer.from(`offset:${end}`).toString("base64")
               : "",
         },
       };
+    },
+
+    "users.info"(context) {
+      installedBot(context);
+      const id = context.params.user;
+      if (!id) throw new SlackError("user_not_found");
+      const user = users.get(id) ?? {};
+      return {
+        user: {
+          id,
+          team_id: user.teamId ?? teamId,
+          is_bot: false,
+          deleted: false,
+          is_restricted: user.isRestricted ?? false,
+          is_ultra_restricted: user.isUltraRestricted ?? false,
+          ...(user.isStranger === undefined
+            ? {}
+            : { is_stranger: user.isStranger }),
+        },
+      };
+    },
+
+    "conversations.info"(context) {
+      installedBot(context);
+      const id = context.params.channel;
+      if (!id) throw new SlackError("channel_not_found");
+      const channel = channels.get(id) ?? {
+        isIm: id.startsWith("D"),
+        isPrivate: id.startsWith("G"),
+      };
+      return {
+        channel: {
+          id,
+          is_im: channel.isIm ?? false,
+          is_private: channel.isPrivate ?? false,
+          is_mpim: channel.isMpim ?? false,
+        },
+      };
+    },
+
+    "agents.sessions.setStatus"(context) {
+      installedBot(context);
+      const { channel_id, thread_ts, status } = context.params;
+      if (!channel_id || !status) throw new SlackError("invalid_arguments");
+      if (!thread_ts) throw new SlackError("thread_ts_required");
+      statuses.push({ channelId: channel_id, threadTs: thread_ts, status });
+      return {};
     },
 
     "tooling.tokens.rotate"(context) {
@@ -415,7 +494,7 @@ export function createFakeSlackWebApi(
   return {
     apps,
     calls,
-    channels,
+    conversations,
     seedChannels,
     rateLimit(method, retryAfterSeconds, times = 1) {
       rateLimits.set(method, { retryAfterSeconds, times });
@@ -424,6 +503,10 @@ export function createFakeSlackWebApi(
 
     installAnswer,
     manifestUpdateAnswer,
+    users,
+    channels,
+    statuses,
+    failures,
     authorize,
     sendEvent,
 
@@ -486,6 +569,9 @@ export function createFakeSlackWebApi(
             is_private: channel.isPrivate,
           })),
         });
+      }
+      if (url.pathname === "/fake/statuses" && request.method === "GET") {
+        return Response.json({ ok: true, statuses });
       }
       if (url.pathname === "/fake/config-tokens" && request.method === "POST") {
         return Response.json({ ok: true, refresh_token: issueConfigToken() });
@@ -562,6 +648,8 @@ export function createFakeSlackWebApi(
         params: await paramsOf(request, url),
       };
       try {
+        const failure = failures.get(method);
+        if (failure !== undefined) throw new SlackError(failure);
         const answer = run(context);
         if (answer === null) return null;
         calls.push({ method, ok: true });

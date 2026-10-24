@@ -16,7 +16,7 @@ import {
 } from "../sessions/session-service.ts";
 import type { AuthorizationPolicy, Caller } from "./policy.ts";
 
-export function linkedAccountView(record: LinkedAccountRecord): LinkedAccount {
+function linkedAccountView(record: LinkedAccountRecord): LinkedAccount {
   return {
     id: record.id,
     user_id: record.userId,
