@@ -19,7 +19,7 @@ BEGIN
   WHERE "kind" = 'service' AND "agent_id" IS NOT NULL;
   UPDATE "api_keys" AS k SET "kind" = 'operator'
   WHERE k."kind" = 'service' AND k."workspace_id" IS NULL
-    AND NOT EXISTS (SELECT 1 FROM "workspaces" AS w WHERE w."id"::text = lower(k."owner_id"));
+    AND NOT EXISTS (SELECT 1 FROM "workspaces" AS w WHERE w."id"::text = k."owner_id");
   UPDATE "sessions" AS s
   SET "created_by_api_key_id" = NULL
   FROM "api_keys" AS k

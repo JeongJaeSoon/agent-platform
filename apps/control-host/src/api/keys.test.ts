@@ -172,6 +172,19 @@ describe("keys CLI arguments", () => {
       ownerId: "owner-a",
       scopes: ["sessions:recover"],
     });
+    // Trimmed here, so the workspace check sees the owner that gets stored.
+    expect(
+      parseKeysCommand([
+        "create",
+        ` ${WORKSPACE} `,
+        "--scopes",
+        "sessions:read",
+      ]),
+    ).toEqual({
+      command: "create",
+      ownerId: WORKSPACE,
+      scopes: ["sessions:read"],
+    });
   });
 
   test("--scopes is required: no silent all-scope key", () => {

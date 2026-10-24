@@ -83,8 +83,10 @@ describe("0163: every key becomes a person's, an agent's or the CLI's", () => {
     const workspaceKey = await seedKey({ ...service, owner_id: WORKSPACE });
     const operator = await seedKey({ kind: "service", owner_id: "owner-a" });
     // The CLI's old `keys create <workspace id>`: no workspace column, but a
-    // workspace's partition all the same.
-    const onWorkspace = await seedKey({
+    // workspace's partition all the same. Partitions compare case-sensitively,
+    // so the upper-cased id is a partition of its own.
+    const onWorkspace = await seedKey({ kind: "service", owner_id: WORKSPACE });
+    const upperCased = await seedKey({
       kind: "service",
       owner_id: WORKSPACE.toUpperCase(),
     });
@@ -109,6 +111,7 @@ describe("0163: every key becomes a person's, an agent's or the CLI's", () => {
     ).toEqual({
       [agentKey]: ["agent", null],
       [operator]: ["operator", null],
+      [upperCased]: ["operator", null],
       [personal]: ["personal", null],
     });
     expect(keys.rows.map((row) => row.id)).not.toContain(onWorkspace);

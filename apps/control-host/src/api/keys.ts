@@ -224,7 +224,7 @@ export function parseKeysCommand(argv: string[]): KeysCommand {
   }
   return {
     command: "create",
-    ownerId: target,
+    ownerId: target.trim(),
     scopes: parseScopes(parsed.values.scopes),
   };
 }
