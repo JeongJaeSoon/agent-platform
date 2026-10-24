@@ -41,7 +41,7 @@ type Expected = { status: 200 } | { status: 403 | 409; code: string };
 const OK: Expected = { status: 200 };
 const OWNER_PROTECTED: Expected = { status: 403, code: "OWNER_PROTECTED" };
 const FORBIDDEN: Expected = { status: 403, code: "FORBIDDEN" };
-const LAST_OWNER: Expected = { status: 409, code: "LAST_OWNER" };
+const SELF_PROTECTED: Expected = { status: 403, code: "SELF_PROTECTED" };
 
 // A live owner as the caller leaves at least one live owner besides any
 // other target, so for an owner the last live owner is always themselves.
@@ -50,14 +50,14 @@ const MATRIX: Record<Role, Record<Target, Expected>> = {
     owner: OK,
     admin: OK,
     member: OK,
-    self: LAST_OWNER,
-    "last live owner": LAST_OWNER,
+    self: SELF_PROTECTED,
+    "last live owner": SELF_PROTECTED,
   },
   admin: {
     owner: OWNER_PROTECTED,
     admin: OK,
     member: OK,
-    self: LAST_OWNER,
+    self: SELF_PROTECTED,
     "last live owner": OWNER_PROTECTED,
   },
   member: {

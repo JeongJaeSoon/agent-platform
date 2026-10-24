@@ -507,7 +507,7 @@ integration("invite store on PostgreSQL", () => {
     }
   });
 
-  test("roles: the last live owner stays, and two owners demoting each other leave one", async () => {
+  test("roles: nobody changes their own, and two owners demoting each other leave one", async () => {
     const ws = await workspace();
     const first = await member(ws, "owner");
     expect(
@@ -517,7 +517,7 @@ integration("invite store on PostgreSQL", () => {
         actor: acting(ws, first),
         receiptId: randomUUID(),
       }),
-    ).toEqual({ outcome: "last_owner" });
+    ).toEqual({ outcome: "self_protected" });
     expect(
       await store.changeMemberRole({
         userId: randomUUID(),
