@@ -150,8 +150,13 @@ describe("fake Slack Web API", () => {
       (await limit({ method: "toString", retry_after_seconds: 7 })).status,
     ).toBe(400);
     expect(
-      (await limit({ method: "conversations.list", retry_after_seconds: 7 }))
-        .status,
+      (
+        await limit({
+          method: "conversations.list",
+          retry_after_seconds: 7,
+          after: 1,
+        })
+      ).status,
     ).toBe(200);
     const listed = () =>
       fetch(`${slack.url}/conversations.list`, {
@@ -159,6 +164,7 @@ describe("fake Slack Web API", () => {
         headers: { Authorization: `Bearer ${bot}` },
         body: new URLSearchParams(params),
       });
+    expect((await listed()).status).toBe(200);
     const limited = await listed();
     expect(limited.status).toBe(429);
     expect(limited.headers.get("Retry-After")).toBe("7");

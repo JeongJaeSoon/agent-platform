@@ -41,8 +41,16 @@ export type FakeSlackWebApi = {
    * conversations.info then describes too.
    */
   seedChannels(seeds: SeedSlackChannel[]): FakeSlackListedChannel[];
-  /** The next `times` calls of `method` answer 429 with this Retry-After. */
-  rateLimit(method: string, retryAfterSeconds: number, times?: number): void;
+  /**
+   * After `after` more calls of `method` go through, the next `times` answer
+   * 429 with this Retry-After.
+   */
+  rateLimit(
+    method: string,
+    retryAfterSeconds: number,
+    times?: number,
+    after?: number,
+  ): void;
   /** Answers `/api/<method>` and the fake's own routes; null for anything else. */
   handle(request: Request): Promise<Response | null>;
   /** A refresh token tooling.tokens.rotate takes once, as a pasted config token. */
@@ -144,7 +152,7 @@ export function createFakeSlackWebApi(
   const conversations: FakeSlackListedChannel[] = [];
   const rateLimits = new Map<
     string,
-    { retryAfterSeconds: number; times: number }
+    { retryAfterSeconds: number; times: number; after: number }
   >();
 
   const seedChannels = (seeds: SeedSlackChannel[]) =>
@@ -496,8 +504,8 @@ export function createFakeSlackWebApi(
     calls,
     conversations,
     seedChannels,
-    rateLimit(method, retryAfterSeconds, times = 1) {
-      rateLimits.set(method, { retryAfterSeconds, times });
+    rateLimit(method, retryAfterSeconds, times = 1, after = 0) {
+      rateLimits.set(method, { retryAfterSeconds, times, after });
     },
     issueConfigToken,
 
@@ -532,12 +540,14 @@ export function createFakeSlackWebApi(
           method?: unknown;
           retry_after_seconds?: unknown;
           times?: unknown;
+          after?: unknown;
         } | null;
         const valid =
           typeof input?.method === "string" &&
           Object.hasOwn(methods, input.method) &&
           Number.isSafeInteger(input.retry_after_seconds) &&
-          Number.isSafeInteger(input.times ?? 1);
+          Number.isSafeInteger(input.times ?? 1) &&
+          Number.isSafeInteger(input.after ?? 0);
         if (!valid) {
           return Response.json(
             { ok: false, error: "invalid_request" },
@@ -547,6 +557,7 @@ export function createFakeSlackWebApi(
         rateLimits.set(input.method as string, {
           retryAfterSeconds: input.retry_after_seconds as number,
           times: (input.times ?? 1) as number,
+          after: (input.after ?? 0) as number,
         });
         return Response.json({ ok: true });
       }
@@ -652,7 +663,9 @@ export function createFakeSlackWebApi(
       const run = method === null ? undefined : methods[method];
       if (method === null || run === undefined) return null;
       const limited = rateLimits.get(method);
-      if (limited && limited.times > 0) {
+      if (limited && limited.after > 0) {
+        limited.after -= 1;
+      } else if (limited && limited.times > 0) {
         limited.times -= 1;
         calls.push({ method, ok: false, error: "ratelimited" });
         return Response.json(
