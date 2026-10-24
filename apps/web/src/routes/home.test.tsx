@@ -702,7 +702,7 @@ describe("홈 요약", () => {
   test("목록 하나라도 읽는 중이면 시작하기를 그리지 않는다", async () => {
     const { api } = renderAt("/", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner] }),
+      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
       "GET /v1/invites": () => json(200, { items: [] }),
       "GET /v1/agents": () => new Promise<Response>(() => {}),
       ...noSessions,

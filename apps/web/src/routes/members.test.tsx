@@ -730,7 +730,7 @@ describe("구성원 · 팀 · 초대 탭", () => {
       "GET /v1/members": () =>
         fail
           ? apiError(500, "INTERNAL", "boom")
-          : json(200, { items: [owner] }),
+          : json(200, { items: [owner], next_cursor: null }),
       "GET /v1/invites": () => json(200, { items: [pendingInvite] }),
     });
     expect(await screen.findByText("late@example.com")).toBeDefined();
