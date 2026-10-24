@@ -27,6 +27,7 @@ import {
   type Caller,
   MANAGEMENT_ROLES,
 } from "./policy.ts";
+import { NOT_FOUND } from "./service-errors.ts";
 import { slackAppView } from "./slack-app-service.ts";
 import { SlackApiError, type SlackInstallApi } from "./slack-config-api.ts";
 import {
@@ -93,8 +94,6 @@ type StateRefusal =
   | "app";
 type Rejection = "app" | "team" | "enterprise" | "scope" | "slack_error";
 
-const NOT_FOUND = () =>
-  new SessionServiceError("NOT_FOUND", "Resource not found");
 const FORBIDDEN_WEB_ONLY = () =>
   new SessionServiceError(
     "FORBIDDEN",

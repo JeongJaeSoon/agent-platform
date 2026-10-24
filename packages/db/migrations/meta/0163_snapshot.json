@@ -1,5 +1,5 @@
 {
-  "id": "eaaacc82-6c95-4818-ac2f-b86998b04742",
+  "id": "13b398d8-3cab-4fd6-af1f-5bf63f894be4",
   "prevId": "e7cb1114-3964-408d-a13f-968073777d81",
   "version": "7",
   "dialect": "postgresql",
@@ -1013,8 +1013,13 @@
           "name": "kind",
           "type": "text",
           "primaryKey": false,
-          "notNull": true,
-          "default": "'service'"
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "created_by_user_id": {
           "name": "created_by_user_id",
@@ -1132,11 +1137,19 @@
       "checkConstraints": {
         "api_keys_agent_check": {
           "name": "api_keys_agent_check",
-          "value": "\"api_keys\".\"agent_id\" IS NULL OR (\"api_keys\".\"kind\" = 'service' AND \"api_keys\".\"workspace_id\" IS NOT NULL)"
+          "value": "(\"api_keys\".\"kind\" = 'agent') = (\"api_keys\".\"agent_id\" IS NOT NULL) AND (\"api_keys\".\"kind\" <> 'agent' OR \"api_keys\".\"workspace_id\" IS NOT NULL)"
+        },
+        "api_keys_operator_check": {
+          "name": "api_keys_operator_check",
+          "value": "\"api_keys\".\"kind\" <> 'operator' OR \"api_keys\".\"workspace_id\" IS NULL"
+        },
+        "api_keys_name_check": {
+          "name": "api_keys_name_check",
+          "value": "\"api_keys\".\"name\" IS NULL OR (char_length(\"api_keys\".\"name\") BETWEEN 1 AND 64 AND \"api_keys\".\"name\" = btrim(\"api_keys\".\"name\"))"
         },
         "api_keys_kind_check": {
           "name": "api_keys_kind_check",
-          "value": "\"api_keys\".\"kind\" IN ('personal', 'service')"
+          "value": "\"api_keys\".\"kind\" IN ('personal', 'agent', 'operator')"
         },
         "api_keys_personal_check": {
           "name": "api_keys_personal_check",
@@ -4784,13 +4797,6 @@
           "notNull": true,
           "default": 1
         },
-        "answered_through": {
-          "name": "answered_through",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
         "created_by": {
           "name": "created_by",
           "type": "uuid",
@@ -6354,272 +6360,6 @@
         "slack_installations_revoked_check": {
           "name": "slack_installations_revoked_check",
           "value": "(\"slack_installations\".\"status\" = 'revoked') = (\"slack_installations\".\"revoked_at\" IS NOT NULL)"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.slack_outbox": {
-      "name": "slack_outbox",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "agent_id": {
-          "name": "agent_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "slack_app_id": {
-          "name": "slack_app_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "installation_id": {
-          "name": "installation_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "channel_id": {
-          "name": "channel_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "thread_ts": {
-          "name": "thread_ts",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "slack_user_id": {
-          "name": "slack_user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "session_id": {
-          "name": "session_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "body": {
-          "name": "body",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "dedupe_key": {
-          "name": "dedupe_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'pending'"
-        },
-        "claim_token": {
-          "name": "claim_token",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "lease_expires_at": {
-          "name": "lease_expires_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "attempts": {
-          "name": "attempts",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "next_attempt_at": {
-          "name": "next_attempt_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "slack_ts": {
-          "name": "slack_ts",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "error_code": {
-          "name": "error_code",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "seq": {
-          "name": "seq",
-          "type": "bigserial",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {
-        "slack_outbox_due_idx": {
-          "name": "slack_outbox_due_idx",
-          "columns": [
-            {
-              "expression": "next_attempt_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"slack_outbox\".\"status\" = 'pending'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "slack_outbox_sending_idx": {
-          "name": "slack_outbox_sending_idx",
-          "columns": [
-            {
-              "expression": "lease_expires_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"slack_outbox\".\"status\" = 'sending'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "slack_outbox_session_idx": {
-          "name": "slack_outbox_session_idx",
-          "columns": [
-            {
-              "expression": "session_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "slack_outbox_uncertain_idx": {
-          "name": "slack_outbox_uncertain_idx",
-          "columns": [
-            {
-              "expression": "seq",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"slack_outbox\".\"status\" = 'uncertain' AND \"slack_outbox\".\"kind\" = 'reply'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "slack_outbox_workspace_id_workspaces_id_fk": {
-          "name": "slack_outbox_workspace_id_workspaces_id_fk",
-          "tableFrom": "slack_outbox",
-          "tableTo": "workspaces",
-          "columnsFrom": ["workspace_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "slack_outbox_slack_app_id_slack_apps_id_fk": {
-          "name": "slack_outbox_slack_app_id_slack_apps_id_fk",
-          "tableFrom": "slack_outbox",
-          "tableTo": "slack_apps",
-          "columnsFrom": ["slack_app_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "slack_outbox_session_id_sessions_id_fk": {
-          "name": "slack_outbox_session_id_sessions_id_fk",
-          "tableFrom": "slack_outbox",
-          "tableTo": "sessions",
-          "columnsFrom": ["session_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "slack_outbox_agent_fk": {
-          "name": "slack_outbox_agent_fk",
-          "tableFrom": "slack_outbox",
-          "tableTo": "agents",
-          "columnsFrom": ["workspace_id", "agent_id"],
-          "columnsTo": ["workspace_id", "id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "slack_outbox_dedupe_key": {
-          "name": "slack_outbox_dedupe_key",
-          "nullsNotDistinct": false,
-          "columns": ["dedupe_key"]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "slack_outbox_kind_check": {
-          "name": "slack_outbox_kind_check",
-          "value": "\"slack_outbox\".\"kind\" IN ('reply', 'notice', 'failure_notice', 'input_notice')"
-        },
-        "slack_outbox_status_check": {
-          "name": "slack_outbox_status_check",
-          "value": "\"slack_outbox\".\"status\" IN ('pending', 'sending', 'sent', 'failed', 'uncertain')"
-        },
-        "slack_outbox_user_check": {
-          "name": "slack_outbox_user_check",
-          "value": "(\"slack_outbox\".\"kind\" = 'notice') = (\"slack_outbox\".\"slack_user_id\" IS NOT NULL)"
-        },
-        "slack_outbox_claim_check": {
-          "name": "slack_outbox_claim_check",
-          "value": "(\"slack_outbox\".\"claim_token\" IS NULL) = (\"slack_outbox\".\"lease_expires_at\" IS NULL) AND (\"slack_outbox\".\"status\" IN ('pending', 'sending') OR \"slack_outbox\".\"claim_token\" IS NULL) AND (\"slack_outbox\".\"status\" <> 'sending' OR \"slack_outbox\".\"claim_token\" IS NOT NULL)"
         }
       },
       "isRLSEnabled": false

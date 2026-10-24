@@ -22,8 +22,15 @@ scope のないリクエストは、本文を読む前に 403 `FORBIDDEN` にな
 | 種類 | 誰が発行 | 動作 |
 | --- | --- | --- |
 | 個人キー (`personal`) | すべてのメンバー、自分の分だけ | 作成した人として動作する。scope は、キーの scope と、その人の現在のロールが許可する scope の共通部分である。その人が無効化されると 401 |
-| サービスキー (`service`) | owner·admin | ワークスペースのサービスとして動作する。発行した人が離れても動作し続ける |
-| エージェント専用サービスキー (`service` + `agent_id`) | owner·admin·そのエージェントの管理者 | そのエージェントのリリースで作られたセッションだけを作成し、閲覧する。`sessions:approve` は持てない |
+| エージェントキー (`agent` + `agent_id`) | owner·admin·そのエージェントの管理者 | 人ではなくキー自体として動作する。そのエージェントのリリースで作られたセッションだけを作成し、閲覧する。発行した人が離れても動作し続ける。`sessions:approve` は持てないので、リクエストの承認や質問への回答はできない |
+
+エージェントを選ばないキー、つまりワークスペース全体に届くキーはない。`agent_id` なしで `kind: "agent"` を送ると 400 `BAD_REQUEST` になる。
+
+キーには `name`(前後の空白を除いて 1〜64 文字、任意)を付けて、一覧で見分けられる。付けなければ `null` である。
+
+`expires_at` を送らなければ、キーは取り消すまで有効である。Web コンソールの新しいエージェントキー画面は有効期限を 90 日後で埋めておき、空欄にすると期限なしで発行する。
+
+組織が所有し、人に紐づかない組織管理キー(Terraform·CI·SCIM などの自動化用)はまだない。Web コンソールの API キー画面では、owner·admin にだけその場所が「準備中」として見える。発行できるようになったら、有効期限は必須になる。
 
 ## 発行する
 
@@ -31,16 +38,17 @@ Web コンソールで発行するか、Web ログインの cookie で `POST /v1
 
 ```bash
 issued=$(curl -sS "$API/v1/api-keys" "${WEB[@]}" \
-  -d '{"kind": "personal", "scopes": ["sessions:read", "sessions:write"]}')
+  -d '{"kind": "personal", "name": "laptop", "scopes": ["sessions:read", "sessions:write"]}')
 MY_KEY=$(echo "$issued" | jq -r .secret)
 KEY_ID=$(echo "$issued" | jq -r .key.id)
-echo "$issued" | jq '{kind: .key.kind, scopes: .key.scopes, receipt: (.receipt_id != null)}'
+echo "$issued" | jq '{kind: .key.kind, name: .key.name, scopes: .key.scopes, receipt: (.receipt_id != null)}'
 curl -sS -w '\n' "$API/v1" -H "Authorization: Bearer $MY_KEY"
 ```
 
 ```text
 {
   "kind": "personal",
+  "name": "laptop",
   "scopes": [
     "sessions:read",
     "sessions:write"
@@ -54,18 +62,18 @@ curl -sS -w '\n' "$API/v1" -H "Authorization: Bearer $MY_KEY"
 
 ## 一覧と失効
 
-一覧には、自分の個人キーと、自分が管理するサービスキーだけが出る。秘密値は出ない。
+一覧には、自分の個人キーと、自分が管理するエージェントのキーだけが出る。秘密値は出ない。
 
 `last_used_at` は、キーが最後に認証に成功した時刻だ。キーごとに 1 分に 1 回までしか記録せず、別のリクエストが同じキーでセッションに書き込んでいる間の使用は記録せずに次の使用で記録する。そのため 1 分より遅れることがある。`null` は最終使用の記録を始めてから記録された使用がないという意味で、一度も使われていないという意味ではない。`created_by_user` は発行した人の id と今の表示名だ。その人がワークスペースを離れても、アカウントが無効になっても、名前はそのまま出る。発行者が記録されていないキー（運用者 CLI で作ったキー）では `null` になる。
 
 ```bash
-curl -sS "$API/v1/api-keys" "${WEB[@]}" | jq -c --arg id "$KEY_ID" '.items[] | select(.id == $id) | {kind, scopes, revoked_at, used: (.last_used_at != null), issuer: .created_by_user.display_name}'
+curl -sS "$API/v1/api-keys" "${WEB[@]}" | jq -c --arg id "$KEY_ID" '.items[] | select(.id == $id) | {kind, name, scopes, revoked_at, used: (.last_used_at != null), issuer: .created_by_user.display_name}'
 curl -sS -X DELETE "$API/v1/api-keys/$KEY_ID" "${WEB[@]}" | jq '{receipt: (.receipt_id != null)}'
 curl -sS -o /dev/null -w '%{http_code}\n' "$API/v1" -H "Authorization: Bearer $MY_KEY"
 ```
 
 ```text
-{"kind":"personal","scopes":["sessions:read","sessions:write"],"revoked_at":null,"used":true,"issuer":"…"}
+{"kind":"personal","name":"laptop","scopes":["sessions:read","sessions:write"],"revoked_at":null,"used":true,"issuer":"…"}
 {
   "receipt": true
 }
@@ -80,10 +88,10 @@ curl -sS -o /dev/null -w '%{http_code}\n' "$API/v1" -H "Authorization: Bearer $M
 
 ```sh
 scripts/local.sh key <owner> --scopes sessions:read,sessions:write
-scripts/local.sh key --workspace <workspace-id> --scopes sessions:read,sessions:write
+scripts/local.sh key --workspace <workspace-id> --personal <user-id> --scopes sessions:read,sessions:write
 ```
 
-`<owner>` で作ったキーは、その名前を owner として使う。`--workspace` で作ったキーは、そのワークスペースのサービスキーである。ワークスペース全体に共有されたセッションと、自分が作ったセッションが見える。Web ユーザーの非公開セッションや、人·チームにだけ共有されたセッションは見えない。
+`<owner>` で作ったキーは、その名前を owner として使う。`--workspace` は `--personal` と一緒にだけ使う。そのメンバーの個人キーになり、その人として動作する。`--personal` なしで `--workspace` だけを渡すか、`<owner>` の位置にワークスペース id を渡すと拒否する。ワークスペース全体に届くキーはない。エージェントキーは Web コンソールか `POST /v1/api-keys` で発行する。
 
 ## 次のステップ
 

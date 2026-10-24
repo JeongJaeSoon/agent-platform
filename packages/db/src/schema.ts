@@ -1811,12 +1811,15 @@ export const apiKeys = pgTable(
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
     /** Null on legacy keys until an owner_workspace_map row exists. */
     workspaceId: uuid("workspace_id").references(() => workspaces.id),
-    /** Null means the legacy "everything" key. */
+    /** Null on a key from before scopes: it holds none. */
     scopes: text().array(),
-    kind: text().notNull().default("service"),
+    // personal: a member's own; agent: one agent's; operator: issued by the
+    // key CLI to an owner partition outside any workspace.
+    kind: text().notNull(),
+    name: text(),
     createdByUserId: uuid("created_by_user_id").references(() => users.id),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
-    /** A service key that reaches this agent's sessions and nothing else. */
+    /** An agent key's agent, whose sessions it reaches and nothing else. */
     agentId: uuid("agent_id"),
     // Unindexed so the throttled touch stays a HOT update (touchApiKey).
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
@@ -1833,7 +1836,16 @@ export const apiKeys = pgTable(
     // A person's key carries their authority, never an agent's.
     check(
       "api_keys_agent_check",
-      sql`${table.agentId} IS NULL OR (${table.kind} = 'service' AND ${table.workspaceId} IS NOT NULL)`,
+      sql`(${table.kind} = 'agent') = (${table.agentId} IS NOT NULL) AND (${table.kind} <> 'agent' OR ${table.workspaceId} IS NOT NULL)`,
+    ),
+    // No key reaches a whole workspace as itself.
+    check(
+      "api_keys_operator_check",
+      sql`${table.kind} <> 'operator' OR ${table.workspaceId} IS NULL`,
+    ),
+    check(
+      "api_keys_name_check",
+      sql`${table.name} IS NULL OR (char_length(${table.name}) BETWEEN 1 AND 64 AND ${table.name} = btrim(${table.name}))`,
     ),
     index("api_keys_workspace_idx")
       .on(table.workspaceId)
@@ -1841,7 +1853,10 @@ export const apiKeys = pgTable(
     index("api_keys_personal_creator_idx")
       .on(table.createdByUserId)
       .where(sql`${table.kind} = 'personal'`),
-    check("api_keys_kind_check", sql`${table.kind} IN ('personal', 'service')`),
+    check(
+      "api_keys_kind_check",
+      sql`${table.kind} IN ('personal', 'agent', 'operator')`,
+    ),
     check(
       "api_keys_personal_check",
       sql`${table.kind} <> 'personal' OR (${table.createdByUserId} IS NOT NULL AND ${table.workspaceId} IS NOT NULL)`,

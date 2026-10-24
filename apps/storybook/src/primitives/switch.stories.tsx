@@ -16,6 +16,8 @@ const COPY = {
     on: "켜짐",
     disabledOff: "비활성(꺼짐)",
     disabledOn: "비활성(켜짐)",
+    busy: "저장 중(켜짐)",
+    busyOff: "저장 중(꺼짐)",
   },
   ja: {
     label: "ゲストを許可",
@@ -24,6 +26,8 @@ const COPY = {
     on: "オン",
     disabledOff: "無効(オフ)",
     disabledOn: "無効(オン)",
+    busy: "保存中(オン)",
+    busyOff: "保存中(オフ)",
   },
   en: {
     label: "Allow guests",
@@ -32,6 +36,8 @@ const COPY = {
     on: "On",
     disabledOff: "Disabled (off)",
     disabledOn: "Disabled (on)",
+    busy: "Saving (on)",
+    busyOff: "Saving (off)",
   },
 } as const;
 
@@ -60,6 +66,11 @@ export const DisabledOff: Story = { args: { disabled: true } };
 
 export const DisabledOn: Story = {
   args: { disabled: true, defaultChecked: true },
+};
+
+/** While saving: full colour with a spinner in the thumb; keeps focus and refuses the toggle. */
+export const Busy: Story = {
+  args: { "aria-disabled": true, defaultChecked: true },
 };
 
 /** Inside a Field the label names the switch and the description describes it. */
@@ -99,6 +110,8 @@ export const States: Story = {
       [copy.on, { defaultChecked: true }],
       [copy.disabledOff, { disabled: true }],
       [copy.disabledOn, { disabled: true, defaultChecked: true }],
+      [copy.busy, { "aria-disabled": true, defaultChecked: true }],
+      [copy.busyOff, { "aria-disabled": true }],
     ] as const;
     return (
       <div className="flex flex-col gap-4">
@@ -123,4 +136,13 @@ export const StatesMobile: Story = {
   ...States,
   name: "States (390px)",
   globals: { viewport: { value: "mobile390", isRotated: false } },
+};
+
+export const StatesMobileDark: Story = {
+  ...States,
+  name: "States (390px, dark)",
+  globals: {
+    theme: "dark",
+    viewport: { value: "mobile390", isRotated: false },
+  },
 };

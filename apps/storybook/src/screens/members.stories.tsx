@@ -1,5 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import {
+  Alert,
+  AlertDescription,
   Badge,
   Button,
   Card,
@@ -12,11 +14,13 @@ import {
   cn,
   DestructiveActionDialog,
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
   EmptyState,
   ErrorState,
   Field,
@@ -182,9 +186,11 @@ const NARROW_ROLE = "@max-md:flex-col @max-md:items-start";
 /** Name that opens 구성원 편집 (role lives there, not in the row). */
 function NameButton({
   children,
+  badge,
   onClick,
 }: {
   readonly children: ReactNode;
+  readonly badge?: ReactNode;
   readonly onClick: () => void;
 }) {
   return (
@@ -192,11 +198,17 @@ function NameButton({
       type="button"
       className={cn(
         linkVariants(),
-        "block max-w-full truncate text-left font-medium text-foreground focus-visible:underline",
+        "grid w-fit max-w-full grid-cols-[minmax(0,auto)_auto] items-center gap-y-[var(--ap-row-line-gap)] text-left font-medium text-foreground focus-visible:underline @max-md:grid-cols-[minmax(0,auto)]",
       )}
       onClick={onClick}
     >
-      {children} ›
+      <span className="truncate">{children}</span>
+      {/* As in apps/web: below md the badge takes the line under the name. */}
+      {badge ? (
+        <span className="ms-1.5 flex @max-md:col-start-1 @max-md:row-start-2 @max-md:ms-0">
+          {badge}
+        </span>
+      ) : null}
     </button>
   );
 }
@@ -269,7 +281,65 @@ const inviteButton = (
     구성원 초대
   </Button>
 );
-/* The console's name row (create and rename): the name and its button share
+/* The 팀 tab's head button and the dialog it opens (v4 toolbar ②); the
+   console's TeamCreateDialog. `taken` shows the server's answer for a used
+   name. */
+function TeamCreateAction({
+  initialOpen = false,
+  taken = false,
+}: {
+  readonly initialOpen?: boolean;
+  readonly taken?: boolean;
+}) {
+  const [open, setOpen] = useState(initialOpen);
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button type="button">
+          <Plus aria-hidden="true" />팀 만들기
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <form
+          className="flex flex-col gap-4"
+          onSubmit={(event) => event.preventDefault()}
+        >
+          <DialogHeader>
+            <DialogTitle>팀 만들기</DialogTitle>
+            <DialogDescription>
+              이름을 정해 팀을 만듭니다. 구성원은 만든 뒤 팀 화면에서 넣습니다.
+            </DialogDescription>
+          </DialogHeader>
+          {taken ? (
+            <Alert variant="red" role="alert">
+              <AlertDescription>
+                같은 이름의 팀이 이미 있습니다 — 다른 이름을 쓰세요.
+              </AlertDescription>
+            </Alert>
+          ) : null}
+          <Field>
+            <FieldLabel>팀 이름</FieldLabel>
+            <Input
+              name="team"
+              maxLength={100}
+              autoComplete="off"
+              defaultValue={taken ? "결제팀" : ""}
+            />
+          </Field>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button type="button" variant="outline">
+                취소
+              </Button>
+            </DialogClose>
+            <Button type="submit">팀 만들기</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+/* The console's name row (rename): the name and its button share
    one line, and the button drops under the field only when the line is too
    narrow for both. */
 function TeamNameRow({
@@ -340,7 +410,6 @@ function MembersTab({
       </div>
       <ListBody state={state} label="구성원 목록">
         <div className="flex flex-wrap gap-2">
-          <PartRequest name="LockedButton+Tooltip" />
           <PartRequest name="Avatar (UIKIT-V4-DATA-PARTS)" />
         </div>
         {/* Console v4 .t-mem without agents managed and last active: GET
@@ -364,9 +433,15 @@ function MembersTab({
                 <TableRow key={member.id}>
                   <TableCell variant="text" className={NARROW_NAME}>
                     <RowLines>
-                      <NameButton onClick={() => onEdit(member)}>
+                      <NameButton
+                        badge={
+                          member.id === ME[viewer] ? (
+                            <Badge variant="gray">나</Badge>
+                          ) : null
+                        }
+                        onClick={() => onEdit(member)}
+                      >
                         {member.name}
-                        {member.id === ME[viewer] ? " (나)" : ""}
                       </NameButton>
                       <span
                         className="text-muted-foreground text-xs"
@@ -404,18 +479,12 @@ function MembersTab({
 function TeamsTab({
   state = "ready",
   empty = false,
-  draft,
 }: {
   readonly state?: ListState;
   readonly empty?: boolean;
-  readonly draft?: string | undefined;
 }) {
   return (
     <div className="flex flex-col gap-4 pt-4">
-      <TeamNameRow
-        name={draft}
-        submit={<Button type="submit">팀 만들기</Button>}
-      />
       <ListBody state={state} label="팀 목록">
         {empty ? (
           <EmptyState
@@ -438,7 +507,7 @@ function TeamsTab({
                   <TableRow key={team.id}>
                     <TableCell>
                       <Link href="#team" className="focus-visible:underline">
-                        {team.name} ›
+                        {team.name}
                       </Link>
                     </TableCell>
                     <TableCell>{team.members}명</TableCell>
@@ -606,7 +675,7 @@ function TeamDetailView({
                 <TableRow key={agent.name}>
                   <TableCell>
                     <Link href="#agent" className="focus-visible:underline">
-                      {agent.name} ›
+                      {agent.name}
                     </Link>
                   </TableCell>
                   <TableCell>
@@ -859,6 +928,7 @@ type Screen =
   | "teams"
   | "teams-empty"
   | "team-create"
+  | "team-create-taken"
   | "team"
   | "team-empty"
   | "team-delete"
@@ -900,7 +970,16 @@ function MembersScreen({ screen }: { readonly screen: Screen }) {
   let body: ReactNode;
   if (screen === "member-view") body = <MyTeams />;
   else {
-    const action = tab === "teams" ? undefined : inviteButton;
+    // Each tab's one primary action in the head; a team's page has none.
+    const action =
+      tab !== "teams" ? (
+        inviteButton
+      ) : DETAIL_SCREENS.includes(screen) ? undefined : (
+        <TeamCreateAction
+          initialOpen={screen.startsWith("team-create")}
+          taken={screen === "team-create-taken"}
+        />
+      );
     const content =
       tab === "members" ? (
         <MembersTab
@@ -921,10 +1000,7 @@ function MembersScreen({ screen }: { readonly screen: Screen }) {
         screen === "team-delete" ? (
         <TeamDetailView emptyMembers={screen === "team-empty"} />
       ) : (
-        <TeamsTab
-          empty={screen === "teams-empty"}
-          draft={screen === "team-create" ? "결제팀" : undefined}
-        />
+        <TeamsTab empty={screen === "teams-empty"} />
       );
     body = (
       <>
@@ -950,7 +1026,7 @@ function MembersScreen({ screen }: { readonly screen: Screen }) {
           onConfirm={fn()}
           tone="danger"
           title="Verify Hoon을 비활성화할까요?"
-          consequence="로그인과 이 사람의 개인 key가 바로 끊깁니다. 이 사람이 만든 서비스 key는 계속 동작합니다."
+          consequence="로그인과 이 사람의 개인 key가 바로 끊깁니다. 이 사람이 만든 에이전트 key는 계속 동작합니다."
           confirmLabel="비활성화"
         />
       ) : null}
@@ -1001,13 +1077,17 @@ export const MemberDisable: Story = { args: { screen: "member-disable" } };
 export const Teams: Story = { args: { screen: "teams" } };
 export const TeamsEmpty: Story = { args: { screen: "teams-empty" } };
 export const TeamCreate: Story = {
-  name: "Team create (one line)",
+  name: "Team create (head button → dialog)",
   args: { screen: "team-create" },
 };
 export const TeamCreateMobile: Story = {
   name: "Team create (390px)",
   args: { screen: "team-create" },
   globals: MOBILE,
+};
+export const TeamCreateTaken: Story = {
+  name: "Team create (name taken)",
+  args: { screen: "team-create-taken" },
 };
 export const TeamDetail: Story = {
   name: "Team detail (A: inside 팀 tab)",

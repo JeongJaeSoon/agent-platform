@@ -58,7 +58,7 @@ const identity = {
   },
 } as unknown as IdentityStore;
 
-const KEYS = (["service", "personal"] as const).map((kind) => ({
+const KEYS = (["agent", "personal"] as const).map((kind) => ({
   kind,
   plaintext: `csp_${crypto.randomUUID()}`,
 }));
@@ -73,6 +73,7 @@ const keyStore = {
       ownerId: WORKSPACE,
       workspaceId: WORKSPACE,
       kind: key.kind,
+      agentId: key.kind === "agent" ? crypto.randomUUID() : null,
       createdByUserId: key.kind === "personal" ? crypto.randomUUID() : null,
       creatorRole: key.kind === "personal" ? ("owner" as const) : null,
       scopes: [

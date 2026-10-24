@@ -37,7 +37,7 @@ test("query options and the request each query makes", async () => {
     (entry): entry is [string, (client: ApiClient, id: string) => object] =>
       typeof entry[1] === "function" && entry[0].endsWith("Query"),
   );
-  expect(factories.length).toBe(20);
+  expect(factories.length).toBe(21);
   const out: Record<string, unknown> = {};
   for (const [name, factory] of factories.sort(([a], [b]) =>
     a.localeCompare(b),
@@ -88,6 +88,52 @@ test("the member list reads every page, 100 at a time, and hands back all of the
     items: [{ user_id: "a" }, { user_id: "b" }, { user_id: "c" }],
     next_cursor: null,
   });
+  expect(calls).toEqual([
+    { limit: 100 },
+    { cursor: "c2", limit: 100 },
+    { cursor: "c3", limit: 100 },
+  ]);
+});
+
+test("a member page asks the server for one page, the search going with it", async () => {
+  const { client, calls } = recordingClient();
+  const all = queries.memberPagesQuery(client);
+  await all.queryFn({ pageParam: null } as Parameters<typeof all.queryFn>[0]);
+  const found = queries.memberPagesQuery(client, "kim");
+  await found.queryFn({
+    pageParam: "cursor-2",
+  } as Parameters<typeof found.queryFn>[0]);
+  expect(calls).toEqual([
+    ["/v1/members", { params: { query: {} } }],
+    ["/v1/members", { params: { query: { q: "kim", cursor: "cursor-2" } } }],
+  ]);
+  expect(all.queryKey as unknown).toEqual(["members", "pages", { q: null }]);
+  expect(found.queryKey as unknown).toEqual(["members", "pages", { q: "kim" }]);
+  const page = { items: [], next_cursor: "cursor-3" };
+  expect(found.getNextPageParam(page, [page], null, [null])).toBe("cursor-3");
+});
+
+test("the agent list reads every page, 100 at a time, and hands back all of them", async () => {
+  const pages: Record<
+    string,
+    { items: { id: string }[]; next_cursor: string | null }
+  > = {
+    first: { items: [{ id: "a" }, { id: "b" }], next_cursor: "c2" },
+    c2: { items: [{ id: "c" }], next_cursor: "c3" },
+    c3: { items: [], next_cursor: null },
+  };
+  const calls: unknown[] = [];
+  const client = {
+    GET: (_path: string, init: { params: { query: { cursor?: string } } }) => {
+      calls.push(init.params.query);
+      const data = pages[init.params.query.cursor ?? "first"];
+      return Promise.resolve({ data, response: new Response(null) });
+    },
+  } as unknown as ApiClient;
+  const { queryFn } = queries.agentsQuery(client);
+  const all = await queryFn({} as Parameters<typeof queryFn>[0]);
+  expect(all.items.map((agent) => agent.id)).toEqual(["a", "b", "c"]);
+  expect(all.next_cursor).toBeNull();
   expect(calls).toEqual([
     { limit: 100 },
     { cursor: "c2", limit: 100 },

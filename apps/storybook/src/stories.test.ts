@@ -63,6 +63,7 @@ const LAYER_TITLES: [string, string][] = [
   ["react/src/components/feedback/", "Domain/Feedback/"],
   ["react/src/components/list/", "Domain/List/"],
   ["react/src/components/layout/", "Domain/Layout/"],
+  ["react/src/components/operations/", "Domain/Operations/"],
   ["react/src/blocks/", "Blocks/"],
 ];
 

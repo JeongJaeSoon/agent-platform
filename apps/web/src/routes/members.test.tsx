@@ -82,6 +82,24 @@ async function changeRole(
   await user.click(within(dialog).getByRole("button", { name: "역할 바꾸기" }));
 }
 
+/** The focusable box that carries a disabled row button's reason. */
+function lockOf(button: HTMLElement): HTMLElement {
+  const lock = button.parentElement;
+  if (lock?.dataset.slot !== "disabled-reason")
+    throw new Error("the button has no reason box");
+  expect(lock.tabIndex).toBe(0);
+  expect(lock.getAttribute("role")).toBe("group");
+  expect(lock.getAttribute("aria-disabled")).toBe("true");
+  // The button is described by the same reason as the box around it.
+  expect(descriptionOf(button)).toBe(descriptionOf(lock));
+  return lock;
+}
+
+function descriptionOf(element: HTMLElement) {
+  return document.getElementById(element.getAttribute("aria-describedby") ?? "")
+    ?.textContent;
+}
+
 /** The role badge in a member's row. */
 function roleIn(name: string) {
   // Also while a dialog hides the page from the accessibility tree.
@@ -232,9 +250,9 @@ describe("구성원 화면", () => {
     );
   });
 
-  test("관리자가 소유자 역할을 주려 하면(403 OWNER_PROTECTED) 그 이유를 보인다", async () => {
+  test("소유자 부여가 서버에서 403 OWNER_PROTECTED로 거절되면 그 이유를 보인다", async () => {
     renderAt("/members", {
-      "GET /v1/auth/me": () => json(200, me(undefined, "admin")),
+      "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": () =>
         json(200, { items: [owner, teammate], next_cursor: null }),
       ...noInvites,
@@ -248,7 +266,87 @@ describe("구성원 화면", () => {
     );
   });
 
-  test("관리자는 비활성 소유자를 다시 활성화하지 못하고, 이유를 안내 버튼 뒤에 둔다", async () => {
+  test("관리자에게 소유자 선택지는 비활성이고 그 자리에 이유를 두며, 화살표 키는 그 선택지를 건너뛴다", async () => {
+    const { api } = renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me(undefined, "admin")),
+      "GET /v1/members": () =>
+        json(200, {
+          items: [{ ...owner, role: "admin" }, teammate],
+          next_cursor: null,
+        }),
+      ...noInvites,
+    });
+    const user = await setupUser();
+    const edit = await openEdit(user, "Mate");
+    const radio = (name: string) =>
+      within(edit).getByRole("radio", { name }) as HTMLButtonElement;
+    expect(radio("소유자").disabled).toBe(true);
+    expect(descriptionOf(radio("소유자"))).toBe(
+      "소유자 역할은 소유자만 줄 수 있습니다.",
+    );
+    // The radio is out of the arrow-key loop; the group carries the reason.
+    expect(descriptionOf(within(edit).getByRole("radiogroup"))).toBe(
+      "소유자 역할은 소유자만 줄 수 있습니다.",
+    );
+    expect(radio("관리자").disabled).toBe(false);
+    expect(radio("구성원").disabled).toBe(false);
+    radio("구성원").focus();
+    await user.keyboard("{ArrowDown>}");
+    await waitFor(() =>
+      expect(document.activeElement === radio("관리자")).toBe(true),
+    );
+    await user.keyboard("{/ArrowDown}{ArrowDown>}");
+    await waitFor(() =>
+      expect(document.activeElement === radio("구성원")).toBe(true),
+    );
+    await user.keyboard("{/ArrowDown}");
+    expect(api.calls.some((call) => call.method === "PATCH")).toBe(false);
+  });
+
+  test("소유자를 고른 뒤 관리자로 내려가면 저장이 막힌다", async () => {
+    let role: "owner" | "admin" = "owner";
+    const { api, services } = renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me(undefined, role)),
+      "GET /v1/members": () =>
+        json(200, { items: [owner, teammate], next_cursor: null }),
+      ...noInvites,
+    });
+    const user = await setupUser();
+    const edit = await openEdit(user, "Mate");
+    await user.click(within(edit).getByRole("radio", { name: "소유자" }));
+    const save = within(edit).getByRole("button", {
+      name: "저장",
+    }) as HTMLButtonElement;
+    expect(save.disabled).toBe(false);
+    role = "admin";
+    await act(() => services.queryClient.refetchQueries());
+    await waitFor(() => expect(save.disabled).toBe(true));
+    expect(
+      (within(edit).getByRole("radio", { name: "소유자" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    expect(api.calls.some((call) => call.method === "PATCH")).toBe(false);
+  });
+
+  test("소유자에게는 소유자 선택지가 열려 있고 역할 설명이 그대로다", async () => {
+    renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": () =>
+        json(200, { items: [owner, teammate], next_cursor: null }),
+      ...noInvites,
+    });
+    const user = await setupUser();
+    const edit = await openEdit(user, "Mate");
+    const ownerRadio = within(edit).getByRole("radio", {
+      name: "소유자",
+    }) as HTMLButtonElement;
+    expect(ownerRadio.disabled).toBe(false);
+    expect(descriptionOf(ownerRadio)).toBe(
+      "워크스페이스 설정과 소유자까지 모두 바꿉니다.",
+    );
+  });
+
+  test("관리자는 비활성 소유자를 다시 활성화하지 못하고, 이유를 버튼의 툴팁에 둔다", async () => {
     const boss = { ...gone, display_name: "Boss", role: "owner" as const };
     renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me(undefined, "admin")),
@@ -266,15 +364,14 @@ describe("구성원 화면", () => {
       name: "다시 활성화",
     }) as HTMLButtonElement;
     expect(enable.disabled).toBe(true);
+    expect(descriptionOf(lockOf(enable))).toBe(
+      "소유자는 관리자가 다시 활성화할 수 없습니다.",
+    );
     expect(
-      document.getElementById(enable.getAttribute("aria-describedby") ?? "")
-        ?.textContent,
-    ).toBe("소유자는 관리자가 다시 활성화할 수 없습니다.");
-    expect(
-      within(row).getByRole("button", {
-        name: "Boss을(를) 다시 활성화할 수 없는 이유",
-      }),
-    ).toBeDefined();
+      within(enable.closest("[role=cell]") as HTMLElement).getAllByRole(
+        "button",
+      ),
+    ).toHaveLength(1);
   });
 
   test("다시 활성화가 403 OWNER_PROTECTED로 거절되면 그 동작의 말로 보인다", async () => {
@@ -597,10 +694,11 @@ describe("되돌리기 어려운 동작의 확인", () => {
       const button = (await screen.findByRole("button", {
         name: `${name} 비활성화`,
       })) as HTMLButtonElement;
-      const reason = document.getElementById(
-        button.getAttribute("aria-describedby") ?? "",
-      );
-      return { disabled: button.disabled, reason: reason?.textContent };
+      const lock = button.closest<HTMLElement>("[data-slot=disabled-reason]");
+      return {
+        disabled: button.disabled,
+        reason: lock ? descriptionOf(lock) : undefined,
+      };
     };
     expect(await reasonOf("Owner")).toEqual({
       disabled: true,
@@ -610,7 +708,38 @@ describe("되돌리기 어려운 동작의 확인", () => {
       disabled: true,
       reason: "소유자는 관리자가 비활성화할 수 없습니다.",
     });
-    expect((await reasonOf("Mate")).disabled).toBe(false);
+    expect(await reasonOf("Mate")).toEqual({
+      disabled: false,
+      reason: undefined,
+    });
+  });
+
+  test("본인 행은 이름 옆에 '나'를 달고, 관리 열에 버튼 하나만 둔다", async () => {
+    renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me(undefined, "owner")),
+      "GET /v1/members": () =>
+        json(200, { items: [owner, teammate], next_cursor: null }),
+      ...noInvites,
+    });
+    const buttonOf = async (name: string) =>
+      (await screen.findByRole("button", {
+        name: `${name} 비활성화`,
+      })) as HTMLButtonElement;
+    const rowOf = (button: HTMLElement) =>
+      button.closest("[role=row]") as HTMLElement;
+    const button = await buttonOf("Owner");
+    expect(within(rowOf(button)).getByText("나")).toBeDefined();
+    expect(within(rowOf(await buttonOf("Mate"))).queryByText("나")).toBeNull();
+    // The row's hover and pointer say it opens; no "›" beside the name.
+    expect(rowOf(button).textContent).not.toContain("›");
+    // Only the disable button: no (i) beside it to push it out of line.
+    const cell = button.closest("[role=cell]") as HTMLElement;
+    expect(within(cell).getAllByRole("button")).toHaveLength(1);
+    expect(cell.querySelector("svg")).toBeNull();
+    expect(button.disabled).toBe(true);
+    expect(descriptionOf(lockOf(button))).toBe(
+      "자기 자신은 비활성화할 수 없습니다.",
+    );
   });
 
   test("비활성 구성원의 역할은 편집에서 막고, 다시 활성화하라고 한다", async () => {
@@ -637,7 +766,7 @@ describe("되돌리기 어려운 동작의 확인", () => {
     });
   });
 
-  test("역할도 같은 규칙으로 편집에서 막고, 비활성화 이유는 행 높이를 바꾸지 않는 안내 버튼 뒤에 둔다", async () => {
+  test("역할도 같은 규칙으로 편집에서 막고, 비활성화 이유는 버튼 위 툴팁으로 연다", async () => {
     const boss = member({
       user_id: GONE_ID,
       email: "boss@example.com",
@@ -664,25 +793,415 @@ describe("되돌리기 어려운 동작의 확인", () => {
     });
     expect((await roleRule(user, "Mate")).disabled).toBe(false);
 
-    // Nothing under the control: the reason opens from the keyboard.
-    const why = screen.getByRole("button", {
-      name: "Boss을(를) 비활성화할 수 없는 이유",
-    });
-    expect(why.closest("[role=cell]")?.textContent).toBe(
-      "비활성화소유자는 관리자가 비활성화할 수 없습니다.",
+    // Nothing under the control: the reason opens above it from the keyboard.
+    const lock = lockOf(screen.getByRole("button", { name: "Boss 비활성화" }));
+    const note = () => document.querySelector('[data-slot="popover-content"]');
+    expect(note()).toBeNull();
+    await act(async () => lock.focus());
+    await waitFor(() =>
+      expect(note()?.textContent).toBe(
+        "소유자는 관리자가 비활성화할 수 없습니다.",
+      ),
     );
-    why.focus();
-    await user.keyboard("{Enter}");
-    const note = await screen.findByRole("dialog", {
-      name: "Boss을(를) 비활성화할 수 없는 이유",
-    });
-    expect(note.textContent).toBe("소유자는 관리자가 비활성화할 수 없습니다.");
+    expect(note()?.getAttribute("data-side")).toBe("top");
     await user.keyboard("{Escape}");
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(document.activeElement).toBe(why);
+    await waitFor(() => expect(note()).toBeNull());
+    expect(document.activeElement === lock).toBe(true);
   });
 });
 
+/**
+ * GET /v1/members as the server pages it: `size` a page unless the request
+ * names a limit, `q` matched in name or email ignoring case, the cursor the
+ * index of the next row. Each answer may be held or failed by `gate`.
+ */
+function pagedMembers(
+  all: readonly MemberView[],
+  size: number,
+  gate: (search: URLSearchParams) => Promise<Response | undefined> = () =>
+    Promise.resolve(undefined),
+) {
+  return async (request: Request) => {
+    const search = new URL(request.url).searchParams;
+    const held = await gate(search);
+    if (held) return held;
+    const q = search.get("q")?.toLowerCase();
+    const found = q
+      ? all.filter((row) =>
+          `${row.display_name}\n${row.email}`.toLowerCase().includes(q),
+        )
+      : all;
+    const from = Number(search.get("cursor") ?? 0);
+    const to = from + Number(search.get("limit") ?? size);
+    return json(200, {
+      items: found.slice(from, to),
+      next_cursor: to < found.length ? String(to) : null,
+    });
+  };
+}
+
+/** The 구성원 tab's own reads; the head's invite button reads every page. */
+function screenReads(calls: readonly { path: string; search: string }[]) {
+  return calls
+    .filter((c) => c.path === "/v1/members" && !c.search.includes("limit="))
+    .map((c) => c.search);
+}
+
+function rowNames() {
+  return screen
+    .getAllByRole("button", { name: / 편집$/ })
+    .map((button) => button.getAttribute("aria-label")?.replace(/ 편집$/, ""));
+}
+
+const crowd = Array.from({ length: 5 }, (_, index) =>
+  member({
+    user_id: `00000000-0000-4000-8000-00000000000${index}`,
+    email: `person${index}@example.com`,
+    display_name: `Person ${index}`,
+    role: "member",
+  }),
+);
+
+describe("구성원 페이지와 서버 검색", () => {
+  test("첫 페이지만 받고, 더 보기로 다음 페이지를 이어 붙이며, 끝이면 버튼이 없다", async () => {
+    let release: () => void = () => {};
+    const { api } = renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": pagedMembers(crowd, 2, (search) =>
+        search.get("cursor") === "2"
+          ? new Promise((resolve) => {
+              release = () => resolve(undefined);
+            })
+          : Promise.resolve(undefined),
+      ),
+      ...noInvites,
+    });
+    const user = await setupUser();
+    await screen.findByRole("button", { name: "Person 1 편집" });
+    expect(rowNames()).toEqual(["Person 0", "Person 1"]);
+    expect(screenReads(api.calls)).toEqual([""]);
+
+    const more = screen.getByRole("button", { name: "더 보기" });
+    await act(async () => more.focus());
+    await user.keyboard("{Enter}");
+    const loading = await screen.findByRole("button", { name: "불러오는 중…" });
+    expect(loading === more).toBe(true);
+    expect(more.getAttribute("aria-disabled")).toBe("true");
+    expect(document.activeElement === more).toBe(true);
+    // A second Enter while the page is on its way asks for nothing more.
+    await user.keyboard("{Enter}");
+    release();
+    await screen.findByRole("button", { name: "Person 3 편집" });
+    expect(rowNames()).toEqual([
+      "Person 0",
+      "Person 1",
+      "Person 2",
+      "Person 3",
+    ]);
+    expect(more.hasAttribute("aria-disabled")).toBe(false);
+    expect(document.activeElement === more).toBe(true);
+
+    await user.keyboard("{Enter}");
+    const first = await screen.findByRole("button", { name: "Person 4 편집" });
+    expect(screen.queryByRole("button", { name: "더 보기" })).toBeNull();
+    // The button went with the last page; the keyboard lands on its row.
+    await waitFor(() => expect(document.activeElement === first).toBe(true));
+    // One read a page, each from where the last one stopped.
+    expect(screenReads(api.calls)).toEqual(["", "?cursor=2", "?cursor=4"]);
+  });
+
+  test("구성원을 바꾼 뒤 받은 페이지를 다시 읽는 동안에는 더 보기를 막는다", async () => {
+    let hold = false;
+    let release: () => void = () => {};
+    const rows = [...crowd];
+    renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": pagedMembers(rows, 2, () =>
+        hold
+          ? new Promise((resolve) => {
+              release = () => resolve(undefined);
+            })
+          : Promise.resolve(undefined),
+      ),
+      ...noInvites,
+      [`POST /v1/members/${crowd[0]?.user_id}/disable`]: () => {
+        rows[0] = {
+          ...crowd[0],
+          disabled_at: "2026-10-11T00:00:00.000Z",
+        } as MemberView;
+        hold = true;
+        return json(200, { member: rows[0], receipt_id: null });
+      },
+    });
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "Person 0 비활성화" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "비활성화" }));
+    await screen.findByText("Person 0 계정을 비활성화했습니다.");
+    const more = screen.getByRole("button", { name: "더 보기" });
+    await waitFor(() =>
+      expect(more.getAttribute("aria-disabled")).toBe("true"),
+    );
+    // Pressed now it would cancel the reread and keep the stale rows.
+    await user.click(more);
+    hold = false;
+    release();
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("button", { name: "Person 0 편집" })
+          .closest("[role=row]")
+          ?.getAttribute("data-disabled"),
+      ).toBe("true"),
+    );
+    expect(more.hasAttribute("aria-disabled")).toBe(false);
+    expect(screen.queryByRole("button", { name: "Person 2 편집" })).toBeNull();
+  });
+
+  test("구성원을 바꾼 뒤 다시 읽기가 실패하면 더 보기 대신 다시 시도만 보인다", async () => {
+    let failing = false;
+    const rows = [...crowd];
+    renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": pagedMembers(rows, 2, () =>
+        Promise.resolve(
+          failing ? apiError(500, "INTERNAL_ERROR", "boom") : undefined,
+        ),
+      ),
+      ...noInvites,
+      [`POST /v1/members/${crowd[0]?.user_id}/disable`]: () => {
+        rows[0] = {
+          ...crowd[0],
+          disabled_at: "2026-10-11T00:00:00.000Z",
+        } as MemberView;
+        failing = true;
+        return json(200, { member: rows[0], receipt_id: null });
+      },
+    });
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "Person 0 비활성화" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "비활성화" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.getAttribute("data-variant")).toBe("red");
+    expect(screen.queryByRole("button", { name: "더 보기" })).toBeNull();
+
+    failing = false;
+    await user.click(within(alert).getByRole("button", { name: "다시 시도" }));
+    await screen.findByRole("button", { name: "더 보기" });
+    expect(
+      screen
+        .getByRole("button", { name: "Person 0 편집" })
+        .closest("[role=row]")
+        ?.getAttribute("data-disabled"),
+    ).toBe("true");
+  });
+
+  test("늦게 온 이전 검색 결과는 지금 검색 결과를 덮지 않는다", async () => {
+    let release: () => void = () => {};
+    const { api } = renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": pagedMembers(
+        [owner, teammate, ...crowd],
+        2,
+        (search) =>
+          search.get("q") === "Person"
+            ? new Promise((resolve) => {
+                release = () => resolve(undefined);
+              })
+            : Promise.resolve(undefined),
+      ),
+      ...noInvites,
+    });
+    const user = await setupUser();
+    await screen.findByRole("button", { name: "Owner 편집" });
+    const box = screen.getByRole("searchbox");
+    await user.type(box, "Person");
+    await waitFor(() => expect(screenReads(api.calls)).toContain("?q=Person"));
+    await user.clear(box);
+    await user.type(box, "Mate");
+    await waitFor(() => expect(rowNames()).toEqual(["Mate"]));
+    release();
+    await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+    expect(rowNames()).toEqual(["Mate"]);
+    expect(screen.queryByRole("button", { name: "더 보기" })).toBeNull();
+  });
+
+  test("다음 페이지가 실패하면 받은 행은 두고 빨간 알림과 다시 시도를 보인다", async () => {
+    let failing = true;
+    const { api } = renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": pagedMembers(crowd, 2, (search) =>
+        Promise.resolve(
+          search.get("cursor") === "2" && failing
+            ? apiError(500, "INTERNAL_ERROR", "boom")
+            : undefined,
+        ),
+      ),
+      ...noInvites,
+    });
+    const user = await setupUser();
+    const more = await screen.findByRole("button", { name: "더 보기" });
+    await act(async () => more.focus());
+    await user.keyboard("{Enter}");
+    const alert = await screen.findByRole("alert");
+    expect(alert.getAttribute("data-slot")).toBe("alert");
+    expect(alert.getAttribute("data-variant")).toBe("red");
+    expect(alert.textContent).toContain("불러오지 못했습니다");
+    expect(rowNames()).toEqual(["Person 0", "Person 1"]);
+    // 더 보기 stays, and the keyboard with it.
+    expect(screen.getByRole("button", { name: "더 보기" }) === more).toBe(true);
+    expect(document.activeElement === more).toBe(true);
+
+    failing = false;
+    await user.click(within(alert).getByRole("button", { name: "다시 시도" }));
+    await screen.findByRole("button", { name: "Person 3 편집" });
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screenReads(api.calls)).toEqual(["", "?cursor=2", "?cursor=2"]);
+  });
+
+  test("다음 페이지가 실패한 뒤 더 보기로 다시 받아도 포커스가 버튼에 남는다", async () => {
+    let failing = true;
+    const { api } = renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": pagedMembers(crowd, 2, (search) =>
+        Promise.resolve(
+          search.get("cursor") === "2" && failing
+            ? apiError(500, "INTERNAL_ERROR", "boom")
+            : undefined,
+        ),
+      ),
+      ...noInvites,
+    });
+    const user = await setupUser();
+    const more = await screen.findByRole("button", { name: "더 보기" });
+    await act(async () => more.focus());
+    await user.keyboard("{Enter}");
+    await screen.findByRole("alert");
+    failing = false;
+    await user.keyboard("{Enter}");
+    await screen.findByRole("button", { name: "Person 3 편집" });
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    expect(document.activeElement === more).toBe(true);
+    expect(screenReads(api.calls)).toEqual(["", "?cursor=2", "?cursor=2"]);
+  });
+
+  test("검색어는 다듬어 서버 q로 한 번 보내고, 바꾸면 첫 페이지부터 다시 받는다", async () => {
+    const { api } = renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": pagedMembers([owner, teammate, gone, ...crowd], 2),
+      ...noInvites,
+    });
+    const user = await setupUser();
+    await screen.findByRole("button", { name: "Owner 편집" });
+    await user.click(screen.getByRole("button", { name: "더 보기" }));
+    await screen.findByRole("button", { name: "Gone 편집" });
+
+    const box = screen.getByRole("searchbox", {
+      name: "이름이나 이메일로 찾기",
+    });
+    await user.type(box, "  PERSON ");
+    await waitFor(() => expect(rowNames()).toEqual(["Person 0", "Person 1"]));
+    // The loaded rows are not filtered in the browser: the server answers.
+    expect(screenReads(api.calls)).toEqual(["", "?cursor=2", "?q=PERSON"]);
+    await user.click(screen.getByRole("button", { name: "더 보기" }));
+    await screen.findByRole("button", { name: "Person 3 편집" });
+    expect(screenReads(api.calls).at(-1)).toBe("?q=PERSON&cursor=2");
+
+    await user.clear(box);
+    await user.type(box, "nobody");
+    await screen.findByText("검색어에 맞는 구성원이 없습니다");
+    expect(screenReads(api.calls).filter((s) => s.includes("q=n"))).toEqual([
+      "?q=nobody",
+    ]);
+
+    await user.click(screen.getByRole("button", { name: "검색어 지우기" }));
+    expect(document.activeElement === box).toBe(true);
+    await waitFor(() => expect(rowNames()).toEqual(["Owner", "Mate"]));
+    expect(screen.getByRole("button", { name: "더 보기" })).toBeDefined();
+    // An emptied box is the whole list again, from its first page alone.
+    expect(screenReads(api.calls)).toEqual([
+      "",
+      "?cursor=2",
+      "?q=PERSON",
+      "?q=PERSON&cursor=2",
+      "",
+      "?q=nobody",
+      "",
+    ]);
+  });
+
+  const boss = member({
+    user_id: GONE_ID,
+    email: "boss@example.com",
+    display_name: "Boss",
+    role: "owner",
+  });
+  const disableOf = async (name: string) => {
+    const button = (await screen.findByRole("button", {
+      name: `${name} 비활성화`,
+    })) as HTMLButtonElement;
+    const lock = button.closest<HTMLElement>("[data-slot=disabled-reason]");
+    return {
+      disabled: button.disabled,
+      reason: lock ? descriptionOf(lock) : undefined,
+    };
+  };
+
+  test("아직 안 불러온 페이지에 소유자가 더 있을 수 있으면 마지막 소유자로 막지 않는다", async () => {
+    renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me()),
+      // The viewer, the other owner, is on the second page.
+      "GET /v1/members": pagedMembers([boss, teammate, owner], 2),
+      ...noInvites,
+    });
+    const user = await setupUser();
+    expect(await disableOf("Boss")).toEqual({
+      disabled: false,
+      reason: undefined,
+    });
+    await user.click(screen.getByRole("button", { name: "더 보기" }));
+    await screen.findByRole("button", { name: "Owner 편집" });
+    expect(await disableOf("Boss")).toEqual({
+      disabled: false,
+      reason: undefined,
+    });
+  });
+
+  test("검색 결과로는 마지막 소유자를 알 수 없으니 막지 않는다", async () => {
+    renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": pagedMembers([owner, boss, teammate], 2),
+      ...noInvites,
+    });
+    const user = await setupUser();
+    await screen.findByRole("button", { name: "Owner 편집" });
+    await user.type(screen.getByRole("searchbox"), "boss");
+    await waitFor(() => expect(rowNames()).toEqual(["Boss"]));
+    expect(await disableOf("Boss")).toEqual({
+      disabled: false,
+      reason: undefined,
+    });
+  });
+
+  test("검색 없이 끝까지 불러왔으면 하나뿐인 소유자는 미리 막고 이유를 붙인다", async () => {
+    renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me()),
+      // The list already says the viewer is an admin now.
+      "GET /v1/members": pagedMembers([boss, { ...owner, role: "admin" }], 2),
+      ...noInvites,
+    });
+    expect(await disableOf("Boss")).toEqual({
+      disabled: true,
+      reason:
+        "하나뿐인 소유자는 비활성화할 수 없습니다 — 다른 사람을 먼저 소유자로 정하세요.",
+    });
+  });
+});
 describe("구성원 · 팀 · 초대 탭", () => {
   const tabsOf = () =>
     within(screen.getByRole("navigation", { name: "구성원 보기" }))
@@ -706,6 +1225,9 @@ describe("구성원 · 팀 · 초대 탭", () => {
       ["팀", "/members/teams", null],
       ["초대", "/members/invites", null],
     ]);
+    // The head's primary action follows the tab.
+    expect(screen.getByRole("button", { name: "구성원 초대" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: "팀 만들기" })).toBeNull();
     // Pending invites have their own tab now.
     expect(screen.queryByText("대기 중인 초대")).toBeNull();
   });

@@ -1,9 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, Outlet, useLocation } from "@tanstack/react-router";
-import { type ApiError, isApiError, unwrap } from "@werft-ai/client";
+import { ApiError, isApiError, unwrap } from "@werft-ai/client";
 import type { Invite, MemberView, WorkspaceRole } from "@werft-ai/contracts";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useAgentPlatform, useMemberPages } from "@werft-ai/react";
+import { ListToolbar, LoadMoreButton } from "@werft-ai/react/components";
 import {
+  Alert,
+  AlertActions,
+  AlertDescription,
+  AlertTitle,
   Badge,
   Button,
   ConfirmDialog,
@@ -13,6 +18,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DisabledReason,
   EmptyState,
   Field,
   FieldDescription,
@@ -34,11 +40,17 @@ import {
   RowList,
   RowListItem,
 } from "@werft-ai/ui";
-import { useId, useRef, useState } from "react";
-import { invitesQuery, membersQuery, queryKeys } from "../api/queries.ts";
+import { useEffect, useId, useRef, useState } from "react";
+import {
+  invitesQuery,
+  membersQuery,
+  queryKeys,
+  teamsQuery,
+} from "../api/queries.ts";
 import {
   permissionReason,
   roleLabel,
+  useGrantableRoles,
   useHasPermission,
   useMe,
   usePermissionReason,
@@ -48,7 +60,7 @@ import {
 import { FormError, Notice } from "../components/auth-page.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { Page } from "../components/page.tsx";
-import { ReasonHint } from "../components/reason-hint.tsx";
+import { SEARCH_MAX, useSearchTerm } from "../components/search-term.ts";
 import { StatusScreen } from "../components/status-screen.tsx";
 import {
   errorKey,
@@ -57,6 +69,7 @@ import {
   useI18n,
 } from "../i18n/i18n.tsx";
 import { InviteDialog } from "./invite-dialog.tsx";
+import { TeamCreateDialog } from "./team-create-dialog.tsx";
 
 const SECTION = "flex flex-col gap-[var(--ap-space-block)]";
 const SECTION_TITLE = "m-0 font-semibold text-body";
@@ -121,20 +134,44 @@ export function MembersLayout() {
   // The list is also the permission probe: when it failed, nobody knows.
   const failed = members.isError && !isApiError(members.error, "FORBIDDEN");
   const onTeams = pathname.startsWith("/members/teams");
+  // The router also serves the list at "/members/teams/".
+  const onTeamList = pathname.replace(/\/$/, "") === "/members/teams";
+  const managesTeams = useHasPermission("team.manage");
+  const teams = useQuery({
+    ...teamsQuery(client),
+    enabled: managesTeams && onTeams,
+  });
+  const teamReason = usePermissionReason("team.manage", teams);
+  const teamsFailed = teams.isError && !isApiError(teams.error, "FORBIDDEN");
+  // The dialog closes on success; the page says what came of it.
+  const [created, setCreated] = useState<string | null>(null);
+  // Fresh on each arrival: a request that answered elsewhere is old news.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs on the path change
+  useEffect(() => setCreated(null), [onTeamList]);
+
+  // Each tab's one primary action, in the same place (v4 toolbar ②).
+  const action = onTeams ? (
+    onTeamList && managesTeams && !teamsFailed ? (
+      <TeamCreateDialog
+        reason={teamReason}
+        onCreated={(name) =>
+          setCreated(name === null ? null : t("teams.created", { name }))
+        }
+      />
+    ) : undefined
+  ) : manages && !failed ? (
+    <InviteDialog
+      reason={reason}
+      members={members.data?.items ?? []}
+      refusal={(error, role) => refusal(t, error, role)}
+    />
+  ) : undefined;
 
   return (
     <Page
       title={t("members.title")}
       description={t(manages ? "members.description" : "members.withheld")}
-      actions={
-        !manages || failed || onTeams ? undefined : (
-          <InviteDialog
-            reason={reason}
-            members={members.data?.items ?? []}
-            refusal={(error, role) => refusal(t, error, role)}
-          />
-        )
-      }
+      actions={action}
     >
       <div className="flex flex-col gap-[var(--ap-space-block)]">
         <LinkTabs aria-label={t("members.tabs")}>
@@ -158,27 +195,53 @@ export function MembersLayout() {
             </LinkTab>
           ) : null}
         </LinkTabs>
+        {onTeamList ? <Notice>{created ?? undefined}</Notice> : null}
         <Outlet />
       </div>
     </Page>
   );
 }
 
-/** The 구성원 tab. Without member.manage the page head already says why. */
+/**
+ * The 구성원 tab: the first page, more on request, searched on the server.
+ * Without member.manage the page head already says why.
+ */
 export function MembersScreen() {
-  const { client } = useAgentPlatform();
+  const { t } = useI18n();
   const manages = useHasPermission("member.manage");
-  const members = useQuery({ ...membersQuery(client), enabled: manages });
+  const [query, setQuery] = useState("");
+  const q = useSearchTerm(query);
+  const members = useMemberPages(q, { enabled: manages });
+  const search = useRef<HTMLInputElement>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
 
   if (!manages) return null;
 
+  const items = members.data?.pages.flatMap((page) => page.items) ?? [];
+  // The clear button leaves with the empty state; focus goes back to the box.
+  const clear = () => {
+    setQuery("");
+    search.current?.focus();
+  };
+
   return (
     <div className="flex flex-col gap-[var(--ap-space-block)]">
       <OutcomeNote outcome={outcome} />
+      <ListToolbar
+        filter={null}
+        search={{
+          ref: search,
+          type: "search",
+          "aria-label": t("members.search"),
+          placeholder: t("members.search"),
+          maxLength: SEARCH_MAX,
+          value: query,
+          onChange: (event) => setQuery(event.target.value),
+        }}
+      />
       {members.isPending ? (
         <StatusScreen kind="loading" />
-      ) : members.error ? (
+      ) : members.error && items.length === 0 ? (
         isApiError(members.error, "FORBIDDEN") ? (
           <StatusScreen kind="forbidden" />
         ) : (
@@ -187,10 +250,82 @@ export function MembersScreen() {
             onRetry={() => void members.refetch()}
           />
         )
+      ) : items.length === 0 && q !== undefined ? (
+        <EmptyState
+          className="w-full"
+          title={t("members.noMatch")}
+          description={t("members.noMatchHint")}
+          action={
+            <Button type="button" variant="outline" size="sm" onClick={clear}>
+              {t("members.clearSearch")}
+            </Button>
+          }
+        />
       ) : (
-        <MemberTable items={members.data.items} onOutcome={setOutcome} />
+        <div className="flex flex-col gap-4">
+          <MemberTable
+            items={items}
+            // Who is the last owner is known only from every member at once.
+            ownersKnown={!members.hasNextPage && q === undefined}
+            onOutcome={setOutcome}
+          />
+          {members.error ? (
+            <MoreFailure
+              error={members.error}
+              onRetry={() =>
+                void (members.isFetchNextPageError
+                  ? members.fetchNextPage()
+                  : members.refetch())
+              }
+            />
+          ) : null}
+          {/* After a failed refresh the alert's retry is the way on: more
+              rows on top of it would keep the stale ones. A failed next
+              page keeps the button, and the keyboard on it. */}
+          <LoadMoreButton
+            hasMore={
+              members.hasNextPage &&
+              (!members.error || members.isFetchNextPageError)
+            }
+            loading={members.isFetchingNextPage}
+            // A refresh after a change rereads every page; asking for the
+            // next one now would cancel it and keep the stale rows.
+            busy={members.isFetching}
+            onLoadMore={() =>
+              void members.fetchNextPage({ cancelRefetch: false })
+            }
+            messages={{
+              more: t("sessions.more"),
+              loading: t("sessions.loadingMore"),
+            }}
+          />
+        </div>
       )}
     </div>
+  );
+}
+
+/** A later page that failed: the rows already shown stay above it. */
+function MoreFailure({
+  error,
+  onRetry,
+}: {
+  readonly error: unknown;
+  readonly onRetry: () => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <Alert variant="red" role="alert">
+      <AlertTitle>{t("status.loadFailed")}</AlertTitle>
+      <AlertDescription>
+        {t(error instanceof ApiError ? errorKey(error.code) : "error.UNKNOWN")}
+      </AlertDescription>
+      <AlertActions>
+        <Button type="button" variant="outline" size="sm" onClick={onRetry}>
+          {t("common.retry")}
+        </Button>
+      </AlertActions>
+    </Alert>
   );
 }
 
@@ -229,9 +364,12 @@ function OutcomeNote({ outcome }: { readonly outcome: Outcome | null }) {
 
 function MemberTable({
   items,
+  ownersKnown,
   onOutcome,
 }: {
   readonly items: readonly MemberView[];
+  /** Every owner is among the items; else the server says who is the last. */
+  readonly ownersKnown: boolean;
   readonly onOutcome: (outcome: Outcome | null) => void;
 }) {
   const { t } = useI18n();
@@ -254,7 +392,6 @@ function MemberTable({
     role: WorkspaceRole;
   } | null>(null);
   const self = useMe()?.user?.id;
-  const reasonId = useId();
   const activeOwners = items.filter(
     (member) => member.role === "owner" && member.disabled_at === null,
   ).length;
@@ -268,7 +405,7 @@ function MemberTable({
       ? t(reasons.self)
       : role === "admin" && member.role === "owner"
         ? t(reasons.owner)
-        : member.role === "owner" && activeOwners === 1
+        : ownersKnown && member.role === "owner" && activeOwners === 1
           ? t(reasons.lastOwner)
           : undefined;
   const roleReason = (member: MemberView) =>
@@ -396,12 +533,37 @@ function MemberTable({
               const keepWhy = disabled
                 ? enableReason(member)
                 : keepReason(member);
-              const keepId = `${reasonId}-${member.user_id}-keep`;
               const busy =
                 (changeRole.isPending &&
                   changeRole.variables?.member.user_id === member.user_id) ||
                 (setAccess.isPending &&
                   setAccess.variables?.member.user_id === member.user_id);
+              const button = disabled ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0"
+                  disabled={busy || keepWhy !== undefined}
+                  onClick={() => setAccess.mutate({ member, enable: true })}
+                >
+                  {t("members.enable")}
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0"
+                  disabled={busy || keepWhy !== undefined}
+                  aria-label={t("members.disableFor", {
+                    name: member.display_name,
+                  })}
+                  onClick={() => setConfirming(member)}
+                >
+                  {t("members.disable")}
+                </Button>
+              );
               return (
                 <GridTableRow
                   key={member.user_id}
@@ -420,9 +582,18 @@ function MemberTable({
                     />
                     {/* v4 .strong: body text at weight 500, not link blue;
                       blue stays for links that move (→). */}
-                    <span className="flex min-w-0 max-w-full font-medium text-foreground group-data-[disabled=true]:text-muted-foreground">
+                    {/* Below md the "you" badge drops to its own line under
+                      the name, so the name gets the whole column (QA L-17). */}
+                    <span className="grid max-w-full grid-cols-[minmax(0,auto)_auto] items-center gap-y-[var(--ap-row-line-gap)] font-medium text-foreground @max-md:grid-cols-[minmax(0,auto)] group-data-[disabled=true]:text-muted-foreground">
                       <span className="truncate">{member.display_name}</span>
-                      <span aria-hidden="true">&nbsp;›</span>
+                      {member.user_id === self ? (
+                        <Badge
+                          variant="gray"
+                          className="ms-1.5 @max-md:col-start-1 @max-md:row-start-2 @max-md:ms-0"
+                        >
+                          {t("members.you")}
+                        </Badge>
+                      ) : null}
                     </span>
                     <span
                       className="text-muted-foreground text-xs"
@@ -449,46 +620,19 @@ function MemberTable({
                     align="end"
                     className="gap-1 [&_[data-slot=button]:not([data-size^=icon])]:min-w-[var(--ap-row-action-min-width)]"
                   >
-                    {disabled ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="shrink-0"
-                        disabled={busy || keepWhy !== undefined}
-                        aria-describedby={keepWhy ? keepId : undefined}
-                        onClick={() =>
-                          setAccess.mutate({ member, enable: true })
-                        }
-                      >
-                        {t("members.enable")}
-                      </Button>
-                    ) : (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="shrink-0"
-                        disabled={busy || keepWhy !== undefined}
-                        aria-describedby={keepWhy ? keepId : undefined}
-                        aria-label={t("members.disableFor", {
-                          name: member.display_name,
-                        })}
-                        onClick={() => setConfirming(member)}
-                      >
-                        {t("members.disable")}
-                      </Button>
-                    )}
                     {keepWhy ? (
-                      <ReasonHint
-                        id={keepId}
+                      <DisabledReason
+                        reason={keepWhy}
                         label={t(
-                          disabled ? "members.enableWhy" : "members.disableWhy",
+                          disabled ? "members.enableFor" : "members.disableFor",
                           { name: member.display_name },
                         )}
-                        reason={keepWhy}
-                      />
-                    ) : null}
+                      >
+                        {button}
+                      </DisabledReason>
+                    ) : (
+                      button
+                    )}
                   </GridTableCell>
                 </GridTableRow>
               );
@@ -583,9 +727,14 @@ function MemberEditDialog({
 }) {
   const { t } = useI18n();
   const [role, setRole] = useState<string>(member.role);
+  const grantable = useGrantableRoles();
   const legendId = useId();
   const reasonId = useId();
+  const grantReasonId = useId();
   const blocked = reason !== undefined;
+  // A disabled radio is out of the arrow-key loop, so its reason also
+  // describes the group a keyboard user does reach.
+  const grantLimited = grantable.length < WORKSPACE_ROLE_VALUES.length;
   return (
     <Dialog open onOpenChange={(open) => (open ? undefined : onClose())}>
       <DialogContent
@@ -612,17 +761,24 @@ function MemberEditDialog({
             onValueChange={setRole}
             disabled={blocked || busy}
             aria-labelledby={legendId}
-            aria-describedby={blocked ? reasonId : undefined}
+            aria-describedby={
+              blocked ? reasonId : grantLimited ? grantReasonId : undefined
+            }
           >
-            {WORKSPACE_ROLE_VALUES.map((value) => (
-              <Field key={value} orientation="horizontal">
-                <RadioGroupItem value={value} />
-                <FieldLabel>{roleLabel(t, value)}</FieldLabel>
-                <FieldDescription>
-                  {t(`members.roleHelp.${value}`)}
-                </FieldDescription>
-              </Field>
-            ))}
+            {WORKSPACE_ROLE_VALUES.map((value) => {
+              const withheld = !grantable.includes(value);
+              return (
+                <Field key={value} orientation="horizontal">
+                  <RadioGroupItem value={value} disabled={withheld} />
+                  <FieldLabel>{roleLabel(t, value)}</FieldLabel>
+                  <FieldDescription id={withheld ? grantReasonId : undefined}>
+                    {withheld
+                      ? t("members.roleOwnerGrant")
+                      : t(`members.roleHelp.${value}`)}
+                  </FieldDescription>
+                </Field>
+              );
+            })}
           </RadioGroup>
         </FieldSet>
         <DialogFooter>
@@ -631,7 +787,12 @@ function MemberEditDialog({
           </Button>
           <Button
             type="button"
-            disabled={blocked || busy || role === member.role}
+            disabled={
+              blocked ||
+              busy ||
+              role === member.role ||
+              !grantable.includes(role as WorkspaceRole)
+            }
             onClick={() => onSave(role as WorkspaceRole)}
           >
             {t("members.edit.save")}

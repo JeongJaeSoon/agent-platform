@@ -321,8 +321,8 @@ export const AUTHORIZATION_ACTION_VALUES = [
   // Invites, roles, offboarding and taking over what a member leaves behind.
   "member.manage",
   "team.manage",
-  // Issuing and revoking a workspace's service keys; on an agent, the keys
-  // bound to that agent.
+  // Issuing and revoking agent keys: on the workspace, any agent's; on an
+  // agent, that agent's.
   "api_key.manage",
   // Issuing and revoking the caller's own personal keys.
   "api_key.manage_own",

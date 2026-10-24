@@ -59,6 +59,11 @@
   --color-border-strong: var(--ap-color-border-strong);
   --color-focus-ring: var(--ap-color-focus-ring);
   --color-link: var(--ap-color-link);
+  --color-control-checked: var(--ap-color-control-checked);
+  --color-chart-mark: var(--ap-chart-mark);
+  --color-chart-mark-active: var(--ap-chart-mark-active);
+  --color-chart-track: var(--ap-chart-track);
+  --color-chart-grid: var(--ap-chart-grid);
   --font-sans: var(--ap-font-sans);
   --font-mono: var(--ap-font-mono);
   --radius-control: var(--ap-radius-control);

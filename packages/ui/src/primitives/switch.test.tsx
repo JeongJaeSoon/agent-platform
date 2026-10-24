@@ -63,6 +63,45 @@ describe("Switch", () => {
     expect(control.getAttribute("aria-checked")).toBe("false");
   });
 
+  test("aria-disabled면 포커스는 남고 클릭·Space·라벨로 바뀌지 않는다", async () => {
+    const user = await setupUser();
+    const onCheckedChange = mock((_checked: boolean) => {});
+    const { getByRole, getByText } = render(
+      <>
+        <Field orientation="horizontal">
+          <Switch aria-disabled={true} onCheckedChange={onCheckedChange} />
+          <FieldLabel>게스트 허용</FieldLabel>
+        </Field>
+        <button type="button">다음</button>
+      </>,
+    );
+    const control = getByRole("switch", { name: "게스트 허용" });
+    await user.tab();
+    expect(document.activeElement === control).toBe(true);
+    await user.keyboard(" ");
+    await user.click(control);
+    await user.click(getByText("게스트 허용"));
+    expect(onCheckedChange.mock.calls).toEqual([]);
+    expect(control.getAttribute("aria-checked")).toBe("false");
+    expect(document.activeElement === control).toBe(true);
+    await user.tab();
+    expect(document.activeElement === getByRole("button")).toBe(true);
+  });
+
+  test("라벨 글자를 누르면 바뀐다", async () => {
+    const user = await setupUser();
+    const onCheckedChange = mock((_checked: boolean) => {});
+    const { getByRole, getByText } = render(
+      <Field orientation="horizontal">
+        <Switch onCheckedChange={onCheckedChange} />
+        <FieldLabel>게스트 허용</FieldLabel>
+      </Field>,
+    );
+    await user.click(getByText("게스트 허용"));
+    expect(onCheckedChange.mock.calls).toEqual([[true]]);
+    expect(getByRole("switch").getAttribute("aria-checked")).toBe("true");
+  });
+
   test("Tab 정지는 하나다", async () => {
     const user = await setupUser();
     const { getByRole } = render(
@@ -102,5 +141,45 @@ describe("Switch", () => {
     ]);
     expect(classes).toContain("h-5");
     expect(classes).toContain("w-9");
+  });
+
+  test("켜짐은 control-checked, 꺼짐은 input 트랙이고 비활성은 색을 둔 채 흐리다", () => {
+    const { getByRole } = render(
+      <Switch aria-label="게스트 허용" disabled={true} />,
+    );
+    const classes = getByRole("switch").className.split(" ");
+    expect(classes).toContain("data-[state=checked]:bg-control-checked");
+    expect(classes).toContain("data-[state=unchecked]:bg-input");
+    expect(classes).toContain("disabled:opacity-40");
+    expect(classes).toContain("disabled:cursor-not-allowed");
+    expect(classes.some((c) => c.startsWith("aria-disabled:opacity"))).toBe(
+      false,
+    );
+  });
+
+  test("저장 중(aria-disabled)에만 thumb 안에 스피너가 돈다", () => {
+    const { container, rerender } = render(
+      <Switch aria-label="게스트 허용" defaultChecked={true} />,
+    );
+    const spinner = () =>
+      container.querySelector('[data-slot="switch-spinner"]');
+    expect(spinner()).toBe(null);
+
+    rerender(
+      <Switch
+        aria-label="게스트 허용"
+        defaultChecked={true}
+        aria-disabled={true}
+      />,
+    );
+    expect(spinner()?.parentElement?.dataset.slot).toBe("switch-thumb");
+    expect(spinner()?.getAttribute("aria-hidden")).toBe("true");
+    expect(spinner()?.className).toContain("animate-spin");
+    expect(spinner()?.className).toContain("motion-reduce:animate-none");
+
+    rerender(
+      <Switch aria-label="게스트 허용" checked={false} aria-disabled={true} />,
+    );
+    expect(spinner()?.parentElement?.dataset.state).toBe("unchecked");
   });
 });
