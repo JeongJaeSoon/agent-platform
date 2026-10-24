@@ -19,7 +19,7 @@ B=.claude/skills/verify-agent-platform/scripts/browser.mjs
 
 ID 저장은 아래 `printf`처럼 값이 UUID인 ID에만 쓴다. key·cookie·OAuth 값은 `ids.sh`에 저장하지 않는다. 새 run에서는 그 run의 파일만 복원한다.
 
-기대: doctor exit 0. 출력 SHA가 검사할 checkout이다. 이후 JSON은 `head -1` 뒤 jq, 상태는 원래 출력 마지막 줄로 판정한다. POST 세션 요청에는 `ap_post`가 Idempotency-Key를 붙인다. cookie로 세션 POST를 만들 때도 이 헤더가 필요하므로 이 절차는 개인 key를 쓴다.
+기대: doctor exit 0. 출력 SHA가 검사할 checkout이다. 이후 JSON은 `head -1` 뒤 jq, 상태는 원래 출력 마지막 줄로 판정한다. POST에는 `ap_post`·`ap_web`이 Idempotency-Key를 붙인다.
 
 ## P-API-READY — 공개 운영 표면
 
@@ -434,7 +434,7 @@ node "$B" "$RUN" shot home-request
 REQ=$(ap_get "/v1/sessions/$QSID/pending-requests" | head -1 | jq -r '.items[0].request_id')
 printf 'REQ=%s\n' "$REQ" >> "$VERIFY_RUN/ids.sh"
 ap_post "/v1/sessions/$QSID/answers" "$(jq -nc --arg r "$REQ" '{request_id:$r,kind:"permission",decision:"allow"}')"
-curl -sSN --max-time 5 "$API/v1/sessions/$QSID/events" -H "Authorization: Bearer $KEY" > "$EVIDENCE/pending-events.txt" || test "$?" = 28
+ap_curl key -N --max-time 5 "$API/v1/sessions/$QSID/events" > "$EVIDENCE/pending-events.txt" || test "$?" = 28
 ```
 
 기대: pending 200 `answerable:true`, items 한 개 `kind:"permission"`, `tool:"Bash"`. 홈 요청 카드와 세션 sidebar 대기 배지. 답 202. turn 1이 completed가 될 때까지 위 poll 방식으로 확인한다. 홈에서 카드가 사라지고 배지가 숨는다. SSE에 question/status/result 이벤트가 있고 curl timeout 28은 스트림 캡처 종료다.

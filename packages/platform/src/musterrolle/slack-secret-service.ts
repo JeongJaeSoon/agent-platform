@@ -35,7 +35,6 @@ const FORBIDDEN_WEB_ONLY = () =>
   );
 
 const MANAGERS = MANAGEMENT_ROLES["workspace.manage"] ?? [];
-
 const STORE_OFF = () =>
   new SessionServiceError(
     "BACKEND_UNAVAILABLE",

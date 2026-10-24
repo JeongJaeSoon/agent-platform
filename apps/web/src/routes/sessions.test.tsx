@@ -1935,6 +1935,29 @@ describe("session profile", () => {
     ).toBe(true);
   });
 
+  test("a send in flight survives a trip to another tab and is not sent twice", async () => {
+    const user = await setupUser();
+    let posts = 0;
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`POST /v1/sessions/${SESSION_ID}/messages`]: () => {
+        posts += 1;
+        return new Promise<Response>(() => {});
+      },
+    });
+    await user.click(await screen.findByRole("textbox", { name: "다음 지시" }));
+    await user.keyboard("next step");
+    await user.click(screen.getByRole("button", { name: "보내기" }));
+    await waitFor(() => expect(posts).toBe(1));
+    await setupInfo();
+    await user.click(screen.getByRole("tab", { name: "진행" }));
+    const send = screen.getByRole("button", { name: "보내기" });
+    expect((send as HTMLButtonElement).disabled).toBe(true);
+    await user.click(send);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(posts).toBe(1);
+  });
+
   test("a reader who clicked elsewhere while sending keeps their place", async () => {
     const { accept } = await sendHeldByMouse();
     fireEvent.pointerDown(document.body);
