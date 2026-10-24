@@ -12,6 +12,7 @@ import {
 import * as schema from "@werft-ai/db";
 import {
   agentAdmins,
+  apiKeys,
   authzDecisions,
   createDatabaseAgentAuthority,
   createDatabaseIdentityReader,
@@ -274,6 +275,19 @@ integration("API keys by authority over HTTP on PostgreSQL", () => {
     );
   }
 
+  // The authenticator records a use without awaiting it.
+  async function lastUsedOf(keyId: string) {
+    for (let tries = 0; tries < 40; tries++) {
+      const [row] = await db
+        .select({ at: apiKeys.lastUsedAt })
+        .from(apiKeys)
+        .where(eq(apiKeys.id, keyId));
+      if (row?.at) return row.at;
+      await Bun.sleep(50);
+    }
+    return null;
+  }
+
   async function decisionsFor(action: string) {
     return db
       .select({
@@ -330,6 +344,7 @@ integration("API keys by authority over HTTP on PostgreSQL", () => {
 
   let agentKey = "";
   let personalKey = "";
+  let agentKeyId = "";
 
   test("an agent's admin issues a key bound to it, and no other service key", async () => {
     const bound = await issue(asCookie(cookies.member), {
@@ -343,8 +358,11 @@ integration("API keys by authority over HTTP on PostgreSQL", () => {
       kind: "service",
       agent_id: agentIds.mine,
       created_by: memberId,
+      created_by_user: { id: memberId, display_name: "member@example.com" },
+      last_used_at: null,
     });
     agentKey = created.secret;
+    agentKeyId = created.key.id;
 
     for (const body of [
       { kind: "service", scopes: ["sessions:read"] },
@@ -547,5 +565,48 @@ integration("API keys by authority over HTTP on PostgreSQL", () => {
     expect((await createSession(bearer(agentKey), releases.mine)).status).toBe(
       201,
     );
+  });
+
+  test("a listed key shows its last use and its departed issuer's name, and no other member field", async () => {
+    const usedAt = await lastUsedOf(agentKeyId);
+    expect(usedAt).not.toBeNull();
+    await db
+      .update(users)
+      .set({ disabledAt: new Date() })
+      .where(eq(users.id, memberId));
+    const response = await send("GET", "/v1/api-keys", asCookie(cookies.owner));
+    const raw = (await response.json()) as {
+      items: Record<string, unknown>[];
+    };
+    const row = listApiKeysResponseSchema
+      .parse(raw)
+      .items.find((key) => key.id === agentKeyId);
+    expect(row).toMatchObject({
+      created_by_user: { id: memberId, display_name: "member@example.com" },
+      last_used_at: usedAt?.toISOString(),
+    });
+    for (const item of raw.items) {
+      expect(Object.keys(item).sort()).toEqual(
+        [
+          "agent_id",
+          "created_at",
+          "created_by",
+          "created_by_user",
+          "expires_at",
+          "id",
+          "kind",
+          "last_used_at",
+          "revoked_at",
+          "scopes",
+          "workspace_id",
+        ].sort(),
+      );
+      if (item.created_by_user !== null) {
+        expect(Object.keys(item.created_by_user as object).sort()).toEqual([
+          "display_name",
+          "id",
+        ]);
+      }
+    }
   });
 });

@@ -29,10 +29,22 @@ export const apiKeyViewSchema = z
     agent_id: agentIdSchema.nullable(),
     /** Null on a key issued before keys recorded who issued them. */
     created_by: userIdSchema.nullable(),
+    created_by_user: z
+      .object({ id: userIdSchema, display_name: z.string() })
+      .strict()
+      .nullable()
+      .meta({
+        description:
+          "Who issued the key, with their display name as it is now. It stays after the issuer leaves the workspace or their account is disabled. Null on a key issued before keys recorded who issued them.",
+      }),
     scopes: z.array(sessionScopeSchema),
     created_at: timestampSchema,
     expires_at: timestampSchema.nullable(),
     revoked_at: timestampSchema.nullable(),
+    last_used_at: timestampSchema.nullable().meta({
+      description:
+        "When the key last authenticated a request, recorded at most once a minute. Null means it has not been used since last-use recording began, not that it was never used.",
+    }),
   })
   .strict();
 

@@ -56,14 +56,16 @@ curl -sS -w '\n' "$API/v1" -H "Authorization: Bearer $MY_KEY"
 
 목록에는 자기 개인 key와 자기가 관리하는 서비스 key만 나온다. 비밀값은 나오지 않는다.
 
+`last_used_at`은 key가 마지막으로 인증에 성공한 시각이다. key마다 1분에 한 번까지만 기록하므로 최대 1분 늦을 수 있다. `null`은 마지막 사용 기록을 시작한 뒤로 쓰인 적이 없다는 뜻이고, 한 번도 쓰인 적이 없다는 뜻은 아니다. `created_by_user`는 발급한 사람의 id와 지금의 표시 이름이다. 그 사람이 워크스페이스를 떠나거나 계정이 비활성화돼도 이름은 그대로 나온다. 발급한 사람이 기록되지 않은 key(운영자 CLI로 만든 key)는 `null`이다.
+
 ```bash
-curl -sS "$API/v1/api-keys" "${WEB[@]}" | jq -c --arg id "$KEY_ID" '.items[] | select(.id == $id) | {kind, scopes, revoked_at}'
+curl -sS "$API/v1/api-keys" "${WEB[@]}" | jq -c --arg id "$KEY_ID" '.items[] | select(.id == $id) | {kind, scopes, revoked_at, used: (.last_used_at != null), issuer: .created_by_user.display_name}'
 curl -sS -X DELETE "$API/v1/api-keys/$KEY_ID" "${WEB[@]}" | jq '{receipt: (.receipt_id != null)}'
 curl -sS -o /dev/null -w '%{http_code}\n' "$API/v1" -H "Authorization: Bearer $MY_KEY"
 ```
 
 ```text
-{"kind":"personal","scopes":["sessions:read","sessions:write"],"revoked_at":null}
+{"kind":"personal","scopes":["sessions:read","sessions:write"],"revoked_at":null,"used":true,"issuer":"…"}
 {
   "receipt": true
 }
