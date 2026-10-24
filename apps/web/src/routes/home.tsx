@@ -31,6 +31,8 @@ import {
   GridTableRow,
   GridTableRowOpener,
   RelativeTime,
+  StatusDot,
+  type StatusDotStatus,
   Steps,
   Link as TextLink,
   Tooltip,
@@ -836,10 +838,8 @@ interface GlanceRow {
   readonly value: ReactNode;
   /** A label from data (an agent's name) wraps; fixed labels stay on one line. */
   readonly wraps?: boolean;
-  readonly dot?: Dot | undefined;
+  readonly dot?: StatusDotStatus | undefined;
 }
-
-type Dot = "wait" | "run" | "idle" | "done" | "failed";
 
 const SLACK_DOT = { active: "done", stale: "wait", none: "idle" } as const;
 const SLACK_LABEL = {
@@ -855,27 +855,7 @@ const SESSION_DOT = {
   idle: "idle",
   failed: "failed",
   stopped: "idle",
-} as const satisfies Record<SessionSummary["status"], Dot>;
-
-// Console.dc.html .dot: 8px, the running one a 10px ring turning every 0.9s.
-const DOT_CLASS = {
-  wait: "size-2 bg-(--ap-color-status-dot-wait)",
-  done: "size-2 bg-(--ap-color-status-dot-done)",
-  failed: "size-2 bg-(--ap-color-status-dot-failed)",
-  idle: "size-2 bg-(--ap-color-status-dot-idle)",
-  run: "size-2.5 animate-spin border-[1.5px] border-(--ap-color-status-dot-run) border-r-transparent [animation-duration:0.9s] motion-reduce:size-2 motion-reduce:animate-none motion-reduce:border-r-(--ap-color-status-dot-run) motion-reduce:bg-(--ap-color-status-dot-run)",
-} as const satisfies Record<Dot, string>;
-
-/** The design's status dot; the text beside it carries the meaning. */
-function StatusDot({ dot }: { readonly dot: Dot }) {
-  return (
-    <span
-      className={cn("shrink-0 rounded-full", DOT_CLASS[dot])}
-      data-dot={dot}
-      aria-hidden="true"
-    />
-  );
-}
+} as const satisfies Record<SessionSummary["status"], StatusDotStatus>;
 
 function GlanceCard({
   eyebrow,
@@ -937,7 +917,7 @@ function GlanceCard({
                   row.wraps && "shrink-0",
                 )}
               >
-                {row.dot ? <StatusDot dot={row.dot} /> : null}
+                {row.dot ? <StatusDot status={row.dot} /> : null}
                 {row.value}
               </dd>
             </div>
@@ -1053,7 +1033,7 @@ function RecentRow({
         {session.title ? (
           <>
             <span
-              className="max-w-full truncate font-medium"
+              className="max-w-full truncate font-medium text-link"
               title={session.title}
             >
               {session.title}
@@ -1066,7 +1046,7 @@ function RecentRow({
             </span>
           </>
         ) : (
-          <span className="font-mono font-medium" title={session.id}>
+          <span className="font-mono font-medium text-link" title={session.id}>
             {session.id.slice(0, 8)}
           </span>
         )}
@@ -1074,10 +1054,10 @@ function RecentRow({
       {/* Raised: the wait's exact time opens on its own hover and focus. */}
       <GridTableCell raised={true}>
         <div
-          className="flex min-w-0 items-center gap-2 whitespace-nowrap text-control"
+          className="flex min-w-0 items-center gap-2 text-control"
           data-state={session.status}
         >
-          <StatusDot dot={SESSION_DOT[session.status]} />
+          <StatusDot status={SESSION_DOT[session.status]} />
           <span>
             <span className="sr-only">{t("home.recent.statusAxis")} </span>
             {t(`sessions.status.${session.status}`)}

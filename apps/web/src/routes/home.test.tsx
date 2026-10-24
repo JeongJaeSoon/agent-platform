@@ -422,8 +422,8 @@ describe("홈 요약", () => {
     const recent = screen.getByRole("table", { name: "최근 세션" });
     // The design's dot, not a pill: amber for waiting, the text says which.
     expect(
-      [...recent.querySelectorAll("[data-dot]")].map((dot) =>
-        dot.getAttribute("data-dot"),
+      [...recent.querySelectorAll("[data-slot=status-dot]")].map((dot) =>
+        dot.getAttribute("data-status"),
       ),
     ).toEqual(["wait", "idle"]);
     expect(
@@ -859,8 +859,8 @@ describe("홈 요약", () => {
     );
     expect(cards(overview)[0]?.title).toBe("내가 시작한 세션 기준");
     expect(
-      [...overview.querySelectorAll("[data-dot]")].map((dot) =>
-        dot.getAttribute("data-dot"),
+      [...overview.querySelectorAll("[data-slot=status-dot]")].map((dot) =>
+        dot.getAttribute("data-status"),
       ),
     ).toEqual(["wait", "run", "idle", "idle", "idle", "idle"]);
     // The "last 30 days" basis waits for a usage period; only the owner's shows.
