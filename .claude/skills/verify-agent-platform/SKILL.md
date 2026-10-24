@@ -10,11 +10,11 @@ description: Drive the agent-platform stack the way a user does — launch it lo
 | 표면 | 무엇 | 몰기 |
 |---|---|---|
 | web API (cookie) | `/v1/auth/**`(bootstrap·login-methods·login·me·logout, Google), 초대·구성원·팀·에이전트·권한별 key·연동 계정·공유·감사 열람·워크스페이스 설정 | `ap_web` (curl + CSRF 헤더 + cookie), 자격 값이 본문에 드는 요청은 `web-user.mjs` |
-| 웹 콘솔 | `apps/web`을 API가 같은 origin에서 서빙: `/login`·`/bootstrap`·`/`·`/members`·`/invite/{token}`·`/sessions`·`/teams`·`/agents`·`/settings/*` | 이 run의 headless Chrome(`browser.mjs`: 폭·다크·오류·로딩 스크린샷), 서빙 헤더는 curl |
-| API | `/v1/sessions/**`, `/v1/receipts`, `/v1/usage/summary`, `/docs`, `/readyz` (`/v1/limits`는 owner cookie로 `ap_web`) | `ap_get`·`ap_post` (Bearer key) |
+| 웹 콘솔 | `apps/web`을 API가 같은 origin에서 서빙: `/login`·`/bootstrap`·`/`·`/members`·`/invite/{token}`·`/sessions`·`/members/teams`·`/agents`·`/usage`·`/settings/*` | 이 run의 headless Chrome(`browser.mjs`: 폭·다크·오류·로딩 스크린샷), 서빙 헤더는 curl |
+| API | `/v1/sessions/**`, `/v1/receipts/{id}`, `/v1/usage/summary`, `/v1/sessions/counts`, `/docs`, `/readyz` (`/v1/limits`는 owner cookie로 `ap_web`) | `ap_get`·`ap_post` (Bearer key) |
 | CLI | key CLI(`apps/control-host/src/api/keys.ts`)의 `create`·`revoke` | `ap_key`·`ap_revoke` |
 
-기능별 절차는 [features/README.md](features/README.md)에 있다. 증명할 때는 map에 적힌 진입점을 모두 몬다.
+기능 map은 [features/README.md](features/README.md), 한 스택에서 순서대로 실행할 절차는 [features/procedures.md](features/procedures.md)에 있다. 이 스킬을 수정할 때는 구현과 대조하고 실행 결과와 구분한다. 증명할 때는 map에 적힌 진입점을 모두 몬다.
 
 ## 원칙
 
@@ -91,7 +91,7 @@ run, project, 이미지를 빌드한 소스(`up.sh` 때의 HEAD + 커밋하지 �
 - 위치: `$VERIFY_RUN/evidence/`. `up.log`, `down.log`, `leftovers.txt`는 스크립트가 쓴다. 드라이브 출력은 기능 이름으로 `tee`한다(예: `| tee "$EVIDENCE/web-login.txt"`).
 - 행동과 결과를 같이 남긴다: 요청(메서드·경로), 응답 본문, 상태 코드. 바뀐 상태는 다른 경로로 다시 읽어 확인한다(로그인 뒤 `GET /v1/auth/me`, key 폐기 뒤 같은 key로 401, 세션 생성 뒤 `GET /v1/sessions/{id}`).
 - 사용자 경로만 쓴다. `/internal/**`나 DB 직접 쓰기로 상태를 만들지 않는다. DB는 읽기 확인에만 쓴다(`ap_compose exec -T postgres psql -U postgres -d sessions -c '…'`).
-- mock은 fake model(외부 Messages API 경계)뿐이다.
+- 기본 mock은 fake model이다. Slack 절차는 명시적으로 `infra/compose.mock-slack.yml`을 더해 외부 Slack 경계도 대체한다.
 - key·cookie 값은 증거에 넣지 않는다. 남기기 전에 `sed -E 's/(csp_[A-Za-z0-9_]{2})[A-Za-z0-9_-]+/\1…/g'`처럼 가린다.
 
 ## Cleanup
@@ -112,6 +112,8 @@ run, project, 이미지를 빌드한 소스(`up.sh` 때의 HEAD + 커밋하지 �
 
 ## 알려진 함정
 
+- 절차는 zsh(Claude Code Bash 도구) 또는 bash 4 이상에서 실행한다. macOS `/bin/bash` 3.2는 중첩 command substitution의 GATE-SPEC JSON 인용을 깨뜨려 `unterminated GATE-SPEC`·`api_error`를 만들 수 있다.
+
 - host bun이 `package.json`의 `packageManager`(bun 1.3.14)와 다르면 main에서도 실패하는 로컬 테스트가 있다. 이 스킬은 bun을 host에서 쓰지 않는다(key CLI도 api 컨테이너 안에서 돈다). 테스트 판정은 CI가 기준이다.
 - `local.sh status`·`key`·`down`은 env의 `COMPOSE_PROJECT_NAME`·`COMPOSE_FILE`을 따른다. `lib.sh`를 source하지 않은 셸에서 부르면 기본 project `agent-platform`을 건드린다.
 - `__Host-` cookie는 `Secure`라 curl이 http에서 저장하지 않는다. `ap_web`이 `Set-Cookie`에서 직접 꺼내 보낸다.
@@ -122,3 +124,17 @@ run, project, 이미지를 빌드한 소스(`up.sh` 때의 HEAD + 커밋하지 �
 ## 유지
 
 기능이 바뀌면 [features/](features/)를 고친다. 주기 점검은 `maintain-verification-skill`로 한다.
+
+## 데모와 추가 드라이버
+
+기본 `up.sh`는 `LOCAL_DEMO_ACCOUNTS=0`이다. bootstrap 검증과 데모 검증은 별도 run이다.
+
+```sh
+VERIFY_DEMO_ACCOUNTS=1 .claude/skills/verify-agent-platform/scripts/up.sh
+```
+
+이 모드는 `local.sh`에 `LOCAL_DEMO_ACCOUNTS=1`을 넘긴다. `LOCAL_DEMO_DATA=0`을 함께 주면 계정만 만든다. 기본값은 fake model 데모 에이전트·세션도 만든다. 절차는 `P-DEMO-SEED`다. 기존 사용자·데이터를 덮어쓰지 않는다.
+
+`web-user.mjs <run id> demo-login owner|member`는 소스의 데모 계정으로 로그인하고 `users/demo-owner|demo-member`와 cookie를 저장한다. 비밀번호를 명령에 적지 않는다.
+`web-user.mjs <run id> slack-config owner <workspace id>`는 mock config token을 컨테이너 안에서 받아 저장한다.
+`web-user.mjs <run id> slack-event <agent id> <challenge|event|duplicate|bad|stale|malformed|bot>`는 이 run의 Slack 앱 signing secret을 컨테이너 안에서 읽어 HMAC을 계산한다. secret을 출력하지 않는다. `event`는 `EvVerify1`, `duplicate`는 같은 event id다. 새 overlay run에서 한 번 실행한다. mock overlay가 아니면 거절한다. 상세 전제는 `P-SLACK-INBOUND`다.

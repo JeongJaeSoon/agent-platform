@@ -348,7 +348,10 @@ switch (cmd) {
       b?.click(); return !!b; })()`);
     if (!picked) await refused();
     await settle();
-    await fill("input[name=display_name]", `Verify ${args[0]}`);
+    await fill(
+      "input[name=display_name]",
+      `Verify ${args[0][0].toUpperCase()}${args[0].slice(1)}`,
+    );
     await fill("input[name=password]", c.password);
     await submit();
     if ((await here()) !== "/") await refused();

@@ -13,6 +13,10 @@
 //   web-user.mjs <run> invite <inviter> <who> <role>  token → users/<who>.invite, credentials → users/<who>
 //   web-user.mjs <run> accept <who>                 accept users/<who>.invite, cookie as login
 //   web-user.mjs <run> key <who> <personal|service> <scope,scope>  secret → keys/<who>
+//   web-user.mjs <run> demo-login <owner|member>  source-defined demo credentials
+//   web-user.mjs <run> slack-config <who> <workspace>  mock config token, never printed
+//   web-user.mjs <run> slack-event <agent> <mode>  signed mock inbound request
+import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -116,7 +120,96 @@ const bootstrapBody = (c, token) => ({
   workspace_slug: "verify",
 });
 
+function composeBun(source, args = []) {
+  if (!state.COMPOSE_PROJECT_NAME?.startsWith("verify-ap-"))
+    throw new Error("not a verification project");
+  if (!state.COMPOSE_FILE?.includes("infra/compose.mock-slack.yml"))
+    throw new Error("mock Slack overlay required");
+  return execFileSync(
+    "docker",
+    [
+      "compose",
+      "--profile",
+      "apps",
+      "--profile",
+      "fake-model",
+      "exec",
+      "-T",
+      "-w",
+      "/app",
+      "api",
+      "bun",
+      "-e",
+      source,
+      ...args,
+    ],
+    {
+      cwd: state.VERIFY_REPO,
+      env: { ...process.env, ...state },
+      encoding: "utf8",
+    },
+  ).trim();
+}
+
 switch (cmd) {
+  case "demo-login": {
+    if (!["owner", "member"].includes(who))
+      throw new Error("demo role must be owner or member");
+    const source = readFileSync(
+      join(state.VERIFY_REPO, "apps/control-host/src/api/demo-accounts.ts"),
+      "utf8",
+    );
+    const password = source.match(
+      /export const DEMO_PASSWORD = "([^"]+)"/,
+    )?.[1];
+    if (!password) throw new Error("cannot read demo password constant");
+    const name = `demo-${who}`;
+    const c = { email: `${name}@example.test`, password };
+    writeFileSync(userFile(name), JSON.stringify(c), { mode: 0o600 });
+    const r = await call("POST", "/v1/auth/login", c);
+    keepSession(name, r);
+    report(r);
+    break;
+  }
+  case "slack-config": {
+    const workspace = rest[0];
+    if (!workspace) throw new Error("workspace id required");
+    const value = composeBun(
+      'const r = await fetch("http://mock-slack:4020/fake/config-tokens", { method: "POST" }); if (!r.ok) throw new Error("mock config failed"); console.log((await r.json())["refresh_token"]);',
+    );
+    report(
+      await call(
+        "PUT",
+        `/v1/workspaces/${workspace}/slack/config-token`,
+        { value },
+        { cookie: cookieOf(who) },
+      ),
+    );
+    break;
+  }
+  case "slack-event": {
+    const mode = rest[0];
+    if (
+      !/^[0-9a-f-]{36}$/i.test(who) ||
+      ![
+        "challenge",
+        "event",
+        "duplicate",
+        "bad",
+        "stale",
+        "malformed",
+        "bot",
+      ].includes(mode)
+    )
+      throw new Error("agent UUID and event mode required");
+    console.log(
+      composeBun(
+        readFileSync(new URL("./slack-event.ts", import.meta.url), "utf8"),
+        [who, mode],
+      ),
+    );
+    break;
+  }
   case "bootstrap":
     report(
       await call(

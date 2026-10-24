@@ -71,16 +71,14 @@ Preconditions:
   ap_compose logs api 2>&1 | grep -c 'Secret store is off'      # 0
   # owner bootstrap + login: web-login.md. WS는 login 응답의 workspace_id. member 초대·수락. 이후 ap_as owner
   # 1. config token (owner)
-  CT=$(ap_compose exec -T api bun -e 'const r = await fetch("http://mock-slack:4020/fake/config-tokens", { method: "POST" }); console.log((await r.json())["refresh_token"])')
-  echo "config token chars: ${#CT}"
-  ap_web PUT "/v1/workspaces/$WS/slack/config-token" "$(jq -nc --arg value "$CT" '{$value}')"; unset CT
+  node .claude/skills/verify-agent-platform/scripts/web-user.mjs <run id> slack-config owner "$WS"
   # 2. 에이전트 앱 (owner). CARD는 d의 2. release를 활성화해야 앱을 만든다
   ap_web POST /v1/agents "{\"slug\":\"research\",\"name\":\"research\",\"card\":$CARD}"      # AID, VID = versions[0].id
   ap_web POST "/v1/agents/$AID/releases" "{\"version_id\":\"$VID\",\"runtime_profile_id\":\"claude-coding-local\"}"   # REL = release.id
   ap_web POST "/v1/agents/$AID/activate" "{\"release_id\":\"$REL\",\"expected_revision\":-1}"
   ap_web POST "/v1/agents/$AID/slack/app" '{}'                  # APP = slack_app.app_id
   # 3. 설치 (owner): start → mock 동의 → complete
-  AUTH=$(ap_web POST "/v1/agents/$AID/slack/install/start" | sed '$d' | jq -r '.["authorize_url"]')
+  AUTH=$(ap_web POST "/v1/agents/$AID/slack/install/start" | head -1 | jq -r '.["authorize_url"]')
   GRANT=$(ap_compose exec -T api bun -e 'const r = await fetch("http://mock-slack:4020/fake/oauth/authorize" + new URL(process.argv[1]).search); console.log(await r.text())' "$AUTH")
   ap_web POST /v1/slack/install/complete "$(echo "$GRANT" | jq -c --arg agent "$AID" '{agent_id: $agent, state, code}')"
   ap_web GET "/v1/agents/$AID/identities"
@@ -107,7 +105,7 @@ Preconditions:
   # 4의 START·LINK·BODY를 다시 만들되 authorize_url 끝에 &mock_team=T0OTHER를 붙여 동의하고 callback
   ```
 
-  기대: api 로그의 `Secret store is off`가 `0`줄. config token PUT `200` `{configured: true, state: "active", last4, issuer: {user_id: "U0MOCK", team_id: "T0MOCK"}, receipt_id, warnings: []}`. 앱 `200` `created: true`, `slack_app.state: created`(`app_id`는 mock이 만든 `A0FAKE…`, `secrets`는 signing·client secret만 `configured: true`). install start `200` `{authorize_url, expires_at}`(`https://slack.com/oauth/v2/authorize?…`, 10분), mock 동의 `{ok: true, code, state}`, complete `200` `installation.status: verified`(team `T0MOCK`), `agent_identity`(`credential_ref` `slack_app:<id>/slack_bot_token`, `active`), `receipt_id`, `finalized: true`. `identities`에 그 한 줄. member의 연결 시작 `200`(`authorize_url`이 `http://mock-slack:4020/openid/connect/authorize`, client는 새 link 앱)이고, `slack_apps`는 `agent | created | A0FAKE…`와 `link | created | A0FAKE…` 두 줄이 된다. callback `201`과 `receipt_id`, 목록에 `active` 한 줄(`external_tenant` `T0MOCK`, `external_user_id` `U0MOCK`). 해제 `200`(`receipt_status: succeeded`) 뒤 목록이 비고 DB는 `revoked | unlinked | 2`, `resolveLinkedSubject`는 `{"status":"unlinked"}`. `mock_team=T0OTHER`로 동의하면 callback `409 LINK_TEAM_MISMATCH`. 대기 중이던 입력의 처리 시점 재판정(`createDatabaseIdentityReader(db).reread`에 `linked_account: {id, revision}`)도 `unlinked`로 거절한다. Slack 입력 전까지는 사용자 경로가 없어 위처럼 api 컨테이너에서 부른다. 초대(`POST /v1/invites`)·수락한 member가 같은 방법으로 연결한 뒤 owner가 `POST /v1/members/{user_id}/disable`로 비활성화하면 receipt `result.revoked_linked_accounts`가 `1`이고 DB 행은 `revoked | offboarded`다(2026-10-11 run `20261011-184057-50543`).
+  기대: api 로그의 `Secret store is off`가 `0`줄. config token PUT `200` `{configured: true, state: "active", last4, issuer: {user_id: "U0MOCK", team_id: "T0MOCK"}, receipt_id, warnings: []}`. 앱 `200` `created: true`, `slack_app.state: created`(`app_id`는 mock이 만든 `A0FAKE…`, `secrets`는 signing·client secret만 `configured: true`). install start `200` `{authorize_url, expires_at}`(`https://slack.com/oauth/v2/authorize?…`, 10분), mock 동의 `{ok: true, code, state}`, complete `200` `installation.status: verified`(team `T0MOCK`), `agent_identity`(`credential_ref` `slack_app:<id>/slack_bot_token`, `active`), `receipt_id`. 공개 이벤트 URL이 없는 기본 mock overlay에서는 `finalized: false`, `warnings: [{"code":"events_url_unset"}]`이며 `identities`에 그 한 줄이 남는다. `SLACK_EVENTS_PUBLIC_URL`을 설정하고 이벤트 구독 manifest 갱신이 성공하면 `finalized: true`다(P-SLACK-SETUP 참조). `finalized: false`여도 로컬 signed POST는 수신한다. member의 연결 시작 `200`(`authorize_url`이 `http://mock-slack:4020/openid/connect/authorize`, client는 새 link 앱)이고, `slack_apps`는 `agent | created | A0FAKE…`와 `link | created | A0FAKE…` 두 줄이 된다. callback `201`과 `receipt_id`, 목록에 `active` 한 줄(`external_tenant` `T0MOCK`, `external_user_id` `U0MOCK`). 해제 `200`(`receipt_status: succeeded`) 뒤 목록이 비고 DB는 `revoked | unlinked | 2`, `resolveLinkedSubject`는 `{"status":"unlinked"}`. `mock_team=T0OTHER`로 동의하면 callback `409 LINK_TEAM_MISMATCH`. 대기 중이던 입력의 처리 시점 재판정(`createDatabaseIdentityReader(db).reread`에 `linked_account: {id, revision}`)도 `unlinked`로 거절한다. 이 판정 함수 호출은 내부 진단이다. 서명 이벤트 수신·inbox 처리는 procedures.md의 P-SLACK-INBOUND로 검증한다. 초대(`POST /v1/invites`)·수락한 member가 같은 방법으로 연결한 뒤 owner가 `POST /v1/members/{user_id}/disable`로 비활성화하면 receipt `result.revoked_linked_accounts`가 `1`이고 DB 행은 `revoked | offboarded`다(2026-10-11 run `20261011-184057-50543`).
 
   손으로 만든 앱 경로(운영자 CLI). 플랫폼이 만든 앱이 아니라 사람이 Slack에서 만든 앱을 쓸 때만 설치 행을 `slack-install register`로 만든다. mock은 고정 bot 하나(app `A0MOCK`, bot 사용자 `U0MOCKBOT`)에 답한다. 그 bot token은 mock 소스(`packages/testkit/src/mock-slack-oidc-main.ts`의 `MOCK_SLACK_BOT_TOKEN` 기본값)에 있으므로 api 컨테이너 안에서 그 파일을 읽어 CLI에 넘긴다. host 셸 변수나 `-e`로 넘기면 agent-guard가 명령을 거부한다. link 앱도 CLI로 미리 만들 수 있다(위에서 이미 만들었으면 `outcome: exists`). 두 줄은 Bash 호출 하나씩으로 부른다.
 
@@ -174,7 +172,7 @@ Preconditions:
   11. `SELECT action, outcome, reason_code, principal_kind, count(*) FROM authz_decisions WHERE action LIKE 'api_key.%' OR reason_code = 'agent_ceiling' GROUP BY 1,2,3,4` → `api_key.manage allow`(3의 발급과 8의 두 요청), `api_key.manage deny role user`(5의 둘), `api_key.manage_own allow`, `api_key.manage_own deny role api_key`(7의 둘), `session.submit deny agent_ceiling api_key`(4의 둘), `session.read deny agent_ceiling api_key`(4의 읽기들). `SELECT operation, result FROM receipts WHERE operation IN ('create_api_key','revoke_api_key')` → 발급마다 `create_api_key`, 폐기 한 번에 `revoke_api_key`, `result`에는 kind·agent_id·scopes만.
   - 증거는 `| tee "$EVIDENCE/musterrolle-d.txt"`. 남기기 전에 `csp_`·`apv_` 값을 가린다.
   - 2026-10-12 run `20261012-022045-88049`에서 1–9와 11을 확인했다(10의 발급자 비활성화는 a의 6에서 같은 결과).
-- **g. 에이전트의 Slack 앱 연결.** owner bootstrap·login은 [web-login.md](./web-login.md). 에이전트는 d의 2처럼 `ap_web POST /v1/agents`로 둘(`research`→`AID`, `finance`→`BID`) 만든다. c와 같은 스택에서 이어 하면 slug가 겹치니 `g-research`·`g-finance`처럼 바꾼다. 플랫폼이 만든 앱은 c의 3(install complete)이 설치 행과 연결을 함께 만들어 이 route를 부를 일이 없다. 이 route는 손으로 만든 앱(c의 `slack-install register`)을 잇는 경로다. 여기서는 설치 행(`A0VERIFY`·`T0VERIFY`·bot `B0VERIFY`)을 저장소 함수로 만든다. 설치 등록 CLI는 mock이 답하는 team(`T0MOCK`)만 확인하고, g는 bot을 바꿔 다시 확인하는 경우(`bot_mismatch`)까지 본다. 해석은 이벤트 수신 경로가 없어 함수로 부른다.
+- **g. 에이전트의 Slack 앱 연결.** owner bootstrap·login은 [web-login.md](./web-login.md). 에이전트는 d의 2처럼 `ap_web POST /v1/agents`로 둘(`research`→`AID`, `finance`→`BID`) 만든다. c와 같은 스택에서 이어 하면 slug가 겹치니 `g-research`·`g-finance`처럼 바꾼다. 플랫폼이 만든 앱은 c의 3(install complete)이 설치 행과 연결을 함께 만들어 이 route를 부를 일이 없다. 이 route는 손으로 만든 앱(c의 `slack-install register`)을 잇는 경로다. 여기서는 설치 행(`A0VERIFY`·`T0VERIFY`·bot `B0VERIFY`)을 저장소 함수로 만든다. 설치 등록 CLI는 mock이 답하는 team(`T0MOCK`)만 확인하고, g는 bot을 바꿔 다시 확인하는 경우(`bot_mismatch`)까지 본다. 아래 함수 호출은 저장소 fixture를 쓰는 내부 진단이다. 사용자 이벤트 수신은 procedures.md의 P-SLACK-INBOUND로 따로 검증한다.
 
   ```sh
   DB='import { Pool } from "pg"; import { drizzle } from "drizzle-orm/node-postgres"; import * as schema from "@werft-ai/db"; import * as platform from "@werft-ai/platform";
@@ -248,3 +246,5 @@ Preconditions:
 - 판정은 본문보다 먼저 묻는다. 그래서 owner의 `29` 요청(400)도 `audit_retention.manage | allow` 행을 남긴다.
 - 만료 정리는 시간을 당겨야 보이므로 E2E가 아니라 `packages/db/src/authz-decisions.integration.test.ts`로 본다.
 - 실제 Slack 앱·OAuth 동의는 사람만 한다. 자동 확인은 mock IdP로만 하고 실제 Slack 연결은 "사람 확인 필요"로 보고한다.
+
+서명 이벤트 수신과 slack role은 [procedures.md](procedures.md) P-SLACK-SETUP·P-SLACK-INBOUND다. HTTP `/v1/slack/events/{agent_id}`가 서명·5분 timestamp를 검사하고 inbox에 `(app_id,event_id)`로 중복 제거한다. slack role은 claim/lease로 처리하고 현재 no-op이므로 processed로 끝낸다. c의 판정 함수를 직접 부른 증거가 세션 생성·Slack 답장 증거는 아니다. 소스: `apps/control-host/src/api/routes/slack-events.ts`, `apps/control-host/src/slack/main.ts`, `packages/db/src/slack-inbound-events.ts`, `packages/platform/src/musterrolle/slack-inbox.ts`.
