@@ -1,5 +1,4 @@
 export const apiKeysKo = {
-  "apiKeys.title": "API key",
   "apiKeys.guideTitle": "key 종류",
   "apiKeys.guide.personal.actsAs":
     "발급한 사람으로 동작합니다. 이 key로 시작한 세션은 그 사람의 세션입니다.",
@@ -100,7 +99,6 @@ export const apiKeysKo = {
 };
 
 export const apiKeysEn: Record<keyof typeof apiKeysKo, string> = {
-  "apiKeys.title": "API keys",
   "apiKeys.guideTitle": "Key types",
   "apiKeys.guide.personal.actsAs":
     "Acts as the person who issued it. Sessions it starts are that person's.",
@@ -202,7 +200,6 @@ export const apiKeysEn: Record<keyof typeof apiKeysKo, string> = {
 };
 
 export const apiKeysJa: Record<keyof typeof apiKeysKo, string> = {
-  "apiKeys.title": "API キー",
   "apiKeys.guideTitle": "キーの種類",
   "apiKeys.guide.personal.actsAs":
     "発行した人として動作します。このキーで開始したセッションは、その人のものになります。",
