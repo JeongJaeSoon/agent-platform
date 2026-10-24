@@ -13,8 +13,9 @@ import { Clock, Lock } from "lucide-react";
 // The kit has no messages of its own; these stand in for apps/web's.
 const COPY = {
   ko: {
-    keyTitle: "key는 만든 사람의 권한을 넘지 않습니다",
-    keyText: "그 사람이 워크스페이스를 떠나거나 계정이 정지되면 바로 멈춥니다.",
+    keyTitle: "key 종류",
+    keyText:
+      "개인 key로 시작한 세션은 사람 세션으로 셉니다. 서비스 key로 시작하는 세션은 에이전트를 지정해야 하고, 서비스 key로는 요청을 승인할 수 없습니다.",
     outputsTitle: "결과물은 턴이 끝날 때 저장됩니다",
     outputsText: "같은 이름의 파일은 새 버전으로 쌓이고 30일 동안 보관됩니다.",
     secretTitle: "ci-deploy key를 만들었습니다",
@@ -32,9 +33,9 @@ const COPY = {
     long: "확인하지 못한 변경이 있습니다: ",
   },
   ja: {
-    keyTitle: "key は作成者の権限を超えません",
+    keyTitle: "key の種類",
     keyText:
-      "作成者がワークスペースを離れるかアカウントが停止されると、すぐに止まります。",
+      "個人 key で始めたセッションは人のセッションとして数えます。サービス key で始めるセッションはエージェントの指定が必要で、サービス key では要求を承認できません。",
     outputsTitle: "成果物はターンの終わりに保存されます",
     outputsText:
       "同じ名前のファイルは新しいバージョンとして積み重なり、30 日間保管されます。",
@@ -54,9 +55,9 @@ const COPY = {
     long: "確認できていない変更があります: ",
   },
   en: {
-    keyTitle: "A key never does more than its creator can",
+    keyTitle: "Key types",
     keyText:
-      "It stops at once when that person leaves the workspace or their account is suspended.",
+      "Sessions started with a personal key count as a person's sessions. A session started with a service key must name an agent, and a service key can't approve requests.",
     outputsTitle: "Outputs are saved when a turn ends",
     outputsText:
       "A file with the same name is kept as a new version for 30 days.",
