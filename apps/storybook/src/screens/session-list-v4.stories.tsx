@@ -38,9 +38,6 @@ interface Row {
   readonly summary: SessionSummary;
   /** From the oldest pending request's created_at. */
   readonly waitedMinutes?: number;
-  /** last_event_at as RelativeTime will show it, and its tooltip. */
-  readonly recent: string;
-  readonly exact: string;
 }
 
 function summary(
@@ -82,6 +79,9 @@ function summary(
   };
 }
 
+// The design's moment: rows read "12분 전", "3분 전", "어제 15:14", "10/20".
+const NOW = Date.parse("2026-10-24T06:14:45.000Z");
+
 const ROWS: readonly Row[] = [
   {
     summary: summary(
@@ -93,8 +93,6 @@ const ROWS: readonly Row[] = [
       "2026-10-24T06:02:11.000Z",
     ),
     waitedMinutes: 12,
-    recent: "12분 전",
-    exact: "2026년 10월 24일 15:02:11 GMT+9",
   },
   {
     summary: summary(
@@ -105,8 +103,6 @@ const ROWS: readonly Row[] = [
       null,
       "2026-10-24T06:11:40.000Z",
     ),
-    recent: "3분 전",
-    exact: "2026년 10월 24일 15:11:40 GMT+9",
   },
   {
     summary: summary(
@@ -117,8 +113,6 @@ const ROWS: readonly Row[] = [
       null,
       "2026-10-23T06:14:02.000Z",
     ),
-    recent: "어제 15:14",
-    exact: "2026년 10월 23일 15:14:02 GMT+9",
   },
   {
     summary: summary(
@@ -129,8 +123,6 @@ const ROWS: readonly Row[] = [
       "demo-repo",
       "2026-10-20T00:40:17.000Z",
     ),
-    recent: "10/20",
-    exact: "2026년 10월 20일 09:40:17 GMT+9",
   },
   {
     // Created before titles existed (migration 0155 backfills none).
@@ -142,8 +134,6 @@ const ROWS: readonly Row[] = [
       "demo-repo",
       "2026-10-18T02:03:55.000Z",
     ),
-    recent: "10/18",
-    exact: "2026년 10월 18일 11:03:55 GMT+9",
   },
 ];
 
@@ -211,7 +201,6 @@ function SessionListV4Body({
       <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center gap-2">
           <PartRequest name="SegmentedControl" />
-          <PartRequest name="RelativeTime + Tooltip" />
           <Badge variant="red">
             탭 개수·에이전트·시작한 사람 열: API 변경 필요 (94S-811)
           </Badge>
@@ -291,11 +280,7 @@ function SessionListV4Body({
                         ? undefined
                         : `${row.waitedMinutes}분`
                     }
-                    renderTime={(at) => (
-                      <time dateTime={at} title={row.exact}>
-                        {row.recent}
-                      </time>
-                    )}
+                    now={NOW}
                     renderLink={(link) => (
                       <Link href={`#/sessions/${row.summary.id}`} {...link} />
                     )}

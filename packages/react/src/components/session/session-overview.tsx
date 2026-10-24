@@ -1,13 +1,13 @@
 /* biome-ignore-all lint/a11y/useSemanticElements: container-responsive columns use a div-grid table. */
 /* biome-ignore-all lint/a11y/useFocusableInteractive: static table rows delegate keyboard navigation to their cell links. */
 import type { SessionStatus, SessionSummary } from "@werft-ai/contracts";
-import { cn, formatTimestamp, type TimestampLocale } from "@werft-ai/ui";
+import { cn, RelativeTime, type TimestampLocale } from "@werft-ai/ui";
 import { Folder } from "lucide-react";
 import type { JSX, ReactNode } from "react";
-
 import { GitBranch } from "../console-icons.ts";
 import { StatusLabel } from "../status/status-label.tsx";
 import type { SessionRowLink } from "./session-row.tsx";
+import { useMinute } from "./use-minute.ts";
 
 /**
  * The console's session list columns, shared by the header and every row.
@@ -101,9 +101,14 @@ export interface SessionOverviewRowProps {
   readonly messages: SessionOverviewRowMessages;
   /** After the status, such as how long an answer has been awaited. */
   readonly statusDetail?: string | undefined;
-  /** Draws the last activity; the absolute time when omitted. */
+  /**
+   * Draws the last activity; when omitted, "12분 전" with the exact time in
+   * a tooltip.
+   */
   readonly renderTime?: ((iso: string) => ReactNode) | undefined;
   readonly locale?: TimestampLocale | undefined;
+  /** The instant the default time counts from; a clock of its own if unset. */
+  readonly now?: number | undefined;
   readonly className?: string | undefined;
 }
 
@@ -114,8 +119,10 @@ export function SessionOverviewRow({
   statusDetail,
   renderTime,
   locale = "ko",
+  now,
   className,
 }: SessionOverviewRowProps): JSX.Element {
+  const clock = useMinute(!renderTime && now === undefined);
   const shortId = shortSessionId(session.id);
   const at = session.last_event_at ?? session.created_at;
   // A server older than the repository field sends only the catalog key.
@@ -203,16 +210,22 @@ export function SessionOverviewRow({
         className="flex min-w-0 justify-end overflow-hidden whitespace-nowrap text-caption text-subtle-foreground"
       >
         <span className="sr-only">{messages.recent} </span>
-        {/* Above the row link's overlay, so hovering shows the time's title.
-            A longer word than the column ("yesterday 15:14") is cut, not
-            spilled over the repository. */}
-        <span className="relative min-w-0 truncate">
+        {/* Above the row link's overlay, so hovering and focus reach the
+            time. A longer word than the column ("yesterday 15:14") is cut,
+            not spilled over the repository; the ring sits inside the cut. */}
+        <span
+          className={cn("relative min-w-0", renderTime ? "truncate" : "flex")}
+        >
           {renderTime ? (
             renderTime(at)
           ) : (
-            <time dateTime={at} title={formatTimestamp(at, locale)}>
-              {formatTimestamp(at, locale)}
-            </time>
+            <RelativeTime
+              value={at}
+              locale={locale}
+              now={now ?? clock}
+              // Important: apps/web's unlayered focus rule sets a 2px offset.
+              className="truncate focus-visible:-outline-offset-2!"
+            />
           )}
         </span>
       </span>
