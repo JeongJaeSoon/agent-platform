@@ -35,6 +35,7 @@ import { preferencesEn, preferencesJa, preferencesKo } from "./preferences.ts";
 import { sessionListEn, sessionListJa, sessionListKo } from "./session-list.ts";
 import { shellEn, shellJa, shellKo } from "./shell.ts";
 import { teamsEn, teamsJa, teamsKo } from "./teams.ts";
+import { usageEn, usageJa, usageKo } from "./usage.ts";
 import { workspaceEn, workspaceJa, workspaceKo } from "./workspace.ts";
 
 const catalogs = { ko, ja, en } as const;
@@ -84,6 +85,7 @@ describe("i18n", () => {
         outputsKo,
         apiKeysKo,
         workspaceKo,
+        usageKo,
         preferencesKo,
         errorsKo,
         formsKo,
@@ -104,6 +106,7 @@ describe("i18n", () => {
         outputsJa,
         apiKeysJa,
         workspaceJa,
+        usageJa,
         preferencesJa,
         errorsJa,
         formsJa,
@@ -124,6 +127,7 @@ describe("i18n", () => {
         outputsEn,
         apiKeysEn,
         workspaceEn,
+        usageEn,
         preferencesEn,
         errorsEn,
         formsEn,

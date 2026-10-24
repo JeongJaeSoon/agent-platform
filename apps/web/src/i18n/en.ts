@@ -14,6 +14,7 @@ import { preferencesEn } from "./preferences.ts";
 import { sessionListEn } from "./session-list.ts";
 import { shellEn } from "./shell.ts";
 import { teamsEn } from "./teams.ts";
+import { usageEn } from "./usage.ts";
 import { workspaceEn } from "./workspace.ts";
 
 export const en: Record<MessageKey, string> = {
@@ -32,6 +33,7 @@ export const en: Record<MessageKey, string> = {
   ...outputsEn,
   ...apiKeysEn,
   ...workspaceEn,
+  ...usageEn,
   ...preferencesEn,
   ...errorsEn,
   ...formsEn,

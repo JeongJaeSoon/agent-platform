@@ -229,6 +229,33 @@ describe("홈 요약", () => {
       },
     },
   };
+  const since = new Date(Date.now() - 30 * 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+  const summary = (
+    scope: "me" | "installation",
+    sessions: number,
+    complete = true,
+  ) => ({
+    scope,
+    period: {
+      since: `${since}T00:00:00.000Z`,
+      until: "2026-10-23T09:00:00.000Z",
+    },
+    refreshed_at: "2026-10-23T09:00:00.000Z",
+    session_count: sessions,
+    cost_usd: scope === "me" ? "1.250000" : "4.500000",
+    cost_complete: complete,
+    token_count: sessions * 1200,
+    run_seconds: sessions * 600,
+    basis: {
+      sessions: "created_in_period",
+      cost: "provider_usage_estimate",
+      run_time: "turn_wall_clock",
+    },
+  });
+  const summaryRoute = (scope: "me" | "installation") =>
+    `GET /v1/usage/summary?scope=${scope}&since=${since}`;
   const expiringKey = {
     id: "9c8b7a6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
     kind: "service",
@@ -296,12 +323,15 @@ describe("홈 요약", () => {
           next_cursor: "next",
         }),
       "GET /v1/limits": () => json(200, limits),
+      [summaryRoute("me")]: () => json(200, summary("me", 3)),
+      [summaryRoute("installation")]: () =>
+        json(200, summary("installation", 12, false)),
       "GET /v1/api-keys": () => json(200, { items: [expiringKey] }),
       ...pending(waitingSession.id, "2026-10-23T09:00:00.000Z"),
     };
   };
 
-  test("카드 세 장에 실제 수치와 미계측을 나눠 보이고, 답변 대기는 가장 오래된 요청 하나만 가리킨다", async () => {
+  test("카드 세 장에 최근 30일 사용량과 미계측을 나눠 보이고, 답변 대기는 가장 오래된 요청 하나만 가리킨다", async () => {
     renderAt("/", homeRoutes());
     const overview = await screen.findByRole("region", { name: "한눈에 보기" });
     await waitFor(() =>
@@ -309,9 +339,9 @@ describe("홈 요약", () => {
         {
           title: "전체 사용량",
           badge: undefined,
-          value: "—미계측",
+          value: "$4.500000",
           rows: [
-            ["세션", "—미계측"],
+            ["세션", "12"],
             ["동시 실행", "3 / 8 slot"],
             ["결과물 저장", "—미계측"],
           ],
@@ -331,17 +361,17 @@ describe("홈 요약", () => {
         {
           title: "내가 시작한 세션 기준",
           badge: undefined,
-          value: "—미계측",
+          value: "$1.250000",
           rows: [
-            ["세션", "—미계측"],
-            ["실행 시간", "—미계측"],
-            ["토큰", "—미계측"],
+            ["세션", "3"],
+            ["실행 시간", "30분"],
+            ["토큰", "3,600"],
           ],
         },
       ]),
     );
     // The waiting request is answerable from home, above the cards.
-    const inbox = screen.getByRole("region", { name: /^답변 대기/ });
+    const inbox = screen.getByRole("region", { name: /^답이 필요한 요청/ });
     expect(
       inbox.compareDocumentPosition(overview) &
         Node.DOCUMENT_POSITION_FOLLOWING,
@@ -356,9 +386,14 @@ describe("홈 요약", () => {
         .getAttribute("href"),
     ).toBe("/settings/api-keys/service");
 
+    expect(screen.getByText("최근 30일 · UTC 기준")).toBeTruthy();
+    // The install's sum is partial; the viewer's own is whole.
     expect(
-      screen.getByText("설치 전체 수치는 설치 운영자에게만 보입니다"),
+      within(overview).getByText(
+        "추정 비용 · 진행 중이거나 비용을 보고하지 않은 turn은 빠짐",
+      ),
     ).toBeTruthy();
+    expect(within(overview).getByText("추정 비용")).toBeTruthy();
     const recent = screen.getByRole("table", { name: "최근 세션" });
     // The design's dot, not a pill: amber for waiting, the text says which.
     expect(
@@ -400,10 +435,17 @@ describe("홈 요약", () => {
     ).toEqual([waitingSession.title, oneSession.id.slice(0, 8)]);
   });
 
-  test("한도를 읽을 수 없는 사람에게는 설치 전체 카드를 숨긴다", async () => {
-    renderAt("/", {
+  test("설치 전체 사용량 권한이 없으면 전체 카드를 숨기고 한도·전체 합계를 묻지 않는다", async () => {
+    const owner = me();
+    const { api } = renderAt("/", {
       ...homeRoutes(),
-      "GET /v1/limits": () => apiError(403, "FORBIDDEN", "forbidden"),
+      "GET /v1/auth/me": () =>
+        json(200, {
+          ...owner,
+          permissions: owner.permissions.filter(
+            (action) => action !== "usage.installation_read",
+          ),
+        }),
     });
     const overview = await screen.findByRole("region", { name: "한눈에 보기" });
     await waitFor(() =>
@@ -411,6 +453,31 @@ describe("홈 요약", () => {
         "확인할 항목",
         "내가 시작한 세션 기준",
       ]),
+    );
+    expect(api.calls.some((call) => call.path === "/v1/limits")).toBe(false);
+    expect(
+      api.calls
+        .filter((call) => call.path === "/v1/usage/summary")
+        .map((call) => new URLSearchParams(call.search).get("scope")),
+    ).not.toContain("installation");
+  });
+
+  test("사용량을 읽지 못하면 값을 지어내지 않고 —로 둔다", async () => {
+    renderAt("/", {
+      ...homeRoutes(),
+      [summaryRoute("me")]: () => apiError(500, "INTERNAL", "boom"),
+    });
+    const overview = await screen.findByRole("region", { name: "한눈에 보기" });
+    await waitFor(() =>
+      expect(cards(overview)[2]).toMatchObject({
+        title: "내가 시작한 세션 기준",
+        value: "—",
+        rows: [
+          ["세션", "—"],
+          ["실행 시간", "—"],
+          ["토큰", "—"],
+        ],
+      }),
     );
   });
 
@@ -471,6 +538,42 @@ describe("홈 요약", () => {
     expect(
       oldest.parentElement?.querySelector("time")?.getAttribute("title"),
     ).toBe("2026. 10. 23. 18:00");
+  });
+
+  test("답이 필요한 요청은 세션 이름 줄로 보이고, 전체 보기는 답변 대기 목록으로 간다", async () => {
+    renderAt("/", homeRoutes());
+    const inbox = await screen.findByRole("region", {
+      name: /^답이 필요한 요청/,
+    });
+    const name = await within(inbox).findByRole("link", {
+      name: `세션 열기 ${waitingSession.title}`,
+    });
+    expect(name.getAttribute("href")).toBe(`/sessions/${waitingSession.id}`);
+    expect(inbox.textContent).toMatch(
+      new RegExp(`${waitingSession.id.slice(0, 8)} · \\d+분째 대기`),
+    );
+    expect(
+      within(inbox)
+        .getByRole("link", { name: "전체 보기" })
+        .getAttribute("href"),
+    ).toBe("/sessions?status=needs_input");
+  });
+
+  test("답할 요청이 없으면 빈 상태가 무엇이 언제 나오는지 알린다", async () => {
+    renderAt("/", {
+      ...homeRoutes(),
+      "GET /v1/sessions?status=needs_input": () =>
+        json(200, { items: [], next_cursor: null }),
+    });
+    const inbox = await screen.findByRole("region", {
+      name: /^답이 필요한 요청/,
+    });
+    await within(inbox).findByText("지금 답할 요청이 없습니다");
+    expect(
+      within(inbox).getByText(
+        "세션이 권한이나 답을 기다리면 여기에 먼저 나옵니다.",
+      ),
+    ).toBeTruthy();
   });
 
   test("대기 세션 목록을 다시 읽다 실패하면 전에 고른 가장 오래된 요청을 내린다", async () => {
