@@ -176,6 +176,25 @@ export function createPostgresSlackOutboxStore(db: Database): SlackOutboxStore {
         .returning({ id: t.id, ...entry });
     },
 
+    async untoldUncertain(limit) {
+      // The key platform's drain gives the notice, spelled in SQL.
+      return db
+        .select({ id: t.id, ...entry })
+        .from(t)
+        .where(
+          and(
+            eq(t.kind, "reply"),
+            eq(t.status, "uncertain"),
+            sql`${t.sessionId} IS NOT NULL`,
+            sql`NOT EXISTS (
+              SELECT 1 FROM ${t} n WHERE n.dedupe_key = 'uncertain:' || ${t.id}
+            )`,
+          ),
+        )
+        .orderBy(asc(t.createdAt), asc(t.id))
+        .limit(limit);
+    },
+
     async claim({ limit, leaseMs }) {
       const rows = await db
         .update(t)

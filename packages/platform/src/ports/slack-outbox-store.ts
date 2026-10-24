@@ -101,6 +101,8 @@ export interface SlackOutboxStore {
   unansweredTurns(limit: number): Promise<SlackUnansweredTurn[]>;
   /** Moves `sending` rows whose lease ran out to `uncertain`. */
   expireSending(): Promise<SlackOutboxLost[]>;
+  /** `uncertain` replies whose thread has not been told so yet. */
+  untoldUncertain(limit: number): Promise<SlackOutboxLost[]>;
   /**
    * Due `pending` rows under a lease from the database clock. They stay
    * `pending` until beginSend, so a crash before the send is claimed again.

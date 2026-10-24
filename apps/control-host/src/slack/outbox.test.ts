@@ -705,6 +705,27 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     );
   });
 
+  test("an uncertain reply a pass died before telling about is told once later", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    await endTurn(await sessionOf(fixture), 1, "completed", [[text("hi")]]);
+    await outboxPass({ botToken: null });
+    // As expireSending leaves it, with no notice enqueued after.
+    await db
+      .update(slackOutbox)
+      .set({ status: "uncertain", errorCode: "lease_expired" });
+
+    expect(await outboxPass()).toMatchObject({ sent: 1 });
+    expect(await outboxPass()).toMatchObject({ claimed: 0 });
+    expect(posted().map((message) => message.text)).toEqual([
+      expect.stringContaining(SLACK_OUTBOX_MESSAGES.uncertain),
+    ]);
+    expect((await rows()).map((row) => [row.kind, row.status])).toEqual([
+      ["reply", "uncertain"],
+      ["failure_notice", "sent"],
+    ]);
+  });
+
   test("a pass that died after claiming but before sending leaves the row to be sent once", async () => {
     const fixture = await agentInSlack();
     await mention(fixture, THREAD);

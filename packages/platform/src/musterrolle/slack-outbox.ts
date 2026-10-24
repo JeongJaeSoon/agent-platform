@@ -291,7 +291,11 @@ export async function drainSlackOutbox(deps: {
       kind: lost.kind,
       channel_id: lost.channelId,
     });
-    await noticeUncertain(lost);
+  }
+  // Also those a pass marked and died before telling, or told with a failed
+  // enqueue: the notice is the dedupe key's, so it goes once.
+  for (const row of await deps.outbox.untoldUncertain(deps.batchSize)) {
+    await noticeUncertain(row);
   }
   drain.enqueued = await enqueueSlackTurnAnswers({
     outbox: deps.outbox,

@@ -205,8 +205,10 @@ export async function main(
   );
   try {
     const db = drizzle(pool, { schema });
-    // Inbox and outbox share one pass budget.
-    const deadline = Date.now() + settings.passBudgetMs;
+    // Inbox and outbox share one pass budget. The inbox stops at half of it,
+    // so a steady stream of mentions cannot starve the answers.
+    const started = Date.now();
+    const deadline = started + settings.passBudgetMs;
     const outbox = createPostgresSlackOutboxStore(db);
     const { catalog, secretKey } = await slackRoleStartup(environment);
     const drain = await drainSlackInbox({
@@ -224,7 +226,7 @@ export async function main(
       logger,
       batchSize: settings.batchSize,
       leaseMs: settings.leaseMs,
-      deadline,
+      deadline: started + settings.passBudgetMs / 2,
     });
     if (drain.claimed > 0) logger.info("Slack inbox pass", drain);
     const secrets =
