@@ -140,6 +140,15 @@ describe("BarChart", () => {
     expect(names[11]).toBe("10/12 · 21");
   });
 
+  test("partialLabel이 없어도 기본 툴팁은 보고 안 된 날을 말한다", () => {
+    const { getAllByRole } = render(
+      <BarChart data={DATA} label="일자별 비용" formatX={day} />,
+    );
+    expect(getAllByRole("button")[12]?.getAttribute("aria-label")).toBe(
+      "10/13 · 22 · 집계 중",
+    );
+  });
+
   test("막대의 이름은 툴팁 문장이고, 보고 안 된 날은 빗금으로 표시한다", () => {
     const { getAllByRole } = render(<Chart />);
     const bars = getAllByRole("button").slice(1);

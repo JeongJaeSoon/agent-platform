@@ -33,7 +33,7 @@ export interface BarChartProps {
    * say when the bar is partial; the hatching alone is not read out.
    */
   readonly formatTip?: ((datum: BarChartDatum) => string) | undefined;
-  /** What the default tooltip adds to a partial bar, such as "Some cost not reported". */
+  /** What the default tooltip adds to a partial bar. */
   readonly partialLabel?: string | undefined;
   /** The top of the y axis; by default the largest value rounded up. */
   readonly yMax?: number | undefined;
@@ -73,12 +73,12 @@ export function BarChart({
   label,
   formatX,
   formatY = String,
-  partialLabel,
+  partialLabel = "집계 중",
   formatTip = (datum) =>
     [
       formatX(datum.x),
       formatY(datum.y),
-      ...(datum.partial && partialLabel ? [partialLabel] : []),
+      ...(datum.partial ? [partialLabel] : []),
     ].join(" · "),
   yMax,
   compact = false,
