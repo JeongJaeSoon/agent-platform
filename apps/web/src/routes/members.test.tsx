@@ -1145,6 +1145,9 @@ describe("구성원 · 팀 · 초대 탭", () => {
       ["팀", "/members/teams", null],
       ["초대", "/members/invites", null],
     ]);
+    // The head's primary action follows the tab.
+    expect(screen.getByRole("button", { name: "구성원 초대" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: "팀 만들기" })).toBeNull();
     // Pending invites have their own tab now.
     expect(screen.queryByText("대기 중인 초대")).toBeNull();
   });

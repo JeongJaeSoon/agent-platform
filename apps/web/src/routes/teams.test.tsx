@@ -141,7 +141,7 @@ describe("팀 화면", () => {
     expect(await screen.findByRole("link", { name: "결제팀" })).toBeDefined();
   });
 
-  test("목록을 보이고 만든다. 같은 이름은 그렇게 말한다", async () => {
+  test("헤더의 팀 만들기가 대화상자를 열어 만든다. 같은 이름은 대화상자 안에서 말한다", async () => {
     const server = teamServer();
     const { api } = renderAt("/members/teams", server.routes);
     const link = await screen.findByRole("link", { name: "결제팀" });
@@ -164,20 +164,134 @@ describe("팀 화면", () => {
     expect(chevron.tagName.toLowerCase()).toBe("svg");
     expect(chevron.getAttribute("aria-hidden")).toBe("true");
     expect(link.querySelector("svg")).toBeNull();
+    // The tab no longer carries a form of its own.
+    expect(screen.queryByLabelText("팀 이름")).toBeNull();
+    expect(screen.queryByRole("button", { name: "구성원 초대" })).toBeNull();
     const user = await setupUser();
-    await user.type(screen.getByLabelText("팀 이름"), "지원팀");
-    await user.click(screen.getByRole("button", { name: "팀 만들기" }));
+    const open = await waitFor(() => {
+      const button = screen.getByRole("button", { name: "팀 만들기" });
+      expect(button.hasAttribute("disabled")).toBe(false);
+      return button;
+    });
+    await user.click(open);
+    const dialog = await screen.findByRole("dialog", { name: "팀 만들기" });
+    await waitFor(() =>
+      expect(
+        document.activeElement === within(dialog).getByLabelText("팀 이름"),
+      ).toBe(true),
+    );
+    await user.keyboard("지원팀{Enter}");
     expect((await screen.findByRole("status")).textContent).toBe(
       "지원팀 팀을 만들었습니다.",
     );
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(api.calls.find((c) => c.method === "POST")?.body).toEqual({
       name: "지원팀",
     });
-    await user.type(screen.getByLabelText("팀 이름"), "결제팀");
-    await user.click(screen.getByRole("button", { name: "팀 만들기" }));
-    expect((await screen.findByRole("alert")).textContent).toBe(
+    await waitFor(() => expect(document.activeElement === open).toBe(true));
+
+    await user.click(open);
+    const again = await screen.findByRole("dialog", { name: "팀 만들기" });
+    // Each opening starts empty.
+    expect(
+      (within(again).getByLabelText("팀 이름") as HTMLInputElement).value,
+    ).toBe("");
+    await user.keyboard("결제팀{Enter}");
+    expect((await within(again).findByRole("alert")).textContent).toBe(
       "같은 이름의 팀이 이미 있습니다 — 다른 이름을 쓰세요.",
     );
+    expect(screen.getByRole("dialog")).toBe(again);
+  });
+
+  test("팀 목록을 못 불러오면 헤더에 팀 만들기 대신 목록 자리에 다시 시도를 보인다", async () => {
+    const server = teamServer();
+    renderAt("/members/teams", {
+      ...server.routes,
+      "GET /v1/teams": () => apiError(500, "INTERNAL", "boom"),
+    });
+    expect(
+      await screen.findByRole("button", { name: "다시 시도" }),
+    ).toBeDefined();
+    expect(screen.queryByRole("button", { name: "팀 만들기" })).toBeNull();
+  });
+
+  test("팀 상세에는 헤더 주 버튼이 없다", async () => {
+    const server = teamServer();
+    renderAt(`/members/teams/${TEAM_ID}`, server.routes);
+    await screen.findByRole("heading", { level: 2, name: "결제팀" });
+    expect(screen.queryByRole("button", { name: "팀 만들기" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "구성원 초대" })).toBeNull();
+  });
+
+  test("Esc로 닫으면 포커스가 헤더의 팀 만들기로 돌아오고 아무것도 보내지 않는다", async () => {
+    const server = teamServer();
+    const { api } = renderAt("/members/teams", server.routes);
+    await screen.findByRole("link", { name: "결제팀" });
+    const user = await setupUser();
+    const open = await waitFor(() => {
+      const button = screen.getByRole("button", { name: "팀 만들기" });
+      expect(button.hasAttribute("disabled")).toBe(false);
+      return button;
+    });
+    open.focus();
+    await user.keyboard("{Enter}");
+    const dialog = await screen.findByRole("dialog", { name: "팀 만들기" });
+    await waitFor(() =>
+      expect(
+        document.activeElement === within(dialog).getByLabelText("팀 이름"),
+      ).toBe(true),
+    );
+    await user.keyboard("지원팀{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(document.activeElement === open).toBe(true);
+    expect(api.calls.some((c) => c.method === "POST")).toBe(false);
+  });
+
+  test("만드는 중에는 저장 버튼이 aria-disabled로 포커스를 지키고 다시 보내지 않는다", async () => {
+    const server = teamServer();
+    let answer: ((response: Response) => void) | undefined;
+    const { api } = renderAt("/members/teams", {
+      ...server.routes,
+      "POST /v1/teams": () =>
+        new Promise<Response>((resolve) => {
+          answer = resolve;
+        }),
+    });
+    await screen.findByRole("link", { name: "결제팀" });
+    const user = await setupUser();
+    const open = await waitFor(() => {
+      const button = screen.getByRole("button", { name: "팀 만들기" });
+      expect(button.hasAttribute("disabled")).toBe(false);
+      return button;
+    });
+    await user.click(open);
+    const dialog = await screen.findByRole("dialog", { name: "팀 만들기" });
+    await user.type(within(dialog).getByLabelText("팀 이름"), "지원팀");
+    const save = within(dialog).getByRole("button", { name: "팀 만들기" });
+    save.focus();
+    await user.keyboard("{Enter}");
+    const busy = await within(dialog).findByRole("button", {
+      name: "만드는 중…",
+    });
+    expect(busy.getAttribute("aria-disabled")).toBe("true");
+    expect(busy.hasAttribute("disabled")).toBe(false);
+    expect(document.activeElement === busy).toBe(true);
+    await user.keyboard("{Enter}");
+    answer?.(
+      json(201, {
+        team: {
+          ...server.team,
+          members: undefined,
+          name: "지원팀",
+          member_count: 0,
+        },
+        receipt_id: RECEIPT_ID,
+      }),
+    );
+    expect((await screen.findByRole("status")).textContent).toBe(
+      "지원팀 팀을 만들었습니다.",
+    );
+    expect(api.calls.filter((c) => c.method === "POST")).toHaveLength(1);
   });
 
   test("구성원에게는 만들기 폼·전체 목록·권한 없음 화면이 없고 서버에 묻지 않는다", async () => {

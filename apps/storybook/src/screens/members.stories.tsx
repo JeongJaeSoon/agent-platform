@@ -1,5 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import {
+  Alert,
+  AlertDescription,
   Badge,
   Button,
   Card,
@@ -277,7 +279,51 @@ const inviteButton = (
     구성원 초대
   </Button>
 );
-/* The console's name row (create and rename): the name and its button share
+const teamCreateButton = (
+  <Button type="button">
+    <Plus aria-hidden="true" />팀 만들기
+  </Button>
+);
+
+/* The 팀 tab's head button opens this (v4 toolbar ②); the console's
+   TeamCreateDialog. `taken` shows the server's answer for a used name. */
+function TeamCreateDialog({ taken = false }: { readonly taken?: boolean }) {
+  return (
+    <Dialog open onOpenChange={fn()}>
+      <DialogContent>
+        <form
+          className="flex flex-col gap-4"
+          onSubmit={(event) => event.preventDefault()}
+        >
+          <DialogHeader>
+            <DialogTitle>팀 만들기</DialogTitle>
+            <DialogDescription>
+              이름을 정해 팀을 만듭니다. 구성원은 만든 뒤 팀 화면에서 넣습니다.
+            </DialogDescription>
+          </DialogHeader>
+          {taken ? (
+            <Alert variant="red" role="alert">
+              <AlertDescription>
+                같은 이름의 팀이 이미 있습니다 — 다른 이름을 쓰세요.
+              </AlertDescription>
+            </Alert>
+          ) : null}
+          <Field>
+            <FieldLabel>팀 이름</FieldLabel>
+            <Input name="team" maxLength={100} defaultValue="결제팀" />
+          </Field>
+          <DialogFooter>
+            <Button type="button" variant="outline">
+              취소
+            </Button>
+            <Button type="submit">팀 만들기</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+/* The console's name row (rename): the name and its button share
    one line, and the button drops under the field only when the line is too
    narrow for both. */
 function TeamNameRow({
@@ -417,18 +463,12 @@ function MembersTab({
 function TeamsTab({
   state = "ready",
   empty = false,
-  draft,
 }: {
   readonly state?: ListState;
   readonly empty?: boolean;
-  readonly draft?: string | undefined;
 }) {
   return (
     <div className="flex flex-col gap-4 pt-4">
-      <TeamNameRow
-        name={draft}
-        submit={<Button type="submit">팀 만들기</Button>}
-      />
       <ListBody state={state} label="팀 목록">
         {empty ? (
           <EmptyState
@@ -872,6 +912,7 @@ type Screen =
   | "teams"
   | "teams-empty"
   | "team-create"
+  | "team-create-taken"
   | "team"
   | "team-empty"
   | "team-delete"
@@ -913,7 +954,13 @@ function MembersScreen({ screen }: { readonly screen: Screen }) {
   let body: ReactNode;
   if (screen === "member-view") body = <MyTeams />;
   else {
-    const action = tab === "teams" ? undefined : inviteButton;
+    // Each tab's one primary action in the head; a team's page has none.
+    const action =
+      tab !== "teams"
+        ? inviteButton
+        : DETAIL_SCREENS.includes(screen)
+          ? undefined
+          : teamCreateButton;
     const content =
       tab === "members" ? (
         <MembersTab
@@ -934,10 +981,7 @@ function MembersScreen({ screen }: { readonly screen: Screen }) {
         screen === "team-delete" ? (
         <TeamDetailView emptyMembers={screen === "team-empty"} />
       ) : (
-        <TeamsTab
-          empty={screen === "teams-empty"}
-          draft={screen === "team-create" ? "결제팀" : undefined}
-        />
+        <TeamsTab empty={screen === "teams-empty"} />
       );
     body = (
       <>
@@ -966,6 +1010,9 @@ function MembersScreen({ screen }: { readonly screen: Screen }) {
           consequence="로그인과 이 사람의 개인 key가 바로 끊깁니다. 이 사람이 만든 서비스 key는 계속 동작합니다."
           confirmLabel="비활성화"
         />
+      ) : null}
+      {screen === "team-create" || screen === "team-create-taken" ? (
+        <TeamCreateDialog taken={screen === "team-create-taken"} />
       ) : null}
       {screen === "team-delete" ? (
         <DestructiveActionDialog
@@ -1014,13 +1061,17 @@ export const MemberDisable: Story = { args: { screen: "member-disable" } };
 export const Teams: Story = { args: { screen: "teams" } };
 export const TeamsEmpty: Story = { args: { screen: "teams-empty" } };
 export const TeamCreate: Story = {
-  name: "Team create (one line)",
+  name: "Team create (head button → dialog)",
   args: { screen: "team-create" },
 };
 export const TeamCreateMobile: Story = {
   name: "Team create (390px)",
   args: { screen: "team-create" },
   globals: MOBILE,
+};
+export const TeamCreateTaken: Story = {
+  name: "Team create (name taken)",
+  args: { screen: "team-create-taken" },
 };
 export const TeamDetail: Story = {
   name: "Team detail (A: inside 팀 tab)",

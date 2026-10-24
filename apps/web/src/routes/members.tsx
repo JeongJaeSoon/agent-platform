@@ -40,8 +40,13 @@ import {
   RowList,
   RowListItem,
 } from "@werft-ai/ui";
-import { useId, useRef, useState } from "react";
-import { invitesQuery, membersQuery, queryKeys } from "../api/queries.ts";
+import { useEffect, useId, useRef, useState } from "react";
+import {
+  invitesQuery,
+  membersQuery,
+  queryKeys,
+  teamsQuery,
+} from "../api/queries.ts";
 import {
   permissionReason,
   roleLabel,
@@ -63,6 +68,7 @@ import {
   useI18n,
 } from "../i18n/i18n.tsx";
 import { InviteDialog } from "./invite-dialog.tsx";
+import { TeamCreateDialog } from "./team-create-dialog.tsx";
 
 const SECTION = "flex flex-col gap-[var(--ap-space-block)]";
 const SECTION_TITLE = "m-0 font-semibold text-body";
@@ -127,20 +133,41 @@ export function MembersLayout() {
   // The list is also the permission probe: when it failed, nobody knows.
   const failed = members.isError && !isApiError(members.error, "FORBIDDEN");
   const onTeams = pathname.startsWith("/members/teams");
+  const onTeamList = pathname === "/members/teams";
+  const managesTeams = useHasPermission("team.manage");
+  const teams = useQuery({
+    ...teamsQuery(client),
+    enabled: managesTeams && onTeams,
+  });
+  const teamReason = usePermissionReason("team.manage", teams);
+  const teamsFailed = teams.isError && !isApiError(teams.error, "FORBIDDEN");
+  // The dialog closes on success; the page says what came of it.
+  const [created, setCreated] = useState<string | null>(null);
+  useEffect(() => {
+    if (!onTeamList) setCreated(null);
+  }, [onTeamList]);
+
+  // Each tab's one primary action, in the same place (v4 toolbar ②).
+  const action = onTeams ? (
+    onTeamList && managesTeams && !teamsFailed ? (
+      <TeamCreateDialog
+        reason={teamReason}
+        onCreated={(name) => setCreated(t("teams.created", { name }))}
+      />
+    ) : undefined
+  ) : manages && !failed ? (
+    <InviteDialog
+      reason={reason}
+      members={members.data?.items ?? []}
+      refusal={(error, role) => refusal(t, error, role)}
+    />
+  ) : undefined;
 
   return (
     <Page
       title={t("members.title")}
       description={t(manages ? "members.description" : "members.withheld")}
-      actions={
-        !manages || failed || onTeams ? undefined : (
-          <InviteDialog
-            reason={reason}
-            members={members.data?.items ?? []}
-            refusal={(error, role) => refusal(t, error, role)}
-          />
-        )
-      }
+      actions={action}
     >
       <div className="flex flex-col gap-[var(--ap-space-block)]">
         <LinkTabs aria-label={t("members.tabs")}>
@@ -164,6 +191,7 @@ export function MembersLayout() {
             </LinkTab>
           ) : null}
         </LinkTabs>
+        {onTeamList ? <Notice>{created ?? undefined}</Notice> : null}
         <Outlet />
       </div>
     </Page>

@@ -40,7 +40,6 @@ import {
   ReasonButton,
   refusalText,
   useHasPermission,
-  usePermissionReason,
   useRole,
 } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
@@ -108,43 +107,9 @@ function TeamNameField({
 export function TeamsScreen() {
   const { t } = useI18n();
   const { client } = useAgentPlatform();
-  const queryClient = useQueryClient();
-  const role = useRole();
   const manages = useHasPermission("team.manage");
   const teams = useQuery({ ...teamsQuery(client), enabled: manages });
-  const reason = usePermissionReason("team.manage", teams);
-  // The list is also the permission probe: when it failed, nobody knows.
-  const failed = teams.isError && !isApiError(teams.error, "FORBIDDEN");
-  const [name, setName] = useState("");
-  const [outcome, setOutcome] = useState<Outcome | null>(null);
   const titleId = useId();
-
-  const create = useMutation<TeamChangeResponse, ApiError>({
-    mutationFn: () =>
-      unwrap(client.POST("/v1/teams", { body: { name: name.trim() } })),
-    onMutate: () => setOutcome(null),
-    onSuccess: async ({ team }) => {
-      setName("");
-      setOutcome({
-        kind: "notice",
-        text: t("teams.created", { name: team.name }),
-      });
-      await queryClient.invalidateQueries({ queryKey: queryKeys.teams });
-    },
-    onError: (error) =>
-      setOutcome({
-        kind: "error",
-        text:
-          error.code === "ALREADY_EXISTS"
-            ? t("teams.nameTaken")
-            : refusalText(t, error, "team.manage", role),
-      }),
-  });
-
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    create.mutate();
-  };
 
   if (!manages) {
     return (
@@ -154,22 +119,9 @@ export function TeamsScreen() {
     );
   }
 
+  // Creating a team is the page head's button (TeamCreateDialog).
   return (
     <TeamsTab>
-      <OutcomeLine outcome={outcome} />
-      {failed ? null : (
-        <form className={INLINE_FORM} onSubmit={submit}>
-          <TeamNameField value={name} onChange={setName} />
-          <ReasonButton
-            type="submit"
-            className={buttonVariants()}
-            reason={reason}
-            disabled={create.isPending}
-          >
-            {create.isPending ? t("teams.creating") : t("teams.create")}
-          </ReasonButton>
-        </form>
-      )}
       <section className={SECTION} aria-labelledby={titleId}>
         <h2 id={titleId} className={SECTION_TITLE}>
           {t("teams.listTitle")}
