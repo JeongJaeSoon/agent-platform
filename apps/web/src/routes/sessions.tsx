@@ -26,6 +26,7 @@ import {
   type SessionActionProps,
   SessionDetail,
 } from "@werft-ai/react/blocks";
+import { LoadMoreButton } from "@werft-ai/react/components";
 import {
   Button,
   buttonVariants,
@@ -373,19 +374,15 @@ function SessionsView({
                 : sessions.refetch()),
           )
         : null}
-      {sessions.hasNextPage && !sessions.isFetchNextPageError ? (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={sessions.isFetchingNextPage}
-          onClick={() => sessions.fetchNextPage()}
-        >
-          {sessions.isFetchingNextPage
-            ? t("sessions.loadingMore")
-            : t("sessions.more")}
-        </Button>
-      ) : null}
+      <LoadMoreButton
+        hasMore={sessions.hasNextPage}
+        loading={sessions.isFetchingNextPage}
+        onLoadMore={() => void sessions.fetchNextPage({ cancelRefetch: false })}
+        messages={{
+          more: t("sessions.more"),
+          loading: t("sessions.loadingMore"),
+        }}
+      />
       <p className="m-0 text-caption text-subtle-foreground">
         {t("sessionList.shown", { count: items.length })}
       </p>

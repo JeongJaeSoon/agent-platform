@@ -799,9 +799,15 @@ describe("구성원 페이지와 서버 검색", () => {
     expect(rowNames()).toEqual(["Person 0", "Person 1"]);
     expect(screenReads(api.calls)).toEqual([""]);
 
-    await user.click(screen.getByRole("button", { name: "더 보기" }));
+    const more = screen.getByRole("button", { name: "더 보기" });
+    await act(async () => more.focus());
+    await user.keyboard("{Enter}");
     const loading = await screen.findByRole("button", { name: "불러오는 중…" });
-    expect((loading as HTMLButtonElement).disabled).toBe(true);
+    expect(loading === more).toBe(true);
+    expect(more.getAttribute("aria-disabled")).toBe("true");
+    expect(document.activeElement === more).toBe(true);
+    // A second Enter while the page is on its way asks for nothing more.
+    await user.keyboard("{Enter}");
     release();
     await screen.findByRole("button", { name: "Person 3 편집" });
     expect(rowNames()).toEqual([
@@ -810,10 +816,14 @@ describe("구성원 페이지와 서버 검색", () => {
       "Person 2",
       "Person 3",
     ]);
+    expect(more.hasAttribute("aria-disabled")).toBe(false);
+    expect(document.activeElement === more).toBe(true);
 
-    await user.click(screen.getByRole("button", { name: "더 보기" }));
-    await screen.findByRole("button", { name: "Person 4 편집" });
+    await user.keyboard("{Enter}");
+    const first = await screen.findByRole("button", { name: "Person 4 편집" });
     expect(screen.queryByRole("button", { name: "더 보기" })).toBeNull();
+    // The button went with the last page; the keyboard lands on its row.
+    await waitFor(() => expect(document.activeElement === first).toBe(true));
     // One read a page, each from where the last one stopped.
     expect(screenReads(api.calls)).toEqual(["", "?cursor=2", "?cursor=4"]);
   });
@@ -850,8 +860,10 @@ describe("구성원 페이지와 서버 검색", () => {
     await screen.findByText("Person 0 계정을 비활성화했습니다.");
     const more = screen.getByRole("button", { name: "더 보기" });
     await waitFor(() =>
-      expect((more as HTMLButtonElement).disabled).toBe(true),
+      expect(more.getAttribute("aria-disabled")).toBe("true"),
     );
+    // Pressed now it would cancel the reread and keep the stale rows.
+    await user.click(more);
     hold = false;
     release();
     await waitFor(() =>
@@ -862,10 +874,8 @@ describe("구성원 페이지와 서버 검색", () => {
           ?.getAttribute("data-disabled"),
       ).toBe("true"),
     );
-    expect(
-      (screen.getByRole("button", { name: "더 보기" }) as HTMLButtonElement)
-        .disabled,
-    ).toBe(false);
+    expect(more.hasAttribute("aria-disabled")).toBe(false);
+    expect(screen.queryByRole("button", { name: "Person 2 편집" })).toBeNull();
   });
 
   test("구성원을 바꾼 뒤 다시 읽기가 실패하면 더 보기 대신 다시 시도만 보인다", async () => {
@@ -953,19 +963,48 @@ describe("구성원 페이지와 서버 검색", () => {
       ...noInvites,
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "더 보기" }));
+    const more = await screen.findByRole("button", { name: "더 보기" });
+    await act(async () => more.focus());
+    await user.keyboard("{Enter}");
     const alert = await screen.findByRole("alert");
     expect(alert.getAttribute("data-slot")).toBe("alert");
     expect(alert.getAttribute("data-variant")).toBe("red");
     expect(alert.textContent).toContain("불러오지 못했습니다");
     expect(rowNames()).toEqual(["Person 0", "Person 1"]);
-    // Asking again is the alert's button, not a second 더 보기.
-    expect(screen.queryByRole("button", { name: "더 보기" })).toBeNull();
+    // 더 보기 stays, and the keyboard with it.
+    expect(screen.getByRole("button", { name: "더 보기" }) === more).toBe(true);
+    expect(document.activeElement === more).toBe(true);
 
     failing = false;
     await user.click(within(alert).getByRole("button", { name: "다시 시도" }));
     await screen.findByRole("button", { name: "Person 3 편집" });
     expect(screen.queryByRole("alert")).toBeNull();
+    expect(screenReads(api.calls)).toEqual(["", "?cursor=2", "?cursor=2"]);
+  });
+
+  test("다음 페이지가 실패한 뒤 더 보기로 다시 받아도 포커스가 버튼에 남는다", async () => {
+    let failing = true;
+    const { api } = renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": pagedMembers(crowd, 2, (search) =>
+        Promise.resolve(
+          search.get("cursor") === "2" && failing
+            ? apiError(500, "INTERNAL_ERROR", "boom")
+            : undefined,
+        ),
+      ),
+      ...noInvites,
+    });
+    const user = await setupUser();
+    const more = await screen.findByRole("button", { name: "더 보기" });
+    await act(async () => more.focus());
+    await user.keyboard("{Enter}");
+    await screen.findByRole("alert");
+    failing = false;
+    await user.keyboard("{Enter}");
+    await screen.findByRole("button", { name: "Person 3 편집" });
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    expect(document.activeElement === more).toBe(true);
     expect(screenReads(api.calls)).toEqual(["", "?cursor=2", "?cursor=2"]);
   });
 

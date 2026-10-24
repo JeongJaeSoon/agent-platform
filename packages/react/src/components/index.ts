@@ -12,6 +12,11 @@ export {
   type DetailRailSectionProps,
 } from "./layout/detail-layout.tsx";
 export { ListToolbar, type ListToolbarProps } from "./list/list-toolbar.tsx";
+export {
+  LoadMoreButton,
+  type LoadMoreButtonMessages,
+  type LoadMoreButtonProps,
+} from "./list/load-more-button.tsx";
 export { ReceiptLink, type ReceiptLinkProps } from "./receipt/receipt-link.tsx";
 export {
   RECEIPT_OPERATION_LABEL,
