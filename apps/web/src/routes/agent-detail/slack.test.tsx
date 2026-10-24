@@ -94,6 +94,54 @@ function routes(app: typeof APP | null = null, installed = false) {
 }
 
 describe("Slack management", () => {
+  test("shows DM immediately but keeps the home placeholder until channel names arrive", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack-bindings`]: () =>
+        json(200, {
+          items: [
+            BINDING,
+            {
+              ...BINDING,
+              id: "00000000-0000-4000-8000-000000000002",
+              external_surface_id: null,
+              surface_kind: "dm",
+              home: false,
+              mode: "off",
+            },
+          ],
+        }),
+      [`GET ${PATH}/slack/channels`]: async () => {
+        await gate;
+        return json(200, {
+          items: [
+            { id: "C123", name: "general", is_private: false, is_member: true },
+          ],
+          next_cursor: null,
+          stale: false,
+          truncated: false,
+        });
+      },
+    });
+    try {
+      await screen.findByText("홈 채널");
+      const status = screen
+        .getByRole("heading", { name: "상태" })
+        .closest("section") as HTMLElement;
+      await waitFor(() =>
+        expect(within(status).queryByText("꺼짐") !== null).toBe(true),
+      );
+      expect(screen.queryByText("채널 ID: C123") === null).toBe(true);
+    } finally {
+      release();
+    }
+    await screen.findByText("#general");
+  });
+
   test("includes the visible English home action in its accessible name", async () => {
     renderAt(
       DETAIL,

@@ -211,7 +211,7 @@ function SlackOverview({
             </div>
             <div className="flex min-h-8 items-center gap-2 text-control">
               <span className="text-muted-foreground">{t("slack.dm")}:</span>
-              {bindings.isPending || channels.isPending ? (
+              {bindings.isPending ? (
                 placeholder
               ) : (
                 <span>{t(dm ? modeKey(dm.mode) : "slack.notConfigured")}</span>
@@ -258,7 +258,7 @@ function SlackOverview({
                   label: t("slack.homeChannel"),
                   value: (
                     <div className="flex flex-col items-start gap-1">
-                      {bindings.isPending ? (
+                      {bindings.isPending || (home && channels.isPending) ? (
                         placeholder
                       ) : (
                         <span>
