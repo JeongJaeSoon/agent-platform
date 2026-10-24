@@ -315,7 +315,9 @@ async function deliver(
     eventId,
     eventType: String(event.type),
     eventSubtype: typeof event.subtype === "string" ? event.subtype : null,
-    eventTime: new Date(),
+    // Strictly later than the event before: two in one millisecond would
+    // fall back to their random ids for thread order.
+    eventTime: new Date(Date.now() + eventCounter),
     status: "received",
     payload: { type: "event_callback", event_id: eventId, event },
     conversationKey:
