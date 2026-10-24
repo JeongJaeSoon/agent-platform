@@ -335,6 +335,36 @@ describe("searching an agent's Slack channels", () => {
     expect((await cache.lookup("app-1", listPage)).cache).toBe("miss");
   });
 
+  test("a key pushed out of the LRU mid-read still shares that read", async () => {
+    let clock = 0;
+    let reads = 0;
+    let release: () => void = () => {};
+    const cache = createSlackChannelCache({ maxApps: 2, now: () => clock });
+    const quick = async () => async () => {
+      reads += 1;
+      return { channels: [], nextCursor: null };
+    };
+    const slow = async () => async () => {
+      reads += 1;
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return { channels: [], nextCursor: null };
+    };
+    await cache.lookup("a", quick);
+    clock = SLACK_CHANNEL_CACHE_TTL_MS;
+    const first = cache.lookup("a", slow);
+    await Bun.sleep(0);
+    await cache.lookup("b", quick);
+    await cache.lookup("c", quick); // pushes "a" out
+    const second = cache.lookup("a", slow);
+    await Bun.sleep(0);
+    release();
+    await Promise.all([first, second]);
+    expect(reads).toBe(4);
+    expect((await cache.lookup("a", quick)).cache).toBe("hit");
+  });
+
   test("a binding PUT in this process drops the agent's cached channels", async () => {
     const { service, search, listCalls } = world();
     const set = { receipt_id: "r" } as unknown as PutSlackBindingResponse;
@@ -389,6 +419,40 @@ describe("searching an agent's Slack channels", () => {
     const fresh = await search("de");
     expect(fresh.page.stale).toBe(false);
     expect(listCalls()).toBe(3);
+  });
+
+  test("the next page of a stale list is stale too", async () => {
+    const { slack, search, advance } = world();
+    await search("de");
+    advance(SLACK_CHANNEL_CACHE_TTL_MS);
+    slack.rateLimit("conversations.list", 7);
+    const first = await search("de", { limit: 2 });
+    expect(first.page.stale).toBe(true);
+    const next = await search("de", {
+      limit: 2,
+      cursor: first.page.next_cursor ?? "",
+    });
+    expect(names(next)).toEqual(["dev", "dev-ops"]);
+    expect(next.page.stale).toBe(true);
+    advance(7_000);
+    const after = await search("de", {
+      limit: 2,
+      cursor: first.page.next_cursor ?? "",
+    });
+    expect(after.page.stale).toBe(false);
+  });
+
+  test("a long Retry-After is kept as Slack sent it", async () => {
+    const { slack, search, advance, listCalls } = world();
+    slack.rateLimit("conversations.list", 7_200);
+    expect((await refusal(search("de"))).retry).toEqual({
+      afterSeconds: 7_200,
+    });
+    advance(3_600_000);
+    expect((await refusal(search("de"))).retry).toEqual({
+      afterSeconds: 3_600,
+    });
+    expect(listCalls()).toBe(1);
   });
 
   test("no app, no bot token or a token Slack refuses answers SLACK_NOT_INSTALLED", async () => {

@@ -87,7 +87,7 @@ const ERROR_CODE = /^[a-z_]{1,64}$/;
 
 function retryAfterOf(response: Response): number {
   const seconds = Number(response.headers.get("retry-after"));
-  return Number.isInteger(seconds) && seconds > 0 && seconds <= 3600
+  return Number.isSafeInteger(seconds) && seconds > 0
     ? seconds
     : DEFAULT_RETRY_AFTER_SECONDS;
 }
@@ -203,15 +203,15 @@ export function createSlackChannelCache(options?: {
   const now = options?.now ?? (() => Date.now());
   // Map order is the LRU order: oldest first.
   const slots = new Map<string, Slot>();
+  // Reads in flight are not evicted with their slot: a key pushed out
+  // mid-read still shares that read and keeps its result.
   const reads = new Map<string, Promise<Snapshot>>();
 
   function touch(key: string, slot: Slot) {
     slots.delete(key);
     slots.set(key, slot);
     while (slots.size > maxApps) {
-      const oldest = slots.keys().next().value as string;
-      slots.delete(oldest);
-      reads.delete(oldest);
+      slots.delete(slots.keys().next().value as string);
     }
   }
 
@@ -305,12 +305,18 @@ export function createSlackChannelCache(options?: {
       }
     },
 
-    /** The cached snapshot when it is still the one `snapshotId` names. */
-    held(key: string, snapshotId: string): Snapshot | null {
+    /**
+     * The cached snapshot when it is still the one `snapshotId` names; stale
+     * while Slack is rate limiting the app, as the first page was.
+     */
+    held(key: string, snapshotId: string): SlackChannelLookup | null {
       const slot = slots.get(key);
-      if (slot?.snapshot?.id !== snapshotId) return null;
+      if (!slot?.snapshot || slot.snapshot.id !== snapshotId) return null;
       touch(key, slot);
-      return slot.snapshot;
+      return {
+        snapshot: slot.snapshot,
+        cache: now() < slot.blockedUntil ? "stale" : "hit",
+      };
     },
 
     /** Forgets the list, keeping any rate limit Slack set. */
@@ -443,7 +449,7 @@ export function createSlackChannelSearchService(deps: {
       let lookup: SlackChannelLookup;
       const held = from === null ? null : cache.held(app.id, from.snapshot);
       if (held !== null) {
-        lookup = { snapshot: held, cache: "hit" };
+        lookup = held;
       } else if (from !== null) {
         throw new SessionServiceError(
           "CURSOR_EXPIRED",
