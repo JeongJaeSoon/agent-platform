@@ -1,5 +1,8 @@
 import { randomUUID } from "node:crypto";
-import type { SlackSurfaceAction } from "@werft-ai/contracts";
+import {
+  DEFAULT_SURFACE_CEILING,
+  type SlackSurfaceAction,
+} from "@werft-ai/contracts";
 import type {
   Principal,
   SetSurfaceBindingResult,
@@ -8,7 +11,7 @@ import type {
 } from "@werft-ai/platform";
 import { and, asc, desc, eq, isNull, ne, sql } from "drizzle-orm";
 import { callerHoldsRight } from "./agent-identities.ts";
-import { receiptActorOf } from "./control-shared.ts";
+import { findPgError, receiptActorOf } from "./control-shared.ts";
 import { DB_NOW } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import {
@@ -76,19 +79,10 @@ function channelOf(installationId: string, channelId: string | null) {
 }
 
 // Two writes racing to one channel, the DM row or the home: a live index
-// refuses the second. drizzle wraps the driver's error, so the code may sit
-// on its cause.
+// refuses the second.
 function isLiveConflict(error: unknown): boolean {
-  for (let e = error; typeof e === "object" && e !== null; ) {
-    const { code, constraint } = e as { code?: unknown; constraint?: unknown };
-    if (code === "23505") {
-      return (
-        typeof constraint === "string" && LIVE_UNIQUE_INDEXES.has(constraint)
-      );
-    }
-    e = (e as { cause?: unknown }).cause;
-  }
-  return false;
+  const constraint = findPgError(error, "23505")?.constraint;
+  return typeof constraint === "string" && LIVE_UNIQUE_INDEXES.has(constraint);
 }
 
 async function writeReceipt(
@@ -264,19 +258,52 @@ export function createPostgresSurfaceBindingStore(
         .limit(limit);
       return rows.map(recordOf);
     },
-    async resolveSlackChannel(installationId, channelId) {
+    resolveSlackChannel: (installationId, channelId) =>
+      resolveSlackChannel(db, installationId, channelId),
+    async ensureDmBinding(installationId) {
       if (!UUID.test(installationId)) return null;
-      const [row] = await db
-        .select(columns)
+      const id = installationId.toLowerCase();
+      const [live] = await db
+        .select({ id: surfaceBindings.id })
         .from(surfaceBindings)
-        .where(
-          and(
-            channelOf(installationId.toLowerCase(), channelId),
-            eq(surfaceBindings.status, "ready"),
-          ),
-        )
+        .where(channelOf(id, null))
         .limit(1);
-      return row ? recordOf(row) : null;
+      if (!live) {
+        const { actions, disclosure } = DEFAULT_SURFACE_CEILING;
+        await db.execute(sql`
+          INSERT INTO ${surfaceBindings} (id, workspace_id, agent_id, surface,
+            installation_id, surface_kind, mode, ceiling_actions,
+            ceiling_disclosure)
+          SELECT ${randomUUID()}, i.workspace_id, i.agent_id, 'slack',
+            i.installation_id, 'dm', 'mention',
+            ARRAY[${sql.join(
+              actions.map((action) => sql`${action}`),
+              sql`, `,
+            )}]::text[], ${disclosure}
+          FROM ${agentIdentities} i
+          WHERE i.installation_id = ${id} AND i.status = 'active'
+          ON CONFLICT DO NOTHING`);
+      }
+      return resolveSlackChannel(db, id, null);
     },
   };
+}
+
+async function resolveSlackChannel(
+  db: Database,
+  installationId: string,
+  channelId: string | null,
+): Promise<SurfaceBindingRecord | null> {
+  if (!UUID.test(installationId)) return null;
+  const [row] = await db
+    .select(columns)
+    .from(surfaceBindings)
+    .where(
+      and(
+        channelOf(installationId.toLowerCase(), channelId),
+        eq(surfaceBindings.status, "ready"),
+      ),
+    )
+    .limit(1);
+  return row ? recordOf(row) : null;
 }

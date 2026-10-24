@@ -6,6 +6,7 @@ import {
   SLACK_BINDING_LIST_LIMIT,
   SLACK_BINDING_MESSAGES,
   type SurfaceBinding,
+  type SurfaceChannelKind,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
 import type {
@@ -51,11 +52,24 @@ export function surfaceBindingView(
   };
 }
 
+/**
+ * What Slack says a channel of the agent's install is (`conversations.info`
+ * with the bot token). Throws a SessionServiceError the route answers with.
+ */
+export type SlackChannelKinds = {
+  kindOf(
+    workspaceId: string,
+    agentId: string,
+    channelId: string,
+  ): Promise<SurfaceChannelKind>;
+};
+
 export function createSurfaceBindingService(deps: {
   authorization: AuthorizationPolicy;
   store: SurfaceBindingStore;
+  channels: SlackChannelKinds;
 }) {
-  const { authorization, store } = deps;
+  const { authorization, store, channels } = deps;
 
   const permitted = (caller: Caller, agentId: string) =>
     requirePermitted(authorization, caller, ACTION, {
@@ -70,12 +84,22 @@ export function createSurfaceBindingService(deps: {
       request: PutSlackBindingRequest,
     ): Promise<PutSlackBindingResponse> {
       await permitted(caller, agentId);
+      const channelKind =
+        request.channel_id === null
+          ? "dm"
+          : await channels.kindOf(caller.ownerId, agentId, request.channel_id);
+      if (request.channel_id !== null && channelKind === "dm") {
+        throw new SessionServiceError(
+          "BAD_REQUEST",
+          SLACK_BINDING_MESSAGES.dmChannel,
+        );
+      }
       const result = await store.set({
         principal: caller,
         workspaceId: caller.ownerId,
         agentId,
         channelId: request.channel_id,
-        channelKind: request.channel_kind,
+        channelKind,
         mode: request.mode,
         home: request.home,
         ceiling: request.ceiling ?? DEFAULT_SURFACE_CEILING,

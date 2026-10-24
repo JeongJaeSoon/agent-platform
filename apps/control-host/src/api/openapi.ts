@@ -121,6 +121,8 @@ import {
   revokeCredentialBindingResponseSchema,
   type SessionScope,
   SLACK_INSTALL_STATE_TTL_SECONDS,
+  searchSlackChannelsQuerySchema,
+  searchSlackChannelsResponseSchema,
   sessionCredentialUnboundDetailsSchema,
   sessionDurabilitySchema,
   sessionIdParamsSchema,
@@ -192,6 +194,7 @@ const requestComponents = {
   UsageSummaryQuery: usageSummaryQuerySchema,
   PostSessionMessageRequest: postSessionMessageRequestSchema,
   ListTurnsQuery: listTurnsQuerySchema,
+  SearchSlackChannelsQuery: searchSlackChannelsQuerySchema,
   PostSessionAnswerRequest: postSessionAnswerRequestSchema,
   PostSessionAnswerResponse: postSessionAnswerResponseSchema,
   InterruptSessionRequest: interruptSessionRequestSchema,
@@ -328,6 +331,7 @@ const responseComponents = {
   RevokeAgentIdentityResponse: revokeAgentIdentityResponseSchema,
   ListSlackBindingsResponse: listSlackBindingsResponseSchema,
   PutSlackBindingResponse: putSlackBindingResponseSchema,
+  SearchSlackChannelsResponse: searchSlackChannelsResponseSchema,
   OpenApiDocument: openApiDocumentResponseSchema,
 } satisfies Record<string, z.ZodType>;
 
@@ -2661,13 +2665,57 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "Set how the agent answers in one Slack channel or its DMs",
     description:
-      "Replaces the binding of `channel_id` in the agent's Slack app install, or the install's one DM binding when `channel_kind` is `dm` and `channel_id` is null, creating it the first time. `mode` is `off` (the channel takes nothing; a mention there is refused) or `mention`. `home: true` makes this channel the agent's home and clears the previous one; a DM is never home. A missing `ceiling` is the default: every Slack action, shown in full. The agent needs a live Slack app identity (409 SLACK_NOT_INSTALLED); a concurrent change to the same channel or home answers 409 REVISION_CONFLICT. No Slack call is made: the bot does not join the channel here. Owners, admins and the agent's admins; API keys are refused. Writes a `set_surface_binding` receipt.",
+      "Replaces the binding of `channel_id` in the agent's Slack app install, or the install's one DM binding when `channel_id` is null, creating it the first time. The channel's kind is what Slack's `conversations.info` answers with the bot token; `channel_kind`, when sent, only has to agree on whether this is the DM row (400 when Slack names a DM or does not know the channel, 503 when Slack cannot be read). `mode` is `off` (the channel takes nothing; a mention there is refused) or `mention`. `home: true` makes this channel the agent's home and clears the previous one; a DM is never home. A missing `ceiling` is the default: every Slack action, shown in full. The agent needs a live Slack app identity (409 SLACK_NOT_INSTALLED); a concurrent change to the same channel or home answers 409 REVISION_CONFLICT. The bot does not join the channel here. Owners, admins and the agent's admins; API keys are refused. Writes a `set_surface_binding` receipt.",
     auth: "session",
     body: "PutSlackBindingRequest",
     success: { status: 200, schema: "PutSlackBindingResponse" },
     errors: [400, 401, 403, 404, 409, 413, 503],
     errorCodes: { 409: ["SLACK_NOT_INSTALLED", "REVISION_CONFLICT"] },
     idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/agents/{id}/slack/channels",
+    operationId: "searchSlackChannels",
+    tag: "Agents",
+    summary: "Search the channels the agent's Slack bot can see",
+    description:
+      "Channels whose name starts with `q` (any case, a leading `#` ignored), by name, `limit` per page (default 20, at most 50): every public channel of the install and the private ones the bot is already in. `is_member` says whether the bot is in the channel. The server reads the app's whole list from Slack (`conversations.list` with the bot token) and keeps it for 60 seconds per app, up to 10,000 channels (`truncated: true` past that); a binding change in the same API process drops it sooner. Pass `next_cursor` back as `cursor` with the same `q` for the next page; once the list it pages through has been replaced the cursor answers 400 CURSOR_EXPIRED, and the search starts over. When Slack rate limits, the last list read is returned with `stale: true`, or 503 with Slack's `Retry-After` when there is none; Slack is not asked again before then. The agent needs an installed Slack app with a bot token (409 SLACK_NOT_INSTALLED). Owners, admins and the agent's admins.",
+    auth: "session",
+    query: "SearchSlackChannelsQuery",
+    success: {
+      status: 200,
+      schema: "SearchSlackChannelsResponse",
+      description: "One page of matching channels.",
+      example: {
+        items: [
+          {
+            id: "C0DEPLOY1",
+            name: "deploy",
+            is_private: false,
+            is_member: true,
+          },
+          {
+            id: "G0DESIGN1",
+            name: "design",
+            is_private: true,
+            is_member: true,
+          },
+        ],
+        next_cursor: "eyJzIjoiYWJjIiwibyI6MiwicSI6ImRlIn0",
+        truncated: false,
+        stale: false,
+      },
+    },
+    errors: [400, 401, 403, 404, 409, 503],
+    errorCodes: {
+      400: ["BAD_REQUEST", "CURSOR_EXPIRED"],
+      409: ["SLACK_NOT_INSTALLED"],
+    },
+    errorNotes: {
+      BACKEND_UNAVAILABLE:
+        "Also when Slack is rate limiting with no list read yet (`Retry-After` is Slack's), when Slack does not answer, or when the API runs without a master key (PLATFORM_SECRET_KEY).",
+    },
   },
   {
     method: "get",

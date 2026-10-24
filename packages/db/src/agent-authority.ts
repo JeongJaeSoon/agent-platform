@@ -6,6 +6,7 @@ import {
   agentReleases,
   agents,
   memberships,
+  sessionLinks,
   sessions,
   surfaceBindings,
   users,
@@ -63,7 +64,38 @@ export function createDatabaseAgentAuthority(db: Database): AgentAuthority {
           .limit(1);
         return row?.agentId ?? null;
       }
+      if (resource.kind === "session_link") {
+        const [row] = await db
+          .select({ agentId: sessionLinks.agentId })
+          .from(sessionLinks)
+          .where(
+            and(
+              eq(sessionLinks.id, id),
+              eq(sessionLinks.workspaceId, workspaceId),
+              isNull(sessionLinks.revokedAt),
+            ),
+          )
+          .limit(1);
+        return row?.agentId ?? null;
+      }
       return null;
+    },
+
+    async agentOfRelease(workspaceId, releaseId) {
+      if (!UUID.test(workspaceId)) return null;
+      const [row] = await db
+        .select({ agentId: agentReleases.agentId })
+        .from(agentReleases)
+        .innerJoin(
+          agents,
+          and(
+            eq(agents.id, agentReleases.agentId),
+            eq(agents.workspaceId, workspaceId),
+          ),
+        )
+        .where(eq(agentReleases.id, releaseId))
+        .limit(1);
+      return row?.agentId ?? null;
     },
 
     async isAdmin(workspaceId, agentId, userId) {

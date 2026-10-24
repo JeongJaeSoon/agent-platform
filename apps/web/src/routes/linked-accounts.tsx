@@ -19,7 +19,7 @@ import {
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { linkedAccountsQuery, queryKeys } from "../api/queries.ts";
 import { refusalText, useRole } from "../auth/guard.tsx";
-import { FormError, NOTICE } from "../components/auth-page.tsx";
+import { FormError, Notice } from "../components/auth-page.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import type { Outcome } from "../components/outcome.tsx";
 import { Page } from "../components/page.tsx";
@@ -168,8 +168,8 @@ export function LinkedAccountsScreen() {
     <Page title={t("linked.title")} description={t("linked.intro")}>
       {outcome?.kind === "error" ? <FormError>{outcome.text}</FormError> : null}
       {/* Always mounted, so a screen reader hears the notice when it
-          changes; out of the flow while empty. */}
-      <output className={notice ? NOTICE : "sr-only"}>{notice}</output>
+          changes. */}
+      <Notice>{notice}</Notice>
       <ul ref={listRef} className={SERVICES}>
         <SoonService mark="G" name="GitHub" use={t("linked.use.github")} />
         <li>

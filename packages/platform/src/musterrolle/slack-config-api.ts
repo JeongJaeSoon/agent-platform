@@ -1,3 +1,8 @@
+import type {
+  SlackChannel,
+  SlackUser,
+  SurfaceChannelKind,
+} from "@werft-ai/contracts";
 import { z } from "zod";
 
 // The App Configuration API calls the platform makes with a workspace's
@@ -22,6 +27,27 @@ export class SlackApiError extends Error {
     super(`${method}: ${code}`);
     this.name = "SlackApiError";
   }
+}
+
+/** Used when a 429 carries no readable Retry-After. */
+const DEFAULT_RETRY_AFTER_SECONDS = 60;
+
+/** Slack answered 429: no call before `retryAfterSeconds` have passed. */
+export class SlackRateLimitedError extends SlackApiError {
+  constructor(
+    method: string,
+    readonly retryAfterSeconds: number,
+  ) {
+    super(method, "ratelimited", true);
+    this.name = "SlackRateLimitedError";
+  }
+}
+
+function retryAfterOf(response: Response): number {
+  const seconds = Number(response.headers.get("retry-after"));
+  return Number.isSafeInteger(seconds) && seconds > 0
+    ? seconds
+    : DEFAULT_RETRY_AFTER_SECONDS;
 }
 
 export type RotatedConfigToken = {
@@ -123,16 +149,18 @@ const updateAnswer = z.object({
 
 const ERROR_CODE = /^[a-z_]{1,64}$/;
 
-export function createSlackConfigApi(options?: {
+export type SlackApiOptions = {
   apiUrl?: string;
   fetch?: typeof fetch;
   timeoutMs?: number;
-}): SlackConfigApi & SlackInstallApi {
+};
+
+function slackCaller(options?: SlackApiOptions) {
   const apiUrl = (options?.apiUrl ?? SLACK_API_URL).replace(/\/+$/, "");
   const fetchImpl = options?.fetch ?? fetch;
   const timeoutMs = options?.timeoutMs ?? SLACK_HTTP_TIMEOUT_MS;
 
-  async function call<T>(
+  return async function call<T>(
     method: string,
     init: { token?: string; body: URLSearchParams | object },
     schema: z.ZodType<T>,
@@ -160,6 +188,10 @@ export function createSlackConfigApi(options?: {
         false,
       );
     }
+    if (response.status === 429) {
+      await response.body?.cancel();
+      throw new SlackRateLimitedError(method, retryAfterOf(response));
+    }
     const body = (await response.json().catch(() => null)) as Record<
       string,
       unknown
@@ -181,8 +213,13 @@ export function createSlackConfigApi(options?: {
       throw new SlackApiError(method, "unexpected_answer", false);
     }
     return parsed.data;
-  }
+  };
+}
 
+export function createSlackConfigApi(
+  options?: SlackApiOptions,
+): SlackConfigApi & SlackInstallApi {
+  const call = slackCaller(options);
   return {
     async rotateConfigToken(refreshToken) {
       const answer = await call(
@@ -271,6 +308,150 @@ export function createSlackConfigApi(options?: {
         botUserId: auth.user_id,
         appId: info.bot.app_id,
       };
+    },
+  };
+}
+
+/** The progress line under a thread's last message. */
+export const SLACK_SET_STATUS_METHOD = "agents.sessions.setStatus";
+
+/** Slack advises no more than 200 per page. */
+export const SLACK_CHANNEL_PAGE_SIZE = 200;
+
+export type SlackChannelPage = {
+  channels: SlackChannel[];
+  nextCursor: string | null;
+};
+
+/** The calls a bot token makes about the people and places it hears from. */
+export interface SlackBotApi {
+  /** `users.info`: the flags that tell a member from a guest or a stranger. */
+  userInfo(botToken: string, userId: string): Promise<SlackUser>;
+  /** `conversations.info`: what kind of place the channel is. */
+  channelKind(botToken: string, channelId: string): Promise<SurfaceChannelKind>;
+  /**
+   * `conversations.list`: one page of the public channels and the private
+   * ones the bot is in. Slack's Tier 2 (20+ per minute).
+   */
+  listChannels(
+    botToken: string,
+    cursor: string | null,
+  ): Promise<SlackChannelPage>;
+  setStatus(
+    botToken: string,
+    input: { channelId: string; threadTs: string; status: string },
+  ): Promise<void>;
+}
+
+const userInfoAnswer = z.object({
+  user: z.object({
+    id: slackId,
+    team_id: slackId,
+    is_restricted: z.boolean().optional(),
+    is_ultra_restricted: z.boolean().optional(),
+    is_stranger: z.boolean().optional(),
+  }),
+});
+
+const conversationInfoAnswer = z.object({
+  channel: z.object({
+    is_im: z.boolean().optional(),
+    is_mpim: z.boolean().optional(),
+    is_private: z.boolean().optional(),
+  }),
+});
+
+const listChannelsAnswer = z.object({
+  channels: z.array(
+    z.object({
+      id: slackId,
+      name: z.string().min(1).max(255),
+      is_private: z.boolean().default(false),
+      is_member: z.boolean().default(false),
+      is_archived: z.boolean().default(false),
+    }),
+  ),
+  response_metadata: z
+    .object({ next_cursor: z.string().max(4096).optional() })
+    .optional(),
+});
+
+export function createSlackBotApi(options?: SlackApiOptions): SlackBotApi {
+  const call = slackCaller(options);
+  return {
+    async userInfo(botToken, userId) {
+      const { user } = await call(
+        "users.info",
+        { token: botToken, body: new URLSearchParams({ user: userId }) },
+        userInfoAnswer,
+      );
+      return {
+        id: user.id,
+        team_id: user.team_id,
+        ...(user.is_restricted === undefined
+          ? {}
+          : { is_restricted: user.is_restricted }),
+        ...(user.is_ultra_restricted === undefined
+          ? {}
+          : { is_ultra_restricted: user.is_ultra_restricted }),
+        ...(user.is_stranger === undefined
+          ? {}
+          : { is_stranger: user.is_stranger }),
+      };
+    },
+
+    async channelKind(botToken, channelId) {
+      const { channel } = await call(
+        "conversations.info",
+        { token: botToken, body: new URLSearchParams({ channel: channelId }) },
+        conversationInfoAnswer,
+      );
+      if (channel.is_im) return "dm";
+      return channel.is_private || channel.is_mpim
+        ? "private_channel"
+        : "public_channel";
+    },
+
+    async listChannels(botToken, cursor) {
+      const answer = await call(
+        "conversations.list",
+        {
+          token: botToken,
+          body: new URLSearchParams({
+            types: "public_channel,private_channel",
+            exclude_archived: "true",
+            limit: String(SLACK_CHANNEL_PAGE_SIZE),
+            ...(cursor === null ? {} : { cursor }),
+          }),
+        },
+        listChannelsAnswer,
+      );
+      return {
+        channels: answer.channels
+          .filter((channel) => !channel.is_archived)
+          .map((channel) => ({
+            id: channel.id,
+            name: channel.name,
+            is_private: channel.is_private,
+            is_member: channel.is_member,
+          })),
+        nextCursor: answer.response_metadata?.next_cursor || null,
+      };
+    },
+
+    async setStatus(botToken, input) {
+      await call(
+        SLACK_SET_STATUS_METHOD,
+        {
+          token: botToken,
+          body: {
+            channel_id: input.channelId,
+            thread_ts: input.threadTs,
+            status: input.status,
+          },
+        },
+        z.object({}),
+      );
     },
   };
 }

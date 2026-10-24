@@ -24,6 +24,7 @@ import {
   BindingMoved,
   type ControlStageMeasure,
   controlClock,
+  controlReplay,
   earliestUnknownTurn,
   expireOverdueReceipts,
   findIdempotent,
@@ -500,20 +501,8 @@ export function createPostgresSessionControl(
         const existing = await measure("idempotency_lookup_ms", () =>
           findIdempotent(tx, scope),
         );
-        if (existing) {
-          if (existing.payloadHash !== input.payloadHash) {
-            return { outcome: "conflict" };
-          }
-          // Same receipt identity as the first answer; the status is the
-          // receipt's current one, since the row is the only record of it.
-          return {
-            outcome: "replayed",
-            response: {
-              receipt_id: existing.receiptId,
-              receipt_status: existing.status,
-            },
-          };
-        }
+        const replay = controlReplay(existing, input.payloadHash);
+        if (replay) return replay;
 
         const session = await lockSessionForControl(tx, {
           sessionId,

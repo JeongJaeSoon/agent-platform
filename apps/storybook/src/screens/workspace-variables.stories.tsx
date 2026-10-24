@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { ApiErrorState } from "@werft-ai/react/components";
 import {
+  Alert,
   Badge,
   Button,
   Card,
@@ -25,7 +26,6 @@ import {
   TableHeader,
   TableRow,
 } from "@werft-ai/ui";
-import type { ReactNode } from "react";
 
 /*
  * S-E1: the workspace settings section where owners and admins keep values
@@ -41,40 +41,6 @@ type PanelState =
   | "ready"
   | "delete"
   | "deleted";
-
-type Tone = "info" | "warning" | "danger";
-const TONE = {
-  info: { variant: "blue", label: "안내" },
-  warning: { variant: "amber", label: "주의" },
-  danger: { variant: "red", label: "오류" },
-} as const;
-
-// Stands in for the Alert part ui-kit accepted and packages/ui lacks yet.
-function AlertStandIn({
-  tone,
-  role,
-  children,
-}: {
-  readonly tone: Tone;
-  readonly role?: "status";
-  readonly children: ReactNode;
-}) {
-  return (
-    <Card data-tone={tone} role={role}>
-      <CardHeader>
-        <CardDescription className="flex items-start gap-2">
-          <Badge variant={TONE[tone].variant}>{TONE[tone].label}</Badge>
-          {children}
-        </CardDescription>
-        <CardAction>
-          <Badge variant="amber" data-part-request="Alert">
-            부품 요청 중: Alert
-          </Badge>
-        </CardAction>
-      </CardHeader>
-    </Card>
-  );
-}
 
 const ACTIONS = ["수정", "허락할 에이전트", "삭제"];
 
@@ -207,9 +173,9 @@ function WorkspaceVariablesScreen({ state }: { readonly state: PanelState }) {
     <div className="story-stack">
       <div className="story-row">{API_CHANGE}</div>
       {state === "deleted" ? (
-        <AlertStandIn tone="info" role="status">
+        <Alert variant="blue" role="status">
           LOG_LEVEL을 삭제했습니다.
-        </AlertStandIn>
+        </Alert>
       ) : null}
       <Card>
         <CardHeader>

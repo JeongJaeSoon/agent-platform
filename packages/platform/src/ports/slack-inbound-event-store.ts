@@ -72,6 +72,17 @@ export interface SlackInboundEventStore {
     leaseMs: number;
     maxAttempts: number;
   }): Promise<SlackInboundClaim[]>;
+  /**
+   * Extends a held lease to `leaseMs` from now, before an effect outside
+   * the inbox. Null when the lease is gone; otherwise the install's status
+   * as of now.
+   */
+  renew(
+    fence: SlackInboundFence,
+    leaseMs: number,
+  ): Promise<{
+    installationStatus: SlackInboundClaim["installationStatus"];
+  } | null>;
   /** Marks the row `processed`. */
   complete(fence: SlackInboundFence): Promise<boolean>;
   /** Ends the row `dropped` for `reason`, its payload and key cleared. */

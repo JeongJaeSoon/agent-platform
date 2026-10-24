@@ -45,7 +45,7 @@ import {
   useRole,
   WORKSPACE_ROLE_VALUES,
 } from "../auth/guard.tsx";
-import { FormError, NOTICE } from "../components/auth-page.tsx";
+import { FormError, Notice } from "../components/auth-page.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { Page } from "../components/page.tsx";
 import { ReasonHint } from "../components/reason-hint.tsx";
@@ -223,7 +223,7 @@ function OutcomeNote({ outcome }: { readonly outcome: Outcome | null }) {
   return outcome.kind === "error" ? (
     <FormError>{outcome.text}</FormError>
   ) : (
-    <output className={NOTICE}>{outcome.text}</output>
+    <Notice>{outcome.text}</Notice>
   );
 }
 
