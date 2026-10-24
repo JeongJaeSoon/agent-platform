@@ -549,12 +549,12 @@ describe("에이전트 목록 탭과 보기", () => {
       name: "이름이나 식별자로 찾기",
     });
     const cards = screen.getByRole("button", { name: "카드" });
-    // Categories, then search, then view: the toolbar's reading order.
+    // Categories, then view, then search: the toolbar's reading order.
     expect(
-      all.compareDocumentPosition(search) & Node.DOCUMENT_POSITION_FOLLOWING,
+      all.compareDocumentPosition(cards) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(
-      search.compareDocumentPosition(cards) & Node.DOCUMENT_POSITION_FOLLOWING,
+      cards.compareDocumentPosition(search) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
 
     const user = await setupUser();
