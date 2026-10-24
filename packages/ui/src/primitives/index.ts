@@ -18,6 +18,12 @@ export {
 } from "./card.tsx";
 export { Checkbox } from "./checkbox.tsx";
 export {
+  Code,
+  CodeBlock,
+  type CodeBlockProps,
+  type CodeProps,
+} from "./code.tsx";
+export {
   Dialog,
   DialogClose,
   DialogContent,
@@ -51,6 +57,7 @@ export {
   GridTableRowOpener,
   type GridTableRowOpenerProps,
 } from "./grid-table.tsx";
+export { Heading, type HeadingProps } from "./heading.tsx";
 export { Input } from "./input.tsx";
 export {
   Link,
@@ -106,6 +113,7 @@ export {
   TabsTrigger,
   type TabsTriggerProps,
 } from "./tabs.tsx";
+export { Text, type TextProps } from "./text.tsx";
 export { Textarea } from "./textarea.tsx";
 export {
   Tooltip,
