@@ -82,10 +82,9 @@ test("the agent list reads every page, 100 at a time, and hands back all of them
     },
   } as unknown as ApiClient;
   const { queryFn } = queries.agentsQuery(client);
-  expect(await queryFn({} as Parameters<typeof queryFn>[0])).toEqual({
-    items: [{ id: "a" }, { id: "b" }, { id: "c" }],
-    next_cursor: null,
-  });
+  const all = await queryFn({} as Parameters<typeof queryFn>[0]);
+  expect(all.items.map((agent) => agent.id)).toEqual(["a", "b", "c"]);
+  expect(all.next_cursor).toBeNull();
   expect(calls).toEqual([
     { limit: 100 },
     { cursor: "c2", limit: 100 },

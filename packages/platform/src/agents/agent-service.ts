@@ -4,6 +4,7 @@ import type {
   ActivationCredentialUnboundDetails,
   AgentDetail,
   AgentRelease,
+  CountAgentsResponse,
   CreateAgentReleaseRequest,
   CreateAgentReleaseResponse,
   CreateAgentRequest,
@@ -110,6 +111,11 @@ export function createAgentService(deps: {
     ): Promise<ListAgentsResponse> {
       await onWorkspace(caller, "agent.manage");
       return store.list(caller.ownerId, query);
+    },
+
+    async countAgents(caller: Caller): Promise<CountAgentsResponse> {
+      const userId = await onWorkspace(caller, "agent.manage");
+      return { counts: await store.count(caller.ownerId, userId) };
     },
 
     async getAgent(caller: Caller, agentId: string): Promise<AgentDetail> {

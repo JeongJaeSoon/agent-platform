@@ -3,6 +3,7 @@ import type {
   AgentDetail,
   AgentRelease,
   AgentVersion,
+  CountAgentsResponse,
   ListAgentsResponse,
   PaginationQuery,
 } from "@werft-ai/contracts";
@@ -51,6 +52,11 @@ export interface AgentStore {
     workspaceId: string,
     query: PaginationQuery,
   ): Promise<ListAgentsResponse>;
+  /** What `list` holds read to the end, and how many of it `userId` administers. */
+  count(
+    workspaceId: string,
+    userId: string,
+  ): Promise<CountAgentsResponse["counts"]>;
   get(workspaceId: string, agentId: string): Promise<AgentDetail | null>;
   findVersion(
     workspaceId: string,

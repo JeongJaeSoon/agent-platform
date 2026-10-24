@@ -11,6 +11,7 @@ import {
 } from "@werft-ai/contracts";
 import type { ActivateResult, AgentStore, Principal } from "@werft-ai/platform";
 import { and, asc, eq, max, sql } from "drizzle-orm";
+import { administers, liveMember } from "./administers.ts";
 import { actorStillMember, receiptActorOf } from "./control-shared.ts";
 import {
   decodeCreatedAtCursor,
@@ -182,6 +183,21 @@ export function createPostgresAgentStore(db: Database): AgentStore {
               })
             : null,
       };
+    },
+
+    async count(workspaceId, userId) {
+      const person = userId.toLowerCase();
+      const [row] = await db
+        .select({
+          all: sql<number>`count(*)::int`,
+          administered: sql<number>`(count(*) filter (where ${and(
+            administers(db, workspaceId, person, agents.id),
+            liveMember(db, workspaceId, person),
+          )}))::int`,
+        })
+        .from(agents)
+        .where(eq(agents.workspaceId, workspaceId));
+      return { all: row?.all ?? 0, administered: row?.administered ?? 0 };
     },
 
     get: (workspaceId, agentId) => detailOf(db, workspaceId, agentId),

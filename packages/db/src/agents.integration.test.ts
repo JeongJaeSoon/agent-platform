@@ -27,16 +27,21 @@ import {
 import { asc, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { createPostgresAgentAdminStore } from "./agent-admins.ts";
 import { createPostgresAgentStore } from "./agents.ts";
 import { createPostgresCredentialBindingStore } from "./credential-bindings.ts";
 import { createDatabaseIdentityReader } from "./identity-reader.ts";
 import * as schema from "./schema.ts";
 import {
   agentActivationEvents,
+  agentAdmins,
+  agentAdminTeams,
   agentReleases,
   agents,
   agentVersions,
   memberships,
+  memberTeamMembers,
+  memberTeams,
   receipts,
   sessions,
   users,
@@ -362,6 +367,77 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
         );
       expect(refused, forged).toBeInstanceOf(InvalidCursorError);
     }
+  });
+
+  test("counts are the list read to its end and the agents the caller administers now, as /v1/administered-agents lists them", async () => {
+    const workspaceId = await workspace();
+    const owner = await person(workspaceId, "owner");
+    const userId = owner.actor?.userId ?? "";
+    const agentsService = service();
+    const [direct, viaTeam, archivedTeam, removedFromTeam] = await seedAgents(
+      workspaceId,
+      Array.from({ length: 6 }, () => "2026-01-01 00:00:00+00"),
+    );
+    await seedAgents(await workspace(), ["2026-01-01 00:00:00+00"]);
+    await db.insert(agentAdmins).values({
+      workspaceId,
+      agentId: direct ?? "",
+      userId,
+    });
+    async function team(
+      agentIds: (string | undefined)[],
+      state: { archived?: boolean; removed?: boolean } = {},
+    ) {
+      const teamId = randomUUID();
+      await db.insert(memberTeams).values({
+        id: teamId,
+        workspaceId,
+        name: `team-${teamId.slice(0, 8)}`,
+        archivedAt: state.archived ? new Date() : null,
+      });
+      await db.insert(memberTeamMembers).values({
+        id: randomUUID(),
+        workspaceId,
+        teamId,
+        userId,
+        removedAt: state.removed ? new Date() : null,
+      });
+      for (const agentId of agentIds) {
+        await db
+          .insert(agentAdminTeams)
+          .values({ workspaceId, agentId: agentId ?? "", teamId });
+      }
+    }
+    await team([viaTeam, direct]);
+    await team([archivedTeam], { archived: true });
+    await team([removedFromTeam], { removed: true });
+
+    expect(await agentsService.countAgents(owner)).toEqual({
+      counts: { all: 6, administered: 2 },
+    });
+    const listed = await createPostgresAgentAdminStore(db).listAdministered(
+      workspaceId,
+      userId,
+      200,
+    );
+    expect(listed.map((agent) => agent.id).sort()).toEqual(
+      [direct ?? "", viaTeam ?? ""].sort(),
+    );
+
+    // A disabled member administers nothing, as the admin list says.
+    await db
+      .update(memberships)
+      .set({ disabledAt: new Date() })
+      .where(eq(memberships.userId, userId));
+    expect(
+      await createPostgresAgentStore(db).count(workspaceId, userId),
+    ).toEqual({ all: 6, administered: 0 });
+
+    const member = await person(workspaceId, "member");
+    expect(await codeOf(agentsService.countAgents(member))).toBe("FORBIDDEN");
+    expect(
+      await codeOf(agentsService.countAgents(serviceKey(workspaceId))),
+    ).toBe("FORBIDDEN");
   });
 
   test("an owner creates an agent, adds versions, releases and activates one", async () => {

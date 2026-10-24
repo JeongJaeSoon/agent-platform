@@ -3,6 +3,7 @@ import {
   activateAgentResponseSchema,
   agentDetailSchema,
   agentIdParamsSchema,
+  countAgentsResponseSchema,
   createAgentReleaseRequestSchema,
   createAgentReleaseResponseSchema,
   createAgentRequestSchema,
@@ -29,6 +30,14 @@ export function registerAgentRoutes(
       service.listAgents(context.get("caller"), query),
     );
     return jsonWithSchema(context, listAgentsResponseSchema, page);
+  });
+
+  // Before getAgent, so "counts" is never read as an agent id.
+  apiRoute(router, "countAgents", async (context) => {
+    const counts = await mapped(() =>
+      service.countAgents(context.get("caller")),
+    );
+    return jsonWithSchema(context, countAgentsResponseSchema, counts);
   });
 
   apiRoute(router, "createAgent", async (context) => {

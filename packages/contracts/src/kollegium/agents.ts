@@ -353,6 +353,21 @@ export const agentDetailSchema = z
   .strict();
 export const listAgentsQuerySchema = paginationQuerySchema;
 export const listAgentsResponseSchema = pageSchema(agentSchema);
+const agentCountSchema = z.number().int().nonnegative();
+export const countAgentsResponseSchema = z.object({
+  counts: z
+    .object({
+      all: agentCountSchema.meta({
+        description:
+          "How many agents GET /v1/agents lists, read to the last page.",
+      }),
+      administered: agentCountSchema.meta({
+        description:
+          "How many of those the caller administers now, directly or through a team.",
+      }),
+    })
+    .strict(),
+});
 
 /** Creates the agent and its first version; nothing is released. */
 export const createAgentRequestSchema = z
@@ -443,6 +458,7 @@ export type DraftAgentResponse = z.infer<typeof draftAgentResponseSchema>;
 export type AgentDetail = z.infer<typeof agentDetailSchema>;
 export type ListAgentsQuery = z.infer<typeof listAgentsQuerySchema>;
 export type ListAgentsResponse = z.infer<typeof listAgentsResponseSchema>;
+export type CountAgentsResponse = z.infer<typeof countAgentsResponseSchema>;
 export type PolicyPins = z.infer<typeof policyPinsSchema>;
 export type ToolPolicy = z.infer<typeof toolPolicySchema>;
 export type CardToolPolicy = z.infer<typeof cardToolPolicySchema>;

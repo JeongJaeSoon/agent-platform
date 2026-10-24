@@ -79,6 +79,7 @@ function memoryStore(tools: string[] = ["Read"]) {
   let activations = 0;
   const store: AgentStore = {
     list: async () => ({ items: [detail.agent], next_cursor: null }),
+    count: async () => ({ all: 1, administered: 0 }),
     get: async () => detail,
     findVersion: async () => ({
       id: VERSION,
@@ -171,6 +172,10 @@ describe("agent service", () => {
         reached = true;
         return { items: [], next_cursor: null };
       },
+      count: async () => {
+        reached = true;
+        return { all: 0, administered: 0 };
+      },
     });
     const key = callerFor(
       {
@@ -187,6 +192,10 @@ describe("agent service", () => {
       "FORBIDDEN",
     );
     expect(await codeOf(service.listAgents(key, PAGE))).toBe("FORBIDDEN");
+    expect(await codeOf(service.countAgents(person("member")))).toBe(
+      "FORBIDDEN",
+    );
+    expect(await codeOf(service.countAgents(key))).toBe("FORBIDDEN");
     expect(reached).toBe(false);
     expect((await service.listAgents(owner, PAGE)).items).toEqual([]);
   });
