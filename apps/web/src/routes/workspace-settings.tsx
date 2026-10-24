@@ -7,7 +7,6 @@ import type {
 import { useAgentPlatform } from "@werft-ai/react";
 import {
   Badge,
-  Button,
   buttonVariants,
   Card,
   CardDescription,
