@@ -701,6 +701,38 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     expect((await rows())[0]).toMatchObject({ status: "sent", attempts: 2 });
   });
 
+  test("a 429 whose body breaks off mid-read still waits out its Retry-After", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    await endTurn(await sessionOf(fixture), 1, "completed", [[text("hi")]]);
+    const brokenBody = () =>
+      new ReadableStream({
+        start(controller) {
+          controller.error(new Error("connection reset"));
+        },
+      });
+    const limited = createSlackBotApi({
+      apiUrl: slack.url,
+      fetch: (async () =>
+        new Response(brokenBody(), {
+          status: 429,
+          headers: { "retry-after": "3" },
+        })) as unknown as typeof fetch,
+    });
+    expect(await outboxPass({ slack: limited })).toMatchObject({
+      retried: 1,
+      uncertain: 0,
+    });
+    expect((await rows())[0]).toMatchObject({
+      status: "pending",
+      errorCode: "ratelimited",
+    });
+
+    await db.update(slackOutbox).set({ nextAttemptAt: sql`now()` });
+    expect(await outboxPass()).toMatchObject({ sent: 1 });
+    expect(posted()).toHaveLength(1);
+  });
+
   test("ok without a ts fails and is never sent again", async () => {
     const fixture = await agentInSlack();
     await mention(fixture, THREAD);
@@ -817,6 +849,28 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     expect(await outboxPass()).toMatchObject({ uncertain: 0, sent: 1 });
     expect(posted()).toHaveLength(1);
     expect(await outbox.beginSend(claim)).toBe(false);
+  });
+
+  test("claims that never reached Slack spend no attempts", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    await endTurn(await sessionOf(fixture), 1, "completed", [[text("hi")]]);
+    const outbox = createPostgresSlackOutboxStore(db);
+    await outboxPass({ botToken: null });
+    for (let lapse = 0; lapse < 5; lapse += 1) {
+      expect(await outbox.claim({ limit: 10, leaseMs: 30_000 })).toHaveLength(
+        1,
+      );
+      await db
+        .update(slackOutbox)
+        .set({ leaseExpiresAt: sql`now() - interval '1 second'` });
+    }
+    slack.failures.set("chat.postMessage", "internal_error");
+    expect(await outboxPass()).toMatchObject({ retried: 1, failed: 0 });
+    expect((await rows())[0]).toMatchObject({
+      status: "pending",
+      attempts: 1,
+    });
   });
 
   test("two passes at once send each row once", async () => {

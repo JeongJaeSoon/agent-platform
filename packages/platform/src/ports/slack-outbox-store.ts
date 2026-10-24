@@ -52,7 +52,10 @@ export type SlackOutboxFence = { id: string; claimToken: string };
 
 export type SlackOutboxClaim = SlackOutboxEntry &
   SlackOutboxFence & {
-    /** Claims so far, this one included. */
+    /**
+     * Attempts so far, this one included. A claim whose lease lapses before
+     * beginSend or settle does not count.
+     */
     attempts: number;
   };
 

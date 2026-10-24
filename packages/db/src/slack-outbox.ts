@@ -252,7 +252,6 @@ export function createPostgresSlackOutboxStore(db: Database): SlackOutboxStore {
         .set({
           claimToken: sql`gen_random_uuid()`,
           leaseExpiresAt: sql`now() + make_interval(secs => ${leaseMs / 1000})`,
-          attempts: sql`${t.attempts} + 1`,
         })
         .where(
           sql`${t.id} IN (
@@ -279,8 +278,11 @@ export function createPostgresSlackOutboxStore(db: Database): SlackOutboxStore {
             a.createdAt.getTime() - b.createdAt.getTime() ||
             a.id.localeCompare(b.id),
         )
-        .map(({ createdAt: _, claimToken, ...row }) => ({
+        .map(({ createdAt: _, claimToken, attempts, ...row }) => ({
           ...row,
+          // Counted once this attempt is decided: beginSend, or a settle
+          // that never began, so a claim whose lease lapses unsent is free.
+          attempts: attempts + 1,
           // Set by this very update.
           claimToken: claimToken as string,
         }));
@@ -289,7 +291,7 @@ export function createPostgresSlackOutboxStore(db: Database): SlackOutboxStore {
     async beginSend(fence) {
       const rows = await db
         .update(t)
-        .set({ status: "sending" })
+        .set({ status: "sending", attempts: sql`${t.attempts} + 1` })
         .where(
           and(
             fenced(fence),
@@ -318,7 +320,12 @@ export function createPostgresSlackOutboxStore(db: Database): SlackOutboxStore {
             : { status: outcome.status, errorCode: outcome.errorCode };
       const rows = await db
         .update(t)
-        .set({ ...set, ...released })
+        .set({
+          ...set,
+          ...released,
+          // SET reads the old status: still pending means beginSend never ran.
+          attempts: sql`CASE WHEN ${t.status} = 'pending' THEN ${t.attempts} + 1 ELSE ${t.attempts} END`,
+        })
         .where(fenced(fence))
         .returning({ id: t.id });
       return rows.length > 0;

@@ -248,17 +248,11 @@ function slackSender(options?: SlackApiOptions) {
         false,
       );
     }
-    // A body that breaks off mid-read leaves the send as unknown as no
-    // answer at all.
-    let text: string;
-    try {
-      text = await response.text();
-    } catch {
-      throw new SlackApiError(method, "unreadable", false);
-    }
+    // A body that breaks off mid-read is no body: the status and Retry-After
+    // already came, and the caller judges what they leave known.
     let parsed: unknown = null;
     try {
-      parsed = JSON.parse(text);
+      parsed = JSON.parse(await response.text());
     } catch {}
     return {
       httpStatus: response.status,
