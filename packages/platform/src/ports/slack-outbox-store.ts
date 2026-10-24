@@ -100,7 +100,16 @@ export type SlackOutboxSettle =
 
 export interface SlackOutboxStore {
   enqueue(entry: SlackOutboxEntry): Promise<"enqueued" | "duplicate">;
-  /** Linked turns that ended or wait on input without their outbox row. */
+  /**
+   * Moves each live link's mark past the turns that need nothing more: those
+   * with their outbox row, interrupted or cancelled, or ended before the
+   * link. A turn still running or waiting stops it. Returns links moved.
+   */
+  advanceAnswered(): Promise<number>;
+  /**
+   * Linked turns past the link's mark that ended or wait on input without
+   * their outbox row.
+   */
   unansweredTurns(limit: number): Promise<SlackUnansweredTurn[]>;
   /** Moves `sending` rows whose lease ran out to `uncertain`. */
   expireSending(): Promise<SlackOutboxLost[]>;

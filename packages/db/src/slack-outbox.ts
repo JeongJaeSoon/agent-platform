@@ -91,6 +91,41 @@ export function createPostgresSlackOutboxStore(db: Database): SlackOutboxStore {
       return row ? "enqueued" : "duplicate";
     },
 
+    async advanceAnswered() {
+      // Writes only links whose mark moves, so a quiet pass writes nothing.
+      const { rows } = (await db.execute(sql`
+        UPDATE session_links l SET answered_through = m.mark
+        FROM (
+          SELECT l2.id, coalesce(
+            (SELECT min(t.sequence) - 1 FROM ${turns} t
+             WHERE t.session_id = l2.session_id
+               AND t.sequence > l2.answered_through
+               AND NOT (
+                 t.status IN ('interrupted', 'cancelled')
+                 OR (t.status IN ('completed', 'failed', 'outcome_unknown') AND (
+                   t.created_at < l2.created_at
+                   OR EXISTS (
+                     SELECT 1 FROM ${t} o
+                     WHERE o.dedupe_key = (CASE WHEN t.status = 'completed' THEN 'reply' ELSE 'failure' END)
+                       || ':' || l2.id || ':' || t.sequence
+                   )
+                 ))
+               )),
+            (SELECT max(t.sequence) FROM ${turns} t WHERE t.session_id = l2.session_id),
+            0
+          ) AS mark
+          FROM session_links l2
+          WHERE l2.session_id IS NOT NULL
+            AND l2.revoked_at IS NULL
+            AND NOT l2.muted
+            AND l2.visibility = 'full'
+        ) m
+        WHERE l.id = m.id AND m.mark > l.answered_through
+        RETURNING l.id
+      `)) as unknown as { rows: unknown[] };
+      return rows.length;
+    },
+
     async unansweredTurns(limit) {
       // The keys platform's slackTurnDedupeKey makes, spelled in SQL.
       const prefix = sql`CASE WHEN ${turns.status} = 'completed' THEN 'reply' WHEN ${turns.status} IN ('failed', 'outcome_unknown') THEN 'failure' ELSE 'input' END`;
@@ -117,7 +152,6 @@ export function createPostgresSlackOutboxStore(db: Database): SlackOutboxStore {
           eq(slackInstallations.id, sessionLinks.installationId),
         )
         .innerJoin(slackApps, eq(slackApps.appId, slackInstallations.appId))
-        // From the link, so only linked sessions' turns are read.
         .innerJoin(turns, eq(turns.sessionId, sessionLinks.sessionId))
         .leftJoin(
           linkedAccounts,
@@ -134,6 +168,23 @@ export function createPostgresSlackOutboxStore(db: Database): SlackOutboxStore {
         )
         .where(
           and(
+            // The turns past each live link's mark, found first by a range
+            // per link; joined on its own, the planner sorts every turn. The
+            // LIMIT keeps the range per link (unlimited, it is flattened
+            // into a scan of all turns), and a pass takes no more anyway.
+            sql`${turns.id} = ANY (ARRAY(
+              SELECT open.id FROM session_links ol
+              CROSS JOIN LATERAL (
+                SELECT ot.id FROM ${turns} ot
+                WHERE ot.session_id = ol.session_id
+                  AND ot.sequence > ol.answered_through
+                ORDER BY ot.sequence
+                LIMIT ${limit}
+              ) open
+              WHERE ol.revoked_at IS NULL
+                AND NOT ol.muted
+                AND ol.visibility = 'full'
+            ))`,
             isNull(sessionLinks.revokedAt),
             // A muted or summary-only thread is not where a full answer goes.
             eq(sessionLinks.muted, false),

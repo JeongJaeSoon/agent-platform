@@ -346,6 +346,7 @@ export async function drainSlackOutbox(deps: {
   for (const row of await deps.outbox.untoldUncertain(deps.batchSize)) {
     await noticeUncertain(row);
   }
+  await deps.outbox.advanceAnswered();
   drain.enqueued = await enqueueSlackTurnAnswers({
     outbox: deps.outbox,
     consoleOrigin: deps.consoleOrigin,

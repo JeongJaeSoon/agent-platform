@@ -27,6 +27,7 @@ CREATE TABLE "slack_outbox" (
 	CONSTRAINT "slack_outbox_claim_check" CHECK (("slack_outbox"."claim_token" IS NULL) = ("slack_outbox"."lease_expires_at" IS NULL) AND ("slack_outbox"."status" IN ('pending', 'sending') OR "slack_outbox"."claim_token" IS NULL) AND ("slack_outbox"."status" <> 'sending' OR "slack_outbox"."claim_token" IS NOT NULL))
 );
 --> statement-breakpoint
+ALTER TABLE "session_links" ADD COLUMN "answered_through" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
 ALTER TABLE "slack_outbox" ADD CONSTRAINT "slack_outbox_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "slack_outbox" ADD CONSTRAINT "slack_outbox_slack_app_id_slack_apps_id_fk" FOREIGN KEY ("slack_app_id") REFERENCES "public"."slack_apps"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "slack_outbox" ADD CONSTRAINT "slack_outbox_session_id_sessions_id_fk" FOREIGN KEY ("session_id") REFERENCES "public"."sessions"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint

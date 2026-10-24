@@ -2388,6 +2388,11 @@ export const sessionLinks = pgTable(
     visibility: text().$type<"full" | "summary">().notNull().default("full"),
     muted: boolean().notNull().default(false),
     revision: integer().notNull().default(1),
+    /**
+     * The Slack outbox's mark: every turn up to this sequence needs nothing
+     * more from it, so its pass reads only the turns after.
+     */
+    answeredThrough: integer("answered_through").notNull().default(0),
     createdBy: uuid("created_by").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()

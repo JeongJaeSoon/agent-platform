@@ -1,5 +1,5 @@
 {
-  "id": "fdcfbe57-e502-4012-927a-fda5ba78539e",
+  "id": "eaaacc82-6c95-4818-ac2f-b86998b04742",
   "prevId": "e7cb1114-3964-408d-a13f-968073777d81",
   "version": "7",
   "dialect": "postgresql",
@@ -4783,6 +4783,13 @@
           "primaryKey": false,
           "notNull": true,
           "default": 1
+        },
+        "answered_through": {
+          "name": "answered_through",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
         },
         "created_by": {
           "name": "created_by",

@@ -424,8 +424,30 @@ function outboxPass(
   });
 }
 
-const rows = () =>
-  db.select().from(slackOutbox).orderBy(asc(slackOutbox.createdAt));
+// A copy of the session's first turn as turn `sequence`, still running.
+async function addTurn(sessionId: string, sequence: number) {
+  const { rows: columns } = (await db.execute(
+    sql`SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'turns'
+          AND column_name NOT IN ('id', 'sequence', 'attempt_id', 'status', 'ended_at')
+        ORDER BY ordinal_position`,
+  )) as unknown as { rows: { column_name: string }[] };
+  const copied = columns.map(({ column_name }) => `"${column_name}"`);
+  await db.execute(
+    sql.raw(`INSERT INTO turns (sequence, status, ${copied.join(", ")})
+      SELECT ${sequence}, 'running', ${copied.map((column) => `t.${column}`).join(", ")}
+      FROM turns t WHERE t.session_id = '${sessionId}' AND t.sequence = 1`),
+  );
+}
+
+async function answeredThrough() {
+  const [link] = await db
+    .select({ answeredThrough: sessionLinks.answeredThrough })
+    .from(sessionLinks);
+  return link?.answeredThrough;
+}
+
+const rows = () => db.select().from(slackOutbox).orderBy(asc(slackOutbox.seq));
 
 const posted = () =>
   slack.messages.filter((message) => message.method === "chat.postMessage");
@@ -498,21 +520,9 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     const fixture = await agentInSlack();
     await mention(fixture, THREAD);
     const sessionId = await sessionOf(fixture);
-    const { rows: columns } = (await db.execute(
-      sql`SELECT column_name FROM information_schema.columns
-          WHERE table_name = 'turns'
-            AND column_name NOT IN ('id', 'sequence', 'attempt_id')
-          ORDER BY ordinal_position`,
-    )) as unknown as { rows: { column_name: string }[] };
-    const copied = columns.map(({ column_name }) => `"${column_name}"`);
     // Turn 3 gets the lower id: id order is not the thread's order.
-    for (const sequence of [3, 2]) {
-      await db.execute(
-        sql.raw(`INSERT INTO turns (sequence, ${copied.join(", ")})
-          SELECT ${sequence}, ${copied.map((column) => `t.${column}`).join(", ")}
-          FROM turns t WHERE t.session_id = '${sessionId}' AND t.sequence = 1`),
-      );
-    }
+    await addTurn(sessionId, 3);
+    await addTurn(sessionId, 2);
     for (const sequence of [1, 2, 3]) {
       await endTurn(sessionId, sequence, "completed", [
         [text(`answer ${sequence}`)],
@@ -525,6 +535,88 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
       "answer 2",
       "answer 3",
     ]);
+  });
+
+  test("a turn still running holds the thread's mark, and answers once it ends", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await endTurn(sessionId, 1, "completed", [[text("answer 1")]]);
+    await addTurn(sessionId, 2);
+    expect(await outboxPass()).toMatchObject({ sent: 1 });
+    expect(await outboxPass()).toMatchObject({ enqueued: 0 });
+    expect(await answeredThrough()).toBe(1);
+
+    await addTurn(sessionId, 3);
+    await endTurn(sessionId, 3, "completed", [[text("answer 3")]]);
+    expect(await outboxPass()).toMatchObject({ sent: 1 });
+    expect(await outboxPass()).toMatchObject({ enqueued: 0 });
+    expect(await answeredThrough()).toBe(1);
+
+    await endTurn(sessionId, 2, "completed", [[text("answer 2")]]);
+    expect(await outboxPass()).toMatchObject({ sent: 1 });
+    await outboxPass();
+    expect(await answeredThrough()).toBe(3);
+    expect(posted().map((message) => message.text.split("\n")[0])).toEqual([
+      "answer 1",
+      "answer 3",
+      "answer 2",
+    ]);
+  });
+
+  test("cancelled, interrupted and pre-link turns move the mark past them", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await endTurn(sessionId, 1, "completed", [[text("answer 1")]]);
+    for (const sequence of [2, 3, 4, 5]) await addTurn(sessionId, sequence);
+    for (const [sequence, status] of [
+      [2, "cancelled"],
+      [3, "interrupted"],
+    ] as const) {
+      await db
+        .update(turns)
+        .set({ status, endedAt: new Date() })
+        .where(
+          and(eq(turns.sessionId, sessionId), eq(turns.sequence, sequence)),
+        );
+    }
+    await endTurn(sessionId, 4, "completed", [[text("before the link")]]);
+    await db
+      .update(turns)
+      .set({ createdAt: sql`now() - interval '1 day'` })
+      .where(and(eq(turns.sessionId, sessionId), eq(turns.sequence, 4)));
+    await endTurn(sessionId, 5, "completed", [[text("answer 5")]]);
+
+    expect(await outboxPass()).toMatchObject({ sent: 2 });
+    await outboxPass();
+    expect(await answeredThrough()).toBe(5);
+    expect(posted().map((message) => message.text.split("\n")[0])).toEqual([
+      "answer 1",
+      "answer 5",
+    ]);
+  });
+
+  // Known order gap, left for later: a reply waiting out a backoff does not
+  // hold back the next reply in its thread.
+  test("a reply in backoff lets the thread's next reply go first", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await endTurn(sessionId, 1, "completed", [[text("answer 1")]]);
+    slack.failures.set("chat.postMessage", "internal_error");
+    expect(await outboxPass()).toMatchObject({ retried: 1 });
+    slack.failures.clear();
+    await addTurn(sessionId, 2);
+    await endTurn(sessionId, 2, "completed", [[text("answer 2")]]);
+    expect(await outboxPass()).toMatchObject({ sent: 1 });
+    await db.update(slackOutbox).set({ nextAttemptAt: sql`now()` });
+    expect(await outboxPass()).toMatchObject({ sent: 1 });
+    expect(
+      posted()
+        .filter((message) => message.ts !== undefined)
+        .map((message) => message.text.split("\n")[0]),
+    ).toEqual(["answer 2", "answer 1"]);
   });
 
   test("the pass reads only linked sessions' turns and untold uncertain rows by index", async () => {
@@ -562,8 +654,12 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
       }
     };
     const turnsPlan = await explain(plans[0]);
-    expect(turnsPlan).not.toContain("turns_pkey on turns");
-    expect(turnsPlan).toContain("turns_session_sequence_uniq");
+    // turns_pkey only to fetch the open turns found per link.
+    expect(turnsPlan).toContain("Index Cond: (id = ANY (");
+    // Ranged on the link and its mark, not a walk of the whole index.
+    expect(turnsPlan).toMatch(
+      /turns_session_sequence_uniq on turns[\s\S]*Index Cond: \(\(session_id = [^)]+\) AND \(sequence > /,
+    );
     expect(await explain(plans.at(-1))).toContain("slack_outbox_uncertain_idx");
   });
 
