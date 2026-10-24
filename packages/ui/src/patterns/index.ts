@@ -31,4 +31,5 @@ export {
   type StepperProps,
   type StepperStep,
 } from "./stepper.tsx";
+export { Steps, type StepsItem, type StepsProps } from "./steps.tsx";
 export { useDetailLayout } from "./use-detail-layout.ts";
