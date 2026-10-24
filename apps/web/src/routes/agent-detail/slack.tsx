@@ -118,6 +118,31 @@ function useSlackBindings(agentId: string) {
   });
 }
 
+function useSlackChannels(agentId: string, query: string) {
+  const { client } = useAgentPlatform();
+  return useInfiniteQuery({
+    queryKey: ["agents", agentId, "slack", "channels", query],
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ pageParam }) =>
+      unwrap(
+        client.GET("/v1/agents/{id}/slack/channels", {
+          params: {
+            path: { id: agentId },
+            query: {
+              q: query,
+              limit: 20,
+              ...(pageParam ? { cursor: pageParam } : {}),
+            },
+          },
+        }),
+      ),
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    placeholderData: keepPreviousData,
+    staleTime: 60_000,
+    retry: false,
+  });
+}
+
 function ChannelSkeleton() {
   const { t } = useI18n();
   return (
@@ -149,19 +174,16 @@ function SlackOverview({
   readonly onChannels: () => void;
 }) {
   const { t } = useI18n();
-  const { app, identities, key } = useSlackState(agentId);
+  const { app, identities } = useSlackState(agentId);
   const bindings = useSlackBindings(agentId);
-  const cache = useQueryClient();
+  const channels = useSlackChannels(agentId, "");
   const identity = identities.data?.items.find(
     (item) => item.status === "active",
   );
   const dm = bindings.data?.items.find((row) => row.surface_kind === "dm");
   const home = bindings.data?.items.find((row) => row.home);
-  const pages = cache.getQueriesData<{
-    pages: components["schemas"]["SearchSlackChannelsResponse"][];
-  }>({ queryKey: [...key, "channels"] });
-  const homeName = pages
-    .flatMap(([, data]) => data?.pages.flatMap((page) => page.items) ?? [])
+  const homeName = channels.data?.pages
+    .flatMap((page) => page.items)
     .find((channel) => channel.id === home?.external_surface_id)?.name;
   const error = app.error ?? identities.error ?? bindings.error;
   const state = error
@@ -189,7 +211,7 @@ function SlackOverview({
             </div>
             <div className="flex min-h-8 items-center gap-2 text-control">
               <span className="text-muted-foreground">{t("slack.dm")}:</span>
-              {bindings.isPending ? (
+              {bindings.isPending || channels.isPending ? (
                 placeholder
               ) : (
                 <span>{t(dm ? modeKey(dm.mode) : "slack.notConfigured")}</span>
@@ -581,6 +603,7 @@ function SlackChannels({
   const [query, setQuery] = useState("");
   const [picking, setPicking] = useState(false);
   const [pickHome, setPickHome] = useState(false);
+  const pickerOpener = useRef<HTMLButtonElement | null>(null);
   const [notice, setNotice] = useState("");
   const [names, setNames] = useState<Record<string, string>>({});
   useEffect(() => {
@@ -588,27 +611,7 @@ function SlackChannels({
     return () => clearTimeout(timer);
   }, [input]);
   const bindings = useSlackBindings(agentId);
-  const channels = useInfiniteQuery({
-    queryKey: [...key, "channels", query],
-    initialPageParam: undefined as string | undefined,
-    queryFn: ({ pageParam }) =>
-      unwrap(
-        client.GET("/v1/agents/{id}/slack/channels", {
-          params: {
-            path: { id: agentId },
-            query: {
-              q: query,
-              limit: 20,
-              ...(pageParam ? { cursor: pageParam } : {}),
-            },
-          },
-        }),
-      ),
-    getNextPageParam: (last) => last.next_cursor ?? undefined,
-    placeholderData: keepPreviousData,
-    staleTime: 60_000,
-    retry: false,
-  });
+  const channels = useSlackChannels(agentId, query);
   const update = useMutation({
     onMutate: () => setNotice(""),
     mutationFn: ({ body }: BindingChange) =>
@@ -698,7 +701,8 @@ function SlackChannels({
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => {
+            onClick={(event) => {
+              pickerOpener.current = event.currentTarget;
               setPickHome(true);
               setPicking(true);
             }}
@@ -709,7 +713,8 @@ function SlackChannels({
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => {
+            onClick={(event) => {
+              pickerOpener.current = event.currentTarget;
               setPickHome(false);
               setPicking(true);
             }}
@@ -776,7 +781,12 @@ function SlackChannels({
         </RowList>
       )}
       <Dialog open={picking} onOpenChange={setPicking}>
-        <DialogContent>
+        <DialogContent
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            pickerOpener.current?.focus();
+          }}
+        >
           <DialogHeader>
             <DialogTitle>
               {t(pickHome ? "slack.setHome" : "slack.addChannel")}

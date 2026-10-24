@@ -94,6 +94,61 @@ function routes(app: typeof APP | null = null, installed = false) {
 }
 
 describe("Slack management", () => {
+  test("includes the visible English home action in its accessible name", async () => {
+    renderAt(
+      DETAIL,
+      {
+        ...routes(APP, true),
+        [`GET ${PATH}/slack/channels`]: () =>
+          json(200, {
+            items: [
+              {
+                id: "C123",
+                name: "general",
+                is_private: false,
+                is_member: true,
+              },
+            ],
+            next_cursor: null,
+            stale: false,
+            truncated: false,
+          }),
+      },
+      "en",
+    );
+    const user = await setupUser();
+    await user.click(await screen.findByRole("tab", { name: "Channels" }));
+    await user.click(screen.getByRole("button", { name: "Set home" }));
+    expect(
+      await screen.findByRole("button", { name: "Set home: #general" }),
+    ).toBeDefined();
+  });
+
+  test("resolves the overview home from one shared first page", async () => {
+    const { api } = renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack-bindings`]: () => json(200, { items: [BINDING] }),
+      [`GET ${PATH}/slack/channels`]: () =>
+        json(200, {
+          items: [
+            { id: "C123", name: "general", is_private: false, is_member: true },
+          ],
+          next_cursor: "next",
+          stale: false,
+          truncated: false,
+        }),
+    });
+    const user = await setupUser();
+    const home = await screen.findByText("홈 채널");
+    await waitFor(() =>
+      expect(home.closest("dl")?.textContent).toContain("#general"),
+    );
+    await user.click(screen.getByRole("tab", { name: "채널" }));
+    expect(
+      api.calls.filter((call) => call.path === `${PATH}/slack/channels`),
+    ).toHaveLength(1);
+  });
+
   test("labels unresolved bindings as channel IDs without scanning every channel page", async () => {
     const { api } = renderAt(DETAIL, {
       ...routes(APP, true),
@@ -205,6 +260,12 @@ describe("Slack management", () => {
       await screen.findByRole("button", { name: "#general 홈 지정" }),
     );
     await screen.findByText("홈 채널을 지정했습니다.");
+    await waitFor(() =>
+      expect(
+        document.activeElement ===
+          screen.getByRole("button", { name: "홈 지정" }),
+      ).toBe(true),
+    );
     expect(api.calls.find((call) => call.method === "PUT")?.body).toEqual({
       channel_id: "C123",
       mode: "off",

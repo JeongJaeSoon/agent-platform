@@ -71,7 +71,7 @@ export const slackEn = {
   "slack.notConfigured": "Not configured",
   "slack.home": "Home",
   "slack.setHome": "Set home",
-  "slack.channelHome": "Set {channel} as home",
+  "slack.channelHome": "Set home: {channel}",
   "slack.channelConnect": "Connect {channel}",
   "slack.connectedChannels": "Connected channels",
   "slack.addChannel": "Add channel",
