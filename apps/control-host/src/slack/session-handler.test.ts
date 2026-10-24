@@ -62,7 +62,7 @@ import {
   createTempDatabase,
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import { drizzle as drizzlePostgres } from "drizzle-orm/node-postgres";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
@@ -155,6 +155,7 @@ function useDatabase(engine: string) {
     }
     slack.statuses.length = 0;
     slack.failures.clear();
+    slack.channels.clear();
   }, 60_000);
   afterEach(() => close());
 }
@@ -649,6 +650,31 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     expect(notices.map((notice) => notice.reason)).toEqual([
       "channel_kind_mismatch",
     ]);
+  });
+
+  test("a mention in a channel Slack now reports private is refused with a notice", async () => {
+    const fixture = await agentInSlack();
+    const { handle, notices } = handler();
+    slack.channels.set(CHANNEL, { isPrivate: true });
+    await deliver(fixture, mention("100.000100"));
+    await drain(handle);
+    expect(await sessionsOf(fixture)).toEqual([]);
+    expect(notices.map((notice) => notice.reason)).toEqual([
+      "channel_kind_mismatch",
+    ]);
+  });
+
+  test("a decision that fails is tried again, with no notice", async () => {
+    const fixture = await agentInSlack();
+    const { handle, notices } = handler();
+    await db.execute(
+      sql`ALTER TABLE authz_decisions RENAME TO authz_decisions_away`,
+    );
+    await deliver(fixture, mention("100.000100"));
+    await drain(handle);
+    expect(await sessionsOf(fixture)).toEqual([]);
+    expect(notices).toEqual([]);
+    expect(await inboxStatuses()).toEqual(["received"]);
   });
 
   test("a thread status Slack refuses or fails on stops nothing", async () => {

@@ -189,10 +189,13 @@ export function createSlackSessionHandler(
 
     // A channel whose kind Slack now reports otherwise than the binding was
     // set for is not the place the binding allowed (DECIDED 11).
+    // `app_mention` carries no `channel_type`: Slack is asked instead.
     const eventKind =
-      event.channel_type === undefined
-        ? undefined
-        : CHANNEL_KIND_OF[event.channel_type];
+      event.channel_type !== undefined
+        ? CHANNEL_KIND_OF[event.channel_type]
+        : binding !== null && binding.channelKind !== "dm"
+          ? await deps.slack.channelKind(botToken, event.channel)
+          : undefined;
     if (
       binding !== null &&
       eventKind !== undefined &&
@@ -244,6 +247,10 @@ export function createSlackSessionHandler(
     });
     if (decision.status === "dropped") return;
     if (decision.decision.outcome !== "allow") {
+      // The decision itself failed, not the person: try the event again.
+      if (decision.decision.reason_code === "error") {
+        throw new Error("Slack input decision failed");
+      }
       deps.logger.info("Slack input refused", {
         ...ids,
         reason: decision.decision.reason_code,
