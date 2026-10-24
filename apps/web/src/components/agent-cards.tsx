@@ -45,14 +45,12 @@ export function AgentCards({ agents }: { readonly agents: readonly Agent[] }) {
  * agent to draw one screen. The keys are the detail screen's, so opening an
  * agent reuses what its card read.
  */
-const CARD_STALE_MS = 60_000;
-
 function AgentCardItem({ agent }: { readonly agent: Agent }) {
   const { client } = useAgentPlatform();
   const [ref, seen] = useSeen<HTMLLIElement>();
-  // A card scrolled past stays subscribed; without a stale time, coming
-  // back to the window would read all three again for every card seen.
-  const options = { enabled: seen, staleTime: CARD_STALE_MS };
+  // A card scrolled past stays subscribed, so coming back to the window
+  // would read all three again for every card seen, however long ago.
+  const options = { enabled: seen, refetchOnWindowFocus: false };
   const detail = useQuery({ ...agentQuery(client, agent.id), ...options });
   const admins = useQuery({
     ...agentAdminsQuery(client, agent.id),
