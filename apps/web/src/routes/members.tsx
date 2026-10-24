@@ -13,6 +13,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DisabledReason,
   EmptyState,
   Field,
   FieldDescription,
@@ -33,9 +34,6 @@ import {
   RowLines,
   RowList,
   RowListItem,
-  Tooltip,
-  TooltipContent,
-  TooltipDisabledTrigger,
 } from "@werft-ai/ui";
 import { useId, useRef, useState } from "react";
 import { invitesQuery, membersQuery, queryKeys } from "../api/queries.ts";
@@ -484,14 +482,7 @@ function MemberTable({
                     className="gap-1 [&_[data-slot=button]:not([data-size^=icon])]:min-w-[var(--ap-row-action-min-width)]"
                   >
                     {keepWhy ? (
-                      // From the button's own box, so it lines up with the
-                      // other rows; above it, so the note hides no row below.
-                      <Tooltip>
-                        <TooltipDisabledTrigger>
-                          {button}
-                        </TooltipDisabledTrigger>
-                        <TooltipContent side="top">{keepWhy}</TooltipContent>
-                      </Tooltip>
+                      <DisabledReason reason={keepWhy}>{button}</DisabledReason>
                     ) : (
                       button
                     )}

@@ -215,35 +215,6 @@ export function TooltipTrigger({
   );
 }
 
-/**
- * The trigger for a note on a disabled control. A disabled button takes
- * neither focus nor the pointer, so this box takes both in its place and
- * carries the note as its description; it lays out like the control inside.
- */
-export function TooltipDisabledTrigger({
-  className,
-  children,
-  ...props
-}: ComponentProps<"span">): JSX.Element {
-  return (
-    // Radix sets type="button" on its trigger, which a span does not take.
-    <TooltipTrigger asChild={true} type={undefined}>
-      <span
-        // biome-ignore lint/a11y/noNoninteractiveTabindex: the disabled control inside cannot take focus, so its reason is reached here
-        tabIndex={0}
-        data-slot="tooltip-disabled-trigger"
-        className={cn(
-          "inline-flex shrink-0 rounded-control focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2",
-          className,
-        )}
-        {...props}
-      >
-        {children}
-      </span>
-    </TooltipTrigger>
-  );
-}
-
 export function TooltipContent({
   ref,
   className,

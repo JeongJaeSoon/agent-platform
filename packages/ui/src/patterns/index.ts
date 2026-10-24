@@ -11,6 +11,10 @@ export {
   DestructiveActionDialog,
   type DestructiveActionDialogProps,
 } from "./destructive-action-dialog.tsx";
+export {
+  DisabledReason,
+  type DisabledReasonProps,
+} from "./disabled-reason.tsx";
 export { EmptyState, type EmptyStateProps } from "./empty-state.tsx";
 export { ErrorState, type ErrorStateProps } from "./error-state.tsx";
 export {

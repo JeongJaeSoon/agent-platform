@@ -133,7 +133,6 @@ export { Textarea } from "./textarea.tsx";
 export {
   Tooltip,
   TooltipContent,
-  TooltipDisabledTrigger,
   type TooltipProps,
   TooltipTrigger,
 } from "./tooltip.tsx";

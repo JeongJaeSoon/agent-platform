@@ -1,12 +1,4 @@
-import {
-  Badge,
-  Button,
-  Card,
-  CardContent,
-  Tooltip,
-  TooltipContent,
-  TooltipDisabledTrigger,
-} from "@werft-ai/ui";
+import { Badge, Button, Card, CardContent, DisabledReason } from "@werft-ai/ui";
 import { type ReactNode, useId } from "react";
 
 /*
@@ -157,14 +149,11 @@ export function LockedButton({
   readonly size?: "sm" | "default";
 }) {
   return (
-    <Tooltip>
-      <TooltipDisabledTrigger>
-        <Button type="button" variant="outline" size={size} disabled={true}>
-          {label}
-        </Button>
-      </TooltipDisabledTrigger>
-      <TooltipContent side="top">{reason}</TooltipContent>
-    </Tooltip>
+    <DisabledReason reason={reason}>
+      <Button type="button" variant="outline" size={size} disabled={true}>
+        {label}
+      </Button>
+    </DisabledReason>
   );
 }
 

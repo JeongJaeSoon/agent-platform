@@ -86,7 +86,7 @@ async function changeRole(
 /** The focusable box that carries a disabled row button's reason. */
 function lockOf(button: HTMLElement): HTMLElement {
   const lock = button.parentElement;
-  if (lock?.dataset.slot !== "tooltip-disabled-trigger")
+  if (lock?.dataset.slot !== "disabled-reason")
     throw new Error("the button has no reason box");
   expect(lock.tabIndex).toBe(0);
   return lock;
@@ -595,9 +595,7 @@ describe("되돌리기 어려운 동작의 확인", () => {
       const button = (await screen.findByRole("button", {
         name: `${name} 비활성화`,
       })) as HTMLButtonElement;
-      const lock = button.closest<HTMLElement>(
-        "[data-slot=tooltip-disabled-trigger]",
-      );
+      const lock = button.closest<HTMLElement>("[data-slot=disabled-reason]");
       return {
         disabled: button.disabled,
         reason: lock ? descriptionOf(lock) : undefined,
