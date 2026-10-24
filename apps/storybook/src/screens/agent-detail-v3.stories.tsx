@@ -855,7 +855,9 @@ function AgentDetailScreen(props: ScreenProps) {
               setOn(next);
               show(
                 next
-                  ? "Slack 연결을 켰습니다. 멘션과 DM을 다시 받습니다."
+                  ? dm
+                    ? "Slack 연결을 켰습니다. 멘션과 DM을 다시 받습니다."
+                    : "Slack 연결을 켰습니다. 멘션을 다시 받습니다. DM 받기는 꺼져 있습니다."
                   : "Slack 연결을 껐습니다. 멘션과 DM을 받지 않습니다.",
               );
             }}
