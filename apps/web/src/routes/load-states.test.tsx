@@ -77,7 +77,14 @@ const RETRY_CASES: ReadonlyArray<{
   {
     name: "구성원 목록",
     path: "/members",
-    routes: { ...meOk, "GET /v1/invites": () => json(200, { items: [] }) },
+    routes: {
+      ...meOk,
+      "GET /v1/invites": () => json(200, { items: [] }),
+      // The head's invite button reads every member, 100 a page; the tab's
+      // own first page is the read that fails here.
+      "GET /v1/members?limit=100": () =>
+        json(200, { items: [], next_cursor: null }),
+    },
     failingKey: "GET /v1/members",
     answer: () => json(200, { items: [], next_cursor: null }),
     after: /아직 구성원이 없습니다/,

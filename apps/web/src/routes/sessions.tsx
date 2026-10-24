@@ -41,6 +41,7 @@ import { useEffect, useRef, useState } from "react";
 import { ReasonButton, useCan } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { Page } from "../components/page.tsx";
+import { SEARCH_MAX, useSearchTerm } from "../components/search-term.ts";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
 import { SessionOutputs, SessionOutputsCount } from "./session-outputs.tsx";
@@ -84,29 +85,6 @@ export function sessionsSearch(
   const status = SESSION_FILTERS.find((name) => name === search.status);
   const relation = SESSION_RELATIONS.find((name) => name === search.relation);
   return { ...(status ? { status } : {}), ...(relation ? { relation } : {}) };
-}
-
-/** The API's own bound on `q`; the box takes no more. */
-const SEARCH_MAX = 200;
-const SEARCH_SETTLE_MS = 300;
-
-/**
- * What the search box sends: trimmed, once typing pauses, and nothing for
- * an empty box, which the API would refuse. Emptied, it applies at once.
- */
-function useSearchTerm(query: string): string | undefined {
-  const typed = query.trim();
-  const [settled, setSettled] = useState(typed);
-  useEffect(() => {
-    // Emptied, the old term goes at once, so the next one waits its turn.
-    if (typed === "") {
-      setSettled("");
-      return;
-    }
-    const id = setTimeout(() => setSettled(typed), SEARCH_SETTLE_MS);
-    return () => clearTimeout(id);
-  }, [typed]);
-  return typed === "" || settled === "" ? undefined : settled;
 }
 
 /** The console cannot start a session yet; the button says why. */

@@ -1,6 +1,10 @@
 export const membersKo = {
   "members.title": "구성원",
   "members.empty": "아직 구성원이 없습니다.",
+  "members.search": "이름이나 이메일로 찾기",
+  "members.noMatch": "검색어에 맞는 구성원이 없습니다",
+  "members.noMatchHint": "다른 이름이나 이메일로 찾아 보세요.",
+  "members.clearSearch": "검색어 지우기",
   "members.column.name": "구성원",
   "members.column.role": "역할",
   "members.column.actions": "관리",
@@ -90,6 +94,10 @@ export const membersKo = {
 export const membersEn: Record<keyof typeof membersKo, string> = {
   "members.title": "Members",
   "members.empty": "No members yet.",
+  "members.search": "Find by name or email",
+  "members.noMatch": "No members match",
+  "members.noMatchHint": "Try another name or email.",
+  "members.clearSearch": "Clear search",
   "members.column.name": "Member",
   "members.column.role": "Role",
   "members.column.actions": "Manage",
@@ -178,6 +186,10 @@ export const membersEn: Record<keyof typeof membersKo, string> = {
 export const membersJa: Record<keyof typeof membersKo, string> = {
   "members.title": "メンバー",
   "members.empty": "メンバーはまだいません。",
+  "members.search": "名前やメールで探す",
+  "members.noMatch": "検索語に合うメンバーはいません",
+  "members.noMatchHint": "別の名前やメールで探してみてください。",
+  "members.clearSearch": "検索語をクリア",
   "members.column.name": "メンバー",
   "members.column.role": "ロール",
   "members.column.actions": "管理",

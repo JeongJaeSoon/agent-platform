@@ -37,7 +37,7 @@ test("query options and the request each query makes", async () => {
     (entry): entry is [string, (client: ApiClient, id: string) => object] =>
       typeof entry[1] === "function" && entry[0].endsWith("Query"),
   );
-  expect(factories.length).toBe(20);
+  expect(factories.length).toBe(21);
   const out: Record<string, unknown> = {};
   for (const [name, factory] of factories.sort(([a], [b]) =>
     a.localeCompare(b),
@@ -93,4 +93,22 @@ test("the member list reads every page, 100 at a time, and hands back all of the
     { cursor: "c2", limit: 100 },
     { cursor: "c3", limit: 100 },
   ]);
+});
+
+test("a member page asks the server for one page, the search going with it", async () => {
+  const { client, calls } = recordingClient();
+  const all = queries.memberPagesQuery(client);
+  await all.queryFn({ pageParam: null } as Parameters<typeof all.queryFn>[0]);
+  const found = queries.memberPagesQuery(client, "kim");
+  await found.queryFn({
+    pageParam: "cursor-2",
+  } as Parameters<typeof found.queryFn>[0]);
+  expect(calls).toEqual([
+    ["/v1/members", { params: { query: {} } }],
+    ["/v1/members", { params: { query: { q: "kim", cursor: "cursor-2" } } }],
+  ]);
+  expect(all.queryKey as unknown).toEqual(["members", "pages", { q: null }]);
+  expect(found.queryKey as unknown).toEqual(["members", "pages", { q: "kim" }]);
+  const page = { items: [], next_cursor: "cursor-3" };
+  expect(found.getNextPageParam(page, [page], null, [null])).toBe("cursor-3");
 });

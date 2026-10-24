@@ -29,6 +29,7 @@ export {
   useStepper,
 } from "./funnel/use-stepper.ts";
 export { useMe } from "./me.ts";
+export { useMemberPages } from "./members.ts";
 export {
   defaultMessages,
   flowEn,

@@ -1,9 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, Outlet, useLocation } from "@tanstack/react-router";
-import { type ApiError, isApiError, unwrap } from "@werft-ai/client";
+import { ApiError, isApiError, unwrap } from "@werft-ai/client";
 import type { Invite, MemberView, WorkspaceRole } from "@werft-ai/contracts";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useAgentPlatform, useMemberPages } from "@werft-ai/react";
+import { ListToolbar } from "@werft-ai/react/components";
 import {
+  Alert,
+  AlertActions,
+  AlertDescription,
+  AlertTitle,
   Badge,
   Button,
   ConfirmDialog,
@@ -49,6 +54,7 @@ import {
 import { FormError, Notice } from "../components/auth-page.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { Page } from "../components/page.tsx";
+import { SEARCH_MAX, useSearchTerm } from "../components/search-term.ts";
 import { StatusScreen } from "../components/status-screen.tsx";
 import {
   errorKey,
@@ -164,21 +170,46 @@ export function MembersLayout() {
   );
 }
 
-/** The 구성원 tab. Without member.manage the page head already says why. */
+/**
+ * The 구성원 tab: the first page, more on request, searched on the server.
+ * Without member.manage the page head already says why.
+ */
 export function MembersScreen() {
-  const { client } = useAgentPlatform();
+  const { t } = useI18n();
   const manages = useHasPermission("member.manage");
-  const members = useQuery({ ...membersQuery(client), enabled: manages });
+  const [query, setQuery] = useState("");
+  const q = useSearchTerm(query);
+  const members = useMemberPages(q, { enabled: manages });
+  const search = useRef<HTMLInputElement>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
 
   if (!manages) return null;
 
+  const items = members.data?.pages.flatMap((page) => page.items) ?? [];
+  // The clear button leaves with the empty state; focus goes back to the box.
+  const clear = () => {
+    setQuery("");
+    search.current?.focus();
+  };
+
   return (
     <div className="flex flex-col gap-[var(--ap-space-block)]">
       <OutcomeNote outcome={outcome} />
+      <ListToolbar
+        filter={null}
+        search={{
+          ref: search,
+          type: "search",
+          "aria-label": t("members.search"),
+          placeholder: t("members.search"),
+          maxLength: SEARCH_MAX,
+          value: query,
+          onChange: (event) => setQuery(event.target.value),
+        }}
+      />
       {members.isPending ? (
         <StatusScreen kind="loading" />
-      ) : members.error ? (
+      ) : members.error && items.length === 0 ? (
         isApiError(members.error, "FORBIDDEN") ? (
           <StatusScreen kind="forbidden" />
         ) : (
@@ -187,10 +218,80 @@ export function MembersScreen() {
             onRetry={() => void members.refetch()}
           />
         )
+      ) : items.length === 0 && q !== undefined ? (
+        <EmptyState
+          className="w-full"
+          title={t("members.noMatch")}
+          description={t("members.noMatchHint")}
+          action={
+            <Button type="button" variant="outline" size="sm" onClick={clear}>
+              {t("members.clearSearch")}
+            </Button>
+          }
+        />
       ) : (
-        <MemberTable items={members.data.items} onOutcome={setOutcome} />
+        <div className="flex flex-col gap-4">
+          <MemberTable
+            items={items}
+            // Who is the last owner is known only from every member at once.
+            ownersKnown={!members.hasNextPage && q === undefined}
+            onOutcome={setOutcome}
+          />
+          {members.error ? (
+            <MoreFailure
+              error={members.error}
+              onRetry={() =>
+                void (members.isFetchNextPageError
+                  ? members.fetchNextPage()
+                  : members.refetch())
+              }
+            />
+          ) : null}
+          {/* After any failed read the alert's retry is the way on: more
+              rows on top of a failed refresh would keep the stale ones. */}
+          {members.hasNextPage && !members.error ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="self-start"
+              // A refresh after a change rereads every page; asking for the
+              // next one now would cancel it and keep the stale rows.
+              disabled={members.isFetching}
+              onClick={() => members.fetchNextPage()}
+            >
+              {members.isFetchingNextPage
+                ? t("sessions.loadingMore")
+                : t("sessions.more")}
+            </Button>
+          ) : null}
+        </div>
       )}
     </div>
+  );
+}
+
+/** A later page that failed: the rows already shown stay above it. */
+function MoreFailure({
+  error,
+  onRetry,
+}: {
+  readonly error: unknown;
+  readonly onRetry: () => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <Alert variant="red" role="alert">
+      <AlertTitle>{t("status.loadFailed")}</AlertTitle>
+      <AlertDescription>
+        {t(error instanceof ApiError ? errorKey(error.code) : "error.UNKNOWN")}
+      </AlertDescription>
+      <AlertActions>
+        <Button type="button" variant="outline" size="sm" onClick={onRetry}>
+          {t("common.retry")}
+        </Button>
+      </AlertActions>
+    </Alert>
   );
 }
 
@@ -229,9 +330,12 @@ function OutcomeNote({ outcome }: { readonly outcome: Outcome | null }) {
 
 function MemberTable({
   items,
+  ownersKnown,
   onOutcome,
 }: {
   readonly items: readonly MemberView[];
+  /** Every owner is among the items; else the server says who is the last. */
+  readonly ownersKnown: boolean;
   readonly onOutcome: (outcome: Outcome | null) => void;
 }) {
   const { t } = useI18n();
@@ -267,7 +371,7 @@ function MemberTable({
       ? t(reasons.self)
       : role === "admin" && member.role === "owner"
         ? t(reasons.owner)
-        : member.role === "owner" && activeOwners === 1
+        : ownersKnown && member.role === "owner" && activeOwners === 1
           ? t(reasons.lastOwner)
           : undefined;
   const roleReason = (member: MemberView) =>
