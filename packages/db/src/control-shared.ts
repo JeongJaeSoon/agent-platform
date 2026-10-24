@@ -202,6 +202,29 @@ export async function findIdempotent(tx: Database, scope: IdempotencyScope) {
 }
 
 /**
+ * The answer to a repeated control request: a conflict when the key was used
+ * with another payload, else the first receipt's identity with its current
+ * status, since the row is the only record of it. Undefined when the key is
+ * new.
+ */
+export function controlReplay(
+  existing: Awaited<ReturnType<typeof findIdempotent>>,
+  payloadHash: string,
+) {
+  if (!existing) return undefined;
+  if (existing.payloadHash !== payloadHash) {
+    return { outcome: "conflict" as const };
+  }
+  return {
+    outcome: "replayed" as const,
+    response: {
+      receipt_id: existing.receiptId,
+      receipt_status: existing.status,
+    },
+  };
+}
+
+/**
  * The turn a control receipt reports as unconfirmed: the earliest one whose
  * outcome is unknown, from this exit or from one the session was already
  * recovering from. Null when every turn has a known outcome.
@@ -230,12 +253,20 @@ export class BindingMoved extends Error {
 }
 
 // drizzle wraps the driver's error, so the code may sit on its cause.
-function isDeadlock(error: unknown): boolean {
+export function findPgError(
+  error: unknown,
+  code: string,
+): { constraint?: unknown } | undefined {
   for (let e = error; typeof e === "object" && e !== null; ) {
-    if ((e as { code?: unknown }).code === "40P01") return true;
+    const found = e as { code?: unknown; constraint?: unknown };
+    if (found.code === code) return found;
     e = (e as { cause?: unknown }).cause;
   }
-  return false;
+  return undefined;
+}
+
+function isDeadlock(error: unknown): boolean {
+  return findPgError(error, "40P01") !== undefined;
 }
 
 /**

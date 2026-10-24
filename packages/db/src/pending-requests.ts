@@ -91,7 +91,7 @@ function actionable(at: Date | typeof DB_NOW) {
  * attempt. `pending_request_count` counts the same rows, so the summary and
  * the list never disagree.
  */
-export function actionablePendingWhere(sessionId: string) {
+function actionablePendingWhere(sessionId: string) {
   return and(eq(pendingRequests.sessionId, sessionId), actionable(DB_NOW));
 }
 
