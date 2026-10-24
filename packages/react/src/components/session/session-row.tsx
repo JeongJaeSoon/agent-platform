@@ -54,6 +54,8 @@ export interface SessionRowLink {
   readonly className: string;
   readonly "aria-label": string;
   readonly title: string;
+  /** Marks the link as the row's opener for the row's hover and cell rules. */
+  readonly "data-slot"?: string | undefined;
 }
 
 /*
@@ -80,6 +82,7 @@ export function SessionRowOpener({
     "aria-label": name,
     title,
     className: OPENER_LINK,
+    "data-slot": "grid-table-row-opener",
   });
   if (!isValidElement(link) || link.type === Fragment) return link;
   return (

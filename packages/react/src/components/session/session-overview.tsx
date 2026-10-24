@@ -56,8 +56,8 @@ export interface SessionOverviewHeadMessages {
   readonly recent: string;
 }
 
-/** Whether the rows draw the started-by column; the table decides. */
-const StartedByColumn = createContext(false);
+/** Which of the optional columns the rows draw; the table decides. */
+const Columns = createContext({ agent: false, startedBy: false });
 
 export interface SessionOverviewTableProps {
   readonly label: string;
@@ -73,6 +73,7 @@ export function SessionOverviewTable({
   className,
 }: SessionOverviewTableProps): JSX.Element {
   const startedBy = messages.startedBy !== undefined;
+  const agent = messages.agent !== undefined;
   return (
     // The row opener's focus ring sits outside the row, so this frame must
     // not clip overflow.
@@ -110,9 +111,9 @@ export function SessionOverviewTable({
             <span className="truncate">{messages.recent}</span>
           </GridTableColumnHeader>
         </GridTableHeader>
-        <StartedByColumn.Provider value={startedBy}>
+        <Columns.Provider value={{ agent, startedBy }}>
           {children}
-        </StartedByColumn.Provider>
+        </Columns.Provider>
       </GridTable>
     </div>
   );
@@ -171,7 +172,7 @@ export function SessionOverviewRow({
   now,
   className,
 }: SessionOverviewRowProps): JSX.Element {
-  const startedBy = useContext(StartedByColumn);
+  const { agent, startedBy } = useContext(Columns);
   const clock = useMinute(!renderTime && now === undefined);
   const shortId = shortSessionId(session.id);
   // Untitled, the row shows the id's head; the opener's name keeps it whole.
@@ -206,7 +207,11 @@ export function SessionOverviewRow({
           {session.title ?? shortId}
         </span>
         {session.title ? (
-          <span className="font-mono text-caption text-subtle-foreground">
+          // Above the opener, so hovering shows the whole id.
+          <span
+            className="relative font-mono text-caption text-subtle-foreground"
+            title={session.id}
+          >
             {shortId}
           </span>
         ) : null}
@@ -222,16 +227,25 @@ export function SessionOverviewRow({
           ) : null}
         </span>
       </GridTableCell>
-      <GridTableCell lines={true}>
-        <span className="max-w-full truncate">
-          {session.agent?.name ?? messages.unknown}
-        </span>
-        {session.model ? (
-          <span className="font-mono text-caption text-subtle-foreground">
-            {session.model}
+      {agent ? (
+        <GridTableCell lines={true}>
+          <span className="max-w-full truncate">
+            {session.agent?.name ?? messages.unknown}
           </span>
-        ) : null}
-      </GridTableCell>
+          {session.model ? (
+            <span className="font-mono text-caption text-subtle-foreground">
+              {session.model}
+            </span>
+          ) : null}
+        </GridTableCell>
+      ) : (
+        // A table that names no agent column keeps the model column it had.
+        <GridTableCell className="font-mono text-caption text-muted-foreground">
+          <span className="min-w-0 truncate">
+            {session.runtime?.model ?? messages.unknown}
+          </span>
+        </GridTableCell>
+      )}
       <GridTableCell hideNarrow={true}>
         <RepositoryIcon
           className="size-3.5 flex-none text-subtle-foreground"

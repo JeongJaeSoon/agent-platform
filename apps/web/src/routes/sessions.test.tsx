@@ -978,19 +978,42 @@ describe("sessions list", () => {
     await screen.findByRole("link", { name: opener(SESSION_ID) });
   });
 
-  test("the new session button is off and says why", async () => {
+  test("offers no new session button, which the web cannot start yet", async () => {
     renderAt("/sessions", {
       "GET /v1/auth/me": () => json(200, memberMe()),
       "GET /v1/sessions": () => json(200, { items: [], next_cursor: null }),
     });
-    const button = await screen.findByRole("button", { name: "새 세션" });
-    expect((button as HTMLButtonElement).disabled).toBe(true);
-    const reason = document.getElementById(
-      button.getAttribute("aria-describedby") ?? "",
+    await screen.findByText("아직 세션이 없습니다.");
+    expect(screen.queryByRole("button", { name: "새 세션" })).toBeNull();
+    expect(
+      screen.queryByText(
+        "웹에서는 아직 세션을 시작할 수 없습니다. API로 시작하세요.",
+      ),
+    ).toBeNull();
+  });
+
+  test("the counts are read once per relation and search, not per tab", async () => {
+    const user = await setupUser();
+    const { api } = renderAt("/sessions", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": () =>
+        json(200, { items: [summary(SESSION_ID)], next_cursor: null }),
+    });
+    await screen.findByRole("link", { name: opener(SESSION_ID) });
+    const counts = () =>
+      api.calls.filter((call) => call.path === "/v1/sessions/counts");
+    await waitFor(() => expect(counts()).toHaveLength(1));
+    for (const tab of ["실패", "쉬는 중", "전체"]) {
+      await user.click(screen.getByRole("button", { name: tab }));
+    }
+    await screen.findByRole("link", { name: opener(SESSION_ID) });
+    expect(counts()).toHaveLength(1);
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "나와의 관계" }),
+      "started",
     );
-    expect(reason?.textContent).toBe(
-      "웹에서는 아직 세션을 시작할 수 없습니다. API로 시작하세요.",
-    );
+    await waitFor(() => expect(counts()).toHaveLength(2));
+    expect(counts()[1]?.search).toBe("?relation=started");
   });
 
   test("the menu links to it", async () => {
