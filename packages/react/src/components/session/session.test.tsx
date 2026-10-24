@@ -12,13 +12,17 @@ import type { TimelineEntry, TimelineMessages } from "./timeline.tsx";
 const { render } = await setupDom();
 // After setupDom: these load @werft-ai/ui, whose Radix decides at import time
 // whether a DOM exists.
-const { SESSION_COLUMNS, SESSION_NARROW_COLUMNS, SessionRow } = await import(
-  "./session-row.tsx"
-);
+const {
+  SESSION_COLUMNS,
+  SESSION_NARROW_TEMPLATE,
+  SESSION_TEMPLATE,
+  SessionRow,
+} = await import("./session-row.tsx");
 const {
   SESSION_OVERVIEW_COLUMNS,
-  SESSION_OVERVIEW_HOME_COLUMNS,
-  SESSION_OVERVIEW_NARROW_COLUMNS,
+  SESSION_OVERVIEW_HOME_TEMPLATE,
+  SESSION_OVERVIEW_NARROW_TEMPLATE,
+  SESSION_OVERVIEW_TEMPLATE,
   SessionOverviewRow,
   SessionOverviewTable,
 } = await import("./session-overview.tsx");
@@ -29,15 +33,31 @@ const { Timeline } = await import("./timeline.tsx");
 // One track per column, each minmax(0,…) or fixed so no cell widens the table.
 const TRACK = /^(minmax\((0|\d+px),[\d.]+fr\)|\d+px)$/;
 test.each([
-  [SESSION_COLUMNS, 5],
-  [SESSION_NARROW_COLUMNS, 3],
-  [SESSION_OVERVIEW_COLUMNS, 6],
-  [SESSION_OVERVIEW_HOME_COLUMNS, 5],
-  [SESSION_OVERVIEW_NARROW_COLUMNS, 4],
+  [SESSION_TEMPLATE, 5],
+  [SESSION_NARROW_TEMPLATE, 3],
+  [SESSION_OVERVIEW_TEMPLATE, 6],
+  [SESSION_OVERVIEW_HOME_TEMPLATE, 5],
+  [SESSION_OVERVIEW_NARROW_TEMPLATE, 4],
 ])("세션 표 열 정의 %s는 열마다 트랙 하나다", (columns, count) => {
   const tracks = columns.split(" ");
   expect(tracks).toHaveLength(count);
   for (const track of tracks) expect(track).toMatch(TRACK);
+});
+
+// Kept for callers that lay out rows of their own with them.
+test("예전 div-grid 열 class는 그대로 폭마다 떨어진 class 하나씩이다", () => {
+  // Two classes run together are one unknown class, and Tailwind drops both.
+  expect(SESSION_COLUMNS.split(" ")).toEqual([
+    "grid",
+    expect.stringMatching(/^grid-cols-\[[^\s@]+\]$/),
+    expect.stringMatching(/^@\[480px\]:grid-cols-\[[^\s@]+\]$/),
+    expect.stringMatching(/^@\[820px\]:grid-cols-\[[^\s@]+\]$/),
+  ]);
+  expect(SESSION_OVERVIEW_COLUMNS.split(" ")).toEqual([
+    "grid",
+    expect.stringMatching(/^grid-cols-\[[^\s@]+\]$/),
+    expect.stringMatching(/^@\[820px\]:grid-cols-\[[^\s@]+\]$/),
+  ]);
 });
 
 // Echoes the key and params, so a test reads what the component asked for.
@@ -350,6 +370,24 @@ describe("SessionRow", () => {
     ]) {
       expect(text).toContain(part);
     }
+  });
+
+  test("renderLink가 fragment를 돌려줘도 링크가 행을 덮고 포커스를 보인다", () => {
+    const { getByRole } = render(
+      <SessionRow
+        session={SESSION}
+        renderLink={(link) => (
+          <>
+            <a href="/sessions/abc" {...link} />
+          </>
+        )}
+        messages={ROW_MESSAGES}
+      />,
+    );
+    const link = getByRole("link", { name: SESSION.id });
+    expect(link.className).toContain("absolute inset-0");
+    expect(link.className).toContain("focus-visible:outline-2");
+    expect(link.closest('[role="row"]')).toBeTruthy();
   });
 
   test("상태와 admission은 서로 다른 축의 StatusLabel로 그린다", () => {

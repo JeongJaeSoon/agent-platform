@@ -38,6 +38,9 @@ export {
 } from "./session/question-card.tsx";
 export {
   SESSION_OVERVIEW_COLUMNS,
+  SESSION_OVERVIEW_HOME_TEMPLATE,
+  SESSION_OVERVIEW_NARROW_TEMPLATE,
+  SESSION_OVERVIEW_TEMPLATE,
   type SessionOverviewHeadMessages,
   SessionOverviewRow,
   type SessionOverviewRowMessages,
@@ -47,9 +50,12 @@ export {
   shortSessionId,
 } from "./session/session-overview.tsx";
 export {
+  SESSION_NARROW_TEMPLATE,
+  SESSION_TEMPLATE,
   SessionRow,
   type SessionRowLink,
   type SessionRowMessages,
+  SessionRowOpener,
   type SessionRowProps,
 } from "./session/session-row.tsx";
 export {

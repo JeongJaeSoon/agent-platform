@@ -5,7 +5,7 @@ import {
 } from "@werft-ai/ui";
 import type { ReactNode } from "react";
 
-import { SESSION_COLUMNS, SESSION_NARROW_COLUMNS } from "./session-row.tsx";
+import { SESSION_NARROW_TEMPLATE, SESSION_TEMPLATE } from "./session-row.tsx";
 
 export interface SessionTableProps {
   readonly label: string;
@@ -27,9 +27,9 @@ export function SessionTable({ label, messages, children }: SessionTableProps) {
     <div className="w-full min-w-0 rounded-card border bg-card">
       <GridTable
         aria-label={label}
-        columns={SESSION_COLUMNS}
+        columns={SESSION_TEMPLATE}
         narrowAt={820}
-        narrowColumns={SESSION_NARROW_COLUMNS}
+        narrowColumns={SESSION_NARROW_TEMPLATE}
       >
         <GridTableHeader>
           <GridTableColumnHeader>{messages.id}</GridTableColumnHeader>

@@ -10,21 +10,28 @@ import {
   RelativeTime,
   type TimestampLocale,
 } from "@werft-ai/ui";
-import type { JSX, ReactNode } from "react";
+import { Fragment, isValidElement, type JSX, type ReactNode } from "react";
 
 import { StatusLabel } from "../status/status-label.tsx";
 import { SessionStatusLabel } from "./session-status-label.tsx";
 import { useMinute } from "./use-minute.ts";
 
 /**
+ * @deprecated The div-grid classes SessionTable used before GridTable, kept
+ * for rows a caller lays out itself. SessionTable uses SESSION_TEMPLATE.
+ */
+export const SESSION_COLUMNS =
+  "grid grid-cols-[minmax(0,1fr)_120px] @[480px]:grid-cols-[minmax(0,1fr)_160px_136px] @[820px]:grid-cols-[minmax(0,5fr)_160px_136px_minmax(0,3fr)_minmax(120px,2fr)]";
+
+/**
  * SessionTable's column template. The state columns fit their longest label
  * on one line: "Waiting for an answer" and "Needs recovery" in English. At
  * 820px of table width and below, admission and runtime drop out for
- * SESSION_NARROW_COLUMNS, where a long status label wraps.
+ * SESSION_NARROW_TEMPLATE, where a long status label wraps.
  */
-export const SESSION_COLUMNS =
+export const SESSION_TEMPLATE =
   "minmax(0,5fr) 160px 136px minmax(0,3fr) minmax(120px,2fr)";
-export const SESSION_NARROW_COLUMNS = "minmax(0,1fr) 120px 72px";
+export const SESSION_NARROW_TEMPLATE = "minmax(0,1fr) 120px 72px";
 
 export interface SessionRowMessages {
   readonly status: (status: SessionStatus) => string;
@@ -47,6 +54,39 @@ export interface SessionRowLink {
   readonly className: string;
   readonly "aria-label": string;
   readonly title: string;
+}
+
+/*
+ * The opener's own look, also given to the link itself: a renderLink that
+ * returns more than one element (a fragment) cannot be the opener's Slot
+ * child, so its link has to cover the row and show focus on its own.
+ */
+const OPENER_LINK =
+  "absolute inset-0 z-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2";
+
+/** The row's one link, over the whole row, from the screen's renderLink. */
+export function SessionRowOpener({
+  name,
+  title,
+  renderLink,
+}: {
+  /** What the link is called, e.g. "세션 열기: 배포 점검". */
+  readonly name: string;
+  readonly title: string;
+  readonly renderLink: (link: SessionRowLink) => ReactNode;
+}): ReactNode {
+  const link = renderLink({
+    children: null,
+    "aria-label": name,
+    title,
+    className: OPENER_LINK,
+  });
+  if (!isValidElement(link) || link.type === Fragment) return link;
+  return (
+    <GridTableRowOpener aria-label={name} asChild={true}>
+      {link}
+    </GridTableRowOpener>
+  );
 }
 
 export interface SessionRowProps {
@@ -77,16 +117,11 @@ export function SessionRow({
       className={className}
     >
       <GridTableCell className="font-mono text-caption">
-        <GridTableRowOpener aria-label={session.id} asChild={true}>
-          {
-            renderLink({
-              children: null,
-              "aria-label": session.id,
-              title: session.id,
-              className: "",
-            }) as JSX.Element
-          }
-        </GridTableRowOpener>
+        <SessionRowOpener
+          name={session.id}
+          title={session.id}
+          renderLink={renderLink}
+        />
         <span className="min-w-0 truncate">{session.id}</span>
       </GridTableCell>
       {/* flex, not a line box: an inline badge would sit on the baseline and

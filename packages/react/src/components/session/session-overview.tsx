@@ -6,7 +6,6 @@ import {
   GridTableColumnHeader,
   GridTableHeader,
   GridTableRow,
-  GridTableRowOpener,
   RelativeTime,
   StatusDot,
   type StatusDotStatus,
@@ -15,20 +14,28 @@ import {
 import { Folder } from "lucide-react";
 import { createContext, type JSX, type ReactNode, useContext } from "react";
 import { GitBranch } from "../console-icons.ts";
-import type { SessionRowLink } from "./session-row.tsx";
+import { type SessionRowLink, SessionRowOpener } from "./session-row.tsx";
 import { useMinute } from "./use-minute.ts";
+
+/**
+ * @deprecated The div-grid classes the session list used before GridTable,
+ * kept for rows a caller lays out itself. The table uses
+ * SESSION_OVERVIEW_TEMPLATE.
+ */
+export const SESSION_OVERVIEW_COLUMNS =
+  "grid grid-cols-[minmax(0,2fr)_116px_minmax(0,1.2fr)_64px] @[820px]:grid-cols-[minmax(0,2.2fr)_120px_minmax(0,1fr)_minmax(0,1.4fr)_72px]";
 
 /**
  * Console v4 `.t-sess`: title, status, agent · model, repository, started
  * by, recent. At 820px of table width and below, repository and started by
- * drop out for SESSION_OVERVIEW_NARROW_COLUMNS.
+ * drop out for SESSION_OVERVIEW_NARROW_TEMPLATE.
  */
-export const SESSION_OVERVIEW_COLUMNS =
+export const SESSION_OVERVIEW_TEMPLATE =
   "minmax(0,2.2fr) 120px minmax(0,1.1fr) minmax(0,1.1fr) minmax(0,1fr) 72px";
 /** v4 `.t-sess-home`: the same without the started-by column. */
-export const SESSION_OVERVIEW_HOME_COLUMNS =
+export const SESSION_OVERVIEW_HOME_TEMPLATE =
   "minmax(0,2.2fr) 120px minmax(0,1.2fr) minmax(0,1.2fr) 72px";
-export const SESSION_OVERVIEW_NARROW_COLUMNS =
+export const SESSION_OVERVIEW_NARROW_TEMPLATE =
   "minmax(0,2fr) 116px minmax(0,1.2fr) 64px";
 
 /** The id a person can tell rows apart by; the full id stays in the title. */
@@ -75,10 +82,10 @@ export function SessionOverviewTable({
       <GridTable
         aria-label={label}
         columns={
-          startedBy ? SESSION_OVERVIEW_COLUMNS : SESSION_OVERVIEW_HOME_COLUMNS
+          startedBy ? SESSION_OVERVIEW_TEMPLATE : SESSION_OVERVIEW_HOME_TEMPLATE
         }
         narrowAt={820}
-        narrowColumns={SESSION_OVERVIEW_NARROW_COLUMNS}
+        narrowColumns={SESSION_OVERVIEW_NARROW_TEMPLATE}
       >
         <GridTableHeader>
           {/* One line each: a narrow column cuts its name rather than wrap. */}
@@ -184,20 +191,12 @@ export function SessionOverviewRow({
       className={className}
     >
       <GridTableCell lines={true}>
-        <GridTableRowOpener
-          aria-label={messages.open ? messages.open(name) : name}
-          asChild={true}
-        >
-          {
-            renderLink({
-              children: null,
-              "aria-label": messages.open ? messages.open(name) : name,
-              // The opener covers the row, so its hover text is the one shown.
-              title: name,
-              className: "",
-            }) as JSX.Element
-          }
-        </GridTableRowOpener>
+        <SessionRowOpener
+          name={messages.open ? messages.open(name) : name}
+          // The opener covers the row, so its hover text is the one shown.
+          title={name}
+          renderLink={renderLink}
+        />
         <span
           className={cn(
             "max-w-full truncate font-medium text-foreground",

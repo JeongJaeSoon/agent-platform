@@ -647,6 +647,61 @@ describe("sessions list", () => {
     ).toBeTruthy();
   });
 
+  test("a search emptied and typed again within the pause never reads the old term", async () => {
+    const user = await setupUser();
+    const { api } = renderAt("/sessions", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": () =>
+        json(200, { items: [summary(SESSION_ID)], next_cursor: null }),
+    });
+    const search = await screen.findByRole("searchbox", {
+      name: "제목이나 ID로 찾기",
+    });
+    await screen.findByRole("link", { name: opener(SESSION_ID) });
+    await user.type(search, "alpha");
+    await waitFor(() =>
+      expect(api.calls.some((call) => call.search === "?q=alpha")).toBe(true),
+    );
+    const before = api.calls.length;
+    await user.clear(search);
+    await user.type(search, "beta");
+    await waitFor(() =>
+      expect(api.calls.some((call) => call.search === "?q=beta")).toBe(true),
+    );
+    expect(
+      api.calls.slice(before).filter((call) => call.search.includes("alpha")),
+    ).toEqual([]);
+  });
+
+  test("a new relation shows its own answer, never the last relation's rows under it", async () => {
+    const user = await setupUser();
+    let answer: (() => void) | undefined;
+    renderAt("/sessions?relation=shared", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": (request) =>
+        new URL(request.url).searchParams.get("relation") === "administered"
+          ? new Promise<Response>((resolve) => {
+              answer = () =>
+                resolve(
+                  json(200, {
+                    items: [summary(SESSION_ID)],
+                    next_cursor: null,
+                  }),
+                );
+            })
+          : json(200, { items: [summary(OTHER_ID)], next_cursor: null }),
+    });
+    await screen.findByRole("link", { name: opener(OTHER_ID) });
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "나와의 관계" }),
+      "administered",
+    );
+    await waitFor(() => expect(answer).toBeDefined());
+    expect(screen.queryByRole("link", { name: opener(OTHER_ID) })).toBeNull();
+    act(() => answer?.());
+    await screen.findByRole("link", { name: opener(SESSION_ID) });
+  });
+
   test("the relation filter reads that relation, keeps it in the address and with the status tab", async () => {
     const user = await setupUser();
     const { api, history } = renderAt("/sessions", {

@@ -1,7 +1,6 @@
 import {
   hashKey,
   type InfiniteData,
-  keepPreviousData,
   type UseInfiniteQueryResult,
   useInfiniteQuery,
   useQuery,
@@ -101,6 +100,11 @@ function useSearchTerm(query: string): string | undefined {
   const typed = query.trim();
   const [settled, setSettled] = useState(typed);
   useEffect(() => {
+    // Emptied, the old term goes at once, so the next one waits its turn.
+    if (typed === "") {
+      setSettled("");
+      return;
+    }
     const id = setTimeout(() => setSettled(typed), SEARCH_SETTLE_MS);
     return () => clearTimeout(id);
   }, [typed]);
@@ -294,8 +298,6 @@ function useFilteredSessions(filter: SessionsFilter) {
       ) as Promise<ListSessionsResponse>,
     initialPageParam: null as string | null,
     getNextPageParam: (page) => page.next_cursor,
-    // A new search or relation keeps the rows drawn until its answer.
-    placeholderData: keepPreviousData,
     retry: false,
   });
 }
@@ -316,7 +318,6 @@ function useSessionCounts(
       unwrap(
         client.GET("/v1/sessions/counts", { params: { query: filter } }),
       ) as Promise<CountSessionsResponse>,
-    placeholderData: keepPreviousData,
     retry: false,
   });
 }
