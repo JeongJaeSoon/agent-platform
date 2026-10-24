@@ -78,9 +78,7 @@ Preconditions:
   ap_web POST "/v1/agents/$AID/activate" "{\"release_id\":\"$REL\",\"expected_revision\":-1}"
   ap_web POST "/v1/agents/$AID/slack/app" '{}'                  # APP = slack_app.app_id
   # 3. 설치 (owner): start → mock 동의 → complete
-  AUTH=$(ap_web POST "/v1/agents/$AID/slack/install/start" | head -1 | jq -r '.["authorize_url"]')
-  GRANT=$(ap_compose exec -T api bun -e 'const r = await fetch("http://mock-slack:4020/fake/oauth/authorize" + new URL(process.argv[1]).search); console.log(await r.text())' "$AUTH")
-  ap_web POST /v1/slack/install/complete "$(echo "$GRANT" | jq -c --arg agent "$AID" '{agent_id: $agent, state, code}')"
+  node .claude/skills/verify-agent-platform/scripts/web-user.mjs <run id> slack-install owner "$AID"
   ap_web GET "/v1/agents/$AID/identities"
   # 4. 연결 (member): 시작이 link 앱을 만든다
   ap_as member

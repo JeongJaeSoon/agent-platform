@@ -6,15 +6,18 @@
 
 zsh(Claude Code Bash 도구) 또는 bash 4 이상에서 실행한다. macOS `/bin/bash` 3.2는 중첩 command substitution 안의 GATE-SPEC JSON 인용을 깨뜨려 `unterminated GATE-SPEC`·`api_error`를 만들 수 있다.
 
-`up.sh` 기본 모드로 시작한다. 출력된 id를 아래 `RUN`에 넣는다. 이후 셸 호출마다 첫 네 줄을 다시 실행한다. 중간 id부터 재개할 때는 만든 SID·AID·REL·WS·MID도 다시 지정한다. 자격 파일 내용은 출력하지 않는다.
+`up.sh` 기본 모드로 시작한다. 출력된 id를 아래 `RUN`에 넣는다. 이후 셸 호출마다 아래 doctor 앞의 prelude를 다시 실행한다. ID는 설정 직후 run의 `ids.sh`에 추가하고, 새 셸에서 복원한다. 각 절차의 `ap_as <who>`는 cookie와 개인 key를 다시 로드한다. 각 `sh` 블록은 앞 절차의 서버·브라우저 상태와 `ids.sh`만 이어받으며, 새 셸에서 prelude만 실행한 뒤 그대로 실행할 수 있다. 인증 API를 호출하는 블록은 블록 안에서 해당 사용자의 `ap_as`를 실행한다. 원시 key와 요청 직전 revision은 사용하는 블록 안에서 준비한다. 자격 파일 내용은 출력하지 않는다.
 
 ```sh
 RUN='<run-id>'
 . .claude/skills/verify-agent-platform/scripts/lib.sh "$RUN"
 U=.claude/skills/verify-agent-platform/scripts/web-user.mjs
 B=.claude/skills/verify-agent-platform/scripts/browser.mjs
+[ ! -f "$VERIFY_RUN/ids.sh" ] || . "$VERIFY_RUN/ids.sh"
 .claude/skills/verify-agent-platform/scripts/doctor.sh "$RUN"
 ```
+
+ID 저장은 아래 `printf`처럼 값이 UUID인 ID에만 쓴다. key·cookie·OAuth 값은 `ids.sh`에 저장하지 않는다. 새 run에서는 그 run의 파일만 복원한다.
 
 기대: doctor exit 0. 출력 SHA가 검사할 checkout이다. 이후 JSON은 `head -1` 뒤 jq, 상태는 원래 출력 마지막 줄로 판정한다. POST 세션 요청에는 `ap_post`가 Idempotency-Key를 붙인다. cookie로 세션 POST를 만들 때도 이 헤더가 필요하므로 이 절차는 개인 key를 쓴다.
 
@@ -23,6 +26,7 @@ B=.claude/skills/verify-agent-platform/scripts/browser.mjs
 전제: P-SETUP.
 
 ```sh
+# Actor: unauthenticated public probe.
 curl -sS -w '\n%{http_code}\n' "$API/readyz"
 curl -sS -w '\n%{http_code}\n' "$API/healthz"
 curl -sS -o "$EVIDENCE/docs.html" -w '%{http_code} %{content_type}\n' "$API/docs"
@@ -36,6 +40,7 @@ curl -sS -w '\n%{http_code}\n' "$API/v1/nope"
 전제: 사용자가 없는 기본 run. 화면 locale은 한국어로 맞춘다(공개 화면 footer의 언어 select에서 `ko`).
 
 ```sh
+# Actor: unauthenticated until owner login below.
 node "$B" "$RUN" start
 node "$B" "$RUN" open /
 node "$B" "$RUN" select "footer select" ko
@@ -57,7 +62,10 @@ ap_web POST /v1/auth/google/start '{}'
 기대: 처음 `/login?redirect=%2F`, “로그인이 필요합니다”. 잘못된 bootstrap 401, 첫 bootstrap 201, 두 번째 409 `BOOTSTRAP_DONE`. 잘못된 로그인 401, CSRF 없는 로그인 403. 이미 owner가 있는 화면 bootstrap은 “이미 소유자가 있습니다” 오류와 로그인 링크. 화면 로그인은 `/`. API 로그인 200, me 200과 `principal`·`user`·`workspace`·`permissions`·`scopes`. login-methods는 `methods:["password"]`, Google start는 404. 기본 run에서는 Google 성공 콜백을 검증하지 않는다. 전제는 별도 mock Google issuer와 client/redirect 설정이다([web-settings.md](web-settings.md) 1).
 
 ```sh
+# Actor: owner.
+ap_as owner
 WS=$(ap_web GET /v1/auth/me | head -1 | jq -r .workspace.id)
+printf 'WS=%s\n' "$WS" >> "$VERIFY_RUN/ids.sh"
 node "$B" "$RUN" open /auth/google/callback
 node "$B" "$RUN" eval 'document.querySelector("main").innerText'
 node "$B" "$RUN" open /login
@@ -71,6 +79,8 @@ node "$B" "$RUN" eval 'document.querySelector("main").innerText'
 전제: owner cookie. member 수락은 화면으로 확인하고 API cookie도 만든다.
 
 ```sh
+# Actor: owner.
+ap_as owner
 node "$U" "$RUN" invite owner member member
 node "$B" "$RUN" open /
 node "$B" "$RUN" click 'Verify Owner'
@@ -84,6 +94,7 @@ ap_as owner
 ap_web GET /v1/members
 ap_web GET /v1/invites
 MID=$(ap_web GET /v1/members | head -1 | jq -r '.items[] | select(.email=="member@example.test") | .user_id')
+printf 'MID=%s\n' "$MID" >> "$VERIFY_RUN/ids.sh"
 ```
 
 기대: invite 201 `invite_id`·`expires_at`(token은 helper가 저장). 브라우저 수락 `/`. member me의 역할 `member`, member 목록 API 403, owner 목록 200 `items`, API `/v1/invites`에는 수락한 초대도 `status:"accepted"`·`accepted_at`과 함께 남는다. UI “대기 중인 초대”는 pending만 표시한다. `MID`가 비어 있으면 다음으로 가지 말고 실제 목록 키를 보고 실패로 보고한다.
@@ -93,6 +104,8 @@ MID=$(ap_web GET /v1/members | head -1 | jq -r '.items[] | select(.email=="membe
 전제: member가 수락했고 owner로 브라우저 재로그인한다.
 
 ```sh
+# Actor: owner.
+ap_as owner
 node "$B" "$RUN" open /
 node "$B" "$RUN" click 'Verify Member'
 node "$B" "$RUN" click 로그아웃
@@ -118,6 +131,7 @@ node "$B" "$RUN" eval 'document.querySelector("main").innerText'
 역할·비활성은 수락한 member에만 수행한다. owner를 비활성화하지 않는다.
 
 ```sh
+# Actor: owner.
 ap_as owner
 ap_web PATCH "/v1/members/$MID" '{"role":"admin"}'
 ap_web POST "/v1/members/$MID/disable" '{"reason":"verify"}'
@@ -133,10 +147,12 @@ node "$U" "$RUN" login member
 전제: owner cookie와 MID.
 
 ```sh
+# Actor: owner.
 ap_as owner
 TEAM=$(ap_web POST /v1/teams '{"name":"Verify team"}')
 printf '%s\n' "$TEAM"
 TID=$(printf '%s\n' "$TEAM" | head -1 | jq -r .team.id)
+printf 'TID=%s\n' "$TID" >> "$VERIFY_RUN/ids.sh"
 ap_web POST "/v1/teams/$TID/members" "$(jq -nc --arg u "$MID" '{user_id:$u}')"
 ap_web GET "/v1/teams/$TID"
 ap_web PATCH "/v1/teams/$TID" '{"name":"Verify renamed"}'
@@ -153,15 +169,20 @@ ap_as owner
 전제: owner cookie. 모델·프로필은 fake-model 카탈로그 기준이다.
 
 ```sh
+# Actor: owner.
+ap_as owner
 ap_web GET /v1/profiles
 CARD='{"role":"verify helper","instructions":"Answer briefly.","language":"ko","model":"claude-sonnet-5","capabilities":{"tools":["Read"],"mcp":null,"forbidden":[]},"rules":[]}'
 AGENT=$(ap_web POST /v1/agents "$(jq -nc --argjson c "$CARD" '{slug:"verify-helper",name:"Verify Helper",card:$c}')")
 printf '%s\n' "$AGENT"
 AID=$(printf '%s\n' "$AGENT" | head -1 | jq -r .agent.id)
+printf 'AID=%s\n' "$AID" >> "$VERIFY_RUN/ids.sh"
 VID=$(printf '%s\n' "$AGENT" | head -1 | jq -r '.versions[0].id')
+printf 'VID=%s\n' "$VID" >> "$VERIFY_RUN/ids.sh"
 RELEASE=$(ap_web POST "/v1/agents/$AID/releases" "$(jq -nc --arg v "$VID" '{version_id:$v,runtime_profile_id:"claude-coding-local"}')")
 printf '%s\n' "$RELEASE"
 REL=$(printf '%s\n' "$RELEASE" | head -1 | jq -r .release.id)
+printf 'REL=%s\n' "$REL" >> "$VERIFY_RUN/ids.sh"
 ap_web POST "/v1/agents/$AID/activate" "$(jq -nc --arg r "$REL" '{release_id:$r,expected_revision:-1}')"
 ap_web GET "/v1/agents/$AID"
 ap_web GET /v1/agents
@@ -178,6 +199,8 @@ ap_web GET "/v1/agents/$AID/credential-bindings"
 전제: owner 브라우저, API로 만든 Verify Helper가 있다.
 
 ```sh
+# Actor: owner.
+ap_as owner
 node "$B" "$RUN" open /agents
 node "$B" "$RUN" eval 'document.querySelector("main").innerText'
 node "$B" "$RUN" shot agents
@@ -217,10 +240,12 @@ node "$B" "$RUN" eval 'document.querySelector("main").innerText'
 전제: AID, owner cookie. secret 값이 아니라 사용하지 않는 이름만 연결한다. 실제 외부 자격값의 유효성을 검사하는 절차가 아니다.
 
 ```sh
+# Actor: owner.
 ap_as owner
 BOUND=$(ap_web POST "/v1/agents/$AID/credential-bindings" '{"credential_ref":"verify-reference"}')
 printf '%s\n' "$BOUND"
 BINDING=$(printf '%s\n' "$BOUND" | head -1 | jq -r .binding.id)
+printf 'BINDING=%s\n' "$BINDING" >> "$VERIFY_RUN/ids.sh"
 ap_web GET "/v1/agents/$AID/credential-bindings"
 ap_web POST "/v1/agents/$AID/credential-bindings" '{"credential_ref":"verify-reference"}'
 ap_web DELETE "/v1/agents/$AID/credential-bindings/$BINDING"
@@ -234,6 +259,8 @@ ap_web GET "/v1/agents/$AID/credential-bindings"
 전제: owner/member cookie. key secret은 helper만 받는다.
 
 ```sh
+# Actor: owner.
+ap_as owner
 node "$U" "$RUN" key owner personal sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover
 node "$U" "$RUN" key member personal sessions:read,sessions:write,sessions:approve,sessions:control
 ap_as owner
@@ -244,31 +271,30 @@ SAVED_KEY=$KEY
 KEY=$OPKEY
 ap_get /v1
 ap_post /v1/sessions '{"profile_id":"claude-coding-local","repository_id":"sample-app","message":"scope probe"}'
-KEY=$SAVED_KEY
-```
-
-기대: 두 개인 key 201, 목록 200 `items`, key me 200 `principal.kind:"api_key"`. CLI key의 root는 200 `owner_id:"verify"`. read-only key POST는 403(scope 검사). CLI 폐기도 같은 key로 확인한다.
-
-```sh
 OKID=$(sed -n 's/.*key_id \([^ ]*\).*/\1/p' "$VERIFY_RUN/operator-id.txt" | head -1)
+printf 'OKID=%s\n' "$OKID" >> "$VERIFY_RUN/ids.sh"
 ap_revoke "$OKID"
 KEY=$OPKEY
 ap_get /v1
 KEY=$SAVED_KEY
+unset OPKEY SAVED_KEY
 ```
 
-기대: revoked 출력, 같은 key로 401. 이 블록 뒤 `unset OPKEY SAVED_KEY`한다. 사용자 개인 key는 뒤 절차에 쓰므로 아직 폐기하지 않는다. 에이전트 전용 key 상한은 [musterrolle.md](musterrolle.md) d(별도 사용자 이름 사용).
+기대: 두 개인 key 201, 목록 200 `items`, key me 200 `principal.kind:"api_key"`. CLI key의 root는 200 `owner_id:"verify"`, read-only key POST는 403(scope 검사). 이어 revoked 출력과 같은 key로 401을 확인한다. 원시 CLI key는 이 블록의 변수로만 보관하고 마지막에 지운다. 사용자 개인 key는 뒤 절차에 쓰므로 아직 폐기하지 않는다. 에이전트 전용 key 상한은 [musterrolle.md](musterrolle.md) d(별도 사용자 이름 사용).
 
 ## P-API-SESSIONS-CREATE — 모델 선택·턴·receipt
 
 전제: owner 개인 key, REL. 이 세션은 뒤 절차 끝까지 유지한다.
 
 ```sh
+# Actor: owner.
 ap_as owner
 CREATED=$(ap_post /v1/sessions "$(jq -nc --arg r "$REL" '{profile_id:"claude-coding-local",repository_id:"sample-app",agent_release_id:$r,model:"claude-sonnet-5",title:"Verify list target",message:"GATE-SPEC {\"id\":\"verify-list\",\"steps\":[],\"final\":\"hello from verify\"}"}')")
 printf '%s\n' "$CREATED"
 SID=$(printf '%s\n' "$CREATED" | head -1 | jq -r .session_id)
+printf 'SID=%s\n' "$SID" >> "$VERIFY_RUN/ids.sh"
 RCPT=$(printf '%s\n' "$CREATED" | head -1 | jq -r .receipt_id)
+printf 'RCPT=%s\n' "$RCPT" >> "$VERIFY_RUN/ids.sh"
 for i in $(seq 1 90); do
   [ "$(ap_get "/v1/sessions/$SID/turns/1" | head -1 | jq -r .status)" = completed ] && break
   sleep 2
@@ -286,6 +312,8 @@ ap_get "/v1/sessions/$SID"
 다음은 허용하지 않은 모델을 거절하는 경로다.
 
 ```sh
+# Actor: owner.
+ap_as owner
 ap_post /v1/sessions '{"profile_id":"claude-coding-local","repository_id":"sample-app","model":"verify-unlisted-model","message":"model probe"}'
 ```
 
@@ -296,6 +324,8 @@ ap_post /v1/sessions '{"profile_id":"claude-coding-local","repository_id":"sampl
 전제: P-API-SESSIONS-CREATE 완료, 생성한 SID가 idle. 새 기본 run에서 만든 유일한 세션의 제목이다.
 
 ```sh
+# Actor: owner.
+ap_as owner
 ap_get '/v1/sessions?relation=started&q=Verify%20list%20target&status=idle'
 ap_get '/v1/sessions/counts?relation=started&q=Verify%20list%20target'
 ap_get '/v1/sessions?relation=shared&q=Verify%20list%20target'
@@ -314,6 +344,7 @@ ap_get '/v1/sessions?status=closed'
 전제: SID·MID·TID와 owner/member cookie. owner가 만든 세션으로 공유를 바꿔 확인하고 원복한다.
 
 ```sh
+# Actor: owner.
 ap_as owner
 ap_web PATCH "/v1/sessions/$SID" '{"title":"Verify renamed target"}'
 ap_web GET "/v1/sessions/$SID/share"
@@ -341,6 +372,7 @@ ap_web GET /v1/takeovers
 전제: owner key와 member cookie. UTC 오늘보다 앞선 기간을 쓴다.
 
 ```sh
+# Actor: owner.
 ap_as owner
 SINCE=$(date -u +%Y-%m-01)
 ap_get "/v1/usage/summary?scope=me&since=$SINCE"
@@ -367,6 +399,8 @@ limits는 `scope:"installation"`, `limits.execution_slot_limit`, `usage.executio
 전제: owner 브라우저. 완료된 SID가 있다.
 
 ```sh
+# Actor: owner.
+ap_as owner
 node "$B" "$RUN" open /
 node "$B" "$RUN" shot home
 node "$B" "$RUN" eval '({links:[...document.querySelectorAll("[data-slot=app-sidebar] nav a")].map(x=>x.innerText),times:[...document.querySelectorAll("main time")].map(x=>({text:x.innerText,tabIndex:x.tabIndex}))})'
@@ -384,9 +418,12 @@ node "$B" "$RUN" eval 'document.querySelector("main").innerText'
 전제: owner key. SID를 덮어쓰지 않고 QSID를 쓴다.
 
 ```sh
+# Actor: owner.
+ap_as owner
 Q=$(ap_post /v1/sessions '{"profile_id":"claude-coding-local","repository_id":"sample-app","message":"GATE-SPEC {\"id\":\"verify-permission\",\"steps\":[{\"tool\":\"Bash\",\"input\":{\"command\":\"echo alpha > hello.txt\",\"description\":\"write hello.txt\"}}],\"final\":\"wrote hello.txt\"}"}')
 printf '%s\n' "$Q"
 QSID=$(printf '%s\n' "$Q" | head -1 | jq -r .session_id)
+printf 'QSID=%s\n' "$QSID" >> "$VERIFY_RUN/ids.sh"
 for i in $(seq 1 90); do
   [ "$(ap_get "/v1/sessions/$QSID" | head -1 | jq -r .status)" = needs_input ] && break
   sleep 2
@@ -395,6 +432,7 @@ ap_get "/v1/sessions/$QSID/pending-requests"
 node "$B" "$RUN" open /
 node "$B" "$RUN" shot home-request
 REQ=$(ap_get "/v1/sessions/$QSID/pending-requests" | head -1 | jq -r '.items[0].request_id')
+printf 'REQ=%s\n' "$REQ" >> "$VERIFY_RUN/ids.sh"
 ap_post "/v1/sessions/$QSID/answers" "$(jq -nc --arg r "$REQ" '{request_id:$r,kind:"permission",decision:"allow"}')"
 curl -sSN --max-time 5 "$API/v1/sessions/$QSID/events" -H "Authorization: Bearer $KEY" > "$EVIDENCE/pending-events.txt" || test "$?" = 28
 ```
@@ -406,6 +444,8 @@ curl -sSN --max-time 5 "$API/v1/sessions/$QSID/events" -H "Authorization: Bearer
 전제: SID와 QSID. owner 브라우저.
 
 ```sh
+# Actor: owner.
+ap_as owner
 node "$B" "$RUN" open /sessions
 node "$B" "$RUN" type 'input[type=search]' 'Verify renamed target'
 node "$B" "$RUN" eval 'document.querySelector("main").innerText'
@@ -433,6 +473,8 @@ node "$B" "$RUN" eval 'document.querySelector("main").innerText'
 상세 탭 진행·결과물·정보. 모델은 runtime.model, 정보에는 “에이전트 정보 없음”·“시작한 사람·경로 정보 없음”이 보이고 브랜치는 “아직 볼 수 없습니다”다. API에 필드가 생겼다고 UI가 모두 표시한다고 판정하지 않는다. 제어·ID 복사는 28×28 버튼. 결과물을 만들지 않은 SID는 빈 상태이며 결과물 다운로드 검증에는 Write 대본이 필요하다.
 
 ```sh
+# Actor: owner.
+ap_as owner
 ap_get "/v1/sessions/$SID/outputs"
 ```
 
@@ -445,6 +487,8 @@ ap_get "/v1/sessions/$SID/outputs"
 전제: owner 브라우저와 SID.
 
 ```sh
+# Actor: owner.
+ap_as owner
 node "$B" "$RUN" open /usage
 node "$B" "$RUN" shot usage-owner
 node "$B" "$RUN" click '설치 전체'
@@ -464,6 +508,8 @@ node "$B" "$RUN" shot usage-member
 전제: member 브라우저. 기본 stack은 Slack 설정을 하지 않았다.
 
 ```sh
+# Actor: member.
+ap_as member
 node "$B" "$RUN" open /settings/linked-accounts
 node "$B" "$RUN" eval 'document.querySelector("main").innerText'
 node "$B" "$RUN" shot linked
@@ -488,6 +534,8 @@ node "$B" "$RUN" eval '({switches:document.querySelectorAll("main [role=switch]"
 언어·테마 화면에서 한국어·日本語·English와 테마를 고른다. member workspace는 switch 없이 읽기 전용. owner로 다시 로그인한다.
 
 ```sh
+# Actor: owner.
+ap_as owner
 node "$B" "$RUN" open /
 node "$B" "$RUN" click 'Verify Member'
 node "$B" "$RUN" click 로그아웃
@@ -495,7 +543,6 @@ node "$B" "$RUN" login owner
 node "$B" "$RUN" open /settings/workspace
 node "$B" "$RUN" eval 'document.querySelector("main").innerText'
 node "$B" "$RUN" shot workspace
-ap_as owner
 ap_web POST "/v1/workspaces/$WS/audit-retention" '{"audit_retention_days":29}'
 ap_web POST "/v1/workspaces/$WS/audit-retention" '{"audit_retention_days":30}'
 ap_web POST "/v1/workspaces/$WS/audit-retention" '{"audit_retention_days":90}'
@@ -516,6 +563,7 @@ ap_as owner
 전제: SID 완료, release 없는 QSID가 idle이며 닫히지 않았음, owner key. 각 변경 직전 revision을 읽는다.
 
 ```sh
+# Actor: owner.
 ap_as owner
 ap_post "/v1/sessions/$SID/messages" '{"message":"GATE-SPEC {\"id\":\"verify-follow\",\"steps\":[],\"final\":\"second\"}"}'
 for i in $(seq 1 90); do
@@ -540,6 +588,8 @@ ap_post "/v1/sessions/$SID/pause" "$(jq -nc --argjson r "$REV" '{expected_revisi
 기대: message 202 turn_id 2, turn completed. 이미 완료된 turn의 interrupt는 202(no-op receipt), release에 묶인 SID의 profile 변경은 409 `RELEASE_PROFILE_MISMATCH`다. release 없는 QSID의 idle 상태에서 같은 profile 변경은 200이다. pause 202. 아래 poll의 마지막 출력에서 paused를 확인한다.
 
 ```sh
+# Actor: owner.
+ap_as owner
 for i in $(seq 1 90); do
   [ "$(ap_get "/v1/sessions/$SID" | head -1 | jq -r .admission_state)" = paused ] && break
   sleep 2
@@ -550,6 +600,8 @@ ap_get "/v1/sessions/$SID"
  이후 최신 revision으로 resume 202, idle/active으로 돌아오면 close한다.
 
 ```sh
+# Actor: owner.
+ap_as owner
 REV=$(ap_get "/v1/sessions/$SID" | head -1 | jq -r .revision)
 ap_post "/v1/sessions/$SID/resume" "$(jq -nc --argjson r "$REV" '{expected_revision:$r}')"
 ```
@@ -557,6 +609,8 @@ ap_post "/v1/sessions/$SID/resume" "$(jq -nc --argjson r "$REV" '{expected_revis
 resume 정착을 읽어 확인한 뒤:
 
 ```sh
+# Actor: owner.
+ap_as owner
 for i in $(seq 1 90); do
   [ "$(ap_get "/v1/sessions/$SID" | head -1 | jq -r .admission_state)" = active ] && break
   sleep 2
@@ -567,6 +621,8 @@ ap_get "/v1/sessions/$SID"
 기대: admission_state active. 이어 turn 3을 느리게 만들고 terminate·복구·resume을 확인한다. turn 2의 checkpoint가 있으므로 abandon 뒤 복원할 수 있다.
 
 ```sh
+# Actor: owner.
+ap_as owner
 ap_post "/v1/sessions/$SID/messages" '{"message":"GATE-SPEC {\"id\":\"verify-kill\",\"steps\":[],\"final\":\"never\",\"finalDelayMs\":300000}"}'
 for i in $(seq 1 90); do
   CURRENT=$(ap_get "/v1/sessions/$SID" | head -1)
@@ -585,6 +641,7 @@ REV=$(ap_get "/v1/sessions/$SID" | head -1 | jq -r .revision)
 DECISION=$(ap_post "/v1/sessions/$SID/recovery-decisions" "$(jq -nc --argjson r "$REV" '{expected_revision:$r,decision:"abandon",target_turn_id:"3",reason:"slow fake call had no effect"}')")
 printf '%s\n' "$DECISION"
 DRCPT=$(printf '%s\n' "$DECISION" | head -1 | jq -r .receipt_id)
+printf 'DRCPT=%s\n' "$DRCPT" >> "$VERIFY_RUN/ids.sh"
 for i in $(seq 1 90); do
   [ "$(ap_get "/v1/receipts/$DRCPT" | head -1 | jq -r .status)" = succeeded ] && break
   sleep 2
@@ -602,6 +659,8 @@ ap_get "/v1/sessions/$SID"
 기대: message 202 turn_id 3, 실행 중 turn running. terminate 202 `external_effects_reverted:false`. 종료 관측 뒤 turn outcome_unknown, 세션 recovery_required. abandon 202, receipt succeeded와 result.resumable true, turn cancelled. resume 202 뒤 admission_state active. poll 기한이 끝나면 다음 단계로 넘기지 말고 마지막 출력으로 실패를 보고한다. source: `packages/contracts/src/api/control.ts`, `packages/platform/src/sessions/session-service.ts`, `docs/quickstart.md` 3장 ⑨. 이제 close한다:
 
 ```sh
+# Actor: owner.
+ap_as owner
 REV=$(ap_get "/v1/sessions/$SID" | head -1 | jq -r .revision)
 ap_post "/v1/sessions/$SID/close" "$(jq -nc --argjson r "$REV" '{expected_revision:$r,reason:"verify close"}')"
 for i in $(seq 1 45); do
@@ -619,6 +678,8 @@ ap_post "/v1/sessions/$SID/messages" '{"message":"closed probe"}'
 전제: owner 브라우저. 세션 화면을 다시 연다.
 
 ```sh
+# Actor: owner.
+ap_as owner
 node "$B" "$RUN" open /sessions
 W=390 THEME=dark node "$B" "$RUN" shot sessions-390-dark
 W=320 THEME=light node "$B" "$RUN" open /members
@@ -636,6 +697,7 @@ node "$B" "$RUN" open /sessions
 전제: 본문 앞 절차를 마쳤다. key 폐기를 마지막에 한다.
 
 ```sh
+# Actor: owner.
 ap_as owner
 ap_web DELETE "/v1/agents/$AID/admins/teams/$TID"
 ap_web DELETE "/v1/teams/$TID/members/$MID"
@@ -644,15 +706,20 @@ ap_web GET /v1/teams
 ap_web GET /v1/api-keys
 ```
 
-기대: 삭제 200, 팀 목록에서 TID가 없다. 목록에서 이번 run의 owner 개인 key id를 다음 명령으로 KID를 읽은 뒤:
+기대: 삭제 200, 팀 목록에서 TID가 없다. 다음 블록은 owner 개인 key로 먼저 me 200과 key ID를 확인하고, 그 key 자체를 폐기한 뒤 같은 값으로 401을 확인한다.
 
 ```sh
-KID=$(ap_web GET /v1/api-keys | head -1 | jq -r '.items[] | select(.kind=="personal") | .id' | head -1)
-```
-
-```sh
+# Actor: owner.
+ap_as owner
+REVOKED_KEY=$KEY
+KEY_ME=$(ap_get /v1/auth/me)
+printf '%s\n' "$KEY_ME"
+KID=$(printf '%s\n' "$KEY_ME" | head -1 | jq -er '.principal | select(.kind=="api_key") | .id')
+printf 'KID=%s\n' "$KID" >> "$VERIFY_RUN/ids.sh"
 ap_web DELETE "/v1/api-keys/$KID"
+KEY=$REVOKED_KEY
 ap_get /v1/auth/me
+unset KEY REVOKED_KEY KEY_ME
 ap_web POST /v1/auth/logout '{}'
 ap_web GET /v1/auth/me
 node "$B" "$RUN" open /
@@ -668,6 +735,7 @@ node "$B" "$RUN" open /
 전제: 기본 run과 다른 id. master key를 api와 slack role에 전달한다. 값은 출력하지 않는다.
 
 ```sh
+# Actor: stack operator; select owner after login below.
 export PLATFORM_SECRET_KEY=$(openssl rand -hex 32)
 .claude/skills/verify-agent-platform/scripts/up.sh infra/compose.mock-slack.yml
 ```
@@ -675,24 +743,25 @@ export PLATFORM_SECRET_KEY=$(openssl rand -hex 32)
 새 RUN으로 P-SETUP·P-WEB-LOGIN의 owner 생성/로그인, P-API-AGENTS의 agent 생성·release·활성화까지만 실행한다(팀·관리자 부분 제외). WS·AID를 기록한다. config token은 helper로 저장한다.
 
 ```sh
+# Actor: owner.
+ap_as owner
 node "$U" "$RUN" slack-config owner "$WS"
 ap_web GET "/v1/workspaces/$WS/slack/config-token"
 ap_web POST "/v1/agents/$AID/slack/app" '{}'
 ap_web GET "/v1/agents/$AID/slack/app"
-AUTH=$(ap_web POST "/v1/agents/$AID/slack/install/start" '{}' | head -1 | jq -r .authorize_url)
-GRANT=$(ap_compose exec -T api bun -e 'const r = await fetch("http://mock-slack:4020/fake/oauth/authorize" + new URL(process.argv[1]).search); console.log(await r.text())' "$AUTH")
-ap_web POST /v1/slack/install/complete "$(printf '%s\n' "$GRANT" | jq -c --arg a "$AID" '{agent_id:$a,state,code}')"
-unset GRANT AUTH
+node "$U" "$RUN" slack-install owner "$AID"
 ap_web GET "/v1/agents/$AID/identities"
 ```
 
-기대: config 200 `configured:true`, app 200 `created:true`, `slack_app.app_id`가 A0FAKE로 시작한다. install start 200 authorize_url·expires_at. complete 200 `installation.status:"verified"`, `agent_identity`. 공개 이벤트 URL을 설정하지 않은 기본 mock overlay에서는 `finalized:false`, `warnings:[{"code":"events_url_unset"}]`다. identities에는 active `slack_bot` 한 행이 남고 P-SLACK-INBOUND의 로컬 signed POST도 동작한다. `finalized:true`는 `SLACK_EVENTS_PUBLIC_URL`이 설정되어 이벤트 구독 URL을 포함한 앱 manifest 갱신이 성공할 때 반환된다(권한이 변경되면 `reinstall_required` warning이 함께 올 수 있다). 소스: `packages/platform/src/musterrolle/slack-events-finalize.ts`. 실제 Slack 배달에는 Slack이 닿는 HTTPS `SLACK_EVENTS_PUBLIC_URL`과 설치 finalize가 필요하다.
+기대: config 200 `configured:true`, app 200 `created:true`, `slack_app.app_id`가 A0FAKE로 시작한다. helper 내부 install start 200 authorize_url·expires_at(출력하지 않음). complete 200 `installation.status:"verified"`, `agent_identity`. 공개 이벤트 URL을 설정하지 않은 기본 mock overlay에서는 `finalized:false`, `warnings:[{"code":"events_url_unset"}]`다. identities에는 active `slack_bot` 한 행이 남고 P-SLACK-INBOUND의 로컬 signed POST도 동작한다. `finalized:true`는 `SLACK_EVENTS_PUBLIC_URL`이 설정되어 이벤트 구독 URL을 포함한 앱 manifest 갱신이 성공할 때 반환된다(권한이 변경되면 `reinstall_required` warning이 함께 올 수 있다). 소스: `packages/platform/src/musterrolle/slack-events-finalize.ts`. 실제 Slack 배달에는 Slack이 닿는 HTTPS `SLACK_EVENTS_PUBLIC_URL`과 설치 finalize가 필요하다.
 
 ## P-SLACK-INBOUND — 서명·inbox·중복·claim/lease
 
 전제: P-SLACK-SETUP. helper는 mock이 생성한 일회용 signing secret을 DB에서 읽기만 하고 컨테이너 안에서 서명한다. 비밀값을 host 명령 인자나 출력으로 옮기지 않는다. inbox를 DB 쓰기로 만들지 않는다.
 
 ```sh
+# Actor: owner.
+ap_as owner
 node "$U" "$RUN" slack-event "$AID" challenge
 node "$U" "$RUN" slack-event "$AID" bad
 node "$U" "$RUN" slack-event "$AID" stale
@@ -715,12 +784,14 @@ Slack 연결 콜백 화면·연결 해제는 [musterrolle.md](musterrolle.md) c�
 전제: 새 run. 기본 bootstrap 절차를 같이 실행하지 않는다.
 
 ```sh
+# Actor: stack operator; select demo-owner after login below.
 VERIFY_DEMO_ACCOUNTS=1 .claude/skills/verify-agent-platform/scripts/up.sh
 ```
 
 출력 id로 P-SETUP 후:
 
 ```sh
+# Actor: demo-owner after login; switch to demo-member below.
 node "$U" "$RUN" demo-login owner
 ap_as demo-owner
 ap_web GET /v1/auth/me
@@ -728,6 +799,7 @@ ap_web GET /v1/agents
 ap_web GET /v1/sessions
 ap_web GET /v1/sessions | head -1 | jq -r '.items[] | [.status, (.title//"null")] | @tsv'
 RS=$(ap_web GET /v1/sessions | head -1 | jq -r '.items[] | select(.title=="결제 모듈 릴리스 노트 초안") | .id')
+printf 'RS=%s\n' "$RS" >> "$VERIFY_RUN/ids.sh"
 ap_web GET "/v1/sessions/$RS/outputs"
 ap_web GET "/v1/sessions/$RS/outputs/out%2Frelease-notes.md"
 node "$U" "$RUN" demo-login member
@@ -760,4 +832,4 @@ node "$B" "$RUN" eval 'document.querySelector("main").innerText'
 
 제목 없는 행은 `demo-data.ts`의 `DEMO_SESSIONS` 마지막 항목으로 의도적으로 seed된다. Demo Member가 공백 메시지로 만든 web 세션이며 에이전트·저장소 없이 `general` 프로필을 사용한다. `demo-accounts.ts`의 계정 생성용 인증 세션과 구분한다. 두 코드 리뷰 세션은 Demo Owner의 private 세션이므로 member 목록에서 빠진다. 실행·대기 상태는 이후 진행이나 사용자 조작으로 바뀔 수 있어 상태별 숫자는 고정하지 않는다.
 
-결과물 조회는 위의 `ap_as demo-owner` 상태에서 수행한다. 목록 200 `[{"path":"out/release-notes.md","size_bytes":null}]`, 다운로드 200이며 본문에 `# 결제 모듈 릴리스 노트`, “카드 결제 실패 시 재시도 안내를 보여 준다.”, “영수증 메일에 주문 번호를 넣는다.”가 나온다. 브라우저 로그인은 `/`로 이동한다. `/`의 innerText에는 “답이 필요한 요청”과 대기 요청이, `/sessions`에는 상태 필터와 owner에게 보이는 위 세션 제목들이 나온다. source: `scripts/local.sh`, `apps/control-host/src/api/demo-accounts.ts`, `demo-data.ts`. seed 재실행은 기존 행을 덮어쓰지 않는다. `LOCAL_DEMO_DATA=0`은 이 데이터 검증의 전제를 충족하지 않는다.
+결과물 조회는 위의 `ap_as demo-owner` 상태에서 수행한다. 목록 200 객체의 `session_id`는 RS, `checkpoint_revision:0`, `items`는 `path:"out/release-notes.md"`·`bytes:146`·`sha256`(해시 문자열, 값은 고정하지 않음)·`omitted:null`인 항목 한 개다(`packages/contracts/src/api/output.ts`). 다운로드 200이며 본문에 `# 결제 모듈 릴리스 노트`, “카드 결제 실패 시 재시도 안내를 보여 준다.”, “영수증 메일에 주문 번호를 넣는다.”가 나온다. 브라우저 로그인은 `/`로 이동한다. `/`의 innerText에는 “답이 필요한 요청”과 대기 요청이, `/sessions`에는 상태 필터와 owner에게 보이는 위 세션 제목들이 나온다. source: `scripts/local.sh`, `apps/control-host/src/api/demo-accounts.ts`, `demo-data.ts`. seed 재실행은 기존 행을 덮어쓰지 않는다. `LOCAL_DEMO_DATA=0`은 이 데이터 검증의 전제를 충족하지 않는다.

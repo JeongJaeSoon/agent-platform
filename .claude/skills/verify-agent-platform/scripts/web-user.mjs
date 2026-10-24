@@ -15,6 +15,7 @@
 //   web-user.mjs <run> key <who> <personal|service> <scope,scope>  secret → keys/<who>
 //   web-user.mjs <run> demo-login <owner|member>  source-defined demo credentials
 //   web-user.mjs <run> slack-config <who> <workspace>  mock config token, never printed
+//   web-user.mjs <run> slack-install <who> <agent id>  mock OAuth with the person's cookie
 //   web-user.mjs <run> slack-event <agent> <mode>  signed mock inbound request
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
@@ -120,7 +121,7 @@ const bootstrapBody = (c, token) => ({
   workspace_slug: "verify",
 });
 
-function composeBun(source, args = []) {
+function composeBun(source, args = [], input) {
   if (!state.COMPOSE_PROJECT_NAME?.startsWith("verify-ap-"))
     throw new Error("not a verification project");
   if (!state.COMPOSE_FILE?.includes("infra/compose.mock-slack.yml"))
@@ -147,6 +148,7 @@ function composeBun(source, args = []) {
       cwd: state.VERIFY_REPO,
       env: { ...process.env, ...state },
       encoding: "utf8",
+      input,
     },
   ).trim();
 }
@@ -169,6 +171,69 @@ switch (cmd) {
     const r = await call("POST", "/v1/auth/login", c);
     keepSession(name, r);
     report(r);
+    break;
+  }
+  case "slack-install": {
+    const agent = rest[0];
+    if (!/^[0-9a-f-]{36}$/i.test(agent ?? ""))
+      throw new Error("agent UUID required");
+    const cookie = cookieOf(who);
+    const sensitive = new Set();
+    const redact = (value) => {
+      if (Array.isArray(value)) return value.map(redact);
+      if (!value || typeof value !== "object") return value;
+      return Object.fromEntries(
+        Object.entries(value).map(([key, item]) => [
+          key,
+          typeof item === "string" &&
+          (["state", "authorize_url"].includes(key) || sensitive.has(item))
+            ? `(saved, ${item.length} chars)`
+            : redact(item),
+        ]),
+      );
+    };
+    const start = await call(
+      "POST",
+      `/v1/agents/${agent}/slack/install/start`,
+      {},
+      { cookie },
+    );
+    if (start.status !== 200) {
+      report({
+        ...start,
+        json: redact(start.json),
+        text: "install start failed",
+      });
+      break;
+    }
+    let grant;
+    try {
+      grant = JSON.parse(
+        composeBun(
+          'const url = new URL(await Bun.stdin.text()); const r = await fetch("http://mock-slack:4020/fake/oauth/authorize" + url.search); if (!r.ok) throw new Error("mock authorize failed"); console.log(await r.text());',
+          [],
+          start.json.authorize_url,
+        ),
+      );
+    } catch {
+      throw new Error("mock authorize failed");
+    }
+    if (typeof grant.state !== "string" || typeof grant.code !== "string")
+      throw new Error("mock authorize response missing state/code");
+    sensitive.add(grant.state);
+    sensitive.add(grant.code);
+    sensitive.add(start.json.authorize_url);
+    const complete = await call(
+      "POST",
+      "/v1/slack/install/complete",
+      { agent_id: agent, state: grant.state, code: grant.code },
+      { cookie },
+    );
+    report({
+      ...complete,
+      json: redact(complete.json),
+      text: "install complete returned a non-JSON response",
+    });
     break;
   }
   case "slack-config": {
