@@ -114,7 +114,8 @@ const memberOk = {
 };
 const ownerOk = {
   "GET /v1/auth/me": () => json(200, me()),
-  "GET /v1/agents": () => json(200, { items: [mine, theirs] }),
+  "GET /v1/agents": () =>
+    json(200, { items: [mine, theirs], next_cursor: null }),
 };
 
 const rows = () =>
@@ -584,7 +585,7 @@ describe("API key", () => {
     const long = { ...mine, name: `billing_${"x".repeat(80)}` };
     renderAt(SERVICE, {
       ...ownerOk,
-      "GET /v1/agents": () => json(200, { items: [long] }),
+      "GET /v1/agents": () => json(200, { items: [long], next_cursor: null }),
       ...keysServer([key()]),
     });
     const title = await screen.findByText(`${long.name} · 세션 보기`);

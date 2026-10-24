@@ -63,7 +63,7 @@ const RETRY_CASES: ReadonlyArray<{
     path: "/agents",
     routes: meOk,
     failingKey: "GET /v1/agents",
-    answer: () => json(200, { items: [] }),
+    answer: () => json(200, { items: [], next_cursor: null }),
     after: /아직 에이전트가 없습니다/,
   },
   {

@@ -123,7 +123,7 @@ describe("bootstrap checklist", () => {
             },
           ],
         }),
-      "GET /v1/agents": () => json(200, { items: [agent] }),
+      "GET /v1/agents": () => json(200, { items: [agent], next_cursor: null }),
       ...noSessions,
     });
     const read = await states();
@@ -154,7 +154,7 @@ describe("bootstrap checklist", () => {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": () => json(200, { items: [owner] }),
       "GET /v1/invites": () => apiError(500, "INTERNAL", "boom"),
-      "GET /v1/agents": () => json(200, { items: [] }),
+      "GET /v1/agents": () => json(200, { items: [], next_cursor: null }),
       ...noSessions,
     });
     const read = await states();
@@ -201,7 +201,7 @@ describe("bootstrap checklist", () => {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": () => json(200, { items: [owner] }),
       "GET /v1/invites": () => json(200, { items: [] }),
-      "GET /v1/agents": () => json(200, { items: [] }),
+      "GET /v1/agents": () => json(200, { items: [], next_cursor: null }),
       "GET /v1/sessions": () => apiError(500, "INTERNAL", "boom"),
     });
     const read = await states();
@@ -321,7 +321,10 @@ describe("홈 요약", () => {
       "GET /v1/members": () => json(200, { items: [owner] }),
       "GET /v1/invites": () => json(200, { items: [] }),
       "GET /v1/agents": () =>
-        json(200, { items: [released, server.detail().agent] }),
+        json(200, {
+          items: [released, server.detail().agent],
+          next_cursor: null,
+        }),
       "GET /v1/sessions?status=needs_input": () =>
         json(200, { items: [waitingSession], next_cursor: null }),
       "GET /v1/sessions": () =>
@@ -972,7 +975,7 @@ describe("내가 속한 팀", () => {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": () => json(200, { items: [owner] }),
       "GET /v1/invites": () => json(200, { items: [] }),
-      "GET /v1/agents": () => json(200, { items: [] }),
+      "GET /v1/agents": () => json(200, { items: [], next_cursor: null }),
       "GET /v1/my-teams": () => json(200, { items: [TEAM] }),
     });
     const link = await screen.findByRole("link", { name: "결제팀" });
