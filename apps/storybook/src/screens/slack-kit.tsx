@@ -6,7 +6,6 @@ import {
   FieldDescription,
   FieldLabel,
   Link,
-  RowListItem,
   SearchInput,
   Textarea,
 } from "@werft-ai/ui";
@@ -46,98 +45,6 @@ export function Heading({
     <CardTitle id={id} role="heading" aria-level={level}>
       {children}
     </CardTitle>
-  );
-}
-
-/**
- * Stand-in for `@werft-ai/ui` Switch (SWITCH-SETTINGROW-14, #667): a track
- * and thumb the size of shadcn's Switch (h-5 w-9). The state word sits
- * beside it through SettingRow's `status`.
- */
-export function SwitchStandIn({
-  checked,
-  onCheckedChange,
-  labelledBy,
-  describedBy,
-  disabled = false,
-}: {
-  readonly checked: boolean;
-  readonly onCheckedChange: (checked: boolean) => void;
-  readonly labelledBy: string;
-  readonly describedBy?: string | undefined;
-  readonly disabled?: boolean | undefined;
-}) {
-  return (
-    <Button
-      type="button"
-      variant="ghost"
-      role="switch"
-      aria-checked={checked}
-      aria-labelledby={labelledBy}
-      aria-describedby={describedBy}
-      disabled={disabled}
-      onClick={() => onCheckedChange(!checked)}
-      className={`h-5 w-9 shrink-0 rounded-full border border-transparent p-0.5 ${checked ? "justify-end bg-primary hover:bg-primary" : "justify-start bg-input hover:bg-input"}`}
-    >
-      <div className="size-4 rounded-full bg-background shadow-sm" />
-    </Button>
-  );
-}
-
-/**
- * Stand-in for SettingRow inside RowList joined: title and description on
- * the left, the control on the right; below 640px the control goes under
- * the text, right-aligned.
- */
-export function SettingRow({
-  title,
-  description,
-  extra,
-  status,
-  control,
-}: {
-  readonly title: ReactNode;
-  readonly description?: ReactNode;
-  readonly extra?: ReactNode;
-  /** The state word before the control, e.g. 켜짐; not part of its name. */
-  readonly status?: ReactNode;
-  readonly control?:
-    | ((ids: {
-        readonly titleId: string;
-        readonly descriptionId: string | undefined;
-      }) => ReactNode)
-    | undefined;
-}) {
-  const titleId = useId();
-  const descriptionId = useId();
-  const hasDescription = description !== undefined;
-  return (
-    <RowListItem className="flex-col items-stretch gap-3 sm:flex-row sm:flex-nowrap sm:items-center sm:justify-between sm:gap-6">
-      <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <div id={titleId} className="font-medium text-control leading-5">
-          {title}
-        </div>
-        {hasDescription ? (
-          <div id={descriptionId} className={`${MUTED_TEXT} leading-5`}>
-            {description}
-          </div>
-        ) : null}
-        {extra}
-      </div>
-      {control ? (
-        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 self-end sm:self-auto">
-          {status === undefined ? null : (
-            <div aria-hidden="true" className={MUTED_TEXT}>
-              {status}
-            </div>
-          )}
-          {control({
-            titleId,
-            descriptionId: hasDescription ? descriptionId : undefined,
-          })}
-        </div>
-      ) : null}
-    </RowListItem>
   );
 }
 

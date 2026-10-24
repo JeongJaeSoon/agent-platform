@@ -18,7 +18,9 @@ import {
   RowList,
   RowListItem,
   SecretField,
+  SettingRow,
   Skeleton,
+  Switch,
   Table,
   TableBody,
   TableCell,
@@ -34,8 +36,6 @@ import {
   Heading,
   MUTED_TEXT,
   OutcomeStandIn,
-  SettingRow,
-  SwitchStandIn,
   storyHref,
 } from "./slack-kit.tsx";
 
@@ -263,12 +263,10 @@ function SlackConnectionPage({
           <SettingRow
             title="Slack 게스트도 에이전트를 쓸 수 있게 하기"
             description="켜도 게스트는 먼저 웹에서 자기 Slack 계정을 연결해야 합니다. Slack Connect로 들어온 다른 조직 사람은 켜져 있어도 에이전트를 쓸 수 없습니다."
-            control={({ titleId, descriptionId }) => (
-              <SwitchStandIn
+            control={
+              <Switch
                 checked={guest}
                 disabled={readOnly}
-                labelledBy={titleId}
-                describedBy={descriptionId}
                 onCheckedChange={(next) => {
                   setGuest(next);
                   setOutcome(
@@ -278,51 +276,42 @@ function SlackConnectionPage({
                   );
                 }}
               />
-            )}
+            }
           />
           <SettingRow
-            title={
-              <div className="flex flex-wrap items-center gap-2">
-                App Configuration Token
-                {status[0]}
-              </div>
-            }
+            title="App Configuration Token"
+            badge={status[0]}
             description={status[1]}
-            control={
-              readOnly || editing
-                ? undefined
-                : () =>
-                    token === "unset" ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setEditing(true)}
-                      >
-                        token 넣기
-                      </Button>
-                    ) : (
-                      <>
-                        <Button
-                          type="button"
-                          variant={
-                            token === "needs_reentry" ? "default" : "outline"
-                          }
-                          size="sm"
-                          onClick={() => setEditing(true)}
-                        >
-                          교체
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setDeleting(true)}
-                        >
-                          삭제
-                        </Button>
-                      </>
-                    )
+            actions={
+              readOnly || editing ? undefined : token === "unset" ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setEditing(true)}
+                >
+                  token 넣기
+                </Button>
+              ) : (
+                <>
+                  <Button
+                    type="button"
+                    variant={token === "needs_reentry" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setEditing(true)}
+                  >
+                    교체
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setDeleting(true)}
+                  >
+                    삭제
+                  </Button>
+                </>
+              )
             }
           />
           {editing ? (
@@ -503,8 +492,6 @@ function WorkspaceSettingsScreen({
       {page ? (
         <div className="mb-4 flex flex-wrap gap-1">
           <PartRequest name="Settings sub-nav" />
-          <PartRequest name="Switch" />
-          <PartRequest name="SettingRow" />
         </div>
       ) : null}
       {page ? (

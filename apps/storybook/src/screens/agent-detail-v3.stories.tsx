@@ -24,6 +24,8 @@ import {
   PageHeader,
   RowList,
   RowListItem,
+  SettingRow,
+  Switch,
   Tabs,
   TabsContent,
   TabsList,
@@ -44,9 +46,7 @@ import {
   Heading,
   MUTED_TEXT,
   OutcomeStandIn,
-  SettingRow,
   SlackConnectCard,
-  SwitchStandIn,
   storyHref,
 } from "./slack-kit.tsx";
 
@@ -203,7 +203,13 @@ function CardSummary() {
   );
 }
 
+/** SettingRow's status words, muted as the console draws them. */
+function StateWord({ children }: { readonly children: ReactNode }) {
+  return <div className={MUTED_TEXT}>{children}</div>;
+}
+
 function Parts({ names }: { readonly names: readonly string[] }) {
+  if (names.length === 0) return null;
   return (
     <div className="flex flex-wrap gap-1">
       {names.map((name) => (
@@ -238,43 +244,18 @@ function ReactionSelect({
   readonly onChange: (value: string) => void;
 }) {
   return (
-    <>
-      <div aria-hidden="true" className={SECONDARY}>
-        반응
-      </div>
-      <NativeSelect
-        size="sm"
-        aria-label={`${channel} 반응`}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      >
-        {REACTIONS.map((reaction) => (
-          <NativeSelectOption key={reaction} value={reaction}>
-            {reaction}
-          </NativeSelectOption>
-        ))}
-      </NativeSelect>
-    </>
-  );
-}
-
-function ChannelLines({
-  name,
-  sub,
-  badge,
-}: {
-  readonly name: string;
-  readonly sub: string;
-  readonly badge?: ReactNode;
-}) {
-  return (
-    <>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <div className="font-semibold">{name}</div>
-        {badge}
-      </div>
-      <div className={SECONDARY}>{sub}</div>
-    </>
+    <NativeSelect
+      size="sm"
+      aria-label={`${channel} 반응`}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+    >
+      {REACTIONS.map((reaction) => (
+        <NativeSelectOption key={reaction} value={reaction}>
+          {reaction}
+        </NativeSelectOption>
+      ))}
+    </NativeSelect>
   );
 }
 
@@ -632,7 +613,7 @@ function AgentDetailScreen(props: ScreenProps) {
         <Section title="할 일">
           <RowList variant="joined">
             {todo.map(([text, action]) => (
-              <SettingRow key={text} title={text} control={() => action} />
+              <SettingRow key={text} title={text} actions={action} />
             ))}
           </RowList>
         </Section>
@@ -698,7 +679,7 @@ function AgentDetailScreen(props: ScreenProps) {
             <SettingRow
               title={REQUEST.channel}
               description={`비공개 · ${REQUEST.by}가 ${REQUEST.at}에 초대`}
-              control={() => (
+              actions={
                 <Button
                   type="button"
                   size="sm"
@@ -707,7 +688,7 @@ function AgentDetailScreen(props: ScreenProps) {
                 >
                   검토
                 </Button>
-              )}
+              }
             />
           </RowList>
         </Section>
@@ -740,50 +721,44 @@ function AgentDetailScreen(props: ScreenProps) {
           {joined.map((name) => (
             <SettingRow
               key={name}
-              title={
-                <ChannelLines name={name} sub="공개" badge={homeMark(name)} />
-              }
-              control={() => (
+              title={name}
+              badge={homeMark(name)}
+              description="공개"
+              status={<StateWord>반응</StateWord>}
+              control={
                 <ReactionSelect
                   channel={name}
                   value={reactionOf(name)}
                   onChange={(value) => changeReaction(name, value)}
                 />
-              )}
+              }
             />
           ))}
           {request === "approved" ? (
             <SettingRow
-              title={
-                <ChannelLines
-                  name={REQUEST.channel}
-                  sub={`비공개 · ${REQUEST.by} 초대 · 승인함`}
-                  badge={homeMark(REQUEST.channel)}
-                />
-              }
-              control={() => (
+              title={REQUEST.channel}
+              badge={homeMark(REQUEST.channel)}
+              description={`비공개 · ${REQUEST.by} 초대 · 승인함`}
+              status={<StateWord>반응</StateWord>}
+              control={
                 <ReactionSelect
                   channel={REQUEST.channel}
                   value={reactionOf(REQUEST.channel)}
                   onChange={(value) => changeReaction(REQUEST.channel, value)}
                 />
-              )}
+              }
             />
           ) : null}
           {slack === "error" ? (
             <SettingRow
-              title={
-                <ChannelLines
-                  name="#launch-2025"
-                  sub="공개 · 참여하지 못했습니다. 보관된 채널입니다(is_archived)"
-                  badge={<Badge variant="red">오류</Badge>}
-                />
-              }
-              control={() => (
+              title="#launch-2025"
+              badge={<Badge variant="red">오류</Badge>}
+              description="공개 · 참여하지 못했습니다. 보관된 채널입니다(is_archived)"
+              actions={
                 <Button type="button" variant="outline" size="sm">
                   다시 시도
                 </Button>
-              )}
+              }
             />
           ) : null}
         </RowList>
@@ -809,12 +784,10 @@ function AgentDetailScreen(props: ScreenProps) {
             ? "끄면 멘션과 DM을 받지 않습니다. Slack 앱과 채널 설정은 남아서 다시 켜면 그대로 이어집니다."
             : "꺼져 있습니다. 멘션과 DM을 받지 않습니다."
         }
-        status={on ? "켜짐" : "꺼짐"}
-        control={({ titleId, descriptionId }) => (
-          <SwitchStandIn
+        status={<StateWord>{on ? "켜짐" : "꺼짐"}</StateWord>}
+        control={
+          <Switch
             checked={on}
-            labelledBy={titleId}
-            describedBy={descriptionId}
             onCheckedChange={(next) => {
               setOn(next);
               show(
@@ -824,7 +797,7 @@ function AgentDetailScreen(props: ScreenProps) {
               );
             }}
           />
-        )}
+        }
       />
       <SettingRow
         title="DM 받기"
@@ -833,13 +806,11 @@ function AgentDetailScreen(props: ScreenProps) {
             ? "Slack 앱의 메시지 탭에서 1:1 대화를 받습니다. Slack 계정을 연동한 구성원만 쓸 수 있습니다."
             : "Slack 연결이 꺼져 있어 바꿀 수 없습니다."
         }
-        status={dm ? "켜짐" : "꺼짐"}
-        control={({ titleId, descriptionId }) => (
-          <SwitchStandIn
+        status={<StateWord>{dm ? "켜짐" : "꺼짐"}</StateWord>}
+        control={
+          <Switch
             checked={dm}
             disabled={!on}
-            labelledBy={titleId}
-            describedBy={descriptionId}
             onCheckedChange={(next) => {
               setDm(next);
               show(
@@ -849,15 +820,14 @@ function AgentDetailScreen(props: ScreenProps) {
               );
             }}
           />
-        )}
+        }
       />
       <SettingRow
         title="새 채널의 기본 반응"
         description="새로 추가하거나 승인한 채널이 이 반응으로 시작합니다. 이미 연결된 채널은 그대로입니다."
-        control={({ titleId }) => (
+        control={
           <NativeSelect
             size="sm"
-            aria-labelledby={titleId}
             value={defaultReaction}
             onChange={(event) => {
               setDefaultReaction(event.target.value);
@@ -872,7 +842,7 @@ function AgentDetailScreen(props: ScreenProps) {
               </NativeSelectOption>
             ))}
           </NativeSelect>
-        )}
+        }
       />
     </RowList>
   );
@@ -889,8 +859,8 @@ function AgentDetailScreen(props: ScreenProps) {
       <RowList variant="joined">
         <SettingRow
           title="앱 ID"
-          extra={value(APP_ID)}
-          control={() => (
+          meta={value(APP_ID)}
+          actions={
             <>
               <CopyButton text={APP_ID} />
               <Button asChild variant="outline" size="sm">
@@ -903,22 +873,22 @@ function AgentDetailScreen(props: ScreenProps) {
                 </a>
               </Button>
             </>
-          )}
+          }
         />
         <SettingRow
-          title={
-            <div className="flex flex-wrap items-center gap-2">
-              이벤트 주소
+          title="이벤트 주소"
+          badge={
+            <>
               {slack === "error" ? <Badge variant="red">오류</Badge> : null}
-              <div className={`${SECONDARY} font-normal`}>
+              <div className={SECONDARY}>
                 {slack === "error"
                   ? "2026. 10. 23. 22:10 Slack이 확인하지 못함"
                   : "2026. 10. 23. 21:50 Slack이 확인함"}
               </div>
-            </div>
+            </>
           }
-          extra={value(EVENT_URL, true, expanded)}
-          control={() => (
+          meta={value(EVENT_URL, true, expanded)}
+          actions={
             <>
               <Button
                 type="button"
@@ -939,11 +909,11 @@ function AgentDetailScreen(props: ScreenProps) {
                 다시 등록
               </Button>
             </>
-          )}
+          }
         />
         <SettingRow
           title="환영 기록"
-          extra={value(
+          meta={value(
             `${home || HOME} · 2026. 10. 23. 21:52 · rel_3f9a`,
             false,
           )}
@@ -961,7 +931,7 @@ function AgentDetailScreen(props: ScreenProps) {
           <SettingRow
             title="Slack 연결 해제"
             description="봇 token을 회수합니다. Slack 앱은 남아 다시 설치할 수 있습니다."
-            control={() => (
+            actions={
               <Button
                 type="button"
                 variant="outline"
@@ -970,12 +940,12 @@ function AgentDetailScreen(props: ScreenProps) {
               >
                 연결 해제
               </Button>
-            )}
+            }
           />
           <SettingRow
             title="Slack 앱 삭제"
             description="Slack에서 앱을 지웁니다. 되돌릴 수 없고, 다시 연결하면 새 앱이 생깁니다."
-            control={() => (
+            actions={
               <Button
                 type="button"
                 variant="destructive"
@@ -984,7 +954,7 @@ function AgentDetailScreen(props: ScreenProps) {
               >
                 앱 삭제
               </Button>
-            )}
+            }
           />
         </RowList>
       </Section>
@@ -1002,9 +972,9 @@ function AgentDetailScreen(props: ScreenProps) {
 
   const SEGMENT_BODY = { overview, channels, settings };
   const SEGMENT_PARTS = {
-    overview: ["SettingRow"],
-    channels: ["SettingRow", "Combobox", "Review dialog"],
-    settings: ["Switch", "SettingRow"],
+    overview: [],
+    channels: ["Combobox", "Review dialog"],
+    settings: [],
   } satisfies Record<Segment, readonly string[]>;
 
   const connectStep: ConnectStep | null =
