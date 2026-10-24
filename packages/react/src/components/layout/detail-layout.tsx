@@ -114,7 +114,7 @@ export function DetailRailSection({
       description={description}
       actions={actions}
       className={cn(
-        "min-w-0 pb-6 xl:py-6 xl:first:pt-0 xl:last:pb-0",
+        "min-w-0 pb-6 xl:py-8 xl:first:pt-0 xl:last:pb-0",
         className,
       )}
     >

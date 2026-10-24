@@ -422,7 +422,7 @@ function Cost({ usage }: { readonly usage: SessionUsageResponse }) {
 }
 
 // The rail's rows are split by lines instead of sitting in a card.
-const RAIL_ROWS = "gap-0 divide-y [&>div]:py-2.5";
+const RAIL_ROWS = "gap-0 divide-y [&>div]:py-2";
 
 /**
  * Who may answer and what the reader may do to the session. The API names

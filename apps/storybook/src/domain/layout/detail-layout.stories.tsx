@@ -15,7 +15,7 @@ import { MOBILE, ScreenShell } from "../../screens/screen-kit.tsx";
  * left. Narrower, the rail is a band under the body in the same order.
  */
 
-const ROWS = "gap-0 divide-y [&>div]:py-2.5";
+const ROWS = "gap-0 divide-y [&>div]:py-2";
 
 function Rail({ sections = 3 }: { readonly sections?: number }) {
   return (
