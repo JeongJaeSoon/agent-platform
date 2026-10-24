@@ -207,6 +207,11 @@ export function createSlackChannelCache(options?: {
   const reads = new Map<string, Read>();
   /** Slack's Retry-After, as a time: no call to Slack for the app before it. */
   const blockedUntil = new Map<string, number>();
+  /** A read cut by a 429: what it had, and Slack's cursor to go on from. */
+  const progress = new Map<
+    string,
+    { channels: SlackChannel[]; cursor: string }
+  >();
 
   function keep(key: string, snapshot: Snapshot) {
     snapshots.delete(key);
@@ -229,13 +234,33 @@ export function createSlackChannelCache(options?: {
   async function readAll(
     key: string,
     listPage: (cursor: string | null) => Promise<SlackChannelPage>,
+    read: Read,
   ): Promise<Snapshot> {
-    const channels: SlackChannel[] = [];
-    let cursor: string | null = null;
+    const resumed = progress.get(key);
+    progress.delete(key);
+    let channels: SlackChannel[] = resumed?.channels ?? [];
+    let cursor: string | null = resumed?.cursor ?? null;
     let truncated = false;
+    let resuming = resumed !== undefined;
     try {
       do {
-        const page = await listPage(cursor);
+        let page: SlackChannelPage;
+        try {
+          page = await listPage(cursor);
+        } catch (error) {
+          // Slack's cursors expire; a resumed read starts over, once.
+          if (
+            !resuming ||
+            !(error instanceof SlackApiError) ||
+            error.code !== "invalid_cursor"
+          ) {
+            throw error;
+          }
+          channels = [];
+          cursor = null;
+          page = await listPage(cursor);
+        }
+        resuming = false;
         channels.push(...page.channels);
         cursor = page.nextCursor;
         if (channels.length > maxChannels) {
@@ -246,6 +271,12 @@ export function createSlackChannelCache(options?: {
     } catch (error) {
       if (error instanceof SlackRateLimitedError) {
         block(key, now() + error.retryAfterSeconds * 1000);
+        if (read.keep && cursor !== null) {
+          progress.set(key, { channels, cursor });
+          while (progress.size > maxApps) {
+            progress.delete(progress.keys().next().value as string);
+          }
+        }
       }
       throw error;
     }
@@ -283,10 +314,9 @@ export function createSlackChannelCache(options?: {
       }
       let read = reads.get(key);
       if (read === undefined) {
-        const started: Read = {
-          snapshot: (async () => readAll(key, await listPage()))(),
-          keep: true,
-        };
+        const started = { keep: true } as Read;
+        started.snapshot = (async () =>
+          readAll(key, await listPage(), started))();
         read = started;
         reads.set(key, started);
         started.snapshot.then(
@@ -327,6 +357,7 @@ export function createSlackChannelCache(options?: {
      */
     invalidate(key: string): void {
       snapshots.delete(key);
+      progress.delete(key);
       const read = reads.get(key);
       if (read) read.keep = false;
     },

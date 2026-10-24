@@ -31,6 +31,7 @@ import {
   SLACK_CHANNEL_CACHE_TTL_MS,
   SlackRateLimitedError,
 } from "./slack-channel-search.ts";
+import { SlackApiError } from "./slack-config-api.ts";
 import type { SurfaceBindingService } from "./surface-binding-service.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
@@ -408,6 +409,105 @@ describe("searching an agent's Slack channels", () => {
     );
     expect(again).toBeInstanceOf(SlackRateLimitedError);
     expect(reads).toBe(1);
+  });
+
+  test("after a 429 mid-list, the next read resumes at Slack's cursor", async () => {
+    let clock = 0;
+    const asked: (string | null)[] = [];
+    let limitOnce = true;
+    const channel = (name: string) => ({
+      id: `C0${name.toUpperCase()}`,
+      name,
+      is_private: false,
+      is_member: false,
+    });
+    const pages: Record<string, { channels: string[]; next: string | null }> = {
+      start: { channels: ["a1", "a2"], next: "p2" },
+      p2: { channels: ["b1", "b2"], next: "p3" },
+      p3: { channels: ["c1"], next: null },
+    };
+    const cache = createSlackChannelCache({ now: () => clock });
+    const listPage = async () => async (cursor: string | null) => {
+      asked.push(cursor);
+      if (cursor === "p2" && limitOnce) {
+        limitOnce = false;
+        throw new SlackRateLimitedError("conversations.list", 7);
+      }
+      const page = pages[cursor ?? "start"];
+      if (!page) throw new Error(`unknown cursor ${cursor}`);
+      return {
+        channels: page.channels.map(channel),
+        nextCursor: page.next,
+      };
+    };
+    expect(
+      await cache.lookup("a", listPage).then(
+        () => null,
+        (error: unknown) => error,
+      ),
+    ).toBeInstanceOf(SlackRateLimitedError);
+    clock = 7_000;
+    const found = await cache.lookup("a", listPage);
+    expect(found.snapshot.channels.map((c) => c.name)).toEqual([
+      "a1",
+      "a2",
+      "b1",
+      "b2",
+      "c1",
+    ]);
+    expect(asked).toEqual([null, "p2", "p2", "p3"]);
+  });
+
+  test("a resumed read whose cursor Slack no longer takes starts over once", async () => {
+    let clock = 0;
+    const asked: (string | null)[] = [];
+    let calls = 0;
+    let expired = true;
+    const cache = createSlackChannelCache({ now: () => clock });
+    const channel = (name: string) => ({
+      id: `C0${name.toUpperCase()}`,
+      name,
+      is_private: false,
+      is_member: false,
+    });
+    const listPage = async () => async (cursor: string | null) => {
+      asked.push(cursor);
+      calls += 1;
+      if (calls === 2) throw new SlackRateLimitedError("conversations.list", 1);
+      if (cursor === "p2" && calls > 2 && expired) {
+        expired = false;
+        throw new SlackApiError("conversations.list", "invalid_cursor", true);
+      }
+      return cursor === null
+        ? { channels: [channel("a1")], nextCursor: "p2" }
+        : { channels: [channel("b1")], nextCursor: null };
+    };
+    await cache.lookup("a", listPage).catch(() => null);
+    clock = 1_000;
+    const found = await cache.lookup("a", listPage);
+    // a1 is read twice but kept once: the cut read's part was dropped.
+    expect(found.snapshot.channels.map((c) => c.name)).toEqual(["a1", "b1"]);
+    expect(asked).toEqual([null, "p2", "p2", null, "p2"]);
+  });
+
+  test("an invalidate drops what a cut read had collected", async () => {
+    let clock = 0;
+    const asked: (string | null)[] = [];
+    let limited = true;
+    const cache = createSlackChannelCache({ now: () => clock });
+    const listPage = async () => async (cursor: string | null) => {
+      asked.push(cursor);
+      if (cursor === "p2" && limited) {
+        limited = false;
+        throw new SlackRateLimitedError("conversations.list", 1);
+      }
+      return { channels: [], nextCursor: cursor === null ? "p2" : null };
+    };
+    await cache.lookup("a", listPage).catch(() => null);
+    cache.invalidate("a");
+    clock = 1_000;
+    await cache.lookup("a", listPage);
+    expect(asked).toEqual([null, "p2", null, "p2"]);
   });
 
   test("a binding PUT in this process drops the agent's cached channels", async () => {
