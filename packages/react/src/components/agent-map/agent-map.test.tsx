@@ -165,15 +165,18 @@ describe("the run tree feeds the relation panel", () => {
           event: "tool_result",
           data: { type: "tool_result", tool_use_id: "bash-1", is_error: true },
         }),
+        frame("c4", 4, use("grep-1", "Grep", { pattern: "retry" }, "task-a")),
+        frame("c5", 5, { event: "status", data: { phase: "stopped" } }),
       ]),
     );
     const view = withPlatform(
       <RelationTree session={session({ id: "s" })} nodes={rows} now={NOW} />,
     );
     expect(view.getByText("Explore")).toBeTruthy();
-    expect(view.getAllByRole("listitem").map((li) => li.textContent)).toContain(
-      "Bashmake실패",
-    );
+    const items = view.getAllByRole("listitem").map((li) => li.textContent);
+    expect(items).toContain("Bashmake실패");
+    // The session stopped before grep-1 had its result.
+    expect(items).toContain("Grepretry중단");
   });
 });
 
