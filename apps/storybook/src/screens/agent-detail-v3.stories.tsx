@@ -75,7 +75,7 @@ const REQUEST = {
   at: "2026. 10. 23. 15:02",
 };
 const PUBLIC_JOINED = [HOME, "#dev-platform"];
-// More than one ChannelCombobox page, so the add dialog shows "더 보기".
+// More than one ChannelCombobox page, so the add list shows "더 보기".
 const PUBLIC_UNJOINED = [
   "#general",
   "#random",
@@ -973,7 +973,7 @@ function AgentDetailScreen(props: ScreenProps) {
   const SEGMENT_BODY = { overview, channels, settings };
   const SEGMENT_PARTS = {
     overview: [],
-    channels: ["Combobox", "Review dialog"],
+    channels: ["Review dialog"],
     settings: [],
   } satisfies Record<Segment, readonly string[]>;
 
@@ -984,7 +984,6 @@ function AgentDetailScreen(props: ScreenProps) {
       {connectStep === "allow" && outcome ? (
         <OutcomeStandIn key={outcome}>{outcome}</OutcomeStandIn>
       ) : null}
-      {connectStep === "pick" ? <Parts names={["Combobox"]} /> : null}
       <SlackConnectCard
         key={connectStep}
         step={connectStep}

@@ -69,7 +69,6 @@ function NewAgentScreen({
         <div className="flex flex-col gap-[var(--ap-space-block)]">
           <div className="flex flex-wrap gap-1">
             <PartRequest name="Stepper (v3)" />
-            {step === "pick" ? <PartRequest name="Combobox" /> : null}
           </div>
           <Stepper
             label="에이전트 만들기 단계"

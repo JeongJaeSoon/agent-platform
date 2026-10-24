@@ -2,14 +2,14 @@ import {
   Button,
   Card,
   CardTitle,
+  Combobox,
+  type ComboboxOption,
   Field,
   FieldDescription,
   FieldLabel,
   Link,
-  SearchInput,
   Textarea,
 } from "@werft-ai/ui";
-import { Check } from "lucide-react";
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 
 /*
@@ -183,10 +183,10 @@ export interface ChannelGroup {
 const CHANNEL_PAGE = 5;
 
 /**
- * Stand-in for the channel Combobox: a search field over an always-open
- * listbox. Typing filters the fixed demo channels by name; the list shows
- * CHANNEL_PAGE matches at a time and "더 보기" adds the next page. How the
- * product fetches the matches is not drawn here.
+ * Picks one channel with the kit's Combobox. The story pages through fixed
+ * demo channels the way a server search would (a query, CHANNEL_PAGE at a
+ * time, "더 보기"), so it filters itself (`filter="none"`): the kit's own
+ * filter would only see the pages already loaded.
  */
 export function ChannelCombobox({
   label,
@@ -203,10 +203,6 @@ export function ChannelCombobox({
 }) {
   const [query, setQuery] = useState("");
   const [shown, setShown] = useState(CHANNEL_PAGE);
-  const [active, setActive] = useState(-1);
-  const listId = useId();
-  const optionId = useId();
-  const hintId = useId();
   const needle = query.trim().replace(/^#/, "").toLowerCase();
   // Each note already says 공개 or 비공개, so the group label is not repeated.
   const matches = groups.flatMap((group) =>
@@ -214,106 +210,32 @@ export function ChannelCombobox({
       option.name.replace(/^#/, "").toLowerCase().includes(needle),
     ),
   );
-  const visible = matches.slice(0, shown);
-  const pick = (index: number) => {
-    const option = visible[index];
-    if (!option || option.disabled) return;
-    onChange(option.name);
-    setActive(index);
-  };
-  const search = (next: string) => {
-    setQuery(next);
-    setShown(CHANNEL_PAGE);
-    setActive(-1);
-  };
+  const options: ComboboxOption[] = matches.slice(0, shown).map((option) => ({
+    value: option.name,
+    label: option.name,
+    description: option.note,
+    disabled: option.disabled ?? false,
+  }));
   return (
     <Field>
-      <FieldLabel htmlFor={`${listId}-input`}>{label}</FieldLabel>
-      <SearchInput
-        id={`${listId}-input`}
-        role="combobox"
-        aria-label={`${label} 검색`}
-        aria-expanded="true"
-        aria-controls={listId}
-        aria-autocomplete="list"
-        aria-activedescendant={
-          active >= 0 && active < visible.length
-            ? `${optionId}-${active}`
-            : undefined
-        }
-        aria-describedby={hintId}
-        placeholder="채널 이름으로 검색"
-        autoComplete="off"
-        wrapperClassName="max-w-none flex-none"
-        value={query}
-        onChange={(event) => search(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-            event.preventDefault();
-            const step = event.key === "ArrowDown" ? 1 : -1;
-            setActive((current) =>
-              Math.min(Math.max(current + step, 0), visible.length - 1),
-            );
-          } else if (event.key === "Enter" && active >= 0) {
-            event.preventDefault();
-            pick(active);
-          }
+      <FieldLabel>{label}</FieldLabel>
+      <Combobox
+        options={options}
+        value={value || null}
+        onValueChange={(next) => onChange(next)}
+        filter="none"
+        onQueryChange={(next) => {
+          setQuery(next);
+          setShown(CHANNEL_PAGE);
         }}
+        hasMore={matches.length > shown}
+        onLoadMore={() => setShown((current) => current + CHANNEL_PAGE)}
+        loadMoreLabel={`더 보기 (${matches.length - shown}개 남음)`}
+        emptyMessage="맞는 채널이 없습니다."
+        resultCountMessage={(count) => `채널 ${count}개`}
+        placeholder="채널 이름으로 검색"
       />
-      <div className="flex flex-col rounded-md border">
-        <div
-          id={listId}
-          role="listbox"
-          aria-label={`${label} 후보`}
-          className="flex flex-col p-1"
-        >
-          {visible.map((option, index) => (
-            <Button
-              key={option.name}
-              id={`${optionId}-${index}`}
-              type="button"
-              variant="ghost"
-              role="option"
-              tabIndex={-1}
-              aria-selected={option.name === value}
-              aria-disabled={option.disabled || undefined}
-              data-active={index === active || undefined}
-              onClick={() => pick(index)}
-              className="h-auto justify-between gap-3 px-2 py-2 text-left font-normal aria-disabled:cursor-not-allowed aria-disabled:opacity-60 aria-selected:bg-accent data-active:bg-accent"
-            >
-              <div className="flex min-w-0 flex-col">
-                <div className="font-medium">{option.name}</div>
-                <div className="text-caption text-muted-foreground">
-                  {option.note}
-                </div>
-              </div>
-              {option.name === value ? (
-                <Check aria-hidden="true" strokeWidth={1.5} />
-              ) : null}
-            </Button>
-          ))}
-        </div>
-        {matches.length === 0 ? (
-          <div className={`${MUTED_TEXT} px-3 pb-2.5`}>
-            맞는 채널이 없습니다.
-          </div>
-        ) : null}
-        {matches.length > shown ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="rounded-t-none border-t"
-            onClick={() => setShown((current) => current + CHANNEL_PAGE)}
-          >
-            더 보기 ({matches.length - shown}개 남음)
-          </Button>
-        ) : null}
-      </div>
-      <FieldDescription id={hintId}>
-        {value ? `고른 채널: ${value}` : "아직 고르지 않았습니다."}
-        {description ? ` ${description}` : ""}
-      </FieldDescription>
+      {description ? <FieldDescription>{description}</FieldDescription> : null}
     </Field>
   );
 }
