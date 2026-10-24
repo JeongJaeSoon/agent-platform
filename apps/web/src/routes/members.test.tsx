@@ -82,13 +82,16 @@ async function changeRole(
   await user.click(within(dialog).getByRole("button", { name: "역할 바꾸기" }));
 }
 
-/** The role badge in a member's row. */
 /** The focusable box that carries a disabled row button's reason. */
 function lockOf(button: HTMLElement): HTMLElement {
   const lock = button.parentElement;
   if (lock?.dataset.slot !== "disabled-reason")
     throw new Error("the button has no reason box");
   expect(lock.tabIndex).toBe(0);
+  expect(lock.getAttribute("role")).toBe("group");
+  expect(lock.getAttribute("aria-disabled")).toBe("true");
+  // The button is described by the same reason as the box around it.
+  expect(descriptionOf(button)).toBe(descriptionOf(lock));
   return lock;
 }
 
@@ -97,6 +100,7 @@ function descriptionOf(element: HTMLElement) {
     ?.textContent;
 }
 
+/** The role badge in a member's row. */
 function roleIn(name: string) {
   // Also while a dialog hides the page from the accessibility tree.
   const row = screen

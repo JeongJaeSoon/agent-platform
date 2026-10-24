@@ -10,7 +10,7 @@ describe("DisabledReason", () => {
   test("비활성 버튼을 감싼 상자가 포커스·hover로 위쪽에 이유를 연다", async () => {
     const user = await setupUser();
     const result = render(
-      <DisabledReason reason="자기 자신은 안 됩니다">
+      <DisabledReason reason="자기 자신은 안 됩니다" label="나 비활성화">
         <button type="button" disabled={true}>
           비활성화
         </button>
@@ -21,10 +21,15 @@ describe("DisabledReason", () => {
     const note = () => document.querySelector('[data-slot="popover-content"]');
     expect(box.dataset.slot).toBe("disabled-reason");
     expect(box.hasAttribute("type")).toBe(false);
-    expect(
-      document.getElementById(box.getAttribute("aria-describedby") ?? "")
-        ?.textContent,
-    ).toBe("자기 자신은 안 됩니다");
+    expect(result.getByRole("group", { name: "나 비활성화" }) === box).toBe(
+      true,
+    );
+    expect(box.getAttribute("aria-disabled")).toBe("true");
+    const description = (element: HTMLElement) =>
+      document.getElementById(element.getAttribute("aria-describedby") ?? "")
+        ?.textContent;
+    expect(description(box)).toBe("자기 자신은 안 됩니다");
+    expect(description(button)).toBe("자기 자신은 안 됩니다");
     await user.tab();
     expect(document.activeElement === box).toBe(true);
     await waitFor(() => expect(note()).not.toBeNull());

@@ -26,6 +26,7 @@ export const membersKo = {
   "members.roleOwnerProtected": "소유자의 역할은 관리자가 바꿀 수 없습니다.",
   "members.disable": "비활성화",
   "members.disableFor": "{name} 비활성화",
+  "members.enableFor": "{name} 다시 활성화",
   "members.disableTitle": "{name} 계정을 비활성화할까요?",
   "members.disableConsequence":
     "이 사람의 웹 로그인과 개인 API key가 바로 끊기고, 이 사람이 시작한 세션은 소유자가 넘겨받을 때까지 멈춥니다. 다시 활성화해도 끊긴 로그인과 key는 돌아오지 않습니다.",
@@ -113,6 +114,7 @@ export const membersEn: Record<keyof typeof membersKo, string> = {
   "members.roleOwnerProtected": "An admin cannot change an owner's role.",
   "members.disable": "Disable",
   "members.disableFor": "Disable {name}",
+  "members.enableFor": "Re-enable {name}",
   "members.disableTitle": "Disable {name}?",
   "members.disableConsequence":
     "Their web logins and personal API keys stop working right away, and sessions they started wait until an owner takes them over. Re-enabling them does not restore those logins or keys.",
@@ -200,6 +202,7 @@ export const membersJa: Record<keyof typeof membersKo, string> = {
   "members.roleOwnerProtected": "管理者はオーナーのロールを変更できません。",
   "members.disable": "無効化",
   "members.disableFor": "{name}を無効化",
+  "members.enableFor": "{name}を再有効化",
   "members.disableTitle": "{name}のアカウントを無効化しますか？",
   "members.disableConsequence":
     "この人の Web ログインと個人 API キーはすぐに使えなくなり、この人が開始したセッションはオーナーが引き継ぐまで停止します。再有効化しても、切断されたログインとキーは元に戻りません。",

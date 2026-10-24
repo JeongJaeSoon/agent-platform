@@ -12,7 +12,7 @@ const meta = {
   title: "Patterns/DisabledReason",
   component: DisabledReason,
   // Each render supplies the control and its reason.
-  args: { reason: "", children: null },
+  args: { reason: "", label: "", children: <span /> },
   // A table's actions column: the withheld button keeps the enabled ones'
   // right edge and width. Hover or Tab to it for the reason.
   render: (_, { globals }) => {
@@ -22,7 +22,7 @@ const meta = {
         <Button type="button" variant="outline" size="sm">
           {copy?.disable}
         </Button>
-        <DisabledReason reason={copy?.reason}>
+        <DisabledReason reason={copy?.reason} label={copy?.disable ?? ""}>
           <Button type="button" variant="outline" size="sm" disabled={true}>
             {copy?.disable}
           </Button>

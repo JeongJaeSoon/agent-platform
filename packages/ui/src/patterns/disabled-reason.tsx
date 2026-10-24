@@ -1,4 +1,10 @@
-import type { JSX, ReactNode } from "react";
+import {
+  cloneElement,
+  type JSX,
+  type ReactElement,
+  type ReactNode,
+  useId,
+} from "react";
 
 import { cn } from "../foundations/cn.ts";
 import {
@@ -10,8 +16,10 @@ import {
 export interface DisabledReasonProps {
   /** Why the control inside is unavailable. */
   readonly reason: ReactNode;
+  /** The withheld action, e.g. "Disable Alex"; the box is read by it. */
+  readonly label: string;
   /** The disabled control. */
-  readonly children: ReactNode;
+  readonly children: ReactElement<{ "aria-describedby"?: string }>;
   readonly className?: string | undefined;
 }
 
@@ -23,14 +31,26 @@ export interface DisabledReasonProps {
  */
 export function DisabledReason({
   reason,
+  label,
   children,
   className,
 }: DisabledReasonProps): JSX.Element {
+  const reasonId = useId();
+  // Reading the page line by line reaches the control, not the box.
+  const control = cloneElement(children, {
+    "aria-describedby": [children.props["aria-describedby"], reasonId]
+      .filter(Boolean)
+      .join(" "),
+  });
   return (
     <Tooltip>
       {/* Radix sets type="button" on its trigger, which a span does not take. */}
       <TooltipTrigger asChild={true} type={undefined}>
+        {/* biome-ignore lint/a11y/useSemanticElements: a fieldset is a form block, this is an inline box in a row */}
         <span
+          role="group"
+          aria-label={label}
+          aria-disabled={true}
           // biome-ignore lint/a11y/noNoninteractiveTabindex: the disabled control inside cannot take focus, so its reason is reached here
           tabIndex={0}
           data-slot="disabled-reason"
@@ -39,10 +59,13 @@ export function DisabledReason({
             className,
           )}
         >
-          {children}
+          {control}
         </span>
       </TooltipTrigger>
       <TooltipContent side="top">{reason}</TooltipContent>
+      <span id={reasonId} hidden={true}>
+        {reason}
+      </span>
     </Tooltip>
   );
 }

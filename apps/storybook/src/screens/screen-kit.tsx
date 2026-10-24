@@ -149,7 +149,7 @@ export function LockedButton({
   readonly size?: "sm" | "default";
 }) {
   return (
-    <DisabledReason reason={reason}>
+    <DisabledReason reason={reason} label={label}>
       <Button type="button" variant="outline" size={size} disabled={true}>
         {label}
       </Button>

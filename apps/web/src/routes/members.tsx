@@ -482,7 +482,15 @@ function MemberTable({
                     className="gap-1 [&_[data-slot=button]:not([data-size^=icon])]:min-w-[var(--ap-row-action-min-width)]"
                   >
                     {keepWhy ? (
-                      <DisabledReason reason={keepWhy}>{button}</DisabledReason>
+                      <DisabledReason
+                        reason={keepWhy}
+                        label={t(
+                          disabled ? "members.enableFor" : "members.disableFor",
+                          { name: member.display_name },
+                        )}
+                      >
+                        {button}
+                      </DisabledReason>
                     ) : (
                       button
                     )}
