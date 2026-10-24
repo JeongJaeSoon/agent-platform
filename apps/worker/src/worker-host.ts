@@ -1117,7 +1117,7 @@ export class WorkerHost {
       // first, it would end with no terminal at all.
       const left =
         (this.abandonsAt ?? Number.POSITIVE_INFINITY) - performance.now();
-      const grace = Math.min(INTERRUPT_GRACE_MS, left / 2);
+      const grace = Math.min(this.interruptGraceMs(), left / 2);
       const unanswered = `${reason}, and the engine did not answer the interrupt`;
       if (grace <= 0) {
         this.closeUnanswered(turn, unanswered);

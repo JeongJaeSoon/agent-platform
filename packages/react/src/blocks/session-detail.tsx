@@ -5,16 +5,19 @@ import {
   type SessionUsageResponse,
 } from "@werft-ai/contracts";
 import {
+  Badge,
   Button,
   Checkbox,
   Field,
   FieldLabel,
   formatTimestamp,
+  KeyValueList,
   PageHeader,
   Tabs,
   TabsContent,
   TabsList,
   TabsTrigger,
+  Section as TitledBlock,
   useDetailLayout,
 } from "@werft-ai/ui";
 import {
@@ -44,6 +47,7 @@ import {
   useSessionUsage,
 } from "../sessions.ts";
 import {
+  actionsFor,
   PendingAnswers,
   type SessionActionProps,
   SessionComposer,
@@ -231,19 +235,11 @@ export function SessionDetail({
           </output>
         </div>
       ) : null}
-      <Section
-        title={t("session.answerers")}
-        note={t("session.answerers.roles")}
-      >
-        {pending.data ? (
-          <p className="m-0 text-body">
-            {/* The same condition that turns the answer buttons off. */}
-            {!pending.data.answerable
-              ? t("session.answerers.viewOnly")
-              : (unavailable?.answer ?? t("session.answerers.you"))}
-          </p>
-        ) : null}
-      </Section>
+      <Operations
+        session={detail}
+        answerable={pending.data?.answerable}
+        unavailable={unavailable}
+      />
       {controls ? (
         // A host's controls may draw nothing; the empty card then goes.
         <div className="flex min-w-0 flex-col gap-3 rounded-card border bg-card p-4 empty:hidden">
@@ -441,6 +437,82 @@ function Section({
       </div>
       {children}
     </section>
+  );
+}
+
+/**
+ * Who may answer and what the reader may do to the session. The API names
+ * no answerers, so the rule stands in for a list; the commands themselves
+ * stay in the header.
+ */
+function Operations({
+  session,
+  answerable,
+  unavailable,
+}: {
+  readonly session: SessionDetailData;
+  /** Unknown until the pending requests arrive. */
+  readonly answerable: boolean | undefined;
+  readonly unavailable: SessionActionProps["unavailable"];
+}) {
+  const { t } = useBlockText();
+  const actions = actionsFor(session);
+  return (
+    <Section title={t("session.ops")}>
+      <TitledBlock
+        titleAs="h3"
+        title={t("session.answerers")}
+        description={t("session.answerers.roles")}
+      >
+        {answerable === undefined ? null : (
+          <p className="m-0 text-body">
+            {/* The same condition that turns the answer buttons off. */}
+            {!answerable
+              ? t("session.answerers.viewOnly")
+              : (unavailable?.answer ?? t("session.answerers.you"))}
+          </p>
+        )}
+      </TitledBlock>
+      <TitledBlock
+        titleAs="h3"
+        title={t("session.ops.actions")}
+        description={t("session.ops.actions.note")}
+      >
+        <KeyValueList
+          items={[
+            {
+              label: t("session.ops.available"),
+              value:
+                actions.length === 0 ? (
+                  t("session.ops.none")
+                ) : (
+                  // A narrow panel breaks the line between commands only.
+                  <span className="flex flex-wrap justify-end gap-x-1">
+                    {actions.map((action, index) => (
+                      <span key={action} className="whitespace-nowrap">
+                        {t(`session.control.${action}`)}
+                        {index < actions.length - 1 ? " · " : null}
+                      </span>
+                    ))}
+                  </span>
+                ),
+            },
+            {
+              label: t("session.ops.mine"),
+              // The server judges each command again.
+              value:
+                unavailable?.control === undefined ? (
+                  <Badge variant="green">{t("session.ops.allowed")}</Badge>
+                ) : (
+                  <span className="text-muted-foreground">
+                    {unavailable.control}
+                  </span>
+                ),
+            },
+          ]}
+        />
+      </TitledBlock>
+    </Section>
   );
 }
 

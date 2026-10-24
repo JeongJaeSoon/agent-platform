@@ -71,9 +71,13 @@ jobs:
           - part: licenses
           - part: "unit: packages"
             unit: packages
-          # The complement of `packages`: apps/ and tests/, and any other
-          # directory the `test` script's filters pick up.
-          - part: "unit: apps, tests"
+          # apps/worker/ and apps/web/ apart from the rest of apps/ and
+          # tests/: as one part they ran about 5m of the 6m ceiling.
+          - part: "unit: worker, web"
+            unit: worker-web
+          # The complement of the two above: the other apps, tests/, and any
+          # other directory the `test` script's filters pick up.
+          - part: "unit: other apps, tests"
             unit: rest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

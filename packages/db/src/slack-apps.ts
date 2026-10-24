@@ -44,7 +44,7 @@ const secretSlot = (
 });
 
 /** The name a secret goes by outside the store, e.g. an identity's `credential_ref`. */
-export function slackAppSecretRef(
+function slackAppSecretRef(
   slackAppId: string,
   purpose: SlackAppSecretPurpose,
 ): string {

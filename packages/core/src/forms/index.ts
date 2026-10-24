@@ -50,7 +50,7 @@ export const acceptInviteStep = z.object({
 });
 
 /** The card as its form holds it: lists as one name per line. */
-export const agentCardDraftSchema = z.object({
+const agentCardDraftSchema = z.object({
   role: z.string(),
   instructions: z.string(),
   tone: z.string(),

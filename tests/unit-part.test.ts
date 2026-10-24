@@ -20,8 +20,11 @@ async function part(args: string[]) {
 }
 
 describe("unit-part.ts", () => {
-  test("packages/ is one part and everything else, whatever its top directory, is the other", () => {
+  test("packages/ is one part, apps/worker/ with apps/web/ another, and everything else, whatever its top directory, the last", () => {
     expect(partOf("packages/db/src/queries.test.ts")).toBe("packages");
+    expect(partOf("apps/worker/src/worker-host.test.ts")).toBe("worker-web");
+    expect(partOf("apps/web/src/routes/agents.test.tsx")).toBe("worker-web");
+    expect(partOf("apps/workers/a.test.ts")).toBe("rest");
     expect(partOf("apps/control-host/src/api/auth.test.ts")).toBe("rest");
     expect(partOf("tests/architecture.test.ts")).toBe("rest");
     expect(partOf("xapps-e2e/a.test.ts")).toBe("rest");
@@ -44,7 +47,7 @@ describe("unit-part.ts", () => {
     for (const outcome of outcomes) expect(outcome.exitCode).toBe(0);
     expect(new Set(all).size).toBe(all.length);
     expect(all.sort()).toEqual(suite);
-    expect(outcomes[1]?.lines).toContain("./tests/unit-part.test.ts");
+    expect(outcomes[2]?.lines).toContain("./tests/unit-part.test.ts");
   });
 
   test("rejects anything but a part name", async () => {

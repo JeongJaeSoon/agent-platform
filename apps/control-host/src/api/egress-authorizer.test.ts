@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { PGlite } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 import * as schema from "@werft-ai/db";
 import {
   createPostgresSessionUnitOfWork,
@@ -12,9 +12,9 @@ import {
   WorkerGatewayError,
 } from "@werft-ai/platform";
 import { createObjectRouteSigner } from "@werft-ai/storage";
+import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { eq } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
-import { migrate } from "drizzle-orm/pglite/migrator";
 import { createApiApp } from "./app.ts";
 import {
   createEgressAuthorizer,
@@ -32,11 +32,8 @@ let gateway: ReturnType<typeof createWorkerGateway>;
 let authorize: (request: Request) => Promise<Response>;
 
 beforeEach(async () => {
-  client = new PGlite();
+  client = await migratedPGlite();
   db = drizzle(client, { schema });
-  await migrate(db, {
-    migrationsFolder: `${import.meta.dir}/../../../../packages/db/migrations`,
-  });
   gateway = createWorkerGateway({
     work: createPostgresWorkerUnitOfWork(db),
     catalog: {
