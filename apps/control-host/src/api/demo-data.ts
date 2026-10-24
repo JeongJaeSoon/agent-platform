@@ -353,16 +353,30 @@ type AgentRow = {
   activation_revision: number;
 };
 
+async function workspaceAgents(client: DemoClient): Promise<AgentRow[]> {
+  const rows: AgentRow[] = [];
+  let cursor: string | null = null;
+  do {
+    const query: string = cursor
+      ? `?limit=100&cursor=${encodeURIComponent(cursor)}`
+      : "?limit=100";
+    const page = await client.expect<{
+      items: AgentRow[];
+      next_cursor: string | null;
+    }>(200, "GET", `/v1/agents${query}`);
+    rows.push(...page.items);
+    cursor = page.next_cursor;
+  } while (cursor !== null);
+  return rows;
+}
+
 async function ensureAgent(
   owner: DemoClient,
   agent: DemoAgent,
 ): Promise<{ releaseId: string; created: boolean }> {
-  const listed = await owner.expect<{ items: AgentRow[] }>(
-    200,
-    "GET",
-    "/v1/agents",
+  const existing = (await workspaceAgents(owner)).find(
+    (row) => row.slug === agent.slug,
   );
-  const existing = listed.items.find((row) => row.slug === agent.slug);
   if (existing?.active_release_id) {
     return { releaseId: existing.active_release_id, created: false };
   }

@@ -29,13 +29,14 @@ describe("API key issuance", () => {
       ownerId: "owner-a",
       keyHash: hashApiKey(plaintext),
       scopes: ["sessions:read", "sessions:write"],
+      kind: "operator",
     });
     expect(new TextDecoder().decode(persisted[0]?.keyHash)).not.toContain(
       plaintext,
     );
   });
 
-  test("--workspace makes the workspace the owner; --personal names whom the key acts for", async () => {
+  test("--workspace makes the workspace the owner and --personal whom the key acts for; an owner alone gets an operator key", async () => {
     const persisted: Parameters<ApiKeyWriter["create"]>[0][] = [];
     const writer: Pick<ApiKeyWriter, "create"> = {
       async create(input) {
@@ -43,7 +44,7 @@ describe("API key issuance", () => {
       },
     };
     await issueApiKey(writer, {
-      workspaceId: WORKSPACE,
+      ownerId: "owner-a",
       scopes: ["sessions:read"],
     });
     await issueApiKey(writer, {
@@ -52,10 +53,10 @@ describe("API key issuance", () => {
       personalFor: USER,
     });
     expect(persisted[0]).toMatchObject({
-      ownerId: WORKSPACE,
-      workspaceId: WORKSPACE,
+      ownerId: "owner-a",
+      kind: "operator",
     });
-    expect(persisted[0]?.kind).toBeUndefined();
+    expect(persisted[0]?.workspaceId).toBeUndefined();
     expect(persisted[1]).toMatchObject({
       ownerId: WORKSPACE,
       workspaceId: WORKSPACE,
@@ -85,8 +86,8 @@ const WORKSPACE = "019a0000-0000-7000-8000-0000000000a1";
 const USER = "019a0000-0000-7000-8000-0000000000c1";
 
 describe("keys CLI arguments", () => {
-  test("create --workspace binds the key to a workspace, as a service key unless --personal", () => {
-    expect(
+  test("create --workspace issues a member's personal key and never a workspace-wide one", () => {
+    expect(() =>
       parseKeysCommand([
         "create",
         "--workspace",
@@ -94,16 +95,12 @@ describe("keys CLI arguments", () => {
         "--scopes",
         "sessions:read",
       ]),
-    ).toEqual({
-      command: "create",
-      workspaceId: WORKSPACE,
-      scopes: ["sessions:read"],
-    });
+    ).toThrow("--workspace needs --personal");
     expect(
       parseKeysCommand([
         "create",
         "--workspace",
-        WORKSPACE,
+        WORKSPACE.toUpperCase(),
         "--scopes",
         "sessions:read",
         "--personal",
@@ -174,6 +171,19 @@ describe("keys CLI arguments", () => {
       command: "create",
       ownerId: "owner-a",
       scopes: ["sessions:recover"],
+    });
+    // Trimmed here, so the workspace check sees the owner that gets stored.
+    expect(
+      parseKeysCommand([
+        "create",
+        ` ${WORKSPACE} `,
+        "--scopes",
+        "sessions:read",
+      ]),
+    ).toEqual({
+      command: "create",
+      ownerId: WORKSPACE,
+      scopes: ["sessions:read"],
     });
   });
 

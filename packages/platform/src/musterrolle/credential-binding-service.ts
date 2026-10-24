@@ -19,24 +19,10 @@ import {
   type Caller,
   MANAGEMENT_ROLES,
 } from "./policy.ts";
+import { ACTOR_INACTIVE, NOT_FOUND, OUTRANKED } from "./service-errors.ts";
 
 // Binding a credential name to an agent (design 4.4, D11): owners, admins
 // and that agent's admins, never a key. The value never reaches Werft.
-
-const NOT_FOUND = () =>
-  new SessionServiceError("NOT_FOUND", "Resource not found");
-const OUTRANKED = () =>
-  new SessionServiceError(
-    "FORBIDDEN",
-    "The caller no longer holds this right",
-    undefined,
-    { reason_code: "role" },
-  );
-const ACTOR_INACTIVE = () =>
-  new SessionServiceError(
-    "FORBIDDEN",
-    "This principal is no longer a member of the workspace",
-  );
 
 const BINDERS = MANAGEMENT_ROLES["credential.bind"] ?? [];
 

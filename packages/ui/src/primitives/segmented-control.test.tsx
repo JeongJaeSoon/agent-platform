@@ -206,6 +206,28 @@ describe("SegmentedControl", () => {
     );
   });
 
+  test("toolbar 크기는 32px 트랙(1px 여백)·컨트롤 모서리·입력 테두리다", () => {
+    const { getByRole } = render(
+      <SegmentedControl
+        aria-label="보기"
+        size="toolbar"
+        value="table"
+        onValueChange={() => {}}
+      >
+        <SegmentedControlItem value="table">표</SegmentedControlItem>
+      </SegmentedControl>,
+    );
+    const group = getByRole("group");
+    expect(group.dataset.size).toBe("toolbar");
+    const track = group.className.split(" ");
+    for (const name of ["p-px", "rounded-control", "border-input"]) {
+      expect(track).toContain(name);
+    }
+    for (const name of ["p-0.5", "rounded-card", "border-border"]) {
+      expect(track).not.toContain(name);
+    }
+  });
+
   test("두 진입점에서 같은 부품을 내보낸다", async () => {
     const root = await import("../index.ts");
     const primitives = await import("./index.ts");

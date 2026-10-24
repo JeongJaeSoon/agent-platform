@@ -156,8 +156,9 @@ export function profilesQuery(client: ApiClient) {
   });
 }
 
-// PAGE_LIMIT_MAX; this entry point imports no contracts values.
-const MEMBER_PAGE_LIMIT = 100;
+// PAGE_LIMIT_MAX, for the lists read to the end; this entry point imports no
+// contracts values.
+const READ_ALL_PAGE_LIMIT = 100;
 
 /** Every member of the workspace, every page read, oldest first. */
 export function membersQuery(client: ApiClient) {
@@ -171,8 +172,8 @@ export function membersQuery(client: ApiClient) {
           client.GET("/v1/members", {
             params: {
               query: cursor
-                ? { cursor, limit: MEMBER_PAGE_LIMIT }
-                : { limit: MEMBER_PAGE_LIMIT },
+                ? { cursor, limit: READ_ALL_PAGE_LIMIT }
+                : { limit: READ_ALL_PAGE_LIMIT },
             },
           }),
         )) as ListMembersResponse;
@@ -221,11 +222,28 @@ export function invitesQuery(client: ApiClient) {
   });
 }
 
+/** Every agent of the workspace, every page read, oldest first. */
 export function agentsQuery(client: ApiClient) {
   return queryOptions({
     queryKey: queryKeys.agents,
-    queryFn: () =>
-      unwrap(client.GET("/v1/agents")) as Promise<ListAgentsResponse>,
+    queryFn: async (): Promise<ListAgentsResponse> => {
+      const items: ListAgentsResponse["items"] = [];
+      let cursor: string | null = null;
+      do {
+        const page = (await unwrap(
+          client.GET("/v1/agents", {
+            params: {
+              query: cursor
+                ? { cursor, limit: READ_ALL_PAGE_LIMIT }
+                : { limit: READ_ALL_PAGE_LIMIT },
+            },
+          }),
+        )) as ListAgentsResponse;
+        items.push(...page.items);
+        cursor = page.next_cursor;
+      } while (cursor);
+      return { items, next_cursor: null };
+    },
     retry: false,
   });
 }
@@ -307,13 +325,15 @@ export function linkedAccountsQuery(client: ApiClient) {
   });
 }
 
-/** The caller's personal keys and the service keys they may revoke. */
+/** The caller's personal keys and the agent keys they may revoke. */
 export function apiKeysQuery(client: ApiClient) {
   return queryOptions({
     queryKey: queryKeys.apiKeys,
     queryFn: () =>
       unwrap(client.GET("/v1/api-keys")) as Promise<ListApiKeysResponse>,
     retry: false,
+    // The key tabs share this list; issuing and revoking invalidate it.
+    staleTime: 30_000,
   });
 }
 
