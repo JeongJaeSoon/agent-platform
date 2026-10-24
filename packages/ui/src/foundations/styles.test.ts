@@ -466,31 +466,45 @@ describe("styles.css", () => {
     expect(literals.map((d) => `${d.selector} { ${d.property} }`)).toEqual([]);
   });
 
-  test("비활성 행은 버튼 없는 셀만 흐린 글자로, 배지는 무채색으로 그린다", () => {
+  test("비활성 행은 행동 셀을 뺀 셀을 흐린 글자와 무채색 tone으로 그린다", () => {
     const inactive = styleDeclarations.filter((d) =>
       d.selector.includes("[data-inactive]"),
     );
     expect(inactive.length).toBeGreaterThan(0);
     for (const d of inactive) {
-      // The action cell keeps its contrast: every rule skips it.
-      // A Button under `TooltipTrigger asChild` takes the trigger's slot.
-      expect(d.selector).toContain(
-        ':not(:has([data-slot="button"], [data-slot$="-trigger"]))',
+      // The actions cell keeps its contrast. A Button under `TooltipTrigger
+      // asChild` takes the trigger's slot, so that cell has its own mark.
+      expect(
+        d.selector
+          .replace(/\s+/g, " ")
+          .replace(/\( | (?=\))/g, (m) => m.trim()),
+      ).toContain(
+        ':not([data-raised], [data-variant="actions"], :has([data-slot="button"]))',
       );
     }
-    const colourOf = (badge: boolean) =>
-      inactive.find(
-        (d) =>
-          d.property === "color" &&
-          d.selector.includes('[data-slot="badge"]') === badge,
-      )?.value;
+    const value = (property: string) =>
+      inactive.find((d) => d.property === property)?.value;
     // subtle-foreground is the faintest text that holds AA on every
     // surface and tone bg (tokens.css test above).
-    expect(colourOf(false)).toBe("var(--ap-color-subtle-foreground)");
-    expect(colourOf(true)).toBe("var(--ap-color-subtle-foreground)");
-    expect(inactive.find((d) => d.property === "background-color")?.value).toBe(
-      "var(--ap-tone-neutral-bg)",
+    expect(value("color")).toBe("var(--ap-color-subtle-foreground)");
+    expect(value("--ap-color-foreground")).toBe(
+      "var(--ap-color-subtle-foreground)",
     );
+    // Every tone a badge or status label can take turns neutral.
+    for (const tone of [
+      "progress",
+      "attention",
+      "caution",
+      "danger",
+      "unknown",
+      "positive",
+      "success",
+    ]) {
+      expect(value(`--ap-tone-${tone}-fg`)).toBe(
+        "var(--ap-color-subtle-foreground)",
+      );
+      expect(value(`--ap-tone-${tone}-bg`)).toBe("var(--ap-tone-neutral-bg)");
+    }
   });
 
   test("한글 마이크로라벨을 uppercase로 바꾸지 않는다", () => {

@@ -213,6 +213,7 @@ export type GridTableCellProps = Omit<ComponentProps<"div">, "role"> &
     /**
      * v4 `.cell.z`: drawn above the row's opener, so the buttons and links in
      * it take their own clicks. Never put the opener itself in a raised cell.
+     * An `inactive` row leaves a raised cell at full contrast.
      */
     readonly raised?: boolean | undefined;
   };
@@ -232,6 +233,7 @@ export function GridTableCell({
       data-slot="grid-table-cell"
       data-hide-narrow={hideNarrow || undefined}
       data-lines={lines || undefined}
+      data-raised={raised || undefined}
       className={cn(
         cellClasses(narrow, { align, hideNarrow }),
         // The lines after the first that is not the row opener.

@@ -467,9 +467,10 @@ export const ClickableRows: Story = {
 };
 
 /**
- * `inactive` rows: every cell without a button turns faint and its badges lose
- * their hue, while the actions keep full contrast, a Button under
- * `TooltipTrigger asChild` included. The name says "inactive" in text.
+ * `inactive` rows: every cell but the actions turns faint and its badges lose
+ * their hue, a badge under `TooltipTrigger asChild` included; the raised
+ * actions cell keeps full contrast, its Button under a trigger too. The name
+ * says "inactive" in text.
  */
 export const InactiveRows: Story = {
   name: "Inactive rows",
@@ -508,9 +509,20 @@ export const InactiveRows: Story = {
                 </span>
               </GridTableCell>
               <GridTableCell>
-                <Badge variant="blue">관리자</Badge>
+                {row.tooltip ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild={true}>
+                      <Badge variant="blue" tabIndex={0}>
+                        관리자
+                      </Badge>
+                    </TooltipTrigger>
+                    <TooltipContent>워크스페이스를 관리합니다</TooltipContent>
+                  </Tooltip>
+                ) : (
+                  <Badge variant="blue">관리자</Badge>
+                )}
               </GridTableCell>
-              <GridTableCell align="end">
+              <GridTableCell align="end" raised={true}>
                 {row.tooltip ? (
                   <Tooltip>
                     <TooltipTrigger asChild={true}>{action}</TooltipTrigger>
@@ -543,11 +555,13 @@ export const InactiveRows: Story = {
     probe.remove();
     for (const row of [inactive, tooltipped]) {
       await expect(colour(row, ".font-medium")).toBe(subtle);
-      await expect(colour(row, "[data-slot=badge]")).toBe(subtle);
+      await expect(colour(row, "[role=cell]:nth-child(2) > *")).toBe(subtle);
       await expect(colour(row, "button")).not.toBe(subtle);
     }
     await expect(colour(active, ".font-medium")).not.toBe(subtle);
-    await expect(colour(active, "[data-slot=badge]")).not.toBe(subtle);
+    await expect(colour(active, "[role=cell]:nth-child(2) > *")).not.toBe(
+      subtle,
+    );
   },
 };
 
