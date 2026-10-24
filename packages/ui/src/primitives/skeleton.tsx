@@ -12,6 +12,13 @@ export interface SkeletonProps {
   readonly height?: string | undefined;
   readonly className?: string | undefined;
   readonly label?: string | undefined;
+  /** Sit on a line of text, as one value in "7 / 10", keeping the line's box. */
+  readonly inline?: boolean | undefined;
+  /**
+   * Hidden from assistive tech, with no label, for a screen that says it is
+   * loading once rather than at every placeholder.
+   */
+  readonly decorative?: boolean | undefined;
 }
 
 export function Skeleton({
@@ -21,6 +28,8 @@ export function Skeleton({
   height,
   className,
   label = "불러오는 중",
+  inline = false,
+  decorative = false,
 }: SkeletonProps): JSX.Element {
   const reducedMotion = useReducedMotion();
   const style: CSSProperties = {};
@@ -36,15 +45,17 @@ export function Skeleton({
     <output
       className={cn("ap-skeleton", className)}
       data-shape={shape}
+      data-inline={inline || undefined}
       data-animated={reducedMotion ? undefined : "true"}
       style={style}
       aria-busy="true"
+      aria-hidden={decorative || undefined}
     >
       {bars.map((index) => (
         // Placeholder bars have no identity beyond their position.
         <span key={index} className="ap-skeleton__bar" />
       ))}
-      <span className="ap-visually-hidden">{label}</span>
+      {decorative ? null : <span className="ap-visually-hidden">{label}</span>}
     </output>
   );
 }

@@ -119,6 +119,14 @@ describe("Skeleton", () => {
     expect(root?.textContent).toContain("불러오는 중");
   });
 
+  test("decorative면 보조기술에서 숨고 알릴 말도 두지 않는다", () => {
+    const { container } = render(<Skeleton decorative inline />);
+    const root = container.querySelector(".ap-skeleton");
+    expect(root?.getAttribute("aria-hidden")).toBe("true");
+    expect(root?.getAttribute("data-inline")).toBe("true");
+    expect(root?.textContent).toBe("");
+  });
+
   test("prefers-reduced-motion이면 깜빡이지 않는다", () => {
     const restore = stubPrefersReducedMotion(true);
     try {
