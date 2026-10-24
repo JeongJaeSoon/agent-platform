@@ -201,12 +201,8 @@ export async function findIdempotent(tx: Database, scope: IdempotencyScope) {
   return existing;
 }
 
-/**
- * The answer to a repeated control request: a conflict when the key was used
- * with another payload, else the first receipt's identity with its current
- * status, since the row is the only record of it. Undefined when the key is
- * new.
- */
+// A replay reports the receipt's current status, since the row is the only
+// record of it.
 export function controlReplay(
   existing: Awaited<ReturnType<typeof findIdempotent>>,
   payloadHash: string,
