@@ -129,11 +129,14 @@ export function secretsManagerReader(
   };
 }
 
-export async function loadSessionCatalog(options: {
+/**
+ * The catalog's files under every rule but its credentials, which only
+ * loadSessionCatalog resolves.
+ */
+export async function loadCatalogConfig(options: {
   dir: string;
   env: Record<string, string | undefined>;
-  readSecret: SecretReader;
-}): Promise<SessionCatalog> {
+}): Promise<SessionCatalogConfig> {
   if (options.env.SESSION_CATALOG_JSON !== undefined) {
     // Two sources would let one quietly win; the old one is gone.
     throw new Error(
@@ -147,9 +150,18 @@ export async function loadSessionCatalog(options: {
     options.env[ALLOW_UNATTENDED_SETTING] !== "true"
   ) {
     throw new Error(
-      `Profile(s) ${unattended.join(", ")} run tools without asking (permission_mode: ${UNATTENDED_PERMISSION_MODES.join(" | ")}); set ${ALLOW_UNATTENDED_SETTING}=true on the API to allow it`,
+      `Profile(s) ${unattended.join(", ")} run tools without asking (permission_mode: ${UNATTENDED_PERMISSION_MODES.join(" | ")}); set ${ALLOW_UNATTENDED_SETTING}=true on the API and the slack role to allow it`,
     );
   }
+  return config;
+}
+
+export async function loadSessionCatalog(options: {
+  dir: string;
+  env: Record<string, string | undefined>;
+  readSecret: SecretReader;
+}): Promise<SessionCatalog> {
+  const config = await loadCatalogConfig(options);
   const secrets = new Map<string, string>();
   // An endpoint that is not up, like the local stack's secrets service
   // without --fake-model, fails on DNS or a refused connection; naming it says which.

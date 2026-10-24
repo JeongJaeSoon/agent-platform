@@ -168,6 +168,7 @@ jobs:
               - apps/control-host/src/main
               - apps/control-host/src/pass-loop/
               - apps/control-host/src/reconciler/
+              - apps/control-host/src/slack/
               - packages/contracts/
               - packages/client/
               - packages/sdk/

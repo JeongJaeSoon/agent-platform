@@ -295,6 +295,9 @@ describe("Slack events service", () => {
     expect(w.inbox.rows.size).toBe(1);
     const row = [...w.inbox.rows.values()][0];
     expect(row?.status).toBe("received");
+    expect(row && "conversationKey" in row ? row.conversationKey : null).toBe(
+      `${APP_ROW}:C0CHAN:1761300000.000100`,
+    );
     expect(row && "payload" in row ? row.payload.token : "none").toBe(
       undefined,
     );

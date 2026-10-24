@@ -115,16 +115,48 @@ describe("StatusLabel", () => {
     }
   });
 
+  test("점 모양은 StatusDot이고 상태의 색 이름을 넘긴다", () => {
+    const restore = stubPrefersReducedMotion(false);
+    try {
+      const { container } = render(
+        <>
+          <StatusLabel appearance="dot" axis="session" state="needs_input" />
+          <StatusLabel appearance="dot" axis="session" state="running" />
+          <StatusLabel appearance="dot" axis="session" state="idle" />
+          <StatusLabel appearance="dot" axis="session" state="failed" />
+          <StatusLabel appearance="dot" axis="turn" state="completed" />
+          <StatusLabel appearance="dot" axis="admission" state="pausing" />
+        </>,
+      );
+      const dots = [
+        ...container.querySelectorAll("[data-slot=status-dot]"),
+      ].map((dot) => dot.getAttribute("data-status"));
+      // A moving state turns whatever its tone; pausing is caution yet turns.
+      expect(dots).toEqual(["wait", "run", "idle", "failed", "done", "run"]);
+    } finally {
+      restore();
+    }
+  });
+
   test("점 모양도 prefers-reduced-motion이면 도는 링 대신 멈춘 점이다", () => {
     const restore = stubPrefersReducedMotion(true);
     try {
       const { container } = render(
-        <StatusLabel appearance="dot" axis="session" state="running" />,
+        <>
+          <StatusLabel appearance="dot" axis="session" state="running" />
+          <StatusLabel appearance="dot" axis="admission" state="pausing" />
+        </>,
       );
-      const mark = container.querySelector('[aria-hidden="true"]');
-      expect(mark?.getAttribute("data-animated")).toBeNull();
-      expect(mark?.className).not.toContain("animate-");
-      expect(mark?.className).toContain("size-2");
+      const [running, pausing] = container.querySelectorAll<HTMLElement>(
+        "[data-slot=status-dot]",
+      );
+      // StatusDot's own motion-reduce classes stop the ring and fill it.
+      expect(running?.getAttribute("data-status")).toBe("run");
+      expect(running?.getAttribute("data-animated")).toBeNull();
+      expect(running?.className).toContain("motion-reduce:animate-none");
+      // Standing still, a moving state shows its tone's colour.
+      expect(pausing?.getAttribute("data-status")).toBe("wait");
+      expect(pausing?.className).not.toContain("animate-");
     } finally {
       restore();
     }
