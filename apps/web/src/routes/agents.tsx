@@ -3,7 +3,9 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { type ApiError, isApiError } from "@werft-ai/client";
 import type { Agent } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
+import { ListToolbar } from "@werft-ai/react/components";
 import {
+  Button,
   buttonVariants,
   cn,
   EmptyState,
@@ -19,7 +21,7 @@ import {
   TableRow,
 } from "@werft-ai/ui";
 import { LayoutGrid, List } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { administeredAgentsQuery, agentsQuery } from "../api/queries.ts";
 import {
   permissionReason,
@@ -142,62 +144,82 @@ function AgentList({ agents }: { readonly agents: readonly Agent[] }) {
   const truncated =
     (administered.data?.items.length ?? 0) >= ADMINISTERED_LIST_LIMIT;
   const [scope, setScope] = useState<"all" | "administered">("all");
+  const [query, setQuery] = useState("");
+  const search = useRef<HTMLInputElement>(null);
+  // The clear button goes away with the empty result, so focus returns to
+  // the field it emptied.
+  const clear = () => {
+    setQuery("");
+    search.current?.focus();
+  };
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <SegmentedControl
-          aria-label={t("agents.tabs.label")}
-          value={scope}
-          onValueChange={(next) => setScope(next as typeof scope)}
-        >
-          <SegmentedControlItem value="all" count={agents.length}>
-            {t("agents.tabs.all")}
-          </SegmentedControlItem>
-          <SegmentedControlItem
-            value="administered"
-            count={
-              administered.data && !truncated
-                ? administered.data.items.length
-                : undefined
-            }
+      <ListToolbar
+        filter={
+          <SegmentedControl
+            aria-label={t("agents.tabs.label")}
+            value={scope}
+            onValueChange={(next) => setScope(next as typeof scope)}
           >
-            {t("agents.tabs.administered")}
-            {truncated ? (
-              // The count slot takes a number; past the server's page the
-              // honest count is "at least this many".
-              <>
-                {" "}
-                <span
-                  data-slot="item-count"
-                  className="text-caption text-subtle-foreground tabular-nums"
-                >
-                  {`${ADMINISTERED_LIST_LIMIT}+`}
-                </span>
-              </>
-            ) : null}
-          </SegmentedControlItem>
-        </SegmentedControl>
-        <SegmentedControl
-          aria-label={t("agents.view.label")}
-          value={view}
-          onValueChange={(next) => setView(next as AgentView)}
-        >
-          {AGENT_VIEWS.map((option) => {
-            const Icon = VIEW_ICON[option];
-            return (
-              <SegmentedControlItem key={option} value={option}>
-                <Icon aria-hidden="true" />
-                {t(`agents.view.${option}`)}
-              </SegmentedControlItem>
-            );
-          })}
-        </SegmentedControl>
-      </div>
+            <SegmentedControlItem value="all" count={agents.length}>
+              {t("agents.tabs.all")}
+            </SegmentedControlItem>
+            <SegmentedControlItem
+              value="administered"
+              count={
+                administered.data && !truncated
+                  ? administered.data.items.length
+                  : undefined
+              }
+            >
+              {t("agents.tabs.administered")}
+              {truncated ? (
+                // The count slot takes a number; past the server's page the
+                // honest count is "at least this many".
+                <>
+                  {" "}
+                  <span
+                    data-slot="item-count"
+                    className="text-caption text-subtle-foreground tabular-nums"
+                  >
+                    {`${ADMINISTERED_LIST_LIMIT}+`}
+                  </span>
+                </>
+              ) : null}
+            </SegmentedControlItem>
+          </SegmentedControl>
+        }
+        search={{
+          ref: search,
+          type: "search",
+          "aria-label": t("agents.search"),
+          placeholder: t("agents.search"),
+          value: query,
+          onChange: (event) => setQuery(event.target.value),
+        }}
+        view={
+          <SegmentedControl
+            aria-label={t("agents.view.label")}
+            value={view}
+            onValueChange={(next) => setView(next as AgentView)}
+          >
+            {AGENT_VIEWS.map((option) => {
+              const Icon = VIEW_ICON[option];
+              return (
+                <SegmentedControlItem key={option} value={option}>
+                  <Icon aria-hidden="true" />
+                  {t(`agents.view.${option}`)}
+                </SegmentedControlItem>
+              );
+            })}
+          </SegmentedControl>
+        }
+      />
       {scope === "all" ? (
         agents.length === 0 ? (
           <EmptyState title={t("agents.empty")} />
         ) : (
-          <AgentsIn view={view} agents={agents} />
+          <AgentsIn view={view} agents={agents} query={query} onClear={clear} />
         )
       ) : administered.isPending ? (
         <StatusScreen kind="loading" />
@@ -217,24 +239,72 @@ function AgentList({ agents }: { readonly agents: readonly Agent[] }) {
               })}
             </p>
           ) : null}
-          <AgentsIn view={view} agents={administered.data.items} />
+          <AgentsIn
+            view={view}
+            agents={administered.data.items}
+            query={query}
+            onClear={clear}
+          />
         </div>
       )}
     </div>
   );
 }
 
+/** Name or slug, ignoring case; the list API takes no query. */
+function matchesAgentQuery(agent: Agent, query: string) {
+  const needle = query.trim().toLowerCase();
+  return (
+    needle === "" ||
+    agent.name.toLowerCase().includes(needle) ||
+    agent.slug.toLowerCase().includes(needle)
+  );
+}
+
 function AgentsIn({
   view,
   agents,
+  query,
+  onClear,
 }: {
   readonly view: AgentView;
   readonly agents: readonly Agent[];
+  readonly query: string;
+  readonly onClear: () => void;
 }) {
-  return view === "cards" ? (
-    <AgentCards agents={agents} />
-  ) : (
-    <AgentTable agents={agents} />
+  const { t } = useI18n();
+  const shown = agents.filter((agent) => matchesAgentQuery(agent, query));
+  // Mounted before the first keystroke, so a screen reader hears each change.
+  const results = (
+    <output className="sr-only">
+      {query.trim() === "" ? "" : t("agents.shown", { count: shown.length })}
+    </output>
+  );
+  if (shown.length === 0) {
+    return (
+      <>
+        {results}
+        <EmptyState
+          title={t("agents.noMatch")}
+          description={t("agents.noMatchHint")}
+          action={
+            <Button type="button" variant="outline" size="sm" onClick={onClear}>
+              {t("agents.clearSearch")}
+            </Button>
+          }
+        />
+      </>
+    );
+  }
+  return (
+    <>
+      {results}
+      {view === "cards" ? (
+        <AgentCards agents={shown} />
+      ) : (
+        <AgentTable agents={shown} />
+      )}
+    </>
   );
 }
 

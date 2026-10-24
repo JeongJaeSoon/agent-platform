@@ -3,6 +3,7 @@ export {
   type ApiErrorStateProps,
 } from "./feedback/api-error-state.tsx";
 export { ERROR_GUIDANCE, guidanceFor } from "./feedback/error-guidance.ts";
+export { ListToolbar, type ListToolbarProps } from "./list/list-toolbar.tsx";
 export { ReceiptLink, type ReceiptLinkProps } from "./receipt/receipt-link.tsx";
 export {
   RECEIPT_OPERATION_LABEL,
