@@ -9,6 +9,8 @@ import { type ApiEnvironment, ApiHttpError } from "../app.ts";
 // routes. A code missing here answers 500.
 const STATUS_BY_CODE: Partial<Record<ApiErrorCode, ContentfulStatusCode>> = {
   BAD_REQUEST: 400,
+  // Only the Slack channel search's own cursor; session events would answer 410.
+  CURSOR_EXPIRED: 400,
   NOT_FOUND: 404,
   FORBIDDEN: 403,
   OWNER_PROTECTED: 403,

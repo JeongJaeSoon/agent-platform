@@ -28,6 +28,7 @@ import {
   surfaceBindings,
   users,
   verifySlackInstallation,
+  workspaces,
 } from "@werft-ai/db";
 import {
   type AuthorizationPolicy,
@@ -35,6 +36,8 @@ import {
   authorizeSlackInput,
   createAgentIdentityService,
   createAuthorizationPolicy,
+  createSlackChannelApi,
+  createSlackChannelSearchService,
   createSurfaceBindingService,
 } from "@werft-ai/platform";
 import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
@@ -51,6 +54,7 @@ import { DatabaseApiKeyStore } from "./keys.ts";
 import { registerAgentIdentityRoutes } from "./routes/agent-identities.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerSlackBindingRoutes } from "./routes/slack-bindings.ts";
+import { registerSlackChannelRoutes } from "./routes/slack-channels.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 
@@ -97,6 +101,16 @@ integration("agent identities over HTTP on PostgreSQL", () => {
         registerAuthRoutes(router, auth);
         registerAgentIdentityRoutes(router, { service });
         registerSlackBindingRoutes(router, { service: slackBindings });
+        // No agent here has a platform-made app: the search stops at 409.
+        registerSlackChannelRoutes(router, {
+          service: createSlackChannelSearchService({
+            authorization,
+            agents: createDatabaseAgentAuthority(db),
+            apps: { findForAgent: async () => null },
+            secrets: { get: async () => null },
+            api: createSlackChannelApi({ apiUrl: "http://127.0.0.1:9/api" }),
+          }),
+        });
       },
     });
   }, 60_000);
@@ -443,6 +457,66 @@ integration("agent identities over HTTP on PostgreSQL", () => {
         code,
       ]);
     }
+
+    // The channel search refuses whoever the binding list refuses, the same
+    // way; another workspace's agent, which the list answers with nothing, it
+    // does not find.
+    const elsewhere = crypto.randomUUID();
+    await db
+      .insert(workspaces)
+      .values({ id: elsewhere, slug: "elsewhere", name: "Elsewhere" });
+    const foreign = crypto.randomUUID();
+    await db
+      .insert(agents)
+      .values({ id: foreign, workspaceId: elsewhere, slug: "x", name: "x" });
+    for (const [cookie, agent] of [
+      [member, agentId],
+      [admin, crypto.randomUUID()],
+    ] as const) {
+      const listed = await send(
+        "GET",
+        `/v1/agents/${agent}/slack-bindings`,
+        cookie,
+      );
+      const searched = await send(
+        "GET",
+        `/v1/agents/${agent}/slack/channels?q=de`,
+        cookie,
+      );
+      expect([searched.status, (await errorOf(searched)).code]).toEqual([
+        listed.status,
+        (await errorOf(listed)).code,
+      ]);
+      expect(searched.status).toBe(403);
+    }
+    const listedForeign = await send(
+      "GET",
+      `/v1/agents/${foreign}/slack-bindings`,
+      ownerCookie,
+    );
+    expect(
+      listSlackBindingsResponseSchema.parse(await listedForeign.json()).items,
+    ).toEqual([]);
+    for (const agent of [foreign, crypto.randomUUID()]) {
+      const searched = await send(
+        "GET",
+        `/v1/agents/${agent}/slack/channels`,
+        ownerCookie,
+      );
+      expect([searched.status, (await errorOf(searched)).code]).toEqual([
+        404,
+        "NOT_FOUND",
+      ]);
+    }
+    const uninstalled = await send(
+      "GET",
+      `/v1/agents/${agentId}/slack/channels`,
+      admin,
+    );
+    expect([uninstalled.status, (await errorOf(uninstalled)).code]).toEqual([
+      409,
+      "SLACK_NOT_INSTALLED",
+    ]);
 
     // The owner's Slack account, linked, mentions the bot in each place.
     const [owner] = await db

@@ -75,6 +75,81 @@ describe("fake Slack Web API", () => {
     ).toEqual({ ok: false, error: "invalid_auth" });
   });
 
+  test("channels seeded over HTTP page through conversations.list as the bot sees them", async () => {
+    const bot = `xoxb-${crypto.randomUUID()}`;
+    slack.apps.set("A0CHANNELS", {
+      appId: "A0CHANNELS",
+      clientId: "9.9",
+      clientSecret: crypto.randomUUID(),
+      signingSecret: crypto.randomUUID(),
+      manifest: {},
+      botTokens: [bot],
+    });
+    const root = slack.url.replace(/\/api$/, "");
+    const seeded = await fetch(`${root}/fake/channels`, {
+      method: "POST",
+      body: JSON.stringify({
+        app_id: "A0CHANNELS",
+        channels: [
+          { name: "alpha" },
+          { name: "beta", is_private: true },
+          { name: "gamma", is_private: true, bot_member: true },
+          { name: "delta", is_archived: true },
+        ],
+      }),
+    });
+    expect(seeded.status).toBe(200);
+    expect(
+      (
+        await fetch(`${root}/fake/channels`, {
+          method: "POST",
+          body: JSON.stringify({ channels: [{ name: "Bad Name" }] }),
+        })
+      ).status,
+    ).toBe(400);
+
+    const params = {
+      types: "public_channel,private_channel",
+      exclude_archived: "true",
+      limit: "2",
+    };
+    const first = (await post(
+      `${slack.url}/conversations.list`,
+      params,
+      bot,
+    )) as {
+      channels: { name: string }[];
+      response_metadata: { next_cursor: string };
+    };
+    // Cut at two, then filtered: beta (no bot) leaves a short page.
+    expect(first.channels.map((c) => c.name)).toEqual(["alpha"]);
+    const second = (await post(
+      `${slack.url}/conversations.list`,
+      { ...params, cursor: first.response_metadata.next_cursor },
+      bot,
+    )) as typeof first;
+    expect(second.channels).toEqual([
+      expect.objectContaining({
+        name: "gamma",
+        is_private: true,
+        is_member: true,
+      }),
+    ]);
+    expect(second.response_metadata.next_cursor).toBe("");
+    expect(
+      await post(`${slack.url}/conversations.list`, params, "not-issued"),
+    ).toEqual({ ok: false, error: "invalid_auth" });
+
+    slack.rateLimit("conversations.list", 7);
+    const limited = await fetch(`${slack.url}/conversations.list`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${bot}` },
+      body: new URLSearchParams(params),
+    });
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get("Retry-After")).toBe("7");
+  });
+
   test("beside the mock IdP, its own bot still answers auth.test", async () => {
     const idp = await startMockSlackOidc({ webApi: createFakeSlackWebApi() });
     try {
