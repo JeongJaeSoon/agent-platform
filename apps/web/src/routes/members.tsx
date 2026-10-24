@@ -7,7 +7,6 @@ import {
   Badge,
   Button,
   ConfirmDialog,
-  cn,
   Dialog,
   DialogContent,
   DialogDescription,
@@ -21,21 +20,19 @@ import {
   FieldLegend,
   FieldSet,
   formatTimestamp,
+  GridTable,
+  GridTableCell,
+  GridTableColumnHeader,
+  GridTableHeader,
+  GridTableRow,
+  GridTableRowOpener,
   LinkTab,
   LinkTabs,
-  linkVariants,
   RadioGroup,
   RadioGroupItem,
   RowLines,
   RowList,
   RowListItem,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableHeader,
-  TableRow,
 } from "@werft-ai/ui";
 import { useId, useRef, useState } from "react";
 import { invitesQuery, membersQuery, queryKeys } from "../api/queries.ts";
@@ -68,10 +65,7 @@ const PRIMARY =
 const SECONDARY =
   "block text-muted-foreground text-xs [overflow-wrap:anywhere]";
 
-// At 390px the name, role and actions columns only fit side by side when the
-// name gives up the text column's minimum and the role badges stack.
-const NARROW_NAME = "@max-md:min-w-0";
-const NARROW_ROLE = "@max-md:flex-col @max-md:items-start";
+const MEMBER_COLUMNS = "minmax(0,1.6fr) 120px minmax(0,1fr)";
 
 type Outcome =
   | { readonly kind: "notice"; readonly text: string }
@@ -375,132 +369,123 @@ function MemberTable({
 
   return (
     <>
-      <TableContainer label={t("members.tableLabel")} className="@container">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead scope="col" variant="text" className={NARROW_NAME}>
-                {t("members.column.name")}
-              </TableHead>
-              <TableHead scope="col" variant="nowrap">
-                {t("members.column.role")}
-              </TableHead>
-              <TableHead scope="col" variant="actions" className="text-right">
-                {t("members.column.actions")}
-              </TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {items.map((member) => {
-              const disabled = member.disabled_at !== null;
-              const keepWhy = disabled
-                ? enableReason(member)
-                : keepReason(member);
-              const keepId = `${reasonId}-${member.user_id}-keep`;
-              const busy =
-                (changeRole.isPending &&
-                  changeRole.variables?.member.user_id === member.user_id) ||
-                (setAccess.isPending &&
-                  setAccess.variables?.member.user_id === member.user_id);
-              return (
-                <TableRow
-                  key={member.user_id}
-                  className="group"
-                  data-disabled={disabled}
+      {/* The opener's focus ring sits 2px outside the row: no overflow clip. */}
+      <div className="rounded-card border bg-card">
+        <GridTable
+          aria-label={t("members.tableLabel")}
+          columns={MEMBER_COLUMNS}
+        >
+          <GridTableHeader>
+            <GridTableColumnHeader>
+              {t("members.column.name")}
+            </GridTableColumnHeader>
+            <GridTableColumnHeader>
+              {t("members.column.role")}
+            </GridTableColumnHeader>
+            <GridTableColumnHeader align="end">
+              {t("members.column.actions")}
+            </GridTableColumnHeader>
+          </GridTableHeader>
+          {items.map((member) => {
+            const disabled = member.disabled_at !== null;
+            const keepWhy = disabled
+              ? enableReason(member)
+              : keepReason(member);
+            const keepId = `${reasonId}-${member.user_id}-keep`;
+            const busy =
+              (changeRole.isPending &&
+                changeRole.variables?.member.user_id === member.user_id) ||
+              (setAccess.isPending &&
+                setAccess.variables?.member.user_id === member.user_id);
+            return (
+              <GridTableRow
+                key={member.user_id}
+                className="group"
+                data-disabled={disabled}
+              >
+                <GridTableCell lines={true}>
+                  <GridTableRowOpener
+                    aria-label={t("members.editFor", {
+                      name: member.display_name,
+                    })}
+                    onClick={(event) => {
+                      editOpener.current = event.currentTarget;
+                      setEditing(member);
+                    }}
+                  />
+                  {/* v4 .strong: body text at weight 500, not link blue;
+                      blue stays for links that move (→). */}
+                  <span className="flex min-w-0 max-w-full font-medium text-foreground group-data-[disabled=true]:text-muted-foreground">
+                    <span className="truncate">{member.display_name}</span>
+                    <span aria-hidden="true">&nbsp;›</span>
+                  </span>
+                  <span
+                    className="text-muted-foreground text-xs"
+                    title={member.email}
+                  >
+                    {member.email}
+                  </span>
+                </GridTableCell>
+                {/* At 390px the actions spill left past their track; stacked
+                    badges leave them room. */}
+                <GridTableCell className="flex-wrap gap-1 @max-md:flex-col @max-md:items-start">
+                  <Badge variant={member.role === "member" ? "gray" : "blue"}>
+                    {roleLabel(t, member.role)}
+                  </Badge>
+                  {disabled ? (
+                    <Badge variant="gray">{t("members.state.disabled")}</Badge>
+                  ) : null}
+                </GridTableCell>
+                {/* The button keeps one width as "disable" turns "enable". */}
+                <GridTableCell
+                  raised={true}
+                  align="end"
+                  className="gap-1 [&_[data-slot=button]:not([data-size^=icon])]:min-w-[var(--ap-row-action-min-width)]"
                 >
-                  <TableCell variant="text" className={NARROW_NAME}>
-                    <RowLines>
-                      <button
-                        type="button"
-                        className={cn(
-                          linkVariants(),
-                          // v4 .strong: body text at weight 500, not link blue;
-                          // blue stays for links that move (→).
-                          "flex min-w-0 max-w-full text-left font-medium text-foreground group-data-[disabled=true]:text-muted-foreground",
-                        )}
-                        aria-label={t("members.editFor", {
-                          name: member.display_name,
-                        })}
-                        onClick={(event) => {
-                          editOpener.current = event.currentTarget;
-                          setEditing(member);
-                        }}
-                      >
-                        <span className="truncate">{member.display_name}</span>
-                        <span aria-hidden="true">&nbsp;›</span>
-                      </button>
-                      <span
-                        className="text-muted-foreground text-xs"
-                        title={member.email}
-                      >
-                        {member.email}
-                      </span>
-                    </RowLines>
-                  </TableCell>
-                  <TableCell variant="nowrap">
-                    <div className={cn("flex items-center gap-1", NARROW_ROLE)}>
-                      <Badge
-                        variant={member.role === "member" ? "gray" : "blue"}
-                      >
-                        {roleLabel(t, member.role)}
-                      </Badge>
-                      {disabled ? (
-                        <Badge variant="gray">
-                          {t("members.state.disabled")}
-                        </Badge>
-                      ) : null}
-                    </div>
-                  </TableCell>
-                  <TableCell variant="actions">
-                    <div className="flex items-center justify-end gap-1">
-                      {disabled ? (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          disabled={busy || keepWhy !== undefined}
-                          aria-describedby={keepWhy ? keepId : undefined}
-                          onClick={() =>
-                            setAccess.mutate({ member, enable: true })
-                          }
-                        >
-                          {t("members.enable")}
-                        </Button>
-                      ) : (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          disabled={busy || keepWhy !== undefined}
-                          aria-describedby={keepWhy ? keepId : undefined}
-                          aria-label={t("members.disableFor", {
-                            name: member.display_name,
-                          })}
-                          onClick={() => setConfirming(member)}
-                        >
-                          {t("members.disable")}
-                        </Button>
+                  {disabled ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0"
+                      disabled={busy || keepWhy !== undefined}
+                      aria-describedby={keepWhy ? keepId : undefined}
+                      onClick={() => setAccess.mutate({ member, enable: true })}
+                    >
+                      {t("members.enable")}
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0"
+                      disabled={busy || keepWhy !== undefined}
+                      aria-describedby={keepWhy ? keepId : undefined}
+                      aria-label={t("members.disableFor", {
+                        name: member.display_name,
+                      })}
+                      onClick={() => setConfirming(member)}
+                    >
+                      {t("members.disable")}
+                    </Button>
+                  )}
+                  {keepWhy ? (
+                    <ReasonHint
+                      id={keepId}
+                      label={t(
+                        disabled ? "members.enableWhy" : "members.disableWhy",
+                        { name: member.display_name },
                       )}
-                      {keepWhy ? (
-                        <ReasonHint
-                          id={keepId}
-                          label={t(
-                            disabled
-                              ? "members.enableWhy"
-                              : "members.disableWhy",
-                            { name: member.display_name },
-                          )}
-                          reason={keepWhy}
-                        />
-                      ) : null}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
-      </TableContainer>
+                      reason={keepWhy}
+                    />
+                  ) : null}
+                </GridTableCell>
+              </GridTableRow>
+            );
+          })}
+        </GridTable>
+      </div>
       {editing ? (
         <MemberEditDialog
           member={editing}
