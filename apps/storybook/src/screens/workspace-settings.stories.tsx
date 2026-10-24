@@ -444,7 +444,7 @@ function SlackAppsPage() {
                     <Button asChild variant="link" size="sm">
                       <a
                         href={storyHref(
-                          "screens-agent-detail-v3--agent-detail-slack-advanced",
+                          "screens-agent-detail-v3--agent-detail-slack-settings",
                         )}
                         aria-label={`${app.name} 자세히`}
                       >

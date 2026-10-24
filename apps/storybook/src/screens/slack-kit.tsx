@@ -50,7 +50,11 @@ export function Heading({
   );
 }
 
-/** Stand-in for Switch: the console's `role="switch"` Button. */
+/**
+ * Stand-in for `@werft-ai/ui` Switch (SWITCH-SETTINGROW-14, #667): a track
+ * and thumb the size of shadcn's Switch (h-5 w-9). The state word sits
+ * beside it through SettingRow's `status`.
+ */
 export function SwitchStandIn({
   checked,
   onCheckedChange,
@@ -67,16 +71,16 @@ export function SwitchStandIn({
   return (
     <Button
       type="button"
-      variant={checked ? "default" : "outline"}
-      size="sm"
+      variant="ghost"
       role="switch"
       aria-checked={checked}
       aria-labelledby={labelledBy}
       aria-describedby={describedBy}
       disabled={disabled}
       onClick={() => onCheckedChange(!checked)}
+      className={`h-5 w-9 shrink-0 rounded-full border border-transparent p-0.5 ${checked ? "justify-end bg-primary hover:bg-primary" : "justify-start bg-input hover:bg-input"}`}
     >
-      {checked ? "켜짐" : "꺼짐"}
+      <div className="size-4 rounded-full bg-background shadow-sm" />
     </Button>
   );
 }
@@ -90,11 +94,14 @@ export function SettingRow({
   title,
   description,
   extra,
+  status,
   control,
 }: {
   readonly title: ReactNode;
   readonly description?: ReactNode;
   readonly extra?: ReactNode;
+  /** The state word before the control, e.g. 켜짐; not part of its name. */
+  readonly status?: ReactNode;
   readonly control?:
     | ((ids: {
         readonly titleId: string;
@@ -120,6 +127,11 @@ export function SettingRow({
       </div>
       {control ? (
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 self-end sm:self-auto">
+          {status === undefined ? null : (
+            <div aria-hidden="true" className={MUTED_TEXT}>
+              {status}
+            </div>
+          )}
           {control({
             titleId,
             descriptionId: hasDescription ? descriptionId : undefined,
@@ -127,6 +139,51 @@ export function SettingRow({
         </div>
       ) : null}
     </RowListItem>
+  );
+}
+
+/**
+ * Stand-in for packages/react DetailRail (V4-RAIL, not landed): the
+ * Cloudflare-style right rail, a left rule instead of a card, scrolling on
+ * its own. Stacked on narrow pages it takes a top rule. Widths and spacing
+ * come from the existing detail layout tokens until V4-RAIL measures them.
+ */
+export function DetailRailStandIn({
+  label,
+  narrow,
+  children,
+}: {
+  readonly label: string;
+  readonly narrow: boolean;
+  readonly children: ReactNode;
+}) {
+  return (
+    <aside
+      aria-label={label}
+      className={`flex min-w-0 flex-col ${narrow ? "border-t" : "sticky top-0 max-h-dvh self-stretch overflow-y-auto border-l pl-6"}`}
+    >
+      {children}
+    </aside>
+  );
+}
+
+/** Stand-in for DetailRailSection: a title, then rows, ruled from the next. */
+export function DetailRailSectionStandIn({
+  title,
+  children,
+}: {
+  readonly title: string;
+  readonly children: ReactNode;
+}) {
+  const titleId = useId();
+  return (
+    <section
+      aria-labelledby={titleId}
+      className="flex flex-col gap-3 border-b py-[var(--ap-space-block)] last:border-b-0"
+    >
+      <Heading id={titleId}>{title}</Heading>
+      {children}
+    </section>
   );
 }
 

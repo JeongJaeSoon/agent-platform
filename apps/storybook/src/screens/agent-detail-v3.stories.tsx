@@ -17,11 +17,13 @@ import {
   FieldDescription,
   FieldError,
   FieldLabel,
+  KeyValueList,
   Link,
   NativeSelect,
   NativeSelectOption,
   PageHeader,
   RowList,
+  RowListItem,
   Tabs,
   TabsContent,
   TabsList,
@@ -34,10 +36,11 @@ import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 
 import { MOBILE, PartRequest, ScreenShell } from "./screen-kit.tsx";
 import {
-  AlertCard,
   type ChannelGroup,
   ChannelSelect,
   type ConnectStep,
+  DetailRailSectionStandIn,
+  DetailRailStandIn,
   Heading,
   MUTED_TEXT,
   OutcomeStandIn,
@@ -96,7 +99,7 @@ type SlackState =
   | "nohome"
   | "installed"
   | "none";
-type Segment = "overview" | "channels" | "defaults" | "advanced";
+type Segment = "overview" | "channels" | "settings";
 type DialogKind = "review" | "add" | "home" | "disconnect" | "delete";
 type RequestState = "none" | "pending" | "approved" | "rejected";
 
@@ -110,13 +113,10 @@ const STATUS = {
 const SEGMENTS: readonly (readonly [Segment, string])[] = [
   ["overview", "개요"],
   ["channels", "채널"],
-  ["defaults", "기본 설정"],
-  ["advanced", "고급"],
+  ["settings", "설정"],
 ];
 
 const PANEL_CARD = "min-w-0 gap-3 p-4";
-const FACTS =
-  "m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-2 text-control";
 const OVERVIEW_FACTS =
   "m-0 grid grid-cols-1 gap-x-4 gap-y-1 text-control sm:grid-cols-[140px_minmax(0,1fr)] sm:gap-y-3";
 const TERM = "m-0 text-muted-foreground";
@@ -148,24 +148,26 @@ function Section({
   );
 }
 
-function SummaryPanel() {
+function SummaryRail({ narrow }: { readonly narrow: boolean }) {
   return (
-    <aside aria-label="에이전트 요약" className="flex min-w-0 flex-col gap-4">
-      <Card className={PANEL_CARD}>
-        <CardTitle role="heading" aria-level={2}>
-          요약
-        </CardTitle>
-        <dl className={FACTS}>
-          <dt className={TERM}>식별자</dt>
-          <dd className={`${VALUE} font-mono text-caption`}>{AGENT.slug}</dd>
-          <dt className={TERM}>활성 release</dt>
-          <dd className={VALUE}>{AGENT.active}</dd>
-          <dt className={TERM}>최신 version</dt>
-          <dd className={VALUE}>{AGENT.latest}</dd>
-        </dl>
+    <DetailRailStandIn label="에이전트 요약" narrow={narrow}>
+      <div className="pt-[var(--ap-space-block)]">
+        <PartRequest name="Detail rail" />
+      </div>
+      <DetailRailSectionStandIn title="요약">
+        <KeyValueList
+          items={[
+            {
+              label: "식별자",
+              value: <div className="font-mono">{AGENT.slug}</div>,
+            },
+            { label: "활성 release", value: AGENT.active },
+            { label: "최신 version", value: AGENT.latest },
+          ]}
+        />
         <div className={MUTED_TEXT}>새 세션은 최신 version으로 시작합니다.</div>
-      </Card>
-    </aside>
+      </DetailRailSectionStandIn>
+    </DetailRailStandIn>
   );
 }
 
@@ -257,8 +259,8 @@ function ChannelLines({
 }) {
   return (
     <>
-      <div className="flex flex-wrap items-center gap-2 font-semibold">
-        {name}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <div className="font-semibold">{name}</div>
         {badge}
       </div>
       <div className={SECONDARY}>{sub}</div>
@@ -577,120 +579,110 @@ function AgentDetailScreen(props: ScreenProps) {
     );
   }
 
+  const goTo = (next: Segment) => {
+    setSegment(next);
+    setOutcome(null);
+  };
+  const linkTo = (label: string, next: Segment, name?: string) => (
+    <Button
+      type="button"
+      variant="link"
+      size="sm"
+      className="h-auto px-0 text-link"
+      aria-label={name}
+      onClick={() => goTo(next)}
+    >
+      {label}
+    </Button>
+  );
+  // Overview only reads the state; the switches live in the settings tab.
+  const stateLine = (label: string, value: boolean) => (
+    <div className="flex min-h-8 items-center gap-2 text-control">
+      <div className="text-muted-foreground">{label}:</div>
+      {linkTo(
+        value ? "켜짐" : "꺼짐",
+        "settings",
+        `${label} ${value ? "켜짐" : "꺼짐"}, 설정에서 바꾸기`,
+      )}
+    </div>
+  );
   const overview = (
     <>
-      <RowList variant="joined">
-        <SettingRow
-          title="Slack 연결"
-          description={
-            on
-              ? "끄면 멘션과 DM을 받지 않습니다. Slack 앱과 채널 설정은 남아서 다시 켜면 그대로 이어집니다."
-              : "꺼져 있습니다. 멘션과 DM을 받지 않습니다."
-          }
-          control={({ titleId, descriptionId }) => (
-            <SwitchStandIn
-              checked={on}
-              labelledBy={titleId}
-              describedBy={descriptionId}
-              onCheckedChange={(next) => {
-                setOn(next);
-                show(
-                  next
-                    ? "Slack 연결을 켰습니다. 멘션과 DM을 다시 받습니다."
-                    : "Slack 연결을 껐습니다. 멘션과 DM을 받지 않습니다.",
-                );
-              }}
-            />
-          )}
-        />
-      </RowList>
       {todo.length > 0 ? (
-        <AlertCard
-          level={2}
-          tone={slack === "error" ? "danger" : "attention"}
-          title={`할 일 ${todo.length}건`}
-        >
-          <ul className="m-0 flex w-full list-none flex-col gap-2 p-0">
+        <Section title="할 일">
+          <RowList variant="joined">
             {todo.map(([text, action]) => (
-              <li
-                key={text}
-                className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2"
-              >
-                <div className="min-w-0 flex-1">{text}</div>
-                {action}
-              </li>
+              <SettingRow key={text} title={text} control={() => action} />
             ))}
-          </ul>
-        </AlertCard>
+          </RowList>
+        </Section>
       ) : null}
-      <RowList variant="joined">
-        <SettingRow
-          title="DM 받기"
-          description={
-            on
-              ? "Slack 앱의 메시지 탭에서 1:1 대화를 받습니다. Slack 계정을 연동한 구성원만 쓸 수 있습니다."
-              : "Slack 연결이 꺼져 있어 바꿀 수 없습니다."
-          }
-          control={({ titleId, descriptionId }) => (
-            <SwitchStandIn
-              checked={dm}
-              disabled={!on}
-              labelledBy={titleId}
-              describedBy={descriptionId}
-              onCheckedChange={(next) => {
-                setDm(next);
-                show(
-                  next
-                    ? "DM 받기를 켰습니다."
-                    : "DM 받기를 껐습니다. 채널 멘션은 그대로 받습니다.",
-                );
-              }}
+      <Section title="상태">
+        <RowList variant="joined">
+          <RowListItem className="grid grid-cols-1 gap-x-6 sm:grid-cols-2">
+            {stateLine("Slack 연결", on)}
+            {stateLine("DM 받기", dm)}
+          </RowListItem>
+        </RowList>
+      </Section>
+      <Section title="연결">
+        <RowList variant="joined">
+          <RowListItem>
+            <KeyValueList
+              variant="grid"
+              className="w-full"
+              items={[
+                {
+                  label: "상태",
+                  value: (
+                    <>
+                      {status ? (
+                        <Badge variant={status[1]}>{status[0]}</Badge>
+                      ) : null}
+                      {on ? null : (
+                        <div className="text-muted-foreground">꺼짐</div>
+                      )}
+                    </>
+                  ),
+                },
+                { label: "봇", value: <div className={VALUE}>{BOT}</div> },
+                {
+                  label: "홈 채널",
+                  value: home ? (
+                    <>
+                      <div className={VALUE}>{home}</div>
+                      {linkTo("바꾸기", "channels", "홈 채널 바꾸기")}
+                    </>
+                  ) : (
+                    <div className="text-muted-foreground">선택 안 됨</div>
+                  ),
+                },
+              ]}
             />
-          )}
-        />
-      </RowList>
-      <Card className={PANEL_CARD}>
-        <CardTitle role="heading" aria-level={2}>
-          연결
-        </CardTitle>
-        <dl className={OVERVIEW_FACTS}>
-          <dt className={TERM}>상태</dt>
-          <dd className={VALUE}>
-            <div className="flex flex-wrap items-center gap-2">
-              {status ? <Badge variant={status[1]}>{status[0]}</Badge> : null}
-              {on ? null : (
-                <div className="font-normal text-muted-foreground">꺼짐</div>
-              )}
-            </div>
-          </dd>
-          <dt className={TERM}>봇</dt>
-          <dd className={VALUE}>{BOT}</dd>
-          <dt className={TERM}>홈 채널</dt>
-          <dd className={VALUE}>
-            {home ? (
-              <div className="flex flex-wrap items-center gap-x-3">
-                {home}
-                <Button
-                  type="button"
-                  variant="link"
-                  size="sm"
-                  className="h-auto px-0"
-                  onClick={() => openDialog("home")}
-                >
-                  바꾸기
-                </Button>
-              </div>
-            ) : (
-              <div className="font-normal text-muted-foreground">
-                선택 안 됨
-              </div>
-            )}
-          </dd>
-        </dl>
-      </Card>
+          </RowListItem>
+        </RowList>
+      </Section>
     </>
   );
 
+  const homeMark = (name: string) =>
+    name === home ? (
+      <Badge>홈 채널</Badge>
+    ) : (
+      <Button
+        type="button"
+        variant="link"
+        size="sm"
+        className="h-auto px-0 font-normal text-link"
+        aria-label={`${name} 홈 채널로 지정하기`}
+        onClick={() => {
+          openDialog("home");
+          setHomePick(name);
+        }}
+      >
+        홈 채널로 지정하기 →
+      </Button>
+    );
   const channels = (
     <>
       {pending ? (
@@ -735,33 +727,14 @@ function AgentDetailScreen(props: ScreenProps) {
             <SettingRow
               key={name}
               title={
-                <ChannelLines
-                  name={name}
-                  sub={name === home ? "공개 · 홈 채널" : "공개"}
-                />
+                <ChannelLines name={name} sub="공개" badge={homeMark(name)} />
               }
               control={() => (
-                <>
-                  <ReactionSelect
-                    channel={name}
-                    value={reactionOf(name)}
-                    onChange={(value) => changeReaction(name, value)}
-                  />
-                  {name === home ? null : (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      aria-label={`${name} 홈 지정`}
-                      onClick={() => {
-                        openDialog("home");
-                        setHomePick(name);
-                      }}
-                    >
-                      홈 지정
-                    </Button>
-                  )}
-                </>
+                <ReactionSelect
+                  channel={name}
+                  value={reactionOf(name)}
+                  onChange={(value) => changeReaction(name, value)}
+                />
               )}
             />
           ))}
@@ -770,7 +743,8 @@ function AgentDetailScreen(props: ScreenProps) {
               title={
                 <ChannelLines
                   name={REQUEST.channel}
-                  sub={`비공개 · ${REQUEST.by} 초대 · 승인함${REQUEST.channel === home ? " · 홈 채널" : ""}`}
+                  sub={`비공개 · ${REQUEST.by} 초대 · 승인함`}
+                  badge={homeMark(REQUEST.channel)}
                 />
               }
               control={() => (
@@ -812,11 +786,60 @@ function AgentDetailScreen(props: ScreenProps) {
     </>
   );
 
-  const defaults = (
+  const basic = (
     <RowList variant="joined">
       <SettingRow
+        title="Slack 연결"
+        description={
+          on
+            ? "끄면 멘션과 DM을 받지 않습니다. Slack 앱과 채널 설정은 남아서 다시 켜면 그대로 이어집니다."
+            : "꺼져 있습니다. 멘션과 DM을 받지 않습니다."
+        }
+        status={on ? "켜짐" : "꺼짐"}
+        control={({ titleId, descriptionId }) => (
+          <SwitchStandIn
+            checked={on}
+            labelledBy={titleId}
+            describedBy={descriptionId}
+            onCheckedChange={(next) => {
+              setOn(next);
+              show(
+                next
+                  ? "Slack 연결을 켰습니다. 멘션과 DM을 다시 받습니다."
+                  : "Slack 연결을 껐습니다. 멘션과 DM을 받지 않습니다.",
+              );
+            }}
+          />
+        )}
+      />
+      <SettingRow
+        title="DM 받기"
+        description={
+          on
+            ? "Slack 앱의 메시지 탭에서 1:1 대화를 받습니다. Slack 계정을 연동한 구성원만 쓸 수 있습니다."
+            : "Slack 연결이 꺼져 있어 바꿀 수 없습니다."
+        }
+        status={dm ? "켜짐" : "꺼짐"}
+        control={({ titleId, descriptionId }) => (
+          <SwitchStandIn
+            checked={dm}
+            disabled={!on}
+            labelledBy={titleId}
+            describedBy={descriptionId}
+            onCheckedChange={(next) => {
+              setDm(next);
+              show(
+                next
+                  ? "DM 받기를 켰습니다."
+                  : "DM 받기를 껐습니다. 채널 멘션은 그대로 받습니다.",
+              );
+            }}
+          />
+        )}
+      />
+      <SettingRow
         title="새 채널의 기본 반응"
-        description="채널을 추가하거나 승인하면 이 반응으로 시작합니다. 이미 연결된 채널에는 적용하지 않습니다. 채널마다 바꾸려면 채널 메뉴에서 바꿉니다. 바꾸면 바로 저장됩니다."
+        description="새로 추가하거나 승인한 채널이 이 반응으로 시작합니다. 이미 연결된 채널은 그대로입니다."
         control={({ titleId }) => (
           <NativeSelect
             size="sm"
@@ -873,18 +896,14 @@ function AgentDetailScreen(props: ScreenProps) {
             <div className="flex flex-wrap items-center gap-2">
               이벤트 주소
               {slack === "error" ? <Badge variant="red">오류</Badge> : null}
-            </div>
-          }
-          extra={
-            <>
-              {value(EVENT_URL, true, expanded)}
-              <div className={SECONDARY}>
+              <div className={`${SECONDARY} font-normal`}>
                 {slack === "error"
                   ? "2026. 10. 23. 22:10 Slack이 확인하지 못함"
                   : "2026. 10. 23. 21:50 Slack이 확인함"}
               </div>
-            </>
+            </div>
           }
+          extra={value(EVENT_URL, true, expanded)}
           control={() => (
             <>
               <Button
@@ -916,7 +935,11 @@ function AgentDetailScreen(props: ScreenProps) {
           )}
         />
       </RowList>
-      <Section title="위험 작업">
+    </>
+  );
+  const danger = (
+    <>
+      <Section title="위험 구역">
         <RowList
           variant="joined"
           className="border-(color:--ap-tone-danger-border)"
@@ -954,12 +977,20 @@ function AgentDetailScreen(props: ScreenProps) {
     </>
   );
 
-  const SEGMENT_BODY = { overview, channels, defaults, advanced };
+  // Basic settings first, then advanced, with the danger zone last.
+  const settings = (
+    <>
+      <Section title="기본">{basic}</Section>
+      <Section title="고급">{advanced}</Section>
+      {danger}
+    </>
+  );
+
+  const SEGMENT_BODY = { overview, channels, settings };
   const SEGMENT_PARTS = {
-    overview: ["Switch", "SettingRow", "Combobox"],
+    overview: ["SettingRow"],
     channels: ["SettingRow", "Combobox", "Review dialog"],
-    defaults: ["SettingRow"],
-    advanced: ["SettingRow"],
+    settings: ["Switch", "SettingRow"],
   } satisfies Record<Segment, readonly string[]>;
 
   const connectStep: ConnectStep | null =
@@ -1085,7 +1116,7 @@ function AgentDetailScreen(props: ScreenProps) {
     </Tabs>
   );
 
-  const panel = <SummaryPanel key="panel" />;
+  const panel = <SummaryRail key="panel" narrow={layout.narrow} />;
   const body = <div key="body">{tabs}</div>;
 
   return (
@@ -1333,48 +1364,33 @@ export const AgentDetailSlackChannelsMobile: Story = {
   globals: MOBILE,
 };
 
-export const AgentDetailSlackDefaults: Story = {
-  name: "Slack › 기본 설정",
-  args: { segment: "defaults" },
+export const AgentDetailSlackSettings: Story = {
+  name: "Slack › 설정",
+  args: { segment: "settings" },
 };
-export const AgentDetailSlackDefaultsDark: Story = {
-  ...AgentDetailSlackDefaults,
-  name: "Slack › 기본 설정 (dark)",
+export const AgentDetailSlackSettingsDark: Story = {
+  ...AgentDetailSlackSettings,
+  name: "Slack › 설정 (dark)",
   globals: DARK,
 };
-export const AgentDetailSlackDefaultsMobile: Story = {
-  ...AgentDetailSlackDefaults,
-  name: "Slack › 기본 설정 (390px)",
+export const AgentDetailSlackSettingsMobile: Story = {
+  ...AgentDetailSlackSettings,
+  name: "Slack › 설정 (390px)",
   globals: MOBILE,
 };
 
-export const AgentDetailSlackAdvanced: Story = {
-  name: "Slack › 고급",
-  args: { segment: "advanced" },
+export const AgentDetailSlackSettingsError: Story = {
+  name: "Slack › 설정: 오류 (고치기)",
+  args: { slack: "error", segment: "settings" },
 };
-export const AgentDetailSlackAdvancedDark: Story = {
-  ...AgentDetailSlackAdvanced,
-  name: "Slack › 고급 (dark)",
+export const AgentDetailSlackSettingsErrorDark: Story = {
+  ...AgentDetailSlackSettingsError,
+  name: "Slack › 설정: 오류 (dark)",
   globals: DARK,
 };
-export const AgentDetailSlackAdvancedMobile: Story = {
-  ...AgentDetailSlackAdvanced,
-  name: "Slack › 고급 (390px)",
-  globals: MOBILE,
-};
-
-export const AgentDetailSlackAdvancedError: Story = {
-  name: "Slack › 고급: 오류 (고치기)",
-  args: { slack: "error", segment: "advanced" },
-};
-export const AgentDetailSlackAdvancedErrorDark: Story = {
-  ...AgentDetailSlackAdvancedError,
-  name: "Slack › 고급: 오류 (dark)",
-  globals: DARK,
-};
-export const AgentDetailSlackAdvancedErrorMobile: Story = {
-  ...AgentDetailSlackAdvancedError,
-  name: "Slack › 고급: 오류 (390px)",
+export const AgentDetailSlackSettingsErrorMobile: Story = {
+  ...AgentDetailSlackSettingsError,
+  name: "Slack › 설정: 오류 (390px)",
   globals: MOBILE,
 };
 
@@ -1485,7 +1501,7 @@ export const AgentDetailDialogHomeMobile: Story = {
 
 export const AgentDetailDialogDelete: Story = {
   name: "대화상자: 앱 삭제 확인",
-  args: { segment: "advanced", dialog: "delete" },
+  args: { segment: "settings", dialog: "delete" },
 };
 export const AgentDetailDialogDeleteDark: Story = {
   ...AgentDetailDialogDelete,
