@@ -1026,7 +1026,7 @@ function MembersScreen({ screen }: { readonly screen: Screen }) {
           onConfirm={fn()}
           tone="danger"
           title="Verify Hoon을 비활성화할까요?"
-          consequence="로그인과 이 사람의 개인 key가 바로 끊깁니다. 이 사람이 만든 서비스 key는 계속 동작합니다."
+          consequence="로그인과 이 사람의 개인 key가 바로 끊깁니다. 이 사람이 만든 에이전트 key는 계속 동작합니다."
           confirmLabel="비활성화"
         />
       ) : null}

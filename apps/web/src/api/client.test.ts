@@ -7,6 +7,7 @@ import {
 } from "@werft-ai/client";
 import {
   authMeResponseSchema,
+  API_KEY_NAME_MAX as CONTRACT_API_KEY_NAME_MAX,
   DISPLAY_NAME_MAX as CONTRACT_DISPLAY_NAME_MAX,
   CSRF_HEADER_NAME as CONTRACT_HEADER_NAME,
   CSRF_HEADER_VALUE as CONTRACT_HEADER_VALUE,
@@ -16,6 +17,7 @@ import {
 } from "@werft-ai/contracts";
 import { WORKSPACE_ROLE_VALUES } from "../auth/guard.tsx";
 import {
+  API_KEY_NAME_MAX,
   DISPLAY_NAME_MAX,
   INVITE_TOKEN_LENGTH,
   PASSWORD_MIN_LENGTH,
@@ -29,6 +31,7 @@ describe("API client", () => {
     expect(CSRF_HEADER_VALUE).toBe(CONTRACT_HEADER_VALUE);
     expect(PASSWORD_MIN_LENGTH).toBe(CONTRACT_PASSWORD_MIN_LENGTH);
     expect(DISPLAY_NAME_MAX).toBe(CONTRACT_DISPLAY_NAME_MAX);
+    expect(API_KEY_NAME_MAX).toBe(CONTRACT_API_KEY_NAME_MAX);
     expect(WORKSPACE_ROLE_VALUES).toEqual(CONTRACT_ROLE_VALUES);
     const { min, max } = INVITE_TOKEN_LENGTH;
     for (const [length, ok] of [

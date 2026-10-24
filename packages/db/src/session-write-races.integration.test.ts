@@ -135,19 +135,26 @@ integration("session writes re-judge their requester on PostgreSQL", () => {
 
   async function key(
     workspaceId: string,
-    kind: { service: true; agentId?: string } | { personalOf: Caller },
+    kind: { agentId?: string } | { personalOf: Caller },
   ) {
     const id = randomUUID();
     const personal = "personalOf" in kind;
+    // No key reaches a whole workspace: one without a person is an agent's,
+    // and starts sessions on that agent's release.
+    const release = personal
+      ? null
+      : kind.agentId
+        ? { agentId: kind.agentId, releaseId: undefined }
+        : await agentRelease(workspaceId);
     await db.insert(apiKeys).values({
       id,
       keyHash: Buffer.from(randomUUID()),
       ownerId: workspaceId,
       workspaceId,
-      kind: personal ? "personal" : "service",
+      kind: personal ? "personal" : "agent",
       scopes: SCOPES,
       createdByUserId: personal ? idOf(kind.personalOf) : null,
-      agentId: personal ? null : (kind.agentId ?? null),
+      agentId: release?.agentId ?? null,
     });
     const caller = callerFor(
       {
@@ -161,7 +168,7 @@ integration("session writes re-judge their requester on PostgreSQL", () => {
       randomUUID(),
       { creatorId: personal ? idOf(kind.personalOf) : null },
     );
-    return { id, caller };
+    return { id, caller, releaseId: release?.releaseId };
   }
 
   // A person speaking through Slack, as the channel would hand the write.
@@ -186,14 +193,14 @@ integration("session writes re-judge their requester on PostgreSQL", () => {
     return { id, caller };
   }
 
-  async function agentRelease(workspaceId: string, createdBy: Caller) {
+  async function agentRelease(workspaceId: string, createdBy?: Caller) {
     const agentId = randomUUID();
     await db.insert(agents).values({
       id: agentId,
       workspaceId,
       slug: `a-${agentId.slice(0, 8)}`,
       name: "agent",
-      createdBy: idOf(createdBy),
+      createdBy: createdBy ? idOf(createdBy) : null,
     });
     const versionId = randomUUID();
     await db.insert(agentVersions).values({
@@ -403,15 +410,17 @@ integration("session writes re-judge their requester on PostgreSQL", () => {
   }
 
   describe("the requester", () => {
-    test("a service key revoked after the decision creates and appends nothing", async () => {
+    test("an agent key revoked after the decision creates and appends nothing", async () => {
       const ws = await workspace();
       const owner = await person(ws, "owner");
-      const live = await key(ws, { service: true });
-      const sessionId = await session(live.caller);
+      const live = await key(ws, {});
+      const sessionId = await session(live.caller, live.releaseId);
       expect(await revokeKey(owner, live.id)).toMatchObject({
         outcome: "revoked",
       });
-      expect(await create(live.caller)).toEqual({ outcome: "actor_inactive" });
+      expect(await create(live.caller, live.releaseId)).toEqual({
+        outcome: "actor_inactive",
+      });
       expect(await append(live.caller, sessionId)).toEqual({
         outcome: "actor_inactive",
       });
@@ -436,12 +445,14 @@ integration("session writes re-judge their requester on PostgreSQL", () => {
 
     test("a key that expired after the decision creates nothing", async () => {
       const ws = await workspace();
-      const live = await key(ws, { service: true });
+      const live = await key(ws, {});
       await db
         .update(apiKeys)
         .set({ expiresAt: new Date(Date.now() - 1_000) })
         .where(eq(apiKeys.id, live.id));
-      expect(await create(live.caller)).toEqual({ outcome: "actor_inactive" });
+      expect(await create(live.caller, live.releaseId)).toEqual({
+        outcome: "actor_inactive",
+      });
     });
 
     test("a key bound to an agent creates nothing on another agent's release", async () => {
@@ -449,7 +460,7 @@ integration("session writes re-judge their requester on PostgreSQL", () => {
       const owner = await person(ws, "owner");
       const mine = await agentRelease(ws, owner);
       const other = await agentRelease(ws, owner);
-      const bound = await key(ws, { service: true, agentId: mine.agentId });
+      const bound = await key(ws, { agentId: mine.agentId });
       expect(await create(bound.caller, mine.releaseId)).toMatchObject({
         outcome: "accepted",
       });
@@ -544,8 +555,8 @@ integration("session writes re-judge their requester on PostgreSQL", () => {
     test("a key's own session stays its own under any share", async () => {
       const ws = await workspace();
       const owner = await person(ws, "owner");
-      const service = await key(ws, { service: true });
-      const sessionId = await session(service.caller);
+      const service = await key(ws, {});
+      const sessionId = await session(service.caller, service.releaseId);
       await db.insert(schema.sessionShares).values({
         sessionId,
         ownerId: ws,
@@ -578,15 +589,21 @@ integration("session writes re-judge their requester on PostgreSQL", () => {
     test("a retry of a create accepted before the key was revoked replays; a new one is refused", async () => {
       const ws = await workspace();
       const owner = await person(ws, "owner");
-      const live = await key(ws, { service: true });
-      expect(await create(live.caller, undefined, "create-key")).toMatchObject({
+      const live = await key(ws, {});
+      expect(
+        await create(live.caller, live.releaseId, "create-key"),
+      ).toMatchObject({
         outcome: "accepted",
       });
       await revokeKey(owner, live.id);
-      expect(await create(live.caller, undefined, "create-key")).toMatchObject({
+      expect(
+        await create(live.caller, live.releaseId, "create-key"),
+      ).toMatchObject({
         outcome: "replayed",
       });
-      expect(await create(live.caller)).toEqual({ outcome: "actor_inactive" });
+      expect(await create(live.caller, live.releaseId)).toEqual({
+        outcome: "actor_inactive",
+      });
     });
 
     // The first change used to queue only at its placeholder insert's
@@ -741,8 +758,8 @@ integration("session writes re-judge their requester on PostgreSQL", () => {
       const ws = await workspace();
       const owner = await person(ws, "owner");
       const speaker = await person(ws);
-      const live = await key(ws, { service: true });
-      const keySession = await session(live.caller);
+      const live = await key(ws, {});
+      const keySession = await session(live.caller, live.releaseId);
       await revocationWaits(
         append(live.caller, keySession, undefined, HOLD),
         () => revokeKey(owner, live.id),
@@ -763,9 +780,9 @@ integration("session writes re-judge their requester on PostgreSQL", () => {
       for (let round = 0; round < 10; round++) {
         const live =
           round % 2 === 0
-            ? await key(ws, { service: true })
+            ? await key(ws, {})
             : await key(ws, { personalOf: owner });
-        const sessionId = await session(live.caller);
+        const sessionId = await session(live.caller, live.releaseId);
         const [stored] = await db
           .select({ hash: apiKeys.keyHash })
           .from(apiKeys)
@@ -858,7 +875,7 @@ integration("session writes re-judge their requester on PostgreSQL", () => {
 
     test("a key that lapses while its row is locked creates nothing", async () => {
       const ws = await workspace();
-      const live = await key(ws, { service: true });
+      const live = await key(ws, {});
       const lapsesAt = Date.now() + 1_500;
       await db
         .update(apiKeys)
@@ -872,7 +889,7 @@ integration("session writes re-judge their requester on PostgreSQL", () => {
           [live.id],
         );
         const holder = rows[0]?.pid;
-        const created = create(live.caller);
+        const created = create(live.caller, live.releaseId);
         // The create must be queued on the key row before the key lapses,
         // or this would not tell a check before the lock from one after it.
         let queued = false;
@@ -897,13 +914,13 @@ integration("session writes re-judge their requester on PostgreSQL", () => {
   test("concurrent uses record a key once, and a revoke in flight leaves it unrecorded", async () => {
     const ws = await workspace();
     for (let round = 0; round < 10; round++) {
-      const live = await key(ws, { service: true });
+      const live = await key(ws, {});
       const touched = await Promise.all(
         Array.from({ length: 8 }, () => touchApiKey(db, live.id)),
       );
       expect(touched.filter(Boolean)).toHaveLength(1);
 
-      const revoked = await key(ws, { service: true });
+      const revoked = await key(ws, {});
       const revoker = await pool.connect();
       try {
         await revoker.query("BEGIN");
@@ -941,7 +958,7 @@ integration("session writes re-judge their requester on PostgreSQL", () => {
     const sessionId = await session(creator, releaseId);
     const failures: unknown[] = [];
     for (let round = 0; round < 15; round++) {
-      const service = await key(ws, { service: true, agentId });
+      const service = await key(ws, { agentId });
       const personal = await key(ws, { personalOf: viewer });
       const slack = await slackLink(viewer);
       const requestId = await waitingRequest(sessionId);

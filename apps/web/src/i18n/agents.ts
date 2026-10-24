@@ -245,7 +245,7 @@ export const agentsKo = {
 
   "agentAdmins.title": "에이전트 관리자",
   "agentAdmins.intro":
-    "에이전트 관리자는 이 에이전트의 카드·release·자격 증명 연결과 에이전트 전용 key를 관리합니다. 사람이나 팀을 관리자로 추가하세요.",
+    "에이전트 관리자는 이 에이전트의 카드·release·자격 증명 연결과 에이전트 key를 관리합니다. 사람이나 팀을 관리자로 추가하세요.",
   "agentAdmins.empty":
     "아직 에이전트 관리자가 없습니다. 워크스페이스 소유자와 관리자는 여기에 추가하지 않아도 모든 에이전트를 관리할 수 있습니다.",
   "agentAdmins.person": "사람",

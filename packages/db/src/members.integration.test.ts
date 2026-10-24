@@ -22,6 +22,7 @@ import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
 import { createPostgresSchedulerStore } from "./scheduler-store.ts";
 import * as schema from "./schema.ts";
 import {
+  agents,
   apiKeys,
   executions,
   memberships,
@@ -135,6 +136,8 @@ integration("members, identity and takeover on PostgreSQL", () => {
     return id;
   }
 
+  // An agent key starts sessions only on its agent's release.
+  const releaseOfKey = new Map<string, string>();
   async function key(
     workspaceId: string,
     options: {
@@ -144,15 +147,42 @@ integration("members, identity and takeover on PostgreSQL", () => {
     } = {},
   ) {
     const id = randomUUID();
+    // Without a person, the key is an agent's: no key reaches a workspace.
+    const agentId = options.personalFor === undefined ? randomUUID() : null;
+    if (agentId !== null) {
+      await db
+        .insert(agents)
+        .values({ id: agentId, workspaceId, slug: agentId, name: "bot" });
+      const versionId = randomUUID();
+      await db.insert(schema.agentVersions).values({
+        id: versionId,
+        agentId,
+        versionNo: 1,
+        card: {},
+        contentSha256: "a".repeat(64),
+      });
+      const releaseId = `rel-${randomUUID()}`;
+      await db.insert(schema.agentReleases).values({
+        id: releaseId,
+        agentId,
+        versionId,
+        cardSha256: "a".repeat(64),
+        runtimeProfileId: "claude-coding-v1",
+        profileDigest: "digest",
+        runtimeConfigSnapshot: {},
+        effectiveTools: [],
+      });
+      releaseOfKey.set(id, releaseId);
+    }
     await db.insert(apiKeys).values({
       id,
       keyHash: new TextEncoder().encode(id),
       ownerId: workspaceId,
       workspaceId,
       scopes: options.scopes ?? ALL_SCOPES,
-      ...(options.personalFor === undefined
-        ? {}
-        : { kind: "personal", createdByUserId: options.personalFor }),
+      ...(agentId === null
+        ? { kind: "personal", createdByUserId: options.personalFor }
+        : { kind: "agent", agentId }),
       ...(options.expiresAt === undefined
         ? {}
         : { expiresAt: options.expiresAt }),
@@ -206,7 +236,7 @@ integration("members, identity and takeover on PostgreSQL", () => {
     };
   }
 
-  async function createSession(principal: Principal) {
+  async function createSession(principal: Principal, agentReleaseId?: string) {
     const result = await createPostgresSessionUnitOfWork(db).acceptInputAtomic({
       limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
       principal,
@@ -219,6 +249,7 @@ integration("members, identity and takeover on PostgreSQL", () => {
         branch: "main",
       },
       message: "first input",
+      ...(agentReleaseId ? { agentReleaseId } : {}),
     });
     if (result.outcome !== "accepted") throw new Error(result.outcome);
     return result.response;
@@ -345,13 +376,16 @@ integration("members, identity and takeover on PostgreSQL", () => {
       });
     });
 
-    test("a service key records only the key; a personal key also its person", async () => {
+    test("an agent key records only the key; a personal key also its person", async () => {
       const ws = await workspace();
       const owner = await member(ws, "owner");
       const service = await key(ws);
       const personal = await key(ws, { personalFor: owner });
 
-      const byService = await createSession(asKey(ws, service, null));
+      const byService = await createSession(
+        asKey(ws, service, null),
+        releaseOfKey.get(service),
+      );
       const serviceRow = await sessionRow(byService.session_id);
       expect(serviceRow.createdByApiKeyId).toBe(service);
       expect(serviceRow.createdByUserId).toBeNull();

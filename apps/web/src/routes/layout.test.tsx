@@ -56,7 +56,7 @@ describe("app shell", () => {
     ).toEqual([
       ["홈", "세션", "에이전트"],
       ["구성원", "워크스페이스 설정"],
-      ["연동 계정", "내 key", "언어·테마"],
+      ["연동 계정", "API key", "언어·테마"],
     ]);
     expect(groups[0]?.getAttribute("aria-labelledby")).toBeTruthy();
     expect(within(nav).getByRole("group", { name: "업무" })).toBeDefined();
@@ -77,7 +77,7 @@ describe("app shell", () => {
     renderAt("/settings/api-keys", signedIn);
     // The page head is a <header> too; the top bar comes first.
     const [header] = await screen.findAllByRole("banner");
-    await waitFor(() => expect(header?.textContent).toBe("메뉴 열기내 key"));
+    await waitFor(() => expect(header?.textContent).toBe("메뉴 열기API key"));
   });
 
   test("lists and forms take different widths", async () => {
@@ -117,13 +117,13 @@ describe("app shell", () => {
 
   test("a key list with a trailing slash stays a list", async () => {
     renderAt("/settings/api-keys/", signedIn);
-    await screen.findByRole("heading", { level: 1, name: "내 key" });
+    await screen.findByRole("heading", { level: 1, name: "API key" });
     expect(contentColumn()?.dataset.contentWidth).toBe("wide");
   });
 
   test("the key lists take the list width", async () => {
     renderAt("/settings/api-keys", signedIn);
-    await screen.findByRole("heading", { level: 1, name: "내 key" });
+    await screen.findByRole("heading", { level: 1, name: "API key" });
     expect(contentColumn()?.dataset.contentWidth).toBe("wide");
   });
 
@@ -244,12 +244,12 @@ describe("app shell", () => {
       "연동 계정",
       "언어한국어",
       "테마시스템 설정",
-      "내 key",
+      "API key",
       "로그아웃",
     ]);
     expect(
       within(menu)
-        .getByRole("menuitem", { name: "내 key" })
+        .getByRole("menuitem", { name: "API key" })
         .getAttribute("href"),
     ).toBe("/settings/api-keys");
     expect(
@@ -304,7 +304,7 @@ describe("app shell", () => {
     const region = await screen.findByRole("region", { name: "사용자 메뉴" });
     const user = await setupUser();
     await user.click(within(region).getByRole("button", { name: /Owner/ }));
-    await user.click(screen.getByRole("menuitem", { name: "내 key" }));
+    await user.click(screen.getByRole("menuitem", { name: "API key" }));
     expect(history.location.pathname).toBe("/settings/api-keys");
     expect(screen.queryByRole("menu")).toBeNull();
     expect(document.activeElement?.id).toBe("main");
