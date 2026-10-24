@@ -115,10 +115,15 @@ export function SessionCounts({
               )}
             </div>
           )}
-          {/* One message for every placeholder above, which are hidden. */}
-          <output className="sr-only">
-            {counts === undefined || slots === null ? messages.loading : ""}
-          </output>
+          {/*
+           * One message for every placeholder above, which are hidden. A
+           * screen that announces its own loading passes `loading: ""`.
+           */}
+          {messages.loading ? (
+            <output className="sr-only">
+              {counts === undefined || slots === null ? messages.loading : ""}
+            </output>
+          ) : null}
         </Card>
       )}
     </Section>
