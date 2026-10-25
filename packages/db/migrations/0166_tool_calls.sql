@@ -1,6 +1,7 @@
 CREATE TABLE "tool_call_progress" (
 	"id" integer PRIMARY KEY NOT NULL,
 	"applied_through" bigint DEFAULT 0 NOT NULL,
+	"batch_size" integer,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "tool_call_progress_one_row" CHECK ("tool_call_progress"."id" = 1)
 );
