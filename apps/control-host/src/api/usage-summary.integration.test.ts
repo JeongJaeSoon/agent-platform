@@ -544,9 +544,10 @@ integration("installation figures over HTTP on PostgreSQL", () => {
         role,
       );
       expect(myTools.status, role).toBe(200);
-      expect(
-        usageToolsResponseSchema.parse(await myTools.json()),
-      ).toEqual({ tools: [], findings: [] });
+      expect(usageToolsResponseSchema.parse(await myTools.json())).toEqual({
+        tools: [],
+        findings: [],
+      });
     }
   });
 });

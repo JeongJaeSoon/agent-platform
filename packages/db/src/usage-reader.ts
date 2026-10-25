@@ -3,12 +3,7 @@ import type { UsageReader, UsageSummaryFilter } from "@werft-ai/platform";
 import { and, eq, inArray, isNull, not, or, type SQL, sql } from "drizzle-orm";
 import { INSTALLATION_STORAGE_SCOPE } from "./input-limits.ts";
 import type { Database } from "./queries.ts";
-import {
-  sessions,
-  storageUsage,
-  turns,
-  workerLaunches,
-} from "./schema.ts";
+import { sessions, storageUsage, turns, workerLaunches } from "./schema.ts";
 import { toolCallTotals } from "./tool-calls.ts";
 
 const ENDED: TurnStatus[] = [
@@ -187,8 +182,7 @@ export function createPostgresUsageReader(db: Database): UsageReader {
       return toolCallTotals(db, filter, {
         since,
         until:
-          tools.period.until ??
-          new Date(Math.max(Date.now(), since.getTime())),
+          tools.period.until ?? new Date(Math.max(Date.now(), since.getTime())),
         ...(tools.agentId === undefined ? {} : { agentId: tools.agentId }),
         limit,
       });
