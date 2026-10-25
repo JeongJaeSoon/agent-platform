@@ -325,10 +325,13 @@ export function SlackConnect({
   agentId,
   active = true,
   manage = true,
+  inPage = false,
 }: {
   readonly agentId: string;
   readonly active?: boolean;
   readonly manage?: boolean;
+  /** Rendered as the side list's Advanced section, below the status strip. */
+  readonly inPage?: boolean;
 }) {
   const { t } = useI18n();
   const { client } = useAgentPlatform();
@@ -430,24 +433,26 @@ export function SlackConnect({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 id={`${SECTION.advanced}-title`} className={HEADING}>
             {t(
-              record && identity
+              inPage || (record && identity)
                 ? manage
                   ? "slack.advanced"
                   : "slack.connection"
                 : "slack.app",
             )}
           </h2>
-          <Badge
-            variant={
-              status === "connected"
-                ? "green"
-                : status === "error"
-                  ? "red"
-                  : "gray"
-            }
-          >
-            {t(`slack.state.${status}`)}
-          </Badge>
+          {inPage ? null : (
+            <Badge
+              variant={
+                status === "connected"
+                  ? "green"
+                  : status === "error"
+                    ? "red"
+                    : "gray"
+              }
+            >
+              {t(`slack.state.${status}`)}
+            </Badge>
+          )}
         </div>
         {record && (record.app_id || manage) ? (
           <RowList variant="joined">
@@ -461,7 +466,7 @@ export function SlackConnect({
                 }
               />
             ) : null}
-            {record.app_id && identity ? (
+            {!inPage && record.app_id && identity ? (
               <SettingRow
                 title={t("slack.botId")}
                 meta={
@@ -1164,7 +1169,7 @@ export default function SlackTab({
             />
           </RowList>
         </section>
-        <SlackConnect agentId={agentId} active={active} />
+        <SlackConnect agentId={agentId} active={active} inPage />
       </SideNavLayout>
       {toast}
     </>

@@ -620,6 +620,13 @@ describe("Slack management", () => {
     expect(
       within(card).getByRole("button", { name: "다시 설치" }),
     ).toBeDefined();
+    // The status strip alone carries the bot ID and connection state.
+    const advanced = screen.getByRole("region", { name: "고급" });
+    const status = screen.getByRole("region", { name: "상태" });
+    for (const text of ["봇 ID", "연결됨"]) {
+      expect(advanced.textContent?.includes(text)).toBe(false);
+      expect(status.textContent?.includes(text)).toBe(true);
+    }
   });
 
   test("creates the app before requesting installation", async () => {
@@ -684,6 +691,13 @@ describe("Slack management", () => {
     );
     const result = await screen.findByText("Slack 연결을 해제했습니다.");
     await waitFor(() => expect(document.activeElement === result).toBe(true));
+    // The side list's Advanced link still lands on a section of that name.
+    const nav = screen.getByRole("navigation", { name: "Slack 구역" });
+    const link = within(nav).getByRole("link", { name: "고급" });
+    expect(
+      screen.getByRole("region", { name: "고급" }).id ===
+        link.getAttribute("href")?.slice(1),
+    ).toBe(true);
     expect(
       api.calls.some(
         (call) =>
