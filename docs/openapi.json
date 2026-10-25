@@ -5632,11 +5632,24 @@
                 "type": "null"
               }
             ]
+          },
+          "assignable_roles": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "owner",
+                "admin",
+                "member"
+              ]
+            },
+            "description": "The roles the caller may invite someone as now (POST /v1/invites refuses any other with OWNER_PROTECTED). The same on every page and search."
           }
         },
         "required": [
           "items",
-          "next_cursor"
+          "next_cursor",
+          "assignable_roles"
         ],
         "additionalProperties": false
       },
