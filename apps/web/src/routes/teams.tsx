@@ -50,6 +50,7 @@ import {
   SECTION_TITLE,
 } from "../components/my-teams.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
+import { OPENS_ROW, ROW_LINK } from "../components/row-link.ts";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 
@@ -59,14 +60,6 @@ const FORM = "flex flex-col items-start gap-4";
 const INLINE_FORM = "flex max-w-xl flex-wrap items-end gap-2";
 const NAME_FIELD = "min-w-0 flex-[1_1_14rem]";
 const SECONDARY = "text-muted-foreground text-sm [overflow-wrap:anywhere]";
-// A team row opens as a whole: the name link's box stretches over the row,
-// so the link, its name and its one Tab stop stay as they were, and its
-// keyboard ring is drawn around the row. `!` because styles.css rings every
-// focused link outside any layer, which beats a plain utility.
-const OPENS_ROW = "relative cursor-pointer hover:bg-hover";
-const ROW_LINK =
-  "[overflow-wrap:anywhere] after:absolute after:inset-0 after:rounded-card focus-visible:outline-none! focus-visible:after:outline-2 focus-visible:after:outline-focus-ring focus-visible:after:outline-offset-2";
-
 function ListError({
   error,
   onRetry,
@@ -136,7 +129,10 @@ export function TeamsScreen() {
           <RowList>
             {teams.data.items.map((team) => (
               <RowListItem key={team.id} className={OPENS_ROW}>
-                <TextLink asChild className={ROW_LINK}>
+                <TextLink
+                  asChild
+                  className={`${ROW_LINK} [overflow-wrap:anywhere]`}
+                >
                   <Link
                     to="/members/teams/$teamId"
                     params={{ teamId: team.id }}
@@ -366,7 +362,10 @@ function TeamMembers({
   const { client } = useAgentPlatform();
   const queryClient = useQueryClient();
   const role = useRole();
-  const members = useQuery(membersQuery(client));
+  // Every member is read once someone reaches for the picker, not with the
+  // page.
+  const [picking, setPicking] = useState(false);
+  const members = useQuery({ ...membersQuery(client), enabled: picking });
   const [picked, setPicked] = useState("");
   const [removing, setRemoving] = useState<
     TeamDetail["members"][number] | null
@@ -445,6 +444,8 @@ function TeamMembers({
       <p className={`${MUTED} text-sm`}>{t("teams.addHint")}</p>
       <form
         className={FORM}
+        onPointerEnter={() => setPicking(true)}
+        onFocus={() => setPicking(true)}
         onSubmit={(event) => {
           event.preventDefault();
           if (chosen) add.mutate(chosen);
@@ -454,7 +455,13 @@ function TeamMembers({
           <FieldLabel>{t("teams.pickMember")}</FieldLabel>
           <NativeSelect
             value={picked}
-            disabled={candidates.length === 0}
+            disabled={
+              picking &&
+              !members.isPending &&
+              !members.isFetching &&
+              candidates.length === 0
+            }
+            aria-busy={members.isFetching}
             onChange={(event) => setPicked(event.target.value)}
           >
             <NativeSelectOption value="">

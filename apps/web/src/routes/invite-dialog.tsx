@@ -1,11 +1,12 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type ApiError, unwrap } from "@werft-ai/client";
-import type { MemberView, WorkspaceRole } from "@werft-ai/contracts";
+import type { WorkspaceRole } from "@werft-ai/contracts";
 import { inviteStep } from "@werft-ai/core/forms";
 import {
   formAlerts,
   submitStep,
   useAgentPlatform,
+  useMemberPages,
   useStepForm,
   useStepper,
 } from "@werft-ai/react";
@@ -37,12 +38,12 @@ import { queryKeys } from "../api/queries.ts";
 import {
   ReasonButton,
   roleLabel,
-  useGrantableRoles,
   useRole,
   WORKSPACE_ROLE_VALUES,
 } from "../auth/guard.tsx";
 import { FormError, Notice } from "../components/auth-page.tsx";
 import { copyText } from "../components/copy.ts";
+import { SEARCH_MAX, useSearchTerm } from "../components/search-term.ts";
 import { useDialogFunnel } from "../funnel/tanstack-funnel.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 
@@ -62,11 +63,12 @@ const hasExpiry = (data: unknown): data is InviteSteps["link"] =>
 /** Opens the invite flow: who and with which role, then the link to hand over. */
 export function InviteDialog({
   reason,
-  members,
+  assignableRoles,
   refusal,
 }: {
+  /** From the member list; the invite accepts these and no other. */
+  readonly assignableRoles: readonly WorkspaceRole[];
   readonly reason: string | undefined;
-  readonly members: readonly MemberView[];
   /** Words a refused request the way the page words a disabled action. */
   readonly refusal: (error: ApiError, role: string | undefined) => string;
 }) {
@@ -100,7 +102,7 @@ export function InviteDialog({
       </DialogTrigger>
       <DialogContent>
         <InviteFlow
-          members={members}
+          assignableRoles={assignableRoles}
           refusal={refusal}
           onUncopied={setUncopied}
           confirmLeave={confirmLeave}
@@ -136,12 +138,12 @@ type Outcome =
  * and never goes into the flow's stored input, where history would keep it.
  */
 function InviteFlow({
-  members,
+  assignableRoles,
   refusal,
   onUncopied,
   confirmLeave,
 }: {
-  readonly members: readonly MemberView[];
+  readonly assignableRoles: readonly WorkspaceRole[];
   readonly onUncopied: (uncopied: boolean) => void;
   /** Runs `leave` now, or once the inviter agrees to lose the link. */
   readonly confirmLeave: (leave: () => void) => void;
@@ -219,7 +221,7 @@ function InviteFlow({
       <funnel.Render
         details={() => (
           <DetailsStep
-            members={members}
+            assignableRoles={assignableRoles}
             pending={invite.isPending}
             send={(values) => invite.mutateAsync(values)}
             serverMessage={(error) => refusal(error as ApiError, role)}
@@ -321,12 +323,12 @@ function LinkFocus({
 const FIELDS = ["email", "role"] as const;
 
 function DetailsStep({
-  members,
+  assignableRoles: grantable,
   pending,
   send,
   serverMessage,
 }: {
-  readonly members: readonly MemberView[];
+  readonly assignableRoles: readonly WorkspaceRole[];
   readonly pending: boolean;
   readonly send: (values: {
     email: string;
@@ -335,7 +337,6 @@ function DetailsStep({
   readonly serverMessage: (error: unknown) => string;
 }) {
   const { t } = useI18n();
-  const grantable = useGrantableRoles();
   const form = useStepForm(inviteStep, {
     defaultValues: { email: "", role: DEFAULT_INVITE_ROLE },
   });
@@ -348,12 +349,33 @@ function DetailsStep({
 
   // Re-inviting someone whose membership is off leads nowhere when their
   // account has no password (Google sign-in only): the invite asks for one.
-  // Enabling the membership is the way back for everyone.
-  const disabledMatch = members.find(
-    (member) =>
-      member.disabled_at !== null &&
-      member.email.toLowerCase() === email.trim().toLowerCase(),
-  );
+  // Enabling the membership is the way back for everyone. The server
+  // searches for the typed address once typing pauses, instead of the
+  // dialog reading every member; it matches what contains the term, so the
+  // longest term it takes still finds a longer address.
+  const typed = useSearchTerm(email);
+  const searched = typed?.includes("@")
+    ? typed.slice(0, SEARCH_MAX)
+    : undefined;
+  const matches = useMemberPages(searched, { enabled: searched !== undefined });
+  const address = email.trim().toLowerCase();
+  const sameAddress = matches.data?.pages
+    .flatMap((page) => page.items)
+    .find((member) => member.email.toLowerCase() === address);
+  const disabledMatch =
+    sameAddress && sameAddress.disabled_at !== null ? sameAddress : undefined;
+  // Other addresses containing this one may fill the first pages. A page
+  // that failed stops the search: the hint is advice, not a check.
+  const { hasNextPage, isFetching, isError, fetchNextPage } = matches;
+  const keepLooking =
+    searched !== undefined &&
+    !sameAddress &&
+    hasNextPage &&
+    !isFetching &&
+    !isError;
+  useEffect(() => {
+    if (keepLooking) void fetchNextPage();
+  }, [keepLooking, fetchNextPage]);
 
   return (
     <form
@@ -389,7 +411,7 @@ function DetailsStep({
             </NativeSelectOption>
           ))}
         </NativeSelect>
-        {grantable.length < WORKSPACE_ROLE_VALUES.length ? (
+        {!grantable.includes("owner") ? (
           <FieldDescription>{t("members.roleOwnerGrant")}</FieldDescription>
         ) : null}
         <FieldError>{errors.role?.message}</FieldError>

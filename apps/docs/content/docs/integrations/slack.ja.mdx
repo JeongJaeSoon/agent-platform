@@ -47,6 +47,8 @@ curl -sS -o /dev/null -w '%{http_code}\n' -X POST "$API/v1/linked-accounts/slack
 
 設定済みのインストールでは、開始リクエストが `authorize_url` を返す。その URL の Slack の認可画面で同意すると、Web の連携画面が `code` と `state` を callback に渡し、連携が完了する。連携の状態は `active`·`stale`·`revoked` である。
 
+連携の応答と `GET /v1/linked-accounts` の各項目には、連携時に Slack が返した名前も入る。`external_user_name` は Slack の表示名（id_token の `name`）、`external_tenant_name` は Slack ワークスペース名（`https://slack.com/team_name`）である。もう一度連携すると新しい名前に置き換わる。名前を保存する前に作った連携や、Slack が名前を返さなかった連携は `null` で、Web 画面はそのとき ID を表示する。Slack のトークンは保存しない。
+
 | レスポンス | 意味 |
 | --- | --- |
 | 409 `SLACK_NOT_INSTALLED` | このワークスペースに確認済みの Slack インストールがない |
@@ -83,6 +85,16 @@ unset SLACK_BOT_TOKEN
 
 ## エージェントの Slack アプリ
 
+### アプリ設定の読み取り
+
+owner・admin を含むエージェント管理者が Web セッションで呼び出す。`GET /v1/agents/{id}/slack/app` は `event_url` と `events` を返す。イベント URL はサーバーの `SLACK_EVENTS_PUBLIC_URL` に `/v1/slack/events/{agent_id}` を付けた絶対 URL で、未設定なら null になる。`events.state` は `pending`・`verified`・`failed`、`checked_at` は最後の登録試行時刻(未試行なら null)である。失敗時は秘密値を含まない `error` コードを返す。verified はインストール finalize による manifest 登録成功を表す。
+
+`GET /v1/agents/{id}/slack/app/manifest` は現在のエージェントとサーバー設定から生成した `manifest_yaml` を返す。秘密値は含まない。
+
+`GET /v1/agents/{id}/slack-channels?ids=C1,C2` は最大 50 個の ID の名前を返す。各 item は `id`・`name`・`state` を持ち、Slack が存在しないかアクセスできないと答えた ID だけ名前と状態が `unknown` になる。通信失敗・上位サーバーのエラーはキャッシュせずリクエスト全体が 503 になり、失効したか無効な bot token は 409 `SLACK_NOT_INSTALLED` になる。cursor と全件走査はない。アプリ・チャンネルごとに 60 秒キャッシュし、Slack 429 は `Retry-After` 付きの 503 になる。
+
+`GET`・`PUT /v1/agents/{id}/slack/app/settings` は `{ "default_mode": "off" }` または `mention` を読み書きする。初期値は `off` で、アプリ作成前にも保存できる。新しい binding への既定値適用は後続作業である。アプリ全体のオン・オフは提供しない。
+
 エージェントごとに自分の Slack アプリを持つ。接続には、アプリ id、チーム id、bot token が入った認証情報への参照の名前(`credential_ref`、値ではない)を送る。
 
 ```sh
@@ -91,6 +103,19 @@ curl -sS "$API/v1/agents/$AID/identities" "${WEB[@]}" \
 ```
 
 確認済みの Slack インストールがない場合は 409 `SLACK_NOT_INSTALLED` になる。インストールは運用者が上の登録 CLI で作成する。
+
+## チャンネル参加とデプロイの歓迎メッセージ
+
+エージェントのチャンネル(`PUT /v1/agents/{id}/slack-bindings`)を保存すると、サーバーが bot をそのチャンネルに入れる。公開チャンネルには bot が自分で参加する。非公開チャンネルは Slack が bot の自己参加を許さないので、チャンネルで `/invite @<bot>` で招待する。招待されるとサーバーが検知して続きを進める。結果は binding の `membership.state` に出る。
+
+| `membership.state` | 意味 |
+| --- | --- |
+| `joined` | bot がチャンネルにいる |
+| `awaiting_invite` | 非公開チャンネルで、招待を待っている |
+| `config_error` | Slack が token か scope を拒否した(`error` に Slack のエラーコード)。アプリを再インストールする |
+| `join_failed` | アーカイブ済みのチャンネルか、ワークスペースのポリシーが拒否した(`error`) |
+
+新しい release をデプロイすると、home チャンネルに`안녕하세요, <エージェント名>입니다. 이 채널에 배포됐어요. 멘션하면 답할게요`(既定は韓国語)が一度だけ届く。同じ定義の再提出や前の release へのロールバックでは送らない。home を別のチャンネルに移すと、新しいチャンネルに一度届く。bot が home にまだいなければ、入るまで待つ。歓迎メッセージや参加が失敗してもデプロイは失敗しない。
 
 ## 次のステップ
 

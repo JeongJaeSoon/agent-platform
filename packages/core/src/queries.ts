@@ -84,6 +84,7 @@ export const queryKeys = {
   // Under "members", so every member change refreshes the loaded pages too.
   memberPages: (q: string | undefined) =>
     ["members", "pages", { q: q ?? null }] as const,
+  firstMembers: ["members", "first"] as const,
   invites: ["invites"] as const,
   agents: ["agents"] as const,
   agent: (id: string) => ["agents", id] as const,
@@ -166,6 +167,7 @@ export function membersQuery(client: ApiClient) {
     queryKey: queryKeys.members,
     queryFn: async (): Promise<ListMembersResponse> => {
       const items: ListMembersResponse["items"] = [];
+      let assignable: ListMembersResponse["assignable_roles"] = [];
       let cursor: string | null = null;
       do {
         const page = (await unwrap(
@@ -178,10 +180,27 @@ export function membersQuery(client: ApiClient) {
           }),
         )) as ListMembersResponse;
         items.push(...page.items);
+        assignable = page.assignable_roles;
         cursor = page.next_cursor;
       } while (cursor);
-      return { items, next_cursor: null };
+      return { items, next_cursor: null, assignable_roles: assignable };
     },
+    retry: false,
+  });
+}
+
+/**
+ * The workspace's two oldest members, one small read: enough to tell whether
+ * anyone joined after the first, and to learn whether the caller may list
+ * members at all.
+ */
+export function firstMembersQuery(client: ApiClient) {
+  return queryOptions({
+    queryKey: queryKeys.firstMembers,
+    queryFn: () =>
+      unwrap(
+        client.GET("/v1/members", { params: { query: { limit: 2 } } }),
+      ) as Promise<ListMembersResponse>,
     retry: false,
   });
 }

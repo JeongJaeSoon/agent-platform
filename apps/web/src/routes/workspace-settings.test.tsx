@@ -23,7 +23,11 @@ const PROFILES = {
 const renderAt: typeof harness.renderAt = (path, routes, locale) =>
   harness.renderAt(
     path,
-    { "GET /v1/profiles": () => json(200, PROFILES), ...routes },
+    {
+      "GET /v1/profiles": () => json(200, PROFILES),
+      [`GET ${TOKEN}`]: () => json(200, UNSET_TOKEN),
+      ...routes,
+    },
     locale,
   );
 
@@ -41,6 +45,16 @@ function profile(id: string, model: string) {
 
 const RETENTION = `/v1/workspaces/${WORKSPACE_ID}/audit-retention`;
 const GUEST = `/v1/workspaces/${WORKSPACE_ID}/slack-guest`;
+const TOKEN = `/v1/workspaces/${WORKSPACE_ID}/slack/config-token`;
+const UNSET_TOKEN = {
+  configured: false,
+  last4: null,
+  updated_at: null,
+  updated_by: null,
+  state: "unset",
+  expires_at: null,
+  issuer: null,
+};
 const adminMe = () => me(undefined, "admin");
 const withGuest = (body: ReturnType<typeof me>, enabled: boolean) => ({
   ...body,
@@ -76,6 +90,9 @@ describe("워크스페이스 설정", () => {
       "보존 기간(일)",
     )) as HTMLInputElement;
     expect(input.value).toBe("90");
+    const unit = input.nextElementSibling;
+    expect(unit?.textContent).toBe("일");
+    expect(unit?.getAttribute("aria-hidden")).toBe("true");
     expect(
       (input.getAttribute("aria-describedby") ?? "")
         .split(" ")
@@ -232,7 +249,7 @@ describe("워크스페이스 설정", () => {
 
   test("관리자가 게스트 사용을 켜면 서버에 저장하고 다시 읽은 값으로 켜짐이다", async () => {
     let enabled = false;
-    const { api } = renderAt("/settings/workspace", {
+    const { api } = renderAt("/settings/workspace/slack", {
       "GET /v1/auth/me": () => json(200, withGuest(adminMe(), enabled)),
       [`POST ${GUEST}`]: async (request: Request) => {
         enabled = ((await request.json()) as { slack_guest_enabled: boolean })
@@ -264,14 +281,14 @@ describe("워크스페이스 설정", () => {
   });
 
   test("게스트 스위치는 설정 행 컨트롤 칸의 마지막이고, 읽지 않는 켜짐·꺼짐 글자가 바로 앞에 있다", async () => {
-    renderAt("/settings/workspace", {
+    renderAt("/settings/workspace/slack", {
       "GET /v1/auth/me": () => json(200, withGuest(adminMe(), false)),
     });
     const toggle = await screen.findByRole("switch", GUEST_SWITCH);
     const row = toggle.closest('[data-slot="setting-row"]');
-    expect(
-      row?.closest('[role="region"]')?.getAttribute("aria-labelledby"),
-    ).toBe(screen.getByRole("heading", { name: "Slack 게스트" }).id);
+    expect(row?.closest("section")?.getAttribute("aria-labelledby")).toBe(
+      screen.getByRole("heading", { name: "Slack 게스트" }).id,
+    );
     // bun's toBe passes on unrelated DOM nodes; compare elements with ===.
     const slot = toggle.parentElement;
     expect(slot?.lastElementChild === toggle).toBe(true);
@@ -288,7 +305,7 @@ describe("워크스페이스 설정", () => {
 
   test("키보드로 스위치에 가서 Space로 켜고 Enter로 끈다", async () => {
     let enabled = false;
-    const { api } = renderAt("/settings/workspace", {
+    const { api } = renderAt("/settings/workspace/slack", {
       "GET /v1/auth/me": () => json(200, withGuest(me(), enabled)),
       [`POST ${GUEST}`]: async (request: Request) => {
         enabled = ((await request.json()) as { slack_guest_enabled: boolean })
@@ -298,7 +315,8 @@ describe("워크스페이스 설정", () => {
     });
     const toggle = await screen.findByRole("switch", GUEST_SWITCH);
     const user = await setupUser();
-    screen.getByRole("button", { name: "저장" }).focus();
+    // The settings nav's last link comes right before the page.
+    screen.getByRole("link", { name: "언어·테마" }).focus();
     await user.tab();
     expect(document.activeElement === toggle).toBe(true);
     await user.keyboard(" ");
@@ -318,7 +336,7 @@ describe("워크스페이스 설정", () => {
   test("저장 중에도 포커스가 스위치에 남고, 그동안 다시 누른 Space는 보내지 않는다", async () => {
     let enabled = false;
     let release = () => {};
-    const { api } = renderAt("/settings/workspace", {
+    const { api } = renderAt("/settings/workspace/slack", {
       "GET /v1/auth/me": () => json(200, withGuest(me(), enabled)),
       [`POST ${GUEST}`]: async (request: Request) => {
         const sent = (await request.json()) as { slack_guest_enabled: boolean };
@@ -357,7 +375,7 @@ describe("워크스페이스 설정", () => {
   });
 
   test("라벨 글자를 눌러도 게스트 사용이 바뀐다", async () => {
-    const { api } = renderAt("/settings/workspace", {
+    const { api } = renderAt("/settings/workspace/slack", {
       "GET /v1/auth/me": () => json(200, withGuest(me(), false)),
       [`POST ${GUEST}`]: () => json(200, { slack_guest_enabled: true }),
     });
@@ -399,7 +417,7 @@ describe("워크스페이스 설정", () => {
 
   test("워크스페이스 설정 권한이 없으면 스위치가 이유와 함께 닫혀 있고, 서버에 묻지 않는다", async () => {
     const body = me();
-    const { api } = renderAt("/settings/workspace", {
+    const { api } = renderAt("/settings/workspace/slack", {
       "GET /v1/auth/me": () =>
         json(200, {
           ...body,
@@ -420,7 +438,7 @@ describe("워크스페이스 설정", () => {
   });
 
   test("켜져 있으면 끄는 값을 보낸다", async () => {
-    const { api } = renderAt("/settings/workspace", {
+    const { api } = renderAt("/settings/workspace/slack", {
       "GET /v1/auth/me": () => json(200, withGuest(me(), true)),
       [`POST ${GUEST}`]: () => json(200, { slack_guest_enabled: false }),
     });
@@ -454,7 +472,7 @@ describe("워크스페이스 설정", () => {
   });
 
   test("게스트 설정을 서버가 403으로 거절하면 같은 이유 문구이고 서버의 영어 문구는 없다", async () => {
-    renderAt("/settings/workspace", {
+    renderAt("/settings/workspace/slack", {
       "GET /v1/auth/me": () => json(200, adminMe()),
       [`POST ${GUEST}`]: () =>
         apiError(
@@ -552,18 +570,137 @@ describe("워크스페이스 설정", () => {
     ).toBeDefined();
   });
 
-  test("메뉴는 소유자·관리자에게만 보인다", async () => {
+  test("소유자·관리자의 설정 메뉴는 워크스페이스 일반으로 연다", async () => {
     renderAt("/", { "GET /v1/auth/me": () => json(200, adminMe()) });
     expect(
-      await screen.findByRole("link", { name: "워크스페이스 설정" }),
-    ).toBeDefined();
+      (await screen.findByRole("link", { name: "설정" })).getAttribute("href"),
+    ).toBe("/settings/workspace");
   });
 
-  test("구성원에게는 메뉴가 없다", async () => {
+  test("구성원의 설정 메뉴는 연동 계정으로 연다", async () => {
     renderAt("/", { "GET /v1/auth/me": () => json(200, memberMe()) });
-    await screen.findByRole("link", { name: "API key" });
     expect(
-      screen.queryByRole("link", { name: "워크스페이스 설정" }),
-    ).toBeNull();
+      (await screen.findByRole("link", { name: "설정" })).getAttribute("href"),
+    ).toBe("/settings/linked-accounts");
+  });
+
+  test("App Configuration Token을 넣으면 다시 읽은 상태와 지우는 칸이 보인다", async () => {
+    let saved = false;
+    const active = {
+      ...UNSET_TOKEN,
+      configured: true,
+      last4: "abcd",
+      state: "active",
+      updated_at: "2026-10-25T05:00:00.000Z",
+    };
+    const { api, services } = renderAt("/settings/workspace/slack", {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${TOKEN}`]: () => json(200, saved ? active : UNSET_TOKEN),
+      [`PUT ${TOKEN}`]: () => {
+        saved = true;
+        return json(200, {
+          ...active,
+          receipt_id: "5f0c2c1e-8a4b-4c1d-9e2f-3a4b5c6d7e8f",
+          warnings: [],
+        });
+      },
+    });
+    expect(await screen.findByText("설정 안 됨")).toBeDefined();
+    expect(screen.queryByRole("heading", { name: "위험 영역" })).toBeNull();
+    const user = await setupUser();
+    await user.click(screen.getByRole("button", { name: "token 넣기" }));
+    const input = screen.getByLabelText("새 App Configuration Token");
+    expect(document.activeElement === input).toBe(true);
+    await user.type(input, "fake-config-value");
+    await user.click(screen.getByRole("button", { name: "저장" }));
+    expect((await screen.findByRole("status")).textContent).toBe(
+      "App Configuration Token을 저장했습니다.",
+    );
+    expect(
+      api.calls.filter((c) => c.method === "PUT").map((c) => c.body),
+    ).toEqual([{ value: "fake-config-value" }]);
+    expect(await screen.findByText("설정됨")).toBeDefined();
+    expect(screen.getByRole("heading", { name: "위험 영역" })).toBeDefined();
+    // The form is gone; focus is on the button that opens it again.
+    await waitFor(() =>
+      expect(document.activeElement?.textContent).toBe("교체"),
+    );
+    // The value went to the server and nowhere else.
+    await waitFor(() =>
+      expect(
+        JSON.stringify(
+          services.queryClient
+            .getMutationCache()
+            .getAll()
+            .map((mutation) => mutation.state.variables),
+        ),
+      ).not.toContain("fake-config-value"),
+    );
+  });
+
+  test("저장 뒤 다시 읽기가 끝나지 않아도 token 값은 캐시에 남지 않는다", async () => {
+    let saved = false;
+    const { services } = renderAt("/settings/workspace/slack", {
+      "GET /v1/auth/me": () => json(200, me()),
+      // The read after the save never answers.
+      [`GET ${TOKEN}`]: () =>
+        saved ? new Promise<Response>(() => {}) : json(200, UNSET_TOKEN),
+      [`PUT ${TOKEN}`]: () => {
+        saved = true;
+        return json(200, {
+          ...UNSET_TOKEN,
+          configured: true,
+          last4: "abcd",
+          state: "active",
+          updated_at: "2026-10-25T05:00:00.000Z",
+          receipt_id: "5f0c2c1e-8a4b-4c1d-9e2f-3a4b5c6d7e8f",
+          warnings: [],
+        });
+      },
+    });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "token 넣기" }));
+    await user.type(
+      screen.getByLabelText("새 App Configuration Token"),
+      "fake-config-value",
+    );
+    await user.click(screen.getByRole("button", { name: "저장" }));
+    await screen.findByRole("status");
+    await waitFor(() =>
+      expect(
+        JSON.stringify(
+          services.queryClient
+            .getMutationCache()
+            .getAll()
+            .map((mutation) => mutation.state.variables),
+        ),
+      ).not.toContain("fake-config-value"),
+    );
+  });
+
+  test("token 칸을 취소하면 포커스가 칸을 연 버튼으로 돌아간다", async () => {
+    renderAt("/settings/workspace/slack", {
+      "GET /v1/auth/me": () => json(200, me()),
+    });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "token 넣기" }));
+    await user.click(screen.getByRole("button", { name: "취소" }));
+    expect(screen.queryByLabelText("새 App Configuration Token")).toBeNull();
+    expect(document.activeElement?.textContent).toBe("token 넣기");
+  });
+
+  test("끝에 /가 붙은 주소에서도 설정 내비가 지금 페이지를 가리킨다", async () => {
+    renderAt("/settings/workspace/", {
+      "GET /v1/auth/me": () => json(200, me()),
+    });
+    const nav = await screen.findByRole("navigation", { name: "설정" });
+    expect(
+      within(nav)
+        .getByRole("link", { name: "일반" })
+        .getAttribute("aria-current"),
+    ).toBe("page");
+    expect(
+      within(nav).getByRole("button", { name: /^설정 · 일반/ }),
+    ).toBeDefined();
   });
 });

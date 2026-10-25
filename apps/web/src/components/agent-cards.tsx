@@ -17,6 +17,7 @@ import {
   CardTitle,
   cn,
   Link,
+  linkVariants,
   Skeleton,
 } from "@werft-ai/ui";
 import { ArrowRight } from "lucide-react";
@@ -25,6 +26,7 @@ import { agentAdminsQuery, agentQuery } from "../api/queries.ts";
 import { useI18n } from "../i18n/i18n.tsx";
 import { credentialBindingsQuery } from "../routes/agent-detail/credentials.tsx";
 import { AgentStateBadge, agentState } from "./agent-state.tsx";
+import { OPENS_ROW, ROW_LINK } from "./row-link.ts";
 import { useSeen } from "./seen.ts";
 
 /** The design's cards: what each agent is and what it still needs. */
@@ -97,13 +99,13 @@ function AgentCard({
   const released = agentState(agent) === "active" && version !== undefined;
 
   return (
-    <Card className="w-full" data-agent={agent.slug}>
+    <Card className={cn("w-full", OPENS_ROW)} data-agent={agent.slug}>
       <CardHeader>
         <div className="flex min-w-0 items-center gap-3">
           <AgentAvatar name={agent.name} />
           <div className="flex min-w-0 flex-col gap-1">
             <CardTitle className="[overflow-wrap:anywhere]">
-              <Link asChild>
+              <Link asChild className={ROW_LINK}>
                 <RouterLink to="/agents/$id" params={{ id: agent.id }}>
                   {agent.name}
                 </RouterLink>
@@ -195,13 +197,17 @@ function AgentCard({
               : null}
           </Detail>
         </span>
-        <Link asChild className="inline-flex shrink-0 items-center gap-1">
-          <RouterLink to="/agents/$id" params={{ id: agent.id }}>
-            <span className="sr-only">{agent.name} </span>
-            {t("agents.cards.open")}
-            <ArrowRight aria-hidden="true" className="size-4" />
-          </RouterLink>
-        </Link>
+        {/* The card's name link opens it; this only says so, once. */}
+        <span
+          aria-hidden="true"
+          className={cn(
+            linkVariants(),
+            "inline-flex shrink-0 items-center gap-1",
+          )}
+        >
+          {t("agents.cards.open")}
+          <ArrowRight className="size-4" />
+        </span>
       </CardFooter>
     </Card>
   );

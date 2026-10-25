@@ -445,10 +445,10 @@ integration("members and actors over HTTP on PostgreSQL", () => {
       (await setAccess("members", "disable", ownerId, memberCookie)).status,
     ).toBe(403);
     const self = await setAccess("members", "disable", ownerId, ownerCookie);
-    expect(self.status).toBe(409);
+    expect(self.status).toBe(403);
     expect(
       ((await self.json()) as { error: { code: string } }).error.code,
-    ).toBe("LAST_OWNER");
+    ).toBe("SELF_PROTECTED");
     const disabled = await setAccess(
       "members",
       "disable",

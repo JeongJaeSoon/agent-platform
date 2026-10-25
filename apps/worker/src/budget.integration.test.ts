@@ -12,7 +12,7 @@ import {
 } from "@werft-ai/testkit/workspace";
 
 import type { RuntimeResumePlan, WorkerCheckpointPort } from "./checkpoint.ts";
-import { claudeRuntimeRegistry } from "./composition.ts";
+import { claudeRuntimeRegistry, createWorkerHost } from "./composition.ts";
 import type { WorkerConfig, WorkerTimeouts } from "./config.ts";
 import { EngineProcesses } from "./engine-processes.ts";
 import { FakeWorkerGateway } from "./testing/fake-gateway.ts";
@@ -72,26 +72,6 @@ class CommittingCheckpoints implements WorkerCheckpointPort {
   }
 }
 
-/**
- * The engine runs git and rg helpers of its own a few hundred milliseconds
- * after it starts. A turn the budget cuts that early can reach its capture
- * while one is still alive or unreaped, and the host rightly refuses it as a
- * background writer; this waits them out, within a bound, before answering.
- * The host does not wait: a first turn that ends without a model request
- * (`/clear`) loses its checkpoint this way, and a bounded grace in
- * WorkerHost.capture is the open follow-up.
- */
-class SettledEngineProcesses extends EngineProcesses {
-  override async descendants(): Promise<number[]> {
-    const deadline = performance.now() + 10_000;
-    for (;;) {
-      const found = await super.descendants();
-      if (found.length === 0 || performance.now() > deadline) return found;
-      await Bun.sleep(20);
-    }
-  }
-}
-
 function setup(
   endpoint: string,
   home: string,
@@ -142,6 +122,74 @@ afterEach(async () => {
 });
 
 describe("session budget inside a turn, through the composed runtime", () => {
+  test("a local clear command captures through the production process watcher", async () => {
+    isolated = await createIsolatedWorkspace({ prefix: "capture-grace-" });
+    const { home, workspace } = isolated;
+    for (const args of [
+      ["init", "-q"],
+      [
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.test",
+        "commit",
+        "--allow-empty",
+        "-qm",
+        "initial",
+      ],
+    ]) {
+      const result = Bun.spawnSync(["git", ...args], { cwd: workspace });
+      expect(result.exitCode).toBe(0);
+    }
+    await Promise.all(
+      Array.from({ length: 3087 }, (_, index) =>
+        Bun.write(`${workspace}/file-${index}.txt`, "workspace context\n"),
+      ),
+    );
+    expect(
+      Bun.spawnSync(["git", "add", "."], { cwd: workspace }).exitCode,
+    ).toBe(0);
+    expect(
+      Bun.spawnSync(
+        [
+          "git",
+          "-c",
+          "user.name=Test",
+          "-c",
+          "user.email=test@example.test",
+          "commit",
+          "-qm",
+          "workspace",
+        ],
+        { cwd: workspace },
+      ).exitCode,
+    ).toBe(0);
+    server = startFakeAnthropicServer([textReply("unused")]);
+    const { config, runtimeConfig } = setup(server.url, home, workspace);
+    runtimeConfig.tools = ["Bash", "Read", "Glob", "Grep"];
+    const gateway = new FakeWorkerGateway({
+      runtimeConfig,
+      sessionId: SESSION_ID,
+    });
+    gateway.enqueue("/clear");
+    const rejected: string[] = [];
+    const host = createWorkerHost(config, {
+      checkpoints: new CommittingCheckpoints({ mode: "new" }),
+      gateway,
+      logger: {
+        ...silent,
+        warn: (event) => rejected.push(event),
+      },
+      workspace: noWorkspace,
+    });
+
+    await host.runLoop();
+
+    expect(server.requests).toHaveLength(0);
+    expect(rejected).not.toContain("worker.checkpoint.rejected");
+    expect(gateway.finalized[0]?.checkpoint).toMatchObject({ revision: 0 });
+  });
+
   test("the claim's remaining budget ends a tool loop mid-turn, and a resume gets its own", async () => {
     isolated = await createIsolatedWorkspace({ prefix: "94s-279-" });
     const { home, workspace } = isolated;
@@ -152,7 +200,7 @@ describe("session budget inside a turn, through the composed runtime", () => {
       usage: THREE_DOLLARS,
     });
     const { config, runtimeConfig } = setup(server.url, home, workspace);
-    const engines = new SettledEngineProcesses();
+    const engines = new EngineProcesses();
 
     // First attempt: $5 left. $3 goes on, $6 is past it, so the turn ends
     // after its second request instead of running to the turn deadline.
