@@ -144,8 +144,8 @@ jobs:
     name: integration (${{ matrix.domain }})
     if: contains(fromJSON('["all","integration"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04
-    # Recent main runs reached 8m before the API split; DB reached 5m42s.
-    # Keep 2m beyond that observed ceiling for runner and service variability.
+    # The longest domain, DB, reached 5m42s on main and 5m19s on the PR.
+    # Allow 10m for runner variability, service startup and cleanup.
     timeout-minutes: 10
     strategy:
       # A failing job must not cancel the rest: each one's failures are
@@ -162,8 +162,8 @@ jobs:
             paths:
               - packages/db/
               - packages/testkit/src/postgres.
-          # HTTP routes and the control-host flows they drive. The former API
-          # domain reached 8m, so Slack and client/UI suites run separately.
+          # HTTP routes and the control-host flows they drive. Keep their
+          # database and lifecycle checks apart from API consumer suites.
           - domain: api
             postgres: true
             localstack: true
@@ -178,7 +178,7 @@ jobs:
               - tests/interrupt-flow.
               - tests/lease-clock.
           # Slack and the contracts, clients and UI that consume the API.
-          # Preserve both opt-in services so moving files cannot disable tests.
+          # Enable PostgreSQL and LocalStack so service-gated tests do not skip.
           - domain: surface
             postgres: true
             localstack: true
