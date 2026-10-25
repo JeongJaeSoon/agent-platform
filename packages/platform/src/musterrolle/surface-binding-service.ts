@@ -22,6 +22,8 @@ import {
   type Caller,
   MANAGEMENT_ROLES,
 } from "./policy.ts";
+import type { SlackChannelJoiner } from "./slack-channel-join.ts";
+import type { SlackWelcome } from "./slack-welcome.ts";
 
 // Design 4.1's "Slack 앱 설치·채널 설정" row: `binding.manage` on the
 // agent, which owner, admin and that agent's admins hold.
@@ -45,6 +47,7 @@ export function surfaceBindingView(
     home: record.home,
     memory_write_policy: record.memoryWritePolicy,
     status: record.status,
+    ...(record.membership === null ? {} : { membership: record.membership }),
     muted: record.muted,
     revision: record.revision,
     created_at: record.createdAt.toISOString(),
@@ -68,8 +71,31 @@ export function createSurfaceBindingService(deps: {
   authorization: AuthorizationPolicy;
   store: SurfaceBindingStore;
   channels: SlackChannelKinds;
+  /** Joins a bound channel; absent where no bot token can be read. */
+  join?: SlackChannelJoiner;
+  welcome?: Pick<SlackWelcome, "welcome">;
 }) {
   const { authorization, store, channels } = deps;
+
+  // A channel the bot cannot join yet is still bound: the binding says why,
+  // and the invite, or the next save, carries on.
+  async function joined(
+    binding: SurfaceBindingRecord,
+  ): Promise<SurfaceBindingRecord> {
+    let membership = binding.membership;
+    try {
+      membership = (await deps.join?.(binding)) ?? membership;
+      if (binding.home && membership?.state === "joined") {
+        await deps.welcome?.welcome(binding.workspaceId, binding.agentId, {
+          ask: false,
+        });
+      }
+    } catch {
+      // The binding is saved; what Slack or the outbox refused is retried
+      // on the next save, the invite or the next activation.
+    }
+    return { ...binding, membership };
+  }
 
   const permitted = (caller: Caller, agentId: string) =>
     requirePermitted(authorization, caller, ACTION, {
@@ -108,7 +134,7 @@ export function createSurfaceBindingService(deps: {
       switch (result.outcome) {
         case "set":
           return {
-            slack_binding: surfaceBindingView(result.binding),
+            slack_binding: surfaceBindingView(await joined(result.binding)),
             receipt_id: result.receiptId,
           };
         case "agent_not_found":

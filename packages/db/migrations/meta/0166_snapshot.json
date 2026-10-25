@@ -1,5 +1,5 @@
 {
-  "id": "09456c3e-df73-4d67-ba08-72b430f36f95",
+  "id": "9d9687ad-5676-4386-9578-928c6c6caee9",
   "prevId": "cd26832a-1f19-4325-bada-6c356fe47a3a",
   "version": "7",
   "dialect": "postgresql",
@@ -2688,18 +2688,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
-        },
-        "external_tenant_name": {
-          "name": "external_tenant_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "external_user_name": {
-          "name": "external_user_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
         },
         "status": {
           "name": "status",
@@ -6666,7 +6654,7 @@
       "checkConstraints": {
         "slack_outbox_kind_check": {
           "name": "slack_outbox_kind_check",
-          "value": "\"slack_outbox\".\"kind\" IN ('reply', 'notice', 'failure_notice', 'input_notice')"
+          "value": "\"slack_outbox\".\"kind\" IN ('reply', 'notice', 'failure_notice', 'input_notice', 'welcome')"
         },
         "slack_outbox_status_check": {
           "name": "slack_outbox_status_check",
@@ -6813,6 +6801,18 @@
           "primaryKey": false,
           "notNull": true,
           "default": false
+        },
+        "membership": {
+          "name": "membership",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "membership_error": {
+          "name": "membership_error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "revision": {
           "name": "revision",
@@ -6975,6 +6975,10 @@
         "surface_bindings_status_check": {
           "name": "surface_bindings_status_check",
           "value": "\"surface_bindings\".\"status\" IN ('ready','partial','failed','revoked')"
+        },
+        "surface_bindings_membership_check": {
+          "name": "surface_bindings_membership_check",
+          "value": "(\"surface_bindings\".\"membership\" IS NULL OR \"surface_bindings\".\"membership\" IN ('joined','awaiting_invite','config_error','join_failed')) AND (\"surface_bindings\".\"membership_error\" IS NULL OR \"surface_bindings\".\"membership\" IS NOT NULL)"
         },
         "surface_bindings_revoked_check": {
           "name": "surface_bindings_revoked_check",

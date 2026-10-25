@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Button, EmptyState } from "@werft-ai/ui";
+import { Inbox } from "lucide-react";
 
 const meta = {
   title: "Patterns/EmptyState",
@@ -32,4 +33,40 @@ export const WithActionsDark: Story = {
   ...WithActions,
   name: "With actions (dark)",
   globals: { theme: "dark" },
+};
+
+/** Console v4 `.empty-ic`: a 40px quiet box above the title. */
+export const WithIcon: Story = {
+  args: {
+    icon: <Inbox size={16} strokeWidth={1.5} />,
+    action: (
+      <Button type="button" size="sm">
+        새 세션
+      </Button>
+    ),
+  },
+};
+
+/** `size="sm"` inside a flush card, as the home's waiting list (v4 L528). */
+export const SmallInCard: Story = {
+  args: { icon: <Inbox size={16} strokeWidth={1.5} />, size: "sm" },
+  decorators: [
+    (Story) => (
+      <div className="rounded-card border bg-card">
+        <Story />
+      </div>
+    ),
+  ],
+};
+
+export const SmallInCardDark: Story = {
+  ...SmallInCard,
+  name: "Small in card (dark)",
+  globals: { theme: "dark" },
+};
+
+export const SmallInCardMobile: Story = {
+  ...SmallInCard,
+  name: "Small in card (390px)",
+  globals: { viewport: { value: "mobile390", isRotated: false } },
 };

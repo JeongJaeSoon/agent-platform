@@ -104,6 +104,19 @@ curl -sS "$API/v1/agents/$AID/identities" "${WEB[@]}" \
 
 確認済みの Slack インストールがない場合は 409 `SLACK_NOT_INSTALLED` になる。インストールは運用者が上の登録 CLI で作成する。
 
+## チャンネル参加とデプロイの歓迎メッセージ
+
+エージェントのチャンネル(`PUT /v1/agents/{id}/slack-bindings`)を保存すると、サーバーが bot をそのチャンネルに入れる。公開チャンネルには bot が自分で参加する。非公開チャンネルは Slack が bot の自己参加を許さないので、チャンネルで `/invite @<bot>` で招待する。招待されるとサーバーが検知して続きを進める。結果は binding の `membership.state` に出る。
+
+| `membership.state` | 意味 |
+| --- | --- |
+| `joined` | bot がチャンネルにいる |
+| `awaiting_invite` | 非公開チャンネルで、招待を待っている |
+| `config_error` | Slack が token か scope を拒否した(`error` に Slack のエラーコード)。アプリを再インストールする |
+| `join_failed` | アーカイブ済みのチャンネルか、ワークスペースのポリシーが拒否した(`error`) |
+
+新しい release をデプロイすると、home チャンネルに`안녕하세요, <エージェント名>입니다. 이 채널에 배포됐어요. 멘션하면 답할게요`(既定は韓国語)が一度だけ届く。同じ定義の再提出や前の release へのロールバックでは送らない。home を別のチャンネルに移すと、新しいチャンネルに一度届く。bot が home にまだいなければ、入るまで待つ。歓迎メッセージや参加が失敗してもデプロイは失敗しない。
+
 ## 次のステップ
 
 - [API キー](/api-keys)
