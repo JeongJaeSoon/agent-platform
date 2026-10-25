@@ -17,13 +17,28 @@ worker namespace 하나에만 거는 `Role`이다. 어댑터가 실제로 부르
 | --- | --- | --- |
 | `pods` | get, list, create, delete | 생성·adopt·inspect·`listManaged`·terminate. `removeWorkspace`의 사용 중 확인에도 쓴다 |
 | `secrets` | get, list, create, delete | nonce Secret 생성. adopt 전에 Secret이 있는지 확인한다. terminate 때 지운다 |
+| `pods/log` | get | 실패한 worker의 로그 tail. 아래 "종료 사유와 로그 tail" 참고 |
 | `persistentvolumeclaims` | get, list, create, delete | workspace 생성·확인, `listWorkspaces`·`removeWorkspace` |
 
 이 Role에 없는 동사는 다음과 같다.
 
 - `watch`: 삭제를 기다릴 때 GET 폴링을 쓰므로 필요 없다.
 - `patch`·`update`: Secret을 Pod보다 나중에 만들면서 처음부터 ownerReferences를 달아 두므로 고칠 일이 없다.
-- `pods/log`, `events`: 쓰지 않는다.
+- `events`: 쓰지 않는다.
+
+`pods/log` get은 같은 namespace의 모든 Pod 로그를 읽을 수 있는 권한이다. 그래서 어댑터가 로그를 읽기 전에 Pod 라벨을 직접 확인한다. `app.kubernetes.io/part-of=agent-platform`, `app.kubernetes.io/component=worker`, 그리고 자기 installation 라벨이 모두 맞는 Pod만 읽고, api·egress-proxy Pod 로그는 읽지 않는다. `deploy/helm/render-check.ts`는 Role이 이 표와 똑같은지 검사한다.
+
+## 종료 사유와 로그 tail
+
+`inspect()`는 끝난 Pod의 종료 사유를 `terminationReason`으로 돌려준다. Pod의 `status.reason`(`Evicted`, `DeadlineExceeded` 등)이 있으면 그 값을 쓰고, 없으면 컨테이너의 `state.terminated.reason`(`OOMKilled`, `Error`, `Completed` 등)을 쓴다. 값은 바꾸지 않고 그대로 넘긴다.
+
+phase가 `Failed`인 Pod면 worker 컨테이너 로그의 마지막 200줄을 읽고(서버 쪽 상한 64 KiB), 그중 마지막 8 KiB만 `logTail`로 넘긴다. 로그를 못 읽으면 tail만 빠지고 inspect는 그대로 성공한다.
+
+scheduler는 Pod를 지우기 전에 이 값을 자기 로그 한 줄로 남긴다(`Execution resource failed; log tail kept`, 필드 `log_tail`·`termination_reason`·`exit_code`). DB에는 저장하지 않는다. 그래서 tail이 남는 곳은 scheduler 컨테이너의 stdout뿐이고, 보존 기간도 그 로그와 같다. kubelet의 로그 회전에 따라 지워지고, scheduler Pod가 지워질 때 같이 사라진다. 클러스터에 로그 수집기가 있으면 그쪽 보존 정책을 따른다. worker가 출력한 내용이 그대로 들어가므로 scheduler 로그를 볼 수 있는 사람은 이 tail도 볼 수 있다.
+
+## ephemeral-storage
+
+worker 컨테이너의 `ephemeral-storage` requests와 limits는 같은 값이고, `EXECUTION_K8S_WORKER_EPHEMERAL_STORAGE_MB`(기본 1024, chart `worker.ephemeralStorageMb`)로 정한다. root filesystem은 읽기 전용이고 `/tmp`·HOME은 메모리 emptyDir이라, 이 값이 막는 것은 주로 컨테이너 로그다. 넘으면 kubelet이 Pod를 evict하고, 종료 사유는 `Evicted`로 보인다. 이 값은 isolation stamp에 들어가므로, 바꾸면 실행 중인 Pod는 이전 계약으로 보고 교체한다.
 
 Secret의 ownerReference에는 `blockOwnerDeletion`을 넣지 않는다. 넣으면 `pods/finalizers` update 권한이 필요하기 때문이다.
 
@@ -67,6 +82,7 @@ kubeconfig에 `exec` 플러그인이나 `insecure-skip-tls-verify`가 있으면 
 | `EXECUTION_K8S_IMAGE_PULL_SECRETS` | 쉼표로 구분한 Secret 이름 |
 | `EXECUTION_K8S_WORKER_NODE_SELECTOR` | JSON object |
 | `EXECUTION_K8S_WORKER_TOLERATIONS` | JSON array |
+| `EXECUTION_K8S_WORKER_EPHEMERAL_STORAGE_MB` | worker 컨테이너의 ephemeral-storage requests·limits. 기본 1024 |
 
 설정할 때 지켜야 할 제약이 둘 있다.
 
