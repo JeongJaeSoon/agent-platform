@@ -10,6 +10,7 @@ const { render } = await setupDom();
 const { AgentPlatformProvider } = await import("../../provider.tsx");
 const {
   AgentMap,
+  AgentMapPage,
   buildRunTree,
   LaneBoard,
   laneOf,
@@ -69,8 +70,8 @@ const NODES: readonly MapNode[] = [
   ),
 ];
 
-function withPlatform(node: ReactNode, locale: "ko" | "en" = "ko") {
-  return render(
+function withProvider(node: ReactNode, locale: "ko" | "en" = "ko") {
+  return (
     <AgentPlatformProvider
       client={{} as ApiClient}
       locale={locale}
@@ -81,8 +82,12 @@ function withPlatform(node: ReactNode, locale: "ko" | "en" = "ko") {
       )}
     >
       {node}
-    </AgentPlatformProvider>,
+    </AgentPlatformProvider>
   );
+}
+
+function withPlatform(node: ReactNode, locale: "ko" | "en" = "ko") {
+  return render(withProvider(node, locale));
 }
 
 describe("laneOf", () => {
@@ -369,6 +374,124 @@ describe("AgentMap", () => {
         .getByRole("link", { name: "타임라인에서 전체 보기" })
         .getAttribute("href"),
     ).toBe("/session/s");
+  });
+
+  // The web route's turn-taking: a pick opens the panel, the way back leaves.
+  function Turns({ dropOnBack = false }: { readonly dropOnBack?: boolean }) {
+    const [list, setList] = useState([
+      session({ id: "a", title: "첫 세션" }),
+      session({ id: "b", title: "둘째 세션" }),
+    ]);
+    const [chosen, setChosen] = useState("a");
+    const [view, setView] = useState<"board" | "detail">("board");
+    const open = list.find((s) => s.id === chosen);
+    return (
+      <AgentMapPage
+        updatedAt={NOW}
+        sessions={list}
+        doneCount={0}
+        selected={open ? { session: open, nodes: NODES } : null}
+        onSelect={(id) => {
+          setChosen(id);
+          setView("detail");
+        }}
+        view={view}
+        onBack={() => {
+          if (dropOnBack) setList((all) => all.filter((s) => s.id !== chosen));
+          setView("board");
+        }}
+        now={NOW}
+      />
+    );
+  }
+
+  const card = (view: ReturnType<typeof withPlatform>, title: string) =>
+    view
+      .queryAllByRole("button", { name: new RegExp(title) })
+      .find((button) => button.hasAttribute("aria-pressed"));
+
+  test("taking turns, the panel's title takes focus and the way back returns it to the card", async () => {
+    const user = await setupUser();
+    const view = withPlatform(<Turns />);
+    const second = card(view, "둘째 세션");
+    if (!second) throw new Error("no card");
+    await user.click(second);
+    const heading = document.activeElement;
+    expect(heading?.tagName).toBe("H2");
+    expect(heading?.textContent).toBe("둘째 세션");
+    await user.click(view.getByRole("button", { name: "← 목록으로" }));
+    expect(document.activeElement === card(view, "둘째 세션")).toBe(true);
+  });
+
+  test("the way back falls to the list's title when the card is gone", async () => {
+    const user = await setupUser();
+    const view = withPlatform(<Turns dropOnBack />);
+    const first = card(view, "첫 세션");
+    if (!first) throw new Error("no card");
+    await user.click(first);
+    await user.click(view.getByRole("button", { name: "← 목록으로" }));
+    expect(card(view, "첫 세션")).toBeUndefined();
+    expect(
+      document.activeElement === view.getByRole("heading", { level: 1 }),
+    ).toBe(true);
+  });
+
+  test("a panel still loading takes focus once its title arrives", () => {
+    const map = (loading: boolean) => (
+      <AgentMap
+        sessions={[selected.session]}
+        doneCount={0}
+        selected={selected}
+        onSelect={() => {}}
+        view="detail"
+        loading={loading}
+        now={NOW}
+      />
+    );
+    const view = withPlatform(
+      <AgentMap
+        sessions={[selected.session]}
+        doneCount={0}
+        selected={selected}
+        onSelect={() => {}}
+        now={NOW}
+      />,
+    );
+    view.rerender(withProvider(map(true)));
+    expect(document.activeElement === document.body).toBe(true);
+    view.rerender(withProvider(map(false)));
+    expect(document.activeElement?.tagName).toBe("H2");
+  });
+
+  test("from xl up the open card keeps focus", async () => {
+    // Stands in for Tailwind's xl:hidden at 1280px and wider.
+    const xl = document.createElement("style");
+    xl.textContent = ".xl\\:hidden { display: none; }";
+    document.head.append(xl);
+    try {
+      const user = await setupUser();
+      const view = withPlatform(<Turns />);
+      const second = card(view, "둘째 세션");
+      if (!second) throw new Error("no card");
+      await user.click(second);
+      expect(document.activeElement === second).toBe(true);
+    } finally {
+      xl.remove();
+    }
+  });
+
+  test("opening on the detail view leaves focus where the page put it", () => {
+    withPlatform(
+      <AgentMap
+        sessions={[selected.session]}
+        doneCount={0}
+        selected={selected}
+        onSelect={() => {}}
+        view="detail"
+        now={NOW}
+      />,
+    );
+    expect(document.activeElement === document.body).toBe(true);
   });
 
   test("a host locale changes the words, not the data", () => {

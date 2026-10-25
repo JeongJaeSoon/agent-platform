@@ -1,4 +1,4 @@
-import { type JSX, type ReactNode, useId } from "react";
+import { type JSX, type ReactNode, type Ref, useId } from "react";
 
 import { cn } from "../foundations/cn.ts";
 
@@ -23,6 +23,11 @@ export interface PageHeaderProps {
    * the end of `actions` instead (user decision 2026-10-25).
    */
   readonly breadcrumb?: ReactNode | undefined;
+  /**
+   * For a screen that hands focus to its title when the part of the page
+   * that held it goes away; the title then takes `tabIndex={-1}`.
+   */
+  readonly titleRef?: Ref<HTMLHeadingElement> | undefined;
   readonly className?: string | undefined;
 }
 
@@ -36,6 +41,7 @@ export function PageHeader({
   description,
   actions,
   breadcrumb,
+  titleRef,
   className,
 }: PageHeaderProps): JSX.Element {
   const descriptionId = useId();
@@ -43,6 +49,8 @@ export function PageHeader({
     description !== undefined && description !== null && description !== "";
   const heading = (
     <h1
+      ref={titleRef}
+      tabIndex={titleRef ? -1 : undefined}
       className="m-0 font-semibold text-foreground text-title"
       aria-describedby={hasDescription ? descriptionId : undefined}
     >

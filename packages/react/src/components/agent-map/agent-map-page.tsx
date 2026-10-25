@@ -1,5 +1,5 @@
 import { Button, PageHeader } from "@werft-ai/ui";
-import { type JSX, useEffect, useState } from "react";
+import { type JSX, useEffect, useRef, useState } from "react";
 
 import { AgentMap, type AgentMapProps } from "./agent-map.tsx";
 import type { AgentMapMessages } from "./messages.ts";
@@ -24,9 +24,14 @@ export function AgentMapPage({
   ...map
 }: AgentMapPageProps): JSX.Element {
   const messages = useAgentMapMessages(map.messages);
+  const title = useRef<HTMLHeadingElement>(null);
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader title={messages.title} description={messages.description} />
+      <PageHeader
+        title={messages.title}
+        description={messages.description}
+        titleRef={title}
+      />
       <p className="-mt-3 m-0 flex flex-wrap items-center gap-2 text-caption text-muted-foreground">
         <span>
           <ListAge updatedAt={updatedAt} now={map.now} messages={messages} />
@@ -47,7 +52,7 @@ export function AgentMapPage({
       <output aria-live="polite" className="sr-only">
         {announcement}
       </output>
-      <AgentMap {...map} />
+      <AgentMap listTitle={title} {...map} />
     </div>
   );
 }

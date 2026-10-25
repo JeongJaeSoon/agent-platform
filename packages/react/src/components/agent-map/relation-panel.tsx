@@ -1,5 +1,5 @@
 import { Badge, Button, Card, RelativeTime } from "@werft-ai/ui";
-import type { JSX } from "react";
+import type { JSX, Ref } from "react";
 
 import { useAgentPlatform } from "../../provider.tsx";
 import { SessionStatusLabel } from "../session/session-status-label.tsx";
@@ -14,6 +14,8 @@ export interface RelationPanelProps {
   readonly nodes: readonly MapNode[];
   readonly now?: number | undefined;
   readonly messages?: Partial<AgentMapMessages> | undefined;
+  /** The session's title, which takes focus when the panel opens alone. */
+  readonly titleRef?: Ref<HTMLHeadingElement> | undefined;
 }
 
 /**
@@ -25,6 +27,7 @@ export function RelationPanel({
   nodes,
   now,
   messages: override,
+  titleRef,
 }: RelationPanelProps): JSX.Element {
   const messages = useAgentMapMessages(override);
   const { locale, renderLink } = useAgentPlatform();
@@ -32,7 +35,11 @@ export function RelationPanel({
     <Card className="min-w-0 gap-4 p-4">
       <div className="flex flex-col gap-2">
         <div className="flex flex-wrap items-center gap-2">
-          <h2 className="m-0 min-w-0 truncate text-description font-semibold">
+          <h2
+            ref={titleRef}
+            tabIndex={-1}
+            className="m-0 min-w-0 truncate text-description font-semibold"
+          >
             {session.title}
           </h2>
           <SessionStatusLabel
