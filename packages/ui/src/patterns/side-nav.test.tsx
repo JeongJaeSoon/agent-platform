@@ -66,8 +66,9 @@ describe("SideNav", () => {
     expect(link).toContain("text-muted-foreground");
     expect(link).not.toContain("text-subtle-foreground");
     // 12px between groups, as in the mockup's sidebar.
-    const list = getByRole("navigation", { name: "설정" }).querySelector(
-      "[id]",
+    const toggle = getByRole("button", { name: /설정/ });
+    const list = document.getElementById(
+      toggle.getAttribute("aria-controls") ?? "",
     );
     expect(list?.className.split(" ")).toContain("gap-3");
   });
