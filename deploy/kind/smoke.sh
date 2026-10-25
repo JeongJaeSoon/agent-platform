@@ -68,9 +68,18 @@ fail() { echo "FAIL ${current}: $*" >&2; exit 1; }
 
 # A kind or docker error must not read as "no cluster": the teardown below
 # would then delete a cluster this run did not create.
-clusters="$(kind get clusters)"
 created=""
-printf '%s\n' "$clusters" | grep -qx "$CLUSTER_NAME" || created=1
+if [ "${CLUSTER_PROVIDER:-kind}" = orbstack ]; then
+  # The namespace is this run's to delete; the cluster is OrbStack's.
+  if ! ns="$(env -u KUBECONFIG kubectl --context orbstack get namespace "$NAMESPACE" -o name --ignore-not-found)"; then
+    echo "kubectl cannot reach the orbstack context (orb start k8s)" >&2
+    exit 1
+  fi
+  [ -n "$ns" ] || created=1
+else
+  clusters="$(kind get clusters)"
+  printf '%s\n' "$clusters" | grep -qx "$CLUSTER_NAME" || created=1
+fi
 forward=""
 auth="$STATE_DIR/smoke-auth-header"
 finish() {

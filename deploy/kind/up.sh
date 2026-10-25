@@ -23,6 +23,11 @@
 #         key goes into the Secret from a file descriptor: never printed,
 #         never in an argument. A fresh cluster only.
 #
+# CLUSTER_PROVIDER=orbstack uses OrbStack's built-in cluster (`orb start k8s`)
+# instead of kind: it shares the Docker engine, so the images are built
+# locally and referenced by their local digest, with no registry container.
+# `down` then deletes only NAMESPACE; the cluster stays as OrbStack keeps it.
+#
 # CI pulls nothing from Docker Hub (docs/contributing/ci.md § 서드파티 이미지 미러):
 #   KIND_NODE_IMAGE, REGISTRY_IMAGE  the node and registry images
 #   KIND_IMAGE_MIRROR                prefix the stand-ins' images are pulled
@@ -40,12 +45,27 @@ RELEASE="${RELEASE:-agent-platform}"
 KIND_MODEL="${KIND_MODEL:-none}"
 # Per user, not a shared /tmp path another user could create first.
 STATE_DIR="${STATE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/agent-platform/kind/${CLUSTER_NAME}}"
+CLUSTER_PROVIDER="${CLUSTER_PROVIDER:-kind}"
 REGISTRY_IMAGE="${REGISTRY_IMAGE:-registry:2@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373}"
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 export KUBECONFIG="${STATE_DIR}/kubeconfig"
 mkdir -p "$STATE_DIR"
 chmod 700 "$STATE_DIR"
+
+case "$CLUSTER_PROVIDER" in
+  kind | orbstack) ;;
+  *) echo "CLUSTER_PROVIDER must be kind or orbstack, not '${CLUSTER_PROVIDER}'" >&2; exit 1 ;;
+esac
+if [ "$CLUSTER_PROVIDER" = orbstack ]; then
+  # OrbStack writes its context to the default kubeconfig.
+  env -u KUBECONFIG kubectl config view --raw --minify --context orbstack >"$KUBECONFIG"
+  chmod 600 "$KUBECONFIG"
+  if [ "${1:-}" = down ]; then
+    kubectl delete namespace "$NAMESPACE" --ignore-not-found --wait
+    exit 0
+  fi
+fi
 
 if [ "${1:-}" = down ]; then
   kind delete cluster --name "$CLUSTER_NAME" --kubeconfig "$KUBECONFIG"
@@ -73,6 +93,7 @@ manifest() {
   fi
 }
 
+if [ "$CLUSTER_PROVIDER" = kind ]; then
 if [ -z "$(docker ps -q --filter "name=^${REGISTRY_NAME}$")" ]; then
   docker run -d --restart=always -p "127.0.0.1:${REGISTRY_PORT}:5000" \
     --network bridge --name "$REGISTRY_NAME" "$REGISTRY_IMAGE" >/dev/null
@@ -96,14 +117,25 @@ for node in $(kind get nodes --name "$CLUSTER_NAME"); do
   printf '[host."http://%s:5000"]\n' "$REGISTRY_NAME" | docker exec -i "$node" cp /dev/stdin "$dir/hosts.toml"
 done
 docker network connect kind "$REGISTRY_NAME" 2>/dev/null || true
+fi
 
-# Builds and pushes one app image; prints its registry digest.
+image_repo="localhost:${REGISTRY_PORT}/agent-platform"
+[ "$CLUSTER_PROVIDER" = kind ] || image_repo="agent-platform"
+# Builds one app image and prints the digest the chart pins it by: the
+# registry's after a push on kind; on OrbStack, whose cluster pulls from the
+# Docker engine's own store, the manifest digest the containerd image store
+# gives a local build.
 publish() {
-  local ref="localhost:${REGISTRY_PORT}/agent-platform-$1:dev"
+  local ref="${image_repo}-$1:dev"
+  [ "$CLUSTER_PROVIDER" = kind ] || ref="${image_repo}-$1:${IMAGE_TAG:-kind-dev}"
   docker build -q -f "$root/apps/$1/Dockerfile" -t "$ref" \
     ${BUN_IMAGE:+--build-arg "BUN_IMAGE=$BUN_IMAGE"} \
     ${BUILDKIT_SYNTAX:+--build-arg "BUILDKIT_SYNTAX=$BUILDKIT_SYNTAX"} \
     "$root" >/dev/null
+  if [ "$CLUSTER_PROVIDER" = orbstack ]; then
+    docker images --digests --format '{{.Digest}}' "$ref"
+    return
+  fi
   docker push -q "$ref" >/dev/null
   docker inspect --format '{{index .RepoDigests 0}}' "$ref" | sed 's/.*@//'
 }
@@ -117,7 +149,7 @@ kubectl -n "$NAMESPACE" create configmap localstack-init \
   --dry-run=client -o yaml | kubectl apply -f -
 manifest "$root/deploy/kind/deps.yaml" | kubectl -n "$NAMESPACE" apply -f -
 deps=(postgres localstack)
-values=(-f "$root/deploy/kind/values.yaml")
+values=(-f "$root/deploy/kind/values.yaml" ${EXTRA_VALUES:+-f "$EXTRA_VALUES"})
 
 if [ "$KIND_MODEL" != none ]; then
   kubectl -n "$NAMESPACE" create configmap gitea-init \
@@ -190,11 +222,11 @@ done
 helm upgrade --install "$RELEASE" "$root/deploy/helm/agent-platform" \
   --namespace "$NAMESPACE" \
   "${values[@]}" \
-  --set "images.controlHost.repository=localhost:${REGISTRY_PORT}/agent-platform-control-host" \
+  --set "images.controlHost.repository=${image_repo}-control-host" \
   --set "images.controlHost.digest=${control_host_digest}" \
-  --set "images.egressProxy.repository=localhost:${REGISTRY_PORT}/agent-platform-egress-proxy" \
+  --set "images.egressProxy.repository=${image_repo}-egress-proxy" \
   --set "images.egressProxy.digest=${egress_proxy_digest}" \
-  --set "images.worker.repository=localhost:${REGISTRY_PORT}/agent-platform-worker" \
+  --set "images.worker.repository=${image_repo}-worker" \
   --set "images.worker.digest=${worker_digest}" \
   --timeout 10m
 
