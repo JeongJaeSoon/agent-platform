@@ -89,7 +89,7 @@ Agent administrators, including workspace owners and admins, call these endpoint
 
 `GET /v1/agents/{id}/slack/app/manifest` returns `manifest_yaml`, generated from the current agent and server configuration without secret values.
 
-`GET /v1/agents/{id}/slack-channels?ids=C1,C2` resolves at most 50 IDs. Each item has `id`, `name`, and `state`; failed IDs have name and state `unknown`. There is no cursor or full scan. Results are cached per app and channel for 60 seconds. Slack 429 returns 503 with `Retry-After`.
+`GET /v1/agents/{id}/slack-channels?ids=C1,C2` resolves at most 50 IDs. Each item has `id`, `name`, and `state`; only IDs Slack reports as missing or inaccessible have name and state `unknown`. Transport failures and upstream errors return 503 for the request without caching; a revoked or invalid bot token returns 409 `SLACK_NOT_INSTALLED`. There is no cursor or full scan. Results are cached per app and channel for 60 seconds. Slack 429 returns 503 with `Retry-After`.
 
 `GET` and `PUT /v1/agents/{id}/slack/app/settings` read and save `{ "default_mode": "off" }` or `mention`. The initial mode is `off`, and settings can be saved before app creation. Applying the default to new bindings is separate follow-up work. There is no app-wide on/off switch.
 

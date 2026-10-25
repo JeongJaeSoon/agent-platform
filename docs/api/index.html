@@ -36082,7 +36082,7 @@
           "Agents"
         ],
         "summary": "Resolve up to 50 Slack channel IDs by name",
-        "description": "Accepts comma-separated IDs only, with no cursor or full scan. Reads conversations.info concurrently and caches each app and channel for 60 seconds, coalescing concurrent reads. Unavailable IDs return state and name unknown. Slack rate limits answer 503 with Retry-After. Agent managers only.\n\n**Auth:** cookie session only; no scope.",
+        "description": "Accepts comma-separated IDs only, with no cursor or full scan. Reads conversations.info concurrently and caches each app and channel for 60 seconds, coalescing concurrent reads. IDs Slack reports as missing or inaccessible return state and name unknown. Transport failures and upstream errors answer 503 without caching; a revoked or invalid bot token answers 409 SLACK_NOT_INSTALLED. Slack rate limits answer 503 with Retry-After. Agent managers only.\n\n**Auth:** cookie session only; no scope.",
         "security": [
           {
             "cookieSession": []

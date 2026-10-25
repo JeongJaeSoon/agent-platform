@@ -89,7 +89,7 @@ unset SLACK_BOT_TOKEN
 
 `GET /v1/agents/{id}/slack/app/manifest`는 현재 에이전트와 서버 설정으로 만든 manifest를 `manifest_yaml`로 반환한다. 비밀 값은 포함하지 않는다.
 
-`GET /v1/agents/{id}/slack-channels?ids=C1,C2`는 최대 50개 ID의 이름을 조회한다. `items`에는 `id`·`name`·`state`가 있고 실패한 ID는 이름과 상태가 `unknown`이다. cursor와 전체 스캔은 없다. 앱·채널별 60초 캐시를 쓰며 Slack 429는 `Retry-After`를 포함한 503이다.
+`GET /v1/agents/{id}/slack-channels?ids=C1,C2`는 최대 50개 ID의 이름을 조회한다. `items`에는 `id`·`name`·`state`가 있고 Slack이 없거나 접근할 수 없다고 답한 ID만 이름과 상태가 `unknown`이다. 통신 실패·상위 서버 오류는 캐시하지 않고 요청 전체가 503이며, 회수됐거나 유효하지 않은 bot token은 409 `SLACK_NOT_INSTALLED`다. cursor와 전체 스캔은 없다. 앱·채널별 60초 캐시를 쓰며 Slack 429는 `Retry-After`를 포함한 503이다.
 
 `GET`·`PUT /v1/agents/{id}/slack/app/settings`는 `{ "default_mode": "off" }` 또는 `mention`을 읽고 저장한다. 초기값은 `off`이며 앱 생성 전에도 저장할 수 있다. 새 binding에 기본값을 적용하는 연결은 후속 작업이다. 앱 전체 켜기·끄기는 제공하지 않는다.
 

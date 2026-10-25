@@ -497,6 +497,7 @@ export function createPostgresSlackAppStore(
           and(
             eq(slackApps.workspaceId, workspaceId.toLowerCase()),
             eq(slackApps.agentId, agentId.toLowerCase()),
+            eq(slackApps.kind, "agent"),
             inArray(slackApps.state, [...LIVE_STATES]),
           ),
         );
