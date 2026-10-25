@@ -1,6 +1,8 @@
 import type {
   InstallationLimitsResponse,
   SessionUsageResponse,
+  UsageSeriesQuery,
+  UsageSeriesResponse,
   UsageSummaryQuery,
   UsageSummaryResponse,
 } from "@werft-ai/contracts";
@@ -129,6 +131,32 @@ export function createUsageService(deps: {
           cost: "provider_usage_estimate",
           run_time: "turn_wall_clock",
         },
+      };
+    },
+
+    async getUsageSeries(
+      actor: Caller,
+      query: UsageSeriesQuery,
+    ): Promise<UsageSeriesResponse> {
+      const filter = await filterFor(actor, query.scope);
+      const series = await reader.usageSeries(filter, {
+        since: query.since,
+        ...(query.until === undefined ? {} : { until: query.until }),
+      });
+      return {
+        period: {
+          since: query.since.toISOString(),
+          until: series.until.toISOString(),
+        },
+        refreshed_at: series.readAt.toISOString(),
+        buckets: series.buckets.map((bucket) => ({
+          date: bucket.date,
+          session_count: bucket.sessionCount,
+          cost_usd: bucket.costUsd,
+          cost_complete: bucket.incompleteTurnCount === 0,
+          token_count: bucket.providerTokens,
+          run_seconds: bucket.runSeconds,
+        })),
       };
     },
 

@@ -3,6 +3,8 @@ import {
   installationLimitsResponseSchema,
   scopesForRole,
   sessionUsageResponseSchema,
+  usageSeriesQuerySchema,
+  usageSeriesResponseSchema,
   usageSummaryQuerySchema,
   usageSummaryResponseSchema,
   type WorkspaceRole,
@@ -104,6 +106,31 @@ function service(
           providerTokens: 42,
           incompleteTurnCount,
           runSeconds: 90,
+        };
+      },
+      usageSeries: async (filter, period) => {
+        asked.push(filter);
+        return {
+          readAt,
+          until: period.until ?? readAt,
+          buckets: [
+            {
+              date: "2026-10-01",
+              sessionCount: 2,
+              costUsd: "1.000000",
+              providerTokens: 40,
+              incompleteTurnCount,
+              runSeconds: 60,
+            },
+            {
+              date: "2026-10-02",
+              sessionCount: 0,
+              costUsd: "0",
+              providerTokens: 0,
+              incompleteTurnCount: 0,
+              runSeconds: 0,
+            },
+          ],
         };
       },
     },
@@ -247,6 +274,9 @@ describe("usage service", () => {
         usageSummary: async () => {
           throw new Error("not read");
         },
+        usageSeries: async () => {
+          throw new Error("not read");
+        },
       },
     });
     const error = await bound
@@ -282,5 +312,44 @@ describe("usage service", () => {
       query("me"),
     );
     expect(open.cost_complete).toBe(false);
+  });
+
+  test("a series is gated like the summary and marks only its incomplete days", async () => {
+    const seriesQuery = (scope: "installation" | "me") =>
+      usageSeriesQuerySchema.parse({ scope, since: "2026-10-01" });
+    for (const role of ["admin", "member"] as const) {
+      const error = await service()
+        .getUsageSeries(user(role), seriesQuery("installation"))
+        .catch((caught: unknown) => caught);
+      expect((error as SessionServiceError).code, role).toBe("FORBIDDEN");
+    }
+    const response = usageSeriesResponseSchema.parse(
+      await service(record, 1).getUsageSeries(user("owner"), seriesQuery("me")),
+    );
+    expect(response).toEqual({
+      period: {
+        since: "2026-10-01T00:00:00.000Z",
+        until: readAt.toISOString(),
+      },
+      refreshed_at: readAt.toISOString(),
+      buckets: [
+        {
+          date: "2026-10-01",
+          session_count: 2,
+          cost_usd: "1.000000",
+          cost_complete: false,
+          token_count: 40,
+          run_seconds: 60,
+        },
+        {
+          date: "2026-10-02",
+          session_count: 0,
+          cost_usd: "0",
+          cost_complete: true,
+          token_count: 0,
+          run_seconds: 0,
+        },
+      ],
+    });
   });
 });

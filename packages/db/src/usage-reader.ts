@@ -57,6 +57,16 @@ function startedBy(filter: UsageSummaryFilter): SQL | undefined {
   }
 }
 
+function periodBounds(period: { since: Date; until?: Date }) {
+  const since = sql`${period.since.toISOString()}::timestamptz`;
+  // The API's clock passed since; the database's may be a moment behind,
+  // and a period must not end before it starts.
+  const until = period.until
+    ? sql`${period.until.toISOString()}::timestamptz`
+    : sql`greatest(now(), ${since})`;
+  return { since, until };
+}
+
 function counted(condition: SQL | undefined) {
   return sql<number>`count(${turns.id}) FILTER (WHERE ${condition})`.mapWith(
     Number,
@@ -121,12 +131,7 @@ export function createPostgresUsageReader(db: Database): UsageReader {
     },
 
     async usageSummary(filter, period) {
-      const since = sql`${period.since.toISOString()}::timestamptz`;
-      // The API's clock passed since; the database's may be a moment behind,
-      // and a period must not end before it starts.
-      const until = period.until
-        ? sql`${period.until.toISOString()}::timestamptz`
-        : sql`greatest(now(), ${since})`;
+      const { since, until } = periodBounds(period);
       const picked = db.$with("picked").as(
         db
           .select({
@@ -172,6 +177,89 @@ export function createPostgresUsageReader(db: Database): UsageReader {
         .from(picked);
       if (!row) throw new Error("usage summary read returned no row");
       return row;
+    },
+
+    async usageSeries(filter, period) {
+      const { since, until } = periodBounds(period);
+      // The summary's figures per UTC day of created_at. Run time is summed
+      // exactly (numeric) per day and floored on the running total, so the
+      // days add up to the summary's one floor over the whole period.
+      const { rows } = (await db.execute(sql`
+        WITH picked AS (
+          SELECT ${sessions.id} AS id,
+                 (${sessions.createdAt} AT TIME ZONE 'UTC')::date AS day,
+                 ${sessions.costUsd} AS cost_usd,
+                 ${sessions.providerTokens} AS provider_tokens
+          FROM ${sessions}
+          WHERE ${sessions.createdAt} >= ${since}
+            AND ${sessions.createdAt} < ${until}
+            AND ${startedBy(filter) ?? sql`TRUE`}
+        ),
+        per_session AS (
+          SELECT ${turns.sessionId} AS session_id,
+                 count(*) FILTER (WHERE ${incomplete}) AS incomplete,
+                 sum(${runSeconds}) FILTER (WHERE ${ran}) AS seconds
+          FROM ${turns}
+          WHERE ${turns.sessionId} IN (SELECT id FROM picked)
+          GROUP BY ${turns.sessionId}
+        ),
+        days AS (
+          SELECT d::date AS day
+          FROM generate_series(
+            (${since} AT TIME ZONE 'UTC')::date,
+            ((${until} AT TIME ZONE 'UTC') - interval '1 microsecond')::date,
+            interval '1 day'
+          ) d
+        ),
+        buckets AS (
+          SELECT days.day,
+                 count(picked.id) AS session_count,
+                 coalesce(sum(picked.cost_usd), 0) AS cost_usd,
+                 coalesce(sum(picked.provider_tokens), 0) AS provider_tokens,
+                 coalesce(sum(per_session.incomplete), 0) AS incomplete,
+                 coalesce(sum(per_session.seconds), 0) AS seconds
+          FROM days
+          LEFT JOIN picked ON picked.day = days.day
+          LEFT JOIN per_session ON per_session.session_id = picked.id
+          GROUP BY days.day
+        )
+        SELECT now() AS read_at,
+               ${until} AS until,
+               to_char(day, 'YYYY-MM-DD') AS date,
+               session_count::int AS session_count,
+               cost_usd::text AS cost_usd,
+               provider_tokens::bigint AS provider_tokens,
+               incomplete::int AS incomplete,
+               (floor(sum(seconds) OVER running)
+                 - floor(sum(seconds) OVER running - seconds))::bigint AS run_seconds
+        FROM buckets
+        WINDOW running AS (ORDER BY day ROWS UNBOUNDED PRECEDING)
+        ORDER BY day`)) as unknown as {
+        rows: {
+          read_at: Date | string;
+          until: Date | string;
+          date: string;
+          session_count: number;
+          cost_usd: string;
+          provider_tokens: number | string;
+          incomplete: number;
+          run_seconds: number | string;
+        }[];
+      };
+      const [first] = rows;
+      if (!first) throw new Error("usage series read returned no day");
+      return {
+        readAt: new Date(first.read_at),
+        until: new Date(first.until),
+        buckets: rows.map((row) => ({
+          date: row.date,
+          sessionCount: row.session_count,
+          costUsd: row.cost_usd,
+          providerTokens: Number(row.provider_tokens),
+          incompleteTurnCount: row.incomplete,
+          runSeconds: Number(row.run_seconds),
+        })),
+      };
     },
   };
 }

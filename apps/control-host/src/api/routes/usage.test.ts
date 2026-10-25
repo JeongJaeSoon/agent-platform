@@ -37,6 +37,9 @@ const app = createApiApp({
           usageSummary: async () => {
             throw new Error("not read in these tests");
           },
+          usageSeries: async () => {
+            throw new Error("not read in these tests");
+          },
         },
       }),
     ),
@@ -51,6 +54,8 @@ test("refuses installation figures and a summary of one's own sessions under AUT
     "/v1/limits",
     "/v1/usage/summary?scope=installation&since=2026-10-01",
     "/v1/usage/summary?scope=me&since=2026-10-01",
+    "/v1/usage/series?scope=installation&since=2026-10-01",
+    "/v1/usage/series?scope=me&since=2026-10-01",
   ]) {
     const response = await app.request(path, { headers });
     expect(response.status, path).toBe(403);
@@ -68,6 +73,24 @@ test("answers 400 for a summary query it cannot read", async () => {
     "scope=me&since=2026-10-02&until=2026-10-01",
   ]) {
     const response = await app.request(`/v1/usage/summary?${query}`, {
+      headers,
+    });
+    expect(response.status, query).toBe(400);
+    expect(apiErrorResponseSchema.parse(await response.json()).error.code).toBe(
+      "BAD_REQUEST",
+    );
+  }
+});
+
+test("answers 400 for a series query it cannot read", async () => {
+  for (const query of [
+    "scope=me",
+    "scope=me&since=2026-10-01&bucket=week",
+    "scope=me&since=2026-10-02&until=2026-10-01",
+    // 367 days: past the longest series.
+    "scope=me&since=2025-10-01&until=2026-10-03",
+  ]) {
+    const response = await app.request(`/v1/usage/series?${query}`, {
       headers,
     });
     expect(response.status, query).toBe(400);

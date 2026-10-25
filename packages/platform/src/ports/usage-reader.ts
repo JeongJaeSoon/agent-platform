@@ -51,6 +51,25 @@ export type UsageSummaryRecord = {
   runSeconds: number;
 };
 
+/** One UTC day of a series: `UsageSummaryRecord`'s figures for that day. */
+export type UsageSeriesBucketRecord = {
+  /** YYYY-MM-DD. */
+  date: string;
+  sessionCount: number;
+  costUsd: string;
+  providerTokens: number;
+  incompleteTurnCount: number;
+  /** The floor of the running total minus the floor of the one before. */
+  runSeconds: number;
+};
+
+/** Every UTC day [since, until) touches, read in one statement. */
+export type UsageSeriesRecord = {
+  readAt: Date;
+  until: Date;
+  buckets: UsageSeriesBucketRecord[];
+};
+
 export interface UsageReader {
   installationUsage(): Promise<InstallationUsage>;
   /** null when the session is not visible to the owner. */
@@ -62,4 +81,8 @@ export interface UsageReader {
     filter: UsageSummaryFilter,
     period: { since: Date; until?: Date },
   ): Promise<UsageSummaryRecord>;
+  usageSeries(
+    filter: UsageSummaryFilter,
+    period: { since: Date; until?: Date },
+  ): Promise<UsageSeriesRecord>;
 }

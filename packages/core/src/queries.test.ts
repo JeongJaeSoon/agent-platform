@@ -29,6 +29,11 @@ test("query keys", () => {
     session: queries.queryKeys.session("id-1"),
     sessionUsage: queries.queryKeys.sessionUsage("id-1"),
     pendingRequests: queries.queryKeys.pendingRequests("id-1"),
+    usageSeries: queries.queryKeys.usageSeries(
+      "installation",
+      "2026-07-26",
+      "2026-10-24",
+    ),
   }).toMatchSnapshot();
 });
 
@@ -37,7 +42,7 @@ test("query options and the request each query makes", async () => {
     (entry): entry is [string, (client: ApiClient, id: string) => object] =>
       typeof entry[1] === "function" && entry[0].endsWith("Query"),
   );
-  expect(factories.length).toBe(21);
+  expect(factories.length).toBe(22);
   const out: Record<string, unknown> = {};
   for (const [name, factory] of factories.sort(([a], [b]) =>
     a.localeCompare(b),
