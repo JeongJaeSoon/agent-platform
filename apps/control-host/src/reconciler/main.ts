@@ -4,6 +4,7 @@ import {
   expireAuthzDecisions,
   expireOverdueInterrupts,
   expireOverdueTerminations,
+  projectToolCalls,
   reconcileExpiredLeases,
   reconcileOrphanedSessions,
   reconcileOverdueInterrupts,
@@ -21,6 +22,13 @@ import {
   type ReconcilerRun,
   runReconciler,
 } from "./reconcile.ts";
+
+// From packages/db/bench/tool-calls.ts on 18M events: a batch of results
+// alone took 4s at 20,000 and up to 99s while backfill writes piled up. The
+// pass (RECONCILER_PASS_TIMEOUT_SEC, 60) must also fit this budget plus the
+// last batch's statements, each cut at the job pool's 10s.
+const TOOL_CALL_BATCH_SIZE = 5_000;
+const TOOL_CALL_BUDGET_MS = 10_000;
 
 export function reconcilerDatabaseUrl(environment: NodeJS.ProcessEnv): string {
   const databaseUrl =
@@ -91,5 +99,10 @@ export function reconcileOnce(
       }),
     announceInputReturns: (options) => announceLapsedInputWaits(db, options),
     expireDecisions: (options) => expireAuthzDecisions(db, options),
+    projectToolCalls: () =>
+      projectToolCalls(db, {
+        batchSize: TOOL_CALL_BATCH_SIZE,
+        budgetMs: TOOL_CALL_BUDGET_MS,
+      }),
   });
 }
