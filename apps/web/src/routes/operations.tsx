@@ -15,6 +15,7 @@ import type {
   CountSessionsResponse,
   InstallationLimitsResponse,
   UsageBreakdownBy,
+  UsageBreakdownResponse,
   UsageSummaryScope,
   UsageToolCallsResponse,
   UsageToolsResponse,
@@ -406,22 +407,31 @@ export function OperationsUsageScreen() {
   });
   const models = useQuery(breakdown("model"));
   const agents = useQuery(breakdown("agent"));
-  // While the next period loads, the figures kept on screen keep the scope
-  // and period they were read for.
-  const readFor = useRef(new WeakMap<object, UsageSummaryScope>());
-  if (series.data && !series.isPlaceholderData)
-    readFor.current.set(series.data, filters.scope);
-  const shownScope =
-    (series.data && readFor.current.get(series.data)) ?? filters.scope;
+  // The three answers are shown as one set: until every one of them is for
+  // the picked scope and period, the last whole set stays with its own basis.
+  const settled = [series, models, agents].every(
+    (query) => !query.isPending && !query.isPlaceholderData,
+  );
+  const current = {
+    scope: filters.scope,
+    series: series.data,
+    models: models.data,
+    agents: agents.data,
+  };
+  const last = useRef(current);
+  if (settled) last.current = current;
+  const shown = last.current;
   const empty =
-    series.data?.buckets.every((bucket) => bucket.session_count === 0) ?? false;
+    shown.series?.buckets.every((bucket) => bucket.session_count === 0) ??
+    false;
   const table = (
     result: typeof models,
+    rows: UsageBreakdownResponse["rows"] | undefined,
     by: UsageBreakdownBy,
     label: string,
     head: string,
   ) =>
-    result.isError ? (
+    settled && result.isError ? (
       <Card className="py-0">
         <LoadFailure
           error={result.error}
@@ -429,12 +439,7 @@ export function OperationsUsageScreen() {
         />
       </Card>
     ) : (
-      <UsageCostTable
-        label={label}
-        head={head}
-        by={by}
-        rows={result.data?.rows}
-      />
+      <UsageCostTable label={label} head={head} by={by} rows={rows} />
     );
   return (
     <>
@@ -454,36 +459,32 @@ export function OperationsUsageScreen() {
         </Card>
       ) : (
         <div
-          aria-busy={
-            series.isPending ||
-            models.isPending ||
-            agents.isPending ||
-            undefined
-          }
+          aria-busy={!settled || undefined}
           className="flex min-w-0 flex-col gap-8"
         >
-          <UsageKpis buckets={series.data?.buckets} />
+          <UsageKpis buckets={shown.series?.buckets} />
           {empty ? (
             <EmptyState title={t("operations.usageEmpty")} />
           ) : (
             <>
               <UsageBasis
-                scope={shownScope}
-                period={series.data?.period ?? period}
-                refreshedAt={series.data?.refreshed_at}
+                scope={shown.scope}
+                period={shown.series?.period ?? period}
+                refreshedAt={shown.series?.refreshed_at}
                 className="-mt-4 leading-4"
               />
               <UsageDailyCost
-                buckets={series.data?.buckets}
-                days={series.data?.buckets.length ?? filters.days}
+                buckets={shown.series?.buckets}
+                days={shown.series?.buckets.length ?? filters.days}
               />
-              {models.isError ? null : (
-                <UsageTokenMix totals={models.data?.totals} />
+              {settled && models.isError ? null : (
+                <UsageTokenMix totals={shown.models?.totals} />
               )}
               <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
                 <Section title={t("operations.byModel")}>
                   {table(
                     models,
+                    shown.models?.rows,
                     "model",
                     t("operations.byModel"),
                     t("operations.model"),
@@ -492,6 +493,7 @@ export function OperationsUsageScreen() {
                 <Section title={t("operations.byAgent")}>
                   {table(
                     agents,
+                    shown.agents?.rows,
                     "agent",
                     t("operations.byAgent"),
                     t("operations.agent"),

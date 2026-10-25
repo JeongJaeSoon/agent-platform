@@ -718,6 +718,51 @@ describe("운영", () => {
     ).toBeTruthy();
   });
 
+  test("사용량 탭: series가 먼저 와도 표·기준 줄은 breakdown까지 와야 함께 바뀐다", async () => {
+    setSystemTime(NOW);
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    renderAt("/operations/usage", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/limits": () => json(200, LIMITS),
+      ...usageRoutes,
+      "GET /v1/usage/breakdown": async (request: Request) => {
+        const query = new URL(request.url).searchParams;
+        if (query.get("scope") !== "me")
+          return usageRoutes["GET /v1/usage/breakdown"](request);
+        await held;
+        return json(200, {
+          rows: [{ key: "a9", label: "my-own-agent", ...figures(3, "9.00") }],
+          totals: figures(3, "9.00"),
+        });
+      },
+    });
+    const agents = await screen.findByRole("table", { name: "에이전트별" });
+    await within(agents).findByText("triage-bot");
+    const user = await setupUser();
+    await user.click(screen.getByRole("button", { name: "내 사용량" }));
+    // series for "me" answers at once; the breakdowns are held.
+    await waitFor(() =>
+      expect(
+        screen.getByRole("figure", { name: "일자별 추정 비용, 30일" }),
+      ).toBeTruthy(),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(screen.getByText(/^설치 전체 · 2026-09-25/)).toBeTruthy();
+    expect(
+      within(screen.getByRole("table", { name: "에이전트별" })).getByText(
+        "triage-bot",
+      ),
+    ).toBeTruthy();
+    release();
+    await within(
+      await screen.findByRole("table", { name: "에이전트별" }),
+    ).findByText("my-own-agent");
+    expect(screen.getByText(/^내 사용량 · 2026-09-25/)).toBeTruthy();
+  });
+
   test("예전 /usage는 기간·범위를 그대로 들고 /operations/usage로 간다", async () => {
     setSystemTime(NOW);
     const { history } = renderAt("/usage?days=7&scope=me", {
