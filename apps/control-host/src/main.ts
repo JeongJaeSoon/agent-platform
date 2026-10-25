@@ -1,25 +1,26 @@
 // The control host's one executable
 //
 //   bun run src/main.ts api
-//   bun run src/main.ts <scheduler|reconciler|slack> [--once|--health]
+//   bun run src/main.ts <scheduler|reconciler|slack> [--once|--health|--serve]
 //
 // The role is named, never defaulted, so a container runs what its command
 // says. `scheduler`, `reconciler` and `slack` are services: a supervised loop
-// running one pass per child (pass-loop/). `--once` is that one pass, and
-// `--health` judges the status file the loop writes. Each role module is
-// imported only when chosen: a process reads and validates only its own
-// role's settings, and only the scheduler ever loads an execution backend.
+// running passes in a child (pass-loop/). `--once` is one pass, `--serve` is
+// the loop's child, and `--health` judges the status file the loop writes.
+// Each role module is imported only when chosen: a process reads and
+// validates only its own role's settings, and only the scheduler ever loads
+// an execution backend.
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { PassLoopRoleName } from "./pass-loop/loop.ts";
 
 const ROLES = ["api", "scheduler", "reconciler", "slack"] as const;
-const MODES = ["--once", "--health"] as const;
+const MODES = ["--once", "--health", "--serve"] as const;
 type Role = (typeof ROLES)[number];
 type Mode = (typeof MODES)[number] | undefined;
 
 const USAGE =
-  "usage: bun run src/main.ts api | <scheduler|reconciler|slack> [--once|--health]";
+  "usage: bun run src/main.ts api | <scheduler|reconciler|slack> [--once|--health|--serve]";
 
 function parse(args: readonly string[]): { role: Role; mode: Mode } | string {
   const [role, mode, ...rest] = args;
@@ -54,12 +55,33 @@ if (role === "api") {
   (healthy ? console.log : console.error)(reason);
   process.exitCode = healthy ? 0 : 1;
 } else if (mode === "--once") {
-  process.exitCode = await runOnce(role);
+  let stop: AbortSignal | undefined;
+  if (role === "scheduler") {
+    // A signal stops the pass at its next safe point, the checks it makes
+    // for a lost pass lock, so no reservation starts after it; a second one
+    // is the default and ends the process.
+    const controller = new AbortController();
+    for (const name of ["SIGTERM", "SIGINT"] as const) {
+      process.once(name, () =>
+        controller.abort(new Error(`${name} received; the pass stopped early`)),
+      );
+    }
+    stop = controller.signal;
+  }
+  process.exitCode = await runOnce(role, stop);
+} else if (mode === "--serve") {
+  const { servePasses } = await import("./pass-loop/loop.ts");
+  servePasses((stop) => runOnce(role, stop), {
+    stopsAtSafePoint: role === "scheduler",
+  });
 } else {
   process.exitCode = await supervise(role);
 }
 
-async function runOnce(role: PassLoopRoleName): Promise<number> {
+async function runOnce(
+  role: PassLoopRoleName,
+  stop: AbortSignal | undefined,
+): Promise<number> {
   if (role === "reconciler") {
     // No SIGTERM handler: every write is a transaction re-judged under row
     // locks, so ending the pass anywhere loses nothing.
@@ -77,16 +99,9 @@ async function runOnce(role: PassLoopRoleName): Promise<number> {
     return 0;
   }
   const { exitCodeFor, main } = await import("./scheduler/main.ts");
-  // A signal stops the pass at its next safe point, the checks it makes for
-  // a lost pass lock, so no reservation starts after it; a second one is
-  // the default and ends the process.
-  const stop = new AbortController();
-  for (const name of ["SIGTERM", "SIGINT"] as const) {
-    process.once(name, () =>
-      stop.abort(new Error(`${name} received; the pass stopped early`)),
-    );
-  }
-  return exitCodeFor(await main(process.env, { stop: stop.signal }));
+  return exitCodeFor(
+    await main(process.env, stop === undefined ? {} : { stop }),
+  );
 }
 
 async function supervise(role: PassLoopRoleName): Promise<number> {
@@ -152,7 +167,7 @@ async function supervise(role: PassLoopRoleName): Promise<number> {
       "run",
       join(import.meta.dir, "main.ts"),
       role,
-      "--once",
+      "--serve",
     ],
     ...(passEnv === undefined ? {} : { env: passEnv }),
     config,

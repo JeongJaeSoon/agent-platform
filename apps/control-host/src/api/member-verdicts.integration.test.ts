@@ -35,6 +35,7 @@ import {
 } from "./auth.ts";
 import { DatabaseApiKeyStore } from "./keys.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
+import { registerInviteRoutes } from "./routes/invites.ts";
 import { registerMemberRoutes } from "./routes/members.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
@@ -100,17 +101,19 @@ integration("the member list offers what the writes accept", () => {
       registerPublicRoutes: (router) => registerPublicAuthRoutes(router, auth),
       registerRoutes: (router) => {
         registerAuthRoutes(router, auth);
+        const invites = createInviteService({
+          authorization,
+          store: createPostgresInviteStore(db),
+        });
         registerMemberRoutes(
           router,
           createMemberService({
             authorization,
             store: createPostgresMemberStore(db),
           }),
-          createInviteService({
-            authorization,
-            store: createPostgresInviteStore(db),
-          }),
+          invites,
         );
+        registerInviteRoutes(router, invites);
       },
     });
     passwordHash = await Bun.password.hash(PASSWORD, {
@@ -297,6 +300,59 @@ integration("the member list offers what the writes accept", () => {
         }
       }, 60_000);
     }
+  }
+
+  // The roles the list says an invite may carry are the ones POST /v1/invites
+  // takes; any other is refused as owner_protected and stores nothing.
+  for (const actorRole of ["owner", "admin"] as const) {
+    test(`${actorRole}: assignable_roles is what an invite accepts`, async () => {
+      const { workspaceId, actor, subject } = await workspaceWith(actorRole, {
+        role: "member",
+        state: "live",
+      });
+      const cookie = await cookieOf(actor.email);
+      const pages = [
+        (await listed(cookie, "limit=2")).body,
+        (await listed(cookie, `q=${encodeURIComponent(subject.email)}`)).body,
+      ].map((body) => listMembersResponseSchema.parse(body));
+      const assignable = pages[0]?.assignable_roles ?? [];
+      expect(pages[1]?.assignable_roles).toEqual(assignable);
+      expect(assignable).toEqual(
+        actorRole === "owner"
+          ? ["owner", "admin", "member"]
+          : ["admin", "member"],
+      );
+      for (const role of ROLES) {
+        const response = await app.request("/v1/invites", {
+          method: "POST",
+          headers: {
+            Cookie: cookie,
+            [CSRF_HEADER_NAME]: CSRF_HEADER_VALUE,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            email: `${role}-${workspaceId}@example.com`,
+            role,
+          }),
+        });
+        const body = (await response.json()) as { error?: { code: string } };
+        expect(
+          { status: response.status, code: body.error?.code },
+          role,
+        ).toEqual(
+          assignable.includes(role)
+            ? { status: 201, code: undefined }
+            : { status: 403, code: "OWNER_PROTECTED" },
+        );
+      }
+      const stored = await db
+        .select({ role: schema.invites.role })
+        .from(schema.invites)
+        .where(eq(schema.invites.workspaceId, workspaceId));
+      expect(stored.map((row) => row.role).sort()).toEqual(
+        [...assignable].sort(),
+      );
+    });
   }
 
   test("a member is offered nothing: the list and every write answer 403", async () => {

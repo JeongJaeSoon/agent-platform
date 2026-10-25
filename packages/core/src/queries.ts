@@ -174,6 +174,7 @@ export function membersQuery(client: ApiClient) {
     queryKey: queryKeys.members,
     queryFn: async (): Promise<ListMembersResponse> => {
       const items: ListMembersResponse["items"] = [];
+      let assignable: ListMembersResponse["assignable_roles"] = [];
       let cursor: string | null = null;
       do {
         const page = (await unwrap(
@@ -186,9 +187,10 @@ export function membersQuery(client: ApiClient) {
           }),
         )) as ListMembersResponse;
         items.push(...page.items);
+        assignable = page.assignable_roles;
         cursor = page.next_cursor;
       } while (cursor);
-      return { items, next_cursor: null };
+      return { items, next_cursor: null, assignable_roles: assignable };
     },
     retry: false,
   });

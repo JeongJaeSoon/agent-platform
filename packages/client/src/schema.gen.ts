@@ -3307,6 +3307,8 @@ export interface components {
                 provider: "slack";
                 external_tenant: string;
                 external_user_id: string;
+                external_tenant_name: string | null;
+                external_user_name: string | null;
                 /** @enum {string} */
                 status: "active" | "stale" | "revoked";
                 /** Format: date-time */
@@ -3326,6 +3328,8 @@ export interface components {
                 provider: "slack";
                 external_tenant: string;
                 external_user_id: string;
+                external_tenant_name: string | null;
+                external_user_name: string | null;
                 /** @enum {string} */
                 status: "active" | "stale" | "revoked";
                 /** Format: date-time */
@@ -3453,6 +3457,8 @@ export interface components {
                 };
             }[];
             next_cursor: string | null;
+            /** @description The roles the caller may invite someone as now (POST /v1/invites refuses any other with OWNER_PROTECTED). The same on every page and search. */
+            assignable_roles: ("owner" | "admin" | "member")[];
         };
         MemberView: {
             /** Format: uuid */

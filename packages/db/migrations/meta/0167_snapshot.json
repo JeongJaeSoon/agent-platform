@@ -1,5 +1,5 @@
 {
-  "id": "28dc3648-5e2c-403b-8fd7-e3002a226634",
+  "id": "c528bf1c-54d9-4350-a89d-3b0a107b1ea0",
   "prevId": "9d9687ad-5676-4386-9578-928c6c6caee9",
   "version": "7",
   "dialect": "postgresql",
@@ -2688,6 +2688,18 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "external_tenant_name": {
+          "name": "external_tenant_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "external_user_name": {
+          "name": "external_user_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "status": {
           "name": "status",
@@ -5576,21 +5588,6 @@
           ],
           "isUnique": false,
           "where": "\"sessions\".\"takeover_required_at\" IS NOT NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "sessions_created_at_idx": {
-          "name": "sessions_created_at_idx",
-          "columns": [
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
           "concurrently": false,
           "method": "btree",
           "with": {}

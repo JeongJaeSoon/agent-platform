@@ -422,7 +422,7 @@ services:
   # Lease expiry, overdue interrupts and terminations, and orphan sessions are
   # recovered by nothing else, so this runs by default with the other apps
   # . The control host's reconciler role (`main.ts reconciler`, the
-  # pass loop in apps/control-host/src/pass-loop) runs one pass per child
+  # pass loop in apps/control-host/src/pass-loop) runs a pass in its child
   # process every RECONCILER_INTERVAL_SEC, kills a pass that outlives
   # RECONCILER_PASS_TIMEOUT_SEC, and exits after
   # RECONCILER_MAX_CONSECUTIVE_FAILURES failed passes in a row so the restart

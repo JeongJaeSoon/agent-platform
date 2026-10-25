@@ -84,6 +84,9 @@ export function LinkedAccountsScreen() {
   // Its row leaving takes focus with it, which fires neither event.
   const focusedRow = useRef<string | null>(null);
   const shownIds = useRef<readonly string[]>([]);
+  // Same for the link button, which goes when a link shows up (another tab).
+  const startRef = useRef<HTMLButtonElement>(null);
+  const focusedStart = useRef(false);
 
   const live =
     accounts.data?.items.filter((account) => account.status !== "revoked") ??
@@ -99,6 +102,8 @@ export function LinkedAccountsScreen() {
         row && listRef.current?.contains(row)
           ? (row.dataset.account ?? null)
           : null;
+      focusedStart.current =
+        startRef.current !== null && event.target === startRef.current;
     };
     const stop = new AbortController();
     for (const type of ["focusin", "pointerdown"]) {
@@ -121,6 +126,13 @@ export function LinkedAccountsScreen() {
     const ids = rows.map((row) => row.dataset.account ?? "");
     const before = shownIds.current;
     shownIds.current = ids;
+    if (focusedStart.current && !startRef.current) {
+      focusedStart.current = false;
+      if (document.activeElement === document.body) {
+        (rows[0]?.querySelector("button") ?? headingRef.current)?.focus();
+      }
+      return;
+    }
     const gone = focusedRow.current;
     if (!gone || ids.includes(gone)) return;
     focusedRow.current = null;
@@ -198,10 +210,11 @@ export function LinkedAccountsScreen() {
               </span>
               <span className={SECONDARY}>{t("linked.use.slack")}</span>
             </RowLines>
-            {/* One link per Slack workspace, so another workspace can still
-                be added while one is linked. */}
-            {accounts.isSuccess ? (
+            {/* Linked rows offer only unlinking; linking again starts from
+                there. */}
+            {accounts.isSuccess && live.length === 0 ? (
               <Button
+                ref={startRef}
                 type="button"
                 variant="outline"
                 className={SERVICE_BUTTON}
@@ -311,12 +324,7 @@ function SlackAccounts({
           )}
         >
           <RowLines>
-            <span className={PRIMARY}>
-              {t("linked.slackAccount", {
-                user: account.external_user_id,
-                team: account.external_tenant,
-              })}
-            </span>
+            <SlackAccountName account={account} />
             <span className={SECONDARY}>
               {account.status === "stale"
                 ? t("linked.stale")
@@ -342,6 +350,35 @@ function SlackAccounts({
         </RowListItem>
       ))}
     </ul>
+  );
+}
+
+/**
+ * Names when Slack gave any, with the ids under them; a link made before
+ * names were kept shows its ids alone. A missing name falls back to its id.
+ */
+function SlackAccountName({ account }: { readonly account: LinkedAccount }) {
+  const { t } = useI18n();
+  const ids = {
+    user: account.external_user_id,
+    team: account.external_tenant,
+  };
+  if (
+    account.external_user_name === null &&
+    account.external_tenant_name === null
+  ) {
+    return <span className={PRIMARY}>{t("linked.slackAccount", ids)}</span>;
+  }
+  return (
+    <>
+      <span className={PRIMARY}>
+        {t("linked.slackNamed", {
+          user: account.external_user_name ?? ids.user,
+          team: account.external_tenant_name ?? ids.team,
+        })}
+      </span>
+      <span className={SECONDARY}>{t("linked.slackIds", ids)}</span>
+    </>
   );
 }
 
