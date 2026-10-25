@@ -144,26 +144,38 @@ export const usageSummaryQuerySchema =
   usagePeriodQuerySchema.superRefine(checkPeriod);
 
 const DAY_MS = 86_400_000;
-/** The longest period one series answers, a leap year of day buckets. */
-export const USAGE_SERIES_MAX_DAYS = 366;
+/**
+ * The longest period a series or breakdown answers, a leap year of day
+ * buckets: each reads every session of the period.
+ */
+export const USAGE_PERIOD_MAX_DAYS = 366;
+
+function checkBoundedPeriod(
+  query: z.infer<typeof usagePeriodQuerySchema>,
+  ctx: z.RefinementCtx,
+) {
+  checkPeriod(query, ctx);
+  const until = query.until ?? new Date();
+  if (until.getTime() - query.since.getTime() <= USAGE_PERIOD_MAX_DAYS * DAY_MS)
+    return;
+  ctx.addIssue({
+    code: "custom",
+    message: `a period spans at most ${USAGE_PERIOD_MAX_DAYS} days`,
+    path: ["since"],
+  });
+}
 
 /** GET /v1/usage/series: the summary's sessions, one bucket per UTC day. */
 export const usageSeriesQuerySchema = usagePeriodQuerySchema
   .extend({ bucket: z.enum(["day"]).default("day") })
-  .superRefine((query, ctx) => {
-    checkPeriod(query, ctx);
-    const until = query.until ?? new Date();
-    if (
-      until.getTime() - query.since.getTime() <=
-      USAGE_SERIES_MAX_DAYS * DAY_MS
-    )
-      return;
-    ctx.addIssue({
-      code: "custom",
-      message: `a series spans at most ${USAGE_SERIES_MAX_DAYS} days`,
-      path: ["since"],
-    });
-  });
+  .superRefine(checkBoundedPeriod);
+
+export const USAGE_BREAKDOWN_BY_VALUES = ["model", "agent"] as const;
+
+/** GET /v1/usage/breakdown: the summary's sessions grouped by model or agent. */
+export const usageBreakdownQuerySchema = usagePeriodQuerySchema
+  .extend({ by: z.enum(USAGE_BREAKDOWN_BY_VALUES) })
+  .superRefine(checkBoundedPeriod);
 
 /**
  * GET /v1/usage/tools: the same scopes and period as the summary, the period
@@ -275,7 +287,52 @@ export const usageSeriesResponseSchema = z
   })
   .strict();
 
+const usageBreakdownFiguresSchema = z
+  .object({
+    session_count: countSchema,
+    input_tokens: countSchema,
+    output_tokens: countSchema,
+    cache_read_input_tokens: countSchema,
+    // The 1-hour cache writes are part of it, not a fifth column.
+    cache_creation_input_tokens: countSchema,
+    // The four columns' sum, the summary's `token_count` for the totals.
+    token_count: countSchema,
+    cost_usd: costUsdSchema,
+  })
+  .strict();
+
+/**
+ * The summary's sessions grouped, largest cost first. `by=agent`: each
+ * session counts once, under its agent, so the rows add up to the totals in
+ * every column. `by=model`: a session counts under every model it called, so
+ * the rows' `session_count` may add up to more than the totals'; a session's
+ * cost no metered call explains (sessions from before proxy metering) is the
+ * row whose `key` is null. `key` and `label` are null on the row for sessions
+ * without an agent or with that unexplained cost. `totals` is the summary of
+ * the same period: `session_count`, `token_count` and `cost_usd` equal it.
+ */
+export const usageBreakdownResponseSchema = z
+  .object({
+    rows: z.array(
+      usageBreakdownFiguresSchema
+        .extend({
+          // The agent id, or the model as the proxy recorded it.
+          key: z.string().nullable(),
+          // The agent's name; for a model, the model again.
+          label: z.string().nullable(),
+        })
+        .strict(),
+    ),
+    totals: usageBreakdownFiguresSchema,
+  })
+  .strict();
+
 export type UsageSummaryScope = (typeof USAGE_SUMMARY_SCOPE_VALUES)[number];
+export type UsageBreakdownBy = (typeof USAGE_BREAKDOWN_BY_VALUES)[number];
+export type UsageBreakdownQuery = z.infer<typeof usageBreakdownQuerySchema>;
+export type UsageBreakdownResponse = z.infer<
+  typeof usageBreakdownResponseSchema
+>;
 export type UsageSeriesQuery = z.infer<typeof usageSeriesQuerySchema>;
 export type UsageSeriesResponse = z.infer<typeof usageSeriesResponseSchema>;
 export type UsageSummaryQuery = z.infer<typeof usageSummaryQuerySchema>;

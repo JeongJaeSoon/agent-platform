@@ -84,6 +84,7 @@ import {
   teamChangeResponseSchema,
   teamDetailSchema,
   terminateSessionResponseSchema,
+  usageBreakdownResponseSchema,
   usageSeriesResponseSchema,
   usageSummaryResponseSchema,
   usageToolsResponseSchema,
@@ -219,6 +220,7 @@ export const responseSchemas = {
   "GET /v1/limits": installationLimitsResponseSchema,
   "GET /v1/usage/summary": usageSummaryResponseSchema,
   "GET /v1/usage/series": usageSeriesResponseSchema,
+  "GET /v1/usage/breakdown": usageBreakdownResponseSchema,
   "GET /v1/usage/tools": usageToolsResponseSchema,
   "GET /v1/receipts/{id}": getReceiptResponseSchema,
 } as const satisfies Partial<Record<OperationKey, ZodType>>;

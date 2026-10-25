@@ -40,6 +40,9 @@ const app = createApiApp({
           usageSeries: async () => {
             throw new Error("not read in these tests");
           },
+          usageBreakdown: async () => {
+            throw new Error("not read in these tests");
+          },
           usageTools: async () => {
             throw new Error("not read in these tests");
           },
@@ -59,6 +62,8 @@ test("refuses installation figures and a summary of one's own sessions under AUT
     "/v1/usage/summary?scope=me&since=2026-10-01",
     "/v1/usage/series?scope=installation&since=2026-10-01",
     "/v1/usage/series?scope=me&since=2026-10-01",
+    "/v1/usage/breakdown?scope=installation&since=2026-10-01&by=model",
+    "/v1/usage/breakdown?scope=me&since=2026-10-01&by=agent",
     "/v1/usage/tools?scope=installation&since=2026-10-01",
     "/v1/usage/tools?scope=me&since=2026-10-01",
   ]) {
@@ -112,6 +117,23 @@ test("answers 400 for a series query it cannot read", async () => {
     "scope=me&since=2025-10-01&until=2026-10-03",
   ]) {
     const response = await app.request(`/v1/usage/series?${query}`, {
+      headers,
+    });
+    expect(response.status, query).toBe(400);
+    expect(apiErrorResponseSchema.parse(await response.json()).error.code).toBe(
+      "BAD_REQUEST",
+    );
+  }
+});
+
+test("answers 400 for a breakdown query it cannot read", async () => {
+  for (const query of [
+    "scope=me&since=2026-10-01",
+    "scope=me&since=2026-10-01&by=team",
+    "scope=me&since=2026-10-02&until=2026-10-01&by=model",
+    "scope=me&since=2025-10-01&until=2026-10-03&by=agent",
+  ]) {
+    const response = await app.request(`/v1/usage/breakdown?${query}`, {
       headers,
     });
     expect(response.status, query).toBe(400);

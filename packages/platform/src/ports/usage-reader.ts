@@ -70,6 +70,30 @@ export type UsageSeriesRecord = {
   buckets: UsageSeriesBucketRecord[];
 };
 
+export type UsageBreakdownFiguresRecord = {
+  sessionCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadInputTokens: number;
+  cacheCreationInputTokens: number;
+  /** As the database prints the numeric. */
+  costUsd: string;
+};
+
+/**
+ * The sessions created in [since, until) grouped by model or agent, read in
+ * one statement. A null key is the sessions without an agent, or the cost no
+ * metered call explains.
+ */
+export type UsageBreakdownRecord = {
+  rows: (UsageBreakdownFiguresRecord & {
+    key: string | null;
+    label: string | null;
+  })[];
+  /** `sessionCount` and `costUsd` are the summary's. */
+  totals: UsageBreakdownFiguresRecord;
+};
+
 /**
  * One tool name's calls among tool_use events created in the period. A call
  * is timed only when its result is paired and both events carry a time.
@@ -105,6 +129,11 @@ export interface UsageReader {
     filter: UsageSummaryFilter,
     period: { since: Date; until?: Date },
   ): Promise<UsageSeriesRecord>;
+  usageBreakdown(
+    filter: UsageSummaryFilter,
+    period: { since: Date; until?: Date },
+    by: "model" | "agent",
+  ): Promise<UsageBreakdownRecord>;
   /** The most-called tools first, at most `limit` of them. */
   usageTools(
     filter: UsageSummaryFilter,
