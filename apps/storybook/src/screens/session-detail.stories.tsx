@@ -21,7 +21,8 @@ import { MOBILE, ScreenShell } from "./screen-kit.tsx";
 /*
  * Console v4 session detail (Console.dc.html, user feedback 2026-10-24) as
  * apps/web mounts the real block: the title and status, the meta line with
- * the design's icons, the way back with square commands beside it, the
+ * the design's icons, the commands top right with the way back at the end
+ * of their row, the
  * composer under the timeline and, from 1280px, the right rail (V4-RAIL)
  * from the top bar to the bottom of the screen; narrower, the rail follows
  * the body. What the API does not carry yet (agent, who started it, branch)

@@ -55,7 +55,8 @@ export type DetailRailProps = Omit<
 
 /**
  * The rail beside a detail page's body: a 400px column with a 1px line on
- * its left and 24px inside on every side from 768px (V4-RAIL-PAD), as
+ * its left, 24px inside above and below at every width and on the sides
+ * from 768px (V4-RAIL-PAD, V4-DETAIL-HEADER), as
  * tall as the body or the screen, whichever is taller. Its
  * content stays in view while the page scrolls and scrolls on its own when
  * taller than the screen. Below 1280px it is a band under the body, its
@@ -87,7 +88,7 @@ export function DetailRail({
         {...(scrollable
           ? { tabIndex: 0, role: "group", "aria-label": label }
           : undefined)}
-        className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,22rem),1fr))] items-start gap-x-8 p-4 pt-6 md:p-[var(--ap-space-6)] xl:sticky xl:top-0 xl:flex xl:max-h-[calc(100dvh-var(--ap-topbar-h))] xl:flex-col xl:items-stretch xl:divide-y xl:overflow-y-auto"
+        className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,22rem),1fr))] items-start gap-x-8 gap-y-6 px-4 py-6 md:p-[var(--ap-space-6)] xl:sticky xl:top-0 xl:flex xl:max-h-[calc(100dvh-var(--ap-topbar-h))] xl:flex-col xl:items-stretch xl:gap-y-0 xl:divide-y xl:overflow-y-auto"
       >
         {children}
       </div>
@@ -141,7 +142,7 @@ export function DetailRailSection({
       description={description}
       actions={actions}
       className={cn(
-        "min-w-0 pb-6 xl:py-[var(--ap-space-6)] xl:first:pt-0 xl:last:pb-0",
+        "min-w-0 xl:py-[var(--ap-space-6)] xl:first:pt-0 xl:last:pb-0",
         className,
       )}
     >

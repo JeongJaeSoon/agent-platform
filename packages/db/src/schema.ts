@@ -40,6 +40,7 @@ import {
   boolean,
   check,
   customType,
+  date,
   foreignKey,
   index,
   integer,
@@ -1145,6 +1146,121 @@ export const events = pgTable(
     uniqueIndex("events_attempt_sequence_uniq")
       .on(table.sessionId, table.attemptId, table.sourceSequence)
       .where(sql`${table.attemptId} IS NOT NULL`),
+  ],
+);
+
+/**
+ * One row per tool call, projected from the tool_use and tool_result events
+ * by the reconciler (`projectToolCalls`), paired as the run tree pairs them
+ * (94S-923). A read of the usage API never parses events.
+ *
+ * No foreign keys: a key on session_id would take KEY SHARE on the session
+ * row, which a worker append holds FOR UPDATE, so each projection batch and
+ * the appends of its sessions would wait on each other. Nothing deletes
+ * sessions or events.
+ */
+export const toolCalls = pgTable(
+  "tool_calls",
+  {
+    useEventId: bigint("use_event_id", { mode: "number" }).notNull(),
+    // The tool_use block's place in its event's content.
+    ord: integer().notNull(),
+    sessionId: uuid("session_id").notNull(),
+    // attempt_id, '' for none: a null attempt pairs with null.
+    attemptKey: text("attempt_key").notNull(),
+    // null when the block's id is no string: such a call pairs with nothing.
+    toolUseId: text("tool_use_id"),
+    name: text().notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    // used_at, else created_at: when the call shows as made.
+    at: timestamp({ withTimezone: true }).notNull(),
+    // The tool_use event's created_at, which the period cuts on.
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    resultEventId: bigint("result_event_id", { mode: "number" }),
+    resultAt: timestamp("result_at", { withTimezone: true }),
+    outcome: text().notNull().default("unknown"),
+    // Both times known only; a result stamped before its call is 0.
+    ms: bigint({ mode: "number" }),
+  },
+  (table) => [
+    primaryKey({ columns: [table.useEventId, table.ord] }),
+    check(
+      "tool_calls_outcome_check",
+      sql`${table.outcome} IN ('ok', 'failed', 'unknown')`,
+    ),
+    check("tool_calls_ms_check", sql`${table.ms} >= 0`),
+    uniqueIndex("tool_calls_pair_uniq")
+      .on(table.sessionId, table.attemptKey, table.toolUseId)
+      .where(sql`${table.toolUseId} IS NOT NULL`),
+    index("tool_calls_recent_idx").on(
+      table.name,
+      table.at.desc(),
+      table.useEventId.desc(),
+      table.ord.desc(),
+    ),
+    index("tool_calls_slowest_idx").on(
+      table.name,
+      table.ms.desc().nullsLast(),
+      table.useEventId.desc(),
+      table.ord.desc(),
+    ),
+    index("tool_calls_created_at_idx").on(table.createdAt),
+  ],
+);
+
+/**
+ * How far `projectToolCalls` has read events: every event with an id at or
+ * below `applied_through` is in tool_calls. One row.
+ */
+export const toolCallProgress = pgTable(
+  "tool_call_progress",
+  {
+    id: integer().primaryKey(),
+    appliedThrough: bigint("applied_through", { mode: "number" })
+      .notNull()
+      .default(0),
+    // The batch size a statement timeout cut it down to, kept across passes;
+    // null is the reconciler's configured size.
+    batchSize: integer("batch_size"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [check("tool_call_progress_one_row", sql`${table.id} = 1`)],
+);
+
+/**
+ * tool_calls summed per UTC day of created_at and tool name, once for each
+ * scope a usage read can ask for, so a read touches days × tools rows
+ * whatever the volume. A session's calls count under scope_key '' (the
+ * installation), `user:<user_id>:<owner_id>` and `api_key:<key_id>:<owner_id>`
+ * for whoever started it, each once with agent_key '' and once more with its
+ * agent's id. `hist` counts timed calls per duration bucket
+ * (`tool_ms_bucket`), the only way to a median across rows.
+ */
+export const toolCallDays = pgTable(
+  "tool_call_days",
+  {
+    scopeKey: text("scope_key").notNull(),
+    agentKey: text("agent_key").notNull(),
+    day: date({ mode: "string" }).notNull(),
+    name: text().notNull(),
+    calls: integer().notNull(),
+    failed: integer().notNull(),
+    timed: integer().notNull(),
+    totalMs: bigint("total_ms", { mode: "number" }).notNull(),
+    // Never lowered when an earlier result replaces a call's time.
+    maxMs: bigint("max_ms", { mode: "number" }).notNull(),
+    hist: integer().array().notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.scopeKey, table.agentKey, table.day, table.name],
+    }),
+    check(
+      "tool_call_days_hist_check",
+      sql`array_length(${table.hist}, 1) = 161`,
+    ),
   ],
 );
 

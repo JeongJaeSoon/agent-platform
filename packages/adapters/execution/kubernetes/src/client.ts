@@ -86,9 +86,11 @@ export type Pod = {
   };
   status?: {
     phase?: string;
+    /** Pod-level cause, such as `Evicted`. */
+    reason?: string;
     containerStatuses?: Array<{
       state?: {
-        terminated?: { exitCode: number };
+        terminated?: { exitCode: number; reason?: string };
         waiting?: { reason?: string };
       };
     }>;
@@ -189,12 +191,44 @@ export class KubernetesClient {
     });
   }
 
+  /**
+   * The last `tailLines` lines of one container's log, cut by the server at
+   * `limitBytes`. Null when the Pod is gone.
+   */
+  async podLog(
+    namespace: string,
+    name: string,
+    options: { container: string; tailLines: number; limitBytes: number },
+  ): Promise<string | null> {
+    const query = new URLSearchParams({
+      container: options.container,
+      limitBytes: String(options.limitBytes),
+      tailLines: String(options.tailLines),
+    });
+    // Asked for as JSON like every other call: the API server answers
+    // `text/plain` with 406, and sends the log as raw text either way.
+    return this.exchange(
+      "GET",
+      `${objectPath(namespace, "pods", name)}/log?${query}`,
+      { absent: true },
+    );
+  }
+
   /** Any path, for what the typed calls above do not cover (tests). */
   async request<T>(
     method: string,
     path: string,
-    { absent = false, body }: { absent?: boolean; body?: unknown } = {},
+    options: { absent?: boolean; body?: unknown } = {},
   ): Promise<T | null> {
+    const text = await this.exchange(method, path, options);
+    return text === null || text === "" ? null : (JSON.parse(text) as T);
+  }
+
+  private async exchange(
+    method: string,
+    path: string,
+    { absent = false, body }: { absent?: boolean; body?: unknown },
+  ): Promise<string | null> {
     const connection = this.connection;
     const options = this.options;
     const headers: Record<string, string> = { accept: "application/json" };
@@ -236,7 +270,7 @@ export class KubernetesClient {
         statusMessage(text),
       );
     }
-    return text === "" ? null : (JSON.parse(text) as T);
+    return text;
   }
 }
 

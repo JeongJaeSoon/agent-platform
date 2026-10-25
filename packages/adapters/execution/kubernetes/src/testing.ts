@@ -41,6 +41,7 @@ export function testConfig(
     command: ["sleep", "600"],
     egressCredentialPort: 3129,
     egressProxyUrl: "http://egress-proxy:3128",
+    ephemeralStorageBytes: 64 * 1024 * 1024,
     gatewayUrl: "http://gateway:3000",
     homeDir: "/home/worker",
     imagePullSecrets: [],

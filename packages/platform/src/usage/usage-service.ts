@@ -1,12 +1,17 @@
-import type {
-  InstallationLimitsResponse,
-  SessionUsageResponse,
-  UsageBreakdownQuery,
-  UsageBreakdownResponse,
-  UsageSeriesQuery,
-  UsageSeriesResponse,
-  UsageSummaryQuery,
-  UsageSummaryResponse,
+import {
+  type InstallationLimitsResponse,
+  type SessionUsageResponse,
+  USAGE_TOOLS_LIMIT,
+  type UsageBreakdownQuery,
+  type UsageBreakdownResponse,
+  type UsageSeriesQuery,
+  type UsageSeriesResponse,
+  type UsageSummaryQuery,
+  type UsageSummaryResponse,
+  type UsageToolCallsQuery,
+  type UsageToolCallsResponse,
+  type UsageToolsQuery,
+  type UsageToolsResponse,
 } from "@werft-ai/contracts";
 import {
   budgetExceeded,
@@ -61,6 +66,45 @@ function breakdownFigures(
     ),
     cost_usd: figures.costUsd,
   };
+}
+
+type UsageToolRow = UsageToolsResponse["tools"][number];
+
+function top(
+  tools: readonly UsageToolRow[],
+  rank: (tool: UsageToolRow) => number,
+): UsageToolRow | undefined {
+  let best: UsageToolRow | undefined;
+  for (const tool of tools) {
+    const score = rank(tool);
+    if (score <= 0) continue;
+    if (
+      best === undefined ||
+      score > rank(best) ||
+      (score === rank(best) && tool.name < best.name)
+    ) {
+      best = tool;
+    }
+  }
+  return best;
+}
+
+/**
+ * The tool taking the most time in all, the one failing at the highest rate
+ * and the one slowest per call (median), ties to the first name. A kind no
+ * tool qualifies for (no time, no failure) is left out.
+ */
+export function toolFindings(
+  tools: readonly UsageToolRow[],
+): UsageToolsResponse["findings"] {
+  const picks = [
+    ["most_time", top(tools, (t) => t.total_ms)],
+    ["fails_often", top(tools, (t) => t.failed / t.calls)],
+    ["slowest", top(tools, (t) => t.median_ms)],
+  ] as const;
+  return picks.flatMap(([kind, tool]) =>
+    tool ? [{ kind, name: tool.name }] : [],
+  );
 }
 
 export function createUsageService(deps: {
@@ -211,6 +255,72 @@ export function createUsageService(deps: {
           ...breakdownFigures(figures),
         })),
         totals: breakdownFigures(breakdown.totals),
+      };
+    },
+
+    async getUsageTools(
+      actor: Caller,
+      query: UsageToolsQuery,
+    ): Promise<UsageToolsResponse> {
+      const filter = await filterFor(actor, query.scope);
+      const rows = await reader.usageTools(
+        filter,
+        {
+          period: {
+            since: query.since,
+            ...(query.until === undefined ? {} : { until: query.until }),
+          },
+          ...(query.agent_id === undefined ? {} : { agentId: query.agent_id }),
+        },
+        USAGE_TOOLS_LIMIT,
+      );
+      const tools = rows.map((row) => ({
+        name: row.name,
+        calls: row.calls,
+        failed: row.failed,
+        total_ms: row.totalMs,
+        median_ms: row.medianMs,
+        max_ms: row.maxMs,
+      }));
+      return { tools, findings: toolFindings(tools) };
+    },
+
+    async getUsageToolCalls(
+      actor: Caller,
+      name: string,
+      query: UsageToolCallsQuery,
+    ): Promise<UsageToolCallsResponse> {
+      const filter = await filterFor(actor, query.scope);
+      const tools = {
+        period: {
+          since: query.since,
+          ...(query.until === undefined ? {} : { until: query.until }),
+        },
+        ...(query.agent_id === undefined ? {} : { agentId: query.agent_id }),
+      };
+      const page = await reader.usageToolCalls(filter, {
+        ...tools,
+        name,
+        sort: query.sort,
+        limit: query.limit,
+        ...(query.cursor === undefined ? {} : { cursor: query.cursor }),
+        ownerId: actor.ownerId,
+        viewer: {
+          userId: actor.actor?.userId ?? null,
+          apiKeyId: actor.actor?.apiKeyId ?? null,
+        },
+      });
+      return {
+        calls: page.calls.map((call) => ({
+          session_id: call.sessionId,
+          title: call.title,
+          agent: call.agent,
+          occurred_at: call.occurredAt.toISOString(),
+          duration_ms: call.durationMs,
+          outcome: call.outcome,
+        })),
+        next_cursor: page.nextCursor,
+        per_day: await reader.usageToolDays(filter, { ...tools, name }),
       };
     },
 

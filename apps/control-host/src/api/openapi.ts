@@ -176,6 +176,11 @@ import {
   usageSeriesResponseSchema,
   usageSummaryQuerySchema,
   usageSummaryResponseSchema,
+  usageToolCallsParamsSchema,
+  usageToolCallsQuerySchema,
+  usageToolCallsResponseSchema,
+  usageToolsQuerySchema,
+  usageToolsResponseSchema,
   WEB_SESSION_COOKIE_NAME,
   workspaceParamsSchema,
 } from "@werft-ai/contracts";
@@ -207,6 +212,8 @@ const requestComponents = {
   UsageSummaryQuery: usageSummaryQuerySchema,
   UsageSeriesQuery: usageSeriesQuerySchema,
   UsageBreakdownQuery: usageBreakdownQuerySchema,
+  UsageToolsQuery: usageToolsQuerySchema,
+  UsageToolCallsQuery: usageToolCallsQuerySchema,
   PostSessionMessageRequest: postSessionMessageRequestSchema,
   ListTurnsQuery: listTurnsQuerySchema,
   SearchSlackChannelsQuery: searchSlackChannelsQuerySchema,
@@ -322,6 +329,8 @@ const responseComponents = {
   UsageSummaryResponse: usageSummaryResponseSchema,
   UsageSeriesResponse: usageSeriesResponseSchema,
   UsageBreakdownResponse: usageBreakdownResponseSchema,
+  UsageToolsResponse: usageToolsResponseSchema,
+  UsageToolCallsResponse: usageToolCallsResponseSchema,
   SessionUsageResponse: sessionUsageResponseSchema,
   ListSessionOutputsResponse: listSessionOutputsResponseSchema,
   ListAgentsResponse: listAgentsResponseSchema,
@@ -3481,6 +3490,91 @@ export const API_ROUTE_DECLARATIONS = [
   },
   {
     method: "get",
+    path: "/v1/usage/tools",
+    operationId: "getUsageTools",
+    tag: "Limits & receipts",
+    summary: "Calls, failures and time per tool in a period",
+    description:
+      "Counts the tool calls whose `tool_use` event was stored in `[since, until)`, per tool name, the most-called first and at most 200 names. `scope`, `since` and `until` work as in `GET /v1/usage/summary`; `agent_id` narrows to the sessions pinned to a release of that agent. Subagent calls count too.\n\nA call is timed from its `tool_use` to the `tool_result` paired with it in the same session and attempt by `tool_use_id`. A call with no result yet, or with either event's time missing, counts in `calls` but in no `_ms` figure. `failed` counts results with `is_error: true`; a result without `is_error` is a success, and one whose `is_error` is not a boolean is neither. `median_ms` is read from a histogram: the middle call's time, or the mean of the two middle calls' for an even count, each read within 5% or 1 ms, except that a call of about 65 minutes or more reads as about 65 minutes, so a median that takes in such a call reads low. It is never above `max_ms`. Over whole UTC days `max_ms` is the largest time a call has had: if an earlier result later replaces a call's time, it does not come down there. Figures come from a table the reconciler fills on each pass, so a call shows up within one pass of being stored, usually seconds. Each finding names a row of `tools`: `most_time` the largest `total_ms`, `fails_often` the highest `failed / calls`, `slowest` the largest `median_ms`; a kind no tool qualifies for is left out. The response names tools and figures only, never a session. It changes nothing.",
+    scope: "read",
+    query: "UsageToolsQuery",
+    success: {
+      status: 200,
+      schema: "UsageToolsResponse",
+      description: "The tools called in the period.",
+      example: {
+        tools: [
+          {
+            name: "Bash",
+            calls: 1840,
+            failed: 21,
+            total_ms: 13320000,
+            median_ms: 3100,
+            max_ms: 298000,
+          },
+          {
+            name: "Edit",
+            calls: 702,
+            failed: 12,
+            total_ms: 1620000,
+            median_ms: 900,
+            max_ms: 14200,
+          },
+        ],
+        findings: [
+          { kind: "most_time", name: "Bash" },
+          { kind: "fails_often", name: "Edit" },
+          { kind: "slowest", name: "Bash" },
+        ],
+      },
+    },
+    errors: [400, 401, 503],
+  },
+  {
+    method: "get",
+    path: "/v1/usage/tools/{name}/calls",
+    operationId: "getUsageToolCalls",
+    tag: "Limits & receipts",
+    summary: "Recent or slowest calls of one tool, and its calls per day",
+    description:
+      "Lists the calls of the tool `name` whose `tool_use` event was stored in `[since, until)`, with the scopes, period and `agent_id` of `GET /v1/usage/tools`; the period spans at most 366 days. `sort=recent` (the default) lists the latest `occurred_at` first, `sort=slowest` the longest `duration_ms` first with untimed calls last; ties go to the later event. Read the next page with `next_cursor`, which is null on the last page; a cursor from the other sort is 400.\n\n`session_id` and `title` are null for a session the caller may not read (one in another owner, or private and not shared with the caller); the call's time, duration, outcome and agent still show. `agent` is null for a session made without an agent. `outcome` is `unknown` while no result is paired or when the result's `is_error` is not a boolean; `duration_ms` is null without a paired result or with either time missing, and set even when `outcome` is `unknown`. `per_day` counts the tool's calls on every UTC date the period touches, zeros included. Calls show up within one reconciler pass of being stored. It changes nothing.",
+    scope: "read",
+    query: "UsageToolCallsQuery",
+    success: {
+      status: 200,
+      schema: "UsageToolCallsResponse",
+      description: "One page of the tool's calls.",
+      example: {
+        calls: [
+          {
+            session_id: EXAMPLE_SESSION_ID,
+            title: "Fix the flaky login test",
+            agent: "Reviewer",
+            occurred_at: "2026-10-24T09:14:03.120Z",
+            duration_ms: 3120,
+            outcome: "ok",
+          },
+          {
+            session_id: null,
+            title: null,
+            agent: null,
+            occurred_at: "2026-10-24T09:12:41.004Z",
+            duration_ms: null,
+            outcome: "unknown",
+          },
+        ],
+        next_cursor:
+          "eyJzb3J0IjoicmVjZW50IiwiYXQiOiIyMDI2LTEwLTI0IDA5OjEyOjQxLjAwNCswMCIsImlkIjo0MjEsIm9yZCI6MX0",
+        per_day: [
+          { date: "2026-10-23", calls: 0 },
+          { date: "2026-10-24", calls: 2 },
+        ],
+      },
+    },
+    errors: [400, 401, 503],
+  },
+  {
+    method: "get",
     path: "/v1/receipts/{id}",
     operationId: "getReceipt",
     tag: "Limits & receipts",
@@ -3703,6 +3797,9 @@ function paramsSchemaFor(path: string): z.ZodObject {
   if (path.startsWith("/v1/linked-accounts/{id}"))
     return linkedAccountParamsSchema;
   if (path === "/v1/slack/events/{agent_id}") return slackEventsParamsSchema;
+  if (path === "/v1/usage/tools/{name}/calls") {
+    return usageToolCallsParamsSchema;
+  }
   throw new Error(`No params schema registered for ${path}`);
 }
 

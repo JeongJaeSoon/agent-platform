@@ -1,7 +1,7 @@
 import { Button, Card, Skeleton } from "@werft-ai/ui";
 import type { JSX } from "react";
 
-import { LaneBoard } from "./lane-board.tsx";
+import { ApprovalStripStandIn, LaneBoard } from "./lane-board.tsx";
 import type { AgentMapMessages } from "./messages.ts";
 import { RelationPanel } from "./relation-panel.tsx";
 import type { MapNode, MapSession } from "./types.ts";
@@ -25,6 +25,11 @@ export interface AgentMapProps {
   readonly onExpandDone?: (() => void) | undefined;
   /** The list has not arrived: the board and panel keep their places. */
   readonly loading?: boolean | undefined;
+  /**
+   * While loading, the open requests known from elsewhere (the sidebar's
+   * count), so the strip that arrives with the list does not push the lanes.
+   */
+  readonly waiting?: number | undefined;
   readonly now?: number | undefined;
   readonly messages?: Partial<AgentMapMessages> | undefined;
 }
@@ -42,12 +47,16 @@ export function AgentMap({
   onBack,
   onExpandDone,
   loading = false,
+  waiting = 0,
   now,
   messages: override,
 }: AgentMapProps): JSX.Element {
   const messages = useAgentMapMessages(override);
   const detail = view === "detail";
-  if (loading) return <AgentMapLoading detail={detail} messages={messages} />;
+  if (loading)
+    return (
+      <AgentMapLoading detail={detail} waiting={waiting} messages={messages} />
+    );
   return (
     <div className={COLUMNS}>
       <div className={detail ? "hidden md:block" : undefined}>
@@ -102,9 +111,11 @@ const CARD_ROWS = [
 
 function AgentMapLoading({
   detail,
+  waiting,
   messages,
 }: {
   readonly detail: boolean;
+  readonly waiting: number;
   readonly messages: AgentMapMessages;
 }): JSX.Element {
   return (
@@ -115,6 +126,7 @@ function AgentMapLoading({
         data-stand-in="board"
         className={`min-w-0 flex-col gap-4 ${detail ? "hidden md:flex" : "flex"}`}
       >
+        <ApprovalStripStandIn rows={waiting} />
         {(["attention", "running", "queued", "idle"] as const).map((lane) => (
           <section key={lane} className="flex flex-col gap-2">
             <h2 className="m-0 text-control font-semibold">
@@ -128,6 +140,8 @@ function AgentMapLoading({
                   height={height}
                   width={width}
                   label=""
+                  // A block bar's 4rem floor would spill out of the card.
+                  className="[&>span]:min-h-0"
                 />
               ))}
             </div>

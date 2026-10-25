@@ -23,6 +23,9 @@ kubernetes 모드에서만 읽는 설정은 다음과 같다.
 | `EXECUTION_K8S_IMAGE_PULL_SECRETS` | 선택. 쉼표로 구분한 Secret 이름. |
 | `EXECUTION_K8S_WORKER_NODE_SELECTOR` | 선택. JSON object. |
 | `EXECUTION_K8S_WORKER_TOLERATIONS` | 선택. JSON array. |
+| `EXECUTION_K8S_WORKER_EPHEMERAL_STORAGE_MB` | worker 컨테이너의 ephemeral-storage requests·limits(MB). 기본 1024. 넘으면 kubelet이 Pod를 evict한다. |
+
+실패한 worker의 종료 사유와 로그 tail(마지막 8 KiB)은 scheduler 로그의 `Execution resource failed; log tail kept` 줄에 남는다. 저장 위치와 보존 기간은 [어댑터 README](../../packages/adapters/execution/kubernetes/README.md#종료-사유와-로그-tail)에 있다.
 
 ## chart가 넣는 값
 
@@ -41,6 +44,7 @@ Helm chart(`deploy/helm/agent-platform`, 설치 절차는 [kubernetes-deployment
 | `EXECUTION_INSTALLATION_ID` | `installationId` | worker NetworkPolicy의 label 값이기도 하다 |
 | `EXECUTION_WORKSPACE_QUOTA_MB`, `EXECUTION_WORKSPACE_GC_MIN_AGE_SEC` | `worker.workspace.*` | quota는 workspace PVC의 크기 |
 | `WORKER_CPUS`, `WORKER_MEMORY_MB` | `worker.cpus`, `worker.memoryMb` | |
+| `EXECUTION_K8S_WORKER_EPHEMERAL_STORAGE_MB` | `worker.ephemeralStorageMb` | 기본 1024 |
 | 설치 상한(`EXECUTION_SLOT_LIMIT` 등) | `config.limits` | api와 scheduler에 같은 값 |
 | `SCHEDULER_*` | `scheduler.intervalSec` 등 | `SCHEDULER_PASS_TIMEOUT_SEC`(`scheduler.passTimeoutSec`, 기본 180)는 150보다 커야 한다 |
 | `SLACK_ROLE_INTERVAL_SEC`, `SLACK_ROLE_PASS_TIMEOUT_SEC`, `SLACK_ROLE_MAX_CONSECUTIVE_FAILURES`, `SLACK_ROLE_HEALTH_STALE_SEC`, `SLACK_ROLE_BATCH_SIZE`, `SLACK_ROLE_LEASE_SEC` | `slack.intervalSec`, `slack.passTimeoutSec`, `slack.maxConsecutiveFailures`, `slack.healthStaleSec`, `slack.batchSize`, `slack.leaseSec` | 기본 2, 60, 3, 90, 10, 60. `slack.enabled: false`면 slack Deployment를 그리지 않는다 |
