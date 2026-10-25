@@ -611,7 +611,9 @@ case "$*" in
   "ps -aq --filter label="*) echo "worker-1" ;;
   "network ls -q --filter label="*) echo "net-1" ;;
   "volume ls -q --filter label="*) echo "ws-1" ;;
-  "network ls --filter label=agent-platform.installation="*) echo "$STUB_LEFT_NETWORK" ;;
+  "network ls --filter label=agent-platform.installation="*)
+    echo "$STUB_LEFT_NETWORK"
+    exit "\${STUB_LEFT_EXIT:-0}" ;;
 esac
 `,
       { mode: 0o755 },
@@ -681,10 +683,22 @@ esac
     });
 
     expect(exitCode).toBe(1);
-    expect(stderr).toContain("containers or networks left");
+    expect(stderr).toContain(
+      `containers or networks left (above); ports.yml kept, rerun down.sh ${runDir} --keep-volumes`,
+    );
     expect(
       await readFile(join(runDir, "evidence/leftovers.txt"), "utf8"),
     ).toContain(left);
+    expect(await Bun.file(join(runDir, "ports.yml")).exists()).toBe(true);
+  });
+
+  test("a failed leftover check keeps the run and asks for the same mode again", async () => {
+    const { exitCode, stderr } = await down(["--keep-volumes"], {
+      STUB_LEFT_EXIT: "1",
+    });
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain(`rerun down.sh ${runDir} --keep-volumes\n`);
     expect(await Bun.file(join(runDir, "ports.yml")).exists()).toBe(true);
   });
 

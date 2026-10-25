@@ -110,7 +110,7 @@ run, project, 이미지를 빌드한 소스(`up.sh` 때의 HEAD + 커밋하지 �
 - 마지막에 `docker ps -a --filter label=com.docker.compose.project=<project>`와 installation label로 남은 컨테이너, 그리고 같은 두 label로 남은 네트워크를 보여 주고 `evidence/leftovers.txt`에 쓴다. 남은 것이 있으면 exit 1.
 - volume을 남기려면 `down.sh <run id> --keep-volumes`를 쓴다. `local.sh down --keep-volumes`와 `-v` 없는 두 번째 compose down을 돌려 컨테이너·네트워크(worker의 `ap-net-*` 포함)는 지우고 volume은 남긴다. `ports.yml`과 run 목록의 항목도 남으므로 나중에 `down.sh <run id>`로 volume까지 지운다. 스택을 `docker compose -p <project> down`으로 직접 내리지 않는다. scheduler가 만든 worker 컨테이너와 `ap-net-*` 네트워크는 compose label이 없어 그대로 남고, 네트워크마다 Docker 주소 풀 하나를 계속 쥔다.
 - 처음에 `browser/pid`가 있으면 `browser.mjs stop`으로 그 Chrome만 끝낸다.
-- 다 성공하면 `ports.yml`(token이 든 파일), cookie, `users/`·`keys/`를 지우고, `evidence/`는 남긴다. 정리 명령이나 남은 컨테이너 조회가 하나라도 실패하면(Docker daemon 응답 없음 등) `ports.yml`을 남기고 exit 1이다. Docker를 살린 뒤 `down.sh <run id>`를 다시 돌린다. 실패한 시도 뒤에도 매번 `down.sh`를 돌린다.
+- 다 성공하면 `ports.yml`(token이 든 파일), cookie, `users/`·`keys/`를 지우고, `evidence/`는 남긴다. 정리 명령이나 남은 컨테이너 조회가 하나라도 실패하면(Docker daemon 응답 없음 등) `ports.yml`을 남기고 exit 1이다. Docker를 살린 뒤 `down.sh <run id>`를 다시 돌린다. `--keep-volumes`로 내리던 중이었으면 그 옵션을 붙여 다시 돌린다(빼면 volume까지 지운다). 실패한 시도 뒤에도 매번 `down.sh`를 돌린다.
 - `lib.sh`와 `down.sh`는 run 상태(`state.env`, `verify-ap-*` project)를 읽지 못하면 아무 helper도 정의하지 않거나 아무것도 지우지 않고 멈춘다. 기본 project나 다른 세션의 run으로 넘어가지 않게 하려는 것이다.
 - 예전 판의 스킬은 공유 `latest` 파일을 따라가 인자 없는 `down.sh`가 다른 세션의 스택을 volume까지 지웠다. 지금 스크립트는 `latest`를 쓰지도 읽지도 않는다. root에 남은 `latest` 파일은 예전 판이 쓴 것이다.
 

@@ -49,7 +49,7 @@ networks=$(
     docker network ls --filter "label=agent-platform.installation=$EXECUTION_INSTALLATION_ID" --format '{{.Name}}'
 ) || failed=1
 if [ "$failed" = 1 ]; then
-  echo "down.sh: a teardown or leftover check failed (see $run/evidence/down.log); ports.yml kept, rerun down.sh $run" >&2
+  echo "down.sh: a teardown or leftover check failed (see $run/evidence/down.log); ports.yml kept, rerun down.sh $run${keep:+ $keep}" >&2
   exit 1
 fi
 {
