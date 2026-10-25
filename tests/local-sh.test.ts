@@ -64,6 +64,9 @@ case "$*" in
   "inspect --format {{json .NetworkSettings.Ports}} "*) echo "$STUB_PORTS" ;;
   "inspect --format "*) echo "$STUB_STARTED_ID" ;;
   *" down -v --remove-orphans") exit "\${STUB_DOWN_EXIT:-0}" ;;
+  "ps -aq --filter label="*) echo "$STUB_WORKERS" ;;
+  "network ls -q --filter label="*) echo "$STUB_NETWORKS" ;;
+  "volume ls -q --filter label="*) echo "$STUB_VOLUMES" ;;
   "context inspect --format "*) echo "$STUB_CONTEXT" ;;
   *" exec -T -e DEMO_ACCOUNTS=local api bun run apps/control-host/src/api/demo-data.ts") exit "\${STUB_DATA_EXIT:-0}" ;;
   *" exec -T -e DEMO_ACCOUNTS=local api "*) exit "\${STUB_SEED_EXIT:-0}" ;;
@@ -101,6 +104,9 @@ echo '{"status":"ready"}'
         STUB_CONTEXT: "unix:///var/run/docker.sock",
         STUB_API_ID: "api-id",
         STUB_PORTS: loopbackPorts,
+        STUB_WORKERS: "",
+        STUB_NETWORKS: "",
+        STUB_VOLUMES: "",
         LOCAL_DEMO_ACCOUNTS: "",
         ...env,
       },
@@ -165,6 +171,42 @@ echo '{"status":"ready"}'
     },
   );
 
+  test("down --keep-volumes deletes the workers and their networks, and no volume", async () => {
+    await writeFile(config, rendered("local"));
+    const workers = {
+      STUB_PROXY: "proxy-id",
+      STUB_STARTED_ID: "ap434local",
+      STUB_WORKERS: "worker-1\nworker-2",
+      STUB_NETWORKS: "net-1\nnet-2",
+      STUB_VOLUMES: "ws-1",
+    };
+
+    const kept = await run(["down", "--keep-volumes"], workers);
+    expect(kept.exitCode).toBe(0);
+    expect(kept.stderr).toContain("volumes and checkpoint objects kept");
+    expect(kept.stderr).not.toContain("checkpoint objects lost");
+    expect(await calls("docker-calls")).toEqual([
+      `${noMode} ps -aq egress-proxy`,
+      'inspect --format {{index .Config.Labels "agent-platform.egress-proxy"}} proxy-id',
+      `${noMode} down --remove-orphans`,
+      "ps -aq --filter label=agent-platform.installation=ap434local",
+      "rm -f worker-1 worker-2",
+      "network ls -q --filter label=agent-platform.installation=ap434local",
+      "network rm net-1 net-2",
+    ]);
+
+    // Plain down still deletes the volumes too.
+    await rm(join(dir, "docker-calls"));
+    expect((await run(["down"], workers)).exitCode).toBe(0);
+    expect(await calls("docker-calls")).toContain("volume rm ws-1");
+  });
+
+  test("down refuses any other argument without calling docker", async () => {
+    const result = await run(["down", "-v"]);
+    expect(result.exitCode).toBe(2);
+    expect(await calls("docker-calls")).toEqual([]);
+  });
+
   test("down deletes nothing when it cannot tell the installation", async () => {
     for (const [text, env] of [
       [undefined, {}],
@@ -175,11 +217,13 @@ echo '{"status":"ready"}'
     ] as const) {
       await rm(config, { force: true });
       if (text !== undefined) await writeFile(config, text);
-      const result = await run(["down"], env);
-      expect(result.exitCode).toBe(1);
-      expect(result.stderr).toContain(
-        "cannot tell the stack's EXECUTION_INSTALLATION_ID; nothing was deleted",
-      );
+      for (const mode of [[], ["--keep-volumes"]]) {
+        const result = await run(["down", ...mode], env);
+        expect(result.exitCode).toBe(1);
+        expect(result.stderr).toContain(
+          "cannot tell the stack's EXECUTION_INSTALLATION_ID; nothing was deleted",
+        );
+      }
     }
     expect(
       (await calls("docker-calls")).filter((call) =>
@@ -525,5 +569,148 @@ printf '%s\\n' "$@" > "${dir}/kubectl-args"
       expect(result.stderr.toString()).toContain("usage:");
     }
     expect(await Bun.file(join(dir, "kubectl-args")).exists()).toBe(false);
+  });
+});
+
+/**
+ * The verify-agent-platform skill's down.sh, which tears its run's stack
+ * down through local.sh, against the same kind of docker stand-in.
+ */
+describe("verify-agent-platform down.sh", () => {
+  const repo = join(import.meta.dir, "..");
+  const downSh = join(
+    repo,
+    ".claude/skills/verify-agent-platform/scripts/down.sh",
+  );
+  const project = "verify-ap-20261025-000000-1";
+  let dir: string;
+  let runDir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "down-sh-"));
+    runDir = join(dir, "runs", "20261025-000000-1");
+    await mkdir(join(dir, "bin"));
+    await mkdir(join(runDir, "evidence"), { recursive: true });
+    await writeFile(join(runDir, "ports.yml"), "services: {}\n");
+    await writeFile(
+      join(runDir, "state.env"),
+      [
+        `VERIFY_REPO=${repo}`,
+        `export COMPOSE_PROJECT_NAME=${project}`,
+        `export EXECUTION_INSTALLATION_ID=${project}`,
+        `export COMPOSE_FILE=${repo}/compose.yaml:${runDir}/ports.yml`,
+        `export API_IMAGE=agent-platform-control-host:${project}`,
+        `export WORKER_IMAGE=agent-platform-worker:${project}`,
+        `export EGRESS_PROXY_IMAGE=agent-platform-egress-proxy:${project}`,
+        "",
+      ].join("\n"),
+    );
+    await writeFile(
+      join(dir, "bin", "docker"),
+      `#!/bin/sh
+echo "$*" >> "${dir}/docker-calls"
+case "$*" in
+  *" config --format json") echo '{"services":{"scheduler":{"environment":{"EXECUTION_INSTALLATION_ID":"${project}"}}}}' ;;
+  "ps -aq --filter label="*) echo "worker-1" ;;
+  "network ls -q --filter label="*) echo "net-1" ;;
+  "volume ls -q --filter label="*) echo "ws-1" ;;
+  "network ls --filter label=agent-platform.installation="*)
+    echo "$STUB_LEFT_NETWORK"
+    exit "\${STUB_LEFT_EXIT:-0}" ;;
+esac
+`,
+      { mode: 0o755 },
+    );
+  });
+
+  afterEach(async () => {
+    await rm(dir, { force: true, recursive: true });
+  });
+
+  async function down(args: string[], env: Record<string, string> = {}) {
+    const handle = Bun.spawn(["bash", downSh, runDir, ...args], {
+      env: {
+        ...process.env,
+        PATH: `${join(dir, "bin")}:${process.env.PATH ?? ""}`,
+        STUB_LEFT_NETWORK: "",
+        ...env,
+      },
+      stderr: "pipe",
+      stdout: "pipe",
+    });
+    const [exitCode, stderr] = await Promise.all([
+      handle.exited,
+      new Response(handle.stderr).text(),
+    ]);
+    const calls = (
+      await readFile(join(dir, "docker-calls"), "utf8").catch(() => "")
+    )
+      .split("\n")
+      .filter(Boolean);
+    return { exitCode, stderr, calls };
+  }
+
+  const composeDowns = (calls: string[]) =>
+    calls.filter((call) => / down( |$)/.test(call));
+
+  test("--keep-volumes deletes the workers and their networks, keeps every volume and the run", async () => {
+    const { exitCode, calls } = await down(["--keep-volumes"]);
+
+    expect(exitCode).toBe(0);
+    expect(composeDowns(calls)).toEqual([
+      "compose --profile apps --profile fake-model down --remove-orphans",
+      `compose --profile apps --profile fake-model -f compose.yaml -f ${runDir}/ports.yml -f infra/compose.fake-model.yml down --remove-orphans --rmi local`,
+    ]);
+    expect(calls).toContain("rm -f worker-1");
+    expect(calls).toContain("network rm net-1");
+    expect(calls.filter((call) => call.startsWith("volume"))).toEqual([]);
+    expect(await Bun.file(join(runDir, "ports.yml")).exists()).toBe(true);
+  });
+
+  test("without it the volumes go too, and so does the run's ports.yml", async () => {
+    const { exitCode, calls } = await down([]);
+
+    expect(exitCode).toBe(0);
+    expect(composeDowns(calls)).toEqual([
+      "compose --profile apps --profile fake-model down -v --remove-orphans",
+      `compose --profile apps --profile fake-model -f compose.yaml -f ${runDir}/ports.yml -f infra/compose.fake-model.yml down --remove-orphans --rmi local -v`,
+    ]);
+    expect(calls).toContain("volume rm ws-1");
+    expect(await Bun.file(join(runDir, "ports.yml")).exists()).toBe(false);
+  });
+
+  test("a network left behind fails the teardown and keeps the run", async () => {
+    const left = `ap-net-${project}-exec-1-g1`;
+    const { exitCode, stderr } = await down(["--keep-volumes"], {
+      STUB_LEFT_NETWORK: left,
+    });
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain(
+      `containers or networks left (above); ports.yml kept, rerun down.sh ${runDir} --keep-volumes`,
+    );
+    expect(
+      await readFile(join(runDir, "evidence/leftovers.txt"), "utf8"),
+    ).toContain(left);
+    expect(await Bun.file(join(runDir, "ports.yml")).exists()).toBe(true);
+  });
+
+  test("a failed leftover check keeps the run and asks for the same mode again", async () => {
+    const { exitCode, stderr } = await down(["--keep-volumes"], {
+      STUB_LEFT_EXIT: "1",
+    });
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain(`rerun down.sh ${runDir} --keep-volumes\n`);
+    expect(await Bun.file(join(runDir, "ports.yml")).exists()).toBe(true);
+  });
+
+  test("refuses any other or extra argument without calling docker", async () => {
+    for (const args of [["-v"], ["--keep-volumes", "-v"]]) {
+      const { exitCode, calls } = await down(args);
+
+      expect(exitCode).toBe(2);
+      expect(calls).toEqual([]);
+    }
   });
 });

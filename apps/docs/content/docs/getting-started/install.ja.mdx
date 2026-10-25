@@ -62,7 +62,7 @@ scripts/local.sh down
 
 `scripts/local.sh down` はスタックと**すべてのデータ** (セッション、checkpoint、API キー、Gitea リポジトリ) を削除する。最初からやり直すには `scripts/local.sh reset --fake-model` を実行する。
 
-データを残すには `docker compose --profile apps --profile fake-model down` を `-v` なしで実行する。再開は `scripts/local.sh up --fake-model`。PostgreSQL・Gitea・S3 のデータは named volume に残る。S3 オブジェクトと暗号化キーは `local-s3-data` に保存され、Docker/OrbStack を再起動しても checkpoint を読める。
+データを残し worker コンテナとネットワークも片付けるには `scripts/local.sh down --keep-volumes` を実行する。再開は `scripts/local.sh up --fake-model`。PostgreSQL・Gitea・S3 のデータは named volume に残る。S3 オブジェクトと暗号化キーは `local-s3-data` に保存され、Docker/OrbStack を再起動しても checkpoint を読める。
 
 以前の LocalStack から移行するときは、pull 前に古い checkout でバックアップし、pull 後に未使用の新しい project へ復元する。失われたオブジェクトはバックアップなしでは復元できないため、参照を放棄するか明示的に判断する。[移行・バックアップ手順](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/quickstart.md#재부팅이나-docker-재시작-뒤)を参照する。
 

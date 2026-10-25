@@ -1,6 +1,7 @@
 {
   "name": "@werft-ai/agent-sdk-compat",
   "private": true,
+  "license": "PolyForm-Small-Business-1.0.0",
   "type": "module",
   "scripts": {
     "check": "bun run typecheck && bun run test:contract && bun run test:transport",

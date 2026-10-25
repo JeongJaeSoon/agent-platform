@@ -62,7 +62,7 @@ scripts/local.sh down
 
 `scripts/local.sh down` deletes the stack and **all data** (sessions, checkpoints, API keys, Gitea repositories). To start over from scratch, use `scripts/local.sh reset --fake-model`.
 
-To stop while preserving data, use `docker compose --profile apps --profile fake-model down` without `-v`. Start again with `scripts/local.sh up --fake-model`. PostgreSQL, Gitea, and S3 keep their data in named volumes. S3 objects and their encryption key live together in `local-s3-data`, so checkpoints survive Docker/OrbStack restarts.
+To stop while preserving data and removing worker containers and networks, use `scripts/local.sh down --keep-volumes`. Start again with `scripts/local.sh up --fake-model`. PostgreSQL, Gitea, and S3 keep their data in named volumes. S3 objects and their encryption key live together in `local-s3-data`, so checkpoints survive Docker/OrbStack restarts.
 
 When migrating an older LocalStack installation, back up from the old checkout before pulling, then restore into a new, unused project after pulling. Missing checkpoint objects cannot be recovered without a backup; explicitly decide whether to give up their references. Follow the [migration and backup guide](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/quickstart.md#재부팅이나-docker-재시작-뒤).
 

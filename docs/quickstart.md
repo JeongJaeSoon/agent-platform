@@ -94,7 +94,7 @@ scripts/local.sh status
 
 코드를 새로 pull했으면 `scripts/local.sh up --fake-model`을 다시 실행한다. 매번 이미지를 이 checkout에서 다시 빌드한다.
 
-**로컬 데이터는 named volume에 남는다.** S3는 SeaweedFS 4.48(서비스 이름은 호환성을 위해 `localstack` 유지), PostgreSQL과 Gitea도 각각의 volume에 저장한다. Docker/OrbStack 재시작이나 `docker compose down`(`-v` 없이) 뒤 `scripts/local.sh up --fake-model`로 다시 띄워도 checkpoint가 남는다. `scripts/local.sh down`과 `reset`은 명시적인 전체 데이터 삭제 명령이므로 보존할 때 쓰지 않는다. 기존 LocalStack 설치에서 전환하는 절차는 [7장](#재부팅이나-docker-재시작-뒤)을 따른다.
+**로컬 데이터는 named volume에 남는다.** S3는 SeaweedFS 4.48(서비스 이름은 호환성을 위해 `localstack` 유지), PostgreSQL과 Gitea도 각각의 volume에 저장한다. Docker/OrbStack 재시작이나 `scripts/local.sh down --keep-volumes` 뒤 `scripts/local.sh up --fake-model`로 다시 띄워도 checkpoint가 남는다. 옵션 없는 `scripts/local.sh down`과 `reset`은 명시적인 전체 데이터 삭제 명령이므로 보존할 때 쓰지 않는다. 기존 LocalStack 설치에서 전환하는 절차는 [7장](#재부팅이나-docker-재시작-뒤)을 따른다.
 
 Gitea(`http://127.0.0.1:3001`)의 `agent/sample-app`은 누구나 읽을 수 있는 공개 저장소다. 워커도 egress proxy를 거쳐 Gitea에 닿으므로 소유 계정 `agent`의 비밀번호는 알려진 기본값 없이 무작위로 만들어진다(6장).
 
@@ -352,7 +352,7 @@ scripts/local.sh down
 
 `down`은 스택과 **모든 데이터**(세션, checkpoint, API key, Gitea 저장소)를 지운다. scheduler가 만든 worker 컨테이너·네트워크·workspace volume은 compose 소유가 아니므로 `agent-platform.installation=<installation id>` label(기본 `local`, 1장)로 찾아 함께 지운다. 처음부터 다시 하려면 `scripts/local.sh reset --fake-model`(= `down` 뒤 `up --fake-model`)을 쓴다. 새 스택에서는 1장의 `KEY=…`부터 다시 한다.
 
-데이터를 보존하며 내릴 때는 `docker compose --profile apps --profile fake-model down`을 쓴다(`-v` 금지). 다시 `scripts/local.sh up --fake-model`로 올린다. S3 객체·버전·법적 hold·버킷 설정과 암호화 seed는 `local-s3-data` named volume에 함께 보존된다. seed를 잃거나 바꾸면 기존 객체를 복호화할 수 없으므로 volume 전체를 함께 보존한다. 외장 디스크 bind mount나 별도 라이선스는 필요 없다.
+데이터를 보존하며 내릴 때는 `scripts/local.sh down --keep-volumes`를 쓴다. compose 서비스와 scheduler가 만든 worker 컨테이너·네트워크를 지우고, compose volume과 workspace volume(`ap-ws-*`)은 남긴다. `docker compose down`만 하면 compose label이 없는 worker 컨테이너와 그 네트워크가 남아 Docker 주소 풀을 계속 차지할 수 있다. 다시 `scripts/local.sh up --fake-model`로 올리면 S3 객체·버전·법적 hold·버킷 설정과 암호화 seed도 `local-s3-data` named volume에서 읽는다. seed를 잃거나 바꾸면 기존 객체를 복호화할 수 없으므로 volume 전체를 함께 보존한다. 외장 디스크 bind mount나 별도 라이선스는 필요 없다. 이전 LocalStack에서 이미 객체를 잃은 설치에만 아래 복구 결정이 필요하다.
 
 ### 재부팅이나 Docker 재시작 뒤
 
