@@ -136,7 +136,8 @@ export const agentsKo = {
   "agent.releases.previous": "이전",
   "agent.releases.never": "활성화 전",
   "agent.releases.byMember": "구성원",
-  "agent.releases.emptyBody": "새 release로 version과 프로필을 묶으면 여기에 쌓입니다.",
+  "agent.releases.emptyBody":
+    "새 release로 version과 프로필을 묶으면 여기에 쌓입니다.",
   "agent.releases.intro":
     "release는 version을 프로필에 묶어 고정한 것입니다. 만들기만 해서는 쓰이지 않고, 활성화해야 새 세션이 씁니다.",
   "agent.releases.version": "version",
@@ -271,11 +272,10 @@ export const agentsKo = {
     "관리자로 받은 이 에이전트의 관리 권한이 없어집니다. 다시 관리자로 추가하면 돌아옵니다.",
   "agentAdmins.removeSelfConsequence":
     "나 자신을 빼면 관리 권한을 잃습니다. 내가 속한 팀이 관리자가 아니면 이 에이전트를 더 바꿀 수 없고, 나를 다시 추가할 수도 없습니다.",
-  "agentAdmins.pickPerson": "관리자로 추가할 사람",
-  "agentAdmins.pickTeam": "관리자로 추가할 팀",
-  "agentAdmins.pickPlaceholder": "고르세요",
-  "agentAdmins.addPerson": "사람 추가",
-  "agentAdmins.addTeam": "팀 추가",
+  "agentAdmins.pick": "관리자로 추가할 사람이나 팀",
+  "agentAdmins.pickPlaceholder": "사람이나 팀 고르기",
+  "agentAdmins.add": "관리자로 추가",
+  "agentAdmins.since": "{date}부터 담당",
   "agentAdmins.added": "{name}을(를) 관리자로 추가했습니다.",
   "agentAdmins.removed": "{name}을(를) 관리자에서 뺐습니다.",
   "agentAdmins.mine.title": "내가 관리하는 에이전트",
@@ -422,7 +422,8 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.releases.previous": "Previous",
   "agent.releases.never": "Never active",
   "agent.releases.byMember": "A member",
-  "agent.releases.emptyBody": "Releases you make with New release, a version on a profile, appear here.",
+  "agent.releases.emptyBody":
+    "Releases you make with New release, a version on a profile, appear here.",
   "agent.releases.intro":
     "A release pins a version to a profile. Creating one changes nothing until you activate it.",
   "agent.releases.version": "Version",
@@ -554,11 +555,10 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
     "The rights to manage this agent that came with being its admin go away. Adding them again restores them.",
   "agentAdmins.removeSelfConsequence":
     "Removing yourself takes away your admin rights. Unless a team you are in is an admin, you can no longer change this agent or add yourself back.",
-  "agentAdmins.pickPerson": "Person to add as admin",
-  "agentAdmins.pickTeam": "Team to add as admin",
-  "agentAdmins.pickPlaceholder": "Choose one",
-  "agentAdmins.addPerson": "Add person",
-  "agentAdmins.addTeam": "Add team",
+  "agentAdmins.pick": "Person or team to add as admin",
+  "agentAdmins.pickPlaceholder": "Choose a person or team",
+  "agentAdmins.add": "Add as admin",
+  "agentAdmins.since": "Admin since {date}",
   "agentAdmins.added": "Added {name} as an admin.",
   "agentAdmins.removed": "{name} is no longer an admin.",
   "agentAdmins.mine.title": "Agents you administer",
@@ -702,7 +702,8 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.releases.previous": "以前",
   "agent.releases.never": "有効化前",
   "agent.releases.byMember": "メンバー",
-  "agent.releases.emptyBody": "新しいリリースでバージョンとプロファイルを結ぶと、ここに並びます。",
+  "agent.releases.emptyBody":
+    "新しいリリースでバージョンとプロファイルを結ぶと、ここに並びます。",
   "agent.releases.intro":
     "リリースはバージョンをプロファイルに固定します。作成しただけでは何も変わらず、有効化すると反映されます。",
   "agent.releases.version": "バージョン",
@@ -838,11 +839,10 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
     "管理者として持っていた、このエージェントを管理する権限がなくなります。再び追加すると元に戻ります。",
   "agentAdmins.removeSelfConsequence":
     "自分を外すと、管理者権限がなくなります。所属チームが管理者でない限り、このエージェントを変更することも、自分を再追加することもできなくなります。",
-  "agentAdmins.pickPerson": "管理者に追加する人",
-  "agentAdmins.pickTeam": "管理者に追加するチーム",
-  "agentAdmins.pickPlaceholder": "選択してください",
-  "agentAdmins.addPerson": "人を追加",
-  "agentAdmins.addTeam": "チームを追加",
+  "agentAdmins.pick": "管理者に追加する人またはチーム",
+  "agentAdmins.pickPlaceholder": "人またはチームを選択",
+  "agentAdmins.add": "管理者に追加",
+  "agentAdmins.since": "{date}から担当",
   "agentAdmins.added": "{name}を管理者に追加しました。",
   "agentAdmins.removed": "{name}を管理者から外しました。",
   "agentAdmins.mine.title": "管理しているエージェント",

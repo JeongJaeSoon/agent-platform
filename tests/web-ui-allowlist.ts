@@ -6,7 +6,7 @@ import type { WebUiCounts } from "./architecture.test.ts";
  * removes its entry, and nothing is ever added here (see webUiRatchet).
  */
 export const webUiAllowlist: WebUiCounts = {
-  "components/agent-admins.tsx": { "legacy-class": 15 },
+  "components/agent-admins.tsx": { "legacy-class": 5 },
   "components/agent-card-form.tsx": { "raw-destructive": 1 },
   "components/auth-page.tsx": { "raw-destructive": 1 },
   "components/new-agent-flow.tsx": { "raw-destructive": 1 },

@@ -7,9 +7,15 @@ import type {
 } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
 import {
+  Avatar,
+  Button,
   buttonVariants,
   ConfirmDialog,
   EmptyState,
+  NativeSelect,
+  NativeSelectOptGroup,
+  NativeSelectOption,
+  RowLines,
   RowList,
   RowListItem,
   Link as TextLink,
@@ -32,7 +38,9 @@ import {
 } from "../auth/guard.tsx";
 import { ReasonButton } from "../auth/reason-button.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
+import { initials } from "./agent-cards.tsx";
 import { LoadFailure } from "./load-failure.tsx";
+import { MUTED, SECTION, SECTION_TITLE } from "./my-teams.tsx";
 import type { Outcome } from "./outcome.tsx";
 import { OPENS_ROW, ROW_LINK } from "./row-link.ts";
 import { StatusScreen } from "./status-screen.tsx";
@@ -41,6 +49,20 @@ import { StatusScreen } from "./status-screen.tsx";
 const ADMIN_ROW = "gap-y-[var(--ap-row-line-gap)]";
 const PRIMARY = "font-semibold [overflow-wrap:anywhere]";
 const SECONDARY = "text-caption text-muted-foreground [overflow-wrap:anywhere]";
+
+// Month/day in the product's zone, the way the console shows a short date.
+const DAY = new Intl.DateTimeFormat("en-US", {
+  timeZone: "Asia/Seoul",
+  month: "2-digit",
+  day: "2-digit",
+});
+
+/** The same person gets the same avatar colour on every visit. */
+function avatarTone(id: string): 1 | 2 | 3 | 4 {
+  let sum = 0;
+  for (const char of id) sum += char.charCodeAt(0);
+  return ((sum % 4) + 1) as 1 | 2 | 3 | 4;
+}
 
 /**
  * Who administers an agent: people and teams (design 4.1). Owners and admins
@@ -77,9 +99,13 @@ export function AgentAdmins({
   const titleId = useId();
 
   return (
-    <section className="web-section" aria-labelledby={titleId}>
-      <h2 id={titleId}>{t("agentAdmins.title")}</h2>
-      <p className="web-field__hint">{t("agentAdmins.intro")}</p>
+    <section className={SECTION} aria-labelledby={titleId}>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
+        <h2 id={titleId} className={SECTION_TITLE}>
+          {t("agentAdmins.title")}
+        </h2>
+        <p className={`${MUTED} text-caption`}>{t("agentAdmins.intro")}</p>
+      </div>
       {mine ? (
         <AdminList agentId={agentId} onOutcome={onOutcome} />
       ) : administered.isPending && !everywhere ? (
@@ -115,16 +141,16 @@ function AdminList({
   // not leave a refused decision on every visit.
   const listsMembers = useHasPermission("member.manage");
   const listsTeams = useHasPermission("team.manage");
-  // Every member is read once someone reaches for the person picker, not
-  // with the page.
+  // Every member is read once someone reaches for the picker, not with the
+  // page.
   const [picking, setPicking] = useState(false);
   const members = useQuery({
     ...membersQuery(client),
     enabled: listsMembers && picking,
   });
   const teams = useQuery({ ...teamsQuery(client), enabled: listsTeams });
-  const [person, setPerson] = useState("");
-  const [team, setTeam] = useState("");
+  // "<kind>:<id>", so one picker holds people and teams.
+  const [picked, setPicked] = useState("");
   const [removing, setRemoving] = useState<{
     kind: AgentAdminKind;
     id: string;
@@ -135,8 +161,8 @@ function AdminList({
   const everywhere = useHasPermission("agent.admin.manage");
   const losesAccess =
     !everywhere && removing?.kind === "users" && removing.id === me?.user?.id;
-  const personId = useId();
-  const teamId = useId();
+  const pickerId = useId();
+  const hintId = useId();
 
   const change = useMutation<
     AgentAdminChangeResponse,
@@ -156,10 +182,9 @@ function AdminList({
       ),
     onMutate: () => onOutcome(null),
     onSettled: () => setRemoving(null),
-    onSuccess: async (result, { add, kind, name }) => {
+    onSuccess: async (result, { add, name }) => {
       queryClient.setQueryData(queryKeys.agentAdmins(agentId), result.admins);
-      if (kind === "users") setPerson("");
-      else setTeam("");
+      if (add) setPicked("");
       onOutcome({
         kind: "notice",
         text: t(add ? "agentAdmins.added" : "agentAdmins.removed", { name }),
@@ -193,10 +218,12 @@ function AdminList({
       (member) => member.disabled_at === null && !userIds.has(member.user_id),
     ) ?? [];
   const groups = teams.data?.items.filter((row) => !teamIds.has(row.id)) ?? [];
-  const pickedPerson = people.find((member) => member.user_id === person);
-  const pickedTeam = groups.find((row) => row.id === team);
+  const pickedPerson = people.find(
+    (member) => `users:${member.user_id}` === picked,
+  );
+  const pickedTeam = groups.find((row) => `teams:${row.id}` === picked);
   // Picking needs the member and team lists, which only owners and admins
-  // read; an agent's own admin sees why the pickers stay closed.
+  // read; an agent's own admin sees why the picker stays closed.
   const personReason = !listsMembers
     ? permissionReason(t, "member.manage", role)
     : members.error
@@ -207,60 +234,92 @@ function AdminList({
     : teams.error
       ? refusalText(t, teams.error as ApiError, "team.manage", role)
       : undefined;
+  // Only when neither half can be picked is the button withheld; a list that
+  // failed beside one that loaded is said under the picker.
+  const addReason = personReason && teamReason ? personReason : undefined;
+  const partial =
+    addReason === undefined
+      ? members.error
+        ? personReason
+        : teams.error
+          ? teamReason
+          : undefined
+      : undefined;
+  const nothingLeft =
+    picking &&
+    !members.isPending &&
+    !members.isFetching &&
+    people.length === 0 &&
+    groups.length === 0;
+  const since = (at: string) => {
+    const parts = new Map(
+      DAY.formatToParts(new Date(at)).map((p) => [p.type, p.value] as const),
+    );
+    return t("agentAdmins.since", {
+      date: `${parts.get("month")}/${parts.get("day")}`,
+    });
+  };
+  const removeButton = (kind: AgentAdminKind, id: string, name: string) => (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      className="ml-auto"
+      disabled={change.isPending}
+      aria-label={t("agentAdmins.removeFor", { name })}
+      onClick={() => setRemoving({ kind, id, name })}
+    >
+      {t("agentAdmins.remove")}
+    </Button>
+  );
 
   return (
-    <>
+    <div className="overflow-hidden rounded-card border bg-card">
       {admins.data.users.length + admins.data.teams.length === 0 ? (
         <EmptyState title={t("agentAdmins.empty")} />
       ) : (
-        <RowList>
+        <RowList variant="joined" className="rounded-none border-0">
           {admins.data.users.map((user) => {
             const name = user.display_name ?? user.email;
             return (
-              <RowListItem key={`u:${user.user_id}`} className={ADMIN_ROW}>
-                <span className={PRIMARY}>{name}</span>
-                <span className={SECONDARY}>
-                  {t("agentAdmins.person")} · {user.email}
-                </span>
-                <button
-                  type="button"
-                  className="ap-button ml-auto"
-                  disabled={change.isPending}
-                  aria-label={t("agentAdmins.removeFor", { name })}
-                  onClick={() =>
-                    setRemoving({ kind: "users", id: user.user_id, name })
-                  }
-                >
-                  {t("agentAdmins.remove")}
-                </button>
+              <RowListItem key={`u:${user.user_id}`}>
+                <Avatar
+                  initials={initials(name).slice(0, 1)}
+                  tone={avatarTone(user.user_id)}
+                />
+                <RowLines>
+                  <span className={PRIMARY}>{name}</span>
+                  <span className={SECONDARY}>
+                    <span className="sr-only">
+                      {t("agentAdmins.person")} ·{" "}
+                    </span>
+                    {user.email} · {since(user.created_at)}
+                  </span>
+                </RowLines>
+                {removeButton("users", user.user_id, name)}
               </RowListItem>
             );
           })}
           {admins.data.teams.map((row) => (
-            <RowListItem key={`t:${row.team_id}`} className={ADMIN_ROW}>
-              <span className={PRIMARY}>{row.name}</span>
-              <span className={SECONDARY}>{t("agentAdmins.team")}</span>
-              <button
-                type="button"
-                className="ap-button ml-auto"
-                disabled={change.isPending}
-                aria-label={t("agentAdmins.removeFor", { name: row.name })}
-                onClick={() =>
-                  setRemoving({
-                    kind: "teams",
-                    id: row.team_id,
-                    name: row.name,
-                  })
-                }
-              >
-                {t("agentAdmins.remove")}
-              </button>
+            <RowListItem key={`t:${row.team_id}`}>
+              <Avatar
+                shape="square"
+                initials={initials(row.name).slice(0, 1)}
+                tone={avatarTone(row.team_id)}
+              />
+              <RowLines>
+                <span className={PRIMARY}>{row.name}</span>
+                <span className={SECONDARY}>
+                  {t("agentAdmins.team")} · {since(row.created_at)}
+                </span>
+              </RowLines>
+              {removeButton("teams", row.team_id, row.name)}
             </RowListItem>
           ))}
         </RowList>
       )}
       <form
-        className="web-form web-form--inline"
+        className="flex flex-wrap items-center gap-2 border-t px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)]"
         onPointerEnter={() => setPicking(true)}
         onFocus={() => setPicking(true)}
         onSubmit={(event) => {
@@ -272,49 +331,7 @@ function AdminList({
               id: pickedPerson.user_id,
               name: pickedPerson.display_name,
             });
-        }}
-      >
-        <label className="web-field" htmlFor={personId}>
-          <span>{t("agentAdmins.pickPerson")}</span>
-          <select
-            id={personId}
-            className="ap-input"
-            value={person}
-            disabled={
-              !listsMembers ||
-              (picking &&
-                !members.isPending &&
-                !members.isFetching &&
-                people.length === 0)
-            }
-            aria-busy={members.isFetching}
-            onChange={(event) => setPerson(event.target.value)}
-          >
-            <option value="">{t("agentAdmins.pickPlaceholder")}</option>
-            {people.map((member) => (
-              <option key={member.user_id} value={member.user_id}>
-                {member.display_name} ({member.email})
-              </option>
-            ))}
-          </select>
-        </label>
-        <ReasonButton
-          type="submit"
-          className={buttonVariants({
-            variant: "outline",
-            className: "self-start",
-          })}
-          reason={personReason}
-          disabled={!pickedPerson || change.isPending}
-        >
-          {t("agentAdmins.addPerson")}
-        </ReasonButton>
-      </form>
-      <form
-        className="web-form web-form--inline"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (pickedTeam)
+          else if (pickedTeam)
             change.mutate({
               add: true,
               kind: "teams",
@@ -323,34 +340,58 @@ function AdminList({
             });
         }}
       >
-        <label className="web-field" htmlFor={teamId}>
-          <span>{t("agentAdmins.pickTeam")}</span>
-          <select
-            id={teamId}
-            className="ap-input"
-            value={team}
-            disabled={groups.length === 0}
-            onChange={(event) => setTeam(event.target.value)}
-          >
-            <option value="">{t("agentAdmins.pickPlaceholder")}</option>
-            {groups.map((row) => (
-              <option key={row.id} value={row.id}>
-                {row.name}
-              </option>
-            ))}
-          </select>
+        <label className="sr-only" htmlFor={pickerId}>
+          {t("agentAdmins.pick")}
         </label>
+        <div className="min-w-0 flex-1 sm:flex-none">
+          <NativeSelect
+            id={pickerId}
+            className="w-60 max-w-full"
+            value={picked}
+            disabled={addReason !== undefined || nothingLeft}
+            aria-busy={members.isFetching}
+            aria-describedby={partial ? hintId : undefined}
+            onChange={(event) => setPicked(event.target.value)}
+          >
+            <NativeSelectOption value="">
+              {t("agentAdmins.pickPlaceholder")}
+            </NativeSelectOption>
+            {people.length > 0 ? (
+              <NativeSelectOptGroup label={t("agentAdmins.person")}>
+                {people.map((member) => (
+                  <NativeSelectOption
+                    key={member.user_id}
+                    value={`users:${member.user_id}`}
+                  >
+                    {member.display_name} ({member.email})
+                  </NativeSelectOption>
+                ))}
+              </NativeSelectOptGroup>
+            ) : null}
+            {groups.length > 0 ? (
+              <NativeSelectOptGroup label={t("agentAdmins.team")}>
+                {groups.map((row) => (
+                  <NativeSelectOption key={row.id} value={`teams:${row.id}`}>
+                    {row.name}
+                  </NativeSelectOption>
+                ))}
+              </NativeSelectOptGroup>
+            ) : null}
+          </NativeSelect>
+        </div>
         <ReasonButton
           type="submit"
-          className={buttonVariants({
-            variant: "outline",
-            className: "self-start",
-          })}
-          reason={teamReason}
-          disabled={!pickedTeam || change.isPending}
+          className={buttonVariants({ variant: "outline", size: "sm" })}
+          reason={addReason}
+          disabled={(!pickedPerson && !pickedTeam) || change.isPending}
         >
-          {t("agentAdmins.addTeam")}
+          {t("agentAdmins.add")}
         </ReasonButton>
+        {partial ? (
+          <p id={hintId} className={`${MUTED} basis-full text-caption`}>
+            {partial}
+          </p>
+        ) : null}
       </form>
       <ConfirmDialog
         open={removing !== null}
@@ -371,7 +412,7 @@ function AdminList({
           if (removing) change.mutate({ add: false, ...removing });
         }}
       />
-    </>
+    </div>
   );
 }
 
