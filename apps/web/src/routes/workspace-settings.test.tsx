@@ -692,6 +692,148 @@ describe("워크스페이스 설정", () => {
     expect(document.activeElement?.textContent).toBe("token 넣기");
   });
 
+  const ACTIVE_TOKEN = {
+    ...UNSET_TOKEN,
+    configured: true,
+    last4: "abcd",
+    state: "active",
+    updated_at: "2026-10-25T05:00:00.000Z",
+    updated_by: {
+      user_id: "11111111-1111-4111-8111-111111111111",
+      display_name: "Kim",
+    },
+    issuer: { user_id: "U0ISSUER1", team_id: "T0TEAM001" },
+  };
+
+  test("설정된 token은 끝 네 글자, 저장한 사람, 발급자만 보인다", async () => {
+    renderAt("/settings/workspace/slack", {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${TOKEN}`]: () => json(200, ACTIVE_TOKEN),
+    });
+    expect(
+      await screen.findByText(
+        /^••••abcd · .+ 저장 · 저장한 사람 Kim · 발급자 U0ISSUER1$/,
+      ),
+    ).toBeDefined();
+  });
+
+  test("발급자가 바뀐 저장은 앞으로 만드는 앱의 협업자가 바뀐다고 알린다", async () => {
+    renderAt("/settings/workspace/slack", {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`PUT ${TOKEN}`]: () =>
+        json(200, {
+          ...ACTIVE_TOKEN,
+          receipt_id: "5f0c2c1e-8a4b-4c1d-9e2f-3a4b5c6d7e8f",
+          warnings: [
+            {
+              code: "config_token_issuer_changed",
+              previous_user_id: "U0PREVIOUS",
+              user_id: "U0ISSUER1",
+            },
+          ],
+        }),
+    });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "token 넣기" }));
+    await user.type(
+      screen.getByLabelText("새 App Configuration Token"),
+      "fake-config-value",
+    );
+    await user.click(screen.getByRole("button", { name: "저장" }));
+    expect((await screen.findByRole("status")).textContent).toBe(
+      "저장했습니다. 발급자가 바뀌어 앞으로 만드는 앱의 협업자도 바뀝니다.",
+    );
+  });
+
+  test("token 저장을 서버가 403으로 거절하면 권한 문구이고 서버의 영어 문구는 없다", async () => {
+    renderAt("/settings/workspace/slack", {
+      "GET /v1/auth/me": () => json(200, adminMe()),
+      [`PUT ${TOKEN}`]: () =>
+        apiError(403, "FORBIDDEN", "Only an owner or admin can set it"),
+    });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "token 넣기" }));
+    await user.type(
+      screen.getByLabelText("새 App Configuration Token"),
+      "fake-config-value",
+    );
+    await user.click(screen.getByRole("button", { name: "저장" }));
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "워크스페이스 설정 변경 권한이 있어야 할 수 있습니다. 지금 역할: 관리자.",
+    );
+  });
+
+  test("비밀 저장소가 꺼져 있으면 저장 실패를 관리자에게 확인할 일로 알린다", async () => {
+    renderAt("/settings/workspace/slack", {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`PUT ${TOKEN}`]: () =>
+        apiError(503, "BACKEND_UNAVAILABLE", "The secret store is off"),
+    });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "token 넣기" }));
+    await user.type(
+      screen.getByLabelText("새 App Configuration Token"),
+      "fake-config-value",
+    );
+    await user.click(screen.getByRole("button", { name: "저장" }));
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "비밀 저장소를 사용할 수 없습니다. 관리자에게 저장소 설정을 확인해 달라고 요청하세요.",
+    );
+  });
+
+  test("잠깐 쓸 수 없는 서버는 저장소 문구가 아니라 다시 시도할 일로 알린다", async () => {
+    renderAt("/settings/workspace/slack", {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`PUT ${TOKEN}`]: () =>
+        apiError(503, "BACKEND_UNAVAILABLE", "Try again", true),
+    });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "token 넣기" }));
+    await user.type(
+      screen.getByLabelText("새 App Configuration Token"),
+      "fake-config-value",
+    );
+    await user.click(screen.getByRole("button", { name: "저장" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).not.toContain("비밀 저장소");
+    expect(alert.textContent).not.toContain("Try again");
+  });
+
+  test("비밀 저장소가 꺼져 있으면 token 상태 대신 관리자에게 확인할 일을 보인다", async () => {
+    renderAt("/settings/workspace/slack", {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${TOKEN}`]: () =>
+        apiError(503, "BACKEND_UNAVAILABLE", "The secret store is off"),
+    });
+    expect(
+      await screen.findByText(
+        "비밀 저장소를 사용할 수 없습니다. 관리자에게 저장소 설정을 확인해 달라고 요청하세요.",
+      ),
+    ).toBeDefined();
+    expect(screen.queryByRole("button", { name: "다시 시도" })).toBeNull();
+  });
+
+  test("이미 지워진 token을 삭제하면 다시 읽어 지워졌다고 알린다", async () => {
+    let deleted = false;
+    renderAt("/settings/workspace/slack", {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${TOKEN}`]: () => json(200, deleted ? UNSET_TOKEN : ACTIVE_TOKEN),
+      [`DELETE ${TOKEN}`]: () => {
+        deleted = true;
+        return apiError(404, "NOT_FOUND", "Not found");
+      },
+    });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "삭제" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "삭제" }));
+    expect((await screen.findByRole("status")).textContent).toBe(
+      "App Configuration Token을 삭제했습니다.",
+    );
+    expect(await screen.findByText("설정 안 됨")).toBeDefined();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   test("끝에 /가 붙은 주소에서도 설정 내비가 지금 페이지를 가리킨다", async () => {
     renderAt("/settings/workspace/", {
       "GET /v1/auth/me": () => json(200, me()),
