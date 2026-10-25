@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from "@storybook/react-vite";
+import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
 import { UsageCostTable } from "@werft-ai/react/components";
 import { expect } from "storybook/test";
 
@@ -41,8 +41,48 @@ const BY_MODEL = {
   tokens: true,
 } as const;
 
-/** By model: the names in mono, the token column hidden below 480px. */
+/** By model: the names in mono, the token column hidden below 460px. */
 export const ByModel: Story = { args: BY_MODEL };
+
+const width = (px: number): Decorator[] => [
+  (Story) => (
+    <div style={{ width: px }}>
+      <Story />
+    </div>
+  ),
+];
+
+/**
+ * Half of the usage tab's two-column row at 1280px with a classic scrollbar
+ * (Windows, a mouse on macOS): 15px less than 1280 leaves the table 472px,
+ * which keeps the design's token column.
+ */
+export const ByModelClassicScrollbar: Story = {
+  name: "By model, 1280px with a classic scrollbar (472px)",
+  args: BY_MODEL,
+  decorators: width(472),
+  play: async ({ canvas }) => {
+    await expect(
+      canvas.getByRole("columnheader", { name: "토큰" }),
+    ).toBeVisible();
+  },
+};
+
+/** A phone's table (390px less the page gutters) drops the token column. */
+export const ByModelPhone: Story = {
+  name: "By model, 390px (358px)",
+  args: BY_MODEL,
+  globals: MOBILE,
+  decorators: width(358),
+  play: async ({ canvas }) => {
+    await expect(
+      canvas.queryByRole("columnheader", { name: "토큰" }),
+    ).not.toBeInTheDocument();
+    await expect(
+      canvas.getByRole("columnheader", { name: "비용" }),
+    ).toBeVisible();
+  },
+};
 
 /** Names without a space or hyphen wrap in their column; the figures keep theirs. */
 export const LongNames: Story = {

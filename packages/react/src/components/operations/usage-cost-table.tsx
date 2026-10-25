@@ -19,6 +19,14 @@ import { useOperationsMessages } from "./use-messages.ts";
 
 type Row = UsageBreakdownResponse["rows"][number];
 
+// GridTable's narrowest step (480px) drops the token column from a half-width
+// table at 1280px once a classic scrollbar takes 15-17px (about 472px), so
+// this table steps at 460px itself. Below that the name column would wrap a
+// model name; a phone still drops the column.
+const NARROW_ROW =
+  "[@container(width<460px)]:grid-cols-[minmax(0,1fr)_48px_88px]";
+const NARROW_HIDE = "[@container(width<460px)]:hidden";
+
 export interface UsageCostTableProps {
   /** Names the table and heads its first column: "모델별", "에이전트". */
   readonly label: string;
@@ -27,7 +35,7 @@ export interface UsageCostTableProps {
   readonly by: "model" | "agent";
   /** GET /v1/usage/breakdown `rows`, largest cost first; undefined while read. */
   readonly rows: readonly Row[] | undefined;
-  /** The token column, hidden below 480px so the names keep their room. */
+  /** The token column, hidden below 460px so the names keep their room. */
   readonly tokens?: boolean | undefined;
   /** How many rows hold their place while the rows are read. */
   readonly placeholderRows?: number | undefined;
@@ -63,21 +71,17 @@ export function UsageCostTable({
       <GridTable
         aria-label={label}
         aria-busy={loading || undefined}
-        {...(tokens
-          ? {
-              columns: "minmax(0,1fr) 56px 80px 96px",
-              narrowAt: 480 as const,
-              narrowColumns: "minmax(0,1fr) 48px 88px",
-            }
-          : { columns: "minmax(0,1fr) 64px 96px" })}
+        columns={
+          tokens ? "minmax(0,1fr) 56px 80px 96px" : "minmax(0,1fr) 64px 96px"
+        }
       >
-        <GridTableHeader>
+        <GridTableHeader className={cn(tokens && NARROW_ROW)}>
           <GridTableColumnHeader>{head}</GridTableColumnHeader>
           <GridTableColumnHeader align="end">
             {messages.sessions}
           </GridTableColumnHeader>
           {tokens ? (
-            <GridTableColumnHeader align="end" hideNarrow>
+            <GridTableColumnHeader align="end" className={NARROW_HIDE}>
               {messages.tokens}
             </GridTableColumnHeader>
           ) : null}
@@ -92,7 +96,10 @@ export function UsageCostTable({
               : (row.label ??
                 (by === "agent" ? messages.noAgent : messages.noModel));
           return (
-            <GridTableRow key={row ? (row.key ?? "") : i}>
+            <GridTableRow
+              key={row ? (row.key ?? "") : i}
+              className={cn(tokens && NARROW_ROW)}
+            >
               <GridTableCell lines className="gap-1">
                 {/* The whole name, wrapped anywhere: the cell truncates only
                     the lines after it. */}
@@ -125,7 +132,10 @@ export function UsageCostTable({
                 </Value>
               </GridTableCell>
               {tokens ? (
-                <GridTableCell align="end" hideNarrow className="tabular-nums">
+                <GridTableCell
+                  align="end"
+                  className={cn("tabular-nums", NARROW_HIDE)}
+                >
                   <Value loading={loading}>
                     {row ? format.tokens(row.token_count) : null}
                   </Value>
