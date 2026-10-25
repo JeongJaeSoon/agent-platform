@@ -216,11 +216,13 @@ echo '{"status":"ready"}'
     ] as const) {
       await rm(config, { force: true });
       if (text !== undefined) await writeFile(config, text);
-      const result = await run(["down"], env);
-      expect(result.exitCode).toBe(1);
-      expect(result.stderr).toContain(
-        "cannot tell the stack's EXECUTION_INSTALLATION_ID; nothing was deleted",
-      );
+      for (const mode of [[], ["--keep-volumes"]]) {
+        const result = await run(["down", ...mode], env);
+        expect(result.exitCode).toBe(1);
+        expect(result.stderr).toContain(
+          "cannot tell the stack's EXECUTION_INSTALLATION_ID; nothing was deleted",
+        );
+      }
     }
     expect(
       (await calls("docker-calls")).filter((call) =>
