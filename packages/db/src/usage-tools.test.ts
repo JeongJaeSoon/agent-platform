@@ -13,6 +13,7 @@ import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import * as schema from "./schema.ts";
 import { events, sessions, users } from "./schema.ts";
+import { projectToolCalls } from "./tool-calls.ts";
 import { createPostgresUsageReader } from "./usage-reader.ts";
 
 const OWNER = "owner-a";
@@ -46,7 +47,12 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  await db.execute(sql`TRUNCATE events, sessions CASCADE`);
+  await db.execute(
+    sql`TRUNCATE tool_call_days, tool_calls, events, sessions CASCADE`,
+  );
+  await db.execute(
+    sql`UPDATE tool_call_progress SET applied_through = 0 WHERE id = 1`,
+  );
 });
 
 async function session(createdBy = ME): Promise<string> {
@@ -115,8 +121,18 @@ async function insert(
   });
 }
 
-const tools = (filter = installation, period = PERIOD) =>
-  createPostgresUsageReader(db).usageTools(filter, period, 200);
+// The reader counts what the reconciler projected; margin 0 projects all.
+const tools = async (
+  filter: UsageSummaryFilter = installation,
+  period = PERIOD,
+) => {
+  await projectToolCalls(db, {
+    batchSize: 1000,
+    budgetMs: 60_000,
+    marginSeconds: 0,
+  });
+  return createPostgresUsageReader(db).usageTools(filter, period, 200);
+};
 
 describe("usageTools", () => {
   test("a call without a result counts but is not timed", async () => {
@@ -130,7 +146,8 @@ describe("usageTools", () => {
         calls: 2,
         failed: 0,
         totalMs: 1500,
-        medianMs: 1500,
+        // Medians come from a histogram: within 5% of the exact one.
+        medianMs: 1467,
         maxMs: 1500,
       },
     ]);
@@ -181,7 +198,7 @@ describe("usageTools", () => {
         calls: 5,
         failed: 1,
         totalMs: 1500,
-        medianMs: 300,
+        medianMs: 290,
         maxMs: 500,
       },
     ]);
@@ -229,7 +246,7 @@ describe("usageTools", () => {
         calls: 4,
         failed: 1,
         totalMs: 1000,
-        medianMs: 500,
+        medianMs: 507,
         maxMs: 900,
       },
     ]);
