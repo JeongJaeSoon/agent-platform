@@ -92,11 +92,13 @@ function LocaleSwitch() {
   );
 }
 
-// The router opens these with a trailing slash too.
-const SESSION_PATH = /^\/sessions\/([^/]+)\/?$/;
+// The router opens these with a trailing slash too. /sessions/map is a
+// screen under 세션, not a session.
+const SESSION_PATH = /^\/sessions\/(?!map\/?$)([^/]+)\/?$/;
+const MAP_PATH = /^\/sessions\/map\/?$/;
 const AGENT_PATH = /^\/agents\/([^/]+)\/?$/;
 // Home, the sessions list and a session: screens with a right rail.
-const RAIL_PATH = /^\/(sessions(\/[^/]+)?)?\/?$/;
+const RAIL_PATH = /^\/(sessions(\/(?!map\/?$)[^/]+)?)?\/?$/;
 const SETTINGS_PATH = /^\/settings(\/|$)/;
 
 export function AuthedLayout() {
@@ -203,6 +205,7 @@ function useLeafTitle(pathname: string): string | undefined {
     return session.title || sessionId.slice(0, 8);
   }
   if (agentId === "new") return t("agents.newTitle");
+  if (MAP_PATH.test(pathname)) return t("sessionList.map");
   return agent?.agent.name;
 }
 

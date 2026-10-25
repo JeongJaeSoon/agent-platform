@@ -154,7 +154,18 @@ export function SessionsScreen() {
   };
   return (
     <DetailLayout rail={rail.rail}>
-      <Page title={t("sessions.title")} description={t("sessions.intro")}>
+      <Page
+        title={t("sessions.title")}
+        description={t("sessions.intro")}
+        actions={
+          <Link
+            to="/sessions/map"
+            className={buttonVariants({ variant: "outline" })}
+          >
+            {t("sessionList.map")}
+          </Link>
+        }
+      >
         <div className="flex flex-col gap-[var(--ap-space-block)]">
           <ApprovalInbox
             layout="summary"
