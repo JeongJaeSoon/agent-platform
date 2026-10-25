@@ -380,10 +380,10 @@ export async function assertCheckpointBucketEncryption(
 
 /**
  * Refuses to start when the database still has checkpoints a restore or a
- * backup reads but the bucket holds no object version at all. That is the
- * local LocalStack losing its S3 state (it keeps it in memory, so a raw
- * `docker compose down` or a Docker restart empties it) while postgres kept
- * its volume; every such session would fail its restore instead. This only
+ * backup reads but the bucket holds no object version at all. A lost or
+ * replaced S3 volume, migration from an older LocalStack store, or a volatile
+ * test-ops LocalStack can leave PostgreSQL references without their objects;
+ * every such session would fail its restore instead. This only
  * catches the empty bucket fast. It does not replace the backup's
  * per-version check.
  */
@@ -399,7 +399,7 @@ export async function assertCheckpointObjectsPresent(
   const check = async (client: S3ClientLike) => {
     if (await bucketHoldsObjectVersion(client, config.bucket)) return;
     throw new Error(
-      `Checkpoint bucket ${config.bucket} holds no object version, but the database still has checkpoints that restores read: the object store lost its data while the database kept it. A local LocalStack keeps S3 in memory, so \`docker compose down\` or a Docker restart empties it. Keep accounts, keys and sessions and give up only the lost checkpoints with \`scripts/local.sh forget-lost-checkpoints\` (their sessions wait for a recovery decision), or start the local installation over in the mode it runs in, \`scripts/local.sh reset\` or \`scripts/local.sh reset --fake-model\` (it deletes every session)`,
+      `Checkpoint bucket ${config.bucket} holds no object version, but the database still has checkpoints that restores read: the object store lost its data while the database kept it. The S3 volume may have been lost or replaced, or this installation may be migrating from an older LocalStack store; test-ops LocalStack still loses S3 state on restart. If a backup holds the checkpoint objects, restore it into a new, unused compose project with \`scripts/restore.sh\` and verify it with \`scripts/verify-restore.sh\`. Otherwise, keep accounts, keys and sessions and give up only the lost checkpoints with \`scripts/local.sh forget-lost-checkpoints\` (their sessions wait for a recovery decision), or start the local installation over in the mode it runs in, \`scripts/local.sh reset\` or \`scripts/local.sh reset --fake-model\` (it deletes every session)`,
     );
   };
   if (options.client !== undefined) return check(options.client);

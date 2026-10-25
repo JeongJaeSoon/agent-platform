@@ -1,6 +1,6 @@
 # The test-ops object store while no AWS account is in use
 # (TEST_OPS_OBJECT_STORE=localstack, the default), merged after
-# compose.test-ops.yml: the local stack's LocalStack and its bucket
+# compose.test-ops.yml: the independent LocalStack definition and its bucket
 # (claude-sessions), which the API signs for with LocalStack's own key.
 #
 # LocalStack keeps S3 in memory. A restart of its container, of Docker or of
@@ -10,7 +10,7 @@
 services:
   localstack:
     extends:
-      file: compose.local.yml
+      file: compose.localstack.yml
       service: localstack
   api:
     environment:
