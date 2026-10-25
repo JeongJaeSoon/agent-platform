@@ -87,8 +87,12 @@ function PanelBody({
   const settled = events.state !== "connecting";
   const fresh = items.filter(
     (request) =>
-      !placed.has(request.request_id) &&
-      (settled || asked.has(request.request_id)),
+      (!placed.has(request.request_id) &&
+        (settled || asked.has(request.request_id))) ||
+      // Its line left the stream's window while it still waits: answered
+      // from the top, so it stays answerable.
+      (placed.get(request.request_id) === "timeline" &&
+        !asked.has(request.request_id)),
   );
   if (fresh.length > 0) {
     const next = new Map(placed);
@@ -100,7 +104,8 @@ function PanelBody({
     }
     setPlaced(next);
   }
-  // Asked before the timeline's window, or never seen on the stream.
+  // Asked before the timeline's window, never seen on the stream, or since
+  // dropped from it.
   const elsewhere = items.filter(
     (request) => placed.get(request.request_id) === "top",
   );

@@ -609,4 +609,50 @@ describe("ApprovalInbox", () => {
     expect(radio.isConnected).toBe(true);
     expect(radio.getAttribute("aria-checked")).toBe("true");
   });
+
+  test("패널에서 질문 행이 이벤트 창 밖으로 밀려나도 그 요청은 위에서 계속 답할 수 있다", async () => {
+    const user = await setupUser();
+    const asked = [
+      "question",
+      {
+        request_id: "req_q",
+        tool_use_id: "tu_1",
+        kind: "question",
+        tool: "AskUserQuestion",
+        input: {
+          questions: QUESTION.kind === "question" ? QUESTION.questions : [],
+        },
+      },
+    ] as const;
+    const view = renderInbox({
+      open: [QUESTION],
+      layout: "summary",
+      extra: { panel: true },
+      events: [asked],
+    });
+    await user.click(
+      await view.findByRole("button", { name: `View details of ${SHORT}` }),
+    );
+    const panel = await view.findByRole("dialog");
+    await waitFor(() =>
+      expect(panel.querySelector("ol [role='radio']")).toBeTruthy(),
+    );
+    await act(async () => {
+      view.push(
+        ...Array.from(
+          { length: 200 },
+          () => ["status", { phase: "needs_input" }] as const,
+        ),
+      );
+    });
+    await waitFor(() =>
+      expect(panel.querySelector("ol")?.textContent).not.toContain(
+        "Which branch?",
+      ),
+    );
+    await waitFor(() =>
+      expect(panel.querySelectorAll("[role='radio']")).toHaveLength(1),
+    );
+    expect(panel.querySelector("[role='radio']")?.closest("ol")).toBeNull();
+  });
 });
