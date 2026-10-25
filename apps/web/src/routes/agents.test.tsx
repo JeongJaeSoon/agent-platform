@@ -127,6 +127,14 @@ async function openCardEditor(user: User) {
   );
 }
 const RELEASE_TAB = `${DETAIL}?tab=release`;
+
+// Releases are made in a dialog behind this button.
+async function openRelease(user: User) {
+  await user.click(
+    await screen.findByRole("button", { name: "새 release", hidden: true }),
+  );
+  return within(await screen.findByRole("dialog"));
+}
 const PROFILE = "claude-coding-local";
 const showTab = async (user: User, name: string) =>
   user.click(await screen.findByRole("tab", { name }));
@@ -1217,11 +1225,9 @@ describe("에이전트 상세", () => {
     expect(screen.queryByLabelText("지시 사항")).toBeNull();
     expect(screen.queryByText(/다른 곳에서 카드를 저장해/)).toBeNull();
     await showTab(user, "배포");
-    const release = screen
-      .getByRole("heading", { name: "release" })
-      .closest("section") as HTMLElement;
+    const release = await openRelease(user);
     expect(
-      (within(release).getByLabelText("version") as HTMLSelectElement)
+      (release.getByLabelText("version") as HTMLSelectElement)
         .selectedOptions[0]?.textContent,
     ).toBe("version 1");
   });
@@ -1285,18 +1291,19 @@ describe("에이전트 상세", () => {
     const server = agentServer();
     const { api } = renderAt(RELEASE_TAB, { ...meOk, ...server.routes });
     const user = await setupUser();
-    const profile = (await screen.findByLabelText(
-      "프로필",
-    )) as HTMLSelectElement;
+    let dialog = await openRelease(user);
+    const profile = dialog.getByLabelText("프로필") as HTMLSelectElement;
     // With no release yet the form offers the profile running the card's model.
     expect(profile.value).toBe(PROFILE);
     await user.selectOptions(profile, "claude-coding-fast");
-    await user.click(screen.getByRole("button", { name: "release 만들기" }));
+    await user.click(dialog.getByRole("button", { name: "release 만들기" }));
     expect((await screen.findByRole("alert")).textContent).toContain(
       "Unknown runtime profile claude-coding-fast",
     );
-    await user.selectOptions(profile, PROFILE);
-    await user.click(screen.getByRole("button", { name: "release 만들기" }));
+    // A settled request closes the dialog; the choice is kept for the retry.
+    dialog = await openRelease(user);
+    await user.selectOptions(dialog.getByLabelText("프로필"), PROFILE);
+    await user.click(dialog.getByRole("button", { name: "release 만들기" }));
     expect(
       await screen.findByText(
         "release를 만들었습니다(version 1). 아직 활성화되지 않았습니다.",
@@ -1344,18 +1351,19 @@ describe("에이전트 상세", () => {
     expect(document.activeElement?.contains(saved)).toBe(true);
 
     await showTab(user, "배포");
-    await screen.findByLabelText("프로필");
+    await openRelease(user);
     await user.selectOptions(
       screen.getByLabelText("프로필"),
       "claude-coding-fast",
     );
     await user.click(screen.getByRole("button", { name: "release 만들기" }));
     const refused = await screen.findByRole("alert");
-    expect(section("release").contains(refused)).toBe(true);
+    expect(section("배포 기록").contains(refused)).toBe(true);
     expect(document.activeElement?.contains(refused)).toBe(true);
     // One result at a time: the card's notice went away with the new action.
     expect(screen.queryByText(/저장했습니다/)).toBeNull();
 
+    await openRelease(user);
     await user.selectOptions(screen.getByLabelText("프로필"), PROFILE);
     await user.click(screen.getByRole("button", { name: "release 만들기" }));
     await user.click(
@@ -1364,7 +1372,7 @@ describe("에이전트 상세", () => {
       }),
     );
     const activated = await screen.findByText(/활성화됐습니다/);
-    expect(section("release").contains(activated)).toBe(true);
+    expect(section("배포 기록").contains(activated)).toBe(true);
     expect(document.activeElement?.contains(activated)).toBe(true);
   });
 
@@ -1387,12 +1395,10 @@ describe("에이전트 상세", () => {
     expect(
       screen.getByRole("tab", { name: "배포", selected: true }),
     ).toBeDefined();
-    const release = screen
-      .getByRole("heading", { name: "release" })
-      .closest("section") as HTMLElement;
+    const release = await openRelease(user);
     await waitFor(() =>
       expect(
-        (within(release).getByLabelText("version") as HTMLSelectElement)
+        (release.getByLabelText("version") as HTMLSelectElement)
           .selectedOptions[0]?.textContent,
       ).toBe("version 2"),
     );
@@ -1436,7 +1442,7 @@ describe("두 탭 동시 활성화", () => {
     // The refusal shows by the button that caused it and takes focus.
     expect(
       b
-        .getByRole("heading", { name: "release" })
+        .getByRole("heading", { name: "배포 기록" })
         .closest("section")
         ?.contains(panel),
     ).toBe(true);
@@ -1515,29 +1521,28 @@ describe("편집 중 다른 곳의 저장", () => {
     const server = agentServer();
     const { services } = renderAt(RELEASE_TAB, { ...meOk, ...server.routes });
     const user = await setupUser();
-    await user.selectOptions(await screen.findByLabelText("프로필"), PROFILE);
+    const release = await openRelease(user);
+    await user.selectOptions(release.getByLabelText("프로필"), PROFILE);
     otherTabSaves(server);
     await services.queryClient.invalidateQueries({
       queryKey: queryKeys.agent(AGENT_ID),
     });
-    const release = screen
-      .getByRole("heading", { name: "release" })
-      .closest("section") as HTMLElement;
     await waitFor(() =>
       expect(
-        (within(release).getByLabelText("version") as HTMLSelectElement)
+        (release.getByLabelText("version") as HTMLSelectElement)
           .selectedOptions[0]?.textContent,
       ).toBe("version 2"),
     );
-    expect(
-      (within(release).getByLabelText("프로필") as HTMLSelectElement).value,
-    ).toBe(PROFILE);
+    expect((release.getByLabelText("프로필") as HTMLSelectElement).value).toBe(
+      PROFILE,
+    );
   });
 
   test("release 폼의 profile은 목록에서 모델 이름과 함께 고르고, 직전 release의 profile을 기본으로 둔다", async () => {
     const server = agentServer();
     await seedRelease(server);
     renderAt(RELEASE_TAB, { ...meOk, ...server.routes });
+    await openRelease(await setupUser());
     const select = (await screen.findByLabelText(
       "프로필",
     )) as HTMLSelectElement;
@@ -1551,7 +1556,9 @@ describe("편집 중 다른 곳의 저장", () => {
   test("모델과 profile 안내는 정확 일치 규칙을 말하고 내부 파일 이름을 보이지 않는다", async () => {
     const server = agentServer();
     renderAt(DETAIL, { ...meOk, ...server.routes });
-    await openCardEditor(await setupUser());
+    const user = await setupUser();
+    await openCardEditor(user);
+    await openRelease(user);
     const described = async (label: string) =>
       (
         (await screen.findByLabelText(label)).getAttribute(
@@ -1583,6 +1590,7 @@ describe("편집 중 다른 곳의 저장", () => {
         ),
     });
     const user = await setupUser();
+    await openRelease(user);
     await user.selectOptions(
       await screen.findByLabelText("프로필"),
       "claude-coding-fast",
@@ -1607,6 +1615,7 @@ describe("편집 중 다른 곳의 저장", () => {
     const shown = async (name: string, alert: string, button: string) => {
       await showTab(user, name);
       if (name === "카드") await openCardEditor(user);
+      if (name === "배포") await openRelease(user);
       expect(
         (await screen.findAllByRole("alert")).map((a) => a.textContent),
       ).toContainEqual(expect.stringContaining(alert));
@@ -1665,6 +1674,7 @@ describe("편집 중 다른 곳의 저장", () => {
     const server = agentServer();
     renderAt(RELEASE_TAB, { ...meOk, ...server.routes });
     const user = await setupUser();
+    await openRelease(user);
     const select = await screen.findByLabelText("프로필");
     await user.selectOptions(select, PROFILE);
     expect(screen.queryByText(/이대로 만들면 거부됩니다/)).toBeNull();

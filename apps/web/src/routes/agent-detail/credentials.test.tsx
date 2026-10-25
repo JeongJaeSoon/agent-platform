@@ -189,8 +189,10 @@ describe("CREDENTIAL_UNBOUND 안내", () => {
     const server = serverNaming("github/app", "slack:bot");
     const { api } = renderAt(DETAIL, { ...meOk, ...server.routes });
     const user = await setupUser();
-    await screen.findByLabelText("프로필");
-    await user.click(screen.getByRole("button", { name: "release 만들기" }));
+    await user.click(await screen.findByRole("button", { name: "새 release" }));
+    await user.click(
+      await screen.findByRole("button", { name: "release 만들기" }),
+    );
     const activate = await screen.findByRole("button", {
       name: `version 1 · ${PROFILE} 활성화`,
     });
@@ -203,7 +205,7 @@ describe("CREDENTIAL_UNBOUND 안내", () => {
     expect(alert.textContent).toContain("github/app, slack:bot");
     // Shown in the releases section, where the button was pressed.
     const releases = screen
-      .getByRole("heading", { name: "release" })
+      .getByRole("heading", { name: "배포 기록" })
       .closest("section") as HTMLElement;
     expect(releases.contains(alert)).toBe(true);
     expect(document.activeElement?.contains(alert)).toBe(true);
@@ -264,8 +266,10 @@ describe("CREDENTIAL_UNBOUND 안내", () => {
         }),
     });
     const user = await setupUser();
-    await screen.findByLabelText("프로필");
-    await user.click(screen.getByRole("button", { name: "release 만들기" }));
+    await user.click(await screen.findByRole("button", { name: "새 release" }));
+    await user.click(
+      await screen.findByRole("button", { name: "release 만들기" }),
+    );
     await user.click(
       await screen.findByRole("button", {
         name: `version 1 · ${PROFILE} 활성화`,
@@ -297,8 +301,10 @@ describe("CREDENTIAL_UNBOUND 안내", () => {
         apiError(409, "CREDENTIAL_UNBOUND", "unbound"),
     });
     const user = await setupUser();
-    await screen.findByLabelText("프로필");
-    await user.click(screen.getByRole("button", { name: "release 만들기" }));
+    await user.click(await screen.findByRole("button", { name: "새 release" }));
+    await user.click(
+      await screen.findByRole("button", { name: "release 만들기" }),
+    );
     await user.click(
       await screen.findByRole("button", {
         name: `version 1 · ${PROFILE} 활성화`,

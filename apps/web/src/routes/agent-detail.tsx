@@ -392,13 +392,6 @@ function AgentView({
         />
       </TabsContent>
       <TabsContent {...tabPanel("release")}>
-        <Credentials
-          detail={detail}
-          missing={unbound ?? []}
-          titleRef={credentialsTitle}
-          result={<PlacedOutcome placed={placed} at="credentials" />}
-          onOutcome={outcomeAt("credentials")}
-        />
         <Releases
           detail={detail}
           picked={releaseVersion}
@@ -483,6 +476,13 @@ function AgentView({
               seenActive: agent.active_release_id,
             })
           }
+        />
+        <Credentials
+          detail={detail}
+          missing={unbound ?? []}
+          titleRef={credentialsTitle}
+          result={<PlacedOutcome placed={placed} at="credentials" />}
+          onOutcome={outcomeAt("credentials")}
         />
       </TabsContent>
       <TabsContent {...tabPanel("admins")}>
