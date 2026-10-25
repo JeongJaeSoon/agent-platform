@@ -383,7 +383,10 @@ describe("UsageKpis", () => {
       "일자별 비용",
       "일자별 토큰",
     ]);
-    expect(queryByText(/실제보다 적을 수 있음/)).toBeNull();
+    // Said to no one, its room kept so the cards below do not move.
+    expect(
+      queryByText(/실제보다 적을 수 있음/)?.closest("[aria-hidden=true]"),
+    ).toBeTruthy();
   });
 
   test("cost_complete=false인 날이 하나라도 있으면 비용 카드가 적을 수 있다고 말한다", () => {
@@ -392,7 +395,9 @@ describe("UsageKpis", () => {
         buckets={BUCKETS.map((b, i) => ({ ...b, cost_complete: i === 0 }))}
       />,
     );
-    expect(getByText(/실제보다 적을 수 있음/)).toBeTruthy();
+    expect(
+      getByText(/실제보다 적을 수 있음/).closest("[aria-hidden=true]"),
+    ).toBeNull();
   });
 
   test("1센트에 못 미치는 비용은 $0.00이 아니라 <$0.01로 쓴다", () => {

@@ -71,14 +71,14 @@ export function UsageKpis({
         value={value("5rem", (t) => format.usd(t.cost_usd))}
         chart={spark((b) => Number(b.cost_usd), messages.costChart)}
         description={
-          totals === undefined ? (
-            // Most periods hold a running turn; keeping its room stops the
-            // card growing when the figures come.
+          totals && !totals.cost_complete ? (
+            messages.costIncomplete
+          ) : (
+            // Its room stays while it is read and when it is not said, so the
+            // stacked cards below never move.
             <span aria-hidden="true" className="invisible">
               {messages.costIncomplete}
             </span>
-          ) : totals.cost_complete ? undefined : (
-            messages.costIncomplete
           )
         }
       />
