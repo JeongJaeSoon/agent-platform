@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
 import { Skeleton } from "../primitives/skeleton.tsx";
-import { setupDom, stubPrefersReducedMotion } from "../test-support/dom.ts";
+import {
+  setupDom,
+  setupUser,
+  stubPrefersReducedMotion,
+} from "../test-support/dom.ts";
 import { htmlOf } from "../test-support/html.ts";
 import { EmptyState } from "./empty-state.tsx";
 import { ErrorState } from "./error-state.tsx";
@@ -24,6 +28,24 @@ describe("EmptyState", () => {
       container.querySelectorAll(".ap-state__actions button"),
     ).toHaveLength(2);
     expect(htmlOf(container.firstElementChild)).toMatchSnapshot();
+  });
+
+  test("icon은 제목 위 장식 상자에 들어가고 size는 data-size로 남는다", () => {
+    const plain = render(<EmptyState title="비어 있습니다" />);
+    expect(plain.container.querySelector(".ap-state__icon")).toBeNull();
+    expect(
+      plain.container.querySelector(".ap-state")?.getAttribute("data-size"),
+    ).toBe("default");
+
+    const { container } = render(
+      <EmptyState title="비어 있습니다" icon={<svg />} size="sm" />,
+    );
+    const root = container.querySelector(".ap-state");
+    const box = root?.firstElementChild;
+    expect(box?.className).toBe("ap-state__icon");
+    expect(box?.getAttribute("aria-hidden")).toBe("true");
+    expect(box?.querySelector("svg")).not.toBeNull();
+    expect(root?.getAttribute("data-size")).toBe("sm");
   });
 
   test("조용하다 — alert로 읽히지 않는다", () => {
@@ -90,6 +112,21 @@ describe("ErrorState", () => {
     expect(container.querySelector("a")?.getAttribute("href")).toBe(
       "/journal/1",
     );
+  });
+
+  test("다시 시도는 아이콘을 단 버튼이고 클릭하면 retry를 부른다", async () => {
+    const user = await setupUser();
+    const calls: string[] = [];
+    const { getByRole } = render(
+      <ErrorState retry={() => calls.push("retry")} retryLabel="다시 시도" />,
+    );
+    expect(getByRole("alert")).toBeDefined();
+    const button = getByRole("button", { name: "다시 시도" });
+    expect(button.querySelector("svg")?.getAttribute("aria-hidden")).toBe(
+      "true",
+    );
+    await user.click(button);
+    expect(calls).toEqual(["retry"]);
   });
 
   test("retry가 없으면 버튼도 없다", () => {

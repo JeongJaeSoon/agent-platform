@@ -113,6 +113,7 @@ export function SessionTimeline({
             t,
             locale,
           ),
+          toolCallId: eventToolCallId(frame.payload),
           ...questionOf(frame),
         }),
       ),
@@ -138,6 +139,8 @@ export function SessionTimeline({
           closed: t("session.events.closed"),
           turn: (turn) => t("session.events.turn", { turn }),
           kind: (kind) => t(`session.events.kind.${kind}`),
+          folded: (count) => t("session.events.folded", { count }),
+          running: t("session.events.running"),
           options: t("session.events.options"),
         }}
         state={state}

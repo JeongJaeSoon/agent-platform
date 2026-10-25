@@ -371,6 +371,10 @@ export type SlackChannelPage = {
 
 /** The calls a bot token makes about the people and places it hears from. */
 export interface SlackBotApi {
+  channelInfo?(
+    botToken: string,
+    channelId: string,
+  ): Promise<{ id: string; name: string }>;
   /** `users.info`: the flags that tell a member from a guest or a stranger. */
   userInfo(botToken: string, userId: string): Promise<SlackUser>;
   /** `conversations.info`: what kind of place the channel is. */
@@ -438,6 +442,10 @@ const conversationInfoAnswer = z.object({
   }),
 });
 
+const namedConversationAnswer = z.object({
+  channel: z.object({ id: slackId, name: z.string().min(1).max(255) }),
+});
+
 const listChannelsAnswer = z.object({
   channels: z.array(
     z.object({
@@ -478,6 +486,15 @@ export function createSlackBotApi(
           ? {}
           : { is_stranger: user.is_stranger }),
       };
+    },
+
+    async channelInfo(botToken, channelId) {
+      const { channel } = await call(
+        "conversations.info",
+        { token: botToken, body: new URLSearchParams({ channel: channelId }) },
+        namedConversationAnswer,
+      );
+      return channel;
     },
 
     async channelKind(botToken, channelId) {
