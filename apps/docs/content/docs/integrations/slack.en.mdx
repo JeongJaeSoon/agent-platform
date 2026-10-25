@@ -113,7 +113,7 @@ When you save one of the agent's channels (`PUT /v1/agents/{id}/slack-bindings`)
 | `config_error` | Slack refused the token or a scope (`error` holds Slack's code). Reinstall the app |
 | `join_failed` | The channel is archived or a workspace policy refused the join (`error`) |
 
-Deploying a new release posts one message in the home channel: "안녕하세요, <agent name>입니다. 이 채널에 배포됐어요. 멘션하면 답할게요" (Korean by default). Submitting the same definition again or rolling back to an earlier release posts nothing. Moving the home to another channel posts once in the new channel. If the bot is not in the home yet, the message waits until it is. A welcome or join that fails never fails the deployment.
+Deploying a new release posts one message in the home channel: `안녕하세요, <agent name>입니다. 이 채널에 배포됐어요. 멘션하면 답할게요` (Korean by default). Submitting the same definition again or rolling back to an earlier release posts nothing. Moving the home to another channel posts once in the new channel. If the bot is not in the home yet, the message waits until it is. A welcome or join that fails never fails the deployment.
 
 ## Next steps
 
