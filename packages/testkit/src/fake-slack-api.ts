@@ -191,6 +191,8 @@ export function createFakeSlackWebApi(
     return ts;
   };
   const failures = new Map<string, string>();
+  /** The next call of a method answers exactly this, then it is forgotten. */
+  const nextAnswers = new Map<string, { status: number; body: unknown }>();
   let appCounter = 0;
   const conversations: FakeSlackListedChannel[] = [];
   const rateLimits = new Map<
@@ -742,6 +744,33 @@ export function createFakeSlackWebApi(
         missingTs.add(input.method);
         return Response.json({ ok: true });
       }
+      // For curl on the local stack: {method}'s next call answers `status`
+      // with `body`, as text when it is a string and as JSON otherwise.
+      if (url.pathname === "/fake/answers" && request.method === "POST") {
+        const input = (await request.json().catch(() => null)) as {
+          method?: unknown;
+          status?: unknown;
+          body?: unknown;
+        } | null;
+        if (
+          typeof input?.method !== "string" ||
+          !Object.hasOwn(methods, input.method) ||
+          !Number.isSafeInteger(input.status) ||
+          (input.status as number) < 200 ||
+          (input.status as number) > 599 ||
+          input.body === undefined
+        ) {
+          return Response.json(
+            { ok: false, error: "invalid_request" },
+            { status: 400 },
+          );
+        }
+        nextAnswers.set(input.method, {
+          status: input.status as number,
+          body: input.body,
+        });
+        return Response.json({ ok: true });
+      }
       if (url.pathname === "/fake/config-tokens" && request.method === "POST") {
         return Response.json({ ok: true, refresh_token: issueConfigToken() });
       }
@@ -810,6 +839,14 @@ export function createFakeSlackWebApi(
             headers: { "Retry-After": String(limited.retryAfterSeconds) },
           },
         );
+      }
+      const canned = nextAnswers.get(method);
+      if (canned) {
+        nextAnswers.delete(method);
+        calls.push({ method, ok: false, error: "fake_answer" });
+        return typeof canned.body === "string"
+          ? new Response(canned.body, { status: canned.status })
+          : Response.json(canned.body, { status: canned.status });
       }
       const authorization = request.headers.get("authorization");
       const context: Context = {
