@@ -336,7 +336,7 @@ describe("에이전트 카드", () => {
   beforeEach(() => localStorage.clear());
 
   /** One released agent whose card asks for two credentials, one bound. */
-  function releasedServer() {
+  function releasedServer(mcp: readonly string[] = ["linear"]) {
     const server = agentServer();
     const base = server.detail();
     const version = base.versions[0];
@@ -345,7 +345,7 @@ describe("에이전트 카드", () => {
       ...version.card,
       capabilities: {
         ...version.card.capabilities,
-        mcp: [{ server: "linear" }],
+        mcp: mcp.map((server) => ({ server })),
         credential_refs: ["github", "linear"],
       },
     };
@@ -444,6 +444,19 @@ describe("에이전트 카드", () => {
         .getAllByRole("link")
         .map((a) => a.textContent),
     ).toEqual(["결제 담당"]);
+  });
+
+  test("긴 MCP 이름은 칩 안에서 잘리고 전체 이름은 title로 남는다", async () => {
+    const long = `mcp-${"x".repeat(28)}`;
+    renderAt("/agents", { ...meOk, ...releasedServer([long]) });
+    const card = await cardFor("결제 담당");
+    await waitFor(() => expect(card.textContent).toContain("v1 배포됨"));
+    const chip = [...card.querySelectorAll("dt")]
+      .find((dt) => dt.textContent === "MCP")
+      ?.nextElementSibling?.querySelector("[data-slot=badge]");
+    expect(chip?.textContent).toBe(long);
+    expect(chip?.getAttribute("title")).toBe(long);
+    expect(chip?.firstElementChild?.className).toContain("truncate");
   });
 
   test("아바타 색은 이름으로 정해져 목록과 상세에서 같다", async () => {

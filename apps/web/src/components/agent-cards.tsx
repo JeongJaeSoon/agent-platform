@@ -160,7 +160,7 @@ function AgentCard({
                 : null}
             </Detail>
           </Fact>
-          <Fact term={t("agents.cards.mcp")} wraps>
+          <Fact term={t("agents.cards.mcp")}>
             <Detail query={detail}>
               {data ? (
                 <Names
@@ -259,26 +259,16 @@ function Detail({
 
 function Fact({
   term,
-  wraps = false,
   children,
 }: {
   readonly term: string;
-  /** Chips that break onto more lines instead of being cut off. */
-  readonly wraps?: boolean;
   readonly children: ReactNode;
 }) {
   return (
     <>
       <dt className="text-muted-foreground">{term}</dt>
-      {/* At least a badge tall, whether read or not. */}
-      <dd
-        className={cn(
-          "m-0 min-h-5 min-w-0 text-right",
-          wraps ? "[overflow-wrap:anywhere]" : "truncate",
-        )}
-      >
-        {children}
-      </dd>
+      {/* One line, at least a badge tall, whether read or not. */}
+      <dd className="m-0 min-h-5 min-w-0 truncate text-right">{children}</dd>
     </>
   );
 }
@@ -292,10 +282,17 @@ function Names({
 }) {
   if (names.length === 0) return <>{none}</>;
   return (
+    // A card names one MCP server today; a long name is cut, not pushed off
+    // the card, and reads in full on hover and to a screen reader.
     <span className="flex flex-wrap justify-end gap-1">
       {names.map((name) => (
-        <Badge key={name} variant="gray" className="font-mono">
-          {name}
+        <Badge
+          key={name}
+          variant="gray"
+          className="min-w-0 max-w-full shrink font-mono"
+          title={name}
+        >
+          <span className="truncate">{name}</span>
         </Badge>
       ))}
     </span>
