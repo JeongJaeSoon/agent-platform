@@ -29,6 +29,7 @@ import {
   ANNOTATIONS,
   bootstrapFingerprintOf,
   COMPONENTS,
+  CONTAINER_NAME,
   ISOLATION_CONTRACT,
   isolationStampFor,
   LABELS,
@@ -55,6 +56,15 @@ const POLL_MS = 250;
  * answer, then the Secret's create.
  */
 const SECRET_LANDING_REQUESTS = 2;
+
+/**
+ * A failed worker's log as kept: its last lines, then their last bytes.
+ * Fewer lines are asked for when the last ones fill the read on their own.
+ */
+const LOG_TAIL_LINES = [200, 20, 1];
+const LOG_TAIL_BYTES = 8 * 1024;
+/** The most one read takes in, however long the lines. */
+const LOG_TAIL_READ_BYTES = 64 * 1024;
 
 /**
  * `repository@sha256:<digest>`, nothing else: the chart pins every image by
@@ -295,11 +305,23 @@ export class KubernetesBackend implements ExecutionBackend {
       );
     }
     const state = stateOf(pod);
-    const exitCode =
-      pod.status?.containerStatuses?.[0]?.state?.terminated?.exitCode;
+    const terminated = pod.status?.containerStatuses?.[0]?.state?.terminated;
+    // The Pod's own reason first: an evicted Pod's container reads as
+    // plainly killed, or carries no status at all.
+    const terminationReason = pod.status?.reason ?? terminated?.reason;
+    const logTail =
+      state === "terminated" && pod.status?.phase === "Failed"
+        ? await this.logTailOf(pod)
+        : undefined;
     const annotations = pod.metadata.annotations ?? {};
     return {
-      ...(state === "terminated" && exitCode !== undefined ? { exitCode } : {}),
+      ...(state === "terminated" && terminated !== undefined
+        ? { exitCode: terminated.exitCode }
+        : {}),
+      ...(state === "terminated" && terminationReason !== undefined
+        ? { terminationReason }
+        : {}),
+      ...(logTail === undefined ? {} : { logTail }),
       credentialFingerprint:
         annotations[ANNOTATIONS.bootstrapFingerprint] ?? null,
       found: true,
@@ -617,6 +639,52 @@ export class KubernetesBackend implements ExecutionBackend {
         `Pod ${pod.metadata.name} (${uid}) was deleted for replacement but is still there`,
       );
     }
+  }
+
+  /**
+   * The end of a failed worker's log, or undefined when there is none to
+   * read. `pods/log` reaches every Pod in the namespace, the api's and the
+   * proxy's too, so the labels are checked here rather than trusted to the
+   * caller. A read that fails costs only the tail, never the inspect.
+   */
+  private async logTailOf(pod: Pod): Promise<string | undefined> {
+    const labels = pod.metadata.labels ?? {};
+    if (
+      labels[LABELS.partOf] !== PART_OF ||
+      labels[LABELS.component] !== COMPONENTS.worker ||
+      labels[LABELS.installation] !== this.config.installationId
+    ) {
+      return undefined;
+    }
+    let bytes = new Uint8Array();
+    // The server cuts at `limitBytes` from the front of the lines asked
+    // for, so a read that hit the cut holds the middle of the log, not its
+    // end: it is asked again for fewer lines.
+    for (const tailLines of LOG_TAIL_LINES) {
+      let log: string | null;
+      try {
+        log = await this.client.podLog(
+          this.config.namespace,
+          pod.metadata.name,
+          {
+            container: CONTAINER_NAME,
+            limitBytes: LOG_TAIL_READ_BYTES,
+            tailLines,
+          },
+        );
+      } catch {
+        return undefined;
+      }
+      if (log === null) return undefined;
+      bytes = new TextEncoder().encode(log);
+      if (bytes.length < LOG_TAIL_READ_BYTES) {
+        if (bytes.length === 0) return undefined;
+        return new TextDecoder().decode(bytes.subarray(-LOG_TAIL_BYTES));
+      }
+    }
+    // One last line longer than a read: its end is out of reach, so its
+    // start is kept and says so rather than passing for the end.
+    return `${new TextDecoder().decode(bytes.subarray(0, LOG_TAIL_BYTES))}\n[log tail cut: the last line is longer than ${LOG_TAIL_READ_BYTES} bytes; its end was not read]\n`;
   }
 
   /** Whether the Pod `uid` names is gone from under `name` within `ms`. */

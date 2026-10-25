@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Every 15 minutes: move the dedicated checkout @CHECKOUT@ to origin/main
+     (on failure, keep the code it has) and run `preview.sh reap` from it.
+     @CHECKOUT@ and @HOME@ are filled in on install:
+     docs/contributing/development.md. -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>dev.94soon.agent-platform.preview-reap</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/bash</string>
+		<string>-c</string>
+		<string>cd "$0" || exit 1; { git fetch -q origin &amp;&amp; git checkout -q --detach origin/main; } || echo "preview-reap: could not move to origin/main, reaping with $(git rev-parse --short HEAD)"; exec deploy/preview/preview.sh reap</string>
+		<string>@CHECKOUT@</string>
+	</array>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key>
+		<string>@HOME@/.orbstack/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+	</dict>
+	<key>WorkingDirectory</key>
+	<string>@CHECKOUT@</string>
+	<key>StartInterval</key>
+	<integer>900</integer>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>ProcessType</key>
+	<string>Background</string>
+	<key>StandardOutPath</key>
+	<string>@HOME@/Library/Logs/agent-platform/preview-reap.log</string>
+	<key>StandardErrorPath</key>
+	<string>@HOME@/Library/Logs/agent-platform/preview-reap.log</string>
+</dict>
+</plist>

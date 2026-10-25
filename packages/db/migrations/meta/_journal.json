@@ -554,6 +554,13 @@
       "when": 1792923419088,
       "tag": "0169_usage_breakdown_rollup",
       "breakpoints": true
+    },
+    {
+      "idx": 170,
+      "version": "7",
+      "when": 1792936457051,
+      "tag": "0170_tool_calls",
+      "breakpoints": true
     }
   ]
 }

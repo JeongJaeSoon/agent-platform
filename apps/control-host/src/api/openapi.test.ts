@@ -402,6 +402,8 @@ describe("OpenAPI document", () => {
         "/v1/usage/summary",
         "/v1/usage/series",
         "/v1/usage/breakdown",
+        "/v1/usage/tools",
+        "/v1/usage/tools/{name}/calls",
       ].sort(),
     );
     const rendered = renderOpenApiDocument();
