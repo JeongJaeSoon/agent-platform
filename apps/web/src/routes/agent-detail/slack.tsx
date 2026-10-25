@@ -188,6 +188,23 @@ function useSlackChannels(agentId: string, query: string) {
   });
 }
 
+/**
+ * The server joins public channels itself, so only a private channel waits
+ * for `/invite`. The binding's membership wins; a channel not bound or not
+ * checked yet falls back to the channel list.
+ */
+function awaitsInvite(
+  binding: Binding | undefined,
+  listed: { readonly private?: boolean; readonly member: boolean } | undefined,
+): boolean {
+  if (binding?.membership)
+    return binding.membership.state === "awaiting_invite";
+  const isPrivate = binding
+    ? binding.surface_kind === "private_channel"
+    : listed?.private;
+  return Boolean(isPrivate && listed && !listed.member);
+}
+
 /** Copies the `/invite` line for a channel the bot has not joined. */
 function InviteCopy({
   command,
@@ -872,13 +889,6 @@ function SlackChannels({
             const known = row.external_surface_id
               ? names[row.external_surface_id]
               : undefined;
-            // The server joins public channels itself; a binding saved before
-            // it recorded membership falls back to the channel list.
-            const awaitingInvite = row.membership
-              ? row.membership.state === "awaiting_invite"
-              : row.surface_kind === "private_channel" &&
-                known !== undefined &&
-                !known.member;
             const name =
               row.surface_kind === "dm"
                 ? t("slack.dm")
@@ -900,7 +910,7 @@ function SlackChannels({
                     : "slack.public",
                 )}
                 meta={
-                  awaitingInvite ? (
+                  awaitsInvite(row, known) ? (
                     <span className="flex flex-wrap items-center gap-1">
                       <Badge variant="gray">{t("slack.privateInvite")}</Badge>
                       <InviteCopy command={invite} notify={notify} />
@@ -971,7 +981,15 @@ function SlackChannels({
                               : "slack.public",
                           )}
                         </Badge>
-                        {channel.is_private && !channel.is_member ? (
+                        {awaitsInvite(
+                          rows.find(
+                            (row) => row.external_surface_id === channel.id,
+                          ),
+                          {
+                            private: channel.is_private,
+                            member: channel.is_member,
+                          },
+                        ) ? (
                           <span className="flex flex-wrap items-center gap-1">
                             <Badge variant="gray">
                               {t("slack.privateInvite")}

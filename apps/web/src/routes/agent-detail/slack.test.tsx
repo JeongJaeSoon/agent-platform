@@ -508,6 +508,8 @@ describe("Slack management", () => {
             row("C3", "public_channel", "join_failed"),
             row("C4", "private_channel", null),
             row("C5", "public_channel", null),
+            // The server's membership wins over a channel list that lags.
+            row("C6", "private_channel", "joined"),
           ],
         }),
       [`GET ${PATH}/slack/channels`]: () =>
@@ -518,6 +520,7 @@ describe("Slack management", () => {
             channel("C3", "pub-failed", false),
             channel("C4", "priv-unchecked", true),
             channel("C5", "pub-unchecked", false),
+            channel("C6", "priv-joined", true),
           ],
           next_cursor: null,
           stale: false,
