@@ -91,6 +91,7 @@ function memoryStore(tools: string[] = ["Read"]) {
       created_at: AT,
     }),
     findRelease: async (_workspace, id) => releases.get(id) ?? null,
+    releaseSuperseded: async () => false,
     create: async () => ({ outcome: "created", detail }),
     update: async () => ({ outcome: "updated", detail }),
     insertRelease: async ({ release }) => {
@@ -384,5 +385,38 @@ describe("agent service", () => {
         }),
       ),
     ).toBe("REVISION_CONFLICT");
+  });
+
+  test("an activation hands the welcome its release; a refused one does not", async () => {
+    const memory = memoryStore();
+    const welcomed: unknown[][] = [];
+    const service = createAgentService({
+      authorization: createAuthorizationPolicy(),
+      store: memory.store,
+      catalog: catalogOf(PROFILE),
+      credentials: { unboundRefs: async () => [] },
+      welcome: {
+        activated: async (...args) => {
+          welcomed.push(args);
+          return null;
+        },
+      },
+    });
+    const { release: made } = await service.createRelease(
+      owner,
+      AGENT,
+      release,
+    );
+    await service.activateAgent(owner, AGENT, {
+      release_id: made.id,
+      expected_revision: -1,
+    });
+    await codeOf(
+      service.activateAgent(owner, AGENT, {
+        release_id: made.id,
+        expected_revision: 5,
+      }),
+    );
+    expect(welcomed).toEqual([[WORKSPACE, AGENT, made.id]]);
   });
 });

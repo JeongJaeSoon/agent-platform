@@ -5758,11 +5758,24 @@
                 "type": "null"
               }
             ]
+          },
+          "assignable_roles": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "owner",
+                "admin",
+                "member"
+              ]
+            },
+            "description": "The roles the caller may invite someone as now (POST /v1/invites refuses any other with OWNER_PROTECTED). The same on every page and search."
           }
         },
         "required": [
           "items",
-          "next_cursor"
+          "next_cursor",
+          "assignable_roles"
         ],
         "additionalProperties": false
       },
@@ -8235,8 +8248,21 @@
                   "enum": [
                     "events_url_unset",
                     "reinstall_required",
-                    "finalize_failed"
+                    "finalize_failed",
+                    "awaiting_invite",
+                    "config_error",
+                    "join_failed"
                   ]
+                },
+                "channel_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "pattern": "^[A-Z0-9]+$"
+                },
+                "error": {
+                  "type": "string",
+                  "pattern": "^[a-z_]{1,64}$"
                 }
               },
               "required": [
@@ -12262,6 +12288,36 @@
                     "revoked"
                   ]
                 },
+                "membership": {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "joined",
+                        "awaiting_invite",
+                        "config_error",
+                        "join_failed"
+                      ]
+                    },
+                    "error": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^[a-z_]{1,64}$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "error"
+                  ],
+                  "additionalProperties": false
+                },
                 "muted": {
                   "type": "boolean"
                 },
@@ -12443,6 +12499,36 @@
                   "failed",
                   "revoked"
                 ]
+              },
+              "membership": {
+                "type": "object",
+                "properties": {
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "joined",
+                      "awaiting_invite",
+                      "config_error",
+                      "join_failed"
+                    ]
+                  },
+                  "error": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[a-z_]{1,64}$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "state",
+                  "error"
+                ],
+                "additionalProperties": false
               },
               "muted": {
                 "type": "boolean"

@@ -363,17 +363,23 @@ function AuditRetention({ onOutcome }: { readonly onOutcome: OnOutcome }) {
       <label className="sr-only" htmlFor={inputId}>
         {t("workspace.retentionDays")}
       </label>
-      <Input
-        id={inputId}
-        className="max-w-50"
-        type="number"
-        inputMode="numeric"
-        step={1}
-        value={days}
-        aria-describedby={`${hintId} ${footId}`}
-        disabled={reason !== undefined}
-        onChange={(event) => setDraft(event.target.value)}
-      />
+      <div className="flex items-center gap-2">
+        <Input
+          id={inputId}
+          className="max-w-50"
+          type="number"
+          inputMode="numeric"
+          step={1}
+          value={days}
+          aria-describedby={`${hintId} ${footId}`}
+          disabled={reason !== undefined}
+          onChange={(event) => setDraft(event.target.value)}
+        />
+        {/* The label already says the unit; this is for sighted readers. */}
+        <span aria-hidden="true" className="text-control text-muted-foreground">
+          {t("workspace.retentionUnit")}
+        </span>
+      </div>
     </SettingsCard>
   );
 }

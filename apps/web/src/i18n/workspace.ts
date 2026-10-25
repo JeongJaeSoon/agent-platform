@@ -15,6 +15,7 @@ export const workspaceKo = {
   "workspace.modelsEmpty": "이 설치에 등록된 모델이 없습니다.",
   "workspace.retention": "감사 기록 보존 기간",
   "workspace.retentionDays": "보존 기간(일)",
+  "workspace.retentionUnit": "일",
   "workspace.retentionHint": "허용·거절한 요청 기록을 이 기간 동안 보관합니다.",
   "workspace.retentionFoot":
     "30일보다 짧게 할 수 없고, 소유자만 바꿀 수 있습니다.",
@@ -57,6 +58,7 @@ export const workspaceEn: Record<keyof typeof workspaceKo, string> = {
   "workspace.modelsEmpty": "This installation has no models registered.",
   "workspace.retention": "Audit log retention",
   "workspace.retentionDays": "Keep for (days)",
+  "workspace.retentionUnit": "days",
   "workspace.retentionHint":
     "Records of allowed and denied requests are kept this long.",
   "workspace.retentionFoot": "At least 30 days. Only an owner can change this.",
@@ -99,6 +101,7 @@ export const workspaceJa: Record<keyof typeof workspaceKo, string> = {
   "workspace.modelsEmpty": "このインストールに登録されたモデルはありません。",
   "workspace.retention": "監査ログの保存期間",
   "workspace.retentionDays": "保存日数",
+  "workspace.retentionUnit": "日",
   "workspace.retentionHint":
     "許可・拒否されたリクエストの記録をこの期間保存します。",
   "workspace.retentionFoot": "最短 30 日です。変更できるのはオーナーのみです。",

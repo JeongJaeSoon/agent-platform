@@ -455,7 +455,8 @@ export async function drainSlackOutbox(deps: {
         settled &&
         outcome.status !== "pending" &&
         claim.kind !== "notice" &&
-        claim.kind !== "input_notice"
+        claim.kind !== "input_notice" &&
+        claim.kind !== "welcome"
       ) {
         await clearThreadStatus(botToken, claim, ids);
       }

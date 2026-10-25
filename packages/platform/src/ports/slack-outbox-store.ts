@@ -4,13 +4,15 @@ import type { SlackNotice } from "@werft-ai/contracts";
  * `reply`: a turn's answer in its thread. `failure_notice`: a turn the model
  * could not finish, or a reply whose send nobody can vouch for. `input_notice`:
  * a turn waiting on an approval only the web can give. `notice`: a refusal,
- * ephemeral to the person who typed.
+ * ephemeral to the person who typed. `welcome`: a deployment's one message
+ * in the agent's home channel, outside any thread (`threadTs` is "").
  */
 export type SlackOutboxKind =
   | "reply"
   | "notice"
   | "failure_notice"
-  | "input_notice";
+  | "input_notice"
+  | "welcome";
 
 /**
  * `uncertain`: the send was under way when its lease ran out or its answer
@@ -99,7 +101,15 @@ export type SlackOutboxSettle =
   | { status: "pending"; retryInMs: number; errorCode: string };
 
 export interface SlackOutboxStore {
-  enqueue(entry: SlackOutboxEntry): Promise<"enqueued" | "duplicate">;
+  /**
+   * `whileHome`: insert only while that binding is the agent's live home
+   * and that release is active, checked under share locks so a home move
+   * or an activation committing meanwhile is waited for, not missed.
+   */
+  enqueue(
+    entry: SlackOutboxEntry,
+    whileHome?: { bindingId: string; releaseId: string },
+  ): Promise<"enqueued" | "duplicate" | "not_home">;
   /**
    * Moves each live link's mark past the turns that need nothing more: those
    * with their outbox row, interrupted or cancelled, or ended before the
