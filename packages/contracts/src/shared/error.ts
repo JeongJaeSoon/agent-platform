@@ -74,6 +74,13 @@ export const API_ERROR_CODE_VALUES = [
   "LAST_OWNER",
   // An admin granting the owner role or changing an owner's (design 4.1).
   "OWNER_PROTECTED",
+  // A manager changing their own role or access.
+  "SELF_PROTECTED",
+  // A role change for a member whose membership is disabled.
+  "MEMBER_DISABLED",
+  // A role change or membership enable for a suspended account: only lifting
+  // the suspension brings the person back.
+  "ACCOUNT_DISABLED",
   // A key asked for more than its issuer holds now, or an agent's key asked
   // to approve (design 4.1, D26).
   "SCOPE_NOT_GRANTABLE",

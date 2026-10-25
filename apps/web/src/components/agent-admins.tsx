@@ -33,6 +33,7 @@ import {
 import { useI18n } from "../i18n/i18n.tsx";
 import { LoadFailure } from "./load-failure.tsx";
 import type { Outcome } from "./outcome.tsx";
+import { OPENS_ROW, ROW_LINK } from "./row-link.ts";
 import { StatusScreen } from "./status-screen.tsx";
 
 // Lines that wrap on a narrow screen sit a line gap apart, not RowListItem's 8px.
@@ -113,7 +114,13 @@ function AdminList({
   // not leave a refused decision on every visit.
   const listsMembers = useHasPermission("member.manage");
   const listsTeams = useHasPermission("team.manage");
-  const members = useQuery({ ...membersQuery(client), enabled: listsMembers });
+  // Every member is read once someone reaches for the person picker, not
+  // with the page.
+  const [picking, setPicking] = useState(false);
+  const members = useQuery({
+    ...membersQuery(client),
+    enabled: listsMembers && picking,
+  });
   const teams = useQuery({ ...teamsQuery(client), enabled: listsTeams });
   const [person, setPerson] = useState("");
   const [team, setTeam] = useState("");
@@ -253,6 +260,8 @@ function AdminList({
       )}
       <form
         className="web-form web-form--inline"
+        onPointerEnter={() => setPicking(true)}
+        onFocus={() => setPicking(true)}
         onSubmit={(event) => {
           event.preventDefault();
           if (pickedPerson)
@@ -270,7 +279,14 @@ function AdminList({
             id={personId}
             className="ap-input"
             value={person}
-            disabled={people.length === 0}
+            disabled={
+              !listsMembers ||
+              (picking &&
+                !members.isPending &&
+                !members.isFetching &&
+                people.length === 0)
+            }
+            aria-busy={members.isFetching}
             onChange={(event) => setPerson(event.target.value)}
           >
             <option value="">{t("agentAdmins.pickPlaceholder")}</option>
@@ -387,8 +403,11 @@ export function AdministeredAgents({
           <p className="web-field__hint">{t("agentAdmins.mine.intro")}</p>
           <RowList>
             {items.map((agent) => (
-              <RowListItem key={agent.id} className={ADMIN_ROW}>
-                <TextLink asChild className={PRIMARY}>
+              <RowListItem
+                key={agent.id}
+                className={`${ADMIN_ROW} ${OPENS_ROW}`}
+              >
+                <TextLink asChild className={`${PRIMARY} ${ROW_LINK}`}>
                   <Link to="/agents/$id" params={{ id: agent.id }}>
                     {agent.name}
                   </Link>

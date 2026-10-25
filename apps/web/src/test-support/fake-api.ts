@@ -1,4 +1,11 @@
-import type { AuthMeResponse, WorkspaceRole } from "@werft-ai/contracts";
+import type {
+  AuthMeResponse,
+  MemberActions,
+  MemberRefusal,
+  MemberRow,
+  MemberView,
+  WorkspaceRole,
+} from "@werft-ai/contracts";
 
 export interface Recorded {
   readonly method: string;
@@ -145,4 +152,64 @@ export function me(
 /** A signed-in member without management powers. */
 export function memberMe(): AuthMeResponse {
   return me(undefined, "member");
+}
+
+/** What the server says when it refuses every action on a row for one reason. */
+export function refusedActions(reason: MemberRefusal): MemberActions {
+  const refused = { allowed: false, reason } as const;
+  return {
+    change_role: { owner: refused, admin: refused, member: refused },
+    disable: refused,
+    enable: refused,
+  };
+}
+
+/**
+ * Everything the server could allow on the row: no refusal but `unchanged`.
+ * A test that needs the server to refuse something says so in the row.
+ */
+export function openActions(view: MemberView): MemberActions {
+  const verdict = (allowed: boolean) =>
+    allowed
+      ? ({ allowed: true } as const)
+      : ({ allowed: false, reason: "unchanged" } as const);
+  const off = view.disabled_at !== null;
+  return {
+    change_role: {
+      owner: verdict(view.role !== "owner"),
+      admin: verdict(view.role !== "admin"),
+      member: verdict(view.role !== "member"),
+    },
+    disable: verdict(!off),
+    enable: verdict(off),
+  };
+}
+
+/**
+ * A GET /v1/members page. A row without `actions` gets them: the signed-in
+ * user's own is refused as `self_protected`, as the server always does, and
+ * any other is open. Without `assignable_roles` an invite may carry any role,
+ * as an owner's may.
+ */
+export function memberPage(page: {
+  items: readonly (MemberView | MemberRow)[];
+  next_cursor: string | null;
+  assignable_roles?: readonly WorkspaceRole[];
+}) {
+  return {
+    ...page,
+    assignable_roles: page.assignable_roles ?? ["owner", "admin", "member"],
+    items: page.items.map(
+      (item): MemberRow =>
+        "actions" in item
+          ? item
+          : {
+              ...item,
+              actions:
+                item.user_id === USER_ID
+                  ? refusedActions("self_protected")
+                  : openActions(item),
+            },
+    ),
+  };
 }

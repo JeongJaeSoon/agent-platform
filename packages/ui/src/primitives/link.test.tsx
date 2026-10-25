@@ -83,6 +83,26 @@ describe("Link", () => {
     expect(link.textContent).toBe("운영팀");
   });
 
+  test("more는 13px 글자 끝에 숨긴 14px 화살표를 붙인다", () => {
+    const { getByRole } = render(
+      <Link href="/sessions" variant="more">
+        전체 보기
+      </Link>,
+    );
+    const link = getByRole("link", { name: "전체 보기" });
+    const classes = link.className.split(" ");
+    expect(classes).toContain("inline-flex");
+    expect(classes).toContain("gap-1");
+    expect(classes).toContain("text-control");
+    expect(classes).toContain("text-link");
+    const icon = link.querySelector("svg");
+    expect(icon?.getAttribute("aria-hidden")).toBe("true");
+    expect(icon?.getAttribute("class")).toContain("lucide-arrow-right");
+    expect(icon?.getAttribute("class")).toContain("size-3.5");
+    expect(icon?.getAttribute("stroke-width")).toBe("1.5");
+    expect(link.lastElementChild === icon).toBe(true);
+  });
+
   test("table은 underline=always를 주어도 평소 밑줄이 없다", () => {
     const { getByRole } = render(
       <Link href="/teams/1" variant="table" underline="always">

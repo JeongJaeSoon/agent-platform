@@ -48,14 +48,14 @@ function asOwner() {
 }
 
 describe("member access", () => {
-  test("an owner cannot disable themselves, so a workspace never locks out its last owner", async () => {
-    const { service, calls } = serviceAnswering({ outcome: "not_found" });
+  test("turning yourself off is the store's refusal, under its locks", async () => {
+    const { service, calls } = serviceAnswering({ outcome: "self_protected" });
     for (const disable of [service.disableMember, service.disableUser]) {
       await expect(
         disable(asOwner(), OWNER.toUpperCase()),
-      ).rejects.toMatchObject({ code: "LAST_OWNER" });
+      ).rejects.toMatchObject({ code: "SELF_PROTECTED" });
     }
-    expect(calls).toEqual([]);
+    expect(calls).toMatchObject([{ userId: OWNER }, { userId: OWNER }]);
   });
 
   test("a member and an API key never reach the store", async () => {
@@ -130,6 +130,8 @@ describe("member access", () => {
       ["last_owner", "LAST_OWNER"],
       ["elsewhere", "FORBIDDEN"],
       ["outranked", "OWNER_PROTECTED"],
+      ["self_protected", "SELF_PROTECTED"],
+      ["account_disabled", "ACCOUNT_DISABLED"],
       ["actor_inactive", "FORBIDDEN"],
     ] as const;
     for (const [outcome, code] of cases) {

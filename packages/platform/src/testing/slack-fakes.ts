@@ -272,6 +272,10 @@ export function createMemorySlackAppStore(input: {
 }) {
   const clock = input.now ?? (() => new Date());
   const rows = new Map<string, Omit<SlackAppRecord, "secrets">>();
+  const settings = new Map<
+    string,
+    Parameters<SlackAppStore["putSettings"]>[0]["settings"]
+  >();
   const faults = { finishCreate: 0 };
   const LIVE = new Set(["creating", "created", "deleting"]);
   const PURPOSES: SlackAppSecretPurpose[] = [
@@ -306,6 +310,21 @@ export function createMemorySlackAppStore(input: {
     Object.assign(row, patch, { updatedAt: clock() });
 
   const store: SlackAppStore = {
+    async setEvents(workspaceId, slackAppId, events) {
+      const row = rows.get(slackAppId);
+      if (row?.workspaceId === workspaceId) touch(row, { events });
+    },
+    async getSettings(workspaceId, agentId) {
+      const agent = input.agents.get(agentId);
+      if (agent?.workspaceId !== workspaceId) return null;
+      return settings.get(agentId) ?? { default_mode: "off" };
+    },
+    async putSettings(change) {
+      const agent = input.agents.get(change.agentId);
+      if (agent?.workspaceId !== change.workspaceId) return "not_found";
+      settings.set(change.agentId, change.settings);
+      return "saved";
+    },
     async beginAgentApp(begin) {
       const agent = input.agents.get(begin.agentId);
       if (!agent || agent.workspaceId !== begin.workspaceId) {

@@ -115,6 +115,47 @@ export const memberViewSchema = z
   })
   .strict();
 
+/**
+ * Why the caller may not do something to a member: the lower-cased error code
+ * the write answers with, or `unchanged` when it would answer 200 and change
+ * nothing. A list never says `last_owner`: only two owners demoting or
+ * disabling each other at once reach it, and the write's row locks decide.
+ */
+export const MEMBER_REFUSAL_VALUES = [
+  "self_protected",
+  "owner_protected",
+  "last_owner",
+  "member_disabled",
+  "account_disabled",
+  "unchanged",
+] as const;
+export const memberRefusalSchema = z.enum(MEMBER_REFUSAL_VALUES);
+
+export const memberVerdictSchema = z.discriminatedUnion("allowed", [
+  z.object({ allowed: z.literal(true) }).strict(),
+  z.object({ allowed: z.literal(false), reason: memberRefusalSchema }).strict(),
+]);
+
+/** What the caller may do to one member, worked out when the list was read. */
+export const memberActionsSchema = z
+  .object({
+    change_role: z
+      .object({
+        owner: memberVerdictSchema,
+        admin: memberVerdictSchema,
+        member: memberVerdictSchema,
+      })
+      .strict(),
+    disable: memberVerdictSchema,
+    enable: memberVerdictSchema,
+  })
+  .strict();
+
+/** A row of the member list: the member and what the caller may do to them. */
+export const memberRowSchema = memberViewSchema
+  .extend({ actions: memberActionsSchema })
+  .strict();
+
 export const INVITE_STATUS_VALUES = [
   "pending",
   "accepted",
@@ -237,7 +278,14 @@ export const listMembersQuerySchema = paginationQuerySchema.extend({
   }),
 });
 /** Oldest membership first, user id breaking ties. */
-export const listMembersResponseSchema = pageSchema(memberViewSchema).strict();
+export const listMembersResponseSchema = pageSchema(memberRowSchema)
+  .extend({
+    assignable_roles: z.array(workspaceRoleSchema).meta({
+      description:
+        "The roles the caller may invite someone as now (POST /v1/invites refuses any other with OWNER_PROTECTED). The same on every page and search.",
+    }),
+  })
+  .strict();
 /** Newest first; at most INVITE_LIST_LIMIT. */
 export const listInvitesResponseSchema = z
   .object({ items: z.array(inviteSchema).max(INVITE_LIST_LIMIT) })
@@ -250,6 +298,10 @@ export type Workspace = z.infer<typeof workspaceSchema>;
 export type User = z.infer<typeof userSchema>;
 export type Membership = z.infer<typeof membershipSchema>;
 export type MemberView = z.infer<typeof memberViewSchema>;
+export type MemberRefusal = z.infer<typeof memberRefusalSchema>;
+export type MemberVerdict = z.infer<typeof memberVerdictSchema>;
+export type MemberActions = z.infer<typeof memberActionsSchema>;
+export type MemberRow = z.infer<typeof memberRowSchema>;
 export type InviteStatus = z.infer<typeof inviteStatusSchema>;
 export type Invite = z.infer<typeof inviteSchema>;
 export type CreateInviteRequest = z.infer<typeof createInviteRequestSchema>;

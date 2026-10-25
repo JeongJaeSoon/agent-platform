@@ -3,14 +3,17 @@ import {
   createSlackAppRequestSchema,
   createSlackAppResponseSchema,
   deleteSlackAppResponseSchema,
+  getSlackAppManifestResponseSchema,
   getSlackAppResponseSchema,
   putSlackSecretRequestSchema,
   putSlackSecretResponseSchema,
   slackAppParamsSchema,
   slackAppSecretParamsSchema,
+  slackAppSettingsSchema,
 } from "@werft-ai/contracts";
 import type { StructuredLogger } from "@werft-ai/observability";
 import type { SlackAppService, SlackSecretService } from "@werft-ai/platform";
+import { stringify } from "yaml";
 import {
   ApiHttpError,
   type ApiRouter,
@@ -29,6 +32,37 @@ export function registerSlackAppRoutes(
   },
 ) {
   const { apps, secrets, logger } = deps;
+
+  apiRoute(router, "getSlackAppManifest", async (context) => {
+    const params = requireParams(context, agentIdParamsSchema);
+    const manifest = await mapped(() =>
+      apps.getAgentAppManifest(context.get("caller"), params.id),
+    );
+    return jsonWithSchema(context, getSlackAppManifestResponseSchema, {
+      manifest_yaml: stringify(manifest),
+    });
+  });
+  apiRoute(router, "getSlackAppSettings", async (context) => {
+    const params = requireParams(context, agentIdParamsSchema);
+    return jsonWithSchema(
+      context,
+      slackAppSettingsSchema,
+      await mapped(() =>
+        apps.getAgentAppSettings(context.get("caller"), params.id),
+      ),
+    );
+  });
+  apiRoute(router, "putSlackAppSettings", async (context) => {
+    const params = requireParams(context, agentIdParamsSchema);
+    const settings = await parseJsonBody(context, slackAppSettingsSchema);
+    return jsonWithSchema(
+      context,
+      slackAppSettingsSchema,
+      await mapped(() =>
+        apps.putAgentAppSettings(context.get("caller"), params.id, settings),
+      ),
+    );
+  });
 
   apiRoute(router, "getSlackApp", async (context) => {
     const params = requireParams(context, agentIdParamsSchema);

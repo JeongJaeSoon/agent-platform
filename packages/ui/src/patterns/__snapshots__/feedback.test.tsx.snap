@@ -1,7 +1,7 @@
 // Bun Snapshot v1, https://bun.sh/docs/test/snapshots
 
 exports[`EmptyState 제목·설명·두 동작을 그린다 1`] = `
-"<div class="ap-state ap-state--empty">
+"<div class="ap-state ap-state--empty" data-size="default">
   <p class="ap-state__title">아직 세션이 없습니다</p>
   <p class="ap-state__description">첫 지시를 보내면 여기에 쌓입니다.</p>
   <div class="ap-state__actions">
@@ -13,13 +13,20 @@ exports[`EmptyState 제목·설명·두 동작을 그린다 1`] = `
 
 exports[`ErrorState EmptyState와 다른 모양·다른 역할로 그려진다 1`] = `
 "<div class="ap-state ap-state--error" role="alert" data-code="INTERNAL_ERROR">
-  <p class="ap-state__title">
-    <span class="ap-state__mark" aria-hidden="true">!</span>문제가 생겼습니다</p>
+  <span class="ap-state__icon ap-state__mark" aria-hidden="true">
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-circle-alert lucide-alert-circle" aria-hidden="true">
+      <circle cx="12" cy="12" r="10">
+      </circle>
+      <line x1="12" x2="12" y1="8" y2="12">
+      </line>
+      <line x1="12" x2="12.01" y1="16" y2="16">
+      </line>
+    </svg>
+  </span>
+  <p class="ap-state__title">문제가 생겼습니다</p>
   <p class="ap-state__guidance">서버에서 처리하지 못했습니다 — 잠시 뒤 다시 시도하세요.</p>
   <p class="ap-state__description">boom</p>
-  <div class="ap-state__actions">
-    <code class="ap-state__code">INTERNAL_ERROR</code>
-  </div>
+  <code class="ap-state__code">INTERNAL_ERROR</code>
 </div>"
 `;
 

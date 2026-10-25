@@ -224,6 +224,12 @@ export type MemberRecord = {
   createdAt: Date;
 };
 
+/** A listed member, with the two ways they can be off kept apart. */
+export type MemberRowRecord = MemberRecord & {
+  membershipDisabled: boolean;
+  accountDisabled: boolean;
+};
+
 /**
  * The caller of a management write. Its person is re-checked as a live owner
  * of `workspaceId` under the write's own locks; the receipt is written under
@@ -247,10 +253,16 @@ export type RevokeInviteResult =
   | { outcome: "not_found" | "accepted" | "actor_inactive" };
 
 export type ChangeRoleResult =
-  | { outcome: "changed"; member: MemberRecord }
+  | { outcome: "changed" | "unchanged"; member: MemberRecord }
   | { outcome: "not_found" | "last_owner" | "actor_inactive" }
-  // An admin granting the owner role or changing an owner's.
-  | { outcome: "owner_protected" };
+  // What `memberVerdict` refuses.
+  | {
+      outcome:
+        | "self_protected"
+        | "owner_protected"
+        | "member_disabled"
+        | "account_disabled";
+    };
 
 /** What redeeming a token would do, read before any password is hashed. */
 export type InvitePeek =
@@ -322,7 +334,7 @@ export interface InviteStore {
   listMembers(
     workspaceId: string,
     query: ListMembersQuery,
-  ): Promise<{ items: MemberRecord[]; next_cursor: string | null }>;
+  ): Promise<{ items: MemberRowRecord[]; next_cursor: string | null }>;
   changeMemberRole(input: {
     userId: string;
     role: MembershipRole;
