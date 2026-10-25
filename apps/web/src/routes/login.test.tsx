@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { loginMethodsResponseSchema } from "@werft-ai/contracts";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
-import { apiError, json, me } from "../test-support/fake-api.ts";
+import { apiError, json, me, memberPage } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
 const { renderAt, screen, waitFor } = await appHarness();
@@ -80,7 +80,8 @@ describe("Google 콜백", () => {
       {
         "POST /v1/auth/google/callback": () => json(200, signedIn),
         "GET /v1/auth/me": () => json(200, me()),
-        "GET /v1/members": () => json(200, { items: [], next_cursor: null }),
+        "GET /v1/members": () =>
+          json(200, memberPage({ items: [], next_cursor: null })),
         "GET /v1/invites": () => json(200, { items: [] }),
       },
     );
