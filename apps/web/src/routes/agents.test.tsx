@@ -119,6 +119,13 @@ async function fillJob(user: User) {
 const meOk = { "GET /v1/auth/me": () => json(200, me()) };
 const DETAIL = `/agents/${AGENT_ID}`;
 const CARD_TAB = `${DETAIL}?tab=card`;
+
+// The card tab reads first; its form opens behind this button.
+async function openCardEditor(user: User) {
+  await user.click(
+    await screen.findByRole("button", { name: "카드 편집", hidden: true }),
+  );
+}
 const RELEASE_TAB = `${DETAIL}?tab=release`;
 const PROFILE = "claude-coding-local";
 const showTab = async (user: User, name: string) =>
@@ -1156,6 +1163,7 @@ describe("에이전트 상세", () => {
     const server = agentServer();
     const { api } = renderAt(CARD_TAB, { ...meOk, ...server.routes });
     const user = await setupUser();
+    await openCardEditor(user);
     const instructions = await screen.findByLabelText("지시 사항");
     await user.clear(instructions);
     await user.type(instructions, "환불 문의에도 답한다.");
@@ -1166,9 +1174,11 @@ describe("에이전트 상세", () => {
       ),
     ).toBeDefined();
     expect(screen.queryByText(/다른 곳에서 카드를 저장해/)).toBeNull();
-    expect(
-      (screen.getByLabelText("지시 사항") as HTMLTextAreaElement).value,
-    ).toBe("환불 문의에도 답한다.");
+    // The save closes the form; the card it shows is the one just saved.
+    expect(screen.queryByLabelText("지시 사항")).toBeNull();
+    expect(screen.getAllByText("환불 문의에도 답한다.").length).toBeGreaterThan(
+      0,
+    );
     const patch = api.calls.find((c) => c.method === "PATCH");
     expect(patch?.headers.get("idempotency-key")).toBeNull();
     expect((patch?.body as { card: unknown }).card).toEqual({
@@ -1189,11 +1199,13 @@ describe("에이전트 상세", () => {
     const server = agentServer();
     renderAt(CARD_TAB, { ...meOk, ...server.routes });
     const user = await setupUser();
+    await openCardEditor(user);
     const instructions = await screen.findByLabelText("지시 사항");
     await user.clear(instructions);
     await user.type(instructions, "환불 문의에도 답한다.");
     await user.click(screen.getByRole("button", { name: "저장" }));
     await screen.findByText(/저장했습니다 — version 2/);
+    await openCardEditor(user);
     await user.clear(screen.getByLabelText("지시 사항"));
     await user.type(screen.getByLabelText("지시 사항"), CARD.instructions);
     await user.click(screen.getByRole("button", { name: "저장" }));
@@ -1202,9 +1214,7 @@ describe("에이전트 상세", () => {
         "저장했습니다. 같은 카드가 이미 있어(version 1) 새 version은 생기지 않았습니다.",
       ),
     ).toBeDefined();
-    expect(
-      (screen.getByLabelText("지시 사항") as HTMLTextAreaElement).value,
-    ).toBe(CARD.instructions);
+    expect(screen.queryByLabelText("지시 사항")).toBeNull();
     expect(screen.queryByText(/다른 곳에서 카드를 저장해/)).toBeNull();
     await showTab(user, "배포");
     const release = screen
@@ -1245,6 +1255,7 @@ describe("에이전트 상세", () => {
     );
     renderAt(CARD_TAB, { ...meOk, ...server.routes });
     const user = await setupUser();
+    await openCardEditor(user);
     const instructions = await screen.findByLabelText("지시 사항");
     await user.clear(instructions);
     await user.type(instructions, CARD.instructions);
@@ -1261,6 +1272,7 @@ describe("에이전트 상세", () => {
     const server = agentServer();
     renderAt(CARD_TAB, { ...meOk, ...server.routes });
     const user = await setupUser();
+    await openCardEditor(user);
     await user.click(await screen.findByRole("button", { name: "저장" }));
     expect(
       await screen.findByText(
@@ -1321,11 +1333,14 @@ describe("에이전트 상세", () => {
     const server = agentServer();
     renderAt(CARD_TAB, { ...meOk, ...server.routes });
     const user = await setupUser();
+    await openCardEditor(user);
     const section = (name: string) =>
       screen.getByRole("heading", { name }).closest("section") as HTMLElement;
     await user.click(await screen.findByRole("button", { name: "저장" }));
     const saved = await screen.findByText(/저장했습니다/);
-    expect(section("카드").contains(saved)).toBe(true);
+    expect(screen.getByRole("tabpanel", { name: "카드" }).contains(saved)).toBe(
+      true,
+    );
     expect(document.activeElement?.contains(saved)).toBe(true);
 
     await showTab(user, "배포");
@@ -1357,6 +1372,7 @@ describe("에이전트 상세", () => {
     const server = agentServer();
     renderAt(CARD_TAB, { ...meOk, ...server.routes });
     const user = await setupUser();
+    await openCardEditor(user);
     const instructions = await screen.findByLabelText("지시 사항");
     await user.clear(instructions);
     await user.type(instructions, "환불 문의에도 답한다.");
@@ -1470,6 +1486,7 @@ describe("편집 중 다른 곳의 저장", () => {
     const server = agentServer();
     const { services } = renderAt(CARD_TAB, { ...meOk, ...server.routes });
     const user = await setupUser();
+    await openCardEditor(user);
     const instructions = await screen.findByLabelText("지시 사항");
     await user.clear(instructions);
     await user.type(instructions, "내가 고치던 지시.");
@@ -1534,6 +1551,7 @@ describe("편집 중 다른 곳의 저장", () => {
   test("모델과 profile 안내는 정확 일치 규칙을 말하고 내부 파일 이름을 보이지 않는다", async () => {
     const server = agentServer();
     renderAt(DETAIL, { ...meOk, ...server.routes });
+    await openCardEditor(await setupUser());
     const described = async (label: string) =>
       (
         (await screen.findByLabelText(label)).getAttribute(
@@ -1588,6 +1606,7 @@ describe("편집 중 다른 곳의 저장", () => {
     const user = await setupUser();
     const shown = async (name: string, alert: string, button: string) => {
       await showTab(user, name);
+      if (name === "카드") await openCardEditor(user);
       expect(
         (await screen.findAllByRole("alert")).map((a) => a.textContent),
       ).toContainEqual(expect.stringContaining(alert));
@@ -1619,6 +1638,7 @@ describe("편집 중 다른 곳의 저장", () => {
         json(200, legacy(server.detail())),
     });
     const user = await setupUser();
+    await openCardEditor(user);
     const model = (await screen.findByLabelText("모델")) as HTMLSelectElement;
     expect(model.getAttribute("data-slot")).toBe("native-select");
     expect(model.value).toBe("claude-legacy-4");
@@ -1672,6 +1692,7 @@ describe("편집 중 다른 곳의 저장", () => {
       },
     });
     const user = await setupUser();
+    await openCardEditor(user);
     const instructions = await screen.findByLabelText("지시 사항");
     await user.clear(instructions);
     await user.type(instructions, "첫 저장.");
@@ -1709,11 +1730,13 @@ describe("편집 중 다른 곳의 저장", () => {
     history.push(CARD_TAB);
     await screen.findByRole("heading", { name: "결제 담당" });
     const user = await setupUser();
+    await openCardEditor(user);
     const instructions = screen.getByLabelText("지시 사항");
     await user.clear(instructions);
     await user.type(instructions, "결제 담당에게만 쓴 지시.");
     history.push(`/agents/${OTHER}?tab=card`);
     await screen.findByRole("heading", { name: "환불 담당" });
+    await openCardEditor(user);
     expect(
       (screen.getByLabelText("지시 사항") as HTMLTextAreaElement).value,
     ).toBe("환불 문의에 답한다.");
@@ -1740,6 +1763,7 @@ describe("편집 중 다른 곳의 저장", () => {
       [`GET /v1/agents/${AGENT_ID}`]: get,
     });
     const user = await setupUser();
+    await openCardEditor(user);
     const instructions = await screen.findByLabelText("지시 사항");
     await user.clear(instructions);
     await user.type(instructions, "카드만 고친다.");
@@ -1757,6 +1781,7 @@ describe("편집 중 다른 곳의 저장", () => {
   test("고친 것이 없으면 최신 카드를 그대로 받아들인다", async () => {
     const server = agentServer();
     const { services } = renderAt(DETAIL, { ...meOk, ...server.routes });
+    await openCardEditor(await setupUser());
     await screen.findByLabelText("지시 사항");
     otherTabSaves(server);
     await services.queryClient.invalidateQueries({

@@ -98,6 +98,7 @@ export const agentsKo = {
   "agent.noActive": "없음",
   "agent.releaseLabel": "version {version} · {profile}",
   "agent.versionLabel": "version {version}",
+  "agent.versionShort": "v{version}",
   "agent.saved":
     "저장했습니다 — version {version}. 아직 활성화되지 않았습니다. 배포 탭에서 release를 만들고 활성화해야 반영됩니다.",
   "agent.savedExisting":
@@ -234,7 +235,9 @@ export const agentsKo = {
   "agent.card.subStopped":
     "활성 release의 version이지만 에이전트가 {status} 상태라 새 세션은 쓰지 않습니다. 읽기 전용.",
   "agent.card.raw": "카드 원문",
-  "agent.card.rawSub": "API가 돌려주는 카드 JSON",
+  "agent.card.rawSub": "최신 버전 기준 · 읽기 전용",
+  "agent.card.rawSubActive": "배포된 버전 기준 · 읽기 전용",
+  "agent.card.edit": "카드 편집",
   "agent.card.copy": "복사",
   "agent.card.copied": "복사했습니다",
   "agent.card.copyFailed":
@@ -372,6 +375,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.noActive": "none",
   "agent.releaseLabel": "version {version} · {profile}",
   "agent.versionLabel": "version {version}",
+  "agent.versionShort": "v{version}",
   "agent.saved":
     "Saved as version {version}. It is not in use yet — create a release on the Release tab and activate it.",
   "agent.savedExisting":
@@ -504,7 +508,9 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.card.subStopped":
     "The active release's version, but the agent is {status}, so new sessions do not use it. Read-only.",
   "agent.card.raw": "Card source",
-  "agent.card.rawSub": "The card JSON the API returns",
+  "agent.card.rawSub": "Latest version · read-only",
+  "agent.card.rawSubActive": "Released version · read-only",
+  "agent.card.edit": "Edit card",
   "agent.card.copy": "Copy",
   "agent.card.copied": "Copied",
   "agent.card.copyFailed":
@@ -638,6 +644,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.noActive": "なし",
   "agent.releaseLabel": "バージョン {version} · {profile}",
   "agent.versionLabel": "バージョン {version}",
+  "agent.versionShort": "v{version}",
   "agent.saved":
     "バージョン {version} として保存しました。まだ使われていません。「リリース」タブでリリースを作成して有効化してください。",
   "agent.savedExisting":
@@ -775,7 +782,9 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.card.subStopped":
     "有効なリリースのバージョンですが、エージェントが「{status}」のため新しいセッションでは使われません。読み取り専用。",
   "agent.card.raw": "カードの原文",
-  "agent.card.rawSub": "APIが返すカードのJSON",
+  "agent.card.rawSub": "最新バージョン · 読み取り専用",
+  "agent.card.rawSubActive": "リリース済みバージョン · 読み取り専用",
+  "agent.card.edit": "カードを編集",
   "agent.card.copy": "コピー",
   "agent.card.copied": "コピーしました",
   "agent.card.copyFailed":
