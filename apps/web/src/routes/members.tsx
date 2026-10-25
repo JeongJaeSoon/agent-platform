@@ -43,8 +43,8 @@ import {
 } from "@werft-ai/ui";
 import { useEffect, useId, useRef, useState } from "react";
 import {
+  firstMembersQuery,
   invitesQuery,
-  membersQuery,
   queryKeys,
   teamsQuery,
 } from "../api/queries.ts";
@@ -134,9 +134,9 @@ export function MembersLayout() {
   const { client } = useAgentPlatform();
   const { pathname } = useLocation();
   const manages = useHasPermission("member.manage");
-  const members = useQuery({ ...membersQuery(client), enabled: manages });
+  const members = useQuery({ ...firstMembersQuery(client), enabled: manages });
   const reason = usePermissionReason("member.manage", members);
-  // The list is also the permission probe: when it failed, nobody knows.
+  // The read is the permission probe: when it failed, nobody knows.
   const failed = members.isError && !isApiError(members.error, "FORBIDDEN");
   const onTeams = pathname.startsWith("/members/teams");
   // The router also serves the list at "/members/teams/".
@@ -167,7 +167,6 @@ export function MembersLayout() {
   ) : manages && !failed ? (
     <InviteDialog
       reason={reason}
-      members={members.data?.items ?? []}
       refusal={(error, role) => refusal(t, error, role)}
     />
   ) : undefined;
@@ -338,7 +337,7 @@ function MoreFailure({
 export function InvitesScreen() {
   const { client } = useAgentPlatform();
   const manages = useHasPermission("member.manage");
-  const members = useQuery({ ...membersQuery(client), enabled: manages });
+  const members = useQuery({ ...firstMembersQuery(client), enabled: manages });
   const [outcome, setOutcome] = useState<Outcome | null>(null);
 
   if (!manages) return null;

@@ -366,7 +366,10 @@ function TeamMembers({
   const { client } = useAgentPlatform();
   const queryClient = useQueryClient();
   const role = useRole();
-  const members = useQuery(membersQuery(client));
+  // Every member is read once someone reaches for the picker, not with the
+  // page.
+  const [picking, setPicking] = useState(false);
+  const members = useQuery({ ...membersQuery(client), enabled: picking });
   const [picked, setPicked] = useState("");
   const [removing, setRemoving] = useState<
     TeamDetail["members"][number] | null
@@ -445,6 +448,8 @@ function TeamMembers({
       <p className={`${MUTED} text-sm`}>{t("teams.addHint")}</p>
       <form
         className={FORM}
+        onPointerEnter={() => setPicking(true)}
+        onFocus={() => setPicking(true)}
         onSubmit={(event) => {
           event.preventDefault();
           if (chosen) add.mutate(chosen);
@@ -454,7 +459,13 @@ function TeamMembers({
           <FieldLabel>{t("teams.pickMember")}</FieldLabel>
           <NativeSelect
             value={picked}
-            disabled={candidates.length === 0}
+            disabled={
+              picking &&
+              !members.isPending &&
+              !members.isFetching &&
+              candidates.length === 0
+            }
+            aria-busy={members.isFetching}
             onChange={(event) => setPicked(event.target.value)}
           >
             <NativeSelectOption value="">
