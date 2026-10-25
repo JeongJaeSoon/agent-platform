@@ -3,7 +3,7 @@
 # more networks. Each network the daemon allocates takes one pool entry
 # (2^(Size - base prefix) entries per pool), whether compose or the scheduler
 # made it, so a full pool lets a stack come up and then fail at its first
-# worker launch. Exit 1 with the counts, and the networks holding the pool
+# worker launch. Exit 1 with the counts, and the pool entries held
 # by compose project or installation, when it is short.
 #
 #   address-pool.sh <needed>
@@ -56,7 +56,7 @@ case "$report" in
     {
       head=${report%%$'\n'*}
       echo "address-pool.sh: Docker's address pools are short: ${head#short }"
-      echo "address-pool.sh: networks holding the pool, by compose project or installation:"
+      echo "address-pool.sh: pool entries held, by compose project or installation:"
       echo "$report" | tail -n +2
     } >&2
     exit 1 ;;
