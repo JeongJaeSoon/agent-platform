@@ -9,8 +9,10 @@ import {
 } from "@werft-ai/testkit/postgres";
 import { Pool } from "pg";
 import { migrateDatabase } from "./migrate.ts";
+import { expectedMigrations } from "./migration-head.ts";
 
 const integrationTest = testDatabaseUrl() ? test : test.skip;
+const totalMigrations = expectedMigrations().length;
 
 function captureLogger() {
   const sink = new MemoryLogSink();
@@ -53,8 +55,16 @@ integrationTest(
       const { logger, sink } = captureLogger();
       const first = await migrateDatabase(testUrl.toString(), { logger });
       const second = await migrateDatabase(testUrl.toString(), { logger });
-      expect(first).toEqual({ adopted: 1, applied: 73, total: 74 });
-      expect(second).toEqual({ adopted: 0, applied: 0, total: 74 });
+      expect(first).toEqual({
+        adopted: 1,
+        applied: totalMigrations - 1,
+        total: totalMigrations,
+      });
+      expect(second).toEqual({
+        adopted: 0,
+        applied: 0,
+        total: totalMigrations,
+      });
       expect(
         sink.records.map(({ level, message, fields }) => ({
           level,
@@ -65,12 +75,16 @@ integrationTest(
         {
           level: "info",
           message: "db.migrate.adopted",
-          fields: { adopted: 1, applied: 73, total: 74 },
+          fields: {
+            adopted: 1,
+            applied: totalMigrations - 1,
+            total: totalMigrations,
+          },
         },
         {
           level: "info",
           message: "db.migrate.noop",
-          fields: { adopted: 0, applied: 0, total: 74 },
+          fields: { adopted: 0, applied: 0, total: totalMigrations },
         },
       ]);
 
@@ -124,7 +138,7 @@ integrationTest(
           "pending_requests",
           "receipts",
         ]);
-        expect(journal.rows[0]?.count).toBe("74");
+        expect(journal.rows[0]?.count).toBe(String(totalMigrations));
       } finally {
         await verified.end();
       }
@@ -166,8 +180,16 @@ integrationTest(
       const { logger, sink } = captureLogger();
       const first = await migrateDatabase(testUrl.toString(), { logger });
       const second = await migrateDatabase(testUrl.toString(), { logger });
-      expect(first).toEqual({ adopted: 4, applied: 70, total: 74 });
-      expect(second).toEqual({ adopted: 0, applied: 0, total: 74 });
+      expect(first).toEqual({
+        adopted: 4,
+        applied: totalMigrations - 4,
+        total: totalMigrations,
+      });
+      expect(second).toEqual({
+        adopted: 0,
+        applied: 0,
+        total: totalMigrations,
+      });
       expect(sink.records.map(({ message }) => message)).toEqual([
         "db.migrate.adopted",
         "db.migrate.noop",
@@ -181,7 +203,7 @@ integrationTest(
         const journal = await verified.query<{ count: string }>(
           'SELECT count(*)::text AS count FROM "drizzle"."__drizzle_migrations"',
         );
-        expect(journal.rows[0]?.count).toBe("74");
+        expect(journal.rows[0]?.count).toBe(String(totalMigrations));
       } finally {
         await verified.end();
       }
@@ -205,8 +227,16 @@ integrationTest(
       const { logger, sink } = captureLogger();
       const first = await migrateDatabase(testUrl.toString(), { logger });
       const second = await migrateDatabase(testUrl.toString(), { logger });
-      expect(first).toEqual({ adopted: 0, applied: 74, total: 74 });
-      expect(second).toEqual({ adopted: 0, applied: 0, total: 74 });
+      expect(first).toEqual({
+        adopted: 0,
+        applied: totalMigrations,
+        total: totalMigrations,
+      });
+      expect(second).toEqual({
+        adopted: 0,
+        applied: 0,
+        total: totalMigrations,
+      });
       expect(sink.records.map(({ message }) => message)).toEqual([
         "db.migrate.applied",
         "db.migrate.noop",
