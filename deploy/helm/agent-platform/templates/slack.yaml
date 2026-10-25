@@ -51,7 +51,7 @@ spec:
             - name: SLACK_ROLE_LEASE_SEC
               value: {{ .Values.slack.leaseSec | quote }}
             {{- range $name, $value := .Values.config.limits }}
-            - name: {{ $name }}
+            - name: {{ $name | quote }}
               value: {{ $value | toString | quote }}
             {{- end }}
             - name: LOG_LEVEL
