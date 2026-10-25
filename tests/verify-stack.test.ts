@@ -46,7 +46,12 @@ echo "$*" >> "${dir}/docker-calls"
 case "$*" in
   "info --format {{json .DefaultAddressPools}}") echo "$STUB_POOLS" ;;
   "network ls -q") [ -z "$STUB_IDS" ] || echo "$STUB_IDS" ;;
-  "network inspect "*) echo "$STUB_NETWORKS" ;;
+  "network inspect "*)
+    # STUB_INSPECT_FAILS: how many inspects fail first, as when a network goes.
+    n=$(cat "${dir}/inspects" 2>/dev/null || echo 0)
+    echo $((n + 1)) > "${dir}/inspects"
+    [ "$n" -ge "\${STUB_INSPECT_FAILS:-0}" ] || exit 1
+    echo "$STUB_NETWORKS" ;;
   "version "*) echo "$EXECUTION_SLOT_LIMIT" >> "${dir}/slot-limits"; exit 1 ;;
   *) exit 1 ;;
 esac
@@ -201,14 +206,59 @@ esac
     expect(covering.stderr).toContain("0 free of 256, 1 needed");
   });
 
-  test("no IPv4 pool reported is not checked", async () => {
-    const { exitCode, stderr } = await run("address-pool.sh", ["4"], {
-      pools: null,
-      networks: busy,
+  test("a daemon that reports no pool is checked against Docker's built-in ones", async () => {
+    const networks = [
+      network("bridge", ["172.17.0.0/16"]),
+      network("a_default", ["192.168.0.0/20"]),
+    ];
+
+    for (const pools of [null, []]) {
+      const { exitCode, stderr } = await run("address-pool.sh", ["29"], {
+        pools,
+        networks,
+      });
+      expect(exitCode).toBe(0);
+      expect(stderr).toContain("29 free of 31, 29 needed");
+    }
+  });
+
+  test("IPv6 pools alone leave no room", async () => {
+    const { exitCode, stderr } = await run("address-pool.sh", ["1"], {
+      pools: [{ Base: "fd07:b51a:cc66:d000::/56", Size: 64 }],
+      networks: [],
     });
 
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("0 free of 0, 1 needed");
+  });
+
+  test("a network gone between the listing and the inspect is read again", async () => {
+    const { exitCode, stderr } = await run(
+      "address-pool.sh",
+      ["4"],
+      { pools: orbstackPools(10), networks: busy },
+      { STUB_INSPECT_FAILS: "1" },
+    );
+
     expect(exitCode).toBe(0);
-    expect(stderr).toContain("not checked");
+    expect(stderr).toContain("4 free of 10, 4 needed");
+  });
+
+  test("Docker that cannot be read is not a short pool, for up.sh either", async () => {
+    const stub = { pools: orbstackPools(10), networks: busy };
+    const pool = await run("address-pool.sh", ["4"], stub, {
+      STUB_INSPECT_FAILS: "2",
+    });
+    expect(pool.exitCode).toBe(2);
+    expect(pool.stderr).toContain(
+      "cannot read Docker's networks; the pool was not checked",
+    );
+
+    const up = await run("up.sh", [], stub, { STUB_INSPECT_FAILS: "4" });
+    expect(up.exitCode).toBe(1);
+    expect(up.stderr).toContain("check that Docker answers");
+    expect(up.stderr).not.toContain("down a stack you started");
+    expect(await runs()).toEqual([]);
   });
 
   test("up.sh stops on a short pool before the run directory or any compose call", async () => {

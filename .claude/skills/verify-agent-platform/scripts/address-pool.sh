@@ -4,24 +4,37 @@
 # (2^(Size - base prefix) entries per pool), whether compose or the scheduler
 # made it, so a full pool lets a stack come up and then fail at its first
 # worker launch. Exit 1 with the counts, and the pool entries held
-# by compose project or installation, when it is short.
+# by compose project or installation, when it is short; exit 2 when Docker
+# cannot be read.
 #
 #   address-pool.sh <needed>
-set -euo pipefail
+set -uo pipefail
 
 needed=${1:?usage: address-pool.sh <needed>}
-command -v jq >/dev/null || { echo "address-pool.sh: jq is not installed" >&2; exit 1; }
+unreadable() {
+  echo "address-pool.sh: cannot read $1; the pool was not checked" >&2
+  exit 2
+}
+command -v jq >/dev/null || unreadable "anything: jq is not installed"
 
-pools=$(docker info --format '{{json .DefaultAddressPools}}')
-ids=$(docker network ls -q)
-# shellcheck disable=SC2086 # one argument per network id
-networks=$(if [ -n "$ids" ]; then docker network inspect $ids; else echo '[]'; fi)
+pools=$(docker info --format '{{json .DefaultAddressPools}}') || unreadable "Docker's address pools"
+# A network removed between the listing and the inspect fails the inspect;
+# a second try sees the listing without it.
+for attempt in 1 2; do
+  ids=$(docker network ls -q) || unreadable "Docker's networks"
+  # shellcheck disable=SC2086 # one argument per network id
+  networks=$(if [ -n "$ids" ]; then docker network inspect $ids; else echo '[]'; fi) && break
+  [ "$attempt" = 1 ] || unreadable "Docker's networks"
+done
 
+# A daemon with no default-address-pools set reports none and allocates
+# from its built-in ones: 172.17-31.0.0/16 whole, 192.168.0.0/16 in /20s.
 report=$(jq -n -r --argjson pools "${pools:-null}" --argjson needed "$needed" --argjson networks "$networks" '
   def ip: split(".") | map(tonumber) | .[0] * 16777216 + .[1] * 65536 + .[2] * 256 + .[3];
   def cidr: split("/") | {start: (.[0] | ip), len: (.[1] | tonumber)};
   def ipv4: test("^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+/[0-9]+$");
-  [($pools // [])[] | select(.Base | ipv4) | (.Base | cidr) + {size: .Size}
+  (if ($pools // []) == [] then [range(17; 32) | {Base: "172.\(.).0.0/16", Size: 16}] + [{Base: "192.168.0.0/16", Size: 20}] else $pools end) as $pools
+  | [$pools[] | select(.Base | ipv4) | (.Base | cidr) + {size: .Size}
     | . + {end: (.start + pow(2; 32 - .len)), block: pow(2; 32 - .size)}] as $p
   | ([$p[] | pow(2; .size - .len)] | add // 0) as $capacity
   # Every pool entry a subnet overlaps, as "<pool>:<entry>": counted once
@@ -38,18 +51,15 @@ report=$(jq -n -r --argjson pools "${pools:-null}" --argjson needed "$needed" --
       | {owner: $owner, entry: "\($i):\(.)"}
     ] as $used
   | ($used | map(.entry) | unique | length) as $taken
-  | if $capacity == 0 then "unknown"
-    elif $capacity - $taken >= $needed then "ok \($capacity - $taken) free of \($capacity), \($needed) needed"
+  | if $capacity - $taken >= $needed then "ok \($capacity - $taken) free of \($capacity), \($needed) needed"
     else
       "short \($capacity - $taken) free of \($capacity), \($needed) needed",
       ($used | group_by(.owner) | map({owner: .[0].owner, n: (map(.entry) | unique | length)}) | sort_by(-.n, .owner)[]
         | "  \(.n)\t\(.owner)")
     end
-')
+') || unreadable "Docker's answer"
 
 case "$report" in
-  unknown)
-    echo "address-pool.sh: Docker reports no IPv4 default address pool; not checked" >&2 ;;
   ok*)
     echo "address-pool.sh: ${report#ok }" >&2 ;;
   *)

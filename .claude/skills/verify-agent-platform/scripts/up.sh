@@ -24,7 +24,11 @@ case "$slots" in
   '' | 0* | *[!0-9]* | ?????*) echo "up.sh: VERIFY_SLOT_LIMIT must be a positive integer below 10000 (got '$slots')" >&2; exit 1 ;;
 esac
 "$(dirname "$0")/address-pool.sh" "$((slots + 1))" || {
-  echo "up.sh: nothing was started; down a stack you started, or start with a smaller VERIFY_SLOT_LIMIT" >&2
+  if [ "$?" = 1 ]; then
+    echo "up.sh: nothing was started; down a stack you started, or start with a smaller VERIFY_SLOT_LIMIT" >&2
+  else
+    echo "up.sh: nothing was started; check that Docker answers, then run up.sh again" >&2
+  fi
   exit 1
 }
 
