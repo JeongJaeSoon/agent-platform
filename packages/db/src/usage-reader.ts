@@ -23,6 +23,7 @@ import {
   turns,
   workerLaunches,
 } from "./schema.ts";
+import { toolCallTotals } from "./tool-calls.ts";
 
 const ENDED: TurnStatus[] = [
   "completed",
@@ -451,6 +452,19 @@ export function createPostgresUsageReader(db: Database): UsageReader {
           })),
         totals: figuresOf(total),
       };
+    },
+
+    // From the reconciler's projection: calls made since its last pass do
+    // not count yet.
+    usageTools(filter, tools, limit) {
+      return toolCallTotals(db, filter, {
+        since: tools.period.since,
+        ...(tools.period.until === undefined
+          ? {}
+          : { until: tools.period.until }),
+        ...(tools.agentId === undefined ? {} : { agentId: tools.agentId }),
+        limit,
+      });
     },
   };
 }

@@ -94,6 +94,26 @@ export type UsageBreakdownRecord = {
   totals: UsageBreakdownFiguresRecord;
 };
 
+/**
+ * One tool name's calls among tool_use events created in the period. A call
+ * is timed only when its result is paired and both events carry a time.
+ */
+export type UsageToolRecord = {
+  name: string;
+  calls: number;
+  failed: number;
+  totalMs: number;
+  /** 0 when no call of the tool was timed. */
+  medianMs: number;
+  maxMs: number;
+};
+
+export type UsageToolsFilter = {
+  period: { since: Date; until?: Date };
+  /** Only sessions pinned to a release of this agent. */
+  agentId?: string;
+};
+
 export interface UsageReader {
   installationUsage(): Promise<InstallationUsage>;
   /** null when the session is not visible to the owner. */
@@ -114,4 +134,10 @@ export interface UsageReader {
     period: { since: Date; until?: Date },
     by: "model" | "agent",
   ): Promise<UsageBreakdownRecord>;
+  /** The most-called tools first, at most `limit` of them. */
+  usageTools(
+    filter: UsageSummaryFilter,
+    tools: UsageToolsFilter,
+    limit: number,
+  ): Promise<UsageToolRecord[]>;
 }
