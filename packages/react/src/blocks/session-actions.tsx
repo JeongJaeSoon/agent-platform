@@ -3,13 +3,26 @@ import type {
   PendingRequest,
   SessionDetail as SessionDetailData,
 } from "@werft-ai/contracts";
-import { Badge, Button, ConfirmDialog, cn } from "@werft-ai/ui";
-import { type LucideIcon, Play, Power, Square } from "lucide-react";
+import {
+  Badge,
+  Button,
+  ConfirmDialog,
+  cn,
+  formatTimestamp,
+} from "@werft-ai/ui";
+import {
+  ChevronDown,
+  type LucideIcon,
+  Play,
+  Power,
+  Square,
+} from "lucide-react";
 import {
   type Dispatch,
   type ReactNode,
   type Ref,
   type SetStateAction,
+  useEffect,
   useId,
   useLayoutEffect,
   useRef,
@@ -22,6 +35,7 @@ import {
   Composer,
   QuestionCard,
 } from "../components/index.ts";
+import { useExpired } from "../components/session/expiry.ts";
 import {
   type SessionControl,
   useAnswer,
@@ -91,30 +105,105 @@ function Reason({ id, text }: { readonly id?: string; readonly text: string }) {
   );
 }
 
-/** The summary layout's line for a request that is answered below it. */
-function SummaryLine({
+/**
+ * A question as a list line: what it asks and until when, its form folded
+ * below so every line in the list keeps one height until opened. The form
+ * stays mounted while folded and keeps what was chosen.
+ */
+function SummaryQuestion({
+  request,
   heading,
   badge,
   meta,
+  messages,
+  children,
 }: {
+  readonly request: Extract<PendingRequest, { kind: "question" }>;
   readonly heading: ReactNode;
   readonly badge: string;
   readonly meta: ReactNode;
+  readonly messages: {
+    readonly open: string;
+    readonly expires: string;
+    readonly expired: string;
+  };
+  readonly children: ReactNode;
 }) {
+  const formId = useId();
+  const formRef = useRef<HTMLDivElement>(null);
+  const focusOnOpen = useRef(false);
+  const [open, setOpen] = useState(false);
+  const expired = useExpired(
+    request.request_id,
+    request.expires_at,
+    Date.now(),
+  );
+  const prompt = request.questions[0]?.prompt;
+
+  useEffect(() => {
+    if (open && focusOnOpen.current) {
+      formRef.current
+        ?.querySelector<HTMLElement>(
+          "button:not(:disabled), input:not(:disabled), textarea:not(:disabled)",
+        )
+        ?.focus();
+    }
+    focusOnOpen.current = false;
+  }, [open]);
+
   return (
-    <div className="flex min-w-0 flex-col gap-0.5 px-[var(--ap-row-padding-x)] pt-[var(--ap-row-padding-y)] pb-2">
-      <p className="m-0 flex min-w-0 items-center gap-2 font-medium text-control leading-5">
-        <span className="min-w-16 truncate">{heading}</span>
-        <Badge variant="amber" className="min-w-0 max-w-max shrink">
-          <span className="truncate">{badge}</span>
-        </Badge>
-      </p>
-      {meta === undefined ? null : (
-        <p className="m-0 text-caption text-muted-foreground leading-4 [overflow-wrap:anywhere]">
-          {meta}
-        </p>
-      )}
-    </div>
+    <>
+      <div className="flex min-h-[var(--ap-row-min-height)] flex-wrap items-center justify-end gap-x-4 gap-y-2 px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)]">
+        <div className="flex min-w-0 flex-1 basis-60 flex-col gap-0.5">
+          <p className="m-0 flex min-w-0 items-center gap-2 font-medium text-control leading-5">
+            <span className="min-w-0 truncate">{heading}</span>
+            {/* One short word: the name gives way, never the badge. */}
+            <Badge variant="amber" className="shrink-0">
+              {badge}
+            </Badge>
+          </p>
+          {/* Open, the form below asks it in full. */}
+          {prompt === undefined || open ? null : (
+            <p className="m-0 truncate text-control leading-5">{prompt}</p>
+          )}
+          <p className="m-0 text-caption text-muted-foreground leading-4 [overflow-wrap:anywhere]">
+            {meta}
+            {meta === undefined ? null : <span aria-hidden="true"> · </span>}
+            {expired ? messages.expired : messages.expires}
+          </p>
+        </div>
+        {expired ? null : (
+          <Button
+            type="button"
+            variant="outline"
+            className="shrink-0"
+            aria-expanded={open}
+            aria-controls={formId}
+            onClick={() => {
+              focusOnOpen.current = !open;
+              setOpen(!open);
+            }}
+          >
+            {messages.open}
+            <ChevronDown
+              className={cn(
+                "transition-transform motion-reduce:transition-none",
+                open && "rotate-180",
+              )}
+              aria-hidden="true"
+            />
+          </Button>
+        )}
+      </div>
+      <div
+        ref={formRef}
+        id={formId}
+        hidden={!open || expired}
+        className="px-[var(--ap-row-padding-x)] pb-[var(--ap-row-padding-y)]"
+      >
+        {children}
+      </div>
+    </>
   );
 }
 
@@ -154,6 +243,7 @@ export function PendingAnswers({
   layout = "card",
   heading,
   meta,
+  announceSent = true,
 }: SessionActionProps & {
   readonly sessionId: string;
   readonly items: readonly PendingRequest[];
@@ -169,6 +259,8 @@ export function PendingAnswers({
   readonly heading?: ReactNode;
   /** The summary layout's second line for a request, such as its wait. */
   readonly meta?: ((request: PendingRequest) => ReactNode) | undefined;
+  /** False when the host says an answer went, as the inbox's heading does. */
+  readonly announceSent?: boolean;
 }) {
   const { t, locale } = useBlockText();
   const summary = layout === "summary";
@@ -225,6 +317,9 @@ export function PendingAnswers({
   }, [items]);
 
   const send = (body: Parameters<typeof answer.mutate>[0]) => {
+    // The buttons are off while an answer is on its way; a second press
+    // that beats the render must not send twice.
+    if (answer.isPending) return;
     setOutcome(null);
     // Marked before the request: an event can take the card away before
     // the answer's receipt comes back.
@@ -253,9 +348,37 @@ export function PendingAnswers({
       ? outcome.text
       : undefined;
   const expires = (at: string) => t("session.pending.expires", { at });
+  const question = (
+    request: Extract<PendingRequest, { kind: "question" }>,
+    variant: "card" | "plain",
+  ) => (
+    <QuestionCard
+      variant={variant}
+      request={request}
+      locale={locale}
+      pending={busyId === request.request_id}
+      disabled={reason !== undefined || busyId !== undefined}
+      error={errorFor(request)}
+      messages={{
+        title: t("session.pending.question"),
+        expires,
+        expired: t("session.pending.expired"),
+        freeText: t("session.answer.freeText"),
+        unanswered: t("session.answer.unanswered"),
+        submit: t("session.answer.submit"),
+      }}
+      onSubmit={(answers) =>
+        send({
+          request_id: request.request_id,
+          kind: "question",
+          answers,
+        })
+      }
+    />
+  );
   // An error shows on its card; once the card is gone, it shows here.
   const shownHere =
-    outcome?.kind === "notice" ||
+    (outcome?.kind === "notice" && announceSent) ||
     (outcome !== null &&
       !items.some((request) => request.request_id === outcome.requestId));
 
@@ -333,48 +456,29 @@ export function PendingAnswers({
                     })
                   }
                 />
+              ) : summary ? (
+                <SummaryQuestion
+                  request={request}
+                  heading={lineHeading}
+                  badge={t("session.pending.question")}
+                  meta={metaFor(request)}
+                  messages={{
+                    open: t("session.answer.open"),
+                    expires: expires(
+                      formatTimestamp(request.expires_at, locale),
+                    ),
+                    expired: t("session.pending.expired"),
+                  }}
+                >
+                  {question(request, "plain")}
+                </SummaryQuestion>
               ) : (
                 <>
-                  {summary ? (
-                    <SummaryLine
-                      heading={lineHeading}
-                      badge={t("session.pending.question")}
-                      meta={metaFor(request)}
-                    />
-                  ) : subject === undefined ? null : (
+                  {subject === undefined ? null : (
                     // QuestionCard has no title-line slot yet.
                     <p className="m-0 mb-2 text-caption">{subject}</p>
                   )}
-                  <div
-                    className={
-                      summary
-                        ? "px-[var(--ap-row-padding-x)] pb-[var(--ap-row-padding-y)]"
-                        : undefined
-                    }
-                  >
-                    <QuestionCard
-                      request={request}
-                      locale={locale}
-                      pending={busyId === request.request_id}
-                      disabled={reason !== undefined || busyId !== undefined}
-                      error={errorFor(request)}
-                      messages={{
-                        title: t("session.pending.question"),
-                        expires,
-                        expired: t("session.pending.expired"),
-                        freeText: t("session.answer.freeText"),
-                        unanswered: t("session.answer.unanswered"),
-                        submit: t("session.answer.submit"),
-                      }}
-                      onSubmit={(answers) =>
-                        send({
-                          request_id: request.request_id,
-                          kind: "question",
-                          answers,
-                        })
-                      }
-                    />
-                  </div>
+                  {question(request, "card")}
                 </>
               )}
             </li>

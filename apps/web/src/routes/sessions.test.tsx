@@ -259,8 +259,8 @@ describe("approval inbox", () => {
       json(200, { answerable: true, items: [] }),
   });
 
-  test("gathers the waiting sessions under the same count as the sidebar badge", async () => {
-    renderAt(
+  test("lists the waiting sessions as framed lines, leaving out one whose list came back empty", async () => {
+    const { api } = renderAt(
       "/sessions",
       waitingRoutes(
         [
@@ -275,41 +275,40 @@ describe("approval inbox", () => {
       await within(inbox).findAllByRole("button", { name: ALLOW }),
     ).toHaveLength(1);
     expect(inbox.querySelector('[data-slot="approval-row"]')).toBeTruthy();
-    // The count sits beside the heading as a badge; no line of its own.
-    const badge = (await within(inbox).findByText("답을 기다리는 세션 2개"))
+    // OTHER_ID was answered or lapsed since the waiting list was read: no
+    // line of its own saying nothing waits, and not counted.
+    expect(within(inbox).queryByText(/요청이 없습니다/)).toBeNull();
+    expect(
+      within(inbox).queryByRole("link", { name: `세션 열기 ${OTHER_ID}` }),
+    ).toBeNull();
+    const badge = (await within(inbox).findByText("답을 기다리는 세션 1개"))
       .parentElement as HTMLElement;
     expect(badge.getAttribute("data-slot")).toBe("badge");
-    expect(badge.textContent).toBe("2답을 기다리는 세션 2개");
+    expect(badge.textContent).toBe("1답을 기다리는 세션 1개");
     expect(
       badge.parentElement?.contains(
         screen.getByRole("heading", { name: "답변 대기" }),
       ),
     ).toBe(true);
-    expect(await screen.findByText("답변 대기 2개")).toBeTruthy();
+    // ...and the waiting list is read again so the sidebar catches up.
+    await waitFor(() =>
+      expect(
+        api.calls.filter((call) => call.search === "?status=needs_input")
+          .length,
+      ).toBeGreaterThanOrEqual(2),
+    );
     expect(
       within(inbox)
         .getByRole("link", { name: `세션 열기 ${SESSION_ID}` })
         .getAttribute("href"),
     ).toBe(`/sessions/${SESSION_ID}`);
-    // The session link rides on the card's title line, not a line of its own.
-    const titleLine = (await within(inbox).findByText("권한 요청: Bash"))
-      .parentElement as HTMLElement;
-    expect(titleLine.textContent).toMatch(
-      new RegExp(`^권한 요청: Bash·${SESSION_ID.slice(0, 8)}…·.+까지$`),
-    );
-    expect(
-      titleLine.contains(
-        within(inbox).getByRole("link", { name: `세션 열기 ${SESSION_ID}` }),
-      ),
-    ).toBe(true);
-    // One column as wide as the session table below, 16px between blocks.
+    // One framed list as wide as the session table below.
     const list = within(inbox).getAllByRole("list")[0] as HTMLElement;
-    expect(list.className).not.toContain("grid-cols-2");
-    expect(list.className).toContain("gap-[var(--ap-space-block)]");
+    expect(list.className).toContain("rounded-card");
+    expect(list.className).toContain("divide-y");
     expect(inbox.parentElement?.className).toContain(
       "gap-[var(--ap-space-block)]",
     );
-    expect(inbox.className).not.toContain("border");
   });
 
   test("a longer first page reads as more, as the badge does", async () => {

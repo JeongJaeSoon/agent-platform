@@ -1,11 +1,17 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { PendingRequest, SessionSummary } from "@werft-ai/contracts";
-import { waitingSessionsQuery } from "@werft-ai/core";
-import { Badge, cn } from "@werft-ai/ui";
-import { type ReactNode, useId, useLayoutEffect, useRef } from "react";
+import { pendingRequestsQuery, waitingSessionsQuery } from "@werft-ai/core";
+import { Badge, cn, Skeleton } from "@werft-ai/ui";
+import {
+  type ReactNode,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { useMinute } from "../components/session/use-minute.ts";
 import { useAgentPlatform } from "../provider.tsx";
-import { usePendingRequests } from "../sessions.ts";
 import {
   type ApprovalLayout,
   focusLost,
@@ -15,8 +21,8 @@ import {
 import { useBlockText } from "./text.ts";
 
 export interface ApprovalInboxProps extends SessionActionProps {
-  /** Shown until the waiting sessions arrive. */
-  readonly loading: ReactNode;
+  /** Shown until the waiting sessions arrive, in place of the block's rows. */
+  readonly loading?: ReactNode;
   /** The host's words for a read that failed, with the way to ask again. */
   readonly renderError: (error: unknown, retry: () => void) => ReactNode;
   /**
@@ -33,7 +39,51 @@ export interface ApprovalInboxProps extends SessionActionProps {
   readonly empty?: ReactNode;
   /** The time the summary layout's waits are counted to. */
   readonly now?: number | undefined;
+  /** At most this many sessions are drawn; the rest are left to `more`. */
+  readonly limit?: number | undefined;
+  /**
+   * The list's last line when sessions are left out, by `limit` or past the
+   * first page: `count` is how many, with "+" when the page has more.
+   */
+  readonly more?: ((count: string) => ReactNode) | undefined;
 }
+
+// Framed like the list it stands in for, one placeholder per line at a
+// line's least height.
+function InboxSkeleton({
+  rows,
+  label,
+}: {
+  readonly rows: number;
+  readonly label?: string;
+}) {
+  return (
+    <div
+      data-slot="inbox-skeleton"
+      className="flex flex-col divide-y rounded-card border bg-card"
+    >
+      {Array.from({ length: rows }, (_, index) => index).map((index) => (
+        <div
+          // Placeholder rows have no identity beyond their position.
+          key={index}
+          className="flex min-h-[var(--ap-row-min-height)] flex-col justify-center gap-1.5 px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)]"
+        >
+          <Skeleton
+            width="40%"
+            {...(index === 0 && label !== undefined
+              ? { label }
+              : { decorative: true })}
+          />
+          <Skeleton width="25%" decorative />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+const FRAME = "rounded-card border bg-card";
+const FRAME_PADDING =
+  "px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)]";
 
 /**
  * The reader's sessions waiting on an answer, each request answerable here.
@@ -49,54 +99,93 @@ export function ApprovalInbox({
   action,
   empty,
   now: givenNow,
+  limit,
+  more: moreLine,
 }: ApprovalInboxProps) {
   const { t } = useBlockText();
   const { client } = useAgentPlatform();
+  const queryClient = useQueryClient();
   const titleId = useId();
   const waiting = useQuery(waitingSessionsQuery(client));
   const now = useMinute(layout === "summary" && givenNow === undefined);
   const titleRef = useRef<HTMLHeadingElement>(null);
-  const shown = useRef<readonly string[]>([]);
+  const shownBefore = useRef<readonly string[]>([]);
+  const [sent, setSent] = useState(false);
+
+  const sessions = waiting.data?.items ?? [];
+  // The same reads each line makes, so the block knows which sessions still
+  // hold a request before it draws or counts them.
+  const lists = useQueries({
+    queries: sessions.map((session) =>
+      pendingRequestsQuery(client, session.id),
+    ),
+  });
+  // A session listed as waiting whose own list came back empty was answered
+  // or lapsed since the waiting list was read: it is left out, and the
+  // waiting list read again so the count and the shell's badge catch up.
+  const shown = sessions.filter(
+    (_, index) => lists[index]?.data?.items.length !== 0,
+  );
+  const shownKey = shown.map((session) => session.id).join();
+  const emptyKey = sessions
+    .filter((_, index) => lists[index]?.data?.items.length === 0)
+    .map((session) => session.id)
+    .join();
+  useEffect(() => {
+    if (emptyKey === "") return;
+    void queryClient.invalidateQueries({
+      ...waitingSessionsQuery(client),
+      exact: true,
+    });
+  }, [emptyKey, queryClient, client]);
 
   // A session answered from here leaves the list with the focus it held;
   // the keyboard goes back to the inbox's heading.
   useLayoutEffect(() => {
-    const ids = waiting.data?.items.map((session) => session.id) ?? [];
-    const left = shown.current.some((id) => !ids.includes(id));
-    shown.current = ids;
+    const ids = shownKey === "" ? [] : shownKey.split(",");
+    const left = shownBefore.current.some((id) => !ids.includes(id));
+    shownBefore.current = ids;
     if (left && focusLost(titleRef.current)) {
       titleRef.current?.focus();
     }
-  }, [waiting.data]);
+  }, [shownKey]);
 
   let body: ReactNode;
   let count: ReactNode = null;
   if (waiting.data === undefined) {
     body = waiting.isPending
-      ? loading
-      : renderError(waiting.error, () => void waiting.refetch());
+      ? (loading ?? <InboxSkeleton rows={2} label={t("inbox.loading")} />)
+      : // The host's error state carries its own frame.
+        renderError(waiting.error, () => void waiting.refetch());
   } else {
-    const { items, next_cursor } = waiting.data;
-    const more = next_cursor !== null;
-    if (items.length > 0) {
+    const more = waiting.data.next_cursor !== null;
+    const drawn = limit === undefined ? shown : shown.slice(0, limit);
+    const left = shown.length - drawn.length;
+    if (shown.length > 0) {
       count = (
         <Badge variant="amber">
           <span aria-hidden="true">
-            {items.length}
+            {shown.length}
             {more ? "+" : ""}
           </span>
           <span className="sr-only">
             {t(more ? "inbox.countMore" : "inbox.count", {
-              count: items.length,
+              count: shown.length,
             })}
           </span>
         </Badge>
       );
     }
     body =
-      items.length === 0 ? (
+      shown.length === 0 ? (
         (empty ?? (
-          <p className="m-0 text-muted-foreground text-body">
+          <p
+            className={cn(
+              "m-0 text-muted-foreground text-body",
+              FRAME,
+              FRAME_PADDING,
+            )}
+          >
             {t("inbox.empty")}
           </p>
         ))
@@ -105,11 +194,11 @@ export function ApprovalInbox({
           className={cn(
             "m-0 flex list-none flex-col p-0",
             layout === "summary"
-              ? "divide-y rounded-card border bg-card"
+              ? cn("divide-y", FRAME)
               : "gap-[var(--ap-space-block)]",
           )}
         >
-          {items.map((session) => (
+          {drawn.map((session) => (
             <WaitingSession
               key={session.id}
               session={session}
@@ -118,8 +207,19 @@ export function ApprovalInbox({
               renderError={renderError}
               layout={layout}
               now={givenNow ?? now}
+              onAnswered={() => setSent(true)}
             />
           ))}
+          {left > 0 && moreLine !== undefined ? (
+            <li
+              className={cn(
+                "text-control",
+                layout === "summary" ? FRAME_PADDING : null,
+              )}
+            >
+              {moreLine(`${left}${more ? "+" : ""}`)}
+            </li>
+          ) : null}
         </ul>
       );
   }
@@ -139,6 +239,12 @@ export function ApprovalInbox({
             {title ?? t("inbox.title")}
           </h2>
           {count}
+          {/* On the heading's line, not the answered one: that line leaves
+              with the read that follows. Always mounted so a screen reader
+              hears it; in the line, so nothing below moves. */}
+          <output className="min-w-0 truncate text-caption text-muted-foreground">
+            {sent ? t("session.answer.sent") : null}
+          </output>
         </div>
         {action}
       </div>
@@ -154,16 +260,18 @@ function WaitingSession({
   renderError,
   layout,
   now,
+  onAnswered,
 }: SessionActionProps & {
   readonly session: SessionSummary;
   readonly renderError: ApprovalInboxProps["renderError"];
   readonly layout: ApprovalInboxProps["layout"];
   readonly now: number;
+  readonly onAnswered: () => void;
 }) {
   const { t } = useBlockText();
   const { renderLink, client } = useAgentPlatform();
   const queryClient = useQueryClient();
-  const pending = usePendingRequests(session.id, true);
+  const pending = useQuery(pendingRequestsQuery(client, session.id));
   const link = renderLink({
     to: "session",
     id: session.id,
@@ -190,30 +298,32 @@ function WaitingSession({
       ),
     });
     // Untitled, the name line already is the short id.
-    return session.title ? (
-      <span className="whitespace-nowrap">
-        {short}
-        <span aria-hidden="true"> · </span>
-        {waited}
-      </span>
-    ) : (
-      waited
+    const parts = [
+      session.agent?.name,
+      session.title ? short : undefined,
+      waited,
+    ].filter((part) => part !== undefined);
+    return (
+      <>
+        {parts.map((part, index) => (
+          // A long agent name wraps; the id and the wait stay whole.
+          <span
+            key={part}
+            className={
+              part === session.agent?.name ? undefined : "whitespace-nowrap"
+            }
+          >
+            {index === 0 ? null : <span aria-hidden="true"> · </span>}
+            {part}
+          </span>
+        ))}
+      </>
     );
   };
+  // The inbox leaves out a session whose list came back empty.
+  if (pending.data?.items.length === 0) return null;
   return (
     <li className={cn("flex min-w-0 flex-col", summary ? null : "gap-2")}>
-      {/* Without a card to carry it, the session still needs its way in. */}
-      {pending.data?.items.length ? null : (
-        <p
-          className={cn(
-            "m-0 text-caption",
-            summary &&
-              "px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)]",
-          )}
-        >
-          {link}
-        </p>
-      )}
       {pending.data ? (
         <PendingAnswers
           sessionId={session.id}
@@ -223,16 +333,18 @@ function WaitingSession({
           layout={layout}
           heading={heading}
           meta={summary ? meta : undefined}
+          announceSent={false}
           unavailable={unavailable}
           refusal={refusal}
           // No event stream is open here; the badge and this list learn the
           // session moved on from the next read.
-          onAnswered={() =>
+          onAnswered={() => {
+            onAnswered();
             void queryClient.invalidateQueries({
               ...waitingSessionsQuery(client),
               exact: true,
-            })
-          }
+            });
+          }}
         />
       ) : pending.error ? (
         <div
@@ -243,7 +355,20 @@ function WaitingSession({
         >
           {renderError(pending.error, () => void pending.refetch())}
         </div>
-      ) : null}
+      ) : (
+        <div
+          data-slot="inbox-row-skeleton"
+          className={cn(
+            "flex min-h-[var(--ap-row-min-height)] flex-col justify-center gap-1.5",
+            summary
+              ? "px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)]"
+              : cn(FRAME, FRAME_PADDING),
+          )}
+        >
+          <Skeleton width="40%" decorative />
+          <Skeleton width="25%" decorative />
+        </div>
+      )}
     </li>
   );
 }

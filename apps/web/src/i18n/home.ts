@@ -73,6 +73,7 @@ export const homeKo = {
   "home.recent.all": "모든 세션",
   "home.requests.title": "답이 필요한 요청",
   "home.requests.all": "전체 보기",
+  "home.requests.more": "다른 세션 {count}개 더 보기",
   "home.requests.empty": "지금 답할 요청이 없습니다",
   "home.requests.emptyHint":
     "세션이 권한이나 답을 기다리면 여기에 먼저 나옵니다.",
@@ -165,6 +166,7 @@ export const homeEn: Record<keyof typeof homeKo, string> = {
   "home.recent.all": "All sessions",
   "home.requests.title": "Requests waiting on you",
   "home.requests.all": "View all",
+  "home.requests.more": "{count} more sessions",
   "home.requests.empty": "Nothing to answer right now",
   "home.requests.emptyHint":
     "When a session waits for a permission or an answer, it shows up here first.",
@@ -257,6 +259,7 @@ export const homeJa: Record<keyof typeof homeKo, string> = {
   "home.recent.all": "すべてのセッション",
   "home.requests.title": "対応が必要なリクエスト",
   "home.requests.all": "すべて表示",
+  "home.requests.more": "ほか {count} 件のセッション",
   "home.requests.empty": "いま回答するリクエストはありません",
   "home.requests.emptyHint":
     "セッションが権限や回答を待つと、まずここに表示されます。",

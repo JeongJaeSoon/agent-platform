@@ -101,6 +101,8 @@ const RECENT_COLUMNS =
 // and the title needs the width at 390px.
 const RECENT_NARROW_COLUMNS = "minmax(0,1fr) 116px 64px";
 const STALE_WAIT_MS = 30 * 60 * 1000;
+// Lines the home inbox draws before the rest go to the sessions screen.
+const HOME_REQUESTS_LIMIT = 5;
 const MINUTE_MS = 60 * 1000;
 
 /**
@@ -635,7 +637,12 @@ export function HomeScreen() {
           }
           empty={<NoRequests />}
           now={now}
-          loading={<StatusScreen kind="loading" />}
+          limit={HOME_REQUESTS_LIMIT}
+          more={(count) => (
+            <ArrowLink to="/sessions" search={{ status: "needs_input" }}>
+              {t("home.requests.more", { count })}
+            </ArrowLink>
+          )}
           renderError={loadError}
           unavailable={unavailable}
           refusal={(error) => t(errorKey(error.code))}
