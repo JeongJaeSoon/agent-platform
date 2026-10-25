@@ -461,15 +461,69 @@ describe("Slack management", () => {
         "Slack 앱을 설치한 뒤 채널을 연결하세요.",
       ),
     );
-    // Shown while the modal is open: still exposed, still live, focus kept.
-    const toast = document.querySelector("[data-slot=toast]") as HTMLElement;
-    expect(screen.getByRole("dialog")).toBeDefined();
-    expect(toast.closest("[aria-hidden=true]") === null).toBe(true);
-    expect(toast.getAttribute("aria-live")).toBe("polite");
+    // The picker's alert reads the error; the toast only shows it.
     expect(
-      document.activeElement?.closest("[role=dialog]") !== null &&
-        document.activeElement?.closest("[role=dialog]") !== undefined,
-    ).toBe(true);
+      within(screen.getByRole("dialog")).getByRole("alert").textContent,
+    ).toContain("Slack 앱을 설치한 뒤 채널을 연결하세요.");
+    expect(
+      document.querySelector("[data-slot=toast]")?.getAttribute("aria-hidden"),
+    ).toBe("true");
+  });
+
+  test("announces a copy made inside the open channel picker", async () => {
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/channels`]: () =>
+        json(200, {
+          items: [
+            {
+              id: "C123",
+              name: "general",
+              is_private: false,
+              is_member: false,
+            },
+          ],
+          next_cursor: null,
+          stale: false,
+          truncated: false,
+        }),
+    });
+    const user = await setupUser();
+    const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async () => {} },
+    });
+    try {
+      await user.click(await screen.findByRole("tab", { name: "채널" }));
+      await user.click(
+        await screen.findByRole("button", { name: "채널 추가" }),
+      );
+      const dialog = screen.getByRole("dialog");
+      await user.click(
+        await within(dialog).findByRole("button", {
+          name: "/invite 명령 복사",
+        }),
+      );
+      await waitFor(() =>
+        expect(document.querySelector("[data-slot=toast]")?.textContent).toBe(
+          "복사됨",
+        ),
+      );
+      // Mounted after the modal hid the page, so it is not hidden with it.
+      const toast = document.querySelector("[data-slot=toast]") as HTMLElement;
+      expect(
+        document
+          .querySelector("[role=tablist][aria-label='Slack 관리']")
+          ?.closest("[aria-hidden=true]") !== null,
+      ).toBe(true);
+      expect(toast.closest("[aria-hidden=true]") === null).toBe(true);
+      expect(toast.getAttribute("aria-live")).toBe("polite");
+      expect(dialog.contains(document.activeElement)).toBe(true);
+    } finally {
+      if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
+      else Reflect.deleteProperty(navigator, "clipboard");
+    }
   });
 
   for (const refused of [false, true]) {

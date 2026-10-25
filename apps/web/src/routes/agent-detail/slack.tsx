@@ -39,7 +39,7 @@ import { useMe } from "../../auth/guard.tsx";
 import { copyText } from "../../components/copy.ts";
 import { errorKey, type Translate, useI18n } from "../../i18n/i18n.tsx";
 import { useAppServices } from "../../services.tsx";
-import { useToast } from "./toast.tsx";
+import { type Notify, useToast } from "./toast.tsx";
 
 type Binding =
   components["schemas"]["ListSlackBindingsResponse"]["items"][number];
@@ -154,7 +154,7 @@ function InviteCopy({
   notify,
 }: {
   readonly command: string;
-  readonly notify: (text: string) => void;
+  readonly notify: Notify;
 }) {
   const { t } = useI18n();
   const [manual, setManual] = useState(false);
@@ -658,7 +658,7 @@ function SlackChannels({
   readonly defaultMention: boolean;
   /** The line to paste in a channel to add the bot. */
   readonly invite: string;
-  readonly notify: (text: string) => void;
+  readonly notify: Notify;
 }) {
   const { t } = useI18n();
   const { client } = useAgentPlatform();
@@ -698,7 +698,9 @@ function SlackChannels({
       await cache.invalidateQueries({ queryKey: [...key, "bindings"] });
     },
     onError: (failure, change) => {
-      if (change.kind === "connect") notify(slackFailure(failure, t));
+      // The picker's FieldError already announces it.
+      if (change.kind === "connect")
+        notify(slackFailure(failure, t), { silent: true });
     },
   });
   const rows =

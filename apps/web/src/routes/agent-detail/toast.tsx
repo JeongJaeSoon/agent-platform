@@ -9,24 +9,27 @@ const PLACE =
  * A short notice floating over the page bottom. It never takes focus or
  * moves the layout. Each notice mounts a fresh region on `document.body`, so
  * a modal dialog opened earlier has not hidden it from assistive technology.
- * `silent` only shows it, for a page whose own live region already says the
- * same.
+ * A `silent` notice is only shown, when a live region on the page already
+ * says the same.
  */
-export function useToast({
-  silent = false,
-}: {
-  readonly silent?: boolean;
-} = {}): {
-  readonly notify: (text: string) => void;
+export type Notify = (text: string, options?: { silent?: boolean }) => void;
+
+export function useToast(): {
+  readonly notify: Notify;
   readonly toast: ReactNode;
 } {
   const [current, setCurrent] = useState<{
     readonly id: number;
     readonly text: string;
+    readonly silent: boolean;
   } | null>(null);
-  const notify = useCallback(
-    (text: string) =>
-      setCurrent((previous) => ({ id: (previous?.id ?? 0) + 1, text })),
+  const notify = useCallback<Notify>(
+    (text, options) =>
+      setCurrent((previous) => ({
+        id: (previous?.id ?? 0) + 1,
+        text,
+        silent: options?.silent ?? false,
+      })),
     [],
   );
   const dismiss = useCallback(() => setCurrent(null), []);
@@ -36,7 +39,7 @@ export function useToast({
       <Toast
         key={current.id}
         text={current.text}
-        silent={silent}
+        silent={current.silent}
         onDone={dismiss}
       />
     ) : null,

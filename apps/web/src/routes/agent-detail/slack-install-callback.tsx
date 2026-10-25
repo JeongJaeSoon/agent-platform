@@ -31,8 +31,9 @@ export function SlackInstallCallback() {
   const cache = useQueryClient();
   const navigate = useNavigate();
   const started = useRef(false);
+  const { notify: show, toast } = useToast();
   // The page's own output already reads the outcome out.
-  const { notify, toast } = useToast({ silent: true });
+  const notify = (text: string) => show(text, { silent: true });
   const unfinished = (result: CompleteSlackInstallResponse) =>
     result.warnings.some((warning) => warning.code === "reinstall_required")
       ? t("slack.state.reinstall")
