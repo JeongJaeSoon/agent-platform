@@ -102,6 +102,19 @@ curl -sS "$API/v1/agents/$AID/identities" "${WEB[@]}" \
 
 확인된 Slack 설치가 없으면 409 `SLACK_NOT_INSTALLED`다. 설치는 운영자가 위의 Slack 설치 등록 CLI로 만든다.
 
+## 채널 참가와 배포 환영
+
+에이전트의 채널(`PUT /v1/agents/{id}/slack-bindings`)을 저장하면 서버가 bot을 그 채널에 넣는다. 공개 채널은 bot이 스스로 들어간다. 비공개 채널은 Slack이 막으니 채널에서 `/invite @<bot>`으로 초대한다. 초대되면 서버가 알아채고 이어 간다. 결과는 binding의 `membership.state`로 보인다.
+
+| `membership.state` | 뜻 |
+| --- | --- |
+| `joined` | bot이 채널에 있다 |
+| `awaiting_invite` | 비공개 채널이라 초대를 기다린다 |
+| `config_error` | Slack이 token이나 scope를 거절했다(`error`에 Slack 오류 코드). 앱을 다시 설치한다 |
+| `join_failed` | 보관된 채널이거나 워크스페이스 정책이 막았다(`error`) |
+
+새 release를 배포하면 home 채널에 `안녕하세요, <에이전트 이름>입니다. 이 채널에 배포됐어요. 멘션하면 답할게요`가 한 번 간다. 같은 정의를 다시 제출하거나 이전 release로 되돌리면 보내지 않는다. home을 다른 채널로 옮기면 새 채널에 한 번 간다. bot이 home에 없으면 들어올 때까지 기다린다. 환영이나 참가가 실패해도 배포는 실패하지 않는다.
+
 ## 다음 단계
 
 - [API key](/api-keys)

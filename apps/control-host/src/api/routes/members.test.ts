@@ -370,6 +370,7 @@ describe("GET /v1/members", () => {
         },
       ],
       next_cursor: null,
+      assignable_roles: ["owner", "admin", "member"],
     });
   });
 
