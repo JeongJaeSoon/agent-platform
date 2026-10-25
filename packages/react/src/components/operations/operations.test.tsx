@@ -819,6 +819,21 @@ describe("UsageDailyCost", () => {
     expect(ticks()).toEqual(["$0.0008", "$0.0006", "$0.0004", "$0.0002", "$0"]);
   });
 
+  test("$0.01부터 $20 미만도 눈금이 서로 다르다", () => {
+    for (const [cost, want] of [
+      ["0.01", ["$0.04", "$0.03", "$0.02", "$0.01", "$0.00"]],
+      ["0.03", ["$0.04", "$0.03", "$0.02", "$0.01", "$0.00"]],
+      ["0.07", ["$0.08", "$0.06", "$0.04", "$0.02", "$0.00"]],
+      ["5.10", ["$8.00", "$6.00", "$4.00", "$2.00", "$0.00"]],
+    ] as const) {
+      const { unmount } = withPlatform(
+        <UsageDailyCost buckets={[day("2026-10-25", cost)]} days={1} />,
+      );
+      expect(ticks()).toEqual([...want]);
+      unmount();
+    }
+  });
+
   test("$20 이상이면 시안처럼 $20 단위의 정수 눈금이다", () => {
     withPlatform(
       <UsageDailyCost
