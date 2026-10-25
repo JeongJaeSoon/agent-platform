@@ -75,6 +75,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "GET /v1/usage/series",
     "GET /v1/usage/breakdown",
     "GET /v1/usage/tools",
+    "GET /v1/usage/tools/{name}/calls",
   ],
   "routes/outputs.test.ts": [
     "GET /v1/sessions/{id}/outputs",
