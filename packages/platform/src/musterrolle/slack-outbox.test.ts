@@ -92,16 +92,16 @@ describe("slackOutboxText", () => {
 
   test("a cut that leaves a code fence open escapes what the fence held", () => {
     const cut = slackOutboxText({
-      text: `\`\`\`\n<!channel> <@U2>\n${"a".repeat(SLACK_TEXT_MAX)}\n\`\`\``,
+      text: `\`\`\`\n<!channel> <@U2> <@U1>\n${"a".repeat(SLACK_TEXT_MAX)}\n\`\`\``,
       mention_user_ids: ["U1"],
     });
     expect(cut.length).toBeLessThanOrEqual(SLACK_TEXT_MAX);
-    expect(cut).toStartWith("```\n&lt;!channel&gt; &lt;@U2&gt;\n");
+    expect(cut).toStartWith("```\n&lt;!channel&gt; &lt;@U2&gt; &lt;@U1&gt;\n");
     expect(cut).toEndWith("a…");
-    // A fence still closed after the cut keeps its text as written.
+    // A fence still closed after the cut shows its control as written.
     expect(
       slackOutboxText({ text: `\`<!here>\` ${"b".repeat(SLACK_TEXT_MAX)}` }),
-    ).toStartWith("`<!here>` b");
+    ).toStartWith("`&lt;!here&gt;` b");
   });
 
   test("leaves text that fits alone", () => {

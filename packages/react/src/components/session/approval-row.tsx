@@ -23,6 +23,7 @@ import type {
   ApprovalCardMessages,
   ApprovalCardProps,
 } from "./approval-card.tsx";
+import { Busy } from "./busy.tsx";
 import { useExpired, useExpiryFocus } from "./expiry.ts";
 
 export interface ApprovalRowMessages extends ApprovalCardMessages {
@@ -209,11 +210,9 @@ export function ApprovalRow({
                 {meta === undefined ? null : <span aria-hidden="true">·</span>}
                 {notice}
               </span>
-              <span className="flex items-center gap-1">
-                <span aria-hidden="true">·</span>
-                {inputToggle}
-              </span>
             </div>
+            {/* Its own line: after a dot it wrapped alone on a narrow line. */}
+            {inputToggle}
           </div>
         )}
         {expired || denying ? null : (
@@ -224,6 +223,7 @@ export function ApprovalRow({
               aria-label={messages.allowName(request.tool)}
               onClick={onAllow}
             >
+              <Busy shown={pending} />
               {messages.allow}
             </Button>
             <Button
@@ -265,6 +265,7 @@ export function ApprovalRow({
               variant="destructive"
               disabled={blocked || !reason.trim()}
             >
+              <Busy shown={pending} />
               {messages.denySubmit}
             </Button>
             <Button

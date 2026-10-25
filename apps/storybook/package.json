@@ -3,6 +3,7 @@
   "description": "Storybook for packages/ui: every component and screen state, light and dark, down to 390px",
   "version": "0.0.0",
   "private": true,
+  "license": "PolyForm-Small-Business-1.0.0",
   "type": "module",
   "scripts": {
     "dev": "storybook dev --port 6006 --no-open",
