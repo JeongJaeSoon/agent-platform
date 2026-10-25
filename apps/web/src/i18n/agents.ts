@@ -201,6 +201,7 @@ export const agentsKo = {
   "agent.glance.activeNote": "실행 프로필 {profile}",
   "agent.glance.none": "없음",
   "agent.glance.latest": "최신 버전",
+  "agent.glance.cost": "최근 7일 비용",
   "agent.glance.latestDraft": "아직 배포하지 않았습니다.",
   "agent.glance.latestReleased": "release는 만들었지만 아직 켜지 않았습니다.",
   "agent.ready.title": "켜기까지",
@@ -471,6 +472,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.glance.activeNote": "Runtime profile {profile}",
   "agent.glance.none": "None",
   "agent.glance.latest": "Latest version",
+  "agent.glance.cost": "Cost, last 7 days",
   "agent.glance.latestDraft": "Not released yet.",
   "agent.glance.latestReleased": "Released but not activated yet.",
   "agent.ready.title": "Before it runs",
@@ -736,6 +738,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.glance.activeNote": "実行プロファイル {profile}",
   "agent.glance.none": "なし",
   "agent.glance.latest": "最新バージョン",
+  "agent.glance.cost": "直近7日のコスト",
   "agent.glance.latestDraft": "まだリリースしていません。",
   "agent.glance.latestReleased":
     "リリースは作成済みですが、まだ有効にしていません。",

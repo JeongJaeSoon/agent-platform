@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
 import { AGENT_ID, agentServer } from "../../test-support/fake-agents.ts";
-import { json, me, memberMe } from "../../test-support/fake-api.ts";
+import { apiError, json, me, memberMe } from "../../test-support/fake-api.ts";
 import { appHarness } from "../../test-support/render-app.tsx";
 
 const { renderAt, screen, waitFor, within } = await appHarness();
@@ -181,7 +181,7 @@ describe("에이전트 상세 탭", () => {
     expect(document.activeElement === releaseTab).toBe(true);
   });
 
-  test("개요는 값이 있는 버전 카드 두 장만 보이고, 최근 세션은 API가 없다고 한다", async () => {
+  test("개요는 배포된 버전·최신 버전 카드로 시작하고, 최근 세션은 API가 없다고 한다", async () => {
     renderAt(DETAIL, { ...meOk, ...agentServer().routes });
     const glance = await screen.findByRole("list", { name: "에이전트 현황" });
     const figures = within(glance)
@@ -190,7 +190,6 @@ describe("에이전트 상세 탭", () => {
     expect(figures[0]).toContain("배포된 버전");
     expect(figures[0]).toContain("없음");
     expect(figures[1]).toContain("version 1");
-    expect(figures).toHaveLength(2);
     const recent = screen
       .getByRole("heading", { name: "최근 세션" })
       .closest("section") as HTMLElement;
@@ -205,6 +204,94 @@ describe("에이전트 상세 탭", () => {
         .getAttribute("href"),
     ).toBe("/sessions");
     expect(screen.queryByRole("complementary")).toBeNull();
+  });
+
+  test("설치 사용량을 읽는 사람에게는 셋째 칸에 이 에이전트의 최근 7일 추정 비용이 보인다", async () => {
+    const figures = (cost: string) => ({
+      session_count: 3,
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_read_input_tokens: 0,
+      cache_creation_input_tokens: 0,
+      token_count: 0,
+      cost_usd: cost,
+    });
+    const { api } = renderAt(DETAIL, {
+      ...meOk,
+      ...agentServer().routes,
+      "GET /v1/usage/breakdown": () =>
+        json(200, {
+          rows: [
+            { key: "other-agent", label: "other", ...figures("4.000000") },
+            { key: AGENT_ID, label: "agent", ...figures("0.960000") },
+          ],
+          totals: figures("4.960000"),
+        }),
+    });
+    const glance = await screen.findByRole("list", { name: "에이전트 현황" });
+    await within(glance).findByText("$0.96");
+    const cost = within(glance).getAllByRole("listitem")[2] as HTMLElement;
+    expect(cost.textContent).toContain("최근 7일 비용");
+    expect(cost.textContent).toContain("추정");
+    expect(cost.textContent).toContain("provider 청구액과 다를 수 있음");
+    const asked = new URLSearchParams(
+      api.calls.find((call) => call.path === "/v1/usage/breakdown")?.search,
+    );
+    expect(asked.get("scope")).toBe("installation");
+    expect(asked.get("by")).toBe("agent");
+    expect(
+      Date.parse(asked.get("until") ?? "") -
+        Date.parse(asked.get("since") ?? ""),
+    ).toBe(7 * 86_400_000);
+  });
+
+  test("기간 안에 이 에이전트의 세션이 없으면 비용은 $0.00이다", async () => {
+    renderAt(DETAIL, {
+      ...meOk,
+      ...agentServer().routes,
+      "GET /v1/usage/breakdown": () =>
+        json(200, {
+          rows: [],
+          totals: {
+            session_count: 0,
+            input_tokens: 0,
+            output_tokens: 0,
+            cache_read_input_tokens: 0,
+            cache_creation_input_tokens: 0,
+            token_count: 0,
+            cost_usd: "0",
+          },
+        }),
+    });
+    const glance = await screen.findByRole("list", { name: "에이전트 현황" });
+    await within(glance).findByText("$0.00");
+  });
+
+  test("비용을 읽지 못하면 비용 칸을 두지 않는다", async () => {
+    renderAt(DETAIL, {
+      ...meOk,
+      ...agentServer().routes,
+      "GET /v1/usage/breakdown": () => apiError(500, "INTERNAL_ERROR", "boom"),
+    });
+    const glance = await screen.findByRole("list", { name: "에이전트 현황" });
+    await waitFor(() =>
+      expect(within(glance).getAllByRole("listitem")).toHaveLength(2),
+    );
+    expect(within(glance).queryByText("최근 7일 비용")).toBeNull();
+  });
+
+  test("설치 사용량을 못 읽는 구성원에게는 비용 칸이 없고 묻지도 않는다", async () => {
+    const { api } = renderAt(DETAIL, {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/administered-agents": () => json(200, { items: [] }),
+      ...agentServer().routes,
+    });
+    const glance = await screen.findByRole("list", { name: "에이전트 현황" });
+    expect(within(glance).getAllByRole("listitem")).toHaveLength(2);
+    expect(within(glance).queryByText("최근 7일 비용")).toBeNull();
+    expect(api.calls.some((call) => call.path === "/v1/usage/breakdown")).toBe(
+      false,
+    );
   });
 
   test("일시정지된 에이전트는 최신 release가 켜져 있어도 켜짐이라 하지 않는다", async () => {
