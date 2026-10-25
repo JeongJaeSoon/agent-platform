@@ -124,11 +124,11 @@ describe("SideNav", () => {
     expect(link.classList.contains("outer")).toBe(true);
   });
 
-  test("목록을 닫은 Esc는 바깥(대화상자 등)으로 올라가지 않는다", async () => {
+  test("목록을 닫은 Esc는 페이지의 바깥 핸들러로 올라가지 않는다", async () => {
     const user = await setupUser();
     const outer = mock(() => {});
     const { getByRole } = render(
-      // biome-ignore lint/a11y/noStaticElementInteractions: stands in for a dialog's Escape handler
+      // biome-ignore lint/a11y/noStaticElementInteractions: stands in for a page-level Escape handler
       <div onKeyDown={outer}>{settings()}</div>,
     );
     await user.click(getByRole("button", { name: /^설정/ }));

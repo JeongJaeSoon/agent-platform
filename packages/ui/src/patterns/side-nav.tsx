@@ -19,7 +19,8 @@ import { Button } from "../primitives/button.tsx";
  * pages, or the sections of a long agent setting. Use it when there are four
  * or more siblings and people stay a while; two or three are LinkTabs, panels
  * switched in place are Tabs. Below md the list folds behind one button above
- * the page that names where you are.
+ * the page that names where you are. It lays out a page, not a dialog: a
+ * Radix dialog takes Escape before the folded list can.
  */
 
 export type SideNavLayoutProps = Omit<ComponentProps<"div">, "children"> & {
@@ -88,7 +89,8 @@ export function SideNav({
   };
   const closeOnEscape = (event: KeyboardEvent<HTMLDivElement>) => {
     if (!open || event.key !== "Escape" || event.defaultPrevented) return;
-    // Folding the list is all this Escape does; a dialog around it stays open.
+    // Folding the list is all this Escape does; handlers above it in the page
+    // do not see it.
     event.preventDefault();
     event.stopPropagation();
     fold();
