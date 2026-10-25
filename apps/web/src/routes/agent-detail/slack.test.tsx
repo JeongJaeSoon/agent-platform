@@ -1203,7 +1203,7 @@ describe("Slack management", () => {
         );
         expect(
           within(screen.getByRole("dialog")).getByText(
-            "공개 채널은 연결하면 봇이 자동으로 참여합니다. 비공개 채널은 /invite로 봇을 초대하세요.",
+            "공개 채널은 반응을 켜면 봇이 자동으로 참여합니다. 비공개 채널은 /invite로 봇을 초대하세요.",
           ),
         ).toBeDefined();
       }

@@ -45,7 +45,7 @@ export const slackKo = {
   "slack.verifyNeeded":
     "앱은 설치했지만 이벤트 등록 확인이 필요합니다. 관리자에게 확인을 요청하세요.",
   "slack.joinHintAuto":
-    "공개 채널은 연결하면 봇이 자동으로 참여합니다. 비공개 채널은 /invite로 봇을 초대하세요.",
+    "공개 채널은 반응을 켜면 봇이 자동으로 참여합니다. 비공개 채널은 /invite로 봇을 초대하세요.",
   "slack.appId": "앱 ID",
   "slack.state.none": "만들기 전",
   "slack.state.pending": "설치 대기",

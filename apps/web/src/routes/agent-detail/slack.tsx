@@ -189,9 +189,9 @@ function useSlackChannels(agentId: string, query: string) {
 }
 
 /**
- * The server joins public channels itself, so only a private channel waits
- * for `/invite`. The binding's membership wins; a channel not bound or not
- * checked yet falls back to the channel list.
+ * The server joins a public channel once its response is on, so only a
+ * private channel waits for `/invite`. The binding's membership wins; a
+ * channel not bound or not checked yet falls back to the channel list.
  */
 function awaitsInvite(
   binding: Binding | undefined,
