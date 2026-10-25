@@ -34,8 +34,9 @@ function trustedControl(
   policy: SlackMentionPolicy | undefined,
 ): boolean {
   // A nested control can smuggle a mention into a link label, and a Slack link
-  // never needs another `<...>` inside it.
-  if (control.includes("<")) return false;
+  // never needs another `<...>` inside it. A backtick is refused too: keeping
+  // escaping from moving backticks keeps the code boundaries found in the input.
+  if (control.includes("<") || control.includes("`")) return false;
 
   const user = /^@([UW][A-Z0-9]+)$/i.exec(control);
   if (user?.[1] !== undefined)
@@ -74,16 +75,22 @@ function escapeControls(
   policy: SlackMentionPolicy | undefined,
 ): string {
   const escapedAmpersands = escapeAmpersands(value);
-  return escapedAmpersands.replace(/<([^>\n]+)>/g, (whole, control: string) => {
-    if (!trustedControl(control, policy)) {
-      return `&lt;${control.replace(/</g, "&lt;")}&gt;`;
-    }
-    const bar = control.indexOf("|");
-    const url = control.slice(0, bar);
-    return policy?.maskedLinks === "expand" && bar !== -1 && isSafeUrl(url)
-      ? `${control.slice(bar + 1)} (${url})`
-      : whole;
-  });
+  // A lone `<` is escaped too: a backtick can split a control so this walk
+  // sees no `>`, while Slack still reads `<!subteam^S1|`x`>` as one mention.
+  return escapedAmpersands.replace(
+    /<([^>\n]+)>|</g,
+    (whole, control?: string) => {
+      if (control === undefined) return "&lt;";
+      if (!trustedControl(control, policy)) {
+        return `&lt;${control.replace(/</g, "&lt;")}&gt;`;
+      }
+      const bar = control.indexOf("|");
+      const url = control.slice(0, bar);
+      return policy?.maskedLinks === "expand" && bar !== -1 && isSafeUrl(url)
+        ? `${control.slice(bar + 1)} (${url})`
+        : whole;
+    },
+  );
 }
 
 // Slack still parses controls inside backticks, so code shows every bracket as

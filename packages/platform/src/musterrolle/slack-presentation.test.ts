@@ -62,7 +62,7 @@ describe("escapeSlackControls without a policy", () => {
     expect(escapeSlackControls("if a < b and c > d")).toBe(
       "if a &lt; b and c &gt; d",
     );
-    expect(escapeSlackControls("a < b\nc > d")).toBe("a < b\nc > d");
+    expect(escapeSlackControls("a < b\nc > d")).toBe("a &lt; b\nc > d");
   });
 
   test("code spans and fenced code show their controls as written", () => {
@@ -121,6 +121,33 @@ describe("escapeSlackControls without a policy", () => {
       const once = escapeSlackControls(text, { maskedLinks: "expand" });
       expect(escapeSlackControls(once, { maskedLinks: "expand" })).toBe(once);
     }
+  });
+
+  test("a backtick inside a control cannot move a code boundary", () => {
+    // Expanding `|`>` would join "``" and "`" into a fence around <@U1>.
+    const policy = { maskedLinks: "expand", userIds: ["U1"] } as const;
+    const once = escapeSlackControls("```<@U1>\n``<https://a|`>", policy);
+    expect(once).toBe("```<@U1>\n``&lt;https://a|`&gt;");
+    expect(escapeSlackControls(once, policy)).toBe(once);
+  });
+
+  test("a control split by a code span cannot reach Slack whole", () => {
+    expect(escapeSlackControls("<!subteam^S1|`x`>")).toBe(
+      "&lt;!subteam^S1|`x`>",
+    );
+    expect(
+      escapeSlackControls("<@U1|`x`> <!here|`y`>", { userIds: ["U1"] }),
+    ).toBe("&lt;@U1|`x`> &lt;!here|`y`>");
+    expect(escapeSlackControls("<https://a.example/`x`|y>")).toBe(
+      "&lt;https://a.example/`x`|y>",
+    );
+  });
+
+  test("ordinary code renders as written", () => {
+    expect(escapeSlackControls("`a < b && c`")).toBe("`a &lt; b &amp;&amp; c`");
+    expect(escapeSlackControls("```html\n<b>bold</b>\n```")).toBe(
+      "```html\n&lt;b&gt;bold&lt;/b&gt;\n```",
+    );
   });
 
   test("an unclosed backtick or fence shields nothing", () => {
