@@ -799,8 +799,8 @@ describe("워크스페이스 설정", () => {
     expect(alert.textContent).not.toContain("Try again");
   });
 
-  test("비밀 저장소가 꺼져 있으면 token 상태 대신 관리자에게 확인할 일을 보인다", async () => {
-    renderAt("/settings/workspace/slack", {
+  test("비밀 저장소가 꺼져 있으면 token 상태 대신 관리자에게 확인할 일을 보이고, 다시 묻지 않는다", async () => {
+    const { api } = renderAt("/settings/workspace/slack", {
       "GET /v1/auth/me": () => json(200, me()),
       [`GET ${TOKEN}`]: () =>
         apiError(503, "BACKEND_UNAVAILABLE", "The secret store is off"),
@@ -811,6 +811,28 @@ describe("워크스페이스 설정", () => {
       ),
     ).toBeDefined();
     expect(screen.queryByRole("button", { name: "다시 시도" })).toBeNull();
+    expect(
+      api.calls.filter(
+        (c) => c.method === "GET" && c.path.endsWith("/slack/config-token"),
+      ),
+    ).toHaveLength(1);
+  });
+
+  test("삭제를 비밀 저장소가 꺼져 거절하면 관리자에게 확인할 일로 알린다", async () => {
+    renderAt("/settings/workspace/slack", {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${TOKEN}`]: () =>
+        json(200, { ...UNSET_TOKEN, configured: true, state: "active" }),
+      [`DELETE ${TOKEN}`]: () =>
+        apiError(503, "BACKEND_UNAVAILABLE", "The secret store is off"),
+    });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "삭제" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "삭제" }));
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "비밀 저장소를 사용할 수 없습니다. 관리자에게 저장소 설정을 확인해 달라고 요청하세요.",
+    );
   });
 
   test("이미 지워진 token을 삭제하면 다시 읽어 지워졌다고 알린다", async () => {
