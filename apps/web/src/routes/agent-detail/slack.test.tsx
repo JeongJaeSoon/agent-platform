@@ -526,6 +526,7 @@ describe("Slack management", () => {
   }
 
   test("keeps a saved default response when an older read lands after the save", async () => {
+    let mode = "off";
     let reads = 0;
     let release = () => {};
     const gate = new Promise<void>((resolve) => {
@@ -535,11 +536,14 @@ describe("Slack management", () => {
       ...routes(APP, true),
       [`GET ${PATH}/slack/app/settings`]: async () => {
         reads += 1;
-        if (reads > 1) await gate;
-        return json(200, { default_mode: "off" });
+        const seen = mode;
+        if (reads === 2) await gate;
+        return json(200, { default_mode: seen });
       },
-      [`PUT ${PATH}/slack/app/settings`]: () =>
-        json(200, { default_mode: "mention" }),
+      [`PUT ${PATH}/slack/app/settings`]: async (request: Request) => {
+        mode = (await request.json()).default_mode;
+        return json(200, { default_mode: mode });
+      },
     });
     const user = await setupUser();
     const toggle = await screen.findByRole("switch", {
@@ -558,6 +562,54 @@ describe("Slack management", () => {
     release();
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(toggle.getAttribute("aria-checked")).toBe("true");
+  });
+
+  test("keeps a saved default response when a read started during the save lands after it", async () => {
+    let mode = "off";
+    let reads = 0;
+    let saved = () => {};
+    const saving = new Promise<void>((resolve) => {
+      saved = resolve;
+    });
+    let late = () => {};
+    const stale = new Promise<void>((resolve) => {
+      late = resolve;
+    });
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/app/settings`]: async () => {
+        reads += 1;
+        const seen = mode;
+        if (reads === 2) await stale;
+        return json(200, { default_mode: seen });
+      },
+      [`PUT ${PATH}/slack/app/settings`]: async (request: Request) => {
+        const next = (await request.json()).default_mode;
+        await saving;
+        mode = next;
+        return json(200, { default_mode: mode });
+      },
+    });
+    const user = await setupUser();
+    const toggle = await screen.findByRole("switch", {
+      name: "새 채널의 기본 반응",
+    });
+    await waitFor(() =>
+      expect(toggle.getAttribute("aria-disabled")).toBe("false"),
+    );
+    await user.click(toggle);
+    // The refresh reads the old value while the save is still open.
+    await user.click(screen.getByRole("button", { name: "새로고침" }));
+    await waitFor(() => expect(reads).toBe(2));
+    saved();
+    await screen.findByText(
+      "새 채널의 기본 반응을 '멘션할 때'(으)로 바꿨습니다. 이미 연결된 채널은 그대로입니다.",
+    );
+    late();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await waitFor(() =>
+      expect(toggle.getAttribute("aria-checked")).toBe("true"),
+    );
   });
 
   test("withholds the default response switch when its setting cannot be read", async () => {

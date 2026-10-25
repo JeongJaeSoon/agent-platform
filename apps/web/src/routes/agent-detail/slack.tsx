@@ -1145,6 +1145,12 @@ function SlackDefaultReaction({ agentId }: { readonly agentId: string }) {
         }),
       );
     },
+    // A read started during the save may hold the old value; drop it and
+    // read again now that the save is done.
+    onSettled: () =>
+      cache.invalidateQueries({
+        queryKey: ["agents", agentId, "slack", "settings"],
+      }),
   });
   const lost = settings.isError && !settings.data;
   const mention = settings.data?.default_mode === "mention";
