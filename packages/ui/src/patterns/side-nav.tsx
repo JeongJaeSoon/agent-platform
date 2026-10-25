@@ -1,7 +1,6 @@
 import { ChevronDown } from "lucide-react";
 import {
   type ComponentProps,
-  cloneElement,
   isValidElement,
   type JSX,
   type KeyboardEvent,
@@ -88,8 +87,10 @@ export function SideNav({
     onPick?.();
   };
   const closeOnEscape = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (!open || event.key !== "Escape") return;
+    if (!open || event.key !== "Escape" || event.defaultPrevented) return;
+    // Folding the list is all this Escape does; a dialog around it stays open.
     event.preventDefault();
+    event.stopPropagation();
     fold();
   };
   return (
@@ -176,9 +177,9 @@ export function SideNavGroup({
 export type SideNavLinkProps = ComponentProps<"a"> & {
   /**
    * Where you are: `true` or "page" for the page shown, "location" for the
-   * section scrolled to on one page. The caller decides; a router link that
-   * sets its own `aria-current` (TanStack does for a parent path) needs exact
-   * matching.
+   * section scrolled to on one page. The caller decides. A router link sets
+   * its own `aria-current="page"` once active, over this value: give it exact
+   * matching, and make "location" items plain `#section` anchors.
    */
   readonly current?: boolean | "page" | "location" | undefined;
   /** Render the single child (a router link) as the item. */
@@ -188,6 +189,7 @@ export type SideNavLinkProps = ComponentProps<"a"> & {
 export function SideNavLink({
   current = false,
   asChild = false,
+  className,
   children,
   ...props
 }: SideNavLinkProps): JSX.Element {
@@ -195,14 +197,17 @@ export function SideNavLink({
     <Button
       asChild
       variant={current ? "secondary" : "ghost"}
-      className="w-full justify-start"
+      className={cn("w-full justify-start", className)}
       data-slot="side-nav-link"
       aria-current={current === true ? "page" : current || undefined}
+      // Button's Slot merges these into the link: both onClicks run, both
+      // classNames stay.
+      {...(props as ComponentProps<typeof Button>)}
     >
       {asChild && isValidElement(children) ? (
-        cloneElement(children, props)
+        children
       ) : (
-        <a {...props}>{children}</a>
+        <a href={props.href}>{children}</a>
       )}
     </Button>
   );

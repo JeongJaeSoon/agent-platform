@@ -92,6 +92,51 @@ describe("SideNav", () => {
     expect(link.getAttribute("data-slot")).not.toBeNull();
   });
 
+  test("asChild에서 SideNavLink와 자식 링크의 onClick이 둘 다 돌고 class도 둘 다 남는다", async () => {
+    const user = await setupUser();
+    const calls: string[] = [];
+    const { getByRole } = render(
+      <SideNav aria-label="설정">
+        <SideNavGroup>
+          <SideNavLink
+            asChild
+            className="outer"
+            onClick={() => calls.push("outer")}
+          >
+            <RouterLink
+              to="/x"
+              className="inner"
+              onClick={(event) => {
+                event.preventDefault();
+                calls.push("inner");
+              }}
+            >
+              일반
+            </RouterLink>
+          </SideNavLink>
+        </SideNavGroup>
+      </SideNav>,
+    );
+    const link = getByRole("link", { name: "일반" });
+    await user.click(link);
+    expect(calls.sort()).toEqual(["inner", "outer"]);
+    expect(link.classList.contains("inner")).toBe(true);
+    expect(link.classList.contains("outer")).toBe(true);
+  });
+
+  test("목록을 닫은 Esc는 바깥(대화상자 등)으로 올라가지 않는다", async () => {
+    const user = await setupUser();
+    const outer = mock(() => {});
+    const { getByRole } = render(
+      // biome-ignore lint/a11y/noStaticElementInteractions: stands in for a dialog's Escape handler
+      <div onKeyDown={outer}>{settings()}</div>,
+    );
+    await user.click(getByRole("button", { name: /^설정/ }));
+    getByRole("link", { name: "일반" }).focus();
+    await user.keyboard("{Escape}");
+    expect(outer).not.toHaveBeenCalled();
+  });
+
   test("접힌 버튼은 이름과 지금 항목을 읽고 목록을 열고 닫는다", async () => {
     const user = await setupUser();
     const { getByRole } = render(settings());
