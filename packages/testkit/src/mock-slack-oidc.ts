@@ -4,7 +4,8 @@ import type { FakeSlackWebApi } from "./fake-slack-api.ts";
 // A stand-in for Sign in with Slack: the three endpoints the platform calls
 // (authorize, openid.connect.token, keys), with id_tokens signed by a key
 // made at start. Consent is automatic; which Slack account comes back is
-// the configured one, or `mock_team`/`mock_user` on the authorize URL.
+// the configured one, or `mock_team`/`mock_user` on the authorize URL, and
+// `mock_team_name`/`mock_user_name` replace its names.
 // It also answers the Web API calls the slack-install CLI makes
 // (`/api/auth.test`, `/api/bots.info`) for one bot in the configured team.
 
@@ -211,6 +212,8 @@ export async function startMockSlackOidc(
             ...account,
             teamId: query.get("mock_team") ?? account.teamId,
             userId: query.get("mock_user") ?? account.userId,
+            // Empty sends an empty claim, which the platform treats as none.
+            teamName: query.get("mock_team_name") ?? account.teamName,
             userName: query.get("mock_user_name") ?? account.userName,
           },
         });
