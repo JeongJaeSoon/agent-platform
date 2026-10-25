@@ -309,6 +309,7 @@ export function HomeScreen() {
       teams,
       myUsage,
       installUsage,
+      limits,
     ].every((query) => !query.isLoading)
   )
     setSettled(true);

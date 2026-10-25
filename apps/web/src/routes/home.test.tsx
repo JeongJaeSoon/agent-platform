@@ -463,6 +463,7 @@ describe("홈 요약", () => {
       }),
     ],
     ["내 사용량", summaryRoute("me"), () => summary("me", 3)],
+    ["설치 한도 값", "GET /v1/limits", () => limits],
   ] as const) {
     test(`${what}이 올 때까지 본문은 자리표시 하나이고, 오면 한 번에 보인다`, async () => {
       let answer: () => void = () => {};
@@ -532,6 +533,7 @@ describe("홈 요약", () => {
     for (const line of [manager, requester]) {
       expect(line.getAttribute("aria-hidden")).toBe("true");
       expect(line.classList.contains("invisible")).toBe(true);
+      expect(line.classList.contains("[grid-area:1/1]")).toBe(true);
     }
     expect(manager.parentElement).toBe(requester.parentElement);
     act(() => answer());
