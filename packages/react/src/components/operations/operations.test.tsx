@@ -809,6 +809,16 @@ describe("UsageDailyCost", () => {
     expect(ticks()).toEqual(["$0.0004", "$0.0003", "$0.0002", "$0.0001", "$0"]);
   });
 
+  test("$0.01보다 작은 눈금은 유효숫자 한 자리라 축 칸에서 줄바꿈되지 않는다", () => {
+    withPlatform(
+      <UsageDailyCost
+        buckets={[day("2026-10-24", "0.0001"), day("2026-10-25", "0.00056")]}
+        days={2}
+      />,
+    );
+    expect(ticks()).toEqual(["$0.0008", "$0.0006", "$0.0004", "$0.0002", "$0"]);
+  });
+
   test("$20 이상이면 시안처럼 $20 단위의 정수 눈금이다", () => {
     withPlatform(
       <UsageDailyCost

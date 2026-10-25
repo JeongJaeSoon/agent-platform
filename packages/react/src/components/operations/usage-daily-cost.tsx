@@ -17,6 +17,15 @@ type Bucket = UsageSeriesResponse["buckets"][number];
 const BAR_CHART_HEIGHT_WITH_X_LABELS = "11.25rem";
 const DESIGN_Y_STEP_USD = 20;
 
+const Y_STEPS = 4;
+// 1 or 2 × 10^n, so every tick of a sub-cent axis is one significant digit
+// and fits the axis column.
+const tinyStep = (max: number) => {
+  const want = max / Y_STEPS;
+  const unit = 10 ** Math.floor(Math.log10(want));
+  return (want <= unit ? 1 : want <= 2 * unit ? 2 : 10) * unit;
+};
+
 const monthDay = (date: string) =>
   `${Number(date.slice(5, 7))}/${Number(date.slice(8, 10))}`;
 
@@ -39,6 +48,12 @@ export function UsageDailyCost({
   );
   const max = Math.max(0, ...(buckets ?? []).map((b) => Number(b.cost_usd)));
   const designSteps = max >= DESIGN_Y_STEP_USD;
+  const tiny = max > 0 && max < 0.01;
+  const yMax = designSteps
+    ? Math.ceil(max / DESIGN_Y_STEP_USD) * DESIGN_Y_STEP_USD
+    : tiny
+      ? Y_STEPS * tinyStep(max)
+      : undefined;
   return (
     <Section
       title={messages.title}
@@ -64,18 +79,13 @@ export function UsageDailyCost({
                 y: Number(b.cost_usd),
                 partial: !b.cost_complete,
               }))}
-              {...(designSteps
-                ? {
-                    yMax:
-                      Math.ceil(max / DESIGN_Y_STEP_USD) * DESIGN_Y_STEP_USD,
-                  }
-                : {})}
+              {...(yMax === undefined ? {} : { yMax })}
               formatX={monthDay}
               formatY={(y) =>
                 designSteps
                   ? `$${Math.round(y)}`
-                  : max > 0 && max < 0.01
-                    ? `$${Number(y.toPrecision(2))}`
+                  : tiny
+                    ? `$${Number(y.toPrecision(1))}`
                     : format.usd(y)
               }
               formatTip={(d) =>
