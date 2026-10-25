@@ -3,7 +3,7 @@ title: "Install"
 description: Bring up the Werft stack on your local machine
 ---
 
-Werft consists of an API server, a scheduler, a worker container started for each session, PostgreSQL, S3 (LocalStack), a Git server (Gitea), and an egress proxy. This page brings all of them up on one machine with Docker Compose. It uses a fake model that runs without a key, so you do not need an Anthropic account.
+Werft consists of an API server, a scheduler, a worker container started for each session, PostgreSQL, S3 (SeaweedFS), a Git server (Gitea), and an egress proxy. This page brings all of them up on one machine with Docker Compose. It uses a fake model that runs without a key, so you do not need an Anthropic account.
 
 ## Prerequisites
 
@@ -13,7 +13,7 @@ Werft consists of an API server, a scheduler, a worker container started for eac
 | Docker Compose | 2.24.6 or later |
 | curl, jq, uuidgen, git | Any version |
 
-The stack opens ports on `127.0.0.1` only. Ports 3000 (API and web console), 5432 (PostgreSQL), 4566 and 4567 (LocalStack), and 3001 (Gitea) must be free.
+The stack opens ports on `127.0.0.1` only. Ports 3000 (API and web console), 5432 (PostgreSQL), 4566 (S3) and 4567 (LocalStack Secrets Manager), and 3001 (Gitea) must be free.
 
 ```sh
 docker version --format 'Docker Engine {{.Server.Version}}'
@@ -60,7 +60,11 @@ You are good when `api`, `scheduler`, and `reconciler` are running and `/readyz`
 scripts/local.sh down
 ```
 
-`down` deletes the stack and **all data** (sessions, checkpoints, API keys, Gitea repositories). The local S3 is in memory only, so there is no way to bring the stack down while keeping the data. To start over from scratch, use `scripts/local.sh reset --fake-model`.
+`scripts/local.sh down` deletes the stack and **all data** (sessions, checkpoints, API keys, Gitea repositories). To start over from scratch, use `scripts/local.sh reset --fake-model`.
+
+To stop while preserving data, use `docker compose --profile apps --profile fake-model down` without `-v`. Start again with `scripts/local.sh up --fake-model`. PostgreSQL, Gitea, and S3 keep their data in named volumes. S3 objects and their encryption key live together in `local-s3-data`, so checkpoints survive Docker/OrbStack restarts.
+
+When migrating an older LocalStack installation, back up from the old checkout before pulling, then restore into a new, unused project after pulling. Missing checkpoint objects cannot be recovered without a backup; explicitly decide whether to give up their references. Follow the [migration and backup guide](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/quickstart.md#재부팅이나-docker-재시작-뒤).
 
 ## When you are stuck
 
@@ -69,7 +73,7 @@ scripts/local.sh down
 | `Docker Engine … is too old` | Upgrade Docker Engine to 28 or later |
 | `127.0.0.1 port(s) … already in use` | Use the `lsof` loop above to find the process using that port |
 | `up needs ANTHROPIC_API_KEY exported or in .env` | `up` without options uses the real Claude. To run without a key, add `--fake-model` |
-| The API does not come up after restarting Docker | The local S3 is empty. Start fresh with `scripts/local.sh reset --fake-model` |
+| The API does not come up after restarting Docker | Check the S3 volume, encryption key, and logs. For lost objects from an older LocalStack installation, follow the migration and backup guide |
 
 ## Next steps
 

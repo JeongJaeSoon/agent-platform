@@ -8,7 +8,7 @@ test-ops 설치에서는 이 스크립트들을 직접 부르지 않는다. `scr
 
 ## Kubernetes 설치
 
-[Kubernetes 설치](kubernetes-deployment.md)에서는 이 문서의 세 스크립트를 쓰지 않는다. 스크립트는 compose project의 PostgreSQL·LocalStack·Gitea 컨테이너를 전제로 한다. 대신 AWS 기능이 같은 일을 한다.
+[Kubernetes 설치](kubernetes-deployment.md)에서는 이 문서의 세 스크립트를 쓰지 않는다. 스크립트는 compose project의 PostgreSQL·로컬 S3·Gitea 컨테이너를 전제로 한다. 대신 AWS 기능이 같은 일을 한다.
 
 - **DB**: RDS 자동 백업(point-in-time 복원)과 수동 스냅샷.
 - **checkpoint object**: S3 versioning과 Object Lock. 커밋된 checkpoint는 version으로 고정되고 legal hold가 걸려 있어(`locked`, 아래 "checkpoint 객체의 version" 절), 같은 key를 덮어쓰거나 지워도 그 version은 남는다. 복원은 bucket을 복사하지 않고 같은 bucket의 version을 그대로 가리킨다.
@@ -26,7 +26,7 @@ RDS 스냅샷은 그 시점의 pointer를 담는다. 스냅샷 뒤에 GC가 지�
 
 | 값 | 대상 | 접속 정보 |
 |---|---|---|
-| `localstack`(기본값) | compose project의 LocalStack | published 4566 포트. 자격 증명과 region은 `docker inspect`로 그 컨테이너가 받은 env에서 읽는다 |
+| `localstack`(기본값) | compose project의 로컬 S3(SeaweedFS, 서비스 이름 `localstack`) | published 4566 포트. 자격 증명과 region은 `docker inspect`로 그 컨테이너가 받은 env에서 읽는다 |
 | `env` | 호출 셸이 가리키는 S3 호환 저장소(AWS S3 포함) | API와 같은 변수(`checkpointStorageConfigFromEnv`): `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, 그리고 `AWS_ENDPOINT_URL`(없으면 AWS S3). 세 변수 중 하나라도 없으면 시작하지 않는다 |
 
 `env` 대상 자격 증명에 필요한 S3 권한은 다음과 같다.
@@ -69,7 +69,7 @@ backup-20260923T101500Z/
 
 주의:
 
-- 로컬 compose 설치의 LocalStack S3는 휘발성이다. `docker compose down`이나 Docker 재시작 뒤에는 checkpoint 객체가 사라지고 DB 행만 남아 백업이 실패한다(API도 기동을 거부한다). 백업은 스택을 내리기 전에 받는다. 이미 잃었으면 `scripts/local.sh reset`(fake 모델 스택이면 `reset --fake-model`)으로 새로 시작한다. `scripts/local.sh down`은 데이터까지 지운다.
+- 로컬 compose의 S3는 SeaweedFS이며 객체·메타데이터·암호화 키를 `local-s3-data` named volume에 보존한다. Docker 재시작과 `docker compose down`(`-v` 없이) 뒤에도 남는다. `scripts/local.sh down/reset`은 데이터까지 지우므로 보존할 때 쓰지 않는다. 이전 휘발성 LocalStack 설치에서 전환할 때는 **pull 전 옛 checkout에서 백업**하고, pull 뒤 사용한 적 없는 새 project에 restore한다. 이미 유실된 checkpoint는 백업으로 되살릴 수 없으며 [전환 안내](../quickstart.md#재부팅이나-docker-재시작-뒤)의 명시적 복구 결정을 따른다.
 - `pg_dump`는 자체로 일관되지만 object·repo는 그 뒤에 복사한다. 백업 중 checkpoint가 커밋되면 pointer만 있고 object가 없는 행이 생길 수 있다. 그래서 writer가 돌고 있으면 백업은 아무것도 쓰지 않고 exit 1로 거부한다. writer는 compose 서비스 api·scheduler·reconciler·worker와, scheduler가 띄운 worker 컨테이너다. worker 컨테이너는 `agent-platform.installation=<scheduler 컨테이너의 EXECUTION_INSTALLATION_ID>` 라벨로 찾는다. scheduler 컨테이너가 없으면 설치 id를 알 수 없으므로 `agent-platform.installation` 라벨이 붙은 컨테이너는 어느 설치 것이든 writer로 센다. 서비스는 compose 라벨로 찾으므로 `apps` profile 밖에서도 보인다. docker가 답하지 않으면 거부한다. `--allow-running-writers`를 주면 경고만 하고 진행한다.
 - checkpoint GC(`apps/control-host/src/api/checkpoint-gc.ts`)는 백업 중에 돌리지 않는다. GC는 더 이상 복원될 수 없는 revision의 행에 `collected_at`을 적은 뒤 그 객체를 지운다. capture와 repin은 이렇게 표시된 행을 건너뛴다. 그런데 `pg_dump` 뒤에 GC가 행을 표시하면, 덤프에는 표시가 없는 행이 남고 그 객체는 백업에 없다. 그러면 restore의 repin이 실패한다. 그래서 `backup.sh`는 객체 복사를 마친 뒤 `pg_dump` 시작 1분 전 이후에 `collected_at`이 적힌 행이 있는지 확인하고, 있으면 백업을 실패로 끝낸다. GC를 멈추고 다시 백업한다.
 - object 복사(`object-store-cli.ts download`)는 각 key의 **현재** 객체만 받는다. 그 뒤 `checkpoint-pins-cli.ts capture`가 `collected_at`이 비어 있는 `checkpoints` 행을 모두 읽고 다음을 확인한다.
@@ -92,7 +92,7 @@ scripts/restore.sh <dir> --into <project> --check-only   # 검사만, 아무것�
 scripts/restore.sh <dir> --into ap-drill-1 --object-store env --bucket ap-drill-1-checkpoints   # 새 빈 bucket
 ```
 
-`localstack`이면 새 project의 LocalStack에 백업의 bucket 이름으로 복원한다. `env`면 `--bucket`이 필수이고, 새 project에는 LocalStack을 띄우지 않는다. 대상 bucket은 운영자가 미리 만든다. versioning, Object Lock, 기본 암호화 SSE-S3(`AES256`)를 켜고, 아무것도 없는 상태여야 한다. Object Lock 기본 보존 기간(default retention)은 두지 않는다. checkpoint는 legal hold로만 지키고, 기본 보존이 있으면 restore가 거부한다. Object Lock은 bucket을 만들 때만 켤 수 있다.
+`localstack`이면 새 project의 로컬 S3에 백업의 bucket 이름으로 복원한다. `env`면 `--bucket`이 필수이고, 새 project에는 로컬 S3를 띄우지 않는다. 대상 bucket은 운영자가 미리 만든다. versioning, Object Lock, 기본 암호화 SSE-S3(`AES256`)를 켜고, 아무것도 없는 상태여야 한다. Object Lock 기본 보존 기간(default retention)은 두지 않는다. checkpoint는 legal hold로만 지키고, 기본 보존이 있으면 restore가 거부한다. Object Lock은 bucket을 만들 때만 켤 수 있다.
 
 순서와 거부 조건:
 
@@ -103,7 +103,7 @@ scripts/restore.sh <dir> --into ap-drill-1 --object-store env --bucket ap-drill-
 5. `infra/docker-compose.restore.yml`을 겹쳐 postgres·gitea(`localstack`이면 localstack도)를 띄운다. 이 override는 host port를 `--port-base`부터 loopback에 다시 묶고(postgres, localstack, gitea http, gitea ssh 순. 스크립트가 `RESTORE_POSTGRES_PORT`·`RESTORE_LOCALSTACK_PORT`·`RESTORE_GITEA_HTTP_PORT`·`RESTORE_GITEA_SSH_PORT`로 넘긴다), postgres의 initdb SQL 마운트를 없애 dump가 빈 DB에 들어가게 한다.
 6. `psql --single-transaction < db.sql` → 복원된 journal이 manifest와 같은지 재확인.
 7. object와 재고정. 첫 쓰기 직전에 대상 bucket을 다시 검사한다(`object-store-cli.ts check-target`).
-   1. `env`에서 대상 bucket 이름이 백업의 원본 bucket(`manifest.json`의 `objects.bucket`)과 같으면 endpoint와 상관없이 exit 4로 거부한다. 같은 저장소도 여러 주소로 부를 수 있어서(AWS S3의 전역·리전 endpoint, `localhost`와 `127.0.0.1`) 주소 비교로는 원본이 아님을 증명할 수 없다. 다른 저장소로 훈련할 때도 다른 이름의 bucket을 쓴다. `localstack`이면 대상이 방금 띄운 LocalStack이라 원본일 수 없다. bucket이 없으면 Object Lock과 SSE-S3로 만든다. 기본 `claude-sessions`는 localstack init이 만든다.
+   1. `env`에서 대상 bucket 이름이 백업의 원본 bucket(`manifest.json`의 `objects.bucket`)과 같으면 endpoint와 상관없이 exit 4로 거부한다. 같은 저장소도 여러 주소로 부를 수 있어서(AWS S3의 전역·리전 endpoint, `localhost`와 `127.0.0.1`) 주소 비교로는 원본이 아님을 증명할 수 없다. 다른 저장소로 훈련할 때도 다른 이름의 bucket을 쓴다. `localstack`이면 대상이 방금 띄운 새 로컬 S3라 원본일 수 없다. bucket이 없으면 Object Lock과 SSE-S3로 만든다. 기본 `claude-sessions`는 `local-s3-init`이 만든다.
    2. versioning `Enabled`, Object Lock `Enabled`(기본 보존 기간 없음), 기본 암호화 `AES256`인지 확인한다. 아니면 exit 1이다. version이나 delete marker가 하나라도 있으면 exit 4로 거부한다.
    3. 저장소가 `If-None-Match: *` 두 번째 쓰기를 412로 거부하는지 scratch key로 확인한다. 확인이 끝나면 scratch key의 version과 delete marker를 모두 version id로 지우고, bucket이 다시 비었는지 본다.
    4. `checkpoints` 행이 가리키는 manifest key를 **빼고** `object-store-cli.ts upload`로 올린다. 모든 쓰기는 create-only(`If-None-Match: *`)다. 그 사이 누가 같은 key를 썼으면 멈춘다. 빈 bucket 검사는 다른 writer를 막지 못한다. 그래서 대상 bucket은 이 복원 전용으로 새로 만든다. 다른 설치의 자격 증명이 그 bucket에 쓸 수 없게 하는 것은 운영자 몫이다.
@@ -159,7 +159,7 @@ checkpoint manifest와 pointer는 S3 object **version**을 가리킨다. 복원�
 
 **선택: 복원 뒤 재고정(re-pin).** VersionId를 유지하는 replication은 쓰지 않는다. 근거는 다음과 같다.
 
-- S3도 LocalStack도 VersionId는 저장소가 정한다. PutObject로 지정할 수 없다.
+- S3와 로컬 S3의 VersionId는 저장소가 정한다. PutObject로 지정할 수 없다.
 - VersionId를 유지하며 복사하는 것은 S3 Replication(SRR/CRR, Batch Replication)뿐이다. 이것은 살아 있는 원본 bucket에서 다른 bucket으로 가는 복제다.
 - 이 백업은 디렉터리이므로 원래 id를 되살릴 방법이 없다. 실제 AWS에서 replication을 운영하는 절차는 이 문서의 범위 밖이다.
 
@@ -183,7 +183,7 @@ tests/e2e/restore-resume.sh    # macOS: PATH="/bin:/usr/bin:$PATH" bash tests/e2
 
 1. 원본 project에서 세션을 만들고 turn 2개를 실제 Claude Code로 돌린다. turn 1은 `echo alpha > hello.txt`, turn 2는 `echo beta >> hello.txt`이다. 그다음 pause로 checkpoint를 커밋하고 worker를 내린다.
 2. api·scheduler·reconciler를 멈추고 `scripts/backup.sh`를 뜬다. 그다음 원본 project와 그 installation 라벨이 붙은 container·network·volume(worker workspace volume 포함)을 모두 지운다. 세션을 넘기는 것은 backup뿐이다.
-3. `scripts/restore.sh`로 새 project에 복원하고 `scripts/verify-restore.sh`를 돈다. 그 위에 restore override를 겹친 채 같은 이미지로 apps를 띄운다. 이때 restore가 띄운 localstack이 다시 만들어지면 실패로 친다. LocalStack은 컨테이너를 다시 만들면 S3 상태를 잃는다.
+3. `scripts/restore.sh`로 새 project에 복원하고 `scripts/verify-restore.sh`를 돈다. 그 위에 restore override를 겹친 채 같은 이미지로 apps를 띄운다. 이때 restore가 띄운 localstack이 다시 만들어지면 실패로 친다. 로컬 S3는 named volume으로 보존되지만 앱 시작이 저장소를 불필요하게 다시 만드는지 확인하는 회귀 검사다.
 4. 원본에서 발급한 API key로 공개 API의 `resume`를 부른다. key 해시도 복원된 DB에 있다. 새 worker가 checkpoint를 복원하고 ready를 보고하면 turn 3(`cat hello.txt`)을 보낸다.
 5. 대조한다.
    - turn 3이 `alpha\nbeta`를 한 번씩만 읽는다. 입력이 다시 실행됐다면 beta가 둘이 되고, workspace가 복원되지 않았다면 파일이 없다.

@@ -3,7 +3,7 @@ title: "설치"
 description: 로컬 머신에 Werft 스택을 띄운다
 ---
 
-Werft는 API 서버, scheduler, 세션마다 뜨는 worker 컨테이너, PostgreSQL, S3(LocalStack), Git 서버(Gitea), egress proxy로 이뤄진다. 이 페이지는 이 전부를 Docker Compose로 한 머신에 띄운다. 모델은 key 없이 도는 fake 모델을 쓰므로 Anthropic 계정이 없어도 된다.
+Werft는 API 서버, scheduler, 세션마다 뜨는 worker 컨테이너, PostgreSQL, S3(SeaweedFS), Git 서버(Gitea), egress proxy로 이뤄진다. 이 페이지는 이 전부를 Docker Compose로 한 머신에 띄운다. 모델은 key 없이 도는 fake 모델을 쓰므로 Anthropic 계정이 없어도 된다.
 
 ## 준비물
 
@@ -13,7 +13,7 @@ Werft는 API 서버, scheduler, 세션마다 뜨는 worker 컨테이너, Postgre
 | Docker Compose | 2.24.6 이상 |
 | curl, jq, uuidgen, git | 아무 버전 |
 
-스택은 `127.0.0.1`에만 포트를 연다. 3000(API·웹 콘솔), 5432(PostgreSQL), 4566·4567(LocalStack), 3001(Gitea)이 비어 있어야 한다.
+스택은 `127.0.0.1`에만 포트를 연다. 3000(API·웹 콘솔), 5432(PostgreSQL), 4566(S3), 4567(LocalStack Secrets Manager), 3001(Gitea)이 비어 있어야 한다.
 
 ```sh
 docker version --format 'Docker Engine {{.Server.Version}}'
@@ -60,7 +60,11 @@ scripts/local.sh status
 scripts/local.sh down
 ```
 
-`down`은 스택과 **모든 데이터**(세션, checkpoint, API key, Gitea 저장소)를 지운다. 로컬 S3는 메모리에만 있어서 데이터를 남긴 채 내리는 방법은 없다. 처음부터 다시 하려면 `scripts/local.sh reset --fake-model`이다.
+`scripts/local.sh down`은 스택과 **모든 데이터**(세션, checkpoint, API key, Gitea 저장소)를 지운다. 처음부터 다시 하려면 `scripts/local.sh reset --fake-model`이다.
+
+데이터를 보존하고 내리려면 `docker compose --profile apps --profile fake-model down`을 쓴다. `-v`를 붙이지 않는다. 다시 `scripts/local.sh up --fake-model`로 띄우면 PostgreSQL·Gitea·S3 named volume의 데이터가 남는다. S3 객체와 암호화 키는 `local-s3-data`에 함께 저장되므로 Docker/OrbStack 재시작 뒤에도 checkpoint를 읽을 수 있다.
+
+이전 LocalStack 설치에서 전환할 때는 pull 전에 옛 checkout에서 백업하고, pull 뒤 사용한 적 없는 새 프로젝트에 복원한다. 이미 유실된 checkpoint는 복원할 수 없으므로 복구 가능한 백업을 찾거나 유실 참조를 명시적으로 해제해야 한다. [전환·백업 안내](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/quickstart.md#재부팅이나-docker-재시작-뒤)를 따른다.
 
 ## 막혔을 때
 
@@ -69,7 +73,7 @@ scripts/local.sh down
 | `Docker Engine … is too old` | Docker Engine을 28 이상으로 올린다 |
 | `127.0.0.1 port(s) … already in use` | 위 `lsof` 루프로 그 포트를 쓰는 프로세스를 찾는다 |
 | `up needs ANTHROPIC_API_KEY exported or in .env` | 옵션 없는 `up`은 실제 Claude를 쓴다. key 없이 하려면 `--fake-model`을 붙인다 |
-| Docker를 재시작한 뒤 API가 뜨지 않는다 | 로컬 S3가 비었다. `scripts/local.sh reset --fake-model`로 새로 띄운다 |
+| Docker를 재시작한 뒤 API가 뜨지 않는다 | S3 volume과 암호화 키를 확인하고 로그를 읽는다. 이전 LocalStack의 객체 유실이면 전환·백업 안내의 복구 결정을 따른다 |
 
 ## 다음 단계
 

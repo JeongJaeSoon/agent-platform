@@ -31,7 +31,7 @@ macOS나 Linux를 기준으로 한다. 셸은 bash나 zsh를 쓴다.
 | git | 아무 버전 | clone |
 | Bun | 1.3.12 이상 | 4장의 자동 검증과 6장의 key 폐기·백업에만 쓴다. 1–3장에는 필요 없다 |
 
-로컬 스택은 루프백(`127.0.0.1`)에만 포트를 연다. 다음 포트가 비어 있어야 한다: **3000**(API), **5432**(Postgres), **4566**(LocalStack S3), **4567**(LocalStack Secrets Manager, `--fake-model`일 때만), **3001**(Gitea 웹·HTTP clone). 로컬에 Postgres가 떠 있으면 5432가 겹치는 경우가 많다. Docker Desktop은 Settings → Software updates에서 엔진 버전을 확인한다.
+로컬 스택은 루프백(`127.0.0.1`)에만 포트를 연다. 다음 포트가 비어 있어야 한다: **3000**(API), **5432**(Postgres), **4566**(SeaweedFS S3), **4567**(LocalStack Secrets Manager, `--fake-model`일 때만), **3001**(Gitea 웹·HTTP clone). 로컬에 Postgres가 떠 있으면 5432가 겹치는 경우가 많다. Docker Desktop은 Settings → Software updates에서 엔진 버전을 확인한다.
 
 ```bash
 docker version --format 'Docker Engine {{.Server.Version}}'
@@ -358,7 +358,14 @@ scripts/local.sh down
 
 새 SeaweedFS 설치는 호스트나 Docker 재시작 뒤에도 `scripts/local.sh up --fake-model`만 실행하면 된다. 빈 volume으로 처음 시작할 때도 versioning·Object Lock·기본 AES256 암호화를 자동 설정한다.
 
-**기존 LocalStack 설치에서 전환할 때:** 기존 S3 객체와 VersionId를 자동 이관하지 않는다. 중요한 checkpoint는 전환 전에 [백업·복원 절차](operator/backup-restore.md)로 보존한다. 새 저장소가 비어 있고 PostgreSQL에 기존 checkpoint가 남아 있으면 API는 계속 기동을 거부한다. 복구 가능한 백업이 없고 이전 checkpoint를 명시적으로 포기하기로 했다면, 계정·워크스페이스·API key·Gitea 저장소를 남기고 다음 순서로 다시 띄운다. 새 설치에는 이 명령이 필요 없다.
+**기존 LocalStack 설치에서 전환할 때:** 기존 S3 객체와 VersionId를 자동 이관하지 않는다.
+
+1. **pull 전에 옛 checkout에서**, writer를 멈추고 [백업 절차](operator/backup-restore.md)로 checkpoint를 보존한다. 이미 객체가 유실됐다면 백업으로 되살릴 수 없다.
+2. 코드를 pull한다.
+3. 보존할 백업이 있으면 `scripts/restore.sh`로 **이전에 사용하지 않은 새 compose project**에 복원하고 `scripts/verify-restore.sh`로 확인한다. restore는 기존 프로젝트나 기존 볼륨 위에 덮어쓰지 않는다.
+4. 복구 가능한 백업이 없고 이전 checkpoint를 명시적으로 포기하기로 했다면, 기존 PostgreSQL 볼륨의 계정·워크스페이스·API key·Gitea 저장소를 남기고 아래 명령으로 유실 참조만 해제한다. 새 설치에는 필요 없다.
+
+새 저장소가 비어 있고 PostgreSQL에 기존 checkpoint가 남아 있으면 API는 이 복구 결정을 할 때까지 기동을 거부한다.
 
 ```bash
 scripts/local.sh forget-lost-checkpoints   # 잃은 checkpoint를 포기하고 그 세션을 출력한다
@@ -385,7 +392,7 @@ scripts/local.sh up --fake-model           # 실제 Claude 스택이면 옵션 �
 | scheduler가 재시작을 반복하고 로그에 `SCHEDULER_PASS_TIMEOUT_SEC must be greater than EXECUTION_DOCKER_STOP_TIMEOUT_SEC + EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC` | 예전에 만든 `.env`에 옛 기본값(`SCHEDULER_PASS_TIMEOUT_SEC=120`)이 남아 있다. pass는 worker 정지 하나를 끝까지 기다릴 수 있어서 timeout이 그보다 길어야 한다. 두 줄을 지우거나 `.env.example`처럼 `SCHEDULER_PASS_TIMEOUT_SEC=180`·`SCHEDULER_HEALTH_STALE_SEC=200`으로 고친다. 새로 clone한 머신에는 `.env`가 없다 |
 | zsh에서 `readyz`나 다른 URL이 `NOT_FOUND`이고 `Could not resolve host: echo`가 함께 뜬다 | oh-my-zsh의 `url-quote-magic`이 URL 뒤에 붙여 넣은 `;` 앞에 `\`를 넣었다. 명령을 보면 `readyz\;`로 되어 있고, 요청은 `/readyz;`로 가며 `echo`는 curl의 호스트 이름이 된다. URL을 따옴표로 감싸도 막히지 않는다. 스택 문제가 아니다. 이 문서의 명령처럼 줄바꿈은 `curl -sS -w '\n' http://127.0.0.1:3000/readyz`로 붙인다. 이 동작을 아예 끄려면 `~/.zshrc`에서 `DISABLE_MAGIC_FUNCTIONS="true"`의 주석을 풀고 새 셸을 연다 |
 | `readyz`가 503 `NOT_READY`다 | DB나 migration이 아직 준비되지 않았다. `docker compose --profile apps ps -a`에서 `migrate`가 `Exited (0)`인지 보고 `docker compose logs api migrate`를 확인한다 |
-| `scripts/backup.sh`가 `checkpoint objects could not be backed up at the versions their checkpoints pin`으로 끝난다 | LocalStack의 S3 객체가 사라졌다(위 bucket 행과 같은 원인). `scripts/local.sh reset --fake-model` 뒤 세션을 새로 만들고 idle이 된 다음 backup한다 |
+| `scripts/backup.sh`가 `checkpoint objects could not be backed up at the versions their checkpoints pin`으로 끝난다 | checkpoint가 가리키는 객체 버전이 없다. 이전 LocalStack 설치의 유실이나 S3 volume·암호화 키 누락을 확인한다. 새 로컬 S3는 named volume에 영속화된다. 복구 가능한 백업을 찾고, 없을 때만 [7장](#재부팅이나-docker-재시작-뒤)의 명시적 유실 참조 해제 또는 전체 초기화를 선택한다 |
 | 세션이 `queued`에서 움직이지 않는다 | `docker compose logs scheduler`와 worker 로그(3장 끝의 루프)를 본다. `EXECUTION_SLOT_LIMIT`(기본 10)만큼 세션이 이미 실행 중일 수도 있다 |
 | POST가 401이다 | `Authorization` 헤더가 빠졌거나, key가 다른 스택의 DB에서 발급됐다. `reset`이나 `down` 뒤라면 key도 지워졌다. 1장의 `KEY=…`와 2장의 함수를 다시 설정한다 |
 | POST가 403이다 | key에 그 scope가 없다. `--scopes`를 1장과 같게 발급한다 |
