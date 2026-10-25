@@ -129,13 +129,14 @@ curl -sS "$API/v1/agents/counts" "${WEB[@]}" | jq -c
 
 ## 세션에 묶기
 
-`POST /v1/sessions`에 `agent_release_id`를 넣는다. `profile_id`는 그 release의 프로필이어야 한다(아니면 409 `RELEASE_PROFILE_MISMATCH`). 에이전트는 워크스페이스에 있으므로 key도 그 워크스페이스의 key여야 한다. 운영자 CLI로는 `--workspace`를 주고 발급한다.
+`POST /v1/sessions`에 `agent_release_id`를 넣는다. `profile_id`는 그 release의 프로필이어야 한다(아니면 409 `RELEASE_PROFILE_MISMATCH`). key는 그 에이전트의 에이전트 key를 쓴다. 웹 로그인 cookie로 `POST /v1/api-keys`에 `kind: "agent"`와 `agent_id`를 넣어 발급한다([API key](/api-keys)). 비밀값은 변수에만 담는다.
 
 ```bash
-WS=$(curl -sS "$API/v1/auth/me" "${WEB[@]}" | jq -r .workspace.id)
-WS_KEY=$(scripts/local.sh key --workspace "$WS" --scopes sessions:read,sessions:write)
+AGENT_KEY=$(curl -sS "$API/v1/api-keys" "${WEB[@]}" \
+  -d "$(jq -nc --arg a "$AID" '{kind: "agent", agent_id: $a, name: "research-bot", scopes: ["sessions:read", "sessions:write"]}')" \
+  | jq -r .secret)
 curl -sS "$API/v1/sessions" \
-  -H "Authorization: Bearer $WS_KEY" \
+  -H "Authorization: Bearer $AGENT_KEY" \
   -H 'Content-Type: application/json' \
   -H "Idempotency-Key: $(uuidgen)" \
   -d "$(jq -nc --arg r "$REL" --arg m 'GATE-SPEC {"id":"agent","steps":[],"final":"hello from research-bot"}' \
@@ -144,7 +145,6 @@ curl -sS "$API/v1/sessions" \
 ```
 
 ```text
-key_id …
 {
   "status": "queued",
   "turn_id": "1"

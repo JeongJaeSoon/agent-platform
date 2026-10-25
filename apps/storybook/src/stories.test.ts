@@ -14,8 +14,13 @@ const INDEXES = [
   "ui/src/primitives/",
   "ui/src/patterns/",
   "react/src/components/",
+  "react/src/components/agent-map/",
 ];
-const SPECIFIERS = ["@werft-ai/ui", "@werft-ai/react/components"];
+const SPECIFIERS = [
+  "@werft-ai/ui",
+  "@werft-ai/react/components",
+  "@werft-ai/react/agent-map",
+];
 
 async function componentModules(
   indexes = INDEXES,
@@ -63,6 +68,8 @@ const LAYER_TITLES: [string, string][] = [
   ["react/src/components/feedback/", "Domain/Feedback/"],
   ["react/src/components/list/", "Domain/List/"],
   ["react/src/components/layout/", "Domain/Layout/"],
+  ["react/src/components/operations/", "Domain/Operations/"],
+  ["react/src/components/agent-map/", "Domain/AgentMap/"],
   ["react/src/blocks/", "Blocks/"],
 ];
 

@@ -76,6 +76,7 @@ export {
   SkipLink,
   type SkipLinkProps,
 } from "./link.tsx";
+export { Meter, type MeterProps } from "./meter.tsx";
 export {
   NativeSelect,
   NativeSelectOptGroup,
@@ -103,6 +104,7 @@ export {
   type SegmentedControlProps,
 } from "./segmented-control.tsx";
 export { Skeleton, type SkeletonProps } from "./skeleton.tsx";
+export { Sparkline, type SparklineProps } from "./sparkline.tsx";
 export {
   StatusDot,
   type StatusDotProps,

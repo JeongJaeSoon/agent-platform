@@ -182,7 +182,7 @@ API가 App의 private key로 JWT를 서명해 설치 토큰을 받고, 그 토�
 세션의 결과는 worker가 아니라 플랫폼(API)이 push하고, 사람이 승인한 뒤에만 한다. 이 절은 요청과 승인이고, 승인된 요청의 push는 다음 절이다. API 사용법은 [api-guide 10절](../api-guide.md#10-세션-결과의-push-요청과-승인거부)에 있다.
 
 - **고정하는 것:** 요청(`POST /v1/sessions/{id}/push-requests`, `sessions:write`)은 그때 세션의 checkpoint pointer가 가리키는 revision과, 검증된 manifest가 적은 `git_commit`을 고정한다. 저장소는 세션의 `repository_id`, 브랜치는 `agent/<session-id>`다. 요청자는 이 중 아무것도 고를 수 없다. 브랜치 규칙은 DB CHECK(`push_requests_target_branch_check`)도 지킨다. manifest가 검증되지 않으면 더 오래된 checkpoint로 대신하지 않고 거절한다.
-- **결정하는 사람:** 결정(`POST .../push-requests/{push_request_id}/decision`)에는 `sessions:approve`가 필요하다. 이 scope는 API의 scope 표가 아니라 push 서비스가 검사한다. 그래야 거절도 receipt로 남는다. 결정할 수 있는 principal은 API key와 로그인한 사용자뿐이다. 다른 종류(chat installation, 나중에 생길 에이전트 전용 key)는 목록에 넣기 전까지 거절된다. API key는 사람과 묶여 있지 않으므로 `sessions:approve` key는 사람만 갖게 발급한다. 자동화(CI 등)에는 주지 않는다.
+- **결정하는 사람:** 결정(`POST .../push-requests/{push_request_id}/decision`)에는 `sessions:approve`가 필요하다. 이 scope는 API의 scope 표가 아니라 push 서비스가 검사한다. 그래야 거절도 receipt로 남는다. 결정할 수 있는 principal은 API key와 로그인한 사용자뿐이다. 다른 종류(chat installation 등)는 목록에 넣기 전까지 거절된다. API key는 사람과 묶여 있지 않으므로 `sessions:approve` key는 사람만 갖게 발급한다. 자동화(CI 등)에는 주지 않는다.
 - **에이전트가 스스로 승인하지 못하는 이유:** worker가 가진 자격(launch nonce, session token)은 `/internal/worker` route에서만 통하고 `/v1`에서는 401이다. `AUTH_MODE=none`은 누구든 `X-Owner-Id`로 owner를 자칭할 수 있으므로, 이 모드에서는 push 요청 route가 모두 403(`refusal: unverified_principal`)이고 아무것도 기록하지 않는다.
 - **승인하는 commit:** 결정 body의 `git_commit`이 고정된 commit과 같아야 승인된다. 요청 뒤에 세션이 다시 checkpoint를 남겼으면(pointer revision이 다르면) 승인을 거절하고 요청은 `requested`에 남는다. 그 요청은 거부하고 새로 요청한다. 거부에는 이 검사가 없다.
 - **상태:** `requested` → `approved` | `rejected`(사람), `approved` → `pushing` → `pushed` | `failed`(플랫폼, 다음 절). 세션마다 열린 요청(`requested`·`approved`·`pushing`)은 하나다.
@@ -374,13 +374,13 @@ curl -s -b jar https://<host>/v1/auth/me
 
 ### workspace key, 개인 key, 오프보딩
 
-`keys create <owner_id>`로 만든 기존 key는 모두 service key다. 응답과 partition은 이전과 같다. `keys create --workspace <workspace_id> --scopes …`로 만든 key는 그 workspace를 partition으로 쓰므로 웹에서 만든 세션을 API에서도 같은 목록으로 본다. `--personal <user_id>`를 더하면 그 멤버의 개인 key가 된다. 이 key는 key scope와 만든 사람의 지금 역할이 허용하는 scope의 교집합만 갖는다(`/v1/auth/me`의 `scopes`도 그 교집합을 보여 준다). 만든 사람의 계정이나 그 workspace의 membership이 비활성이 되면 다음 요청부터 `401`을 받는다. service key는 사람과 무관하게 계속 동작한다. 이 판정은 요청마다 DB를 다시 읽어서 한다. API key는 scope와 관계없이 관리 action(인수 목록·세션 인수·key 발급 등)을 할 수 없다(`403`). 관리 action은 사람의 cookie 세션으로만 한다. 누가 무엇을 하는지는 아래 역할 표를 따른다.
+`keys create <owner_id>`로 만든 key는 운영자 key(`kind: operator`)다. workspace 밖에서 그 owner를 partition으로 쓴다. `<owner_id>` 자리에 workspace id를 주면 거절한다. `keys create --workspace <workspace_id> --personal <user_id> --scopes …`는 그 멤버의 개인 key를 만든다. 그 workspace를 partition으로 쓰므로 웹에서 만든 세션을 API에서도 같은 목록으로 본다. `--workspace`는 `--personal` 없이 쓸 수 없다. workspace 전체에 닿는 key는 없다. 개인 key는 key scope와 만든 사람의 지금 역할이 허용하는 scope의 교집합만 갖는다(`/v1/auth/me`의 `scopes`도 그 교집합을 보여 준다). 만든 사람의 계정이나 그 workspace의 membership이 비활성이 되면 다음 요청부터 `401`을 받는다. 에이전트 key는 사람과 무관하게 계속 동작한다. 이 판정은 요청마다 DB를 다시 읽어서 한다. API key는 scope와 관계없이 관리 action(인수 목록·세션 인수·key 발급 등)을 할 수 없다(`403`). 관리 action은 사람의 cookie 세션으로만 한다. 누가 무엇을 하는지는 아래 역할 표를 따른다.
 
-누가 했는지는 새로 쓰는 행에 남는다. cookie로 만든 세션은 `sessions.workspace_id`·`created_by_user_id`를, key로 만든 세션은 `created_by_api_key_id`를 기록한다(개인 key는 만든 사람도 함께 기록한다). turn은 `actor_id`를, receipt는 `actor`를 남긴다. service key는 key만 기록하고 사람은 기록하지 않는다. 0136 migration은 사람을 추측하지 않는다. `owner_id`가 workspace id인 세션만 `workspace_id`를 채우고(채운 수는 migration NOTICE로 나온다), 나머지 actor 컬럼은 기존 행에서 비워 둔다.
+누가 했는지는 새로 쓰는 행에 남는다. cookie로 만든 세션은 `sessions.workspace_id`·`created_by_user_id`를, key로 만든 세션은 `created_by_api_key_id`를 기록한다(개인 key는 만든 사람도 함께 기록한다). turn은 `actor_id`를, receipt는 `actor`를 남긴다. 에이전트 key는 key만 기록하고 사람은 기록하지 않는다. 0136 migration은 사람을 추측하지 않는다. `owner_id`가 workspace id인 세션만 `workspace_id`를 채우고(채운 수는 migration NOTICE로 나온다), 나머지 actor 컬럼은 기존 행에서 비워 둔다.
 
 멤버 목록은 owner나 admin의 cookie 세션으로 `GET /v1/members`다(`member.manage` 판정). 비활성 멤버도 포함해 오래된 membership부터 `limit`개씩(기본 50, 최대 100) 돌려준다. 응답 `next_cursor`를 다음 요청의 `cursor`로 넘기고, 마지막 페이지에서는 `null`이다. `q`(앞뒤 공백을 빼고 1–200자)는 이름이나 이메일에 그 글자가 들어 있는 멤버만 남긴다. 대소문자는 가리지 않고 `%`·`_`도 글자 그대로 찾는다. 길이를 벗어나거나 cursor가 틀리면 `400`이다.
 
-멤버를 내보내는 것은 owner나 admin의 cookie 세션으로 `POST /v1/members/{user_id}/disable`이다(`member.manage` 판정, member와 API key는 `403 FORBIDDEN`). 본문은 `{}` 또는 `{"reason": "…"}`(UTF-8 1KiB까지, 넘으면 `413`)이다. owner는 owner만 비활성으로 만들거나 되살린다. admin이 owner를 대상으로 하면 `403 OWNER_PROTECTED`이고 아무것도 바뀌지 않는다. 자기 자신과 마지막 live owner는 비활성으로 만들 수 없다(`409 LAST_OWNER`). 여러 규칙에 걸리면 앞의 것이 답한다: `member.manage`가 없으면 `403 FORBIDDEN`, 자기 자신이면 `409 LAST_OWNER`, 대상이 없으면 `404`, admin이 owner를 대상으로 하면 `403 OWNER_PROTECTED`, 마지막 live owner면 `409 LAST_OWNER`. 그래서 admin이 마지막 live owner를 비활성하면 `403 OWNER_PROTECTED`다. live owner인 호출자가 있는 한 마지막 live owner는 그 호출자 자신뿐이다. 한 transaction 안에서 membership을 비활성화하고, 그 사용자의 web session 전부와 그 workspace에서 만든 개인 key를 폐기하고, 그 workspace에 연결된 Slack 계정을 `revoked`로 바꾼다(열린 SSE는 keepalive 주기 안에 끊긴다). service key는 건드리지 않는다. 그 사람이 요청한 닫히지 않은 세션에는 인수 대기 표시를 한다. 인수 대기 세션은 돌고 있던 turn까지만 마치고 다음 turn을 배정받지 않는다. 새 launch·claim도 받지 않고, 새 메시지는 `409 TAKEOVER_REQUIRED`로 거절된다. owner가 `GET /v1/takeovers`로 목록을 보고 `POST /v1/sessions/{id}/takeover`로 인수하면, 그 owner가 세션의 요청자가 되고 `takeover` receipt가 남는다. 세션이 인수하는 owner에게 보이지 않는 공유 범위면 `{"justification"}`이 필요하다(아래 세션 공유 범위 절).
+멤버를 내보내는 것은 owner나 admin의 cookie 세션으로 `POST /v1/members/{user_id}/disable`이다(`member.manage` 판정, member와 API key는 `403 FORBIDDEN`). 본문은 `{}` 또는 `{"reason": "…"}`(UTF-8 1KiB까지, 넘으면 `413`)이다. owner는 owner만 비활성으로 만들거나 되살린다. admin이 owner를 대상으로 하면 `403 OWNER_PROTECTED`이고 아무것도 바뀌지 않는다. 자기 자신과 마지막 live owner는 비활성으로 만들 수 없다(`409 LAST_OWNER`). 여러 규칙에 걸리면 앞의 것이 답한다: `member.manage`가 없으면 `403 FORBIDDEN`, 자기 자신이면 `409 LAST_OWNER`, 대상이 없으면 `404`, admin이 owner를 대상으로 하면 `403 OWNER_PROTECTED`, 마지막 live owner면 `409 LAST_OWNER`. 그래서 admin이 마지막 live owner를 비활성하면 `403 OWNER_PROTECTED`다. live owner인 호출자가 있는 한 마지막 live owner는 그 호출자 자신뿐이다. 한 transaction 안에서 membership을 비활성화하고, 그 사용자의 web session 전부와 그 workspace에서 만든 개인 key를 폐기하고, 그 workspace에 연결된 Slack 계정을 `revoked`로 바꾼다(열린 SSE는 keepalive 주기 안에 끊긴다). 에이전트 key는 건드리지 않는다. 그 사람이 요청한 닫히지 않은 세션에는 인수 대기 표시를 한다. 인수 대기 세션은 돌고 있던 turn까지만 마치고 다음 turn을 배정받지 않는다. 새 launch·claim도 받지 않고, 새 메시지는 `409 TAKEOVER_REQUIRED`로 거절된다. owner가 `GET /v1/takeovers`로 목록을 보고 `POST /v1/sessions/{id}/takeover`로 인수하면, 그 owner가 세션의 요청자가 되고 `takeover` receipt가 남는다. 세션이 인수하는 owner에게 보이지 않는 공유 범위면 `{"justification"}`이 필요하다(아래 세션 공유 범위 절).
 
 `POST /v1/members/{user_id}/enable`은 membership을 되살린다. 폐기한 web session과 개인 key, 회수한 Slack 연결은 되살리지 않는다(Slack은 다시 연결한다). 사용자는 다시 로그인하고 key도 새로 받는다. 아직 아무도 인수하지 않은 세션은 인수 대기 표시를 지워 그 사람에게 돌려준다. Google로만 만든(비밀번호 없는) 계정도 이렇게 되살리면 연결된 Google 로그인으로 다시 들어온다. 이런 계정은 다시 초대하지 말고 enable한다. 초대 수락은 새 계정이거나 비밀번호로 확인한 계정만 받기 때문이다.
 
@@ -389,7 +389,6 @@ curl -s -b jar https://<host>/v1/auth/me
 네 동작은 모두 바뀐 경우에만 receipt를 남긴다(`disable_member`·`enable_member`·`disable_user`·`enable_user`). `target_ref`는 `{user_id, workspace_id}`, `actor`는 호출한 사람, `result`는 `reason`과 폐기·반환한 개수다. 이미 그 상태면 아무것도 쓰지 않고 응답의 `receipt_id`가 `null`이다. 외부 디렉터리(SCIM 등)와의 동기화는 없다. 사내 SSO에서 사람을 내보내도 여기에는 반영되지 않으므로 이 API를 따로 불러야 한다.
 
 ```bash
-bun run keys create --workspace "$WORKSPACE_ID" --scopes sessions:read,sessions:write
 bun run keys create --workspace "$WORKSPACE_ID" --scopes sessions:read,sessions:write --personal "$USER_ID"
 curl -s -b jar -X POST "http://127.0.0.1:3000/v1/members/$USER_ID/disable" -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' -d '{"reason":"left the team"}'
 curl -s -b jar -X POST "http://127.0.0.1:3000/v1/members/$USER_ID/enable" -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' -d '{}'
@@ -482,27 +481,28 @@ curl -s -b jar -X DELETE "$CONSOLE_URL/v1/linked-accounts/$LINKED_ACCOUNT_ID" -H
 
 workspace 역할은 owner·admin·member 셋이다. admin은 owner와 같은 관리 권한을 갖되 세 가지가 다르다: 감사 보존 기간을 바꾸지 못하고, 보관한 에이전트를 되살리지 못하고, 세션 복구 결정(`sessions:recover`)을 하지 못한다. admin은 owner를 초대하거나 owner의 역할을 바꾸거나 누구를 owner로 올리지 못하고, owner를 비활성화·정지하거나 되살리지도 못한다(`403 OWNER_PROTECTED`).
 
-에이전트 관리자는 `agent_admins`의 행이다. 에이전트를 만든 사람이 그 에이전트의 관리자가 된다. 0142 migration은 기존 에이전트의 `created_by`가 아직 그 workspace의 멤버이면 그 사람을 관리자로 채운다. 에이전트 관리자는 member여도 그 에이전트의 정의 수정·release·활성화·보관, 자격 참조 연결, 관리자 지정, Slack 설정, 그 에이전트 전용 서비스 key 발급을 할 수 있다. 다른 에이전트와 workspace 전체 목록은 못 한다. 관리자 지정·해제와 팀을 관리자로 두는 방법은 아래 "팀과 에이전트 관리자 지정"에 있다.
+에이전트 관리자는 `agent_admins`의 행이다. 에이전트를 만든 사람이 그 에이전트의 관리자가 된다. 0142 migration은 기존 에이전트의 `created_by`가 아직 그 workspace의 멤버이면 그 사람을 관리자로 채운다. 에이전트 관리자는 member여도 그 에이전트의 정의 수정·release·활성화·보관, 자격 참조 연결, 관리자 지정, Slack 설정, 그 에이전트의 에이전트 key 발급을 할 수 있다. 다른 에이전트와 workspace 전체 목록은 못 한다. 관리자 지정·해제와 팀을 관리자로 두는 방법은 아래 "팀과 에이전트 관리자 지정"에 있다.
 
 key는 웹(cookie 세션)에서 `POST /v1/api-keys`로 발급한다.
 
 | key | 누가 발급 | 무엇을 하나 |
 |---|---|---|
 | 개인 key (`kind: personal`) | 모든 멤버, 자기 것만 | 만든 사람의 지금 역할 안에서 그 사람으로 동작한다. 그 사람이 비활성화되면 `401` |
-| 서비스 key (`kind: service`) | owner·admin | workspace의 서비스로 동작한다. 발급자가 떠나도 계속 동작한다 |
-| 에이전트 전용 서비스 key (`agent_id`) | owner·admin·그 에이전트 관리자 | 그 에이전트의 세션 생성·조회만. `sessions:approve`는 갖지 못한다 |
+| 에이전트 key (`kind: agent` + `agent_id`) | owner·admin·그 에이전트 관리자 | key 자체로 동작하고 그 에이전트의 세션 생성·조회만 한다. 발급자가 떠나도 계속 동작한다. `sessions:approve`는 갖지 못한다 |
 
-- 요청한 `scopes`가 발급자의 지금 scope를 넘으면 `403 SCOPE_NOT_GRANTABLE`이다. admin은 `sessions:recover`가 든 key를 만들 수 없다. 에이전트 전용 key에 `sessions:approve`를 넣어도 같은 오류다.
+에이전트 없는 key(workspace 전체에 닿는 key)는 없다. `agent_id` 없는 `kind: agent`는 `400 BAD_REQUEST`다. 둘 다 `name`(앞뒤 공백을 뺀 1~64자, 필수 아님)을 받는다. 0163 migration은 기존 `service` key 가운데 `agent_id`가 있는 것은 `agent`로, workspace 밖 운영자 key는 `operator`로 바꾸고, workspace 전체 key(그리고 owner가 workspace id인 운영자 key)는 그 key가 만든 세션의 `created_by_api_key_id`를 비운 뒤 지운다. 지운 개수는 migration NOTICE로 나온다.
+
+- 요청한 `scopes`가 발급자의 지금 scope를 넘으면 `403 SCOPE_NOT_GRANTABLE`이다. admin은 `sessions:recover`가 든 key를 만들 수 없다. 에이전트 key에 `sessions:approve`를 넣어도 같은 오류다.
 - 권한이 없으면 `403 FORBIDDEN`이고 `error.details.reason_code`에 판정 이유(`role`, `agent_ceiling` 등)가 있다.
-- 에이전트 전용 key로 세션을 만들려면 `POST /v1/sessions`에 그 에이전트의 `agent_release_id`를 넣는다. `profile_id`는 그 release의 실행 프로필이어야 한다(`409 RELEASE_PROFILE_MISMATCH`). release를 넣지 않은 세션이나 다른 에이전트의 세션은 `403`(`agent_ceiling`)이다. 세션 목록과 receipt 조회도 에이전트를 가리지 못해 `403`이다. 실행은 아직 `profile_id`를 따르고, release의 지시문과 도구 정책은 세션에 고정만 된다.
-- 목록(`GET /v1/api-keys`)은 자기 개인 key와 자기가 관리하는 서비스 key만 보인다. 비밀값은 발급 응답에서 한 번만 나온다.
+- 에이전트 key로 세션을 만들려면 `POST /v1/sessions`에 그 에이전트의 `agent_release_id`를 넣는다. `profile_id`는 그 release의 실행 프로필이어야 한다(`409 RELEASE_PROFILE_MISMATCH`). release를 넣지 않은 세션이나 다른 에이전트의 세션은 `403`(`agent_ceiling`)이다. 세션 목록과 receipt 조회도 에이전트를 가리지 못해 `403`이다. 실행은 아직 `profile_id`를 따르고, release의 지시문과 도구 정책은 세션에 고정만 된다.
+- 목록(`GET /v1/api-keys`)은 자기 개인 key와 자기가 관리하는 에이전트의 key만 보인다. 비밀값은 발급 응답에서 한 번만 나온다.
 - 폐기는 `DELETE /v1/api-keys/{id}`이고 발급과 같은 권한이 든다. 남의 개인 key는 `404`다. 이미 폐기한 key는 아무것도 바꾸지 않고 `receipt_id: null`을 돌려준다.
 - 발급·폐기는 `create_api_key`·`revoke_api_key` receipt와 `api_key.manage`·`api_key.manage_own` 판정 행을 남긴다. receipt에는 key의 종류·에이전트·scope만 있고 비밀값은 없다.
 
 ```bash
 curl -s -b jar -X POST http://127.0.0.1:3000/v1/api-keys \
   -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' \
-  -d '{"kind":"service","agent_id":"<agent_id>","scopes":["sessions:read","sessions:write"]}'
+  -d '{"kind":"agent","agent_id":"<agent_id>","name":"ci-deploy","scopes":["sessions:read","sessions:write"]}'
 ```
 
 운영자 CLI(`keys create`)는 그대로 있고 이 판정을 거치지 않는다. 운영자가 쓰는 길이다.
@@ -515,7 +515,7 @@ curl -s -b jar -X POST http://127.0.0.1:3000/v1/api-keys \
 - 구성원 추가는 초대가 아니다. 수락 없이 바로 구성원이 된다. 비활성 멤버는 넣을 수 없다(`404`). 추가·제거마다 그 사람을 대상(`target_ref.user_id`)으로 한 `add_team_member`·`remove_team_member` receipt가 남고 `result`에 팀 id와 이름이 있다. 지금은 이 receipt가 추가 알림의 기록이고, 화면·Slack 알림은 아직 없다.
 - 구성원은 판정 때마다 읽는다. 팀에서 빠지거나 팀이 지워지면 그 팀으로 얻은 관리 권한이 다음 요청부터 `403`이다. 비활성 멤버는 팀에 있어도 아무 권한이 없다. 다만 비활성화는 팀 구성원 자격과 에이전트 관리자 지정을 지우지 않으므로, 다시 초대해 활성화하면 그 권한이 그대로 돌아온다. 돌려주지 않으려면 비활성화할 때 팀에서도 빼고 관리자 지정도 해제한다. 팀을 지우면 그 팀의 에이전트 관리자 지정도 함께 지워진다.
 - 에이전트 관리자 지정·해제는 owner·admin과 그 에이전트의 관리자가 한다(`agent.admin.manage`). 사람이나 팀 하나를 고른다.
-- 에이전트 관리자는 `GET /v1/administered-agents`로 자기가 지금 관리하는 에이전트(직접 지정과 팀 경유)를 본다. 여기서 얻은 `agent_id`로 그 에이전트 전용 key를 발급한다.
+- 에이전트 관리자는 `GET /v1/administered-agents`로 자기가 지금 관리하는 에이전트(직접 지정과 팀 경유)를 본다. 여기서 얻은 `agent_id`로 그 에이전트의 에이전트 key를 발급한다.
 
 | 요청 | 하는 일 |
 |---|---|
@@ -554,11 +554,11 @@ curl -s -b jar -X POST "http://127.0.0.1:3000/v1/agents/$AGENT_ID/admins" \
 
 - 판정 순서는 workspace 일치 → 공유 범위 → key scope → agent_id → (`session.approve`·`session.rename`만) 답할 사람인가다. 범위 밖이면 owner·admin도 목록·검색(`?status=`)·상세·turn·SSE·usage·pending·receipt·메시지·응답·이름 바꾸기·interrupt·종료 어디서나 `404`다. 있는지조차 알리지 않는다.
 - 팀 범위는 판정 때마다 지금 구성원을 읽는다. 팀에서 빠지거나 팀이 지워지면 다음 요청부터 `404`다.
-- service key는 멤버가 아니다. `workspace` 범위의 세션과 자기가 만든 세션만 본다. key가 만든 세션에서는 그 key가 만든 사람 자리에 선다.
+- 에이전트 key는 멤버가 아니다. 그 에이전트의 세션 가운데 `workspace` 범위인 것과 자기가 만든 것만 본다. key가 만든 세션에서는 그 key가 만든 사람 자리에 선다.
 - 범위를 좁히면 그 세션의 열린 SSE가 바로 깨어나 다시 판정되고, 더는 볼 수 없는 연결은 끊긴다(로그 `SSE stream closed`, `reason: not_visible`). 다시 연결하면 `404`다.
 - 아직 한 번도 바꾸지 않은 세션은 `session_shares` 행 없이 `workspace`로 읽힌다(`revision` 0).
 
-보는 것과 대신 답하는 것은 다르다. 권한 요청·질문에 답하고 push·PR을 결정하는 것(`session.approve`)은 세션을 볼 수 있는 사람 가운데 만든 사람(key가 만든 세션이면 그 key), 그 에이전트의 관리자, owner·admin만 한다. 공유로 보기만 하는 사람(member, 남이 만든 세션을 보는 service key)은 `403`(`reason_code: role`, "holds sessions:approve but may not use it on this session")이고 요청은 열린 채 세션은 `needs_input`에 머문다. 볼 수 없는 사람은 지금처럼 `404`다. 개인 key는 만든 사람으로, 그 사람의 지금 역할로 판정한다. workspace가 없는 호출자(legacy key, `AUTH_MODE=none`)는 곁에 대신 답할 멤버가 없으므로 지금처럼 답한다. `GET /v1/sessions/{id}/pending-requests`의 `answerable`이 같은 판정을 미리 알려 준다. 이 미리보기는 판정 행을 남기지 않는다.
+보는 것과 대신 답하는 것은 다르다. 권한 요청·질문에 답하고 push·PR을 결정하는 것(`session.approve`)은 세션을 볼 수 있는 사람 가운데 만든 사람(key가 만든 세션이면 그 key), 그 에이전트의 관리자, owner·admin만 한다. 공유로 보기만 하는 사람(member, 남이 만든 세션을 보는 에이전트 key)은 `403`(`reason_code: role`, "holds sessions:approve but may not use it on this session")이고 요청은 열린 채 세션은 `needs_input`에 머문다. 볼 수 없는 사람은 지금처럼 `404`다. 개인 key는 만든 사람으로, 그 사람의 지금 역할로 판정한다. workspace가 없는 호출자(legacy key, `AUTH_MODE=none`)는 곁에 대신 답할 멤버가 없으므로 지금처럼 답한다. `GET /v1/sessions/{id}/pending-requests`의 `answerable`이 같은 판정을 미리 알려 준다. 이 미리보기는 판정 행을 남기지 않는다.
 
 세션 이름을 바꾸는 것(`PATCH /v1/sessions/{id}`, `session.rename`)도 답하는 사람과 같은 사람만 한다. scope는 `sessions:write`이고, 응답이 세션 상세라 `sessions:read`도 함께 본다. 공유로 보기만 하는 사람은 `403`(`reason_code: role`, "holds sessions:write but may not use it on this session"), 볼 수 없는 사람은 `404`다. 거절은 판정 행으로 남고, 허용은 남지 않는다. 이름은 제어가 아니어서 세션 `revision`도 receipt도 바뀌지 않는다. 바뀐 이름은 `status` 이벤트의 `title`로 스트림에 실린다. 생성 때 `title`이 없으면 첫 메시지에서 결정적 규칙으로 만들고, 이 기능 전의 세션은 `sessions.title`이 `NULL`이다(backfill 없음, migration 0155).
 
@@ -795,7 +795,7 @@ scripts/slack-funnel.sh off                  # on과 같은 --https·--set-path�
 
 공개 port는 `SLACK_FUNNEL_HTTPS_PORT`(443 기본, 8443, 10000)다. 그 뒤 API에 `SLACK_EVENTS_PUBLIC_URL=https://<host>.ts.net`(443이 아니면 `:<port>`)을 주고 다시 띄운 다음, 설치를 하거나 `slack-app finalize`를 실행한다. Helm chart의 Ingress는 사내 전용이라 Slack이 닿지 않는다. Slack용 입구는 `/v1/slack/events` Prefix만 넘기는 인터넷 쪽 Ingress·LB를 따로 두고, 그 주소를 `api.extraEnv.SLACK_EVENTS_PUBLIC_URL`에 준다.
 
-로컬 mock overlay의 가짜 Slack은 서명된 이벤트도 보낸다. `POST http://mock-slack:4020/fake/events` `{url, app_id, team_id, event, event_id?, age_seconds?, retry_num?}`는 그 앱의 signing secret으로 서명해 `url`로 보내고 `{ok, status, body, event_id}`를 돌려준다. `challenge`를 주면 `url_verification`을 보낸다. signing secret은 출력하지 않는다. 같은 가짜가 `slack` 역할의 bot 호출에도 답한다: `users.info`(모르는 사용자는 `MOCK_SLACK_TEAM_ID`의 정회원), `conversations.info`(id가 `D`로 시작하면 DM, `G`면 비공개, 나머지는 공개), `agents.sessions.setStatus`(받은 상태는 `GET http://mock-slack:4020/fake/statuses`가 돌려준다). 셋 다 그 가짜가 발급한 bot token만 받는다.
+로컬 mock overlay의 가짜 Slack은 서명된 이벤트도 보낸다. `POST http://mock-slack:4020/fake/events` `{url, app_id, team_id, event, event_id?, age_seconds?, retry_num?}`는 그 앱의 signing secret으로 서명해 `url`로 보내고 `{ok, status, body, event_id}`를 돌려준다. `challenge`를 주면 `url_verification`을 보낸다. signing secret은 출력하지 않는다. 같은 가짜가 `slack` 역할의 bot 호출에도 답한다: `users.info`(모르는 사용자는 `MOCK_SLACK_TEAM_ID`의 정회원), `conversations.info`(id가 `D`로 시작하면 DM, `G`면 비공개, 나머지는 공개), `agents.sessions.setStatus`(받은 상태는 `GET http://mock-slack:4020/fake/statuses`가 돌려준다), `chat.postMessage`·`chat.postEphemeral`(받은 글과 요청 필드는 `GET http://mock-slack:4020/fake/messages`가 돌려준다). 모두 그 가짜가 발급한 bot token만 받는다. `POST http://mock-slack:4020/fake/rate-limits` `{method, retry_after_seconds, times?, after?}`는 그 method가 429와 `Retry-After`로 답하게 하고, `POST http://mock-slack:4020/fake/missing-ts` `{method}`(`chat.postMessage`·`chat.postEphemeral`)는 그 method의 다음 한 번을 ts 없는 `ok:true`로 답하게 한다.
 
 **Slack inbox 처리 (`slack` 역할)**
 
@@ -840,18 +840,31 @@ Slack 스레드 하나는 세션 하나다. 그 묶음이 `session_links`의 행
 9. lease를 다시 쥐고(`renew`: `id`·`claim_token`이 같고 lease가 살아 있을 때 `lease_expires_at = now() + lease`) 설치 상태를 같은 문장에서 읽는다. lease를 잃었으면 아무것도 쓰지 않고 던진다(다른 pass가 이미 잡았다). 그 사이 설치가 `revoked`가 됐으면 `dropped`·`installation_revoked`다.
 10. 새 스레드면 연결 행을 잡는다: `INSERT … ON CONFLICT DO NOTHING RETURNING`, 없으면 `SELECT … FOR UPDATE`. 동시에 온 첫 메시지 둘도 행 하나를 같이 쓴다.
 11. 연결에 세션이 없거나 이 메시지가 연 메시지(`opened_by_ts`)면 `createSession`(idempotency key = 연결 행 id, body `{profile_id, agent_release_id, message}`, repository 없음)으로 만들고 연결 행에 붙인다. 아니면 `appendMessage`(idempotency key `<team>:<channel>:<ts>`, `mode: enqueue`)로 다음 턴을 넣는다. 둘 다 웹·API와 같은 session service 경로다. 세션 쪽 거절(`RATE_LIMITED`·`BACKEND_UNAVAILABLE` 말고)은 안내 "지금은 요청을 처리하지 못했어요"를 남기고 끝낸다. 그 둘은 던져서 다시 한다.
-12. Slack에 스레드 상태를 보낸다: `agents.sessions.setStatus` `{channel_id, thread_ts: <스레드 root>, status: "processing"}`. 세션 쓰기 뒤에 보내서 lease를 다시 쥔 때와 세션 쓰기 사이에 Slack 호출이 끼지 않는다. `not_authorized`·`feature_disabled`·`thread_ts_required`는 그 workspace가 상태를 보이지 않는다는 뜻이라 info 로그, 다른 실패는 warn 로그이고 어느 쪽도 처리를 막지 않는다. `active`로 되돌리는 것은 응답을 보내는 쪽(아직 없음)이 한다.
+12. Slack에 스레드 상태를 보낸다: `agents.sessions.setStatus` `{channel_id, thread_ts: <스레드 root>, status: "processing"}`. 세션 쓰기 뒤에 보내서 lease를 다시 쥔 때와 세션 쓰기 사이에 Slack 호출이 끼지 않는다. `not_authorized`·`feature_disabled`·`thread_ts_required`는 그 workspace가 상태를 보이지 않는다는 뜻이라 info 로그, 다른 실패는 warn 로그이고 어느 쪽도 처리를 막지 않는다. `active`로 되돌리는 것은 답을 보내는 outbox(아래 "Slack outbox")다.
 
 - 같은 메시지가 두 번 오는 일(Slack은 채널의 멘션 하나에 `app_mention`과 `message`를 둘 다 보내고, 재시도도 있다)은 key로 막는다. 첫 메시지는 연결 행 id라 두 번째 이벤트가 같은 세션을 돌려받고, 답글은 `<team>:<channel>:<ts>`가 턴과 같은 transaction의 receipt에 남아 두 번째 이벤트가 같은 턴을 돌려받는다. 따로 dedupe 표를 두지 않은 것은 이 key가 세션 쓰기와 한 transaction이라 "기록은 됐는데 턴은 없다"가 생기지 않기 때문이다.
 - pass가 연결 행을 잡은 뒤 `createSession` 전에 죽으면 lease가 끝난 뒤 다음 pass가 같은 key로 세션을 만든다. 연 메시지가 5번 다 실패한 채 연결 행에 세션이 없고 다음 답글이 오면, 그 key로 이미 만들어진 세션(receipt)이 있으면 그 세션을 붙이고 답글을 다음 턴으로 넣는다. 없으면 `opened_by_ts`를 그 답글로 넘기고 같은 연결 행 id key로 세션을 연다. 세션 key는 스레드마다 하나뿐이다.
 - 세션은 Slack 사람의 연결된 계정(`linked_accounts`의 `(team, user)`)으로 만든다. `created_by_user_id`·1번 턴의 `actor_id`가 그 사람이고 `channel`은 `slack`이며, 판정 행(`authz_decisions`)에 `linked_account_id`가 남는다. DM 세션은 공유 범위 `private`로 시작한다(만든 사람만 본다. owner·admin은 위 "세션 공유 범위와 감사 열람"의 두 길로만 다룬다. `GET /v1/sessions/{id}/share`로 확인한다). 채널 세션은 웹과 같은 기본 범위다.
 - 세션의 실행(worker claim·provider 호출)은 api와 worker가 한다. provider credential은 그때 api가 푼 catalog로 정해지므로, `slack` 역할이 만든 세션도 api의 key로 돈다.
-- 안내는 아직 보내지 않는다. `SlackNoticeSink`가 받아 로그 한 줄(`Slack notice held for delivery`, id·이유만, 문구·링크 없음)로 남긴다. 보내는 쪽은 ephemeral로 보낼 예정이다. 담는 것: workspace·에이전트·설치·`slack_app_id`·team·channel·스레드 root `thread_ts`·Slack user·이유·문구(`SlackNotice`)·한 번만 보낼 key `<installation_id>:<surface_ref>:<slack_user_id>`.
+- 거절 안내는 `SlackNoticeSink`가 받아 outbox에 `notice` 행으로 넣는다(아래 "Slack outbox"). 그 사람에게만 ephemeral로, 한 번만 보낼 key `<installation_id>:<surface_ref>:<slack_user_id>`로 스레드당 한 번 간다. 담는 것: workspace·에이전트·설치·`slack_app_id`·channel·스레드 root `thread_ts`·Slack user·문구(`SlackNotice`).
 
 | 설정 | 기본 | 의미 |
 |---|---|---|
-| `SLACK_API_URL` | `https://slack.com/api` | bot 호출(`users.info`·`conversations.info`·`agents.sessions.setStatus`)이 가는 곳. mock overlay는 `http://mock-slack:4020/api` |
-| `SLACK_OIDC_REDIRECT_URI` | 없음 | 안내의 연결 링크(`<콘솔 origin>/settings/linked-accounts`)를 이 값의 origin으로 만든다. 없으면 링크 없이 문구만 남는다 |
+| `SLACK_API_URL` | `https://slack.com/api` | bot 호출(`users.info`·`conversations.info`·`agents.sessions.setStatus`·`chat.postMessage`·`chat.postEphemeral`)이 가는 곳. mock overlay는 `http://mock-slack:4020/api` |
+| `SLACK_OIDC_REDIRECT_URI` | 없음 | 안내의 연결 링크(`<콘솔 origin>/settings/linked-accounts`)와 답의 세션 링크(`<콘솔 origin>/sessions/<id>`)를 이 값의 origin으로 만든다. 없으면 링크 없이 문구만 남는다 |
+
+**Slack outbox**
+
+`slack` 역할이 Slack에 보내는 글은 모두 `slack_outbox`(0164) 행 하나다. 같은 pass에서 inbox를 비운 뒤 같은 pass 예산 안에서 outbox를 비운다. inbox는 예산의 절반에서 멈추므로 멘션이 쉬지 않고 와도 답이 밀리지 않는다. 행 종류는 `reply`(턴의 답), `failure_notice`(모델이 끝내 실패한 턴, 또는 보냈는지 모르는 답), `input_notice`(웹에서만 줄 수 있는 승인을 기다리는 턴), `notice`(거절 안내)다. 행마다 `dedupe_key`가 unique라 같은 키는 한 번만 들어간다: `reply:<session_link_id>:<turn>`, `failure:…`, `input:…`, `notice:<onceKey>`.
+
+- 답 찾기: pass마다 살아 있는(회수·mute 안 됨, `visibility=full`) 연결의 세션에서 끝난 턴(`completed`·`failed`·`outcome_unknown`) 중 행이 없는 것을 읽어 넣는다. 연결보다 먼저 만든 턴은 넣지 않는다. 연결마다 `session_links.answered_through`(표시)까지의 턴은 더 할 일이 없는 턴이라 다시 읽지 않는다. 표시는 행이 있는 턴, `interrupted`·`cancelled` 턴, 연결보다 먼저 끝난 턴을 이어서 넘기고, 아직 도는 턴이나 승인 대기 턴에서 멈춘다. 그래서 pass 비용은 쌓인 턴 수가 아니라 남은 턴 수와 연결 수를 따른다. 역할이 오래 멈췄어도 다시 뜨면 밀린 턴의 답을 각 스레드에 한 번씩 보낸다. 답 글은 마지막 attempt의 top-level(`parent_tool_use_id`가 없는) assistant 이벤트 중 마지막 tool 호출 뒤의 글이다. 지연은 pass 간격만큼이다. 세션 쪽 코드는 outbox를 모른다.
+- 글: 792a의 `escapeSlackControls`로 `<!here>`·`<!channel>`·`<!everyone>`·`<!subteam^…>`·`<#C…>`·`<@U…>`·중첩 `<`를 글자로 바꾼다. 닫힌 code span 안은 그대로 둔다. 안전한 masked link `<url|label>`은 `label (url)`로 풀어 써서 label이 주소를 숨기지 못한다(`maskedLinks: "expand"`). 답은 그 턴을 요청한 사람의 연결된 Slack 계정 멘션만 남긴다. 끝에 콘솔 세션 링크 하나를 붙이고, 40,000자(Slack `chat.postMessage` `text` 한도)를 넘으면 잘라서 `…`와 링크를 붙인다. 한 턴은 메시지 하나다.
+- 요청: `chat.postMessage` `{channel, thread_ts: <스레드 root>, text, link_names: false, unfurl_links: false, unfurl_media: false}`, 안내는 `chat.postEphemeral` `{channel, user, thread_ts, text, link_names: false}`. 보내기 직전(claim)에 설치가 회수되지 않았는지, 세션 행이면 그 스레드의 연결이 살아 있고 mute·`summary`가 아닌지, 승인 대기 안내면 그 턴에 아직 답할 수 있는 요청이 있는지 다시 본다. 기다리는 사이 바뀌었으면 보내지 않고 `failed`(`not_addressed`)로 닫는다. bot token은 inbox와 같은 `slack_app:<id>/slack_bot_token`이다. master key가 없으면 행을 넣기만 하고 보내지 않는다.
+- 상태: `pending` → claim(`FOR UPDATE SKIP LOCKED`, `claim_token`, `lease_expires_at = now() + SLACK_ROLE_LEASE_SEC`, 행은 아직 `pending`) → 요청 직전에 `sending`과 `attempts + 1` → 결과. 보내기 전에 lease가 끝난 claim은 시도로 세지 않는다. bot token을 읽지 못해 미룬 경우(`no_bot_token`)는 한 번으로 센다. 일시 실패와 같은 backoff를 쓰고 5번째 시도에서 `failed`다. 결과 판정은 792a `classifySlackSendResult`다. 성공은 `sent`(Slack `ts` 저장), 영구 오류는 `failed`(`error_code` 저장), 그 밖의 실패는 `pending`과 backoff(30초에서 두 배, 상한 5분, DB 시계)이고 5번째 시도에서 `failed`다. 429·`ratelimited`는 `Retry-After`만큼(5분으로 자름) 뒤로 미루고, 429도 시도로 세되 상한은 10번이다. 쓰기는 `id`·`claim_token`이 같을 때만 한다.
+- `uncertain`: Slack이 그 글을 가졌을 수 있어 다시 보내지 않는 행이다. `sending`인 채 lease가 끝난 행(보내는 도중 역할이 죽음), 응답 없이 끊긴 요청, 2xx나 5xx인데 본문을 읽을 수 없는 응답(`unreadable_answer`)이 여기로 간다. 4xx는 본문을 읽지 못해도 status와 `Retry-After`로 판정한다. 그래서 429는 `pending`으로 돌아간다. ts 없는 `ok:true`는 `failed`(`missing_ts`)이고 역시 다시 보내지 않는다. lease가 끝난 행은 다음 pass가 `Slack send outlived its lease; marked uncertain` 한 줄을 남긴다. 어느 쪽이든 답이면 스레드에 "답을 보냈는지 확인하지 못했어요. 웹에서 확인해 주세요"와 세션 링크를 한 번 보낸다.
+- 답·실패 안내가 끝나면(`sent`·`failed`·`uncertain`) `agents.sessions.setStatus` `active`로 "생각 중" 표시를 지운다. 보내는 도중 lease가 끝난 실패 안내도 다음 pass가 상태를 지운다(lease가 끝난 답은 뒤따르는 안내가 지운다). 이 호출이 실패해도 행 상태는 그대로이고 warn 로그만 남는다. 승인 대기 안내와 거절 안내는 상태를 바꾸지 않는다.
+- 로그는 pass 요약 `Slack outbox pass`(넣은 수·claim·sent·retried·failed·uncertain)와 보내지 못한 행의 `Slack send not delivered`(id·종류·channel·시도·상태·오류 코드)다. 글·token은 로그와 행에 남지 않는다(행의 `body`는 escape 전 원문이다).
+- 행 확인: `select kind, status, attempts, error_code, thread_ts from slack_outbox order by seq`. `seq`는 보내는 순서다. 같은 시각에 들어간 행도 들어간 순서대로 나간다.
 
 ### 에이전트의 Slack 채널 설정
 

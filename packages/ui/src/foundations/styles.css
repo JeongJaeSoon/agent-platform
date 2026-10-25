@@ -433,6 +433,11 @@
     max-width: 100%;
   }
 
+  .ap-skeleton[data-inline] {
+    display: inline-flex;
+    vertical-align: top;
+  }
+
   .ap-skeleton__bar {
     display: block;
     width: 100%;

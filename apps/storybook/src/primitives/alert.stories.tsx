@@ -15,7 +15,7 @@ const COPY = {
   ko: {
     keyTitle: "key 종류",
     keyText:
-      "개인 key로 시작한 세션은 사람 세션으로 셉니다. 서비스 key로 시작하는 세션은 에이전트를 지정해야 하고, 서비스 key로는 요청을 승인할 수 없습니다.",
+      "개인 key로 시작한 세션은 사람 세션으로 셉니다. 에이전트 key는 그 에이전트의 세션만 시작할 수 있고, 요청을 승인할 수 없습니다.",
     outputsTitle: "결과물은 턴이 끝날 때 저장됩니다",
     outputsText: "같은 이름의 파일은 새 버전으로 쌓이고 30일 동안 보관됩니다.",
     secretTitle: "ci-deploy key를 만들었습니다",
@@ -35,7 +35,7 @@ const COPY = {
   ja: {
     keyTitle: "key の種類",
     keyText:
-      "個人 key で始めたセッションは人のセッションとして数えます。サービス key で始めるセッションはエージェントの指定が必要で、サービス key では要求を承認できません。",
+      "個人 key で始めたセッションは人のセッションとして数えます。エージェント key はそのエージェントのセッションだけを開始でき、要求を承認できません。",
     outputsTitle: "成果物はターンの終わりに保存されます",
     outputsText:
       "同じ名前のファイルは新しいバージョンとして積み重なり、30 日間保管されます。",
@@ -57,7 +57,7 @@ const COPY = {
   en: {
     keyTitle: "Key types",
     keyText:
-      "Sessions started with a personal key count as a person's sessions. A session started with a service key must name an agent, and a service key can't approve requests.",
+      "Sessions started with a personal key count as a person's sessions. An agent key starts only its agent's sessions and can't approve requests.",
     outputsTitle: "Outputs are saved when a turn ends",
     outputsText:
       "A file with the same name is kept as a new version for 30 days.",

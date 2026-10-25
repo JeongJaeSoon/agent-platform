@@ -4,7 +4,7 @@ import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import { createPostgresWorkspaceKeyStore } from "./api-keys.ts";
 import * as schema from "./schema.ts";
-import { apiKeys, memberships, users, workspaces } from "./schema.ts";
+import { agents, apiKeys, memberships, users, workspaces } from "./schema.ts";
 
 let client: PGlite;
 let db: PgliteDatabase<typeof schema>;
@@ -51,6 +51,10 @@ test("a list names every key's issuer in one statement, departed ones included",
   const owner = await person("Owner");
   const left = await person("Left", { membership: true });
   const disabled = await person("Disabled", { account: true });
+  const agentId = crypto.randomUUID();
+  await db
+    .insert(agents)
+    .values({ id: agentId, workspaceId, slug: "bot", name: "bot" });
   const issuers = [owner, left, disabled, null];
   for (const createdByUserId of issuers) {
     await db.insert(apiKeys).values({
@@ -59,7 +63,8 @@ test("a list names every key's issuer in one statement, departed ones included",
       ownerId: workspaceId,
       workspaceId,
       scopes: ["sessions:read"],
-      kind: "service",
+      kind: "agent",
+      agentId,
       createdByUserId,
     });
   }
@@ -67,7 +72,7 @@ test("a list names every key's issuer in one statement, departed ones included",
   statements = [];
   const listed = await createPostgresWorkspaceKeyStore(db).list(
     workspaceId,
-    { personalOf: owner, allServiceKeysFor: ["owner"] },
+    { personalOf: owner, allAgentKeysFor: ["owner"] },
     10,
   );
 

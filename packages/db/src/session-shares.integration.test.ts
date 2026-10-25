@@ -79,14 +79,19 @@ integration("session share scopes on PostgreSQL", () => {
   const idOf = (caller: Caller) => caller.actor?.userId ?? "";
   const asUser = (caller: Caller) => ({ userId: idOf(caller), apiKeyId: null });
 
-  async function serviceKey(workspaceId: string) {
+  async function agentKey(workspaceId: string) {
     const id = randomUUID();
+    const agentId = randomUUID();
+    await db
+      .insert(schema.agents)
+      .values({ id: agentId, workspaceId, slug: agentId, name: "bot" });
     await db.insert(apiKeys).values({
       id,
       keyHash: Buffer.from(randomUUID()),
       ownerId: workspaceId,
       workspaceId,
-      kind: "service",
+      kind: "agent",
+      agentId,
       scopes: ["sessions:read"],
     });
     return id;
@@ -223,11 +228,11 @@ integration("session share scopes on PostgreSQL", () => {
     expect(await shares().visibleTo(ws, id, asUser(b))).toBe(false);
   });
 
-  test("a service key sees its own sessions and workspace ones, not a person's private one", async () => {
+  test("an agent key sees its own sessions and workspace ones, not a person's private one", async () => {
     const ws = await workspace();
     const a = await person(ws);
-    const keyId = await serviceKey(ws);
-    const otherKey = await serviceKey(ws);
+    const keyId = await agentKey(ws);
+    const otherKey = await agentKey(ws);
     const mine = await session(ws, { apiKeyId: keyId });
     const theirs = await session(ws, { userId: idOf(a) });
     const owner = await person(ws, "owner");

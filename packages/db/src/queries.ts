@@ -12,6 +12,7 @@ import {
   isNotNull,
   isNull,
   lt,
+  ne,
   or,
   type SQL,
   sql,
@@ -28,6 +29,7 @@ import {
   unassignedSessions,
   users,
   workers,
+  workspaces,
 } from "./schema.ts";
 
 export type Database = PgDatabase<PgQueryResultHKT, typeof schema>;
@@ -42,15 +44,34 @@ export async function createApiKey(
     scopes: readonly SessionScope[] | null;
     workspaceId?: string | null;
     kind?: ApiKeyKind;
+    name?: string | null;
     createdByUserId?: string | null;
     expiresAt?: Date | null;
     agentId?: string | null;
   },
 ) {
+  // Without a kind, a key is the agent's when it names one and the CLI's
+  // operator key otherwise, which the table refuses inside a workspace.
+  const kind = input.kind ?? (input.agentId == null ? "operator" : "agent");
+  if (kind === "operator") {
+    // Partitions compare as text, so only the workspace's exact id is its own.
+    const [workspace] = await db
+      .select({ id: workspaces.id })
+      .from(workspaces)
+      .where(sql`${workspaces.id}::text = ${input.ownerId}`)
+      .limit(1);
+    if (workspace) {
+      // Its partition would be the workspace's: a key across all of it.
+      throw new Error(
+        `${input.ownerId} is a workspace; issue a member's key with --workspace and --personal`,
+      );
+    }
+  }
   const [created] = await db
     .insert(apiKeys)
     .values({
       ...input,
+      kind,
       scopes: input.scopes === null ? null : [...input.scopes],
     })
     .returning({
@@ -64,7 +85,7 @@ export async function createApiKey(
   return created;
 }
 
-export type ApiKeyKind = "personal" | "service";
+export type ApiKeyKind = "personal" | "agent" | "operator";
 
 export type ApiKeyRecord = {
   id: string;
@@ -83,7 +104,7 @@ export function liveApiKey() {
     isNull(apiKeys.revokedAt),
     or(isNull(apiKeys.expiresAt), gt(apiKeys.expiresAt, DB_NOW)),
     or(
-      eq(apiKeys.kind, "service"),
+      ne(apiKeys.kind, "personal"),
       and(isNull(users.disabledAt), isNotNull(memberships.userId)),
     ),
   );

@@ -86,7 +86,7 @@ export type IdentityReading =
       status: "ok";
       principal: AuthenticatedPrincipal;
       keyCreator?: { userId: string; role: WorkspaceRole };
-      /** Set for a service key bound to one agent. */
+      /** Set for an agent key: the one agent it reaches. */
       keyAgentId?: string;
     }
   | {
@@ -292,8 +292,8 @@ function authorityScopes(reading: {
   return [...principal.scopes];
 }
 
-// A personal key looks as its creator; a service key is no member and looks
-// as itself (design 4.6).
+// A personal key looks as its creator; an agent key or the CLI's operator key
+// is no member and looks as itself (design 4.6).
 function viewerOf(reading: {
   principal: AuthenticatedPrincipal;
   keyCreator?: { userId: string };

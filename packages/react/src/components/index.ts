@@ -23,6 +23,34 @@ export {
   type LoadMoreButtonMessages,
   type LoadMoreButtonProps,
 } from "./list/load-more-button.tsx";
+export { Findings, type FindingsProps } from "./operations/findings.tsx";
+export {
+  type FindingsMessages,
+  OPERATIONS_MESSAGES,
+  type OperationsFormat,
+  type OperationsMessages,
+  type SessionCountsMessages,
+  type ToolCallsMessages,
+  type ToolsSummaryMessages,
+  type ToolTableMessages,
+} from "./operations/messages.ts";
+export {
+  SessionCounts,
+  type SessionCountsProps,
+} from "./operations/session-counts.tsx";
+export { ToolCalls, type ToolCallsProps } from "./operations/tool-calls.tsx";
+export { ToolTable, type ToolTableProps } from "./operations/tool-table.tsx";
+export type {
+  UsageTool,
+  UsageToolCall,
+  UsageToolFinding,
+  UsageToolFindingKind,
+  UsageToolsResponse,
+} from "./operations/tools.ts";
+export {
+  ToolsSummary,
+  type ToolsSummaryProps,
+} from "./operations/tools-summary.tsx";
 export { ReceiptLink, type ReceiptLinkProps } from "./receipt/receipt-link.tsx";
 export {
   RECEIPT_OPERATION_LABEL,

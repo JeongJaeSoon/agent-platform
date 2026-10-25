@@ -10,6 +10,11 @@ export type SlackMentionPolicy = {
   userGroupIds?: readonly string[];
   /** Broad notifications need an explicit entry. */
   special?: readonly ("here" | "channel" | "everyone")[];
+  /**
+   * `expand` writes a safe `<url|label>` out as `label (url)`, so a label
+   * cannot hide where a link goes. Default `keep`.
+   */
+  maskedLinks?: "keep" | "expand";
 };
 
 function isSafeUrl(value: string): boolean {
@@ -65,11 +70,16 @@ function escapeControls(
   policy: SlackMentionPolicy | undefined,
 ): string {
   const escapedAmpersands = value.replace(/&(?!(?:amp|lt|gt);)/g, "&amp;");
-  return escapedAmpersands.replace(/<([^>\n]+)>/g, (whole, control: string) =>
-    trustedControl(control, policy)
-      ? whole
-      : `&lt;${control.replace(/</g, "&lt;")}&gt;`,
-  );
+  return escapedAmpersands.replace(/<([^>\n]+)>/g, (whole, control: string) => {
+    if (!trustedControl(control, policy)) {
+      return `&lt;${control.replace(/</g, "&lt;")}&gt;`;
+    }
+    const bar = control.indexOf("|");
+    const url = control.slice(0, bar);
+    return policy?.maskedLinks === "expand" && bar !== -1 && isSafeUrl(url)
+      ? `${control.slice(bar + 1)} (${url})`
+      : whole;
+  });
 }
 
 function mapOutsideCode(value: string, map: (part: string) => string): string {

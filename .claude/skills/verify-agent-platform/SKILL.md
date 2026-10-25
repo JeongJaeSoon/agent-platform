@@ -20,7 +20,7 @@ description: Drive the agent-platform stack the way a user does — launch it lo
 
 - **자기 스택만.** `up.sh`가 새 compose project(`verify-ap-<run id>`)와 installation id를 만들고, 모든 단계가 그 project에만 compose를 건다. 기본 project `agent-platform`이나 다른 사람의 스택은 몰지도 내리지도 않는다.
 - **실제 모델 없이.** 항상 `--fake-model`이다. 세션은 프롬프트에 적은 GATE-SPEC 대본대로 돈다(`docs/quickstart.md` § 스크립트된 프롬프트). 실제 Claude(`local.sh up` 옵션 없음)는 유료라 이 스킬은 쓰지 않는다.
-- **비밀값을 출력하지 않는다.** API key는 변수에만 담고 앞 12자만 보인다. bootstrap token은 이 run이 만든 일회용 테스트 값이고 `state.env`(700 디렉터리)에만 있다.
+- **비밀값을 출력하지 않는다.** API key는 변수에만 담고 길이만 보인다. bootstrap token은 이 run이 만든 일회용 테스트 값이고 `state.env`(700 디렉터리)에만 있다.
 - **자격 값을 명령에 쓰지 않는다.** 명령 텍스트에 비밀번호 JSON 리터럴이 있으면 agent-guard PreToolUse hook이 "secret-like value detected in shell command"로 그 호출을 거부한다. bootstrap·login·초대 수락·웹 key 발급은 `web-user.mjs`가 run 디렉터리의 값으로 보내고, 화면 로그인·수락은 `browser.mjs`가 같은 값을 칸에 넣는다.
 - **프로세스는 PID·project로.** `pkill`·`killall`·이름 패턴 종료는 쓰지 않는다. 내릴 때는 `down.sh`가 이 run의 project와 installation label만 지운다.
 - **run은 항상 이름으로.** 같은 머신의 여러 세션이 같은 root에 run을 만든다. 그래서 "마지막 run" 같은 기본값은 없다. `up.sh`가 출력한 run id를 기록해 두고 `lib.sh`·`doctor.sh`·`down.sh`에 매번 넘긴다. 인자 없이 부르면 사용법과 살아 있는 run 목록만 출력하고 exit 2로 끝난다(아무것도 내리지 않는다). 목록의 다른 run은 다른 세션의 것이니 넘기지 않는다.
@@ -83,7 +83,7 @@ run, project, 이미지를 빌드한 소스(`up.sh` 때의 HEAD + 커밋하지 �
 
 | 스크립트 | 용도 |
 |---|---|
-| `node scripts/web-user.mjs <run id> <command> <who> …` | `bootstrap`·`bootstrap-bad-token`·`login`·`login-wrong`·`login-no-csrf`·`invite <inviter> <who> <role>`·`accept`·`key <who> <personal\|service> <scopes>`. 비밀번호·token·secret은 run 디렉터리에만 두고, 응답 본문(그 칸은 `(saved, N chars)`)과 상태 코드를 출력한다. [web-login.md](features/web-login.md) |
+| `node scripts/web-user.mjs <run id> <command> <who> …` | `bootstrap`·`bootstrap-bad-token`·`login`·`login-wrong`·`login-no-csrf`·`invite <inviter> <who> <role>`·`accept`·`key <who> <personal\|agent> <scopes> [agent id]`. 비밀번호·token·secret은 run 디렉터리에만 두고, 응답 본문(그 칸은 `(saved, N chars)`)과 상태 코드를 출력한다. [web-login.md](features/web-login.md) |
 | `node scripts/browser.mjs <run id> <command> …` | 이 run 전용 headless Chrome(CDP): `start`·`stop`, `open`, `login <who>`·`accept <who>`·`bootstrap <who>`, `shot`(`W`·`THEME` env), `blockshot`(오류 상태), `slowshot`(로딩 상태), `click`·`press`(포커스 후 키)·`type`·`select`·`key`·`eval`, `measure`(간격·폭·정렬 실측, `layout-report.mjs`가 v35 규칙 표로). [web-console.md](features/web-console.md) |
 
 기능별 명령과 기대 결과는 `features/*.md`에 있다. 가장 짧은 한 바퀴는 [web-login.md](features/web-login.md)다.

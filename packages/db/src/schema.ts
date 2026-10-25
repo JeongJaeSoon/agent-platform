@@ -24,7 +24,12 @@ import {
   SURFACE_KIND_VALUES,
   type SurfaceKind,
 } from "@werft-ai/contracts";
-import type { SecretOwnerRef } from "@werft-ai/platform";
+import type {
+  SecretOwnerRef,
+  SlackOutboxBody,
+  SlackOutboxKind,
+  SlackOutboxStatus,
+} from "@werft-ai/platform";
 import { sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
@@ -1806,12 +1811,15 @@ export const apiKeys = pgTable(
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
     /** Null on legacy keys until an owner_workspace_map row exists. */
     workspaceId: uuid("workspace_id").references(() => workspaces.id),
-    /** Null means the legacy "everything" key. */
+    /** Null on a key from before scopes: it holds none. */
     scopes: text().array(),
-    kind: text().notNull().default("service"),
+    // personal: a member's own; agent: one agent's; operator: issued by the
+    // key CLI to an owner partition outside any workspace.
+    kind: text().notNull(),
+    name: text(),
     createdByUserId: uuid("created_by_user_id").references(() => users.id),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
-    /** A service key that reaches this agent's sessions and nothing else. */
+    /** An agent key's agent, whose sessions it reaches and nothing else. */
     agentId: uuid("agent_id"),
     // Unindexed so the throttled touch stays a HOT update (touchApiKey).
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
@@ -1828,7 +1836,16 @@ export const apiKeys = pgTable(
     // A person's key carries their authority, never an agent's.
     check(
       "api_keys_agent_check",
-      sql`${table.agentId} IS NULL OR (${table.kind} = 'service' AND ${table.workspaceId} IS NOT NULL)`,
+      sql`(${table.kind} = 'agent') = (${table.agentId} IS NOT NULL) AND (${table.kind} <> 'agent' OR ${table.workspaceId} IS NOT NULL)`,
+    ),
+    // No key reaches a whole workspace as itself.
+    check(
+      "api_keys_operator_check",
+      sql`${table.kind} <> 'operator' OR ${table.workspaceId} IS NULL`,
+    ),
+    check(
+      "api_keys_name_check",
+      sql`${table.name} IS NULL OR (char_length(${table.name}) BETWEEN 1 AND 64 AND ${table.name} = btrim(${table.name}))`,
     ),
     index("api_keys_workspace_idx")
       .on(table.workspaceId)
@@ -1836,7 +1853,10 @@ export const apiKeys = pgTable(
     index("api_keys_personal_creator_idx")
       .on(table.createdByUserId)
       .where(sql`${table.kind} = 'personal'`),
-    check("api_keys_kind_check", sql`${table.kind} IN ('personal', 'service')`),
+    check(
+      "api_keys_kind_check",
+      sql`${table.kind} IN ('personal', 'agent', 'operator')`,
+    ),
     check(
       "api_keys_personal_check",
       sql`${table.kind} <> 'personal' OR (${table.createdByUserId} IS NOT NULL AND ${table.workspaceId} IS NOT NULL)`,
@@ -2383,6 +2403,11 @@ export const sessionLinks = pgTable(
     visibility: text().$type<"full" | "summary">().notNull().default("full"),
     muted: boolean().notNull().default(false),
     revision: integer().notNull().default(1),
+    /**
+     * The Slack outbox's mark: every turn up to this sequence needs nothing
+     * more from it, so its pass reads only the turns after.
+     */
+    answeredThrough: integer("answered_through").notNull().default(0),
     createdBy: uuid("created_by").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -2422,6 +2447,80 @@ export const sessionLinks = pgTable(
       sql`${table.visibility} IN ('full', 'summary')`,
     ),
     check("session_links_revision_check", sql`${table.revision} >= 1`),
+  ],
+);
+
+// What the `slack` role sends: a linked turn's answer, its failure or input
+// notice, and refusals. A row whose send was under way when its lease ran
+// out becomes `uncertain` and is never sent again (design 94S-792).
+export const slackOutbox = pgTable(
+  "slack_outbox",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    agentId: uuid("agent_id").notNull(),
+    slackAppId: uuid("slack_app_id")
+      .notNull()
+      .references(() => slackApps.id),
+    installationId: uuid("installation_id").notNull(),
+    kind: text().$type<SlackOutboxKind>().notNull(),
+    channelId: text("channel_id").notNull(),
+    threadTs: text("thread_ts").notNull(),
+    slackUserId: text("slack_user_id"),
+    sessionId: uuid("session_id").references(() => sessions.id),
+    /** The text before Slack controls are escaped, and the link it carries. */
+    body: jsonb().$type<SlackOutboxBody>().notNull(),
+    dedupeKey: text("dedupe_key").notNull(),
+    status: text().$type<SlackOutboxStatus>().notNull().default("pending"),
+    claimToken: uuid("claim_token"),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    /** Claims so far. */
+    attempts: integer().notNull().default(0),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
+    slackTs: text("slack_ts"),
+    errorCode: text("error_code"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    // Send order: rows enqueued within one clock tick still go in order.
+    seq: bigserial({ mode: "number" }).notNull(),
+  },
+  (table) => [
+    unique("slack_outbox_dedupe_key").on(table.dedupeKey),
+    foreignKey({
+      name: "slack_outbox_agent_fk",
+      columns: [table.workspaceId, table.agentId],
+      foreignColumns: [agents.workspaceId, agents.id],
+    }),
+    check(
+      "slack_outbox_kind_check",
+      sql`${table.kind} IN ('reply', 'notice', 'failure_notice', 'input_notice')`,
+    ),
+    check(
+      "slack_outbox_status_check",
+      sql`${table.status} IN ('pending', 'sending', 'sent', 'failed', 'uncertain')`,
+    ),
+    check(
+      "slack_outbox_user_check",
+      sql`(${table.kind} = 'notice') = (${table.slackUserId} IS NOT NULL)`,
+    ),
+    check(
+      "slack_outbox_claim_check",
+      // A claimed row stays `pending` until its send begins.
+      sql`(${table.claimToken} IS NULL) = (${table.leaseExpiresAt} IS NULL) AND (${table.status} IN ('pending', 'sending') OR ${table.claimToken} IS NULL) AND (${table.status} <> 'sending' OR ${table.claimToken} IS NOT NULL)`,
+    ),
+    index("slack_outbox_due_idx")
+      .on(table.nextAttemptAt)
+      .where(sql`${table.status} = 'pending'`),
+    index("slack_outbox_sending_idx")
+      .on(table.leaseExpiresAt)
+      .where(sql`${table.status} = 'sending'`),
+    index("slack_outbox_session_idx").on(table.sessionId),
+    index("slack_outbox_uncertain_idx")
+      .on(table.seq)
+      .where(sql`${table.status} = 'uncertain' AND ${table.kind} = 'reply'`),
   ],
 );
 
