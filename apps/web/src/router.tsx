@@ -46,7 +46,9 @@ import {
 } from "./routes/members.tsx";
 import {
   type OperationsSearch,
+  type OperationsToolsSearch,
   operationsSearch,
+  operationsToolsSearch,
 } from "./routes/operations-search.ts";
 import { PreferencesScreen } from "./routes/preferences.tsx";
 import {
@@ -277,7 +279,7 @@ const usage = createRoute({
   component: UsageScreen,
 });
 
-// 개요 and 한도 are tabs of one menu; 한도 is the installation owner's. The
+// 개요, 도구 활동 and 한도 are tabs of one menu; 한도 is the installation owner's. The
 // menu's screens load when it opens, not with every other screen.
 const loadOperations = () => import("./routes/operations.tsx");
 
@@ -293,6 +295,14 @@ const operationsOverview = createRoute({
   validateSearch: (search: Record<string, unknown>): OperationsSearch =>
     operationsSearch(search),
   component: lazyRouteComponent(loadOperations, "OperationsOverviewScreen"),
+});
+
+const operationsTools = createRoute({
+  getParentRoute: () => operations,
+  path: "tools",
+  validateSearch: (search: Record<string, unknown>): OperationsToolsSearch =>
+    operationsToolsSearch(search),
+  component: lazyRouteComponent(loadOperations, "OperationsToolsScreen"),
 });
 
 const operationsLimits = createRoute({
@@ -348,7 +358,11 @@ const routeTree = root.addChildren([
     workspaceSlack,
     orgKeys,
     usage,
-    operations.addChildren([operationsOverview, operationsLimits]),
+    operations.addChildren([
+      operationsOverview,
+      operationsTools,
+      operationsLimits,
+    ]),
   ]),
 ]);
 

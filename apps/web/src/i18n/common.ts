@@ -20,6 +20,10 @@ export const commonKo = {
   "nav.agents": "에이전트",
   "nav.operations": "운영",
   "operations.recent": "최근 {days}일",
+  "operations.findings": "살펴볼 것",
+  "operations.findings.description": "도구 호출 기록에서 찾았습니다",
+  "operations.findings.more": "도구 활동",
+  "operations.tools": "도구와 명령",
 
   "role.owner": "소유자",
   "role.admin": "관리자",
@@ -87,6 +91,10 @@ export const commonEn: Record<keyof typeof commonKo, string> = {
   "nav.agents": "Agents",
   "nav.operations": "Operations",
   "operations.recent": "Last {days} days",
+  "operations.findings": "Worth a look",
+  "operations.findings.description": "Found in the tool call records",
+  "operations.findings.more": "Tool activity",
+  "operations.tools": "Tools and commands",
 
   "role.owner": "Owner",
   "role.admin": "Admin",
@@ -156,6 +164,10 @@ export const commonJa: Record<keyof typeof commonKo, string> = {
   "nav.agents": "エージェント",
   "nav.operations": "運用",
   "operations.recent": "直近{days}日",
+  "operations.findings": "確認すること",
+  "operations.findings.description": "ツール呼び出しの記録から見つけました",
+  "operations.findings.more": "ツールの活動",
+  "operations.tools": "ツールとコマンド",
 
   "role.owner": "オーナー",
   "role.admin": "管理者",
