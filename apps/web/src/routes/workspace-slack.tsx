@@ -374,7 +374,7 @@ function tokenLine(
 
 // The API answers this way when it runs without its secret key; a retry
 // cannot help, an administrator has to configure the store.
-const storeOff = (error: unknown) =>
+export const storeOff = (error: unknown) =>
   isApiError(error, "BACKEND_UNAVAILABLE") && error.retryable === false;
 
 function DangerZone({ children }: { readonly children: ReactNode }) {

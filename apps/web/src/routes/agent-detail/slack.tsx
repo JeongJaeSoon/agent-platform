@@ -39,6 +39,7 @@ import { useMe } from "../../auth/guard.tsx";
 import { copyText } from "../../components/copy.ts";
 import { errorKey, type Translate, useI18n } from "../../i18n/i18n.tsx";
 import { useAppServices } from "../../services.tsx";
+import { storeOff } from "../workspace-slack.tsx";
 import { type Notify, useToast } from "./toast.tsx";
 import { useCurrentSection } from "./use-current-section.ts";
 
@@ -92,6 +93,7 @@ export function slackFailure(error: unknown, t: Translate): string {
   if (code === "SLACK_INSTALL_REJECTED" || code === "SLACK_INSTALL_CONFLICT")
     return t("slack.error.rejected");
   if (code === "CURSOR_EXPIRED") return t("slack.error.cursor");
+  if (storeOff(error)) return t("workspace.tokenStoreUnavailable");
   return t(errorKey(code));
 }
 
