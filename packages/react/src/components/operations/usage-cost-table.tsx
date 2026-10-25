@@ -1,6 +1,7 @@
 import type { UsageBreakdownResponse } from "@werft-ai/contracts";
 import {
   Card,
+  cn,
   EmptyState,
   GridTable,
   GridTableCell,
@@ -93,13 +94,14 @@ export function UsageCostTable({
           return (
             <GridTableRow key={row ? (row.key ?? "") : i}>
               <GridTableCell lines className="gap-1">
+                {/* The whole name, wrapped anywhere: the cell truncates only
+                    the lines after it. */}
                 <Text
                   as="span"
-                  className={
-                    by === "model" && row?.label
-                      ? "font-mono text-control"
-                      : undefined
-                  }
+                  className={cn(
+                    "max-w-full [overflow-wrap:anywhere]",
+                    by === "model" && row?.label && "font-mono text-control",
+                  )}
                 >
                   <Value loading={loading} width="8rem">
                     {name}

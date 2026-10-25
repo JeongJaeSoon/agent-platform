@@ -14,6 +14,7 @@ const { InstallationLimits } = await import("./installation-limits.tsx");
 const { OperationsHead } = await import("./operations-head.tsx");
 const { UsageFilters } = await import("./usage-filters.tsx");
 const { UsageKpis } = await import("./usage-kpis.tsx");
+const { UsageCostTable } = await import("./usage-cost-table.tsx");
 const { OPERATIONS_MESSAGES } = await import("./messages.ts");
 
 const TOOLS = [
@@ -450,6 +451,71 @@ describe("UsageFilters", () => {
     );
     await user.click(getByRole("button", { name: "설치 전체" }));
     expect(picked).toEqual(["installation"]);
+  });
+});
+
+describe("UsageCostTable", () => {
+  const row = (key: string | null, label: string | null, cost: string) => ({
+    key,
+    label,
+    session_count: 4,
+    input_tokens: 100,
+    output_tokens: 50,
+    cache_read_input_tokens: 0,
+    cache_creation_input_tokens: 0,
+    token_count: 150,
+    cost_usd: cost,
+  });
+
+  test("이름 없는 행은 에이전트 없음·호출 기록이 없는 비용으로 쓴다", () => {
+    const agents = withPlatform(
+      <UsageCostTable
+        label="에이전트별"
+        head="에이전트"
+        by="agent"
+        rows={[row("a1", "triage", "3.00"), row(null, null, "1.00")]}
+      />,
+    );
+    expect(agents.getByText("에이전트 없음")).toBeTruthy();
+    expect(agents.getByText("$3.00")).toBeTruthy();
+    agents.unmount();
+    const models = withPlatform(
+      <UsageCostTable
+        label="모델별"
+        head="모델"
+        by="model"
+        rows={[row(null, null, "1.00")]}
+      />,
+    );
+    expect(models.getByText("호출 기록이 없는 비용")).toBeTruthy();
+  });
+
+  test("빈 rows는 빈 상태, undefined는 자리 행을 placeholderRows만큼 둔다", () => {
+    const empty = withPlatform(
+      <UsageCostTable
+        label="에이전트별"
+        head="에이전트"
+        by="agent"
+        rows={[]}
+      />,
+    );
+    expect(
+      empty.getByText("이 기간에 비용을 쓴 에이전트가 없습니다."),
+    ).toBeTruthy();
+    expect(empty.queryByRole("table")).toBeNull();
+    empty.unmount();
+    const loading = withPlatform(
+      <UsageCostTable
+        label="에이전트별"
+        head="에이전트"
+        by="agent"
+        rows={undefined}
+        placeholderRows={3}
+      />,
+    );
+    const table = loading.getByRole("table", { name: "에이전트별" });
+    expect(table.getAttribute("aria-busy")).toBe("true");
+    expect(loading.getAllByRole("row")).toHaveLength(4);
   });
 });
 
