@@ -152,6 +152,27 @@ free_port() {
     console.log(s.port); s.stop(true);'
 }
 
+# One `up` or `down` per preview at a time, held until this process exits.
+# The lock is a symlink to the holder's pid, so taking it is atomic; a
+# holder that is gone is taken over. A busy preview exits 75.
+lock_preview() {
+  local holder
+  lock="${PREVIEW_HOME}/$1.lock"
+  if ! ln -s "$$" "$lock" 2>/dev/null; then
+    holder="$(readlink "$lock" || true)"
+    if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then
+      echo "$1: busy, pid ${holder} is running up or down on it" >&2
+      exit 75
+    fi
+    rm -f -- "$lock"
+    if ! ln -s "$$" "$lock" 2>/dev/null; then
+      echo "$1: busy, another process took ${lock}" >&2
+      exit 75
+    fi
+  fi
+  trap 'rm -f -- "$lock"' EXIT
+}
+
 up() {
   local n namespace host dir head code
   n="$(pr_number "${1:-}")"
@@ -160,6 +181,7 @@ up() {
   dir="${PREVIEW_HOME}/${namespace}"
   SECONDS=0
 
+  lock_preview "$namespace"
   require_local_only
   if kubectl get namespace "$namespace" >/dev/null 2>&1; then
     require_preview "$namespace"
@@ -233,14 +255,25 @@ require_preview() {
   fi
 }
 
+# PREVIEW_REAP_UP_AT is the preview-up-at reap decided on: an `up` since
+# then keeps the preview (exit 75).
 down() {
-  local n namespace dir left app
+  local n namespace dir left app up_at
   n="$(pr_number "${1:-}")"
   namespace="pr-${n}"
   dir="${PREVIEW_HOME}/${namespace}"
 
+  lock_preview "$namespace"
   if kubectl get namespace "$namespace" >/dev/null 2>&1; then
     require_preview "$namespace"
+    if [ -n "${PREVIEW_REAP_UP_AT+set}" ]; then
+      up_at="$(kubectl get namespace "$namespace" \
+        -o jsonpath='{.metadata.annotations.agent-platform\.dev/preview-up-at}')"
+      if [ "$up_at" != "$PREVIEW_REAP_UP_AT" ]; then
+        echo "${namespace}: up again at ${up_at} after reap read ${PREVIEW_REAP_UP_AT:-none}" >&2
+        exit 75
+      fi
+    fi
     kubectl delete namespace "$namespace" --wait --timeout 5m
   fi
   # The kubelet removes the pods' exited containers within about a minute;
@@ -294,13 +327,14 @@ list() {
 # Only labeled pr-<N> namespaces. The TTL needs no GitHub; a PR state that
 # cannot be read keeps the preview, never counts as closed.
 reap() {
-  local rows namespace age n reason state deleted=() failed=()
+  local rows namespace up_at age n reason state code deleted=() failed=()
   echo "reap $(date -u +%Y-%m-%dT%H:%M:%SZ): TTL ${PREVIEW_TTL_HOURS}h"
+  # \x1f, not a tab: read collapses empty fields between whitespace separators.
   rows="$(kubectl get namespaces -l agent-platform.dev/preview=true -o json | jq -r '.items[]
-    | [.metadata.name,
-       (.metadata.annotations["agent-platform.dev/preview-up-at"] // ""
-         | try (now - fromdateiso8601 | floor) catch "")] | @tsv')"
-  while IFS=$'\t' read -r namespace age; do
+    | (.metadata.annotations["agent-platform.dev/preview-up-at"] // "") as $at
+    | [.metadata.name, $at, ($at | try (now - fromdateiso8601 | floor | tostring) catch "")]
+    | join("\u001f")')"
+  while IFS=$'\x1f' read -r namespace up_at age; do
     [ -n "$namespace" ] || continue
     if ! [[ "$namespace" =~ ^pr-([1-9][0-9]{0,6})$ ]]; then
       echo "${namespace}: kept, not named pr-<N>"
@@ -332,11 +366,13 @@ reap() {
       esac
     fi
     echo "${namespace}: deleting, ${reason}"
-    if "$here/preview.sh" down "$n" </dev/null; then
-      deleted+=("$namespace")
-    else
-      failed+=("$namespace")
-    fi
+    code=0
+    PREVIEW_REAP_UP_AT="$up_at" "$here/preview.sh" down "$n" </dev/null || code=$?
+    case "$code" in
+      0) deleted+=("$namespace") ;;
+      75) echo "${namespace}: kept, see above" ;;
+      *) failed+=("$namespace") ;;
+    esac
   done <<<"$rows"
   echo "reap deleted: ${deleted[*]:-none}${failed[*]:+, failed: ${failed[*]}}"
   [ "${#failed[@]}" = 0 ]

@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Runs `preview.sh reap` every 15 minutes. @CHECKOUT@ and @HOME@ are
-     filled in on install: docs/contributing/development.md. -->
+<!-- Every 15 minutes: move the dedicated checkout @CHECKOUT@ to origin/main
+     (on failure, keep the code it has) and run `preview.sh reap` from it.
+     @CHECKOUT@ and @HOME@ are filled in on install:
+     docs/contributing/development.md. -->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
@@ -8,8 +10,10 @@
 	<string>dev.94soon.agent-platform.preview-reap</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>@CHECKOUT@/deploy/preview/preview.sh</string>
-		<string>reap</string>
+		<string>/bin/bash</string>
+		<string>-c</string>
+		<string>cd "$0" || exit 1; { git fetch -q origin &amp;&amp; git checkout -q --detach origin/main; } || echo "preview-reap: could not move to origin/main, reaping with $(git rev-parse --short HEAD)"; exec deploy/preview/preview.sh reap</string>
+		<string>@CHECKOUT@</string>
 	</array>
 	<key>EnvironmentVariables</key>
 	<dict>

@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readlink,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -28,6 +36,13 @@ echo "$*" >> "${dir}/kubectl-calls"
 case "$*" in
   "config view "*) echo "apiVersion: v1" ;;
   "get namespaces -l agent-platform.dev/preview=true -o json") cat "${dir}/namespaces.json" ;;
+  "get namespace "*"preview-up-at}")
+    if [ -n "\${STUB_CURRENT_UP_AT+set}" ]; then
+      echo "$STUB_CURRENT_UP_AT"
+    else
+      jq -r --arg ns "$3" '.items[] | select(.metadata.name == $ns)
+        | .metadata.annotations["agent-platform.dev/preview-up-at"] // ""' "${dir}/namespaces.json"
+    fi ;;
   "get namespace "*" -o jsonpath="*) echo true ;;
   "get namespace "*) ;;
   "delete namespace "*) exit "\${STUB_DELETE_EXIT:-0}" ;;
@@ -234,5 +249,47 @@ exit 1
     expect(result.stdout).toContain(
       "reap deleted: none, failed: pr-11 pr-12\n",
     );
+  });
+
+  test("keeps a preview brought up again after reap read it", async () => {
+    const result = await reap([{ name: "pr-13", upAt: hoursAgo(30) }], {
+      STUB_CURRENT_UP_AT: hoursAgo(0),
+    });
+    expect(result.exitCode).toBe(0);
+    expect(await deleted()).toEqual([]);
+    expect(result.stderr).toContain("pr-13: up again at ");
+    expect(result.stdout).toContain("pr-13: kept, see above");
+    expect(result.stdout).toContain("reap deleted: none\n");
+  });
+
+  test("keeps a preview another up or down holds", async () => {
+    await mkdir(join(dir, "home"));
+    await symlink(String(process.pid), join(dir, "home", "pr-14.lock"));
+    const result = await reap([{ name: "pr-14", upAt: hoursAgo(1) }], {
+      STUB_STATES: "14=MERGED",
+    });
+    expect(result.exitCode).toBe(0);
+    expect(await deleted()).toEqual([]);
+    expect(result.stderr).toContain(
+      `pr-14: busy, pid ${process.pid} is running up or down on it`,
+    );
+    expect(await readlink(join(dir, "home", "pr-14.lock"))).toBe(
+      String(process.pid),
+    );
+  });
+
+  test("takes over a lock whose holder is gone and releases it", async () => {
+    await mkdir(join(dir, "home"));
+    const gone = Bun.spawn(["true"]);
+    await gone.exited;
+    await symlink(String(gone.pid), join(dir, "home", "pr-15.lock"));
+    const result = await reap([{ name: "pr-15", upAt: hoursAgo(1) }], {
+      STUB_STATES: "15=CLOSED",
+    });
+    expect(result.exitCode).toBe(0);
+    expect(await deleted()).toEqual(["pr-15"]);
+    expect(
+      await readlink(join(dir, "home", "pr-15.lock")).catch(() => null),
+    ).toBe(null);
   });
 });
