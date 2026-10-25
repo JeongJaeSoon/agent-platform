@@ -210,8 +210,8 @@ export function LinkedAccountsScreen() {
               </span>
               <span className={SECONDARY}>{t("linked.use.slack")}</span>
             </RowLines>
-            {/* Linked rows offer only unlinking (94S-942); linking again
-                starts from there. */}
+            {/* Linked rows offer only unlinking; linking again starts from
+                there. */}
             {accounts.isSuccess && live.length === 0 ? (
               <Button
                 ref={startRef}

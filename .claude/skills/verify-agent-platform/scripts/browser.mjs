@@ -403,8 +403,8 @@ switch (cmd) {
       throw new Error("not a verification project");
     if (!state.COMPOSE_FILE?.includes("infra/compose.mock-slack.yml"))
       throw new Error("mock Slack overlay required");
-    // `nameless`: the id_token carries no names, as links made before
-    // 94S-942 kept none.
+    // `nameless`: the id_token carries no names, like a link made before
+    // names were kept.
     const nameless = args.includes("nameless");
     const team = args.find((arg) => arg !== "nameless");
     if (team && !/^T[0-9A-Z]+$/.test(team))
