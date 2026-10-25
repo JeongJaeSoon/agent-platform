@@ -1212,6 +1212,9 @@ export const toolCallProgress = pgTable(
     appliedThrough: bigint("applied_through", { mode: "number" })
       .notNull()
       .default(0),
+    // The batch size a statement timeout cut it down to, kept across passes;
+    // null is the reconciler's configured size.
+    batchSize: integer("batch_size"),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
