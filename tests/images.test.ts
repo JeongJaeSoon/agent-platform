@@ -1104,6 +1104,10 @@ describe("compose layers", () => {
       expect(services.api?.depends_on?.["local-s3-init"]?.condition).toBe(
         "service_completed_successfully",
       );
+      // The backup helper reads the region from the object store container.
+      expect(services.localstack?.environment?.AWS_DEFAULT_REGION).toBe(
+        services.api?.environment?.AWS_REGION,
+      );
     },
     COMPOSE_RENDER_TIMEOUT_MS,
   );
