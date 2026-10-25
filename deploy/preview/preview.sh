@@ -8,7 +8,8 @@
 #                                       read /readyz through Traefik
 #   deploy/preview/preview.sh down <N>  delete the namespace, the image tags
 #                                       and the checkout
-#   deploy/preview/preview.sh list      the previews: URL, head, memory, /readyz
+#   deploy/preview/preview.sh list      the previews: URL, head, memory in use,
+#                                       /readyz
 #
 # The PR's own tree is installed (Dockerfiles, chart, stand-ins) by this
 # checkout's deploy/kind/up.sh, copied into it, so a head that predates
@@ -251,23 +252,28 @@ down() {
   rm -rf -- "${PREVIEW_HOME:?}/${namespace:?}"
 }
 
+# What the namespace's running containers use, in MiB. OrbStack's cluster has
+# no Metrics API, but its pods are containers of the shared Docker engine.
+memory_used_mi() {
+  local ids
+  ids="$(docker ps -q --filter "label=io.kubernetes.pod.namespace=$1")"
+  [ -n "$ids" ] || { echo 0; return; }
+  # shellcheck disable=SC2086 # one argument per container id
+  docker stats --no-stream --format '{{.MemUsage}}' $ids | awk '
+    { n = $1; u = n; sub(/[A-Za-z]+$/, "", n); sub(/^[0-9.]+/, "", u)
+      total += n * (u == "GiB" ? 1024 : u == "KiB" ? 1 / 1024 : u == "B" ? 1 / 1048576 : 1) }
+    END { printf "%d", total }'
+}
+
 list() {
-  local metrics namespace head up_at memory
-  metrics="$(kubectl top pods --all-namespaces --no-headers 2>/dev/null || true)"
+  local namespace head up_at memory
   printf '%-10s %-44s %-12s %-20s %-14s %s\n' NAMESPACE URL HEAD UP_AT MEMORY READYZ
   kubectl get namespaces -l agent-platform.dev/preview=true -o json | jq -r '.items[]
     | [.metadata.name,
        (.metadata.annotations["agent-platform.dev/preview-head"] // "-"),
        (.metadata.annotations["agent-platform.dev/preview-up-at"] // "-")] | @tsv' \
     | while IFS=$'\t' read -r namespace head up_at; do
-      if [ -n "$metrics" ]; then
-        memory="$(awk -v ns="$namespace" '$1 == ns { sub(/Mi$/, "", $4); total += $4 }
-          END { printf "%dMi used", total }' <<<"$metrics")"
-      else
-        memory="$(kubectl -n "$namespace" get pods -o json | jq -r "${JQ_MI}
-          [.items[].spec.containers[].resources.requests.memory // \"0\" | mi] | add // 0
-          | \"\\(ceil)Mi req\"")"
-      fi
+      memory="$(memory_used_mi "$namespace")Mi used"
       printf '%-10s %-44s %-12s %-20s %-14s %s\n' "$namespace" \
         "https://${namespace}.${PREVIEW_DOMAIN}/" "${head:0:12}" "$up_at" "$memory" \
         "$(readyz "${namespace}.${PREVIEW_DOMAIN}")"
