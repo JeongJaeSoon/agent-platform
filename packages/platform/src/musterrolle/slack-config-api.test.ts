@@ -135,6 +135,45 @@ describe("how an oauth.v2.access call failed", () => {
     });
   });
 
+  test("bots.info is named when auth.test passed and it failed", async () => {
+    const answers = [
+      Response.json({
+        ok: true,
+        team_id: "T0TEAM",
+        user_id: "U0BOT",
+        bot_id: "B0BOT",
+      }),
+      Response.json({ ok: false, error: "bot_not_found" }),
+    ];
+    expect(
+      await failureOf(
+        () => answers.shift() ?? new Response(null, { status: 500 }),
+        (api) => api.botIdentity(INPUT.code),
+      ),
+    ).toMatchObject({
+      method: "bots.info",
+      failure: "slack_error",
+      httpStatus: 200,
+      code: "bot_not_found",
+    });
+  });
+
+  test("a body that times out after the headers is a timeout with the status", async () => {
+    const stalled = new ReadableStream({
+      pull(controller) {
+        controller.error(new DOMException("timed out", "TimeoutError"));
+      },
+    });
+    expect(
+      await failureOf(() => new Response(stalled, { status: 200 })),
+    ).toMatchObject({
+      failure: "timeout",
+      httpStatus: 200,
+      code: "timeout",
+      answered: false,
+    });
+  });
+
   test("an ok:true answer that does not parse is unexpected_answer, without its body", async () => {
     expect(
       await failureOf(() =>

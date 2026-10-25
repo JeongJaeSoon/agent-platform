@@ -173,12 +173,16 @@ export type SlackApiOptions = {
   timeoutMs?: number;
 };
 
-function noAnswer(method: string, error: unknown) {
+/** `httpStatus` when the headers came and the body broke off. */
+function noAnswer(method: string, error: unknown, httpStatus?: number) {
   const failure =
     error instanceof Error && error.name === "TimeoutError"
       ? "timeout"
       : "unreachable";
-  return new SlackApiError(method, failure, false, { failure });
+  return new SlackApiError(method, failure, false, {
+    failure,
+    ...(httpStatus === undefined ? {} : { httpStatus }),
+  });
 }
 
 function slackCaller(options?: SlackApiOptions) {
@@ -212,10 +216,16 @@ function slackCaller(options?: SlackApiOptions) {
       await response.body?.cancel();
       throw new SlackRateLimitedError(method, retryAfterOf(response));
     }
-    const body = (await response.json().catch(() => null)) as Record<
-      string,
-      unknown
-    > | null;
+    let text: string;
+    try {
+      text = await response.text();
+    } catch (error) {
+      throw noAnswer(method, error, response.status);
+    }
+    let body: Record<string, unknown> | null = null;
+    try {
+      body = JSON.parse(text);
+    } catch {}
     if (body === null || typeof body !== "object") {
       throw new SlackApiError(method, `http_${response.status}`, false, {
         httpStatus: response.status,
