@@ -620,6 +620,19 @@ errors.push(
     render(["-f", ciDigests, "--set", "preview.enabled=true"]),
     true,
   ),
+  // A YAML-quoted key must stay that literal name, never PREVIEW_NAMESPACE.
+  ...checkPreview(
+    "quoted extraEnv key",
+    render([
+      "-f",
+      ciDigests,
+      "--set-json",
+      'api.extraEnv={"\\"PREVIEW_NAMESPACE\\"":"prod"}',
+      "--set-json",
+      'config.limits={"\\"PREVIEW_NAMESPACE\\"":"prod"}',
+    ]),
+    false,
+  ),
 );
 const awsPreview = checkPreview(
   "aws example, preview on",

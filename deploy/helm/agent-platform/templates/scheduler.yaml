@@ -73,7 +73,7 @@ spec:
             - name: WORKER_MEMORY_MB
               value: {{ .Values.worker.memoryMb | quote }}
             {{- range $name, $value := .Values.config.limits }}
-            - name: {{ $name }}
+            - name: {{ $name | quote }}
               value: {{ $value | toString | quote }}
             {{- end }}
             - name: AWS_REGION

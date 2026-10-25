@@ -78,11 +78,11 @@ imagePullSecrets:
 {{- end -}}
 
 {{- define "ap.secretEnv" -}}
-- name: {{ .key }}
+- name: {{ .key | quote }}
   valueFrom:
     secretKeyRef:
       name: {{ .root.Values.secrets.name }}
-      key: {{ .key }}
+      key: {{ .key | quote }}
 {{- end -}}
 
 {{/* The checkpoint object store settings the api and the checkpoint GC share. */}}
@@ -105,9 +105,10 @@ imagePullSecrets:
 {{- end }}
 {{- end -}}
 
+{{/* Names are quoted: a YAML-quoted key would otherwise render as another name. */}}
 {{- define "ap.extraEnv" -}}
 {{- range $name, $value := . }}
-- name: {{ $name }}
+- name: {{ $name | quote }}
   value: {{ $value | toString | quote }}
 {{- end }}
 {{- end -}}
