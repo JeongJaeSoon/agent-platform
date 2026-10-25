@@ -16,6 +16,7 @@ import type {
   InstallationLimitsResponse,
   UsageBreakdownBy,
   UsageBreakdownResponse,
+  UsageSeriesResponse,
   UsageSummaryScope,
   UsageToolCallsResponse,
   UsageToolsResponse,
@@ -389,6 +390,16 @@ export function OperationsOverviewScreen() {
   );
 }
 
+type Answer<T> = { readonly data: T | undefined; readonly error: Error | null };
+
+type UsageSet = {
+  readonly key: string;
+  readonly scope: UsageSummaryScope;
+  readonly series: Answer<UsageSeriesResponse>;
+  readonly models: Answer<UsageBreakdownResponse>;
+  readonly agents: Answer<UsageBreakdownResponse>;
+};
+
 export function OperationsUsageScreen() {
   const { t } = useI18n();
   const { client } = useAgentPlatform();
@@ -407,43 +418,50 @@ export function OperationsUsageScreen() {
   });
   const models = useQuery(breakdown("model"));
   const agents = useQuery(breakdown("agent"));
-  // The three answers are shown as one set. Once all have come for the picked
-  // scope and period, failures included, that set is shown; while any is
-  // still coming (a retry too), the last set that fully loaded stays with its
-  // own basis.
+  // The three answers are shown as one set (figures, failures and the basis
+  // line together). A set is taken once every query has answered for the
+  // picked scope and period and none is fetching, or at once when the picked
+  // period is already cached; otherwise the set on screen stays.
   const queries = [series, models, agents];
-  const settled = queries.every(
-    (query) => !query.isPending && !query.isPlaceholderData,
+  const key = `${filters.scope} ${since} ${until}`;
+  const answered = queries.every(
+    (query) => !query.isPlaceholderData && (query.isSuccess || query.isError),
   );
-  const current = {
-    scope: filters.scope,
-    series: series.data,
-    models: models.data,
-    agents: agents.data,
-  };
-  const loaded = useRef(current);
-  if (settled && queries.every((query) => query.isSuccess))
-    loaded.current = current;
-  const shown = settled ? current : loaded.current;
+  const fetching = queries.some((query) => query.isFetching);
+  const set = useRef<UsageSet | undefined>(undefined);
+  if (answered && (!fetching || set.current?.key !== key))
+    set.current = {
+      key,
+      scope: filters.scope,
+      series: { data: series.data, error: series.error },
+      models: { data: models.data, error: models.error },
+      agents: { data: agents.data, error: agents.error },
+    };
+  const shown = set.current;
   const empty =
-    shown.series?.buckets.every((bucket) => bucket.session_count === 0) ??
+    shown?.series.data?.buckets.every((bucket) => bucket.session_count === 0) ??
     false;
+  const failure = (error: Error, retry: () => unknown) => (
+    <Card className="py-0">
+      <LoadFailure error={error} onRetry={() => void retry()} />
+    </Card>
+  );
   const table = (
-    result: typeof models,
-    rows: UsageBreakdownResponse["rows"] | undefined,
+    shownAnswer: Answer<UsageBreakdownResponse> | undefined,
+    retry: () => unknown,
     by: UsageBreakdownBy,
     label: string,
     head: string,
   ) =>
-    settled && result.isError ? (
-      <Card className="py-0">
-        <LoadFailure
-          error={result.error}
-          onRetry={() => void result.refetch()}
-        />
-      </Card>
+    shownAnswer?.error ? (
+      failure(shownAnswer.error, retry)
     ) : (
-      <UsageCostTable label={label} head={head} by={by} rows={rows} />
+      <UsageCostTable
+        label={label}
+        head={head}
+        by={by}
+        rows={shownAnswer?.data?.rows}
+      />
     );
   return (
     <>
@@ -454,41 +472,38 @@ export function OperationsUsageScreen() {
         days={filters.days}
         onDaysChange={filters.setDays}
       />
-      {series.isError ? (
-        <Card className="py-0">
-          <LoadFailure
-            error={series.error}
-            onRetry={() => void series.refetch()}
-          />
-        </Card>
+      {shown?.series.error ? (
+        <div aria-busy={fetching || undefined}>
+          {failure(shown.series.error, series.refetch)}
+        </div>
       ) : (
         <div
-          aria-busy={queries.some((query) => query.isFetching) || undefined}
+          aria-busy={fetching || undefined}
           className="flex min-w-0 flex-col gap-8"
         >
-          <UsageKpis buckets={shown.series?.buckets} />
+          <UsageKpis buckets={shown?.series.data?.buckets} />
           {empty ? (
             <EmptyState title={t("operations.usageEmpty")} />
           ) : (
             <>
               <UsageBasis
-                scope={shown.scope}
-                period={shown.series?.period ?? period}
-                refreshedAt={shown.series?.refreshed_at}
+                scope={shown?.scope ?? filters.scope}
+                period={shown?.series.data?.period ?? period}
+                refreshedAt={shown?.series.data?.refreshed_at}
                 className="-mt-4 leading-4"
               />
               <UsageDailyCost
-                buckets={shown.series?.buckets}
-                days={shown.series?.buckets.length ?? filters.days}
+                buckets={shown?.series.data?.buckets}
+                days={shown?.series.data?.buckets.length ?? filters.days}
               />
-              {settled && models.isError ? null : (
-                <UsageTokenMix totals={shown.models?.totals} />
+              {shown?.models.error ? null : (
+                <UsageTokenMix totals={shown?.models.data?.totals} />
               )}
               <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
                 <Section title={t("operations.byModel")}>
                   {table(
-                    models,
-                    shown.models?.rows,
+                    shown?.models,
+                    models.refetch,
                     "model",
                     t("operations.byModel"),
                     t("operations.model"),
@@ -496,8 +511,8 @@ export function OperationsUsageScreen() {
                 </Section>
                 <Section title={t("operations.byAgent")}>
                   {table(
-                    agents,
-                    shown.agents?.rows,
+                    shown?.agents,
+                    agents.refetch,
                     "agent",
                     t("operations.byAgent"),
                     t("operations.agent"),

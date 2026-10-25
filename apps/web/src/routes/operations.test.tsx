@@ -763,41 +763,100 @@ describe("운영", () => {
     expect(screen.getByText(/^내 사용량 · 2026-09-25/)).toBeTruthy();
   });
 
-  test("사용량 탭: series가 실패한 뒤 다시 시도하는 동안에도 마지막 수치가 남는다", async () => {
+  test("사용량 탭: series가 먼저 실패해도 세 응답이 다 와야 오류가 나고, 다시 시도하는 동안 그 화면이 남는다", async () => {
     setSystemTime(NOW);
-    let release = () => {};
-    const held = new Promise<void>((resolve) => {
-      release = resolve;
-    });
+    const gate = () => {
+      let open = () => {};
+      const shut = new Promise<void>((resolve) => {
+        open = resolve;
+      });
+      return { shut, open };
+    };
+    const breakdowns = gate();
+    const retry = gate();
     let sevenDayCalls = 0;
+    const sevenDays = (request: Request) =>
+      new URL(request.url).searchParams.get("since")?.startsWith("2026-10-18");
     renderAt("/operations/usage", {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/limits": () => json(200, LIMITS),
       ...usageRoutes,
       "GET /v1/usage/series": async (request: Request) => {
-        const since = new URL(request.url).searchParams.get("since");
-        if (since?.startsWith("2026-10-18")) {
+        if (sevenDays(request)) {
           sevenDayCalls += 1;
           if (sevenDayCalls === 1)
             return json(500, { error: { code: "INTERNAL", message: "x" } });
-          await held;
+          await retry.shut;
         }
         return usageRoutes["GET /v1/usage/series"](request);
       },
+      "GET /v1/usage/breakdown": async (request: Request) => {
+        if (sevenDays(request)) await breakdowns.shut;
+        return usageRoutes["GET /v1/usage/breakdown"](request);
+      },
     });
+    const busy = () =>
+      document.querySelector("[aria-busy]")?.getAttribute("aria-busy") ?? null;
     await screen.findByRole("figure", { name: "일자별 추정 비용, 30일" });
     const user = await setupUser();
     await user.click(screen.getByRole("button", { name: "7일" }));
-    await user.click(await screen.findByRole("button", { name: "다시 시도" }));
-    await waitFor(() => expect(sevenDayCalls).toBe(2));
+    // The series failed at once; the breakdowns are still coming.
+    await waitFor(() => expect(sevenDayCalls).toBe(1));
+    await waitFor(() => expect(busy()).toBe("true"));
+    expect(screen.queryByRole("button", { name: "다시 시도" })).toBeNull();
     expect(
       screen.getByRole("figure", { name: "일자별 추정 비용, 30일" }),
     ).toBeTruthy();
     expect(screen.getByText(/^설치 전체 · 2026-09-25/)).toBeTruthy();
-    release();
+    breakdowns.open();
+    await user.click(await screen.findByRole("button", { name: "다시 시도" }));
+    // The retry is held: the failure stays, busy, not a skeleton.
+    await waitFor(() => expect(sevenDayCalls).toBe(2));
+    expect(screen.getByRole("button", { name: "다시 시도" })).toBeTruthy();
+    expect(busy()).toBe("true");
+    retry.open();
     expect(
       await screen.findByRole("figure", { name: "일자별 추정 비용, 7일" }),
     ).toBeTruthy();
+    expect(screen.getByText(/^설치 전체 · 2026-10-18/)).toBeTruthy();
+  });
+
+  test("사용량 탭: 모델별을 다시 시도하는 동안 다른 수치와 오류 자리가 그대로다", async () => {
+    setSystemTime(NOW);
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let modelCalls = 0;
+    renderAt("/operations/usage", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/limits": () => json(200, LIMITS),
+      ...usageRoutes,
+      "GET /v1/usage/breakdown": async (request: Request) => {
+        if (new URL(request.url).searchParams.get("by") === "model") {
+          modelCalls += 1;
+          if (modelCalls === 1)
+            return json(500, { error: { code: "INTERNAL", message: "x" } });
+          await held;
+        }
+        return usageRoutes["GET /v1/usage/breakdown"](request);
+      },
+    });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "다시 시도" }));
+    await waitFor(() => expect(modelCalls).toBe(2));
+    expect(
+      screen.getByRole("figure", { name: "일자별 추정 비용, 30일" }),
+    ).toBeTruthy();
+    expect(
+      within(screen.getByRole("table", { name: "에이전트별" })).getByText(
+        "triage-bot",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "다시 시도" })).toBeTruthy();
+    release();
+    const models = await screen.findByRole("table", { name: "모델별" });
+    expect(within(models).getByText("claude-sonnet-4-5-20250929")).toBeTruthy();
   });
 
   test("사용량 탭: 오래된 캐시 기간으로 돌아오면 수치는 바로 보이고 다시 읽는 동안 aria-busy다", async () => {
@@ -808,9 +867,14 @@ describe("운영", () => {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/limits": () => json(200, LIMITS),
       ...usageRoutes,
+      // A refetched series comes back at once with its new read time.
       "GET /v1/usage/series": async (request: Request) => {
+        const body = await usageRoutes["GET /v1/usage/series"](request).json();
+        return json(200, { ...body, refreshed_at: new Date().toISOString() });
+      },
+      "GET /v1/usage/breakdown": async (request: Request) => {
         await held;
-        return usageRoutes["GET /v1/usage/series"](request);
+        return usageRoutes["GET /v1/usage/breakdown"](request);
       },
     });
     const busy = () =>
@@ -821,7 +885,8 @@ describe("운영", () => {
     await user.click(screen.getByRole("button", { name: "7일" }));
     await screen.findByRole("figure", { name: "일자별 추정 비용, 7일" });
     await waitFor(() => expect(busy()).toBeNull());
-    // The 30-day answers are past their stale time; the refetch is held.
+    // The 30-day answers are past their stale time; the breakdown refetches
+    // are held.
     setSystemTime(new Date(NOW.getTime() + 61_000));
     held = new Promise<void>((resolve) => {
       release = resolve;
@@ -833,8 +898,21 @@ describe("운영", () => {
     ).toBeTruthy();
     await waitFor(() => expect(busy()).toBe("true"));
     expect(api.calls.length).toBeGreaterThan(before);
+    // The new series is in, but it waits for the breakdowns.
+    await waitFor(() =>
+      expect(
+        api.calls.filter(
+          (call) =>
+            call.path === "/v1/usage/series" &&
+            call.search.includes("since=2026-09-25"),
+        ),
+      ).toHaveLength(2),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(screen.getByText(/오후 12:40에 읽은 값$/)).toBeTruthy();
     release();
     await waitFor(() => expect(busy()).toBeNull());
+    expect(screen.getByText(/오후 12:41에 읽은 값$/)).toBeTruthy();
   });
 
   test("사용량 탭: 모델별만 실패하면 나머지는 그 기간으로 보이고 모델별 자리에 오류가 난다", async () => {
