@@ -34,15 +34,18 @@ export function UsageBasis({
   const last = new Date(Date.parse(period.until) - DAY_MS)
     .toISOString()
     .slice(0, 10);
+  const basis = `${messages.scope[scope]} · ${first} – ${last} (UTC) · ${messages.rule} · `;
   return (
     <Text variant="meta" className={className}>
-      {`${messages.scope[scope]} · ${first} – ${last} (UTC) · ${messages.rule} · `}
       {refreshedAt ? (
-        messages.readAt(format.clock(refreshedAt, timeZone))
+        `${basis}${messages.readAt(format.clock(refreshedAt, timeZone))}`
       ) : (
-        <Value loading width="5.5rem">
-          {null}
-        </Value>
+        <>
+          {basis}
+          <Value loading width="5.5rem">
+            {null}
+          </Value>
+        </>
       )}
     </Text>
   );

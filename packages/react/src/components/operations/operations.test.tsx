@@ -20,6 +20,7 @@ const { UsageFilters } = await import("./usage-filters.tsx");
 const { UsageKpis } = await import("./usage-kpis.tsx");
 const { UsageCostTable } = await import("./usage-cost-table.tsx");
 const { UsageDailyCost } = await import("./usage-daily-cost.tsx");
+const { UsageBasis } = await import("./usage-basis.tsx");
 const { OPERATIONS_MESSAGES } = await import("./messages.ts");
 
 const TOOLS = [
@@ -816,6 +817,29 @@ describe("UsageDailyCost", () => {
       />,
     );
     expect(ticks()).toEqual(["$60", "$45", "$30", "$15", "$0"]);
+  });
+});
+
+describe("UsageBasis", () => {
+  test("읽은 뒤에는 기준 줄이 시안처럼 텍스트 노드 하나다", () => {
+    const { container } = withPlatform(
+      <UsageBasis
+        scope="installation"
+        period={{
+          since: "2026-09-24T00:00:00Z",
+          until: "2026-10-24T00:00:00Z",
+        }}
+        refreshedAt="2026-10-23T12:40:00Z"
+        timeZone="Asia/Seoul"
+      />,
+    );
+    const line = container.querySelector("p, span, div");
+    expect([...(line?.childNodes ?? [])].map((n) => n.nodeType)).toEqual([
+      Node.TEXT_NODE,
+    ]);
+    expect(line?.textContent).toBe(
+      "설치 전체 · 2026-09-24 – 2026-10-23 (UTC) · 비용·토큰·실행 시간은 세션을 시작한 날에 붙습니다 · 오후 9:40에 읽은 값",
+    );
   });
 });
 
