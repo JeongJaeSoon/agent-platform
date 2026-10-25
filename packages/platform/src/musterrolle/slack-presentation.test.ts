@@ -121,6 +121,10 @@ describe("escapeSlackControls without a policy", () => {
       const once = escapeSlackControls(text, { maskedLinks: "expand" });
       expect(escapeSlackControls(once, { maskedLinks: "expand" })).toBe(once);
     }
+    const policy = { userIds: ["U1"], maskedLinks: "expand" } as const;
+    const once = escapeSlackControls("<@U1> `<@U1>` <@U2>", policy);
+    expect(once).toBe("<@U1> `&lt;@U1&gt;` &lt;@U2&gt;");
+    expect(escapeSlackControls(once, policy)).toBe(once);
   });
 
   test("a backtick inside a control cannot move a code boundary", () => {
