@@ -164,7 +164,7 @@ integration("usage breakdown on PostgreSQL", () => {
   // A session `who` started at `createdAt` under `agent`, charged `costUsd`
   // in all; each call is a metered provider_usage row whose insert trigger
   // counts it, as the proxy's report does. What the calls do not explain is
-  // set as migration 0168 sets it for sessions from before metering.
+  // set as migration usage_breakdown_rollup sets it for sessions from before metering.
   async function session(
     who: keyof typeof ids,
     createdAt: string,
