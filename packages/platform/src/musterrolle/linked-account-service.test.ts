@@ -19,6 +19,8 @@ const record: LinkedAccountRecord = {
   provider: "slack",
   externalTenant: "T0TEAM",
   externalUserId: "U0USER",
+  externalTenantName: "Acme",
+  externalUserName: null,
   status: "active",
   verifiedAt: new Date("2026-10-11T00:00:00Z"),
   revision: 1,
@@ -110,6 +112,8 @@ describe("linking a Slack account", () => {
       await service.linkSlackAccount(asPerson(), {
         teamId: "T0TEAM",
         userId: "U0USER",
+        teamName: "Acme",
+        userName: null,
       }),
     ).toEqual({
       linked_account: {
@@ -118,6 +122,8 @@ describe("linking a Slack account", () => {
         provider: "slack",
         external_tenant: "T0TEAM",
         external_user_id: "U0USER",
+        external_tenant_name: "Acme",
+        external_user_name: null,
         status: "active",
         verified_at: "2026-10-11T00:00:00.000Z",
         revision: 1,
@@ -133,6 +139,7 @@ describe("linking a Slack account", () => {
           externalTenant: "T0TEAM",
           externalUserId: "U0USER",
         },
+        names: { externalTenantName: "Acme", externalUserName: null },
       },
     ]);
   });
@@ -154,6 +161,8 @@ describe("linking a Slack account", () => {
       const refusal = service.linkSlackAccount(asPerson(), {
         teamId: "T0TEAM",
         userId: "U0USER",
+        teamName: null,
+        userName: null,
       });
       await expect(refusal).rejects.toMatchObject({ code });
       await expect(refusal).rejects.toThrow(message);

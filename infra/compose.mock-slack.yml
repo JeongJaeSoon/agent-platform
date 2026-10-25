@@ -22,6 +22,10 @@ services:
       MOCK_SLACK_PUBLIC_URL: http://mock-slack:4020
       MOCK_SLACK_TEAM_ID: ${MOCK_SLACK_TEAM_ID:-T0MOCK}
       MOCK_SLACK_USER_ID: ${MOCK_SLACK_USER_ID:-U0MOCK}
+      # Empty: the id_token carries no names, as a link made before they
+      # were kept shows.
+      MOCK_SLACK_TEAM_NAME: ${MOCK_SLACK_TEAM_NAME:-}
+      MOCK_SLACK_USER_NAME: ${MOCK_SLACK_USER_NAME:-}
     healthcheck:
       test: ["CMD", "bun", "-e", "await fetch('http://127.0.0.1:4020/healthz')"]
       interval: 5s

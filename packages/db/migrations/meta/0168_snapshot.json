@@ -1,6 +1,6 @@
 {
-  "id": "7b56e5dd-9e89-47cd-a029-8efba58f3484",
-  "prevId": "28dc3648-5e2c-403b-8fd7-e3002a226634",
+  "id": "2b495556-b89f-411c-80f0-a5fcbc6b3072",
+  "prevId": "c528bf1c-54d9-4350-a89d-3b0a107b1ea0",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -2689,6 +2689,18 @@
           "primaryKey": false,
           "notNull": true
         },
+        "external_tenant_name": {
+          "name": "external_tenant_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "external_user_name": {
+          "name": "external_user_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "status": {
           "name": "status",
           "type": "text",
@@ -4936,141 +4948,6 @@
           "value": "\"session_links\".\"revision\" >= 1"
         }
       },
-      "isRLSEnabled": false
-    },
-    "public.session_model_usage": {
-      "name": "session_model_usage",
-      "schema": "",
-      "columns": {
-        "session_id": {
-          "name": "session_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "model": {
-          "name": "model",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "session_created_at": {
-          "name": "session_created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "agent_id": {
-          "name": "agent_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "input_tokens": {
-          "name": "input_tokens",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "output_tokens": {
-          "name": "output_tokens",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "cache_read_input_tokens": {
-          "name": "cache_read_input_tokens",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "cache_creation_input_tokens": {
-          "name": "cache_creation_input_tokens",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "cost_usd": {
-          "name": "cost_usd",
-          "type": "numeric(14, 6)",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {
-        "session_model_usage_created_at_idx": {
-          "name": "session_model_usage_created_at_idx",
-          "columns": [
-            {
-              "expression": "session_created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "session_model_usage_session_id_model_pk": {
-          "name": "session_model_usage_session_id_model_pk",
-          "columns": ["session_id", "model"]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.session_pre_metering_cost": {
-      "name": "session_pre_metering_cost",
-      "schema": "",
-      "columns": {
-        "session_id": {
-          "name": "session_id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "session_created_at": {
-          "name": "session_created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "cost_usd": {
-          "name": "cost_usd",
-          "type": "numeric(14, 6)",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {
-        "session_pre_metering_cost_created_at_idx": {
-          "name": "session_pre_metering_cost_created_at_idx",
-          "columns": [
-            {
-              "expression": "session_created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.session_share_targets": {

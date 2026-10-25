@@ -57,6 +57,7 @@ import {
 } from "../api/queries.ts";
 import {
   offeredActions,
+  offeredInviteRoles,
   permissionReason,
   roleLabel,
   useHasPermission,
@@ -199,6 +200,7 @@ export function MembersLayout() {
   ) : manages && !failed ? (
     <InviteDialog
       reason={reason}
+      assignableRoles={offeredInviteRoles(members.data)}
       refusal={(error, role) => refusal(t, error, role)}
     />
   ) : undefined;
