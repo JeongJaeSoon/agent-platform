@@ -283,9 +283,9 @@ describe("워크스페이스 설정", () => {
     });
     const toggle = await screen.findByRole("switch", GUEST_SWITCH);
     const row = toggle.closest('[data-slot="setting-row"]');
-    expect(row?.closest('[role="region"]')?.getAttribute("aria-labelledby")).toBe(
-      screen.getByRole("heading", { name: "Slack 게스트" }).id,
-    );
+    expect(
+      row?.closest('[role="region"]')?.getAttribute("aria-labelledby"),
+    ).toBe(screen.getByRole("heading", { name: "Slack 게스트" }).id);
     // bun's toBe passes on unrelated DOM nodes; compare elements with ===.
     const slot = toggle.parentElement;
     expect(slot?.lastElementChild === toggle).toBe(true);
