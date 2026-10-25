@@ -78,10 +78,10 @@ deploy/preview/preview.sh list       # 떠 있는 미리보기의 URL·head·메
 deploy/preview/preview.sh down 123   # namespace, 이미지 태그, checkout을 지운다
 ```
 
-- 설치는 PR head의 트리(Dockerfile·chart·대역 서비스)를 이 checkout의 `deploy/kind/up.sh`(orbstack 모드)로 한다. up.sh를 PR checkout에 복사해 돌리므로 orbstack 모드가 없는 오래된 head도 뜬다. 값은 `deploy/preview/values.yaml`을 얹는다(worker 메모리를 fake 모델에 맞게 낮춘다).
+- 설치는 PR head의 트리(Dockerfile·chart·대역 서비스)를 이 checkout의 `deploy/kind/up.sh`(orbstack 모드)로 한다. up.sh를 PR checkout에 복사해 돌리므로 orbstack 모드가 없는 오래된 head도 뜬다. 값은 `deploy/preview/values.yaml`을 얹는다(api·egress proxy를 1개로, worker 메모리를 fake 모델에 맞게 낮춘다).
 - 진입점은 미리보기 전체가 같이 쓰는 Traefik 하나다. 없으면 `up`이 namespace `preview-ingress`에 chart 42.1.3으로 한 번 설치한다(IngressClass `preview`, LoadBalancer 18180 http·18543 https). Traefik CRD는 설치하지 않는다. OrbStack은 LoadBalancer 포트를 Mac의 `127.0.0.1`에만 연다. `k8s.expose_services`가 켜져 있으면 `up`이 멈춘다.
 - 각 namespace에 Ingress `preview-pr-<번호>`가 Host `pr-<번호>.preview.94soon.dev`를 api로 보낸다. Ingress 이름이 namespace마다 같으면 Traefik router가 충돌해 두 번째 host가 404가 된다. 바깥 DNS·인증서가 없을 때는 `curl --resolve pr-123.preview.94soon.dev:18543:127.0.0.1 -k https://pr-123.preview.94soon.dev:18543/readyz`로 확인한다.
-- 새 미리보기를 띄우기 전에 노드 allocatable 메모리에서 Pod requests 합을 뺀 값이 `PREVIEW_MEMORY_MI`(기본 2048)보다 작으면 이유를 적고 멈춘다. `MAX_MEMORY_MI`는 allocatable 대신 셀 값이다. 이미 있는 미리보기를 다시 `up`할 때는 세지 않는다.
+- 새 미리보기를 띄우기 전에 노드 allocatable 메모리에서 Pod requests 합을 뺀 값이 `PREVIEW_MEMORY_MI`(기본 2560: 미리보기 Deployment requests 1792Mi와 worker 하나 768Mi)보다 작으면 이유를 적고 멈춘다. `MAX_MEMORY_MI`는 allocatable 대신 셀 값이다. 이미 있는 미리보기를 다시 `up`할 때는 세지 않는다.
 - namespace에는 label `agent-platform.dev/preview=true`, annotation `agent-platform.dev/preview-head`(설치한 head)·`agent-platform.dev/preview-up-at`(마지막 `up` 시작 시각, UTC)이 붙는다. `down`은 이 label이 없는 namespace를 지우지 않는다.
 - checkout과 up.sh 상태는 `PREVIEW_HOME`(기본 `~/.cache/agent-platform/preview`) 아래 `pr-<번호>`에, PR head는 ref `refs/preview/pr-<번호>`에 둔다. 둘 다 `down`이 지운다.
 

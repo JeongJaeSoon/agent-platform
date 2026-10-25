@@ -22,14 +22,16 @@
 #                      (default ~/.cache/agent-platform/preview)
 #   PREVIEW_DOMAIN     the hosts' parent domain (default preview.94soon.dev)
 #   PREVIEW_MEMORY_MI  what one preview needs from the node's unrequested
-#                      memory before `up` installs it (default 2048)
+#                      memory before `up` installs it (default 2560: the
+#                      requests of deploy/preview/values.yaml's Deployments
+#                      and one session worker)
 #   MAX_MEMORY_MI      the node memory the check counts from, in place of
 #                      its allocatable memory
 set -euo pipefail
 
 PREVIEW_HOME="${PREVIEW_HOME:-${XDG_CACHE_HOME:-$HOME/.cache}/agent-platform/preview}"
 PREVIEW_DOMAIN="${PREVIEW_DOMAIN:-preview.94soon.dev}"
-PREVIEW_MEMORY_MI="${PREVIEW_MEMORY_MI:-2048}"
+PREVIEW_MEMORY_MI="${PREVIEW_MEMORY_MI:-2560}"
 INGRESS_NAMESPACE=preview-ingress
 TRAEFIK_CHART=oci://ghcr.io/traefik/helm/traefik
 TRAEFIK_VERSION=42.1.3
