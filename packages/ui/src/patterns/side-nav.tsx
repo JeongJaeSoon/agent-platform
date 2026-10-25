@@ -18,9 +18,10 @@ import { Button } from "../primitives/button.tsx";
  * A list of the pages or sections inside one screen, on its left: settings
  * pages, or the sections of a long agent setting. Use it when there are four
  * or more siblings and people stay a while; two or three are LinkTabs, panels
- * switched in place are Tabs. Below md the list folds behind one button above
- * the page that names where you are. It lays out a page, not a dialog: a
- * Radix dialog takes Escape before the folded list can.
+ * switched in place are Tabs. Below lg the list folds behind one button above
+ * the page that names where you are: from md the app's sidebar already takes
+ * the left, and both beside the page leave it too narrow. It lays out a page,
+ * not a dialog: a Radix dialog takes Escape before the folded list can.
  */
 
 export type SideNavLayoutProps = Omit<ComponentProps<"div">, "children"> & {
@@ -39,7 +40,7 @@ export function SideNavLayout({
     <div
       data-slot="side-nav-layout"
       className={cn(
-        "flex w-full flex-col gap-6 md:flex-row md:gap-8",
+        "flex w-full flex-col gap-6 lg:flex-row lg:gap-8",
         className,
       )}
       {...props}
@@ -100,7 +101,7 @@ export function SideNav({
       data-slot="side-nav"
       aria-label={label}
       className={cn(
-        "md:sticky md:top-4 md:w-55 md:flex-none md:self-start",
+        "lg:sticky lg:top-4 lg:w-55 lg:flex-none lg:self-start",
         className,
       )}
       {...props}
@@ -110,7 +111,7 @@ export function SideNav({
         type="button"
         variant="outline"
         size="sm"
-        className="w-full justify-between md:hidden"
+        className="w-full justify-between lg:hidden"
         aria-expanded={open}
         aria-controls={listId}
         onClick={() => setOpen((value) => !value)}
@@ -131,7 +132,7 @@ export function SideNav({
         id={listId}
         className={cn(
           open ? "mt-2 flex rounded-card border p-2" : "hidden",
-          "flex-col gap-3 md:mt-0 md:flex md:border-0 md:p-0",
+          "flex-col gap-3 lg:mt-0 lg:flex lg:border-0 lg:p-0",
         )}
         onClick={picked}
         onKeyDown={closeOnEscape}
