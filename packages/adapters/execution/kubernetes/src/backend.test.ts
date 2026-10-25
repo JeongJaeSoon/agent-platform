@@ -496,6 +496,21 @@ describe("inspect", () => {
     expect(tail).not.toContain("line 99 ");
   });
 
+  test("long lines that fill the read are read again fewer at a time, so the end survives", async () => {
+    const { api, backend } = setup();
+    const { intent } = intentFor();
+    await backend.ensureExecution(intent);
+    api.setPhase(NS, podName, "Failed");
+    const noise = Array.from({ length: 250 }, () => `${"n".repeat(1_000)}\n`);
+    api.logs.set(podName, `${noise.join("")}fatal: out of disk\n`);
+    const tail = (await backend.inspect(intent)).logTail ?? "";
+    expect(tail.endsWith("fatal: out of disk\n")).toBe(true);
+    expect(new TextEncoder().encode(tail).length).toBe(8 * 1024);
+    expect(
+      logReads(api).map((c) => (c.body as { tailLines: number }).tailLines),
+    ).toEqual([200, 20]);
+  });
+
   test("a log that cannot be read costs the tail, not the inspect", async () => {
     const { api, backend } = setup();
     const { intent } = intentFor();

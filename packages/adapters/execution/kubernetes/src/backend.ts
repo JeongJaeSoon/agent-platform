@@ -57,10 +57,13 @@ const POLL_MS = 250;
  */
 const SECRET_LANDING_REQUESTS = 2;
 
-/** A failed worker's log as kept: its last lines, then its last bytes. */
-const LOG_TAIL_LINES = 200;
+/**
+ * A failed worker's log as kept: its last lines, then their last bytes.
+ * Fewer lines are asked for when the last ones fill the read on their own.
+ */
+const LOG_TAIL_LINES = [200, 20, 1];
 const LOG_TAIL_BYTES = 8 * 1024;
-/** The server's own cut, for lines far longer than a log line should be. */
+/** The most one read takes in, however long the lines. */
 const LOG_TAIL_READ_BYTES = 64 * 1024;
 
 /**
@@ -653,15 +656,30 @@ export class KubernetesBackend implements ExecutionBackend {
     ) {
       return undefined;
     }
-    let log: string | null;
-    try {
-      log = await this.client.podLog(this.config.namespace, pod.metadata.name, {
-        container: CONTAINER_NAME,
-        limitBytes: LOG_TAIL_READ_BYTES,
-        tailLines: LOG_TAIL_LINES,
-      });
-    } catch {
-      return undefined;
+    let log: string | null = null;
+    // The server cuts at `limitBytes` from the front of the lines asked
+    // for, so a read that hit the cut holds the middle of the log, not its
+    // end: it is asked again for fewer lines.
+    for (const tailLines of LOG_TAIL_LINES) {
+      try {
+        log = await this.client.podLog(
+          this.config.namespace,
+          pod.metadata.name,
+          {
+            container: CONTAINER_NAME,
+            limitBytes: LOG_TAIL_READ_BYTES,
+            tailLines,
+          },
+        );
+      } catch {
+        return undefined;
+      }
+      if (
+        log === null ||
+        new TextEncoder().encode(log).length < LOG_TAIL_READ_BYTES
+      ) {
+        break;
+      }
     }
     if (log === null || log === "") return undefined;
     const bytes = new TextEncoder().encode(log);
