@@ -394,6 +394,7 @@ function AgentView({
       <TabsContent {...tabPanel("release")}>
         <Releases
           detail={detail}
+          shown={tab === "release"}
           picked={releaseVersion}
           onPick={setReleaseVersion}
           versionNo={versionNo}

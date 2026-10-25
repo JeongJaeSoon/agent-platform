@@ -53,6 +53,7 @@ export function Releases({
   onOutcome,
   activating,
   onActivate,
+  shown,
 }: {
   readonly detail: AgentDetail;
   /** The version to release; null offers the latest. */
@@ -64,6 +65,8 @@ export function Releases({
   readonly onOutcome: (outcome: Outcome | null) => void;
   readonly activating: string | undefined;
   readonly onActivate: (release: AgentRelease) => void;
+  /** Whether the tab is open; every tab stays mounted. */
+  readonly shown: boolean;
 }) {
   const { t, locale } = useI18n();
   const { client } = useAgentPlatform();
@@ -86,8 +89,12 @@ export function Releases({
   const [open, setOpen] = useState(false);
   const submitted = useRef(false);
   // Only roles that list members get names; anyone else reads "a member".
+  // Read when the tab opens, not with every visit to the agent.
   const listsMembers = useHasPermission("member.manage");
-  const members = useQuery({ ...membersQuery(client), enabled: listsMembers });
+  const members = useQuery({
+    ...membersQuery(client),
+    enabled: listsMembers && shown,
+  });
   const names = new Map(
     (members.data?.items ?? []).map((m) => [m.user_id, m.display_name]),
   );

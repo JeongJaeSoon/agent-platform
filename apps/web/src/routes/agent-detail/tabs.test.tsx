@@ -615,6 +615,24 @@ describe("에이전트 상세 탭", () => {
     ).toEqual(["배포 기록", "자격 연결"]);
   });
 
+  test("구성원 목록은 배포 탭을 열 때 읽고, 다른 탭을 볼 때는 읽지 않는다", async () => {
+    const server = agentServer();
+    await released(server);
+    const { api } = renderAt(DETAIL, {
+      ...meOk,
+      ...server.routes,
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [], next_cursor: null })),
+    });
+    const user = await setupUser();
+    const memberReads = () =>
+      api.calls.filter((c) => c.path === "/v1/members").length;
+    await user.click(await screen.findByRole("tab", { name: "카드" }));
+    expect(memberReads()).toBe(0);
+    await user.click(screen.getByRole("tab", { name: "배포" }));
+    await waitFor(() => expect(memberReads()).toBe(1));
+  });
+
   test("구성원 목록을 못 읽으면 만든 사람을 '구성원'으로 쓴다", async () => {
     const server = agentServer();
     await released(server);
@@ -649,7 +667,7 @@ describe("에이전트 상세 탭", () => {
 async function released(server: ReturnType<typeof agentServer>) {
   const routes = server.routes as Record<
     string,
-    (request: Request) => Promise<Response>
+    (request: Request) => Response | Promise<Response>
   >;
   const path = `/v1/agents/${AGENT_ID}`;
   const post = (route: string, body: unknown) =>
