@@ -94,6 +94,9 @@ function renderInbox({
   /** Lines open the session in a rail the host draws beside the inbox. */
   rail?: boolean;
 }) {
+  /** STALE_ID's requests, listed after SESSION_ID until `jump`. */
+  let ahead: PendingRequest[] = [];
+  let jumped = false;
   const posted: Posted[] = [];
   let waitingReads = 0;
   let stream: ReadableStreamDefaultController<Uint8Array> | undefined;
@@ -117,10 +120,13 @@ function renderInbox({
       waitingReads += 1;
       return json(200, {
         items: [
+          ...(jumped
+            ? [{ id: STALE_ID, title: null, status: "needs_input" }]
+            : []),
           ...(items.length
             ? [{ id: SESSION_ID, title, status: "needs_input" }]
             : []),
-          ...(stale
+          ...(stale || (ahead.length && !jumped)
             ? [{ id: STALE_ID, title: null, status: "needs_input" }]
             : []),
         ],
@@ -128,7 +134,7 @@ function renderInbox({
       });
     }
     if (route === `GET /v1/sessions/${STALE_ID}/pending-requests`) {
-      return json(200, { answerable: true, items: [] });
+      return json(200, { answerable: true, items: ahead });
     }
     if (route === `GET /v1/sessions/${SESSION_ID}/pending-requests`) {
       return json(200, { answerable, items });
@@ -159,12 +165,13 @@ function renderInbox({
     }
     return json(404, { error: { code: "NOT_FOUND", message: route } });
   };
+  const queryClient = new QueryClient();
   const client = createApiClient({
     baseUrl: "https://console.test",
     fetch: fakeFetch as unknown as NonNullable<ApiClientOptions["fetch"]>,
   });
   const view = render(
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider client={queryClient}>
       <AgentPlatformProvider
         client={client}
         locale="en"
@@ -176,7 +183,7 @@ function renderInbox({
       >
         {body ??
           (rail ? (
-            <RailHost layout={layout} />
+            <RailHost layout={layout} extra={extra} />
           ) : (
             <ApprovalInbox
               loading={<p>loading</p>}
@@ -191,6 +198,16 @@ function renderInbox({
   );
   return {
     ...view,
+    /** Gives STALE_ID `requests`, listed after SESSION_ID. */
+    second: (requests: PendingRequest[]) => {
+      ahead = requests;
+      return queryClient.invalidateQueries();
+    },
+    /** Moves STALE_ID ahead of SESSION_ID and reads the lists again. */
+    jump: () => {
+      jumped = true;
+      return queryClient.invalidateQueries();
+    },
     posted,
     waitingReads: () => waitingReads,
     /** Sends more frames down the open event stream. */
@@ -201,8 +218,10 @@ function renderInbox({
 
 function RailHost({
   layout,
+  extra,
 }: {
   readonly layout?: ApprovalLayout | undefined;
+  readonly extra?: Partial<ApprovalInboxProps> | undefined;
 }) {
   const rail = usePendingRail({ renderError: () => <p>failed</p> });
   return (
@@ -212,6 +231,7 @@ function RailHost({
         renderError={() => <p>failed</p>}
         layout={layout}
         rail={rail}
+        {...extra}
       />
       {rail.rail}
     </>
@@ -683,6 +703,30 @@ describe("ApprovalInbox", () => {
     expect(
       view.getAllByRole("button", { name: `View details of ${SHORT}` }),
     ).toHaveLength(1);
+    await waitFor(() =>
+      expect(document.activeElement?.textContent).toBe("Waiting for an answer"),
+    );
+  });
+
+  test("레일이 열려 있을 때 포커스를 쥔 줄이 줄 수 제한 밖으로 밀려나도 키보드는 받은편지함 제목으로 간다", async () => {
+    const view = renderInbox({
+      open: [permission("req_1", "Bash")],
+      layout: "summary",
+      rail: true,
+      extra: { limit: 1 },
+    });
+    const opener = await view.findByRole("button", {
+      name: `View details of ${SHORT}`,
+    });
+    // A second session, past the one line there is room for.
+    await act(() => view.second([permission("req_2", "Edit")]));
+    await waitFor(() => expect(view.waitingReads()).toBeGreaterThan(1));
+    opener.click();
+    await view.findByRole("complementary");
+    opener.focus();
+    // It moves ahead: this session's line goes, its request stays.
+    await act(() => view.jump());
+    await waitFor(() => expect(opener.isConnected).toBe(false));
     await waitFor(() =>
       expect(document.activeElement?.textContent).toBe("Waiting for an answer"),
     );

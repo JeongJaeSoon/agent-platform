@@ -140,20 +140,20 @@ export function ApprovalInbox({
   const shown = sessions.filter(
     (_, index) => lists[index]?.data?.items.length !== 0,
   );
-  const shownKey = shown.map((session) => session.id).join();
+  // Past `limit` a session is not drawn: it leaves the list as an answered
+  // one does.
+  const drawn = limit === undefined ? shown : shown.slice(0, limit);
   // Rail lines are one per request, and one can leave while its session
   // stays; answer forms move focus within their session themselves.
   const railLines = rail !== undefined && layout === "summary";
-  const lineKey = railLines
-    ? sessions
-        .flatMap(
-          (session, index) =>
-            lists[index]?.data?.items.map((request) => request.request_id) ?? [
-              session.id,
-            ],
-        )
-        .join()
-    : shownKey;
+  const lineKey = drawn
+    .flatMap((session) => {
+      const items = railLines
+        ? lists[sessions.indexOf(session)]?.data?.items
+        : undefined;
+      return items?.map((request) => request.request_id) ?? [session.id];
+    })
+    .join();
   const emptyKey = sessions
     .filter((_, index) => lists[index]?.data?.items.length === 0)
     .map((session) => session.id)
@@ -194,7 +194,6 @@ export function ApprovalInbox({
         renderError(waiting.error, () => void waiting.refetch());
   } else {
     const more = waiting.data.next_cursor !== null;
-    const drawn = limit === undefined ? shown : shown.slice(0, limit);
     const left = shown.length - drawn.length;
     if (shown.length > 0) {
       count = (
