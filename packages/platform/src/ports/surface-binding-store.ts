@@ -82,9 +82,12 @@ export interface SurfaceBindingStore {
   /**
    * Records what Slack said about the bot's place in a live binding's
    * channel. Observed state, not a setting: no revision, no receipt.
+   * With `expected`, only while the binding still holds it, so a slow
+   * answer does not undo an invite recorded meanwhile.
    */
   setMembership(
     bindingId: string,
     membership: SurfaceMembership,
+    expected?: SurfaceMembership | null,
   ): Promise<void>;
 }

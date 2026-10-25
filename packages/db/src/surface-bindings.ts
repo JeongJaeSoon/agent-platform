@@ -301,7 +301,7 @@ export function createPostgresSurfaceBindingStore(
       }
       return resolveSlackChannel(db, id, null);
     },
-    async setMembership(bindingId, membership) {
+    async setMembership(bindingId, membership, expected) {
       if (!UUID.test(bindingId)) return;
       await db
         .update(surfaceBindings)
@@ -314,6 +314,12 @@ export function createPostgresSurfaceBindingStore(
           and(
             eq(surfaceBindings.id, bindingId.toLowerCase()),
             isNull(surfaceBindings.revokedAt),
+            expected === undefined
+              ? undefined
+              : and(
+                  sql`${surfaceBindings.membership} IS NOT DISTINCT FROM ${expected?.state ?? null}`,
+                  sql`${surfaceBindings.membershipError} IS NOT DISTINCT FROM ${expected?.error ?? null}`,
+                ),
           ),
         );
     },

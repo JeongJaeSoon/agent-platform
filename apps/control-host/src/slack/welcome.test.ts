@@ -338,6 +338,7 @@ async function installedAgent() {
     bind,
     finalize,
     list,
+    bindingStore,
   };
 }
 
@@ -550,6 +551,37 @@ describe.each(ENGINES)("the deployment welcome on %s", (engine) => {
       await new Promise((resolve) => setTimeout(resolve, 5));
     }
     expect(await outboxRows()).toHaveLength(1);
+  });
+
+  test("a membership answer from before an invite does not overwrite it", async () => {
+    const [home] = slack.seedChannels([{ name: "secret", isPrivate: true }]);
+    const fixture = await installedAgent();
+    const bound = await fixture.bind(home?.id ?? "", true);
+    const id = bound.slack_binding.id;
+    const seen = bound.slack_binding.membership ?? null;
+    await fixture.bindingStore.setMembership(id, {
+      state: "joined",
+      error: null,
+    });
+    await fixture.bindingStore.setMembership(
+      id,
+      { state: "awaiting_invite", error: null },
+      seen,
+    );
+    expect((await fixture.list())[0]?.membership).toEqual({
+      state: "joined",
+      error: null,
+    });
+    // Against what it holds now, the write goes through.
+    await fixture.bindingStore.setMembership(
+      id,
+      { state: "join_failed", error: "is_archived" },
+      { state: "joined", error: null },
+    );
+    expect((await fixture.list())[0]?.membership).toEqual({
+      state: "join_failed",
+      error: "is_archived",
+    });
   });
 
   test("a join Slack refuses leaves its cause on the binding and fails nothing", async () => {

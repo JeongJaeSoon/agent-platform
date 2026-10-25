@@ -147,7 +147,11 @@ export function createSlackChannelJoiner(deps: {
       (binding.membership?.state !== membership.state ||
         binding.membership.error !== membership.error)
     ) {
-      await deps.bindings.setMembership(binding.id, membership);
+      await deps.bindings.setMembership(
+        binding.id,
+        membership,
+        binding.membership,
+      );
     }
     return membership;
   };

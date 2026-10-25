@@ -66,18 +66,20 @@ function binding(
 function fakeSlack(channels: Record<string, Partial<SlackChannelMembership>>) {
   const calls: string[] = [];
   const failures = new Map<string, string>();
-  const hooks = { onJoin: () => {} };
+  const hooks = { onInfo: () => {}, onJoin: () => {} };
   const slack: Pick<SlackBotApi, "channelMembership" | "joinChannel"> = {
     async channelMembership(_token, channelId) {
       calls.push(`info:${channelId}`);
       const failure = failures.get("conversations.info");
       if (failure) throw new SlackApiError("conversations.info", failure, true);
-      return {
-        kind: "public_channel",
+      const answer = {
+        kind: "public_channel" as const,
         isMember: false,
         isArchived: false,
         ...channels[channelId],
       };
+      hooks.onInfo();
+      return answer;
     },
     async joinChannel(_token, channelId) {
       calls.push(`join:${channelId}`);
@@ -99,8 +101,15 @@ function world(
   let active = R1.id;
   const bindings: Pick<SurfaceBindingStore, "list" | "setMembership"> = {
     list: async () => [...rows].sort((a, b) => Number(b.home) - Number(a.home)),
-    async setMembership(id, membership) {
+    async setMembership(id, membership, expected) {
       const row = rows.find((candidate) => candidate.id === id);
+      const held = row?.membership ?? null;
+      if (
+        expected !== undefined &&
+        (held?.state !== expected?.state || held?.error !== expected?.error)
+      ) {
+        return;
+      }
       if (row) row.membership = membership;
     },
   };
@@ -274,6 +283,19 @@ describe("deployment welcome", () => {
     });
     expect(w.fake.calls).toEqual(["info:C0HOME", "join:C0HOME"]);
     expect(w.outbox.size).toBe(0);
+  });
+
+  test("an answer from before the invite does not undo it: the home is welcomed", async () => {
+    const home = binding(HOME, "G0HOME", { home: true });
+    const w = world([home], { G0HOME: { kind: "private_channel" } });
+    // The invite is recorded while Slack's older answer is on its way.
+    w.fake.hooks.onInfo = () => {
+      home.membership = { state: "joined", error: null };
+    };
+    await w.activate(R1.id);
+    await settled(() => w.outbox.size > 0);
+    expect(home.membership).toEqual({ state: "joined", error: null });
+    expect(w.outbox.size).toBe(1);
   });
 
   test("a private home waits for the invite with no row; Finalize after it sends once, then duplicate", async () => {

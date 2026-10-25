@@ -155,14 +155,15 @@ export function createSlackWelcome(deps: {
     const channelId = home.channelId;
     let membership = home.membership;
     if (options.ask && deps.join !== null) {
-      membership = (await deps.join(home)) ?? membership;
-      // The home may have moved, or the release rolled back, while Slack
-      // answered.
+      await deps.join(home);
+      // The home may have moved, the release rolled back or an invite
+      // landed while Slack answered: what is stored now decides.
       found = await target(workspaceId, agentId);
       if ("status" in found) return found;
       if (found.home.id !== home.id || found.home.channelId !== channelId) {
         return { status: "no_home" };
       }
+      membership = found.home.membership;
     }
     if (membership === null) return { status: "unknown_membership", channelId };
     if (membership.state !== "joined") {
