@@ -206,6 +206,35 @@ describe("SideNav", () => {
     expect(document.activeElement === toggle).toBe(true);
   });
 
+  test("펼친 목록에서 고르면 링크의 onClick 전에 목록이 접히고, 버튼으로 돌아가는 포커스는 스크롤하지 않는다", async () => {
+    const user = await setupUser();
+    const seen: (string | null)[] = [];
+    const { getByRole } = render(
+      <SideNav aria-label="Slack">
+        <SideNavGroup>
+          <SideNavLink
+            href="#app"
+            onClick={(event) => {
+              event.preventDefault();
+              seen.push(toggle.getAttribute("aria-expanded"));
+            }}
+          >
+            앱
+          </SideNavLink>
+        </SideNavGroup>
+      </SideNav>,
+    );
+    const toggle = getByRole("button", { name: /^Slack/ });
+    const focus = mock(toggle.focus.bind(toggle));
+    toggle.focus = focus;
+    await user.click(toggle);
+    await user.click(getByRole("link", { name: "앱" }));
+    // A section link scrolls in its onClick: the list it measures past must
+    // already be gone, or the jump lands short by the list's height.
+    expect(seen).toEqual(["false"]);
+    expect(focus.mock.calls.at(-1)).toEqual([{ preventScroll: true }]);
+  });
+
   test("접히지 않은 목록에서 고르면 onPick을 부르지 않는다", async () => {
     const user = await setupUser();
     const onPick = mock(() => {});
