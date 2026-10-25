@@ -54,8 +54,9 @@ describe("Input·NativeSelect v4 여백", () => {
     );
     const icon = select.parentElement?.querySelector("svg");
     expect(icon?.getAttribute("aria-hidden")).toBe("true");
-    expect(icon?.getAttribute("class")?.split(" ")).toContain(
-      "text-subtle-foreground",
+    // pr-10 (40px) leaves 12px between the text and a 16px icon 12px in.
+    expect(icon?.getAttribute("class")?.split(" ")).toEqual(
+      expect.arrayContaining(["text-subtle-foreground", "size-4", "right-3"]),
     );
   });
 });
