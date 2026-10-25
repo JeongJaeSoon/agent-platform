@@ -131,6 +131,9 @@ describe("workspace shell", () => {
         return new Response(null, { status: 204 });
       },
     });
+    // A screen like the invite page may have cached the signed-in viewer;
+    // the login gate must ask the server again, not trust it.
+    services.queryClient.setQueryData(["me", "optional"], me());
     const user = await setupUser();
     await user.click(
       await screen.findByRole("button", { name: "Owner · 소유자" }),
