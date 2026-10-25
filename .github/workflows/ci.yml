@@ -144,8 +144,9 @@ jobs:
     name: integration (${{ matrix.domain }})
     if: contains(fromJSON('["all","integration"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04
-    # Ceiling for a job measured at about 2m15s.
-    timeout-minutes: 8
+    # The longest domain, DB, reached 5m42s on main and 4m55s on the PR.
+    # Allow 10m for runner variability, service startup and cleanup.
+    timeout-minutes: 10
     strategy:
       # A failing job must not cancel the rest: each one's failures are
       # their own, and a cancelled job would hide them until the next push.
@@ -161,8 +162,8 @@ jobs:
             paths:
               - packages/db/
               - packages/testkit/src/postgres.
-          # The HTTP surface and what it serves: routes, auth, events, the
-          # reconciler, the contracts it publishes and the UI that reads them.
+          # HTTP routes and the control-host flows they drive. Keep their
+          # database and lifecycle checks apart from API consumer suites.
           - domain: api
             postgres: true
             localstack: true
@@ -172,6 +173,17 @@ jobs:
               - apps/control-host/src/main
               - apps/control-host/src/pass-loop/
               - apps/control-host/src/reconciler/
+              - tests/catalog-mismatch.
+              - tests/context-gap-flow.
+              - tests/interrupt-flow.
+              - tests/lease-clock.
+          # Slack and the contracts, clients and UI that consume the API.
+          # Enable PostgreSQL and LocalStack so service-gated tests do not skip.
+          - domain: surface
+            postgres: true
+            localstack: true
+            docker: false
+            paths:
               - apps/control-host/src/slack/
               - packages/contracts/
               - packages/client/
@@ -181,10 +193,6 @@ jobs:
               - packages/ui/
               - apps/web/
               - apps/storybook/
-              - tests/catalog-mismatch.
-              - tests/context-gap-flow.
-              - tests/interrupt-flow.
-              - tests/lease-clock.
           # Object storage: checkpoint objects, the S3 transport and its bounds.
           - domain: storage
             postgres: false
@@ -278,6 +286,8 @@ jobs:
                 test: "(unnamed)"
               - file: packages/adapters/execution/kubernetes/src/backend.integration.test.ts
                 test: "a delete conditioned on the replaced Pod's UID leaves the replacement running"
+              - file: packages/adapters/execution/kubernetes/src/backend.integration.test.ts
+                test: "a failed worker reports its exit, reason and log tail"
               - file: packages/adapters/execution/kubernetes/src/backend.integration.test.ts
                 test: "terminating one generation leaves the next generation's Pod untouched"
               - file: packages/adapters/execution/kubernetes/src/backend.integration.test.ts

@@ -38,7 +38,13 @@ const EXIT_REFUSED = 3;
 const PINNED_IMAGE = /^[^\s@]+@sha256:[0-9a-f]{64}$/;
 
 /** What compose.local.yml runs and a test-ops installation must not. */
-const LOCAL_ONLY = ["localstack", "secrets", "fake-messages", "gitea-init"];
+const LOCAL_ONLY = [
+  "localstack",
+  "local-s3-init",
+  "secrets",
+  "fake-messages",
+  "gitea-init",
+];
 
 /**
  * Where a test-ops installation keeps checkpoint objects: LocalStack, in

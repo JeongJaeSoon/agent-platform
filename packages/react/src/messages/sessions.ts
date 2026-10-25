@@ -191,6 +191,19 @@ export const sessionsKo = {
   "session.events.kind.request": "답을 기다리는 요청",
   "session.events.kind.error": "오류",
   "session.events.kind.system": "시스템",
+  "session.events.options": "선택지",
+  "session.reason.idle": "{duration} 동안 입력이 없어 멈췄습니다",
+  "session.reason.noAnswer": "{duration} 안에 답이 오지 않아 요청을 닫았습니다",
+  "session.reason.turnBudget": "제한 시간 {duration} 초과로 턴을 멈췄습니다",
+  "session.reason.stageBudget": "제한 시간 {duration} 초과로 작업을 멈췄습니다",
+  "session.reason.turnOver": "턴의 제한 시간이 지나 요청을 닫았습니다",
+  "inbox.detail": "상세 보기",
+  "inbox.detailFor": "{session} 상세 보기",
+  "panel.close": "패널 닫기",
+  "panel.done": "닫기",
+  "panel.openSession": "세션 화면에서 열기",
+  "panel.timeline": "세션 진행",
+  "panel.note": "답을 기다리는 요청은 타임라인의 그 행에서 바로 답합니다.",
 
   "session.event.kind.status": "상태",
   "session.event.kind.system": "시스템",
@@ -407,6 +420,20 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "session.events.kind.request": "Request waiting for an answer",
   "session.events.kind.error": "Error",
   "session.events.kind.system": "System",
+  "session.events.options": "Options",
+  "session.reason.idle": "Stopped after {duration} with no input",
+  "session.reason.noAnswer":
+    "No answer came within {duration}, so the request closed",
+  "session.reason.turnBudget": "The turn stopped at its {duration} limit",
+  "session.reason.stageBudget": "The work stopped at its {duration} limit",
+  "session.reason.turnOver": "The turn ran out of time, so the request closed",
+  "inbox.detail": "View details",
+  "inbox.detailFor": "View details of {session}",
+  "panel.close": "Close panel",
+  "panel.done": "Close",
+  "panel.openSession": "Open session page",
+  "panel.timeline": "Session progress",
+  "panel.note": "Answer a waiting request right on its line in the timeline.",
 
   "session.event.kind.status": "Status",
   "session.event.kind.system": "System",
@@ -652,4 +679,22 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
   "session.events.kind.request": "回答待ちのリクエスト",
   "session.events.kind.error": "エラー",
   "session.events.kind.system": "システム",
+  "session.events.options": "選択肢",
+  "session.reason.idle": "{duration}入力がなかったため停止しました",
+  "session.reason.noAnswer":
+    "{duration}以内に回答がなかったため、リクエストを閉じました",
+  "session.reason.turnBudget":
+    "制限時間{duration}を超えたため、ターンを停止しました",
+  "session.reason.stageBudget":
+    "制限時間{duration}を超えたため、処理を停止しました",
+  "session.reason.turnOver":
+    "ターンの制限時間を過ぎたため、リクエストを閉じました",
+  "inbox.detail": "詳細を見る",
+  "inbox.detailFor": "{session}の詳細を見る",
+  "panel.close": "パネルを閉じる",
+  "panel.done": "閉じる",
+  "panel.openSession": "セッション画面で開く",
+  "panel.timeline": "セッションの進行",
+  "panel.note":
+    "回答待ちのリクエストには、タイムラインのその行で直接回答できます。",
 };

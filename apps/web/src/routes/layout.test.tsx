@@ -82,8 +82,6 @@ describe("app shell", () => {
 
   // V4-PAGE-FRAME: settings and forms used to stop at 1100px.
   for (const [path, title] of [
-    ["/", "홈"],
-    ["/sessions", "세션"],
     ["/settings/api-keys", "API key"],
     ["/settings/workspace", "일반"],
     ["/settings/workspace/", "일반"],
@@ -97,6 +95,26 @@ describe("app shell", () => {
       await screen.findByRole("heading", { level: 1, name: title });
       const frame = contentColumn();
       expect(frame?.dataset.slot).toBe("page-frame");
+      expect(frame?.className).toContain("md:px-6");
+      expect(
+        frame?.querySelector('[data-slot="page-frame-body"]')?.className,
+      ).toContain("max-w-[var(--ap-w-page)]");
+    });
+  }
+
+  // Home and the sessions list open a waiting session in a rail at the
+  // screen's edge, so they frame their own body, in the same frame.
+  for (const [path, title] of [
+    ["/", "홈"],
+    ["/sessions", "세션"],
+  ] as const) {
+    test(`${path} frames its body beside the rail`, async () => {
+      renderAt(path, signedIn);
+      await screen.findByRole("heading", { level: 1, name: title });
+      expect(contentColumn()?.dataset.slot).toBe("page-flush");
+      const frame = document.querySelector<HTMLElement>(
+        '[data-slot="detail-layout"] > [data-slot="page-frame"]',
+      );
       expect(frame?.className).toContain("md:px-6");
       expect(
         frame?.querySelector('[data-slot="page-frame-body"]')?.className,

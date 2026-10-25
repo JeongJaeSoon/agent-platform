@@ -407,6 +407,158 @@ describe("egress proxy hand-off", () => {
   });
 });
 
+describe("inspect", () => {
+  const logReads = (api: FakeKubernetes) =>
+    api.calls.filter((c) => c.verb === "log");
+
+  test("an OOM-killed worker reports its reason, exit code and log tail", async () => {
+    const { api, backend } = setup();
+    const { intent } = intentFor();
+    await backend.ensureExecution(intent);
+    api.setPhase(NS, podName, "Failed", {
+      containerStatuses: [
+        { state: { terminated: { exitCode: 137, reason: "OOMKilled" } } },
+      ],
+    });
+    api.logs.set(podName, "booting\nallocating\n");
+    expect(await backend.inspect(intent)).toMatchObject({
+      exitCode: 137,
+      logTail: "booting\nallocating\n",
+      state: "terminated",
+      terminationReason: "OOMKilled",
+    });
+    expect(logReads(api)).toEqual([
+      {
+        body: { container: "worker", limitBytes: 65_536, tailLines: 200 },
+        kind: "pods",
+        name: podName,
+        verb: "log",
+      },
+    ]);
+  });
+
+  test("the Pod's own reason wins over its container's, and passes through", async () => {
+    const { api, backend } = setup();
+    const { intent } = intentFor();
+    await backend.ensureExecution(intent);
+    api.setPhase(NS, podName, "Failed", {
+      containerStatuses: [
+        { state: { terminated: { exitCode: 137, reason: "Error" } } },
+      ],
+      reason: "Evicted",
+    });
+    expect(await backend.inspect(intent)).toMatchObject({
+      exitCode: 137,
+      terminationReason: "Evicted",
+    });
+    api.setPhase(NS, podName, "Failed", { reason: "DeadlineExceeded" });
+    const observed = await backend.inspect(intent);
+    expect(observed.terminationReason).toBe("DeadlineExceeded");
+    expect(observed.exitCode).toBeUndefined();
+  });
+
+  test("a worker that succeeded reports its reason and has no log read", async () => {
+    const { api, backend } = setup();
+    const { intent } = intentFor();
+    await backend.ensureExecution(intent);
+    api.logs.set(podName, "done\n");
+    api.setPhase(NS, podName, "Succeeded", {
+      containerStatuses: [
+        { state: { terminated: { exitCode: 0, reason: "Completed" } } },
+      ],
+    });
+    const observed = await backend.inspect(intent);
+    expect(observed).toMatchObject({
+      exitCode: 0,
+      terminationReason: "Completed",
+    });
+    expect(observed.logTail).toBeUndefined();
+    api.setPhase(NS, podName, "Running");
+    expect(await backend.inspect(intent)).not.toHaveProperty(
+      "terminationReason",
+    );
+    expect(logReads(api)).toEqual([]);
+  });
+
+  test("keeps the last lines, then the last 8 KiB of them", async () => {
+    const { api, backend } = setup();
+    const { intent } = intentFor();
+    await backend.ensureExecution(intent);
+    api.setPhase(NS, podName, "Failed");
+    const lines = Array.from(
+      { length: 300 },
+      (_, i) => `line ${i} ${"x".repeat(60)}\n`,
+    );
+    api.logs.set(podName, lines.join(""));
+    const tail = (await backend.inspect(intent)).logTail ?? "";
+    expect(new TextEncoder().encode(tail).length).toBe(8 * 1024);
+    expect(tail.endsWith(lines[299] as string)).toBe(true);
+    expect(tail).not.toContain("line 99 ");
+  });
+
+  test("long lines that fill the read are read again fewer at a time, so the end survives", async () => {
+    const { api, backend } = setup();
+    const { intent } = intentFor();
+    await backend.ensureExecution(intent);
+    api.setPhase(NS, podName, "Failed");
+    const noise = Array.from({ length: 250 }, () => `${"n".repeat(1_000)}\n`);
+    api.logs.set(podName, `${noise.join("")}fatal: out of disk\n`);
+    const tail = (await backend.inspect(intent)).logTail ?? "";
+    expect(tail.endsWith("fatal: out of disk\n")).toBe(true);
+    expect(new TextEncoder().encode(tail).length).toBe(8 * 1024);
+    expect(
+      logReads(api).map((c) => (c.body as { tailLines: number }).tailLines),
+    ).toEqual([200, 20]);
+  });
+
+  test("a last line longer than a read keeps its start and says its end is lost", async () => {
+    const { api, backend } = setup();
+    const { intent } = intentFor();
+    await backend.ensureExecution(intent);
+    api.setPhase(NS, podName, "Failed");
+    api.logs.set(podName, `start ${"x".repeat(100_000)} the end\n`);
+    const tail = (await backend.inspect(intent)).logTail ?? "";
+    expect(tail).toStartWith("start xxx");
+    expect(tail).not.toContain("the end");
+    expect(tail).toEndWith(
+      "[log tail cut: the last line is longer than 65536 bytes; its end was not read]\n",
+    );
+    expect(new TextEncoder().encode(tail).length).toBeLessThan(8 * 1024 + 100);
+    expect(
+      logReads(api).map((c) => (c.body as { tailLines: number }).tailLines),
+    ).toEqual([200, 20, 1]);
+  });
+
+  test("a log that cannot be read costs the tail, not the inspect", async () => {
+    const { api, backend } = setup();
+    const { intent } = intentFor();
+    await backend.ensureExecution(intent);
+    api.setPhase(NS, podName, "Failed");
+    api.failures.push({
+      error: new KubernetesApiError(403, "GET", "log", "forbidden"),
+      kind: "pods",
+      verb: "log",
+    });
+    const observed = await backend.inspect(intent);
+    expect(observed.state).toBe("terminated");
+    expect(observed.logTail).toBeUndefined();
+  });
+
+  test("reads the log of nothing but a worker of this installation", async () => {
+    const { api, backend } = setup();
+    const { intent } = intentFor();
+    await backend.ensureExecution(intent);
+    api.setPhase(NS, podName, "Failed");
+    api.logs.set(podName, "token=abc\n");
+    const stored = api.objects.get(`${NS}/pods/${podName}`);
+    (stored?.metadata.labels as Record<string, string>)[
+      "app.kubernetes.io/component"
+    ] = "api";
+    expect((await backend.inspect(intent)).logTail).toBeUndefined();
+    expect(logReads(api)).toEqual([]);
+  });
+});
+
 describe("terminate", () => {
   test("deletes with the inspected Pod's UID as a precondition, and its Secret", async () => {
     const { api, backend } = setup();

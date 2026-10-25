@@ -27,6 +27,10 @@ import type {
   SessionDetail,
   SessionUsageResponse,
   TeamDetail,
+  UsageBreakdownBy,
+  UsageBreakdownResponse,
+  UsageSeriesResponse,
+  UsageSummaryScope,
 } from "@werft-ai/contracts";
 
 type Options<T, K extends QueryKey> = QueryObserverOptions<
@@ -104,6 +108,17 @@ export const queryKeys = {
   sessionUsage: (id: string) => ["sessions", id, "usage"] as const,
   pendingRequests: (id: string) =>
     ["sessions", id, "pending-requests"] as const,
+  usageSeries: (
+    scope: UsageSummaryScope,
+    since: string,
+    until: string | null,
+  ) => ["usage-series", scope, since, until] as const,
+  usageBreakdown: (
+    scope: UsageSummaryScope,
+    since: string,
+    until: string | null,
+    by: UsageBreakdownBy,
+  ) => ["usage-breakdown", scope, since, until, by] as const,
 };
 
 export function meQuery(client: ApiClient) {
@@ -407,6 +422,51 @@ export function sessionUsageQuery(client: ApiClient, id: string) {
       ) as Promise<SessionUsageResponse>,
     retry: false,
     refetchInterval: LIVE_REFETCH_MS,
+  });
+}
+
+/**
+ * Day buckets of a period. A fixed `until` lets a screen read 90 days once
+ * and cut the 7- and 30-day views from the same answer.
+ */
+export function usageSeriesQuery(
+  client: ApiClient,
+  scope: UsageSummaryScope,
+  since: string,
+  until: string | null = null,
+) {
+  return queryOptions({
+    queryKey: queryKeys.usageSeries(scope, since, until),
+    queryFn: () =>
+      unwrap(
+        client.GET("/v1/usage/series", {
+          params: {
+            query: { scope, since, ...(until === null ? {} : { until }) },
+          },
+        }),
+      ) as Promise<UsageSeriesResponse>,
+    retry: false,
+  });
+}
+
+export function usageBreakdownQuery(
+  client: ApiClient,
+  scope: UsageSummaryScope,
+  since: string,
+  by: UsageBreakdownBy,
+  until: string | null = null,
+) {
+  return queryOptions({
+    queryKey: queryKeys.usageBreakdown(scope, since, until, by),
+    queryFn: () =>
+      unwrap(
+        client.GET("/v1/usage/breakdown", {
+          params: {
+            query: { scope, since, by, ...(until === null ? {} : { until }) },
+          },
+        }),
+      ) as Promise<UsageBreakdownResponse>,
+    retry: false,
   });
 }
 

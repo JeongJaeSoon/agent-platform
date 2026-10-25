@@ -1,7 +1,12 @@
 import { z } from "zod";
 
 import { costUsdSchema } from "../domain/digest.ts";
-import { sessionIdSchema, timestampSchema } from "../shared/index.ts";
+import {
+  agentIdSchema,
+  opaqueCursorSchema,
+  sessionIdSchema,
+  timestampSchema,
+} from "../shared/index.ts";
 
 const countSchema = z.number().int().nonnegative();
 
@@ -105,33 +110,199 @@ const periodBoundSchema = z
   // An impossible day such as 2026-02-30 is no date; PostgreSQL has no year 0.
   .pipe(z.date().min(new Date("0001-01-01T00:00:00Z")));
 
+const usagePeriodQuerySchema = z.object({
+  scope: z.enum(USAGE_SUMMARY_SCOPE_VALUES),
+  since: periodBoundSchema,
+  // Omitted: the moment the database reads the figures.
+  until: periodBoundSchema.optional(),
+});
+
+function checkPeriod(
+  query: z.infer<typeof usagePeriodQuerySchema>,
+  ctx: z.RefinementCtx,
+) {
+  if (query.since < (query.until ?? new Date())) return;
+  ctx.addIssue(
+    query.until === undefined
+      ? {
+          code: "custom",
+          message: "since must be in the past",
+          path: ["since"],
+        }
+      : {
+          code: "custom",
+          message: "until must be after since",
+          path: ["until"],
+        },
+  );
+}
+
 /**
  * GET /v1/usage/summary. `installation` sums every owner's sessions and is
  * the installation owner's alone; `me` sums the sessions the caller started.
  */
-export const usageSummaryQuerySchema = z
-  .object({
-    scope: z.enum(USAGE_SUMMARY_SCOPE_VALUES),
-    since: periodBoundSchema,
-    // Omitted: the moment the database reads the figures.
-    until: periodBoundSchema.optional(),
-  })
-  .superRefine((query, ctx) => {
-    if (query.since < (query.until ?? new Date())) return;
-    ctx.addIssue(
-      query.until === undefined
-        ? {
-            code: "custom",
-            message: "since must be in the past",
-            path: ["since"],
-          }
-        : {
-            code: "custom",
-            message: "until must be after since",
-            path: ["until"],
-          },
-    );
+export const usageSummaryQuerySchema =
+  usagePeriodQuerySchema.superRefine(checkPeriod);
+
+const DAY_MS = 86_400_000;
+/**
+ * The longest period a series or breakdown answers, a leap year of day
+ * buckets: each reads every session of the period.
+ */
+export const USAGE_PERIOD_MAX_DAYS = 366;
+
+function checkBoundedPeriod(
+  query: z.infer<typeof usagePeriodQuerySchema>,
+  ctx: z.RefinementCtx,
+) {
+  checkPeriod(query, ctx);
+  const until = query.until ?? new Date();
+  if (until.getTime() - query.since.getTime() <= USAGE_PERIOD_MAX_DAYS * DAY_MS)
+    return;
+  ctx.addIssue({
+    code: "custom",
+    message: `a period spans at most ${USAGE_PERIOD_MAX_DAYS} days`,
+    path: ["since"],
   });
+}
+
+/** GET /v1/usage/series: the summary's sessions, one bucket per UTC day. */
+export const usageSeriesQuerySchema = usagePeriodQuerySchema
+  .extend({ bucket: z.enum(["day"]).default("day") })
+  .superRefine(checkBoundedPeriod);
+
+export const USAGE_BREAKDOWN_BY_VALUES = ["model", "agent"] as const;
+
+/** GET /v1/usage/breakdown: the summary's sessions grouped by model or agent. */
+export const usageBreakdownQuerySchema = usagePeriodQuerySchema
+  .extend({ by: z.enum(USAGE_BREAKDOWN_BY_VALUES) })
+  .superRefine(checkBoundedPeriod);
+
+/**
+ * GET /v1/usage/tools: the same scopes and period as the summary, the period
+ * cutting on when each tool call's tool_use event was stored.
+ */
+export const usageToolsQuerySchema = usagePeriodQuerySchema
+  .extend({ agent_id: agentIdSchema.optional() })
+  .superRefine(checkPeriod);
+
+/** The most tool names one GET /v1/usage/tools response lists. */
+export const USAGE_TOOLS_LIMIT = 200;
+
+export const USAGE_TOOL_FINDING_KIND_VALUES = [
+  "most_time",
+  "fails_often",
+  "slowest",
+] as const;
+
+/**
+ * Calls per tool name, the most-called first. A call is timed from its
+ * tool_use to its paired tool_result; one without a result yet, or with
+ * either time missing, counts in `calls` but in no `_ms` figure. `failed`
+ * counts results with `is_error: true` only. Each finding names a row of
+ * `tools`, whose figures it reads.
+ */
+export const usageToolsResponseSchema = z
+  .object({
+    tools: z
+      .array(
+        z
+          .object({
+            name: z.string().min(1),
+            calls: countSchema,
+            failed: countSchema,
+            total_ms: countSchema,
+            median_ms: countSchema,
+            max_ms: countSchema,
+          })
+          .strict(),
+      )
+      .max(USAGE_TOOLS_LIMIT),
+    findings: z.array(
+      z
+        .object({
+          kind: z.enum(USAGE_TOOL_FINDING_KIND_VALUES),
+          name: z.string().min(1),
+        })
+        .strict(),
+    ),
+  })
+  .strict();
+
+export const USAGE_TOOL_CALLS_SORT_VALUES = ["recent", "slowest"] as const;
+export const USAGE_TOOL_CALLS_LIMIT_DEFAULT = 20;
+export const USAGE_TOOL_CALLS_LIMIT_MAX = 100;
+export const USAGE_TOOL_CALLS_MAX_DAYS = 366;
+export const USAGE_TOOL_CALL_OUTCOME_VALUES = [
+  "ok",
+  "failed",
+  "unknown",
+] as const;
+
+export const usageToolCallsParamsSchema = z.object({
+  name: z.string().min(1).max(512),
+});
+
+/**
+ * GET /v1/usage/tools/{name}/calls: the scopes, period and agent filter of
+ * GET /v1/usage/tools, one page of that tool's calls.
+ */
+export const usageToolCallsQuerySchema = usagePeriodQuerySchema
+  .extend({
+    agent_id: agentIdSchema.optional(),
+    sort: z.enum(USAGE_TOOL_CALLS_SORT_VALUES).default("recent"),
+    limit: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(USAGE_TOOL_CALLS_LIMIT_MAX)
+      .default(USAGE_TOOL_CALLS_LIMIT_DEFAULT),
+    cursor: opaqueCursorSchema.optional(),
+  })
+  .superRefine(checkPeriod)
+  // per_day lists every date, so the period is bounded.
+  .superRefine((query, ctx) => {
+    const until = query.until ?? new Date();
+    if (
+      until.getTime() - query.since.getTime() >
+      USAGE_TOOL_CALLS_MAX_DAYS * 86_400_000
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        message: `the period may span at most ${USAGE_TOOL_CALLS_MAX_DAYS} days`,
+        path: ["since"],
+      });
+    }
+  });
+
+/**
+ * `session_id` and `title` are null for a session the caller may not read;
+ * the call's time, duration, outcome and agent still show. `agent` is null
+ * for a session made without one. `per_day` has every UTC date the period
+ * touches, zeros included.
+ */
+export const usageToolCallsResponseSchema = z
+  .object({
+    calls: z
+      .array(
+        z
+          .object({
+            session_id: sessionIdSchema.nullable(),
+            title: z.string().nullable(),
+            agent: z.string().nullable(),
+            occurred_at: timestampSchema,
+            duration_ms: countSchema.nullable(),
+            outcome: z.enum(USAGE_TOOL_CALL_OUTCOME_VALUES),
+          })
+          .strict(),
+      )
+      .max(USAGE_TOOL_CALLS_LIMIT_MAX),
+    next_cursor: opaqueCursorSchema.nullable(),
+    per_day: z.array(
+      z.object({ date: z.iso.date(), calls: countSchema }).strict(),
+    ),
+  })
+  .strict();
 
 /**
  * A session counts in the period it was created in, so `cost_usd` is the sum
@@ -162,9 +333,93 @@ export const usageSummaryResponseSchema = z
   })
   .strict();
 
+/**
+ * Every UTC day the period touches, oldest first, empty days included. Each
+ * bucket adds up the sessions created that day exactly as the summary does,
+ * so the buckets of one response sum to the summary of the same period.
+ * `run_seconds` is the floor of the running total minus the one before, so
+ * whole seconds are never lost to rounding each day.
+ */
+export const usageSeriesResponseSchema = z
+  .object({
+    // Half-open: since <= created_at < until.
+    period: z
+      .object({ since: timestampSchema, until: timestampSchema })
+      .strict(),
+    refreshed_at: timestampSchema,
+    buckets: z.array(
+      z
+        .object({
+          date: z.iso.date(),
+          session_count: countSchema,
+          cost_usd: costUsdSchema,
+          // true for a day without sessions.
+          cost_complete: z.boolean(),
+          token_count: countSchema,
+          run_seconds: countSchema,
+        })
+        .strict(),
+    ),
+  })
+  .strict();
+
+const usageBreakdownFiguresSchema = z
+  .object({
+    session_count: countSchema,
+    input_tokens: countSchema,
+    output_tokens: countSchema,
+    cache_read_input_tokens: countSchema,
+    // The 1-hour cache writes are part of it, not a fifth column.
+    cache_creation_input_tokens: countSchema,
+    // The four columns' sum, the summary's `token_count` for the totals.
+    token_count: countSchema,
+    cost_usd: costUsdSchema,
+  })
+  .strict();
+
+/**
+ * The summary's sessions grouped, largest cost first. `by=agent`: each
+ * session counts once, under its agent, so the rows add up to the totals in
+ * every column. `by=model`: a session counts under every model it called, so
+ * the rows' `session_count` may add up to more than the totals'; a session's
+ * cost no metered call explains (sessions from before proxy metering) is the
+ * row whose `key` is null. `key` and `label` are null on the row for sessions
+ * without an agent or with that unexplained cost. `totals` is the summary of
+ * the same period: `session_count`, `token_count` and `cost_usd` equal it.
+ */
+export const usageBreakdownResponseSchema = z
+  .object({
+    rows: z.array(
+      usageBreakdownFiguresSchema
+        .extend({
+          // The agent id, or the model as the proxy recorded it.
+          key: z.string().nullable(),
+          // The agent's name; for a model, the model again.
+          label: z.string().nullable(),
+        })
+        .strict(),
+    ),
+    totals: usageBreakdownFiguresSchema,
+  })
+  .strict();
+
 export type UsageSummaryScope = (typeof USAGE_SUMMARY_SCOPE_VALUES)[number];
+export type UsageBreakdownBy = (typeof USAGE_BREAKDOWN_BY_VALUES)[number];
+export type UsageBreakdownQuery = z.infer<typeof usageBreakdownQuerySchema>;
+export type UsageBreakdownResponse = z.infer<
+  typeof usageBreakdownResponseSchema
+>;
+export type UsageSeriesQuery = z.infer<typeof usageSeriesQuerySchema>;
+export type UsageSeriesResponse = z.infer<typeof usageSeriesResponseSchema>;
 export type UsageSummaryQuery = z.infer<typeof usageSummaryQuerySchema>;
 export type UsageSummaryResponse = z.infer<typeof usageSummaryResponseSchema>;
+export type UsageToolsQuery = z.infer<typeof usageToolsQuerySchema>;
+export type UsageToolsResponse = z.infer<typeof usageToolsResponseSchema>;
+export type UsageToolCallsParams = z.infer<typeof usageToolCallsParamsSchema>;
+export type UsageToolCallsQuery = z.infer<typeof usageToolCallsQuerySchema>;
+export type UsageToolCallsResponse = z.infer<
+  typeof usageToolCallsResponseSchema
+>;
 export type InstallationLimitsResponse = z.infer<
   typeof installationLimitsResponseSchema
 >;
