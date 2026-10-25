@@ -65,6 +65,11 @@ describe("SideNav", () => {
     const link = getByRole("link", { name: "일반" }).className.split(" ");
     expect(link).toContain("text-muted-foreground");
     expect(link).not.toContain("text-subtle-foreground");
+    // 12px between groups, as in the mockup's sidebar.
+    const list = getByRole("navigation", { name: "설정" }).querySelector(
+      "[id]",
+    );
+    expect(list?.className.split(" ")).toContain("gap-3");
   });
 
   test("current는 aria-current를 page로, location은 location으로 둔다", () => {
