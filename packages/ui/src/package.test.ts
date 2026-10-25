@@ -105,8 +105,7 @@ describe("패키지 경계", () => {
     const declared = [
       ...Object.keys(manifest.dependencies),
       ...Object.keys(manifest.peerDependencies),
-      // react-dom is never imported by name; Radix needs it beside react.
-    ].filter((name) => name !== "react-dom");
+    ];
     // fonts.css imports pretendard, which stays a devDependency until the
     // published build decides how fonts ship: as a dependency every image
     // would install it, and its OFL-1.1 licence is not reviewed for that.

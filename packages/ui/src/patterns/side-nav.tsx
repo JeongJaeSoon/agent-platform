@@ -10,6 +10,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { flushSync } from "react-dom";
 
 import { cn } from "../foundations/cn.ts";
 import { Button } from "../primitives/button.tsx";
@@ -78,14 +79,23 @@ export function SideNav({
   const [open, setOpen] = useState(false);
   const listId = useId();
   const toggle = useRef<HTMLButtonElement>(null);
+  const picking = useRef(false);
   const fold = () => {
     setOpen(false);
     toggle.current?.focus();
   };
+  // Folds before the link's own onClick, which may scroll to a section below
+  // the list and must measure the page without it.
+  const pick = (event: MouseEvent<HTMLDivElement>) => {
+    picking.current = open && !!(event.target as Element).closest("a");
+    if (picking.current) flushSync(() => setOpen(false));
+  };
   // Bubbles up after the link's own onClick, which is never stopped here.
-  const picked = (event: MouseEvent<HTMLDivElement>) => {
-    if (!open || !(event.target as Element).closest("a")) return;
-    fold();
+  const picked = () => {
+    if (!picking.current) return;
+    picking.current = false;
+    // Where the link scrolled stays: the button may be above the screen now.
+    toggle.current?.focus({ preventScroll: true });
     onPick?.();
   };
   const closeOnEscape = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -127,13 +137,14 @@ export function SideNav({
         </span>
         <ChevronDown aria-hidden="true" className="size-4 shrink-0" />
       </Button>
-      {/* biome-ignore lint/a11y/noStaticElementInteractions: the handlers only watch what bubbles from the links inside */}
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: the handlers only watch clicks and keys from the links inside */}
       <div
         id={listId}
         className={cn(
           open ? "mt-2 flex rounded-card border p-2" : "hidden",
           "flex-col gap-3 lg:mt-0 lg:flex lg:border-0 lg:p-0",
         )}
+        onClickCapture={pick}
         onClick={picked}
         onKeyDown={closeOnEscape}
       >
