@@ -234,9 +234,15 @@ function AdminList({
     : teams.error
       ? refusalText(t, teams.error as ApiError, "team.manage", role)
       : undefined;
-  // Only when neither half can be picked is the button withheld; a list that
-  // failed beside one that loaded is said under the picker.
-  const addReason = personReason && teamReason ? personReason : undefined;
+  // Only when neither half can be picked is the button withheld, saying why
+  // for both; a list that failed beside one that loaded is said under the
+  // picker.
+  const addReason =
+    personReason && teamReason
+      ? personReason === teamReason
+        ? personReason
+        : `${personReason} ${teamReason}`
+      : undefined;
   const partial =
     addReason === undefined
       ? members.error

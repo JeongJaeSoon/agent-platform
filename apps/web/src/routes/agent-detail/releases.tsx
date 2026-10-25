@@ -118,11 +118,6 @@ export function Releases({
         }),
       ),
     onMutate: () => onOutcome(null),
-    // Either way the result shows under the table, where focus goes.
-    onSettled: () => {
-      submitted.current = true;
-      setOpen(false);
-    },
     onSuccess: async (result) => {
       onOutcome({
         kind: "notice",
@@ -140,8 +135,13 @@ export function Releases({
       onOutcome({ kind: "error", text: agentRefusal(t, error, role) }),
   });
 
+  // The dialog closes before the request: the result shows under the
+  // table, where focus goes, and a late answer cannot close a dialog
+  // opened after it.
   const submit = (event: FormEvent) => {
     event.preventDefault();
+    submitted.current = true;
+    setOpen(false);
     release.mutate();
   };
 
@@ -153,9 +153,16 @@ export function Releases({
         </h2>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
-            <Button type="button" variant="outline" size="sm">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={release.isPending}
+            >
               <Plus aria-hidden="true" />
-              {t("agent.releases.new")}
+              {release.isPending
+                ? t("agent.releases.creating")
+                : t("agent.releases.new")}
             </Button>
           </DialogTrigger>
           <DialogContent

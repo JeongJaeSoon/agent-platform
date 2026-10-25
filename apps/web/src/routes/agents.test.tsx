@@ -1336,6 +1336,38 @@ describe("에이전트 상세", () => {
     );
     expect(agentDetailSchema.safeParse(server.detail()).success).toBe(true);
   });
+  test("release 만들기는 대화상자를 먼저 닫고, 다시 읽기가 늦어도 결과 줄이 포커스를 받는다", async () => {
+    const server = agentServer();
+    let answer: (() => void) | undefined;
+    const held = new Promise<void>((resolve) => {
+      answer = resolve;
+    });
+    const create = server.routes[`POST /v1/agents/${AGENT_ID}/releases`];
+    renderAt(RELEASE_TAB, {
+      ...meOk,
+      ...server.routes,
+      [`POST /v1/agents/${AGENT_ID}/releases`]: async (request: Request) => {
+        await held;
+        return create(request);
+      },
+    });
+    const user = await setupUser();
+    const dialog = await openRelease(user);
+    await user.click(dialog.getByRole("button", { name: "release 만들기" }));
+    // Closed while the request is out; the trigger says it is working.
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    const trigger = screen.getByRole("button", { name: "만드는 중…" });
+    expect(trigger.hasAttribute("disabled")).toBe(true);
+    answer?.();
+    const made = await screen.findByText(
+      "release를 만들었습니다(version 1). 아직 활성화되지 않았습니다.",
+    );
+    await waitFor(() =>
+      expect(document.activeElement?.contains(made)).toBe(true),
+    );
+    expect(screen.getByRole("button", { name: "새 release" })).toBeDefined();
+  });
+
   test("결과는 버튼을 누른 섹션에 나오고 포커스가 그리로 간다", async () => {
     const server = agentServer();
     renderAt(CARD_TAB, { ...meOk, ...server.routes });

@@ -853,7 +853,9 @@ describe("에이전트 관리자", () => {
     expect(
       document.getElementById(person.getAttribute("aria-describedby") ?? "")
         ?.textContent,
-    ).toBe("구성원 관리 권한이 있어야 할 수 있습니다. 지금 역할: 구성원.");
+    ).toBe(
+      "구성원 관리 권한이 있어야 할 수 있습니다. 지금 역할: 구성원. 팀 관리 권한이 있어야 할 수 있습니다. 지금 역할: 구성원.",
+    );
     // Neither list is asked for, so no refused decision is left behind.
     expect(
       api.calls.some((c) => c.path === "/v1/members" || c.path === "/v1/teams"),
