@@ -75,43 +75,32 @@ function Avatar({ name }: { readonly name: string }) {
 }
 
 /**
- * `badgeBesideName` puts the state badge on the name's line, where the
- * mockup has it, and lets the actions wrap under a long name at 390; the v4
- * story keeps main's head without it.
+ * The state badge on the name's line, where the mockup has it; below 768px
+ * the actions go under the title, as on a session's page.
  */
 export function AgentHead({
   agent,
   backHref,
-  badgeBesideName = false,
 }: {
   readonly agent: AgentView;
   readonly backHref?: string | undefined;
-  readonly badgeBesideName?: boolean | undefined;
 }) {
-  const badge = (
-    <Badge variant={agent.released ? "green" : "gray"}>
-      {agent.released ? "활성" : "아직 쓸 수 없음"}
-    </Badge>
-  );
   return (
     <PageHeader
-      className={badgeBesideName ? "flex-wrap" : undefined}
+      className="max-md:flex-col"
       title={
-        <div
-          className={
-            badgeBesideName
-              ? "flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1"
-              : "flex min-w-0 items-center gap-3"
-          }
-        >
+        <div className="flex min-w-0 items-center gap-3">
           <Avatar name={agent.name} />
           {agent.name}
-          {badgeBesideName ? badge : null}
         </div>
+      }
+      titleAside={
+        <Badge variant={agent.released ? "green" : "gray"}>
+          {agent.released ? "활성" : "아직 쓸 수 없음"}
+        </Badge>
       }
       description={
         <div className="flex flex-wrap items-center gap-2">
-          {badgeBesideName ? null : badge}
           {agent.card.role}
           <PartRequest name="Avatar" />
         </div>

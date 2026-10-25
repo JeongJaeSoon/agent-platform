@@ -1153,7 +1153,6 @@ function AgentDetailScreen(props: ScreenProps) {
         <AgentHead
           agent={AGENT}
           backHref={storyHref("screens-agent-list-v3--agent-list-slack-ok")}
-          badgeBesideName
         />
         {tabs}
       </DetailLayout>

@@ -80,6 +80,22 @@ describe("에이전트 상세 탭", () => {
     ).toBeTruthy();
   });
 
+  test("상태 태그는 제목 줄의 이름 옆에 있되 제목 이름에 섞이지 않고, 설명 줄에는 역할만 둔다", async () => {
+    renderAt(DETAIL, { ...meOk, ...agentServer().routes });
+    const heading = await screen.findByRole("heading", {
+      level: 1,
+      name: "결제 담당",
+    });
+    await waitFor(() =>
+      expect(heading.nextElementSibling?.textContent).toBe("아직 쓸 수 없음"),
+    );
+    expect(heading.nextElementSibling?.getAttribute("data-slot")).toBe("badge");
+    const description = document.getElementById(
+      heading.getAttribute("aria-describedby") ?? "",
+    );
+    expect(description?.textContent).toBe("결제 문의 담당");
+  });
+
   test("주소의 tab으로 다시 열면 그 탭이고, 탭 이동은 뒤로 가기 기록을 쌓지 않는다", async () => {
     const server = agentServer();
     const { history } = renderAt("/agents", { ...meOk, ...server.routes });

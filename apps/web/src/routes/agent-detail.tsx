@@ -450,32 +450,32 @@ function AgentView({
   const cardRole = latestVersion(detail)?.card.role;
   return (
     <Page
+      // As on a session's page: narrow, the commands go under the title.
+      headClassName="max-md:flex-col"
       title={
         <span className="flex min-w-0 items-center gap-3">
           <AgentAvatar name={agent.name} />
           <span className="min-w-0 [overflow-wrap:anywhere]">{agent.name}</span>
         </span>
       }
-      // Identifier and release are the overview's; the head keeps the state.
-      // The badge sits on the description line: the page header has no slot
-      // beside the title that stays out of the heading's name.
+      titleAside={
+        <Badge
+          variant={
+            agent.active_release_id && agent.status === "active"
+              ? "green"
+              : "gray"
+          }
+        >
+          {agent.active_release_id
+            ? t(`agents.status.${agent.status}`)
+            : t("agents.state.notReleased")}
+        </Badge>
+      }
+      // Identifier and release are the overview's.
       description={
-        <span className="flex flex-wrap items-center gap-2">
-          <Badge
-            variant={
-              agent.active_release_id && agent.status === "active"
-                ? "green"
-                : "gray"
-            }
-          >
-            {agent.active_release_id
-              ? t(`agents.status.${agent.status}`)
-              : t("agents.state.notReleased")}
-          </Badge>
-          {cardRole ? (
-            <span className="[overflow-wrap:anywhere]">{cardRole}</span>
-          ) : null}
-        </span>
+        cardRole ? (
+          <span className="[overflow-wrap:anywhere]">{cardRole}</span>
+        ) : undefined
       }
       actions={
         // The way back ends the row, the command before it.
