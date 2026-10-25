@@ -80,9 +80,9 @@ const RETRY_CASES: ReadonlyArray<{
     routes: {
       ...meOk,
       "GET /v1/invites": () => json(200, { items: [] }),
-      // The head's invite button reads every member, 100 a page; the tab's
+      // The head's invite button asks for the first two members; the tab's
       // own first page is the read that fails here.
-      "GET /v1/members?limit=100": () =>
+      "GET /v1/members?limit=2": () =>
         json(200, { items: [], next_cursor: null }),
     },
     failingKey: "GET /v1/members",
