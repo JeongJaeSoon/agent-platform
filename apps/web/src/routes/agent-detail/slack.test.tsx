@@ -40,6 +40,13 @@ const APP: NonNullable<
     slack_bot_token: summary,
   },
 };
+const appResponse = (
+  app: typeof APP | null,
+): components["schemas"]["GetSlackAppResponse"] => ({
+  slack_app: app,
+  event_url: null,
+  events: { state: "pending", checked_at: null },
+});
 const IDENTITY: components["schemas"]["ListAgentIdentitiesResponse"]["items"][number] =
   {
     id: ID,
@@ -79,7 +86,7 @@ function routes(app: typeof APP | null = null, installed = false) {
   return {
     ...agentServer().routes,
     "GET /v1/auth/me": () => json(200, me()),
-    [`GET ${PATH}/slack/app`]: () => json(200, { slack_app: app }),
+    [`GET ${PATH}/slack/app`]: () => json(200, appResponse(app)),
     [`GET ${PATH}/identities`]: () =>
       json(200, { items: installed ? [IDENTITY] : [] }),
     [`GET ${PATH}/slack-bindings`]: () => json(200, { items: [] }),
@@ -632,7 +639,7 @@ describe("Slack management", () => {
           },
         });
       },
-      [`GET ${PATH}/slack/app`]: () => json(200, { slack_app: app }),
+      [`GET ${PATH}/slack/app`]: () => json(200, appResponse(app)),
       [`POST ${PATH}/slack/app`]: () => {
         app = APP;
         return json(200, { slack_app: APP, created: true, warnings: [] });
@@ -961,7 +968,7 @@ describe("Slack management", () => {
     let app: typeof APP | null = APP;
     const { api } = renderAt(DETAIL, {
       ...routes(APP),
-      [`GET ${PATH}/slack/app`]: () => json(200, { slack_app: app }),
+      [`GET ${PATH}/slack/app`]: () => json(200, appResponse(app)),
       [`DELETE /v1/workspaces/${WORKSPACE_ID}/slack/apps/${ID}`]: () => {
         app = null;
         return json(200, { slack_app: { ...APP, state: "deleted" } });

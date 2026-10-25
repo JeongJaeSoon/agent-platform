@@ -85,7 +85,11 @@ describe("Slack install callback", () => {
       "GET /v1/auth/me": () => json(200, me()),
       "POST /v1/slack/install/complete": () => json(200, completed()),
       [`GET /v1/agents/${AGENT_ID}/slack/app`]: () =>
-        json(200, { slack_app: null }),
+        json(200, {
+          slack_app: null,
+          event_url: null,
+          events: { state: "pending", checked_at: null },
+        }),
       [`GET /v1/agents/${AGENT_ID}/identities`]: () => json(200, { items: [] }),
     });
     await waitFor(() =>
