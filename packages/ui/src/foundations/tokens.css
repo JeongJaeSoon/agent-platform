@@ -49,7 +49,7 @@
     --ap-color-border-strong: #d4d4d4;
     /* A control's edge is how it is found (WCAG 1.4.11): 3:1 on surface and
      canvas, which border-strong is not. */
-    --ap-color-border-input: #8a8a8a;
+    --ap-color-border-input: #919191;
     --ap-color-foreground: #171717;
     --ap-color-muted-foreground: #4d4d4d;
     /* The faintest text (v35 text-3), still 4.5:1 on sidebar and surface. */
