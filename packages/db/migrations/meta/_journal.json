@@ -533,6 +533,13 @@
       "when": 1792911299561,
       "tag": "0166_channel_membership",
       "breakpoints": true
+    },
+    {
+      "idx": 167,
+      "version": "7",
+      "when": 1792917781786,
+      "tag": "0167_sessions_created_at",
+      "breakpoints": true
     }
   ]
 }
