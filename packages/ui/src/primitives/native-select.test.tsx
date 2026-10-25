@@ -9,13 +9,13 @@ const { NativeSelect, NativeSelectOption } = await import(
 const { Input } = await import("./input.tsx");
 
 describe("Input·NativeSelect v4 여백", () => {
-  test("입력은 좌우 12px·위아래 0이고 테두리는 border-input 그대로다", () => {
+  test("입력은 좌우 12px·위아래 0이고 아래 변 테두리가 border-input이다", () => {
     const { getByRole } = render(<Input aria-label="이름" />);
     const classes = getByRole("textbox", { name: "이름" }).className.split(" ");
     expect(classes).toContain("px-3");
     expect(classes).toContain("py-0");
     expect(classes).not.toContain("py-1");
-    expect(classes).toContain("border-input");
+    expect(classes).toContain("border-b-input");
     expect(classes).toContain("h-[var(--ap-control-height)]");
   });
 
@@ -36,7 +36,7 @@ describe("Input·NativeSelect v4 여백", () => {
       "px-3",
       "py-0",
       "pr-7",
-      "border-input",
+      "border-b-input",
       "text-control",
     ]) {
       expect(classes).toContain(name);
