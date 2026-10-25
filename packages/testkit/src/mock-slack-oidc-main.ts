@@ -16,6 +16,8 @@ const idp = await startMockSlackOidc({
   account: {
     teamId: process.env.MOCK_SLACK_TEAM_ID ?? "T0MOCK",
     userId: process.env.MOCK_SLACK_USER_ID ?? "U0MOCK",
+    teamName: process.env.MOCK_SLACK_TEAM_NAME || undefined,
+    userName: process.env.MOCK_SLACK_USER_NAME || undefined,
   },
   webApi: createFakeSlackWebApi({
     teamId: process.env.MOCK_SLACK_TEAM_ID ?? "T0MOCK",
