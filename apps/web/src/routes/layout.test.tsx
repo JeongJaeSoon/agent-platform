@@ -54,7 +54,7 @@ describe("app shell", () => {
           .map((link) => link.textContent),
       ),
     ).toEqual([
-      ["홈", "세션", "에이전트"],
+      ["홈", "세션", "에이전트", "운영"],
       ["구성원", "설정"],
     ]);
     expect(groups[0]?.getAttribute("aria-labelledby")).toBeTruthy();

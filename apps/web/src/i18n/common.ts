@@ -18,6 +18,8 @@ export const commonKo = {
   "nav.settings": "설정",
   "nav.workspace": "워크스페이스 설정",
   "nav.agents": "에이전트",
+  "nav.operations": "운영",
+  "operations.recent": "최근 {days}일",
 
   "role.owner": "소유자",
   "role.admin": "관리자",
@@ -83,6 +85,8 @@ export const commonEn: Record<keyof typeof commonKo, string> = {
   "nav.settings": "Settings",
   "nav.workspace": "Workspace settings",
   "nav.agents": "Agents",
+  "nav.operations": "Operations",
+  "operations.recent": "Last {days} days",
 
   "role.owner": "Owner",
   "role.admin": "Admin",
@@ -150,6 +154,8 @@ export const commonJa: Record<keyof typeof commonKo, string> = {
   "nav.settings": "設定",
   "nav.workspace": "ワークスペース設定",
   "nav.agents": "エージェント",
+  "nav.operations": "運用",
+  "operations.recent": "直近{days}日",
 
   "role.owner": "オーナー",
   "role.admin": "管理者",
