@@ -182,7 +182,10 @@ export function createSlackWelcome(deps: {
         homeBindingId: home.id,
         channelId,
       }),
+      // Moved, turned off or rolled back since it was read: not this home.
+      { bindingId: home.id, releaseId: found.releaseId },
     );
+    if (status === "not_home") return { status: "no_home" };
     return { status, channelId };
   }
 

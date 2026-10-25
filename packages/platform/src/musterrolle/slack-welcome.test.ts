@@ -126,12 +126,22 @@ function world(
   };
   const fake = fakeSlack(channels);
   const logged: unknown[] = [];
+  let onApp = () => {};
   const welcome = createSlackWelcome({
     agents,
     bindings,
-    apps: { findForAgent: async () => ({ id: SLACK_APP }) as never },
+    apps: {
+      findForAgent: async () => {
+        onApp();
+        return { id: SLACK_APP } as never;
+      },
+    },
     outbox: {
-      async enqueue(entry) {
+      async enqueue(entry, whileHome) {
+        const home = rows.find((row) => row.id === whileHome?.bindingId);
+        if (whileHome && (!home?.home || active !== whileHome.releaseId)) {
+          return "not_home";
+        }
         if (outbox.has(entry.dedupeKey)) return "duplicate";
         outbox.set(entry.dedupeKey, entry);
         return "enqueued";
@@ -153,6 +163,10 @@ function world(
     rows,
     fake,
     logged,
+    /** Runs while the welcome looks up the app, past every re-read. */
+    beforeEnqueue: (hook: () => void) => {
+      onApp = hook;
+    },
     /** What the store's activation does, then the welcome it triggers. */
     activate: (id: string) => {
       active = id;
@@ -282,6 +296,21 @@ describe("deployment welcome", () => {
       status: "no_home",
     });
     expect(w.fake.calls).toEqual(["info:C0HOME", "join:C0HOME"]);
+    expect(w.outbox.size).toBe(0);
+  });
+
+  test("a home moved just before the insert is not welcomed: the insert checks it", async () => {
+    const joined = { state: "joined", error: null } as const;
+    const home = binding(HOME, "C0HOME", { home: true, membership: joined });
+    const other = binding(OTHER, "C0OTHER", { membership: joined });
+    const w = world([home, other], {});
+    w.beforeEnqueue(() => {
+      home.home = false;
+      other.home = true;
+    });
+    expect(await w.welcome.welcome(WORKSPACE, AGENT, { ask: false })).toEqual({
+      status: "no_home",
+    });
     expect(w.outbox.size).toBe(0);
   });
 

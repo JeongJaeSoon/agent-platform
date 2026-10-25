@@ -562,6 +562,37 @@ describe.each(ENGINES)("the deployment welcome on %s", (engine) => {
     expect(await outboxRows()).toHaveLength(1);
   });
 
+  test("the insert itself checks the home and the active release", async () => {
+    const [home, other] = slack.seedChannels([
+      { name: "home" },
+      { name: "other" },
+    ]);
+    const fixture = await installedAgent();
+    const bound = await fixture.bind(home?.id ?? "", true);
+    const elsewhere = await fixture.bind(other?.id ?? "", false);
+    const { release } = await fixture.release();
+    await fixture.activate(release.id);
+    const [row] = await outboxRows();
+    if (!row) throw new Error("no welcome");
+    const outbox = createPostgresSlackOutboxStore(db);
+    const entry = { ...row, dedupeKey: "deployment-welcome:probe" };
+    const homeId = bound.slack_binding.id;
+
+    expect(
+      await outbox.enqueue(entry, {
+        bindingId: elsewhere.slack_binding.id,
+        releaseId: release.id,
+      }),
+    ).toBe("not_home");
+    expect(
+      await outbox.enqueue(entry, { bindingId: homeId, releaseId: "sha256:x" }),
+    ).toBe("not_home");
+    expect(await outboxRows()).toHaveLength(1);
+    expect(
+      await outbox.enqueue(entry, { bindingId: homeId, releaseId: release.id }),
+    ).toBe("enqueued");
+  });
+
   test("a membership answer from before an invite does not overwrite it", async () => {
     const [home] = slack.seedChannels([{ name: "secret", isPrivate: true }]);
     const fixture = await installedAgent();

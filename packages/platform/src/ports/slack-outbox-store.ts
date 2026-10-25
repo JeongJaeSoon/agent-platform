@@ -101,7 +101,15 @@ export type SlackOutboxSettle =
   | { status: "pending"; retryInMs: number; errorCode: string };
 
 export interface SlackOutboxStore {
-  enqueue(entry: SlackOutboxEntry): Promise<"enqueued" | "duplicate">;
+  /**
+   * `whileHome`: insert only while that binding is the agent's live home
+   * and that release is active, checked under share locks so a home move
+   * or an activation committing meanwhile is waited for, not missed.
+   */
+  enqueue(
+    entry: SlackOutboxEntry,
+    whileHome?: { bindingId: string; releaseId: string },
+  ): Promise<"enqueued" | "duplicate" | "not_home">;
   /**
    * Moves each live link's mark past the turns that need nothing more: those
    * with their outbox row, interrupted or cancelled, or ended before the

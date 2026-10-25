@@ -19,6 +19,7 @@ import {
 import { actionableOfTurn } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
 import {
+  agents,
   events,
   linkedAccounts,
   sessionLinks,
@@ -26,6 +27,7 @@ import {
   slackApps,
   slackInstallations,
   slackOutbox,
+  surfaceBindings,
   turns,
 } from "./schema.ts";
 
@@ -82,13 +84,41 @@ const addressed = (db: Database, row: SQL) => sql`(
 
 export function createPostgresSlackOutboxStore(db: Database): SlackOutboxStore {
   return {
-    async enqueue(input) {
-      const [row] = await db
-        .insert(t)
-        .values({ ...input, id: randomUUID() })
-        .onConflictDoNothing({ target: t.dedupeKey })
-        .returning({ id: t.id });
-      return row ? "enqueued" : "duplicate";
+    async enqueue(input, whileHome) {
+      return db.transaction(async (tx) => {
+        if (whileHome) {
+          const [home] = await tx
+            .select({ id: surfaceBindings.id })
+            .from(surfaceBindings)
+            .where(
+              and(
+                eq(surfaceBindings.id, whileHome.bindingId),
+                eq(surfaceBindings.agentId, input.agentId),
+                eq(surfaceBindings.home, true),
+                ne(surfaceBindings.mode, "off"),
+                isNull(surfaceBindings.revokedAt),
+              ),
+            )
+            .for("share");
+          const [live] = await tx
+            .select({ id: agents.id })
+            .from(agents)
+            .where(
+              and(
+                eq(agents.id, input.agentId),
+                eq(agents.activeReleaseId, whileHome.releaseId),
+              ),
+            )
+            .for("share");
+          if (!home || !live) return "not_home";
+        }
+        const [row] = await tx
+          .insert(t)
+          .values({ ...input, id: randomUUID() })
+          .onConflictDoNothing({ target: t.dedupeKey })
+          .returning({ id: t.id });
+        return row ? "enqueued" : "duplicate";
+      });
     },
 
     async advanceAnswered() {
