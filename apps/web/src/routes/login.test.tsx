@@ -200,6 +200,28 @@ describe("로그인 화면 안내", () => {
     expect(history.length).toBe(1);
   });
 
+  test("redirect의 query도 그대로 가져간다", async () => {
+    const { history } = renderAt(
+      `/login?redirect=${encodeURIComponent("/sessions?status=needs_input")}`,
+      {
+        "GET /v1/auth/me": () => json(200, me()),
+        "GET /v1/sessions": () => json(200, { items: [], next_cursor: null }),
+      },
+    );
+    await waitFor(() => expect(history.location.pathname).toBe("/sessions"));
+    expect(history.location.search).toBe("?status=needs_input");
+  });
+
+  test("세션 확인이 401 말고 다른 오류로 실패해도 폼을 보인다", async () => {
+    renderAt("/login", {
+      ...methods("password"),
+      "GET /v1/auth/me": () =>
+        apiError(503, "BACKEND_UNAVAILABLE", "storage down"),
+    });
+    expect(await screen.findByLabelText("비밀번호")).toBeDefined();
+    expect(screen.getByRole("button", { name: "로그인" })).toBeDefined();
+  });
+
   test("다른 origin을 가리키는 redirect는 홈으로 간다", async () => {
     for (const unsafe of [
       "//evil.example",
