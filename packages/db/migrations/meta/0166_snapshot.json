@@ -1,5 +1,5 @@
 {
-  "id": "e7f2b222-4bec-4c6e-802c-84afe36b0aad",
+  "id": "9d9687ad-5676-4386-9578-928c6c6caee9",
   "prevId": "cd26832a-1f19-4325-bada-6c356fe47a3a",
   "version": "7",
   "dialect": "postgresql",
@@ -6654,7 +6654,7 @@
       "checkConstraints": {
         "slack_outbox_kind_check": {
           "name": "slack_outbox_kind_check",
-          "value": "\"slack_outbox\".\"kind\" IN ('reply', 'notice', 'failure_notice', 'input_notice')"
+          "value": "\"slack_outbox\".\"kind\" IN ('reply', 'notice', 'failure_notice', 'input_notice', 'welcome')"
         },
         "slack_outbox_status_check": {
           "name": "slack_outbox_status_check",
@@ -6801,6 +6801,18 @@
           "primaryKey": false,
           "notNull": true,
           "default": false
+        },
+        "membership": {
+          "name": "membership",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "membership_error": {
+          "name": "membership_error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "revision": {
           "name": "revision",
@@ -6964,6 +6976,10 @@
           "name": "surface_bindings_status_check",
           "value": "\"surface_bindings\".\"status\" IN ('ready','partial','failed','revoked')"
         },
+        "surface_bindings_membership_check": {
+          "name": "surface_bindings_membership_check",
+          "value": "(\"surface_bindings\".\"membership\" IS NULL OR \"surface_bindings\".\"membership\" IN ('joined','awaiting_invite','config_error','join_failed')) AND (\"surface_bindings\".\"membership_error\" IS NULL OR \"surface_bindings\".\"membership\" IS NOT NULL)"
+        },
         "surface_bindings_revoked_check": {
           "name": "surface_bindings_revoked_check",
           "value": "(\"surface_bindings\".\"status\" = 'revoked') = (\"surface_bindings\".\"revoked_at\" IS NOT NULL)"
@@ -6979,349 +6995,6 @@
         "surface_bindings_revision_check": {
           "name": "surface_bindings_revision_check",
           "value": "\"surface_bindings\".\"revision\" >= 1"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.tool_call_days": {
-      "name": "tool_call_days",
-      "schema": "",
-      "columns": {
-        "scope_key": {
-          "name": "scope_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "agent_key": {
-          "name": "agent_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "day": {
-          "name": "day",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "calls": {
-          "name": "calls",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "failed": {
-          "name": "failed",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "timed": {
-          "name": "timed",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "total_ms": {
-          "name": "total_ms",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "max_ms": {
-          "name": "max_ms",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "hist": {
-          "name": "hist",
-          "type": "integer[]",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "tool_call_days_scope_key_agent_key_day_name_pk": {
-          "name": "tool_call_days_scope_key_agent_key_day_name_pk",
-          "columns": ["scope_key", "agent_key", "day", "name"]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "tool_call_days_hist_check": {
-          "name": "tool_call_days_hist_check",
-          "value": "array_length(\"tool_call_days\".\"hist\", 1) = 161"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.tool_call_progress": {
-      "name": "tool_call_progress",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "integer",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "applied_through": {
-          "name": "applied_through",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "batch_size": {
-          "name": "batch_size",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "tool_call_progress_one_row": {
-          "name": "tool_call_progress_one_row",
-          "value": "\"tool_call_progress\".\"id\" = 1"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.tool_calls": {
-      "name": "tool_calls",
-      "schema": "",
-      "columns": {
-        "use_event_id": {
-          "name": "use_event_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "ord": {
-          "name": "ord",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "session_id": {
-          "name": "session_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "attempt_key": {
-          "name": "attempt_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "tool_use_id": {
-          "name": "tool_use_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "used_at": {
-          "name": "used_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "at": {
-          "name": "at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "result_event_id": {
-          "name": "result_event_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "result_at": {
-          "name": "result_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "outcome": {
-          "name": "outcome",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'unknown'"
-        },
-        "ms": {
-          "name": "ms",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "tool_calls_pair_uniq": {
-          "name": "tool_calls_pair_uniq",
-          "columns": [
-            {
-              "expression": "session_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "attempt_key",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "tool_use_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"tool_calls\".\"tool_use_id\" IS NOT NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "tool_calls_recent_idx": {
-          "name": "tool_calls_recent_idx",
-          "columns": [
-            {
-              "expression": "name",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "at",
-              "isExpression": false,
-              "asc": false,
-              "nulls": "last"
-            },
-            {
-              "expression": "use_event_id",
-              "isExpression": false,
-              "asc": false,
-              "nulls": "last"
-            },
-            {
-              "expression": "ord",
-              "isExpression": false,
-              "asc": false,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "tool_calls_slowest_idx": {
-          "name": "tool_calls_slowest_idx",
-          "columns": [
-            {
-              "expression": "name",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "ms",
-              "isExpression": false,
-              "asc": false,
-              "nulls": "last"
-            },
-            {
-              "expression": "use_event_id",
-              "isExpression": false,
-              "asc": false,
-              "nulls": "last"
-            },
-            {
-              "expression": "ord",
-              "isExpression": false,
-              "asc": false,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "tool_calls_created_at_idx": {
-          "name": "tool_calls_created_at_idx",
-          "columns": [
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "tool_calls_use_event_id_ord_pk": {
-          "name": "tool_calls_use_event_id_ord_pk",
-          "columns": ["use_event_id", "ord"]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "tool_calls_outcome_check": {
-          "name": "tool_calls_outcome_check",
-          "value": "\"tool_calls\".\"outcome\" IN ('ok', 'failed', 'unknown')"
-        },
-        "tool_calls_ms_check": {
-          "name": "tool_calls_ms_check",
-          "value": "\"tool_calls\".\"ms\" >= 0"
         }
       },
       "isRLSEnabled": false

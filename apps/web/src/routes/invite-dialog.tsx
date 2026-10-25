@@ -38,7 +38,6 @@ import { queryKeys } from "../api/queries.ts";
 import {
   ReasonButton,
   roleLabel,
-  useGrantableRoles,
   useRole,
   WORKSPACE_ROLE_VALUES,
 } from "../auth/guard.tsx";
@@ -64,8 +63,11 @@ const hasExpiry = (data: unknown): data is InviteSteps["link"] =>
 /** Opens the invite flow: who and with which role, then the link to hand over. */
 export function InviteDialog({
   reason,
+  assignableRoles,
   refusal,
 }: {
+  /** From the member list; the invite accepts these and no other. */
+  readonly assignableRoles: readonly WorkspaceRole[];
   readonly reason: string | undefined;
   /** Words a refused request the way the page words a disabled action. */
   readonly refusal: (error: ApiError, role: string | undefined) => string;
@@ -100,6 +102,7 @@ export function InviteDialog({
       </DialogTrigger>
       <DialogContent>
         <InviteFlow
+          assignableRoles={assignableRoles}
           refusal={refusal}
           onUncopied={setUncopied}
           confirmLeave={confirmLeave}
@@ -135,10 +138,12 @@ type Outcome =
  * and never goes into the flow's stored input, where history would keep it.
  */
 function InviteFlow({
+  assignableRoles,
   refusal,
   onUncopied,
   confirmLeave,
 }: {
+  readonly assignableRoles: readonly WorkspaceRole[];
   readonly onUncopied: (uncopied: boolean) => void;
   /** Runs `leave` now, or once the inviter agrees to lose the link. */
   readonly confirmLeave: (leave: () => void) => void;
@@ -216,6 +221,7 @@ function InviteFlow({
       <funnel.Render
         details={() => (
           <DetailsStep
+            assignableRoles={assignableRoles}
             pending={invite.isPending}
             send={(values) => invite.mutateAsync(values)}
             serverMessage={(error) => refusal(error as ApiError, role)}
@@ -317,10 +323,12 @@ function LinkFocus({
 const FIELDS = ["email", "role"] as const;
 
 function DetailsStep({
+  assignableRoles: grantable,
   pending,
   send,
   serverMessage,
 }: {
+  readonly assignableRoles: readonly WorkspaceRole[];
   readonly pending: boolean;
   readonly send: (values: {
     email: string;
@@ -329,7 +337,6 @@ function DetailsStep({
   readonly serverMessage: (error: unknown) => string;
 }) {
   const { t } = useI18n();
-  const grantable = useGrantableRoles();
   const form = useStepForm(inviteStep, {
     defaultValues: { email: "", role: DEFAULT_INVITE_ROLE },
   });
@@ -404,7 +411,7 @@ function DetailsStep({
             </NativeSelectOption>
           ))}
         </NativeSelect>
-        {grantable.length < WORKSPACE_ROLE_VALUES.length ? (
+        {!grantable.includes("owner") ? (
           <FieldDescription>{t("members.roleOwnerGrant")}</FieldDescription>
         ) : null}
         <FieldError>{errors.role?.message}</FieldError>
