@@ -390,6 +390,59 @@ describe("usage service", () => {
     });
   });
 
+  test("breakdown token counts stop at the largest safe integer as provider_tokens does", async () => {
+    const max = Number.MAX_SAFE_INTEGER;
+    // One session at the cap plus one more call, and two sessions at it.
+    const figures = {
+      sessionCount: 2,
+      inputTokens: max,
+      outputTokens: 1,
+      cacheReadInputTokens: Number("18014398509481982"),
+      cacheCreationInputTokens: 0,
+      costUsd: "0.000000",
+    };
+    const bound = createUsageService({
+      authorization: createAuthorizationPolicy(),
+      limits,
+      reader: {
+        installationUsage: async () => {
+          throw new Error("not read");
+        },
+        sessionUsage: async () => null,
+        usageSummary: async () => {
+          throw new Error("not read");
+        },
+        usageSeries: async () => {
+          throw new Error("not read");
+        },
+        usageBreakdown: async () => ({
+          rows: [
+            { key: "claude-opus-5-5", label: "claude-opus-5-5", ...figures },
+          ],
+          totals: figures,
+        }),
+      },
+    });
+    const response = usageBreakdownResponseSchema.parse(
+      await bound.getUsageBreakdown(
+        user("owner"),
+        usageBreakdownQuerySchema.parse({
+          scope: "installation",
+          since: "2026-10-01",
+          by: "model",
+        }),
+      ),
+    );
+    for (const figuresOut of [response.totals, response.rows[0]]) {
+      expect(figuresOut).toMatchObject({
+        input_tokens: max,
+        output_tokens: 1,
+        cache_read_input_tokens: max,
+        token_count: max,
+      });
+    }
+  });
+
   test("a series is gated like the summary and marks only its incomplete days", async () => {
     const seriesQuery = (scope: "installation" | "me") =>
       usageSeriesQuerySchema.parse({ scope, since: "2026-10-01" });

@@ -38,21 +38,27 @@ export function decimalUsd(value: number): string {
   return `0.${"0".repeat(Number(power) - 1)}${lead}${fraction}`;
 }
 
+// The rollup stops each column at the largest safe integer, as
+// provider_tokens stops; their sums stop there too rather than break the
+// response.
+const saturated = (count: number) => Math.min(count, Number.MAX_SAFE_INTEGER);
+
 // token_count is the four columns, as the provider_tokens trigger sums them.
 function breakdownFigures(
   figures: UsageBreakdownFiguresRecord,
 ): UsageBreakdownResponse["totals"] {
   return {
     session_count: figures.sessionCount,
-    input_tokens: figures.inputTokens,
-    output_tokens: figures.outputTokens,
-    cache_read_input_tokens: figures.cacheReadInputTokens,
-    cache_creation_input_tokens: figures.cacheCreationInputTokens,
-    token_count:
+    input_tokens: saturated(figures.inputTokens),
+    output_tokens: saturated(figures.outputTokens),
+    cache_read_input_tokens: saturated(figures.cacheReadInputTokens),
+    cache_creation_input_tokens: saturated(figures.cacheCreationInputTokens),
+    token_count: saturated(
       figures.inputTokens +
-      figures.outputTokens +
-      figures.cacheReadInputTokens +
-      figures.cacheCreationInputTokens,
+        figures.outputTokens +
+        figures.cacheReadInputTokens +
+        figures.cacheCreationInputTokens,
+    ),
     cost_usd: figures.costUsd,
   };
 }
