@@ -71,6 +71,12 @@ exports[`query keys 1`] = `
   "teams": [
     "teams",
   ],
+  "usageSeries": [
+    "usage-series",
+    "installation",
+    "2026-07-26",
+    "2026-10-24",
+  ],
   "viewer": [
     "me",
     "optional",
@@ -444,6 +450,30 @@ exports[`query options and the request each query makes 1`] = `
     "options": {
       "queryKey": [
         "teams",
+      ],
+      "retry": false,
+    },
+  },
+  "usageSeriesQuery": {
+    "calls": [
+      [
+        "/v1/usage/series",
+        {
+          "params": {
+            "query": {
+              "scope": "id-1",
+              "since": undefined,
+            },
+          },
+        },
+      ],
+    ],
+    "options": {
+      "queryKey": [
+        "usage-series",
+        "id-1",
+        undefined,
+        null,
       ],
       "retry": false,
     },

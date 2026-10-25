@@ -2,6 +2,8 @@ import {
   installationLimitsResponseSchema,
   sessionIdParamsSchema,
   sessionUsageResponseSchema,
+  usageSeriesQuerySchema,
+  usageSeriesResponseSchema,
   usageSummaryQuerySchema,
   usageSummaryResponseSchema,
 } from "@werft-ai/contracts";
@@ -23,6 +25,14 @@ export function registerUsageRoutes(router: ApiRouter, service: UsageService) {
       service.getUsageSummary(context.get("caller"), query),
     );
     return jsonWithSchema(context, usageSummaryResponseSchema, summary);
+  });
+
+  apiRoute(router, "getUsageSeries", async (context) => {
+    const query = requireQuery(context, usageSeriesQuerySchema);
+    const series = await mapped(() =>
+      service.getUsageSeries(context.get("caller"), query),
+    );
+    return jsonWithSchema(context, usageSeriesResponseSchema, series);
   });
 
   apiRoute(router, "getSessionUsage", async (context) => {
