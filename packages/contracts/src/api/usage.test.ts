@@ -1,5 +1,70 @@
 import { describe, expect, test } from "bun:test";
-import { usageSummaryQuerySchema } from "./usage.ts";
+import {
+  usageSeriesQuerySchema,
+  usageSeriesResponseSchema,
+  usageSummaryQuerySchema,
+} from "./usage.ts";
+
+describe("usageSeriesQuerySchema", () => {
+  test("buckets by day unless told otherwise, and only by day", () => {
+    expect(
+      usageSeriesQuerySchema.parse({ scope: "me", since: "2026-10-01" }).bucket,
+    ).toBe("day");
+    expect(
+      usageSeriesQuerySchema.safeParse({
+        scope: "me",
+        since: "2026-10-01",
+        bucket: "week",
+      }).success,
+    ).toBe(false);
+  });
+
+  test("spans at most 366 days, the summary's period rules included", () => {
+    const ok = (since: string, until?: string) =>
+      usageSeriesQuerySchema.safeParse({
+        scope: "installation",
+        since,
+        ...(until === undefined ? {} : { until }),
+      }).success;
+    expect(ok("2023-10-01", "2024-10-01")).toBe(true);
+    expect(ok("2023-10-01", "2024-10-02")).toBe(false);
+    expect(ok("2026-10-02", "2026-10-01")).toBe(false);
+    expect(ok("2000-01-01")).toBe(false);
+  });
+});
+
+describe("usageSeriesResponseSchema", () => {
+  // The shape the operations screens' fixture (apps/storybook
+  // operations-fixtures.ts `series`) builds, values as it prints them.
+  test("reads the operations fixture's proposed response", () => {
+    const parsed = usageSeriesResponseSchema.parse({
+      period: {
+        since: "2026-10-22T00:00:00Z",
+        until: "2026-10-24T00:00:00Z",
+      },
+      refreshed_at: "2026-10-24T12:40:00Z",
+      buckets: [
+        {
+          date: "2026-10-22",
+          session_count: 13,
+          cost_usd: "41.27",
+          cost_complete: true,
+          token_count: 1527000,
+          run_seconds: 7020,
+        },
+        {
+          date: "2026-10-23",
+          session_count: 2,
+          cost_usd: "6.00",
+          cost_complete: false,
+          token_count: 222000,
+          run_seconds: 1080,
+        },
+      ],
+    });
+    expect(parsed.buckets).toHaveLength(2);
+  });
+});
 
 describe("usageSummaryQuerySchema", () => {
   const bounds = (query: Record<string, string>) => {

@@ -59,6 +59,21 @@ export KUBECONFIG=~/.cache/agent-platform/kind/<cluster>/kubeconfig
 
 `CLUSTER_NAME`(기본 `agent-platform-dev`)과 `REGISTRY_PORT`(기본 5001)는 생략할 수 있다. 다른 클러스터나 registry와 겹치면 바꾼다. 지우는 명령은 `CLUSTER_NAME=… deploy/kind/up.sh down`이다(클러스터와 registry 컨테이너만 지운다).
 
+`EXTRA_VALUES=<파일>`을 주면 values 파일 하나를 다른 values 파일(모델·카탈로그 포함) 위에 마지막으로 얹는다. 노트북에서 api·egress-proxy를 1개씩만 띄울 때 쓴다(`api.replicas: 1`, `egressProxy.replicas: 1`).
+
+### OrbStack (로컬)
+
+`CLUSTER_PROVIDER=orbstack`이면 kind 클러스터와 registry 컨테이너를 만들지 않고 OrbStack 내장 Kubernetes(`orb start k8s`)에 설치한다. OrbStack 클러스터는 Docker 엔진의 이미지 저장소를 그대로 쓰므로 이미지는 로컬에서 빌드만 하고, containerd 이미지 저장소가 준 manifest digest로 chart에 고정한다. Docker 엔진이 containerd 이미지 저장소를 쓰지 않으면 digest가 없어서 up.sh가 멈춘다. 이미지 태그는 `IMAGE_TAG`(기본 `kind-dev`)다. kubeconfig는 `~/.kube/config`의 `orbstack` context를 namespace마다 따로 `~/.cache/agent-platform/orbstack/<namespace>/kubeconfig`로 복사해 쓴다.
+
+```bash
+export CLUSTER_PROVIDER=orbstack NAMESPACE=<namespace>
+deploy/kind/up.sh          # 설치
+deploy/kind/smoke.sh       # 또는 smoke 전체. 이 실행이 만든 namespace는 끝에 지운다
+deploy/kind/up.sh down     # NAMESPACE만 지운다. 클러스터는 남는다
+```
+
+zsh에서는 환경 변수 묶음을 문자열 하나로 넘기면 단어로 나뉘지 않으므로 위처럼 `export A=… B=…`로 준다. namespace 범위 밖에 남는 것은 빌드한 이미지 태그뿐이다. smoke의 contract 단계는 무작위 이름의 `ap-ct-*`·`ap-it-*` namespace를 따로 만들고 끝나면 지운다(`K8S_BACKEND_TEST_KEEP=1`이면 남긴다). smoke는 다른 것이 없는 전용 namespace에서 돌린다. 이미 있던 namespace는 지우지 않지만, 그 안의 probe Pod(`k8s-smoke-worker`, `k8s-smoke-control`)는 지우고 다시 만든다.
+
 ### 직접 설치
 
 namespace와 Secret을 먼저 만든다. Secret은 키마다 파일 하나인 디렉터리(`0700`, 파일 이름이 키)에서 만든다. 값이 명령줄에 나오지 않는다. **kind**

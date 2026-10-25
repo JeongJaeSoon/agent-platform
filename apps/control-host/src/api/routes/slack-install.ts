@@ -7,12 +7,35 @@ import {
 import type { StructuredLogger } from "@werft-ai/observability";
 import type { SlackInstallService } from "@werft-ai/platform";
 import {
+  ApiHttpError,
   type ApiRouter,
   apiRoute,
   jsonWithSchema,
   parseJsonBody,
 } from "../app.ts";
 import { mapped, requireParams } from "./errors.ts";
+
+// Each value is a fixed name, a number or a code checked against
+// /^[a-z_]{1,64}$/ before it got here; anything else in details stays out.
+const LOGGED_DETAILS = [
+  "reason_code",
+  "slack_method",
+  "failure",
+  "http_status",
+  "slack_error",
+] as const;
+
+function loggedDetails(details: unknown) {
+  const fields: Record<string, string | number> = {};
+  if (details === null || typeof details !== "object") return fields;
+  for (const key of LOGGED_DETAILS) {
+    const value = (details as Record<string, unknown>)[key];
+    if (typeof value === "string" || typeof value === "number") {
+      fields[key] = value;
+    }
+  }
+  return fields;
+}
 
 // The state, the code and the bot token are never logged: only ids and the
 // outcome are.
@@ -46,7 +69,17 @@ export function registerSlackInstallRoutes(
       );
       const completed = await mapped(() =>
         service.complete(context.get("caller"), body),
-      );
+      ).catch((error: unknown) => {
+        if (error instanceof ApiHttpError) {
+          logger?.warn("Slack install failed", {
+            agent_id: body.agent_id,
+            status: error.status,
+            code: error.code,
+            ...loggedDetails(error.details),
+          });
+        }
+        throw error;
+      });
       logger?.info("Slack app installed", {
         agent_id: completed.slack_app.agent_id,
         slack_app_id: completed.slack_app.id,

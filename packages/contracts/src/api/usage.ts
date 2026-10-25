@@ -105,32 +105,60 @@ const periodBoundSchema = z
   // An impossible day such as 2026-02-30 is no date; PostgreSQL has no year 0.
   .pipe(z.date().min(new Date("0001-01-01T00:00:00Z")));
 
+const usagePeriodQuerySchema = z.object({
+  scope: z.enum(USAGE_SUMMARY_SCOPE_VALUES),
+  since: periodBoundSchema,
+  // Omitted: the moment the database reads the figures.
+  until: periodBoundSchema.optional(),
+});
+
+function checkPeriod(
+  query: z.infer<typeof usagePeriodQuerySchema>,
+  ctx: z.RefinementCtx,
+) {
+  if (query.since < (query.until ?? new Date())) return;
+  ctx.addIssue(
+    query.until === undefined
+      ? {
+          code: "custom",
+          message: "since must be in the past",
+          path: ["since"],
+        }
+      : {
+          code: "custom",
+          message: "until must be after since",
+          path: ["until"],
+        },
+  );
+}
+
 /**
  * GET /v1/usage/summary. `installation` sums every owner's sessions and is
  * the installation owner's alone; `me` sums the sessions the caller started.
  */
-export const usageSummaryQuerySchema = z
-  .object({
-    scope: z.enum(USAGE_SUMMARY_SCOPE_VALUES),
-    since: periodBoundSchema,
-    // Omitted: the moment the database reads the figures.
-    until: periodBoundSchema.optional(),
-  })
+export const usageSummaryQuerySchema =
+  usagePeriodQuerySchema.superRefine(checkPeriod);
+
+const DAY_MS = 86_400_000;
+/** The longest period one series answers, a leap year of day buckets. */
+export const USAGE_SERIES_MAX_DAYS = 366;
+
+/** GET /v1/usage/series: the summary's sessions, one bucket per UTC day. */
+export const usageSeriesQuerySchema = usagePeriodQuerySchema
+  .extend({ bucket: z.enum(["day"]).default("day") })
   .superRefine((query, ctx) => {
-    if (query.since < (query.until ?? new Date())) return;
-    ctx.addIssue(
-      query.until === undefined
-        ? {
-            code: "custom",
-            message: "since must be in the past",
-            path: ["since"],
-          }
-        : {
-            code: "custom",
-            message: "until must be after since",
-            path: ["until"],
-          },
-    );
+    checkPeriod(query, ctx);
+    const until = query.until ?? new Date();
+    if (
+      until.getTime() - query.since.getTime() <=
+      USAGE_SERIES_MAX_DAYS * DAY_MS
+    )
+      return;
+    ctx.addIssue({
+      code: "custom",
+      message: `a series spans at most ${USAGE_SERIES_MAX_DAYS} days`,
+      path: ["since"],
+    });
   });
 
 /**
@@ -162,7 +190,39 @@ export const usageSummaryResponseSchema = z
   })
   .strict();
 
+/**
+ * Every UTC day the period touches, oldest first, empty days included. Each
+ * bucket adds up the sessions created that day exactly as the summary does,
+ * so the buckets of one response sum to the summary of the same period.
+ * `run_seconds` is the floor of the running total minus the one before, so
+ * whole seconds are never lost to rounding each day.
+ */
+export const usageSeriesResponseSchema = z
+  .object({
+    // Half-open: since <= created_at < until.
+    period: z
+      .object({ since: timestampSchema, until: timestampSchema })
+      .strict(),
+    refreshed_at: timestampSchema,
+    buckets: z.array(
+      z
+        .object({
+          date: z.iso.date(),
+          session_count: countSchema,
+          cost_usd: costUsdSchema,
+          // true for a day without sessions.
+          cost_complete: z.boolean(),
+          token_count: countSchema,
+          run_seconds: countSchema,
+        })
+        .strict(),
+    ),
+  })
+  .strict();
+
 export type UsageSummaryScope = (typeof USAGE_SUMMARY_SCOPE_VALUES)[number];
+export type UsageSeriesQuery = z.infer<typeof usageSeriesQuerySchema>;
+export type UsageSeriesResponse = z.infer<typeof usageSeriesResponseSchema>;
 export type UsageSummaryQuery = z.infer<typeof usageSummaryQuerySchema>;
 export type UsageSummaryResponse = z.infer<typeof usageSummaryResponseSchema>;
 export type InstallationLimitsResponse = z.infer<

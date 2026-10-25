@@ -97,6 +97,23 @@ const PAYLOADS: Record<SessionEventName, unknown[]> = {
       request_id: "req_1",
       tool_use_id: "tu_1",
       kind: "question",
+      tool: "AskUserQuestion",
+      input: {
+        questions: [
+          {
+            question_id: "q_1",
+            prompt: "Deploy where first?",
+            options: [{ option_id: "o_1", label: "Staging" }],
+            multi_select: false,
+            allow_free_text: false,
+          },
+        ],
+      },
+    },
+    {
+      request_id: "req_1",
+      tool_use_id: "tu_1",
+      kind: "question",
       input: { path: "/repo" },
     },
     {
@@ -170,6 +187,18 @@ describe("presentTurnEvent", () => {
         },
       ]);
     }
+  });
+
+  test("a question says what it asks, in the worker's shape and the SDK's", () => {
+    const asked = FIXTURES.filter(
+      (fixture) =>
+        fixture.event === "question" &&
+        (fixture.data as { tool?: string }).tool === "AskUserQuestion",
+    ).map((fixture) => presentTurnEvent(fixture).summary);
+    expect(asked).toEqual([
+      [{ text: "Which branch? / ?" }],
+      [{ text: "Deploy where first?" }],
+    ]);
   });
 
   test("an event it cannot read gets the generic label and does not throw", () => {

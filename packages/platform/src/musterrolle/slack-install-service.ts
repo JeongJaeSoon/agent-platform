@@ -124,11 +124,20 @@ const rejected = (reason: Rejection, details: object = {}) =>
     undefined,
     { reason_code: reason, ...details },
   );
-const slackUnavailable = (method: string) =>
+const slackUnavailable = (error: SlackApiError) =>
   new SessionServiceError(
     "BACKEND_UNAVAILABLE",
-    `Slack did not answer ${method}; start the install again`,
+    `Slack did not answer ${error.method}; start the install again`,
+    undefined,
+    slackCallDetails(error),
   );
+// Only what names the failure: never the request, the answer or a token.
+const slackCallDetails = (error: SlackApiError) => ({
+  slack_method: error.method,
+  failure: error.failure,
+  ...(error.httpStatus === null ? {} : { http_status: error.httpStatus }),
+  ...(error.failure === "slack_error" ? { slack_error: error.code } : {}),
+});
 const unsettled = (what: string) =>
   new SessionServiceError(
     "REVISION_CONFLICT",
@@ -145,8 +154,8 @@ export const slackBotTokenRef = (slackAppId: string) =>
 function slackCallFailed(error: unknown): never {
   if (error instanceof SlackApiError) {
     throw error.answered
-      ? rejected("slack_error", { slack_error: error.code })
-      : slackUnavailable(error.method);
+      ? rejected("slack_error", slackCallDetails(error))
+      : slackUnavailable(error);
   }
   throw error;
 }

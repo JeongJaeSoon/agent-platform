@@ -1,0 +1,11 @@
+# The Traefik every preview shares (preview.sh sets the two exposed ports).
+# OrbStack opens a LoadBalancer's ports on the Mac's 127.0.0.1 only.
+ingressClass:
+  enabled: true
+  isDefaultClass: false
+  name: preview
+providers:
+  kubernetesCRD:
+    enabled: false
+  kubernetesIngress:
+    ingressClass: preview

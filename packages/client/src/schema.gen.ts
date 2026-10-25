@@ -2202,6 +2202,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/usage/series": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The usage summary of a period, one bucket per UTC day
+         * @description Splits `GET /v1/usage/summary` by the UTC day each session was created on: one bucket per day the period `[since, until)` touches, oldest first, days without sessions included. `scope`, `since`, `until` and who may read which scope are exactly the summary's; the period spans at most 366 days. `bucket` is `day`, the only size.
+         *
+         *     The buckets of one response add up to the summary of the same period: `session_count`, `cost_usd` and `token_count` sum, and `cost_complete` is false on a day whose sessions include one the summary would mark incomplete. `run_seconds` is the floor of the running total of turn time minus the floor of the one before it, so two days of 0.6 seconds read 0 and 1, as the summary reads 1. A long session's cost and time count on the day it started. It changes nothing.
+         *
+         *     **Scope:** `sessions:read` (API key or cookie session).
+         */
+        get: operations["getUsageSeries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/receipts/{id}": {
         parameters: {
             query?: never;
@@ -2296,6 +2320,17 @@ export interface components {
             scope: "installation" | "me";
             since: string;
             until?: string;
+        };
+        UsageSeriesQuery: {
+            /** @enum {string} */
+            scope: "installation" | "me";
+            since: string;
+            until?: string;
+            /**
+             * @default day
+             * @enum {string}
+             */
+            bucket: "day";
         };
         PostSessionMessageRequest: {
             /** @description At most 32768 bytes of UTF-8 */
@@ -2799,6 +2834,62 @@ export interface components {
             current_turn_id: string | null;
             queued_turn_count: number;
             last_event_at: string | null;
+            /** @description What the session's newest events did, for a list card. Absent from a server older than the field. */
+            activity?: {
+                /** @description The newest text with a non-blank line or tool call in the window's `assistant` and `tool_use` events, a subagent's included. Null when the window has neither. */
+                last: ({
+                    /** @constant */
+                    kind: "text";
+                    /** @description The first non-blank line of the text, trimmed and cut to 200 code points. */
+                    text: string;
+                } | {
+                    /** @constant */
+                    kind: "tool";
+                    /** @description The tool_use name; empty when the call named none. */
+                    name: string;
+                    /** @description What the call acts on, the first of its input's `command`, `file_path`, `path`, `pattern`, `url`, `query` or `description` that is a non-empty string; empty when none is. */
+                    target: string;
+                }) | null;
+                /** @description Distinct tool_use ids called in the window. */
+                tool_count: number;
+                /** @description Of those calls, the ones whose tool_result has `is_error: true`. A call left without a result is not counted. */
+                error_count: number;
+                /** @description Subagent runs in the window: one per `Task` or `Agent` call, and one per call the window's events name as `parent_tool_use_id`, whether or not that call is in the window. */
+                subagent_count: number;
+                /** @description The newest call still open: no tool_result yet, and neither a `result` of its turn nor a status of a session that stopped working (anything but `running`, `needs_input`, `interrupting`) came after it. Such a call reads `interrupted` and is never current. */
+                current_tool: {
+                    id: string;
+                    /** @description The tool_use name; empty when the call named none. */
+                    name: string;
+                    /** @description What the call acts on, the first of its input's `command`, `file_path`, `path`, `pattern`, `url`, `query` or `description` that is a non-empty string; empty when none is. */
+                    target: string;
+                    /**
+                     * @description `waiting` while a question for the call is unanswered: the session has not moved past `needs_input` since it was asked.
+                     * @enum {string}
+                     */
+                    state: "running" | "waiting";
+                    /**
+                     * Format: date-time
+                     * @description When the call was made, or for `waiting` when its question was asked.
+                     */
+                    since: string;
+                    /** @description What the call waits on: the newest question the session asked for it. Null unless `state` is `waiting`. */
+                    request: {
+                        /** @enum {string} */
+                        kind: "permission" | "question";
+                        /** @description For `question`, the first question's text, trimmed and cut to 200 code points; null for `permission` and for a question with no text. */
+                        prompt: string | null;
+                    } | null;
+                } | null;
+                /** @description The events the counts read: the session's newest 500 as recorded. They are ordered by `occurred_at`, and events at the same instant in the order they were recorded. */
+                window: {
+                    events: number;
+                    /** @description True when the window holds every event of the session, so the counts are the session's own. */
+                    complete: boolean;
+                    /** @description When the oldest event of the window was recorded; null for a session with none. */
+                    since: string | null;
+                };
+            };
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
@@ -2873,6 +2964,62 @@ export interface components {
             current_turn_id: string | null;
             queued_turn_count: number;
             last_event_at: string | null;
+            /** @description What the session's newest events did, for a list card. Absent from a server older than the field. */
+            activity?: {
+                /** @description The newest text with a non-blank line or tool call in the window's `assistant` and `tool_use` events, a subagent's included. Null when the window has neither. */
+                last: ({
+                    /** @constant */
+                    kind: "text";
+                    /** @description The first non-blank line of the text, trimmed and cut to 200 code points. */
+                    text: string;
+                } | {
+                    /** @constant */
+                    kind: "tool";
+                    /** @description The tool_use name; empty when the call named none. */
+                    name: string;
+                    /** @description What the call acts on, the first of its input's `command`, `file_path`, `path`, `pattern`, `url`, `query` or `description` that is a non-empty string; empty when none is. */
+                    target: string;
+                }) | null;
+                /** @description Distinct tool_use ids called in the window. */
+                tool_count: number;
+                /** @description Of those calls, the ones whose tool_result has `is_error: true`. A call left without a result is not counted. */
+                error_count: number;
+                /** @description Subagent runs in the window: one per `Task` or `Agent` call, and one per call the window's events name as `parent_tool_use_id`, whether or not that call is in the window. */
+                subagent_count: number;
+                /** @description The newest call still open: no tool_result yet, and neither a `result` of its turn nor a status of a session that stopped working (anything but `running`, `needs_input`, `interrupting`) came after it. Such a call reads `interrupted` and is never current. */
+                current_tool: {
+                    id: string;
+                    /** @description The tool_use name; empty when the call named none. */
+                    name: string;
+                    /** @description What the call acts on, the first of its input's `command`, `file_path`, `path`, `pattern`, `url`, `query` or `description` that is a non-empty string; empty when none is. */
+                    target: string;
+                    /**
+                     * @description `waiting` while a question for the call is unanswered: the session has not moved past `needs_input` since it was asked.
+                     * @enum {string}
+                     */
+                    state: "running" | "waiting";
+                    /**
+                     * Format: date-time
+                     * @description When the call was made, or for `waiting` when its question was asked.
+                     */
+                    since: string;
+                    /** @description What the call waits on: the newest question the session asked for it. Null unless `state` is `waiting`. */
+                    request: {
+                        /** @enum {string} */
+                        kind: "permission" | "question";
+                        /** @description For `question`, the first question's text, trimmed and cut to 200 code points; null for `permission` and for a question with no text. */
+                        prompt: string | null;
+                    } | null;
+                } | null;
+                /** @description The events the counts read: the session's newest 500 as recorded. They are ordered by `occurred_at`, and events at the same instant in the order they were recorded. */
+                window: {
+                    events: number;
+                    /** @description True when the window holds every event of the session, so the counts are the session's own. */
+                    complete: boolean;
+                    /** @description When the oldest event of the window was recorded; null for a session with none. */
+                    since: string | null;
+                };
+            };
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
@@ -4004,6 +4151,25 @@ export interface components {
                 /** @constant */
                 run_time: "turn_wall_clock";
             };
+        };
+        UsageSeriesResponse: {
+            period: {
+                /** Format: date-time */
+                since: string;
+                /** Format: date-time */
+                until: string;
+            };
+            /** Format: date-time */
+            refreshed_at: string;
+            buckets: {
+                /** Format: date */
+                date: string;
+                session_count: number;
+                cost_usd: string;
+                cost_complete: boolean;
+                token_count: number;
+                run_seconds: number;
+            }[];
         };
         SessionUsageResponse: {
             /** Format: uuid */
@@ -18963,6 +19129,129 @@ export interface operations {
                      *     }
                      */
                     "application/json": components["schemas"]["UsageSummaryResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, checked before the body or the resource is read. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    getUsageSeries: {
+        parameters: {
+            query: {
+                scope: "installation" | "me";
+                since: string;
+                until?: string;
+                bucket?: "day";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The buckets as of `refreshed_at`. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "period": {
+                     *         "since": "2026-10-09T00:00:00.000Z",
+                     *         "until": "2026-10-11T08:15:43.000Z"
+                     *       },
+                     *       "refreshed_at": "2026-10-11T08:15:43.000Z",
+                     *       "buckets": [
+                     *         {
+                     *           "date": "2026-10-09",
+                     *           "session_count": 5,
+                     *           "cost_usd": "1.204100",
+                     *           "cost_complete": true,
+                     *           "token_count": 702300,
+                     *           "run_seconds": 2210
+                     *         },
+                     *         {
+                     *           "date": "2026-10-10",
+                     *           "session_count": 0,
+                     *           "cost_usd": "0",
+                     *           "cost_complete": true,
+                     *           "token_count": 0,
+                     *           "run_seconds": 0
+                     *         },
+                     *         {
+                     *           "date": "2026-10-11",
+                     *           "session_count": 2,
+                     *           "cost_usd": "0.381000",
+                     *           "cost_complete": false,
+                     *           "token_count": 154200,
+                     *           "run_seconds": 640
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["UsageSeriesResponse"];
                 };
             };
             /** @description - `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying. */

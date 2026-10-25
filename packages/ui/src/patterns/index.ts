@@ -60,6 +60,16 @@ export {
 } from "./secret-field.tsx";
 export { Section, type SectionProps } from "./section.tsx";
 export { SettingRow, type SettingRowProps } from "./setting-row.tsx";
+export {
+  SideNav,
+  SideNavGroup,
+  type SideNavGroupProps,
+  SideNavLayout,
+  type SideNavLayoutProps,
+  SideNavLink,
+  type SideNavLinkProps,
+  type SideNavProps,
+} from "./side-nav.tsx";
 export { StatCard, type StatCardProps } from "./stat-card.tsx";
 export {
   Stepper,
