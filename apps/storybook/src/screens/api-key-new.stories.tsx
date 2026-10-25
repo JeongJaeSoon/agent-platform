@@ -11,12 +11,13 @@ import {
   FieldLegend,
   FieldSet,
   Input,
-  Link,
   NativeSelect,
   NativeSelectOption,
-  PageHeader,
+  Page,
+  PageBreadcrumb,
+  PageBreadcrumbCurrent,
+  PageBreadcrumbLink,
 } from "@werft-ai/ui";
-import { ArrowLeft } from "lucide-react";
 import { useState } from "react";
 
 import { MOBILE, ScreenShell } from "./screen-kit.tsx";
@@ -97,120 +98,118 @@ function NewKeyScreen({
   );
   return (
     <ScreenShell current="settings" crumb={["내 설정", "API key"]}>
-      <div className="flex w-full flex-col gap-2">
-        <Link
-          href={`#${kind}`}
-          className="inline-flex items-center gap-1 self-start text-control"
-        >
-          <ArrowLeft aria-hidden="true" className="size-3.5" />
-          {screen.list}
-        </Link>
-        <PageHeader title={screen.title} description={screen.intro} />
-        <div className="flex flex-col gap-[var(--ap-space-section)]">
-          {state === "failed" ? (
-            <div role="alert" className="text-destructive">
-              처리하지 못했습니다 — 잠시 뒤 다시 시도하세요.
-            </div>
-          ) : null}
-          <Card flush>
-            <form onSubmit={(event) => event.preventDefault()}>
-              <div className="flex flex-col items-start gap-4 p-4">
-                {kind === "agent" ? (
-                  <Field>
-                    <FieldLabel>에이전트</FieldLabel>
-                    <div>
-                      <NativeSelect defaultValue="review" required>
-                        <NativeSelectOption value="" disabled>
-                          에이전트를 고르세요
-                        </NativeSelectOption>
-                        <NativeSelectOption value="review">
-                          리뷰 봇
-                        </NativeSelectOption>
-                      </NativeSelect>
-                    </div>
-                    <FieldDescription>
-                      key를 쓸 에이전트입니다. 발급한 뒤에는 바꿀 수 없습니다.
-                    </FieldDescription>
-                  </Field>
-                ) : null}
-                <Field className="w-full">
-                  <FieldLabel>이름(필수 아님)</FieldLabel>
-                  <Input
-                    className="max-w-sm"
-                    autoComplete="off"
-                    maxLength={64}
-                  />
-                  <FieldDescription>
-                    목록에서 이 key를 알아보는 이름입니다. 예: ci-deploy
-                  </FieldDescription>
-                </Field>
-                <FieldSet className="w-full gap-3">
-                  <FieldLegend variant="label" className="mb-0">
-                    권한
-                  </FieldLegend>
-                  {scopes.map((scope) => (
-                    <Field key={scope.scope} orientation="horizontal">
-                      <Checkbox
-                        checked={chosen.includes(scope.scope)}
-                        onCheckedChange={(checked) =>
-                          setChosen(
-                            checked === true
-                              ? [...chosen, scope.scope]
-                              : chosen.filter((s) => s !== scope.scope),
-                          )
-                        }
-                      />
-                      <FieldContent>
-                        <FieldLabel>
-                          {scope.name} {scope.scope}
-                        </FieldLabel>
-                        <FieldDescription>{scope.hint}</FieldDescription>
-                      </FieldContent>
-                    </Field>
-                  ))}
-                  {kind === "agent" ? (
-                    <FieldDescription>
-                      '요청에 답하기'(sessions:approve)는 에이전트 key에 넣을 수
-                      없습니다. 승인과 질문 답변은 사람이 합니다.
-                    </FieldDescription>
-                  ) : null}
-                </FieldSet>
+      <Page
+        title={screen.title}
+        description={screen.intro}
+        width="form"
+        breadcrumb={
+          <PageBreadcrumb label="위치">
+            <PageBreadcrumbLink href={`#${kind}`}>
+              {screen.list}
+            </PageBreadcrumbLink>
+            <PageBreadcrumbCurrent>{screen.title}</PageBreadcrumbCurrent>
+          </PageBreadcrumb>
+        }
+      >
+        {state === "failed" ? (
+          <div role="alert" className="text-destructive">
+            처리하지 못했습니다 — 잠시 뒤 다시 시도하세요.
+          </div>
+        ) : null}
+        <Card flush>
+          <form onSubmit={(event) => event.preventDefault()}>
+            <div className="flex flex-col items-start gap-4 p-4">
+              {kind === "agent" ? (
                 <Field>
-                  <FieldLabel>만료일(필수 아님)</FieldLabel>
+                  <FieldLabel>에이전트</FieldLabel>
                   <div>
-                    <Input
-                      type="date"
-                      className="w-auto"
-                      // As in the console: no past day (local YYYY-MM-DD).
-                      min={new Date().toLocaleDateString("sv")}
-                      // An agent key starts 90 days out, as in the console.
-                      defaultValue={
-                        kind === "agent" ? ninetyDaysOut() : undefined
-                      }
-                    />
+                    <NativeSelect defaultValue="review" required>
+                      <NativeSelectOption value="" disabled>
+                        에이전트를 고르세요
+                      </NativeSelectOption>
+                      <NativeSelectOption value="review">
+                        리뷰 봇
+                      </NativeSelectOption>
+                    </NativeSelect>
                   </div>
                   <FieldDescription>
-                    {kind === "agent"
-                      ? "기본은 90일 뒤입니다. 비워 두면 폐기할 때까지 유효합니다."
-                      : "비워 두면 폐기할 때까지 유효합니다."}
+                    key를 쓸 에이전트입니다. 발급한 뒤에는 바꿀 수 없습니다.
                   </FieldDescription>
                 </Field>
-              </div>
-              <CardFooter
-                variant="form"
-                className="flex-wrap items-start justify-end"
-              >
-                <Button type="button" variant="outline">
-                  취소
-                </Button>
-                <Button type="submit" disabled={chosen.length === 0}>
-                  key 만들기
-                </Button>
-              </CardFooter>
-            </form>
-          </Card>
-        </div>
-      </div>
+              ) : null}
+              <Field className="w-full">
+                <FieldLabel>이름(필수 아님)</FieldLabel>
+                <Input className="max-w-sm" autoComplete="off" maxLength={64} />
+                <FieldDescription>
+                  목록에서 이 key를 알아보는 이름입니다. 예: ci-deploy
+                </FieldDescription>
+              </Field>
+              <FieldSet className="w-full gap-3">
+                <FieldLegend variant="label" className="mb-0">
+                  권한
+                </FieldLegend>
+                {scopes.map((scope) => (
+                  <Field key={scope.scope} orientation="horizontal">
+                    <Checkbox
+                      checked={chosen.includes(scope.scope)}
+                      onCheckedChange={(checked) =>
+                        setChosen(
+                          checked === true
+                            ? [...chosen, scope.scope]
+                            : chosen.filter((s) => s !== scope.scope),
+                        )
+                      }
+                    />
+                    <FieldContent>
+                      <FieldLabel>
+                        {scope.name} {scope.scope}
+                      </FieldLabel>
+                      <FieldDescription>{scope.hint}</FieldDescription>
+                    </FieldContent>
+                  </Field>
+                ))}
+                {kind === "agent" ? (
+                  <FieldDescription>
+                    '요청에 답하기'(sessions:approve)는 에이전트 key에 넣을 수
+                    없습니다. 승인과 질문 답변은 사람이 합니다.
+                  </FieldDescription>
+                ) : null}
+              </FieldSet>
+              <Field>
+                <FieldLabel>만료일(필수 아님)</FieldLabel>
+                <div>
+                  <Input
+                    type="date"
+                    className="w-auto"
+                    // As in the console: no past day (local YYYY-MM-DD).
+                    min={new Date().toLocaleDateString("sv")}
+                    // An agent key starts 90 days out, as in the console.
+                    defaultValue={
+                      kind === "agent" ? ninetyDaysOut() : undefined
+                    }
+                  />
+                </div>
+                <FieldDescription>
+                  {kind === "agent"
+                    ? "기본은 90일 뒤입니다. 비워 두면 폐기할 때까지 유효합니다."
+                    : "비워 두면 폐기할 때까지 유효합니다."}
+                </FieldDescription>
+              </Field>
+            </div>
+            <CardFooter
+              variant="form"
+              className="flex-wrap items-start justify-end"
+            >
+              <Button type="button" variant="outline">
+                취소
+              </Button>
+              <Button type="submit" disabled={chosen.length === 0}>
+                key 만들기
+              </Button>
+            </CardFooter>
+          </form>
+        </Card>
+      </Page>
     </ScreenShell>
   );
 }

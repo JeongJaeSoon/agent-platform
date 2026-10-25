@@ -2,12 +2,12 @@ import {
   Field,
   FieldContent,
   FieldLabel,
+  Page,
   RadioGroup,
   RadioGroupItem,
 } from "@werft-ai/ui";
 import { type ReactNode, useId } from "react";
 import { roleLabel, useMe, useRole } from "../auth/guard.tsx";
-import { Page } from "../components/page.tsx";
 import { chooseTheme, type Theme, useTheme } from "../components/theme.ts";
 import {
   LOCALE_NAMES,
@@ -27,7 +27,11 @@ export function PreferencesScreen() {
   const { t, locale, setLocale } = useI18n();
   const theme = useTheme();
   return (
-    <Page title={t("nav.preferences")} description={t("preferences.lead")}>
+    <Page
+      title={t("nav.preferences")}
+      description={t("preferences.lead")}
+      width="form"
+    >
       <div className="flex flex-col gap-[var(--ap-space-block)]">
         <ChoiceCard
           title={t("common.language")}

@@ -30,6 +30,7 @@ import {
   GridTableHeader,
   GridTableRow,
   GridTableRowOpener,
+  Page,
   RelativeTime,
   Skeleton,
   StatusDot,
@@ -55,7 +56,6 @@ import { AdministeredAgents } from "../components/agent-admins.tsx";
 import { AgentStateBadge } from "../components/agent-state.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { MyTeams } from "../components/my-teams.tsx";
-import { Page } from "../components/page.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import {
   errorKey,

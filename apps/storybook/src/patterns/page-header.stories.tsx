@@ -1,5 +1,11 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Button, PageHeader } from "@werft-ai/ui";
+import {
+  Button,
+  PageBreadcrumb,
+  PageBreadcrumbCurrent,
+  PageBreadcrumbLink,
+  PageHeader,
+} from "@werft-ai/ui";
 
 // The kit has no messages of its own; these stand in for apps/web's.
 const COPY = {
@@ -69,6 +75,23 @@ export const English: Story = { globals: { locale: "en" } };
 export const EnglishDark: Story = {
   name: "English (dark)",
   globals: { locale: "en", theme: "dark" },
+};
+
+/** The way back sits above the title, where another page's title starts. */
+export const WithBreadcrumb: Story = {
+  render: (args) => (
+    <PageHeader
+      {...args}
+      title="새 개인 key"
+      description="이 key로 할 수 있는 일을 고릅니다."
+      breadcrumb={
+        <PageBreadcrumb label="위치">
+          <PageBreadcrumbLink href="#keys">내 key</PageBreadcrumbLink>
+          <PageBreadcrumbCurrent>새 개인 key</PageBreadcrumbCurrent>
+        </PageBreadcrumb>
+      }
+    />
+  ),
 };
 
 export const TitleOnly: Story = {
