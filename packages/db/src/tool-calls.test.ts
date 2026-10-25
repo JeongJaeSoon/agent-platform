@@ -433,7 +433,7 @@ describe("projectToolCalls", () => {
     expect(await days()).toEqual(await fromEvents());
   });
 
-  test("a batch cut by the statement timeout is retried at half the size; other errors are not", async () => {
+  test("a batch cut by the statement timeout is retried at a tenth of the size; other errors are not", async () => {
     await everyRule();
     const [events] = rowsOf<{ n: number }>(
       await db.execute(sql`SELECT count(*)::int AS n FROM events`),
@@ -464,22 +464,28 @@ describe("projectToolCalls", () => {
     // A budget spent on the failures still gets one batch through.
     let clock = 0;
     const once = await projectToolCalls(failing(2, "57014"), {
-      batchSize: 8,
+      batchSize: 100,
       budgetMs: 1,
       now: () => clock++,
     });
-    expect(once).toMatchObject({ batches: 1, eventsRead: 2 });
+    expect(once).toMatchObject({ batches: 1, eventsRead: 1 });
     await db.execute(sql`TRUNCATE tool_call_days, tool_calls`);
     await db.execute(
       sql`UPDATE tool_call_progress SET applied_through = 0 WHERE id = 1`,
     );
-    const halved = await projectToolCalls(failing(2, "57014"), {
-      batchSize: 8,
+    const sizes: [number, number][] = [];
+    const cut = await projectToolCalls(failing(2, "57014"), {
+      batchSize: 100,
       budgetMs: 60_000,
+      onTimeout: (size, retry) => sizes.push([size, retry]),
     });
-    // 8 → 4 → 2 events a batch, the last one short.
-    expect(halved).toMatchObject({
-      batches: Math.floor(n / 2) + 1,
+    // 100 → 10 → 1 event a batch, then one empty batch to see it is done.
+    expect(sizes).toEqual([
+      [100, 10],
+      [10, 1],
+    ]);
+    expect(cut).toMatchObject({
+      batches: n + 1,
       eventsRead: n,
       caughtUp: true,
       timedOut: 2,

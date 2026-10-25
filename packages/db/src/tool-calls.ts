@@ -151,8 +151,10 @@ async function applyResults(tx: Database, from: number, to: number) {
  * Projects tool calls from events the reconciler has not read yet, a batch
  * of `batchSize` events per transaction, until it has read up to the newest
  * event or `budgetMs` has passed. A batch cut by the statement timeout is
- * retried at half the size for the rest of the pass. Passes must not overlap; the progress row
- * lock makes a second one wait rather than double-count.
+ * retried at a tenth of the size for the rest of the pass, so 5,000 reaches a
+ * single event after four timeouts, inside the reconciler's pass timeout.
+ * Passes must not overlap; the progress row lock makes a second one wait
+ * rather than double-count.
  */
 export async function projectToolCalls(
   db: Database,
@@ -161,6 +163,7 @@ export async function projectToolCalls(
     budgetMs: number;
     marginSeconds?: number;
     now?: () => number;
+    onTimeout?: (batchSize: number, retrySize: number) => void;
   },
 ): Promise<ToolCallProjection> {
   const now = options.now ?? Date.now;
@@ -186,7 +189,9 @@ export async function projectToolCalls(
       if (findPgError(error, "57014") === undefined || batchSize === 1) {
         throw error;
       }
-      batchSize = Math.ceil(batchSize / 2);
+      const retrySize = Math.ceil(batchSize / 10);
+      options.onTimeout?.(batchSize, retrySize);
+      batchSize = retrySize;
       timedOut += 1;
       continue;
     }
