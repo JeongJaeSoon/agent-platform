@@ -10,9 +10,19 @@ export {
   type ToolNode,
 } from "../../run-tree.ts";
 export { AgentMap, type AgentMapProps } from "./agent-map.tsx";
+export { AgentMapPage, type AgentMapPageProps } from "./agent-map-page.tsx";
+export {
+  arrangeBoard,
+  type BoardMemory,
+  mapSessionOf,
+  ROW_TOOLS,
+  runNodesOf,
+  type StatusChange,
+} from "./board-data.ts";
 export {
   ApprovalStrip,
   type ApprovalStripProps,
+  ApprovalStripStandIn,
   LaneBoard,
   type LaneBoardProps,
   laneOf,
@@ -47,3 +57,4 @@ export type {
   RunStatus,
   ToolCallState,
 } from "./types.ts";
+export { useAgentMapBoard, useSessionRunTree } from "./use-agent-map.ts";
