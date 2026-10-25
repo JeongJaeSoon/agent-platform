@@ -4966,6 +4966,30 @@
                 "minLength": 1,
                 "maxLength": 255
               },
+              "external_tenant_name": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 255
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "external_user_name": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 255
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "status": {
                 "type": "string",
                 "enum": [
@@ -4991,6 +5015,8 @@
               "provider",
               "external_tenant",
               "external_user_id",
+              "external_tenant_name",
+              "external_user_name",
               "status",
               "verified_at",
               "revision"
@@ -5044,6 +5070,30 @@
                   "minLength": 1,
                   "maxLength": 255
                 },
+                "external_tenant_name": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 255
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "external_user_name": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 255
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "status": {
                   "type": "string",
                   "enum": [
@@ -5069,6 +5119,8 @@
                 "provider",
                 "external_tenant",
                 "external_user_id",
+                "external_tenant_name",
+                "external_user_name",
                 "status",
                 "verified_at",
                 "revision"

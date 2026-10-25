@@ -140,7 +140,39 @@ describe("exchangeSlackCode", () => {
 
   test("returns the team and user of a verified id_token", async () => {
     const code = await codeFor("nonce-1");
-    expect(await exchangeSlackCode(config(), code, "nonce-1")).toEqual(account);
+    expect(await exchangeSlackCode(config(), code, "nonce-1")).toEqual({
+      ...account,
+      teamName: null,
+      userName: null,
+    });
+  });
+
+  test("carries the team and display names the id_token gives", async () => {
+    idp.setAccount({ ...account, teamName: "Acme", userName: " Alice " });
+    try {
+      const code = await codeFor("nonce-1");
+      expect(await exchangeSlackCode(config(), code, "nonce-1")).toEqual({
+        ...account,
+        teamName: "Acme",
+        userName: "Alice",
+      });
+    } finally {
+      idp.setAccount(account);
+    }
+  });
+
+  test("a name longer than the API takes is left out", async () => {
+    idp.setAccount({ ...account, teamName: "x".repeat(256), userName: "   " });
+    try {
+      const code = await codeFor("nonce-1");
+      expect(await exchangeSlackCode(config(), code, "nonce-1")).toEqual({
+        ...account,
+        teamName: null,
+        userName: null,
+      });
+    } finally {
+      idp.setAccount(account);
+    }
   });
 
   test("a nonce from another attempt is rejected", async () => {

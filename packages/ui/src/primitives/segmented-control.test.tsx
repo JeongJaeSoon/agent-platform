@@ -206,7 +206,7 @@ describe("SegmentedControl", () => {
     );
   });
 
-  test("toolbar 크기는 32px 트랙(1px 여백)·컨트롤 모서리·입력 테두리다", () => {
+  test("toolbar 크기는 32px 트랙(1px 여백)·컨트롤 모서리에 표와 같은 테두리다", () => {
     const { getByRole } = render(
       <SegmentedControl
         aria-label="보기"
@@ -220,10 +220,15 @@ describe("SegmentedControl", () => {
     const group = getByRole("group");
     expect(group.dataset.size).toBe("toolbar");
     const track = group.className.split(" ");
-    for (const name of ["p-px", "rounded-control", "border-input"]) {
+    for (const name of [
+      "p-px",
+      "rounded-control",
+      "border-border",
+      "hover:border-border-strong",
+    ]) {
       expect(track).toContain(name);
     }
-    for (const name of ["p-0.5", "rounded-card", "border-border"]) {
+    for (const name of ["p-0.5", "rounded-card", "border-input"]) {
       expect(track).not.toContain(name);
     }
   });
