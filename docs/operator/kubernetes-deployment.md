@@ -72,7 +72,7 @@ deploy/kind/smoke.sh       # 또는 smoke 전체. 이 실행이 만든 namespace
 deploy/kind/up.sh down     # NAMESPACE만 지운다. 클러스터는 남는다
 ```
 
-zsh에서는 환경 변수 묶음을 문자열 하나로 넘기면 단어로 나뉘지 않으므로 위처럼 `export A=… B=…`로 준다. namespace 범위 밖에 남는 것은 빌드한 이미지 태그뿐이다. smoke는 다른 것이 없는 전용 namespace에서 돌린다. 이미 있던 namespace는 지우지 않지만, 그 안의 probe Pod(`k8s-smoke-worker`, `k8s-smoke-control`)는 지우고 다시 만든다.
+zsh에서는 환경 변수 묶음을 문자열 하나로 넘기면 단어로 나뉘지 않으므로 위처럼 `export A=… B=…`로 준다. namespace 범위 밖에 남는 것은 빌드한 이미지 태그뿐이다. smoke의 contract 단계는 무작위 이름의 `ap-ct-*`·`ap-it-*` namespace를 따로 만들고 끝나면 지운다(`K8S_BACKEND_TEST_KEEP=1`이면 남긴다). smoke는 다른 것이 없는 전용 namespace에서 돌린다. 이미 있던 namespace는 지우지 않지만, 그 안의 probe Pod(`k8s-smoke-worker`, `k8s-smoke-control`)는 지우고 다시 만든다.
 
 ### 직접 설치
 

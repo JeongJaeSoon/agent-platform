@@ -150,7 +150,7 @@ publish() {
   docker build -q -f "$root/apps/$1/Dockerfile" -t "$ref" \
     ${BUN_IMAGE:+--build-arg "BUN_IMAGE=$BUN_IMAGE"} \
     ${BUILDKIT_SYNTAX:+--build-arg "BUILDKIT_SYNTAX=$BUILDKIT_SYNTAX"} \
-    "$root" >/dev/null
+    "$root" >/dev/null || return
   if [ "$CLUSTER_PROVIDER" = orbstack ]; then
     local digest
     digest="$(docker images --digests --format '{{.Digest}}' "$ref")"
@@ -162,7 +162,7 @@ publish() {
     echo "$digest"
     return
   fi
-  docker push -q "$ref" >/dev/null
+  docker push -q "$ref" >/dev/null || return
   docker inspect --format '{{index .RepoDigests 0}}' "$ref" | sed 's/.*@//'
 }
 control_host_digest="$(publish control-host)"
