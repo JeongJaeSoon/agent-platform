@@ -54,6 +54,10 @@ jobs:
             source: docker.io/library/postgres
             tag: "16"
             digest: sha256:a3b7f434b2dc57ce85a67e171163eb8ab1a1ebcb39d27484661f26b1dfbe30d6
+          - name: seaweedfs
+            source: docker.io/chrislusf/seaweedfs
+            tag: "4.48"
+            digest: sha256:4e61d15fd35994cb1e43e1e553dff106794841fd9a99ade2fc8c8bfce4d7872d
           - name: localstack
             source: docker.io/localstack/localstack
             tag: "3"

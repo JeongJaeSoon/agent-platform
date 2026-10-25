@@ -20,6 +20,7 @@ import {
   useState,
 } from "react";
 
+import { Busy } from "./busy.tsx";
 import { useExpired, useExpiryFocus } from "./expiry.ts";
 
 export type PermissionRequest = Extract<PendingRequest, { kind: "permission" }>;
@@ -170,6 +171,7 @@ export function ApprovalCard({
         {expired || denying ? null : (
           <div className="flex flex-wrap gap-2">
             <Button type="button" disabled={blocked} onClick={onAllow}>
+              <Busy shown={pending} />
               {messages.allow}
             </Button>
             <Button
@@ -202,6 +204,7 @@ export function ApprovalCard({
               variant="destructive"
               disabled={blocked || !reason.trim()}
             >
+              <Busy shown={pending} />
               {messages.denySubmit}
             </Button>
             <Button

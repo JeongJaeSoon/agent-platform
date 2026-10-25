@@ -113,6 +113,7 @@ import {
   turns,
   users,
 } from "./schema.ts";
+import { readSessionActivity } from "./session-activity.ts";
 import { recordStatus } from "./session-events.ts";
 import { sessionRelationIs, sessionVisibleTo } from "./session-shares.ts";
 
@@ -708,6 +709,7 @@ export function createPostgresSessionReader(
             .select({ user_id: users.id, display_name: users.displayName })
             .from(users)
             .where(inArray(users.id, creatorIds));
+    const activities = await readSessionActivity(executor, ids);
     const openTurns = await executor
       .select({
         sessionId: turns.sessionId,
@@ -756,6 +758,7 @@ export function createPostgresSessionReader(
         queued_turn_count: mine.filter((turn) => turn.status === "queued")
           .length,
         last_event_at: lastEventAt?.toISOString() ?? null,
+        activity: activities.get(row.id),
         created_at: row.createdAt.toISOString(),
         updated_at: row.updatedAt.toISOString(),
       };
