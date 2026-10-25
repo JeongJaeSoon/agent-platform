@@ -485,6 +485,81 @@ describe("Slack management", () => {
     ).toBeDefined();
   });
 
+  for (const refused of [false, true]) {
+    test(`does not connect a new channel while the default response is ${refused ? "unreadable" : "loading"}`, async () => {
+      const { api } = renderAt(DETAIL, {
+        ...routes(APP, true),
+        [`GET ${PATH}/slack/app/settings`]: () =>
+          refused
+            ? apiError(403, "FORBIDDEN", "internal message")
+            : new Promise<Response>(() => {}),
+        [`GET ${PATH}/slack/channels`]: () =>
+          json(200, {
+            items: [
+              {
+                id: "C123",
+                name: "general",
+                is_private: false,
+                is_member: true,
+              },
+            ],
+            next_cursor: null,
+            stale: false,
+            truncated: false,
+          }),
+      });
+      const user = await setupUser();
+      await screen.findByRole("navigation", { name: "Slack 구역" });
+      await user.click(
+        await screen.findByRole("button", { name: "채널 추가" }),
+      );
+      const dialog = screen.getByRole("dialog");
+      const connect = await within(dialog).findByRole("button", {
+        name: "#general 연결",
+      });
+      // The picker says why it cannot connect.
+      if (refused) await within(dialog).findByRole("alert");
+      expect(connect.hasAttribute("disabled")).toBe(true);
+      await user.click(connect);
+      expect(api.calls.some((call) => call.method === "PUT")).toBe(false);
+    });
+  }
+
+  test("keeps a saved default response when an older read lands after the save", async () => {
+    let reads = 0;
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/app/settings`]: async () => {
+        reads += 1;
+        if (reads > 1) await gate;
+        return json(200, { default_mode: "off" });
+      },
+      [`PUT ${PATH}/slack/app/settings`]: () =>
+        json(200, { default_mode: "mention" }),
+    });
+    const user = await setupUser();
+    const toggle = await screen.findByRole("switch", {
+      name: "새 채널의 기본 반응",
+    });
+    await waitFor(() =>
+      expect(toggle.getAttribute("aria-disabled")).toBe("false"),
+    );
+    // Refresh refetches every Slack query, the setting included.
+    await user.click(screen.getByRole("button", { name: "새로고침" }));
+    await waitFor(() => expect(reads).toBe(2));
+    await user.click(toggle);
+    await screen.findByText(
+      "새 채널의 기본 반응을 '멘션할 때'(으)로 바꿨습니다. 이미 연결된 채널은 그대로입니다.",
+    );
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+  });
+
   test("withholds the default response switch when its setting cannot be read", async () => {
     renderAt(DETAIL, {
       ...routes(APP, true),

@@ -703,12 +703,10 @@ export function SlackConnect({
 
 function SlackChannels({
   agentId,
-  defaultMention,
   invite,
   notify,
 }: {
   readonly agentId: string;
-  readonly defaultMention: boolean;
   /** The line to paste in a channel to add the bot. */
   readonly invite: string;
   readonly notify: Notify;
@@ -732,6 +730,9 @@ function SlackChannels({
   }, [input]);
   const bindings = useSlackBindings(agentId);
   const channels = useSlackChannels(agentId, query);
+  // A new binding takes the saved default; until it is read there is none.
+  const settings = useSlackSettings(agentId);
+  const defaultMode = settings.data?.default_mode;
   const update = useMutation({
     onMutate: () => setNotice(""),
     mutationFn: ({ body }: BindingChange) =>
@@ -782,17 +783,13 @@ function SlackChannels({
   const error = bindings.error ?? channels.error ?? update.error;
   const connectChannel = (channelId: string) => {
     const row = rows.find((item) => item.external_surface_id === channelId);
+    const mode = row ? (row.mode === "off" ? "off" : "mention") : defaultMode;
+    if (!mode) return;
     update.mutate({
       kind: pickHome ? "home" : "connect",
       body: {
         channel_id: channelId,
-        mode: row
-          ? row.mode === "off"
-            ? "off"
-            : "mention"
-          : defaultMention
-            ? "mention"
-            : "off",
+        mode,
         home: pickHome || (row?.home ?? false),
         ...(row ? { ceiling: row.ceiling } : {}),
       },
@@ -933,7 +930,9 @@ function SlackChannels({
             </DialogTitle>
             <DialogDescription>{t("slack.joinHint")}</DialogDescription>
           </DialogHeader>
-          {error ? <FieldError>{slackFailure(error, t)}</FieldError> : null}
+          {(error ?? settings.error) ? (
+            <FieldError>{slackFailure(error ?? settings.error, t)}</FieldError>
+          ) : null}
           <Field>
             <FieldLabel>{t("slack.search")}</FieldLabel>
             <Input
@@ -987,6 +986,10 @@ function SlackChannels({
                         disabled={
                           update.isPending ||
                           !bindings.isSuccess ||
+                          (!defaultMode &&
+                            !rows.some(
+                              (row) => row.external_surface_id === channel.id,
+                            )) ||
                           channels.isPlaceholderData ||
                           input.trim() !== query ||
                           (!pickHome &&
@@ -1115,7 +1118,13 @@ function SlackDefaultReaction({ agentId }: { readonly agentId: string }) {
   const settings = useSlackSettings(agentId);
   const [notice, setNotice] = useState("");
   const update = useMutation({
-    onMutate: () => setNotice(""),
+    onMutate: async () => {
+      setNotice("");
+      // A read still in flight would land after the save and undo it.
+      await cache.cancelQueries({
+        queryKey: ["agents", agentId, "slack", "settings"],
+      });
+    },
     mutationFn: (checked: boolean) =>
       unwrap(
         client.PUT("/v1/agents/{id}/slack/app/settings", {
@@ -1208,8 +1217,6 @@ export default function SlackTab({
       state: ({ slackInstalled: _, ...rest }) => rest,
     });
   }, [justInstalled, notify, navigate, t]);
-  const settings = useSlackSettings(agentId);
-  const defaultMention = settings.data?.default_mode === "mention";
   const { app, identities } = useSlackState(agentId);
   // The danger zone exists only while there is an app to revoke or delete.
   const keys: readonly SectionKey[] = app.data?.slack_app
@@ -1287,7 +1294,6 @@ export default function SlackTab({
           <SlackStatus agentId={agentId} />
           <SlackChannels
             agentId={agentId}
-            defaultMention={defaultMention}
             invite={`/invite @${slug}`}
             notify={notify}
           />
