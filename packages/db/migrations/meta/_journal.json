@@ -540,6 +540,13 @@
       "when": 1792919449905,
       "tag": "0167_linked_account_names",
       "breakpoints": true
+    },
+    {
+      "idx": 168,
+      "version": "7",
+      "when": 1792923315525,
+      "tag": "0168_sessions_created_at",
+      "breakpoints": true
     }
   ]
 }
