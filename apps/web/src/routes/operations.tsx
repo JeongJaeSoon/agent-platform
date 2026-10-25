@@ -407,9 +407,10 @@ export function OperationsUsageScreen() {
   });
   const models = useQuery(breakdown("model"));
   const agents = useQuery(breakdown("agent"));
-  // The three answers are shown as one set: until every one of them has come
-  // for the picked scope and period, the last whole set stays with its own
-  // basis, through a failure and its retry too.
+  // The three answers are shown as one set. Once all have come for the picked
+  // scope and period, failures included, that set is shown; while any is
+  // still coming (a retry too), the last set that fully loaded stays with its
+  // own basis.
   const queries = [series, models, agents];
   const settled = queries.every(
     (query) => !query.isPending && !query.isPlaceholderData,
@@ -420,10 +421,10 @@ export function OperationsUsageScreen() {
     models: models.data,
     agents: agents.data,
   };
-  const last = useRef(current);
+  const loaded = useRef(current);
   if (settled && queries.every((query) => query.isSuccess))
-    last.current = current;
-  const shown = last.current;
+    loaded.current = current;
+  const shown = settled ? current : loaded.current;
   const empty =
     shown.series?.buckets.every((bucket) => bucket.session_count === 0) ??
     false;

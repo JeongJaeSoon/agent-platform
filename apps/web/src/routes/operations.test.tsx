@@ -837,6 +837,47 @@ describe("운영", () => {
     await waitFor(() => expect(busy()).toBeNull());
   });
 
+  test("사용량 탭: 모델별만 실패하면 나머지는 그 기간으로 보이고 모델별 자리에 오류가 난다", async () => {
+    setSystemTime(NOW);
+    const { api } = renderAt("/operations/usage", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/limits": () => json(200, LIMITS),
+      ...usageRoutes,
+      "GET /v1/usage/breakdown": (request: Request) =>
+        new URL(request.url).searchParams.get("by") === "model"
+          ? json(500, { error: { code: "INTERNAL", message: "x" } })
+          : usageRoutes["GET /v1/usage/breakdown"](request),
+    });
+    // First load: the series and the agents show although the models failed.
+    expect(
+      await screen.findByRole("button", { name: "다시 시도" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("figure", { name: "일자별 추정 비용, 30일" }),
+    ).toBeTruthy();
+    expect(screen.getByText(/^설치 전체 · 2026-09-25/)).toBeTruthy();
+    expect(
+      within(screen.getByRole("table", { name: "에이전트별" })).getByText(
+        "triage-bot",
+      ),
+    ).toBeTruthy();
+    // A switch where the models fail again: the basis is the new period's,
+    // the one the error card belongs to.
+    const user = await setupUser();
+    await user.click(screen.getByRole("button", { name: "7일" }));
+    await screen.findByRole("figure", { name: "일자별 추정 비용, 7일" });
+    expect(screen.getByText(/^설치 전체 · 2026-10-18/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "다시 시도" })).toBeTruthy();
+    expect(
+      api.calls.filter(
+        (call) =>
+          call.path === "/v1/usage/breakdown" &&
+          call.search.includes("by=model") &&
+          call.search.includes("since=2026-10-18"),
+      ),
+    ).toHaveLength(1);
+  });
+
   test("예전 /usage는 기간·범위를 그대로 들고 /operations/usage로 간다", async () => {
     setSystemTime(NOW);
     const { history } = renderAt("/usage?days=7&scope=me", {
