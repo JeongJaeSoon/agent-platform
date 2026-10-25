@@ -546,6 +546,8 @@ type Container = {
   operationId: string;
   /** true models Docker `removing`: a teardown the daemon has not finished. */
   removing?: boolean;
+  /** How an exited one ended; absent is a clean exit 0. */
+  failure?: { exitCode: number; terminationReason: string; logTail: string };
   sessionId: string;
   /** false models Docker `created`: create succeeded, start never ran. */
   started?: boolean;
@@ -754,7 +756,7 @@ class FakeBackend implements ExecutionBackend {
       };
     }
     return {
-      ...(container.exited ? { exitCode: 0 } : {}),
+      ...(container.exited ? (container.failure ?? { exitCode: 0 }) : {}),
       ...(this.staleFor.has(nameOf(ref)) ? { stale: true } : {}),
       // Labelled the way the real backend labels: from the nonce it was
       // created with, and nothing on a hand-seeded container.
@@ -924,6 +926,62 @@ describe("runScheduler", () => {
         (e) => e.observedState === "terminated",
       ),
     ).toHaveLength(3);
+  });
+
+  test("a failed exit's reason and log tail are logged before the resource goes", async () => {
+    const { backend, records, run, store } = harness();
+    store.addUnassigned(2);
+    await run();
+    const failure = {
+      exitCode: 137,
+      logTail: "allocating\n",
+      terminationReason: "OOMKilled",
+    };
+    const [claimed, unclaimed] = [...backend.containers.entries()];
+    if (!claimed || !unclaimed) throw new Error("no containers");
+    claimLaunchOf(store, claimed[0]);
+    for (const [, container] of [claimed, unclaimed]) {
+      container.exited = true;
+      container.failure = failure;
+    }
+    const present: boolean[] = [];
+    backend.duringTerminate = (ref) => {
+      present.push(
+        records.some(
+          (r) =>
+            r.message === "Execution resource failed; log tail kept" &&
+            (r.fields as { execution_id: string }).execution_id ===
+              ref.executionId,
+        ),
+      );
+    };
+    await run();
+    expect(present).toEqual([true, true]);
+    const kept = records.filter(
+      (r) => r.message === "Execution resource failed; log tail kept",
+    );
+    expect(kept.map((r) => r.fields)).toEqual(
+      [claimed, unclaimed].map(([name]) =>
+        expect.objectContaining({
+          execution_id: name.split("#")[0],
+          exit_code: 137,
+          log_tail: "allocating\n",
+          termination_reason: "OOMKilled",
+        }),
+      ),
+    );
+    expect(
+      records.find((r) => r.message === "Execution exited; resource reclaimed")
+        ?.fields,
+    ).toMatchObject({ exit_code: 137, termination_reason: "OOMKilled" });
+    expect(
+      records.find(
+        (r) => r.message === "Launch attempt failed; retrying after a backoff",
+      )?.fields,
+    ).toMatchObject({
+      error:
+        "resource exited before a worker claimed it (exit code 137, OOMKilled)",
+    });
   });
 
   test("a session with a live execution is not launched twice", async () => {

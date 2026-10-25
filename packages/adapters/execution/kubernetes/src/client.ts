@@ -86,9 +86,11 @@ export type Pod = {
   };
   status?: {
     phase?: string;
+    /** Pod-level cause, such as `Evicted`. */
+    reason?: string;
     containerStatuses?: Array<{
       state?: {
-        terminated?: { exitCode: number };
+        terminated?: { exitCode: number; reason?: string };
         waiting?: { reason?: string };
       };
     }>;
@@ -189,15 +191,49 @@ export class KubernetesClient {
     });
   }
 
+  /**
+   * The last `tailLines` lines of one container's log, cut by the server at
+   * `limitBytes`. Null when the Pod is gone.
+   */
+  async podLog(
+    namespace: string,
+    name: string,
+    options: { container: string; tailLines: number; limitBytes: number },
+  ): Promise<string | null> {
+    const query = new URLSearchParams({
+      container: options.container,
+      limitBytes: String(options.limitBytes),
+      tailLines: String(options.tailLines),
+    });
+    return this.exchange(
+      "GET",
+      `${objectPath(namespace, "pods", name)}/log?${query}`,
+      { absent: true, accept: "text/plain" },
+    );
+  }
+
   /** Any path, for what the typed calls above do not cover (tests). */
   async request<T>(
     method: string,
     path: string,
-    { absent = false, body }: { absent?: boolean; body?: unknown } = {},
+    options: { absent?: boolean; body?: unknown } = {},
   ): Promise<T | null> {
+    const text = await this.exchange(method, path, options);
+    return text === null || text === "" ? null : (JSON.parse(text) as T);
+  }
+
+  private async exchange(
+    method: string,
+    path: string,
+    {
+      absent = false,
+      accept = "application/json",
+      body,
+    }: { absent?: boolean; accept?: string; body?: unknown },
+  ): Promise<string | null> {
     const connection = this.connection;
     const options = this.options;
-    const headers: Record<string, string> = { accept: "application/json" };
+    const headers: Record<string, string> = { accept };
     if (body !== undefined) headers["content-type"] = "application/json";
     if (connection.token) {
       headers.authorization = `Bearer ${await connection.token()}`;
@@ -236,7 +272,7 @@ export class KubernetesClient {
         statusMessage(text),
       );
     }
-    return text === "" ? null : (JSON.parse(text) as T);
+    return text;
   }
 }
 

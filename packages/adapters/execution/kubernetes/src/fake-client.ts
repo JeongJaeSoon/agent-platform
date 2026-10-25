@@ -117,11 +117,34 @@ export class FakeKubernetes {
     return {};
   }
 
+  /** Each Pod's whole log by name; `podLog` answers its tail. */
+  readonly logs = new Map<string, string>();
+
+  async podLog(
+    namespace: string,
+    name: string,
+    options: { container: string; tailLines: number; limitBytes: number },
+  ) {
+    this.calls.push({ body: options, kind: "pods", name, verb: "log" });
+    this.fail("log", "pods");
+    if (!this.objects.has(this.key(namespace, "pods", name))) return null;
+    const lines = (this.logs.get(name) ?? "").split(/(?<=\n)/);
+    return lines
+      .slice(-options.tailLines)
+      .join("")
+      .slice(0, options.limitBytes);
+  }
+
   /** Sets a stored Pod's phase, as the kubelet would. */
-  setPhase(namespace: string, name: string, phase: string): void {
+  setPhase(
+    namespace: string,
+    name: string,
+    phase: string,
+    status: Record<string, unknown> = {},
+  ): void {
     const pod = this.objects.get(this.key(namespace, "pods", name));
     if (pod === undefined) throw new Error(`no pod ${name}`);
-    pod.status = { phase };
+    pod.status = { ...status, phase };
   }
 
   /** Moves an object's creation back by `ms`. */

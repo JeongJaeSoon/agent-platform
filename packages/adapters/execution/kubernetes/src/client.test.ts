@@ -131,6 +131,31 @@ describe("KubernetesClient", () => {
     expect(requests).toHaveLength(1);
   });
 
+  test("a log is read as text with its bounds; a gone Pod has none", async () => {
+    const { client, requests } = recording(200, "line 1\nline 2\n");
+    expect(
+      await client.podLog("ns", "ap-worker-x-g1", {
+        container: "worker",
+        limitBytes: 65_536,
+        tailLines: 200,
+      }),
+    ).toBe("line 1\nline 2\n");
+    expect(requests[0]?.url).toBe(
+      "https://k8s/api/v1/namespaces/ns/pods/ap-worker-x-g1/log?container=worker&limitBytes=65536&tailLines=200",
+    );
+    expect((requests[0]?.init.headers as Record<string, string>).accept).toBe(
+      "text/plain",
+    );
+    const gone = recording(404);
+    expect(
+      await gone.client.podLog("ns", "p", {
+        container: "worker",
+        limitBytes: 1,
+        tailLines: 1,
+      }),
+    ).toBeNull();
+  });
+
   test("no answer within the deadline is a timeout, not a refusal", async () => {
     const client = new KubernetesClient(
       { server: "https://k8s" },

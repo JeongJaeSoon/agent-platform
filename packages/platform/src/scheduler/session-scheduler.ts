@@ -729,6 +729,19 @@ async function pass(
       return;
     }
     const observed = await backend.inspect(ref);
+    if (observed.logTail !== undefined) {
+      // Every path below may remove the resource, and its output with it;
+      // this line is where the tail survives. Logged again by each pass
+      // that still finds the resource.
+      logger.warn("Execution resource failed; log tail kept", {
+        ...fieldsOf(ref),
+        exit_code: observed.exitCode ?? null,
+        log_tail: observed.logTail,
+        provider_ref: observed.providerRef,
+        session_id: execution.sessionId,
+        termination_reason: observed.terminationReason ?? null,
+      });
+    }
     const up = observed.found && observed.state !== "terminated";
     if (up && (await killRequested(execution))) {
       // A terminate that committed while the pass was out at the provider
@@ -886,7 +899,7 @@ async function pass(
       // dead resource is never counted twice.
       const outcome = await launchFailed(
         execution,
-        `resource exited before a worker claimed it (exit code ${observed.exitCode ?? "unknown"})`,
+        `resource exited before a worker claimed it (exit code ${observed.exitCode ?? "unknown"}${observed.terminationReason === undefined ? "" : `, ${observed.terminationReason}`})`,
         builtWith,
       );
       if (outcome === "quarantined") return;
@@ -1039,6 +1052,7 @@ async function pass(
         ...fieldsOf(ref),
         exit_code: observed.exitCode ?? null,
         session_id: execution.sessionId,
+        termination_reason: observed.terminationReason ?? null,
       });
       return;
     }
