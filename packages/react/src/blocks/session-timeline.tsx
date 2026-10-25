@@ -9,7 +9,11 @@ import {
   type TimelineEntry,
   turnSummaryText,
 } from "../components/index.ts";
-import type { EventStreamState, SessionEventFrame } from "../sessions.ts";
+import {
+  type EventStreamState,
+  eventToolCallId,
+  type SessionEventFrame,
+} from "../sessions.ts";
 import { useBlockText } from "./text.ts";
 
 type Translate = ReturnType<typeof useBlockText>["t"];
