@@ -37,6 +37,8 @@ const meOk = {
   // its error alert beside the one a test looks for.
   "GET /v1/sessions": () => json(200, { items: [], next_cursor: null }),
 };
+const signedOut = () =>
+  apiError(401, "UNAUTHORIZED", "Authentication is required");
 const callsTo = (calls: Recorded[], path: string) =>
   calls.filter((call) => call.path === path);
 
@@ -120,9 +122,14 @@ describe("workspace shell", () => {
   });
 
   test("로그아웃은 서버에 알리고 캐시를 비운 뒤 로그인으로 간다", async () => {
+    let signedIn = true;
     const { api, history, services } = renderAt("/", {
       ...meOk,
-      "POST /v1/auth/logout": () => new Response(null, { status: 204 }),
+      "GET /v1/auth/me": () => (signedIn ? json(200, me()) : signedOut()),
+      "POST /v1/auth/logout": () => {
+        signedIn = false;
+        return new Response(null, { status: 204 });
+      },
     });
     const user = await setupUser();
     await user.click(
@@ -154,10 +161,14 @@ describe("workspace shell", () => {
   });
 
   test("이미 끝난 세션의 로그아웃(401)은 로그아웃으로 친다", async () => {
+    let signedIn = true;
     const { history } = renderAt("/", {
       ...meOk,
-      "POST /v1/auth/logout": () =>
-        apiError(401, "UNAUTHORIZED", "Authentication is required"),
+      "GET /v1/auth/me": () => (signedIn ? json(200, me()) : signedOut()),
+      "POST /v1/auth/logout": () => {
+        signedIn = false;
+        return signedOut();
+      },
     });
     const user = await setupUser();
     await user.click(
@@ -188,16 +199,20 @@ describe("workspace shell", () => {
 
 describe("로그인", () => {
   test("성공하면 캐시를 비우고 원래 가려던 곳으로 간다", async () => {
+    let signedIn = false;
     const { api, history, services } = renderAt("/login?redirect=%2F", {
-      "POST /v1/auth/login": () =>
-        json(200, {
+      ...meOk,
+      "GET /v1/auth/me": () => (signedIn ? json(200, me()) : signedOut()),
+      "POST /v1/auth/login": () => {
+        signedIn = true;
+        return json(200, {
           user_id: me().user?.id,
           workspace_id: me().workspace?.id,
           role: "owner",
           scopes: me().scopes,
           expires_at: "2026-10-12T00:00:00.000Z",
-        }),
-      ...meOk,
+        });
+      },
     });
     services.queryClient.setQueryData(["stale"], "from another account");
     const user = await setupUser();

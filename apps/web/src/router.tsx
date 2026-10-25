@@ -7,7 +7,7 @@ import {
   redirect,
 } from "@tanstack/react-router";
 import { isApiError } from "@werft-ai/client";
-import { meQuery } from "./api/queries.ts";
+import { meQuery, viewerQuery } from "./api/queries.ts";
 import { Main } from "./components/main.tsx";
 import { StatusScreen } from "./components/status-screen.tsx";
 import {
@@ -38,7 +38,12 @@ import {
   type SlackLinkSearch,
   slackLinkSearch,
 } from "./routes/linked-accounts.tsx";
-import { LoginScreen, type LoginSearch, loginSearch } from "./routes/login.tsx";
+import {
+  LoginScreen,
+  type LoginSearch,
+  loginSearch,
+  safeRedirect,
+} from "./routes/login.tsx";
 import {
   InvitesScreen,
   MembersLayout,
@@ -72,6 +77,18 @@ const login = createRoute({
   path: "/login",
   validateSearch: (search: Record<string, unknown>): LoginSearch =>
     loginSearch(search),
+  // A live session skips the form. Fetched, not read from the cache: right
+  // after a logout the cache can still hold the old principal.
+  beforeLoad: async ({ context, search }) => {
+    const viewer = await context.queryClient
+      .fetchQuery(viewerQuery(context.client))
+      // Anything but a 401 leaves the form, which always works.
+      .catch(() => null);
+    if (!viewer?.user) return;
+    // The root route passes the raw query through, so a value loginSearch
+    // dropped can still be here.
+    throw redirect({ to: safeRedirect(search.redirect) ?? "/", replace: true });
+  },
   component: LoginScreen,
 });
 

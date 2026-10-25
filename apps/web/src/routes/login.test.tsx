@@ -164,31 +164,82 @@ describe("로그인 화면 안내", () => {
     expect(screen.queryByText(/소유자를 만들었습니다/)).toBeNull();
   });
 
-  test("이미 로그인했으면 그 계정과 워크스페이스로 가는 링크를 보인다", async () => {
-    renderAt("/login", {
+  test("이미 로그인했으면 폼 없이 홈으로 바꿔 간다", async () => {
+    const { history } = renderAt("/login", {
       ...methods("password"),
       "GET /v1/auth/me": () => json(200, me()),
     });
-    expect(
-      await screen.findByText(/이미 owner@example.com 계정으로/),
-    ).toBeDefined();
-    expect(
-      screen
-        .getByRole("link", { name: "워크스페이스로 가기" })
-        .getAttribute("href"),
-    ).toBe("/");
+    await waitFor(() => expect(history.location.pathname).toBe("/"));
+    expect(history.length).toBe(1);
+    expect(screen.queryByLabelText("비밀번호")).toBeNull();
   });
 
-  test("로그인하지 않았으면 그 안내가 없다", async () => {
+  test("로그인된 화면에서 /login으로 가도 뒤로 가기에 /login이 남지 않는다", async () => {
+    const { history } = renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [], next_cursor: null })),
+      "GET /v1/invites": () => json(200, { items: [] }),
+    });
+    await waitFor(() => expect(history.location.pathname).toBe("/members"));
+    history.push("/login");
+    await waitFor(() => expect(history.location.pathname).toBe("/"));
+    expect(history.length).toBe(2);
+    history.back();
+    await waitFor(() => expect(history.location.pathname).toBe("/members"));
+  });
+
+  test("이미 로그인했으면 안전한 redirect 경로로 간다", async () => {
+    const { history } = renderAt("/login?redirect=%2Fmembers", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [], next_cursor: null })),
+      "GET /v1/invites": () => json(200, { items: [] }),
+    });
+    await waitFor(() => expect(history.location.pathname).toBe("/members"));
+    expect(history.length).toBe(1);
+  });
+
+  test("다른 origin을 가리키는 redirect는 홈으로 간다", async () => {
+    for (const unsafe of [
+      "//evil.example",
+      "https://evil.example/",
+      "/\\evil.example",
+    ]) {
+      const { history, container } = renderAt(
+        `/login?redirect=${encodeURIComponent(unsafe)}`,
+        { "GET /v1/auth/me": () => json(200, me()) },
+      );
+      await waitFor(() => expect(history.location.pathname).toBe("/"));
+      expect(history.location.href).toBe("/");
+      container.remove();
+    }
+  });
+
+  test("세션을 확인하는 동안에는 폼을 그리지 않는다", async () => {
+    let answer: (response: Response) => void = () => {};
+    renderAt("/login", {
+      ...methods("password"),
+      "GET /v1/auth/me": () =>
+        new Promise<Response>((resolve) => {
+          answer = resolve;
+        }),
+    });
+    expect(
+      await screen.findByText("로그인 상태를 확인하는 중입니다"),
+    ).toBeDefined();
+    expect(screen.queryByLabelText("비밀번호")).toBeNull();
+    answer(apiError(401, "UNAUTHORIZED", "Authentication is required"));
+    expect(await screen.findByLabelText("비밀번호")).toBeDefined();
+  });
+
+  test("로그인하지 않았으면 폼을 그대로 보인다", async () => {
     renderAt("/login", {
       ...methods("password"),
       "GET /v1/auth/me": () =>
         apiError(401, "UNAUTHORIZED", "Authentication is required"),
     });
     expect(await screen.findByLabelText("비밀번호")).toBeDefined();
-    await waitFor(() =>
-      expect(screen.queryByText(/이미 .* 계정으로/)).toBeNull(),
-    );
     expect(screen.queryByText("로그인이 필요합니다")).toBeNull();
   });
 });
