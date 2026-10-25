@@ -146,26 +146,27 @@ const LONG: readonly Line[] = [
   },
 ];
 
-const routes = (lines: readonly Line[]): FakeRoutes => {
-  const result: FakeRoutes = {
-    "GET /v1/sessions": () =>
-      page(
-        lines.map((line) => ({
-          ...SESSION,
-          id: id(line.n),
-          title: line.title,
-          agent: line.agent ?? null,
-          status: "needs_input",
-        })),
-      ),
-  };
-  for (const line of lines) {
-    result[`GET /v1/sessions/${id(line.n)}/pending-requests`] = () =>
-      json(200, { answerable: true, items: [line.request] });
-    result[`POST /v1/sessions/${id(line.n)}/answers`] = accepted;
-  }
-  return result;
-};
+const routes = (lines: readonly Line[]): FakeRoutes => ({
+  "GET /v1/sessions": () =>
+    page(
+      lines.map((line) => ({
+        ...SESSION,
+        id: id(line.n),
+        title: line.title,
+        agent: line.agent ?? null,
+        status: "needs_input",
+      })),
+    ),
+  ...Object.fromEntries(
+    lines.flatMap((line) => [
+      [
+        `GET /v1/sessions/${id(line.n)}/pending-requests`,
+        () => json(200, { answerable: true, items: [line.request] }),
+      ],
+      [`POST /v1/sessions/${id(line.n)}/answers`, accepted],
+    ]),
+  ),
+});
 
 const render = ({ host }: Args, context: Globals) =>
   host === "home" ? (
@@ -242,6 +243,7 @@ export const Three: Story = {
 export const Many: Story = {
   parameters: { api: routes(LINES) },
   play: async ({ canvasElement, args }) => {
+    await within(canvasElement).findByText("주간 사용량 보고서");
     const lines = canvasElement.querySelectorAll("section > ul > li");
     // Home: five sessions and the "more" line; sessions: all eight.
     await expect(lines.length).toBe(args.host === "home" ? 6 : 8);
