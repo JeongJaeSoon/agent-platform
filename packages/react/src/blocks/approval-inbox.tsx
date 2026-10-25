@@ -18,7 +18,7 @@ import { turnSummaryText } from "../components/index.ts";
 import { useExpired } from "../components/session/expiry.ts";
 import { useMinute } from "../components/session/use-minute.ts";
 import { useAgentPlatform } from "../provider.tsx";
-import { PendingPanel } from "./pending-panel.tsx";
+import type { PendingRail } from "./pending-rail.tsx";
 import {
   type ApprovalLayout,
   focusLost,
@@ -54,10 +54,11 @@ export interface ApprovalInboxProps extends SessionActionProps {
    */
   readonly more?: ((count: string) => ReactNode) | undefined;
   /**
-   * Summary layout only: each line opens the session in a side panel, its
-   * timeline and its answers, instead of answering on the line.
+   * Summary layout only: each line opens its session in the host's rail
+   * (`usePendingRail`), its timeline and its answers, instead of answering
+   * on the line.
    */
-  readonly panel?: boolean | undefined;
+  readonly rail?: Pick<PendingRail, "open" | "openedId"> | undefined;
 }
 
 // Framed like the list it stands in for, one placeholder per line at a
@@ -113,7 +114,7 @@ export function ApprovalInbox({
   now: givenNow,
   limit,
   more: moreLine,
-  panel = false,
+  rail,
 }: ApprovalInboxProps) {
   const { t } = useBlockText();
   const { client } = useAgentPlatform();
@@ -124,10 +125,6 @@ export function ApprovalInbox({
   const titleRef = useRef<HTMLHeadingElement>(null);
   const shownBefore = useRef<readonly string[]>([]);
   const [sent, setSent] = useState(false);
-  // Held here, not on the line: the panel stays open when an answer takes
-  // the session off the list.
-  const [opened, setOpened] = useState<SessionSummary | null>(null);
-  const openerRef = useRef<HTMLElement | null>(null);
 
   const sessions = waiting.data?.items ?? [];
   // The same reads each line makes, so the block knows which sessions still
@@ -157,15 +154,17 @@ export function ApprovalInbox({
   }, [emptyKey, queryClient, client]);
 
   // A session answered from here leaves the list with the focus it held;
-  // the keyboard goes back to the inbox's heading.
+  // the keyboard goes back to the inbox's heading. One answered in the open
+  // rail keeps it there.
+  const railOpen = rail?.openedId != null;
   useLayoutEffect(() => {
     const ids = shownKey === "" ? [] : shownKey.split(",");
     const left = shownBefore.current.some((id) => !ids.includes(id));
     shownBefore.current = ids;
-    if (left && focusLost(titleRef.current)) {
+    if (left && !railOpen && focusLost(titleRef.current)) {
       titleRef.current?.focus();
     }
-  }, [shownKey]);
+  }, [shownKey, railOpen]);
 
   let body: ReactNode;
   let count: ReactNode = null;
@@ -225,12 +224,10 @@ export function ApprovalInbox({
               layout={layout}
               now={givenNow ?? now}
               onAnswered={() => setSent(true)}
+              opened={rail?.openedId === session.id}
               onOpen={
-                panel && layout === "summary"
-                  ? (opener) => {
-                      openerRef.current = opener;
-                      setOpened(session);
-                    }
+                rail && layout === "summary"
+                  ? (opener) => rail.open(session, opener, titleRef.current)
                   : undefined
               }
             />
@@ -274,28 +271,6 @@ export function ApprovalInbox({
         {action}
       </div>
       {body}
-      {panel ? (
-        <PendingPanel
-          session={opened}
-          onClose={() => setOpened(null)}
-          onCloseAutoFocus={(event) => {
-            event.preventDefault();
-            // The line that opened it may have left with its session.
-            const opener = openerRef.current;
-            (opener?.isConnected ? opener : titleRef.current)?.focus();
-          }}
-          renderError={renderError}
-          unavailable={unavailable}
-          refusal={refusal}
-          onAnswered={() => {
-            setSent(true);
-            void queryClient.invalidateQueries({
-              ...waitingSessionsQuery(client),
-              exact: true,
-            });
-          }}
-        />
-      ) : null}
     </section>
   );
 }
@@ -308,6 +283,7 @@ function WaitingSession({
   layout,
   now,
   onAnswered,
+  opened,
   onOpen,
 }: SessionActionProps & {
   readonly session: SessionSummary;
@@ -315,7 +291,9 @@ function WaitingSession({
   readonly layout: ApprovalInboxProps["layout"];
   readonly now: number;
   readonly onAnswered: () => void;
-  /** Given, each line opens the side panel instead of answering. */
+  /** Whether the rail shows this session. */
+  readonly opened: boolean;
+  /** Given, each line opens the rail instead of answering. */
   readonly onOpen?: ((opener: HTMLElement) => void) | undefined;
 }) {
   const { t } = useBlockText();
@@ -383,6 +361,7 @@ function WaitingSession({
                 heading={heading}
                 meta={meta(request)}
                 name={session.title ?? short}
+                opened={opened}
                 onOpen={onOpen}
               />
             </li>
@@ -438,7 +417,7 @@ function WaitingSession({
 }
 
 /**
- * A waiting request as one list line whose one action opens the side panel:
+ * A waiting request as one list line whose one action opens the rail:
  * what it asks or wants to run, and until when.
  */
 function PanelLine({
@@ -446,6 +425,7 @@ function PanelLine({
   heading,
   meta,
   name,
+  opened,
   onOpen,
 }: {
   readonly request: PendingRequest;
@@ -453,6 +433,7 @@ function PanelLine({
   readonly meta: ReactNode;
   /** The session as the button's accessible name says it. */
   readonly name: string;
+  readonly opened: boolean;
   readonly onOpen: (opener: HTMLElement) => void;
 }) {
   const { t, formatMessage, locale } = useBlockText();
@@ -505,7 +486,7 @@ function PanelLine({
         type="button"
         variant="outline"
         className="shrink-0"
-        aria-haspopup="dialog"
+        aria-expanded={opened}
         aria-label={t("inbox.detailFor", { session: name })}
         onClick={(event) => onOpen(event.currentTarget)}
       >
