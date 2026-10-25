@@ -171,6 +171,46 @@ describe("fake Slack Web API", () => {
     expect((await listed()).status).toBe(200);
   });
 
+  test("/fake/answers sets a method's next answer once, as text or JSON", async () => {
+    const root = slack.url.replace(/\/api$/, "");
+    const answer = (body: object) =>
+      fetch(`${root}/fake/answers`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+    for (const bad of [
+      { method: "toString", status: 503, body: "x" },
+      { method: "oauth.v2.access", status: 99, body: "x" },
+      { method: "oauth.v2.access", status: 503 },
+    ]) {
+      expect((await answer(bad)).status).toBe(400);
+    }
+    const exchange = () =>
+      fetch(`${slack.url}/oauth.v2.access`, {
+        method: "POST",
+        body: new URLSearchParams({ code: "none" }),
+      });
+    expect(
+      (await answer({ method: "oauth.v2.access", status: 502, body: "<html>" }))
+        .status,
+    ).toBe(200);
+    const text = await exchange();
+    expect([text.status, await text.text()]).toEqual([502, "<html>"]);
+    await answer({
+      method: "oauth.v2.access",
+      status: 200,
+      body: { ok: true, token_type: "user" },
+    });
+    expect(await (await exchange()).json()).toEqual({
+      ok: true,
+      token_type: "user",
+    });
+    expect(await (await exchange()).json()).toEqual({
+      ok: false,
+      error: "invalid_code",
+    });
+  });
+
   test("beside the mock IdP, its own bot still answers auth.test", async () => {
     const idp = await startMockSlackOidc({ webApi: createFakeSlackWebApi() });
     try {
