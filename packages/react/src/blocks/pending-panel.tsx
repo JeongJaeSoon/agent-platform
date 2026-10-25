@@ -210,7 +210,7 @@ function PanelBody({
           to: "session",
           id,
           className:
-            "text-control text-primary underline-offset-2 hover:underline focus-visible:underline",
+            "text-(color:--ap-color-link) text-control underline-offset-2 hover:underline focus-visible:underline",
           children: t("panel.openSession"),
         })}
         <DialogClose asChild>
