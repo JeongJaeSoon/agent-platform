@@ -197,7 +197,7 @@ export const DefaultEnglish: Story = {
   globals: { locale: "en" },
 };
 
-/** Below md the list folds behind one button that names where you are. */
+/** Below lg the list folds behind one button that names where you are. */
 export const Mobile: Story = {
   name: "Default (390px)",
   globals: { viewport: { value: "mobile390", isRotated: false } },

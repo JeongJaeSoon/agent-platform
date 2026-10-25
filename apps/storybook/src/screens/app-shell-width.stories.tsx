@@ -1,5 +1,15 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Button, Card, CardContent, Page } from "@werft-ai/ui";
+import {
+  Button,
+  Card,
+  CardContent,
+  Page,
+  SecretField,
+  SideNav,
+  SideNavGroup,
+  SideNavLayout,
+  SideNavLink,
+} from "@werft-ai/ui";
 import { Plus } from "lucide-react";
 
 import { MOBILE, ScreenShell } from "./screen-kit.tsx";
@@ -8,8 +18,52 @@ import { MOBILE, ScreenShell } from "./screen-kit.tsx";
  * The one page frame (V4-PAGE-FRAME): lists, settings, forms and details
  * all grow to 1620px beside the sidebar, then centre; narrower, only the
  * gutters remain. A form or settings page keeps the page's width and stops
- * its sections at 1100px inside it.
+ * its sections at 1100px inside it. The settings pages put their SideNav
+ * beside the page only once both it and the sidebar leave the body room.
  */
+
+const SETTINGS_PAGES = ["일반", "Slack 연결 설정", "조직 관리 key", "멤버"];
+
+function SettingsFrame() {
+  return (
+    <ScreenShell current="settings" crumb={["워크스페이스 설정", "일반"]}>
+      <SideNavLayout
+        nav={
+          <SideNav aria-label="설정" current="일반">
+            <SideNavGroup label="워크스페이스">
+              {SETTINGS_PAGES.map((label, index) => (
+                <SideNavLink key={label} href="#nav" current={index === 0}>
+                  {label}
+                </SideNavLink>
+              ))}
+            </SideNavGroup>
+          </SideNav>
+        }
+      >
+        <Page
+          title="일반"
+          width="form"
+          description="워크스페이스 전체에 적용되는 설정입니다."
+        >
+          <Card>
+            <CardContent className="flex flex-col gap-2 py-6">
+              <p className="m-0 font-medium text-sm leading-snug">
+                워크스페이스 ID
+              </p>
+              <SecretField
+                className="max-w-105"
+                value="ws_01JZ8K4M2Q7R9T3V5X6Y8A0B1C"
+                copyLabel="복사"
+                copiedMessage="워크스페이스 ID를 복사했습니다."
+                copyFailedMessage="복사하지 못했습니다."
+              />
+            </CardContent>
+          </Card>
+        </Page>
+      </SideNavLayout>
+    </ScreenShell>
+  );
+}
 
 function Frame({ kind }: { readonly kind: "list" | "settings" }) {
   return (
@@ -60,3 +114,7 @@ export const ListDark: Story = {
   globals: { theme: "dark" },
 };
 export const Mobile: Story = { name: "List (390px)", globals: MOBILE };
+export const SettingsSideNav: Story = {
+  name: "Settings with side nav",
+  render: () => <SettingsFrame />,
+};
