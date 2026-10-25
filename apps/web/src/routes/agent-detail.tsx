@@ -29,7 +29,8 @@ import {
 import { ArrowLeft } from "lucide-react";
 import { useRef, useState } from "react";
 import { agentQuery, queryKeys } from "../api/queries.ts";
-import { ReasonButton, useRole } from "../auth/guard.tsx";
+import { useRole } from "../auth/guard.tsx";
+import { ReasonButton } from "../auth/reason-button.tsx";
 import { AgentAdmins } from "../components/agent-admins.tsx";
 import { AgentAvatar } from "../components/agent-cards.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
@@ -450,47 +451,55 @@ function AgentView({
   const cardRole = latestVersion(detail)?.card.role;
   return (
     <Page
+      // As on a session's page: narrow, the commands go under the title.
+      // Below 1024 the two buttons leave the name too little room to keep
+      // its tag beside it, so they go under the title, the way back at the
+      // row's right end.
+      headClassName="max-lg:flex-col max-lg:items-stretch"
       title={
         <span className="flex min-w-0 items-center gap-3">
           <AgentAvatar name={agent.name} />
           <span className="min-w-0 [overflow-wrap:anywhere]">{agent.name}</span>
         </span>
       }
-      // Identifier and release are the overview's; the head keeps the state.
-      // The badge sits on the description line: the page header has no slot
-      // beside the title that stays out of the heading's name.
+      titleAside={
+        <Badge
+          variant={
+            agent.active_release_id && agent.status === "active"
+              ? "green"
+              : "gray"
+          }
+        >
+          {agent.active_release_id
+            ? t(`agents.status.${agent.status}`)
+            : t("agents.state.notReleased")}
+        </Badge>
+      }
+      // Identifier and release are the overview's.
       description={
-        <span className="flex flex-wrap items-center gap-2">
-          <Badge
-            variant={
-              agent.active_release_id && agent.status === "active"
-                ? "green"
-                : "gray"
-            }
-          >
-            {agent.active_release_id
-              ? t(`agents.status.${agent.status}`)
-              : t("agents.state.notReleased")}
-          </Badge>
-          {cardRole ? (
-            <span className="[overflow-wrap:anywhere]">{cardRole}</span>
-          ) : null}
-        </span>
+        cardRole ? (
+          <span className="[overflow-wrap:anywhere]">{cardRole}</span>
+        ) : undefined
       }
       actions={
-        // Narrow screens stack the buttons and wrap the reason under its
-        // button, so the title keeps the width of the row.
-        <div className="flex items-start gap-2 max-sm:w-min max-sm:flex-col max-sm:items-end">
-          <Link to="/agents" className={buttonVariants({ variant: "outline" })}>
-            <ArrowLeft aria-hidden="true" />
-            {t("agent.back")}
-          </Link>
+        // The way back ends the row, the command before it.
+        <div className="flex flex-1 flex-wrap items-start gap-2">
           <ReasonButton
             className={buttonVariants()}
             reason={t("sessionList.newUnavailable")}
           >
             {t("agent.newSession")}
           </ReasonButton>
+          <Link
+            to="/agents"
+            className={buttonVariants({
+              variant: "outline",
+              className: "ms-auto",
+            })}
+          >
+            <ArrowLeft strokeWidth={1.5} aria-hidden="true" />
+            {t("agent.back")}
+          </Link>
         </div>
       }
     >

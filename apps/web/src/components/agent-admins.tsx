@@ -7,6 +7,7 @@ import type {
 } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
 import {
+  buttonVariants,
   ConfirmDialog,
   EmptyState,
   RowList,
@@ -23,13 +24,13 @@ import {
 } from "../api/queries.ts";
 import {
   permissionReason,
-  ReasonButton,
   refusalText,
   useHasPermission,
   useMe,
   usePermissionReason,
   useRole,
 } from "../auth/guard.tsx";
+import { ReasonButton } from "../auth/reason-button.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 import { LoadFailure } from "./load-failure.tsx";
 import type { Outcome } from "./outcome.tsx";
@@ -299,6 +300,10 @@ function AdminList({
         </label>
         <ReasonButton
           type="submit"
+          className={buttonVariants({
+            variant: "outline",
+            className: "self-start",
+          })}
           reason={personReason}
           disabled={!pickedPerson || change.isPending}
         >
@@ -337,6 +342,10 @@ function AdminList({
         </label>
         <ReasonButton
           type="submit"
+          className={buttonVariants({
+            variant: "outline",
+            className: "self-start",
+          })}
           reason={teamReason}
           disabled={!pickedTeam || change.isPending}
         >

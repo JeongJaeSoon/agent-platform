@@ -220,8 +220,11 @@ describe("워크스페이스 설정", () => {
     const { api } = renderAt("/settings/workspace", {
       "GET /v1/auth/me": () => json(200, adminMe()),
     });
+    const user = await setupUser();
     const save = await screen.findByRole("button", { name: "저장" });
-    expect(save.hasAttribute("disabled")).toBe(true);
+    expect(save.getAttribute("aria-disabled")).toBe("true");
+    // Still a submit button, and pressing it submits nothing.
+    await user.click(save);
     expect(
       document.getElementById(save.getAttribute("aria-describedby") ?? "")
         ?.textContent,
