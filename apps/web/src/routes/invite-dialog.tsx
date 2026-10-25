@@ -411,7 +411,7 @@ function DetailsStep({
             </NativeSelectOption>
           ))}
         </NativeSelect>
-        {grantable.length < WORKSPACE_ROLE_VALUES.length ? (
+        {!grantable.includes("owner") ? (
           <FieldDescription>{t("members.roleOwnerGrant")}</FieldDescription>
         ) : null}
         <FieldError>{errors.role?.message}</FieldError>

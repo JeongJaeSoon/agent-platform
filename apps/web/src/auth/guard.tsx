@@ -44,7 +44,11 @@ export function offeredActions(member: MemberRow): MemberActions {
   );
 }
 
-/** The roles an invite may carry; POST /v1/invites refuses any other. */
+/**
+ * The roles an invite may carry; POST /v1/invites refuses any other. An API
+ * older than the field leaves it out: offer every role and let the server's
+ * refusal speak, rather than lock the owner out too.
+ */
 export function offeredInviteRoles(
   page: Pick<ListMembersResponse, "assignable_roles"> | undefined,
 ): readonly WorkspaceRole[] {

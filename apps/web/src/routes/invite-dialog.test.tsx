@@ -198,6 +198,32 @@ describe("초대 보내기 대화상자", () => {
     expect(invitePosts(api)).toHaveLength(0);
   });
 
+  test("assignable_roles가 없는 이전 API면 모든 역할을 열어 두고 서버의 거절에 맡긴다", async () => {
+    const { items } = memberPage({ items: [owner], next_cursor: null });
+    renderAt(
+      "/members/invites",
+      {
+        "GET /v1/auth/me": () => json(200, me(undefined, "admin")),
+        // What the API answered before the field existed.
+        "GET /v1/members": () => json(200, { items, next_cursor: null }),
+        "GET /v1/invites": () => json(200, { items: [] }),
+        "POST /v1/invites": created,
+      },
+      "ko",
+      "warn",
+    );
+    const { dialog } = await open();
+    const select = within(dialog).getByLabelText("역할") as HTMLSelectElement;
+    expect([...select.options].every((option) => !option.disabled)).toBe(true);
+    expect(
+      (
+        within(dialog).getByRole("button", {
+          name: "초대 링크 만들기",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false);
+  });
+
   test("소유자에게는 역할 선택지가 모두 열려 있고 이유 줄이 없다", async () => {
     renderMembers();
     const { dialog } = await open();
