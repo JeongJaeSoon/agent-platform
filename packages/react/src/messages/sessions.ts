@@ -126,6 +126,7 @@ export const sessionsKo = {
   "session.answer.freeText": "직접 적기",
   "session.answer.unanswered": "하나를 고르거나 답을 적어 주세요.",
   "session.answer.submit": "답 보내기",
+  "session.answer.open": "답하기",
   "session.answer.sent": "답을 보냈습니다.",
 
   "session.control": "세션 제어",
@@ -172,6 +173,7 @@ export const sessionsKo = {
   "inbox.count": "답을 기다리는 세션 {count}개",
   "inbox.countMore": "답을 기다리는 세션 {count}개 이상",
   "inbox.empty": "답을 기다리는 세션이 없습니다.",
+  "inbox.loading": "답을 기다리는 세션을 불러오는 중",
   "inbox.open": "세션 열기",
   "inbox.waited": "{minutes}분째 대기",
 
@@ -340,6 +342,7 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "session.answer.freeText": "Write your own",
   "session.answer.unanswered": "Pick an option or write an answer.",
   "session.answer.submit": "Send answer",
+  "session.answer.open": "Answer",
   "session.answer.sent": "Answer sent.",
 
   "session.control": "Session control",
@@ -386,6 +389,7 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "inbox.count": "{count} sessions waiting for an answer",
   "inbox.countMore": "{count}+ sessions waiting for an answer",
   "inbox.empty": "No session is waiting for an answer.",
+  "inbox.loading": "Loading sessions waiting for an answer",
   "inbox.open": "Open session",
   "inbox.waited": "Waiting {minutes} min",
 
@@ -556,6 +560,7 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
   "session.answer.freeText": "自由に入力",
   "session.answer.unanswered": "選択肢を選ぶか、回答を入力してください。",
   "session.answer.submit": "回答を送信",
+  "session.answer.open": "回答する",
   "session.answer.sent": "回答を送信しました。",
 
   "session.control": "セッション操作",
@@ -603,6 +608,7 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
   "inbox.count": "回答待ちのセッション {count}件",
   "inbox.countMore": "回答待ちのセッション {count}件以上",
   "inbox.empty": "回答を待っているセッションはありません。",
+  "inbox.loading": "回答待ちのセッションを読み込み中",
   "inbox.open": "セッションを開く",
   "inbox.waited": "{minutes} 分待機中",
 
