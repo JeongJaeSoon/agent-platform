@@ -630,7 +630,11 @@ export function SlackConnect({
                   type="button"
                   variant="destructive"
                   size="sm"
-                  disabled={busy || pending || !me?.workspace}
+                  // A delete Slack refused leaves the app "deleting"; asking
+                  // again is how it finishes.
+                  disabled={
+                    busy || record?.state === "creating" || !me?.workspace
+                  }
                   onClick={() => setDeleting(true)}
                 >
                   {t("slack.delete")}

@@ -1058,6 +1058,38 @@ describe("Slack management", () => {
     ).toBeDefined();
   });
 
+  test("lets a delete that Slack refused be asked again", async () => {
+    let app: typeof APP | null = { ...APP, state: "deleting" };
+    const { api } = renderAt(DETAIL, {
+      ...routes(app),
+      [`GET ${PATH}/slack/app`]: () => json(200, appResponse(app)),
+      [`DELETE /v1/workspaces/${WORKSPACE_ID}/slack/apps/${ID}`]: () => {
+        app = null;
+        return json(200, { slack_app: { ...APP, state: "deleted" } });
+      },
+    });
+    const user = await setupUser();
+    const remove = await screen.findByRole("button", { name: "앱 삭제" });
+    expect((remove as HTMLButtonElement).disabled).toBe(false);
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Slack 앱 설치",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    await user.click(remove);
+    await user.click(
+      within(await screen.findByRole("dialog")).getByRole("button", {
+        name: "앱 삭제",
+      }),
+    );
+    expect(await screen.findByText("Slack 앱을 삭제했습니다.")).toBeDefined();
+    expect(api.calls.filter((call) => call.method === "DELETE")).toHaveLength(
+      1,
+    );
+  });
+
   test("drops the danger zone link once the installed app is deleted", async () => {
     let app: typeof APP | null = APP;
     renderAt(DETAIL, {
