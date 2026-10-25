@@ -19,6 +19,7 @@ const { OperationsHead } = await import("./operations-head.tsx");
 const { UsageFilters } = await import("./usage-filters.tsx");
 const { UsageKpis } = await import("./usage-kpis.tsx");
 const { UsageCostTable } = await import("./usage-cost-table.tsx");
+const { UsageDailyCost } = await import("./usage-daily-cost.tsx");
 const { OPERATIONS_MESSAGES } = await import("./messages.ts");
 
 const TOOLS = [
@@ -778,6 +779,43 @@ describe("OperationsHead", () => {
         document.querySelector('[data-slot="popover-content"]')?.textContent,
       ).toBe("아직 준비 중인 화면입니다."),
     );
+  });
+});
+
+describe("UsageDailyCost", () => {
+  const day = (date: string, cost: string) => ({
+    date,
+    session_count: 1,
+    cost_usd: cost,
+    cost_complete: true,
+    token_count: 10,
+    run_seconds: 60,
+  });
+  // The y ticks come before the plot and its x labels.
+  const ticks = () =>
+    [
+      ...(document.querySelector('[data-slot="bar-chart"] .tabular-nums')
+        ?.children ?? []),
+    ].map((tick) => tick.textContent);
+
+  test("비용이 $0.01보다 작아도 y축 눈금이 서로 다르다", () => {
+    withPlatform(
+      <UsageDailyCost
+        buckets={[day("2026-10-24", "0.000084"), day("2026-10-25", "0.000336")]}
+        days={2}
+      />,
+    );
+    expect(ticks()).toEqual(["$0.0004", "$0.0003", "$0.0002", "$0.0001", "$0"]);
+  });
+
+  test("$20 이상이면 시안처럼 $20 단위의 정수 눈금이다", () => {
+    withPlatform(
+      <UsageDailyCost
+        buckets={[day("2026-10-24", "12.00"), day("2026-10-25", "57.10")]}
+        days={2}
+      />,
+    );
+    expect(ticks()).toEqual(["$60", "$45", "$30", "$15", "$0"]);
   });
 });
 

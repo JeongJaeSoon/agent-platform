@@ -72,7 +72,11 @@ export function UsageDailyCost({
                 : {})}
               formatX={monthDay}
               formatY={(y) =>
-                designSteps ? `$${Math.round(y)}` : format.usd(y)
+                designSteps
+                  ? `$${Math.round(y)}`
+                  : max > 0 && max < 0.01
+                    ? `$${Number(y.toPrecision(2))}`
+                    : format.usd(y)
               }
               formatTip={(d) =>
                 messages.tip(
