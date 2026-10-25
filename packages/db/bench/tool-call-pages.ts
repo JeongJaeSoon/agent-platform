@@ -82,6 +82,20 @@ const nobody: UsageSummaryFilter = {
   ownerId: OWNER,
   userId: NOBODY,
 };
+// A database seeded before bench/tool-calls.ts had the rare user would
+// time "few calls" over none.
+const seeded = await pool.query<{ sessions: number; calls: number }>(
+  `SELECT count(DISTINCT s.id)::int AS sessions, count(c.session_id)::int AS calls
+   FROM sessions s LEFT JOIN tool_calls c ON c.session_id = s.id AND c.name = 'Bash'
+   WHERE s.created_by_user_id = $1`,
+  [RARE],
+);
+console.log(JSON.stringify({ few_calls: seeded.rows[0] }));
+if (!seeded.rows[0]?.calls) {
+  throw new Error(
+    "no Bash calls for the rare user: reseed with bench/tool-calls.ts",
+  );
+}
 const rows: Record<string, ReturnType<typeof stats>> = {};
 for (const [label, filter] of [
   ["installation", installation],
