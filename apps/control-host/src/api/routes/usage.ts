@@ -8,6 +8,11 @@ import {
   usageSeriesResponseSchema,
   usageSummaryQuerySchema,
   usageSummaryResponseSchema,
+  usageToolCallsParamsSchema,
+  usageToolCallsQuerySchema,
+  usageToolCallsResponseSchema,
+  usageToolsQuerySchema,
+  usageToolsResponseSchema,
 } from "@werft-ai/contracts";
 import type { UsageService } from "@werft-ai/platform";
 import { type ApiRouter, apiRoute, jsonWithSchema } from "../app.ts";
@@ -43,6 +48,23 @@ export function registerUsageRoutes(router: ApiRouter, service: UsageService) {
       service.getUsageBreakdown(context.get("caller"), query),
     );
     return jsonWithSchema(context, usageBreakdownResponseSchema, breakdown);
+  });
+
+  apiRoute(router, "getUsageTools", async (context) => {
+    const query = requireQuery(context, usageToolsQuerySchema);
+    const tools = await mapped(() =>
+      service.getUsageTools(context.get("caller"), query),
+    );
+    return jsonWithSchema(context, usageToolsResponseSchema, tools);
+  });
+
+  apiRoute(router, "getUsageToolCalls", async (context) => {
+    const params = requireParams(context, usageToolCallsParamsSchema);
+    const query = requireQuery(context, usageToolCallsQuerySchema);
+    const calls = await mapped(() =>
+      service.getUsageToolCalls(context.get("caller"), params.name, query),
+    );
+    return jsonWithSchema(context, usageToolCallsResponseSchema, calls);
   });
 
   apiRoute(router, "getSessionUsage", async (context) => {

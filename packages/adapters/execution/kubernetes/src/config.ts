@@ -52,6 +52,12 @@ export type KubernetesBackendConfig = {
   workspaceDir: string;
   /** Size of each memory-backed emptyDir (`/tmp` and HOME). */
   tmpfsSizeBytes: number;
+  /**
+   * The worker container's `ephemeral-storage` request and limit: node disk
+   * outside the PVC and the memory-backed mounts, which with a read-only
+   * root is mostly its log. Past it the kubelet evicts the Pod.
+   */
+  ephemeralStorageBytes: number;
   /** Replaces the image's `CMD` (Pod `args`); tests run a sleeping busybox. */
   command?: string[];
   workerLimits?: { maxTurnSeconds: number; providerMaxRetries: number };
@@ -75,6 +81,7 @@ export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 export const DEFAULT_WORKSPACE_QUOTA_MB = 4096;
 export const MIN_WORKSPACE_QUOTA_MB = 1024;
 export const DEFAULT_WORKSPACE_GC_MIN_AGE_SEC = 3600;
+export const DEFAULT_WORKER_EPHEMERAL_STORAGE_MB = 1024;
 
 // RFC 1123 label, kept short: it is part of every Pod, Secret and PVC name.
 const INSTALLATION_ID = /^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$/;
@@ -111,6 +118,13 @@ export function kubernetesConfigFromEnv(
       { default: 3129, max: 65_535, min: 1 },
     ),
     egressProxyUrl,
+    ephemeralStorageBytes:
+      integerSetting(environment, "EXECUTION_K8S_WORKER_EPHEMERAL_STORAGE_MB", {
+        default: DEFAULT_WORKER_EPHEMERAL_STORAGE_MB,
+        min: 1,
+      }) *
+      1024 *
+      1024,
     gatewayUrl,
     homeDir: "/home/worker",
     imagePullSecrets: (environment.EXECUTION_K8S_IMAGE_PULL_SECRETS ?? "")
@@ -265,6 +279,7 @@ export function validateKubernetesConfig(
     ["stopTimeoutSeconds", config.stopTimeoutSeconds],
     ["requestTimeoutMs", config.requestTimeoutMs],
     ["tmpfsSizeBytes", config.tmpfsSizeBytes],
+    ["ephemeralStorageBytes", config.ephemeralStorageBytes],
   ] as const) {
     if (!Number.isSafeInteger(value) || value < 1) {
       throw new Error(`${name} ${value} is not a positive integer`);
