@@ -451,9 +451,10 @@ const CONTROL_ICON = {
 export interface SessionControlsProps extends SessionActionProps {
   readonly session: SessionDetailData;
   /**
-   * `head` draws each command as an outline button with its icon and label,
-   * for a page header; `icons` draws square icon buttons named by their
-   * label; `buttons` (the default) draws labelled buttons.
+   * `head`, for a page header, draws each command with its icon and label
+   * from 1280px and as a square icon below, where the body is too narrow to
+   * keep the title beside labelled buttons; `icons` draws square icon
+   * buttons at every width; `buttons` (the default) draws labelled buttons.
    */
   readonly variant?: "buttons" | "head" | "icons";
   /** Drawn before the icon buttons on their row, such as a back link. */
@@ -551,14 +552,19 @@ export function SessionControls({
         // disabled button, and the keyboard would lose its place.
         aria-disabled={control.isPending || undefined}
         size={icons ? "icon-sm" : "sm"}
-        className={
-          head && action === "terminate"
-            ? "text-destructive hover:text-destructive aria-disabled:opacity-50"
-            : "aria-disabled:opacity-50"
-        }
+        className={cn(
+          "aria-disabled:opacity-50",
+          head &&
+            action === "terminate" &&
+            "text-destructive hover:text-destructive",
+          head &&
+            !icons &&
+            "max-xl:w-[var(--ap-control-height-sm)] max-xl:px-0",
+        )}
         aria-label={icons ? label : undefined}
-        // Until @werft-ai/ui has a Tooltip, the native one names the icon.
-        title={icons ? label : undefined}
+        // The ui Tooltip opens on a press too, which a command cannot share;
+        // the native one names the icon where the label is hidden.
+        title={head ? label : undefined}
         aria-describedby={reason === undefined ? undefined : reasonId}
         onClick={() => {
           if (control.isPending) return;
@@ -571,7 +577,7 @@ export function SessionControls({
         ) : head ? (
           <>
             <Icon strokeWidth={1.5} aria-hidden="true" />
-            {label}
+            <span className="max-xl:sr-only">{label}</span>
           </>
         ) : (
           label
