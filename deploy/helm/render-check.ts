@@ -5,7 +5,8 @@
 // traffic held to the egress proxy (no DNS), the master key only on the api
 // and the slack role, slack holding no provider or AWS key and its egress
 // held to DNS, HTTPS and the database, and the Ingress routing only the
-// api's public paths on an ALB that is not internet-facing. Run from the
+// api's public paths on an ALB that is not internet-facing, and the preview
+// flag off in the AWS example. Run from the
 // repository root:
 // `bun deploy/helm/render-check.ts` (CI's helm-chart job).
 
@@ -414,6 +415,52 @@ function checkSlack(
   return errors;
 }
 
+const PREVIEW_ENV = "PREVIEW_NAMESPACE";
+
+/**
+ * PREVIEW_NAMESPACE (apps/control-host/src/api/demo-accounts.ts) is on the
+ * api container exactly when `enabled`, and only from the pod's own
+ * namespace: a literal value could name another namespace's database.
+ */
+function checkPreview(
+  label: string,
+  manifests: Manifest[],
+  enabled: boolean,
+): string[] {
+  const errors: string[] = [];
+  let holders = 0;
+  for (const m of manifests) {
+    const pod = podSpecOf(m);
+    if (pod === undefined) continue;
+    const role = m.metadata.labels?.["app.kubernetes.io/component"] ?? "";
+    for (const c of [...(pod.initContainers ?? []), ...pod.containers]) {
+      // biome-ignore lint/suspicious/noExplicitAny: rendered Kubernetes objects
+      const env: any[] = c.env ?? [];
+      // Every entry: with a duplicate name the last one wins.
+      for (const entry of env.filter((v) => v.name === PREVIEW_ENV)) {
+        const where = `${label}: ${m.kind}/${m.metadata.name}: container ${c.name}`;
+        if (!enabled || role !== "api" || c.name !== "api") {
+          errors.push(
+            `${where} has ${PREVIEW_ENV}, expected ${enabled ? "only on the api container" : "nowhere: preview.enabled is off"}`,
+          );
+          continue;
+        }
+        holders++;
+        if (
+          entry.value !== undefined ||
+          entry.valueFrom?.fieldRef?.fieldPath !== "metadata.namespace"
+        ) {
+          errors.push(`${where}: ${PREVIEW_ENV} is not the pod's namespace`);
+        }
+      }
+    }
+  }
+  if (enabled && holders !== 1) {
+    errors.push(`${label}: ${PREVIEW_ENV} is on ${holders} api containers`);
+  }
+  return errors;
+}
+
 // The api's public mounts (apps/control-host/src/api/app.ts). /internal is
 // the workers' gateway and must never be reachable from the load balancer.
 const PUBLIC_PATHS = [
@@ -490,6 +537,16 @@ const MUST_FAIL: [string, string[], RegExp][] = [
     ["-f", ciDigests, "--set", "installationId=not/a/label"],
     /installationId must be a Kubernetes label value/,
   ],
+  ...[
+    "api.extraEnv.PREVIEW_NAMESPACE=prod",
+    "scheduler.extraEnv.PREVIEW_NAMESPACE=prod",
+    "config.limits.PREVIEW_NAMESPACE=prod",
+    "secrets.catalogEnv={ANTHROPIC_API_KEY,PREVIEW_NAMESPACE}",
+  ].map((set): [string, string[], RegExp] => [
+    `PREVIEW_NAMESPACE through ${set.split(/[.=]/).slice(0, 2).join(".")}`,
+    ["-f", ciDigests, "--set", set],
+    /PREVIEW_NAMESPACE must not be set through/,
+  ]),
 ];
 
 const slackOff = render(["-f", ciDigests, "--set", "slack.enabled=false"]);
@@ -558,6 +615,40 @@ const exposed = checkIngress(
 if (!exposed.some((error) => error.includes("internet-facing;"))) {
   errors.push("an internet-facing ALB scheme was not refused");
 }
+errors.push(
+  ...checkPreview("default", render(["-f", ciDigests]), false),
+  ...checkPreview(
+    "aws example",
+    render(["-f", ciDigests, "-f", awsExample]),
+    false,
+  ),
+  ...checkPreview(
+    "preview",
+    render(["-f", ciDigests, "--set", "preview.enabled=true"]),
+    true,
+  ),
+  // A YAML-quoted key must stay that literal name, never PREVIEW_NAMESPACE.
+  ...checkPreview(
+    "quoted extraEnv key",
+    render([
+      "-f",
+      ciDigests,
+      "--set-json",
+      'api.extraEnv={"\\"PREVIEW_NAMESPACE\\"":"prod"}',
+      "--set-json",
+      'config.limits={"\\"PREVIEW_NAMESPACE\\"":"prod"}',
+    ]),
+    false,
+  ),
+);
+const awsPreview = checkPreview(
+  "aws example, preview on",
+  render(["-f", ciDigests, "-f", awsExample, "--set", "preview.enabled=true"]),
+  false,
+);
+if (!awsPreview.some((error) => error.includes("preview.enabled is off"))) {
+  errors.push("the aws example with preview.enabled on was not refused");
+}
 for (const [label, args, message] of MUST_FAIL) {
   const { ok, out } = helmTemplate(args);
   if (ok || !message.test(out)) {
@@ -570,5 +661,5 @@ if (errors.length > 0) {
   process.exit(1);
 }
 console.log(
-  `render-check: default and aws example renders pass, scheduler off and on, slack off; ${MUST_FAIL.length} bad inputs and an internet-facing ALB refused`,
+  `render-check: default and aws example renders pass, scheduler off and on, slack off, preview on; ${MUST_FAIL.length} bad inputs, an internet-facing ALB and a preview aws example refused`,
 );
