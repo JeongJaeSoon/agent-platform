@@ -150,7 +150,7 @@ describe("포커스", () => {
           .querySelector(`[data-slot="${slot}"]`)
           ?.className.split(" ") ?? [];
       expect(classes).toContain("border-input");
-      expect(classes).toContain("hover:border-border-strong");
+      expect(classes).toContain("hover:border-subtle-foreground");
     }
   });
 });

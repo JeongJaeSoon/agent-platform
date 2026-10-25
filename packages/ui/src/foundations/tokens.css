@@ -259,7 +259,7 @@
 
       --ap-color-border: #262626;
       --ap-color-border-strong: #3a3a3a;
-      --ap-color-border-input: #737373;
+      --ap-color-border-input: #5e5e5e;
       --ap-color-foreground: #ededed;
       --ap-color-muted-foreground: #a1a1a1;
       --ap-color-subtle-foreground: #8f8f8f;
@@ -342,7 +342,7 @@
 
     --ap-color-border: #262626;
     --ap-color-border-strong: #3a3a3a;
-    --ap-color-border-input: #737373;
+    --ap-color-border-input: #5e5e5e;
     --ap-color-foreground: #ededed;
     --ap-color-muted-foreground: #a1a1a1;
     --ap-color-subtle-foreground: #8f8f8f;
