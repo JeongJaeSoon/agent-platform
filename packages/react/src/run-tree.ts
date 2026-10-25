@@ -128,9 +128,19 @@ interface RunRecord {
 const before = (a: Stamp, b: Stamp) =>
   a.t < b.t || (a.t === b.t && a.id < b.id);
 
+// An event id is its row id in base36 behind `ev_` (packages/db cursors.ts);
+// padded to the 11 digits it may take, string order is storage order.
+const EVENT_ID = /^ev_[0-9a-z]{1,11}$/;
+const storageOrder = (id: string) =>
+  EVENT_ID.test(id) ? `ev_${id.slice(3).padStart(11, "0")}` : id;
+
 function stamp(frame: RunTreeFrame): Stamp {
   const t = Date.parse(frame.occurredAt);
-  return { t: Number.isNaN(t) ? 0 : t, id: frame.id, at: frame.occurredAt };
+  return {
+    t: Number.isNaN(t) ? 0 : t,
+    id: storageOrder(frame.id),
+    at: frame.occurredAt,
+  };
 }
 
 function insertSorted(list: string[], id: string, key: (id: string) => Stamp) {
