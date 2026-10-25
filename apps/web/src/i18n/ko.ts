@@ -60,7 +60,7 @@ export const slackKo = {
   "slack.delete": "앱 삭제",
   "slack.deleteTitle": "Slack 앱 삭제",
   "slack.deleteWarning":
-    "Slack에서 앱을 지웁니다. 되돌릴 수 없고, 다시 연결하면 새 앱이 생깁니다.",
+    "Slack에서 앱을 지우고 저장한 자격도 삭제합니다. 되돌릴 수 없고, 다시 연결하면 새 앱이 생깁니다.",
   "slack.deleted": "Slack 앱을 삭제했습니다.",
   "slack.revoke": "연결 해제",
   "slack.revokeTitle": "Slack 연결 해제",

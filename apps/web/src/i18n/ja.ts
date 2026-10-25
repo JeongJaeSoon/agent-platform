@@ -53,7 +53,7 @@ export const slackJa = {
   "slack.delete": "アプリを削除",
   "slack.deleteTitle": "Slack アプリを削除",
   "slack.deleteWarning":
-    "Slack からアプリを削除します。元に戻せません。もう一度接続すると新しいアプリが作られます。",
+    "Slack からアプリを削除し、保存した認証情報も削除します。元に戻せません。もう一度接続すると新しいアプリが作られます。",
   "slack.deleted": "Slack アプリを削除しました。",
   "slack.revoke": "接続解除",
   "slack.revokeTitle": "Slack の接続を解除",

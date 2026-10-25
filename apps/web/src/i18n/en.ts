@@ -53,7 +53,7 @@ export const slackEn = {
   "slack.delete": "Delete app",
   "slack.deleteTitle": "Delete the Slack app",
   "slack.deleteWarning":
-    "Deletes the app in Slack. This can't be undone; connecting again makes a new app.",
+    "Deletes the app in Slack along with its stored credentials. This can't be undone; connecting again makes a new app.",
   "slack.deleted": "Slack app deleted.",
   "slack.revoke": "Disconnect",
   "slack.revokeTitle": "Disconnect Slack",
