@@ -266,6 +266,9 @@ worker:
   # a transcript at the 512 MiB checkpoint limit stays under half of it.
   # Sessions per node and how to trade them off: docs/operator/capacity.md.
   memoryMb: 4608
+  # Node disk a worker may use outside its PVC (mostly its log), request
+  # and limit both; past it the kubelet evicts the Pod.
+  ephemeralStorageMb: 1024
   workspace:
     quotaMb: 4096
     gcMinAgeSec: 3600

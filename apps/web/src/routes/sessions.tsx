@@ -24,8 +24,13 @@ import {
   ApprovalInbox,
   type SessionActionProps,
   SessionDetail,
+  usePendingRail,
 } from "@werft-ai/react/blocks";
-import { ListToolbar, LoadMoreButton } from "@werft-ai/react/components";
+import {
+  DetailLayout,
+  ListToolbar,
+  LoadMoreButton,
+} from "@werft-ai/react/components";
 import {
   Button,
   buttonVariants,
@@ -98,6 +103,12 @@ export function SessionsScreen() {
   const q = useSearchTerm(query);
   const search = useRef<HTMLInputElement>(null);
   const counts = useSessionCounts(relation, q);
+  const refusal = (error: { readonly code: string }) => t(errorKey(error.code));
+  const rail = usePendingRail({
+    renderError: loadError,
+    unavailable,
+    refusal,
+  });
   const go = (next: SessionsSearch) =>
     void navigate({
       search: next,
@@ -123,72 +134,86 @@ export function SessionsScreen() {
     search.current?.focus();
   };
   return (
-    <Page title={t("sessions.title")} description={t("sessions.intro")}>
-      <div className="flex flex-col gap-[var(--ap-space-block)]">
-        <ApprovalInbox
-          layout="summary"
-          renderError={loadError}
-          unavailable={unavailable}
-          refusal={(error) => t(errorKey(error.code))}
-        />
-        <div className="flex min-w-0 flex-col gap-4">
-          <ListToolbar
-            filter={
-              <SegmentedControl
-                aria-label={t("sessionList.filter.label")}
-                size="toolbar"
-                value={tab}
-                onValueChange={pick}
-              >
-                <SegmentedControlItem value="all" count={counts.data?.total}>
-                  {t("sessionList.filter.all")}
-                </SegmentedControlItem>
-                {SESSION_FILTERS.map((name) => (
-                  <SegmentedControlItem
-                    key={name}
-                    value={name}
-                    count={counts.data?.counts[name]}
-                  >
-                    {t(`sessions.status.${name}`)}
+    <DetailLayout rail={rail.rail}>
+      <Page
+        title={t("sessions.title")}
+        description={t("sessions.intro")}
+        actions={
+          <Link
+            to="/sessions/map"
+            className={buttonVariants({ variant: "outline" })}
+          >
+            {t("sessionList.map")}
+          </Link>
+        }
+      >
+        <div className="flex flex-col gap-[var(--ap-space-block)]">
+          <ApprovalInbox
+            layout="summary"
+            rail={rail}
+            renderError={loadError}
+            unavailable={unavailable}
+            refusal={refusal}
+          />
+          <div className="flex min-w-0 flex-col gap-4">
+            <ListToolbar
+              filter={
+                <SegmentedControl
+                  aria-label={t("sessionList.filter.label")}
+                  size="toolbar"
+                  value={tab}
+                  onValueChange={pick}
+                >
+                  <SegmentedControlItem value="all" count={counts.data?.total}>
+                    {t("sessionList.filter.all")}
                   </SegmentedControlItem>
-                ))}
-              </SegmentedControl>
-            }
-            filters={
-              <FilterMenu
-                label={t("sessionList.relation.label")}
-                options={[
-                  { value: "all", label: t("sessionList.relation.all") },
-                  ...SESSION_RELATIONS.map((name) => ({
-                    value: name,
-                    label: t(`sessionList.relation.${name}`),
-                  })),
-                ]}
-                value={relation ?? "all"}
-                onValueChange={pickRelation}
-              />
-            }
-            search={{
-              ref: search,
-              type: "search",
-              "aria-label": t("sessionList.search"),
-              placeholder: t("sessionList.search"),
-              maxLength: SEARCH_MAX,
-              value: query,
-              onChange: (event) => setQuery(event.target.value),
-            }}
-          />
-          <SessionsView
-            filter={{
-              ...(tab === "all" ? {} : { status: tab }),
-              ...(relation ? { relation } : {}),
-              ...(q ? { q } : {}),
-            }}
-            onClear={clear}
-          />
+                  {SESSION_FILTERS.map((name) => (
+                    <SegmentedControlItem
+                      key={name}
+                      value={name}
+                      count={counts.data?.counts[name]}
+                    >
+                      {t(`sessions.status.${name}`)}
+                    </SegmentedControlItem>
+                  ))}
+                </SegmentedControl>
+              }
+              filters={
+                <FilterMenu
+                  label={t("sessionList.relation.label")}
+                  options={[
+                    { value: "all", label: t("sessionList.relation.all") },
+                    ...SESSION_RELATIONS.map((name) => ({
+                      value: name,
+                      label: t(`sessionList.relation.${name}`),
+                    })),
+                  ]}
+                  value={relation ?? "all"}
+                  onValueChange={pickRelation}
+                />
+              }
+              search={{
+                ref: search,
+                type: "search",
+                "aria-label": t("sessionList.search"),
+                placeholder: t("sessionList.search"),
+                maxLength: SEARCH_MAX,
+                value: query,
+                onChange: (event) => setQuery(event.target.value),
+              }}
+            />
+            <SessionsView
+              filter={{
+                ...(tab === "all" ? {} : { status: tab }),
+                ...(relation ? { relation } : {}),
+                ...(q ? { q } : {}),
+              }}
+              onClear={clear}
+            />
+          </div>
         </div>
-      </div>
-    </Page>
+      </Page>
+    </DetailLayout>
   );
 }
 

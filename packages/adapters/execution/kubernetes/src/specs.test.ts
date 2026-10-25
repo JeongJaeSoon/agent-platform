@@ -127,9 +127,22 @@ describe("worker Pod", () => {
     );
   });
 
-  test("takes its limits from the intent, requests equal to limits", () => {
-    const limits = { cpu: "1500m", memory: String(1024 * 1024 * 1024) };
+  test("takes its limits from the intent and its disk from the config, requests equal to limits", () => {
+    const limits = {
+      cpu: "1500m",
+      "ephemeral-storage": String(config.ephemeralStorageBytes),
+      memory: String(1024 * 1024 * 1024),
+    };
     expect(container.resources).toEqual({ limits, requests: limits });
+  });
+
+  test("a changed disk limit is another isolation stamp", () => {
+    expect(
+      isolationStampFor(
+        { ...config, ephemeralStorageBytes: config.ephemeralStorageBytes * 2 },
+        PROXY_ADDRESS,
+      ),
+    ).not.toBe(isolationStampFor(config, PROXY_ADDRESS));
   });
 
   test("carries the contract labels and the launch's identity", () => {

@@ -37,6 +37,21 @@ const app = createApiApp({
           usageSummary: async () => {
             throw new Error("not read in these tests");
           },
+          usageSeries: async () => {
+            throw new Error("not read in these tests");
+          },
+          usageBreakdown: async () => {
+            throw new Error("not read in these tests");
+          },
+          usageTools: async () => {
+            throw new Error("not read in these tests");
+          },
+          usageToolCalls: async () => {
+            throw new Error("not read in these tests");
+          },
+          usageToolDays: async () => {
+            throw new Error("not read in these tests");
+          },
         },
       }),
     ),
@@ -51,6 +66,14 @@ test("refuses installation figures and a summary of one's own sessions under AUT
     "/v1/limits",
     "/v1/usage/summary?scope=installation&since=2026-10-01",
     "/v1/usage/summary?scope=me&since=2026-10-01",
+    "/v1/usage/series?scope=installation&since=2026-10-01",
+    "/v1/usage/series?scope=me&since=2026-10-01",
+    "/v1/usage/breakdown?scope=installation&since=2026-10-01&by=model",
+    "/v1/usage/breakdown?scope=me&since=2026-10-01&by=agent",
+    "/v1/usage/tools?scope=installation&since=2026-10-01",
+    "/v1/usage/tools?scope=me&since=2026-10-01",
+    "/v1/usage/tools/Bash/calls?scope=installation&since=2026-10-01",
+    "/v1/usage/tools/Bash/calls?scope=me&since=2026-10-01",
   ]) {
     const response = await app.request(path, { headers });
     expect(response.status, path).toBe(403);
@@ -68,6 +91,79 @@ test("answers 400 for a summary query it cannot read", async () => {
     "scope=me&since=2026-10-02&until=2026-10-01",
   ]) {
     const response = await app.request(`/v1/usage/summary?${query}`, {
+      headers,
+    });
+    expect(response.status, query).toBe(400);
+    expect(apiErrorResponseSchema.parse(await response.json()).error.code).toBe(
+      "BAD_REQUEST",
+    );
+  }
+});
+
+test("answers 400 for a tools query it cannot read", async () => {
+  for (const query of [
+    "scope=me",
+    "scope=me&since=2026-10-02&until=2026-10-01",
+    "scope=me&since=2026-10-01&agent_id=not-a-uuid",
+  ]) {
+    const response = await app.request(`/v1/usage/tools?${query}`, {
+      headers,
+    });
+    expect(response.status, query).toBe(400);
+    expect(apiErrorResponseSchema.parse(await response.json()).error.code).toBe(
+      "BAD_REQUEST",
+    );
+  }
+});
+
+test("answers 400 for a series query it cannot read", async () => {
+  for (const query of [
+    "scope=me",
+    "scope=me&since=2026-10-01&bucket=week",
+    "scope=me&since=2026-10-02&until=2026-10-01",
+    // 367 days: past the longest series.
+    "scope=me&since=2025-10-01&until=2026-10-03",
+  ]) {
+    const response = await app.request(`/v1/usage/series?${query}`, {
+      headers,
+    });
+    expect(response.status, query).toBe(400);
+    expect(apiErrorResponseSchema.parse(await response.json()).error.code).toBe(
+      "BAD_REQUEST",
+    );
+  }
+});
+
+test("answers 400 for a breakdown query it cannot read", async () => {
+  for (const query of [
+    "scope=me&since=2026-10-01",
+    "scope=me&since=2026-10-01&by=team",
+    "scope=me&since=2026-10-02&until=2026-10-01&by=model",
+    "scope=me&since=2025-10-01&until=2026-10-03&by=agent",
+  ]) {
+    const response = await app.request(`/v1/usage/breakdown?${query}`, {
+      headers,
+    });
+    expect(response.status, query).toBe(400);
+    expect(apiErrorResponseSchema.parse(await response.json()).error.code).toBe(
+      "BAD_REQUEST",
+    );
+  }
+});
+
+test("answers 400 for a tool calls query it cannot read", async () => {
+  for (const query of [
+    "scope=me",
+    "scope=me&since=2026-10-02&until=2026-10-01",
+    "scope=me&since=2026-10-01&agent_id=not-a-uuid",
+    "scope=me&since=2026-10-01&sort=oldest",
+    "scope=me&since=2026-10-01&limit=0",
+    "scope=me&since=2026-10-01&limit=101",
+    "scope=me&since=2026-10-01&cursor=",
+    // per_day lists every date: at most 366 of them.
+    "scope=me&since=2025-01-01&until=2026-01-03",
+  ]) {
+    const response = await app.request(`/v1/usage/tools/Bash/calls?${query}`, {
       headers,
     });
     expect(response.status, query).toBe(400);

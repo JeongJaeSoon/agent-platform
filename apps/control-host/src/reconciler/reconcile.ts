@@ -4,6 +4,7 @@ import type {
   ReconciledInterrupt,
   ReconciledLease,
   ReconciledOrphan,
+  ToolCallProjection,
 } from "@werft-ai/db";
 
 import { booleanFlag } from "../boolean-flag.ts";
@@ -25,6 +26,8 @@ export type ReconcilerRun = {
   terminationsOverdue: number;
   inputReturns: AnnouncedInputReturn[];
   decisionsExpired: number;
+  // null on a dry run, which projects nothing.
+  toolCalls: ToolCallProjection | null;
 };
 
 export type ReconcilerLogger = {
@@ -93,6 +96,9 @@ export async function runReconciler(input: {
     limit: number;
   }): Promise<AnnouncedInputReturn[]>;
   expireDecisions(options: { dryRun: boolean; limit: number }): Promise<number>;
+  // Tool calls for the usage API, from the events since the last pass. Last,
+  // because it spends what is left of its own time budget catching up.
+  projectToolCalls(): Promise<ToolCallProjection>;
 }): Promise<ReconcilerRun> {
   const { limit, dryRun } = reconcilerSettings(
     input.environment ?? process.env,
@@ -161,6 +167,19 @@ export async function runReconciler(input: {
     dry_run: dryRun,
     deleted_count: decisionsExpired,
   });
+  const toolCalls = dryRun ? null : await input.projectToolCalls();
+  input.logger.info("Tool calls projected", {
+    dry_run: dryRun,
+    ...(toolCalls === null
+      ? {}
+      : {
+          events_read: toolCalls.eventsRead,
+          batches: toolCalls.batches,
+          applied_through: toolCalls.appliedThrough,
+          caught_up: toolCalls.caughtUp,
+          timed_out_batches: toolCalls.timedOut,
+        }),
+  });
   return {
     orphans: reconciled,
     leases,
@@ -169,5 +188,6 @@ export async function runReconciler(input: {
     terminationsOverdue,
     inputReturns,
     decisionsExpired,
+    toolCalls,
   };
 }

@@ -1,6 +1,5 @@
 import { isApiError } from "@werft-ai/client";
 import {
-  presentTurnEvent,
   type SessionDetail as SessionDetailData,
   type SessionUsageResponse,
 } from "@werft-ai/contracts";
@@ -28,7 +27,7 @@ import {
   type LucideIcon,
   UserRound,
 } from "lucide-react";
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactNode, useState } from "react";
 import { CircleCheck, GitBranch } from "../components/console-icons.ts";
 import {
   DetailLayout,
@@ -36,14 +35,8 @@ import {
   DetailRailSection,
   SessionStatusLabel,
   StatusLabel,
-  Timeline,
-  type TimelineEntry,
-  turnSummaryText,
 } from "../components/index.ts";
 import {
-  type EventStreamState,
-  eventToolCallId,
-  type SessionEventFrame,
   usePendingRequests,
   useSession,
   useSessionEvents,
@@ -56,6 +49,7 @@ import {
   SessionComposer,
   SessionControls,
 } from "./session-actions.tsx";
+import { SessionTimeline } from "./session-timeline.tsx";
 import { useBlockText } from "./text.ts";
 
 /** A tab a host adds between the timeline and the info tab. */
@@ -172,7 +166,11 @@ export function SessionDetail({
         className="flex flex-1 flex-col gap-4 data-[state=inactive]:hidden"
       >
         <div className="min-w-0 flex-1 rounded-card border bg-card">
-          <Events events={events.events} state={events.state} debug={debug} />
+          <SessionTimeline
+            events={events.events}
+            state={events.state}
+            debug={debug}
+          />
         </div>
         {usage.data ? <BudgetExceeded usage={usage.data} /> : null}
         <SessionComposer
@@ -658,60 +656,4 @@ function BudgetExceeded({ usage }: { readonly usage: SessionUsageResponse }) {
       {t("session.usage.budgetExceeded")}
     </output>
   ) : null;
-}
-
-function Events({
-  events,
-  state,
-  debug,
-}: {
-  readonly events: readonly SessionEventFrame[];
-  readonly state: EventStreamState;
-  readonly debug: boolean;
-}) {
-  const { t, formatMessage, locale } = useBlockText();
-  const entries = useMemo(
-    () =>
-      events.map(
-        (frame): TimelineEntry => ({
-          id: frame.id,
-          occurredAt: frame.occurredAt,
-          turnId: frame.turnId,
-          presentation: presentTurnEvent(frame.payload, {
-            toolName: frame.toolName,
-          }),
-          toolCallId: eventToolCallId(frame.payload),
-        }),
-      ),
-    [events],
-  );
-  const latestStatus = entries
-    .filter((_, index) => events[index]?.payload.event === "status")
-    .at(-1);
-  return (
-    <div className="px-4">
-      <output className="sr-only">
-        {latestStatus
-          ? turnSummaryText(latestStatus.presentation.summary, formatMessage)
-          : null}
-      </output>
-      <Timeline
-        entries={entries}
-        formatMessage={formatMessage}
-        messages={{
-          label: t("session.events"),
-          empty: t("session.events.empty"),
-          connecting: t("session.events.connecting"),
-          closed: t("session.events.closed"),
-          turn: (turn) => t("session.events.turn", { turn }),
-          kind: (kind) => t(`session.events.kind.${kind}`),
-          folded: (count) => t("session.events.folded", { count }),
-          running: t("session.events.running"),
-        }}
-        state={state}
-        showDebug={debug}
-        locale={locale}
-      />
-    </div>
-  );
 }

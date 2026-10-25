@@ -1,3 +1,5 @@
+import type { SessionViewer } from "./session-share-store.ts";
+
 /** Installation-wide figures, summed across every owner. */
 export type InstallationUsage = {
   /** When the database read them; each figure comes from the same statement. */
@@ -51,6 +53,90 @@ export type UsageSummaryRecord = {
   runSeconds: number;
 };
 
+/** One UTC day of a series: `UsageSummaryRecord`'s figures for that day. */
+export type UsageSeriesBucketRecord = {
+  /** YYYY-MM-DD. */
+  date: string;
+  sessionCount: number;
+  costUsd: string;
+  providerTokens: number;
+  incompleteTurnCount: number;
+  /** The floor of the running total minus the floor of the one before. */
+  runSeconds: number;
+};
+
+/** Every UTC day [since, until) touches, read in one statement. */
+export type UsageSeriesRecord = {
+  readAt: Date;
+  until: Date;
+  buckets: UsageSeriesBucketRecord[];
+};
+
+export type UsageBreakdownFiguresRecord = {
+  sessionCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadInputTokens: number;
+  cacheCreationInputTokens: number;
+  /** As the database prints the numeric. */
+  costUsd: string;
+};
+
+/**
+ * The sessions created in [since, until) grouped by model or agent, read in
+ * one statement. A null key is the sessions without an agent, or the cost no
+ * metered call explains.
+ */
+export type UsageBreakdownRecord = {
+  rows: (UsageBreakdownFiguresRecord & {
+    key: string | null;
+    label: string | null;
+  })[];
+  /** `sessionCount` and `costUsd` are the summary's. */
+  totals: UsageBreakdownFiguresRecord;
+};
+
+/**
+ * One tool name's calls among tool_use events created in the period. A call
+ * is timed only when its result is paired and both events carry a time.
+ */
+export type UsageToolRecord = {
+  name: string;
+  calls: number;
+  failed: number;
+  totalMs: number;
+  /** 0 when no call of the tool was timed. */
+  medianMs: number;
+  maxMs: number;
+};
+
+export type UsageToolsFilter = {
+  period: { since: Date; until?: Date };
+  /** Only sessions pinned to a release of this agent. */
+  agentId?: string;
+};
+
+/** One call of a tool. Session id and title are null when hidden. */
+export type UsageToolCallRecord = {
+  sessionId: string | null;
+  title: string | null;
+  agent: string | null;
+  occurredAt: Date;
+  durationMs: number | null;
+  outcome: "ok" | "failed" | "unknown";
+};
+
+export type UsageToolCallsFilter = UsageToolsFilter & {
+  name: string;
+  sort: "recent" | "slowest";
+  limit: number;
+  /** Opaque; a malformed one is InvalidCursorError. */
+  cursor?: string;
+  /** A session shows its id and title only in this owner, to this viewer. */
+  ownerId: string;
+  viewer: SessionViewer;
+};
+
 export interface UsageReader {
   installationUsage(): Promise<InstallationUsage>;
   /** null when the session is not visible to the owner. */
@@ -62,4 +148,28 @@ export interface UsageReader {
     filter: UsageSummaryFilter,
     period: { since: Date; until?: Date },
   ): Promise<UsageSummaryRecord>;
+  usageSeries(
+    filter: UsageSummaryFilter,
+    period: { since: Date; until?: Date },
+  ): Promise<UsageSeriesRecord>;
+  usageBreakdown(
+    filter: UsageSummaryFilter,
+    period: { since: Date; until?: Date },
+    by: "model" | "agent",
+  ): Promise<UsageBreakdownRecord>;
+  /** The most-called tools first, at most `limit` of them. */
+  usageTools(
+    filter: UsageSummaryFilter,
+    tools: UsageToolsFilter,
+    limit: number,
+  ): Promise<UsageToolRecord[]>;
+  usageToolCalls(
+    filter: UsageSummaryFilter,
+    calls: UsageToolCallsFilter,
+  ): Promise<{ calls: UsageToolCallRecord[]; nextCursor: string | null }>;
+  /** Every UTC date the period touches, oldest first, zeros included. */
+  usageToolDays(
+    filter: UsageSummaryFilter,
+    tools: UsageToolsFilter & { name: string },
+  ): Promise<{ date: string; calls: number }[]>;
 }
