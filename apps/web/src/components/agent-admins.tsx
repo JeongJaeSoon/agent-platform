@@ -24,13 +24,13 @@ import {
 } from "../api/queries.ts";
 import {
   permissionReason,
-  ReasonButton,
   refusalText,
   useHasPermission,
   useMe,
   usePermissionReason,
   useRole,
 } from "../auth/guard.tsx";
+import { ReasonButton } from "../auth/reason-button.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 import { LoadFailure } from "./load-failure.tsx";
 import type { Outcome } from "./outcome.tsx";

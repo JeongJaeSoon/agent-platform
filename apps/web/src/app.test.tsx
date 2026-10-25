@@ -12,7 +12,7 @@ const { render, screen, waitFor, within } = await setupDom();
 // After the DOM exists: the router and Testing Library look for it on load.
 const { createMemoryHistory } = await import("@tanstack/react-router");
 const { App } = await import("./app.tsx");
-const { GuardedButton } = await import("./auth/guard.tsx");
+const { GuardedButton } = await import("./auth/reason-button.tsx");
 const { I18nProvider } = await import("./i18n/i18n.tsx");
 const { createServices } = await import("./services.tsx");
 const { AgentPlatformProvider } = await import("@werft-ai/react");

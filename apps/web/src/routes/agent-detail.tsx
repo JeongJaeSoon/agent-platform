@@ -29,7 +29,8 @@ import {
 import { ArrowLeft } from "lucide-react";
 import { useRef, useState } from "react";
 import { agentQuery, queryKeys } from "../api/queries.ts";
-import { ReasonButton, useRole } from "../auth/guard.tsx";
+import { useRole } from "../auth/guard.tsx";
+import { ReasonButton } from "../auth/reason-button.tsx";
 import { AgentAdmins } from "../components/agent-admins.tsx";
 import { AgentAvatar } from "../components/agent-cards.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
