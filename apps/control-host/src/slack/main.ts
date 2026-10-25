@@ -14,6 +14,7 @@ import {
   createPostgresSessionReader,
   createPostgresSessionShareStore,
   createPostgresSessionUnitOfWork,
+  createPostgresSlackAppStore,
   createPostgresSlackGuestSetting,
   createPostgresSlackInboundEventStore,
   createPostgresSlackOutboxStore,
@@ -32,7 +33,9 @@ import {
   createOutboxSlackNoticeSink,
   createSessionService,
   createSlackBotApi,
+  createSlackMemberJoinedHandler,
   createSlackSessionHandler,
+  createSlackWelcome,
   drainSlackInbox,
   drainSlackOutbox,
   installationLimitsFromEnv,
@@ -162,13 +165,15 @@ export function slackSessionHandler(deps: {
   const secrets =
     secretKey === null ? null : createPostgresSecretStore(db, secretKey);
   const consoleOrigin = consoleOriginFrom(environment);
-  return createSlackSessionHandler({
+  const identities = createPostgresAgentIdentityStore(db);
+  const bindings = createPostgresSurfaceBindingStore(db);
+  const sessionHandler = createSlackSessionHandler({
     inbox: deps.inbox ?? createPostgresSlackInboundEventStore(db),
     leaseMs: deps.leaseMs,
     authorization,
-    agents: createPostgresAgentIdentityStore(db),
+    agents: identities,
     links: createPostgresLinkedAccountStore(db),
-    bindings: createPostgresSurfaceBindingStore(db),
+    bindings,
     sessionLinks: createPostgresSessionLinkStore(db),
     sessions,
     agentDetails: agentStore,
@@ -187,6 +192,21 @@ export function slackSessionHandler(deps: {
       consoleOrigin === null
         ? ""
         : new URL("/settings/linked-accounts", consoleOrigin).toString(),
+  });
+  // Without a master key there is no app to send a welcome as.
+  if (secretKey === null) return sessionHandler;
+  return createSlackMemberJoinedHandler({
+    agents: identities,
+    bindings,
+    welcome: createSlackWelcome({
+      agents: agentStore,
+      bindings,
+      apps: createPostgresSlackAppStore(db, secretKey),
+      outbox: createPostgresSlackOutboxStore(db),
+      join: null,
+      logger,
+    }),
+    next: sessionHandler,
   });
 }
 

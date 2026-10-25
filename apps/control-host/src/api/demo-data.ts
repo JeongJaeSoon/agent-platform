@@ -582,12 +582,27 @@ export async function finished(
     if (share.scope !== "private") return false;
   }
   if (session.outcome === "approve-then-idle") {
-    const outputs = await client.expect<{ items: unknown[] }>(
-      200,
-      "GET",
-      `/v1/sessions/${sessionId}/outputs`,
-    );
-    return outputs.items.length > 0;
+    const outputs = await client.request<{
+      items: unknown[];
+      error?: { code?: string };
+    }>("GET", `/v1/sessions/${sessionId}/outputs`);
+    // Lost checkpoints require an operator's recovery decision; reseeding
+    // must leave that session alone while continuing with the other demos.
+    if (
+      outputs.status === 409 &&
+      outputs.body?.error?.code === "CHECKPOINT_UNAVAILABLE"
+    ) {
+      console.warn(
+        `awaiting-recovery session ${sessionId}: CHECKPOINT_UNAVAILABLE; existing demo left unchanged`,
+      );
+      return true;
+    }
+    if (outputs.status !== 200) {
+      throw new Error(
+        `GET /v1/sessions/${sessionId}/outputs answered ${outputs.status}, expected 200: ${JSON.stringify(outputs.body)}`,
+      );
+    }
+    return outputs.body.items.length > 0;
   }
   if (session.outcome === "stopped") {
     const row = await client.expect<SessionRow>(

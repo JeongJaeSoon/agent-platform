@@ -102,6 +102,19 @@ curl -sS "$API/v1/agents/$AID/identities" "${WEB[@]}" \
 
 Without a confirmed Slack installation this returns 409 `SLACK_NOT_INSTALLED`. The operator creates an installation with the registration CLI above.
 
+## Channel joins and the deployment welcome
+
+When you save one of the agent's channels (`PUT /v1/agents/{id}/slack-bindings`), the server puts the bot in that channel. The bot joins a public channel itself. Slack does not let a bot join a private channel, so invite it there with `/invite @<bot>`; the server notices the invite and carries on. The binding's `membership.state` shows the result.
+
+| `membership.state` | Meaning |
+| --- | --- |
+| `joined` | The bot is in the channel |
+| `awaiting_invite` | A private channel, waiting for the invite |
+| `config_error` | Slack refused the token or a scope (`error` holds Slack's code). Reinstall the app |
+| `join_failed` | The channel is archived or a workspace policy refused the join (`error`) |
+
+Deploying a new release posts one message in the home channel: `안녕하세요, <agent name>입니다. 이 채널에 배포됐어요. 멘션하면 답할게요` (Korean by default). Submitting the same definition again or rolling back to an earlier release posts nothing. Moving the home to another channel posts once in the new channel. If the bot is not in the home yet, the message waits until it is. A welcome or join that fails never fails the deployment.
+
 ## Next steps
 
 - [API key](/api-keys)

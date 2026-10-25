@@ -17,7 +17,7 @@ import {
   requirePermitted,
   SessionServiceError,
 } from "../sessions/session-service.ts";
-import { memberActions } from "./member-rules.ts";
+import { assignableRoles, memberActions } from "./member-rules.ts";
 import type { AuthorizationPolicy, Caller } from "./policy.ts";
 
 export const INVITE_TTL_MS = INVITE_TTL_DAYS * 24 * 60 * 60 * 1000;
@@ -168,6 +168,7 @@ export function createInviteService(deps: {
           ...memberView(row),
           actions: memberActions(viewer, row),
         })),
+        assignable_roles: assignableRoles(principal.role),
       };
     },
 

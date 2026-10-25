@@ -52,18 +52,19 @@ describe("FilterMenu", () => {
     expect(chip.className.split(" ")).toContain("bg-active");
   });
 
-  test("32px 컨트롤 높이·모서리·입력 테두리다", () => {
+  test("32px 컨트롤 높이·모서리에 outline 버튼과 같은 테두리다", () => {
     const { getByRole } = render(<Relation />);
     const chip = getByRole("button").className.split(" ");
     for (const name of [
       "h-[var(--ap-control-height)]",
       "rounded-control",
-      "border-input",
+      "border-border",
+      "hover:border-border-strong",
       "focus-visible:outline-2",
     ]) {
       expect(chip).toContain(name);
     }
-    expect(chip).not.toContain("border-border");
+    expect(chip).not.toContain("border-input");
   });
 
   test("열면 지금 값에 포커스가 가고 고르면 닫히며 칩으로 돌아온다", async () => {
