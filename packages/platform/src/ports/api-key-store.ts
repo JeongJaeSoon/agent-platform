@@ -4,8 +4,9 @@ import type { Principal } from "../musterrolle/policy.ts";
 export type WorkspaceKey = {
   id: string;
   workspaceId: string;
-  kind: "personal" | "service";
-  /** A service key that reaches this agent's sessions and nothing else. */
+  kind: "personal" | "agent";
+  name: string | null;
+  /** Set exactly on an agent key: the agent whose sessions it reaches. */
   agentId: string | null;
   /** Who issued it; null on keys from before the API issued them. */
   createdByUserId: string | null;
@@ -24,6 +25,7 @@ export type IssueKeyInput = {
   workspaceId: string;
   keyHash: Uint8Array;
   kind: WorkspaceKey["kind"];
+  name: string | null;
   agentId: string | null;
   createdByUserId: string;
   scopes: readonly SessionScope[];
@@ -53,12 +55,12 @@ export type RevokeKeyResult =
 
 /**
  * Which keys a list shows: the caller's own personal keys, plus every
- * service key while their current role is one of `allServiceKeysFor`, or
- * else the service keys of the agents they administer.
+ * agent key while their current role is one of `allAgentKeysFor`, or else
+ * the keys of the agents they administer.
  */
 export type KeyListFilter = {
   personalOf: string;
-  allServiceKeysFor: readonly WorkspaceRole[];
+  allAgentKeysFor: readonly WorkspaceRole[];
 };
 
 export interface WorkspaceKeyStore {

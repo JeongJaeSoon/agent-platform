@@ -28,6 +28,7 @@ export const membersKo = {
   "members.roleLastOwner":
     "하나뿐인 소유자의 역할은 바꿀 수 없습니다 — 다른 사람을 먼저 소유자로 정하세요.",
   "members.roleOwnerProtected": "소유자의 역할은 관리자가 바꿀 수 없습니다.",
+  "members.roleOwnerGrant": "소유자 역할은 소유자만 줄 수 있습니다.",
   "members.disable": "비활성화",
   "members.disableFor": "{name} 비활성화",
   "members.enableFor": "{name} 다시 활성화",
@@ -77,6 +78,7 @@ export const membersKo = {
     "구성원 초대와 관리는 워크스페이스 소유자나 관리자가 합니다.",
   "members.description": "워크스페이스에 속한 사람과 역할입니다.",
   "members.editFor": "{name} 편집",
+  "members.editForDisabled": "{name} 편집 (비활성)",
   "members.edit.title": "구성원 편집",
   "members.edit.save": "저장",
   "members.edit.disabledNote":
@@ -120,6 +122,7 @@ export const membersEn: Record<keyof typeof membersKo, string> = {
   "members.roleLastOwner":
     "The only owner's role cannot change — make someone else an owner first.",
   "members.roleOwnerProtected": "An admin cannot change an owner's role.",
+  "members.roleOwnerGrant": "Only an owner can grant the owner role.",
   "members.disable": "Disable",
   "members.disableFor": "Disable {name}",
   "members.enableFor": "Re-enable {name}",
@@ -167,6 +170,7 @@ export const membersEn: Record<keyof typeof membersKo, string> = {
   "members.withheld": "Workspace owners and admins invite and manage members.",
   "members.description": "The people in this workspace and their roles.",
   "members.editFor": "Edit {name}",
+  "members.editForDisabled": "Edit {name} (disabled)",
   "members.edit.title": "Edit member",
   "members.edit.save": "Save",
   "members.edit.disabledNote":
@@ -212,6 +216,8 @@ export const membersJa: Record<keyof typeof membersKo, string> = {
   "members.roleLastOwner":
     "唯一のオーナーのロールは変更できません。先にほかの人をオーナーにしてください。",
   "members.roleOwnerProtected": "管理者はオーナーのロールを変更できません。",
+  "members.roleOwnerGrant":
+    "オーナーのロールを付与できるのはオーナーのみです。",
   "members.disable": "無効化",
   "members.disableFor": "{name}を無効化",
   "members.enableFor": "{name}を再有効化",
@@ -261,6 +267,7 @@ export const membersJa: Record<keyof typeof membersKo, string> = {
     "メンバーの招待と管理は、ワークスペースのオーナーまたは管理者が行います。",
   "members.description": "このワークスペースに所属する人とロールです。",
   "members.editFor": "{name}を編集",
+  "members.editForDisabled": "{name}を編集（無効）",
   "members.edit.title": "メンバーを編集",
   "members.edit.save": "保存",
   "members.edit.disabledNote":

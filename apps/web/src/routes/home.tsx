@@ -811,7 +811,7 @@ function Unmeasured() {
   );
 }
 
-/** Keys carry no name: an agent's key goes by its agent, others by kind. */
+/** A key goes by its name; one without goes by its agent, or else its kind. */
 function KeyName({
   apiKey,
   agentName,
@@ -821,20 +821,17 @@ function KeyName({
 }) {
   const { t } = useI18n();
   const label =
-    apiKey.agent_id !== null
+    apiKey.name ??
+    (apiKey.kind === "agent"
       ? (agentName ?? t("apiKeys.kind.agent"))
-      : t(
-          apiKey.kind === "personal"
-            ? "apiKeys.kind.personal"
-            : "apiKeys.kind.service",
-        );
+      : t("apiKeys.kind.personal"));
   return (
     <TextLink asChild>
       <Link
         to={
           apiKey.kind === "personal"
             ? "/settings/api-keys"
-            : "/settings/api-keys/service"
+            : "/settings/api-keys/agents"
         }
       >
         {label}

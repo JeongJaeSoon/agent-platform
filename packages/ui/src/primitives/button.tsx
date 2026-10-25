@@ -62,6 +62,9 @@ export function Button({
       data-size={size ?? undefined}
       className={cn(buttonVariants({ variant, size, className }))}
       {...props}
+      // A `…Trigger asChild` overrides data-slot; this mark survives it, so
+      // an inactive table row can still find its actions (styles.css).
+      data-ap-button=""
     />
   );
 }

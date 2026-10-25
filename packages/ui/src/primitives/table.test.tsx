@@ -253,4 +253,22 @@ describe("RowList", () => {
     expect(item.className).toContain("min-h-[var(--ap-row-min-height)]");
     expect(item.className).toContain("flex-wrap");
   });
+
+  test("inactive 행만 data-inactive를 갖는다", () => {
+    const { container } = render(
+      <table>
+        <tbody>
+          <TableRow inactive={true}>
+            <TableCell>김하나</TableCell>
+          </TableRow>
+          <TableRow>
+            <TableCell>이두리</TableCell>
+          </TableRow>
+        </tbody>
+      </table>,
+    );
+    const [inactive, active] = container.querySelectorAll("tr");
+    expect(inactive?.getAttribute("data-inactive")).toBe("true");
+    expect(active?.hasAttribute("data-inactive")).toBe(false);
+  });
 });

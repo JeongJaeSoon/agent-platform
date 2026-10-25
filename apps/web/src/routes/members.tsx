@@ -40,11 +40,17 @@ import {
   RowList,
   RowListItem,
 } from "@werft-ai/ui";
-import { useId, useRef, useState } from "react";
-import { invitesQuery, membersQuery, queryKeys } from "../api/queries.ts";
+import { useEffect, useId, useRef, useState } from "react";
+import {
+  invitesQuery,
+  membersQuery,
+  queryKeys,
+  teamsQuery,
+} from "../api/queries.ts";
 import {
   permissionReason,
   roleLabel,
+  useGrantableRoles,
   useHasPermission,
   useMe,
   usePermissionReason,
@@ -63,6 +69,7 @@ import {
   useI18n,
 } from "../i18n/i18n.tsx";
 import { InviteDialog } from "./invite-dialog.tsx";
+import { TeamCreateDialog } from "./team-create-dialog.tsx";
 
 const SECTION = "flex flex-col gap-[var(--ap-space-block)]";
 const SECTION_TITLE = "m-0 font-semibold text-body";
@@ -71,7 +78,12 @@ const PRIMARY =
 const SECONDARY =
   "block text-muted-foreground text-xs [overflow-wrap:anywhere]";
 
-const MEMBER_COLUMNS = "minmax(0,1.6fr) 120px minmax(0,1fr)";
+// Role and actions keep one width on every row, so badges and buttons line
+// up under their headers; the actions track never drops below its button.
+const MEMBER_COLUMNS =
+  "minmax(0,1.6fr) 120px minmax(var(--ap-row-action-min-width),1fr)";
+const MEMBER_NARROW_COLUMNS =
+  "minmax(0,1fr) 72px var(--ap-row-action-min-width)";
 const MEMBER_TABLE_MIN = "min-w-[320px]";
 
 type Outcome =
@@ -127,20 +139,44 @@ export function MembersLayout() {
   // The list is also the permission probe: when it failed, nobody knows.
   const failed = members.isError && !isApiError(members.error, "FORBIDDEN");
   const onTeams = pathname.startsWith("/members/teams");
+  // The router also serves the list at "/members/teams/".
+  const onTeamList = pathname.replace(/\/$/, "") === "/members/teams";
+  const managesTeams = useHasPermission("team.manage");
+  const teams = useQuery({
+    ...teamsQuery(client),
+    enabled: managesTeams && onTeams,
+  });
+  const teamReason = usePermissionReason("team.manage", teams);
+  const teamsFailed = teams.isError && !isApiError(teams.error, "FORBIDDEN");
+  // The dialog closes on success; the page says what came of it.
+  const [created, setCreated] = useState<string | null>(null);
+  // Fresh on each arrival: a request that answered elsewhere is old news.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs on the path change
+  useEffect(() => setCreated(null), [onTeamList]);
+
+  // Each tab's one primary action, in the same place (v4 toolbar ②).
+  const action = onTeams ? (
+    onTeamList && managesTeams && !teamsFailed ? (
+      <TeamCreateDialog
+        reason={teamReason}
+        onCreated={(name) =>
+          setCreated(name === null ? null : t("teams.created", { name }))
+        }
+      />
+    ) : undefined
+  ) : manages && !failed ? (
+    <InviteDialog
+      reason={reason}
+      members={members.data?.items ?? []}
+      refusal={(error, role) => refusal(t, error, role)}
+    />
+  ) : undefined;
 
   return (
     <Page
       title={t("members.title")}
       description={t(manages ? "members.description" : "members.withheld")}
-      actions={
-        !manages || failed || onTeams ? undefined : (
-          <InviteDialog
-            reason={reason}
-            members={members.data?.items ?? []}
-            refusal={(error, role) => refusal(t, error, role)}
-          />
-        )
-      }
+      actions={action}
     >
       <div className="flex flex-col gap-[var(--ap-space-block)]">
         <LinkTabs aria-label={t("members.tabs")}>
@@ -164,6 +200,7 @@ export function MembersLayout() {
             </LinkTab>
           ) : null}
         </LinkTabs>
+        {onTeamList ? <Notice>{created ?? undefined}</Notice> : null}
         <Outlet />
       </div>
     </Page>
@@ -483,6 +520,8 @@ function MemberTable({
           <GridTable
             aria-label={t("members.tableLabel")}
             columns={MEMBER_COLUMNS}
+            narrowAt={640}
+            narrowColumns={MEMBER_NARROW_COLUMNS}
             className={MEMBER_TABLE_MIN}
           >
             <GridTableHeader>
@@ -535,14 +574,17 @@ function MemberTable({
               return (
                 <GridTableRow
                   key={member.user_id}
-                  className="group"
+                  inactive={disabled}
                   data-disabled={disabled}
                 >
                   <GridTableCell lines={true}>
                     <GridTableRowOpener
-                      aria-label={t("members.editFor", {
-                        name: member.display_name,
-                      })}
+                      aria-label={t(
+                        disabled
+                          ? "members.editForDisabled"
+                          : "members.editFor",
+                        { name: member.display_name },
+                      )}
                       onClick={(event) => {
                         editOpener.current = event.currentTarget;
                         setEditing(member);
@@ -552,8 +594,13 @@ function MemberTable({
                       blue stays for links that move (→). */}
                     {/* Below md the "you" badge drops to its own line under
                       the name, so the name gets the whole column (QA L-17). */}
-                    <span className="grid max-w-full grid-cols-[minmax(0,auto)_auto] items-center gap-y-[var(--ap-row-line-gap)] font-medium text-foreground @max-md:grid-cols-[minmax(0,auto)] group-data-[disabled=true]:text-muted-foreground">
+                    <span className="grid max-w-full grid-cols-[minmax(0,auto)_auto] items-center gap-y-[var(--ap-row-line-gap)] font-medium text-foreground @max-md:grid-cols-[minmax(0,auto)]">
                       <span className="truncate">{member.display_name}</span>
+                      {disabled ? (
+                        <span className="sr-only">
+                          {` (${t("members.state.disabled")})`}
+                        </span>
+                      ) : null}
                       {member.user_id === self ? (
                         <Badge
                           variant="gray"
@@ -570,17 +617,10 @@ function MemberTable({
                       {member.email}
                     </span>
                   </GridTableCell>
-                  {/* At 390px the actions spill left past their track; stacked
-                    badges leave them room. */}
-                  <GridTableCell className="flex-wrap gap-1 @max-md:flex-col @max-md:items-start">
+                  <GridTableCell>
                     <Badge variant={member.role === "member" ? "gray" : "blue"}>
                       {roleLabel(t, member.role)}
                     </Badge>
-                    {disabled ? (
-                      <Badge variant="gray">
-                        {t("members.state.disabled")}
-                      </Badge>
-                    ) : null}
                   </GridTableCell>
                   {/* The button keeps one width as "disable" turns "enable". */}
                   <GridTableCell
@@ -695,9 +735,14 @@ function MemberEditDialog({
 }) {
   const { t } = useI18n();
   const [role, setRole] = useState<string>(member.role);
+  const grantable = useGrantableRoles();
   const legendId = useId();
   const reasonId = useId();
+  const grantReasonId = useId();
   const blocked = reason !== undefined;
+  // A disabled radio is out of the arrow-key loop, so its reason also
+  // describes the group a keyboard user does reach.
+  const grantLimited = grantable.length < WORKSPACE_ROLE_VALUES.length;
   return (
     <Dialog open onOpenChange={(open) => (open ? undefined : onClose())}>
       <DialogContent
@@ -724,17 +769,24 @@ function MemberEditDialog({
             onValueChange={setRole}
             disabled={blocked || busy}
             aria-labelledby={legendId}
-            aria-describedby={blocked ? reasonId : undefined}
+            aria-describedby={
+              blocked ? reasonId : grantLimited ? grantReasonId : undefined
+            }
           >
-            {WORKSPACE_ROLE_VALUES.map((value) => (
-              <Field key={value} orientation="horizontal">
-                <RadioGroupItem value={value} />
-                <FieldLabel>{roleLabel(t, value)}</FieldLabel>
-                <FieldDescription>
-                  {t(`members.roleHelp.${value}`)}
-                </FieldDescription>
-              </Field>
-            ))}
+            {WORKSPACE_ROLE_VALUES.map((value) => {
+              const withheld = !grantable.includes(value);
+              return (
+                <Field key={value} orientation="horizontal">
+                  <RadioGroupItem value={value} disabled={withheld} />
+                  <FieldLabel>{roleLabel(t, value)}</FieldLabel>
+                  <FieldDescription id={withheld ? grantReasonId : undefined}>
+                    {withheld
+                      ? t("members.roleOwnerGrant")
+                      : t(`members.roleHelp.${value}`)}
+                  </FieldDescription>
+                </Field>
+              );
+            })}
           </RadioGroup>
         </FieldSet>
         <DialogFooter>
@@ -743,7 +795,12 @@ function MemberEditDialog({
           </Button>
           <Button
             type="button"
-            disabled={blocked || busy || role === member.role}
+            disabled={
+              blocked ||
+              busy ||
+              role === member.role ||
+              !grantable.includes(role as WorkspaceRole)
+            }
             onClick={() => onSave(role as WorkspaceRole)}
           >
             {t("members.edit.save")}

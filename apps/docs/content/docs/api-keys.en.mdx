@@ -22,8 +22,15 @@ A request without the scope gets 403 `FORBIDDEN` before the body is read. Issue 
 | Kind | Issued by | How it behaves |
 | --- | --- | --- |
 | Personal key (`personal`) | Any member, their own only | Acts as the person who created it. Its scopes are the intersection of the key's scopes and the scopes that person's current role allows. If that person is deactivated, 401 |
-| Service key (`service`) | owner, admin | Acts as a service of the workspace. It keeps working after the person who issued it leaves |
-| Agent-specific service key (`service` + `agent_id`) | owner, admin, and that agent's administrator | Creates and sees only sessions created from that agent's release. It cannot have `sessions:approve` |
+| Agent key (`agent` + `agent_id`) | owner, admin, and that agent's administrator | Acts as the key itself, not as a person. Creates and sees only sessions created from that agent's release. It keeps working after the person who issued it leaves. It cannot have `sessions:approve`, so it cannot approve requests or answer questions |
+
+There is no key without an agent, that is, no key that reaches the whole workspace. Sending `kind: "agent"` without `agent_id` gets 400 `BAD_REQUEST`.
+
+A key can carry a `name` (1 to 64 characters after trimming, not required) so you can tell it apart in the list. Without one it is `null`.
+
+Without `expires_at`, a key stays valid until you revoke it. The web console's new agent key screen fills in an expiry date 90 days out; clear it to issue a key with no expiry.
+
+Organization admin keys, owned by the organization and tied to no person (for automation such as Terraform, CI or SCIM), do not exist yet. The web console's API key screen shows their place as "Coming soon", to owners and admins only. Once they exist, each one will need an expiry date.
 
 ## Issue a key
 
@@ -31,16 +38,17 @@ Issue it in the web console, or call `POST /v1/api-keys` with the web login cook
 
 ```bash
 issued=$(curl -sS "$API/v1/api-keys" "${WEB[@]}" \
-  -d '{"kind": "personal", "scopes": ["sessions:read", "sessions:write"]}')
+  -d '{"kind": "personal", "name": "laptop", "scopes": ["sessions:read", "sessions:write"]}')
 MY_KEY=$(echo "$issued" | jq -r .secret)
 KEY_ID=$(echo "$issued" | jq -r .key.id)
-echo "$issued" | jq '{kind: .key.kind, scopes: .key.scopes, receipt: (.receipt_id != null)}'
+echo "$issued" | jq '{kind: .key.kind, name: .key.name, scopes: .key.scopes, receipt: (.receipt_id != null)}'
 curl -sS -w '\n' "$API/v1" -H "Authorization: Bearer $MY_KEY"
 ```
 
 ```text
 {
   "kind": "personal",
+  "name": "laptop",
   "scopes": [
     "sessions:read",
     "sessions:write"
@@ -54,18 +62,18 @@ Requesting a scope beyond the issuer's own scopes returns 403 `SCOPE_NOT_GRANTAB
 
 ## List and revoke
 
-The list shows only your own personal keys and the service keys you manage. Secrets are not shown.
+The list shows only your own personal keys and the keys of the agents you manage. Secrets are not shown.
 
 `last_used_at` is when the key last authenticated a request. It is recorded at most once a minute per key, and a use made while another request is writing a session with the same key is skipped and recorded on the next use, so it can lag by more than a minute. `null` means no use has been recorded since last-use recording began, not that the key was never used. `created_by_user` is the issuer's id and current display name. The name stays after the issuer leaves the workspace or their account is disabled. It is `null` on a key with no recorded issuer (one made with the operator CLI).
 
 ```bash
-curl -sS "$API/v1/api-keys" "${WEB[@]}" | jq -c --arg id "$KEY_ID" '.items[] | select(.id == $id) | {kind, scopes, revoked_at, used: (.last_used_at != null), issuer: .created_by_user.display_name}'
+curl -sS "$API/v1/api-keys" "${WEB[@]}" | jq -c --arg id "$KEY_ID" '.items[] | select(.id == $id) | {kind, name, scopes, revoked_at, used: (.last_used_at != null), issuer: .created_by_user.display_name}'
 curl -sS -X DELETE "$API/v1/api-keys/$KEY_ID" "${WEB[@]}" | jq '{receipt: (.receipt_id != null)}'
 curl -sS -o /dev/null -w '%{http_code}\n' "$API/v1" -H "Authorization: Bearer $MY_KEY"
 ```
 
 ```text
-{"kind":"personal","scopes":["sessions:read","sessions:write"],"revoked_at":null,"used":true,"issuer":"…"}
+{"kind":"personal","name":"laptop","scopes":["sessions:read","sessions:write"],"revoked_at":null,"used":true,"issuer":"…"}
 {
   "receipt": true
 }
@@ -80,10 +88,10 @@ An operator can issue a key directly on the server. On the local stack it is `sc
 
 ```sh
 scripts/local.sh key <owner> --scopes sessions:read,sessions:write
-scripts/local.sh key --workspace <workspace-id> --scopes sessions:read,sessions:write
+scripts/local.sh key --workspace <workspace-id> --personal <user-id> --scopes sessions:read,sessions:write
 ```
 
-A key made for `<owner>` uses that name as its owner. A key made with `--workspace` is a service key of that workspace. It sees sessions shared with the whole workspace and sessions it created itself. It cannot see a web user's private sessions or sessions shared only with specific people or teams.
+A key made for `<owner>` uses that name as its owner. `--workspace` goes only with `--personal`: the key is that member's personal key and acts as them. `--workspace` without `--personal`, or a workspace id in place of `<owner>`, is refused. No key reaches the whole workspace. Issue agent keys in the web console or with `POST /v1/api-keys`.
 
 ## Next steps
 

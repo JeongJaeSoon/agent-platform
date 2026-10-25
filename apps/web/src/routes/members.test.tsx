@@ -56,7 +56,13 @@ const ROLE_NAME = { owner: "소유자", admin: "관리자", member: "구성원" 
 
 /** Opens 구성원 편집 for a member and returns the dialog. */
 async function openEdit(user: User, name: string) {
-  await user.click(await screen.findByRole("button", { name: `${name} 편집` }));
+  // An inactive row's opener adds "(비활성)" after the name.
+  await user.click(
+    await screen.findByRole("button", {
+      name: (label) =>
+        label === `${name} 편집` || label === `${name} 편집 (비활성)`,
+    }),
+  );
   return screen.findByRole("dialog", { name: "구성원 편집" });
 }
 
@@ -173,7 +179,25 @@ describe("구성원 화면", () => {
     expect(roleIn("Owner")).toBe("소유자");
     const goneRow = screen.getByText(/^Gone/).closest("[role=row]");
     expect(goneRow?.getAttribute("data-disabled")).toBe("true");
-    expect(within(goneRow as HTMLElement).getByText("비활성")).toBeDefined();
+    // The tone says "inactive" to the eye; the name says it to a reader, and
+    // no badge repeats it.
+    expect(goneRow?.getAttribute("data-inactive")).toBe("true");
+    expect(
+      within(goneRow as HTMLElement).queryByText("비활성", {
+        selector: "[data-slot=badge]",
+      }),
+    ).toBeNull();
+    expect(
+      within(goneRow as HTMLElement)
+        .getAllByRole("cell")[0]
+        ?.textContent?.includes("(비활성)"),
+    ).toBe(true);
+    expect(
+      within(goneRow as HTMLElement).getByRole("button", {
+        name: "Gone 편집 (비활성)",
+      }),
+    ).toBeDefined();
+    expect(mateRow.hasAttribute("data-inactive")).toBe(false);
     expect(
       within(goneRow as HTMLElement).getByRole("button", {
         name: "다시 활성화",
@@ -250,9 +274,9 @@ describe("구성원 화면", () => {
     );
   });
 
-  test("관리자가 소유자 역할을 주려 하면(403 OWNER_PROTECTED) 그 이유를 보인다", async () => {
+  test("소유자 부여가 서버에서 403 OWNER_PROTECTED로 거절되면 그 이유를 보인다", async () => {
     renderAt("/members", {
-      "GET /v1/auth/me": () => json(200, me(undefined, "admin")),
+      "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": () =>
         json(200, { items: [owner, teammate], next_cursor: null }),
       ...noInvites,
@@ -263,6 +287,86 @@ describe("구성원 화면", () => {
     await changeRole(user, "Mate", "owner");
     expect((await screen.findByRole("alert")).textContent).toBe(
       "소유자 역할을 주거나 소유자의 역할·접근(비활성화·정지·다시 활성화)을 바꾸는 일은 소유자만 할 수 있습니다 — 소유자에게 요청하세요.",
+    );
+  });
+
+  test("관리자에게 소유자 선택지는 비활성이고 그 자리에 이유를 두며, 화살표 키는 그 선택지를 건너뛴다", async () => {
+    const { api } = renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me(undefined, "admin")),
+      "GET /v1/members": () =>
+        json(200, {
+          items: [{ ...owner, role: "admin" }, teammate],
+          next_cursor: null,
+        }),
+      ...noInvites,
+    });
+    const user = await setupUser();
+    const edit = await openEdit(user, "Mate");
+    const radio = (name: string) =>
+      within(edit).getByRole("radio", { name }) as HTMLButtonElement;
+    expect(radio("소유자").disabled).toBe(true);
+    expect(descriptionOf(radio("소유자"))).toBe(
+      "소유자 역할은 소유자만 줄 수 있습니다.",
+    );
+    // The radio is out of the arrow-key loop; the group carries the reason.
+    expect(descriptionOf(within(edit).getByRole("radiogroup"))).toBe(
+      "소유자 역할은 소유자만 줄 수 있습니다.",
+    );
+    expect(radio("관리자").disabled).toBe(false);
+    expect(radio("구성원").disabled).toBe(false);
+    radio("구성원").focus();
+    await user.keyboard("{ArrowDown>}");
+    await waitFor(() =>
+      expect(document.activeElement === radio("관리자")).toBe(true),
+    );
+    await user.keyboard("{/ArrowDown}{ArrowDown>}");
+    await waitFor(() =>
+      expect(document.activeElement === radio("구성원")).toBe(true),
+    );
+    await user.keyboard("{/ArrowDown}");
+    expect(api.calls.some((call) => call.method === "PATCH")).toBe(false);
+  });
+
+  test("소유자를 고른 뒤 관리자로 내려가면 저장이 막힌다", async () => {
+    let role: "owner" | "admin" = "owner";
+    const { api, services } = renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me(undefined, role)),
+      "GET /v1/members": () =>
+        json(200, { items: [owner, teammate], next_cursor: null }),
+      ...noInvites,
+    });
+    const user = await setupUser();
+    const edit = await openEdit(user, "Mate");
+    await user.click(within(edit).getByRole("radio", { name: "소유자" }));
+    const save = within(edit).getByRole("button", {
+      name: "저장",
+    }) as HTMLButtonElement;
+    expect(save.disabled).toBe(false);
+    role = "admin";
+    await act(() => services.queryClient.refetchQueries());
+    await waitFor(() => expect(save.disabled).toBe(true));
+    expect(
+      (within(edit).getByRole("radio", { name: "소유자" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    expect(api.calls.some((call) => call.method === "PATCH")).toBe(false);
+  });
+
+  test("소유자에게는 소유자 선택지가 열려 있고 역할 설명이 그대로다", async () => {
+    renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": () =>
+        json(200, { items: [owner, teammate], next_cursor: null }),
+      ...noInvites,
+    });
+    const user = await setupUser();
+    const edit = await openEdit(user, "Mate");
+    const ownerRadio = within(edit).getByRole("radio", {
+      name: "소유자",
+    }) as HTMLButtonElement;
+    expect(ownerRadio.disabled).toBe(false);
+    expect(descriptionOf(ownerRadio)).toBe(
+      "워크스페이스 설정과 소유자까지 모두 바꿉니다.",
     );
   });
 
@@ -871,7 +975,7 @@ describe("구성원 페이지와 서버 검색", () => {
     await waitFor(() =>
       expect(
         screen
-          .getByRole("button", { name: "Person 0 편집" })
+          .getByRole("button", { name: "Person 0 편집 (비활성)" })
           .closest("[role=row]")
           ?.getAttribute("data-disabled"),
       ).toBe("true"),
@@ -915,7 +1019,7 @@ describe("구성원 페이지와 서버 검색", () => {
     await screen.findByRole("button", { name: "더 보기" });
     expect(
       screen
-        .getByRole("button", { name: "Person 0 편집" })
+        .getByRole("button", { name: "Person 0 편집 (비활성)" })
         .closest("[role=row]")
         ?.getAttribute("data-disabled"),
     ).toBe("true");
@@ -1019,7 +1123,7 @@ describe("구성원 페이지와 서버 검색", () => {
     const user = await setupUser();
     await screen.findByRole("button", { name: "Owner 편집" });
     await user.click(screen.getByRole("button", { name: "더 보기" }));
-    await screen.findByRole("button", { name: "Gone 편집" });
+    await screen.findByRole("button", { name: "Gone 편집 (비활성)" });
 
     const box = screen.getByRole("searchbox", {
       name: "이름이나 이메일로 찾기",
@@ -1145,6 +1249,9 @@ describe("구성원 · 팀 · 초대 탭", () => {
       ["팀", "/members/teams", null],
       ["초대", "/members/invites", null],
     ]);
+    // The head's primary action follows the tab.
+    expect(screen.getByRole("button", { name: "구성원 초대" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: "팀 만들기" })).toBeNull();
     // Pending invites have their own tab now.
     expect(screen.queryByText("대기 중인 초대")).toBeNull();
   });

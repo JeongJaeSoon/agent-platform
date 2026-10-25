@@ -1,4 +1,12 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from "bun:test";
+import { focusManager, onlineManager } from "@tanstack/react-query";
 import type { ApiError } from "@werft-ai/client";
 import {
   agentDetailSchema,
@@ -15,10 +23,15 @@ import {
   memberMe,
   USER_ID,
 } from "../test-support/fake-api.ts";
+import { fakeIntersection } from "../test-support/intersection.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
 const { act, cleanup, render, renderAt, screen, waitFor, within } =
   await appHarness();
+// Over happy-dom's, which setupDom put in place.
+const viewport = fakeIntersection();
+afterEach(() => viewport.show(() => true));
+afterAll(() => viewport.restore());
 // After the DOM exists: Radix picks a no-op layout effect when loaded before
 // it, and its dialogs then never reach the page.
 const { agentRefusal } = await import("./agents.tsx");
@@ -230,6 +243,15 @@ describe("에이전트 목록", () => {
       ).not.toBeNull(),
     );
     expect(badges()).toEqual(expected);
+    // Only the archived row takes the inactive tone; its badge still says so.
+    expect(
+      ["draft", "live", "held", "old"].map((name) =>
+        screen
+          .getByRole("link", { name })
+          .closest("tr")
+          ?.hasAttribute("data-inactive"),
+      ),
+    ).toEqual([false, false, false, true]);
   });
 
   test("구성원은 전체 목록 대신 안내를 보고, 새 에이전트는 만들 수 있다", async () => {
@@ -450,32 +472,74 @@ describe("에이전트 카드", () => {
     expect(cell?.querySelector("[aria-busy=true]")).not.toBeNull();
   });
 
-  test("에이전트가 많으면 앞의 12개만 추가로 불러오고 그렇다고 알린다", async () => {
-    const base = agentServer().detail().agent;
-    const items = Array.from({ length: 14 }, (_, n) => ({
-      ...base,
-      id: crypto.randomUUID(),
-      slug: `agent-${n}`,
-      name: `에이전트 ${n}`,
-    }));
-    const { api } = renderAt("/agents", {
-      ...meOk,
-      "GET /v1/agents": () => json(200, { items, next_cursor: null }),
+  describe("보이는 카드만", () => {
+    const items = (count: number) => {
+      const base = agentServer().detail().agent;
+      return Array.from({ length: count }, (_, n) => ({
+        ...base,
+        id: crypto.randomUUID(),
+        slug: `agent-${n}`,
+        name: `에이전트 ${n}`,
+      }));
+    };
+    const slugOf = (element: Element) =>
+      element.querySelector("[data-agent]")?.getAttribute("data-agent");
+    const detailCalls = (api: { calls: readonly { path: string }[] }) =>
+      api.calls
+        .map((c) => c.path)
+        .filter((path) => /^\/v1\/agents\/[^/]+/.test(path));
+
+    test("화면에 들어온 카드만 추가 정보를 부르고, 스크롤로 들어오면 그때 부른다", async () => {
+      const agents = items(14);
+      const first = new Set(agents.slice(0, 6).map((agent) => agent.slug));
+      viewport.show((element) => first.has(slugOf(element) ?? ""));
+      const { api } = renderAt("/agents", {
+        ...meOk,
+        "GET /v1/agents": () => json(200, { items: agents, next_cursor: null }),
+      });
+      const late = await cardFor("에이전트 13");
+      await waitFor(() => expect(detailCalls(api).length).toBe(18));
+      const asked = new Set(
+        detailCalls(api).map(
+          (path) => /^\/v1\/agents\/([^/]+)/.exec(path)?.[1],
+        ),
+      );
+      expect(asked.has(agents[5]?.id)).toBe(true);
+      expect(asked.has(agents[6]?.id)).toBe(false);
+      // Not yet read is a placeholder, never the dash of a failed read.
+      const profile = [...late.querySelectorAll("dt")].find(
+        (dt) => dt.textContent === "실행 프로필",
+      )?.nextElementSibling;
+      expect(profile?.querySelector("[aria-busy=true]")).not.toBeNull();
+      expect(screen.queryByText(/자세한 정보를 불러옵니다/)).toBeNull();
+
+      act(() => viewport.show(() => true));
+      await waitFor(() => expect(detailCalls(api).length).toBe(42));
+      // Each card's three reads go out once, however often it is reported.
+      expect(new Set(detailCalls(api)).size).toBe(42);
+      act(() => viewport.show(() => true));
+      await waitFor(() =>
+        expect(profile?.querySelector("[aria-busy=true]")).toBeNull(),
+      );
+      expect(detailCalls(api).length).toBe(42);
     });
-    await screen.findByRole("link", { name: "에이전트 13" });
-    expect(
-      await screen.findByText(/앞의 12개만 자세한 정보를 불러옵니다/),
-    ).toBeDefined();
-    await waitFor(() =>
-      expect(
-        api.calls.filter((c) => /^\/v1\/agents\/[^/]+/.test(c.path)).length,
-      ).toBe(36),
-    );
-    const asked = new Set(
-      api.calls.map((c) => /^\/v1\/agents\/([^/]+)/.exec(c.path)?.[1]),
-    );
-    expect(asked.has(items[11]?.id)).toBe(true);
-    expect(asked.has(items[12]?.id)).toBe(false);
+
+    test("창이나 네트워크로 돌아와도 이미 불러온 카드를 다시 부르지 않는다", async () => {
+      const { api } = renderAt("/agents", { ...meOk, ...releasedServer() });
+      const card = await cardFor("결제 담당");
+      await waitFor(() => expect(card.textContent).toContain("관리자 Owner"));
+      await waitFor(() => expect(detailCalls(api).length).toBe(3));
+      act(() => {
+        focusManager.setFocused(false);
+        focusManager.setFocused(true);
+        onlineManager.setOnline(false);
+        onlineManager.setOnline(true);
+      });
+      // Let a refetch, if any, go out before counting.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(detailCalls(api).length).toBe(3);
+      focusManager.setFocused(undefined);
+    });
   });
 });
 
@@ -549,12 +613,12 @@ describe("에이전트 목록 탭과 보기", () => {
       name: "이름이나 식별자로 찾기",
     });
     const cards = screen.getByRole("button", { name: "카드" });
-    // Categories, then search, then view: the toolbar's reading order.
+    // Categories, then view, then search: the toolbar's reading order.
     expect(
-      all.compareDocumentPosition(search) & Node.DOCUMENT_POSITION_FOLLOWING,
+      all.compareDocumentPosition(cards) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(
-      search.compareDocumentPosition(cards) & Node.DOCUMENT_POSITION_FOLLOWING,
+      cards.compareDocumentPosition(search) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
 
     const user = await setupUser();
@@ -599,6 +663,8 @@ describe("에이전트 목록 탭과 보기", () => {
       slug: `agent-${n}`,
       name: `에이전트 ${n}`,
     }));
+    // Only the tab and its notice matter here, not 200 cards' details.
+    viewport.show(() => false);
     renderAt("/agents", {
       ...meOk,
       "GET /v1/agents": () => json(200, { items: [base], next_cursor: null }),

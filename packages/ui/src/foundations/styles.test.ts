@@ -330,7 +330,7 @@ describe("tokens.css", () => {
     expect(ratios.filter((line) => !line.endsWith("ok"))).toEqual([]);
   });
 
-  test("링크·상태 점·채운 위험 버튼이 바탕에서 AA를 넘는다", () => {
+  test("링크·상태 점·채운 위험 버튼·켜진 Switch가 바탕에서 AA를 넘는다", () => {
     // Link text 4.5:1; a dot is a graphic, 3:1 (WCAG 1.4.11).
     const DOTS = ["wait", "run", "idle", "done", "failed"].map(
       (state) => `--ap-color-status-dot-${state}`,
@@ -350,6 +350,16 @@ describe("tokens.css", () => {
         4.5,
       ],
       ["--ap-color-focus-ring", "--ap-color-surface", 3],
+      // An on switch: the track on the page, the surface thumb on the track.
+      ...[
+        "--ap-color-surface",
+        "--ap-color-sidebar",
+        "--ap-color-surface-sunken",
+      ].map((surface): [string, string, number] => [
+        "--ap-color-control-checked",
+        surface,
+        3,
+      ]),
     ];
     const themes: [string, Map<string, string>][] = [
       [
@@ -367,6 +377,10 @@ describe("tokens.css", () => {
         ),
       ],
     ];
+    // Suffix match for the same reason as the input border test above.
+    expect(
+      parse(THEME).find((d) => d.property.endsWith("-control-checked"))?.value,
+    ).toBe("var(--ap-color-control-checked)");
     const failures = themes.flatMap(([theme, palette]) =>
       pairs.flatMap(([fg, bg, floor]) => {
         const a = palette.get(fg) ?? "";
@@ -450,6 +464,47 @@ describe("styles.css", () => {
         /#[0-9a-f]{3,8}\b|\brgba?\(|\bhsla?\(/i.test(d.value),
     );
     expect(literals.map((d) => `${d.selector} { ${d.property} }`)).toEqual([]);
+  });
+
+  test("비활성 행은 행동 셀을 뺀 셀을 흐린 글자와 무채색 tone으로 그린다", () => {
+    const inactive = styleDeclarations.filter((d) =>
+      d.selector.includes("[data-inactive]"),
+    );
+    expect(inactive.length).toBeGreaterThan(0);
+    for (const d of inactive) {
+      // The actions cell keeps its contrast. A Button under `TooltipTrigger
+      // asChild` takes the trigger's slot, so it is found by its own mark.
+      expect(
+        d.selector
+          .replace(/\s+/g, " ")
+          .replace(/\( | (?=\))/g, (m) => m.trim()),
+      ).toContain(
+        ':not([data-raised], [data-variant="actions"], :has([data-ap-button]))',
+      );
+    }
+    const value = (property: string) =>
+      inactive.find((d) => d.property === property)?.value;
+    // subtle-foreground is the faintest text that holds AA on every
+    // surface and tone bg (tokens.css test above).
+    expect(value("color")).toBe("var(--ap-color-subtle-foreground)");
+    expect(value("--ap-color-foreground")).toBe(
+      "var(--ap-color-subtle-foreground)",
+    );
+    // Every tone a badge or status label can take turns neutral.
+    for (const tone of [
+      "progress",
+      "attention",
+      "caution",
+      "danger",
+      "unknown",
+      "positive",
+      "success",
+    ]) {
+      expect(value(`--ap-tone-${tone}-fg`)).toBe(
+        "var(--ap-color-subtle-foreground)",
+      );
+      expect(value(`--ap-tone-${tone}-bg`)).toBe("var(--ap-tone-neutral-bg)");
+    }
   });
 
   test("한글 마이크로라벨을 uppercase로 바꾸지 않는다", () => {

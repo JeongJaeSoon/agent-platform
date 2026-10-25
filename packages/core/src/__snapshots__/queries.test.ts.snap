@@ -169,6 +169,7 @@ exports[`query options and the request each query makes 1`] = `
         "api-keys",
       ],
       "retry": false,
+      "staleTime": 30000,
     },
   },
   "invitesQuery": {

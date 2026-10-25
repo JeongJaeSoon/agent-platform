@@ -37,6 +37,7 @@ import {
   normalizeSessionTitle,
 } from "@werft-ai/contracts";
 import { releaseModel } from "../agents/release-ids.ts";
+import { own } from "../checkpoints/checkpoint-support.ts";
 import {
   budgetExceeded,
   type SessionSpend,
@@ -106,11 +107,6 @@ function canonicalize(value: unknown): unknown {
     );
   }
   return value;
-}
-
-// Plain-object catalogs must not resolve inherited keys such as "toString".
-function own<T>(record: Record<string, T>, key: string): T | undefined {
-  return Object.hasOwn(record, key) ? record[key] : undefined;
 }
 
 function pinOf(record: {

@@ -1,7 +1,6 @@
 import {
   hashKey,
-  type InfiniteData,
-  type UseInfiniteQueryResult,
+  keepPreviousData,
   useInfiniteQuery,
   useQuery,
   useQueryClient,
@@ -20,20 +19,18 @@ import type {
   SessionStatus,
 } from "@werft-ai/contracts";
 import { queryKeys } from "@werft-ai/core";
-import { useAgentPlatform, useSessions } from "@werft-ai/react";
+import { useAgentPlatform } from "@werft-ai/react";
 import {
   ApprovalInbox,
   type SessionActionProps,
   SessionDetail,
 } from "@werft-ai/react/blocks";
-import { LoadMoreButton } from "@werft-ai/react/components";
+import { ListToolbar, LoadMoreButton } from "@werft-ai/react/components";
 import {
   Button,
   buttonVariants,
   EmptyState,
-  NativeSelect,
-  NativeSelectOption,
-  SearchInput,
+  FilterMenu,
   SegmentedControl,
   SegmentedControlItem,
 } from "@werft-ai/ui";
@@ -155,11 +152,11 @@ export function SessionsScreen() {
           refusal={(error) => t(errorKey(error.code))}
         />
         <div className="flex min-w-0 flex-col gap-4">
-          {/* The groupings and their counts on the left, search on the right. */}
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex flex-wrap items-center gap-2">
+          <ListToolbar
+            filter={
               <SegmentedControl
                 aria-label={t("sessionList.filter.label")}
+                size="toolbar"
                 value={tab}
                 onValueChange={pick}
               >
@@ -176,46 +173,39 @@ export function SessionsScreen() {
                   </SegmentedControlItem>
                 ))}
               </SegmentedControl>
-              <NativeSelect
-                aria-label={t("sessionList.relation.label")}
+            }
+            filters={
+              <FilterMenu
+                label={t("sessionList.relation.label")}
+                options={[
+                  { value: "all", label: t("sessionList.relation.all") },
+                  ...SESSION_RELATIONS.map((name) => ({
+                    value: name,
+                    label: t(`sessionList.relation.${name}`),
+                  })),
+                ]}
                 value={relation ?? "all"}
-                onChange={(event) => pickRelation(event.target.value)}
-              >
-                <NativeSelectOption value="all">
-                  {t("sessionList.relation.all")}
-                </NativeSelectOption>
-                {SESSION_RELATIONS.map((name) => (
-                  <NativeSelectOption key={name} value={name}>
-                    {t(`sessionList.relation.${name}`)}
-                  </NativeSelectOption>
-                ))}
-              </NativeSelect>
-            </div>
-            <SearchInput
-              ref={search}
-              type="search"
-              aria-label={t("sessionList.search")}
-              placeholder={t("sessionList.search")}
-              maxLength={SEARCH_MAX}
-              // At the row's end, 240–280px; alone on its line, full width.
-              wrapperClassName="max-w-none flex-[1_1_100%] sm:ml-auto sm:w-[260px] sm:flex-none"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-          </div>
-          {tab === "all" && relation === undefined && q === undefined ? (
-            <AllSessions onClear={clear} />
-          ) : (
-            <FilteredSessions
-              key={tab}
-              filter={{
-                ...(tab === "all" ? {} : { status: tab }),
-                ...(relation ? { relation } : {}),
-                ...(q ? { q } : {}),
-              }}
-              onClear={clear}
-            />
-          )}
+                onValueChange={pickRelation}
+              />
+            }
+            search={{
+              ref: search,
+              type: "search",
+              "aria-label": t("sessionList.search"),
+              placeholder: t("sessionList.search"),
+              maxLength: SEARCH_MAX,
+              value: query,
+              onChange: (event) => setQuery(event.target.value),
+            }}
+          />
+          <SessionsView
+            filter={{
+              ...(tab === "all" ? {} : { status: tab }),
+              ...(relation ? { relation } : {}),
+              ...(q ? { q } : {}),
+            }}
+            onClear={clear}
+          />
         </div>
       </div>
     </Page>
@@ -261,11 +251,17 @@ interface SessionsFilter {
   readonly q?: string;
 }
 
-function useFilteredSessions(filter: SessionsFilter) {
+/**
+ * One query whatever the filters, so a new filter keeps the last answer on
+ * screen until its own arrives instead of mounting an empty list.
+ */
+function useListedSessions(filter: SessionsFilter) {
   const { client } = useAgentPlatform();
+  const unfiltered = Object.keys(filter).length === 0;
   return useInfiniteQuery({
-    // Under the sessions key, so what refreshes the list refreshes this too.
-    queryKey: [...STATUS_LISTS, filter],
+    // Unfiltered, it is the list the session hooks refresh by its exact key;
+    // the rest sit under the sessions key, so those refreshes reach them too.
+    queryKey: unfiltered ? queryKeys.sessions : [...STATUS_LISTS, filter],
     queryFn: ({ pageParam }) =>
       unwrap(
         client.GET("/v1/sessions", {
@@ -276,6 +272,7 @@ function useFilteredSessions(filter: SessionsFilter) {
       ) as Promise<ListSessionsResponse>,
     initialPageParam: null as string | null,
     getNextPageParam: (page) => page.next_cursor,
+    placeholderData: keepPreviousData,
     retry: false,
   });
 }
@@ -296,44 +293,30 @@ function useSessionCounts(
       unwrap(
         client.GET("/v1/sessions/counts", { params: { query: filter } }),
       ) as Promise<CountSessionsResponse>,
+    // The tabs keep their numbers, and so their widths, until the new ones come.
+    placeholderData: keepPreviousData,
     retry: false,
   });
 }
 
-interface SessionsViewProps {
-  readonly onClear: () => void;
-}
-
-function AllSessions(props: SessionsViewProps) {
-  return <SessionsView {...props} sessions={useSessions()} />;
-}
-
-function FilteredSessions({
-  filter,
-  ...props
-}: SessionsViewProps & { readonly filter: SessionsFilter }) {
-  return (
-    <SessionsView
-      {...props}
-      filter={filter}
-      sessions={useFilteredSessions(filter)}
-    />
-  );
-}
-
 /** The caller's sessions for the filters picked, a page at a time. */
 function SessionsView({
-  sessions,
-  filter = {},
+  filter,
   onClear,
-}: SessionsViewProps & {
-  readonly sessions: UseInfiniteQueryResult<InfiniteData<ListSessionsResponse>>;
-  readonly filter?: SessionsFilter;
+}: {
+  readonly filter: SessionsFilter;
+  readonly onClear: () => void;
 }) {
   const { t } = useI18n();
+  const sessions = useListedSessions(filter);
   const items = sessions.data?.pages.flatMap((page) => page.items) ?? [];
+  // The last filter's rows stay while the new filter is read, marked busy;
+  // the fade waits a moment so a quick answer never flickers.
+  const busy = sessions.isPlaceholderData;
 
-  if (sessions.isPending) return <StatusScreen kind="loading" />;
+  if (sessions.isPending || (busy && items.length === 0)) {
+    return <StatusScreen kind="loading" />;
+  }
   if (sessions.error && items.length === 0) {
     return loadError(sessions.error, () => void sessions.refetch());
   }
@@ -363,7 +346,11 @@ function SessionsView({
     );
   }
   return (
-    <div className="flex flex-col items-start gap-4">
+    <div
+      aria-busy={busy}
+      data-busy={busy}
+      className="flex flex-col items-start gap-4 transition-opacity data-[busy=true]:opacity-60 data-[busy=true]:delay-150"
+    >
       <SessionsOverview sessions={items} />
       {sessions.error
         ? loadError(
@@ -375,7 +362,8 @@ function SessionsView({
           )
         : null}
       <LoadMoreButton
-        hasMore={sessions.hasNextPage}
+        // A next page of the last filter's rows would land under the new one.
+        hasMore={sessions.hasNextPage && !busy}
         loading={sessions.isFetchingNextPage}
         onLoadMore={() => void sessions.fetchNextPage({ cancelRefetch: false })}
         messages={{

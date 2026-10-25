@@ -13,6 +13,7 @@ import type {
   UpdateAgentRequest,
 } from "@werft-ai/contracts";
 import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
+import { ACTOR_INACTIVE, NOT_FOUND } from "../musterrolle/service-errors.ts";
 import type { AgentStore } from "../ports/agent-store.ts";
 import type { CredentialBindingStore } from "../ports/credential-binding-store.ts";
 import {
@@ -32,14 +33,6 @@ import {
   releaseModel,
   resolveReleaseContent,
 } from "./release-ids.ts";
-
-const NOT_FOUND = () =>
-  new SessionServiceError("NOT_FOUND", "Resource not found");
-const ACTOR_INACTIVE = () =>
-  new SessionServiceError(
-    "FORBIDDEN",
-    "This principal is no longer a member of the workspace",
-  );
 
 /**
  * The release a session pins, refused when the catalog no longer runs its

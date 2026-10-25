@@ -18,12 +18,10 @@ import {
   type Caller,
   MANAGEMENT_ROLES,
 } from "./policy.ts";
+import { NOT_FOUND } from "./service-errors.ts";
 
 // Who administers an agent (design 4.1): people and teams, named by an owner,
 // an admin or one of the agent's admins (`agent.admin.manage`).
-
-const NOT_FOUND = () =>
-  new SessionServiceError("NOT_FOUND", "Resource not found");
 
 function adminsView(admins: AgentAdmins): AgentAdminsView {
   return {

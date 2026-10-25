@@ -127,3 +127,49 @@ describe("escapeSlackControls with a policy", () => {
     ).toBe("&lt;https://example.com|&lt;@U1&gt;>");
   });
 });
+
+describe("escapeSlackControls with maskedLinks: expand", () => {
+  const expand = { maskedLinks: "expand" } as const;
+
+  test("a safe masked link shows where it goes", () => {
+    expect(
+      escapeSlackControls(
+        "<https://evil.example/login|웹에서 승인> and <https://a.example>",
+        expand,
+      ),
+    ).toBe("웹에서 승인 (https://evil.example/login) and <https://a.example>");
+    expect(escapeSlackControls("<mailto:a@b.example|mail>", expand)).toBe(
+      "mail (mailto:a@b.example)",
+    );
+  });
+
+  test("an unsafe or nested masked link is escaped as before", () => {
+    expect(escapeSlackControls("<javascript:alert(1)|click>", expand)).toBe(
+      "&lt;javascript:alert(1)|click&gt;",
+    );
+    expect(escapeSlackControls("<https://example.com|<!here>>", expand)).toBe(
+      "&lt;https://example.com|&lt;!here&gt;>",
+    );
+  });
+
+  test("a label's text stays text, and code is left as written", () => {
+    expect(
+      escapeSlackControls("<https://example.com|!here @channel>", expand),
+    ).toBe("!here @channel (https://example.com)");
+    expect(
+      escapeSlackControls(
+        "`<https://example.com|x>` <https://b.example|y>",
+        expand,
+      ),
+    ).toBe("`<https://example.com|x>` y (https://b.example)");
+  });
+
+  test("keep is the default", () => {
+    expect(escapeSlackControls("<https://example.com|x>")).toBe(
+      "<https://example.com|x>",
+    );
+    expect(
+      escapeSlackControls("<https://example.com|x>", { maskedLinks: "keep" }),
+    ).toBe("<https://example.com|x>");
+  });
+});

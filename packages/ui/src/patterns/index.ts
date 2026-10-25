@@ -1,4 +1,11 @@
 export {
+  BarChart,
+  type BarChartDatum,
+  BarChartLegend,
+  type BarChartLegendProps,
+  type BarChartProps,
+} from "./bar-chart.tsx";
+export {
   Combobox,
   type ComboboxOption,
   type ComboboxProps,
@@ -17,6 +24,11 @@ export {
 } from "./disabled-reason.tsx";
 export { EmptyState, type EmptyStateProps } from "./empty-state.tsx";
 export { ErrorState, type ErrorStateProps } from "./error-state.tsx";
+export {
+  FilterMenu,
+  type FilterMenuOption,
+  type FilterMenuProps,
+} from "./filter-menu.tsx";
 export {
   type KeyValueItem,
   KeyValueList,
