@@ -47,10 +47,10 @@ const MIGRATIONS_ONLY = [
   // 0107: retained input is charged to storage_usage as turns are inserted.
   "function storage_usage_charge_turn() trigger language plpgsql volatility=v parallel=u body md5 181d4bb80e87699778f44b2c2d4b738f",
   // 0166: tool_call_days' duration histogram, filled and summed in SQL.
+  "function tool_hist(integer, integer) integer[] language internal volatility=i parallel=u body md5 3eb6d2f5e7ee95ed566dd6cdda54dac3",
   "function tool_hist_add(a integer[], b integer[]) integer[] language sql volatility=i parallel=s body md5 06b5f26e393c4c8ceab73150900e0667",
   "function tool_hist_step(state integer[], bucket integer, delta integer) integer[] language sql volatility=i parallel=s body md5 20e7f2741f305c44a7febf7acc1b90ff",
   "function tool_hist_sum(integer[]) integer[] language internal volatility=i parallel=u body md5 3eb6d2f5e7ee95ed566dd6cdda54dac3",
-  "function tool_hist(integer, integer) integer[] language internal volatility=i parallel=u body md5 3eb6d2f5e7ee95ed566dd6cdda54dac3",
   "function tool_ms_bucket(ms bigint) integer language sql volatility=i parallel=s body md5 6a2f107430551d1a26c5afd7b02f7985",
   "trigger CREATE TRIGGER agent_activation_events_insert_only BEFORE DELETE OR UPDATE ON public.agent_activation_events FOR EACH ROW EXECUTE FUNCTION agents_reject_mutation() enabled=O",
   "trigger CREATE TRIGGER agent_releases_approve_once BEFORE DELETE OR UPDATE ON public.agent_releases FOR EACH ROW EXECUTE FUNCTION agent_releases_approve_once() enabled=O",
