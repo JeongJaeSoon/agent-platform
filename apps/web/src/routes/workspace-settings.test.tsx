@@ -76,6 +76,9 @@ describe("워크스페이스 설정", () => {
       "보존 기간(일)",
     )) as HTMLInputElement;
     expect(input.value).toBe("90");
+    const unit = input.nextElementSibling;
+    expect(unit?.textContent).toBe("일");
+    expect(unit?.getAttribute("aria-hidden")).toBe("true");
     expect(
       (input.getAttribute("aria-describedby") ?? "")
         .split(" ")
