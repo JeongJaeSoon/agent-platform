@@ -22,16 +22,11 @@ import {
   FieldError,
   FieldLabel,
   Input,
-  KeyValueList,
   RowList,
   RowListItem,
   SettingRow,
   Skeleton,
   Switch,
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
 } from "@werft-ai/ui";
 import { Copy } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -39,6 +34,13 @@ import { useMe } from "../../auth/guard.tsx";
 import { copyText } from "../../components/copy.ts";
 import { errorKey, type Translate, useI18n } from "../../i18n/i18n.tsx";
 import { useAppServices } from "../../services.tsx";
+import {
+  SideNav,
+  SideNavGroup,
+  SideNavLayout,
+  SideNavLink,
+  useCurrentSection,
+} from "./side-nav.tsx";
 import { type Notify, useToast } from "./toast.tsx";
 
 type Binding =
@@ -54,6 +56,24 @@ const modeKey = (mode: Binding["mode"]) =>
     : mode === "off"
       ? "slack.off"
       : "slack.mention";
+
+const SECTION = {
+  channels: "slack-channels",
+  basic: "slack-basic",
+  advanced: "slack-advanced",
+  danger: "slack-danger",
+} as const;
+type SectionKey = keyof typeof SECTION;
+const SECTION_IDS = Object.values(SECTION);
+const SECTION_LABEL = {
+  channels: "slack.channels",
+  basic: "slack.basic",
+  advanced: "slack.advanced",
+  danger: "slack.danger",
+} as const;
+const SECTION_BOX =
+  "flex scroll-mt-4 flex-col gap-[var(--ap-space-block)] outline-none";
+const HEADING = "m-0 font-semibold text-body leading-5";
 
 export function slackFailure(error: unknown, t: Translate): string {
   const code = (error as { code?: string } | null)?.code ?? "INTERNAL_ERROR";
@@ -218,13 +238,7 @@ function ChannelSkeleton() {
   );
 }
 
-function SlackOverview({
-  agentId,
-  onChannels,
-}: {
-  readonly agentId: string;
-  readonly onChannels: () => void;
-}) {
+function SlackStatus({ agentId }: { readonly agentId: string }) {
   const { t } = useI18n();
   const { app, identities } = useSlackState(agentId);
   const bindings = useSlackBindings(agentId);
@@ -246,108 +260,65 @@ function SlackOverview({
         ? "reinstall"
         : "none";
   const placeholder = <Skeleton className="h-5 w-24" />;
+  const bindingsLost = bindings.isError && !bindings.data;
   return (
-    <div className="flex flex-col gap-[var(--ap-space-block)]">
+    <section
+      className="flex flex-col gap-[var(--ap-space-block)]"
+      aria-label={t("slack.status")}
+    >
       {error ? <FieldError>{slackFailure(error, t)}</FieldError> : null}
-      <section className="flex flex-col gap-[var(--ap-space-block)]">
-        <h2 className="m-0 font-semibold text-body leading-5">
-          {t("slack.status")}
-        </h2>
-        <RowList variant="joined">
-          <RowListItem className="grid grid-cols-1 gap-x-6 sm:grid-cols-2">
-            <div className="flex min-h-8 items-center gap-2 text-control">
-              <span className="text-muted-foreground">
-                {t("slack.connection")}:
+      <RowList variant="joined">
+        <RowListItem className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-control">
+          <Badge
+            variant={
+              state === "connected"
+                ? "green"
+                : state === "error"
+                  ? "red"
+                  : "gray"
+            }
+          >
+            {t(`slack.state.${state}`)}
+          </Badge>
+          <span className="flex items-center gap-1.5">
+            <span className="text-muted-foreground">{t("slack.botId")}</span>
+            <span className="font-mono text-caption">
+              {identity?.bot_user_id ?? "—"}
+            </span>
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="text-muted-foreground">
+              {t("slack.homeChannel")}
+            </span>
+            {bindings.isPending || (home && channels.isPending) ? (
+              placeholder
+            ) : (
+              <span>
+                {bindingsLost
+                  ? "—"
+                  : homeName
+                    ? `#${homeName}`
+                    : home?.external_surface_id
+                      ? t("slack.channelId", { id: home.external_surface_id })
+                      : t("slack.homeUnset")}
               </span>
-              <span>{t(`slack.state.${state}`)}</span>
-            </div>
-            <div className="flex min-h-8 items-center gap-2 text-control">
-              <span className="text-muted-foreground">{t("slack.dm")}:</span>
-              {bindings.isPending ? (
-                placeholder
-              ) : (
-                <span>
-                  {bindings.isError && !bindings.data
-                    ? "—"
-                    : t(dm ? modeKey(dm.mode) : "slack.notConfigured")}
-                </span>
-              )}
-            </div>
-          </RowListItem>
-        </RowList>
-      </section>
-      <section className="flex flex-col gap-[var(--ap-space-block)]">
-        <h2 className="m-0 font-semibold text-body leading-5">
-          {t("slack.connection")}
-        </h2>
-        <RowList variant="joined">
-          <RowListItem>
-            <KeyValueList
-              variant="grid"
-              className="w-full"
-              items={[
-                {
-                  label: t("slack.status"),
-                  value: (
-                    <Badge
-                      variant={
-                        state === "connected"
-                          ? "green"
-                          : state === "error"
-                            ? "red"
-                            : "gray"
-                      }
-                    >
-                      {t(`slack.state.${state}`)}
-                    </Badge>
-                  ),
-                },
-                {
-                  label: t("slack.botId"),
-                  value: (
-                    <span className="font-mono">
-                      {identity?.bot_user_id ?? "—"}
-                    </span>
-                  ),
-                },
-                {
-                  label: t("slack.homeChannel"),
-                  value: (
-                    <div className="flex flex-col items-start gap-1">
-                      {bindings.isPending || (home && channels.isPending) ? (
-                        placeholder
-                      ) : (
-                        <span>
-                          {bindings.isError && !bindings.data
-                            ? "—"
-                            : homeName
-                              ? `#${homeName}`
-                              : home?.external_surface_id
-                                ? t("slack.channelId", {
-                                    id: home.external_surface_id,
-                                  })
-                                : t("slack.homeUnset")}
-                        </span>
-                      )}
-                      <Button
-                        type="button"
-                        variant="link"
-                        size="sm"
-                        className="h-auto px-0"
-                        aria-label={t("slack.changeHome")}
-                        onClick={onChannels}
-                      >
-                        {t("slack.change")}
-                      </Button>
-                    </div>
-                  ),
-                },
-              ]}
-            />
-          </RowListItem>
-        </RowList>
-      </section>
-    </div>
+            )}
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="text-muted-foreground">{t("slack.dm")}</span>
+            {bindings.isPending ? (
+              placeholder
+            ) : (
+              <span>
+                {bindingsLost
+                  ? "—"
+                  : t(dm ? modeKey(dm.mode) : "slack.notConfigured")}
+              </span>
+            )}
+          </span>
+        </RowListItem>
+      </RowList>
+    </section>
   );
 }
 
@@ -450,109 +421,177 @@ export function SlackConnect({
           ? "pending"
           : "none";
   return (
-    <section
-      className="flex min-h-64 flex-col gap-[var(--ap-space-block)]"
-      aria-label={t("slack.app")}
-    >
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="m-0 font-semibold text-body leading-5">
-          {t(
-            record && identity
-              ? manage
-                ? "slack.advanced"
-                : "slack.connection"
-              : "slack.app",
-          )}
-        </h2>
-        <Badge
-          variant={
-            status === "connected"
-              ? "green"
-              : status === "error"
-                ? "red"
-                : "gray"
-          }
-        >
-          {t(`slack.state.${status}`)}
-        </Badge>
-      </div>
-      {record && (record.app_id || manage) ? (
-        <RowList variant="joined">
-          {record.app_id ? (
-            <SettingRow
-              title={t("slack.appId")}
-              meta={
-                <span className="font-mono text-caption">{record.app_id}</span>
-              }
-            />
-          ) : null}
-          {record.app_id && identity ? (
-            <SettingRow
-              title={t("slack.botId")}
-              meta={
-                <span className="font-mono text-caption">
-                  {identity.bot_user_id}
-                </span>
-              }
-            />
-          ) : null}
-          {manage ? (
-            <SettingRow
-              title={t(identity ? "slack.reinstallTitle" : "slack.install")}
-              description={t(
-                identity ? "slack.reinstallHint" : "slack.installHint",
-              )}
-              actions={
-                <>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={
-                      busy || pending || Boolean(app.error || identities.error)
-                    }
-                    onClick={() => connect.mutate()}
-                  >
-                    {connect.isPending
-                      ? t("slack.working")
-                      : t(identity ? "slack.reinstall" : "slack.install")}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={busy || app.isFetching || identities.isFetching}
-                    onClick={() => void refresh()}
-                  >
-                    {t("slack.refresh")}
-                  </Button>
-                </>
-              }
-            />
-          ) : null}
-        </RowList>
-      ) : null}
-      <output
-        ref={outcome}
+    <>
+      <section
+        id={SECTION.advanced}
         tabIndex={-1}
-        aria-live="polite"
-        className={notice ? "text-control" : "sr-only"}
+        className={SECTION_BOX}
+        aria-labelledby={`${SECTION.advanced}-title`}
       >
-        {notice}
-      </output>
-      {errorText ? (
-        <div>
-          <FieldError>{errorText}</FieldError>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 id={`${SECTION.advanced}-title`} className={HEADING}>
+            {t(
+              record && identity
+                ? manage
+                  ? "slack.advanced"
+                  : "slack.connection"
+                : "slack.app",
+            )}
+          </h2>
+          <Badge
+            variant={
+              status === "connected"
+                ? "green"
+                : status === "error"
+                  ? "red"
+                  : "gray"
+            }
+          >
+            {t(`slack.state.${status}`)}
+          </Badge>
         </div>
-      ) : null}
-      {!active ? (
-        <p className="m-0 text-muted-foreground">{t("slack.activateFirst")}</p>
-      ) : null}
+        {record && (record.app_id || manage) ? (
+          <RowList variant="joined">
+            {record.app_id ? (
+              <SettingRow
+                title={t("slack.appId")}
+                meta={
+                  <span className="font-mono text-caption">
+                    {record.app_id}
+                  </span>
+                }
+              />
+            ) : null}
+            {record.app_id && identity ? (
+              <SettingRow
+                title={t("slack.botId")}
+                meta={
+                  <span className="font-mono text-caption">
+                    {identity.bot_user_id}
+                  </span>
+                }
+              />
+            ) : null}
+            {manage ? (
+              <SettingRow
+                title={t(identity ? "slack.reinstallTitle" : "slack.install")}
+                description={t(
+                  identity ? "slack.reinstallHint" : "slack.installHint",
+                )}
+                actions={
+                  <>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={
+                        busy ||
+                        pending ||
+                        Boolean(app.error || identities.error)
+                      }
+                      onClick={() => connect.mutate()}
+                    >
+                      {connect.isPending
+                        ? t("slack.working")
+                        : t(identity ? "slack.reinstall" : "slack.install")}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={busy || app.isFetching || identities.isFetching}
+                      onClick={() => void refresh()}
+                    >
+                      {t("slack.refresh")}
+                    </Button>
+                  </>
+                }
+              />
+            ) : null}
+          </RowList>
+        ) : null}
+        <output
+          ref={outcome}
+          tabIndex={-1}
+          aria-live="polite"
+          className={notice ? "text-control" : "sr-only"}
+        >
+          {notice}
+        </output>
+        {errorText ? (
+          <div>
+            <FieldError>{errorText}</FieldError>
+          </div>
+        ) : null}
+        {!active ? (
+          <p className="m-0 text-muted-foreground">
+            {t("slack.activateFirst")}
+          </p>
+        ) : null}
+        {!record ? (
+          <div className="flex flex-wrap gap-2">
+            {!app.error && !identities.error ? (
+              <Button
+                type="button"
+                disabled={!active || busy}
+                onClick={() => connect.mutate()}
+              >
+                {connect.isPending
+                  ? t("slack.working")
+                  : t("slack.createInstall")}
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy || app.isFetching || identities.isFetching}
+              onClick={() => void refresh()}
+            >
+              {t("slack.refresh")}
+            </Button>
+          </div>
+        ) : null}
+        <ConfirmDialog
+          open={deleting}
+          onOpenChange={setDeleting}
+          title={t("slack.delete")}
+          consequence={t("slack.deleteWarning")}
+          confirmLabel={t("slack.delete")}
+          cancelLabel={t("common.cancel")}
+          tone="danger"
+          busy={remove.isPending}
+          onConfirm={() => remove.mutate()}
+        >
+          {remove.error ? (
+            <FieldError>{slackFailure(remove.error, t)}</FieldError>
+          ) : null}
+        </ConfirmDialog>
+        <ConfirmDialog
+          open={revoking}
+          onOpenChange={setRevoking}
+          title={t("slack.revoke")}
+          consequence={t("slack.revokeWarning")}
+          confirmLabel={t("slack.revoke")}
+          cancelLabel={t("common.cancel")}
+          tone="danger"
+          busy={revoke.isPending}
+          onConfirm={() => revoke.mutate()}
+        >
+          {revoke.error ? (
+            <FieldError>{slackFailure(revoke.error, t)}</FieldError>
+          ) : null}
+        </ConfirmDialog>
+      </section>
       {manage && record ? (
-        <>
-          <h3 className="m-0 mt-4 font-semibold text-body leading-5">
+        <section
+          id={SECTION.danger}
+          tabIndex={-1}
+          className={SECTION_BOX}
+          aria-labelledby={`${SECTION.danger}-title`}
+        >
+          <h2 id={`${SECTION.danger}-title`} className={HEADING}>
             {t("slack.danger")}
-          </h3>
+          </h2>
           <RowList
             variant="joined"
             className="border-(color:--ap-tone-danger-border)"
@@ -590,61 +629,9 @@ export function SlackConnect({
               }
             />
           </RowList>
-        </>
-      ) : !record ? (
-        <div className="flex flex-wrap gap-2">
-          {!app.error && !identities.error ? (
-            <Button
-              type="button"
-              disabled={!active || busy}
-              onClick={() => connect.mutate()}
-            >
-              {connect.isPending
-                ? t("slack.working")
-                : t("slack.createInstall")}
-            </Button>
-          ) : null}
-          <Button
-            type="button"
-            variant="outline"
-            disabled={busy || app.isFetching || identities.isFetching}
-            onClick={() => void refresh()}
-          >
-            {t("slack.refresh")}
-          </Button>
-        </div>
+        </section>
       ) : null}
-      <ConfirmDialog
-        open={deleting}
-        onOpenChange={setDeleting}
-        title={t("slack.delete")}
-        consequence={t("slack.deleteWarning")}
-        confirmLabel={t("slack.delete")}
-        cancelLabel={t("common.cancel")}
-        tone="danger"
-        busy={remove.isPending}
-        onConfirm={() => remove.mutate()}
-      >
-        {remove.error ? (
-          <FieldError>{slackFailure(remove.error, t)}</FieldError>
-        ) : null}
-      </ConfirmDialog>
-      <ConfirmDialog
-        open={revoking}
-        onOpenChange={setRevoking}
-        title={t("slack.revoke")}
-        consequence={t("slack.revokeWarning")}
-        confirmLabel={t("slack.revoke")}
-        cancelLabel={t("common.cancel")}
-        tone="danger"
-        busy={revoke.isPending}
-        onConfirm={() => revoke.mutate()}
-      >
-        {revoke.error ? (
-          <FieldError>{slackFailure(revoke.error, t)}</FieldError>
-        ) : null}
-      </ConfirmDialog>
-    </section>
+    </>
   );
 }
 
@@ -757,11 +744,13 @@ function SlackChannels({
     });
   return (
     <section
-      className="flex min-h-96 flex-col gap-[var(--ap-space-block)]"
-      aria-label={t("slack.channels")}
+      id={SECTION.channels}
+      tabIndex={-1}
+      className={SECTION_BOX}
+      aria-labelledby={`${SECTION.channels}-title`}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="m-0 font-semibold text-body leading-5">
+        <h2 id={`${SECTION.channels}-title`} className={HEADING}>
           {t("slack.connectedChannels")}
         </h2>
         <div className="flex flex-wrap justify-end gap-2">
@@ -1081,11 +1070,8 @@ export default function SlackTab({
       state: ({ slackInstalled: _, ...rest }) => rest,
     });
   }, [justInstalled, notify, navigate, t]);
-  const [segment, setSegment] = useState("overview");
-  const [channelsOpened, setChannelsOpened] = useState(false);
-  const [settingsOpened, setSettingsOpened] = useState(false);
   const [defaultMention, setDefaultMention] = useState(true);
-  const channelsTab = useRef<HTMLButtonElement>(null);
+  const [current, setCurrent] = useCurrentSection(SECTION_IDS);
   const { identities } = useSlackState(agentId);
   const installed =
     identities.data?.items.some((item) => item.status === "active") ?? false;
@@ -1095,93 +1081,86 @@ export default function SlackTab({
   }, [installed]);
   if (!installed && !wasConnected) {
     return (
-      <>
+      <div className="flex flex-col gap-8">
         <SlackConnect agentId={agentId} active={active} />
         {toast}
-      </>
+      </div>
     );
   }
+  const link = (key: SectionKey) => (
+    <SideNavLink
+      key={key}
+      href={`#${SECTION[key]}`}
+      current={current === SECTION[key] ? "location" : undefined}
+      onClick={(event) => {
+        // Stay off the URL hash: the router owns the location.
+        event.preventDefault();
+        const target = document.getElementById(SECTION[key]);
+        target?.scrollIntoView({
+          block: "start",
+          behavior: matchMedia("(prefers-reduced-motion: reduce)").matches
+            ? "auto"
+            : "smooth",
+        });
+        target?.focus({ preventScroll: true });
+        setCurrent(SECTION[key]);
+      }}
+    >
+      {t(SECTION_LABEL[key])}
+    </SideNavLink>
+  );
   return (
     <>
-      <Tabs
-        value={segment}
-        onValueChange={(next) => {
-          setSegment(next);
-          if (next === "channels") setChannelsOpened(true);
-          if (next === "settings") setSettingsOpened(true);
-        }}
+      <SideNavLayout
+        nav={
+          <SideNav aria-label={t("slack.sectionNav")}>
+            {link("channels")}
+            {link("basic")}
+            <SideNavGroup label={t("slack.manage")}>
+              {link("advanced")}
+              {link("danger")}
+            </SideNavGroup>
+          </SideNav>
+        }
       >
-        <TabsList aria-label={t("slack.sections")}>
-          <TabsTrigger value="overview">{t("slack.overview")}</TabsTrigger>
-          <TabsTrigger value="channels" ref={channelsTab}>
-            {t("slack.channels")}
-          </TabsTrigger>
-          <TabsTrigger value="settings">{t("slack.settings")}</TabsTrigger>
-        </TabsList>
-        <TabsContent
-          value="overview"
-          forceMount
-          hidden={segment !== "overview"}
+        <SlackStatus agentId={agentId} />
+        <SlackChannels
+          agentId={agentId}
+          defaultMention={defaultMention}
+          invite={`/invite @${slug}`}
+          notify={notify}
+        />
+        <section
+          id={SECTION.basic}
+          tabIndex={-1}
+          className={SECTION_BOX}
+          aria-labelledby={`${SECTION.basic}-title`}
         >
-          <SlackOverview
-            agentId={agentId}
-            onChannels={() => {
-              setChannelsOpened(true);
-              setSegment("channels");
-              channelsTab.current?.focus();
-            }}
-          />
-        </TabsContent>
-        <TabsContent
-          value="settings"
-          forceMount
-          hidden={segment !== "settings"}
-        >
-          {settingsOpened ? (
-            <section className="mb-8 flex flex-col gap-[var(--ap-space-block)]">
-              <h2 className="m-0 font-semibold text-body leading-5">
-                {t("slack.basic")}
-              </h2>
-              <RowList variant="joined">
-                <SlackDmSetting agentId={agentId} />
-                <SettingRow
-                  title={t("slack.defaultReaction")}
-                  description={t("slack.defaultHint")}
-                  status={
-                    <span className="text-control text-muted-foreground">
-                      {t(defaultMention ? "slack.mention" : "slack.off")}
-                    </span>
-                  }
-                  control={
-                    <Switch
-                      aria-label={t("slack.defaultReaction")}
-                      checked={defaultMention}
-                      onCheckedChange={setDefaultMention}
-                    />
-                  }
+          <h2 id={`${SECTION.basic}-title`} className={HEADING}>
+            {t("slack.basic")}
+          </h2>
+          <RowList variant="joined">
+            <SlackDmSetting agentId={agentId} />
+            <SettingRow
+              title={t("slack.defaultReaction")}
+              description={t("slack.defaultHint")}
+              status={
+                <span className="text-control text-muted-foreground">
+                  {t(defaultMention ? "slack.mention" : "slack.off")}
+                </span>
+              }
+              control={
+                <Switch
+                  aria-label={t("slack.defaultReaction")}
+                  checked={defaultMention}
+                  onCheckedChange={setDefaultMention}
                 />
-              </RowList>
-            </section>
-          ) : null}
-          {settingsOpened ? (
-            <SlackConnect agentId={agentId} active={active} />
-          ) : null}
-        </TabsContent>
-        <TabsContent
-          value="channels"
-          forceMount
-          hidden={segment !== "channels"}
-        >
-          {channelsOpened ? (
-            <SlackChannels
-              agentId={agentId}
-              defaultMention={defaultMention}
-              invite={`/invite @${slug}`}
-              notify={notify}
+              }
             />
-          ) : null}
-        </TabsContent>
-      </Tabs>
+          </RowList>
+        </section>
+        <SlackConnect agentId={agentId} active={active} />
+      </SideNavLayout>
       {toast}
     </>
   );

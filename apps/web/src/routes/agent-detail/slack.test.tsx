@@ -116,18 +116,14 @@ describe("Slack management", () => {
         true,
       ),
     );
-    const state = screen
-      .getByRole("heading", { name: "상태" })
-      .closest("section") as HTMLElement;
-    expect(within(state).getByText("—")).toBeDefined();
-    const home = screen.getByText("홈 채널").closest("dl") as HTMLElement;
-    expect(within(home).getByText("—")).toBeDefined();
-    await user.click(screen.getByRole("tab", { name: "설정" }));
+    const state = screen.getByRole("region", { name: "상태" });
+    // Home and DM both read as unknown.
+    expect(within(state).getAllByText("—")).toHaveLength(2);
     expect(screen.queryByText("설정 안 됨") === null).toBe(true);
     expect(
       screen.queryByRole("switch", { name: "다이렉트 메시지" }) === null,
     ).toBe(true);
-    await user.click(await screen.findByRole("tab", { name: "채널" }));
+    await screen.findByRole("navigation", { name: "Slack 구역" });
     await waitFor(() =>
       expect(document.querySelector("[data-slot=field-error]") !== null).toBe(
         true,
@@ -145,7 +141,7 @@ describe("Slack management", () => {
   test("explains an empty binding list and omits empty search result borders", async () => {
     renderAt(DETAIL, routes(APP, true));
     const user = await setupUser();
-    await user.click(await screen.findByRole("tab", { name: "채널" }));
+    await screen.findByRole("navigation", { name: "Slack 구역" });
     await screen.findByText("연결된 채널이 없습니다");
     expect(screen.queryByRole("list", { name: "연결된 채널" }) === null).toBe(
       true,
@@ -196,13 +192,11 @@ describe("Slack management", () => {
     });
     try {
       await screen.findByText("홈 채널");
-      const status = screen
-        .getByRole("heading", { name: "상태" })
-        .closest("section") as HTMLElement;
+      const status = screen.getByRole("region", { name: "상태" });
       await waitFor(() =>
         expect(within(status).queryByText("꺼짐") !== null).toBe(true),
       );
-      expect(screen.queryByText("채널 ID: C123") === null).toBe(true);
+      expect(within(status).queryByText("채널 ID: C123") === null).toBe(true);
     } finally {
       release();
     }
@@ -232,7 +226,7 @@ describe("Slack management", () => {
       "en",
     );
     const user = await setupUser();
-    await user.click(await screen.findByRole("tab", { name: "Channels" }));
+    await screen.findByRole("navigation", { name: "Slack sections" });
     await user.click(screen.getByRole("button", { name: "Set home" }));
     expect(
       await screen.findByRole("button", { name: "Set home: #general" }),
@@ -253,12 +247,8 @@ describe("Slack management", () => {
           truncated: false,
         }),
     });
-    const user = await setupUser();
-    const home = await screen.findByText("홈 채널");
-    await waitFor(() =>
-      expect(home.closest("dl")?.textContent).toContain("#general"),
-    );
-    await user.click(screen.getByRole("tab", { name: "채널" }));
+    const status = await screen.findByRole("region", { name: "상태" });
+    await waitFor(() => expect(status.textContent).toContain("#general"));
     expect(
       api.calls.filter((call) => call.path === `${PATH}/slack/channels`),
     ).toHaveLength(1);
@@ -283,8 +273,7 @@ describe("Slack management", () => {
           truncated: false,
         }),
     });
-    const user = await setupUser();
-    await user.click(await screen.findByRole("tab", { name: "채널" }));
+    await screen.findByRole("navigation", { name: "Slack 구역" });
     const list = await screen.findByRole("list", { name: "연결된 채널" });
     expect(await within(list).findByText("채널 ID: C123")).toBeDefined();
     await waitFor(() =>
@@ -295,7 +284,7 @@ describe("Slack management", () => {
     expect(within(list).queryByText("#C123")).toBeNull();
   });
 
-  test("reads DM and home on the overview and moves keyboard focus to channels", async () => {
+  test("reads DM and home in the status row and jumps to a section from the side list", async () => {
     const { api } = renderAt(DETAIL, {
       ...routes(APP, true),
       [`GET ${PATH}/slack-bindings`]: () =>
@@ -314,18 +303,31 @@ describe("Slack management", () => {
         }),
     });
     const user = await setupUser();
-    const home = await screen.findByText("홈 채널");
-    await waitFor(() =>
-      expect(home.closest("dl")?.textContent).toContain("C123"),
-    );
-    const status = screen
-      .getByRole("heading", { name: "상태" })
-      .closest("section") as HTMLElement;
+    const status = await screen.findByRole("region", { name: "상태" });
+    await waitFor(() => expect(status.textContent).toContain("C123"));
     expect(within(status).getByText("꺼짐")).toBeDefined();
-    await user.click(screen.getByRole("button", { name: "홈 채널 바꾸기" }));
+    const nav = screen.getByRole("navigation", { name: "Slack 구역" });
     expect(
-      document.activeElement === screen.getByRole("tab", { name: "채널" }),
+      within(nav)
+        .getAllByRole("link")
+        .map((link) => link.textContent),
+    ).toEqual(["채널", "기본", "고급", "위험 구역"]);
+    expect(within(nav).getByRole("group", { name: "관리" })).toBeDefined();
+    const danger = within(nav).getByRole("link", { name: "위험 구역" });
+    expect(danger.getAttribute("href")).toBe("#slack-danger");
+    await user.click(danger);
+    expect(danger.getAttribute("aria-current")).toBe("location");
+    expect(
+      within(nav)
+        .getByRole("link", { name: "채널" })
+        .getAttribute("aria-current"),
+    ).toBeNull();
+    expect(
+      document.activeElement ===
+        screen.getByRole("region", { name: "위험 구역" }),
     ).toBe(true);
+    // The router owns the location; the jump stays off the hash.
+    expect(window.location.hash).toBe("");
     expect(
       api.calls.filter((call) => call.path === `${PATH}/slack-bindings`),
     ).toHaveLength(1);
@@ -338,7 +340,7 @@ describe("Slack management", () => {
         json(200, { items: [{ ...BINDING, mode: "ambient" }] }),
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("tab", { name: "채널" }));
+    await screen.findByRole("navigation", { name: "Slack 구역" });
     const toggle = await within(
       await screen.findByRole("list", { name: "연결된 채널" }),
     ).findByRole("switch");
@@ -369,7 +371,7 @@ describe("Slack management", () => {
       },
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("tab", { name: "채널" }));
+    await screen.findByRole("navigation", { name: "Slack 구역" });
     await user.click(await screen.findByRole("button", { name: "홈 지정" }));
     await user.click(
       await screen.findByRole("button", { name: "#general 홈 지정" }),
@@ -416,13 +418,12 @@ describe("Slack management", () => {
       },
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("tab", { name: "설정" }));
+    await screen.findByRole("navigation", { name: "Slack 구역" });
     await user.click(
       await screen.findByRole("switch", {
         name: "새로 연결할 채널에서 멘션할 때 반응",
       }),
     );
-    await user.click(screen.getByRole("tab", { name: "채널" }));
     await user.click(await screen.findByRole("button", { name: "채널 추가" }));
     expect(await screen.findByText("/invite 필요")).toBeDefined();
     await user.click(
@@ -458,7 +459,7 @@ describe("Slack management", () => {
         apiError(409, "SLACK_NOT_INSTALLED", "internal message"),
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("tab", { name: "채널" }));
+    await screen.findByRole("navigation", { name: "Slack 구역" });
     await user.click(await screen.findByRole("button", { name: "채널 추가" }));
     await user.click(
       await screen.findByRole("button", { name: "#general 연결" }),
@@ -502,7 +503,7 @@ describe("Slack management", () => {
       value: { writeText: async () => {} },
     });
     try {
-      await user.click(await screen.findByRole("tab", { name: "채널" }));
+      await screen.findByRole("navigation", { name: "Slack 구역" });
       await user.click(
         await screen.findByRole("button", { name: "채널 추가" }),
       );
@@ -521,9 +522,7 @@ describe("Slack management", () => {
       const toast = document.querySelector("[data-slot=toast]") as HTMLElement;
       expect(
         (
-          document.querySelector(
-            "[role=tablist][aria-label='Slack 관리']",
-          ) as HTMLElement
+          document.querySelector("nav[aria-label='Slack 구역']") as HTMLElement
         ).closest("[aria-hidden=true]") !== null,
       ).toBe(true);
       expect(toast.closest("[aria-hidden=true]") === null).toBe(true);
@@ -570,7 +569,7 @@ describe("Slack management", () => {
         },
       });
       try {
-        await user.click(await screen.findByRole("tab", { name: "채널" }));
+        await screen.findByRole("navigation", { name: "Slack 구역" });
         const list = await screen.findByRole("list", { name: "연결된 채널" });
         await user.click(
           await within(list).findByRole("button", {
@@ -609,8 +608,7 @@ describe("Slack management", () => {
 
   test("keeps reinstall in the app card with its own title and description", async () => {
     renderAt(DETAIL, routes(APP, true));
-    const user = await setupUser();
-    await user.click(await screen.findByRole("tab", { name: "설정" }));
+    await screen.findByRole("navigation", { name: "Slack 구역" });
     const title = await screen.findByText("Slack 앱 다시 설치");
     const card = title.closest("[data-slot=row-list]") as HTMLElement;
     expect(within(card).getByText("앱 ID")).toBeDefined();
@@ -677,7 +675,7 @@ describe("Slack management", () => {
       },
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("tab", { name: "설정" }));
+    await screen.findByRole("navigation", { name: "Slack 구역" });
     await user.click(await screen.findByRole("button", { name: "연결 해제" }));
     await user.click(
       within(await screen.findByRole("dialog")).getByRole("button", {
@@ -712,7 +710,7 @@ describe("Slack management", () => {
       },
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("tab", { name: "설정" }));
+    await screen.findByRole("navigation", { name: "Slack 구역" });
     const toggle = await screen.findByRole("switch", {
       name: "다이렉트 메시지",
     });
@@ -754,7 +752,7 @@ describe("Slack management", () => {
       },
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("tab", { name: "채널" }));
+    await screen.findByRole("navigation", { name: "Slack 구역" });
     await user.click(await screen.findByRole("button", { name: "채널 추가" }));
     await user.click(await screen.findByRole("button", { name: "더 보기" }));
     await screen.findByText("#two");
@@ -784,7 +782,7 @@ describe("Slack management", () => {
       },
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("tab", { name: "채널" }));
+    await screen.findByRole("navigation", { name: "Slack 구역" });
     const toggle = await screen.findByRole("switch", {
       name: "채널 ID: C123 멘션할 때 반응",
     });
@@ -832,8 +830,6 @@ describe("Slack management", () => {
       expect(screen.queryByText(/공개·비공개 채널 모두 \/invite/)).toBeNull();
       if (installed) {
         const user = await setupUser();
-        await user.click(screen.getByRole("tab", { name: "채널" }));
-        expect(screen.queryByText(/공개·비공개 채널 모두 \/invite/)).toBeNull();
         await user.click(
           await screen.findByRole("button", { name: "채널 추가" }),
         );
@@ -905,7 +901,7 @@ describe("Slack management", () => {
       },
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("tab", { name: "채널" }));
+    await screen.findByRole("navigation", { name: "Slack 구역" });
     const toggle = await screen.findByRole("switch", {
       name: "#general 멘션할 때 반응",
     });
@@ -945,7 +941,7 @@ describe("Slack management", () => {
       },
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("tab", { name: "채널" }));
+    await screen.findByRole("navigation", { name: "Slack 구역" });
     await user.click(await screen.findByRole("button", { name: "채널 추가" }));
     await user.type(await screen.findByLabelText("채널 찾기"), "dev");
     await user.click(await screen.findByRole("button", { name: "더 보기" }));
