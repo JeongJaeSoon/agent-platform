@@ -634,9 +634,13 @@ describe("ApprovalInbox", () => {
       await view.findByRole("button", { name: `View details of ${SHORT}` }),
     );
     const panel = await view.findByRole("dialog");
-    await waitFor(() =>
-      expect(panel.querySelector("ol [role='radio']")).toBeTruthy(),
-    );
+    const radio = await waitFor(() => {
+      const found = panel.querySelector<HTMLElement>("ol [role='radio']");
+      expect(found).toBeTruthy();
+      return found as HTMLElement;
+    });
+    await user.click(radio);
+    expect(radio.getAttribute("aria-checked")).toBe("true");
     await act(async () => {
       view.push(
         ...Array.from(
@@ -650,9 +654,10 @@ describe("ApprovalInbox", () => {
         "Which branch?",
       ),
     );
-    await waitFor(() =>
-      expect(panel.querySelectorAll("[role='radio']")).toHaveLength(1),
-    );
-    expect(panel.querySelector("[role='radio']")?.closest("ol")).toBeNull();
+    await waitFor(() => expect(radio.closest("ol")).toBeNull());
+    // The same form, moved: what was chosen is still chosen.
+    expect(panel.querySelectorAll("[role='radio']")).toHaveLength(1);
+    expect(radio.isConnected).toBe(true);
+    expect(radio.getAttribute("aria-checked")).toBe("true");
   });
 });

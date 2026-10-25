@@ -1,4 +1,4 @@
-import type { PendingRequest, SessionSummary } from "@werft-ai/contracts";
+import type { SessionSummary } from "@werft-ai/contracts";
 import {
   Button,
   Dialog,
@@ -8,7 +8,8 @@ import {
   DialogTitle,
 } from "@werft-ai/ui";
 import { X } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { SessionStatusLabel } from "../components/index.ts";
 import { useAgentPlatform } from "../provider.tsx";
 import {
@@ -70,13 +71,13 @@ function PanelBody({
   const detail = useSession(id);
   const pending = usePendingRequests(id, true);
   const events = useSessionEvents(id, true);
-  // Where each request is answered, fixed the first time it is drawn: a
-  // form that moved would drop what was chosen and a send in flight. Once
-  // placed, a slot stays after its request is gone, so its "sent" line
-  // keeps the keyboard.
-  const [placed, setPlaced] = useState<ReadonlyMap<string, "top" | "timeline">>(
-    new Map(),
-  );
+  // Each request's form is rendered once, into a node of its own, and the
+  // node is moved to where the request stands: on its timeline line, or on
+  // top when the stream has no line for it. Moving never remounts the form,
+  // so what was chosen and a send in flight survive. A form stays after its
+  // request is gone, so its "sent" line keeps the keyboard.
+  const [seen, setSeen] = useState<readonly string[]>([]);
+  const nodes = useRef(new Map<string, HTMLDivElement>());
   const items = pending.data?.items ?? [];
   const asked = new Set(
     events.events.flatMap((frame) =>
@@ -85,45 +86,52 @@ function PanelBody({
   );
   // Until the stream has replayed, a request's line may still be on its way.
   const settled = events.state !== "connecting";
-  const fresh = items.filter(
-    (request) =>
-      (!placed.has(request.request_id) &&
-        (settled || asked.has(request.request_id))) ||
-      // Its line left the stream's window while it still waits: answered
-      // from the top, so it stays answerable.
-      (placed.get(request.request_id) === "timeline" &&
-        !asked.has(request.request_id)),
-  );
-  if (fresh.length > 0) {
-    const next = new Map(placed);
-    for (const request of fresh) {
-      next.set(
-        request.request_id,
-        asked.has(request.request_id) ? "timeline" : "top",
-      );
+  const fresh = items
+    .map((request) => request.request_id)
+    .filter(
+      (requestId) =>
+        !seen.includes(requestId) && (settled || asked.has(requestId)),
+    );
+  if (fresh.length > 0) setSeen([...seen, ...fresh]);
+  const nodeOf = (requestId: string) => {
+    let node = nodes.current.get(requestId);
+    if (node === undefined) {
+      node = document.createElement("div");
+      nodes.current.set(requestId, node);
     }
-    setPlaced(next);
-  }
+    return node;
+  };
+  const slot = (requestId: string) => (
+    <div
+      key={requestId}
+      ref={(host) => {
+        const node = nodeOf(requestId);
+        if (host && node.parentNode !== host) host.appendChild(node);
+      }}
+    />
+  );
   // Asked before the timeline's window, never seen on the stream, or since
   // dropped from it.
-  const elsewhere = items.filter(
-    (request) => placed.get(request.request_id) === "top",
-  );
-  const anyTop = [...placed.values()].includes("top");
+  const onTop = seen.filter((requestId) => !asked.has(requestId));
   const status = detail.data?.status ?? listed.status;
   const title = detail.data?.title ?? listed.title ?? id.slice(0, 8);
-  const answers = (requests: readonly PendingRequest[]) =>
-    pending.data ? (
-      <PendingAnswers
-        sessionId={id}
-        items={requests}
-        answerable={pending.data.answerable}
-        showEmpty={false}
-        unavailable={unavailable}
-        refusal={refusal}
-        {...(onAnswered ? { onAnswered } : {})}
-      />
-    ) : null;
+  const forms = pending.data
+    ? seen.map((requestId) =>
+        createPortal(
+          <PendingAnswers
+            sessionId={id}
+            items={items.filter((request) => request.request_id === requestId)}
+            answerable={pending.data.answerable}
+            showEmpty={false}
+            unavailable={unavailable}
+            refusal={refusal}
+            {...(onAnswered ? { onAnswered } : {})}
+          />,
+          nodeOf(requestId),
+          requestId,
+        ),
+      )
+    : null;
   const facts = [
     listed.agent?.name,
     id.slice(0, 8),
@@ -166,7 +174,10 @@ function PanelBody({
         {pending.error
           ? renderError(pending.error, () => void pending.refetch())
           : null}
-        {anyTop ? answers(elsewhere) : null}
+        {forms}
+        {onTop.length === 0 ? null : (
+          <div className="flex flex-col gap-2">{onTop.map(slot)}</div>
+        )}
         <p className="m-0 text-caption text-muted-foreground">
           {t("panel.note")}
         </p>
@@ -178,11 +189,7 @@ function PanelBody({
             events={events.events}
             state={events.state}
             request={(requestId) =>
-              placed.get(requestId) === "timeline"
-                ? answers(
-                    items.filter((request) => request.request_id === requestId),
-                  )
-                : null
+              seen.includes(requestId) ? slot(requestId) : null
             }
           />
         </section>
