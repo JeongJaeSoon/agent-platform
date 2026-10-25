@@ -42,8 +42,8 @@ const MIGRATIONS_ONLY = [
   // 0000: the queue's admission count.
   "function queue_unassigned_session_count() double precision language sql volatility=s parallel=u body md5 77ab23e0fa3455549b846ff0e7980c2a",
   // 0127, capped by 0129: a session's provider tokens are counted as usage
-  // rows are inserted.
-  "function sessions_count_provider_tokens() trigger language plpgsql volatility=v parallel=u body md5 10b430e39e60b9de258ff213c7718c04",
+  // rows are inserted; usage_breakdown_rollup also keeps session_model_usage.
+  "function sessions_count_provider_tokens() trigger language plpgsql volatility=v parallel=u body md5 d379ea7e669588977ef342b8f7d882d5",
   // 0107: retained input is charged to storage_usage as turns are inserted.
   "function storage_usage_charge_turn() trigger language plpgsql volatility=v parallel=u body md5 181d4bb80e87699778f44b2c2d4b738f",
   "trigger CREATE TRIGGER agent_activation_events_insert_only BEFORE DELETE OR UPDATE ON public.agent_activation_events FOR EACH ROW EXECUTE FUNCTION agents_reject_mutation() enabled=O",

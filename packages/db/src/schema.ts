@@ -1662,6 +1662,66 @@ export const providerUsage = pgTable(
   ],
 );
 
+// provider_usage summed per session and model by the provider_usage insert
+// trigger (migration usage_breakdown_rollup), so the usage breakdown reads a row per pair
+// instead of every call. The session's created_at and agent are copied for
+// the period filter and the grouping; neither changes after the session is
+// created. No foreign keys: rows only come from provider_usage, which holds
+// the session's, and adding one would block session writes for the whole
+// migration.
+export const sessionModelUsage = pgTable(
+  "session_model_usage",
+  {
+    sessionId: uuid("session_id").notNull(),
+    model: text().notNull(),
+    sessionCreatedAt: timestamp("session_created_at", {
+      withTimezone: true,
+    }).notNull(),
+    agentId: uuid("agent_id"),
+    inputTokens: bigint("input_tokens", { mode: "number" }).notNull(),
+    outputTokens: bigint("output_tokens", { mode: "number" }).notNull(),
+    cacheReadInputTokens: bigint("cache_read_input_tokens", {
+      mode: "number",
+    }).notNull(),
+    cacheCreationInputTokens: bigint("cache_creation_input_tokens", {
+      mode: "number",
+    }).notNull(),
+    costUsd: numeric("cost_usd", {
+      precision: 14,
+      scale: 6,
+      mode: "number",
+    }).notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.sessionId, table.model] }),
+    index("session_model_usage_created_at_idx").on(table.sessionCreatedAt),
+  ],
+);
+
+// The part of a session's cost_usd no metered call explains: the engine's
+// turn totals from before provider_usage. Written once by migration usage_breakdown_rollup;
+// a call adds to cost_usd and to its own sum alike, so the difference stays
+// put and new sessions never get a row. No foreign key, as above.
+export const sessionPreMeteringCost = pgTable(
+  "session_pre_metering_cost",
+  {
+    sessionId: uuid("session_id").primaryKey(),
+    sessionCreatedAt: timestamp("session_created_at", {
+      withTimezone: true,
+    }).notNull(),
+    costUsd: numeric("cost_usd", {
+      precision: 14,
+      scale: 6,
+      mode: "number",
+    }).notNull(),
+  },
+  (table) => [
+    index("session_pre_metering_cost_created_at_idx").on(
+      table.sessionCreatedAt,
+    ),
+  ],
+);
+
 // The one launch registry: a row is the reserved slot, and it carries the
 // hash of the one-time nonce the worker trades for its binding. The row is
 // written when the slot is taken; the nonce columns stay null until a

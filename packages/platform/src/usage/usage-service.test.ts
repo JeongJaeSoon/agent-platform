@@ -3,6 +3,8 @@ import {
   installationLimitsResponseSchema,
   scopesForRole,
   sessionUsageResponseSchema,
+  usageBreakdownQuerySchema,
+  usageBreakdownResponseSchema,
   usageSeriesQuerySchema,
   usageSeriesResponseSchema,
   usageSummaryQuerySchema,
@@ -131,6 +133,41 @@ function service(
               runSeconds: 0,
             },
           ],
+        };
+      },
+      usageBreakdown: async (filter) => {
+        asked.push(filter);
+        const figures = {
+          inputTokens: 1,
+          outputTokens: 2,
+          cacheReadInputTokens: 3,
+          cacheCreationInputTokens: 4,
+        };
+        return {
+          rows: [
+            {
+              key: "agt",
+              label: "Bot",
+              sessionCount: 2,
+              costUsd: "1.000000",
+              ...figures,
+            },
+            {
+              key: null,
+              label: null,
+              sessionCount: 1,
+              costUsd: "0.250000",
+              ...figures,
+            },
+          ],
+          totals: {
+            sessionCount: 3,
+            inputTokens: 2,
+            outputTokens: 4,
+            cacheReadInputTokens: 6,
+            cacheCreationInputTokens: 8,
+            costUsd: "1.250000",
+          },
         };
       },
     },
@@ -277,6 +314,9 @@ describe("usage service", () => {
         usageSeries: async () => {
           throw new Error("not read");
         },
+        usageBreakdown: async () => {
+          throw new Error("not read");
+        },
       },
     });
     const error = await bound
@@ -312,6 +352,95 @@ describe("usage service", () => {
       query("me"),
     );
     expect(open.cost_complete).toBe(false);
+  });
+
+  test("a breakdown is gated like the summary and counts the four token columns", async () => {
+    const breakdownQuery = (scope: "installation" | "me") =>
+      usageBreakdownQuerySchema.parse({
+        scope,
+        since: "2026-10-01",
+        by: "agent",
+      });
+    for (const role of ["admin", "member"] as const) {
+      const error = await service()
+        .getUsageBreakdown(user(role), breakdownQuery("installation"))
+        .catch((caught: unknown) => caught);
+      expect((error as SessionServiceError).code, role).toBe("FORBIDDEN");
+    }
+    const response = usageBreakdownResponseSchema.parse(
+      await service().getUsageBreakdown(
+        user("owner"),
+        breakdownQuery("installation"),
+      ),
+    );
+    expect(response.rows[1]).toEqual({
+      key: null,
+      label: null,
+      session_count: 1,
+      input_tokens: 1,
+      output_tokens: 2,
+      cache_read_input_tokens: 3,
+      cache_creation_input_tokens: 4,
+      token_count: 10,
+      cost_usd: "0.250000",
+    });
+    expect(response.totals).toMatchObject({
+      token_count: 20,
+      cost_usd: "1.250000",
+    });
+  });
+
+  test("breakdown token counts stop at the largest safe integer as provider_tokens does", async () => {
+    const max = Number.MAX_SAFE_INTEGER;
+    // One session at the cap plus one more call, and two sessions at it.
+    const figures = {
+      sessionCount: 2,
+      inputTokens: max,
+      outputTokens: 1,
+      cacheReadInputTokens: Number("18014398509481982"),
+      cacheCreationInputTokens: 0,
+      costUsd: "0.000000",
+    };
+    const bound = createUsageService({
+      authorization: createAuthorizationPolicy(),
+      limits,
+      reader: {
+        installationUsage: async () => {
+          throw new Error("not read");
+        },
+        sessionUsage: async () => null,
+        usageSummary: async () => {
+          throw new Error("not read");
+        },
+        usageSeries: async () => {
+          throw new Error("not read");
+        },
+        usageBreakdown: async () => ({
+          rows: [
+            { key: "claude-opus-5-5", label: "claude-opus-5-5", ...figures },
+          ],
+          totals: figures,
+        }),
+      },
+    });
+    const response = usageBreakdownResponseSchema.parse(
+      await bound.getUsageBreakdown(
+        user("owner"),
+        usageBreakdownQuerySchema.parse({
+          scope: "installation",
+          since: "2026-10-01",
+          by: "model",
+        }),
+      ),
+    );
+    for (const figuresOut of [response.totals, response.rows[0]]) {
+      expect(figuresOut).toMatchObject({
+        input_tokens: max,
+        output_tokens: 1,
+        cache_read_input_tokens: max,
+        token_count: max,
+      });
+    }
   });
 
   test("a series is gated like the summary and marks only its incomplete days", async () => {

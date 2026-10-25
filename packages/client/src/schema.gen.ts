@@ -2226,6 +2226,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/usage/breakdown": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The usage summary of a period by model or by agent
+         * @description Groups the sessions `GET /v1/usage/summary` adds up by the model their metered calls named (`by=model`) or by their agent (`by=agent`), largest cost first, with the input, output, cache read and cache write tokens of those calls. `scope`, `since`, `until` and who may read which scope are exactly the summary's; the period spans at most 366 days.
+         *
+         *     `token_count` is the four token columns' sum; the 1-hour cache writes are inside `cache_creation_input_tokens`. `totals` is the summary of the same period: its `session_count`, `token_count` and `cost_usd` equal it.
+         *
+         *     - `by=agent`: each session counts once under its agent (`key` is the agent id, `label` its name), so the rows add up to `totals` in every column. Sessions without an agent are the row whose `key` and `label` are null.
+         *     - `by=model`: a session counts under every model it called, so the rows' `session_count` may add up to more than the totals'. A session's cost its metered calls do not explain, such as an engine's turn totals from before proxy metering, is the row whose `key` and `label` are null, with no tokens.
+         *
+         *     It changes nothing.
+         *
+         *     **Scope:** `sessions:read` (API key or cookie session).
+         */
+        get: operations["getUsageBreakdown"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/receipts/{id}": {
         parameters: {
             query?: never;
@@ -2331,6 +2360,14 @@ export interface components {
              * @enum {string}
              */
             bucket: "day";
+        };
+        UsageBreakdownQuery: {
+            /** @enum {string} */
+            scope: "installation" | "me";
+            since: string;
+            until?: string;
+            /** @enum {string} */
+            by: "model" | "agent";
         };
         PostSessionMessageRequest: {
             /** @description At most 32768 bytes of UTF-8 */
@@ -4170,6 +4207,28 @@ export interface components {
                 token_count: number;
                 run_seconds: number;
             }[];
+        };
+        UsageBreakdownResponse: {
+            rows: {
+                session_count: number;
+                input_tokens: number;
+                output_tokens: number;
+                cache_read_input_tokens: number;
+                cache_creation_input_tokens: number;
+                token_count: number;
+                cost_usd: string;
+                key: string | null;
+                label: string | null;
+            }[];
+            totals: {
+                session_count: number;
+                input_tokens: number;
+                output_tokens: number;
+                cache_read_input_tokens: number;
+                cache_creation_input_tokens: number;
+                token_count: number;
+                cost_usd: string;
+            };
         };
         SessionUsageResponse: {
             /** Format: uuid */
@@ -19252,6 +19311,131 @@ export interface operations {
                      *     }
                      */
                     "application/json": components["schemas"]["UsageSeriesResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, checked before the body or the resource is read. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    getUsageBreakdown: {
+        parameters: {
+            query: {
+                scope: "installation" | "me";
+                since: string;
+                until?: string;
+                by: "model" | "agent";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The groups and their totals; this example is `by=model`. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "rows": [
+                     *         {
+                     *           "key": "claude-opus-5-5",
+                     *           "label": "claude-opus-5-5",
+                     *           "session_count": 9,
+                     *           "input_tokens": 182000,
+                     *           "output_tokens": 64000,
+                     *           "cache_read_input_tokens": 1210000,
+                     *           "cache_creation_input_tokens": 96000,
+                     *           "token_count": 1552000,
+                     *           "cost_usd": "2.811000"
+                     *         },
+                     *         {
+                     *           "key": null,
+                     *           "label": null,
+                     *           "session_count": 1,
+                     *           "input_tokens": 0,
+                     *           "output_tokens": 0,
+                     *           "cache_read_input_tokens": 0,
+                     *           "cache_creation_input_tokens": 0,
+                     *           "token_count": 0,
+                     *           "cost_usd": "0.407400"
+                     *         }
+                     *       ],
+                     *       "totals": {
+                     *         "session_count": 10,
+                     *         "input_tokens": 182000,
+                     *         "output_tokens": 64000,
+                     *         "cache_read_input_tokens": 1210000,
+                     *         "cache_creation_input_tokens": 96000,
+                     *         "token_count": 1552000,
+                     *         "cost_usd": "3.218400"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["UsageBreakdownResponse"];
                 };
             };
             /** @description - `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying. */

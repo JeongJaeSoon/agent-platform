@@ -1,5 +1,5 @@
 /**
- * What the usage summary and series cost on real PostgreSQL when an
+ * What the usage summary, series and breakdown cost on real PostgreSQL when an
  * installation has a long history: `days` of sessions at `per-day` a day,
  * each with turns and proxy-metered calls. One person started a twentieth of
  * them, which is what scope=me reads. PGlite timings do not carry over, so
@@ -21,7 +21,7 @@ const perDay = Number(process.argv[2] ?? 1000);
 const days = Number(process.argv[3] ?? 400);
 const turnsPerSession = Number(process.argv[4] ?? 3);
 const callsPerSession = Number(process.argv[5] ?? 10);
-const RUNS = 20;
+const RUNS = Number(process.env.BENCH_RUNS ?? 20);
 const OWNER = "00000000-0000-4000-8000-000000000001";
 const ME = "00000000-0000-4000-8000-000000000002";
 const USERS = 20;
@@ -109,6 +109,19 @@ if (existing.rows[0]?.n === 0) {
                    sum(cost_usd) AS cost
             FROM provider_usage GROUP BY session_id) p
       WHERE p.session_id = s.id`);
+    // What the insert trigger would have kept; every session here is
+    // metered, so none has a cost from before metering.
+    await client.query(`
+      INSERT INTO session_model_usage (session_id, model, session_created_at,
+        agent_id, input_tokens, output_tokens, cache_read_input_tokens,
+        cache_creation_input_tokens, cost_usd)
+      SELECT pu.session_id, pu.model, s.created_at, ar.agent_id,
+             sum(pu.input_tokens), sum(pu.output_tokens),
+             sum(pu.cache_read_input_tokens),
+             sum(pu.cache_creation_input_tokens), sum(pu.cost_usd)
+      FROM provider_usage pu JOIN sessions s ON s.id = pu.session_id
+      LEFT JOIN agent_releases ar ON ar.id = s.agent_release_id
+      GROUP BY 1, 2, 3, 4`);
     await client.query("RESET session_replication_role");
     await client.query("VACUUM ANALYZE");
   } finally {
@@ -120,6 +133,7 @@ const counts = await pool.query(
   `SELECT (SELECT count(*)::int FROM sessions) AS sessions,
           (SELECT count(*)::int FROM turns) AS turns,
           (SELECT count(*)::int FROM provider_usage) AS provider_usage,
+          (SELECT count(*)::int FROM session_model_usage) AS session_model_usage,
           (SELECT count(*)::int FROM sessions WHERE created_at > now() - interval '90 days') AS sessions_90d,
           (SELECT count(*)::int FROM sessions WHERE created_by_user_id = '${ME}' AND created_at > now() - interval '90 days') AS my_sessions_90d`,
 );
@@ -166,6 +180,16 @@ const reads = {
   "series installation 90d": () =>
     reader.usageSeries(installation, { since: since(90) }),
   "series me 90d": () => reader.usageSeries(me, { since: since(90) }),
+  "breakdown model installation 30d": () =>
+    reader.usageBreakdown(installation, { since: since(30) }, "model"),
+  "breakdown model installation 90d": () =>
+    reader.usageBreakdown(installation, { since: since(90) }, "model"),
+  "breakdown agent installation 30d": () =>
+    reader.usageBreakdown(installation, { since: since(30) }, "agent"),
+  "breakdown agent installation 90d": () =>
+    reader.usageBreakdown(installation, { since: since(90) }, "agent"),
+  "breakdown model me 90d": () =>
+    reader.usageBreakdown(me, { since: since(90) }, "model"),
 } satisfies Record<string, () => Promise<unknown>>;
 
 const table: Record<string, Awaited<ReturnType<typeof timed>>> = {};
@@ -174,7 +198,12 @@ for (const [label, read] of Object.entries(reads)) {
 }
 console.table(table);
 
-for (const label of ["series installation 90d", "series me 90d"] as const) {
+for (const label of [
+  "series installation 90d",
+  "series me 90d",
+  "breakdown model installation 90d",
+  "breakdown agent installation 90d",
+] as const) {
   captured.length = 0;
   await reads[label]();
   const read = captured.find(({ query }) =>

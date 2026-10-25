@@ -1,9 +1,28 @@
 import type { TurnStatus } from "@werft-ai/contracts";
 import type { UsageReader, UsageSummaryFilter } from "@werft-ai/platform";
-import { and, eq, inArray, isNull, not, or, type SQL, sql } from "drizzle-orm";
+import {
+  type AnyColumn,
+  and,
+  eq,
+  inArray,
+  isNull,
+  not,
+  or,
+  type SQL,
+  sql,
+} from "drizzle-orm";
 import { INSTALLATION_STORAGE_SCOPE } from "./input-limits.ts";
 import type { Database } from "./queries.ts";
-import { sessions, storageUsage, turns, workerLaunches } from "./schema.ts";
+import {
+  agentReleases,
+  agents,
+  sessionModelUsage,
+  sessionPreMeteringCost,
+  sessions,
+  storageUsage,
+  turns,
+  workerLaunches,
+} from "./schema.ts";
 
 const ENDED: TurnStatus[] = [
   "completed",
@@ -76,6 +95,116 @@ async function executeWithoutJit<Row>(db: Database, query: SQL) {
     const { rows } = (await tx.execute(query)) as unknown as { rows: Row[] };
     return rows;
   });
+}
+
+const pairTokenSums = sql`sum(${sessionModelUsage.inputTokens}) AS input_tokens,
+  sum(${sessionModelUsage.outputTokens}) AS output_tokens,
+  sum(${sessionModelUsage.cacheReadInputTokens}) AS cache_read_input_tokens,
+  sum(${sessionModelUsage.cacheCreationInputTokens}) AS cache_creation_input_tokens`;
+
+type BreakdownRow = {
+  key: string | null;
+  label: string | null;
+  total: boolean;
+  session_count: number;
+  input_tokens: number | string;
+  output_tokens: number | string;
+  cache_read_input_tokens: number | string;
+  cache_creation_input_tokens: number | string;
+  cost_usd: string;
+};
+
+// Each session under its agent; the total row is the GROUPING SETS () one.
+// Counts and cost come from the sessions, tokens from the rollup's copy of
+// each session's agent.
+function breakdownByAgent(inPeriod: SQL, pairs: SQL) {
+  return sql`
+    WITH counted AS (
+      SELECT ${agentReleases.agentId} AS agent_id,
+             grouping(${agentReleases.agentId}) = 1 AS total,
+             count(*) AS session_count, sum(${sessions.costUsd}) AS cost_usd
+      FROM ${sessions}
+      LEFT JOIN ${agentReleases} ON ${agentReleases.id} = ${sessions.agentReleaseId}
+      WHERE ${inPeriod}
+      GROUP BY GROUPING SETS ((${agentReleases.agentId}), ())
+    ),
+    tokens AS (
+      SELECT ${sessionModelUsage.agentId} AS agent_id,
+             grouping(${sessionModelUsage.agentId}) = 1 AS total, ${pairTokenSums}
+      FROM ${sessionModelUsage}
+      WHERE ${pairs}
+      GROUP BY GROUPING SETS ((${sessionModelUsage.agentId}), ())
+    )
+    SELECT counted.agent_id::text AS key, ${agents.name} AS label, counted.total,
+           counted.session_count::int AS session_count,
+           coalesce(tokens.input_tokens, 0) AS input_tokens,
+           coalesce(tokens.output_tokens, 0) AS output_tokens,
+           coalesce(tokens.cache_read_input_tokens, 0) AS cache_read_input_tokens,
+           coalesce(tokens.cache_creation_input_tokens, 0) AS cache_creation_input_tokens,
+           coalesce(counted.cost_usd, 0)::text AS cost_usd
+    FROM counted
+    LEFT JOIN tokens ON tokens.total = counted.total
+      AND tokens.agent_id IS NOT DISTINCT FROM counted.agent_id
+    LEFT JOIN ${agents} ON ${agents.id} = counted.agent_id
+    ORDER BY counted.cost_usd DESC, key NULLS LAST`;
+}
+
+// Every model a session called, from the per-session rollup the period's
+// `pairs` select; the cost from before proxy metering is the null row. The
+// totals' count and cost are the sessions'.
+function breakdownByModel(inPeriod: SQL, pairs: SQL, preMetered: SQL) {
+  return sql`
+    WITH picked AS (
+      SELECT count(*) AS session_count, sum(${sessions.costUsd}) AS cost_usd
+      FROM ${sessions}
+      WHERE ${inPeriod}
+    ),
+    models AS (
+      SELECT ${sessionModelUsage.model} AS model, count(*) AS session_count,
+             ${pairTokenSums}, sum(${sessionModelUsage.costUsd}) AS cost_usd
+      FROM ${sessionModelUsage}
+      WHERE ${pairs}
+      GROUP BY ${sessionModelUsage.model}
+    ),
+    pre AS (
+      SELECT count(*) AS session_count, sum(${sessionPreMeteringCost.costUsd}) AS cost_usd
+      FROM ${sessionPreMeteringCost}
+      WHERE ${preMetered}
+    ),
+    grouped AS (
+      SELECT model AS key, false AS total, session_count, input_tokens, output_tokens,
+             cache_read_input_tokens, cache_creation_input_tokens, cost_usd
+      FROM models
+      UNION ALL
+      SELECT NULL, false, session_count, 0, 0, 0, 0, cost_usd
+      FROM pre
+      WHERE session_count > 0
+      UNION ALL
+      SELECT NULL, true, picked.session_count,
+             coalesce(sum(models.input_tokens), 0), coalesce(sum(models.output_tokens), 0),
+             coalesce(sum(models.cache_read_input_tokens), 0),
+             coalesce(sum(models.cache_creation_input_tokens), 0),
+             coalesce(picked.cost_usd, 0)
+      FROM picked
+      LEFT JOIN models ON TRUE
+      GROUP BY picked.session_count, picked.cost_usd
+    )
+    SELECT key, key AS label, total, session_count::int AS session_count,
+           input_tokens, output_tokens, cache_read_input_tokens,
+           cache_creation_input_tokens, cost_usd::text AS cost_usd
+    FROM grouped
+    ORDER BY grouped.cost_usd DESC, key NULLS LAST`;
+}
+
+function figuresOf(row: BreakdownRow) {
+  return {
+    sessionCount: row.session_count,
+    inputTokens: Number(row.input_tokens),
+    outputTokens: Number(row.output_tokens),
+    cacheReadInputTokens: Number(row.cache_read_input_tokens),
+    cacheCreationInputTokens: Number(row.cache_creation_input_tokens),
+    costUsd: row.cost_usd,
+  };
 }
 
 function counted(condition: SQL | undefined) {
@@ -276,6 +405,51 @@ export function createPostgresUsageReader(db: Database): UsageReader {
           incompleteTurnCount: row.incomplete,
           runSeconds: Number(row.run_seconds),
         })),
+      };
+    },
+
+    async usageBreakdown(filter, period, by) {
+      const { since, until } = periodBounds(period);
+      const started = startedBy(filter);
+      const inPeriod = sql`${sessions.createdAt} >= ${since}
+        AND ${sessions.createdAt} < ${until}
+        AND ${started ?? sql`TRUE`}`;
+      // The installation's rollup rows are the period's alone; anyone
+      // else's go through their sessions.
+      const ofPeriod = (createdAt: AnyColumn, sessionId: AnyColumn) =>
+        sql`${createdAt} >= ${since} AND ${createdAt} < ${until} AND ${
+          started
+            ? sql`${sessionId} IN (SELECT ${sessions.id} FROM ${sessions} WHERE ${inPeriod})`
+            : sql`TRUE`
+        }`;
+      const pairs = ofPeriod(
+        sessionModelUsage.sessionCreatedAt,
+        sessionModelUsage.sessionId,
+      );
+      const rows = await executeWithoutJit<BreakdownRow>(
+        db,
+        by === "agent"
+          ? breakdownByAgent(inPeriod, pairs)
+          : breakdownByModel(
+              inPeriod,
+              pairs,
+              ofPeriod(
+                sessionPreMeteringCost.sessionCreatedAt,
+                sessionPreMeteringCost.sessionId,
+              ),
+            ),
+      );
+      const total = rows.find((row) => row.total);
+      if (!total) throw new Error("usage breakdown read returned no total");
+      return {
+        rows: rows
+          .filter((row) => !row.total)
+          .map((row) => ({
+            key: row.key,
+            label: row.label,
+            ...figuresOf(row),
+          })),
+        totals: figuresOf(total),
       };
     },
   };
