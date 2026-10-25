@@ -103,6 +103,13 @@ export function reconcileOnce(
       projectToolCalls(db, {
         batchSize: TOOL_CALL_BATCH_SIZE,
         budgetMs: TOOL_CALL_BUDGET_MS,
+        // Logged as it happens: a pass the watchdog kills never reaches
+        // the summary line.
+        onTimeout: (size, retrySize) =>
+          logger.info("Tool call batch timed out", {
+            batch_size: size,
+            retry_size: retrySize,
+          }),
       }),
   });
 }
