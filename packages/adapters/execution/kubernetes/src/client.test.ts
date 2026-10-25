@@ -143,8 +143,9 @@ describe("KubernetesClient", () => {
     expect(requests[0]?.url).toBe(
       "https://k8s/api/v1/namespaces/ns/pods/ap-worker-x-g1/log?container=worker&limitBytes=65536&tailLines=200",
     );
+    // A real API server refuses `text/plain` here with 406.
     expect((requests[0]?.init.headers as Record<string, string>).accept).toBe(
-      "text/plain",
+      "application/json",
     );
     const gone = recording(404);
     expect(

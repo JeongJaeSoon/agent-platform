@@ -205,10 +205,12 @@ export class KubernetesClient {
       limitBytes: String(options.limitBytes),
       tailLines: String(options.tailLines),
     });
+    // Asked for as JSON like every other call: the API server answers
+    // `text/plain` with 406, and sends the log as raw text either way.
     return this.exchange(
       "GET",
       `${objectPath(namespace, "pods", name)}/log?${query}`,
-      { absent: true, accept: "text/plain" },
+      { absent: true },
     );
   }
 
@@ -225,15 +227,11 @@ export class KubernetesClient {
   private async exchange(
     method: string,
     path: string,
-    {
-      absent = false,
-      accept = "application/json",
-      body,
-    }: { absent?: boolean; accept?: string; body?: unknown },
+    { absent = false, body }: { absent?: boolean; body?: unknown },
   ): Promise<string | null> {
     const connection = this.connection;
     const options = this.options;
-    const headers: Record<string, string> = { accept };
+    const headers: Record<string, string> = { accept: "application/json" };
     if (body !== undefined) headers["content-type"] = "application/json";
     if (connection.token) {
       headers.authorization = `Bearer ${await connection.token()}`;
