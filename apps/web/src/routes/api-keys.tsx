@@ -59,13 +59,13 @@ import {
 import {
   type ManagedPermission,
   permissionReason,
-  ReasonButton,
   refusalText,
   useHasPermission,
   useMe,
   useRole,
 } from "../auth/guard.tsx";
 import { API_KEY_NAME_MAX } from "../auth/limits.ts";
+import { ReasonButton } from "../auth/reason-button.tsx";
 import { FormError, Notice } from "../components/auth-page.tsx";
 import { copyText } from "../components/copy.ts";
 import { LoadFailure } from "../components/load-failure.tsx";

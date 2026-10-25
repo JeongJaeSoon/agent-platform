@@ -1883,9 +1883,7 @@ describe("session profile", () => {
       expect(screen.queryByRole("button", { name: "일시 정지" })).toBeNull(),
     );
     await waitFor(() =>
-      expect(document.activeElement?.getAttribute("aria-label")).toBe(
-        "다시 시작",
-      ),
+      expect(document.activeElement?.textContent).toBe("다시 시작"),
     );
   });
 
@@ -1926,9 +1924,7 @@ describe("session profile", () => {
     state = { ...detail, current_turn_id: null };
     act(() => stream.emit("ev_1", "status", { phase: "idle" }));
     await waitFor(() =>
-      expect(document.activeElement?.getAttribute("aria-label")).toBe(
-        "일시 정지",
-      ),
+      expect(document.activeElement?.textContent).toBe("일시 정지"),
     );
   });
 
@@ -2257,11 +2253,18 @@ describe("session profile", () => {
       screen.queryByText("나는 이 세션의 요청에 답할 수 있습니다."),
     ).toBeNull();
     const stop = screen.getByRole("button", { name: "지금 turn 멈추기" });
-    expect(stop.hasAttribute("disabled")).toBe(true);
-    // Under the header's commands and in the operations card.
+    expect(stop.getAttribute("aria-disabled")).toBe("true");
     expect(
-      screen.getAllByText("sessions:control 권한이 있어야 할 수 있습니다."),
-    ).toHaveLength(2);
+      document.getElementById(stop.getAttribute("aria-describedby") ?? "")
+        ?.textContent,
+    ).toBe("sessions:control 권한이 있어야 할 수 있습니다.");
+    // The header's commands say it on hover or focus; only the operations
+    // card spells it out.
+    expect(
+      screen
+        .getAllByText("sessions:control 권한이 있어야 할 수 있습니다.")
+        .filter((node) => node.closest("[hidden]") === null),
+    ).toHaveLength(1);
     expect(screen.queryByText("할 수 있음")).toBeNull();
     expect(
       screen
@@ -2365,23 +2368,35 @@ describe("세션 상세 레이아웃", () => {
     },
   );
 
-  test("헤더는 세션 목록 뒤에 이름 붙은 제어 아이콘을, 메타 줄에 저장소·모델·사용량을 둔다", async () => {
+  test("헤더는 라벨 붙은 제어를 종료가 마지막인 순서로 두고 맨 끝에 세션 목록 버튼을, 메타 줄에 저장소·모델·사용량을 둔다", async () => {
     renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
     const pause = await screen.findByRole("button", { name: "일시 정지" });
     const header = pause.closest("header") as HTMLElement;
-    expect(pause.getAttribute("title")).toBe("일시 정지");
-    expect(pause.textContent).toBe("");
+    expect(pause.textContent).toBe("일시 정지");
+    expect(
+      within(header).queryByRole("navigation", { name: "위치" }),
+    ).toBeNull();
     const back = within(header).getByRole("link", { name: "세션 목록" });
-    // The keyboard reaches the way back before the commands.
+    expect(back.getAttribute("href")).toBe("/sessions");
+    const heading = screen.getByRole("heading", { level: 1 });
+    const commands = within(header)
+      .getAllByRole("button")
+      .filter((button) => button.dataset.action !== undefined);
+    expect(commands.map((button) => button.textContent)).toEqual([
+      "지금 turn 멈추기",
+      "일시 정지",
+      "세션 종료",
+    ]);
+    // The keyboard reaches the title, the commands, then the way back.
     expect(
-      back.compareDocumentPosition(pause) & Node.DOCUMENT_POSITION_FOLLOWING,
+      heading.compareDocumentPosition(pause) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(
-      within(header).getByRole("button", { name: "세션 종료" }),
+      within(header)
+        .getByRole("button", { name: "세션 종료" })
+        .compareDocumentPosition(back) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-    expect(screen.getByRole("heading", { level: 1 }).textContent).toContain(
-      "답변 대기",
-    );
+    expect(heading.textContent).toContain("답변 대기");
     expect(header.textContent).toContain("demo");
     expect(header.textContent).toContain("model-default");
     await waitFor(() => expect(header.textContent).toContain("$0.4200"));

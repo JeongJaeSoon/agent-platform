@@ -5,6 +5,11 @@ import { cn } from "../foundations/cn.ts";
 export interface PageHeaderProps {
   /** The page's one `h1`; match the sidebar and breadcrumb wording. */
   readonly title: ReactNode;
+  /**
+   * Beside the title on its line but outside the heading, such as a state
+   * tag, so the heading's name stays the page's name.
+   */
+  readonly titleAside?: ReactNode | undefined;
   /** One line on what the page is for; screen readers hear it with the title. */
   readonly description?: ReactNode | undefined;
   /**
@@ -14,7 +19,8 @@ export interface PageHeaderProps {
   readonly actions?: ReactNode | undefined;
   /**
    * A `PageBreadcrumb` on the line above the title, where another page's
-   * title starts; the way back to a list goes here, not in `actions`.
+   * title starts. A detail screen's way back to its list is a button at
+   * the end of `actions` instead (user decision 2026-10-25).
    */
   readonly breadcrumb?: ReactNode | undefined;
   readonly className?: string | undefined;
@@ -26,6 +32,7 @@ export interface PageHeaderProps {
  */
 export function PageHeader({
   title,
+  titleAside,
   description,
   actions,
   breadcrumb,
@@ -34,6 +41,14 @@ export function PageHeader({
   const descriptionId = useId();
   const hasDescription =
     description !== undefined && description !== null && description !== "";
+  const heading = (
+    <h1
+      className="m-0 font-semibold text-foreground text-title"
+      aria-describedby={hasDescription ? descriptionId : undefined}
+    >
+      {title}
+    </h1>
+  );
   return (
     <header
       data-slot="page-header"
@@ -44,12 +59,14 @@ export function PageHeader({
     >
       <div className="flex min-w-0 flex-col gap-1">
         {breadcrumb}
-        <h1
-          className="m-0 font-semibold text-foreground text-title"
-          aria-describedby={hasDescription ? descriptionId : undefined}
-        >
-          {title}
-        </h1>
+        {titleAside ? (
+          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+            {heading}
+            {titleAside}
+          </div>
+        ) : (
+          heading
+        )}
         {hasDescription ? (
           <p
             id={descriptionId}

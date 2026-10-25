@@ -10,6 +10,9 @@
 #                                       and the checkout
 #   deploy/preview/preview.sh list      the previews: URL, head, memory in use,
 #                                       /readyz
+#   deploy/preview/preview.sh reap      `down` every preview whose last `up`
+#                                       is older than the TTL or whose PR is
+#                                       closed or merged
 #
 # The PR's own tree is installed (Dockerfiles, chart, stand-ins) by this
 # checkout's deploy/kind/up.sh, copied into it, so a head that predates
@@ -28,11 +31,14 @@
 #                      and one session worker)
 #   MAX_MEMORY_MI      the node memory the check counts from, in place of
 #                      its allocatable memory
+#   PREVIEW_TTL_HOURS  how long after its last `up` reap deletes a preview
+#                      (default 24)
 set -euo pipefail
 
 PREVIEW_HOME="${PREVIEW_HOME:-${XDG_CACHE_HOME:-$HOME/.cache}/agent-platform/preview}"
 PREVIEW_DOMAIN="${PREVIEW_DOMAIN:-preview.94soon.dev}"
 PREVIEW_MEMORY_MI="${PREVIEW_MEMORY_MI:-2560}"
+PREVIEW_TTL_HOURS="${PREVIEW_TTL_HOURS:-24}"
 INGRESS_NAMESPACE=preview-ingress
 TRAEFIK_CHART=oci://ghcr.io/traefik/helm/traefik
 TRAEFIK_VERSION=42.1.3
@@ -44,7 +50,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$here/../.." && pwd)"
 
 usage() {
-  echo "usage: $0 up <PR number> | down <PR number> | list" >&2
+  echo "usage: $0 up <PR number> | down <PR number> | list | reap" >&2
   exit 2
 }
 
@@ -59,6 +65,10 @@ for name in PREVIEW_MEMORY_MI MAX_MEMORY_MI; do
     exit 1
   fi
 done
+if ! [[ "$PREVIEW_TTL_HOURS" =~ ^[0-9]+$ ]]; then
+  echo "PREVIEW_TTL_HOURS must be a whole number of hours, not '${PREVIEW_TTL_HOURS}'" >&2
+  exit 1
+fi
 
 pr_number() {
   if ! [[ "${1:-}" =~ ^[1-9][0-9]{0,6}$ ]]; then
@@ -142,6 +152,34 @@ free_port() {
     console.log(s.port); s.stop(true);'
 }
 
+# One `up` or `down` per preview at a time, held until this process exits.
+# The lock is a symlink to the holder's pid, so taking it is atomic. A lock
+# whose holder is gone is replaced only under a second lock, by the one
+# process that still finds that holder in it. A busy preview exits 75.
+lock_preview() {
+  local holder took=""
+  lock="${PREVIEW_HOME}/$1.lock"
+  if ! ln -s "$$" "$lock" 2>/dev/null; then
+    holder="$(readlink "$lock" || true)"
+    if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then
+      echo "$1: busy, pid ${holder} is running up or down on it" >&2
+      exit 75
+    fi
+    if ln -s "$$" "${lock}.reclaim" 2>/dev/null; then
+      if [ "$(readlink "$lock" || true)" = "$holder" ]; then
+        rm -f -- "$lock"
+      fi
+      ln -s "$$" "$lock" 2>/dev/null && took=1
+      rm -f -- "${lock}.reclaim"
+    fi
+    if [ -z "$took" ]; then
+      echo "$1: busy, another process is taking ${lock}" >&2
+      exit 75
+    fi
+  fi
+  trap 'rm -f -- "$lock"' EXIT
+}
+
 up() {
   local n namespace host dir head code
   n="$(pr_number "${1:-}")"
@@ -150,6 +188,7 @@ up() {
   dir="${PREVIEW_HOME}/${namespace}"
   SECONDS=0
 
+  lock_preview "$namespace"
   require_local_only
   if kubectl get namespace "$namespace" >/dev/null 2>&1; then
     require_preview "$namespace"
@@ -223,14 +262,25 @@ require_preview() {
   fi
 }
 
+# PREVIEW_REAP_UP_AT is the preview-up-at reap decided on: an `up` since
+# then keeps the preview (exit 75).
 down() {
-  local n namespace dir left app
+  local n namespace dir left app up_at
   n="$(pr_number "${1:-}")"
   namespace="pr-${n}"
   dir="${PREVIEW_HOME}/${namespace}"
 
+  lock_preview "$namespace"
   if kubectl get namespace "$namespace" >/dev/null 2>&1; then
     require_preview "$namespace"
+    if [ -n "${PREVIEW_REAP_UP_AT+set}" ]; then
+      up_at="$(kubectl get namespace "$namespace" \
+        -o jsonpath='{.metadata.annotations.agent-platform\.dev/preview-up-at}')"
+      if [ "$up_at" != "$PREVIEW_REAP_UP_AT" ]; then
+        echo "${namespace}: up again at ${up_at} after reap read ${PREVIEW_REAP_UP_AT:-none}" >&2
+        exit 75
+      fi
+    fi
     kubectl delete namespace "$namespace" --wait --timeout 5m
   fi
   # The kubelet removes the pods' exited containers within about a minute;
@@ -281,9 +331,64 @@ list() {
   local_hint "pr-<N>.${PREVIEW_DOMAIN}"
 }
 
+# Only labeled pr-<N> namespaces. The TTL needs no GitHub; a PR state that
+# cannot be read keeps the preview, never counts as closed.
+reap() {
+  local rows namespace up_at age n reason state code deleted=() failed=()
+  echo "reap $(date -u +%Y-%m-%dT%H:%M:%SZ): TTL ${PREVIEW_TTL_HOURS}h"
+  # \x1f, not a tab: read collapses empty fields between whitespace separators.
+  rows="$(kubectl get namespaces -l agent-platform.dev/preview=true -o json | jq -r '.items[]
+    | (.metadata.annotations["agent-platform.dev/preview-up-at"] // "") as $at
+    | [.metadata.name, $at, ($at | try (now - fromdateiso8601 | floor | tostring) catch "")]
+    | join("\u001f")')"
+  while IFS=$'\x1f' read -r namespace up_at age; do
+    [ -n "$namespace" ] || continue
+    if ! [[ "$namespace" =~ ^pr-([1-9][0-9]{0,6})$ ]]; then
+      echo "${namespace}: kept, not named pr-<N>"
+      continue
+    fi
+    n="${BASH_REMATCH[1]}"
+    reason=""
+    if [ -z "$age" ]; then
+      echo "${namespace}: no readable agent-platform.dev/preview-up-at, TTL not applied"
+    elif [ "$age" -gt $((PREVIEW_TTL_HOURS * 3600)) ]; then
+      reason="last up $((age / 3600))h ago"
+    fi
+    if [ -z "$reason" ]; then
+      if ! state="$(cd "$root" && GH_NO_UPDATE_NOTIFIER=1 \
+        gh pr view "$n" --json state --jq .state 2>"${PREVIEW_HOME}/gh-error" </dev/null)"; then
+        echo "${namespace}: kept, GitHub lookup failed: $(tr '\n' ' ' <"${PREVIEW_HOME}/gh-error")"
+        continue
+      fi
+      case "$state" in
+        CLOSED | MERGED) reason="PR ${state}" ;;
+        OPEN)
+          echo "${namespace}: kept, PR OPEN${age:+, last up $((age / 3600))h ago}"
+          continue
+          ;;
+        *)
+          echo "${namespace}: kept, unexpected PR state '${state}'"
+          continue
+          ;;
+      esac
+    fi
+    echo "${namespace}: deleting, ${reason}"
+    code=0
+    PREVIEW_REAP_UP_AT="$up_at" "$here/preview.sh" down "$n" </dev/null || code=$?
+    case "$code" in
+      0) deleted+=("$namespace") ;;
+      75) echo "${namespace}: kept, see above" ;;
+      *) failed+=("$namespace") ;;
+    esac
+  done <<<"$rows"
+  echo "reap deleted: ${deleted[*]:-none}${failed[*]:+, failed: ${failed[*]}}"
+  [ "${#failed[@]}" = 0 ]
+}
+
 case "${1:-}" in
   up) up "${2:-}" ;;
   down) down "${2:-}" ;;
   list) list ;;
+  reap) reap ;;
   *) usage ;;
 esac
