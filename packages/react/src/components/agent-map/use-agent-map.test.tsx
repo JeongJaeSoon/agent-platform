@@ -10,9 +10,8 @@ import type { ReactNode } from "react";
 
 const { renderHook, waitFor, act } = await setupDom();
 const { AgentPlatformProvider } = await import("../../provider.tsx");
-const { buildRunTree, runNodesOf, useSessionRunTree } = await import(
-  "./index.ts"
-);
+const { buildRunTree, runNodesOf, useAgentMapBoard, useSessionRunTree } =
+  await import("./index.ts");
 
 const SESSION_ID = "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01";
 const T0 = Date.parse("2026-10-25T01:00:00.000Z");
@@ -89,6 +88,67 @@ const use = (id: string, name: string, parent: string | null, s: number) =>
   ] as const;
 const done = (id: string, s: number) =>
   ["tool_result", { tool_use_id: id, content: "ok" }, s] as const;
+
+describe("useAgentMapBoard", () => {
+  // React Query hands back the same object while a poll reads the same data.
+  const list = {
+    items: [
+      {
+        id: SESSION_ID,
+        title: "배포 승인",
+        agent: null,
+        status: "needs_input",
+        activity: {
+          last: null,
+          tool_count: 1,
+          error_count: 0,
+          subagent_count: 0,
+          current_tool: {
+            id: "toolu_1",
+            name: "Bash",
+            target: "git push",
+            state: "waiting",
+            since: new Date(T0).toISOString(),
+            request: { kind: "permission", prompt: null },
+          },
+          window: { events: 1, complete: true, since: null },
+        },
+        model: "m",
+        repository: null,
+        last_event_at: new Date(T0).toISOString(),
+        created_at: new Date(T0).toISOString(),
+      },
+    ],
+    next_cursor: null,
+  } as never;
+
+  test("a later read of the same data counts the wait on, in the reader's language", () => {
+    let locale: "ko" | "en" = "ko";
+    const client = createApiClient({ baseUrl: "https://console.test" });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <AgentPlatformProvider
+        client={client}
+        locale={locale}
+        renderLink={() => null}
+      >
+        {children}
+      </AgentPlatformProvider>
+    );
+    let readAt = T0 + 2 * 60_000;
+    const hook = renderHook(() => useAgentMapBoard(list, readAt), { wrapper });
+    const card = () => hook.result.current.board?.sessions[0];
+    expect(card()?.pending?.waitedMinutes).toBe(2);
+    expect(card()?.agent).toBe("에이전트 없음");
+
+    readAt = T0 + 7 * 60_000;
+    hook.rerender();
+    expect(card()?.pending?.waitedMinutes).toBe(7);
+
+    locale = "en";
+    hook.rerender();
+    expect(card()?.agent).toBe("No agent");
+  });
+});
 
 describe("useSessionRunTree", () => {
   test("a session past 200 events keeps its subagent under the call that spawned it", async () => {

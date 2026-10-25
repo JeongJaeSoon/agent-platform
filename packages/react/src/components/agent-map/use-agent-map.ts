@@ -23,33 +23,45 @@ import { useAgentMapMessages } from "./use-messages.ts";
  * The board as the list reads now: oldest session first, so a new one lands
  * at its lane's end, and a card whose status moved held in place until
  * `tidy()`. `changes` says what the last read moved, for a live region.
+ * `readAt` (ms) is when the list was read; waits are counted up to it.
  */
 export function useAgentMapBoard(
   list: ListSessionsResponse | undefined,
+  readAt: number,
   override?: Partial<AgentMapMessages>,
 ) {
+  const { locale } = useAgentPlatform();
   const messages = useAgentMapMessages(override);
   const [tidied, setTidied] = useState(0);
   // Placing a read advances the memory, so each (read, tidy) is placed once;
-  // a second render of the same pair, as StrictMode does, reuses it.
+  // a second render of the same key, as StrictMode does, reuses it. A poll
+  // of unchanged data keeps the list object, so the read time is in the key.
   const placed = useRef<{
     readonly list: ListSessionsResponse;
+    readonly readAt: number;
+    readonly locale: string;
     readonly tidied: number;
     readonly board: Board;
   } | null>(null);
   let board: Board | null = null;
   if (list) {
     const cached = placed.current;
-    if (cached?.list === list && cached.tidied === tidied) board = cached.board;
+    if (
+      cached?.list === list &&
+      cached.readAt === readAt &&
+      cached.locale === locale &&
+      cached.tidied === tidied
+    )
+      board = cached.board;
     else {
       board = placeBoard(
         list,
         cached?.board.memory ?? null,
         cached !== null && cached.tidied !== tidied,
         messages,
-        Date.now(),
+        readAt,
       );
-      placed.current = { list, tidied, board };
+      placed.current = { list, readAt, locale, tidied, board };
     }
   }
   // The last summary stays until the next one, so the region is not read

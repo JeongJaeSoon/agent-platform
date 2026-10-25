@@ -303,4 +303,11 @@ describe("arrangeBoard", () => {
     const ended = arrangeBoard([card("a", "stopped")], first.memory, false);
     expect(ended.sessions[0]?.pinnedLane).toBe("running");
   });
+
+  test("an ended session that resumes comes back to its lane", () => {
+    const first = arrangeBoard([card("a", "stopped")], null, false);
+    const resumed = arrangeBoard([card("a", "running")], first.memory, false);
+    expect(resumed.sessions[0]?.pinnedLane).toBeUndefined();
+    expect(resumed.sessions[0]?.fresh).toBe(true);
+  });
 });

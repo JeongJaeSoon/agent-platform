@@ -183,7 +183,9 @@ export function arrangeBoard(
     const lane = laneOf(session);
     const before = memory?.placed.get(session.id);
     const was = memory?.status.get(session.id);
-    const kept = tidy || before === undefined ? lane : before;
+    // An ended card stood in no lane, so one that resumes has none to keep.
+    const kept =
+      tidy || before === undefined || before === "done" ? lane : before;
     placed.set(session.id, kept);
     status.set(session.id, session.status);
     if (memory !== null && was === undefined) added += 1;
