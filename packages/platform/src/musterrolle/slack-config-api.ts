@@ -23,11 +23,35 @@ export class SlackApiError extends Error {
     readonly method: string,
     readonly code: string,
     readonly answered: boolean,
+    /** Null when no answer came. */
+    readonly httpStatus: number | null = null,
   ) {
     super(`${method}: ${code}`);
     this.name = "SlackApiError";
   }
+
+  get failure(): SlackCallFailure {
+    if (
+      this.code === "unreachable" ||
+      this.code === "timeout" ||
+      this.code === "unexpected_answer"
+    ) {
+      return this.code;
+    }
+    return /^http_\d{3}$/.test(this.code) ? "http_status" : "slack_error";
+  }
 }
+
+/**
+ * How a Slack call failed: no answer, a non-JSON answer (`http_status`), an
+ * answer that does not parse, or Slack's own `error`.
+ */
+export type SlackCallFailure =
+  | "unreachable"
+  | "timeout"
+  | "http_status"
+  | "unexpected_answer"
+  | "slack_error";
 
 /** Used when a 429 carries no readable Retry-After. */
 const DEFAULT_RETRY_AFTER_SECONDS = 60;
@@ -38,7 +62,7 @@ export class SlackRateLimitedError extends SlackApiError {
     method: string,
     readonly retryAfterSeconds: number,
   ) {
-    super(method, "ratelimited", true);
+    super(method, "ratelimited", true, 429);
     this.name = "SlackRateLimitedError";
   }
 }
@@ -197,7 +221,12 @@ function slackCaller(options?: SlackApiOptions) {
       unknown
     > | null;
     if (body === null || typeof body !== "object") {
-      throw new SlackApiError(method, `http_${response.status}`, false);
+      throw new SlackApiError(
+        method,
+        `http_${response.status}`,
+        false,
+        response.status,
+      );
     }
     if (body.ok !== true) {
       // A 5xx with ok:false still leaves doubt about what Slack did.
@@ -206,11 +235,16 @@ function slackCaller(options?: SlackApiOptions) {
         typeof body.error === "string" && ERROR_CODE.test(body.error)
           ? body.error
           : `http_${response.status}`;
-      throw new SlackApiError(method, code, answered);
+      throw new SlackApiError(method, code, answered, response.status);
     }
     const parsed = schema.safeParse(body);
     if (!parsed.success) {
-      throw new SlackApiError(method, "unexpected_answer", false);
+      throw new SlackApiError(
+        method,
+        "unexpected_answer",
+        false,
+        response.status,
+      );
     }
     return parsed.data;
   };
