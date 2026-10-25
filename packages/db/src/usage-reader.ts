@@ -67,6 +67,17 @@ function periodBounds(period: { since: Date; until?: Date }) {
   return { since, until };
 }
 
+// On a 90-day installation read JIT spent longer compiling than the
+// aggregate took to run (packages/db/bench/usage-reads.ts), so it is off for
+// that one transaction.
+async function executeWithoutJit<Row>(db: Database, query: SQL) {
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`SET LOCAL jit = off`);
+    const { rows } = (await tx.execute(query)) as unknown as { rows: Row[] };
+    return rows;
+  });
+}
+
 function counted(condition: SQL | undefined) {
   return sql<number>`count(${turns.id}) FILTER (WHERE ${condition})`.mapWith(
     Number,
@@ -181,47 +192,48 @@ export function createPostgresUsageReader(db: Database): UsageReader {
 
     async usageSeries(filter, period) {
       const { since, until } = periodBounds(period);
-      // The summary's figures per UTC day of created_at. Run time is summed
-      // exactly (numeric) per day and floored on the running total, so the
-      // days add up to the summary's one floor over the whole period.
-      const { rows } = (await db.execute(sql`
-        WITH picked AS (
-          SELECT ${sessions.id} AS id,
-                 (${sessions.createdAt} AT TIME ZONE 'UTC')::date AS day,
-                 ${sessions.costUsd} AS cost_usd,
-                 ${sessions.providerTokens} AS provider_tokens
-          FROM ${sessions}
-          WHERE ${sessions.createdAt} >= ${since}
+      const inPeriod = sql`${sessions.createdAt} >= ${since}
             AND ${sessions.createdAt} < ${until}
-            AND ${startedBy(filter) ?? sql`TRUE`}
+            AND ${startedBy(filter) ?? sql`TRUE`}`;
+      const day = sql`(${sessions.createdAt} AT TIME ZONE 'UTC')::date`;
+      // The summary's figures per UTC day of created_at. Sessions and their
+      // turns are each grouped by day, never by session, so a long period is
+      // two hash aggregates. Run time is summed exactly (numeric) per day and
+      // floored on the running total, so the days add up to the summary's
+      // one floor over the whole period.
+      const query = sql`
+        WITH per_day AS (
+          SELECT ${day} AS day,
+                 count(*) AS session_count,
+                 sum(${sessions.costUsd}) AS cost_usd,
+                 sum(${sessions.providerTokens}) AS provider_tokens
+          FROM ${sessions}
+          WHERE ${inPeriod}
+          GROUP BY 1
         ),
-        per_session AS (
-          SELECT ${turns.sessionId} AS session_id,
+        turn_day AS (
+          SELECT ${day} AS day,
                  count(*) FILTER (WHERE ${incomplete}) AS incomplete,
                  sum(${runSeconds}) FILTER (WHERE ${ran}) AS seconds
-          FROM ${turns}
-          WHERE ${turns.sessionId} IN (SELECT id FROM picked)
-          GROUP BY ${turns.sessionId}
+          FROM ${sessions}
+          JOIN ${turns} ON ${turns.sessionId} = ${sessions.id}
+          WHERE ${inPeriod}
+          GROUP BY 1
         ),
-        days AS (
-          SELECT d::date AS day
+        buckets AS (
+          SELECT d::date AS day,
+                 coalesce(per_day.session_count, 0) AS session_count,
+                 coalesce(per_day.cost_usd, 0) AS cost_usd,
+                 coalesce(per_day.provider_tokens, 0) AS provider_tokens,
+                 coalesce(turn_day.incomplete, 0) AS incomplete,
+                 coalesce(turn_day.seconds, 0) AS seconds
           FROM generate_series(
             (${since} AT TIME ZONE 'UTC')::date,
             ((${until} AT TIME ZONE 'UTC') - interval '1 microsecond')::date,
             interval '1 day'
           ) d
-        ),
-        buckets AS (
-          SELECT days.day,
-                 count(picked.id) AS session_count,
-                 coalesce(sum(picked.cost_usd), 0) AS cost_usd,
-                 coalesce(sum(picked.provider_tokens), 0) AS provider_tokens,
-                 coalesce(sum(per_session.incomplete), 0) AS incomplete,
-                 coalesce(sum(per_session.seconds), 0) AS seconds
-          FROM days
-          LEFT JOIN picked ON picked.day = days.day
-          LEFT JOIN per_session ON per_session.session_id = picked.id
-          GROUP BY days.day
+          LEFT JOIN per_day ON per_day.day = d::date
+          LEFT JOIN turn_day ON turn_day.day = d::date
         )
         SELECT now() AS read_at,
                ${until} AS until,
@@ -234,18 +246,17 @@ export function createPostgresUsageReader(db: Database): UsageReader {
                  - floor(sum(seconds) OVER running - seconds))::bigint AS run_seconds
         FROM buckets
         WINDOW running AS (ORDER BY day ROWS UNBOUNDED PRECEDING)
-        ORDER BY day`)) as unknown as {
-        rows: {
-          read_at: Date | string;
-          until: Date | string;
-          date: string;
-          session_count: number;
-          cost_usd: string;
-          provider_tokens: number | string;
-          incomplete: number;
-          run_seconds: number | string;
-        }[];
-      };
+        ORDER BY day`;
+      const rows = await executeWithoutJit<{
+        read_at: Date | string;
+        until: Date | string;
+        date: string;
+        session_count: number;
+        cost_usd: string;
+        provider_tokens: number | string;
+        incomplete: number;
+        run_seconds: number | string;
+      }>(db, query);
       const [first] = rows;
       if (!first) throw new Error("usage series read returned no day");
       return {

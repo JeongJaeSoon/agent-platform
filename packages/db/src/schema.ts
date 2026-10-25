@@ -1017,6 +1017,8 @@ export const sessions = pgTable(
     index("sessions_takeover_idx")
       .on(table.workspaceId, table.takeoverRequiredAt)
       .where(sql`${table.takeoverRequiredAt} IS NOT NULL`),
+    // Usage summaries and series pick an installation's sessions by period.
+    index("sessions_created_at_idx").on(table.createdAt),
     // The reconciler's sweep for waits that ended with no write.
     index("sessions_input_announced_idx")
       .on(table.id)
