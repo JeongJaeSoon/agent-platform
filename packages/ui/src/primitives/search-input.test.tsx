@@ -57,7 +57,7 @@ describe("SearchInput", () => {
     expect(classes).toContain("extra-input");
     // Still Input: its border, height and focus stay.
     expect(input.getAttribute("data-slot")).toBe("input");
-    expect(classes).toContain("border-b-input");
+    expect(classes).toContain("border-input");
   });
 
   test("두 진입점에서 같은 부품을 내보낸다", async () => {

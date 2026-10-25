@@ -598,7 +598,7 @@
   .ap-input {
     width: 100%;
     padding: var(--ap-space-2) var(--ap-space-3);
-    border: 1px solid var(--ap-color-border-strong);
+    border: 1px solid var(--ap-color-border-input);
     border-radius: var(--ap-radius-control);
     background: var(--ap-color-surface);
     color: var(--ap-color-foreground);
