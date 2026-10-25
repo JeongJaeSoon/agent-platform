@@ -352,7 +352,7 @@ scripts/local.sh down
 
 `down`은 스택과 **모든 데이터**(세션, checkpoint, API key, Gitea 저장소)를 지운다. scheduler가 만든 worker 컨테이너·네트워크·workspace volume은 compose 소유가 아니므로 `agent-platform.installation=<installation id>` label(기본 `local`, 1장)로 찾아 함께 지운다. 처음부터 다시 하려면 `scripts/local.sh reset --fake-model`(= `down` 뒤 `up --fake-model`)을 쓴다. 새 스택에서는 1장의 `KEY=…`부터 다시 한다.
 
-데이터를 남긴 채 내리는 방법은 없다. LocalStack이 S3를 메모리에만 두기 때문에 `docker compose down`으로 내리면 postgres에는 세션이 남지만 그 checkpoint 객체는 사라진다. GC가 아직 거두지 않은 checkpoint가 하나라도 남아 있으면 다시 올릴 때 API가 기동을 거부한다([8장](#8-막혔을-때)).
+volume을 남기고 내리려면 `scripts/local.sh down --keep-volumes`를 쓴다. compose 서비스와 scheduler가 만든 worker 컨테이너·네트워크를 지우고, compose volume과 workspace volume(`ap-ws-*`)은 남긴다. `docker compose down`만 하면 compose label이 없는 worker 컨테이너와 그 네트워크가 남아 Docker 주소 풀을 계속 차지한다. 다만 LocalStack은 S3를 메모리에만 두므로 어느 쪽이든 checkpoint 객체는 사라지고 postgres의 세션만 남는다. GC가 아직 거두지 않은 checkpoint가 하나라도 남아 있으면 다시 올릴 때 API가 기동을 거부한다([8장](#8-막혔을-때)). 그때는 아래 절처럼 `forget-lost-checkpoints` 뒤 `up`한다.
 
 ### 재부팅이나 Docker 재시작 뒤
 
