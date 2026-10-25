@@ -83,5 +83,8 @@ export interface SurfaceBindingStore {
    * Records what Slack said about the bot's place in a live binding's
    * channel. Observed state, not a setting: no revision, no receipt.
    */
-  setMembership(bindingId: string, membership: SurfaceMembership): Promise<void>;
+  setMembership(
+    bindingId: string,
+    membership: SurfaceMembership,
+  ): Promise<void>;
 }

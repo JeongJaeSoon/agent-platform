@@ -128,9 +128,9 @@ describe("joining a bound channel", () => {
   for (const [name, seen, join, expected, calls] of cases) {
     test(name, async () => {
       const fake = slackWith(seen, join);
-      expect(await joinSlackChannel(fake.slack, "bot-credential", "C1")).toEqual(
-        expected,
-      );
+      expect(
+        await joinSlackChannel(fake.slack, "bot-credential", "C1"),
+      ).toEqual(expected);
       expect(fake.calls).toEqual(calls);
     });
   }

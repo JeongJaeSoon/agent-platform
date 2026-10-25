@@ -247,9 +247,9 @@ describe("fake Slack bot calls, through the slack role's client", () => {
     expect(
       await api.joinChannel(bot, ids[1]).catch((error) => error.code),
     ).toBe("method_not_supported_for_channel_type");
-    expect(await api.joinChannel(bot, ids[2]).catch((error) => error.code)).toBe(
-      "is_archived",
-    );
+    expect(
+      await api.joinChannel(bot, ids[2]).catch((error) => error.code),
+    ).toBe("is_archived");
 
     const root = slack.url.replace(/\/api$/, "");
     const appId = [...slack.apps.values()].find((app) =>

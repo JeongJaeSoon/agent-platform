@@ -530,9 +530,7 @@ describe.each(ENGINES)("the deployment welcome on %s", (engine) => {
   });
 
   test("a join Slack refuses leaves its cause on the binding and fails nothing", async () => {
-    const [archived] = slack.seedChannels([
-      { name: "old", isArchived: true },
-    ]);
+    const [archived] = slack.seedChannels([{ name: "old", isArchived: true }]);
     const [locked] = slack.seedChannels([{ name: "locked" }]);
     const fixture = await installedAgent();
     const { release } = await fixture.release();

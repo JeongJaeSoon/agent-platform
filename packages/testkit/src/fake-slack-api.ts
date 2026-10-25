@@ -238,6 +238,16 @@ export function createFakeSlackWebApi(
     return app;
   };
 
+  // A channel not seeded has the bot in it already: nothing to join.
+  const membershipOf = (context: Context, id: string) => {
+    const app = installedBot(context);
+    const listed = conversations.find((candidate) => candidate.id === id);
+    return {
+      is_member: listed ? listed.members.includes(app.appId) : true,
+      is_archived: listed?.isArchived ?? false,
+    };
+  };
+
   const methods: Record<string, (context: Context) => object | null> = {
     "auth.test"(context) {
       if (context.token && accessTokens.has(context.token)) {
@@ -345,24 +355,21 @@ export function createFakeSlackWebApi(
       };
     },
 
-    // A channel not seeded has the bot in it already: nothing to join.
     "conversations.info"(context) {
-      const app = installedBot(context);
+      installedBot(context);
       const id = context.params.channel;
       if (!id) throw new SlackError("channel_not_found");
       const channel = channels.get(id) ?? {
         isIm: id.startsWith("D"),
         isPrivate: id.startsWith("G"),
       };
-      const listed = conversations.find((candidate) => candidate.id === id);
       return {
         channel: {
           id,
           is_im: channel.isIm ?? false,
           is_private: channel.isPrivate ?? false,
           is_mpim: channel.isMpim ?? false,
-          is_member: listed ? listed.members.includes(app.appId) : true,
-          is_archived: listed?.isArchived ?? false,
+          ...membershipOf(context, id),
         },
       };
     },

@@ -96,8 +96,7 @@ function world(
   const releases = new Map([R1, R2].map((release) => [release.id, release]));
   let active = R1.id;
   const bindings: Pick<SurfaceBindingStore, "list" | "setMembership"> = {
-    list: async () =>
-      [...rows].sort((a, b) => Number(b.home) - Number(a.home)),
+    list: async () => [...rows].sort((a, b) => Number(b.home) - Number(a.home)),
     async setMembership(id, membership) {
       const row = rows.find((candidate) => candidate.id === id);
       if (row) row.membership = membership;
@@ -291,9 +290,9 @@ describe("deployment welcome", () => {
       ],
       {},
     );
-    expect(await off.welcome.welcome(WORKSPACE, AGENT, { ask: true })).toEqual(
-      { status: "no_home" },
-    );
+    expect(await off.welcome.welcome(WORKSPACE, AGENT, { ask: true })).toEqual({
+      status: "no_home",
+    });
     const none = world([binding(OTHER, "C0OTHER")], {});
     expect(await none.welcome.activated(WORKSPACE, AGENT, R1, null)).toEqual({
       status: "no_home",
