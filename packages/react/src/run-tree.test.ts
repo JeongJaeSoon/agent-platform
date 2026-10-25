@@ -16,7 +16,7 @@ const TURN = "b7e1c2d3-4f5a-4b6c-8d7e-9f0a1b2c3d4e";
 let cursor = 0;
 const next = () => {
   cursor += 1;
-  return `c${String(cursor).padStart(6, "0")}`;
+  return `ev_${cursor.toString(36)}`;
 };
 
 function use(
@@ -568,6 +568,22 @@ describe("buildRunTree", () => {
     ]);
     expect(runRows(tree).map((run) => run.id)).toEqual([ROOT_RUN_ID]);
     expect(tree.root.tools.map((tool) => tool.id)).toEqual(["read-1"]);
+  });
+
+  test("events in the same millisecond keep the order they were stored in", () => {
+    const stored = (id: string, frame: RunTreeFrame) => ({ ...frame, id });
+    const frames = [
+      stored("ev_9", use(1, "read-9", "Read", {})),
+      stored("ev_z", use(1, "read-35", "Read", {})),
+      stored("ev_10", use(1, "read-36", "Read", {})),
+    ];
+    for (const order of [frames, [...frames].reverse()]) {
+      expect(buildRunTree(order).root.tools.map((tool) => tool.id)).toEqual([
+        "read-9",
+        "read-35",
+        "read-36",
+      ]);
+    }
   });
 
   test("an event names no target when its input has none", () => {
