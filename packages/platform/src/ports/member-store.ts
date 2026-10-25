@@ -29,6 +29,8 @@ export type SetAccessResult =
   | { outcome: "elsewhere" }
   /** The target is an owner where the actor is not. */
   | { outcome: "outranked" }
+  // What `memberVerdict` refuses besides an outranked actor.
+  | { outcome: "self_protected" | "account_disabled" }
   | { outcome: "actor_inactive" };
 
 export type TakeoverRecord = {
