@@ -457,6 +457,8 @@ describe("에이전트 카드", () => {
     expect(chip?.textContent).toBe(long);
     expect(chip?.getAttribute("title")).toBe(long);
     expect(chip?.firstElementChild?.className).toContain("truncate");
+    // Under the card's stretched link the hover would never reach the title.
+    expect(chip?.className).toContain("relative z-1");
   });
 
   test("아바타 색은 이름으로 정해져 목록과 상세에서 같다", async () => {

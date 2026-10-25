@@ -283,13 +283,14 @@ function Names({
   if (names.length === 0) return <>{none}</>;
   return (
     // A card names one MCP server today; a long name is cut, not pushed off
-    // the card, and reads in full on hover and to a screen reader.
+    // the card, and reads in full on hover and to a screen reader. The chip
+    // sits above the card's link so the hover reaches its title.
     <span className="flex flex-wrap justify-end gap-1">
       {names.map((name) => (
         <Badge
           key={name}
           variant="gray"
-          className="min-w-0 max-w-full shrink font-mono"
+          className="relative z-1 min-w-0 max-w-full shrink font-mono"
           title={name}
         >
           <span className="truncate">{name}</span>
