@@ -353,6 +353,69 @@ integration("Slack apps and the config token on PostgreSQL", () => {
 
   describe("agent apps", () => {
     const store = () => createPostgresSlackAppStore(db, key);
+    test("settings survive a new store and reject another workspace or a demoted actor", async () => {
+      const workspaceId = await workspace();
+      const otherWorkspaceId = await workspace();
+      const agentId = await agent(workspaceId, false);
+      const owner = await person(workspaceId, "owner");
+      const actor = { principal: owner.principal, managerRoles: BINDERS };
+      expect(await store().getSettings(workspaceId, agentId)).toEqual({
+        default_mode: "off",
+      });
+      expect(
+        await store().putSettings({
+          workspaceId,
+          agentId,
+          actor,
+          settings: { default_mode: "mention" },
+        }),
+      ).toBe("saved");
+      expect(await store().getSettings(workspaceId, agentId)).toEqual({
+        default_mode: "mention",
+      });
+      expect(await store().getSettings(otherWorkspaceId, agentId)).toBeNull();
+      await db
+        .update(memberships)
+        .set({ role: "member" })
+        .where(eq(memberships.userId, owner.userId));
+      expect(
+        await store().putSettings({
+          workspaceId,
+          agentId,
+          actor,
+          settings: { default_mode: "off" },
+        }),
+      ).toBe("outranked");
+      expect(await store().getSettings(workspaceId, agentId)).toEqual({
+        default_mode: "mention",
+      });
+    });
+
+    test("event registration status is stored without affecting another workspace", async () => {
+      const slack = fakeSlack();
+      const { workspaceId, owner } = await withToken(slack);
+      const agentId = await agent(workspaceId);
+      const { apps } = service(slack);
+      const created = await apps.createAgentApp(owner.principal, agentId, {
+        replace_uncertain: false,
+      });
+      const events = {
+        state: "verified" as const,
+        checked_at: "2026-10-25T00:00:00.000Z",
+      };
+      await store().setEvents(workspaceId, created.slack_app.id, events);
+      expect(
+        (await store().findForAgent(workspaceId, agentId))?.events,
+      ).toEqual(events);
+      await store().setEvents(await workspace(), created.slack_app.id, {
+        state: "failed",
+        checked_at: events.checked_at,
+        error: "events_registration_failed",
+      });
+      expect(
+        (await store().findForAgent(workspaceId, agentId))?.events,
+      ).toEqual(events);
+    });
     const begin = (
       workspaceId: string,
       agentId: string,

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   apiErrorResponseSchema,
+  lookupSlackChannelsResponseSchema,
   searchSlackChannelsResponseSchema,
 } from "@werft-ai/contracts";
 import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
@@ -65,7 +66,7 @@ function world() {
     manifest: {},
     botTokens: [botToken],
   });
-  slack.seedChannels([
+  const channels = slack.seedChannels([
     ...Array.from({ length: 12 }, (_, i) => ({
       name: `dev-${String(i).padStart(2, "0")}`,
     })),
@@ -110,8 +111,88 @@ function world() {
         new Response("not found", { status: 404 })) as typeof fetch,
     }),
   });
-  return { slack, botToken, service };
+  return { slack, botToken, service, channels };
 }
+
+describe("GET /v1/agents/{id}/slack-channels", () => {
+  const lookupPath = `/v1/agents/${AGENT}/slack-channels`;
+  test("resolves IDs beyond the first page without scanning and coalesces reads", async () => {
+    const { slack, service, channels, botToken } = world();
+    const id = channels[12]?.id ?? "C0MISSINGFIXTURE";
+    const api = app(service);
+    const url = `${lookupPath}?ids=${id},C0MISSING`;
+    const responses = await Promise.all([
+      api.request(url, { headers: owner }),
+      api.request(url, { headers: owner }),
+    ]);
+    for (const response of responses) {
+      expect(response.status).toBe(200);
+      const text = await response.text();
+      expect(text).not.toContain(botToken);
+      expect(lookupSlackChannelsResponseSchema.parse(JSON.parse(text))).toEqual(
+        {
+          items: [
+            { id, name: "general", state: "known" },
+            { id: "C0MISSING", name: "unknown", state: "unknown" },
+          ],
+        },
+      );
+    }
+    expect((await api.request(url, { headers: owner })).status).toBe(200);
+    expect(
+      slack.calls.filter((call) => call.method === "conversations.info"),
+    ).toHaveLength(2);
+    expect(
+      slack.calls.filter((call) => call.method === "conversations.list"),
+    ).toHaveLength(0);
+  });
+  test("rejects more than 50 IDs, cursor and missing IDs before Slack", async () => {
+    const { slack, service } = world();
+    const api = app(service);
+    for (const query of [
+      "",
+      "ids=",
+      `ids=${Array.from({ length: 51 }, (_, i) => `C0${i}`).join(",")}`,
+      "ids=C01&cursor=abc",
+      "ids=bad",
+    ]) {
+      expect(
+        (await api.request(`${lookupPath}?${query}`, { headers: owner }))
+          .status,
+      ).toBe(400);
+    }
+    expect(slack.calls).toHaveLength(0);
+  });
+  test("Slack 429 returns 503 and Retry-After without repeated calls", async () => {
+    const { slack, service } = world();
+    slack.rateLimit("conversations.info", 7);
+    const api = app(service);
+    for (let i = 0; i < 2; i++) {
+      const response = await api.request(`${lookupPath}?ids=C01`, {
+        headers: owner,
+      });
+      expect(response.status).toBe(503);
+      expect(response.headers.get("Retry-After")).toBe("7");
+    }
+    expect(
+      slack.calls.filter((call) => call.method === "conversations.info"),
+    ).toHaveLength(1);
+  });
+  test("preserves permission, missing agent and installation refusals", async () => {
+    for (const [code, status] of [
+      ["FORBIDDEN", 403],
+      ["NOT_FOUND", 404],
+      ["SLACK_NOT_INSTALLED", 409],
+    ] as const) {
+      const response = await app({
+        lookupSlackChannels: async () => {
+          throw new SessionServiceError(code, "refused");
+        },
+      }).request(`${lookupPath}?ids=C01`, { headers: owner });
+      expect(response.status).toBe(status);
+    }
+  });
+});
 
 async function errorOf(response: Response) {
   return apiErrorResponseSchema.parse(await response.json()).error;

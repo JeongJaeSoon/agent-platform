@@ -83,6 +83,16 @@ Running the same command again re-confirms the same installation (`registration:
 
 ## An agent's Slack app
 
+### Read app settings
+
+Agent administrators, including workspace owners and admins, call these endpoints with a web session. `GET /v1/agents/{id}/slack/app` includes `event_url` and `events`. The absolute event URL is the server's `SLACK_EVENTS_PUBLIC_URL` plus `/v1/slack/events/{agent_id}`, or null when unset. `events.state` is `pending`, `verified`, or `failed`; `checked_at` is the last registration attempt, or null. Failures include a safe `error` code. Verified means the install finalize manifest registration succeeded.
+
+`GET /v1/agents/{id}/slack/app/manifest` returns `manifest_yaml`, generated from the current agent and server configuration without secret values.
+
+`GET /v1/agents/{id}/slack-channels?ids=C1,C2` resolves at most 50 IDs. Each item has `id`, `name`, and `state`; failed IDs have name and state `unknown`. There is no cursor or full scan. Results are cached per app and channel for 60 seconds. Slack 429 returns 503 with `Retry-After`.
+
+`GET` and `PUT /v1/agents/{id}/slack/app/settings` read and save `{ "default_mode": "off" }` or `mention`. The initial mode is `off`, and settings can be saved before app creation. Applying the default to new bindings is separate follow-up work. There is no app-wide on/off switch.
+
 Each agent has its own Slack app. To connect it, send the app id, the team id, and the name of a credential reference that holds the bot token (`credential_ref`, not the value).
 
 ```sh

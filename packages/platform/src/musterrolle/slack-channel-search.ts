@@ -1,5 +1,7 @@
 import { randomBytes } from "node:crypto";
 import {
+  type LookupSlackChannelsQuery,
+  type LookupSlackChannelsResponse,
   type SearchSlackChannelsQuery,
   type SearchSlackChannelsResponse,
   SLACK_BINDING_MESSAGES,
@@ -38,7 +40,8 @@ export const SLACK_CHANNEL_CACHE_MAX_CHANNELS = 10_000;
 export const SLACK_CHANNEL_CACHE_MAX_APPS = 500;
 const ACTION = "binding.manage";
 
-export type SlackChannelApi = Pick<SlackBotApi, "listChannels">;
+export type SlackChannelApi = Pick<SlackBotApi, "listChannels"> &
+  Partial<Pick<SlackBotApi, "channelInfo">>;
 
 type Snapshot = {
   id: string;
@@ -307,9 +310,112 @@ export function createSlackChannelSearchService(deps: {
 }) {
   const { authorization, api } = deps;
   const cache = deps.cache ?? createSlackChannelCache();
+  const names = new Map<
+    string,
+    { at: number; value: LookupSlackChannelsResponse["items"][number] }
+  >();
+  const pendingNames = new Map<
+    string,
+    Promise<LookupSlackChannelsResponse["items"][number]>
+  >();
+  const rateLimitedUntil = new Map<string, number>();
 
   return {
     cache,
+
+    async lookupSlackChannels(
+      caller: Caller,
+      agentId: string,
+      query: LookupSlackChannelsQuery,
+    ): Promise<LookupSlackChannelsResponse> {
+      await requirePermitted(authorization, caller, ACTION, {
+        kind: "agent",
+        id: agentId,
+      });
+      if (
+        deps.apps === null ||
+        deps.secrets === null ||
+        api.channelInfo === undefined
+      )
+        throw new SessionServiceError(
+          "BACKEND_UNAVAILABLE",
+          "Slack channel lookup is unavailable",
+        );
+      const app = await deps.apps.findForAgent(caller.ownerId, agentId);
+      if (app === null || app.state !== "created") {
+        const agent = await deps.agents.agentOf(caller.ownerId, {
+          kind: "agent",
+          id: agentId,
+        });
+        throw agent === null
+          ? new SessionServiceError("NOT_FOUND", "Resource not found")
+          : notInstalled();
+      }
+      const until = rateLimitedUntil.get(app.id) ?? 0;
+      if (until > Date.now())
+        throw new SessionServiceError(
+          "BACKEND_UNAVAILABLE",
+          SLACK_CHANNEL_SEARCH_MESSAGES.rateLimited,
+          { afterSeconds: Math.ceil((until - Date.now()) / 1000) },
+        );
+      rateLimitedUntil.delete(app.id);
+      const token = await deps.secrets.get({
+        workspaceId: app.workspaceId,
+        owner: { kind: "slack_app", id: app.id },
+        purpose: "slack_bot_token",
+      });
+      if (token === null) throw notInstalled();
+      const channelInfo = api.channelInfo;
+      const items = await Promise.all(
+        [...new Set(query.ids)].map(async (id) => {
+          const key = `${app.id}:${id}`;
+          const cached = names.get(key);
+          if (cached && Date.now() - cached.at < SLACK_CHANNEL_CACHE_TTL_MS)
+            return cached.value;
+          const existing = pendingNames.get(key);
+          if (existing) return existing;
+          const promise = (async () => {
+            let value: LookupSlackChannelsResponse["items"][number];
+            try {
+              const channel = await channelInfo(token, id);
+              value = { id, name: channel.name, state: "known" };
+            } catch (error) {
+              if (error instanceof SlackRateLimitedError) {
+                rateLimitedUntil.set(
+                  app.id,
+                  Date.now() + error.retryAfterSeconds * 1000,
+                );
+                if (rateLimitedUntil.size > SLACK_CHANNEL_CACHE_MAX_APPS) {
+                  const oldest = rateLimitedUntil.keys().next().value;
+                  if (oldest !== undefined) rateLimitedUntil.delete(oldest);
+                }
+                throw new SessionServiceError(
+                  "BACKEND_UNAVAILABLE",
+                  SLACK_CHANNEL_SEARCH_MESSAGES.rateLimited,
+                  { afterSeconds: error.retryAfterSeconds },
+                );
+              }
+              if (!(error instanceof SlackApiError)) throw error;
+              value = { id, name: "unknown", state: "unknown" };
+            }
+            names.delete(key);
+            names.set(key, { at: Date.now(), value });
+            if (names.size > 25_000) {
+              const oldest = names.keys().next().value;
+              if (oldest !== undefined) names.delete(oldest);
+            }
+            return value;
+          })();
+          pendingNames.set(key, promise);
+          try {
+            return await promise;
+          } finally {
+            pendingNames.delete(key);
+          }
+        }),
+      );
+      return { items };
+    },
 
     /** Drops the cached channels of the agent's app, if it has one. */
     async forgetAgent(workspaceId: string, agentId: string): Promise<void> {
