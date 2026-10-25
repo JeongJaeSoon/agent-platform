@@ -507,6 +507,29 @@ describe.each(ENGINES)("the deployment welcome on %s", (engine) => {
     expect(callsOf("conversations.join")).toBe(0);
   });
 
+  test("a rollback before the invite stays silent after it", async () => {
+    const [home] = slack.seedChannels([{ name: "secret", isPrivate: true }]);
+    const channel = home?.id ?? "";
+    const fixture = await installedAgent();
+    const bound = await fixture.bind(channel, true);
+    const { release: first } = await fixture.release();
+    const { release: second } = await fixture.release("changed");
+    await fixture.activate(first.id);
+    await fixture.activate(second.id);
+    await fixture.activate(first.id);
+
+    // The asks the activations left running may answer after the invite.
+    expect(await invited(fixture, channel)).toMatchObject({ processed: 1 });
+    await fixture.finalize();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(await outboxRows()).toEqual([]);
+    // Forward again to the newest: that one is announced.
+    await fixture.activate(second.id);
+    expect((await outboxRows()).map((row) => row.dedupeKey)).toEqual([
+      deploymentWelcomeKey(fixture.agentId, second.id, bound.slack_binding.id),
+    ]);
+  });
+
   test("an activation never waits on Slack: an unchecked home is joined and welcomed after it returns", async () => {
     const [home] = slack.seedChannels([{ name: "later" }]);
     const channel = home?.id ?? "";

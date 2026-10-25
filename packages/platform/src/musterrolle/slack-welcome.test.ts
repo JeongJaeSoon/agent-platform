@@ -66,6 +66,7 @@ function binding(
 function fakeSlack(channels: Record<string, Partial<SlackChannelMembership>>) {
   const calls: string[] = [];
   const failures = new Map<string, string>();
+  const hooks = { onJoin: () => {} };
   const slack: Pick<SlackBotApi, "channelMembership" | "joinChannel"> = {
     async channelMembership(_token, channelId) {
       calls.push(`info:${channelId}`);
@@ -80,12 +81,13 @@ function fakeSlack(channels: Record<string, Partial<SlackChannelMembership>>) {
     },
     async joinChannel(_token, channelId) {
       calls.push(`join:${channelId}`);
+      hooks.onJoin();
       const failure = failures.get("conversations.join");
       if (failure) throw new SlackApiError("conversations.join", failure, true);
       channels[channelId] = { ...channels[channelId], isMember: true };
     },
   };
-  return { slack, calls, failures };
+  return { slack, calls, failures, hooks };
 }
 
 function world(
@@ -102,12 +104,16 @@ function world(
       if (row) row.membership = membership;
     },
   };
-  const agents: Pick<AgentStore, "get" | "findRelease"> = {
+  const approved = new Set<string>();
+  const createdAt = (id: string) =>
+    Date.parse(releases.get(id)?.created_at ?? "");
+  const agents: Pick<AgentStore, "get" | "releaseSuperseded"> = {
     get: async () =>
       ({
         agent: { name: "재무 분석가 <!here>", active_release_id: active },
       }) as AgentDetail,
-    findRelease: async (_workspace, id) => releases.get(id) ?? null,
+    releaseSuperseded: async (_workspace, _agent, id) =>
+      [...approved].some((other) => createdAt(other) > createdAt(id)),
   };
   const fake = fakeSlack(channels);
   const logged: unknown[] = [];
@@ -138,8 +144,11 @@ function world(
     rows,
     fake,
     logged,
+    /** What the store's activation does, then the welcome it triggers. */
     activate: (id: string) => {
       active = id;
+      approved.add(id);
+      return welcome.activated(WORKSPACE, AGENT, id);
     },
   };
 }
@@ -166,28 +175,26 @@ describe("deployment welcome", () => {
     });
     const w = world([home, other], {});
 
-    expect(await w.welcome.activated(WORKSPACE, AGENT, R1, null)).toEqual({
+    expect(await w.activate(R1.id)).toEqual({
       status: "enqueued",
       channelId: "C0HOME",
     });
     expect(w.outbox.size).toBe(1);
     // The same definition again is the same release.
-    expect(await w.welcome.activated(WORKSPACE, AGENT, R1, null)).toEqual({
+    expect(await w.activate(R1.id)).toEqual({
       status: "duplicate",
       channelId: "C0HOME",
     });
     expect(w.outbox.size).toBe(1);
     // A changed definition is a new release.
-    await w.welcome.activated(WORKSPACE, AGENT, R2, R1.id);
+    await w.activate(R2.id);
     expect(w.outbox.size).toBe(2);
     // Back to the older release: nothing, announced before or not.
-    expect(await w.welcome.activated(WORKSPACE, AGENT, R1, R2.id)).toBe(
-      "rollback",
-    );
+    expect(await w.activate(R1.id)).toEqual({ status: "rollback" });
     expect(w.outbox.size).toBe(2);
 
     // The home moves: the new channel hears the active release once.
-    w.activate(R2.id);
+    await w.activate(R2.id);
     home.home = false;
     other.home = true;
     await w.welcome.welcome(WORKSPACE, AGENT, { ask: false });
@@ -225,7 +232,7 @@ describe("deployment welcome", () => {
 
   test("a home not checked yet is asked after the activation returns: joined, then welcomed", async () => {
     const w = world([binding(HOME, "C0HOME", { home: true })], {});
-    expect(await w.welcome.activated(WORKSPACE, AGENT, R1, null)).toEqual({
+    expect(await w.activate(R1.id)).toEqual({
       status: "unknown_membership",
       channelId: "C0HOME",
     });
@@ -234,6 +241,39 @@ describe("deployment welcome", () => {
     expect(w.fake.calls).toEqual(["info:C0HOME", "join:C0HOME"]);
     expect(w.rows[0]?.membership).toEqual({ state: "joined", error: null });
     expect(w.outbox.size).toBe(1);
+  });
+
+  test("a rollback stays silent on later paths: the invite and Finalize after it add none", async () => {
+    const channels: Record<string, Partial<SlackChannelMembership>> = {
+      G0HOME: { kind: "private_channel" },
+    };
+    const w = world([binding(HOME, "G0HOME", { home: true })], channels);
+    await w.activate(R1.id);
+    await w.activate(R2.id);
+    expect(await w.activate(R1.id)).toEqual({ status: "rollback" });
+
+    channels.G0HOME = { kind: "private_channel", isMember: true };
+    await w.welcome.finalize(installed);
+    expect(await w.welcome.welcome(WORKSPACE, AGENT, { ask: true })).toEqual({
+      status: "rollback",
+    });
+    await settled(() => false);
+    expect(w.outbox.size).toBe(0);
+  });
+
+  test("a home moved while Slack answered is not the one welcomed", async () => {
+    const home = binding(HOME, "C0HOME", { home: true });
+    const other = binding(OTHER, "C0OTHER");
+    const w = world([home, other], {});
+    w.fake.hooks.onJoin = () => {
+      home.home = false;
+      other.home = true;
+    };
+    expect(await w.welcome.welcome(WORKSPACE, AGENT, { ask: true })).toEqual({
+      status: "no_home",
+    });
+    expect(w.fake.calls).toEqual(["info:C0HOME", "join:C0HOME"]);
+    expect(w.outbox.size).toBe(0);
   });
 
   test("a private home waits for the invite with no row; Finalize after it sends once, then duplicate", async () => {
@@ -294,7 +334,7 @@ describe("deployment welcome", () => {
       status: "no_home",
     });
     const none = world([binding(OTHER, "C0OTHER")], {});
-    expect(await none.welcome.activated(WORKSPACE, AGENT, R1, null)).toEqual({
+    expect(await none.activate(R1.id)).toEqual({
       status: "no_home",
     });
     expect(none.fake.calls).toEqual([]);
@@ -315,7 +355,7 @@ describe("deployment welcome", () => {
         get: async () => {
           throw new Error("database gone");
         },
-        findRelease: async () => null,
+        releaseSuperseded: async () => false,
       },
       bindings: { list: async () => w.rows },
       apps: { findForAgent: async () => null },
@@ -326,7 +366,7 @@ describe("deployment welcome", () => {
         warn: (message, fields) => w.logged.push({ message, ...fields }),
       },
     });
-    expect(await broken.activated(WORKSPACE, AGENT, R1, null)).toBeNull();
+    expect(await broken.activated(WORKSPACE, AGENT, R1.id)).toBeNull();
     expect(w.logged).toEqual([
       {
         message: "Deployment welcome failed",

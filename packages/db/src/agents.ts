@@ -10,7 +10,8 @@ import {
   type ReceiptOperation,
 } from "@werft-ai/contracts";
 import type { ActivateResult, AgentStore, Principal } from "@werft-ai/platform";
-import { and, asc, eq, max, sql } from "drizzle-orm";
+import { and, asc, eq, gt, isNotNull, max, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { administers, liveMember } from "./administers.ts";
 import { actorStillMember, receiptActorOf } from "./control-shared.ts";
 import {
@@ -32,6 +33,8 @@ import {
 type AgentRow = typeof agents.$inferSelect;
 type VersionRow = typeof agentVersions.$inferSelect;
 type ReleaseRow = typeof agentReleases.$inferSelect;
+
+const newer = alias(agentReleases, "newer");
 
 export function agentOf(row: AgentRow): Agent {
   return {
@@ -231,6 +234,30 @@ export function createPostgresAgentStore(db: Database): AgentStore {
         )
         .limit(1);
       return row ? releaseOf(row.release) : null;
+    },
+
+    async releaseSuperseded(workspaceId, agentId, releaseId) {
+      const [row] = await db
+        .select({ id: newer.id })
+        .from(newer)
+        .innerJoin(agents, eq(agents.id, newer.agentId))
+        .innerJoin(
+          agentReleases,
+          and(
+            eq(agentReleases.agentId, newer.agentId),
+            eq(agentReleases.id, releaseId),
+          ),
+        )
+        .where(
+          and(
+            eq(newer.agentId, agentId),
+            eq(agents.workspaceId, workspaceId),
+            isNotNull(newer.approvedAt),
+            gt(newer.createdAt, agentReleases.createdAt),
+          ),
+        )
+        .limit(1);
+      return row !== undefined;
     },
 
     create(input) {

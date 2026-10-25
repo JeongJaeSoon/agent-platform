@@ -1,5 +1,4 @@
 import {
-  type AgentRelease,
   SLACK_BINDING_LIST_LIMIT,
   type SlackFinalizeWarning,
   type SurfaceMembership,
@@ -75,7 +74,7 @@ export type SlackWelcomeOutcome =
       error: string | null;
     }
   | { status: "unknown_membership"; channelId: string }
-  | { status: "no_home" | "no_release" | "not_installed" };
+  | { status: "no_home" | "no_release" | "not_installed" | "rollback" };
 
 export type SlackWelcome = ReturnType<typeof createSlackWelcome>;
 
@@ -92,7 +91,7 @@ const WAITING_ON_SLACK = new Set<SlackWelcomeOutcome["status"]>([
  * public home comes first; a private one waits for the invite.
  */
 export function createSlackWelcome(deps: {
-  agents: Pick<AgentStore, "get" | "findRelease">;
+  agents: Pick<AgentStore, "get" | "releaseSuperseded">;
   bindings: Pick<SurfaceBindingStore, "list">;
   apps: Pick<SlackAppStore, "findForAgent">;
   outbox: Pick<SlackOutboxStore, "enqueue">;
@@ -100,15 +99,7 @@ export function createSlackWelcome(deps: {
   join: SlackChannelJoiner | null;
   logger: SlackInboxLogger;
 }) {
-  /**
-   * `ask`: ask Slack (and join) before deciding; otherwise only the stored
-   * membership counts, so nothing but the database is read.
-   */
-  async function welcome(
-    workspaceId: string,
-    agentId: string,
-    options: { releaseId?: string; ask: boolean },
-  ): Promise<SlackWelcomeOutcome> {
+  async function homeOf(workspaceId: string, agentId: string) {
     const [home] = await deps.bindings.list(workspaceId, agentId, 1);
     if (
       home === undefined ||
@@ -117,28 +108,74 @@ export function createSlackWelcome(deps: {
       home.channelId === null ||
       home.installationId === null
     ) {
-      return { status: "no_home" };
+      return null;
     }
+    return {
+      ...home,
+      channelId: home.channelId,
+      installationId: home.installationId,
+    };
+  }
+
+  /** The home and the release it would hear now; a status when none. */
+  async function target(
+    workspaceId: string,
+    agentId: string,
+  ): Promise<
+    | { status: "no_home" | "no_release" | "rollback" }
+    | {
+        home: NonNullable<Awaited<ReturnType<typeof homeOf>>>;
+        releaseId: string;
+        agentName: string;
+      }
+  > {
+    const home = await homeOf(workspaceId, agentId);
+    if (home === null) return { status: "no_home" };
+    const detail = await deps.agents.get(workspaceId, agentId);
+    const releaseId = detail?.agent.active_release_id;
+    if (!detail || !releaseId) return { status: "no_release" };
+    if (await deps.agents.releaseSuperseded(workspaceId, agentId, releaseId)) {
+      return { status: "rollback" };
+    }
+    return { home, releaseId, agentName: detail.agent.name };
+  }
+
+  /**
+   * `ask`: ask Slack (and join) before deciding; otherwise only the stored
+   * membership counts, so nothing but the database is read.
+   */
+  async function welcome(
+    workspaceId: string,
+    agentId: string,
+    options: { ask: boolean },
+  ): Promise<SlackWelcomeOutcome> {
+    let found = await target(workspaceId, agentId);
+    if ("status" in found) return found;
+    const { home } = found;
     const channelId = home.channelId;
     let membership = home.membership;
     if (options.ask && deps.join !== null) {
       membership = (await deps.join(home)) ?? membership;
+      // The home may have moved, or the release rolled back, while Slack
+      // answered.
+      found = await target(workspaceId, agentId);
+      if ("status" in found) return found;
+      if (found.home.id !== home.id || found.home.channelId !== channelId) {
+        return { status: "no_home" };
+      }
     }
     if (membership === null) return { status: "unknown_membership", channelId };
     if (membership.state !== "joined") {
       return { status: membership.state, channelId, error: membership.error };
     }
-    const detail = await deps.agents.get(workspaceId, agentId);
-    const releaseId = options.releaseId ?? detail?.agent.active_release_id;
-    if (!detail || !releaseId) return { status: "no_release" };
     const app = await deps.apps.findForAgent(workspaceId, agentId);
     if (app === null) return { status: "not_installed" };
     const status = await deps.outbox.enqueue(
       deploymentWelcome({
         workspaceId,
         agentId,
-        agentName: detail.agent.name,
-        releaseId,
+        agentName: found.agentName,
+        releaseId: found.releaseId,
         slackAppId: app.id,
         installationId: home.installationId,
         homeBindingId: home.id,
@@ -192,42 +229,27 @@ export function createSlackWelcome(deps: {
     }) satisfies SlackInstallFinalize,
 
     /**
-     * A release went live. A rollback, to a release older than the one it
-     * replaced, says nothing, even when that release was never announced.
-     * The row is enqueued before this returns when the bot is known to be
-     * in the home; otherwise Slack is asked after, so the activation never
-     * waits on it. Never throws: a welcome that cannot go is logged and
-     * left on the binding.
+     * A release went live. A rollback, to a release older than one already
+     * activated, says nothing on any path, even when that release was never
+     * announced. The row is enqueued before this returns when the bot is
+     * known to be in the home; otherwise Slack is asked after, so the
+     * activation never waits on it. Never throws: a welcome that cannot go
+     * is logged and left on the binding.
      */
     async activated(
       workspaceId: string,
       agentId: string,
-      release: Pick<AgentRelease, "id" | "created_at">,
-      previousReleaseId: string | null,
-    ): Promise<SlackWelcomeOutcome | "rollback" | null> {
-      const releaseId = release.id;
+      releaseId: string,
+    ): Promise<SlackWelcomeOutcome | null> {
       try {
-        if (previousReleaseId !== null) {
-          const previous = await deps.agents.findRelease(
-            workspaceId,
-            previousReleaseId,
-          );
-          if (
-            previous &&
-            Date.parse(release.created_at) < Date.parse(previous.created_at)
-          ) {
-            return "rollback";
-          }
-        }
-        const outcome = await welcome(workspaceId, agentId, {
-          releaseId,
-          ask: false,
-        });
+        // The release live by then is what is announced; `releaseId` names
+        // the activation in the log.
+        const outcome = await welcome(workspaceId, agentId, { ask: false });
         if (!WAITING_ON_SLACK.has(outcome.status) || deps.join === null) {
           logOutcome(agentId, releaseId, outcome);
           return outcome;
         }
-        void welcome(workspaceId, agentId, { releaseId, ask: true }).then(
+        void welcome(workspaceId, agentId, { ask: true }).then(
           (asked) => logOutcome(agentId, releaseId, asked),
           (error: unknown) =>
             deps.logger.warn("Deployment welcome failed", {

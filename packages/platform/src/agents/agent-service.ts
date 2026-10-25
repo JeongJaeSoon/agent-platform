@@ -306,12 +306,7 @@ export function createAgentService(deps: {
             receipt_id: null,
           };
         default:
-          await deps.welcome?.activated(
-            caller.ownerId,
-            agentId,
-            release,
-            result.previousReleaseId,
-          );
+          await deps.welcome?.activated(caller.ownerId, agentId, release.id);
           return {
             active_release_id: release.id,
             previous_release_id: result.previousReleaseId,

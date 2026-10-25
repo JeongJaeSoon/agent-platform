@@ -61,8 +61,8 @@ export async function joinSlackChannel(
     // A private channel the bot is not in is one it cannot see.
     return refused(error, "awaiting_invite");
   }
-  if (seen.isMember) return JOINED;
   if (seen.isArchived) return { state: "join_failed", error: "is_archived" };
+  if (seen.isMember) return JOINED;
   if (seen.kind !== "public_channel") {
     return { state: "awaiting_invite", error: null };
   }

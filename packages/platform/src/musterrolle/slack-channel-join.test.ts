@@ -90,6 +90,13 @@ describe("joining a bound channel", () => {
       ["info:C1"],
     ],
     [
+      "archived while in it",
+      { isMember: true, isArchived: true },
+      undefined,
+      { state: "join_failed", error: "is_archived" },
+      ["info:C1"],
+    ],
+    [
       "join refused by policy",
       {},
       refusal("conversations.join", "restricted_action"),
