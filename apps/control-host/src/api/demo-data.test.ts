@@ -174,6 +174,34 @@ describe("finished", () => {
   };
 
   test.each([
+    [409, "CHECKPOINT_UNAVAILABLE", true],
+    [409, "CONFLICT", false],
+    [500, "CHECKPOINT_UNAVAILABLE", false],
+    [401, "UNAUTHORIZED", false],
+  ] as const)(
+    "outputs %p %p skips recovery only: %p",
+    async (status, code, skips) => {
+      const server = Bun.serve({
+        port: 0,
+        fetch: () => Response.json({ error: { code } }, { status }),
+      });
+      try {
+        const client = new DemoClient(`http://127.0.0.1:${server.port}`, "c=1");
+        const result = finished(client, "s", spec("approve-then-idle"));
+        if (skips) {
+          expect(await result).toBe(true);
+        } else {
+          await expect(result).rejects.toThrow(
+            `answered ${status}, expected 200`,
+          );
+        }
+      } finally {
+        server.stop(true);
+      }
+    },
+  );
+
+  test.each([
     ["stopped", false, { status: "stopped" }, true],
     ["stopped", false, { status: "idle" }, false],
     ["approve-then-idle", false, { outputs: 1 }, true],
