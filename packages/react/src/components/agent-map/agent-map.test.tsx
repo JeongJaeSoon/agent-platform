@@ -340,6 +340,10 @@ describe("AgentMap", () => {
         ?.className.split(" ");
     expect(standIn("board")).toContain("hidden");
     expect(standIn("panel")).not.toContain("hidden");
+    // Side by side only from xl: below it the sidebar leaves the panel too
+    // narrow for the relation graph (94S-981).
+    expect(standIn("board")).toContain("xl:flex");
+    expect(standIn("board")).not.toContain("md:flex");
   });
 
   test("the detail view below xl offers the way back", async () => {
