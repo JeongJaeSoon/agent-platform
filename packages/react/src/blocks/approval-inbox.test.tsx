@@ -334,6 +334,25 @@ describe("ApprovalInbox", () => {
     });
   });
 
+  test("요약 배치에서 펼친 질문이 만료되면 키보드는 보이는 만료 안내로 간다", async () => {
+    const user = await setupUser();
+    const view = renderInbox({
+      open: [
+        { ...QUESTION, expires_at: new Date(Date.now() + 1500).toISOString() },
+      ],
+      layout: "summary",
+    });
+    await user.click(await view.findByRole("button", { name: "Answer" }));
+    view.getByRole("button", { name: "Send answer" }).focus();
+    await waitFor(() => expect(document.activeElement?.tagName).toBe("P"), {
+      timeout: 4000,
+    });
+    expect(document.activeElement?.textContent).toBe(
+      "This request expired and takes no answer.",
+    );
+    expect(document.activeElement?.closest("[hidden]")).toBeNull();
+  });
+
   test("답이 가는 동안 누른 버튼이 돌고 줄은 aria-busy, 두 번 눌러도 한 번만 보낸다", async () => {
     const user = await setupUser();
     const view = renderInbox({

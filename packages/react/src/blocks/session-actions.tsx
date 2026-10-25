@@ -198,7 +198,8 @@ function SummaryQuestion({
       <div
         ref={formRef}
         id={formId}
-        hidden={!open || expired}
+        // Open past its expiry, the form stays: its notice takes the focus.
+        hidden={!open}
         className="px-[var(--ap-row-padding-x)] pb-[var(--ap-row-padding-y)]"
       >
         {children}
