@@ -291,5 +291,25 @@ exit 1
     expect(
       await readlink(join(dir, "home", "pr-15.lock")).catch(() => null),
     ).toBe(null);
+    expect(
+      await readlink(join(dir, "home", "pr-15.lock.reclaim")).catch(() => null),
+    ).toBe(null);
+  });
+
+  test("leaves a gone holder's lock to the process already reclaiming it", async () => {
+    await mkdir(join(dir, "home"));
+    const gone = Bun.spawn(["true"]);
+    await gone.exited;
+    await symlink(String(gone.pid), join(dir, "home", "pr-16.lock"));
+    await symlink(String(process.pid), join(dir, "home", "pr-16.lock.reclaim"));
+    const result = await reap([{ name: "pr-16", upAt: hoursAgo(1) }], {
+      STUB_STATES: "16=CLOSED",
+    });
+    expect(result.exitCode).toBe(0);
+    expect(await deleted()).toEqual([]);
+    expect(result.stderr).toContain("pr-16: busy, another process is taking");
+    expect(await readlink(join(dir, "home", "pr-16.lock"))).toBe(
+      String(gone.pid),
+    );
   });
 });

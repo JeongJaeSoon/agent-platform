@@ -94,7 +94,7 @@ deploy/preview/preview.sh reap       # PR이 닫혔거나 머지됐거나 TTL이
 2. 이 checkout에서 `gh pr view <번호> --json state`로 PR 상태를 읽어 `CLOSED`·`MERGED`면 지운다. `OPEN`이면 남긴다.
 3. 조회가 실패하면(네트워크, 인증, 없는 PR) 닫힘으로 읽지 않고 남기며, gh가 낸 오류를 로그에 적는다.
 
-`up`과 `down`은 미리보기마다 잠금(`PREVIEW_HOME/pr-<번호>.lock`, 잡은 프로세스의 pid를 가리키는 symlink)을 잡고, 잡은 프로세스가 살아 있으면 다른 `up`·`down`은 75로 끝난다. `reap`이 부른 `down`은 잠금을 잡은 뒤 `preview-up-at`이 `reap`이 읽은 값과 다르면(그 사이에 다시 `up`했으면) 지우지 않는다. 이 두 경우 `reap`은 그 namespace를 남기고 다음 실행에서 다시 판단한다.
+`up`과 `down`은 미리보기마다 잠금(`PREVIEW_HOME/pr-<번호>.lock`, 잡은 프로세스의 pid를 가리키는 symlink)을 잡고, 잡은 프로세스가 살아 있으면 다른 `up`·`down`은 75로 끝난다. 잡은 프로세스가 없으면 `pr-<번호>.lock.reclaim`을 잡은 프로세스 하나만 그 잠금을 넘겨받는다. 넘겨받는 도중 죽어 `.reclaim`이 남으면 그 미리보기는 계속 75로 끝나니, 그 파일을 손으로 지운다. `reap`이 부른 `down`은 잠금을 잡은 뒤 `preview-up-at`이 `reap`이 읽은 값과 다르면(그 사이에 다시 `up`했으면) 지우지 않는다. 이 두 경우 `reap`은 그 namespace를 남기고 다음 실행에서 다시 판단한다.
 
 실행마다 시각, namespace별 판단, 지운 namespace 목록(`reap deleted: …`)을 출력한다. `down`이 하나라도 실패하면 나머지를 마저 본 뒤 0이 아닌 값으로 끝난다.
 

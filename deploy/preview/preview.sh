@@ -153,10 +153,11 @@ free_port() {
 }
 
 # One `up` or `down` per preview at a time, held until this process exits.
-# The lock is a symlink to the holder's pid, so taking it is atomic; a
-# holder that is gone is taken over. A busy preview exits 75.
+# The lock is a symlink to the holder's pid, so taking it is atomic. A lock
+# whose holder is gone is replaced only under a second lock, by the one
+# process that still finds that holder in it. A busy preview exits 75.
 lock_preview() {
-  local holder
+  local holder took=""
   lock="${PREVIEW_HOME}/$1.lock"
   if ! ln -s "$$" "$lock" 2>/dev/null; then
     holder="$(readlink "$lock" || true)"
@@ -164,9 +165,15 @@ lock_preview() {
       echo "$1: busy, pid ${holder} is running up or down on it" >&2
       exit 75
     fi
-    rm -f -- "$lock"
-    if ! ln -s "$$" "$lock" 2>/dev/null; then
-      echo "$1: busy, another process took ${lock}" >&2
+    if ln -s "$$" "${lock}.reclaim" 2>/dev/null; then
+      if [ "$(readlink "$lock" || true)" = "$holder" ]; then
+        rm -f -- "$lock"
+      fi
+      ln -s "$$" "$lock" 2>/dev/null && took=1
+      rm -f -- "${lock}.reclaim"
+    fi
+    if [ -z "$took" ]; then
+      echo "$1: busy, another process is taking ${lock}" >&2
       exit 75
     fi
   fi
