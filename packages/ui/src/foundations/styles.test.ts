@@ -331,7 +331,10 @@ describe("tokens.css", () => {
     // Hover (subtle-foreground) never stands out less than the resting edge.
     const hover = themes.map(([theme, palette]) => {
       const surface = palette.get("--ap-color-surface") ?? "";
-      const rest = contrast(palette.get("--ap-color-border-input") ?? "", surface);
+      const rest = contrast(
+        palette.get("--ap-color-border-input") ?? "",
+        surface,
+      );
       const over = contrast(
         palette.get("--ap-color-subtle-foreground") ?? "",
         surface,
