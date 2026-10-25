@@ -172,6 +172,9 @@ import {
   updateTeamRequestSchema,
   usageSummaryQuerySchema,
   usageSummaryResponseSchema,
+  usageToolCallsParamsSchema,
+  usageToolCallsQuerySchema,
+  usageToolCallsResponseSchema,
   usageToolsQuerySchema,
   usageToolsResponseSchema,
   WEB_SESSION_COOKIE_NAME,
@@ -204,6 +207,7 @@ const requestComponents = {
   CountSessionsQuery: countSessionsQuerySchema,
   UsageSummaryQuery: usageSummaryQuerySchema,
   UsageToolsQuery: usageToolsQuerySchema,
+  UsageToolCallsQuery: usageToolCallsQuerySchema,
   PostSessionMessageRequest: postSessionMessageRequestSchema,
   ListTurnsQuery: listTurnsQuerySchema,
   SearchSlackChannelsQuery: searchSlackChannelsQuerySchema,
@@ -318,6 +322,7 @@ const responseComponents = {
   InstallationLimitsResponse: installationLimitsResponseSchema,
   UsageSummaryResponse: usageSummaryResponseSchema,
   UsageToolsResponse: usageToolsResponseSchema,
+  UsageToolCallsResponse: usageToolCallsResponseSchema,
   SessionUsageResponse: sessionUsageResponseSchema,
   ListSessionOutputsResponse: listSessionOutputsResponseSchema,
   ListAgentsResponse: listAgentsResponseSchema,
@@ -3417,6 +3422,49 @@ export const API_ROUTE_DECLARATIONS = [
   },
   {
     method: "get",
+    path: "/v1/usage/tools/{name}/calls",
+    operationId: "getUsageToolCalls",
+    tag: "Limits & receipts",
+    summary: "Recent or slowest calls of one tool, and its calls per day",
+    description:
+      "Lists the calls of the tool `name` whose `tool_use` event was stored in `[since, until)`, with the scopes, period and `agent_id` of `GET /v1/usage/tools`; the period spans at most 366 days. `sort=recent` (the default) lists the latest `occurred_at` first, `sort=slowest` the longest `duration_ms` first with untimed calls last; ties go to the later event. Read the next page with `next_cursor`, which is null on the last page; a cursor from the other sort is 400.\n\n`session_id` and `title` are null for a session the caller may not read (one in another owner, or private and not shared with the caller); the call's time, duration, outcome and agent still show. `agent` is null for a session made without an agent. `outcome` is `unknown` while no result is paired or when the result's `is_error` is not a boolean; `duration_ms` is null without a paired result or with either time missing, and set even when `outcome` is `unknown`. `per_day` counts the tool's calls on every UTC date the period touches, zeros included. Calls show up within one reconciler pass of being stored. It changes nothing.",
+    scope: "read",
+    query: "UsageToolCallsQuery",
+    success: {
+      status: 200,
+      schema: "UsageToolCallsResponse",
+      description: "One page of the tool's calls.",
+      example: {
+        calls: [
+          {
+            session_id: EXAMPLE_SESSION_ID,
+            title: "Fix the flaky login test",
+            agent: "Reviewer",
+            occurred_at: "2026-10-24T09:14:03.120Z",
+            duration_ms: 3120,
+            outcome: "ok",
+          },
+          {
+            session_id: null,
+            title: null,
+            agent: null,
+            occurred_at: "2026-10-24T09:12:41.004Z",
+            duration_ms: null,
+            outcome: "unknown",
+          },
+        ],
+        next_cursor:
+          "eyJzb3J0IjoicmVjZW50IiwiYXQiOiIyMDI2LTEwLTI0IDA5OjEyOjQxLjAwNCswMCIsImlkIjo0MjEsIm9yZCI6MX0",
+        per_day: [
+          { date: "2026-10-23", calls: 0 },
+          { date: "2026-10-24", calls: 2 },
+        ],
+      },
+    },
+    errors: [400, 401, 503],
+  },
+  {
+    method: "get",
     path: "/v1/receipts/{id}",
     operationId: "getReceipt",
     tag: "Limits & receipts",
@@ -3639,6 +3687,9 @@ function paramsSchemaFor(path: string): z.ZodObject {
   if (path.startsWith("/v1/linked-accounts/{id}"))
     return linkedAccountParamsSchema;
   if (path === "/v1/slack/events/{agent_id}") return slackEventsParamsSchema;
+  if (path === "/v1/usage/tools/{name}/calls") {
+    return usageToolCallsParamsSchema;
+  }
   throw new Error(`No params schema registered for ${path}`);
 }
 

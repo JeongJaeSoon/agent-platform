@@ -6,6 +6,8 @@ import {
   type UsageToolsResponse,
   usageSummaryQuerySchema,
   usageSummaryResponseSchema,
+  usageToolCallsQuerySchema,
+  usageToolCallsResponseSchema,
   usageToolsQuerySchema,
   usageToolsResponseSchema,
   type WorkspaceRole,
@@ -20,6 +22,7 @@ import {
 import type {
   SessionUsageRecord,
   UsageSummaryFilter,
+  UsageToolCallsFilter,
 } from "../ports/usage-reader.ts";
 import { SessionServiceError } from "../sessions/session-service.ts";
 import {
@@ -117,14 +120,36 @@ function service(
         asked.push(filter);
         return [];
       },
+      usageToolCalls: async (filter, calls) => {
+        asked.push(filter);
+        askedCalls.push(calls);
+        return {
+          calls: [
+            {
+              sessionId: null,
+              title: null,
+              agent: null,
+              occurredAt: readAt,
+              durationMs: null,
+              outcome: "unknown",
+            },
+          ],
+          nextCursor: "next",
+        };
+      },
+      usageToolDays: async () => [{ date: "2026-10-01", calls: 1 }],
     },
   });
 }
+
+const askedCalls: UsageToolCallsFilter[] = [];
 
 const query = (scope: "installation" | "me") =>
   usageSummaryQuerySchema.parse({ scope, since: "2026-10-01" });
 const toolsQuery = (scope: "installation" | "me") =>
   usageToolsQuerySchema.parse({ scope, since: "2026-10-01" });
+const callsQuery = (scope: "installation" | "me") =>
+  usageToolCallsQuerySchema.parse({ scope, since: "2026-10-01" });
 
 const tool = (
   name: string,
@@ -263,6 +288,12 @@ describe("usage service", () => {
         () => service().getInstallationLimits(caller),
         () => service().getUsageSummary(caller, query("installation")),
         () => service().getUsageTools(caller, toolsQuery("installation")),
+        () =>
+          service().getUsageToolCalls(
+            caller,
+            "Bash",
+            callsQuery("installation"),
+          ),
       ]) {
         const error = await read().catch((caught: unknown) => caught);
         expect(error).toBeInstanceOf(SessionServiceError);
@@ -287,6 +318,41 @@ describe("usage service", () => {
       findings: [],
     });
     expect(asked).toEqual([{ kind: "user", ownerId: WORKSPACE, userId: USER }]);
+  });
+
+  test("tool calls read the caller's scope and show sessions as the caller sees them", async () => {
+    asked.length = 0;
+    askedCalls.length = 0;
+    const body = await service().getUsageToolCalls(
+      user("member"),
+      "Bash",
+      callsQuery("me"),
+    );
+    expect(usageToolCallsResponseSchema.parse(body)).toEqual({
+      calls: [
+        {
+          session_id: null,
+          title: null,
+          agent: null,
+          occurred_at: readAt.toISOString(),
+          duration_ms: null,
+          outcome: "unknown",
+        },
+      ],
+      next_cursor: "next",
+      per_day: [{ date: "2026-10-01", calls: 1 }],
+    });
+    expect(asked).toEqual([{ kind: "user", ownerId: WORKSPACE, userId: USER }]);
+    expect(askedCalls).toEqual([
+      {
+        period: { since: new Date("2026-10-01T00:00:00Z") },
+        name: "Bash",
+        sort: "recent",
+        limit: 20,
+        ownerId: WORKSPACE,
+        viewer: { userId: USER, apiKeyId: null },
+      },
+    ]);
   });
 
   test("scope=me sums what the caller started: a person's, else the key's", async () => {
@@ -326,6 +392,12 @@ describe("usage service", () => {
           throw new Error("not read");
         },
         usageTools: async () => {
+          throw new Error("not read");
+        },
+        usageToolCalls: async () => {
+          throw new Error("not read");
+        },
+        usageToolDays: async () => {
           throw new Error("not read");
         },
       },

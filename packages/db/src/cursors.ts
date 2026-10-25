@@ -92,6 +92,48 @@ export function decodeTurnCursor(value: string): TurnCursor {
   );
 }
 
+// A tool's calls page newest or slowest first, ties on (use_event_id, ord).
+// `at` is text for the same reason; `ms` is null past the timed calls.
+export type ToolCallCursor =
+  | { sort: "recent"; at: string; id: number; ord: number }
+  | { sort: "slowest"; ms: number | null; id: number; ord: number };
+
+const positive = (value: unknown): value is number =>
+  typeof value === "number" && Number.isSafeInteger(value) && value >= 1;
+
+export function encodeToolCallCursor(cursor: ToolCallCursor): string {
+  return encodeJsonCursor(cursor);
+}
+
+/** A cursor minted for the other sort is no cursor for this one. */
+export function decodeToolCallCursor(
+  value: string,
+  sort: ToolCallCursor["sort"],
+): ToolCallCursor {
+  return decodeJsonCursor(value, (parsed): ToolCallCursor | undefined => {
+    if (parsed.sort !== sort || !positive(parsed.id) || !positive(parsed.ord)) {
+      return undefined;
+    }
+    if (
+      sort === "recent" &&
+      typeof parsed.at === "string" &&
+      PG_TIMESTAMPTZ_TEXT.test(parsed.at)
+    ) {
+      return { sort, at: parsed.at, id: parsed.id, ord: parsed.ord };
+    }
+    if (
+      sort === "slowest" &&
+      (parsed.ms === null ||
+        (typeof parsed.ms === "number" &&
+          Number.isSafeInteger(parsed.ms) &&
+          parsed.ms >= 0))
+    ) {
+      return { sort, ms: parsed.ms, id: parsed.id, ord: parsed.ord };
+    }
+    return undefined;
+  });
+}
+
 // Members page oldest membership first; created_at is text for the same reason.
 export type MemberCursor = { created_at: string; user_id: string };
 

@@ -4,7 +4,12 @@ import { and, eq, inArray, isNull, not, or, type SQL, sql } from "drizzle-orm";
 import { INSTALLATION_STORAGE_SCOPE } from "./input-limits.ts";
 import type { Database } from "./queries.ts";
 import { sessions, storageUsage, turns, workerLaunches } from "./schema.ts";
+import { toolCallDays, toolCallPage } from "./tool-call-pages.ts";
 import { toolCallTotals } from "./tool-calls.ts";
+
+// An open period ends at the read, and never before it starts.
+const untilOf = (period: { since: Date; until?: Date }) =>
+  period.until ?? new Date(Math.max(Date.now(), period.since.getTime()));
 
 const ENDED: TurnStatus[] = [
   "completed",
@@ -185,6 +190,22 @@ export function createPostgresUsageReader(db: Database): UsageReader {
           : { until: tools.period.until }),
         ...(tools.agentId === undefined ? {} : { agentId: tools.agentId }),
         limit,
+      });
+    },
+
+    usageToolCalls(filter, calls) {
+      return toolCallPage(db, filter, {
+        ...calls,
+        until: untilOf(calls.period),
+      });
+    },
+
+    usageToolDays(filter, tools) {
+      return toolCallDays(db, filter, {
+        name: tools.name,
+        since: tools.period.since,
+        until: untilOf(tools.period),
+        ...(tools.agentId === undefined ? {} : { agentId: tools.agentId }),
       });
     },
   };
