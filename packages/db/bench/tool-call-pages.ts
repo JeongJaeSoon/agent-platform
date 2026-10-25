@@ -1,8 +1,9 @@
 /**
  * GET /v1/usage/tools/{name}/calls on real PostgreSQL, over a database
  * bench/tool-calls.ts has seeded and projected: the most-called tool's first
- * and third pages by recent and slowest, and per_day, for the installation
- * and for one user, under the API's statement timeout.
+ * and third pages by recent and slowest, and per_day, for the installation,
+ * a busy user, a user with few sessions and one with none, under the API's
+ * statement timeout.
  *
  *   bun packages/db/bench/tool-call-pages.ts <postgres-url>
  */
@@ -17,6 +18,8 @@ const url = process.argv[2];
 if (!url) throw new Error("usage: tool-call-pages.ts <postgres-url>");
 const OWNER = "bench-owner";
 const ME = "00000000-0000-4000-8000-000000000001";
+// bench/tool-calls.ts gives this user one session in a thousand.
+const RARE = "00000000-0000-4000-8000-000000000021";
 const NOBODY = "00000000-0000-4000-8000-0000000000ff";
 
 const pool = new Pool({
@@ -73,6 +76,7 @@ async function pages(
 
 const installation: UsageSummaryFilter = { kind: "installation" };
 const me: UsageSummaryFilter = { kind: "user", ownerId: OWNER, userId: ME };
+const rare: UsageSummaryFilter = { kind: "user", ownerId: OWNER, userId: RARE };
 const nobody: UsageSummaryFilter = {
   kind: "user",
   ownerId: OWNER,
@@ -82,6 +86,7 @@ const rows: Record<string, ReturnType<typeof stats>> = {};
 for (const [label, filter] of [
   ["installation", installation],
   ["me", me],
+  ["few calls", rare],
   ["no calls", nobody],
 ] as const) {
   for (const sort of ["recent", "slowest"] as const) {
