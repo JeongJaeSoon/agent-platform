@@ -409,7 +409,7 @@ wait_for "/v1/sessions/$SID/turns/$RETRY_TURN" .status completed
 
 **기대 응답.** 두 호출은 같은 status와 acceptance body를 돌려주며 turn은 한 번만 만들어진다. receipt의 `result`는 최초 acceptance body를 보존하고, 현재 성공/실패는 receipt의 최상위 `status`와 turn 조회로 읽는다.
 
-**흔한 오류.** 같은 key에 다른 body를 보내면 409 `IDEMPOTENCY_CONFLICT`다. timeout 뒤 결과가 불분명하다고 새 key로 다시 보내면 중복 실행될 수 있으므로 먼저 같은 key로 재시도한다.
+**흔한 오류.** 같은 key에 다른 body를 보내면 409 `IDEMPOTENCY_CONFLICT`다. timeout 뒤 결과가 불분명하다고 새 key로 다시 보내면 중복 실행될 수 있으므로 먼저 같은 key로 재시도한다. 429와 DB 장애의 503에는 기다릴 초를 담은 `Retry-After` header가 붙는다. 응답에 이 header가 있으면 그 시간이 지난 뒤 같은 key와 body로 다시 보낸다.
 
 ## 10. 세션 결과의 push 요청과 승인·거부
 
