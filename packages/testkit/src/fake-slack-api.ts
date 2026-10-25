@@ -359,6 +359,14 @@ export function createFakeSlackWebApi(
       installedBot(context);
       const id = context.params.channel;
       if (!id) throw new SlackError("channel_not_found");
+      // Slack hides a private channel from a bot that is not in it.
+      const hidden = conversations.find((candidate) => candidate.id === id);
+      if (
+        hidden?.isPrivate &&
+        !hidden.members.includes(installedBot(context).appId)
+      ) {
+        throw new SlackError("channel_not_found");
+      }
       const channel = channels.get(id) ?? {
         isIm: id.startsWith("D"),
         isPrivate: id.startsWith("G"),

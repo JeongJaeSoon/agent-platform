@@ -41,6 +41,7 @@ import {
   createAuthorizationPolicy,
   createSlackBotApi,
   createSlackChannelJoiner,
+  createSlackChannelKinds,
   createSlackWelcome,
   createSurfaceBindingService,
   deploymentWelcomeKey,
@@ -247,10 +248,11 @@ async function installedAgent() {
   const bindings = createSurfaceBindingService({
     authorization,
     store: bindingStore,
-    channels: {
-      kindOf: async (_workspace, _agent, channelId) =>
-        slackBotApi.channelKind(BOT_CREDENTIAL, channelId),
-    },
+    channels: createSlackChannelKinds({
+      apps: appStore,
+      secrets: createPostgresSecretStore(db, key),
+      slack: slackBotApi,
+    }),
     join,
     welcome,
   });
@@ -486,13 +488,20 @@ describe.each(ENGINES)("the deployment welcome on %s", (engine) => {
 
     const bound = await fixture.bind(channel, true);
     expect(bound.slack_binding.membership).toEqual({
+      // Slack hides it from the bot until the invite.
       state: "awaiting_invite",
-      error: null,
+      error: "channel_not_found",
     });
     expect(callsOf("conversations.join")).toBe(0);
     expect(await fixture.finalize()).toEqual({
       finalized: true,
-      warnings: [{ code: "awaiting_invite", channel_id: channel }],
+      warnings: [
+        {
+          code: "awaiting_invite",
+          channel_id: channel,
+          error: "channel_not_found",
+        },
+      ],
     });
     expect(await outboxRows()).toEqual([]);
 

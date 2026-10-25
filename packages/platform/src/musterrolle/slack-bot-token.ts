@@ -58,6 +58,15 @@ export function createSlackChannelKinds(deps: {
       try {
         return await deps.slack.channelKind(token, channelId);
       } catch (error) {
+        // A private channel is hidden from a bot not invited yet; it is
+        // bound, and waits for the invite. A DM never is.
+        if (
+          error instanceof SlackApiError &&
+          error.code === "channel_not_found" &&
+          !channelId.startsWith("D")
+        ) {
+          return "private_channel";
+        }
         if (error instanceof SlackApiError && error.answered) {
           throw new SessionServiceError(
             "BAD_REQUEST",
