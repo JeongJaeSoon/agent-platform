@@ -512,6 +512,8 @@ describe("completing an install", () => {
     outcomes.push(["refused", code(refusedResponse.json).code]);
     expect(code(refusedResponse.json).details).toEqual({
       reason_code: "slack_error",
+      slack_method: "oauth.v2.access",
+      failure: "slack_error",
       slack_error: "invalid_code",
     });
 
@@ -768,12 +770,72 @@ describe("completing an install", () => {
     ]);
   });
 
-  test("Slack out of reach is a 503 and nothing is stored", async () => {
+  test("Slack out of reach is a 503 that names how the call failed, and nothing is stored", async () => {
     await setup;
     const app = appOf(REJECTED_AGENT);
-    slack.install.next.exchange = async () => {
-      throw new SlackApiError("oauth.v2.access", "timeout", false);
-    };
+    const failures = [
+      new SlackApiError("oauth.v2.access", "timeout", false),
+      new SlackApiError("oauth.v2.access", "unreachable", false),
+      new SlackApiError("oauth.v2.access", "http_502", false, 502),
+      new SlackApiError("oauth.v2.access", "internal_error", false, 503),
+      new SlackApiError("oauth.v2.access", "unexpected_answer", false, 200),
+    ];
+    const seen: unknown[] = [];
+    for (const failure of failures) {
+      slack.install.next.exchange = async () => {
+        throw failure;
+      };
+      const { code: grant, state } = approve(
+        await start(REJECTED_AGENT, owner()),
+      );
+      const before = logs.records.length;
+      const response = await complete(owner(), {
+        agent_id: REJECTED_AGENT,
+        state,
+        code: grant,
+      });
+      expect(response.status).toBe(503);
+      const { details } = code(response.json);
+      const logged = logs.records
+        .slice(before)
+        .filter((record) => record.message === "Slack install failed");
+      expect(logged).toHaveLength(1);
+      expect(logged[0]?.fields).toEqual({
+        agent_id: REJECTED_AGENT,
+        status: 503,
+        code: "BACKEND_UNAVAILABLE",
+        ...(details as object),
+      });
+      seen.push(details);
+    }
+    expect(seen).toEqual([
+      { slack_method: "oauth.v2.access", failure: "timeout" },
+      { slack_method: "oauth.v2.access", failure: "unreachable" },
+      {
+        slack_method: "oauth.v2.access",
+        failure: "http_status",
+        http_status: 502,
+      },
+      {
+        slack_method: "oauth.v2.access",
+        failure: "slack_error",
+        http_status: 503,
+        slack_error: "internal_error",
+      },
+      {
+        slack_method: "oauth.v2.access",
+        failure: "unexpected_answer",
+        http_status: 200,
+      },
+    ]);
+    expect(botTokenSlots().filter((key) => key.includes(app.id))).toEqual([]);
+  });
+
+  test("the app a failed attempt left without a bot token is the one the next install uses", async () => {
+    await setup;
+    const app = appOf(REJECTED_AGENT);
+    expect(app.state).toBe("created");
+    expect(botTokenSlots().filter((key) => key.includes(app.id))).toEqual([]);
     const { code: grant, state } = approve(
       await start(REJECTED_AGENT, owner()),
     );
@@ -782,8 +844,17 @@ describe("completing an install", () => {
       state,
       code: grant,
     });
-    expect(response.status).toBe(503);
-    expect(botTokenSlots().filter((key) => key.includes(app.id))).toEqual([]);
+    expect(response.status).toBe(200);
+    handled.push(...slack.install.botTokens.keys());
+    const installed = completeSlackInstallResponseSchema.parse(response.json);
+    expect(installed.slack_app.id).toBe(app.id);
+    expect(installed.installation.app_id).toBe(app.appId ?? "");
+    expect(
+      [...apps.rows.values()].filter((row) => row.agentId === REJECTED_AGENT),
+    ).toHaveLength(1);
+    expect(botTokenSlots().filter((key) => key.includes(app.id))).toHaveLength(
+      1,
+    );
   });
 
   test("no state, code or bot token appears in a response or a log line", () => {
@@ -796,6 +867,6 @@ describe("completing an install", () => {
     expect(text).not.toMatch(/xoxb-/);
     expect(
       logs.records.filter((record) => record.message === "Slack app installed"),
-    ).toHaveLength(4);
+    ).toHaveLength(5);
   });
 });

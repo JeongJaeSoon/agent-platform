@@ -7,6 +7,7 @@ import {
 import type { StructuredLogger } from "@werft-ai/observability";
 import type { SlackInstallService } from "@werft-ai/platform";
 import {
+  ApiHttpError,
   type ApiRouter,
   apiRoute,
   jsonWithSchema,
@@ -46,7 +47,18 @@ export function registerSlackInstallRoutes(
       );
       const completed = await mapped(() =>
         service.complete(context.get("caller"), body),
-      );
+      ).catch((error: unknown) => {
+        if (error instanceof ApiHttpError) {
+          // The details hold only codes, methods and statuses.
+          logger?.warn("Slack install failed", {
+            agent_id: body.agent_id,
+            status: error.status,
+            code: error.code,
+            ...(typeof error.details === "object" ? error.details : {}),
+          });
+        }
+        throw error;
+      });
       logger?.info("Slack app installed", {
         agent_id: completed.slack_app.agent_id,
         slack_app_id: completed.slack_app.id,
