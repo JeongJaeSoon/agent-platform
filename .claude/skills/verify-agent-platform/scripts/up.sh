@@ -7,7 +7,21 @@
 #   up.sh                      new project verify-ap-<run id>
 #   up.sh infra/compose.x.yml  the same, with opt-in overlays on top
 #   VERIFY_DEMO_ACCOUNTS=1 up.sh  include the local demo accounts and data
+#   VERIFY_SLOT_LIMIT=5 up.sh  more worker slots than the default 3
+#
+# Each worker takes a network, and so an address pool entry, of its own, so
+# the stack holds at most slots + 1 networks; up.sh stops before anything
+# exists when Docker's pools cannot fit that.
 set -euo pipefail
+
+slots=${VERIFY_SLOT_LIMIT:-3}
+case "$slots" in
+  '' | 0* | *[!0-9]*) echo "up.sh: VERIFY_SLOT_LIMIT must be a positive integer (got '$slots')" >&2; exit 1 ;;
+esac
+"$(dirname "$0")/address-pool.sh" "$((slots + 1))" || {
+  echo "up.sh: nothing was started; down a stack you started, or start with a smaller VERIFY_SLOT_LIMIT" >&2
+  exit 1
+}
 
 repo=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
 root=${VERIFY_AP_ROOT:-$(t=${TMPDIR:-/tmp}; echo "${t%/}")/verify-agent-platform}
@@ -47,6 +61,7 @@ EOF
   printf 'VERIFY_REPO=%q\n' "$repo"
   printf 'export COMPOSE_PROJECT_NAME=%q\n' "$project"
   printf 'export EXECUTION_INSTALLATION_ID=%q\n' "$project"
+  printf 'export EXECUTION_SLOT_LIMIT=%q\n' "$slots"
   overlays=""
   for overlay in "$@"; do overlays="$overlays:$repo/$overlay"; done
   printf 'export COMPOSE_FILE=%q\n' "$repo/compose.yaml:$run/ports.yml$overlays"
