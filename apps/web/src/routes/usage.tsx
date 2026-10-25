@@ -14,6 +14,7 @@ import {
   Card,
   EmptyState,
   formatTimestamp,
+  Page,
   SegmentedControl,
   SegmentedControlItem,
   Skeleton,
@@ -29,7 +30,6 @@ import { Clock } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { useHasPermission } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
-import { Page } from "../components/page.tsx";
 import { type MessageKey, type Translate, useI18n } from "../i18n/i18n.tsx";
 import { formatBytes } from "./session-outputs.tsx";
 

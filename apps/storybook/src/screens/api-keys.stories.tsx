@@ -10,7 +10,7 @@ import {
   formatTimestamp,
   LinkTab,
   LinkTabs,
-  PageHeader,
+  Page,
   Skeleton,
 } from "@werft-ai/ui";
 import { CircleAlert, Clock, Copy, Plus } from "lucide-react";
@@ -287,18 +287,17 @@ function ApiKeysScreen({
       crumb={["내 설정", "API key"]}
       role={viewer}
     >
-      <div className="flex flex-col gap-[var(--ap-space-block)]">
-        <PageHeader
-          title="API key"
-          description={SCREEN[shown].intro}
-          actions={
-            shown === "org" ? undefined : (
-              <Button type="button">
-                <Plus aria-hidden="true" className="size-4" />새 key
-              </Button>
-            )
-          }
-        />
+      <Page
+        title="API key"
+        description={SCREEN[shown].intro}
+        actions={
+          shown === "org" ? undefined : (
+            <Button type="button">
+              <Plus aria-hidden="true" className="size-4" />새 key
+            </Button>
+          )
+        }
+      >
         <LinkTabs aria-label="key 목록">
           {tabs.map((of) => (
             <LinkTab
@@ -340,7 +339,7 @@ function ApiKeysScreen({
             </Alert>
           </>
         )}
-      </div>
+      </Page>
     </ScreenShell>
   );
 }
