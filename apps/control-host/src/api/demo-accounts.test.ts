@@ -22,7 +22,7 @@ describe("demoAccountsRefusal", () => {
     [{ ...local, DEMO_ACCOUNTS: "1" }, "DEMO_ACCOUNTS=local is not set"],
     [
       { ...local, KUBERNETES_SERVICE_HOST: "10.0.0.1" },
-      "Kubernetes installation",
+      "Kubernetes installation without preview.enabled",
     ],
     [
       {
@@ -62,6 +62,80 @@ describe("demoAccountsRefusal", () => {
     ],
   ])("refuses %p", (env, reason) => {
     expect(demoAccountsRefusal(env)).toContain(reason);
+  });
+
+  describe("a preview Kubernetes installation", () => {
+    const pod = { ...local, KUBERNETES_SERVICE_HOST: "10.0.0.1" };
+    const preview = { ...pod, PREVIEW_NAMESPACE: "k8s-963-demo" };
+
+    test.each([
+      "postgresql://postgres:dev@postgres:5432/sessions",
+      "postgresql://postgres:dev@postgres.k8s-963-demo:5432/sessions",
+      "postgresql://postgres:dev@postgres.k8s-963-demo.svc:5432/sessions",
+      "postgresql://postgres:dev@postgres.k8s-963-demo.svc.cluster.local/sessions",
+    ])("allows its own namespace's postgres Service %p", (url) => {
+      expect(demoAccountsRefusal({ ...preview, DATABASE_URL: url })).toBeNull();
+    });
+
+    test.each([
+      // The chart default and values-aws.example.yaml set no PREVIEW_NAMESPACE.
+      [pod, "Kubernetes installation without preview.enabled"],
+      [{ ...pod, PREVIEW_NAMESPACE: "" }, "without preview.enabled"],
+      [
+        {
+          ...pod,
+          DATABASE_URL: "postgresql://app:x@db.prod.internal:5432/sessions",
+        },
+        "without preview.enabled",
+      ],
+      [
+        {
+          ...preview,
+          DATABASE_URL: "postgresql://app:x@db.prod.internal:5432/sessions",
+        },
+        "DATABASE_URL points at db.prod.internal, not the postgres Service of namespace k8s-963-demo",
+      ],
+      [
+        {
+          ...preview,
+          DATABASE_URL: "postgresql://postgres:dev@postgres.prod:5432/sessions",
+        },
+        "DATABASE_URL points at postgres.prod",
+      ],
+      [
+        {
+          ...preview,
+          DATABASE_URL:
+            "postgresql://postgres:dev@postgres.prod.svc.cluster.local/sessions",
+        },
+        "DATABASE_URL points at postgres.prod.svc.cluster.local",
+      ],
+      [
+        { ...preview, DATABASE_URL: "postgresql://postgres:dev@localhost/s" },
+        "DATABASE_URL points at localhost",
+      ],
+      [
+        {
+          ...preview,
+          DATABASE_URL:
+            "postgresql://postgres:dev@postgres/sessions?host=db.prod.internal",
+        },
+        "DATABASE_URL carries query options",
+      ],
+      [{ ...preview, DEMO_ACCOUNTS: undefined }, "DEMO_ACCOUNTS=local"],
+    ])("refuses %p", (env, reason) => {
+      expect(demoAccountsRefusal(env)).toContain(reason);
+    });
+  });
+
+  test("outside Kubernetes PREVIEW_NAMESPACE opens nothing", () => {
+    expect(
+      demoAccountsRefusal({
+        ...local,
+        PREVIEW_NAMESPACE: "k8s-963-demo",
+        DATABASE_URL: "postgresql://postgres:dev@postgres.k8s-963-demo/s",
+      }),
+    ).toContain("not the local compose postgres");
   });
 
   test("the CLI refuses before it opens a database", () => {

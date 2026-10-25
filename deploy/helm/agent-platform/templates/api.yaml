@@ -66,6 +66,12 @@ spec:
             - name: AWS_ENDPOINT_URL_SECRETS_MANAGER
               value: {{ . | quote }}
             {{- end }}
+            {{- if .Values.preview.enabled }}
+            - name: PREVIEW_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            {{- end }}
             {{- include "ap.checkpointEnv" . | nindent 12 }}
             {{- include "ap.extraEnv" .Values.api.extraEnv | nindent 12 }}
           # /healthz answers while the process serves HTTP; /readyz also

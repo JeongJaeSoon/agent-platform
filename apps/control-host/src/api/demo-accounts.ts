@@ -52,19 +52,36 @@ const LOCAL_DATABASE_HOSTS = new Set([
   "[::1]",
 ]);
 
+// The names a pod's resolver maps to the postgres Service of its own
+// namespace.
+function previewDatabaseHosts(namespace: string) {
+  return new Set(
+    [
+      "",
+      `.${namespace}`,
+      `.${namespace}.svc`,
+      `.${namespace}.svc.cluster.local`,
+    ].map((suffix) => `postgres${suffix}`),
+  );
+}
+
 /**
  * Why this process must not create the demo accounts, or null. Only
  * scripts/local.sh sets DEMO_ACCOUNTS=local, and only on its own compose
- * stack; a Kubernetes pod or a database elsewhere is a real installation.
+ * stack; a database elsewhere is a real installation. So is a Kubernetes
+ * pod, unless the chart's preview.enabled gave it PREVIEW_NAMESPACE and its
+ * database is that namespace's postgres Service: the flag alone must not
+ * open fixed passwords on a real database.
  */
 export function demoAccountsRefusal(
   env: Record<string, string | undefined>,
 ): string | null {
   if (env.DEMO_ACCOUNTS !== "local") {
-    return "DEMO_ACCOUNTS=local is not set; only scripts/local.sh creates demo accounts";
+    return "DEMO_ACCOUNTS=local is not set; only scripts/local.sh or a preview install creates demo accounts";
   }
-  if (env.KUBERNETES_SERVICE_HOST) {
-    return "this is a Kubernetes installation";
+  const preview = env.KUBERNETES_SERVICE_HOST ? env.PREVIEW_NAMESPACE : null;
+  if (preview === undefined || preview === "") {
+    return "this is a Kubernetes installation without preview.enabled";
   }
   let url: URL;
   try {
@@ -78,11 +95,18 @@ export function demoAccountsRefusal(
     return "DATABASE_URL carries query options";
   }
   const host = url.hostname;
+  const [allowed, expected] =
+    preview === null
+      ? [LOCAL_DATABASE_HOSTS, "the local compose postgres"]
+      : [
+          previewDatabaseHosts(preview),
+          `the postgres Service of namespace ${preview}`,
+        ];
   if (
     !["postgres:", "postgresql:"].includes(url.protocol) ||
-    !LOCAL_DATABASE_HOSTS.has(host)
+    !allowed.has(host)
   ) {
-    return `DATABASE_URL points at ${host}, not the local compose postgres`;
+    return `DATABASE_URL points at ${host}, not ${expected}`;
   }
   return null;
 }
