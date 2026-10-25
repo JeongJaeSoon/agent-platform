@@ -204,7 +204,9 @@ export function createPostgresUsageReader(db: Database): UsageReader {
       return toolCallDays(db, filter, {
         name: tools.name,
         since: tools.period.since,
-        until: untilOf(tools.period),
+        ...(tools.period.until === undefined
+          ? {}
+          : { until: tools.period.until }),
         ...(tools.agentId === undefined ? {} : { agentId: tools.agentId }),
       });
     },

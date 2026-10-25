@@ -382,7 +382,11 @@ describe("toolCallDays", () => {
       budgetMs: 60_000,
       marginSeconds: 0,
     });
-    const days = (since: string, until: string, filter = installation) =>
+    const days = (
+      since: string,
+      until: string,
+      filter: UsageSummaryFilter = installation,
+    ) =>
       toolCallDays(db, filter, {
         name: "Bash",
         since: day(since),

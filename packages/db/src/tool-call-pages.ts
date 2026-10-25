@@ -13,7 +13,7 @@ import {
 } from "./cursors.ts";
 import type { Database } from "./queries.ts";
 import { sessionVisibleTo } from "./session-shares.ts";
-import { DAY_MS, scopeOf } from "./tool-calls.ts";
+import { periodParts, scopeOf } from "./tool-calls.ts";
 
 const stamp = (date: Date) => sql`${date.toISOString()}::timestamptz`;
 const utcDate = (ms: number) => new Date(ms).toISOString().slice(0, 10);
@@ -121,30 +121,17 @@ export async function toolCallPage(
 
 /**
  * Calls of one tool per UTC date of [since, until), every date the period
- * touches and zeros included: whole days from tool_call_days, the ends no
- * whole day covers from tool_calls.
+ * touches and zeros included, read as periodParts splits the period.
  */
 export async function toolCallDays(
   db: Database,
   filter: UsageSummaryFilter,
-  options: { name: string; since: Date; until: Date; agentId?: string },
+  options: { name: string; since: Date; until?: Date; agentId?: string },
 ): Promise<{ date: string; calls: number }[]> {
   const scope = scopeOf(filter, options.agentId);
+  const { days, ends, until: end } = periodParts(options.since, options.until);
   const since = options.since.getTime();
-  const until = options.until.getTime();
-  const firstDay = Math.ceil(since / DAY_MS) * DAY_MS;
-  const endDay = Math.floor(until / DAY_MS) * DAY_MS;
-  const [days, ends] =
-    firstDay < endDay
-      ? [
-          sql`day >= ${utcDate(firstDay)}::date AND day < ${utcDate(endDay)}::date`,
-          sql`(c.created_at >= ${stamp(options.since)} AND c.created_at < ${stamp(new Date(firstDay))})
-            OR (c.created_at >= ${stamp(new Date(endDay))} AND c.created_at < ${stamp(options.until)})`,
-        ]
-      : [
-          sql`false`,
-          sql`c.created_at >= ${stamp(options.since)} AND c.created_at < ${stamp(options.until)}`,
-        ];
+  const until = end.getTime();
   const result = await db.execute(sql`
     WITH dates AS (
       SELECT generate_series(${utcDate(since)}::date, ${utcDate(until - 1)}::date, interval '1 day')::date AS day
