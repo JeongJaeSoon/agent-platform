@@ -4,6 +4,7 @@ import type {
   TurnEventPresentation,
 } from "@werft-ai/contracts";
 import {
+  Badge,
   cn,
   formatRelativeTime,
   RelativeTime,
@@ -17,7 +18,7 @@ import {
   LoaderCircle,
   type LucideIcon,
 } from "lucide-react";
-import { type JSX, useId, useState } from "react";
+import { type JSX, type ReactNode, useId, useState } from "react";
 
 import { Sparkles } from "../console-icons.ts";
 import { type FormatTurnMessage, turnSummaryText } from "./turn-text.ts";
@@ -33,6 +34,10 @@ export interface TimelineEntry {
    * with the id of an earlier call is drawn inside that call's row.
    */
   readonly toolCallId?: string | undefined;
+  /** A question or permission event's request, for the `request` slot. */
+  readonly requestId?: string | undefined;
+  /** What a question offers to choose from, shown under its line. */
+  readonly options?: readonly string[] | undefined;
 }
 
 /** Who or what an event came from; each has its own icon. */
@@ -54,6 +59,8 @@ export interface TimelineMessages {
   readonly folded?: ((count: number) => string) | undefined;
   /** Marks a tool call whose result has not arrived. */
   readonly running?: string | undefined;
+  /** Names a question's list of options. */
+  readonly options?: string | undefined;
 }
 
 export function timelineKind(
@@ -124,6 +131,11 @@ export interface TimelineProps {
   /** The instant relative times count from; defaults to the clock. */
   readonly now?: number | Date | undefined;
   readonly className?: string | undefined;
+  /**
+   * Drawn under a request's line, such as its answer form while it waits;
+   * null leaves the line as it is, with a question's options listed.
+   */
+  readonly request?: ((requestId: string) => ReactNode) | undefined;
 }
 
 interface TimelineRow extends TimelineEntry {
@@ -369,6 +381,7 @@ export function Timeline({
   locale = "ko",
   now,
   className,
+  request,
 }: TimelineProps): JSX.Element {
   const idBase = useId();
   const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
@@ -447,6 +460,7 @@ export function Timeline({
                 resultShown={shown.has(resultKey(row))}
                 first={first}
                 last={last}
+                request={request}
               />
             ),
         });
@@ -640,11 +654,13 @@ function EventItem({
   resultShown,
   first,
   last,
+  request,
 }: LineProps & {
   readonly row: TimelineRow;
   readonly time: TimeContext;
   readonly shown: boolean;
   readonly resultShown: boolean;
+  readonly request: TimelineProps["request"];
 }): JSX.Element {
   const { presentation, result } = row;
   const error =
@@ -656,6 +672,9 @@ function EventItem({
     presentation.label.key === "session.event.kind.toolUse"
       ? messages.running
       : undefined;
+  const slot =
+    row.requestId === undefined ? null : (request?.(row.requestId) ?? null);
+  const options = row.options ?? [];
   return (
     <li
       data-error={error || undefined}
@@ -694,6 +713,23 @@ function EventItem({
             }
           />
         ) : null}
+        {slot ??
+          (options.length === 0 ? null : (
+            <ul
+              aria-label={messages.options}
+              className="m-0 flex list-none flex-wrap gap-1.5 p-0"
+            >
+              {options.map((option, index) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: labels may repeat; the position tells them apart
+                <li key={index} className="max-w-full">
+                  {/* A long option wraps inside the badge, never past the row. */}
+                  <Badge className="h-auto min-h-5 max-w-full whitespace-normal [overflow-wrap:anywhere]">
+                    {option}
+                  </Badge>
+                </li>
+              ))}
+            </ul>
+          ))}
       </div>
     </li>
   );
