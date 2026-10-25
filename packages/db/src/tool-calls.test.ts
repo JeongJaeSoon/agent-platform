@@ -630,6 +630,7 @@ describe("toolCallTotals", () => {
         ["Read", 1],
       ]);
       expect(await names(me, AGENT)).toEqual([["Bash", 1]]);
+      expect(await names(me, AGENT.toUpperCase())).toEqual([["Bash", 1]]);
       expect(await names(installation, AGENT)).toEqual([["Bash", 2]]);
       expect(await names(installation)).toEqual([
         ["Bash", 2],
