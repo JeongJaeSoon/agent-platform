@@ -21,12 +21,14 @@ import {
   Button,
   buttonVariants,
   Page,
+  PageBreadcrumb,
+  PageBreadcrumbCurrent,
+  PageBreadcrumbLink,
   Tabs,
   TabsContent,
   TabsList,
   TabsTrigger,
 } from "@werft-ai/ui";
-import { ArrowLeft } from "lucide-react";
 import { useRef, useState } from "react";
 import { agentQuery, queryKeys } from "../api/queries.ts";
 import { ReasonButton, useRole } from "../auth/guard.tsx";
@@ -477,14 +479,22 @@ function AgentView({
           ) : null}
         </span>
       }
+      breadcrumb={
+        <PageBreadcrumb label={t("shell.breadcrumb")}>
+          <PageBreadcrumbLink asChild>
+            <Link to="/agents" activeOptions={{ exact: true }}>
+              {t("agents.title")}
+            </Link>
+          </PageBreadcrumbLink>
+          <PageBreadcrumbCurrent className="[overflow-wrap:anywhere]">
+            {agent.name}
+          </PageBreadcrumbCurrent>
+        </PageBreadcrumb>
+      }
       actions={
-        // Narrow screens stack the buttons and wrap the reason under its
-        // button, so the title keeps the width of the row.
-        <div className="flex items-start gap-2 max-sm:w-min max-sm:flex-col max-sm:items-end">
-          <Link to="/agents" className={buttonVariants({ variant: "outline" })}>
-            <ArrowLeft aria-hidden="true" />
-            {t("agent.back")}
-          </Link>
+        // Narrow screens wrap the reason under its button, so the title
+        // keeps the width of the row.
+        <div className="flex items-start max-sm:w-min max-sm:flex-col max-sm:items-end">
           <ReasonButton
             className={buttonVariants()}
             reason={t("sessionList.newUnavailable")}

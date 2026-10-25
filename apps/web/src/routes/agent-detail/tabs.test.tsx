@@ -53,6 +53,28 @@ describe("에이전트 상세 탭", () => {
     expect(document.activeElement === visiblePanel()).toBe(true);
   });
 
+  test("제목 위 위치 줄이 에이전트 목록으로 돌아가고, 머리의 버튼은 새 세션 하나다", async () => {
+    renderAt(DETAIL, { ...meOk, ...agentServer().routes });
+    const heading = await screen.findByRole("heading", { level: 1 });
+    const header = heading.closest("header") as HTMLElement;
+    const crumbs = within(header).getByRole("navigation", { name: "위치" });
+    const back = within(crumbs).getByRole("link", { name: "에이전트" });
+    expect(back.getAttribute("href")).toBe("/agents");
+    const current = crumbs.querySelector('[aria-current="page"]');
+    expect(heading.textContent).toContain(current?.textContent ?? "");
+    expect(
+      within(header).queryByRole("link", { name: "에이전트 목록" }),
+    ).toBeNull();
+    expect(
+      within(header)
+        .getAllByRole("button")
+        .map((button) => button.textContent),
+    ).toEqual(["이 에이전트로 새 세션"]);
+    expect(
+      back.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
   test("주소의 tab으로 다시 열면 그 탭이고, 탭 이동은 뒤로 가기 기록을 쌓지 않는다", async () => {
     const server = agentServer();
     const { history } = renderAt("/agents", { ...meOk, ...server.routes });

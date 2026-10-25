@@ -451,10 +451,11 @@ const CONTROL_ICON = {
 export interface SessionControlsProps extends SessionActionProps {
   readonly session: SessionDetailData;
   /**
-   * `icons` draws each command as a square icon button named by its label,
-   * for a page header; `buttons` (the default) draws labelled buttons.
+   * `head` draws each command as an outline button with its icon and label,
+   * for a page header; `icons` draws square icon buttons named by their
+   * label; `buttons` (the default) draws labelled buttons.
    */
-  readonly variant?: "buttons" | "icons";
+  readonly variant?: "buttons" | "head" | "icons";
   /** Drawn before the icon buttons on their row, such as a back link. */
   readonly leading?: ReactNode;
 }
@@ -534,6 +535,7 @@ export function SessionControls({
     });
   };
 
+  const head = variant !== "buttons";
   const icons = variant === "icons";
   const buttons = actions.map((action) => {
     const label = t(`session.control.${action}`);
@@ -543,14 +545,14 @@ export function SessionControls({
         key={action}
         type="button"
         data-action={action}
-        variant={action === "terminate" && !icons ? "destructive" : "outline"}
+        variant={action === "terminate" && !head ? "destructive" : "outline"}
         disabled={reason !== undefined}
         // Not `disabled` while a command runs: Chrome takes focus off a
         // disabled button, and the keyboard would lose its place.
         aria-disabled={control.isPending || undefined}
         size={icons ? "icon-sm" : "sm"}
         className={
-          icons && action === "terminate"
+          head && action === "terminate"
             ? "text-destructive hover:text-destructive aria-disabled:opacity-50"
             : "aria-disabled:opacity-50"
         }
@@ -564,7 +566,16 @@ export function SessionControls({
           else run(action);
         }}
       >
-        {icons ? <Icon strokeWidth={1.5} aria-hidden="true" /> : label}
+        {icons ? (
+          <Icon strokeWidth={1.5} aria-hidden="true" />
+        ) : head ? (
+          <>
+            <Icon strokeWidth={1.5} aria-hidden="true" />
+            {label}
+          </>
+        ) : (
+          label
+        )}
       </Button>
     );
   });
@@ -576,7 +587,7 @@ export function SessionControls({
 
   return (
     <>
-      {icons ? (
+      {head ? (
         // Wrapped under the title on a narrow page, the row starts at the left.
         <div className="flex min-w-0 flex-col items-start gap-1 md:items-end">
           <div className="flex flex-wrap items-center gap-2 md:justify-end">

@@ -71,7 +71,6 @@ export const sessionsKo = {
   "session.pending.note.running":
     "{status} · 요청이 오면 여기에 먼저 나옵니다.",
   "session.pending.note.ended": "{status} · 더 올 요청이 없습니다.",
-  "session.back": "세션 목록",
   "session.notFound":
     "이 세션을 찾을 수 없습니다. 지워졌거나 볼 권한이 없는 세션입니다.",
   "session.overview": "상태",
@@ -283,7 +282,6 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "session.pending.note.idle": "{status} · waiting for the next instruction.",
   "session.pending.note.running": "{status} · a request shows here first.",
   "session.pending.note.ended": "{status} · no more requests will come.",
-  "session.back": "All sessions",
   "session.notFound":
     "This session cannot be found. It was removed, or you may not see it.",
   "session.overview": "Status",
@@ -496,7 +494,6 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
   "session.pending.note.running":
     "{status} · リクエストはまずここに表示されます。",
   "session.pending.note.ended": "{status} · これ以上リクエストは来ません。",
-  "session.back": "セッション一覧",
   "session.notFound":
     "このセッションは見つかりません。削除されたか、閲覧権限がありません。",
   "session.overview": "状態",

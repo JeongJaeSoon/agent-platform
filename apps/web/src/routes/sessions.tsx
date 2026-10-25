@@ -32,10 +32,13 @@ import {
   EmptyState,
   FilterMenu,
   Page,
+  PageBreadcrumb,
+  PageBreadcrumbCurrent,
+  PageBreadcrumbLink,
   SegmentedControl,
   SegmentedControlItem,
 } from "@werft-ai/ui";
-import { ArrowLeft, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { ReasonButton, useCan } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
@@ -400,15 +403,18 @@ export function SessionDetailScreen() {
     // The screen fills the area under the top bar, so its rail reaches the bottom.
     <div className="flex flex-1 flex-col">
       <SessionDetail
-        back={
-          <Link
-            to="/sessions"
-            className={buttonVariants({ variant: "outline" })}
-          >
-            <ArrowLeft strokeWidth={1.5} aria-hidden="true" />
-            {t("session.back")}
-          </Link>
-        }
+        breadcrumb={(session) => (
+          <PageBreadcrumb label={t("shell.breadcrumb")}>
+            <PageBreadcrumbLink asChild>
+              <Link to="/sessions" activeOptions={{ exact: true }}>
+                {t("sessions.title")}
+              </Link>
+            </PageBreadcrumbLink>
+            <PageBreadcrumbCurrent className="[overflow-wrap:anywhere]">
+              {session.title || session.id.slice(0, 8)}
+            </PageBreadcrumbCurrent>
+          </PageBreadcrumb>
+        )}
         id={id}
         loading={<StatusScreen kind="loading" />}
         renderError={loadError}

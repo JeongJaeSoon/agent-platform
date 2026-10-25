@@ -68,6 +68,12 @@ export interface SessionDetailTab {
 
 export interface SessionDetailProps extends SessionActionProps {
   readonly id: string;
+  /**
+   * A `PageBreadcrumb` above the title, the way back to the list; the
+   * head's commands stay the session's own.
+   */
+  readonly breadcrumb?: (session: SessionDetailData) => ReactNode;
+  /** Drawn before the commands. Prefer `breadcrumb` for the way back. */
   readonly back?: ReactNode;
   /** Shown until the session arrives. */
   readonly loading: ReactNode;
@@ -81,6 +87,7 @@ export interface SessionDetailProps extends SessionActionProps {
 
 export function SessionDetail({
   id,
+  breadcrumb,
   back,
   loading,
   renderError,
@@ -292,6 +299,7 @@ export function SessionDetail({
         // Wide, the meta line wraps under the title and the commands stay
         // top right (console v4 `.page-head`); narrow, the commands wrap below.
         className="flex-wrap md:flex-nowrap"
+        breadcrumb={breadcrumb?.(detail)}
         title={
           <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
             {/* A server from before titles sends none at all. */}
@@ -319,7 +327,7 @@ export function SessionDetail({
             session={detail}
             unavailable={unavailable}
             refusal={refusal}
-            variant="icons"
+            variant="head"
             leading={back}
           />
         }

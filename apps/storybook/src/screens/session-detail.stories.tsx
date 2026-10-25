@@ -1,7 +1,11 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { SessionDetail } from "@werft-ai/react/blocks";
-import { Button, EmptyState } from "@werft-ai/ui";
-import { ArrowLeft } from "lucide-react";
+import {
+  EmptyState,
+  PageBreadcrumb,
+  PageBreadcrumbCurrent,
+  PageBreadcrumbLink,
+} from "@werft-ai/ui";
 
 import { type FakeRoutes, json } from "../../.storybook/fake-client.ts";
 import {
@@ -21,7 +25,8 @@ import { MOBILE, ScreenShell } from "./screen-kit.tsx";
 /*
  * Console v4 session detail (Console.dc.html, user feedback 2026-10-24) as
  * apps/web mounts the real block: the title and status, the meta line with
- * the design's icons, the way back with square commands beside it, the
+ * the design's icons, the way back as a breadcrumb above the title, the
+ * commands (pause, then terminate) top right, the
  * composer under the timeline and, from 1280px, the right rail (V4-RAIL)
  * from the top bar to the bottom of the screen; narrower, the rail follows
  * the body. What the API does not carry yet (agent, who started it, branch)
@@ -60,14 +65,14 @@ function SessionDetailPage({
         id={SESSION.id}
         {...shared(host)}
         unavailable={scoped ? undefined : host.unavailable}
-        back={
-          <Button asChild variant="outline">
-            <a href="#sessions">
-              <ArrowLeft strokeWidth={1.5} aria-hidden="true" />
-              세션 목록
-            </a>
-          </Button>
-        }
+        breadcrumb={(session) => (
+          <PageBreadcrumb label="위치">
+            <PageBreadcrumbLink href="#sessions">세션</PageBreadcrumbLink>
+            <PageBreadcrumbCurrent className="[overflow-wrap:anywhere]">
+              {session.title || session.id.slice(0, 8)}
+            </PageBreadcrumbCurrent>
+          </PageBreadcrumb>
+        )}
         tabs={() => [
           {
             value: "outputs",

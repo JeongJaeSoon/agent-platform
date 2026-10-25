@@ -1362,7 +1362,8 @@ describe("session detail", () => {
     });
     await waitFor(() => expect(stream.requests).toHaveLength(1));
     await act(async () => stream.open());
-    await user.click(screen.getByRole("link", { name: "세션 목록" }));
+    const crumbs = screen.getByRole("navigation", { name: "위치" });
+    await user.click(within(crumbs).getByRole("link", { name: "세션" }));
     await screen.findByText("아직 세션이 없습니다.");
     expect(stream.closed).toBe(true);
   });
@@ -1776,9 +1777,7 @@ describe("session profile", () => {
       expect(screen.queryByRole("button", { name: "일시 정지" })).toBeNull(),
     );
     await waitFor(() =>
-      expect(document.activeElement?.getAttribute("aria-label")).toBe(
-        "다시 시작",
-      ),
+      expect(document.activeElement?.textContent).toBe("다시 시작"),
     );
   });
 
@@ -1819,9 +1818,7 @@ describe("session profile", () => {
     state = { ...detail, current_turn_id: null };
     act(() => stream.emit("ev_1", "status", { phase: "idle" }));
     await waitFor(() =>
-      expect(document.activeElement?.getAttribute("aria-label")).toBe(
-        "일시 정지",
-      ),
+      expect(document.activeElement?.textContent).toBe("일시 정지"),
     );
   });
 
@@ -2258,23 +2255,36 @@ describe("세션 상세 레이아웃", () => {
     },
   );
 
-  test("헤더는 세션 목록 뒤에 이름 붙은 제어 아이콘을, 메타 줄에 저장소·모델·사용량을 둔다", async () => {
+  test("헤더는 제목 위 위치 줄로 돌아가고, 라벨 붙은 제어를 종료가 마지막인 순서로, 메타 줄에 저장소·모델·사용량을 둔다", async () => {
     renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
     const pause = await screen.findByRole("button", { name: "일시 정지" });
     const header = pause.closest("header") as HTMLElement;
-    expect(pause.getAttribute("title")).toBe("일시 정지");
-    expect(pause.textContent).toBe("");
-    const back = within(header).getByRole("link", { name: "세션 목록" });
-    // The keyboard reaches the way back before the commands.
+    expect(pause.textContent).toBe("일시 정지");
+    const crumbs = within(header).getByRole("navigation", { name: "위치" });
+    const back = within(crumbs).getByRole("link", { name: "세션" });
+    expect(back.getAttribute("href")).toBe("/sessions");
+    const current = crumbs.querySelector('[aria-current="page"]');
+    expect(current?.textContent).toBe(detail.title ?? SESSION_ID.slice(0, 8));
     expect(
-      back.compareDocumentPosition(pause) & Node.DOCUMENT_POSITION_FOLLOWING,
+      within(header).queryByRole("link", { name: "세션 목록" }),
+    ).toBeNull();
+    const heading = screen.getByRole("heading", { level: 1 });
+    const commands = within(header)
+      .getAllByRole("button")
+      .filter((button) => button.dataset.action !== undefined);
+    expect(commands.map((button) => button.textContent)).toEqual([
+      "지금 turn 멈추기",
+      "일시 정지",
+      "세션 종료",
+    ]);
+    // The keyboard reaches the way back, then the title, then the commands.
+    expect(
+      back.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(
-      within(header).getByRole("button", { name: "세션 종료" }),
+      heading.compareDocumentPosition(pause) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-    expect(screen.getByRole("heading", { level: 1 }).textContent).toContain(
-      "답변 대기",
-    );
+    expect(heading.textContent).toContain("답변 대기");
     expect(header.textContent).toContain("demo");
     expect(header.textContent).toContain("model-default");
     await waitFor(() => expect(header.textContent).toContain("$0.4200"));

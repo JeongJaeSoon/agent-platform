@@ -9,12 +9,15 @@ import {
   CardTitle,
   cn,
   Link,
+  PageBreadcrumb,
+  PageBreadcrumbCurrent,
+  PageBreadcrumbLink,
   PageHeader,
   Tabs,
   TabsList,
   TabsTrigger,
 } from "@werft-ai/ui";
-import { ArrowLeft, Check, Copy } from "lucide-react";
+import { Check, Copy } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { LockedButton, PartRequest } from "./screen-kit.tsx";
@@ -88,12 +91,6 @@ export function AgentHead({
   readonly backHref?: string | undefined;
   readonly badgeBesideName?: boolean | undefined;
 }) {
-  const back = (
-    <>
-      <ArrowLeft aria-hidden="true" />
-      에이전트 목록
-    </>
-  );
   const badge = (
     <Badge variant={agent.released ? "green" : "gray"}>
       {agent.released ? "활성" : "아직 쓸 수 없음"}
@@ -122,21 +119,22 @@ export function AgentHead({
           <PartRequest name="Avatar" />
         </div>
       }
+      breadcrumb={
+        <PageBreadcrumb label="위치">
+          <PageBreadcrumbLink href={backHref ?? "#agents"}>
+            에이전트
+          </PageBreadcrumbLink>
+          <PageBreadcrumbCurrent className="[overflow-wrap:anywhere]">
+            {agent.name}
+          </PageBreadcrumbCurrent>
+        </PageBreadcrumb>
+      }
       actions={
-        <>
-          {backHref ? (
-            <Button asChild variant="outline">
-              <a href={backHref}>{back}</a>
-            </Button>
-          ) : (
-            <Button variant="outline">{back}</Button>
-          )}
-          <LockedButton
-            label="이 에이전트로 새 세션"
-            reason="웹에서는 아직 세션을 시작할 수 없습니다. API로 시작하세요."
-            size="default"
-          />
-        </>
+        <LockedButton
+          label="이 에이전트로 새 세션"
+          reason="웹에서는 아직 세션을 시작할 수 없습니다. API로 시작하세요."
+          size="default"
+        />
       }
     />
   );
