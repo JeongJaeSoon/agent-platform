@@ -1248,6 +1248,48 @@ describe("Slack management", () => {
     ).toBeNull();
     expect(document.body.textContent).not.toContain("internal description");
   });
+  test("names the missing secret store as the workspace Slack screen does", async () => {
+    renderAt(DETAIL, {
+      ...routes(),
+      [`GET ${PATH}/slack/app`]: () =>
+        apiError(503, "BACKEND_UNAVAILABLE", "secret store off"),
+    });
+    expect(
+      await screen.findByText(
+        "비밀 저장소를 사용할 수 없습니다. 관리자에게 저장소 설정을 확인해 달라고 요청하세요.",
+      ),
+    ).toBeDefined();
+    expect(document.body.textContent).not.toContain("서버가 응답하지 않습니다");
+  });
+  test("names the missing secret store in English too", async () => {
+    renderAt(
+      DETAIL,
+      {
+        ...routes(),
+        [`GET ${PATH}/slack/app`]: () =>
+          apiError(503, "BACKEND_UNAVAILABLE", "secret store off"),
+      },
+      "en",
+    );
+    expect(
+      await screen.findByText(
+        "The secret store is unavailable. Ask an administrator to check its configuration.",
+      ),
+    ).toBeDefined();
+  });
+  test("keeps the try-again text for a 503 a retry can clear", async () => {
+    renderAt(DETAIL, {
+      ...routes(),
+      [`GET ${PATH}/slack/app`]: () =>
+        apiError(503, "BACKEND_UNAVAILABLE", "busy", true),
+    });
+    expect(
+      await screen.findByText(
+        "서버가 응답하지 않습니다 — 잠시 뒤 다시 시도하세요.",
+      ),
+    ).toBeDefined();
+    expect(document.body.textContent).not.toContain("비밀 저장소");
+  });
   test("keeps the saved ceiling and home when switching mention off with the keyboard", async () => {
     let row = BINDING;
     const { api } = renderAt(DETAIL, {

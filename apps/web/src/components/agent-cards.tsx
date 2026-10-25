@@ -20,6 +20,7 @@ import {
   linkVariants,
   Skeleton,
   StatusDot,
+  Text,
 } from "@werft-ai/ui";
 import { ArrowRight } from "lucide-react";
 import type { ReactNode } from "react";
@@ -114,10 +115,18 @@ function AgentCard({
                 {agent.name}
               </RouterLink>
             </CardTitle>
-            <span className="font-mono text-caption text-muted-foreground [overflow-wrap:anywhere]">
+            <Text
+              as="span"
+              variant="sub"
+              mono
+              truncate
+              title={agent.slug}
+              // Above the card's stretched link, so the hover reaches the title.
+              className="relative z-1"
+            >
               <span className="sr-only">{t("agents.slug")} </span>
               {agent.slug}
-            </span>
+            </Text>
           </div>
         </div>
         <CardAction>

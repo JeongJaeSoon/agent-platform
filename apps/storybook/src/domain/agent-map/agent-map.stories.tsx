@@ -28,7 +28,25 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const Default: Story = {};
+// Below xl the board and the panel take turns, so a pick has to open it.
+export const Default: Story = {
+  render: (args) => {
+    const [id, setId] = useState("s3");
+    const [view, setView] = useState<"board" | "detail">("board");
+    return (
+      <AgentMap
+        {...args}
+        selected={selectedOf(id)}
+        onSelect={(next) => {
+          setId(next);
+          setView("detail");
+        }}
+        view={view}
+        onBack={() => setView("board")}
+      />
+    );
+  },
+};
 
 const laneTop = (root: HTMLElement) =>
   [...root.querySelectorAll("h2")]
