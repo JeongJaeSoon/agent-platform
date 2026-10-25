@@ -32,6 +32,7 @@ import {
   GridTableRowOpener,
   Page,
   RelativeTime,
+  Skeleton,
   StatusDot,
   type StatusDotStatus,
   Steps,
@@ -45,9 +46,10 @@ import { type ReactNode, useEffect, useId, useState } from "react";
 import {
   administeredAgentsQuery,
   agentsQuery,
+  firstMembersQuery,
   invitesQuery,
   linkedAccountsQuery,
-  membersQuery,
+  myTeamsQuery,
 } from "../api/queries.ts";
 import { useHasPermission, useMe, useRole } from "../auth/guard.tsx";
 import { AdministeredAgents } from "../components/agent-admins.tsx";
@@ -99,6 +101,8 @@ const RECENT_COLUMNS =
 // and the title needs the width at 390px.
 const RECENT_NARROW_COLUMNS = "minmax(0,1fr) 116px 64px";
 const STALE_WAIT_MS = 30 * 60 * 1000;
+// Lines the home inbox draws before the rest go to the sessions screen.
+const HOME_REQUESTS_LIMIT = 5;
 const MINUTE_MS = 60 * 1000;
 
 /**
@@ -128,14 +132,23 @@ export function useNow(): number {
  */
 export function HomeScreen() {
   const { t, locale } = useI18n();
-  const { reader, agents: managed, failure: readerFailure } = useReader();
-  const name = useMe()?.user?.display_name;
-  const intro =
-    reader === "owner" || reader === "admin"
-      ? t(INTRO[reader])
-      : reader && name
-        ? t(INTRO[reader], { name })
-        : undefined;
+  const {
+    reader,
+    agents: managed,
+    failure: readerFailure,
+    deciding,
+  } = useReader();
+  const name = useMe()?.user?.display_name ?? "";
+  const role = useRole();
+  // Every line this role may get, laid over one another: the header holds
+  // the tallest from the first render, so telling the reader apart never
+  // pushes the body down, however the words wrap.
+  const intros: readonly Reader[] =
+    role === undefined
+      ? []
+      : role === "owner" || role === "admin"
+        ? [role]
+        : ["manager", "requester"];
   const now = useNow();
   const unavailable = useUnavailable();
   const { client } = useAgentPlatform();
@@ -143,7 +156,7 @@ export function HomeScreen() {
   const managesMembers = useHasPermission("member.manage");
   const managesAgents = useHasPermission("agent.manage");
   const members = useQuery({
-    ...membersQuery(client),
+    ...firstMembersQuery(client),
     select: (page) => page.items.length > 1,
     enabled: managesMembers,
   });
@@ -270,6 +283,38 @@ export function HomeScreen() {
     },
   });
   const oldest = requests?.oldest;
+  // The inbox reads each listed session's requests itself; a list still on
+  // its way would grow the inbox under the sections below.
+  const requestsSettled = useQueries({
+    queries: (waiting.data?.items ?? []).map((session) =>
+      pendingRequestsQuery(client, session.id),
+    ),
+    combine: (lists) => lists.every((list) => !list.isLoading),
+  });
+  const teams = useQuery(myTeamsQuery(client));
+  // Which sections show, and how tall the inbox and the cards are,
+  // wait on these reads. Until all have answered the body is one
+  // placeholder, so nothing drawn early is pushed down when they do. Once
+  // shown it stays, through later reads and retries.
+  const [settled, setSettled] = useState(false);
+  if (
+    !settled &&
+    requestsSettled &&
+    !deciding &&
+    [
+      members,
+      invites,
+      agents,
+      sessions,
+      waiting,
+      keys,
+      teams,
+      myUsage,
+      installUsage,
+      limits,
+    ].every((query) => !query.isLoading)
+  )
+    setSettled(true);
   const agentItems = agents.data?.items ?? [];
   const activeAgents = agentItems.filter(
     (agent) => agentState(agent) === "active",
@@ -555,54 +600,85 @@ export function HomeScreen() {
             : null;
 
   return (
-    <Page title={t("nav.home")} description={intro}>
-      {checklistShown ? <Checklist steps={steps} /> : null}
-      <ApprovalInbox
-        layout="summary"
-        title={t("home.requests.title")}
-        action={
-          <ArrowLink to="/sessions" search={{ status: "needs_input" }}>
-            {t("home.requests.all")}
-          </ArrowLink>
-        }
-        empty={<NoRequests />}
-        now={now}
-        loading={<StatusScreen kind="loading" />}
-        renderError={loadError}
-        unavailable={unavailable}
-        refusal={(error) => t(errorKey(error.code))}
-      />
-      <HomeSection
-        title={t("home.overview.title")}
-        action={
-          cards ? (
-            <p className="m-0 text-caption text-muted-foreground">
-              {t("home.overview.basis")}
-            </p>
-          ) : undefined
-        }
-      >
-        {cards ? (
-          <ul className="m-0 grid list-none grid-cols-1 items-stretch gap-4 p-0 @[720px]:grid-cols-3">
-            {cards}
-          </ul>
-        ) : readerFailure ? (
-          <LoadFailure
-            error={readerFailure.error}
-            onRetry={readerFailure.retry}
-          />
-        ) : (
-          <StatusScreen kind="loading" />
-        )}
-      </HomeSection>
-      <HomeSection
-        title={t("home.recent.title")}
-        action={<ArrowLink to="/sessions">{t("home.recent.all")}</ArrowLink>}
-      >
-        <RecentSessionTable waitingSince={requests?.since} now={now} />
-      </HomeSection>
-      <AdministeredAgents showEmpty={false} />
-      <MyTeams showEmpty={false} />
+    <Page
+      title={t("nav.home")}
+      description={
+        intros.length > 0 ? (
+          <span className="grid">
+            {intros.map((key) => (
+              <span
+                key={key}
+                className={
+                  key === reader
+                    ? "[grid-area:1/1]"
+                    : "invisible [grid-area:1/1]"
+                }
+                aria-hidden={key === reader ? undefined : true}
+              >
+                {t(INTRO[key], { name })}
+              </span>
+            ))}
+          </span>
+        ) : undefined
+      }
+    >
+      {settled ? null : <HomeSkeleton />}
+      {/* Mounted from the start, so each section's own read is the one
+          already on its way rather than a second one asked when it shows. */}
+      <div hidden={!settled} className="contents">
+        {checklistShown ? <Checklist steps={steps} /> : null}
+        <ApprovalInbox
+          layout="summary"
+          title={t("home.requests.title")}
+          action={
+            <ArrowLink to="/sessions" search={{ status: "needs_input" }}>
+              {t("home.requests.all")}
+            </ArrowLink>
+          }
+          empty={<NoRequests />}
+          now={now}
+          limit={HOME_REQUESTS_LIMIT}
+          more={(count) => (
+            <ArrowLink to="/sessions" search={{ status: "needs_input" }}>
+              {t("home.requests.more", { count })}
+            </ArrowLink>
+          )}
+          renderError={loadError}
+          unavailable={unavailable}
+          refusal={(error) => t(errorKey(error.code))}
+        />
+        <HomeSection
+          title={t("home.overview.title")}
+          action={
+            cards ? (
+              <p className="m-0 text-caption text-muted-foreground">
+                {t("home.overview.basis")}
+              </p>
+            ) : undefined
+          }
+        >
+          {cards ? (
+            <ul className="m-0 grid list-none grid-cols-1 items-stretch gap-4 p-0 @[720px]:grid-cols-3">
+              {cards}
+            </ul>
+          ) : readerFailure ? (
+            <LoadFailure
+              error={readerFailure.error}
+              onRetry={readerFailure.retry}
+            />
+          ) : (
+            <StatusScreen kind="loading" />
+          )}
+        </HomeSection>
+        <HomeSection
+          title={t("home.recent.title")}
+          action={<ArrowLink to="/sessions">{t("home.recent.all")}</ArrowLink>}
+        >
+          <RecentSessionTable waitingSince={requests?.since} now={now} />
+        </HomeSection>
+        <AdministeredAgents showEmpty={false} />
+        <MyTeams showEmpty={false} />
+      </div>
     </Page>
   );
 }
@@ -627,6 +703,8 @@ function useReader(): {
   readonly agents: readonly Agent[];
   /** The agents could not be read, so a member's cards are not known. */
   readonly failure: { error: unknown; retry: () => void } | undefined;
+  /** The agents that tell the reader apart are still on their way. */
+  readonly deciding: boolean;
 } {
   const { client } = useAgentPlatform();
   const role = useRole();
@@ -637,7 +715,10 @@ function useReader(): {
   });
   const agents = administered.data?.items ?? [];
   const failure = undefined;
-  if (role === "owner") return { reader: "owner", agents, failure };
+  // A session without a role (an API key) never gets a reader; nothing is
+  // on its way for it either.
+  const deciding = administered.isLoading;
+  if (role === "owner") return { reader: "owner", agents, failure, deciding };
   if (administered.isError)
     return {
       reader: undefined,
@@ -646,14 +727,16 @@ function useReader(): {
         error: administered.error,
         retry: () => void administered.refetch(),
       },
+      deciding,
     };
   if (role === undefined || !administered.isSuccess)
-    return { reader: undefined, agents, failure };
-  if (role === "admin") return { reader: "admin", agents, failure };
+    return { reader: undefined, agents, failure, deciding };
+  if (role === "admin") return { reader: "admin", agents, failure, deciding };
   return {
     reader: agents.length > 0 ? "manager" : "requester",
     agents,
     failure,
+    deciding,
   };
 }
 
@@ -781,6 +864,34 @@ function ArrowLink({
         <ArrowRight className="size-3.5" aria-hidden="true" />
       </Link>
     </TextLink>
+  );
+}
+
+/**
+ * Stands in for the whole body while it is read: the inbox, the overview
+ * cards and the recent sessions, roughly at their usual heights.
+ */
+function HomeSkeleton() {
+  const { t } = useI18n();
+  return (
+    <div className="@container flex flex-col gap-[var(--ap-space-section)]">
+      <Skeleton
+        shape="block"
+        height="10rem"
+        label={t("status.loading.title")}
+      />
+      <div
+        aria-hidden="true"
+        className="grid grid-cols-1 gap-4 @[720px]:grid-cols-3"
+      >
+        <Skeleton shape="block" height="17rem" />
+        <Skeleton shape="block" height="17rem" />
+        <Skeleton shape="block" height="17rem" />
+      </div>
+      <div aria-hidden="true">
+        <Skeleton shape="block" height="12rem" />
+      </div>
+    </div>
   );
 }
 
@@ -969,7 +1080,8 @@ function RecentSessionTable({
     );
   if (items.length === 0)
     return (
-      <p className="m-0 text-body text-muted-foreground">
+      // Framed as the table it stands in for, inside its padding.
+      <p className="m-0 rounded-card border bg-card px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)] text-body text-muted-foreground">
         {t("sessions.empty")}
       </p>
     );

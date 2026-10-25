@@ -25,6 +25,7 @@ export async function appHarness() {
     path: string,
     routes: Routes,
     locale: "ko" | "en" | null = "ko",
+    validate: "strict" | "warn" = "strict",
   ) {
     const api = fakeApi({ ...nothingWaiting, ...routes });
     const left: string[] = [];
@@ -32,7 +33,7 @@ export async function appHarness() {
       baseUrl: "https://console.test",
       fetch: api.fetch,
       // Every fake answer is held to the contract; production only warns.
-      validate: "strict",
+      validate,
       eventRetry: { initialMs: 1, maxMs: 4 },
       leave: (url) => left.push(url),
     });

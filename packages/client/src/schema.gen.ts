@@ -1192,7 +1192,7 @@ export interface paths {
         };
         /**
          * Members of the workspace, oldest first
-         * @description Lists the workspace's members, disabled ones included, oldest membership first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. `q` keeps the members whose display name or email contains it, ignoring case.
+         * @description Lists the workspace's members, disabled ones included, oldest membership first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. `q` keeps the members whose display name or email contains it, ignoring case. Each row's `actions` says, for the caller as the list was read, whether each role change, disable and enable would be accepted, and if not, why: the reason is the lower-cased error code the write answers with, or `unchanged` when it would answer 200 and change nothing. The write checks again when it runs. A client that validates responses strictly needs this version's schema to read the field.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -1220,7 +1220,7 @@ export interface paths {
         head?: never;
         /**
          * Change a member's role
-         * @description Demoting the workspace's last live owner answers 409 LAST_OWNER. Writes a `change_member_role` receipt when the role changes.
+         * @description When several apply, the first answers: no `member.manage` (403 FORBIDDEN), your own role (403 SELF_PROTECTED), no such member (404), an owner targeted, or the owner role granted, by an admin (403 OWNER_PROTECTED), a suspended account (409 ACCOUNT_DISABLED), a disabled membership (409 MEMBER_DISABLED), the role it already has (200, nothing written), demoting the workspace's last live owner (409 LAST_OWNER). Writes a `change_member_role` receipt when the role changes.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -1238,7 +1238,7 @@ export interface paths {
         put?: never;
         /**
          * Disable a member of the workspace
-         * @description In the same transaction: the membership is disabled, every web session of the person is revoked (open event streams end), their personal keys in the workspace are revoked, and the sessions they asked for wait for an owner's takeover. Agent keys are untouched. Only an owner disables an owner: an admin targeting one answers 403 OWNER_PROTECTED and nothing changes. Disabling yourself, or the last live owner, answers 409 LAST_OWNER. When several apply, the first answers: no `member.manage` (403 FORBIDDEN), yourself (409), no such member (404), an owner targeted by an admin (403 OWNER_PROTECTED), the last live owner (409). Writes a `disable_member` receipt unless the membership was already disabled (`receipt_id` null).
+         * @description In the same transaction: the membership is disabled, every web session of the person is revoked (open event streams end), their personal keys in the workspace are revoked, and the sessions they asked for wait for an owner's takeover. Agent keys are untouched. Only an owner disables an owner: an admin targeting one answers 403 OWNER_PROTECTED and nothing changes. Disabling yourself answers 403 SELF_PROTECTED, the last live owner 409 LAST_OWNER. When several apply, the first answers: no `member.manage` (403 FORBIDDEN), no such member (404), yourself (403 SELF_PROTECTED), an owner targeted by an admin (403 OWNER_PROTECTED), already disabled (200, nothing written), the last live owner (409). Writes a `disable_member` receipt unless the membership was already disabled (`receipt_id` null).
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -1260,7 +1260,7 @@ export interface paths {
         put?: never;
         /**
          * Enable a disabled member again
-         * @description Revoked web sessions and personal keys stay revoked: the person signs in again. Sessions no owner took over go back to them. An admin enabling an owner answers 403 OWNER_PROTECTED. Writes an `enable_member` receipt unless the membership was already live (`receipt_id` null).
+         * @description Revoked web sessions and personal keys stay revoked: the person signs in again. Sessions no owner took over go back to them. When several apply, the first answers: no `member.manage` (403 FORBIDDEN), no such member (404), yourself (403 SELF_PROTECTED), an owner targeted by an admin (403 OWNER_PROTECTED), a suspended account (409 ACCOUNT_DISABLED: the membership alone would not bring them back, lift the suspension), already live (200, nothing written). Writes an `enable_member` receipt unless the membership was already live (`receipt_id` null).
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -1282,7 +1282,7 @@ export interface paths {
         put?: never;
         /**
          * Suspend an account
-         * @description Allowed only when every live membership of the account is in a workspace the caller owns or administers; otherwise 403 FORBIDDEN. An account that is an owner, even with that membership disabled, in any workspace the caller is not a live owner of answers 403 OWNER_PROTECTED first. The account cannot sign in anywhere, and the same cut-off as disabling a member applies in each of its workspaces. Suspending yourself answers 409 LAST_OWNER. Writes a `disable_user` receipt unless the account was already suspended (`receipt_id` null).
+         * @description Allowed only when every live membership of the account is in a workspace the caller owns or administers; otherwise 403 FORBIDDEN. An account that is an owner, even with that membership disabled, in any workspace the caller is not a live owner of answers 403 OWNER_PROTECTED first. The account cannot sign in anywhere, and the same cut-off as disabling a member applies in each of its workspaces. Suspending yourself answers 403 SELF_PROTECTED. Writes a `disable_user` receipt unless the account was already suspended (`receipt_id` null).
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -1695,6 +1695,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agents/{id}/slack-channels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Resolve up to 50 Slack channel IDs by name
+         * @description Accepts comma-separated IDs only, with no cursor or full scan. Reads conversations.info concurrently and caches each app and channel for 60 seconds, coalescing concurrent reads. IDs Slack reports as missing or inaccessible return state and name unknown. Transport failures and upstream errors answer 503 without caching; a revoked or invalid bot token answers 409 SLACK_NOT_INSTALLED. Slack rate limits answer 503 with Retry-After. Agent managers only.
+         *
+         *     **Auth:** cookie session only; no scope.
+         */
+        get: operations["lookupSlackChannels"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents/{id}/slack/channels": {
         parameters: {
             query?: never;
@@ -1710,6 +1732,56 @@ export interface paths {
          */
         get: operations["searchSlackChannels"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{id}/slack/app/manifest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the agent app manifest as YAML
+         * @description Builds the manifest from the agent and server configuration without reading secret values. Agent managers with a web session only.
+         *
+         *     **Auth:** cookie session only; no scope.
+         */
+        get: operations["getSlackAppManifest"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{id}/slack/app/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the default response mode for new Slack channels
+         * @description Returns the agent's saved default mode, initially off. Agent managers with a web session only.
+         *
+         *     **Auth:** cookie session only; no scope.
+         */
+        get: operations["getSlackAppSettings"];
+        /**
+         * Save the default response mode for new Slack channels
+         * @description Saves off or mention for the agent. Defaults to off. Agent managers with a web session only. Applying this default to new bindings is handled separately.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** required.
+         */
+        put: operations["putSlackAppSettings"];
         post?: never;
         delete?: never;
         options?: never;
@@ -2249,6 +2321,9 @@ export interface components {
             /** @default 20 */
             limit: number;
         };
+        LookupSlackChannelsQuery: {
+            ids: string;
+        };
         PostSessionAnswerRequest: {
             request_id: string;
             /** @constant */
@@ -2613,7 +2688,7 @@ export interface components {
         ApiErrorResponse: {
             error: {
                 /** @enum {string} */
-                code: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "BOOTSTRAP_DONE" | "NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "REQUEST_TIMEOUT" | "UNSUPPORTED_CAPABILITY" | "RATE_LIMITED" | "STORAGE_LIMIT_EXCEEDED" | "BUDGET_EXCEEDED" | "INTERNAL_ERROR" | "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_CLOSED" | "SESSION_CLOSING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE" | "PAUSE_COMMITTING" | "PAUSE_CANCELLED" | "CONTROL_SUPERSEDED" | "TURN_NOT_STARTED" | "BACKEND_UNAVAILABLE" | "LAUNCH_FAILED" | "CATALOG_MISMATCH" | "TAKEOVER_REQUIRED" | "SLACK_NOT_INSTALLED" | "LINK_TEAM_MISMATCH" | "LINK_TAKEN" | "LINK_EXISTS" | "AGENT_IDENTITY_TAKEN" | "CONFIG_TOKEN_INVALID" | "SLACK_APP_CREATING" | "AGENT_NOT_ACTIVE" | "SLACK_INSTALL_STATE_INVALID" | "SLACK_INSTALL_DENIED" | "SLACK_INSTALL_REJECTED" | "SLACK_INSTALL_CONFLICT" | "SLACK_LINK_NOT_CONFIGURED" | "INVITE_EXPIRED" | "INVITE_USED" | "LAST_OWNER" | "OWNER_PROTECTED" | "SCOPE_NOT_GRANTABLE" | "RELEASE_PROFILE_MISMATCH" | "CREDENTIAL_UNBOUND" | "CREDENTIAL_REF_IN_USE" | "LOGIN_LINK_REQUIRED" | "PROFILE_DIGEST_MISMATCH" | "ALREADY_EXISTS" | "NOT_READY" | "CURSOR_EXPIRED" | "LEASE_EXPIRED" | "STALE_EPOCH" | "PUSH_SOURCE_MISSING" | "PUSH_REQUEST_OPEN" | "PUSH_REQUEST_DECIDED" | "CHECKPOINT_MOVED" | "PUSH_NOT_PUSHED" | "PULL_REQUEST_MISSING";
+                code: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "BOOTSTRAP_DONE" | "NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "REQUEST_TIMEOUT" | "UNSUPPORTED_CAPABILITY" | "RATE_LIMITED" | "STORAGE_LIMIT_EXCEEDED" | "BUDGET_EXCEEDED" | "INTERNAL_ERROR" | "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_CLOSED" | "SESSION_CLOSING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE" | "PAUSE_COMMITTING" | "PAUSE_CANCELLED" | "CONTROL_SUPERSEDED" | "TURN_NOT_STARTED" | "BACKEND_UNAVAILABLE" | "LAUNCH_FAILED" | "CATALOG_MISMATCH" | "TAKEOVER_REQUIRED" | "SLACK_NOT_INSTALLED" | "LINK_TEAM_MISMATCH" | "LINK_TAKEN" | "LINK_EXISTS" | "AGENT_IDENTITY_TAKEN" | "CONFIG_TOKEN_INVALID" | "SLACK_APP_CREATING" | "AGENT_NOT_ACTIVE" | "SLACK_INSTALL_STATE_INVALID" | "SLACK_INSTALL_DENIED" | "SLACK_INSTALL_REJECTED" | "SLACK_INSTALL_CONFLICT" | "SLACK_LINK_NOT_CONFIGURED" | "INVITE_EXPIRED" | "INVITE_USED" | "LAST_OWNER" | "OWNER_PROTECTED" | "SELF_PROTECTED" | "MEMBER_DISABLED" | "ACCOUNT_DISABLED" | "SCOPE_NOT_GRANTABLE" | "RELEASE_PROFILE_MISMATCH" | "CREDENTIAL_UNBOUND" | "CREDENTIAL_REF_IN_USE" | "LOGIN_LINK_REQUIRED" | "PROFILE_DIGEST_MISMATCH" | "ALREADY_EXISTS" | "NOT_READY" | "CURSOR_EXPIRED" | "LEASE_EXPIRED" | "STALE_EPOCH" | "PUSH_SOURCE_MISSING" | "PUSH_REQUEST_OPEN" | "PUSH_REQUEST_DECIDED" | "CHECKPOINT_MOVED" | "PUSH_NOT_PUSHED" | "PULL_REQUEST_MISSING";
                 message: string;
                 retryable: boolean;
                 request_id: string;
@@ -2724,6 +2799,62 @@ export interface components {
             current_turn_id: string | null;
             queued_turn_count: number;
             last_event_at: string | null;
+            /** @description What the session's newest events did, for a list card. Absent from a server older than the field. */
+            activity?: {
+                /** @description The newest text with a non-blank line or tool call in the window's `assistant` and `tool_use` events, a subagent's included. Null when the window has neither. */
+                last: ({
+                    /** @constant */
+                    kind: "text";
+                    /** @description The first non-blank line of the text, trimmed and cut to 200 code points. */
+                    text: string;
+                } | {
+                    /** @constant */
+                    kind: "tool";
+                    /** @description The tool_use name; empty when the call named none. */
+                    name: string;
+                    /** @description What the call acts on, the first of its input's `command`, `file_path`, `path`, `pattern`, `url`, `query` or `description` that is a non-empty string; empty when none is. */
+                    target: string;
+                }) | null;
+                /** @description Distinct tool_use ids called in the window. */
+                tool_count: number;
+                /** @description Of those calls, the ones whose tool_result has `is_error: true`. A call left without a result is not counted. */
+                error_count: number;
+                /** @description Subagent runs in the window: one per `Task` or `Agent` call, and one per call the window's events name as `parent_tool_use_id`, whether or not that call is in the window. */
+                subagent_count: number;
+                /** @description The newest call still open: no tool_result yet, and neither a `result` of its turn nor a status of a session that stopped working (anything but `running`, `needs_input`, `interrupting`) came after it. Such a call reads `interrupted` and is never current. */
+                current_tool: {
+                    id: string;
+                    /** @description The tool_use name; empty when the call named none. */
+                    name: string;
+                    /** @description What the call acts on, the first of its input's `command`, `file_path`, `path`, `pattern`, `url`, `query` or `description` that is a non-empty string; empty when none is. */
+                    target: string;
+                    /**
+                     * @description `waiting` while a question for the call is unanswered: the session has not moved past `needs_input` since it was asked.
+                     * @enum {string}
+                     */
+                    state: "running" | "waiting";
+                    /**
+                     * Format: date-time
+                     * @description When the call was made, or for `waiting` when its question was asked.
+                     */
+                    since: string;
+                    /** @description What the call waits on: the newest question the session asked for it. Null unless `state` is `waiting`. */
+                    request: {
+                        /** @enum {string} */
+                        kind: "permission" | "question";
+                        /** @description For `question`, the first question's text, trimmed and cut to 200 code points; null for `permission` and for a question with no text. */
+                        prompt: string | null;
+                    } | null;
+                } | null;
+                /** @description The events the counts read: the session's newest 500 as recorded. They are ordered by `occurred_at`, and events at the same instant in the order they were recorded. */
+                window: {
+                    events: number;
+                    /** @description True when the window holds every event of the session, so the counts are the session's own. */
+                    complete: boolean;
+                    /** @description When the oldest event of the window was recorded; null for a session with none. */
+                    since: string | null;
+                };
+            };
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
@@ -2798,6 +2929,62 @@ export interface components {
             current_turn_id: string | null;
             queued_turn_count: number;
             last_event_at: string | null;
+            /** @description What the session's newest events did, for a list card. Absent from a server older than the field. */
+            activity?: {
+                /** @description The newest text with a non-blank line or tool call in the window's `assistant` and `tool_use` events, a subagent's included. Null when the window has neither. */
+                last: ({
+                    /** @constant */
+                    kind: "text";
+                    /** @description The first non-blank line of the text, trimmed and cut to 200 code points. */
+                    text: string;
+                } | {
+                    /** @constant */
+                    kind: "tool";
+                    /** @description The tool_use name; empty when the call named none. */
+                    name: string;
+                    /** @description What the call acts on, the first of its input's `command`, `file_path`, `path`, `pattern`, `url`, `query` or `description` that is a non-empty string; empty when none is. */
+                    target: string;
+                }) | null;
+                /** @description Distinct tool_use ids called in the window. */
+                tool_count: number;
+                /** @description Of those calls, the ones whose tool_result has `is_error: true`. A call left without a result is not counted. */
+                error_count: number;
+                /** @description Subagent runs in the window: one per `Task` or `Agent` call, and one per call the window's events name as `parent_tool_use_id`, whether or not that call is in the window. */
+                subagent_count: number;
+                /** @description The newest call still open: no tool_result yet, and neither a `result` of its turn nor a status of a session that stopped working (anything but `running`, `needs_input`, `interrupting`) came after it. Such a call reads `interrupted` and is never current. */
+                current_tool: {
+                    id: string;
+                    /** @description The tool_use name; empty when the call named none. */
+                    name: string;
+                    /** @description What the call acts on, the first of its input's `command`, `file_path`, `path`, `pattern`, `url`, `query` or `description` that is a non-empty string; empty when none is. */
+                    target: string;
+                    /**
+                     * @description `waiting` while a question for the call is unanswered: the session has not moved past `needs_input` since it was asked.
+                     * @enum {string}
+                     */
+                    state: "running" | "waiting";
+                    /**
+                     * Format: date-time
+                     * @description When the call was made, or for `waiting` when its question was asked.
+                     */
+                    since: string;
+                    /** @description What the call waits on: the newest question the session asked for it. Null unless `state` is `waiting`. */
+                    request: {
+                        /** @enum {string} */
+                        kind: "permission" | "question";
+                        /** @description For `question`, the first question's text, trimmed and cut to 200 code points; null for `permission` and for a question with no text. */
+                        prompt: string | null;
+                    } | null;
+                } | null;
+                /** @description The events the counts read: the session's newest 500 as recorded. They are ordered by `occurred_at`, and events at the same instant in the order they were recorded. */
+                window: {
+                    events: number;
+                    /** @description True when the window holds every event of the session, so the counts are the session's own. */
+                    complete: boolean;
+                    /** @description When the oldest event of the window was recorded; null for a session with none. */
+                    since: string | null;
+                };
+            };
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
@@ -3197,6 +3384,8 @@ export interface components {
                 provider: "slack";
                 external_tenant: string;
                 external_user_id: string;
+                external_tenant_name: string | null;
+                external_user_name: string | null;
                 /** @enum {string} */
                 status: "active" | "stale" | "revoked";
                 /** Format: date-time */
@@ -3216,6 +3405,8 @@ export interface components {
                 provider: "slack";
                 external_tenant: string;
                 external_user_id: string;
+                external_tenant_name: string | null;
+                external_user_name: string | null;
                 /** @enum {string} */
                 status: "active" | "stale" | "revoked";
                 /** Format: date-time */
@@ -3281,8 +3472,70 @@ export interface components {
             role: "owner" | "admin" | "member";
         };
         ListMembersResponse: {
-            items: components["schemas"]["MemberView"][];
+            items: {
+                /** Format: uuid */
+                user_id: string;
+                /** Format: email */
+                email: string;
+                display_name: string;
+                /** @enum {string} */
+                role: "owner" | "admin" | "member";
+                disabled_at: string | null;
+                /** Format: date-time */
+                created_at: string;
+                actions: {
+                    change_role: {
+                        owner: {
+                            /** @constant */
+                            allowed: true;
+                        } | {
+                            /** @constant */
+                            allowed: false;
+                            /** @enum {string} */
+                            reason: "self_protected" | "owner_protected" | "last_owner" | "member_disabled" | "account_disabled" | "unchanged";
+                        };
+                        admin: {
+                            /** @constant */
+                            allowed: true;
+                        } | {
+                            /** @constant */
+                            allowed: false;
+                            /** @enum {string} */
+                            reason: "self_protected" | "owner_protected" | "last_owner" | "member_disabled" | "account_disabled" | "unchanged";
+                        };
+                        member: {
+                            /** @constant */
+                            allowed: true;
+                        } | {
+                            /** @constant */
+                            allowed: false;
+                            /** @enum {string} */
+                            reason: "self_protected" | "owner_protected" | "last_owner" | "member_disabled" | "account_disabled" | "unchanged";
+                        };
+                    };
+                    disable: {
+                        /** @constant */
+                        allowed: true;
+                    } | {
+                        /** @constant */
+                        allowed: false;
+                        /** @enum {string} */
+                        reason: "self_protected" | "owner_protected" | "last_owner" | "member_disabled" | "account_disabled" | "unchanged";
+                    };
+                    enable: {
+                        /** @constant */
+                        allowed: true;
+                    } | {
+                        /** @constant */
+                        allowed: false;
+                        /** @enum {string} */
+                        reason: "self_protected" | "owner_protected" | "last_owner" | "member_disabled" | "account_disabled" | "unchanged";
+                    };
+                };
+            }[];
             next_cursor: string | null;
+            /** @description The roles the caller may invite someone as now (POST /v1/invites refuses any other with OWNER_PROTECTED). The same on every page and search. */
+            assignable_roles: ("owner" | "admin" | "member")[];
         };
         MemberView: {
             /** Format: uuid */
@@ -3442,7 +3695,7 @@ export interface components {
             result: unknown | null;
             error: {
                 /** @enum {string} */
-                code: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "BOOTSTRAP_DONE" | "NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "REQUEST_TIMEOUT" | "UNSUPPORTED_CAPABILITY" | "RATE_LIMITED" | "STORAGE_LIMIT_EXCEEDED" | "BUDGET_EXCEEDED" | "INTERNAL_ERROR" | "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_CLOSED" | "SESSION_CLOSING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE" | "PAUSE_COMMITTING" | "PAUSE_CANCELLED" | "CONTROL_SUPERSEDED" | "TURN_NOT_STARTED" | "BACKEND_UNAVAILABLE" | "LAUNCH_FAILED" | "CATALOG_MISMATCH" | "TAKEOVER_REQUIRED" | "SLACK_NOT_INSTALLED" | "LINK_TEAM_MISMATCH" | "LINK_TAKEN" | "LINK_EXISTS" | "AGENT_IDENTITY_TAKEN" | "CONFIG_TOKEN_INVALID" | "SLACK_APP_CREATING" | "AGENT_NOT_ACTIVE" | "SLACK_INSTALL_STATE_INVALID" | "SLACK_INSTALL_DENIED" | "SLACK_INSTALL_REJECTED" | "SLACK_INSTALL_CONFLICT" | "SLACK_LINK_NOT_CONFIGURED" | "INVITE_EXPIRED" | "INVITE_USED" | "LAST_OWNER" | "OWNER_PROTECTED" | "SCOPE_NOT_GRANTABLE" | "RELEASE_PROFILE_MISMATCH" | "CREDENTIAL_UNBOUND" | "CREDENTIAL_REF_IN_USE" | "LOGIN_LINK_REQUIRED" | "PROFILE_DIGEST_MISMATCH" | "ALREADY_EXISTS" | "NOT_READY" | "CURSOR_EXPIRED" | "LEASE_EXPIRED" | "STALE_EPOCH" | "PUSH_SOURCE_MISSING" | "PUSH_REQUEST_OPEN" | "PUSH_REQUEST_DECIDED" | "CHECKPOINT_MOVED" | "PUSH_NOT_PUSHED" | "PULL_REQUEST_MISSING";
+                code: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "BOOTSTRAP_DONE" | "NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "REQUEST_TIMEOUT" | "UNSUPPORTED_CAPABILITY" | "RATE_LIMITED" | "STORAGE_LIMIT_EXCEEDED" | "BUDGET_EXCEEDED" | "INTERNAL_ERROR" | "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_CLOSED" | "SESSION_CLOSING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE" | "PAUSE_COMMITTING" | "PAUSE_CANCELLED" | "CONTROL_SUPERSEDED" | "TURN_NOT_STARTED" | "BACKEND_UNAVAILABLE" | "LAUNCH_FAILED" | "CATALOG_MISMATCH" | "TAKEOVER_REQUIRED" | "SLACK_NOT_INSTALLED" | "LINK_TEAM_MISMATCH" | "LINK_TAKEN" | "LINK_EXISTS" | "AGENT_IDENTITY_TAKEN" | "CONFIG_TOKEN_INVALID" | "SLACK_APP_CREATING" | "AGENT_NOT_ACTIVE" | "SLACK_INSTALL_STATE_INVALID" | "SLACK_INSTALL_DENIED" | "SLACK_INSTALL_REJECTED" | "SLACK_INSTALL_CONFLICT" | "SLACK_LINK_NOT_CONFIGURED" | "INVITE_EXPIRED" | "INVITE_USED" | "LAST_OWNER" | "OWNER_PROTECTED" | "SELF_PROTECTED" | "MEMBER_DISABLED" | "ACCOUNT_DISABLED" | "SCOPE_NOT_GRANTABLE" | "RELEASE_PROFILE_MISMATCH" | "CREDENTIAL_UNBOUND" | "CREDENTIAL_REF_IN_USE" | "LOGIN_LINK_REQUIRED" | "PROFILE_DIGEST_MISMATCH" | "ALREADY_EXISTS" | "NOT_READY" | "CURSOR_EXPIRED" | "LEASE_EXPIRED" | "STALE_EPOCH" | "PUSH_SOURCE_MISSING" | "PUSH_REQUEST_OPEN" | "PUSH_REQUEST_DECIDED" | "CHECKPOINT_MOVED" | "PUSH_NOT_PUSHED" | "PULL_REQUEST_MISSING";
                 message: string;
             } | null;
             /** Format: date-time */
@@ -3604,6 +3857,20 @@ export interface components {
                     slack_bot_token: components["schemas"]["SlackSecretSummary"];
                 };
             } | null;
+            event_url: string | null;
+            events: {
+                /** @enum {string} */
+                state: "verified" | "pending" | "failed";
+                checked_at: string | null;
+                error?: string;
+            };
+        };
+        GetSlackAppManifestResponse: {
+            manifest_yaml: string;
+        };
+        SlackAppSettings: {
+            /** @enum {string} */
+            default_mode: "off" | "mention";
         };
         CreateSlackAppResponse: {
             slack_app: {
@@ -3724,7 +3991,9 @@ export interface components {
             finalized: boolean;
             warnings: {
                 /** @enum {string} */
-                code: "events_url_unset" | "reinstall_required" | "finalize_failed";
+                code: "events_url_unset" | "reinstall_required" | "finalize_failed" | "awaiting_invite" | "config_error" | "join_failed";
+                channel_id?: string;
+                error?: string;
             }[];
         };
         SlackEventsResponse: {
@@ -4465,6 +4734,11 @@ export interface components {
                 memory_write_policy: "deny" | "allow_explicit";
                 /** @enum {string} */
                 status: "ready" | "partial" | "failed" | "revoked";
+                membership?: {
+                    /** @enum {string} */
+                    state: "joined" | "awaiting_invite" | "config_error" | "join_failed";
+                    error: string | null;
+                };
                 muted: boolean;
                 revision: number;
                 /** Format: date-time */
@@ -4498,6 +4772,11 @@ export interface components {
                 memory_write_policy: "deny" | "allow_explicit";
                 /** @enum {string} */
                 status: "ready" | "partial" | "failed" | "revoked";
+                membership?: {
+                    /** @enum {string} */
+                    state: "joined" | "awaiting_invite" | "config_error" | "join_failed";
+                    error: string | null;
+                };
                 muted: boolean;
                 revision: number;
                 /** Format: date-time */
@@ -4517,6 +4796,14 @@ export interface components {
             next_cursor: string | null;
             truncated: boolean;
             stale: boolean;
+        };
+        LookupSlackChannelsResponse: {
+            items: {
+                id: string;
+                name: string;
+                /** @enum {string} */
+                state: "known" | "unknown";
+            }[];
         };
         OpenApiDocument: {
             /** @constant */
@@ -12473,6 +12760,7 @@ export interface operations {
             };
             /**
              * @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.
+             *     - `SELF_PROTECTED`: A manager cannot change their own role or disable or enable themselves; another manager does it.
              *     - `OWNER_PROTECTED`: Only an owner may grant the owner role or change an owner's role or access (disable, suspend, enable).
              */
             403: {
@@ -12484,7 +12772,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"] & {
                         error?: {
                             /** @enum {string} */
-                            code?: "FORBIDDEN" | "OWNER_PROTECTED";
+                            code?: "FORBIDDEN" | "SELF_PROTECTED" | "OWNER_PROTECTED";
                         };
                     };
                 };
@@ -12519,7 +12807,11 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `LAST_OWNER`: The change would leave the workspace with no live owner. */
+            /**
+             * @description - `ACCOUNT_DISABLED`: The account is suspended. Lift the suspension before changing the role or enabling the membership.
+             *     - `MEMBER_DISABLED`: The membership is disabled. Enable it before changing the role.
+             *     - `LAST_OWNER`: The change would leave the workspace with no live owner.
+             */
             409: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -12529,7 +12821,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"] & {
                         error?: {
                             /** @enum {string} */
-                            code?: "LAST_OWNER";
+                            code?: "ACCOUNT_DISABLED" | "MEMBER_DISABLED" | "LAST_OWNER";
                         };
                     };
                 };
@@ -12628,6 +12920,7 @@ export interface operations {
             };
             /**
              * @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.
+             *     - `SELF_PROTECTED`: A manager cannot change their own role or disable or enable themselves; another manager does it.
              *     - `OWNER_PROTECTED`: Only an owner may grant the owner role or change an owner's role or access (disable, suspend, enable).
              */
             403: {
@@ -12639,7 +12932,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"] & {
                         error?: {
                             /** @enum {string} */
-                            code?: "FORBIDDEN" | "OWNER_PROTECTED";
+                            code?: "FORBIDDEN" | "SELF_PROTECTED" | "OWNER_PROTECTED";
                         };
                     };
                 };
@@ -12783,6 +13076,7 @@ export interface operations {
             };
             /**
              * @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.
+             *     - `SELF_PROTECTED`: A manager cannot change their own role or disable or enable themselves; another manager does it.
              *     - `OWNER_PROTECTED`: Only an owner may grant the owner role or change an owner's role or access (disable, suspend, enable).
              */
             403: {
@@ -12794,7 +13088,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"] & {
                         error?: {
                             /** @enum {string} */
-                            code?: "FORBIDDEN" | "OWNER_PROTECTED";
+                            code?: "FORBIDDEN" | "SELF_PROTECTED" | "OWNER_PROTECTED";
                         };
                     };
                 };
@@ -12825,6 +13119,21 @@ export interface operations {
                         error?: {
                             /** @enum {string} */
                             code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `ACCOUNT_DISABLED`: The account is suspended. Lift the suspension before changing the role or enabling the membership. */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "ACCOUNT_DISABLED";
                         };
                     };
                 };
@@ -12923,6 +13232,7 @@ export interface operations {
             };
             /**
              * @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.
+             *     - `SELF_PROTECTED`: A manager cannot change their own role or disable or enable themselves; another manager does it.
              *     - `OWNER_PROTECTED`: Only an owner may grant the owner role or change an owner's role or access (disable, suspend, enable).
              */
             403: {
@@ -12934,7 +13244,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"] & {
                         error?: {
                             /** @enum {string} */
-                            code?: "FORBIDDEN" | "OWNER_PROTECTED";
+                            code?: "FORBIDDEN" | "SELF_PROTECTED" | "OWNER_PROTECTED";
                         };
                     };
                 };
@@ -12965,21 +13275,6 @@ export interface operations {
                         error?: {
                             /** @enum {string} */
                             code?: "REQUEST_TIMEOUT";
-                        };
-                    };
-                };
-            };
-            /** @description - `LAST_OWNER`: The change would leave the workspace with no live owner. */
-            409: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "LAST_OWNER";
                         };
                     };
                 };
@@ -15568,6 +15863,134 @@ export interface operations {
             };
         };
     };
+    lookupSlackChannels: {
+        parameters: {
+            query: {
+                ids: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Names for the requested IDs. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "id": "C0DEPLOY1",
+                     *           "name": "deploy",
+                     *           "state": "known"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["LookupSlackChannelsResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `SLACK_NOT_INSTALLED`: The workspace has no verified Slack install for this team. */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "SLACK_NOT_INSTALLED";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
     searchSlackChannels: {
         parameters: {
             query?: {
@@ -15711,6 +16134,335 @@ export interface operations {
             };
         };
     };
+    getSlackAppManifest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The generated manifest without secret values. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "manifest_yaml": "display_information:\n  name: Agent\n"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["GetSlackAppManifestResponse"];
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    getSlackAppSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The saved default mode. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "default_mode": "off"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["SlackAppSettings"];
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    putSlackAppSettings: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required, 1–255 characters; a UUID per user intent works. A retry with the same key and the same body returns the original response and runs the command once; the same key with a different body answers `409 IDEMPOTENCY_CONFLICT`. A missing or invalid key answers `400 BAD_REQUEST`, after the body is read. */
+                "Idempotency-Key": string;
+                /** @description Required with a cookie session: the literal `agent-platform-web`. */
+                "X-Requested-With"?: "agent-platform-web";
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "default_mode": "mention"
+                 *     }
+                 */
+                "application/json": components["schemas"]["SlackAppSettings"];
+            };
+        };
+        responses: {
+            /** @description The saved default mode. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "default_mode": "mention"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["SlackAppSettings"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema; the `Idempotency-Key` header is missing, empty or longer than 255 characters. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8. */
+            413: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "PAYLOAD_TOO_LARGE";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
     getSlackApp: {
         parameters: {
             query?: never;
@@ -15762,6 +16514,11 @@ export interface operations {
                      *             "updated_by": null
                      *           }
                      *         }
+                     *       },
+                     *       "event_url": "https://agents.example.test/v1/slack/events/019a0000-0000-7000-8000-0000000000c1",
+                     *       "events": {
+                     *         "state": "pending",
+                     *         "checked_at": null
                      *       }
                      *     }
                      */

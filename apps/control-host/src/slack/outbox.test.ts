@@ -477,7 +477,7 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
         channelId: CHANNEL,
         threadTs: THREAD,
         userId: null,
-        text: `Done: ping &lt;!here&gt;, &lt;@U0ELSE&gt; and <@${PERSON}>, but \`<!here>\` stays code.\n\n<${CONSOLE}/sessions/${sessionId}|${SLACK_OUTBOX_MESSAGES.link}>`,
+        text: `Done: ping &lt;!here&gt;, &lt;@U0ELSE&gt; and <@${PERSON}>, but \`&lt;!here&gt;\` stays code.\n\n<${CONSOLE}/sessions/${sessionId}|${SLACK_OUTBOX_MESSAGES.link}>`,
         ts: expect.any(String),
         options: {
           link_names: "false",

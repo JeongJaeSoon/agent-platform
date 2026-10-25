@@ -13,6 +13,7 @@ import { myTeamsQuery } from "../api/queries.ts";
 import { useHasPermission } from "../auth/guard.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 import { LoadFailure } from "./load-failure.tsx";
+import { OPENS_ROW, ROW_LINK } from "./row-link.ts";
 
 export const SECTION = "flex flex-col gap-[var(--ap-space-block)]";
 export const SECTION_TITLE = "m-0 font-semibold text-body";
@@ -53,9 +54,15 @@ export function MyTeams({
           <p className={`${MUTED} text-sm`}>{t("teams.mine.intro")}</p>
           <RowList>
             {items.map((team) => (
-              <RowListItem key={team.id}>
+              <RowListItem
+                key={team.id}
+                className={manages ? OPENS_ROW : undefined}
+              >
                 {manages ? (
-                  <TextLink asChild className="[overflow-wrap:anywhere]">
+                  <TextLink
+                    asChild
+                    className={`${ROW_LINK} [overflow-wrap:anywhere]`}
+                  >
                     <Link
                       to="/members/teams/$teamId"
                       params={{ teamId: team.id }}

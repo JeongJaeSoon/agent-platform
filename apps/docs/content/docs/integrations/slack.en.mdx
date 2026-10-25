@@ -47,6 +47,8 @@ curl -sS -o /dev/null -w '%{http_code}\n' -X POST "$API/v1/linked-accounts/slack
 
 With a configured installation, the start request returns an `authorize_url`. After you grant consent on Slack's authorization screen at that URL, the web link screen passes `code` and `state` to the callback and the link is complete. The link state is `active`, `stale`, or `revoked`.
 
+The link response and each item of `GET /v1/linked-accounts` also carry the names Slack gave at linking: `external_user_name` is the Slack display name (the id_token's `name`), and `external_tenant_name` is the Slack workspace name (`https://slack.com/team_name`). Linking again replaces them. A link made before names were stored, or one Slack gave no name for, has `null`, and the web screen shows the ID instead. No Slack token is stored.
+
 | Response | Meaning |
 | --- | --- |
 | 409 `SLACK_NOT_INSTALLED` | This workspace has no confirmed Slack installation |
@@ -83,6 +85,16 @@ Running the same command again re-confirms the same installation (`registration:
 
 ## An agent's Slack app
 
+### Read app settings
+
+Agent administrators, including workspace owners and admins, call these endpoints with a web session. `GET /v1/agents/{id}/slack/app` includes `event_url` and `events`. The absolute event URL is the server's `SLACK_EVENTS_PUBLIC_URL` plus `/v1/slack/events/{agent_id}`, or null when unset. `events.state` is `pending`, `verified`, or `failed`; `checked_at` is the last registration attempt, or null. Failures include a safe `error` code. Verified means the install finalize manifest registration succeeded.
+
+`GET /v1/agents/{id}/slack/app/manifest` returns `manifest_yaml`, generated from the current agent and server configuration without secret values.
+
+`GET /v1/agents/{id}/slack-channels?ids=C1,C2` resolves at most 50 IDs. Each item has `id`, `name`, and `state`; only IDs Slack reports as missing or inaccessible have name and state `unknown`. Transport failures and upstream errors return 503 for the request without caching; a revoked or invalid bot token returns 409 `SLACK_NOT_INSTALLED`. There is no cursor or full scan. Results are cached per app and channel for 60 seconds. Slack 429 returns 503 with `Retry-After`.
+
+`GET` and `PUT /v1/agents/{id}/slack/app/settings` read and save `{ "default_mode": "off" }` or `mention`. The initial mode is `off`, and settings can be saved before app creation. Applying the default to new bindings is separate follow-up work. There is no app-wide on/off switch.
+
 Each agent has its own Slack app. To connect it, send the app id, the team id, and the name of a credential reference that holds the bot token (`credential_ref`, not the value).
 
 ```sh
@@ -91,6 +103,19 @@ curl -sS "$API/v1/agents/$AID/identities" "${WEB[@]}" \
 ```
 
 Without a confirmed Slack installation this returns 409 `SLACK_NOT_INSTALLED`. The operator creates an installation with the registration CLI above.
+
+## Channel joins and the deployment welcome
+
+When you save one of the agent's channels (`PUT /v1/agents/{id}/slack-bindings`), the server puts the bot in that channel. The bot joins a public channel itself. Slack does not let a bot join a private channel, so invite it there with `/invite @<bot>`; the server notices the invite and carries on. The binding's `membership.state` shows the result.
+
+| `membership.state` | Meaning |
+| --- | --- |
+| `joined` | The bot is in the channel |
+| `awaiting_invite` | A private channel, waiting for the invite |
+| `config_error` | Slack refused the token or a scope (`error` holds Slack's code). Reinstall the app |
+| `join_failed` | The channel is archived or a workspace policy refused the join (`error`) |
+
+Deploying a new release posts one message in the home channel: `안녕하세요, <agent name>입니다. 이 채널에 배포됐어요. 멘션하면 답할게요` (Korean by default). Submitting the same definition again or rolling back to an earlier release posts nothing. Moving the home to another channel posts once in the new channel. If the bot is not in the home yet, the message waits until it is. A welcome or join that fails never fails the deployment.
 
 ## Next steps
 

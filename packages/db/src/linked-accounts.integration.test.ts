@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { type AuthorizationRequest, scopesForRole } from "@werft-ai/contracts";
 import {
   createAuthorizationPolicy,
+  type ExternalAccountNames,
   type ExternalAccountRef,
   type IdentityReader,
   type Principal,
@@ -126,12 +127,20 @@ integration("linked_accounts on PostgreSQL", () => {
     externalUserId: userId,
   });
 
-  function link(ws: string, userId: string, account: ExternalAccountRef) {
+  const noNames = { externalTenantName: null, externalUserName: null };
+
+  function link(
+    ws: string,
+    userId: string,
+    account: ExternalAccountRef,
+    names: ExternalAccountNames = noNames,
+  ) {
     return store().link({
       principal: asUser(ws, userId),
       workspaceId: ws,
       userId,
       account,
+      names,
     });
   }
 
@@ -188,6 +197,31 @@ integration("linked_accounts on PostgreSQL", () => {
           revision: 1,
         },
       });
+    });
+
+    test("keeps the names Slack gave, replaced by each re-verification", async () => {
+      const { ws, team, user } = await setup();
+      const account = slack(team);
+      const first = await link(ws, user, account, {
+        externalTenantName: "Hafen",
+        externalUserName: "Alice",
+      });
+      expect(first).toMatchObject({
+        outcome: "linked",
+        account: { externalTenantName: "Hafen", externalUserName: "Alice" },
+      });
+      await link(ws, user, account, {
+        externalTenantName: "Hafen Ops",
+        externalUserName: null,
+      });
+      expect(await store().list(ws, user, 50)).toMatchObject([
+        {
+          externalUserId: account.externalUserId,
+          externalTenantName: "Hafen Ops",
+          externalUserName: null,
+          revision: 1,
+        },
+      ]);
     });
 
     test("a workspace with no verified Slack install refuses every link", async () => {

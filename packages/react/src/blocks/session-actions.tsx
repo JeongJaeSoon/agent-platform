@@ -8,16 +8,25 @@ import {
   Button,
   ConfirmDialog,
   cn,
+  formatTimestamp,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@werft-ai/ui";
-import { type LucideIcon, Play, Power, Square } from "lucide-react";
+import {
+  ChevronDown,
+  type LucideIcon,
+  Play,
+  Power,
+  Square,
+} from "lucide-react";
 import {
   type Dispatch,
   type ReactNode,
   type Ref,
   type SetStateAction,
+  useEffect,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
@@ -29,6 +38,7 @@ import {
   Composer,
   QuestionCard,
 } from "../components/index.ts";
+import { useExpired, useExpiryFocus } from "../components/session/expiry.ts";
 import {
   type SessionControl,
   useAnswer,
@@ -94,30 +104,115 @@ function Reason({ text }: { readonly text: string }) {
   return <p className="m-0 text-muted-foreground text-body">{text}</p>;
 }
 
-/** The summary layout's line for a request that is answered below it. */
-function SummaryLine({
+/**
+ * A question as a list line: what it asks and until when, its form folded
+ * below so every line in the list keeps one height until opened. The form
+ * stays mounted while folded and keeps what was chosen.
+ */
+function SummaryQuestion({
+  request,
   heading,
   badge,
   meta,
+  messages,
+  children,
 }: {
+  readonly request: Extract<PendingRequest, { kind: "question" }>;
   readonly heading: ReactNode;
   readonly badge: string;
   readonly meta: ReactNode;
+  readonly messages: {
+    readonly open: string;
+    readonly expires: string;
+    readonly expired: string;
+  };
+  readonly children: ReactNode;
 }) {
+  const formId = useId();
+  const formRef = useRef<HTMLDivElement>(null);
+  const focusOnOpen = useRef(false);
+  const [open, setOpen] = useState(false);
+  const expired = useExpired(
+    request.request_id,
+    request.expires_at,
+    Date.now(),
+  );
+  // Expiry takes the line's toggle away; the form's own notice may be hidden.
+  const { noticeRef, within } = useExpiryFocus(expired);
+  const prompt = request.questions[0]?.prompt;
+
+  useEffect(() => {
+    if (open && focusOnOpen.current) {
+      formRef.current
+        ?.querySelector<HTMLElement>(
+          "button:not(:disabled), input:not(:disabled), textarea:not(:disabled)",
+        )
+        ?.focus();
+    }
+    focusOnOpen.current = false;
+  }, [open]);
+
   return (
-    <div className="flex min-w-0 flex-col gap-0.5 px-[var(--ap-row-padding-x)] pt-[var(--ap-row-padding-y)] pb-2">
-      <p className="m-0 flex min-w-0 items-center gap-2 font-medium text-control leading-5">
-        <span className="min-w-16 truncate">{heading}</span>
-        <Badge variant="amber" className="min-w-0 max-w-max shrink">
-          <span className="truncate">{badge}</span>
-        </Badge>
-      </p>
-      {meta === undefined ? null : (
-        <p className="m-0 text-caption text-muted-foreground leading-4 [overflow-wrap:anywhere]">
-          {meta}
-        </p>
-      )}
-    </div>
+    <>
+      <div
+        className="flex min-h-[var(--ap-row-min-height)] flex-wrap items-center justify-end gap-x-4 gap-y-2 px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)]"
+        {...within}
+      >
+        <div className="flex min-w-0 flex-1 basis-60 flex-col gap-0.5">
+          <p className="m-0 flex min-w-0 items-center gap-2 font-medium text-control leading-5">
+            <span className="min-w-0 truncate">{heading}</span>
+            {/* One short word: the name gives way, never the badge. */}
+            <Badge variant="amber" className="shrink-0">
+              {badge}
+            </Badge>
+          </p>
+          {/* Open, the form below asks it in full. */}
+          {prompt === undefined || open ? null : (
+            <p className="m-0 truncate text-control leading-5">{prompt}</p>
+          )}
+          <p
+            ref={noticeRef}
+            tabIndex={expired ? -1 : undefined}
+            className="m-0 text-caption text-muted-foreground leading-4 [overflow-wrap:anywhere]"
+          >
+            {meta}
+            {meta === undefined ? null : <span aria-hidden="true"> · </span>}
+            {expired ? messages.expired : messages.expires}
+          </p>
+        </div>
+        {expired ? null : (
+          <Button
+            type="button"
+            variant="outline"
+            className="shrink-0"
+            aria-expanded={open}
+            aria-controls={formId}
+            onClick={() => {
+              focusOnOpen.current = !open;
+              setOpen(!open);
+            }}
+          >
+            {messages.open}
+            <ChevronDown
+              className={cn(
+                "transition-transform motion-reduce:transition-none",
+                open && "rotate-180",
+              )}
+              aria-hidden="true"
+            />
+          </Button>
+        )}
+      </div>
+      <div
+        ref={formRef}
+        id={formId}
+        // Open past its expiry, the form stays: its notice takes the focus.
+        hidden={!open}
+        className="px-[var(--ap-row-padding-x)] pb-[var(--ap-row-padding-y)]"
+      >
+        {children}
+      </div>
+    </>
   );
 }
 
@@ -157,6 +252,7 @@ export function PendingAnswers({
   layout = "card",
   heading,
   meta,
+  announceSent = true,
 }: SessionActionProps & {
   readonly sessionId: string;
   readonly items: readonly PendingRequest[];
@@ -172,6 +268,8 @@ export function PendingAnswers({
   readonly heading?: ReactNode;
   /** The summary layout's second line for a request, such as its wait. */
   readonly meta?: ((request: PendingRequest) => ReactNode) | undefined;
+  /** False when the host says an answer went, as the inbox's heading does. */
+  readonly announceSent?: boolean;
 }) {
   const { t, locale } = useBlockText();
   const summary = layout === "summary";
@@ -223,11 +321,23 @@ export function PendingAnswers({
     const next =
       root?.querySelector<HTMLElement>(
         "li button:not(:disabled), li input:not(:disabled)",
-      ) ?? root?.querySelector<HTMLElement>("li summary");
-    (next ?? noticeRef.current)?.focus();
-  }, [items]);
+      ) ??
+      root?.querySelector<HTMLElement>("li summary") ??
+      (announceSent
+        ? noticeRef.current
+        : // The notice line stays empty when the host announces the answer
+          // elsewhere; only lapsed requests are left, so their visible
+          // expiry notice takes the keyboard.
+          Array.from(
+            root?.querySelectorAll<HTMLElement>("li [tabindex='-1']") ?? [],
+          ).find((notice) => notice.closest("[hidden]") === null));
+    next?.focus();
+  }, [items, announceSent]);
 
   const send = (body: Parameters<typeof answer.mutate>[0]) => {
+    // The buttons are off while an answer is on its way; a second press
+    // that beats the render must not send twice.
+    if (answer.isPending) return;
     setOutcome(null);
     // Marked before the request: an event can take the card away before
     // the answer's receipt comes back.
@@ -256,11 +366,40 @@ export function PendingAnswers({
       ? outcome.text
       : undefined;
   const expires = (at: string) => t("session.pending.expires", { at });
+  const question = (
+    request: Extract<PendingRequest, { kind: "question" }>,
+    variant: "card" | "plain",
+  ) => (
+    <QuestionCard
+      variant={variant}
+      request={request}
+      locale={locale}
+      pending={busyId === request.request_id}
+      disabled={reason !== undefined || busyId !== undefined}
+      error={errorFor(request)}
+      messages={{
+        title: t("session.pending.question"),
+        expires,
+        expired: t("session.pending.expired"),
+        freeText: t("session.answer.freeText"),
+        unanswered: t("session.answer.unanswered"),
+        submit: t("session.answer.submit"),
+      }}
+      onSubmit={(answers) =>
+        send({
+          request_id: request.request_id,
+          kind: "question",
+          answers,
+        })
+      }
+    />
+  );
   // An error shows on its card; once the card is gone, it shows here.
   const shownHere =
-    outcome?.kind === "notice" ||
-    (outcome !== null &&
-      !items.some((request) => request.request_id === outcome.requestId));
+    outcome !== null &&
+    (outcome.kind === "notice"
+      ? announceSent
+      : !items.some((request) => request.request_id === outcome.requestId));
 
   return (
     <div
@@ -336,48 +475,29 @@ export function PendingAnswers({
                     })
                   }
                 />
+              ) : summary ? (
+                <SummaryQuestion
+                  request={request}
+                  heading={lineHeading}
+                  badge={t("session.pending.question")}
+                  meta={metaFor(request)}
+                  messages={{
+                    open: t("session.answer.open"),
+                    expires: expires(
+                      formatTimestamp(request.expires_at, locale),
+                    ),
+                    expired: t("session.pending.expired"),
+                  }}
+                >
+                  {question(request, "plain")}
+                </SummaryQuestion>
               ) : (
                 <>
-                  {summary ? (
-                    <SummaryLine
-                      heading={lineHeading}
-                      badge={t("session.pending.question")}
-                      meta={metaFor(request)}
-                    />
-                  ) : subject === undefined ? null : (
+                  {subject === undefined ? null : (
                     // QuestionCard has no title-line slot yet.
                     <p className="m-0 mb-2 text-caption">{subject}</p>
                   )}
-                  <div
-                    className={
-                      summary
-                        ? "px-[var(--ap-row-padding-x)] pb-[var(--ap-row-padding-y)]"
-                        : undefined
-                    }
-                  >
-                    <QuestionCard
-                      request={request}
-                      locale={locale}
-                      pending={busyId === request.request_id}
-                      disabled={reason !== undefined || busyId !== undefined}
-                      error={errorFor(request)}
-                      messages={{
-                        title: t("session.pending.question"),
-                        expires,
-                        expired: t("session.pending.expired"),
-                        freeText: t("session.answer.freeText"),
-                        unanswered: t("session.answer.unanswered"),
-                        submit: t("session.answer.submit"),
-                      }}
-                      onSubmit={(answers) =>
-                        send({
-                          request_id: request.request_id,
-                          kind: "question",
-                          answers,
-                        })
-                      }
-                    />
-                  </div>
+                  {question(request, "card")}
                 </>
               )}
             </li>

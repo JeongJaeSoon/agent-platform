@@ -126,6 +126,7 @@ export const sessionsKo = {
   "session.answer.freeText": "직접 적기",
   "session.answer.unanswered": "하나를 고르거나 답을 적어 주세요.",
   "session.answer.submit": "답 보내기",
+  "session.answer.open": "답하기",
   "session.answer.sent": "답을 보냈습니다.",
 
   "session.control": "세션 제어",
@@ -172,6 +173,7 @@ export const sessionsKo = {
   "inbox.count": "답을 기다리는 세션 {count}개",
   "inbox.countMore": "답을 기다리는 세션 {count}개 이상",
   "inbox.empty": "답을 기다리는 세션이 없습니다.",
+  "inbox.loading": "답을 기다리는 세션을 불러오는 중",
   "inbox.open": "세션 열기",
   "inbox.waited": "{minutes}분째 대기",
 
@@ -182,6 +184,8 @@ export const sessionsKo = {
     "이벤트 연결이 끊겼습니다. 새로고침하면 다시 연결합니다.",
   "session.events.debug": "내부 이벤트도 보기",
   "session.events.turn": "turn {turn}",
+  "session.events.folded": "이벤트 {count}개",
+  "session.events.running": "실행 중",
   "session.events.kind.agent": "에이전트",
   "session.events.kind.tool": "도구",
   "session.events.kind.request": "답을 기다리는 요청",
@@ -338,6 +342,7 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "session.answer.freeText": "Write your own",
   "session.answer.unanswered": "Pick an option or write an answer.",
   "session.answer.submit": "Send answer",
+  "session.answer.open": "Answer",
   "session.answer.sent": "Answer sent.",
 
   "session.control": "Session control",
@@ -384,6 +389,7 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "inbox.count": "{count} sessions waiting for an answer",
   "inbox.countMore": "{count}+ sessions waiting for an answer",
   "inbox.empty": "No session is waiting for an answer.",
+  "inbox.loading": "Loading sessions waiting for an answer",
   "inbox.open": "Open session",
   "inbox.waited": "Waiting {minutes} min",
 
@@ -394,6 +400,8 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
     "The event connection ended. Reload the page to reconnect.",
   "session.events.debug": "Show internal events",
   "session.events.turn": "turn {turn}",
+  "session.events.folded": "{count} events",
+  "session.events.running": "Running",
   "session.events.kind.agent": "Agent",
   "session.events.kind.tool": "Tool",
   "session.events.kind.request": "Request waiting for an answer",
@@ -552,6 +560,7 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
   "session.answer.freeText": "自由に入力",
   "session.answer.unanswered": "選択肢を選ぶか、回答を入力してください。",
   "session.answer.submit": "回答を送信",
+  "session.answer.open": "回答する",
   "session.answer.sent": "回答を送信しました。",
 
   "session.control": "セッション操作",
@@ -599,6 +608,7 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
   "inbox.count": "回答待ちのセッション {count}件",
   "inbox.countMore": "回答待ちのセッション {count}件以上",
   "inbox.empty": "回答を待っているセッションはありません。",
+  "inbox.loading": "回答待ちのセッションを読み込み中",
   "inbox.open": "セッションを開く",
   "inbox.waited": "{minutes} 分待機中",
 
@@ -609,6 +619,8 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
     "イベントの接続が切れました。ページを再読み込みすると再接続します。",
   "session.events.debug": "内部イベントも表示",
   "session.events.turn": "ターン {turn}",
+  "session.events.folded": "イベント {count} 件",
+  "session.events.running": "実行中",
 
   "session.event.kind.status": "状態",
   "session.event.kind.system": "システム",

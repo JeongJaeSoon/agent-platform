@@ -61,6 +61,12 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
     "연결 설정이 바뀌어 시작하지 못했어요 — 에이전트 관리자에게 문의하세요.",
   CREDENTIAL_REF_IN_USE:
     "이 자격 이름은 이미 다른 곳(에이전트 또는 Slack 앱 연결)에 묶여 있어 쓸 수 없어요 — 다른 이름을 고르세요.",
+  SELF_PROTECTED:
+    "자기 역할이나 접근은 직접 바꿀 수 없습니다 — 다른 owner나 admin에게 요청하세요.",
+  MEMBER_DISABLED:
+    "비활성화된 구성원의 역할은 바꿀 수 없습니다 — 먼저 다시 활성화하세요.",
+  ACCOUNT_DISABLED:
+    "계정이 정지된 사람입니다 — 계정 정지를 먼저 풀어야 역할을 바꾸거나 다시 활성화할 수 있습니다.",
   OWNER_PROTECTED:
     "owner 역할을 주거나 owner의 역할을 바꾸는 일은 owner만 할 수 있습니다 — owner에게 요청하세요.",
   PROFILE_DIGEST_MISMATCH:

@@ -63,18 +63,9 @@ export function createMemberService(deps: {
         "This principal does not hold member.manage",
       );
     }
-    const userId = input.userId.toLowerCase();
-    // Turning yourself off is refused even with another owner left: the
-    // change would also end the session making it.
-    if (input.disabled && actingUserId === userId) {
-      throw new SessionServiceError(
-        "LAST_OWNER",
-        "An owner cannot disable themselves",
-      );
-    }
     const result = await store.setAccess({
       actor: { principal: caller, workspaceId, userId: actingUserId },
-      userId,
+      userId: input.userId.toLowerCase(),
       scope: input.scope,
       disabled: input.disabled,
       reason: input.reason,
@@ -97,6 +88,16 @@ export function createMemberService(deps: {
         throw new SessionServiceError(
           "OWNER_PROTECTED",
           "Only an owner can change an owner's access",
+        );
+      case "self_protected":
+        throw new SessionServiceError(
+          "SELF_PROTECTED",
+          "A manager cannot change their own access",
+        );
+      case "account_disabled":
+        throw new SessionServiceError(
+          "ACCOUNT_DISABLED",
+          "The account is suspended; lift the suspension instead",
         );
       case "actor_inactive":
         throw new SessionServiceError(

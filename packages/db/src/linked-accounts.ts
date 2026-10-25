@@ -28,6 +28,8 @@ const columns = {
   provider: linkedAccounts.provider,
   externalTenant: linkedAccounts.externalTenant,
   externalUserId: linkedAccounts.externalUserId,
+  externalTenantName: linkedAccounts.externalTenantName,
+  externalUserName: linkedAccounts.externalUserName,
   status: linkedAccounts.status,
   revokedReason: linkedAccounts.revokedReason,
   verifiedAt: linkedAccounts.verifiedAt,
@@ -100,7 +102,7 @@ async function link(
   db: Database,
   input: Parameters<LinkedAccountStore["link"]>[0],
 ): Promise<LinkAccountResult> {
-  const { account, workspaceId } = input;
+  const { account, names, workspaceId } = input;
   const userId = input.userId.toLowerCase();
   return db.transaction(async (tx) => {
     // Membership first, as every actor write does, so an offboarding that
@@ -146,6 +148,7 @@ async function link(
       [linked] = await tx
         .update(linkedAccounts)
         .set({
+          ...names,
           status: "active",
           verifiedAt: DB_NOW,
           updatedAt: DB_NOW,
@@ -177,6 +180,7 @@ async function link(
           provider: account.provider,
           externalTenant: account.externalTenant,
           externalUserId: account.externalUserId,
+          ...names,
           status: "active",
           verifiedVia: "slack_oidc",
           verifiedAt: DB_NOW,

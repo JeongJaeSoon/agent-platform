@@ -10,7 +10,8 @@ import {
   type ReceiptOperation,
 } from "@werft-ai/contracts";
 import type { ActivateResult, AgentStore, Principal } from "@werft-ai/platform";
-import { and, asc, eq, max, sql } from "drizzle-orm";
+import { and, asc, eq, gt, isNotNull, max, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { administers, liveMember } from "./administers.ts";
 import { actorStillMember, receiptActorOf } from "./control-shared.ts";
 import {
@@ -32,6 +33,40 @@ import {
 type AgentRow = typeof agents.$inferSelect;
 type VersionRow = typeof agentVersions.$inferSelect;
 type ReleaseRow = typeof agentReleases.$inferSelect;
+
+const newer = alias(agentReleases, "newer");
+
+/** A release of the agent made after this one has been activated. */
+export async function releaseSuperseded(
+  db: Database,
+  agentId: string,
+  releaseId: string,
+  workspaceId?: string,
+): Promise<boolean> {
+  const [row] = await db
+    .select({ id: newer.id })
+    .from(newer)
+    .innerJoin(agents, eq(agents.id, newer.agentId))
+    .innerJoin(
+      agentReleases,
+      and(
+        eq(agentReleases.agentId, newer.agentId),
+        eq(agentReleases.id, releaseId),
+      ),
+    )
+    .where(
+      and(
+        eq(newer.agentId, agentId),
+        workspaceId === undefined
+          ? undefined
+          : eq(agents.workspaceId, workspaceId),
+        isNotNull(newer.approvedAt),
+        gt(newer.createdAt, agentReleases.createdAt),
+      ),
+    )
+    .limit(1);
+  return row !== undefined;
+}
 
 export function agentOf(row: AgentRow): Agent {
   return {
@@ -232,6 +267,9 @@ export function createPostgresAgentStore(db: Database): AgentStore {
         .limit(1);
       return row ? releaseOf(row.release) : null;
     },
+
+    releaseSuperseded: (workspaceId, agentId, releaseId) =>
+      releaseSuperseded(db, agentId, releaseId, workspaceId),
 
     create(input) {
       return db.transaction(async (tx) => {

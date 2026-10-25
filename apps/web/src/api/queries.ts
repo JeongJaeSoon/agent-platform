@@ -6,6 +6,7 @@ export {
   agentQuery,
   agentsQuery,
   apiKeysQuery,
+  firstMembersQuery,
   invitesQuery,
   linkedAccountsQuery,
   loginMethodsQuery,

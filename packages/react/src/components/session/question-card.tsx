@@ -24,6 +24,7 @@ import {
   useState,
 } from "react";
 
+import { Busy } from "./busy.tsx";
 import { useExpired, useExpiryFocus } from "./expiry.ts";
 
 export type QuestionRequest = Extract<PendingRequest, { kind: "question" }>;
@@ -62,6 +63,11 @@ export interface QuestionCardProps {
   /** Epoch ms the expiry is compared against; the screen's clock. */
   readonly now?: number | undefined;
   readonly locale?: TimestampLocale | undefined;
+  /**
+   * "plain" drops the card's frame and title line, for a list line that
+   * already names the question and its expiry; an expired notice still shows.
+   */
+  readonly variant?: "card" | "plain" | undefined;
   readonly className?: string | undefined;
 }
 
@@ -91,6 +97,7 @@ export function QuestionCard({
   error,
   now = Date.now(),
   locale = "ko",
+  variant = "card",
   className,
 }: QuestionCardProps): JSX.Element {
   const titleId = useId();
@@ -128,12 +135,19 @@ export function QuestionCard({
       data-slot="question-card"
       data-expired={expired || undefined}
       className={cn(
-        "flex min-w-0 max-w-[var(--ap-w-narrow)] flex-col gap-3 rounded-card border border-[var(--ap-tone-attention-border)] bg-[var(--ap-tone-attention-bg)] p-4 text-control",
+        "flex min-w-0 flex-col gap-3 text-control",
+        variant === "card" &&
+          "max-w-[var(--ap-w-narrow)] rounded-card border border-[var(--ap-tone-attention-border)] bg-[var(--ap-tone-attention-bg)] p-4",
         className,
       )}
       {...within}
     >
-      <div className="flex items-center gap-2">
+      <div
+        className={cn(
+          "flex items-center gap-2",
+          variant === "plain" && !expired && "sr-only",
+        )}
+      >
         <Hourglass
           className="size-4 shrink-0"
           strokeWidth={1.5}
@@ -176,6 +190,7 @@ export function QuestionCard({
             className="self-end"
             disabled={pending || disabled}
           >
+            <Busy shown={pending} />
             {messages.submit}
           </Button>
         )}

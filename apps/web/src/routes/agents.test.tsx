@@ -181,16 +181,21 @@ describe("에이전트 목록", () => {
     ).closest("[data-slot=card]") as HTMLElement;
     expect(within(card).getByText("초안")).toBeDefined();
     expect(card.textContent).toContain("식별자 billing");
+    // The whole card is its name link: one link, the footer only says so.
     expect(
       within(card)
-        .getByRole("link", { name: "결제 담당 자세히" })
-        .getAttribute("href"),
-    ).toBe(DETAIL);
+        .getAllByRole("link")
+        .map((link) => link.getAttribute("href")),
+    ).toEqual([DETAIL]);
+    expect(card.className).toContain("cursor-pointer");
 
     await showTable(await setupUser());
     const link = await screen.findByRole("link", { name: "결제 담당" });
     expect(link.getAttribute("href")).toBe(DETAIL);
     const row = link.closest("tr") as HTMLElement;
+    expect(within(row).getAllByRole("link")).toHaveLength(1);
+    expect(row.className).toContain("cursor-pointer");
+    expect(link.className).toContain("after:inset-0");
     expect(within(row).getByText("초안")).toBeDefined();
     expect(row.textContent).toContain("식별자 billing");
   });
@@ -441,8 +446,10 @@ describe("에이전트 카드", () => {
       "초안",
     );
     expect(
-      within(card).getByRole("link", { name: "결제 담당 자세히" }),
-    ).toBeDefined();
+      within(card)
+        .getByRole("link", { name: "결제 담당" })
+        .getAttribute("href"),
+    ).toBe(DETAIL);
     expect(screen.queryByRole("alert")).toBeNull();
   });
 

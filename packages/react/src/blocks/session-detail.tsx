@@ -42,6 +42,7 @@ import {
 } from "../components/index.ts";
 import {
   type EventStreamState,
+  eventToolCallId,
   type SessionEventFrame,
   usePendingRequests,
   useSession,
@@ -679,6 +680,7 @@ function Events({
           presentation: presentTurnEvent(frame.payload, {
             toolName: frame.toolName,
           }),
+          toolCallId: eventToolCallId(frame.payload),
         }),
       ),
     [events],
@@ -703,6 +705,8 @@ function Events({
           closed: t("session.events.closed"),
           turn: (turn) => t("session.events.turn", { turn }),
           kind: (kind) => t(`session.events.kind.${kind}`),
+          folded: (count) => t("session.events.folded", { count }),
+          running: t("session.events.running"),
         }}
         state={state}
         showDebug={debug}

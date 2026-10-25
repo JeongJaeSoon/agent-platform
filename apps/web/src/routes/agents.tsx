@@ -44,6 +44,7 @@ import {
 } from "../components/agent-view.ts";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { NewAgentFlow } from "../components/new-agent-flow.tsx";
+import { OPENS_ROW, TABLE_ROW_LINK } from "../components/row-link.ts";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, type Translate, useI18n } from "../i18n/i18n.tsx";
 
@@ -313,13 +314,17 @@ function AgentTable({ agents }: { readonly agents: readonly Agent[] }) {
             <TableRow
               key={agent.id}
               inactive={agentState(agent) === "archived"}
+              className={OPENS_ROW}
             >
               <TableCell>
                 <RowLines>
                   <Link
                     to="/agents/$id"
                     params={{ id: agent.id }}
-                    className="font-medium text-primary underline-offset-2 hover:underline [overflow-wrap:anywhere]"
+                    className={cn(
+                      "font-medium text-primary underline-offset-2 hover:underline [overflow-wrap:anywhere]",
+                      TABLE_ROW_LINK,
+                    )}
                   >
                     {agent.name}
                   </Link>

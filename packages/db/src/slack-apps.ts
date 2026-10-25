@@ -69,6 +69,11 @@ async function recordOf(db: Database, row: Row): Promise<SlackAppRecord> {
     createdByTokenUser: row.createdByTokenUser,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    events: {
+      state: row.eventsState,
+      checked_at: row.eventsCheckedAt?.toISOString() ?? null,
+      ...(row.eventsError === null ? {} : { error: row.eventsError }),
+    },
     secrets: Object.fromEntries(
       SLACK_APP_SECRET_PURPOSE_VALUES.map((purpose, index) => [
         purpose,
@@ -162,6 +167,59 @@ export function createPostgresSlackAppStore(
   key: SecretKey,
 ): SlackAppStore {
   return {
+    async setEvents(workspaceId, slackAppId, events) {
+      await db
+        .update(slackApps)
+        .set({
+          eventsState: events.state,
+          eventsCheckedAt:
+            events.checked_at === null ? null : new Date(events.checked_at),
+          eventsError: events.error ?? null,
+          updatedAt: DB_NOW,
+        })
+        .where(
+          and(
+            eq(slackApps.workspaceId, workspaceId),
+            eq(slackApps.id, slackAppId),
+            eq(slackApps.state, "created"),
+          ),
+        );
+    },
+    async getSettings(workspaceId, agentId) {
+      if (!UUID.test(agentId)) return null;
+      const [row] = await db
+        .select({ default_mode: agents.slackDefaultMode })
+        .from(agents)
+        .where(
+          and(
+            eq(agents.workspaceId, workspaceId),
+            eq(agents.id, agentId.toLowerCase()),
+          ),
+        );
+      return row ?? null;
+    },
+    putSettings(input) {
+      return db.transaction(async (tx) => {
+        const refused = await actorRefusal(
+          tx,
+          input.workspaceId,
+          input.agentId,
+          input.actor,
+        );
+        if (refused) return refused;
+        const [row] = await tx
+          .update(agents)
+          .set({ slackDefaultMode: input.settings.default_mode })
+          .where(
+            and(
+              eq(agents.workspaceId, input.workspaceId),
+              eq(agents.id, input.agentId.toLowerCase()),
+            ),
+          )
+          .returning({ id: agents.id });
+        return row ? ("saved" as const) : ("not_found" as const);
+      });
+    },
     beginAgentApp(input) {
       const workspaceId = input.workspaceId.toLowerCase();
       if (!UUID.test(input.agentId)) {
@@ -439,6 +497,7 @@ export function createPostgresSlackAppStore(
           and(
             eq(slackApps.workspaceId, workspaceId.toLowerCase()),
             eq(slackApps.agentId, agentId.toLowerCase()),
+            eq(slackApps.kind, "agent"),
             inArray(slackApps.state, [...LIVE_STATES]),
           ),
         );

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   apiErrorResponseSchema,
+  lookupSlackChannelsResponseSchema,
   searchSlackChannelsResponseSchema,
 } from "@werft-ai/contracts";
 import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
@@ -54,7 +55,7 @@ function app(
 
 // The real service behind the route, on the fake Slack, with every caller
 // allowed: the policy itself is the platform test's and the integration's.
-function world() {
+function world(options: { offline?: boolean } = {}) {
   const slack = createFakeSlackWebApi();
   const botToken = fakeSlackValue("xoxb");
   slack.apps.set(APP_ID, {
@@ -65,7 +66,7 @@ function world() {
     manifest: {},
     botTokens: [botToken],
   });
-  slack.seedChannels([
+  const channels = slack.seedChannels([
     ...Array.from({ length: 12 }, (_, i) => ({
       name: `dev-${String(i).padStart(2, "0")}`,
     })),
@@ -105,13 +106,128 @@ function world() {
     secrets: secrets.store,
     api: createSlackBotApi({
       apiUrl: "http://slack.test/api",
-      fetch: (async (input: RequestInfo | URL, init?: RequestInit) =>
-        (await slack.handle(new Request(input, init))) ??
-        new Response("not found", { status: 404 })) as typeof fetch,
+      fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (options.offline) return outage();
+        return (
+          (await slack.handle(new Request(input, init))) ??
+          new Response("not found", { status: 404 })
+        );
+      }) as typeof fetch,
     }),
   });
-  return { slack, botToken, service };
+  return { slack, botToken, service, channels };
 }
+
+describe("GET /v1/agents/{id}/slack-channels", () => {
+  const lookupPath = `/v1/agents/${AGENT}/slack-channels`;
+  test("resolves IDs beyond the first page without scanning and coalesces reads", async () => {
+    const { slack, service, channels, botToken } = world();
+    const id = channels[12]?.id ?? "C0MISSINGFIXTURE";
+    const api = app(service);
+    const url = `${lookupPath}?ids=${id}`;
+    const responses = await Promise.all([
+      api.request(url, { headers: owner }),
+      api.request(url, { headers: owner }),
+    ]);
+    for (const response of responses) {
+      expect(response.status).toBe(200);
+      const text = await response.text();
+      expect(text).not.toContain(botToken);
+      expect(lookupSlackChannelsResponseSchema.parse(JSON.parse(text))).toEqual(
+        {
+          items: [{ id, name: "general", state: "known" }],
+        },
+      );
+    }
+    expect((await api.request(url, { headers: owner })).status).toBe(200);
+    expect(
+      slack.calls.filter((call) => call.method === "conversations.info"),
+    ).toHaveLength(1);
+    expect(
+      slack.calls.filter((call) => call.method === "conversations.list"),
+    ).toHaveLength(0);
+  });
+  test("rejects more than 50 IDs, cursor and missing IDs before Slack", async () => {
+    const { slack, service } = world();
+    const api = app(service);
+    for (const query of [
+      "",
+      "ids=",
+      `ids=${Array.from({ length: 51 }, (_, i) => `C0${i}`).join(",")}`,
+      "ids=C01&cursor=abc",
+      "ids=bad",
+    ]) {
+      expect(
+        (await api.request(`${lookupPath}?${query}`, { headers: owner }))
+          .status,
+      ).toBe(400);
+    }
+    expect(slack.calls).toHaveLength(0);
+  });
+  test("only inaccessible channels are cached as unknown", async () => {
+    const { slack, service } = world();
+    slack.failures.set("conversations.info", "channel_not_found");
+    const api = app(service);
+    for (let i = 0; i < 2; i++) {
+      const response = await api.request(`${lookupPath}?ids=C01`, {
+        headers: owner,
+      });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({
+        items: [{ id: "C01", name: "unknown", state: "unknown" }],
+      });
+    }
+    expect(
+      slack.calls.filter((call) => call.method === "conversations.info"),
+    ).toHaveLength(1);
+  });
+  test("transport failures, upstream errors and revoked tokens are not cached as unknown", async () => {
+    const options = { offline: true };
+    const { slack, service, channels } = world(options);
+    const api = app(service);
+    const url = `${lookupPath}?ids=${channels[0]?.id}`;
+    expect((await api.request(url, { headers: owner })).status).toBe(503);
+    options.offline = false;
+    slack.failures.set("conversations.info", "internal_error");
+    expect((await api.request(url, { headers: owner })).status).toBe(503);
+    slack.failures.set("conversations.info", "token_revoked");
+    expect((await api.request(url, { headers: owner })).status).toBe(409);
+    slack.failures.delete("conversations.info");
+    expect((await api.request(url, { headers: owner })).status).toBe(200);
+    expect(
+      slack.calls.filter((call) => call.method === "conversations.info"),
+    ).toHaveLength(3);
+  });
+  test("Slack 429 returns 503 and Retry-After without repeated calls", async () => {
+    const { slack, service } = world();
+    slack.rateLimit("conversations.info", 7);
+    const api = app(service);
+    for (let i = 0; i < 2; i++) {
+      const response = await api.request(`${lookupPath}?ids=C01`, {
+        headers: owner,
+      });
+      expect(response.status).toBe(503);
+      expect(response.headers.get("Retry-After")).toBe("7");
+    }
+    expect(
+      slack.calls.filter((call) => call.method === "conversations.info"),
+    ).toHaveLength(1);
+  });
+  test("preserves permission, missing agent and installation refusals", async () => {
+    for (const [code, status] of [
+      ["FORBIDDEN", 403],
+      ["NOT_FOUND", 404],
+      ["SLACK_NOT_INSTALLED", 409],
+    ] as const) {
+      const response = await app({
+        lookupSlackChannels: async () => {
+          throw new SessionServiceError(code, "refused");
+        },
+      }).request(`${lookupPath}?ids=C01`, { headers: owner });
+      expect(response.status).toBe(status);
+    }
+  });
+});
 
 async function errorOf(response: Response) {
   return apiErrorResponseSchema.parse(await response.json()).error;

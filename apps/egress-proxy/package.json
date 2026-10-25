@@ -3,6 +3,7 @@
   "description": "Kiel session runtime: the only egress path out of the worker network",
   "version": "0.0.0",
   "private": true,
+  "license": "PolyForm-Small-Business-1.0.0",
   "type": "module",
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",

@@ -1,6 +1,8 @@
+import { CircleAlert, RefreshCw } from "lucide-react";
 import type { JSX } from "react";
 
 import { cn } from "../foundations/cn.ts";
+import { Button } from "../primitives/button.tsx";
 
 export interface ErrorStateProps {
   readonly title?: string | undefined;
@@ -35,27 +37,34 @@ export function ErrorState({
       role="alert"
       data-code={code}
     >
-      <p className="ap-state__title">
-        <span className="ap-state__mark" aria-hidden="true">
-          !
-        </span>
-        {title}
-      </p>
+      <span className="ap-state__icon ap-state__mark" aria-hidden="true">
+        <CircleAlert size={16} strokeWidth={1.5} />
+      </span>
+      <p className="ap-state__title">{title}</p>
       {guidance ? <p className="ap-state__guidance">{guidance}</p> : null}
       {message ? <p className="ap-state__description">{message}</p> : null}
-      <div className="ap-state__actions">
-        {retry ? (
-          <button type="button" className="ap-button" onClick={retry}>
-            {retryLabel}
-          </button>
-        ) : null}
-        {evidenceLink ? (
-          <a className="ap-button ap-button--quiet" href={evidenceLink.href}>
-            {evidenceLink.label ?? "기록 보기"}
-          </a>
-        ) : null}
-        {code ? <code className="ap-state__code">{code}</code> : null}
-      </div>
+      {code ? <code className="ap-state__code">{code}</code> : null}
+      {retry || evidenceLink ? (
+        <div className="ap-state__actions">
+          {retry ? (
+            <Button type="button" variant="outline" onClick={retry}>
+              <RefreshCw
+                aria-hidden="true"
+                className="size-3.5"
+                strokeWidth={1.5}
+              />
+              {retryLabel}
+            </Button>
+          ) : null}
+          {evidenceLink ? (
+            <Button asChild={true} variant="ghost">
+              <a href={evidenceLink.href}>
+                {evidenceLink.label ?? "기록 보기"}
+              </a>
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

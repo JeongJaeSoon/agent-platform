@@ -126,8 +126,7 @@ export function SessionsScreen() {
     <Page title={t("sessions.title")} description={t("sessions.intro")}>
       <div className="flex flex-col gap-[var(--ap-space-block)]">
         <ApprovalInbox
-          layout="row"
-          loading={<StatusScreen kind="loading" />}
+          layout="summary"
           renderError={loadError}
           unavailable={unavailable}
           refusal={(error) => t(errorKey(error.code))}
