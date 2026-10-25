@@ -1362,8 +1362,7 @@ describe("session detail", () => {
     });
     await waitFor(() => expect(stream.requests).toHaveLength(1));
     await act(async () => stream.open());
-    const crumbs = screen.getByRole("navigation", { name: "위치" });
-    await user.click(within(crumbs).getByRole("link", { name: "세션" }));
+    await user.click(screen.getByRole("link", { name: "세션 목록" }));
     await screen.findByText("아직 세션이 없습니다.");
     expect(stream.closed).toBe(true);
   });
@@ -2255,19 +2254,16 @@ describe("세션 상세 레이아웃", () => {
     },
   );
 
-  test("헤더는 제목 위 위치 줄로 돌아가고, 라벨 붙은 제어를 종료가 마지막인 순서로, 메타 줄에 저장소·모델·사용량을 둔다", async () => {
+  test("헤더는 라벨 붙은 제어를 종료가 마지막인 순서로 두고 맨 끝에 세션 목록 버튼을, 메타 줄에 저장소·모델·사용량을 둔다", async () => {
     renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
     const pause = await screen.findByRole("button", { name: "일시 정지" });
     const header = pause.closest("header") as HTMLElement;
     expect(pause.textContent).toBe("일시 정지");
-    const crumbs = within(header).getByRole("navigation", { name: "위치" });
-    const back = within(crumbs).getByRole("link", { name: "세션" });
-    expect(back.getAttribute("href")).toBe("/sessions");
-    const current = crumbs.querySelector('[aria-current="page"]');
-    expect(current?.textContent).toBe(detail.title ?? SESSION_ID.slice(0, 8));
     expect(
-      within(header).queryByRole("link", { name: "세션 목록" }),
+      within(header).queryByRole("navigation", { name: "위치" }),
     ).toBeNull();
+    const back = within(header).getByRole("link", { name: "세션 목록" });
+    expect(back.getAttribute("href")).toBe("/sessions");
     const heading = screen.getByRole("heading", { level: 1 });
     const commands = within(header)
       .getAllByRole("button")
@@ -2277,12 +2273,14 @@ describe("세션 상세 레이아웃", () => {
       "일시 정지",
       "세션 종료",
     ]);
-    // The keyboard reaches the way back, then the title, then the commands.
-    expect(
-      back.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+    // The keyboard reaches the title, the commands, then the way back.
     expect(
       heading.compareDocumentPosition(pause) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      within(header)
+        .getByRole("button", { name: "세션 종료" })
+        .compareDocumentPosition(back) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(heading.textContent).toContain("답변 대기");
     expect(header.textContent).toContain("demo");

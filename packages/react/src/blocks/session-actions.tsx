@@ -457,8 +457,8 @@ export interface SessionControlsProps extends SessionActionProps {
    * buttons at every width; `buttons` (the default) draws labelled buttons.
    */
   readonly variant?: "buttons" | "head" | "icons";
-  /** Drawn before the icon buttons on their row, such as a back link. */
-  readonly leading?: ReactNode;
+  /** Drawn after the commands at the right end of their row, such as a back link. */
+  readonly trailing?: ReactNode;
 }
 
 export function SessionControls({
@@ -466,7 +466,7 @@ export function SessionControls({
   unavailable,
   refusal,
   variant = "buttons",
-  leading,
+  trailing,
 }: SessionControlsProps) {
   const { t } = useBlockText();
   const control = useSessionControl(session.id);
@@ -596,9 +596,11 @@ export function SessionControls({
       {head ? (
         // Wrapped under the title on a narrow page, the row starts at the left.
         <div className="flex min-w-0 flex-col items-start gap-1 md:items-end">
-          <div className="flex flex-wrap items-center gap-2 md:justify-end">
-            {leading}
+          <div className="flex flex-wrap items-center gap-2 self-stretch md:justify-end">
             {actions.length === 0 ? null : group}
+            {trailing === undefined ? null : (
+              <div className="ms-auto flex">{trailing}</div>
+            )}
           </div>
           {reason === undefined ? null : <Reason id={reasonId} text={reason} />}
           <OutcomeLine ref={outcomeRef} outcome={outcome} />

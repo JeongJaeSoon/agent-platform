@@ -53,25 +53,30 @@ describe("에이전트 상세 탭", () => {
     expect(document.activeElement === visiblePanel()).toBe(true);
   });
 
-  test("제목 위 위치 줄이 에이전트 목록으로 돌아가고, 머리의 버튼은 새 세션 하나다", async () => {
+  test("머리의 버튼 줄은 새 세션 뒤 맨 끝에 에이전트 목록으로 돌아가는 버튼을 두고, 제목 위 위치 줄은 없다", async () => {
     renderAt(DETAIL, { ...meOk, ...agentServer().routes });
     const heading = await screen.findByRole("heading", { level: 1 });
     const header = heading.closest("header") as HTMLElement;
-    const crumbs = within(header).getByRole("navigation", { name: "위치" });
-    const back = within(crumbs).getByRole("link", { name: "에이전트" });
-    expect(back.getAttribute("href")).toBe("/agents");
-    const current = crumbs.querySelector('[aria-current="page"]');
-    expect(heading.textContent).toContain(current?.textContent ?? "");
     expect(
-      within(header).queryByRole("link", { name: "에이전트 목록" }),
+      within(header).queryByRole("navigation", { name: "위치" }),
     ).toBeNull();
+    const back = within(header).getByRole("link", { name: "에이전트 목록" });
+    expect(back.getAttribute("href")).toBe("/agents");
+    const create = within(header).getByRole("button", {
+      name: /이 에이전트로 새 세션/,
+    });
     expect(
       within(header)
         .getAllByRole("button")
         .map((button) => button.textContent),
     ).toEqual(["이 에이전트로 새 세션"]);
+    // The keyboard reaches the title, the command, then the way back.
     expect(
-      back.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING,
+      heading.compareDocumentPosition(create) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      create.compareDocumentPosition(back) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
 

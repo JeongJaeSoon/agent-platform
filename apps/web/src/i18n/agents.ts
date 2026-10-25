@@ -188,6 +188,7 @@ export const agentsKo = {
   "agent.tabs.release": "배포",
   "agent.tabs.admins": "관리자",
   "agent.tabs.toRelease": "배포 탭으로",
+  "agent.back": "에이전트 목록",
   "agent.panel.none": "없음",
   "agent.overview.notActive":
     "아직 켜지지 않았습니다. 배포 탭에서 release를 만들고 활성화하면 새 세션이 이 에이전트를 씁니다.",
@@ -457,6 +458,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.tabs.release": "Release",
   "agent.tabs.admins": "Admins",
   "agent.tabs.toRelease": "Go to the Release tab",
+  "agent.back": "Agents",
   "agent.panel.none": "None",
   "agent.overview.notActive":
     "Not turned on yet. Create a release on the Release tab and activate it, and new sessions will use this agent.",
@@ -812,5 +814,6 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agents.column.agent": "エージェント",
   "agents.column.state": "状態",
   "agents.column.updated": "更新",
+  "agent.back": "エージェント一覧",
   "agent.panel.none": "なし",
 };
