@@ -72,6 +72,11 @@ describe("Slack install callback", () => {
     });
     await screen.findByText("재설치 필요");
     expect(history.location.pathname.endsWith("/slack/callback")).toBe(true);
+    await waitFor(() =>
+      expect(document.querySelector("[data-slot=toast]")?.textContent).toBe(
+        "재설치 필요",
+      ),
+    );
   });
 
   test("returns a successful installation to the Slack tab", async () => {
@@ -111,6 +116,15 @@ describe("Slack install callback", () => {
     expect(
       await screen.findByText(/이벤트 등록 확인이 필요합니다/),
     ).toBeDefined();
+    // Not a plain success, and said once: the page's own output reads it.
+    await waitFor(() =>
+      expect(
+        document.querySelector("[data-slot=toast]")?.textContent,
+      ).toContain("이벤트 등록 확인이 필요합니다"),
+    );
+    const toast = document.querySelector("[data-slot=toast]");
+    expect(toast?.getAttribute("aria-hidden")).toBe("true");
+    expect(toast?.hasAttribute("aria-live")).toBe(false);
   });
   for (const [code, message] of [
     ["SLACK_INSTALL_DENIED", "Slack에서 설치를 허용하지 않았습니다."],

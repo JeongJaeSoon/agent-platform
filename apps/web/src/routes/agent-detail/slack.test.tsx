@@ -422,9 +422,7 @@ describe("Slack management", () => {
       await screen.findByRole("button", { name: "#general 연결" }),
     );
     await screen.findByText("채널을 연결했습니다.");
-    expect(document.querySelector("[data-slot=toast]")?.tagName).toBe(
-      "OUTPUT",
-    );
+    expect(document.querySelector("[data-slot=toast]")?.tagName).toBe("OUTPUT");
     expect(
       api.calls
         .filter((call) => call.method === "PUT")
@@ -463,6 +461,15 @@ describe("Slack management", () => {
         "Slack 앱을 설치한 뒤 채널을 연결하세요.",
       ),
     );
+    // Shown while the modal is open: still exposed, still live, focus kept.
+    const toast = document.querySelector("[data-slot=toast]") as HTMLElement;
+    expect(screen.getByRole("dialog")).toBeDefined();
+    expect(toast.closest("[aria-hidden=true]") === null).toBe(true);
+    expect(toast.getAttribute("aria-live")).toBe("polite");
+    expect(
+      document.activeElement?.closest("[role=dialog]") !== null &&
+        document.activeElement?.closest("[role=dialog]") !== undefined,
+    ).toBe(true);
   });
 
   for (const refused of [false, true]) {

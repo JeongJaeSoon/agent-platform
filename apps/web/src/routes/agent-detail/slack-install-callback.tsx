@@ -5,13 +5,16 @@ import {
   useParams,
   useSearch,
 } from "@tanstack/react-router";
-import { unwrap } from "@werft-ai/client";
+import { type components, unwrap } from "@werft-ai/client";
 import { useAgentPlatform } from "@werft-ai/react";
 import { Button, Page } from "@werft-ai/ui";
 import { useEffect, useRef } from "react";
 import { useI18n } from "../../i18n/i18n.tsx";
 import { slackFailure } from "./slack.tsx";
 import { useToast } from "./toast.tsx";
+
+type CompleteSlackInstallResponse =
+  components["schemas"]["CompleteSlackInstallResponse"];
 
 declare module "@tanstack/react-router" {
   interface HistoryState {
@@ -28,7 +31,14 @@ export function SlackInstallCallback() {
   const cache = useQueryClient();
   const navigate = useNavigate();
   const started = useRef(false);
-  const { notify, toast } = useToast();
+  // The page's own output already reads the outcome out.
+  const { notify, toast } = useToast({ silent: true });
+  const unfinished = (result: CompleteSlackInstallResponse) =>
+    result.warnings.some((warning) => warning.code === "reinstall_required")
+      ? t("slack.state.reinstall")
+      : !result.finalized || result.warnings.length > 0
+        ? t("slack.verifyNeeded")
+        : null;
   const complete = useMutation({
     mutationFn: () =>
       unwrap(
@@ -43,7 +53,9 @@ export function SlackInstallCallback() {
       ),
     onSuccess: async (result) => {
       await cache.invalidateQueries({ queryKey: ["agents", id, "slack"] });
-      if (result.finalized && result.warnings.length === 0)
+      const left = unfinished(result);
+      if (left) notify(left);
+      else
         await navigate({
           to: "/agents/$id",
           params: { id },
@@ -51,7 +63,6 @@ export function SlackInstallCallback() {
           state: (previous) => ({ ...previous, slackInstalled: true }),
           replace: true,
         });
-      else notify(t("slack.installed"));
     },
     onError: (failure) => notify(slackFailure(failure, t)),
   });
@@ -70,14 +81,8 @@ export function SlackInstallCallback() {
       <output aria-live="polite">
         {complete.error
           ? slackFailure(complete.error, t)
-          : complete.data?.warnings.some(
-                (warning) => warning.code === "reinstall_required",
-              )
-            ? t("slack.state.reinstall")
-            : complete.data &&
-                (!complete.data.finalized || complete.data.warnings.length > 0)
-              ? t("slack.verifyNeeded")
-              : t("slack.working")}
+          : ((complete.data && unfinished(complete.data)) ??
+            t("slack.working"))}
       </output>
       {complete.error || complete.data ? (
         <Button asChild variant="outline">
