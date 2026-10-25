@@ -7,9 +7,8 @@ import {
 } from "@tanstack/react-router";
 import { unwrap } from "@werft-ai/client";
 import { useAgentPlatform } from "@werft-ai/react";
-import { Button } from "@werft-ai/ui";
+import { Button, Page } from "@werft-ai/ui";
 import { useEffect, useRef } from "react";
-import { Page } from "../../components/page.tsx";
 import { useI18n } from "../../i18n/i18n.tsx";
 import { slackFailure } from "./slack.tsx";
 import { useToast } from "./toast.tsx";
