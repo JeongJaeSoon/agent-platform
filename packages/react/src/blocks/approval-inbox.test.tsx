@@ -17,6 +17,7 @@ type ApprovalInboxProps = import("./approval-inbox.tsx").ApprovalInboxProps;
 const SESSION_ID = "0192f0c4-3d1e-4c7a-9b2f-5e6d7c8a9b01";
 const SHORT = SESSION_ID.slice(0, 8);
 const STALE_ID = "0192f0c4-3d1e-4c7a-9b2f-5e6d7c8a9b02";
+const NEWER_ID = "0192f0c4-3d1e-4c7a-9b2f-5e6d7c8a9b03";
 const LATER = "2099-01-01T00:00:00.000Z";
 
 const permission = (request_id: string, tool: string): PendingRequest => ({
@@ -90,6 +91,8 @@ function renderInbox({
   const posted: Posted[] = [];
   let waitingReads = 0;
   let items = open;
+  // Set by `addNewer`: a session that starts waiting ahead of SESSION_ID.
+  let newer = false;
   const fakeFetch = async (request: Request) => {
     const url = new URL(request.url);
     const route = `${request.method} ${url.pathname}${url.search}`;
@@ -97,6 +100,9 @@ function renderInbox({
       waitingReads += 1;
       return json(200, {
         items: [
+          ...(newer
+            ? [{ id: NEWER_ID, title: "Newer", status: "needs_input" }]
+            : []),
           ...(items.length
             ? [{ id: SESSION_ID, title, status: "needs_input" }]
             : []),
@@ -106,6 +112,9 @@ function renderInbox({
         ],
         next_cursor: null,
       });
+    }
+    if (route === `GET /v1/sessions/${NEWER_ID}/pending-requests`) {
+      return json(200, { answerable, items: [permission("req_n", "Read")] });
     }
     if (route === `GET /v1/sessions/${STALE_ID}/pending-requests`) {
       return json(200, { answerable: true, items: [] });
@@ -128,8 +137,9 @@ function renderInbox({
     baseUrl: "https://console.test",
     fetch: fakeFetch as unknown as NonNullable<ApiClientOptions["fetch"]>,
   });
+  const queryClient = new QueryClient();
   const view = render(
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider client={queryClient}>
       <AgentPlatformProvider
         client={client}
         locale="en"
@@ -151,7 +161,15 @@ function renderInbox({
       </AgentPlatformProvider>
     </QueryClientProvider>,
   );
-  return { ...view, posted, waitingReads: () => waitingReads };
+  return {
+    ...view,
+    posted,
+    waitingReads: () => waitingReads,
+    addNewer: async () => {
+      newer = true;
+      await act(() => queryClient.invalidateQueries());
+    },
+  };
 }
 
 describe("ApprovalInbox", () => {
@@ -226,6 +244,25 @@ describe("ApprovalInbox", () => {
     );
     await waitFor(() => expect(view.posted).toHaveLength(2));
     await waitFor(() => expect(view.getByText("Answer sent.")).not.toBe(first));
+  });
+
+  test("새 세션이 앞에 들어와 포커스를 쥔 줄이 한도 밖으로 밀리면 키보드는 제목으로 간다", async () => {
+    const view = renderInbox({
+      open: [permission("req_1", "Bash")],
+      layout: "row",
+      extra: { limit: 1 },
+    });
+    (
+      await view.findByRole("button", { name: `Allow: Bash · ${SHORT}` })
+    ).focus();
+    await view.addNewer();
+    await view.findByRole("button", {
+      name: `Allow: Read · ${NEWER_ID.slice(0, 8)}`,
+    });
+    expect(
+      view.queryByRole("button", { name: `Allow: Bash · ${SHORT}` }),
+    ).toBeNull();
+    expect(document.activeElement?.tagName).toBe("H2");
   });
 
   test("행에서 거부하면 적은 이유를 함께 보낸다", async () => {

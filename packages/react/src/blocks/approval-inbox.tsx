@@ -109,7 +109,7 @@ export function ApprovalInbox({
   const waiting = useQuery(waitingSessionsQuery(client));
   const now = useMinute(layout === "summary" && givenNow === undefined);
   const titleRef = useRef<HTMLHeadingElement>(null);
-  const shownBefore = useRef<readonly string[]>([]);
+  const drawnBefore = useRef<readonly string[]>([]);
   const [sent, setSent] = useState(0);
 
   const sessions = waiting.data?.items ?? [];
@@ -126,7 +126,8 @@ export function ApprovalInbox({
   const shown = sessions.filter(
     (_, index) => lists[index]?.data?.items.length !== 0,
   );
-  const shownKey = shown.map((session) => session.id).join();
+  const drawn = limit === undefined ? shown : shown.slice(0, limit);
+  const drawnKey = drawn.map((session) => session.id).join();
   const emptyKey = sessions
     .filter((_, index) => lists[index]?.data?.items.length === 0)
     .map((session) => session.id)
@@ -139,16 +140,17 @@ export function ApprovalInbox({
     });
   }, [emptyKey, queryClient, client]);
 
-  // A session answered from here leaves the list with the focus it held;
-  // the keyboard goes back to the inbox's heading.
+  // A line that leaves takes the focus it held, whether it was answered
+  // here or pushed past the limit by a newer session; the keyboard goes back
+  // to the inbox's heading.
   useLayoutEffect(() => {
-    const ids = shownKey === "" ? [] : shownKey.split(",");
-    const left = shownBefore.current.some((id) => !ids.includes(id));
-    shownBefore.current = ids;
+    const ids = drawnKey === "" ? [] : drawnKey.split(",");
+    const left = drawnBefore.current.some((id) => !ids.includes(id));
+    drawnBefore.current = ids;
     if (left && focusLost(titleRef.current)) {
       titleRef.current?.focus();
     }
-  }, [shownKey]);
+  }, [drawnKey]);
 
   let body: ReactNode;
   let count: ReactNode = null;
@@ -159,7 +161,6 @@ export function ApprovalInbox({
         renderError(waiting.error, () => void waiting.refetch());
   } else {
     const more = waiting.data.next_cursor !== null;
-    const drawn = limit === undefined ? shown : shown.slice(0, limit);
     const left = shown.length - drawn.length;
     if (shown.length > 0) {
       count = (
