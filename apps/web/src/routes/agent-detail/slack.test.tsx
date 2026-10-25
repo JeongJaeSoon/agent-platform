@@ -513,9 +513,11 @@ describe("Slack management", () => {
       // Mounted after the modal hid the page, so it is not hidden with it.
       const toast = document.querySelector("[data-slot=toast]") as HTMLElement;
       expect(
-        document
-          .querySelector("[role=tablist][aria-label='Slack 관리']")
-          ?.closest("[aria-hidden=true]") !== null,
+        (
+          document.querySelector(
+            "[role=tablist][aria-label='Slack 관리']",
+          ) as HTMLElement
+        ).closest("[aria-hidden=true]") !== null,
       ).toBe(true);
       expect(toast.closest("[aria-hidden=true]") === null).toBe(true);
       expect(toast.getAttribute("aria-live")).toBe("polite");
