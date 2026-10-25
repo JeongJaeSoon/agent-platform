@@ -57,7 +57,7 @@ describe("Button", () => {
     const classes = getByRole("button").className.split(" ");
     expect(classes).toContain("border-border");
     expect(classes).toContain("hover:bg-hover");
-    expect(classes).not.toContain("border-input");
+    expect(classes).not.toContain("border-b-input");
   });
 
   test("비활성은 0.45로 흐려지고 누를 수 없다", () => {
@@ -149,7 +149,7 @@ describe("포커스", () => {
         container
           .querySelector(`[data-slot="${slot}"]`)
           ?.className.split(" ") ?? [];
-      expect(classes).toContain("border-input");
+      expect(classes).toContain("border-b-input");
       expect(classes).toContain("hover:border-subtle-foreground");
     }
   });
