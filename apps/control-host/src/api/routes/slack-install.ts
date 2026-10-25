@@ -15,6 +15,28 @@ import {
 } from "../app.ts";
 import { mapped, requireParams } from "./errors.ts";
 
+// Each value is a fixed name, a number or a code checked against
+// /^[a-z_]{1,64}$/ before it got here; anything else in details stays out.
+const LOGGED_DETAILS = [
+  "reason_code",
+  "slack_method",
+  "failure",
+  "http_status",
+  "slack_error",
+] as const;
+
+function loggedDetails(details: unknown) {
+  const fields: Record<string, string | number> = {};
+  if (details === null || typeof details !== "object") return fields;
+  for (const key of LOGGED_DETAILS) {
+    const value = (details as Record<string, unknown>)[key];
+    if (typeof value === "string" || typeof value === "number") {
+      fields[key] = value;
+    }
+  }
+  return fields;
+}
+
 // The state, the code and the bot token are never logged: only ids and the
 // outcome are.
 export function registerSlackInstallRoutes(
@@ -49,12 +71,11 @@ export function registerSlackInstallRoutes(
         service.complete(context.get("caller"), body),
       ).catch((error: unknown) => {
         if (error instanceof ApiHttpError) {
-          // The details hold only codes, methods and statuses.
           logger?.warn("Slack install failed", {
             agent_id: body.agent_id,
             status: error.status,
             code: error.code,
-            ...(typeof error.details === "object" ? error.details : {}),
+            ...loggedDetails(error.details),
           });
         }
         throw error;

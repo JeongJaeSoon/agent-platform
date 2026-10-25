@@ -774,11 +774,23 @@ describe("completing an install", () => {
     await setup;
     const app = appOf(REJECTED_AGENT);
     const failures = [
-      new SlackApiError("oauth.v2.access", "timeout", false),
-      new SlackApiError("oauth.v2.access", "unreachable", false),
-      new SlackApiError("oauth.v2.access", "http_502", false, 502),
-      new SlackApiError("oauth.v2.access", "internal_error", false, 503),
-      new SlackApiError("oauth.v2.access", "unexpected_answer", false, 200),
+      new SlackApiError("oauth.v2.access", "timeout", false, {
+        failure: "timeout",
+      }),
+      new SlackApiError("oauth.v2.access", "unreachable", false, {
+        failure: "unreachable",
+      }),
+      new SlackApiError("oauth.v2.access", "http_502", false, {
+        httpStatus: 502,
+        failure: "http_status",
+      }),
+      new SlackApiError("oauth.v2.access", "internal_error", false, {
+        httpStatus: 503,
+      }),
+      new SlackApiError("oauth.v2.access", "unexpected_answer", false, {
+        httpStatus: 200,
+        failure: "unexpected_answer",
+      }),
     ];
     const seen: unknown[] = [];
     for (const failure of failures) {
@@ -834,7 +846,64 @@ describe("completing an install", () => {
   test("the app a failed attempt left without a bot token is the one the next install uses", async () => {
     await setup;
     const app = appOf(REJECTED_AGENT);
-    expect(app.state).toBe("created");
+    slack.install.next.exchange = async () => {
+      throw new SlackApiError("oauth.v2.access", "http_503", false, {
+        httpStatus: 503,
+        failure: "http_status",
+      });
+    };
+    const unavailable = approve(await start(REJECTED_AGENT, owner()));
+    const before = logs.records.length;
+    expect(
+      (
+        await complete(owner(), {
+          agent_id: REJECTED_AGENT,
+          state: unavailable.state,
+          code: unavailable.code,
+        })
+      ).status,
+    ).toBe(503);
+    slack.install.grant = (grant) => ({ ...grant, scopes: ["chat:write"] });
+    const narrow = approve(await start(REJECTED_AGENT, owner()));
+    const narrowResponse = await complete(owner(), {
+      agent_id: REJECTED_AGENT,
+      state: narrow.state,
+      code: narrow.code,
+    });
+    slack.install.grant = (grant) => grant;
+    handled.push(...slack.install.botTokens.keys());
+    expect(code(narrowResponse.json).details).toMatchObject({
+      reason_code: "scope",
+      missing_scopes: expect.any(Array),
+    });
+    // Only the named fields reach the log; missing_scopes does not.
+    expect(
+      logs.records
+        .slice(before)
+        .filter((record) => record.message === "Slack install failed")
+        .map((record) => record.fields),
+    ).toEqual([
+      {
+        agent_id: REJECTED_AGENT,
+        status: 503,
+        code: "BACKEND_UNAVAILABLE",
+        slack_method: "oauth.v2.access",
+        failure: "http_status",
+        http_status: 503,
+      },
+      {
+        agent_id: REJECTED_AGENT,
+        status: 409,
+        code: "SLACK_INSTALL_REJECTED",
+        reason_code: "scope",
+      },
+    ]);
+
+    expect(appOf(REJECTED_AGENT)).toMatchObject({
+      id: app.id,
+      appId: app.appId,
+      state: "created",
+    });
     expect(botTokenSlots().filter((key) => key.includes(app.id))).toEqual([]);
     const { code: grant, state } = approve(
       await start(REJECTED_AGENT, owner()),

@@ -8,12 +8,17 @@ const INPUT = {
   redirectUri: "https://console.example.ts.net/agents/a/slack/callback",
 };
 
-async function failureOf(answer: () => Response | Promise<Response>) {
+async function failureOf(
+  answer: () => Response | Promise<Response>,
+  call: (api: ReturnType<typeof createSlackConfigApi>) => Promise<unknown> = (
+    api,
+  ) => api.exchangeInstallCode(INPUT),
+) {
   const api = createSlackConfigApi({
     apiUrl: "http://slack.invalid/api",
     fetch: (async () => answer()) as unknown as typeof fetch,
   });
-  const error = await api.exchangeInstallCode(INPUT).then(
+  const error = await call(api).then(
     () => null,
     (caught: unknown) => caught,
   );
@@ -79,6 +84,54 @@ describe("how an oauth.v2.access call failed", () => {
       httpStatus: 503,
       code: "internal_error",
       answered: false,
+    });
+  });
+
+  test("Slack's own error is slack_error even when it reads like one of ours", async () => {
+    for (const reserved of ["timeout", "unreachable", "unexpected_answer"]) {
+      expect(
+        await failureOf(() => Response.json({ ok: false, error: reserved })),
+      ).toMatchObject({ failure: "slack_error", code: reserved });
+    }
+  });
+
+  test("ok:false with no readable error is http_status", async () => {
+    expect(
+      await failureOf(() =>
+        Response.json({ ok: false, error: "Not A Code" }, { status: 503 }),
+      ),
+    ).toMatchObject({
+      failure: "http_status",
+      httpStatus: 503,
+      code: "http_503",
+      answered: false,
+    });
+  });
+
+  test("a 429 is Slack's ratelimited, answered", async () => {
+    expect(
+      await failureOf(
+        () =>
+          new Response(null, { status: 429, headers: { "Retry-After": "3" } }),
+      ),
+    ).toMatchObject({
+      failure: "slack_error",
+      httpStatus: 429,
+      code: "ratelimited",
+      answered: true,
+    });
+  });
+
+  test("the bot check names auth.test when it fails", async () => {
+    expect(
+      await failureOf(
+        () => new Response("<html>", { status: 502 }),
+        (api) => api.botIdentity(INPUT.code),
+      ),
+    ).toMatchObject({
+      method: "auth.test",
+      failure: "http_status",
+      httpStatus: 502,
     });
   });
 

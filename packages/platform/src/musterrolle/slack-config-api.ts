@@ -19,26 +19,20 @@ export const SLACK_HTTP_TIMEOUT_MS = 10_000;
  * unreachable, timed out or answered something unreadable.
  */
 export class SlackApiError extends Error {
+  /** Null when no answer came. */
+  readonly httpStatus: number | null;
+  readonly failure: SlackCallFailure;
+
   constructor(
     readonly method: string,
     readonly code: string,
     readonly answered: boolean,
-    /** Null when no answer came. */
-    readonly httpStatus: number | null = null,
+    detail: { httpStatus?: number; failure?: SlackCallFailure } = {},
   ) {
     super(`${method}: ${code}`);
     this.name = "SlackApiError";
-  }
-
-  get failure(): SlackCallFailure {
-    if (
-      this.code === "unreachable" ||
-      this.code === "timeout" ||
-      this.code === "unexpected_answer"
-    ) {
-      return this.code;
-    }
-    return /^http_\d{3}$/.test(this.code) ? "http_status" : "slack_error";
+    this.httpStatus = detail.httpStatus ?? null;
+    this.failure = detail.failure ?? "slack_error";
   }
 }
 
@@ -62,7 +56,7 @@ export class SlackRateLimitedError extends SlackApiError {
     method: string,
     readonly retryAfterSeconds: number,
   ) {
-    super(method, "ratelimited", true, 429);
+    super(method, "ratelimited", true, { httpStatus: 429 });
     this.name = "SlackRateLimitedError";
   }
 }
@@ -179,6 +173,14 @@ export type SlackApiOptions = {
   timeoutMs?: number;
 };
 
+function noAnswer(method: string, error: unknown) {
+  const failure =
+    error instanceof Error && error.name === "TimeoutError"
+      ? "timeout"
+      : "unreachable";
+  return new SlackApiError(method, failure, false, { failure });
+}
+
 function slackCaller(options?: SlackApiOptions) {
   const apiUrl = (options?.apiUrl ?? SLACK_API_URL).replace(/\/+$/, "");
   const fetchImpl = options?.fetch ?? fetch;
@@ -204,13 +206,7 @@ function slackCaller(options?: SlackApiOptions) {
         signal: AbortSignal.timeout(timeoutMs),
       });
     } catch (error) {
-      throw new SlackApiError(
-        method,
-        error instanceof Error && error.name === "TimeoutError"
-          ? "timeout"
-          : "unreachable",
-        false,
-      );
+      throw noAnswer(method, error);
     }
     if (response.status === 429) {
       await response.body?.cancel();
@@ -221,30 +217,32 @@ function slackCaller(options?: SlackApiOptions) {
       unknown
     > | null;
     if (body === null || typeof body !== "object") {
-      throw new SlackApiError(
-        method,
-        `http_${response.status}`,
-        false,
-        response.status,
-      );
+      throw new SlackApiError(method, `http_${response.status}`, false, {
+        httpStatus: response.status,
+        failure: "http_status",
+      });
     }
     if (body.ok !== true) {
       // A 5xx with ok:false still leaves doubt about what Slack did.
       const answered = response.status < 500;
-      const code =
-        typeof body.error === "string" && ERROR_CODE.test(body.error)
-          ? body.error
-          : `http_${response.status}`;
-      throw new SlackApiError(method, code, answered, response.status);
+      const named =
+        typeof body.error === "string" && ERROR_CODE.test(body.error);
+      throw new SlackApiError(
+        method,
+        named ? (body.error as string) : `http_${response.status}`,
+        answered,
+        {
+          httpStatus: response.status,
+          failure: named ? "slack_error" : "http_status",
+        },
+      );
     }
     const parsed = schema.safeParse(body);
     if (!parsed.success) {
-      throw new SlackApiError(
-        method,
-        "unexpected_answer",
-        false,
-        response.status,
-      );
+      throw new SlackApiError(method, "unexpected_answer", false, {
+        httpStatus: response.status,
+        failure: "unexpected_answer",
+      });
     }
     return parsed.data;
   };
@@ -274,13 +272,7 @@ function slackSender(options?: SlackApiOptions) {
         signal: AbortSignal.timeout(timeoutMs),
       });
     } catch (error) {
-      throw new SlackApiError(
-        method,
-        error instanceof Error && error.name === "TimeoutError"
-          ? "timeout"
-          : "unreachable",
-        false,
-      );
+      throw noAnswer(method, error);
     }
     // A body that breaks off mid-read is no body: the status and Retry-After
     // already came, and the caller judges what they leave known.
