@@ -32,7 +32,7 @@ import {
   Skeleton,
   Switch,
 } from "@werft-ai/ui";
-import { Copy } from "lucide-react";
+import { Copy, Plus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useMe } from "../../auth/guard.tsx";
 import { copyText } from "../../components/copy.ts";
@@ -132,6 +132,21 @@ function useSlackBindings(agentId: string) {
     queryFn: () =>
       unwrap(
         client.GET("/v1/agents/{id}/slack-bindings", {
+          params: { path: { id: agentId } },
+        }),
+      ),
+    staleTime: 30_000,
+    retry: false,
+  });
+}
+
+function useSlackSettings(agentId: string) {
+  const { client } = useAgentPlatform();
+  return useQuery({
+    queryKey: ["agents", agentId, "slack", "settings"],
+    queryFn: () =>
+      unwrap(
+        client.GET("/v1/agents/{id}/slack/app/settings", {
           params: { path: { id: agentId } },
         }),
       ),
@@ -317,7 +332,9 @@ function SlackStatus({ agentId }: { readonly agentId: string }) {
             )}
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="text-muted-foreground">{t("slack.dm")}</span>
+            <span className="text-muted-foreground">
+              {t("slack.dmSetting")}
+            </span>
             {bindings.isPending ? (
               placeholder
             ) : (
@@ -469,6 +486,38 @@ export function SlackConnect({
                     {record.app_id}
                   </span>
                 }
+                actions={
+                  inPage ? (
+                    <>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        aria-label={t("slack.copyAppId")}
+                        onClick={() => {
+                          const value = record.app_id ?? "";
+                          void copyText(value, { current: null }).then((ok) =>
+                            setNotice(
+                              t(ok ? "slack.copied" : "slack.copyAppIdFailed"),
+                            ),
+                          );
+                        }}
+                      >
+                        <Copy aria-hidden="true" strokeWidth={1.5} />
+                        {t("slack.copy")}
+                      </Button>
+                      <Button asChild variant="outline" size="sm">
+                        <a
+                          href={`https://api.slack.com/apps/${encodeURIComponent(record.app_id)}`}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          {t("slack.openInSlack")}
+                        </a>
+                      </Button>
+                    </>
+                  ) : null
+                }
               />
             ) : null}
             {!inPage && record.app_id && identity ? (
@@ -607,7 +656,7 @@ export function SlackConnect({
           >
             {identity ? (
               <SettingRow
-                title={t("slack.revoke")}
+                title={t("slack.revokeTitle")}
                 description={t("slack.revokeWarning")}
                 actions={
                   <Button
@@ -623,7 +672,7 @@ export function SlackConnect({
               />
             ) : null}
             <SettingRow
-              title={t("slack.delete")}
+              title={t("slack.deleteTitle")}
               description={t("slack.deleteWarning")}
               actions={
                 <Button
@@ -785,6 +834,7 @@ function SlackChannels({
               setPicking(true);
             }}
           >
+            <Plus aria-hidden="true" strokeWidth={1.5} />
             {t("slack.addChannel")}
           </Button>
         </div>
@@ -1016,7 +1066,7 @@ function SlackDmSetting({ agentId }: { readonly agentId: string }) {
   const error = bindings.error ?? update.error;
   return (
     <SettingRow
-      title={t("slack.dm")}
+      title={t("slack.dmSetting")}
       description={t("slack.dmHint")}
       status={
         <span className="text-control text-muted-foreground">
@@ -1039,11 +1089,84 @@ function SlackDmSetting({ agentId }: { readonly agentId: string }) {
       control={
         bindings.isError && !bindings.data ? null : (
           <Switch
-            aria-label={t("slack.dm")}
+            aria-label={t("slack.dmSetting")}
             checked={dm !== undefined && dm.mode !== "off"}
             aria-disabled={unavailable}
             onCheckedChange={(checked) => {
               if (!unavailable) update.mutate(checked);
+            }}
+          />
+        )
+      }
+    />
+  );
+}
+
+function SlackDefaultReaction({ agentId }: { readonly agentId: string }) {
+  const { t } = useI18n();
+  const { client } = useAgentPlatform();
+  const cache = useQueryClient();
+  const settings = useSlackSettings(agentId);
+  const [notice, setNotice] = useState("");
+  const update = useMutation({
+    onMutate: () => setNotice(""),
+    mutationFn: (checked: boolean) =>
+      unwrap(
+        client.PUT("/v1/agents/{id}/slack/app/settings", {
+          params: {
+            path: { id: agentId },
+            header: { "Idempotency-Key": crypto.randomUUID() },
+          },
+          body: { default_mode: checked ? "mention" : "off" },
+        }),
+      ),
+    onSuccess: (saved) => {
+      cache.setQueryData(["agents", agentId, "slack", "settings"], saved);
+      setNotice(
+        t("slack.defaultSaved", {
+          mode: t(
+            saved.default_mode === "mention" ? "slack.mention" : "slack.off",
+          ),
+        }),
+      );
+    },
+  });
+  const lost = settings.isError && !settings.data;
+  const mention = settings.data?.default_mode === "mention";
+  const error = settings.error ?? update.error;
+  return (
+    <SettingRow
+      title={t("slack.defaultReaction")}
+      description={t("slack.defaultHint")}
+      status={
+        <span className="text-control text-muted-foreground">
+          {lost
+            ? "—"
+            : settings.data
+              ? t(mention ? "slack.mention" : "slack.off")
+              : null}
+        </span>
+      }
+      meta={
+        <>
+          {error ? <FieldError>{slackFailure(error, t)}</FieldError> : null}
+          <output
+            aria-live="polite"
+            className={notice ? "text-control" : "sr-only"}
+          >
+            {notice}
+          </output>
+        </>
+      }
+      control={
+        lost ? null : (
+          <Switch
+            aria-label={t("slack.defaultReaction")}
+            checked={mention}
+            aria-disabled={!settings.isSuccess || update.isPending}
+            onCheckedChange={(checked) => {
+              if (settings.isSuccess && !update.isPending)
+                update.mutate(checked);
             }}
           />
         )
@@ -1079,7 +1202,8 @@ export default function SlackTab({
       state: ({ slackInstalled: _, ...rest }) => rest,
     });
   }, [justInstalled, notify, navigate, t]);
-  const [defaultMention, setDefaultMention] = useState(true);
+  const settings = useSlackSettings(agentId);
+  const defaultMention = settings.data?.default_mode === "mention";
   const { app, identities } = useSlackState(agentId);
   // The danger zone exists only while there is an app to revoke or delete.
   const keys: readonly SectionKey[] = app.data?.slack_app
@@ -1172,22 +1296,7 @@ export default function SlackTab({
             </h2>
             <RowList variant="joined">
               <SlackDmSetting agentId={agentId} />
-              <SettingRow
-                title={t("slack.defaultReaction")}
-                description={t("slack.defaultHint")}
-                status={
-                  <span className="text-control text-muted-foreground">
-                    {t(defaultMention ? "slack.mention" : "slack.off")}
-                  </span>
-                }
-                control={
-                  <Switch
-                    aria-label={t("slack.defaultReaction")}
-                    checked={defaultMention}
-                    onCheckedChange={setDefaultMention}
-                  />
-                }
-              />
+              <SlackDefaultReaction agentId={agentId} />
             </RowList>
           </section>
           <SlackConnect agentId={agentId} active={active} inPage />
