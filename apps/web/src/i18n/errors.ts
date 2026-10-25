@@ -18,7 +18,13 @@ export const errorsKo = {
   "error.INVITE_EXPIRED": "만료됐거나 회수된 초대입니다.",
   "error.INVITE_USED": "이미 쓰인 초대입니다.",
   "error.LAST_OWNER":
-    "마지막 소유자는 역할을 바꾸거나 비활성화할 수 없습니다 — 다른 사람을 먼저 소유자로 정하세요. 자기 자신도 비활성화할 수 없습니다.",
+    "마지막 소유자는 역할을 바꾸거나 비활성화할 수 없습니다 — 다른 사람을 먼저 소유자로 정하세요.",
+  "error.SELF_PROTECTED":
+    "자기 역할이나 접근은 직접 바꿀 수 없습니다 — 다른 소유자나 관리자에게 요청하세요.",
+  "error.MEMBER_DISABLED":
+    "비활성화된 구성원의 역할은 바꿀 수 없습니다 — 먼저 다시 활성화하세요.",
+  "error.ACCOUNT_DISABLED":
+    "계정이 정지된 사람입니다 — 계정 정지를 먼저 풀어야 역할을 바꾸거나 다시 활성화할 수 있습니다.",
   "error.OWNER_PROTECTED":
     "소유자 역할을 주거나 소유자의 역할·접근(비활성화·정지·다시 활성화)을 바꾸는 일은 소유자만 할 수 있습니다 — 소유자에게 요청하세요.",
   "error.UNSUPPORTED_CAPABILITY":
@@ -52,7 +58,13 @@ export const errorsEn: Record<keyof typeof errorsKo, string> = {
   "error.INVITE_EXPIRED": "This invite has expired or was revoked.",
   "error.INVITE_USED": "This invite has already been used.",
   "error.LAST_OWNER":
-    "The last owner cannot change their role or be disabled — make someone else an owner first. You also cannot disable yourself.",
+    "The last owner cannot change their role or be disabled — make someone else an owner first.",
+  "error.SELF_PROTECTED":
+    "You cannot change your own role or access — ask another owner or admin.",
+  "error.MEMBER_DISABLED":
+    "A disabled member's role cannot change — enable them first.",
+  "error.ACCOUNT_DISABLED":
+    "This person's account is suspended — lift the suspension before changing their role or enabling them.",
   "error.OWNER_PROTECTED":
     "Only an owner can grant the owner role or change an owner's role or access (disable, suspend, re-enable) — ask an owner.",
   "error.UNSUPPORTED_CAPABILITY":
@@ -92,7 +104,13 @@ export const errorsJa: Record<keyof typeof errorsKo, string> = {
   "error.INVITE_EXPIRED": "この招待は期限切れか、取り消されています。",
   "error.INVITE_USED": "この招待はすでに使用されています。",
   "error.LAST_OWNER":
-    "最後のオーナーは、ロールの変更も無効化もできません。先にほかの人をオーナーにしてください。また、自分自身は無効化できません。",
+    "最後のオーナーは、ロールの変更も無効化もできません。先にほかの人をオーナーにしてください。",
+  "error.SELF_PROTECTED":
+    "自分のロールやアクセスは自分で変更できません。ほかのオーナーか管理者に依頼してください。",
+  "error.MEMBER_DISABLED":
+    "無効化されたメンバーのロールは変更できません。先に再有効化してください。",
+  "error.ACCOUNT_DISABLED":
+    "このユーザーのアカウントは停止中です。ロールの変更や再有効化の前に、アカウントの停止を解除してください。",
   "error.OWNER_PROTECTED":
     "オーナーのロールの付与や、オーナーのロール・アクセス（無効化・停止・再有効化）の変更ができるのはオーナーのみです。オーナーに依頼してください。",
   "error.UNSUPPORTED_CAPABILITY":

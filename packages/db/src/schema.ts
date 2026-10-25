@@ -506,6 +506,12 @@ export const slackApps = pgTable(
     appId: text("app_id"),
     clientId: text("client_id"),
     redirectUrl: text("redirect_url").notNull(),
+    eventsState: text("events_state")
+      .$type<"pending" | "verified" | "failed">()
+      .notNull()
+      .default("pending"),
+    eventsCheckedAt: timestamp("events_checked_at", { withTimezone: true }),
+    eventsError: text("events_error"),
     createdByTokenUser: text("created_by_token_user"),
     /** No foreign key: the row outlives the account; null for the CLI. */
     createdBy: uuid("created_by"),
@@ -521,6 +527,10 @@ export const slackApps = pgTable(
   },
   (table) => [
     unique("slack_apps_app_id_key").on(table.appId),
+    check(
+      "slack_apps_events_state_check",
+      sql`${table.eventsState} IN ('pending', 'verified', 'failed')`,
+    ),
     uniqueIndex("slack_apps_live_agent_idx")
       .on(table.workspaceId, table.agentId)
       .where(
@@ -1913,6 +1923,10 @@ export const agents = pgTable(
     status: text().notNull().default("active"),
     activeReleaseId: text("active_release_id"),
     activationRevision: integer("activation_revision").notNull().default(-1),
+    slackDefaultMode: text("slack_default_mode")
+      .$type<"off" | "mention">()
+      .notNull()
+      .default("off"),
     createdBy: uuid("created_by").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -1923,6 +1937,10 @@ export const agents = pgTable(
   },
   (table) => [
     uniqueIndex("agents_workspace_slug_idx").on(table.workspaceId, table.slug),
+    check(
+      "agents_slack_default_mode_check",
+      sql`${table.slackDefaultMode} IN ('off', 'mention')`,
+    ),
     // What agent_admins and api_keys reference, so neither can name another
     // workspace's agent.
     unique("agents_workspace_id_key").on(table.workspaceId, table.id),

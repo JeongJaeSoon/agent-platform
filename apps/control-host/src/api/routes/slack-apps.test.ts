@@ -155,6 +155,7 @@ function appWith(enabled: boolean) {
           tokens,
           api: slack.api,
           consoleOrigin: ORIGIN,
+          eventsPublicUrl: "https://events.example.test",
         }),
         secrets: createSlackSecretService({
           authorization,
@@ -233,6 +234,92 @@ async function pasteConfigToken() {
 }
 
 describe("the agent Slack app API", () => {
+  test("settings persist before app creation and require an agent manager", async () => {
+    const path = `${appPath(IDLE_AGENT)}/settings`;
+    const owner = cookieFor("owner");
+    expect((await call("GET", path, { cookie: owner })).json).toEqual({
+      default_mode: "off",
+    });
+    expect(
+      (
+        await call("PUT", path, {
+          cookie: owner,
+          body: { default_mode: "mention" },
+        })
+      ).status,
+    ).toBe(200);
+    expect((await call("GET", path, { cookie: owner })).json).toEqual({
+      default_mode: "mention",
+    });
+    expect(
+      (
+        await call("PUT", path, {
+          cookie: owner,
+          body: { default_mode: "all" },
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await call("PUT", path, {
+          cookie: owner,
+          body: { default_mode: "a".repeat(70_000) },
+        })
+      ).status,
+    ).toBe(413);
+    expect(
+      (
+        await call("PUT", path, {
+          cookie: cookieFor("member"),
+          body: { default_mode: "off" },
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (await call("GET", `${appPath(OTHER_AGENT)}/settings`, { cookie: owner }))
+        .status,
+    ).toBe(404);
+    expect((await call("GET", path, { key: true })).status).toBe(403);
+    for (const suffix of ["/manifest", "/settings"]) {
+      expect(
+        (
+          await call("GET", `${appPath(OTHER_AGENT)}${suffix}`, {
+            cookie: owner,
+          })
+        ).status,
+      ).toBe(404);
+      expect(
+        (
+          await call("GET", `${appPath(AGENT)}${suffix}`, {
+            cookie: cookieFor("member"),
+          })
+        ).status,
+      ).toBe(403);
+      expect(
+        (
+          await appWith(false)("GET", `${appPath(AGENT)}${suffix}`, {
+            cookie: owner,
+          })
+        ).status,
+      ).toBe(503);
+    }
+    expect(
+      (
+        await appWith(false)("PUT", path, {
+          cookie: owner,
+          body: { default_mode: "off" },
+        })
+      ).status,
+    ).toBe(503);
+    expect(
+      (
+        await call("PUT", `${appPath(OTHER_AGENT)}/settings`, {
+          cookie: owner,
+          body: { default_mode: "off" },
+        })
+      ).status,
+    ).toBe(404);
+  });
   test("without a config token, creation answers 409 and records a failed attempt", async () => {
     const response = await create(AGENT, cookieFor("owner"));
     expect(response.status).toBe(409);
@@ -292,9 +379,26 @@ describe("the agent Slack app API", () => {
       slack_app: { id: created.slack_app.id },
     });
     expect(read.json).not.toHaveProperty("authorize_url");
+    expect(read.json).toMatchObject({
+      event_url: `https://events.example.test/v1/slack/events/${AGENT}`,
+      events: { state: "pending", checked_at: null },
+    });
+    const manifest = await call("GET", `${appPath(AGENT)}/manifest`, {
+      cookie: admin,
+    });
+    expect(manifest.status).toBe(200);
+    expect(manifest.json.manifest_yaml).toContain(
+      `https://events.example.test/v1/slack/events/${AGENT}`,
+    );
+    expect(manifest.json.manifest_yaml).not.toContain("client_secret");
+    expect(manifest.json.manifest_yaml).not.toContain("signing_secret");
     expect(
       (await call("GET", appPath(IDLE_AGENT), { cookie: admin })).json,
-    ).toEqual({ slack_app: null });
+    ).toEqual({
+      slack_app: null,
+      event_url: `https://events.example.test/v1/slack/events/${IDLE_AGENT}`,
+      events: { state: "pending", checked_at: null },
+    });
   });
 
   test("a member who is not the agent's admin, an API key, or a write without CSRF is refused", async () => {

@@ -507,7 +507,51 @@ integration("invite store on PostgreSQL", () => {
     }
   });
 
-  test("roles: the last live owner stays, and two owners demoting each other leave one", async () => {
+  test("a role change waiting on a suspension of its target answers account_disabled", async () => {
+    const ws = await workspace();
+    const owner = await member(ws, "owner");
+    const target = await member(ws, "member");
+    const other = await pool.connect();
+    try {
+      // An account disable's order: the user row, then its memberships.
+      await other.query("BEGIN");
+      await other.query("UPDATE users SET disabled_at = now() WHERE id = $1", [
+        target,
+      ]);
+      await other.query(
+        "SELECT 1 FROM memberships WHERE user_id = $1 FOR UPDATE",
+        [target],
+      );
+      const changing = store.changeMemberRole({
+        userId: target,
+        role: "admin",
+        actor: acting(ws, owner),
+        receiptId: randomUUID(),
+      });
+      // Commit only once the change is queued behind the suspension: started
+      // after it, the change would pass without the fix too. Polled from the
+      // pool, since a transaction sees pg_stat_activity as of its start.
+      for (let tries = 0; ; tries++) {
+        const { rows } = await pool.query(
+          "SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'",
+        );
+        if (rows[0].n > 0) break;
+        if (tries > 100) throw new Error("the role change never waited");
+        await Bun.sleep(50);
+      }
+      await other.query("COMMIT");
+      expect(await changing).toEqual({ outcome: "account_disabled" });
+    } finally {
+      other.release();
+    }
+    const [row] = await db
+      .select({ role: memberships.role })
+      .from(memberships)
+      .where(eq(memberships.userId, target));
+    expect(row?.role).toBe("member");
+  });
+
+  test("roles: nobody changes their own, and two owners demoting each other leave one", async () => {
     const ws = await workspace();
     const first = await member(ws, "owner");
     expect(
@@ -517,7 +561,7 @@ integration("invite store on PostgreSQL", () => {
         actor: acting(ws, first),
         receiptId: randomUUID(),
       }),
-    ).toEqual({ outcome: "last_owner" });
+    ).toEqual({ outcome: "self_protected" });
     expect(
       await store.changeMemberRole({
         userId: randomUUID(),
