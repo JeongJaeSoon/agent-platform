@@ -261,7 +261,8 @@ export function scopeOf(
   filter: UsageSummaryFilter,
   agentId: string | undefined,
 ) {
-  const agentKey = agentId ?? "";
+  // Rows are keyed by uuid::text, which Postgres writes in lowercase.
+  const agentKey = agentId?.toLowerCase() ?? "";
   const agent =
     agentId === undefined
       ? sql`true`

@@ -406,6 +406,10 @@ describe("usage service", () => {
       .getUsageSummary(serviceKey(), query("me"))
       .catch((caught: unknown) => caught);
     expect((error as SessionServiceError).code).toBe("FORBIDDEN");
+    const tools = await bound
+      .getUsageTools(serviceKey(), toolsQuery("me"))
+      .catch((caught: unknown) => caught);
+    expect((tools as SessionServiceError).code).toBe("FORBIDDEN");
   });
 
   test("the summary echoes the period on UTC and is incomplete while any turn is", async () => {
