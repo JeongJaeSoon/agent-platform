@@ -19,6 +19,8 @@ const { OperationsHead } = await import("./operations-head.tsx");
 const { UsageFilters } = await import("./usage-filters.tsx");
 const { UsageKpis } = await import("./usage-kpis.tsx");
 const { UsageCostTable } = await import("./usage-cost-table.tsx");
+const { UsageDailyCost } = await import("./usage-daily-cost.tsx");
+const { UsageBasis } = await import("./usage-basis.tsx");
 const { OPERATIONS_MESSAGES } = await import("./messages.ts");
 
 const TOOLS = [
@@ -777,6 +779,91 @@ describe("OperationsHead", () => {
       expect(
         document.querySelector('[data-slot="popover-content"]')?.textContent,
       ).toBe("아직 준비 중인 화면입니다."),
+    );
+  });
+});
+
+describe("UsageDailyCost", () => {
+  const day = (date: string, cost: string) => ({
+    date,
+    session_count: 1,
+    cost_usd: cost,
+    cost_complete: true,
+    token_count: 10,
+    run_seconds: 60,
+  });
+  // The y ticks come before the plot and its x labels.
+  const ticks = () =>
+    [
+      ...(document.querySelector('[data-slot="bar-chart"] .tabular-nums')
+        ?.children ?? []),
+    ].map((tick) => tick.textContent);
+
+  test("비용이 $0.01보다 작아도 y축 눈금이 서로 다르다", () => {
+    withPlatform(
+      <UsageDailyCost
+        buckets={[day("2026-10-24", "0.000084"), day("2026-10-25", "0.000336")]}
+        days={2}
+      />,
+    );
+    expect(ticks()).toEqual(["$0.0004", "$0.0003", "$0.0002", "$0.0001", "$0"]);
+  });
+
+  test("$0.01보다 작은 눈금은 유효숫자 한 자리라 축 칸에서 줄바꿈되지 않는다", () => {
+    withPlatform(
+      <UsageDailyCost
+        buckets={[day("2026-10-24", "0.0001"), day("2026-10-25", "0.00056")]}
+        days={2}
+      />,
+    );
+    expect(ticks()).toEqual(["$0.0008", "$0.0006", "$0.0004", "$0.0002", "$0"]);
+  });
+
+  test("$0.01부터 $20 미만도 눈금이 서로 다르다", () => {
+    for (const [cost, want] of [
+      ["0.01", ["$0.04", "$0.03", "$0.02", "$0.01", "$0.00"]],
+      ["0.03", ["$0.04", "$0.03", "$0.02", "$0.01", "$0.00"]],
+      ["0.07", ["$0.08", "$0.06", "$0.04", "$0.02", "$0.00"]],
+      ["5.10", ["$8.00", "$6.00", "$4.00", "$2.00", "$0.00"]],
+    ] as const) {
+      const { unmount } = withPlatform(
+        <UsageDailyCost buckets={[day("2026-10-25", cost)]} days={1} />,
+      );
+      expect(ticks()).toEqual([...want]);
+      unmount();
+    }
+  });
+
+  test("$20 이상이면 시안처럼 $20 단위의 정수 눈금이다", () => {
+    withPlatform(
+      <UsageDailyCost
+        buckets={[day("2026-10-24", "12.00"), day("2026-10-25", "57.10")]}
+        days={2}
+      />,
+    );
+    expect(ticks()).toEqual(["$60", "$45", "$30", "$15", "$0"]);
+  });
+});
+
+describe("UsageBasis", () => {
+  test("읽은 뒤에는 기준 줄이 시안처럼 텍스트 노드 하나다", () => {
+    const { container } = withPlatform(
+      <UsageBasis
+        scope="installation"
+        period={{
+          since: "2026-09-24T00:00:00Z",
+          until: "2026-10-24T00:00:00Z",
+        }}
+        refreshedAt="2026-10-23T12:40:00Z"
+        timeZone="Asia/Seoul"
+      />,
+    );
+    const line = container.querySelector("p, span, div");
+    expect([...(line?.childNodes ?? [])].map((n) => n.nodeType)).toEqual([
+      Node.TEXT_NODE,
+    ]);
+    expect(line?.textContent).toBe(
+      "설치 전체 · 2026-09-24 – 2026-10-23 (UTC) · 비용·토큰·실행 시간은 세션을 시작한 날에 붙습니다 · 오후 9:40에 읽은 값",
     );
   });
 });

@@ -14,6 +14,9 @@ import { type ApiClient, unwrap } from "@werft-ai/client";
 import type {
   CountSessionsResponse,
   InstallationLimitsResponse,
+  UsageBreakdownBy,
+  UsageBreakdownResponse,
+  UsageSeriesResponse,
   UsageSummaryScope,
   UsageToolCallsResponse,
   UsageToolsResponse,
@@ -37,18 +40,24 @@ import {
   ToolsFilter,
   ToolsSummary,
   ToolTable,
+  UsageBasis,
   UsageCostTable,
+  UsageDailyCost,
   UsageFilters,
   UsageKpis,
   type UsagePeriod,
+  UsageTokenMix,
 } from "@werft-ai/react/components";
-import { Badge, Card, Section, Skeleton } from "@werft-ai/ui";
-import { useState } from "react";
+import { Badge, Card, EmptyState, Section, Skeleton } from "@werft-ai/ui";
+import { useRef, useState } from "react";
 import { useHasPermission } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
-import type { OperationsSearch } from "./operations-search.ts";
+import {
+  type OperationsSearch,
+  operationsSearch,
+} from "./operations-search.ts";
 import { SESSION_FILTERS } from "./sessions.tsx";
 
 const DAY_MS = 86_400_000;
@@ -175,9 +184,6 @@ const TAB_PATHS: Readonly<Record<OperationsTab, string>> = {
   limits: "/operations/limits",
 };
 
-// Shown where the design puts it until its screen lands (94S-914).
-const SOON: readonly OperationsTab[] = ["usage"];
-
 function useCurrentTab() {
   const operator = useHasPermission("usage.installation_read");
   const pathname = useRouterState({
@@ -194,15 +200,25 @@ function useCurrentTab() {
   return { tabs, current };
 }
 
+function periodFiltersFor(
+  tab: OperationsTab,
+  search: Record<string, unknown>,
+): OperationsSearch {
+  return tab === "limits" ? {} : operationsSearch(search);
+}
+
 function MenuHead() {
   const { tabs, current } = useCurrentTab();
   return (
     <OperationsHead
       tabs={tabs}
-      soon={SOON}
       current={current}
       tabLink={(tab, label) => (
-        <Link to={TAB_PATHS[tab]} activeOptions={{ exact: true }}>
+        <Link
+          to={TAB_PATHS[tab]}
+          search={(prev) => periodFiltersFor(tab, prev)}
+          activeOptions={{ exact: true, includeSearch: false }}
+        >
           {label}
         </Link>
       )}
@@ -302,7 +318,16 @@ export function OperationsOverviewScreen() {
           days={filters.days}
           onDaysChange={filters.setDays}
         />
-        <Section title={t("operations.recent", { days: filters.days })}>
+        <Section
+          title={t("operations.recent", { days: filters.days })}
+          actions={
+            <MoreLink asChild>
+              <Link to="/operations/usage" search={(prev) => prev}>
+                {t("operations.usageMore")}
+              </Link>
+            </MoreLink>
+          }
+        >
           {series.isError ? (
             <Card className="py-0">
               <LoadFailure
@@ -362,6 +387,143 @@ export function OperationsOverviewScreen() {
         </Section>
       </div>
     </div>
+  );
+}
+
+type Answer<T> = { readonly data: T | undefined; readonly error: Error | null };
+
+type UsageSet = {
+  readonly key: string;
+  readonly scope: UsageSummaryScope;
+  readonly series: Answer<UsageSeriesResponse>;
+  readonly models: Answer<UsageBreakdownResponse>;
+  readonly agents: Answer<UsageBreakdownResponse>;
+};
+
+export function OperationsUsageScreen() {
+  const { t } = useI18n();
+  const { client } = useAgentPlatform();
+  const filters = useUsageFilters();
+  const period = usagePeriod(filters.days);
+  const { since, until } = period;
+  const series = useQuery({
+    ...usageSeriesQuery(client, filters.scope, since, until),
+    placeholderData: keepPreviousData,
+    staleTime: USAGE_STALE_MS,
+  });
+  const breakdown = (by: UsageBreakdownBy) => ({
+    ...usageBreakdownQuery(client, filters.scope, since, by, until),
+    placeholderData: keepPreviousData,
+    staleTime: USAGE_STALE_MS,
+  });
+  const models = useQuery(breakdown("model"));
+  const agents = useQuery(breakdown("agent"));
+  // The three answers are shown as one set (figures, failures and the basis
+  // line together). A set is taken once every query has answered for the
+  // picked scope and period and none is fetching, or at once when the picked
+  // period is already cached; otherwise the set on screen stays.
+  const queries = [series, models, agents];
+  const key = `${filters.scope} ${since} ${until}`;
+  const answered = queries.every(
+    (query) => !query.isPlaceholderData && (query.isSuccess || query.isError),
+  );
+  const fetching = queries.some((query) => query.isFetching);
+  const set = useRef<UsageSet | undefined>(undefined);
+  if (answered && (!fetching || set.current?.key !== key))
+    set.current = {
+      key,
+      scope: filters.scope,
+      series: { data: series.data, error: series.error },
+      models: { data: models.data, error: models.error },
+      agents: { data: agents.data, error: agents.error },
+    };
+  const shown = set.current;
+  const empty =
+    shown?.series.data?.buckets.every((bucket) => bucket.session_count === 0) ??
+    false;
+  const failure = (error: Error, retry: () => unknown) => (
+    <Card className="py-0">
+      <LoadFailure error={error} onRetry={() => void retry()} />
+    </Card>
+  );
+  const table = (
+    shownAnswer: Answer<UsageBreakdownResponse> | undefined,
+    retry: () => unknown,
+    by: UsageBreakdownBy,
+    label: string,
+    head: string,
+  ) =>
+    shownAnswer?.error ? (
+      failure(shownAnswer.error, retry)
+    ) : (
+      <UsageCostTable
+        label={label}
+        head={head}
+        by={by}
+        rows={shownAnswer?.data?.rows}
+      />
+    );
+  return (
+    <>
+      <UsageFilters
+        {...(filters.operator
+          ? { scope: filters.scope, onScopeChange: filters.setScope }
+          : {})}
+        days={filters.days}
+        onDaysChange={filters.setDays}
+      />
+      {shown?.series.error ? (
+        <div aria-busy={fetching || undefined}>
+          {failure(shown.series.error, series.refetch)}
+        </div>
+      ) : (
+        <div
+          aria-busy={fetching || undefined}
+          className="flex min-w-0 flex-col gap-8"
+        >
+          <UsageKpis buckets={shown?.series.data?.buckets} />
+          {empty ? (
+            <EmptyState title={t("operations.usageEmpty")} />
+          ) : (
+            <>
+              <UsageBasis
+                scope={shown?.scope ?? filters.scope}
+                period={shown?.series.data?.period ?? period}
+                refreshedAt={shown?.series.data?.refreshed_at}
+                className="-mt-4 leading-4"
+              />
+              <UsageDailyCost
+                buckets={shown?.series.data?.buckets}
+                days={shown?.series.data?.buckets.length ?? filters.days}
+              />
+              {shown?.models.error ? null : (
+                <UsageTokenMix totals={shown?.models.data?.totals} />
+              )}
+              <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
+                <Section title={t("operations.byModel")}>
+                  {table(
+                    shown?.models,
+                    models.refetch,
+                    "model",
+                    t("operations.byModel"),
+                    t("operations.model"),
+                  )}
+                </Section>
+                <Section title={t("operations.byAgent")}>
+                  {table(
+                    shown?.agents,
+                    agents.refetch,
+                    "agent",
+                    t("operations.byAgent"),
+                    t("operations.agent"),
+                  )}
+                </Section>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </>
   );
 }
 

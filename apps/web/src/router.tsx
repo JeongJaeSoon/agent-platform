@@ -64,7 +64,6 @@ import {
   sessionsSearch,
 } from "./routes/sessions.tsx";
 import { TeamDetailScreen, TeamsScreen } from "./routes/teams.tsx";
-import { UsageScreen } from "./routes/usage.tsx";
 import { WorkspaceSettingsScreen } from "./routes/workspace-settings.tsx";
 import { WorkspaceSlackScreen } from "./routes/workspace-slack.tsx";
 import type { Services } from "./services.tsx";
@@ -312,10 +311,12 @@ const orgKeys = createRoute({
   component: OrgKeysScreen,
 });
 
-const usage = createRoute({
+const oldUsage = createRoute({
   getParentRoute: () => authed,
   path: "/usage",
-  component: UsageScreen,
+  beforeLoad: ({ search }) => {
+    throw redirect({ to: "/operations/usage", search, replace: true });
+  },
 });
 
 const loadOperations = () => import("./routes/operations.tsx");
@@ -323,15 +324,21 @@ const loadOperations = () => import("./routes/operations.tsx");
 const operations = createRoute({
   getParentRoute: () => authed,
   path: "/operations",
+  validateSearch: (search: Record<string, unknown>): OperationsSearch =>
+    operationsSearch(search),
   component: lazyRouteComponent(loadOperations, "OperationsLayout"),
 });
 
 const operationsOverview = createRoute({
   getParentRoute: () => operations,
   path: "/",
-  validateSearch: (search: Record<string, unknown>): OperationsSearch =>
-    operationsSearch(search),
   component: lazyRouteComponent(loadOperations, "OperationsOverviewScreen"),
+});
+
+const operationsUsage = createRoute({
+  getParentRoute: () => operations,
+  path: "usage",
+  component: lazyRouteComponent(loadOperations, "OperationsUsageScreen"),
 });
 
 const operationsTools = createRoute({
@@ -396,9 +403,10 @@ const routeTree = root.addChildren([
     workspaceSettings,
     workspaceSlack,
     orgKeys,
-    usage,
+    oldUsage,
     operations.addChildren([
       operationsOverview,
+      operationsUsage,
       operationsTools,
       operationsLimits,
     ]),

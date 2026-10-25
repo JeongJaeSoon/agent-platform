@@ -74,12 +74,22 @@ function figures(sessions: number, cost: string) {
   };
 }
 
-const AGENTS = [
-  { key: "a1", label: "release-notes-writer", ...figures(40, "412.30") },
-  { key: "a2", label: "triage-bot", ...figures(30, "301.20") },
-  { key: "a3", label: "pr-reviewer", ...figures(20, "200.00") },
-  { key: null, label: null, ...figures(10, "132.00") },
-];
+const BREAKDOWN = {
+  agent: [
+    { key: "a1", label: "release-notes-writer", ...figures(40, "412.30") },
+    { key: "a2", label: "triage-bot", ...figures(30, "301.20") },
+    { key: "a3", label: "pr-reviewer", ...figures(20, "200.00") },
+    { key: null, label: null, ...figures(10, "132.00") },
+  ],
+  model: [
+    {
+      key: "claude-sonnet-4-5-20250929",
+      label: "claude-sonnet-4-5-20250929",
+      ...figures(80, "900.00"),
+    },
+    { key: null, label: null, ...figures(5, "145.50") },
+  ],
+};
 
 const TOOLS = {
   tools: [
@@ -170,8 +180,13 @@ const usageRoutes = {
       () => json(200, toolCalls(name)),
     ]),
   ),
-  "GET /v1/usage/breakdown": () =>
-    json(200, { rows: AGENTS, totals: figures(100, "1045.50") }),
+  "GET /v1/usage/breakdown": (request: Request) => {
+    const by = new URL(request.url).searchParams.get("by") as "agent" | "model";
+    return json(200, {
+      rows: BREAKDOWN[by],
+      totals: figures(100, "1045.50"),
+    });
+  },
   "GET /v1/usage/series": (request: Request) => {
     const query = new URL(request.url).searchParams;
     const days = Math.round(
@@ -284,9 +299,9 @@ describe("운영", () => {
     ).toBe("/operations/tools?days=7");
   });
 
-  test("'비용이 큰 에이전트'는 에이전트별 비용 위 3개이고 기간을 따른다", async () => {
+  test("개요의 '비용이 큰 에이전트'는 에이전트별 비용 위 3개이고, '사용량 자세히'는 기간을 들고 간다", async () => {
     setSystemTime(NOW);
-    const { api } = renderAt("/operations?days=7", {
+    const { api, history } = renderAt("/operations?days=7", {
       "GET /v1/auth/me": () => json(200, memberMe()),
       ...usageRoutes,
     });
@@ -302,9 +317,15 @@ describe("운영", () => {
     expect(asked?.search).toBe(
       "?scope=me&since=2026-10-18T00%3A00%3A00.000Z&by=agent&until=2026-10-25T00%3A00%3A00.000Z",
     );
+    const user = await setupUser();
+    await user.click(screen.getByRole("link", { name: "사용량 자세히" }));
+    await waitFor(() =>
+      expect(history.location.pathname).toBe("/operations/usage"),
+    );
+    expect(history.location.search).toBe("?days=7");
   });
 
-  test("아직 없는 사용량 탭은 제자리에 비활성이고 이유를 말하며, 도구 활동 탭은 열린다", async () => {
+  test("사용량·도구 활동 탭은 비활성 없이 제 화면을 연다", async () => {
     setSystemTime(NOW);
     const { history } = renderAt("/operations", {
       "GET /v1/auth/me": () => json(200, memberMe()),
@@ -312,19 +333,49 @@ describe("운영", () => {
     });
     const tabs = await screen.findByRole("navigation", { name: "운영 탭" });
     const usage = within(tabs).getByRole("link", { name: "사용량" });
-    expect(usage.getAttribute("aria-disabled")).toBe("true");
-    expect(usage.getAttribute("href")).toBeNull();
     const tools = within(tabs).getByRole("link", { name: "도구 활동" });
+    expect(usage.getAttribute("aria-disabled")).toBeNull();
+    expect(usage.getAttribute("href")).toBe("/operations/usage");
     expect(tools.getAttribute("aria-disabled")).toBeNull();
     expect(tools.getAttribute("href")).toBe("/operations/tools");
     const user = await setupUser();
     await user.click(usage);
-    expect(history.location.pathname).toBe("/operations");
     await waitFor(() =>
-      expect(
-        document.querySelector('[data-slot="popover-content"]')?.textContent,
-      ).toBe("아직 준비 중인 화면입니다."),
+      expect(history.location.pathname).toBe("/operations/usage"),
     );
+  });
+
+  test("탭을 오가도 기간·범위가 남고, 한도 탭과 도구의 에이전트는 들고 가지 않는다", async () => {
+    setSystemTime(NOW);
+    const { history } = renderAt(
+      "/operations/tools?days=7&scope=me&agent_id=00000000-0000-4000-8000-000000000001",
+      {
+        "GET /v1/auth/me": () => json(200, me()),
+        "GET /v1/limits": () => json(200, LIMITS),
+        ...usageRoutes,
+      },
+    );
+    const tab = async (name: string) =>
+      within(
+        await screen.findByRole("navigation", { name: "운영 탭" }),
+      ).getByRole("link", { name });
+    const search = () =>
+      Object.fromEntries(new URLSearchParams(history.location.search));
+    const user = await setupUser();
+    for (const [name, path] of [
+      ["개요", "/operations"],
+      ["사용량", "/operations/usage"],
+      ["도구 활동", "/operations/tools"],
+    ] as const) {
+      await user.click(await tab(name));
+      await waitFor(() => expect(history.location.pathname).toBe(path));
+      expect(search()).toEqual({ days: "7", scope: "me" });
+    }
+    await user.click(await tab("한도"));
+    await waitFor(() =>
+      expect(history.location.pathname).toBe("/operations/limits"),
+    );
+    expect(search()).toEqual({});
   });
 
   for (const [role, who] of [
@@ -506,6 +557,420 @@ describe("운영", () => {
       expect(new URLSearchParams(call.search).get("agent_id")).toBe(agent);
       expect(new URLSearchParams(call.search).get("scope")).toBe("me");
     }
+  });
+
+  test("사용량 탭: 일자별 비용·토큰 구성·모델별·에이전트별을 series 1회와 breakdown 2회로 그린다", async () => {
+    setSystemTime(NOW);
+    const { api } = renderAt("/operations/usage", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/limits": () => json(200, LIMITS),
+      ...usageRoutes,
+    });
+    const models = await screen.findByRole("table", { name: "모델별" });
+    await within(models).findByText("claude-sonnet-4-5-20250929");
+    expect(within(models).getByText("호출 기록이 없는 비용")).toBeTruthy();
+    const agents = screen.getByRole("table", { name: "에이전트별" });
+    expect(within(agents).getByText("에이전트 없음")).toBeTruthy();
+    expect(within(agents).getByText("triage-bot")).toBeTruthy();
+    expect(
+      screen.getByRole("figure", { name: "일자별 추정 비용, 30일" }),
+    ).toBeTruthy();
+    expect(screen.getByRole("table", { name: "토큰 구성" })).toBeTruthy();
+    expect(screen.getByText("435")).toBeTruthy();
+    const tabs = screen.getByRole("navigation", { name: "운영 탭" });
+    expect(
+      within(tabs)
+        .getByRole("link", { name: "사용량" })
+        .getAttribute("aria-current"),
+    ).toBe("page");
+    const usage = api.calls.filter((call) =>
+      call.path.startsWith("/v1/usage/"),
+    );
+    expect(usage.map((call) => call.path).sort()).toEqual([
+      "/v1/usage/breakdown",
+      "/v1/usage/breakdown",
+      "/v1/usage/series",
+    ]);
+    expect(
+      usage
+        .filter((call) => call.path === "/v1/usage/breakdown")
+        .map((call) => new URLSearchParams(call.search).get("by"))
+        .sort(),
+    ).toEqual(["agent", "model"]);
+  });
+
+  test("사용량 탭: 비용 보고가 안 끝난 지난 날의 막대만 빗금이다", async () => {
+    setSystemTime(NOW);
+    renderAt("/operations/usage?days=7", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      ...usageRoutes,
+      "GET /v1/usage/series": () => {
+        const body = series("me", 7);
+        return json(200, {
+          ...body,
+          buckets: body.buckets.map((bucket) =>
+            bucket.date === "2026-10-20"
+              ? { ...bucket, cost_complete: false }
+              : bucket,
+          ),
+        });
+      },
+    });
+    const chart = await screen.findByRole("figure", {
+      name: "일자별 추정 비용, 7일",
+    });
+    const partial = [...chart.querySelectorAll("[data-partial]")].map(
+      (bar) => bar.getAttribute("aria-label") ?? "",
+    );
+    expect(partial).toHaveLength(1);
+    expect(partial[0]).toContain("10/20");
+  });
+
+  test("사용량 탭: 기간에 세션이 없으면 KPI 아래 빈 상태만 보인다", async () => {
+    setSystemTime(NOW);
+    renderAt("/operations/usage", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      ...usageRoutes,
+      "GET /v1/usage/series": () => {
+        const body = series("me", 30);
+        return json(200, {
+          ...body,
+          buckets: body.buckets.map((bucket) => ({
+            ...bucket,
+            session_count: 0,
+            cost_usd: "0.00",
+            token_count: 0,
+            run_seconds: 0,
+          })),
+        });
+      },
+    });
+    expect(
+      await screen.findByText("이 기간에 시작한 세션이 없습니다."),
+    ).toBeTruthy();
+    expect(screen.queryByRole("table", { name: "모델별" })).toBeNull();
+    expect(
+      screen.queryByRole("figure", { name: /일자별 추정 비용/ }),
+    ).toBeNull();
+  });
+
+  test("사용량 탭에서 90일을 고르면 URL과 차트가 함께 바뀐다", async () => {
+    setSystemTime(NOW);
+    const { history } = renderAt("/operations/usage", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      ...usageRoutes,
+    });
+    await screen.findByRole("figure", { name: "일자별 추정 비용, 30일" });
+    const user = await setupUser();
+    await user.click(screen.getByRole("button", { name: "90일" }));
+    expect(
+      await screen.findByRole("figure", { name: "일자별 추정 비용, 90일" }),
+    ).toBeTruthy();
+    expect(history.location.pathname).toBe("/operations/usage");
+    expect(history.location.search).toBe("?days=90");
+  });
+
+  test("사용량 탭: 새 기간·범위를 읽는 동안 남은 수치에는 그 수치의 기준 줄이 붙는다", async () => {
+    setSystemTime(NOW);
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    renderAt("/operations/usage", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/limits": () => json(200, LIMITS),
+      ...usageRoutes,
+      "GET /v1/usage/series": async (request: Request) => {
+        const query = new URL(request.url).searchParams;
+        if (query.get("scope") === "me") await held;
+        return usageRoutes["GET /v1/usage/series"](request);
+      },
+    });
+    const basis = (scope: string, first: string) =>
+      screen.getByText(
+        (_, el) =>
+          el?.textContent ===
+          `${scope} · ${first} – 2026-10-24 (UTC) · 비용·토큰·실행 시간은 세션을 시작한 날에 붙습니다 · 오후 12:40에 읽은 값`,
+      );
+    await waitFor(() => basis("설치 전체", "2026-09-25"));
+    const user = await setupUser();
+    // 7 days of the installation, then my own, which the API holds back.
+    await user.click(screen.getByRole("button", { name: "7일" }));
+    await waitFor(() => basis("설치 전체", "2026-10-18"));
+    await user.click(screen.getByRole("button", { name: "내 사용량" }));
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("button", { name: "내 사용량" })
+          .getAttribute("aria-pressed"),
+      ).toBe("true"),
+    );
+    expect(basis("설치 전체", "2026-10-18")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "30일" }));
+    expect(basis("설치 전체", "2026-10-18")).toBeTruthy();
+    expect(
+      screen.getByRole("figure", { name: "일자별 추정 비용, 7일" }),
+    ).toBeTruthy();
+    release();
+    await waitFor(() => basis("내 사용량", "2026-09-25"));
+    expect(
+      screen.getByRole("figure", { name: "일자별 추정 비용, 30일" }),
+    ).toBeTruthy();
+  });
+
+  test("사용량 탭: series가 먼저 와도 표·기준 줄은 breakdown까지 와야 함께 바뀐다", async () => {
+    setSystemTime(NOW);
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    renderAt("/operations/usage", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/limits": () => json(200, LIMITS),
+      ...usageRoutes,
+      "GET /v1/usage/breakdown": async (request: Request) => {
+        const query = new URL(request.url).searchParams;
+        if (query.get("scope") !== "me")
+          return usageRoutes["GET /v1/usage/breakdown"](request);
+        await held;
+        return json(200, {
+          rows: [{ key: "a9", label: "my-own-agent", ...figures(3, "9.00") }],
+          totals: figures(3, "9.00"),
+        });
+      },
+    });
+    const agents = await screen.findByRole("table", { name: "에이전트별" });
+    await within(agents).findByText("triage-bot");
+    const user = await setupUser();
+    await user.click(screen.getByRole("button", { name: "내 사용량" }));
+    // series for "me" answers at once; the breakdowns are held.
+    await waitFor(() =>
+      expect(
+        screen.getByRole("figure", { name: "일자별 추정 비용, 30일" }),
+      ).toBeTruthy(),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(screen.getByText(/^설치 전체 · 2026-09-25/)).toBeTruthy();
+    expect(
+      within(screen.getByRole("table", { name: "에이전트별" })).getByText(
+        "triage-bot",
+      ),
+    ).toBeTruthy();
+    release();
+    await within(
+      await screen.findByRole("table", { name: "에이전트별" }),
+    ).findByText("my-own-agent");
+    expect(screen.getByText(/^내 사용량 · 2026-09-25/)).toBeTruthy();
+  });
+
+  test("사용량 탭: series가 먼저 실패해도 세 응답이 다 와야 오류가 나고, 다시 시도하는 동안 그 화면이 남는다", async () => {
+    setSystemTime(NOW);
+    const gate = () => {
+      let open = () => {};
+      const shut = new Promise<void>((resolve) => {
+        open = resolve;
+      });
+      return { shut, open };
+    };
+    const breakdowns = gate();
+    const retry = gate();
+    let sevenDayCalls = 0;
+    const sevenDays = (request: Request) =>
+      new URL(request.url).searchParams.get("since")?.startsWith("2026-10-18");
+    renderAt("/operations/usage", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/limits": () => json(200, LIMITS),
+      ...usageRoutes,
+      "GET /v1/usage/series": async (request: Request) => {
+        if (sevenDays(request)) {
+          sevenDayCalls += 1;
+          if (sevenDayCalls === 1)
+            return json(500, { error: { code: "INTERNAL", message: "x" } });
+          await retry.shut;
+        }
+        return usageRoutes["GET /v1/usage/series"](request);
+      },
+      "GET /v1/usage/breakdown": async (request: Request) => {
+        if (sevenDays(request)) await breakdowns.shut;
+        return usageRoutes["GET /v1/usage/breakdown"](request);
+      },
+    });
+    const busy = () =>
+      document.querySelector("[aria-busy]")?.getAttribute("aria-busy") ?? null;
+    await screen.findByRole("figure", { name: "일자별 추정 비용, 30일" });
+    const user = await setupUser();
+    await user.click(screen.getByRole("button", { name: "7일" }));
+    // The series failed at once; the breakdowns are still coming.
+    await waitFor(() => expect(sevenDayCalls).toBe(1));
+    await waitFor(() => expect(busy()).toBe("true"));
+    expect(screen.queryByRole("button", { name: "다시 시도" })).toBeNull();
+    expect(
+      screen.getByRole("figure", { name: "일자별 추정 비용, 30일" }),
+    ).toBeTruthy();
+    expect(screen.getByText(/^설치 전체 · 2026-09-25/)).toBeTruthy();
+    breakdowns.open();
+    await user.click(await screen.findByRole("button", { name: "다시 시도" }));
+    // The retry is held: the failure stays, busy, not a skeleton.
+    await waitFor(() => expect(sevenDayCalls).toBe(2));
+    expect(screen.getByRole("button", { name: "다시 시도" })).toBeTruthy();
+    expect(busy()).toBe("true");
+    retry.open();
+    expect(
+      await screen.findByRole("figure", { name: "일자별 추정 비용, 7일" }),
+    ).toBeTruthy();
+    expect(screen.getByText(/^설치 전체 · 2026-10-18/)).toBeTruthy();
+  });
+
+  test("사용량 탭: 모델별을 다시 시도하는 동안 다른 수치와 오류 자리가 그대로다", async () => {
+    setSystemTime(NOW);
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let modelCalls = 0;
+    renderAt("/operations/usage", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/limits": () => json(200, LIMITS),
+      ...usageRoutes,
+      "GET /v1/usage/breakdown": async (request: Request) => {
+        if (new URL(request.url).searchParams.get("by") === "model") {
+          modelCalls += 1;
+          if (modelCalls === 1)
+            return json(500, { error: { code: "INTERNAL", message: "x" } });
+          await held;
+        }
+        return usageRoutes["GET /v1/usage/breakdown"](request);
+      },
+    });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "다시 시도" }));
+    await waitFor(() => expect(modelCalls).toBe(2));
+    expect(
+      screen.getByRole("figure", { name: "일자별 추정 비용, 30일" }),
+    ).toBeTruthy();
+    expect(
+      within(screen.getByRole("table", { name: "에이전트별" })).getByText(
+        "triage-bot",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "다시 시도" })).toBeTruthy();
+    release();
+    const models = await screen.findByRole("table", { name: "모델별" });
+    expect(within(models).getByText("claude-sonnet-4-5-20250929")).toBeTruthy();
+  });
+
+  test("사용량 탭: 오래된 캐시 기간으로 돌아오면 수치는 바로 보이고 다시 읽는 동안 aria-busy다", async () => {
+    setSystemTime(NOW);
+    let release = () => {};
+    let held: Promise<void> | undefined;
+    const { api } = renderAt("/operations/usage", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/limits": () => json(200, LIMITS),
+      ...usageRoutes,
+      // A refetched series comes back at once with its new read time.
+      "GET /v1/usage/series": async (request: Request) => {
+        const body = await usageRoutes["GET /v1/usage/series"](request).json();
+        return json(200, { ...body, refreshed_at: new Date().toISOString() });
+      },
+      "GET /v1/usage/breakdown": async (request: Request) => {
+        await held;
+        return usageRoutes["GET /v1/usage/breakdown"](request);
+      },
+    });
+    const busy = () =>
+      document.querySelector("[aria-busy]")?.getAttribute("aria-busy") ?? null;
+    await screen.findByRole("figure", { name: "일자별 추정 비용, 30일" });
+    await waitFor(() => expect(busy()).toBeNull());
+    const user = await setupUser();
+    await user.click(screen.getByRole("button", { name: "7일" }));
+    await screen.findByRole("figure", { name: "일자별 추정 비용, 7일" });
+    await waitFor(() => expect(busy()).toBeNull());
+    // The 30-day answers are past their stale time; the breakdown refetches
+    // are held.
+    setSystemTime(new Date(NOW.getTime() + 61_000));
+    held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const before = api.calls.length;
+    await user.click(screen.getByRole("button", { name: "30일" }));
+    expect(
+      screen.getByRole("figure", { name: "일자별 추정 비용, 30일" }),
+    ).toBeTruthy();
+    await waitFor(() => expect(busy()).toBe("true"));
+    expect(api.calls.length).toBeGreaterThan(before);
+    // The new series is in, but it waits for the breakdowns.
+    await waitFor(() =>
+      expect(
+        api.calls.filter(
+          (call) =>
+            call.path === "/v1/usage/series" &&
+            call.search.includes("since=2026-09-25"),
+        ),
+      ).toHaveLength(2),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(screen.getByText(/오후 12:40에 읽은 값$/)).toBeTruthy();
+    release();
+    await waitFor(() => expect(busy()).toBeNull());
+    expect(screen.getByText(/오후 12:41에 읽은 값$/)).toBeTruthy();
+  });
+
+  test("사용량 탭: 모델별만 실패하면 나머지는 그 기간으로 보이고 모델별 자리에 오류가 난다", async () => {
+    setSystemTime(NOW);
+    const { api } = renderAt("/operations/usage", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/limits": () => json(200, LIMITS),
+      ...usageRoutes,
+      "GET /v1/usage/breakdown": (request: Request) =>
+        new URL(request.url).searchParams.get("by") === "model"
+          ? json(500, { error: { code: "INTERNAL", message: "x" } })
+          : usageRoutes["GET /v1/usage/breakdown"](request),
+    });
+    // First load: the series and the agents show although the models failed.
+    expect(
+      await screen.findByRole("button", { name: "다시 시도" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("figure", { name: "일자별 추정 비용, 30일" }),
+    ).toBeTruthy();
+    expect(screen.getByText(/^설치 전체 · 2026-09-25/)).toBeTruthy();
+    expect(
+      within(screen.getByRole("table", { name: "에이전트별" })).getByText(
+        "triage-bot",
+      ),
+    ).toBeTruthy();
+    // A switch where the models fail again: the basis is the new period's,
+    // the one the error card belongs to.
+    const user = await setupUser();
+    await user.click(screen.getByRole("button", { name: "7일" }));
+    await screen.findByRole("figure", { name: "일자별 추정 비용, 7일" });
+    expect(screen.getByText(/^설치 전체 · 2026-10-18/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "다시 시도" })).toBeTruthy();
+    expect(
+      api.calls.filter(
+        (call) =>
+          call.path === "/v1/usage/breakdown" &&
+          call.search.includes("by=model") &&
+          call.search.includes("since=2026-10-18"),
+      ),
+    ).toHaveLength(1);
+  });
+
+  test("예전 /usage는 기간·범위를 그대로 들고 /operations/usage로 간다", async () => {
+    setSystemTime(NOW);
+    const { history } = renderAt("/usage?days=7&scope=me", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/limits": () => json(200, LIMITS),
+      ...usageRoutes,
+    });
+    expect(
+      await screen.findByRole("figure", { name: "일자별 추정 비용, 7일" }),
+    ).toBeTruthy();
+    expect(history.location.pathname).toBe("/operations/usage");
+    expect(new URLSearchParams(history.location.search).get("scope")).toBe(
+      "me",
+    );
+    expect(new URLSearchParams(history.location.search).get("days")).toBe("7");
   });
 
   test("한도 탭: owner는 한도 표를 본다", async () => {

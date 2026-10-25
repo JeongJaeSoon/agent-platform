@@ -107,6 +107,36 @@ export interface UsageCostTableMessages {
   readonly emptyModel: string;
 }
 
+export interface UsageDailyCostMessages {
+  readonly title: string;
+  readonly description: string;
+  readonly complete: string;
+  readonly partial: string;
+  readonly chart: (days: number) => string;
+  readonly tip: (
+    day: string,
+    cost: string,
+    sessions: string,
+    partial: boolean,
+  ) => string;
+}
+
+export interface UsageTokenMixMessages {
+  readonly title: string;
+  readonly description: (total: string) => string;
+  readonly input: string;
+  readonly output: string;
+  readonly cacheRead: string;
+  readonly cacheWrite: string;
+  readonly share: (label: string) => string;
+}
+
+export interface UsageBasisMessages {
+  readonly scope: Readonly<Record<"me" | "installation", string>>;
+  readonly rule: string;
+  readonly readAt: (at: string) => string;
+}
+
 export interface SessionCountsMessages {
   readonly title: string;
   readonly description: string;
@@ -221,6 +251,9 @@ export interface OperationsMessages {
   readonly usageKpis: UsageKpisMessages;
   readonly installationLimits: InstallationLimitsMessages;
   readonly usageCostTable: UsageCostTableMessages;
+  readonly usageDailyCost: UsageDailyCostMessages;
+  readonly usageTokenMix: UsageTokenMixMessages;
+  readonly usageBasis: UsageBasisMessages;
 }
 
 function format(
@@ -468,6 +501,30 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         emptyAgent: "이 기간에 비용을 쓴 에이전트가 없습니다.",
         emptyModel: "이 기간에 비용을 쓴 모델이 없습니다.",
       },
+      usageDailyCost: {
+        title: "일자별 비용",
+        description: "막대에 올리면 그날의 비용과 세션 수가 나옵니다",
+        complete: "비용 보고 끝남",
+        partial: "보고 안 된 비용 있음",
+        chart: (days) => `일자별 추정 비용, ${days}일`,
+        tip: (day, cost, sessions, partial) =>
+          `${day} · ${cost} · 세션 ${sessions}개${partial ? " · 보고 안 된 비용 있음" : ""}`,
+      },
+      usageTokenMix: {
+        title: "토큰 구성",
+        description: (total) =>
+          `비용을 센 호출의 토큰 ${total}을 종류별로 나눴습니다`,
+        input: "입력",
+        output: "출력",
+        cacheRead: "캐시 읽기",
+        cacheWrite: "캐시 쓰기",
+        share: (label) => `${label} 토큰 비율`,
+      },
+      usageBasis: {
+        scope: { me: "내 사용량", installation: "설치 전체" },
+        rule: "비용·토큰·실행 시간은 세션을 시작한 날에 붙습니다",
+        readAt: (at) => `${at}에 읽은 값`,
+      },
     },
     ja: {
       format: format(
@@ -638,6 +695,31 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         emptyAgent: "この期間にコストを使ったエージェントはありません。",
         emptyModel: "この期間にコストを使ったモデルはありません。",
       },
+      usageDailyCost: {
+        title: "日別コスト",
+        description:
+          "バーにカーソルを合わせると、その日のコストとセッション数が表示されます",
+        complete: "コスト報告済み",
+        partial: "未報告のコストあり",
+        chart: (days) => `日別推定コスト、${days}日`,
+        tip: (day, cost, sessions, partial) =>
+          `${day} · ${cost} · セッション${sessions}件${partial ? " · 未報告のコストあり" : ""}`,
+      },
+      usageTokenMix: {
+        title: "トークン構成",
+        description: (total) =>
+          `コストを数えた呼び出しのトークン ${total} を種類別に分けました`,
+        input: "入力",
+        output: "出力",
+        cacheRead: "キャッシュ読み取り",
+        cacheWrite: "キャッシュ書き込み",
+        share: (label) => `${label} のトークン比率`,
+      },
+      usageBasis: {
+        scope: { me: "自分の使用量", installation: "インストール全体" },
+        rule: "コスト・トークン・実行時間はセッションを開始した日に計上されます",
+        readAt: (at) => `${at} に読み込んだ値`,
+      },
     },
     en: {
       format: format(
@@ -804,6 +886,30 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         noModel: "Cost without metered calls",
         emptyAgent: "No agent spent anything in this period.",
         emptyModel: "No model was billed in this period.",
+      },
+      usageDailyCost: {
+        title: "Cost per day",
+        description: "Point at a bar for that day's cost and sessions",
+        complete: "Cost reported",
+        partial: "Some cost not reported",
+        chart: (days) => `Estimated cost per day, ${days} days`,
+        tip: (day, cost, sessions, partial) =>
+          `${day} · ${cost} · ${sessions} sessions${partial ? " · some cost not reported" : ""}`,
+      },
+      usageTokenMix: {
+        title: "Token mix",
+        description: (total) =>
+          `The ${total} tokens of the calls the cost counts, by kind`,
+        input: "Input",
+        output: "Output",
+        cacheRead: "Cache read",
+        cacheWrite: "Cache write",
+        share: (label) => `${label} share of tokens`,
+      },
+      usageBasis: {
+        scope: { me: "My usage", installation: "Whole installation" },
+        rule: "Cost, tokens and run time count on the day a session started",
+        readAt: (at) => `read at ${at}`,
       },
     },
   };

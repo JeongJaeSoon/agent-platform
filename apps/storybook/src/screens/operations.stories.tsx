@@ -16,28 +16,15 @@ import {
   ToolsFilter,
   ToolsSummary,
   ToolTable,
+  UsageBasis,
+  UsageCostTable,
+  UsageDailyCost,
   UsageFilters,
   UsageKpis,
   type UsagePeriod,
+  UsageTokenMix,
 } from "@werft-ai/react/components";
-import {
-  Badge,
-  BarChart,
-  BarChartLegend,
-  Card,
-  CardContent,
-  EmptyState,
-  GridTable,
-  GridTableCell,
-  GridTableColumnHeader,
-  GridTableHeader,
-  GridTableRow,
-  Link,
-  Meter,
-  Section,
-  Skeleton,
-  Text,
-} from "@werft-ai/ui";
+import { Badge, EmptyState, Link, Section, Skeleton } from "@werft-ai/ui";
 import {
   createContext,
   type ReactNode,
@@ -74,16 +61,6 @@ const TABS: readonly Tab[] = ["overview", "usage", "tools", "limits"];
 
 // ---------- display transforms (not API fields) ----------
 const nf = new Intl.NumberFormat("ko-KR");
-const usd = (s: string | number) =>
-  `$${Number(s).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const tok = (n: number) =>
-  n >= 1e8
-    ? `${(n / 1e8).toFixed(1)}억`
-    : n >= 1e4
-      ? `${nf.format(Math.round(n / 1e4))}만`
-      : nf.format(n);
-const monthDay = (date: string) =>
-  `${Number(date.slice(5, 7))}/${Number(date.slice(8, 10))}`;
 
 interface ScreenData {
   readonly role: Role;
@@ -146,26 +123,6 @@ function Value({
   );
 }
 
-const BAR_CHART_HEIGHT = "11.25rem";
-
-// A block skeleton is at least 4rem; shorter boxes center a text bar.
-function Box({
-  height,
-  chart = false,
-}: {
-  readonly height: string;
-  readonly chart?: boolean;
-}) {
-  return (
-    <Skeleton
-      decorative
-      shape={chart ? "block" : "text"}
-      height={height}
-      className="justify-center"
-    />
-  );
-}
-
 function Filters({ role, days }: { readonly role: Role; readonly days: Days }) {
   const [scope, setScope] = useState<UsageSummaryScope>(
     role === "owner" ? "installation" : "me",
@@ -200,80 +157,29 @@ function Kpis({ screen }: { readonly screen: ScreenData }) {
   );
 }
 
-/** Model, agent and top-agent tables: a name over a cost bar, then figures. */
 function CostTable({
   label,
   rows,
   head,
-  mono = false,
+  by,
   tokens = true,
 }: {
   readonly label: string;
   readonly rows: readonly UsageBreakdownRow[];
   readonly head: string;
-  readonly mono?: boolean;
+  readonly by: "model" | "agent";
   readonly tokens?: boolean;
 }) {
-  const max = Math.max(...rows.map((r) => Number(r.cost_usd)));
   const loading = useContext(Loading);
   return (
-    <Card flush>
-      <GridTable
-        aria-label={label}
-        {...(tokens
-          ? {
-              columns: "minmax(0,1fr) 56px 80px 96px",
-              narrowAt: 480 as const,
-              narrowColumns: "minmax(0,1fr) 48px 88px",
-            }
-          : { columns: "minmax(0,1fr) 64px 96px" })}
-      >
-        <GridTableHeader>
-          <GridTableColumnHeader>{head}</GridTableColumnHeader>
-          <GridTableColumnHeader align="end">세션</GridTableColumnHeader>
-          {tokens ? (
-            <GridTableColumnHeader align="end" hideNarrow>
-              토큰
-            </GridTableColumnHeader>
-          ) : null}
-          <GridTableColumnHeader align="end">비용</GridTableColumnHeader>
-        </GridTableHeader>
-        {rows.map((row) => (
-          <GridTableRow key={row.key}>
-            <GridTableCell lines className="gap-1">
-              <Text
-                as="span"
-                className={mono ? "font-mono text-control" : undefined}
-              >
-                <Value width="8rem">{row.label}</Value>
-              </Text>
-              {loading ? (
-                <Box height="0.25rem" />
-              ) : (
-                <Meter
-                  size="inline"
-                  value={Number(row.cost_usd)}
-                  max={max}
-                  label={`${row.label} 비용 비율`}
-                  className="w-full"
-                />
-              )}
-            </GridTableCell>
-            <GridTableCell align="end" className="tabular-nums">
-              <Value width="1.5rem">{row.session_count}</Value>
-            </GridTableCell>
-            {tokens ? (
-              <GridTableCell align="end" hideNarrow className="tabular-nums">
-                <Value>{tok(row.token_count)}</Value>
-              </GridTableCell>
-            ) : null}
-            <GridTableCell align="end" className="tabular-nums">
-              <Value>{usd(row.cost_usd)}</Value>
-            </GridTableCell>
-          </GridTableRow>
-        ))}
-      </GridTable>
-    </Card>
+    <UsageCostTable
+      label={label}
+      head={head}
+      by={by}
+      rows={loading ? undefined : rows}
+      tokens={tokens}
+      placeholderRows={rows.length}
+    />
   );
 }
 
@@ -355,16 +261,13 @@ function Overview({ screen }: { readonly screen: ScreenData }) {
           title="비용이 큰 에이전트"
           description={`최근 ${screen.days}일 추정 비용 순`}
         >
-          {screen.empty ? (
-            <EmptyState title="이 기간에 비용을 쓴 에이전트가 없습니다." />
-          ) : (
-            <CostTable
-              label="비용이 큰 에이전트"
-              head="에이전트"
-              rows={agents}
-              tokens={false}
-            />
-          )}
+          <CostTable
+            label="비용이 큰 에이전트"
+            head="에이전트"
+            by="agent"
+            rows={screen.empty ? [] : agents}
+            tokens={false}
+          />
         </Section>
       </div>
     </div>
@@ -372,13 +275,7 @@ function Overview({ screen }: { readonly screen: ScreenData }) {
 }
 
 function Usage({ screen }: { readonly screen: ScreenData }) {
-  const summary = summaryOf(screen.series);
-  const split = breakdown(summary);
-  const totals = split.model.totals;
-  const total = totals.token_count;
-  const first = screen.series.buckets[0]?.date ?? "";
-  const last = screen.series.buckets.at(-1)?.date ?? "";
-  const scope = screen.role === "owner" ? "설치 전체" : "내 사용량";
+  const split = breakdown(summaryOf(screen.series));
   const loading = useContext(Loading);
   if (screen.empty) {
     return (
@@ -394,110 +291,32 @@ function Usage({ screen }: { readonly screen: ScreenData }) {
       className="flex min-w-0 flex-col gap-8"
     >
       <Kpis screen={screen} />
-      <Text variant="meta" className="-mt-4 leading-4">
-        {scope} · {first} – {last} (UTC) · 비용·토큰·실행 시간은 세션을 시작한
-        날에 붙습니다 · 오후 9:40에 읽은 값
-      </Text>
-      <Section
-        title="일자별 비용"
-        description="막대에 올리면 그날의 비용과 세션 수가 나옵니다"
-        actions={
-          <BarChartLegend
-            items={[
-              { label: "비용 보고 끝남" },
-              { label: "보고 안 된 비용 있음", partial: true },
-            ]}
-          />
-        }
-      >
-        <Card>
-          <CardContent>
-            {loading ? (
-              <Box chart height={BAR_CHART_HEIGHT} />
-            ) : (
-              <BarChart
-                label={`일자별 추정 비용, ${screen.days}일`}
-                data={screen.series.buckets.map((b) => ({
-                  x: b.date,
-                  y: Number(b.cost_usd),
-                  partial: !b.cost_complete,
-                }))}
-                yMax={
-                  Math.ceil(
-                    Math.max(
-                      ...screen.series.buckets.map((b) => Number(b.cost_usd)),
-                    ) / 20,
-                  ) * 20
-                }
-                formatX={monthDay}
-                formatY={(y) => `$${Math.round(y)}`}
-                formatTip={(d) => {
-                  const bucket = screen.series.buckets.find(
-                    (b) => b.date === d.x,
-                  );
-                  return `${monthDay(d.x)} · ${usd(d.y)} · 세션 ${bucket?.session_count ?? 0}개${d.partial ? " · 보고 안 된 비용 있음" : ""}`;
-                }}
-              />
-            )}
-          </CardContent>
-        </Card>
-      </Section>
-      <Section
-        title="토큰 구성"
-        description={`비용을 센 호출의 토큰 ${tok(total)}을 종류별로 나눴습니다`}
-      >
-        <Card flush>
-          <GridTable
-            aria-label="토큰 구성"
-            columns="96px minmax(0,1fr) 80px 56px"
-          >
-            {(
-              [
-                ["입력", "input_tokens"],
-                ["출력", "output_tokens"],
-                ["캐시 읽기", "cache_read_input_tokens"],
-                ["캐시 쓰기", "cache_creation_input_tokens"],
-              ] as const
-            ).map(([label, key]) => (
-              <GridTableRow key={key}>
-                <GridTableCell>{label}</GridTableCell>
-                <GridTableCell>
-                  {loading ? (
-                    <Box height="0.25rem" />
-                  ) : (
-                    <Meter
-                      size="inline"
-                      value={totals[key]}
-                      max={total}
-                      label={`${label} 토큰 비율`}
-                      className="w-full"
-                    />
-                  )}
-                </GridTableCell>
-                <GridTableCell align="end" className="tabular-nums">
-                  <Value>{tok(totals[key])}</Value>
-                </GridTableCell>
-                <GridTableCell
-                  align="end"
-                  className="text-subtle-foreground tabular-nums"
-                >
-                  <Value width="2rem">
-                    {Math.round((100 * totals[key]) / total)}%
-                  </Value>
-                </GridTableCell>
-              </GridTableRow>
-            ))}
-          </GridTable>
-        </Card>
-      </Section>
+      <UsageBasis
+        scope={screen.role === "owner" ? "installation" : "me"}
+        period={screen.series.period}
+        refreshedAt={loading ? undefined : screen.series.refreshed_at}
+        timeZone="Asia/Seoul"
+        className="-mt-4 leading-4"
+      />
+      <UsageDailyCost
+        buckets={loading ? undefined : screen.series.buckets}
+        days={screen.days}
+      />
+      <UsageTokenMix totals={loading ? undefined : split.model.totals} />
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
         <Section title="모델별">
-          <CostTable label="모델별" head="모델" rows={split.model.rows} mono />
+          <CostTable
+            label="모델별"
+            head="모델"
+            by="model"
+            rows={split.model.rows}
+          />
         </Section>
         <Section title="에이전트별">
           <CostTable
             label="에이전트별"
             head="에이전트"
+            by="agent"
             rows={split.agent.rows}
           />
         </Section>
