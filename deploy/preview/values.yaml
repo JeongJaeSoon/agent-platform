@@ -1,5 +1,4 @@
-# Laid over deploy/kind/values.yaml by preview.sh, before
-# deploy/kind/values-fake-model.yaml.
+# up.sh's EXTRA_VALUES for preview.sh, laid over the kind and fake-model values.
 worker:
   # Requests equal limits on worker pods, so the chart's 4608 would reserve
   # 4.5 GiB per session; a fake-model worker used 255 MB in the PoC (94S-958).

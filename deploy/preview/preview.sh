@@ -126,6 +126,12 @@ readyz() {
     --resolve "${host}:${HTTPS_PORT}:127.0.0.1" "https://${host}:${HTTPS_PORT}/readyz" || true
 }
 
+# The printed URLs are the entry point's (443, 94S-961); this is the same
+# host on Traefik's own port, which needs no DNS.
+local_hint() {
+  echo "on this Mac: curl -k --resolve ${1}:${HTTPS_PORT}:127.0.0.1 https://${1}:${HTTPS_PORT}/"
+}
+
 free_port() {
   bun -e 'const s = Bun.listen({ hostname: "127.0.0.1", port: 0, socket: { data() {} } });
     console.log(s.port); s.stop(true);'
@@ -196,6 +202,7 @@ EOF
   done
   echo "GET https://${host}/readyz (Traefik 127.0.0.1:${HTTPS_PORT}) -> ${code}"
   echo "${namespace} up in ${SECONDS}s: https://${host}/"
+  local_hint "$host"
   [ "$code" = 200 ]
 }
 
@@ -259,6 +266,7 @@ list() {
         "https://${namespace}.${PREVIEW_DOMAIN}/" "${head:0:12}" "$up_at" "$memory" \
         "$(readyz "${namespace}.${PREVIEW_DOMAIN}")"
     done
+  local_hint "pr-<N>.${PREVIEW_DOMAIN}"
 }
 
 case "${1:-}" in
