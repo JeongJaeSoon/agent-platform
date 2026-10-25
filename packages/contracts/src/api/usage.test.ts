@@ -1,9 +1,57 @@
 import { describe, expect, test } from "bun:test";
 import {
+  usageBreakdownQuerySchema,
+  usageBreakdownResponseSchema,
   usageSeriesQuerySchema,
   usageSeriesResponseSchema,
   usageSummaryQuerySchema,
 } from "./usage.ts";
+
+describe("usageBreakdownResponseSchema", () => {
+  const figures = {
+    session_count: 131,
+    input_tokens: 2_000,
+    output_tokens: 700,
+    cache_read_input_tokens: 6_400,
+    cache_creation_input_tokens: 700,
+    token_count: 9_800,
+    cost_usd: "41.27",
+  };
+
+  // The shape the operations screens' fixture (apps/storybook
+  // operations-fixtures.ts `breakdown`) builds: string keys and labels.
+  test("reads the operations fixture's proposed response", () => {
+    expect(
+      usageBreakdownResponseSchema.parse({
+        rows: [{ key: "agt_review", label: "리뷰 봇", ...figures }],
+        totals: figures,
+      }).rows[0]?.key,
+    ).toBe("agt_review");
+  });
+
+  test("reads the row without an agent or model as null key and label", () => {
+    const parsed = usageBreakdownResponseSchema.parse({
+      rows: [{ key: null, label: null, ...figures }],
+      totals: figures,
+    });
+    expect(parsed.rows[0]).toMatchObject({ key: null, label: null });
+  });
+
+  test("asks for by=model or by=agent", () => {
+    const ok = (by?: string) =>
+      usageBreakdownQuerySchema.safeParse({
+        scope: "me",
+        since: "2026-10-01",
+        ...(by === undefined ? {} : { by }),
+      }).success;
+    expect([ok("model"), ok("agent"), ok("team"), ok()]).toEqual([
+      true,
+      true,
+      false,
+      false,
+    ]);
+  });
+});
 
 describe("usageSeriesQuerySchema", () => {
   test("buckets by day unless told otherwise, and only by day", () => {

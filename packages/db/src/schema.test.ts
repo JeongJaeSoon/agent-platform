@@ -93,6 +93,8 @@ describe("database schema", () => {
       "receipts",
       "secret_values",
       "session_links",
+      "session_model_usage",
+      "session_pre_metering_cost",
       "session_share_targets",
       "session_shares",
       "sessions",
