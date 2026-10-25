@@ -14,7 +14,7 @@ import { agentsEn, agentsJa, agentsKo } from "./agents.ts";
 import { apiKeysEn, apiKeysJa, apiKeysKo } from "./api-keys.ts";
 import { authEn, authJa, authKo } from "./auth.ts";
 import { commonEn, commonJa, commonKo } from "./common.ts";
-import { en } from "./en.ts";
+import { en, slackEn } from "./en.ts";
 import { errorsEn, errorsJa, errorsKo } from "./errors.ts";
 import { homeEn, homeJa, homeKo } from "./home.ts";
 import {
@@ -25,8 +25,8 @@ import {
   LOCALES,
   translate,
 } from "./i18n.tsx";
-import { ja } from "./ja.ts";
-import { ko } from "./ko.ts";
+import { ja, slackJa } from "./ja.ts";
+import { ko, slackKo } from "./ko.ts";
 import { linkedEn, linkedJa, linkedKo } from "./linked.ts";
 import { membersEn, membersJa, membersKo } from "./members.ts";
 import { modelsEn, modelsJa, modelsKo } from "./models.ts";
@@ -70,6 +70,7 @@ describe("i18n", () => {
       areas.reduce((sum, area) => sum + Object.keys(area).length, 0);
     const areas = {
       ko: [
+        slackKo,
         commonKo,
         shellKo,
         authKo,
@@ -91,6 +92,7 @@ describe("i18n", () => {
         formsKo,
       ],
       ja: [
+        slackJa,
         commonJa,
         shellJa,
         authJa,
@@ -112,6 +114,7 @@ describe("i18n", () => {
         formsJa,
       ],
       en: [
+        slackEn,
         commonEn,
         shellEn,
         authEn,
