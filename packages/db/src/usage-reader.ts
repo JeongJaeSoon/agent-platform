@@ -1,9 +1,20 @@
 import type { TurnStatus } from "@werft-ai/contracts";
-import type { UsageReader, UsageSummaryFilter } from "@werft-ai/platform";
+import type {
+  UsageReader,
+  UsageSummaryFilter,
+  UsageToolsFilter,
+} from "@werft-ai/platform";
 import { and, eq, inArray, isNull, not, or, type SQL, sql } from "drizzle-orm";
+import { rowsOf } from "./control-unit-of-work.ts";
 import { INSTALLATION_STORAGE_SCOPE } from "./input-limits.ts";
 import type { Database } from "./queries.ts";
-import { sessions, storageUsage, turns, workerLaunches } from "./schema.ts";
+import {
+  agentReleases,
+  sessions,
+  storageUsage,
+  turns,
+  workerLaunches,
+} from "./schema.ts";
 
 const ENDED: TurnStatus[] = [
   "completed",
@@ -55,6 +66,80 @@ function startedBy(filter: UsageSummaryFilter): SQL | undefined {
         eq(sessions.createdByApiKeyId, filter.apiKeyId),
       );
   }
+}
+
+/**
+ * Every tool call whose tool_use event was created in the period, paired
+ * with its result the way the run tree pairs them (94S-923): by
+ * (session_id, attempt_id, tool_use_id), a null attempt pairing with null,
+ * the earlier event by (occurred_at, id) winning a duplicate. Columns:
+ * event_id, session_id, name, occurred_at, outcome, ms.
+ */
+function toolCalls(filter: UsageSummaryFilter, tools: UsageToolsFilter): SQL {
+  const since = sql`${tools.period.since.toISOString()}::timestamptz`;
+  const until = tools.period.until
+    ? sql`${tools.period.until.toISOString()}::timestamptz`
+    : sql`greatest(now(), ${since})`;
+  const sessionScope = and(
+    startedBy(filter),
+    tools.agentId === undefined
+      ? undefined
+      : sql`${sessions.agentReleaseId} IN (SELECT ${agentReleases.id} FROM ${agentReleases} WHERE ${agentReleases.agentId} = ${tools.agentId})`,
+  );
+  const inScope = sessionScope
+    ? sql`AND events.session_id IN (SELECT ${sessions.id} FROM ${sessions} WHERE ${sessionScope})`
+    : sql``;
+  // tool_result data is whatever block the engine sent: only a string
+  // tool_use_id pairs, and an is_error that is there but not a boolean leaves
+  // the outcome unknown rather than counted as either.
+  return sql`
+    uses AS (
+      SELECT DISTINCT ON (events.session_id, coalesce(events.attempt_id, ''), coalesce(block->>'id', events.id::text || ':' || ord))
+        events.id AS event_id, events.session_id, events.attempt_id,
+        events.occurred_at, block->>'name' AS name,
+        CASE WHEN jsonb_typeof(block->'id') = 'string' THEN block->>'id' END AS tool_use_id
+      FROM events
+      CROSS JOIN LATERAL jsonb_array_elements(
+        CASE WHEN jsonb_typeof(events.payload->'message'->'content') = 'array'
+          THEN events.payload->'message'->'content' ELSE '[]'::jsonb END
+      ) WITH ORDINALITY AS blocks(block, ord)
+      WHERE events.type = 'tool_use'
+        AND events.created_at >= ${since} AND events.created_at < ${until}
+        AND block->>'type' = 'tool_use' AND jsonb_typeof(block->'name') = 'string'
+        ${inScope}
+      ORDER BY events.session_id, coalesce(events.attempt_id, ''), coalesce(block->>'id', events.id::text || ':' || ord), events.occurred_at NULLS LAST, events.id
+    ),
+    results AS (
+      SELECT DISTINCT ON (events.session_id, coalesce(events.attempt_id, ''), events.payload->>'tool_use_id')
+        events.session_id, coalesce(events.attempt_id, '') AS attempt_key,
+        events.payload->>'tool_use_id' AS tool_use_id, events.occurred_at,
+        CASE
+          WHEN NOT events.payload ? 'is_error' THEN 'ok'
+          WHEN jsonb_typeof(events.payload->'is_error') <> 'boolean' THEN 'unknown'
+          WHEN (events.payload->'is_error')::boolean THEN 'failed'
+          ELSE 'ok'
+        END AS outcome
+      FROM events
+      WHERE events.type = 'tool_result'
+        AND events.created_at >= ${since}
+        AND jsonb_typeof(events.payload) = 'object'
+        AND jsonb_typeof(events.payload->'tool_use_id') = 'string'
+        ${inScope}
+      ORDER BY events.session_id, coalesce(events.attempt_id, ''), events.payload->>'tool_use_id', events.occurred_at NULLS LAST, events.id
+    ),
+    calls AS (
+      SELECT uses.event_id, uses.session_id, uses.name, uses.occurred_at,
+        coalesce(results.outcome, 'unknown') AS outcome,
+        -- A result stamped before its call (clock skew) times as 0.
+        CASE WHEN uses.occurred_at IS NOT NULL AND results.occurred_at IS NOT NULL
+          THEN greatest(round(extract(epoch FROM results.occurred_at - uses.occurred_at) * 1000), 0)::bigint
+        END AS ms
+      FROM uses
+      LEFT JOIN results
+        ON results.session_id = uses.session_id
+        AND results.attempt_key = coalesce(uses.attempt_id, '')
+        AND results.tool_use_id = uses.tool_use_id
+    )`;
 }
 
 function counted(condition: SQL | undefined) {
@@ -172,6 +257,36 @@ export function createPostgresUsageReader(db: Database): UsageReader {
         .from(picked);
       if (!row) throw new Error("usage summary read returned no row");
       return row;
+    },
+
+    async usageTools(filter, tools, limit) {
+      const result = await db.execute(sql`
+        WITH ${toolCalls(filter, tools)}
+        SELECT name,
+          count(*) AS calls,
+          count(*) FILTER (WHERE outcome = 'failed') AS failed,
+          coalesce(sum(ms), 0) AS total_ms,
+          coalesce(round(percentile_cont(0.5) WITHIN GROUP (ORDER BY ms)), 0) AS median_ms,
+          coalesce(max(ms), 0) AS max_ms
+        FROM calls
+        GROUP BY name
+        ORDER BY count(*) DESC, name
+        LIMIT ${limit}`);
+      return rowsOf<{
+        name: string;
+        calls: string;
+        failed: string;
+        total_ms: string;
+        median_ms: string;
+        max_ms: string;
+      }>(result).map((row) => ({
+        name: row.name,
+        calls: Number(row.calls),
+        failed: Number(row.failed),
+        totalMs: Number(row.total_ms),
+        medianMs: Number(row.median_ms),
+        maxMs: Number(row.max_ms),
+      }));
     },
   };
 }

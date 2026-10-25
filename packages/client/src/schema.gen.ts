@@ -2202,6 +2202,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/usage/tools": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Calls, failures and time per tool in a period
+         * @description Counts the tool calls whose `tool_use` event was stored in `[since, until)`, per tool name, the most-called first and at most 200 names. `scope`, `since` and `until` work as in `GET /v1/usage/summary`; `agent_id` narrows to the sessions pinned to a release of that agent. Subagent calls count too.
+         *
+         *     A call is timed from its `tool_use` to the `tool_result` paired with it in the same session and attempt by `tool_use_id`. A call with no result yet, or with either event's time missing, counts in `calls` but in no `_ms` figure. `failed` counts results with `is_error: true`; a result without `is_error` is a success, and one whose `is_error` is not a boolean is neither. Each finding names a row of `tools`: `most_time` the largest `total_ms`, `fails_often` the highest `failed / calls`, `slowest` the largest `median_ms`; a kind no tool qualifies for is left out. The response names tools and figures only, never a session. It changes nothing.
+         *
+         *     **Scope:** `sessions:read` (API key or cookie session).
+         */
+        get: operations["getUsageTools"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/receipts/{id}": {
         parameters: {
             query?: never;
@@ -2296,6 +2320,14 @@ export interface components {
             scope: "installation" | "me";
             since: string;
             until?: string;
+        };
+        UsageToolsQuery: {
+            /** @enum {string} */
+            scope: "installation" | "me";
+            since: string;
+            until?: string;
+            /** Format: uuid */
+            agent_id?: string;
         };
         PostSessionMessageRequest: {
             /** @description At most 32768 bytes of UTF-8 */
@@ -3996,6 +4028,21 @@ export interface components {
                 /** @constant */
                 run_time: "turn_wall_clock";
             };
+        };
+        UsageToolsResponse: {
+            tools: {
+                name: string;
+                calls: number;
+                failed: number;
+                total_ms: number;
+                median_ms: number;
+                max_ms: number;
+            }[];
+            findings: {
+                /** @enum {string} */
+                kind: "most_time" | "fails_often" | "slowest";
+                name: string;
+            }[];
         };
         SessionUsageResponse: {
             /** Format: uuid */
@@ -18945,6 +18992,130 @@ export interface operations {
                      *     }
                      */
                     "application/json": components["schemas"]["UsageSummaryResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, checked before the body or the resource is read. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    getUsageTools: {
+        parameters: {
+            query: {
+                scope: "installation" | "me";
+                since: string;
+                until?: string;
+                agent_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The tools called in the period. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "tools": [
+                     *         {
+                     *           "name": "Bash",
+                     *           "calls": 1840,
+                     *           "failed": 21,
+                     *           "total_ms": 13320000,
+                     *           "median_ms": 3100,
+                     *           "max_ms": 298000
+                     *         },
+                     *         {
+                     *           "name": "Edit",
+                     *           "calls": 702,
+                     *           "failed": 12,
+                     *           "total_ms": 1620000,
+                     *           "median_ms": 900,
+                     *           "max_ms": 14200
+                     *         }
+                     *       ],
+                     *       "findings": [
+                     *         {
+                     *           "kind": "most_time",
+                     *           "name": "Bash"
+                     *         },
+                     *         {
+                     *           "kind": "fails_often",
+                     *           "name": "Edit"
+                     *         },
+                     *         {
+                     *           "kind": "slowest",
+                     *           "name": "Bash"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["UsageToolsResponse"];
                 };
             };
             /** @description - `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying. */

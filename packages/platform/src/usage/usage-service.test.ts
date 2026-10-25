@@ -3,8 +3,11 @@ import {
   installationLimitsResponseSchema,
   scopesForRole,
   sessionUsageResponseSchema,
+  type UsageToolsResponse,
   usageSummaryQuerySchema,
   usageSummaryResponseSchema,
+  usageToolsQuerySchema,
+  usageToolsResponseSchema,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
 import { testCaller } from "@werft-ai/testkit/callers";
@@ -19,7 +22,11 @@ import type {
   UsageSummaryFilter,
 } from "../ports/usage-reader.ts";
 import { SessionServiceError } from "../sessions/session-service.ts";
-import { createUsageService, decimalUsd } from "./usage-service.ts";
+import {
+  createUsageService,
+  decimalUsd,
+  toolFindings,
+} from "./usage-service.ts";
 
 const limits: InstallationLimits = {
   executionSlotLimit: 0,
@@ -106,12 +113,68 @@ function service(
           runSeconds: 90,
         };
       },
+      usageTools: async (filter) => {
+        asked.push(filter);
+        return [];
+      },
     },
   });
 }
 
 const query = (scope: "installation" | "me") =>
   usageSummaryQuerySchema.parse({ scope, since: "2026-10-01" });
+const toolsQuery = (scope: "installation" | "me") =>
+  usageToolsQuerySchema.parse({ scope, since: "2026-10-01" });
+
+const tool = (
+  name: string,
+  figures: Partial<UsageToolsResponse["tools"][number]> = {},
+) => ({
+  name,
+  calls: 10,
+  failed: 0,
+  total_ms: 0,
+  median_ms: 0,
+  max_ms: 0,
+  ...figures,
+});
+
+describe("toolFindings", () => {
+  test("names the most time in all, the highest failure rate and the slowest median", () => {
+    // The operations design's figures: Bash fails more times, Edit at the
+    // higher rate.
+    const tools = [
+      tool("Bash", {
+        calls: 1840,
+        failed: 21,
+        total_ms: 13_320_000,
+        median_ms: 3100,
+      }),
+      tool("Edit", { calls: 702, failed: 12, total_ms: 1_620_000 }),
+      tool("WebFetch", { calls: 214, total_ms: 3_960_000, median_ms: 12_400 }),
+    ];
+    expect(toolFindings(tools)).toEqual([
+      { kind: "most_time", name: "Bash" },
+      { kind: "fails_often", name: "Edit" },
+      { kind: "slowest", name: "WebFetch" },
+    ]);
+  });
+
+  test("leaves out a kind no tool qualifies for and breaks ties on the name", () => {
+    expect(toolFindings([])).toEqual([]);
+    expect(toolFindings([tool("Read"), tool("Bash")])).toEqual([]);
+    expect(
+      toolFindings([
+        tool("Read", { failed: 1, median_ms: 5, total_ms: 50 }),
+        tool("Grep", { failed: 1, median_ms: 5, total_ms: 50 }),
+      ]),
+    ).toEqual([
+      { kind: "most_time", name: "Grep" },
+      { kind: "fails_often", name: "Grep" },
+      { kind: "slowest", name: "Grep" },
+    ]);
+  });
+});
 
 describe("decimalUsd", () => {
   test("prints a limit exactly, however small, without exponent notation", () => {
@@ -199,6 +262,7 @@ describe("usage service", () => {
       for (const read of [
         () => service().getInstallationLimits(caller),
         () => service().getUsageSummary(caller, query("installation")),
+        () => service().getUsageTools(caller, toolsQuery("installation")),
       ]) {
         const error = await read().catch((caught: unknown) => caught);
         expect(error).toBeInstanceOf(SessionServiceError);
@@ -208,7 +272,21 @@ describe("usage service", () => {
     }
     asked.length = 0;
     await service().getUsageSummary(user("owner"), query("installation"));
-    expect(asked).toEqual([{ kind: "installation" }]);
+    await service().getUsageTools(user("owner"), toolsQuery("installation"));
+    expect(asked).toEqual([{ kind: "installation" }, { kind: "installation" }]);
+  });
+
+  test("tools for scope=me count what the caller started, as the summary does", async () => {
+    asked.length = 0;
+    const body = await service().getUsageTools(
+      user("member"),
+      toolsQuery("me"),
+    );
+    expect(usageToolsResponseSchema.parse(body)).toEqual({
+      tools: [],
+      findings: [],
+    });
+    expect(asked).toEqual([{ kind: "user", ownerId: WORKSPACE, userId: USER }]);
   });
 
   test("scope=me sums what the caller started: a person's, else the key's", async () => {
@@ -245,6 +323,9 @@ describe("usage service", () => {
         },
         sessionUsage: async () => null,
         usageSummary: async () => {
+          throw new Error("not read");
+        },
+        usageTools: async () => {
           throw new Error("not read");
         },
       },
