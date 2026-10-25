@@ -47,7 +47,9 @@ import {
 } from "./routes/members.tsx";
 import {
   type OperationsSearch,
+  type OperationsToolsSearch,
   operationsSearch,
+  operationsToolsSearch,
 } from "./routes/operations-search.ts";
 import { PreferencesScreen } from "./routes/preferences.tsx";
 import {
@@ -315,6 +317,14 @@ const operationsOverview = createRoute({
   component: lazyRouteComponent(loadOperations, "OperationsOverviewScreen"),
 });
 
+const operationsTools = createRoute({
+  getParentRoute: () => operations,
+  path: "tools",
+  validateSearch: (search: Record<string, unknown>): OperationsToolsSearch =>
+    operationsToolsSearch(search),
+  component: lazyRouteComponent(loadOperations, "OperationsToolsScreen"),
+});
+
 const operationsLimits = createRoute({
   getParentRoute: () => operations,
   path: "limits",
@@ -370,7 +380,11 @@ const routeTree = root.addChildren([
     workspaceSlack,
     orgKeys,
     usage,
-    operations.addChildren([operationsOverview, operationsLimits]),
+    operations.addChildren([
+      operationsOverview,
+      operationsTools,
+      operationsLimits,
+    ]),
   ]),
 ]);
 

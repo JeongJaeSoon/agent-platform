@@ -36,6 +36,8 @@ export interface ToolTableProps {
   readonly describe?: ((name: string) => string | undefined) | undefined;
   /** Placeholder rows while `tools` is read, e.g. the last count seen. */
   readonly loadingRows?: number | undefined;
+  /** `tools` is a search's matches, so none means no match. */
+  readonly searched?: boolean | undefined;
   readonly messages?: Partial<ToolTableMessages> | undefined;
 }
 
@@ -51,10 +53,13 @@ export function ToolTable({
   onSelect,
   describe,
   loadingRows = 3,
+  searched = false,
   messages: override,
 }: ToolTableProps): JSX.Element {
   const { messages, format } = useOperationsMessages("toolTable", override);
-  if (tools?.length === 0) return <EmptyState title={messages.empty} />;
+  if (tools?.length === 0) {
+    return <EmptyState title={searched ? messages.noMatch : messages.empty} />;
+  }
   const most = Math.max(0, ...(tools ?? []).map((tool) => tool.calls));
   return (
     <Card flush>
