@@ -6,7 +6,8 @@ import type {
   WorkspaceRole,
 } from "@werft-ai/contracts";
 import { useMe as useMeQuery } from "@werft-ai/react";
-import { type ButtonHTMLAttributes, useId } from "react";
+import { cn, Tooltip, TooltipContent, TooltipTrigger } from "@werft-ai/ui";
+import type { ButtonHTMLAttributes } from "react";
 import {
   errorKey,
   isMessageKey,
@@ -79,41 +80,57 @@ export function GuardedButton({ scope, ...rest }: GuardedButtonProps) {
 
 export interface ReasonButtonProps
   extends ButtonHTMLAttributes<HTMLButtonElement> {
-  /** Why the action is unavailable; the button is disabled while it is set. */
+  /** Why the action is unavailable; the button is inert while it is set. */
   readonly reason: string | undefined;
 }
 
 /**
- * The shape every withheld action takes: still on the page, disabled, and
- * described by the reason so a screen reader hears why.
+ * The shape every withheld action takes: still on the page at its own width,
+ * inert, and saying why on hover, focus or a tap, described by the reason so
+ * a screen reader hears it. aria-disabled, not disabled: a disabled button
+ * takes neither the pointer nor focus, so its reason could not be shown.
  */
 export function ReasonButton({
   reason,
   disabled,
   className = "ap-button",
+  onClick,
   children,
   ...rest
 }: ReasonButtonProps) {
-  const reasonId = useId();
+  const withheld = reason !== undefined;
+  // One tree either way: a reason that clears, as a permission check
+  // answering, must not remount the button under the pointer or the focus.
   return (
-    <span className="web-guarded">
-      <button
-        type="button"
-        {...rest}
-        className={className}
-        disabled={disabled || reason !== undefined}
-        aria-describedby={
-          reason === undefined ? rest["aria-describedby"] : reasonId
-        }
-      >
-        {children}
-      </button>
-      {reason === undefined ? null : (
-        <span id={reasonId} className="web-guarded__reason">
-          {reason}
-        </span>
-      )}
-    </span>
+    <Tooltip {...(!withheld && { open: false })}>
+      <TooltipTrigger asChild={true}>
+        <button
+          type="button"
+          {...rest}
+          {...(withheld && {
+            "aria-disabled": true,
+            // A DialogTrigger around it would announce a dialog it never opens.
+            "aria-haspopup": undefined,
+            "aria-expanded": undefined,
+            "aria-controls": undefined,
+          })}
+          className={cn(
+            className,
+            "aria-disabled:cursor-not-allowed aria-disabled:opacity-45",
+          )}
+          disabled={withheld ? undefined : disabled}
+          onClick={(event) => {
+            if (!withheld) return onClick?.(event);
+            // Left alone, so a tap still pins the reason; a submit button
+            // would also submit, from here or from Enter in a field.
+            if (event.currentTarget.type === "submit") event.preventDefault();
+          }}
+        >
+          {children}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="top">{reason}</TooltipContent>
+    </Tooltip>
   );
 }
 

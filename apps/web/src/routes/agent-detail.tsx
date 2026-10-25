@@ -478,17 +478,21 @@ function AgentView({
         </span>
       }
       actions={
-        // The way back ends the row, the command before it. Narrow screens
-        // wrap the reason under its button, so the title keeps the width of
-        // the row.
-        <div className="flex items-start gap-2 max-sm:w-min max-sm:flex-col max-sm:items-end">
+        // The way back ends the row, the command before it.
+        <div className="flex flex-wrap items-start gap-2">
           <ReasonButton
             className={buttonVariants()}
             reason={t("sessionList.newUnavailable")}
           >
             {t("agent.newSession")}
           </ReasonButton>
-          <Link to="/agents" className={buttonVariants({ variant: "outline" })}>
+          <Link
+            to="/agents"
+            className={buttonVariants({
+              variant: "outline",
+              className: "ms-auto",
+            })}
+          >
             <ArrowLeft strokeWidth={1.5} aria-hidden="true" />
             {t("agent.back")}
           </Link>

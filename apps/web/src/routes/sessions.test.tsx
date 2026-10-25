@@ -2146,11 +2146,18 @@ describe("session profile", () => {
       screen.queryByText("나는 이 세션의 요청에 답할 수 있습니다."),
     ).toBeNull();
     const stop = screen.getByRole("button", { name: "지금 turn 멈추기" });
-    expect(stop.hasAttribute("disabled")).toBe(true);
-    // Under the header's commands and in the operations card.
+    expect(stop.getAttribute("aria-disabled")).toBe("true");
     expect(
-      screen.getAllByText("sessions:control 권한이 있어야 할 수 있습니다."),
-    ).toHaveLength(2);
+      document.getElementById(stop.getAttribute("aria-describedby") ?? "")
+        ?.textContent,
+    ).toBe("sessions:control 권한이 있어야 할 수 있습니다.");
+    // The header's commands say it on hover or focus; only the operations
+    // card spells it out.
+    expect(
+      screen
+        .getAllByText("sessions:control 권한이 있어야 할 수 있습니다.")
+        .filter((node) => node.closest("[hidden]") === null),
+    ).toHaveLength(1);
     expect(screen.queryByText("할 수 있음")).toBeNull();
     expect(
       screen

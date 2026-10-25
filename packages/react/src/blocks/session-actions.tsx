@@ -3,14 +3,21 @@ import type {
   PendingRequest,
   SessionDetail as SessionDetailData,
 } from "@werft-ai/contracts";
-import { Badge, Button, ConfirmDialog, cn } from "@werft-ai/ui";
+import {
+  Badge,
+  Button,
+  ConfirmDialog,
+  cn,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@werft-ai/ui";
 import { type LucideIcon, Play, Power, Square } from "lucide-react";
 import {
   type Dispatch,
   type ReactNode,
   type Ref,
   type SetStateAction,
-  useId,
   useLayoutEffect,
   useRef,
   useState,
@@ -83,12 +90,8 @@ export function focusLost(node: Element | null): boolean {
   return page !== undefined && page.activeElement === page.body;
 }
 
-function Reason({ id, text }: { readonly id?: string; readonly text: string }) {
-  return (
-    <p id={id} className="m-0 text-muted-foreground text-body">
-      {text}
-    </p>
-  );
+function Reason({ text }: { readonly text: string }) {
+  return <p className="m-0 text-muted-foreground text-body">{text}</p>;
 }
 
 /** The summary layout's line for a request that is answered below it. */
@@ -474,7 +477,6 @@ export function SessionControls({
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [confirming, setConfirming] = useState(false);
   const reason = unavailable?.control;
-  const reasonId = useId();
   const actions = actionsFor(session);
   const actionSet = actions.join(" ");
   const groupRef = useRef<HTMLDivElement>(null);
@@ -541,16 +543,15 @@ export function SessionControls({
   const buttons = actions.map((action) => {
     const label = t(`session.control.${action}`);
     const Icon = CONTROL_ICON[action];
-    return (
+    const button = (
       <Button
-        key={action}
         type="button"
         data-action={action}
         variant={action === "terminate" && !head ? "destructive" : "outline"}
-        disabled={reason !== undefined}
-        // Not `disabled` while a command runs: Chrome takes focus off a
-        // disabled button, and the keyboard would lose its place.
-        aria-disabled={control.isPending || undefined}
+        // Not `disabled`: Chrome takes focus off a disabled button, and the
+        // keyboard would lose its place while a command runs; a withheld one
+        // still takes hover and focus to say why.
+        aria-disabled={reason !== undefined || control.isPending || undefined}
         size={icons ? "icon-sm" : "sm"}
         className={cn(
           "aria-disabled:opacity-50",
@@ -563,11 +564,11 @@ export function SessionControls({
         )}
         aria-label={icons ? label : undefined}
         // The ui Tooltip opens on a press too, which a command cannot share;
-        // the native one names the icon where the label is hidden.
-        title={head ? label : undefined}
-        aria-describedby={reason === undefined ? undefined : reasonId}
+        // the native one names the icon where the label is hidden. A
+        // withheld command has nothing to press, so it shows the reason.
+        title={head && reason === undefined ? label : undefined}
         onClick={() => {
-          if (control.isPending) return;
+          if (reason !== undefined || control.isPending) return;
           if (action === "terminate") setConfirming(true);
           else run(action);
         }}
@@ -583,6 +584,13 @@ export function SessionControls({
           label
         )}
       </Button>
+    );
+    // One tree either way, so a reason that clears keeps the focus.
+    return (
+      <Tooltip key={action} {...(reason === undefined && { open: false })}>
+        <TooltipTrigger asChild={true}>{button}</TooltipTrigger>
+        <TooltipContent side="top">{reason}</TooltipContent>
+      </Tooltip>
     );
   });
   const group = (
@@ -602,7 +610,6 @@ export function SessionControls({
               <div className="ms-auto flex">{trailing}</div>
             )}
           </div>
-          {reason === undefined ? null : <Reason id={reasonId} text={reason} />}
           <OutcomeLine ref={outcomeRef} outcome={outcome} />
         </div>
       ) : (
@@ -614,7 +621,6 @@ export function SessionControls({
           ) : (
             group
           )}
-          {reason === undefined ? null : <Reason id={reasonId} text={reason} />}
           <OutcomeLine ref={outcomeRef} outcome={outcome} />
         </>
       )}

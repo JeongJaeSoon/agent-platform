@@ -35,9 +35,9 @@ import {
   SegmentedControl,
   SegmentedControlItem,
 } from "@werft-ai/ui";
-import { ArrowLeft, Plus } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { ReasonButton, useCan } from "../auth/guard.tsx";
+import { useCan } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { SEARCH_MAX, useSearchTerm } from "../components/search-term.ts";
 import { StatusScreen } from "../components/status-screen.tsx";
@@ -83,25 +83,6 @@ export function sessionsSearch(
   const status = SESSION_FILTERS.find((name) => name === search.status);
   const relation = SESSION_RELATIONS.find((name) => name === search.relation);
   return { ...(status ? { status } : {}), ...(relation ? { relation } : {}) };
-}
-
-/** The console cannot start a session yet; the button says why. */
-export function NewSessionButton() {
-  const { t } = useI18n();
-  return (
-    // Narrow screens wrap the reason under the button, so the title keeps
-    // the width of the row. The button keeps its own width (console v4
-    // .btn) rather than stretching to the reason's.
-    <div className="max-sm:w-min [&_.web-guarded]:items-end [&_.web-guarded__reason]:text-right">
-      <ReasonButton
-        className={buttonVariants()}
-        reason={t("sessionList.newUnavailable")}
-      >
-        <Plus aria-hidden="true" />
-        {t("sessionList.new")}
-      </ReasonButton>
-    </div>
-  );
 }
 
 export function SessionsScreen() {

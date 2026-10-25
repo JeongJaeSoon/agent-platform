@@ -353,15 +353,24 @@ describe("에이전트 상세 탭", () => {
   });
 
   test("머리의 새 세션 버튼은 꺼져 있고 이유를 읽어 준다", async () => {
-    renderAt(DETAIL, { ...meOk, ...agentServer().routes });
-    const button = (await screen.findByRole("button", {
+    const { history } = renderAt(DETAIL, { ...meOk, ...agentServer().routes });
+    const user = await setupUser();
+    const button = await screen.findByRole("button", {
       name: "이 에이전트로 새 세션",
-    })) as HTMLButtonElement;
-    expect(button.disabled).toBe(true);
+    });
+    expect(button.getAttribute("aria-disabled")).toBe("true");
     expect(
       document.getElementById(button.getAttribute("aria-describedby") ?? "")
         ?.textContent,
     ).toContain("웹에서는 아직 세션을 시작할 수 없습니다");
+    // The reason is a note on the button, not a line under it.
+    expect(
+      screen
+        .getAllByText(/웹에서는 아직 세션을 시작할 수 없습니다/)
+        .filter((node) => node.closest("[hidden]") === null),
+    ).toHaveLength(0);
+    await user.click(button);
+    expect(history.location.pathname).toBe(DETAIL);
   });
 
   test("카드 탭은 카드를 읽기 전용으로 보이고 원문 JSON을 함께 둔다", async () => {

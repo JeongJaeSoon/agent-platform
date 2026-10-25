@@ -768,7 +768,7 @@ describe("에이전트 관리자", () => {
       await screen.findByRole("button", { name: "Mate을(를) 관리자에서 빼기" }),
     ).toBeDefined();
     const person = screen.getByRole("button", { name: "사람 추가" });
-    expect(person.hasAttribute("disabled")).toBe(true);
+    expect(person.getAttribute("aria-disabled")).toBe("true");
     expect(
       document.getElementById(person.getAttribute("aria-describedby") ?? "")
         ?.textContent,

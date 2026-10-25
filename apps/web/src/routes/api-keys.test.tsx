@@ -394,7 +394,7 @@ describe("API key", () => {
     expect(select.required).toBe(true);
     expect(select.value).toBe("");
     const button = screen.getByRole("button", { name: "key 만들기" });
-    expect(button.hasAttribute("disabled")).toBe(true);
+    expect(button.getAttribute("aria-disabled")).toBe("true");
     expect(
       document.getElementById(button.getAttribute("aria-describedby") ?? "")
         ?.textContent,
@@ -519,7 +519,7 @@ describe("API key", () => {
     await user.selectOptions(screen.getByLabelText("에이전트"), AGENT_ID);
     await user.click(screen.getByRole("checkbox", { name: /sessions:read/ }));
     const button = screen.getByRole("button", { name: "key 만들기" });
-    expect(button.hasAttribute("disabled")).toBe(true);
+    expect(button.getAttribute("aria-disabled")).toBe("true");
     expect(
       document.getElementById(button.getAttribute("aria-describedby") ?? "")
         ?.textContent,

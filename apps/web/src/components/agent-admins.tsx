@@ -7,6 +7,7 @@ import type {
 } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
 import {
+  buttonVariants,
   ConfirmDialog,
   EmptyState,
   RowList,
@@ -283,6 +284,10 @@ function AdminList({
         </label>
         <ReasonButton
           type="submit"
+          className={buttonVariants({
+            variant: "outline",
+            className: "self-start",
+          })}
           reason={personReason}
           disabled={!pickedPerson || change.isPending}
         >
@@ -321,6 +326,10 @@ function AdminList({
         </label>
         <ReasonButton
           type="submit"
+          className={buttonVariants({
+            variant: "outline",
+            className: "self-start",
+          })}
           reason={teamReason}
           disabled={!pickedTeam || change.isPending}
         >
