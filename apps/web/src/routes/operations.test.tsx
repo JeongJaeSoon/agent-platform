@@ -670,6 +670,54 @@ describe("운영", () => {
     expect(history.location.search).toBe("?days=90");
   });
 
+  test("사용량 탭: 새 기간·범위를 읽는 동안 남은 수치에는 그 수치의 기준 줄이 붙는다", async () => {
+    setSystemTime(NOW);
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    renderAt("/operations/usage", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/limits": () => json(200, LIMITS),
+      ...usageRoutes,
+      "GET /v1/usage/series": async (request: Request) => {
+        const query = new URL(request.url).searchParams;
+        if (query.get("scope") === "me") await held;
+        return usageRoutes["GET /v1/usage/series"](request);
+      },
+    });
+    const basis = (scope: string, first: string) =>
+      screen.getByText(
+        (_, el) =>
+          el?.textContent ===
+          `${scope} · ${first} – 2026-10-24 (UTC) · 비용·토큰·실행 시간은 세션을 시작한 날에 붙습니다 · 오후 12:40에 읽은 값`,
+      );
+    await waitFor(() => basis("설치 전체", "2026-09-25"));
+    const user = await setupUser();
+    // 7 days of the installation, then my own, which the API holds back.
+    await user.click(screen.getByRole("button", { name: "7일" }));
+    await waitFor(() => basis("설치 전체", "2026-10-18"));
+    await user.click(screen.getByRole("button", { name: "내 사용량" }));
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("button", { name: "내 사용량" })
+          .getAttribute("aria-pressed"),
+      ).toBe("true"),
+    );
+    expect(basis("설치 전체", "2026-10-18")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "30일" }));
+    expect(basis("설치 전체", "2026-10-18")).toBeTruthy();
+    expect(
+      screen.getByRole("figure", { name: "일자별 추정 비용, 7일" }),
+    ).toBeTruthy();
+    release();
+    await waitFor(() => basis("내 사용량", "2026-09-25"));
+    expect(
+      screen.getByRole("figure", { name: "일자별 추정 비용, 30일" }),
+    ).toBeTruthy();
+  });
+
   test("예전 /usage는 기간·범위를 그대로 들고 /operations/usage로 간다", async () => {
     setSystemTime(NOW);
     const { history } = renderAt("/usage?days=7&scope=me", {

@@ -47,7 +47,7 @@ import {
   UsageTokenMix,
 } from "@werft-ai/react/components";
 import { Badge, Card, EmptyState, Section, Skeleton } from "@werft-ai/ui";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useHasPermission } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
@@ -406,6 +406,13 @@ export function OperationsUsageScreen() {
   });
   const models = useQuery(breakdown("model"));
   const agents = useQuery(breakdown("agent"));
+  // While the next period loads, the figures kept on screen keep the scope
+  // and period they were read for.
+  const readFor = useRef(new WeakMap<object, UsageSummaryScope>());
+  if (series.data && !series.isPlaceholderData)
+    readFor.current.set(series.data, filters.scope);
+  const shownScope =
+    (series.data && readFor.current.get(series.data)) ?? filters.scope;
   const empty =
     series.data?.buckets.every((bucket) => bucket.session_count === 0) ?? false;
   const table = (
@@ -461,14 +468,14 @@ export function OperationsUsageScreen() {
           ) : (
             <>
               <UsageBasis
-                scope={filters.scope}
-                period={period}
+                scope={shownScope}
+                period={series.data?.period ?? period}
                 refreshedAt={series.data?.refreshed_at}
                 className="-mt-4 leading-4"
               />
               <UsageDailyCost
                 buckets={series.data?.buckets}
-                days={filters.days}
+                days={series.data?.buckets.length ?? filters.days}
               />
               {models.isError ? null : (
                 <UsageTokenMix totals={models.data?.totals} />
