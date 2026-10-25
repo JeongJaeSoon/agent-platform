@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { join } from "node:path";
 import { readCatalogConfig } from "./catalog-config.ts";
 import {
@@ -172,6 +172,40 @@ describe("finished", () => {
     if (!found) throw new Error(`no demo session ${outcome}`);
     return found;
   };
+
+  test.each([
+    [409, "CHECKPOINT_UNAVAILABLE", true],
+    [409, "CONFLICT", false],
+    [500, "CHECKPOINT_UNAVAILABLE", false],
+    [401, "UNAUTHORIZED", false],
+  ] as const)(
+    "outputs %p %p skips recovery only: %p",
+    async (status, code, skips) => {
+      const warning = spyOn(console, "warn").mockImplementation(() => {});
+      const server = Bun.serve({
+        port: 0,
+        fetch: () => Response.json({ error: { code } }, { status }),
+      });
+      try {
+        const client = new DemoClient(`http://127.0.0.1:${server.port}`, "c=1");
+        const result = finished(client, "s", spec("approve-then-idle"));
+        if (skips) {
+          expect(await result).toBe(true);
+          expect(warning).toHaveBeenCalledWith(
+            "awaiting-recovery session s: CHECKPOINT_UNAVAILABLE; existing demo left unchanged",
+          );
+        } else {
+          await expect(result).rejects.toThrow(
+            `answered ${status}, expected 200`,
+          );
+          expect(warning).not.toHaveBeenCalled();
+        }
+      } finally {
+        warning.mockRestore();
+        server.stop(true);
+      }
+    },
+  );
 
   test.each([
     ["stopped", false, { status: "stopped" }, true],
