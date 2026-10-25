@@ -133,7 +133,7 @@ describe("LinkTabs", () => {
           </RouterLink>
         </LinkTab>
         <LinkTab asChild>
-          <RouterLink to="/api-keys/service">서비스 키</RouterLink>
+          <RouterLink to="/api-keys/agents">에이전트 키</RouterLink>
         </LinkTab>
       </LinkTabs>,
     );
@@ -149,7 +149,7 @@ describe("LinkTabs", () => {
     expect(classes).toContain("after:inset-x-2");
     await (await setupUser()).click(link);
     expect(onClick).toHaveBeenCalledTimes(1);
-    const other = getByRole("link", { name: "서비스 키" });
+    const other = getByRole("link", { name: "에이전트 키" });
     expect(other.hasAttribute("aria-current")).toBe(false);
   });
 
@@ -178,13 +178,13 @@ describe("LinkTabs", () => {
     const tabs = (exact: boolean) => (
       <LinkTabs aria-label="key 목록">
         <LinkTab asChild current={false}>
-          <ActiveRouterLink to="/keys" at="/keys/service" exact={exact}>
-            내 key
+          <ActiveRouterLink to="/keys" at="/keys/agents" exact={exact}>
+            개인 key
           </ActiveRouterLink>
         </LinkTab>
         <LinkTab asChild current>
-          <ActiveRouterLink to="/keys/service" at="/keys/service" exact={exact}>
-            서비스 key
+          <ActiveRouterLink to="/keys/agents" at="/keys/agents" exact={exact}>
+            에이전트 key
           </ActiveRouterLink>
         </LinkTab>
       </LinkTabs>
@@ -194,10 +194,10 @@ describe("LinkTabs", () => {
         (link) => link.textContent,
       );
     expect(marked(render(tabs(false)).container)).toEqual([
-      "내 key",
-      "서비스 key",
+      "개인 key",
+      "에이전트 key",
     ]);
-    expect(marked(render(tabs(true)).container)).toEqual(["서비스 key"]);
+    expect(marked(render(tabs(true)).container)).toEqual(["에이전트 key"]);
   });
 
   test("Tabs line과 같은 v4 치수 클래스와 focus-visible 윤곽을 쓴다", () => {

@@ -18,10 +18,11 @@ import {
 } from "./routes/agent-detail.tsx";
 import { AgentsScreen, NewAgentScreen } from "./routes/agents.tsx";
 import {
+  AgentKeysScreen,
   ApiKeysScreen,
+  NewAgentKeyScreen,
   NewApiKeyScreen,
-  NewServiceKeyScreen,
-  ServiceKeysScreen,
+  OrgKeysScreen,
 } from "./routes/api-keys.tsx";
 import { BootstrapScreen } from "./routes/bootstrap.tsx";
 import {
@@ -231,16 +232,22 @@ const newApiKey = createRoute({
   component: NewApiKeyScreen,
 });
 
-const serviceKeys = createRoute({
+const agentKeys = createRoute({
   getParentRoute: () => authed,
-  path: "/settings/api-keys/service",
-  component: ServiceKeysScreen,
+  path: "/settings/api-keys/agents",
+  component: AgentKeysScreen,
 });
 
-const newServiceKey = createRoute({
+const newAgentKey = createRoute({
   getParentRoute: () => authed,
-  path: "/settings/api-keys/service/new",
-  component: NewServiceKeyScreen,
+  path: "/settings/api-keys/agents/new",
+  component: NewAgentKeyScreen,
+});
+
+const orgKeys = createRoute({
+  getParentRoute: () => authed,
+  path: "/settings/api-keys/org",
+  component: OrgKeysScreen,
 });
 
 const preferences = createRoute({
@@ -301,8 +308,9 @@ const routeTree = root.addChildren([
     slackInstall,
     apiKeys,
     newApiKey,
-    serviceKeys,
-    newServiceKey,
+    agentKeys,
+    newAgentKey,
+    orgKeys,
     preferences,
     workspaceSettings,
     usage,

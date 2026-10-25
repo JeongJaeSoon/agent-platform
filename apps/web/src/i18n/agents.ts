@@ -24,8 +24,6 @@ export const agentsKo = {
   "agents.tabs.label": "보여 줄 에이전트",
   "agents.tabs.all": "전체",
   "agents.tabs.administered": "관리하는 에이전트",
-  "agents.cards.limited":
-    "에이전트가 많아 앞의 {count}개만 자세한 정보를 불러옵니다. 나머지는 상세 화면에서 보세요.",
   "agents.cards.released": "v{version} 배포됨",
   "agents.cards.profile": "실행 프로필",
   "agents.cards.notReleased": "배포 전",
@@ -247,7 +245,7 @@ export const agentsKo = {
 
   "agentAdmins.title": "에이전트 관리자",
   "agentAdmins.intro":
-    "에이전트 관리자는 이 에이전트의 카드·release·자격 증명 연결과 에이전트 전용 key를 관리합니다. 사람이나 팀을 관리자로 추가하세요.",
+    "에이전트 관리자는 이 에이전트의 카드·release·자격 증명 연결과 에이전트 key를 관리합니다. 사람이나 팀을 관리자로 추가하세요.",
   "agentAdmins.empty":
     "아직 에이전트 관리자가 없습니다. 워크스페이스 소유자와 관리자는 여기에 추가하지 않아도 모든 에이전트를 관리할 수 있습니다.",
   "agentAdmins.person": "사람",
@@ -299,8 +297,6 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agents.tabs.label": "Agents to show",
   "agents.tabs.all": "All",
   "agents.tabs.administered": "Agents I manage",
-  "agents.cards.limited":
-    "There are many agents, so details load for the first {count} only. Open an agent to see the rest.",
   "agents.cards.released": "v{version} released",
   "agents.cards.profile": "Runtime profile",
   "agents.cards.notReleased": "Not released",
@@ -565,8 +561,6 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agents.tabs.label": "表示するエージェント",
   "agents.tabs.all": "すべて",
   "agents.tabs.administered": "管理しているエージェント",
-  "agents.cards.limited":
-    "エージェントが多いため、詳細は最初の {count} 件だけ読み込みます。残りは詳細画面で確認してください。",
   "agents.cards.released": "v{version} リリース済み",
   "agents.cards.profile": "実行プロファイル",
   "agents.cards.notReleased": "未リリース",

@@ -418,28 +418,39 @@ switch (cmd) {
       throw new Error(
         "link start gave no authorize_url (logged in? Slack set up?)",
       );
-    const location = execFileSync(
-      "docker",
-      [
-        "compose",
-        "--profile",
-        "apps",
-        "--profile",
-        "fake-model",
-        "exec",
-        "-T",
-        "api",
-        "bun",
-        "-e",
-        'const r = await fetch((await Bun.stdin.text()).trim(), { redirect: "manual" }); console.log(r.headers.get("location") ?? "")',
-      ],
-      {
-        cwd: state.VERIFY_REPO,
-        env: { ...process.env, ...state },
-        encoding: "utf8",
-        input: team ? `${authorize}&mock_team=${team}` : authorize,
-      },
-    ).trim();
+    let location;
+    try {
+      location = execFileSync(
+        "docker",
+        [
+          "compose",
+          "--profile",
+          "apps",
+          "--profile",
+          "fake-model",
+          "exec",
+          "-T",
+          "api",
+          "bun",
+          "-e",
+          'let status; try { const r = await fetch((await Bun.stdin.text()).trim(), { redirect: "manual" }); status = r.status; if (status !== 302) throw new Error(); const location = r.headers.get("location"); if (!location || !/^https?:$/.test(new URL(location).protocol)) throw new Error(); console.log(location); } catch { console.error(`mock consent failed (HTTP ${status ?? "unavailable"})`); process.exit(1); }',
+        ],
+        {
+          cwd: state.VERIFY_REPO,
+          env: { ...process.env, ...state },
+          encoding: "utf8",
+          stdio: ["pipe", "pipe", "pipe"],
+          input: team ? `${authorize}&mock_team=${team}` : authorize,
+        },
+      ).trim();
+    } catch (error) {
+      // Child errors can include the authorization URL; only a status is safe.
+      const status =
+        /^mock consent failed \(HTTP (\d{3}|unavailable)\)\s*$/.exec(
+          String(error.stderr ?? ""),
+        )?.[1] ?? "unavailable";
+      throw new Error(`mock consent failed (HTTP ${status})`);
+    }
     if (!/^https?:/.test(location))
       throw new Error("mock consent gave no redirect");
     // The redirect names the overlay's 127.0.0.1:3000 origin, not this run's port.

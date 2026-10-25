@@ -7,6 +7,7 @@ import {
   type TeamDetail,
   teamDetailSchema,
 } from "@werft-ai/contracts";
+import { queryKeys } from "@werft-ai/core";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
 import { ADMINISTERED_LIST_LIMIT } from "../components/agent-admins.tsx";
 import { AGENT_ID, agentServer } from "../test-support/fake-agents.ts";
@@ -450,6 +451,55 @@ describe("팀 화면", () => {
     ).toBeDefined();
   });
 
+  test("키보드로 고르기 칸에 오면 그때 구성원을 읽어 고를 수 있다", async () => {
+    const { api } = renderAt(`/members/teams/${TEAM_ID}`, teamServer().routes);
+    const picker = await screen.findByLabelText("추가할 사람");
+    const memberReads = () =>
+      api.calls.filter((c) => c.path === "/v1/members").map((c) => c.search);
+    expect(memberReads()).toEqual(["?limit=2"]);
+    act(() => picker.focus());
+    expect(
+      await screen.findByRole("option", { name: "Mate (mate@example.com)" }),
+    ).toBeTruthy();
+    expect(memberReads()).toEqual(["?limit=2", "?limit=100"]);
+  });
+
+  test("전에 읽은 목록에 후보가 없었어도 칸은 열려 있고, 다시 읽는 동안에도 키보드가 머문다", async () => {
+    let answer: () => void = () => {};
+    const asked = new Promise<void>((resolve) => {
+      answer = resolve;
+    });
+    const server = teamServer();
+    const { services } = renderAt("/members/teams", {
+      ...server.routes,
+      "GET /v1/members?limit=100": async () => {
+        await asked;
+        return json(200, { items: [owner, mate], next_cursor: null });
+      },
+    });
+    await screen.findByRole("link", { name: "결제팀" });
+    // An earlier visit read a list with nobody to add; Mate joined since.
+    services.queryClient.setQueryData(queryKeys.members, {
+      items: [],
+      next_cursor: null,
+    });
+    const user = await setupUser();
+    await user.click(screen.getByRole("link", { name: "결제팀" }));
+    const picker = (await screen.findByLabelText(
+      "추가할 사람",
+    )) as HTMLSelectElement;
+    expect(picker.disabled).toBe(false);
+    act(() => picker.focus());
+    await waitFor(() => expect(picker.getAttribute("aria-busy")).toBe("true"));
+    expect(picker.disabled).toBe(false);
+    expect(document.activeElement === picker).toBe(true);
+    act(() => answer());
+    expect(
+      await screen.findByRole("option", { name: "Mate (mate@example.com)" }),
+    ).toBeTruthy();
+    expect(document.activeElement === picker).toBe(true);
+  });
+
   test("구성원을 수락 없이 넣고 빼며, 이름을 바꾸고 지운다", async () => {
     const server = teamServer();
     const { api, history } = renderAt(
@@ -457,6 +507,13 @@ describe("팀 화면", () => {
       server.routes,
     );
     const user = await setupUser();
+    // Every member is read only once the pointer reaches the picker; the
+    // page head asks for the first two alone.
+    const picker = await screen.findByLabelText("추가할 사람");
+    expect(
+      api.calls.filter((c) => c.path === "/v1/members").map((c) => c.search),
+    ).toEqual(["?limit=2"]);
+    await user.hover(picker);
     await screen.findByRole("option", { name: "Mate (mate@example.com)" });
     await user.selectOptions(screen.getByLabelText("추가할 사람"), MATE_ID);
     await user.click(screen.getByRole("button", { name: "구성원 추가" }));
@@ -558,6 +615,23 @@ const admins = (over: Partial<AgentAdminsView> = {}): AgentAdminsView => ({
 describe("에이전트 관리자", () => {
   test("픽스처는 서버가 보낼 수 있는 모양이다", () => {
     expect(agentAdminsViewSchema.safeParse(admins()).success).toBe(true);
+  });
+
+  test("사람 고르기 칸에 키보드로 오면 그때 구성원을 읽는다", async () => {
+    const { api } = renderAt(`/agents/${AGENT_ID}?tab=admins`, {
+      ...agentServer().routes,
+      ...teamServer().routes,
+      [`GET /v1/agents/${AGENT_ID}/admins`]: () => json(200, admins()),
+    });
+    const picker = await screen.findByLabelText("관리자로 추가할 사람");
+    const memberReads = () =>
+      api.calls.filter((c) => c.path === "/v1/members").length;
+    expect(memberReads()).toBe(0);
+    act(() => picker.focus());
+    await waitFor(() => expect(memberReads()).toBe(1));
+    await waitFor(() =>
+      expect(within(picker).getAllByRole("option").length).toBeGreaterThan(1),
+    );
   });
 
   test("owner는 사람·팀을 지정하고 해제한다", async () => {

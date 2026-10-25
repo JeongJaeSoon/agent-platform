@@ -9,7 +9,7 @@ export const usageKo = {
   "usage.basis.meTitle": "내가 시작한 세션 기준 · {period} (UTC)",
   "usage.basis.installationTitle": "설치 전체 · {period} (UTC)",
   "usage.basis.me":
-    "이 기간에 내가 웹이나 내 key로 시작한 세션만 셉니다. 공유받은 세션은 빠집니다. {at}에 읽은 값입니다.",
+    "이 기간에 내가 웹이나 내 개인 key로 시작한 세션만 셉니다. 공유받은 세션은 빠집니다. {at}에 읽은 값입니다.",
   "usage.basis.installation":
     "이 기간에 시작한 모든 세션을 합산합니다. 이 범위는 설치 운영자만 볼 수 있습니다. {at}에 읽은 값입니다.",
   "usage.kpi.sessions": "세션",
@@ -124,7 +124,7 @@ export const usageJa: Record<keyof typeof usageKo, string> = {
   "usage.basis.meTitle": "自分が開始したセッション · {period} (UTC)",
   "usage.basis.installationTitle": "インストール全体 · {period} (UTC)",
   "usage.basis.me":
-    "この期間に Web か自分の key で開始したセッションだけを数えます。共有されたセッションは含みません。{at} に読んだ値です。",
+    "この期間に Web か自分の個人キーで開始したセッションだけを数えます。共有されたセッションは含みません。{at} に読んだ値です。",
   "usage.basis.installation":
     "この期間に開始したすべてのセッションを合計します。この範囲はインストール運用者だけが見られます。{at} に読んだ値です。",
   "usage.kpi.sessions": "セッション",

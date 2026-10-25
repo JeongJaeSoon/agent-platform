@@ -16,6 +16,13 @@
 /* biome-ignore lint/suspicious/noUnknownAtRules: a Tailwind 4 directive */
 @source "../../../packages/react/src";
 
+/* Pages centre in what the scrollbar leaves; holding its room keeps every
+   page's edges at the same x whether the page scrolls or not
+   (V4-PAGE-FRAME). */
+html {
+  scrollbar-gutter: stable;
+}
+
 body {
   margin: 0;
   background: var(--ap-color-surface);

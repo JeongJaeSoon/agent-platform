@@ -56,7 +56,13 @@ const ROLE_NAME = { owner: "소유자", admin: "관리자", member: "구성원" 
 
 /** Opens 구성원 편집 for a member and returns the dialog. */
 async function openEdit(user: User, name: string) {
-  await user.click(await screen.findByRole("button", { name: `${name} 편집` }));
+  // An inactive row's opener adds "(비활성)" after the name.
+  await user.click(
+    await screen.findByRole("button", {
+      name: (label) =>
+        label === `${name} 편집` || label === `${name} 편집 (비활성)`,
+    }),
+  );
   return screen.findByRole("dialog", { name: "구성원 편집" });
 }
 
@@ -173,7 +179,25 @@ describe("구성원 화면", () => {
     expect(roleIn("Owner")).toBe("소유자");
     const goneRow = screen.getByText(/^Gone/).closest("[role=row]");
     expect(goneRow?.getAttribute("data-disabled")).toBe("true");
-    expect(within(goneRow as HTMLElement).getByText("비활성")).toBeDefined();
+    // The tone says "inactive" to the eye; the name says it to a reader, and
+    // no badge repeats it.
+    expect(goneRow?.getAttribute("data-inactive")).toBe("true");
+    expect(
+      within(goneRow as HTMLElement).queryByText("비활성", {
+        selector: "[data-slot=badge]",
+      }),
+    ).toBeNull();
+    expect(
+      within(goneRow as HTMLElement)
+        .getAllByRole("cell")[0]
+        ?.textContent?.includes("(비활성)"),
+    ).toBe(true);
+    expect(
+      within(goneRow as HTMLElement).getByRole("button", {
+        name: "Gone 편집 (비활성)",
+      }),
+    ).toBeDefined();
+    expect(mateRow.hasAttribute("data-inactive")).toBe(false);
     expect(
       within(goneRow as HTMLElement).getByRole("button", {
         name: "다시 활성화",
@@ -457,8 +481,16 @@ describe("구성원 화면", () => {
     const token = "k".repeat(43);
     const { api } = renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () =>
-        json(200, { items: [owner, gone], next_cursor: null }),
+      // Beyond the first page: only the dialog's search finds them, on its
+      // second page, after an address that merely contains the typed one.
+      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
+      "GET /v1/members?q=GONE%40example.com": () =>
+        json(200, {
+          items: [{ ...gone, user_id: USER_ID, email: "xgone@example.com" }],
+          next_cursor: "c2",
+        }),
+      "GET /v1/members?q=GONE%40example.com&cursor=c2": () =>
+        json(200, { items: [gone], next_cursor: null }),
       ...noInvites,
       "POST /v1/invites": () =>
         json(201, {
@@ -473,12 +505,19 @@ describe("구성원 화면", () => {
     );
     const email = await screen.findByLabelText("이메일");
     await user.type(email, "GONE@example.com");
-    const hint = document.getElementById(
-      email.getAttribute("aria-describedby") ?? "",
+    await waitFor(() =>
+      expect(
+        document.getElementById(email.getAttribute("aria-describedby") ?? "")
+          ?.textContent,
+      ).toContain("다시 초대하지 말고 목록에서 다시 활성화하세요"),
     );
-    expect(hint?.textContent).toContain(
-      "다시 초대하지 말고 목록에서 다시 활성화하세요",
-    );
+    // The server is asked about the typed address once typing pauses, not
+    // for every member.
+    expect(
+      api.calls
+        .filter((c) => c.path === "/v1/members")
+        .map((c) => new URLSearchParams(c.search).get("q")),
+    ).toEqual([null, null, "GONE@example.com", "GONE@example.com"]);
     await user.clear(email);
     await user.type(email, "new@example.com");
     await user.click(screen.getByRole("button", { name: "초대 링크 만들기" }));
@@ -493,6 +532,39 @@ describe("구성원 화면", () => {
       email: "new@example.com",
       role: "member",
     });
+  });
+
+  test("검색어 한도(200자)보다 긴 주소도 앞부분으로 찾아 같은 주소면 재활성을 안내한다", async () => {
+    const long = `${"g".repeat(230)}@example.com`;
+    const { api } = renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": (request) =>
+        json(200, {
+          items: new URL(request.url).searchParams.has("q")
+            ? [{ ...gone, email: long }]
+            : [owner],
+          next_cursor: null,
+        }),
+      ...noInvites,
+    });
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "구성원 초대" }),
+    );
+    const email = await screen.findByLabelText("이메일");
+    await user.click(email);
+    await user.paste(long);
+    await waitFor(() =>
+      expect(
+        document.getElementById(email.getAttribute("aria-describedby") ?? "")
+          ?.textContent,
+      ).toContain("다시 초대하지 말고 목록에서 다시 활성화하세요"),
+    );
+    expect(
+      api.calls
+        .map((c) => new URLSearchParams(c.search).get("q"))
+        .filter((q) => q !== null),
+    ).toEqual([long.slice(0, 200)]);
   });
 
   test("대기 중인 초대를 확인받고 회수한다", async () => {
@@ -951,7 +1023,7 @@ describe("구성원 페이지와 서버 검색", () => {
     await waitFor(() =>
       expect(
         screen
-          .getByRole("button", { name: "Person 0 편집" })
+          .getByRole("button", { name: "Person 0 편집 (비활성)" })
           .closest("[role=row]")
           ?.getAttribute("data-disabled"),
       ).toBe("true"),
@@ -995,7 +1067,7 @@ describe("구성원 페이지와 서버 검색", () => {
     await screen.findByRole("button", { name: "더 보기" });
     expect(
       screen
-        .getByRole("button", { name: "Person 0 편집" })
+        .getByRole("button", { name: "Person 0 편집 (비활성)" })
         .closest("[role=row]")
         ?.getAttribute("data-disabled"),
     ).toBe("true");
@@ -1099,7 +1171,7 @@ describe("구성원 페이지와 서버 검색", () => {
     const user = await setupUser();
     await screen.findByRole("button", { name: "Owner 편집" });
     await user.click(screen.getByRole("button", { name: "더 보기" }));
-    await screen.findByRole("button", { name: "Gone 편집" });
+    await screen.findByRole("button", { name: "Gone 편집 (비활성)" });
 
     const box = screen.getByRole("searchbox", {
       name: "이름이나 이메일로 찾기",

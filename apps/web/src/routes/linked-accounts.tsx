@@ -12,6 +12,7 @@ import {
   Button,
   cn,
   formatTimestamp,
+  Page,
   RowLines,
   RowListItem,
   Link as TextLink,
@@ -22,7 +23,6 @@ import { refusalText, useRole } from "../auth/guard.tsx";
 import { FormError, Notice } from "../components/auth-page.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import type { Outcome } from "../components/outcome.tsx";
-import { Page } from "../components/page.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, type Translate, useI18n } from "../i18n/i18n.tsx";
 import { useAppServices } from "../services.tsx";
@@ -165,7 +165,11 @@ export function LinkedAccountsScreen() {
   const notice = outcome?.kind === "notice" ? outcome.text : null;
 
   return (
-    <Page title={t("linked.title")} description={t("linked.intro")}>
+    <Page
+      title={t("linked.title")}
+      description={t("linked.intro")}
+      width="form"
+    >
       {outcome?.kind === "error" ? <FormError>{outcome.text}</FormError> : null}
       {/* Always mounted, so a screen reader hears the notice when it
           changes. */}
@@ -401,7 +405,7 @@ export function SlackLinkCallbackScreen() {
         ? linkRefusal(t, finish.error, role)
         : null;
   return (
-    <Page title={t("linked.title")}>
+    <Page title={t("linked.title")} width="form">
       {failure ? (
         <div className="flex flex-col gap-[var(--ap-space-block)]">
           <FormError>{failure}</FormError>

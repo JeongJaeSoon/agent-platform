@@ -34,6 +34,7 @@ import {
   GridTableRowOpener,
   LinkTab,
   LinkTabs,
+  Page,
   RadioGroup,
   RadioGroupItem,
   RowLines,
@@ -42,8 +43,8 @@ import {
 } from "@werft-ai/ui";
 import { useEffect, useId, useRef, useState } from "react";
 import {
+  firstMembersQuery,
   invitesQuery,
-  membersQuery,
   queryKeys,
   teamsQuery,
 } from "../api/queries.ts";
@@ -59,7 +60,6 @@ import {
 } from "../auth/guard.tsx";
 import { FormError, Notice } from "../components/auth-page.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
-import { Page } from "../components/page.tsx";
 import { SEARCH_MAX, useSearchTerm } from "../components/search-term.ts";
 import { StatusScreen } from "../components/status-screen.tsx";
 import {
@@ -78,7 +78,12 @@ const PRIMARY =
 const SECONDARY =
   "block text-muted-foreground text-xs [overflow-wrap:anywhere]";
 
-const MEMBER_COLUMNS = "minmax(0,1.6fr) 120px minmax(0,1fr)";
+// Role and actions keep one width on every row, so badges and buttons line
+// up under their headers; the actions track never drops below its button.
+const MEMBER_COLUMNS =
+  "minmax(0,1.6fr) 120px minmax(var(--ap-row-action-min-width),1fr)";
+const MEMBER_NARROW_COLUMNS =
+  "minmax(0,1fr) 72px var(--ap-row-action-min-width)";
 const MEMBER_TABLE_MIN = "min-w-[320px]";
 
 type Outcome =
@@ -129,9 +134,9 @@ export function MembersLayout() {
   const { client } = useAgentPlatform();
   const { pathname } = useLocation();
   const manages = useHasPermission("member.manage");
-  const members = useQuery({ ...membersQuery(client), enabled: manages });
+  const members = useQuery({ ...firstMembersQuery(client), enabled: manages });
   const reason = usePermissionReason("member.manage", members);
-  // The list is also the permission probe: when it failed, nobody knows.
+  // The read is the permission probe: when it failed, nobody knows.
   const failed = members.isError && !isApiError(members.error, "FORBIDDEN");
   const onTeams = pathname.startsWith("/members/teams");
   // The router also serves the list at "/members/teams/".
@@ -162,7 +167,6 @@ export function MembersLayout() {
   ) : manages && !failed ? (
     <InviteDialog
       reason={reason}
-      members={members.data?.items ?? []}
       refusal={(error, role) => refusal(t, error, role)}
     />
   ) : undefined;
@@ -333,7 +337,7 @@ function MoreFailure({
 export function InvitesScreen() {
   const { client } = useAgentPlatform();
   const manages = useHasPermission("member.manage");
-  const members = useQuery({ ...membersQuery(client), enabled: manages });
+  const members = useQuery({ ...firstMembersQuery(client), enabled: manages });
   const [outcome, setOutcome] = useState<Outcome | null>(null);
 
   if (!manages) return null;
@@ -515,6 +519,8 @@ function MemberTable({
           <GridTable
             aria-label={t("members.tableLabel")}
             columns={MEMBER_COLUMNS}
+            narrowAt={640}
+            narrowColumns={MEMBER_NARROW_COLUMNS}
             className={MEMBER_TABLE_MIN}
           >
             <GridTableHeader>
@@ -567,14 +573,17 @@ function MemberTable({
               return (
                 <GridTableRow
                   key={member.user_id}
-                  className="group"
+                  inactive={disabled}
                   data-disabled={disabled}
                 >
                   <GridTableCell lines={true}>
                     <GridTableRowOpener
-                      aria-label={t("members.editFor", {
-                        name: member.display_name,
-                      })}
+                      aria-label={t(
+                        disabled
+                          ? "members.editForDisabled"
+                          : "members.editFor",
+                        { name: member.display_name },
+                      )}
                       onClick={(event) => {
                         editOpener.current = event.currentTarget;
                         setEditing(member);
@@ -584,8 +593,13 @@ function MemberTable({
                       blue stays for links that move (→). */}
                     {/* Below md the "you" badge drops to its own line under
                       the name, so the name gets the whole column (QA L-17). */}
-                    <span className="grid max-w-full grid-cols-[minmax(0,auto)_auto] items-center gap-y-[var(--ap-row-line-gap)] font-medium text-foreground @max-md:grid-cols-[minmax(0,auto)] group-data-[disabled=true]:text-muted-foreground">
+                    <span className="grid max-w-full grid-cols-[minmax(0,auto)_auto] items-center gap-y-[var(--ap-row-line-gap)] font-medium text-foreground @max-md:grid-cols-[minmax(0,auto)]">
                       <span className="truncate">{member.display_name}</span>
+                      {disabled ? (
+                        <span className="sr-only">
+                          {` (${t("members.state.disabled")})`}
+                        </span>
+                      ) : null}
                       {member.user_id === self ? (
                         <Badge
                           variant="gray"
@@ -602,17 +616,10 @@ function MemberTable({
                       {member.email}
                     </span>
                   </GridTableCell>
-                  {/* At 390px the actions spill left past their track; stacked
-                    badges leave them room. */}
-                  <GridTableCell className="flex-wrap gap-1 @max-md:flex-col @max-md:items-start">
+                  <GridTableCell>
                     <Badge variant={member.role === "member" ? "gray" : "blue"}>
                       {roleLabel(t, member.role)}
                     </Badge>
-                    {disabled ? (
-                      <Badge variant="gray">
-                        {t("members.state.disabled")}
-                      </Badge>
-                    ) : null}
                   </GridTableCell>
                   {/* The button keeps one width as "disable" turns "enable". */}
                   <GridTableCell

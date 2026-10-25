@@ -14,7 +14,7 @@ import {
   ErrorState,
   FilterMenu,
   Link,
-  PageHeader,
+  Page,
   SegmentedControl,
   SegmentedControlItem,
   Skeleton,
@@ -140,7 +140,7 @@ const ROWS: readonly Row[] = [
       "claude-sonnet-5",
       "demo-repo",
       "2026-10-20T00:40:17.000Z",
-      // A service key's session: an agent, nobody recorded as its starter.
+      // An agent key's session: an agent, nobody recorded as its starter.
       "Release helper",
     ),
   },
@@ -224,11 +224,10 @@ function SessionListV4Body({
       : matching.filter(({ summary: session }) => session.status === key)
           .length;
   return (
-    <div className="flex flex-col">
-      <PageHeader
-        title="세션"
-        description="내가 만들었거나 나에게 공유된 세션입니다. 세션을 누르면 상태와 이벤트를 봅니다."
-      />
+    <Page
+      title="세션"
+      description="내가 만들었거나 나에게 공유된 세션입니다. 세션을 누르면 상태와 이벤트를 봅니다."
+    >
       <div className="flex flex-col gap-4">
         <div className="flex min-w-0 flex-col gap-4">
           <ListToolbar
@@ -331,7 +330,7 @@ function SessionListV4Body({
           </div>
         ) : null}
       </div>
-    </div>
+    </Page>
   );
 }
 

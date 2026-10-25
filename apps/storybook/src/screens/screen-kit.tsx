@@ -1,4 +1,11 @@
-import { Badge, Button, Card, CardContent, DisabledReason } from "@werft-ai/ui";
+import {
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  DisabledReason,
+  PageFrame,
+} from "@werft-ai/ui";
 import { type ReactNode, useId } from "react";
 
 /*
@@ -23,12 +30,14 @@ export type NavKey =
   | "agents"
   | "members"
   | "settings"
-  | "usage";
+  | "usage"
+  | "operations";
 
 const NAV: readonly (readonly [NavKey, string])[] = [
   ["home", "홈"],
   ["sessions", "세션"],
   ["agents", "에이전트"],
+  ["operations", "운영"],
 ];
 const WORKSPACE_NAV: readonly (readonly [NavKey, string])[] = [
   ["members", "구성원"],
@@ -56,32 +65,22 @@ function NavItem({
 }
 
 /**
- * apps/web's layout.tsx: lists and details wide, forms and settings narrow,
- * and a session's detail, which lays out its rail and body itself, flush.
- */
-export type ContentWidth = "wide" | "narrow" | "flush";
-
-const CONTENT_MAX_WIDTH: Record<Exclude<ContentWidth, "flush">, string> = {
-  wide: "max-w-[101.25rem]",
-  narrow: "max-w-[68.75rem]",
-};
-
-/**
  * Stand-in for AppShell: the sidebar has no '팀' item (M-01) and the topbar
  * has no '새로 만들기' (C-01). Below md the sidebar is hidden as in the console.
- * The content centres beside the sidebar up to `width` (V4-CENTER).
+ * Every screen sits in the console's `PageFrame` (V4-PAGE-FRAME) except a
+ * session's detail, which lays out its rail and body itself: `flush`.
  */
 export function ScreenShell({
   current,
   crumb,
   role = "owner",
-  width = "wide",
+  flush = false,
   children,
 }: {
   readonly current: NavKey;
   readonly crumb: readonly string[];
   readonly role?: "owner" | "admin" | "member";
-  readonly width?: ContentWidth;
+  readonly flush?: boolean;
   readonly children: ReactNode;
 }) {
   return (
@@ -107,27 +106,20 @@ export function ScreenShell({
       </nav>
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-12 w-full items-center gap-2 px-4 md:px-6">
-          <nav aria-label="위치" className="text-muted-foreground">
-            {crumb.join(" › ")}
-          </nav>
+          <p className="m-0 text-muted-foreground">{crumb.join(" › ")}</p>
         </header>
-        {width === "flush" ? (
+        {flush ? (
           <main className="flex w-full flex-1 flex-col border-t">
             <div
-              data-content-width={width}
+              data-slot="page-flush"
               className="flex w-full min-w-0 flex-1 flex-col"
             >
               {children}
             </div>
           </main>
         ) : (
-          <main className="w-full p-4 pt-6 md:px-6 md:pt-8 md:pb-8">
-            <div
-              data-content-width={width}
-              className={`mx-auto w-full min-w-0 ${CONTENT_MAX_WIDTH[width]}`}
-            >
-              {children}
-            </div>
+          <main className="flex w-full flex-1 flex-col">
+            <PageFrame className="flex-1">{children}</PageFrame>
           </main>
         )}
       </div>

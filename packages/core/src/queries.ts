@@ -84,6 +84,7 @@ export const queryKeys = {
   // Under "members", so every member change refreshes the loaded pages too.
   memberPages: (q: string | undefined) =>
     ["members", "pages", { q: q ?? null }] as const,
+  firstMembers: ["members", "first"] as const,
   invites: ["invites"] as const,
   agents: ["agents"] as const,
   agent: (id: string) => ["agents", id] as const,
@@ -182,6 +183,22 @@ export function membersQuery(client: ApiClient) {
       } while (cursor);
       return { items, next_cursor: null };
     },
+    retry: false,
+  });
+}
+
+/**
+ * The workspace's two oldest members, one small read: enough to tell whether
+ * anyone joined after the first, and to learn whether the caller may list
+ * members at all.
+ */
+export function firstMembersQuery(client: ApiClient) {
+  return queryOptions({
+    queryKey: queryKeys.firstMembers,
+    queryFn: () =>
+      unwrap(
+        client.GET("/v1/members", { params: { query: { limit: 2 } } }),
+      ) as Promise<ListMembersResponse>,
     retry: false,
   });
 }
@@ -325,13 +342,15 @@ export function linkedAccountsQuery(client: ApiClient) {
   });
 }
 
-/** The caller's personal keys and the service keys they may revoke. */
+/** The caller's personal keys and the agent keys they may revoke. */
 export function apiKeysQuery(client: ApiClient) {
   return queryOptions({
     queryKey: queryKeys.apiKeys,
     queryFn: () =>
       unwrap(client.GET("/v1/api-keys")) as Promise<ListApiKeysResponse>,
     retry: false,
+    // The key tabs share this list; issuing and revoking invalidate it.
+    staleTime: 30_000,
   });
 }
 

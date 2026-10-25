@@ -13,6 +13,7 @@ import {
   CardFooter,
   CardTitle,
   Input,
+  Page,
   RowList,
   SecretField,
   SettingRow,
@@ -33,7 +34,6 @@ import {
 import { FormError, Notice } from "../components/auth-page.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import type { Outcome } from "../components/outcome.tsx";
-import { Page } from "../components/page.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 
 // The server's ceiling; the web takes contracts as types only, so a test
@@ -63,6 +63,7 @@ export function WorkspaceSettingsScreen() {
   const editable = workspaceManage || retentionManage;
   return (
     <Page
+      width="form"
       title={t("workspace.title")}
       description={t(editable ? "workspace.description" : "workspace.readOnly")}
     >

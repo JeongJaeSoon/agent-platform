@@ -65,6 +65,54 @@
     --ap-tone-border: var(--ap-tone-positive-border);
   }
 
+  /*
+   * An inactive row (GridTableRow/TableRow `inactive`) reads faint as a
+   * whole: subtle-foreground holds 4.5:1 on every surface and tone bg
+   * (styles.test.ts). The tokens are redefined on the cell rather than the
+   * badge or label being targeted, because a part under `…Trigger asChild`
+   * loses its data-slot; every tone turns neutral, status dots included.
+   * The actions cell keeps full contrast: a raised GridTableCell, an
+   * `actions` TableCell, or any cell holding a Button, found by its
+   * `data-ap-button` mark because a trigger's asChild replaces its slot and
+   * may change its tag. Colour alone never says "inactive"; the caller
+   * names it in text.
+   */
+  :is([data-slot="grid-table-row"], [data-slot="table-row"])[data-inactive]
+    > :not([data-raised], [data-variant="actions"], :has([data-ap-button])) {
+    --ap-color-foreground: var(--ap-color-subtle-foreground);
+    --ap-color-muted-foreground: var(--ap-color-subtle-foreground);
+    --ap-color-accent: var(--ap-color-subtle-foreground);
+    --ap-color-link: var(--ap-color-subtle-foreground);
+    --ap-tone-neutral-fg: var(--ap-color-subtle-foreground);
+    --ap-tone-progress-fg: var(--ap-color-subtle-foreground);
+    --ap-tone-progress-bg: var(--ap-tone-neutral-bg);
+    --ap-tone-progress-border: var(--ap-tone-neutral-border);
+    --ap-tone-attention-fg: var(--ap-color-subtle-foreground);
+    --ap-tone-attention-bg: var(--ap-tone-neutral-bg);
+    --ap-tone-attention-border: var(--ap-tone-neutral-border);
+    --ap-tone-caution-fg: var(--ap-color-subtle-foreground);
+    --ap-tone-caution-bg: var(--ap-tone-neutral-bg);
+    --ap-tone-caution-border: var(--ap-tone-neutral-border);
+    --ap-tone-danger-fg: var(--ap-color-subtle-foreground);
+    --ap-tone-danger-bg: var(--ap-tone-neutral-bg);
+    --ap-tone-danger-border: var(--ap-tone-neutral-border);
+    --ap-tone-unknown-fg: var(--ap-color-subtle-foreground);
+    --ap-tone-unknown-bg: var(--ap-tone-neutral-bg);
+    --ap-tone-unknown-border: var(--ap-tone-neutral-border);
+    --ap-tone-positive-fg: var(--ap-color-subtle-foreground);
+    --ap-tone-positive-bg: var(--ap-tone-neutral-bg);
+    --ap-tone-positive-border: var(--ap-tone-neutral-border);
+    --ap-tone-success-fg: var(--ap-color-subtle-foreground);
+    --ap-tone-success-bg: var(--ap-tone-neutral-bg);
+    --ap-tone-success-border: var(--ap-tone-neutral-border);
+    --ap-color-status-dot-wait: var(--ap-color-subtle-foreground);
+    --ap-color-status-dot-run: var(--ap-color-subtle-foreground);
+    --ap-color-status-dot-idle: var(--ap-color-subtle-foreground);
+    --ap-color-status-dot-done: var(--ap-color-subtle-foreground);
+    --ap-color-status-dot-failed: var(--ap-color-subtle-foreground);
+    color: var(--ap-color-subtle-foreground);
+  }
+
   .ap-visually-hidden {
     position: absolute;
     width: 1px;
@@ -383,6 +431,11 @@
     flex-direction: column;
     gap: var(--ap-space-2);
     max-width: 100%;
+  }
+
+  .ap-skeleton[data-inline] {
+    display: inline-flex;
+    vertical-align: top;
   }
 
   .ap-skeleton__bar {

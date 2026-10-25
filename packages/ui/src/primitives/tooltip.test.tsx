@@ -7,6 +7,7 @@ const { fireEvent, render, waitFor } = await setupDom();
 const { Tooltip, TooltipContent, TooltipTrigger } = await import(
   "./tooltip.tsx"
 );
+const { Button } = await import("./button.tsx");
 
 function renderTooltip() {
   const result = render(
@@ -270,5 +271,22 @@ describe("Tooltip", () => {
     expect(
       document.querySelector('[data-slot="popover-content"]')?.textContent,
     ).toBe("열린 설명");
+  });
+
+  test("asChild로 감싼 Button은 slot이 바뀌어도 data-ap-button 표시를 남긴다", () => {
+    const { getByRole } = render(
+      <Tooltip>
+        <TooltipTrigger asChild={true}>
+          <Button asChild={true} variant="outline">
+            <a href="#members">다시 활성화</a>
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>다시 들어올 수 있게 합니다</TooltipContent>
+      </Tooltip>,
+    );
+    const link = getByRole("link", { name: "다시 활성화" });
+    // styles.css finds an inactive row's actions by this mark.
+    expect(link.getAttribute("data-slot")).toBe("popover-trigger");
+    expect(link.hasAttribute("data-ap-button")).toBe(true);
   });
 });

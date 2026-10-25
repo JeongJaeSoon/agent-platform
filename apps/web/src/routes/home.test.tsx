@@ -371,7 +371,8 @@ describe("홈 요약", () => {
     `GET /v1/usage/summary?scope=${scope}&since=${since}`;
   const expiringKey = {
     id: "9c8b7a6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
-    kind: "service",
+    kind: "agent",
+    name: null,
     workspace_id: WORKSPACE_ID,
     agent_id: AGENT_ID,
     created_by: USER_ID,
@@ -449,6 +450,101 @@ describe("홈 요약", () => {
     };
   };
 
+  // Each read that changes which sections show or how tall they are: the
+  // inbox row grows once its requests arrive, a card gains its footer once
+  // its usage does.
+  for (const [what, route, body] of [
+    [
+      "대기 세션의 요청",
+      `GET /v1/sessions/${waitingSession.id}/pending-requests`,
+      () => ({
+        answerable: true,
+        items: [request("2026-10-23T09:00:00.000Z")],
+      }),
+    ],
+    ["내 사용량", summaryRoute("me"), () => summary("me", 3)],
+    ["설치 한도 값", "GET /v1/limits", () => limits],
+  ] as const) {
+    test(`${what}이 올 때까지 본문은 자리표시 하나이고, 오면 한 번에 보인다`, async () => {
+      let answer: () => void = () => {};
+      const asked = new Promise<void>((resolve) => {
+        answer = resolve;
+      });
+      let held = false;
+      renderAt("/", {
+        ...homeRoutes(),
+        [route]: async () => {
+          held = true;
+          await asked;
+          return json(200, body());
+        },
+      });
+      await screen.findByRole("heading", { name: "홈" });
+      await waitFor(() => expect(held).toBe(true));
+      // Every other read answers at once; give them time to land.
+      await act(() => new Promise((resolve) => setTimeout(resolve, 300)));
+      await waitFor(() =>
+        expect(
+          screen
+            .getAllByRole("status")
+            .some((s) => s.getAttribute("aria-busy") === "true"),
+        ).toBe(true),
+      );
+      expect(screen.queryByRole("region", { name: "한눈에 보기" })).toBeNull();
+      expect(
+        screen.queryByRole("region", { name: /^답이 필요한 요청/ }),
+      ).toBeNull();
+      act(() => answer());
+      expect(
+        await screen.findByRole("region", { name: "한눈에 보기" }),
+      ).toBeTruthy();
+      expect(
+        screen.getByRole("region", { name: /^답이 필요한 요청/ }),
+      ).toBeTruthy();
+      expect(
+        screen
+          .queryAllByRole("status")
+          .some((s) => s.getAttribute("aria-busy") === "true"),
+      ).toBe(false);
+    });
+  }
+
+  // At 390px a member's line wraps to two; the header holds both candidates
+  // from the first render, so telling the reader apart moves nothing.
+  test("구성원 설명 칸은 관리하는 에이전트를 알기 전부터 두 문장의 자리를 잡는다", async () => {
+    let answer: () => void = () => {};
+    const asked = new Promise<void>((resolve) => {
+      answer = resolve;
+    });
+    let held = false;
+    renderAt("/", {
+      ...homeRoutes(),
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/administered-agents": async () => {
+        held = true;
+        await asked;
+        return json(200, { items: [] });
+      },
+    });
+    await screen.findByRole("heading", { name: "홈" });
+    await waitFor(() => expect(held).toBe(true));
+    const manager = await screen.findByText(/님이 관리하는 에이전트와 내 세션/);
+    const requester = screen.getByText(/님이 시작했거나 공유받은 세션/);
+    for (const line of [manager, requester]) {
+      expect(line.getAttribute("aria-hidden")).toBe("true");
+      expect(line.classList.contains("invisible")).toBe(true);
+      expect(line.classList.contains("[grid-area:1/1]")).toBe(true);
+    }
+    expect(manager.parentElement).toBe(requester.parentElement);
+    act(() => answer());
+    await waitFor(() =>
+      expect(requester.getAttribute("aria-hidden")).toBeNull(),
+    );
+    expect(requester.classList.contains("invisible")).toBe(false);
+    expect(manager.getAttribute("aria-hidden")).toBe("true");
+    expect(manager.classList.contains("invisible")).toBe(true);
+  });
+
   test("카드 세 장에 최근 30일 사용량과 미계측을 나눠 보이고, 답변 대기는 가장 오래된 요청 하나만 가리킨다", async () => {
     renderAt("/", homeRoutes());
     const overview = await screen.findByRole("region", { name: "한눈에 보기" });
@@ -502,7 +598,7 @@ describe("홈 요약", () => {
       within(overview)
         .getByRole("link", { name: "결제 담당" })
         .getAttribute("href"),
-    ).toBe("/settings/api-keys/service");
+    ).toBe("/settings/api-keys/agents");
 
     expect(screen.getByText("최근 30일 · UTC 기준")).toBeTruthy();
     // The install's sum is partial; the viewer's own is whole.
@@ -824,7 +920,10 @@ describe("홈 요약", () => {
         "GET /v1/auth/me": () => json(200, me(undefined, role)),
         "GET /v1/administered-agents": () => json(200, { items: administered }),
       });
-      expect(await screen.findByText(intro)).toBeDefined();
+      const line = await screen.findByText(intro);
+      // The other member line stays laid under it, hidden.
+      await waitFor(() => expect(line.getAttribute("aria-hidden")).toBeNull());
+      expect(line.classList.contains("invisible")).toBe(false);
     },
   );
 

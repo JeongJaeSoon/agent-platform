@@ -7,7 +7,7 @@ import {
   Card,
   EmptyState,
   ErrorState,
-  PageHeader,
+  Page,
   SegmentedControl,
   SegmentedControlItem,
   Skeleton,
@@ -165,31 +165,28 @@ function UsageScreen({
   const figures = SUMMARY[scope];
   return (
     <ScreenShell current="usage" crumb={["사용량·한도"]} role={viewer}>
-      <div className="flex flex-col gap-[var(--ap-space-section)]">
-        <PageHeader
-          title="사용량·한도"
-          description={
-            operator
-              ? "내 사용량과 설치 전체 사용량을 봅니다."
-              : "내가 시작한 세션 기준 사용량입니다. 설치 전체 수치는 설치 운영자만 볼 수 있습니다."
-          }
-          actions={
-            operator ? (
-              <SegmentedControl
-                aria-label="집계 범위"
-                value={scope}
-                onValueChange={(value) => setPicked(value as Scope)}
-              >
-                <SegmentedControlItem value="me">
-                  내 사용량
-                </SegmentedControlItem>
-                <SegmentedControlItem value="installation">
-                  설치 전체
-                </SegmentedControlItem>
-              </SegmentedControl>
-            ) : undefined
-          }
-        />
+      <Page
+        title="사용량·한도"
+        description={
+          operator
+            ? "내 사용량과 설치 전체 사용량을 봅니다."
+            : "내가 시작한 세션 기준 사용량입니다. 설치 전체 수치는 설치 운영자만 볼 수 있습니다."
+        }
+        actions={
+          operator ? (
+            <SegmentedControl
+              aria-label="집계 범위"
+              value={scope}
+              onValueChange={(value) => setPicked(value as Scope)}
+            >
+              <SegmentedControlItem value="me">내 사용량</SegmentedControlItem>
+              <SegmentedControlItem value="installation">
+                설치 전체
+              </SegmentedControlItem>
+            </SegmentedControl>
+          ) : undefined
+        }
+      >
         <div className="flex flex-wrap gap-2">
           <PartRequest name="StatCard" />
           <PartRequest name="Meter" />
@@ -206,7 +203,7 @@ function UsageScreen({
               <AlertDescription>
                 {scope === "installation"
                   ? "이 기간에 시작한 모든 세션을 합산합니다. 이 범위는 설치 운영자만 볼 수 있습니다. 2026. 10. 22. 19:30에 읽은 값입니다."
-                  : "이 기간에 내가 웹이나 내 key로 시작한 세션만 셉니다. 공유받은 세션은 빠집니다. 2026. 10. 22. 19:30에 읽은 값입니다."}
+                  : "이 기간에 내가 웹이나 내 개인 key로 시작한 세션만 셉니다. 공유받은 세션은 빠집니다. 2026. 10. 22. 19:30에 읽은 값입니다."}
               </AlertDescription>
             </Alert>
           ) : null}
@@ -310,7 +307,7 @@ function UsageScreen({
             </TableContainer>
           </div>
         ) : null}
-      </div>
+      </Page>
     </ScreenShell>
   );
 }

@@ -11,6 +11,7 @@ import {
 } from "./queries.ts";
 import * as schema from "./schema.ts";
 import {
+  agents,
   apiKeys,
   executions,
   memberships,
@@ -488,7 +489,7 @@ describe("API key queries", () => {
       ownerId: "owner-a",
       workspaceId: null,
       scopes: ["sessions:read", "sessions:write"],
-      kind: "service",
+      kind: "operator",
       createdByUserId: null,
       creatorRole: null,
       agentId: null,
@@ -568,6 +569,7 @@ describe("API key queries", () => {
       id: crypto.randomUUID(),
       ownerId: "owner-a",
       keyHash: digest,
+      kind: "operator",
       revokedAt: new Date(),
     });
     expect(await findApiKey(db, digest)).toBeNull();
@@ -601,7 +603,11 @@ describe("API key queries", () => {
       .insert(memberships)
       .values({ workspaceId, userId, role: "member" });
     const personal = new Uint8Array(32).fill(9);
-    const service = new Uint8Array(32).fill(10);
+    const agentKey = new Uint8Array(32).fill(10);
+    const agentId = crypto.randomUUID();
+    await db
+      .insert(agents)
+      .values({ id: agentId, workspaceId, slug: "bot", name: "bot" });
     const id = crypto.randomUUID();
     await createApiKey(db, {
       id,
@@ -616,8 +622,9 @@ describe("API key queries", () => {
       id: crypto.randomUUID(),
       ownerId: workspaceId,
       workspaceId,
-      keyHash: service,
+      keyHash: agentKey,
       scopes: ["sessions:read"],
+      agentId,
       createdByUserId: userId,
     });
     expect(await findApiKey(db, personal)).toMatchObject({
@@ -631,7 +638,7 @@ describe("API key queries", () => {
       .set({ disabledAt: new Date() })
       .where(eq(memberships.userId, userId));
     expect(await findApiKey(db, personal)).toBeNull();
-    expect((await findApiKey(db, service))?.kind).toBe("service");
+    expect((await findApiKey(db, agentKey))?.kind).toBe("agent");
 
     await db
       .update(memberships)
@@ -642,6 +649,6 @@ describe("API key queries", () => {
       .set({ disabledAt: new Date() })
       .where(eq(users.id, userId));
     expect(await findApiKey(db, personal)).toBeNull();
-    expect(await findApiKey(db, service)).not.toBeNull();
+    expect(await findApiKey(db, agentKey)).not.toBeNull();
   });
 });

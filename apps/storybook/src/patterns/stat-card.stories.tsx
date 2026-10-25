@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Badge, StatCard } from "@werft-ai/ui";
+import { Badge, Meter, Sparkline, StatCard } from "@werft-ai/ui";
 
 // The kit has no messages of its own; these stand in for apps/web's.
 const COPY = {
@@ -11,6 +11,11 @@ const COPY = {
     approvalsNote: "가장 오래된 요청 2시간 전",
     cost: "토큰 비용",
     costNote: "아직 집계되지 않았습니다",
+    trend: "일자별 세션 수",
+    trendNote: "이 기간에 시작한 세션",
+    slots: "사용 중인 slot",
+    slotsMeter: "slot 사용률",
+    slotsNote: "빈 slot 3개",
   },
   ja: {
     sessions: "セッション",
@@ -20,6 +25,11 @@ const COPY = {
     approvalsNote: "最も古い依頼は2時間前",
     cost: "トークン費用",
     costNote: "まだ集計されていません",
+    trend: "日別セッション数",
+    trendNote: "この期間に開始したセッション",
+    slots: "使用中のスロット",
+    slotsMeter: "スロット使用率",
+    slotsNote: "空きスロット3個",
   },
   en: {
     sessions: "Sessions",
@@ -29,6 +39,11 @@ const COPY = {
     approvalsNote: "Oldest request 2 hours ago",
     cost: "Token cost",
     costNote: "Not counted yet",
+    trend: "Sessions per day",
+    trendNote: "Sessions started in this period",
+    slots: "Slots in use",
+    slotsMeter: "Slot use",
+    slotsNote: "3 slots free",
   },
 } as const;
 
@@ -113,6 +128,55 @@ export const Grid3Mobile: Story = {
     locale: "ja",
     viewport: { value: "mobile390", isRotated: false },
   },
+};
+
+const TREND = [9, 12, 14, 13, 11, 4, 3, 10, 15, 17, 16, 12, 5, 4, 12, 16];
+
+/** The operations overview's KPI: a 30-day trend between figure and note. */
+export const WithSparkline: Story = {
+  render: (_args, context) => {
+    const copy = copyFor(context);
+    return (
+      <div className="max-w-[280px]">
+        <StatCard
+          label={copy.sessions}
+          value="400"
+          chart={<Sparkline values={TREND} label={copy.trend} />}
+          description={copy.trendNote}
+        />
+      </div>
+    );
+  },
+};
+
+export const WithSparklineDark: Story = {
+  ...WithSparkline,
+  name: "With sparkline (dark)",
+  globals: { theme: "dark" },
+};
+
+/** The limits tab's capacity card: the figure out of its limit, and a bar. */
+export const WithMeter: Story = {
+  render: (_args, context) => {
+    const copy = copyFor(context);
+    return (
+      <div className="max-w-[280px]">
+        <StatCard
+          label={copy.slots}
+          value="7"
+          outOf="10"
+          chart={<Meter value={7} max={10} label={copy.slotsMeter} />}
+          description={copy.slotsNote}
+        />
+      </div>
+    );
+  },
+};
+
+export const WithMeterDark: Story = {
+  ...WithMeter,
+  name: "With meter (dark)",
+  globals: { theme: "dark" },
 };
 
 export const Grid3English: Story = {

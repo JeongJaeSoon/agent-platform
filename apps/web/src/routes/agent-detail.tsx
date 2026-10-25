@@ -20,6 +20,7 @@ import {
   Badge,
   Button,
   buttonVariants,
+  Page,
   Tabs,
   TabsContent,
   TabsList,
@@ -33,7 +34,6 @@ import { AgentAdmins } from "../components/agent-admins.tsx";
 import { AgentAvatar } from "../components/agent-cards.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
-import { Page } from "../components/page.tsx";
 import { RevisionDiff } from "../components/revision-diff.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { useI18n } from "../i18n/i18n.tsx";

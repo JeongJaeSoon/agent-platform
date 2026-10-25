@@ -171,9 +171,9 @@
     --ap-space-6: 1.5rem;
     --ap-space-8: 2rem;
 
-    /* Vertical rhythm of a page: above the content, under the page header,
+    /* Vertical rhythm of a page: above and below the content, under the page header,
      between sections and between blocks inside one. */
-    --ap-space-page-top: var(--ap-space-8);
+    --ap-space-page-top: var(--ap-space-6);
     --ap-space-page-head: var(--ap-space-6);
     --ap-space-section: var(--ap-space-8);
     --ap-space-block: var(--ap-space-4);
@@ -197,9 +197,12 @@
     --ap-motion-ease: cubic-bezier(0.2, 0, 0.2, 1);
 
     /*
-     * Layout (console v35): content is 1200px wide, or 840px in one column
-     * for settings, left-aligned inside 32px gutters under a 52px top bar.
+     * Layout: every page's column grows to --ap-w-page and centres
+     * (V4-PAGE-FRAME); a page that is one form or settings column stops
+     * its sections at --ap-w-form inside it.
      */
+    --ap-w-page: 101.25rem;
+    --ap-w-form: 68.75rem;
     --ap-w-wide: 75rem;
     --ap-w-narrow: 52.5rem;
     --ap-gutter: 2rem;
@@ -228,6 +231,16 @@
     --ap-leading-title: 1.75rem;
     --ap-text-number: 1.5rem;
     --ap-leading-number: 2rem;
+
+    /*
+     * Charts draw one series in greys, no category hues: aliases of existing
+     * colours, so they turn dark with them. A part a reader picks or points
+     * at takes mark-active.
+     */
+    --ap-chart-mark: var(--ap-color-subtle-foreground);
+    --ap-chart-mark-active: var(--ap-color-foreground);
+    --ap-chart-track: var(--ap-color-sidebar-accent);
+    --ap-chart-grid: var(--ap-color-border);
   }
 
   /*

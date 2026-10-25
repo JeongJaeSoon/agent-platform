@@ -316,7 +316,7 @@ integration("credential bindings over HTTP on PostgreSQL", () => {
       .release.id;
 
     const key = await send("POST", "/v1/api-keys", asCookie(cookies.admin), {
-      kind: "service",
+      kind: "agent",
       agent_id: agentId,
       scopes: ["sessions:read", "sessions:write"],
     });

@@ -10,14 +10,17 @@ const AT = "2026-10-21T00:00:00.000Z";
 const list = {
   items: Array.from({ length: 100 }, (_, n) => ({
     id: uuid(n),
-    kind: n % 2 ? "service" : "personal",
+    kind: n % 2 ? "agent" : "personal",
+    name: n % 2 ? `agent-${n}` : null,
     workspace_id: uuid(100_000),
     agent_id: n % 2 ? uuid(200_000 + n) : null,
     created_by: uuid(300_000),
+    created_by_user: { id: uuid(300_000), display_name: "Owner" },
     scopes: ["sessions:read", "sessions:write"],
     created_at: AT,
     expires_at: null,
     revoked_at: null,
+    last_used_at: null,
   })),
 };
 

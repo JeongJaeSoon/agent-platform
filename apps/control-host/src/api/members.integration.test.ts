@@ -325,44 +325,51 @@ integration("members and actors over HTTP on PostgreSQL", () => {
     expect(row.createdByApiKeyId).toBe(legacy.keyId);
   });
 
-  test("a workspace key sees the sessions the web sees, and /auth/me names the workspace", async () => {
-    const service = await issueApiKey(keys, { workspaceId, scopes: ALL });
+  test("a member's key sees the sessions they made on the web, and /auth/me names the workspace", async () => {
+    const others = await issueApiKey(keys, {
+      workspaceId,
+      scopes: ALL,
+      personalFor: ownerId,
+    });
     const byCookie = await createSession(asCookie(ownerCookie));
-    const listed = await get("/v1/sessions", bearer(service.plaintext));
+    const listed = await get("/v1/sessions", bearer(others.plaintext));
     expect(listed.status).toBe(200);
     const ids = (
       (await listed.json()) as { items: { id: string }[] }
     ).items.map((item) => item.id);
     expect(ids).toContain(byCookie.session_id);
     const me = authMeResponseSchema.parse(
-      await (await get("/v1/auth/me", bearer(service.plaintext))).json(),
+      await (await get("/v1/auth/me", bearer(others.plaintext))).json(),
     );
     expect(me.workspace?.id).toBe(workspaceId);
   });
 
   test("an API key takes no management action, whatever its scopes", async () => {
-    const service = await issueApiKey(keys, { workspaceId, scopes: ALL });
     const personal = await issueApiKey(keys, {
       workspaceId,
       scopes: ALL,
       personalFor: ownerId,
     });
-    for (const plaintext of [service.plaintext, personal.plaintext]) {
-      expect((await get("/v1/takeovers", bearer(plaintext))).status).toBe(403);
-    }
+    expect(
+      (await get("/v1/takeovers", bearer(personal.plaintext))).status,
+    ).toBe(403);
     expect((await get("/v1/takeovers", { Cookie: ownerCookie })).status).toBe(
       200,
     );
   });
 
-  test("a personal key stops when its creator is disabled; a service key does not", async () => {
+  test("a personal key stops when its creator is disabled; another member's does not", async () => {
     const creatorId = await addMember("creator@example.com");
     const personal = await issueApiKey(keys, {
       workspaceId,
       scopes: ALL,
       personalFor: creatorId,
     });
-    const service = await issueApiKey(keys, { workspaceId, scopes: ALL });
+    const others = await issueApiKey(keys, {
+      workspaceId,
+      scopes: ALL,
+      personalFor: ownerId,
+    });
     expect((await get("/v1/sessions", bearer(personal.plaintext))).status).toBe(
       200,
     );
@@ -380,7 +387,7 @@ integration("members and actors over HTTP on PostgreSQL", () => {
     expect((await get("/v1/sessions", bearer(personal.plaintext))).status).toBe(
       401,
     );
-    expect((await get("/v1/sessions", bearer(service.plaintext))).status).toBe(
+    expect((await get("/v1/sessions", bearer(others.plaintext))).status).toBe(
       200,
     );
   });
@@ -392,7 +399,12 @@ integration("members and actors over HTTP on PostgreSQL", () => {
       scopes: ALL,
       personalFor: memberId,
     });
-    const service = await issueApiKey(keys, { workspaceId, scopes: ALL });
+    // The owner's key: what the offboarding must leave running.
+    const others = await issueApiKey(keys, {
+      workspaceId,
+      scopes: ALL,
+      personalFor: ownerId,
+    });
     const asked = await createSession(asCookie(memberCookie));
     const row = await sessionRow(asked.session_id);
     expect(row.workspaceId).toBe(workspaceId);
@@ -408,9 +420,9 @@ integration("members and actors over HTTP on PostgreSQL", () => {
       asked.session_id,
       bearer(personal.plaintext),
     );
-    const serviceStream = await stream(
+    const othersStream = await stream(
       asked.session_id,
-      bearer(service.plaintext),
+      bearer(others.plaintext),
     );
 
     const setAccess = (
@@ -497,15 +509,15 @@ integration("members and actors over HTTP on PostgreSQL", () => {
     expect((await get("/v1/sessions", bearer(personal.plaintext))).status).toBe(
       401,
     );
-    expect((await get("/v1/sessions", bearer(service.plaintext))).status).toBe(
+    expect((await get("/v1/sessions", bearer(others.plaintext))).status).toBe(
       200,
     );
     const alive = await Promise.race([
-      serviceStream.read().then(() => true),
+      othersStream.read().then(() => true),
       Bun.sleep(KEEPALIVE_MS * 2).then(() => false),
     ]);
     expect(alive).toBe(true);
-    await serviceStream.cancel();
+    await othersStream.cancel();
 
     const refused = await post(
       `/v1/sessions/${asked.session_id}/messages`,

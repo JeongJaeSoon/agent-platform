@@ -10,6 +10,7 @@ import {
   cn,
   EmptyState,
   formatTimestamp,
+  Page,
   RowLines,
   SegmentedControl,
   SegmentedControlItem,
@@ -35,7 +36,7 @@ import {
   AdministeredAgents,
 } from "../components/agent-admins.tsx";
 import { AgentCards } from "../components/agent-cards.tsx";
-import { AgentStateBadge } from "../components/agent-state.tsx";
+import { AgentStateBadge, agentState } from "../components/agent-state.tsx";
 import {
   AGENT_VIEWS,
   type AgentView,
@@ -43,7 +44,6 @@ import {
 } from "../components/agent-view.ts";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { NewAgentFlow } from "../components/new-agent-flow.tsx";
-import { Page } from "../components/page.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, type Translate, useI18n } from "../i18n/i18n.tsx";
 
@@ -310,7 +310,10 @@ function AgentTable({ agents }: { readonly agents: readonly Agent[] }) {
         </TableHeader>
         <TableBody>
           {agents.map((agent) => (
-            <TableRow key={agent.id}>
+            <TableRow
+              key={agent.id}
+              inactive={agentState(agent) === "archived"}
+            >
               <TableCell>
                 <RowLines>
                   <Link
@@ -373,7 +376,11 @@ export function NewAgentScreen() {
   const refuse = (error: unknown) =>
     isApiError(error) ? agentRefusal(t, error, role) : t(errorKey("UNKNOWN"));
   return (
-    <Page title={t("agents.newTitle")} description={t("agents.newIntro")}>
+    <Page
+      title={t("agents.newTitle")}
+      description={t("agents.newIntro")}
+      width="form"
+    >
       <NewAgentFlow refuse={refuse} />
     </Page>
   );
