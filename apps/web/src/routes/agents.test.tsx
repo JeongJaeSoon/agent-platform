@@ -476,6 +476,18 @@ describe("에이전트 카드", () => {
     expect(chip?.className).toContain("relative z-1");
   });
 
+  test("식별자는 한 줄로 잘리고 전체 값은 링크 위의 title로 남는다", async () => {
+    renderAt("/agents", { ...meOk, ...releasedServer() });
+    const card = await cardFor("결제 담당");
+    const slug = card.getAttribute("data-agent") ?? "";
+    const line = [...card.querySelectorAll("[data-slot=text]")].find(
+      (el) => el.getAttribute("title") === slug,
+    );
+    expect(slug).not.toBe("");
+    expect(line?.textContent).toBe(`식별자 ${slug}`);
+    expect(line?.className).toContain("truncate");
+    expect(line?.className).toContain("relative z-1");
+  });
   test("아바타 색은 이름으로 정해져 목록과 상세에서 같다", async () => {
     const tone = `--ap-avatar-${avatarTone("결제 담당")}-bg`;
     renderAt("/agents", { ...meOk, ...releasedServer() });
