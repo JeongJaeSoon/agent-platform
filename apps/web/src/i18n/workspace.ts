@@ -37,6 +37,37 @@ export const workspaceKo = {
   "workspace.retentionValue": "감사 기록을 {days}일 보존합니다.",
   "workspace.guestValueOn": "Slack 게스트도 에이전트를 쓸 수 있습니다.",
   "workspace.guestValueOff": "Slack 게스트는 에이전트를 쓸 수 없습니다.",
+  "workspace.general": "일반",
+  "workspace.slack": "Slack 연결 설정",
+  "workspace.subnav": "워크스페이스 설정 메뉴",
+  "workspace.basics": "기본 정보",
+  "workspace.slackDescription": "소유자와 관리자만 바꿀 수 있습니다.",
+  "workspace.token": "App Configuration Token",
+  "workspace.tokenHint":
+    "에이전트마다 Slack 앱을 이 콘솔이 만들 때 씁니다. api.slack.com/apps의 Your App Configuration Tokens에서 만든 Refresh Token을 넣습니다.",
+  "workspace.tokenUnset": "설정 안 됨",
+  "workspace.tokenActive": "설정됨",
+  "workspace.tokenNeedsReentry": "다시 넣어야 함",
+  "workspace.tokenNeedsReentryHint":
+    "Slack이 저장된 token을 더 받지 않습니다. 새 token을 저장할 때까지 새 Slack 앱을 만들 수 없습니다. 이미 연결된 에이전트는 그대로 동작합니다.",
+  "workspace.tokenSavedBy": "{at} 저장 · 저장한 사람 {by}",
+  "workspace.tokenSavedAt": "{at} 저장",
+  "workspace.tokenAdd": "token 넣기",
+  "workspace.tokenReplace": "교체",
+  "workspace.tokenNew": "새 App Configuration Token",
+  "workspace.tokenNewHint":
+    "값은 암호화해 저장하고, 저장한 뒤에는 다시 보여 주지 않습니다. 이 token을 만든 사람이 자동으로 만드는 앱의 협업자가 됩니다.",
+  "workspace.tokenMissing": "저장하려면 새 token을 넣어 주세요.",
+  "workspace.tokenStored": "App Configuration Token을 저장했습니다.",
+  "workspace.tokenRejected":
+    "Slack이 이 token을 받지 않았습니다. 새로 만든 Refresh Token인지 확인하세요.",
+  "workspace.danger": "위험 영역",
+  "workspace.tokenDelete": "App Configuration Token 삭제",
+  "workspace.tokenDeleteHint":
+    "새 token을 저장할 때까지 새 Slack 앱을 만들 수 없습니다. 이미 연결된 에이전트는 그대로 동작합니다.",
+  "workspace.tokenDeleteTitle": "App Configuration Token을 삭제할까요?",
+  "workspace.delete": "삭제",
+  "workspace.tokenDeleted": "App Configuration Token을 삭제했습니다.",
 };
 
 export const workspaceEn: Record<keyof typeof workspaceKo, string> = {
@@ -79,6 +110,37 @@ export const workspaceEn: Record<keyof typeof workspaceKo, string> = {
   "workspace.retentionValue": "Audit records are kept for {days} days.",
   "workspace.guestValueOn": "Slack guests can use agents.",
   "workspace.guestValueOff": "Slack guests cannot use agents.",
+  "workspace.general": "General",
+  "workspace.slack": "Slack connection",
+  "workspace.subnav": "Workspace settings menu",
+  "workspace.basics": "Basics",
+  "workspace.slackDescription": "Only owners and admins can change these.",
+  "workspace.token": "App Configuration Token",
+  "workspace.tokenHint":
+    "Used when this console makes a Slack app for each agent. Paste a Refresh Token from Your App Configuration Tokens at api.slack.com/apps.",
+  "workspace.tokenUnset": "Not set",
+  "workspace.tokenActive": "Set",
+  "workspace.tokenNeedsReentry": "Needs re-entry",
+  "workspace.tokenNeedsReentryHint":
+    "Slack no longer takes the stored token. No new Slack app can be made until a new token is saved. Agents already connected keep working.",
+  "workspace.tokenSavedBy": "Saved {at} · by {by}",
+  "workspace.tokenSavedAt": "Saved {at}",
+  "workspace.tokenAdd": "Add token",
+  "workspace.tokenReplace": "Replace",
+  "workspace.tokenNew": "New App Configuration Token",
+  "workspace.tokenNewHint":
+    "Stored encrypted and never shown again. Whoever made this token becomes a collaborator on the apps made from now on.",
+  "workspace.tokenMissing": "Enter a new token to save.",
+  "workspace.tokenStored": "Saved the App Configuration Token.",
+  "workspace.tokenRejected":
+    "Slack did not take this token. Check that it is a newly made Refresh Token.",
+  "workspace.danger": "Danger zone",
+  "workspace.tokenDelete": "Delete App Configuration Token",
+  "workspace.tokenDeleteHint":
+    "No new Slack app can be made until a new token is saved. Agents already connected keep working.",
+  "workspace.tokenDeleteTitle": "Delete the App Configuration Token?",
+  "workspace.delete": "Delete",
+  "workspace.tokenDeleted": "Deleted the App Configuration Token.",
 };
 
 export const workspaceJa: Record<keyof typeof workspaceKo, string> = {
@@ -123,4 +185,35 @@ export const workspaceJa: Record<keyof typeof workspaceKo, string> = {
   "workspace.retentionValue": "監査ログを {days} 日間保存します。",
   "workspace.guestValueOn": "Slack ゲストはエージェントを利用できます。",
   "workspace.guestValueOff": "Slack ゲストはエージェントを利用できません。",
+  "workspace.general": "一般",
+  "workspace.slack": "Slack 接続設定",
+  "workspace.subnav": "ワークスペース設定メニュー",
+  "workspace.basics": "基本情報",
+  "workspace.slackDescription": "オーナーと管理者だけが変更できます。",
+  "workspace.token": "App Configuration Token",
+  "workspace.tokenHint":
+    "このコンソールがエージェントごとの Slack アプリを作るときに使います。api.slack.com/apps の Your App Configuration Tokens で作った Refresh Token を入力します。",
+  "workspace.tokenUnset": "未設定",
+  "workspace.tokenActive": "設定済み",
+  "workspace.tokenNeedsReentry": "再入力が必要",
+  "workspace.tokenNeedsReentryHint":
+    "Slack が保存済みのトークンを受け付けなくなりました。新しいトークンを保存するまで新しい Slack アプリは作れません。接続済みのエージェントはそのまま動きます。",
+  "workspace.tokenSavedBy": "{at} 保存 · 保存した人 {by}",
+  "workspace.tokenSavedAt": "{at} 保存",
+  "workspace.tokenAdd": "トークンを入力",
+  "workspace.tokenReplace": "置き換え",
+  "workspace.tokenNew": "新しい App Configuration Token",
+  "workspace.tokenNewHint":
+    "暗号化して保存し、保存後は再表示しません。このトークンを作った人が、これから作るアプリのコラボレーターになります。",
+  "workspace.tokenMissing": "保存するには新しいトークンを入力してください。",
+  "workspace.tokenStored": "App Configuration Token を保存しました。",
+  "workspace.tokenRejected":
+    "Slack がこのトークンを受け付けませんでした。新しく作った Refresh Token か確認してください。",
+  "workspace.danger": "危険な操作",
+  "workspace.tokenDelete": "App Configuration Token を削除",
+  "workspace.tokenDeleteHint":
+    "新しいトークンを保存するまで新しい Slack アプリは作れません。接続済みのエージェントはそのまま動きます。",
+  "workspace.tokenDeleteTitle": "App Configuration Token を削除しますか?",
+  "workspace.delete": "削除",
+  "workspace.tokenDeleted": "App Configuration Token を削除しました。",
 };

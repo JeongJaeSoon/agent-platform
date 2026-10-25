@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link, useRouterState } from "@tanstack/react-router";
 import { type ApiError, unwrap } from "@werft-ai/client";
 import type {
   AuditRetentionRequest,
@@ -13,6 +14,8 @@ import {
   CardFooter,
   CardTitle,
   Input,
+  LinkTab,
+  LinkTabs,
   Page,
   RowList,
   SecretField,
@@ -52,12 +55,23 @@ const STATUS = `${META} min-w-6 text-right`;
 // The card draws the box; the rows only keep the rule under the body.
 const ROWS = "rounded-none border-x-0 border-b-0 bg-transparent";
 
-type OnOutcome = (outcome: Outcome | null) => void;
+export type OnOutcome = (outcome: Outcome | null) => void;
 
-/** Workspace-wide settings an owner or admin opens from the menu. */
-export function WorkspaceSettingsScreen() {
+/**
+ * Workspace settings as one page with tabs (V4-SETTINGS-LAYOUT B): 일반 and
+ * Slack 연결 설정 under the one sidebar item, as 구성원 holds its tabs.
+ */
+export function WorkspacePage({
+  page,
+  children,
+}: {
+  readonly page: "general" | "slack";
+  readonly children: ReactNode;
+}) {
   const { t } = useI18n();
-  const [outcome, setOutcome] = useState<Outcome | null>(null);
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  });
   const workspaceManage = useHasPermission("workspace.manage");
   const retentionManage = useHasPermission("audit_retention.manage");
   const editable = workspaceManage || retentionManage;
@@ -65,8 +79,52 @@ export function WorkspaceSettingsScreen() {
     <Page
       width="form"
       title={t("workspace.title")}
-      description={t(editable ? "workspace.description" : "workspace.readOnly")}
+      description={t(
+        page === "slack"
+          ? "workspace.slackDescription"
+          : editable
+            ? "workspace.description"
+            : "workspace.readOnly",
+      )}
     >
+      <div className="flex flex-col gap-[var(--ap-space-block)]">
+        {workspaceManage ? (
+          <LinkTabs aria-label={t("workspace.subnav")}>
+            <LinkTab
+              asChild
+              current={pathname.replace(/\/$/, "") === "/settings/workspace"}
+            >
+              <Link to="/settings/workspace" activeOptions={{ exact: true }}>
+                {t("workspace.general")}
+              </Link>
+            </LinkTab>
+            <LinkTab
+              asChild
+              current={pathname.startsWith("/settings/workspace/slack")}
+            >
+              <Link
+                to="/settings/workspace/slack"
+                activeOptions={{ exact: true }}
+              >
+                {t("workspace.slack")}
+              </Link>
+            </LinkTab>
+          </LinkTabs>
+        ) : null}
+        <div className={CARDS}>{children}</div>
+      </div>
+    </Page>
+  );
+}
+
+/** Workspace-wide settings an owner or admin opens from the menu. */
+export function WorkspaceSettingsScreen() {
+  const [outcome, setOutcome] = useState<Outcome | null>(null);
+  const workspaceManage = useHasPermission("workspace.manage");
+  const retentionManage = useHasPermission("audit_retention.manage");
+  const editable = workspaceManage || retentionManage;
+  return (
+    <WorkspacePage page="general">
       {outcome ? (
         outcome.kind === "error" ? (
           <FormError>{outcome.text}</FormError>
@@ -74,24 +132,19 @@ export function WorkspaceSettingsScreen() {
           <Notice>{outcome.text}</Notice>
         )
       ) : null}
-      <div className={CARDS}>
-        <WorkspaceName />
-        <WorkspaceId />
-        <AllowedModels />
-        {editable ? (
-          <>
-            <AuditRetention onOutcome={setOutcome} />
-            <SlackGuest onOutcome={setOutcome} />
-          </>
-        ) : (
-          <ReadOnlySettings />
-        )}
-      </div>
-    </Page>
+      <WorkspaceName />
+      <WorkspaceId />
+      <AllowedModels />
+      {editable ? (
+        <AuditRetention onOutcome={setOutcome} />
+      ) : (
+        <ReadOnlySettings />
+      )}
+    </WorkspacePage>
   );
 }
 
-function SettingsCard({
+export function SettingsCard({
   title,
   description,
   descriptionId,
@@ -383,7 +436,7 @@ function AuditRetention({ onOutcome }: { readonly onOutcome: OnOutcome }) {
  * sends the opposite of what the server last said, so a stale screen cannot
  * undo a change it never saw.
  */
-function SlackGuest({ onOutcome }: { readonly onOutcome: OnOutcome }) {
+export function SlackGuest({ onOutcome }: { readonly onOutcome: OnOutcome }) {
   const { t } = useI18n();
   const { client } = useAgentPlatform();
   const queryClient = useQueryClient();
