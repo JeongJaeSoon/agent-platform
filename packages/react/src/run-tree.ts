@@ -129,10 +129,11 @@ const before = (a: Stamp, b: Stamp) =>
   a.t < b.t || (a.t === b.t && a.id < b.id);
 
 // An event id is its row id in base36 behind `ev_` (packages/db cursors.ts);
-// padded to the 11 digits it may take, string order is storage order.
+// padded to the 11 digits it may take, string order is storage order. The id
+// itself follows, so aliases such as ev_1 and ev_01 still differ.
 const EVENT_ID = /^ev_[0-9a-z]{1,11}$/;
 const storageOrder = (id: string) =>
-  EVENT_ID.test(id) ? `ev_${id.slice(3).padStart(11, "0")}` : id;
+  EVENT_ID.test(id) ? `ev_${id.slice(3).padStart(11, "0")}${id}` : id;
 
 function stamp(frame: RunTreeFrame): Stamp {
   const t = Date.parse(frame.occurredAt);

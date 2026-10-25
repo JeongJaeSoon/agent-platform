@@ -584,6 +584,13 @@ describe("buildRunTree", () => {
         "read-36",
       ]);
     }
+    const aliases = [
+      stored("ev_1", use(1, "a", "Read", {})),
+      stored("ev_01", use(1, "b", "Read", {})),
+    ];
+    expect(buildRunTree(aliases)).toEqual(
+      buildRunTree([...aliases].reverse()),
+    );
   });
 
   test("an event names no target when its input has none", () => {
