@@ -57,6 +57,16 @@ describe("SideNav", () => {
     expect(getAllByRole("link")).toHaveLength(3);
   });
 
+  test("그룹 제목은 링크 글자색과 다른 subtle 색으로 링크와 구분된다", () => {
+    const { getByText, getByRole } = render(settings());
+    const heading = getByText("워크스페이스").className.split(" ");
+    expect(heading).toContain("text-caption");
+    expect(heading).toContain("text-subtle-foreground");
+    const link = getByRole("link", { name: "일반" }).className.split(" ");
+    expect(link).toContain("text-muted-foreground");
+    expect(link).not.toContain("text-subtle-foreground");
+  });
+
   test("current는 aria-current를 page로, location은 location으로 둔다", () => {
     const { getByRole } = render(
       <SideNav aria-label="Slack">

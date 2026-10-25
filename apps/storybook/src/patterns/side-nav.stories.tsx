@@ -174,6 +174,16 @@ export const Default: Story = {
         .getByRole("link", { name: "Slack 연결 설정" })
         .getAttribute("aria-current"),
     ).toBeNull();
+    // A group's heading must not read as one more link.
+    const group = within(nav).getAllByRole("group")[0];
+    const heading = canvasElement.ownerDocument.getElementById(
+      group?.getAttribute("aria-labelledby") ?? "",
+    );
+    const other = within(nav).getByRole("link", { name: "Slack 연결 설정" });
+    expect(heading).not.toBeNull();
+    expect(getComputedStyle(heading as Element).color).not.toBe(
+      getComputedStyle(other).color,
+    );
   },
 };
 

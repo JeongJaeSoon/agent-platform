@@ -131,7 +131,7 @@ export function SideNav({
         id={listId}
         className={cn(
           open ? "mt-2 flex rounded-card border p-2" : "hidden",
-          "flex-col gap-4 md:mt-0 md:flex md:border-0 md:p-0",
+          "flex-col gap-3 md:mt-0 md:flex md:border-0 md:p-0",
         )}
         onClick={picked}
         onKeyDown={closeOnEscape}
@@ -166,7 +166,7 @@ export function SideNavGroup({
       {label ? (
         <p
           id={headingId}
-          className="m-0 px-3 text-caption text-muted-foreground"
+          className="m-0 px-3 text-caption text-subtle-foreground"
         >
           {label}
         </p>
