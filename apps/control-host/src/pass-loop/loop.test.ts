@@ -389,6 +389,174 @@ describe("pass loop", () => {
   }, 30_000);
 });
 
+describe("pass loop: a serving child", () => {
+  let dir: string;
+  let sink: MemoryLogSink;
+  let logger: StructuredLogger;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "pass-loop-serve-"));
+    sink = new MemoryLogSink();
+    logger = new StructuredLogger({ sinks: [sink] });
+  });
+
+  afterEach(async () => {
+    await rm(dir, { force: true, recursive: true });
+  });
+
+  const config = (overrides: Partial<PassLoopConfig> = {}): PassLoopConfig => ({
+    intervalMs: 10,
+    passTimeoutMs: 10_000,
+    killGraceMs: 300,
+    maxConsecutiveFailures: 2,
+    statusFile: join(dir, "status.json"),
+    ...overrides,
+  });
+
+  /**
+   * A child serving passes through `servePasses`. `body` is the pass: it sees
+   * `pass`, the loop-wide pass number counted in a file, and `stop`, and
+   * returns the exit code. Every child appends its pid to `spawns`.
+   */
+  const serving = (body: string, stopsAtSafePoint = false) =>
+    bun(`
+      import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+      import { servePasses } from ${JSON.stringify(join(import.meta.dir, "loop.ts"))};
+      const dir = ${JSON.stringify(dir)};
+      appendFileSync(dir + "/spawns", process.pid + "\\n");
+      servePasses(async (stop) => {
+        const file = dir + "/count";
+        const pass = existsSync(file) ? Number(readFileSync(file, "utf8")) : 0;
+        writeFileSync(file, String(pass + 1));
+        ${body}
+      }, { stopsAtSafePoint: ${stopsAtSafePoint} });
+    `);
+  const spawns = async () =>
+    (await Bun.file(join(dir, "spawns")).text()).trim().split("\n").map(Number);
+  const alive = (pid: number) => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const until = async (done: () => Promise<boolean>) => {
+    const deadline = Date.now() + 10_000;
+    while (!(await done())) {
+      if (Date.now() > deadline) throw new Error("timed out waiting");
+      await Bun.sleep(20);
+    }
+  };
+
+  test("passes share one child until one fails; the next pass gets a fresh child", async () => {
+    const code = await runPassLoop({
+      name: "Test",
+      command: serving(
+        `return [0, ${PASS_SKIPPED_EXIT}, ${PASS_DEGRADED_EXIT}, 3][pass] ?? 4;`,
+      ),
+      config: config(),
+      logger,
+    });
+    expect(code).toBe(1);
+    expect(await readStatus(join(dir, "status.json"))).toMatchObject({
+      passes: 5,
+      consecutiveFailures: 2,
+      lastFailureReason: "pass exited with code 4",
+    });
+    // Passes 0-3 in the first child, which exited with the failure; pass 4
+    // in a second one.
+    const pids = await spawns();
+    expect(pids).toHaveLength(2);
+    expect(pids.some(alive)).toBe(false);
+  }, 30_000);
+
+  test("a serving child that hangs is killed at the deadline and replaced", async () => {
+    const code = await runPassLoop({
+      name: "Test",
+      command: serving("if (pass > 0) await Bun.sleep(60_000); return 0;"),
+      config: config({ passTimeoutMs: 1_000 }),
+      logger,
+    });
+    expect(code).toBe(1);
+    expect(await readStatus(join(dir, "status.json"))).toMatchObject({
+      passes: 3,
+      lastFailureReason: "pass did not finish within 1s and was killed",
+    });
+    const pids = await spawns();
+    expect(pids).toHaveLength(2);
+    expect(pids.some(alive)).toBe(false);
+  }, 30_000);
+
+  test("a child that dies between passes is a failed pass", async () => {
+    const code = await runPassLoop({
+      name: "Test",
+      command: serving("setTimeout(() => process.exit(9), 50); return 0;"),
+      // Room for the child to die before the next pass asks it for one.
+      config: config({ intervalMs: 500, maxConsecutiveFailures: 1 }),
+      logger,
+    });
+    expect(code).toBe(1);
+    expect(await readStatus(join(dir, "status.json"))).toMatchObject({
+      passes: 2,
+      lastSuccessAt: expect.any(String),
+      lastFailureReason: "pass process exited with code 9 between passes",
+    });
+    expect(await spawns()).toHaveLength(1);
+  }, 30_000);
+
+  test("shutdown reaches a running pass at its safe point, then ends the child", async () => {
+    const controller = new AbortController();
+    const loop = runPassLoop({
+      name: "Test",
+      command: serving(
+        `if (pass === 0) return 0;
+         writeFileSync(dir + "/waiting", "");
+         await new Promise((resolve) => stop.addEventListener("abort", resolve));
+         writeFileSync(dir + "/stopped", String(stop.reason?.message));
+         return 0;`,
+        true,
+      ),
+      config: config(),
+      logger,
+      signal: controller.signal,
+    });
+    await until(() => Bun.file(join(dir, "waiting")).exists());
+    controller.abort();
+    expect(await loop).toBe(0);
+    expect(await Bun.file(join(dir, "stopped")).text()).toBe(
+      "SIGTERM received; the pass stopped early",
+    );
+    const pids = await spawns();
+    expect(pids).toHaveLength(1);
+    expect(pids.some(alive)).toBe(false);
+  }, 30_000);
+
+  test("shutdown between passes ends the idle child", async () => {
+    for (const stopsAtSafePoint of [false, true]) {
+      await rm(join(dir, "spawns"), { force: true });
+      await rm(join(dir, "status.json"), { force: true });
+      const controller = new AbortController();
+      const loop = runPassLoop({
+        name: "Test",
+        command: serving("return 0;", stopsAtSafePoint),
+        config: config({ intervalMs: 60_000 }),
+        logger,
+        signal: controller.signal,
+      });
+      await until(
+        async () =>
+          ((await readStatus(join(dir, "status.json")))?.passes ?? 0) >= 1,
+      );
+      controller.abort();
+      expect(await loop).toBe(0);
+      const pids = await spawns();
+      expect(pids).toHaveLength(1);
+      expect(pids.some(alive), String(stopsAtSafePoint)).toBe(false);
+    }
+  }, 30_000);
+});
+
 describe("pass loop: degraded passes", () => {
   let dir: string;
   let sink: MemoryLogSink;

@@ -2,15 +2,22 @@ import { rename, writeFile } from "node:fs/promises";
 import { integerSetting } from "@werft-ai/contracts/settings";
 
 /**
- * Runs a role one pass per child process, forever. The
- * pass (`main.ts <role> --once`) keeps its one-shot contract; this loop is
- * what turns it into a service: a pass that hangs is stopped and counted as a
+ * Runs a role's passes in a child process, forever. This loop is what turns
+ * a pass into a service: a pass that hangs is stopped and counted as a
  * failure, a run of failures ends the process so the restart policy engages,
  * and every pass leaves its outcome in a status file the healthcheck
- * (`health.ts`) reads. A child per pass rather than a call in-process,
- * because only a process can be killed whatever it is stuck in, and a fresh
- * pool per pass is what each pass already promises. Passes never overlap:
- * the next starts after the last one has exited, killed or not.
+ * (`health.ts`) reads. Passes run in a child rather than in-process, because
+ * only a process can be killed whatever it is stuck in. Passes never overlap:
+ * the next starts after the last one has answered or exited, killed or not.
+ *
+ * The child (`main.ts <role> --serve`, see `servePasses`) runs one pass per
+ * IPC request and stays for the next, because starting bun and loading a
+ * role's modules costs several times the pass itself and an idle loop would
+ * spend most of a core on it (94S-944). Each pass still opens and ends its own
+ * pool. A pass that fails, is stopped or times out takes its child with it, so
+ * the next pass starts in a fresh process; a child that dies between passes is
+ * a failure too. A command that exits after one pass (`--once`) works as well:
+ * its exit code is the outcome.
  */
 
 export type PassLoopConfig = {
@@ -220,71 +227,108 @@ export async function runPassLoop(input: {
     passDeadlineAt: null,
   };
   await writeStatus(config.statusFile, status, logger);
-  while (!signal?.aborted) {
-    status.passDeadlineAt = new Date(
-      now().getTime() + config.passTimeoutMs,
-    ).toISOString();
-    await writeStatus(config.statusFile, status, logger);
-    // A stop that arrived during the write must not start a pass: its abort
-    // listener would be added after the event and never forward SIGTERM.
-    if (signal?.aborted) break;
-    const started = performance.now();
-    const result = await runPass(command, env, config, signal);
-    const durationMs = Math.round(performance.now() - started);
-    // A pass cut short by shutdown is neither a success nor a failure.
-    if (signal?.aborted) break;
-    status.passDeadlineAt = null;
-    status.passes += 1;
-    status.lastPassDurationMs = durationMs;
-    if (result.outcome === "succeeded") {
-      status.lastSuccessAt = now().toISOString();
-      status.consecutiveFailures = 0;
-      logger.info(`${name} pass completed`, { duration_ms: durationMs });
-    } else if (result.outcome === "degraded") {
-      status.lastDegradedAt = now().toISOString();
-      status.consecutiveFailures = 0;
-      logger.warn(`${name} pass completed degraded`, {
-        duration_ms: durationMs,
-      });
-    } else if (result.outcome === "skipped") {
-      status.lastSkippedAt = now().toISOString();
-      logger.warn(`${name} pass skipped; another pass holds the lock`, {
-        duration_ms: durationMs,
-      });
-    } else {
-      status.lastFailureAt = now().toISOString();
-      status.lastFailureReason = result.reason;
-      status.consecutiveFailures += 1;
-      logger.error(`${name} pass failed`, {
-        consecutive_failures: status.consecutiveFailures,
-        duration_ms: durationMs,
-        reason: result.reason,
-      });
+  let child: PassChild | undefined;
+  try {
+    while (!signal?.aborted) {
+      status.passDeadlineAt = new Date(
+        now().getTime() + config.passTimeoutMs,
+      ).toISOString();
+      await writeStatus(config.statusFile, status, logger);
+      // A stop that arrived during the write must not start a pass: its abort
+      // listener would be added after the event and never forward SIGTERM.
+      if (signal?.aborted) break;
+      const started = performance.now();
+      let result: PassOutcome;
+      if (child !== undefined && !running(child.process)) {
+        result = {
+          outcome: "failed",
+          reason: `pass process ${endOf(child.process)} between passes`,
+        };
+        child = undefined;
+      } else {
+        child ??= spawnPassChild(command, env);
+        result = await runPass(child, config, signal);
+        if (!running(child.process)) child = undefined;
+      }
+      const durationMs = Math.round(performance.now() - started);
+      // A pass cut short by shutdown is neither a success nor a failure.
+      if (signal?.aborted) break;
+      status.passDeadlineAt = null;
+      status.passes += 1;
+      status.lastPassDurationMs = durationMs;
+      if (result.outcome === "succeeded") {
+        status.lastSuccessAt = now().toISOString();
+        status.consecutiveFailures = 0;
+        logger.info(`${name} pass completed`, { duration_ms: durationMs });
+      } else if (result.outcome === "degraded") {
+        status.lastDegradedAt = now().toISOString();
+        status.consecutiveFailures = 0;
+        logger.warn(`${name} pass completed degraded`, {
+          duration_ms: durationMs,
+        });
+      } else if (result.outcome === "skipped") {
+        status.lastSkippedAt = now().toISOString();
+        logger.warn(`${name} pass skipped; another pass holds the lock`, {
+          duration_ms: durationMs,
+        });
+      } else {
+        status.lastFailureAt = now().toISOString();
+        status.lastFailureReason = result.reason;
+        status.consecutiveFailures += 1;
+        logger.error(`${name} pass failed`, {
+          consecutive_failures: status.consecutiveFailures,
+          duration_ms: durationMs,
+          reason: result.reason,
+        });
+      }
+      await writeStatus(config.statusFile, status, logger);
+      if (status.consecutiveFailures >= config.maxConsecutiveFailures) {
+        logger.error(`${name} giving up after consecutive failed passes`, {
+          consecutive_failures: status.consecutiveFailures,
+        });
+        return 1;
+      }
+      await sleep(config.intervalMs, signal);
     }
-    await writeStatus(config.statusFile, status, logger);
-    if (status.consecutiveFailures >= config.maxConsecutiveFailures) {
-      logger.error(`${name} giving up after consecutive failed passes`, {
-        consecutive_failures: status.consecutiveFailures,
-      });
-      return 1;
-    }
-    await sleep(config.intervalMs, signal);
+    return 0;
+  } finally {
+    if (child !== undefined) await retire(child.process, config);
   }
-  return 0;
 }
 
-async function runPass(
+type PassChild = {
+  process: Bun.Subprocess;
+  /** Who hears the child's answer to the pass now running, if any. */
+  listen(listener: ((message: unknown) => void) | undefined): void;
+};
+
+function spawnPassChild(
   command: readonly string[],
   env: Record<string, string | undefined> | undefined,
-  config: PassLoopConfig,
-  signal: AbortSignal | undefined,
-): Promise<PassOutcome> {
+): PassChild {
+  let listener: ((message: unknown) => void) | undefined;
   const child = Bun.spawn([...command], {
     ...(env === undefined ? {} : { env }),
     stdin: "ignore",
     stdout: "inherit",
     stderr: "inherit",
+    serialization: "json",
+    ipc: (message) => listener?.(message),
   });
+  return {
+    process: child,
+    listen: (next) => {
+      listener = next;
+    },
+  };
+}
+
+async function runPass(
+  passChild: PassChild,
+  config: PassLoopConfig,
+  signal: AbortSignal | undefined,
+): Promise<PassOutcome> {
+  const child = passChild.process;
   let timedOut = false;
   let killTimer: ReturnType<typeof setTimeout> | undefined;
   const stop = () => {
@@ -296,7 +340,36 @@ async function runPass(
     stop();
   }, config.passTimeoutMs);
   signal?.addEventListener("abort", stop, { once: true });
+  const answered = new Promise<unknown>((resolve) => passChild.listen(resolve));
   try {
+    try {
+      child.send(PASS_REQUEST);
+    } catch {
+      // Already gone: its exit below says how the pass went.
+    }
+    const answer = await Promise.race([
+      answered.then((message) => ({ message })),
+      child.exited.then(() => undefined),
+    ]);
+    if (answer !== undefined && !timedOut && !signal?.aborted) {
+      const code = answerCode(answer.message);
+      if (code === 0) return { outcome: "succeeded" };
+      if (code === PASS_SKIPPED_EXIT) return { outcome: "skipped" };
+      if (code === PASS_DEGRADED_EXIT) return { outcome: "degraded" };
+      // `servePasses` exits on any other outcome rather than answering; a
+      // child that answers one anyway does not get the next pass.
+      stop();
+      await child.exited;
+      return {
+        outcome: "failed",
+        reason:
+          code === undefined
+            ? "pass process sent an answer that is not an exit code"
+            : `pass exited with code ${code}`,
+      };
+    }
+    // Exited, or stopped after answering: wait for the exit either way, so
+    // the next pass never overlaps this child.
     const code = await child.exited;
     if (timedOut) {
       return {
@@ -312,10 +385,87 @@ async function runPass(
     if (code === PASS_DEGRADED_EXIT) return { outcome: "degraded" };
     return { outcome: "failed", reason: `pass exited with code ${code}` };
   } finally {
+    passChild.listen(undefined);
     clearTimeout(deadline);
     clearTimeout(killTimer);
     signal?.removeEventListener("abort", stop);
   }
+}
+
+const PASS_REQUEST = { pass: true } as const;
+
+function answerCode(message: unknown): number | undefined {
+  if (typeof message !== "object" || message === null) return undefined;
+  const { code } = message as { code?: unknown };
+  return Number.isInteger(code) ? (code as number) : undefined;
+}
+
+function running(child: Bun.Subprocess): boolean {
+  return child.exitCode === null && child.signalCode === null;
+}
+
+function endOf(child: Bun.Subprocess): string {
+  return child.signalCode === null
+    ? `exited with code ${child.exitCode}`
+    : `ended by ${child.signalCode}`;
+}
+
+// The loop is ending with an idle child; it ends the same way a pass is stopped.
+async function retire(
+  child: Bun.Subprocess,
+  config: PassLoopConfig,
+): Promise<void> {
+  if (!running(child)) return;
+  child.kill("SIGTERM");
+  const killTimer = setTimeout(() => child.kill("SIGKILL"), config.killGraceMs);
+  await child.exited;
+  clearTimeout(killTimer);
+}
+
+/**
+ * The child side (`main.ts <role> --serve`): one pass per request from
+ * `runPassLoop`, answered with its exit code. A pass that fails, or that a
+ * stop signal reached, ends the process with that code instead, so a pass
+ * that went wrong leaves no state behind for the next one. `stopsAtSafePoint`
+ * roles get the pass a signal that SIGTERM or SIGINT aborts, and a second
+ * signal ends the process; the others keep the default, ending at once.
+ */
+export function servePasses(
+  pass: (stop: AbortSignal | undefined) => Promise<number>,
+  options: { stopsAtSafePoint: boolean },
+): void {
+  const send = process.send?.bind(process);
+  if (send === undefined) {
+    throw new Error("--serve runs under the pass loop only: no IPC channel");
+  }
+  let current: AbortController | undefined;
+  let stopping = false;
+  if (options.stopsAtSafePoint) {
+    for (const name of ["SIGTERM", "SIGINT"] as const) {
+      process.once(name, () => {
+        if (current === undefined) process.exit(0);
+        stopping = true;
+        current.abort(new Error(`${name} received; the pass stopped early`));
+      });
+    }
+  }
+  process.on("message", async () => {
+    current = options.stopsAtSafePoint ? new AbortController() : undefined;
+    let code: number;
+    try {
+      code = await pass(current?.signal);
+    } catch (error) {
+      console.error(error);
+      code = 1;
+    }
+    current = undefined;
+    const reusable =
+      code === 0 || code === PASS_SKIPPED_EXIT || code === PASS_DEGRADED_EXIT;
+    if (stopping || !reusable) process.exit(code);
+    send({ code });
+  });
+  // The loop is gone; nothing will ask for another pass.
+  process.on("disconnect", () => process.exit(0));
 }
 
 // Written aside and renamed, so the healthcheck never reads half a file.

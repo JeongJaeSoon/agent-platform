@@ -710,8 +710,8 @@ integration(
         .where(eq(workerLaunches.sessionId, crashing));
       await session(healthy);
 
-      // The scheduler role as compose runs it: the loop over `--once` child
-      // processes, giving up after three failed passes in a row.
+      // The scheduler role as compose runs it: the loop over its `--serve`
+      // child, giving up after three failed passes in a row.
       const statusFile = join(dir, "status.json");
       const passes = 5;
       const controller = new AbortController();
@@ -726,7 +726,7 @@ integration(
           "run",
           join(import.meta.dir, "..", "main.ts"),
           "scheduler",
-          "--once",
+          "--serve",
         ],
         config: {
           intervalMs: 100,
