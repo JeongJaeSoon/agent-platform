@@ -47,7 +47,18 @@ export CLUSTER_NAME="${CLUSTER_NAME:-agent-platform-smoke}"
 export KIND_MODEL="${KIND_MODEL:-fake}"
 export NAMESPACE="${NAMESPACE:-agent-platform}"
 export RELEASE="${RELEASE:-agent-platform}"
-export STATE_DIR="${STATE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/agent-platform/kind/${CLUSTER_NAME}}"
+# As up.sh checks it: it is in a path below, and the namespace the teardown
+# may delete.
+if ! [[ "$NAMESPACE" =~ ^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$ ]]; then
+  echo "NAMESPACE must be a Kubernetes namespace name, not '${NAMESPACE}'" >&2
+  exit 1
+fi
+# up.sh's default.
+if [ "${CLUSTER_PROVIDER:-kind}" = orbstack ]; then
+  export STATE_DIR="${STATE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/agent-platform/orbstack/${NAMESPACE}}"
+else
+  export STATE_DIR="${STATE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/agent-platform/kind/${CLUSTER_NAME}}"
+fi
 export KUBECONFIG="${STATE_DIR}/kubeconfig"
 PROBE_IMAGE="${PROBE_IMAGE:-busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662}"
 API_PORT="${SMOKE_API_PORT:-13080}"

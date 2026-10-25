@@ -28,10 +28,11 @@
 # instead of kind: it shares the Docker engine, so the images are built
 # locally and referenced by their local digest, with no registry container.
 # `down` then deletes only NAMESPACE; the cluster stays as OrbStack keeps it.
+# STATE_DIR defaults to ~/.cache/agent-platform/orbstack/<namespace>.
 # The images are tagged IMAGE_TAG (default kind-dev), apart from the tags
 # the compose stacks give the same repositories.
 #
-# EXTRA_VALUES names one more values file, laid over the others (for example
+# EXTRA_VALUES names one more values file, laid over all the others (for example
 # fewer replicas on a laptop).
 #
 # CI pulls nothing from Docker Hub (docs/contributing/ci.md § 서드파티 이미지 미러):
@@ -49,20 +50,32 @@ FORWARD_PORT="${FORWARD_PORT:-13000}"
 NAMESPACE="${NAMESPACE:-agent-platform}"
 RELEASE="${RELEASE:-agent-platform}"
 KIND_MODEL="${KIND_MODEL:-none}"
-# Per user, not a shared /tmp path another user could create first.
-STATE_DIR="${STATE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/agent-platform/kind/${CLUSTER_NAME}}"
 CLUSTER_PROVIDER="${CLUSTER_PROVIDER:-kind}"
 REGISTRY_IMAGE="${REGISTRY_IMAGE:-registry:2@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373}"
+
+case "$CLUSTER_PROVIDER" in
+  kind | orbstack) ;;
+  *) echo "CLUSTER_PROVIDER must be kind or orbstack, not '${CLUSTER_PROVIDER}'" >&2; exit 1 ;;
+esac
+# It names the one namespace `down` deletes, and a path below.
+if ! [[ "$NAMESPACE" =~ ^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$ ]]; then
+  echo "NAMESPACE must be a Kubernetes namespace name, not '${NAMESPACE}'" >&2
+  exit 1
+fi
+# Per user, not a shared /tmp path another user could create first. The
+# OrbStack cluster is shared, so there it is per namespace, and never the
+# kind cluster's: its kubeconfig would point a later kind run at OrbStack.
+if [ "$CLUSTER_PROVIDER" = orbstack ]; then
+  STATE_DIR="${STATE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/agent-platform/orbstack/${NAMESPACE}}"
+else
+  STATE_DIR="${STATE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/agent-platform/kind/${CLUSTER_NAME}}"
+fi
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 export KUBECONFIG="${STATE_DIR}/kubeconfig"
 mkdir -p "$STATE_DIR"
 chmod 700 "$STATE_DIR"
 
-case "$CLUSTER_PROVIDER" in
-  kind | orbstack) ;;
-  *) echo "CLUSTER_PROVIDER must be kind or orbstack, not '${CLUSTER_PROVIDER}'" >&2; exit 1 ;;
-esac
 if [ "$CLUSTER_PROVIDER" = orbstack ]; then
   # OrbStack writes its context to the default kubeconfig.
   env -u KUBECONFIG kubectl config view --raw --minify --context orbstack >"$KUBECONFIG"
@@ -162,7 +175,7 @@ kubectl -n "$NAMESPACE" create configmap localstack-init \
   --dry-run=client -o yaml | kubectl apply -f -
 manifest "$root/deploy/kind/deps.yaml" | kubectl -n "$NAMESPACE" apply -f -
 deps=(postgres localstack)
-values=(-f "$root/deploy/kind/values.yaml" ${EXTRA_VALUES:+-f "$EXTRA_VALUES"})
+values=(-f "$root/deploy/kind/values.yaml")
 
 if [ "$KIND_MODEL" != none ]; then
   kubectl -n "$NAMESPACE" create configmap gitea-init \
@@ -235,6 +248,7 @@ done
 helm upgrade --install "$RELEASE" "$root/deploy/helm/agent-platform" \
   --namespace "$NAMESPACE" \
   "${values[@]}" \
+  ${EXTRA_VALUES:+-f "$EXTRA_VALUES"} \
   --set "images.controlHost.repository=${image_repo}-control-host" \
   --set "images.controlHost.digest=${control_host_digest}" \
   --set "images.egressProxy.repository=${image_repo}-egress-proxy" \
