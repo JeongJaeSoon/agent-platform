@@ -593,7 +593,7 @@ describe("워크스페이스 설정", () => {
       state: "active",
       updated_at: "2026-10-25T05:00:00.000Z",
     };
-    const { api } = renderAt("/settings/workspace/slack", {
+    const { api, services } = renderAt("/settings/workspace/slack", {
       "GET /v1/auth/me": () => json(200, me()),
       [`GET ${TOKEN}`]: () => json(200, saved ? active : UNSET_TOKEN),
       [`PUT ${TOKEN}`]: () => {
@@ -609,10 +609,9 @@ describe("워크스페이스 설정", () => {
     expect(screen.queryByRole("heading", { name: "위험 영역" })).toBeNull();
     const user = await setupUser();
     await user.click(screen.getByRole("button", { name: "token 넣기" }));
-    await user.type(
-      screen.getByLabelText("새 App Configuration Token"),
-      "fake-config-value",
-    );
+    const input = screen.getByLabelText("새 App Configuration Token");
+    expect(document.activeElement === input).toBe(true);
+    await user.type(input, "fake-config-value");
     await user.click(screen.getByRole("button", { name: "저장" }));
     expect((await screen.findByRole("status")).textContent).toBe(
       "App Configuration Token을 저장했습니다.",
@@ -622,5 +621,46 @@ describe("워크스페이스 설정", () => {
     ).toEqual([{ value: "fake-config-value" }]);
     expect(await screen.findByText("설정됨")).toBeDefined();
     expect(screen.getByRole("heading", { name: "위험 영역" })).toBeDefined();
+    // The form is gone; focus is on the button that opens it again.
+    await waitFor(() =>
+      expect(document.activeElement?.textContent).toBe("교체"),
+    );
+    // The value went to the server and nowhere else.
+    await waitFor(() =>
+      expect(
+        JSON.stringify(
+          services.queryClient
+            .getMutationCache()
+            .getAll()
+            .map((mutation) => mutation.state.variables),
+        ),
+      ).not.toContain("fake-config-value"),
+    );
+  });
+
+  test("token 칸을 취소하면 포커스가 칸을 연 버튼으로 돌아간다", async () => {
+    renderAt("/settings/workspace/slack", {
+      "GET /v1/auth/me": () => json(200, me()),
+    });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "token 넣기" }));
+    await user.click(screen.getByRole("button", { name: "취소" }));
+    expect(screen.queryByLabelText("새 App Configuration Token")).toBeNull();
+    expect(document.activeElement?.textContent).toBe("token 넣기");
+  });
+
+  test("끝에 /가 붙은 주소에서도 설정 내비가 지금 페이지를 가리킨다", async () => {
+    renderAt("/settings/workspace/", {
+      "GET /v1/auth/me": () => json(200, me()),
+    });
+    const nav = await screen.findByRole("navigation", { name: "설정" });
+    expect(
+      within(nav)
+        .getByRole("link", { name: "일반" })
+        .getAttribute("aria-current"),
+    ).toBe("page");
+    expect(
+      within(nav).getByRole("button", { name: /^설정 · 일반/ }),
+    ).toBeDefined();
   });
 });

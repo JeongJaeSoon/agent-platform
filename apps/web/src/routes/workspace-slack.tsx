@@ -17,7 +17,14 @@ import {
   SettingRow,
   Skeleton,
 } from "@werft-ai/ui";
-import { type FormEvent, type ReactNode, useId, useState } from "react";
+import {
+  type FormEvent,
+  type ReactNode,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
 import {
   permissionReason,
   refusalText,
@@ -76,6 +83,16 @@ function ConfigToken({ onOutcome }: { readonly onOutcome: OnOutcome }) {
   const [missing, setMissing] = useState(false);
   const inputId = useId();
   const hintId = useId();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const actionRef = useRef<HTMLButtonElement>(null);
+  const wasEditing = useRef(false);
+  // The form replaces the button that opened it; focus follows each swap so
+  // a keyboard user keeps their place.
+  useEffect(() => {
+    if (editing) inputRef.current?.focus();
+    else if (wasEditing.current) actionRef.current?.focus();
+    wasEditing.current = editing;
+  }, [editing]);
 
   const token = useQuery({
     queryKey: tokenKey(workspaceId),
@@ -98,6 +115,8 @@ function ConfigToken({ onOutcome }: { readonly onOutcome: OnOutcome }) {
     });
 
   const save = useMutation<unknown, ApiError, string>({
+    // The variables hold the token; keep it nowhere once the attempt ends.
+    gcTime: 0,
     mutationFn: (value) =>
       unwrap(
         client.PUT("/v1/workspaces/{id}/slack/config-token", {
@@ -142,7 +161,10 @@ function ConfigToken({ onOutcome }: { readonly onOutcome: OnOutcome }) {
       return;
     }
     setMissing(false);
-    if (!save.isPending) save.mutate(value);
+    if (!save.isPending) {
+      // Detach the observer so gcTime 0 drops the attempt and its value.
+      save.mutate(value, { onSettled: () => save.reset() });
+    }
   };
 
   const summary = token.data;
@@ -168,6 +190,7 @@ function ConfigToken({ onOutcome }: { readonly onOutcome: OnOutcome }) {
         actions={
           editing ? undefined : (
             <Button
+              ref={actionRef}
               type="button"
               size="sm"
               variant={
@@ -197,6 +220,7 @@ function ConfigToken({ onOutcome }: { readonly onOutcome: OnOutcome }) {
                 {t("workspace.tokenNew")}
               </FieldLabel>
               <Input
+                ref={inputRef}
                 id={inputId}
                 name="token"
                 type="password"

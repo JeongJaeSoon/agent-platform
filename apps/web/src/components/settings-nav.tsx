@@ -21,8 +21,9 @@ function isCurrent(item: NavItem, pathname: string): boolean {
 export function SettingsLayout({ children }: { readonly children: ReactNode }) {
   const { t } = useI18n();
   const groups = useSettingsNavGroups();
+  // The router also opens a page at its path with a trailing slash.
   const pathname = useRouterState({
-    select: (state) => state.location.pathname,
+    select: (state) => state.location.pathname.replace(/(.)\/$/, "$1"),
   });
   const [open, setOpen] = useState(false);
   const listId = useId();
