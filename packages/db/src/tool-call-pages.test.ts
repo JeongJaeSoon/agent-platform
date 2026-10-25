@@ -294,27 +294,33 @@ describe("toolCallPage", () => {
   });
 
   test("pages through calls at one time with no row missed or repeated", async () => {
-    const s = await session();
-    for (let i = 0; i < 7; i += 1) await use(s, `tu-${i}`, at(0));
-    await use(s, "tu-later", at(5));
+    // A session per call, so tied rows can be told apart by session id.
+    const tied: string[] = [];
+    for (let i = 0; i < 7; i += 1) {
+      const s = await session();
+      await use(s, `tu-${i}`, at(0));
+      tied.push(s);
+    }
+    const later = await session();
+    await use(later, "tu-later", at(5));
     const pages = await walk("recent", 3);
     expect(pages.map((p) => p.length)).toEqual([3, 3, 2]);
     expect(pages.flat()).toEqual([
       at(5).getTime(),
       ...Array(7).fill(at(0).getTime()),
     ]);
-    const all = await page({ limit: 100 });
-    const ids: (string | null)[] = [];
+    const sessions: (string | null)[] = [];
     let cursor: string | undefined;
     do {
       const next = await page({
         limit: 3,
         ...(cursor === undefined ? {} : { cursor }),
       });
-      ids.push(...next.calls.map((call) => call.occurredAt.toISOString()));
+      sessions.push(...next.calls.map((call) => call.sessionId));
       cursor = next.nextCursor ?? undefined;
     } while (cursor !== undefined);
-    expect(ids).toEqual(all.calls.map((call) => call.occurredAt.toISOString()));
+    // Ties go to the later event first, and each session was written in turn.
+    expect(sessions).toEqual([later, ...[...tied].reverse()]);
   });
 
   test("slowest pages the longest first, ties by the later event, untimed calls last", async () => {
@@ -364,6 +370,18 @@ describe("toolCallPage", () => {
       }),
     ).toString("base64url");
     await expect(page({ cursor: forged })).rejects.toBeInstanceOf(
+      InvalidCursorError,
+    );
+    // Past a Postgres integer: refused here, not a cast error from the query.
+    const huge = Buffer.from(
+      JSON.stringify({
+        sort: "recent",
+        at: "2026-10-20 00:00:00+00",
+        id: 1,
+        ord: 2_147_483_648,
+      }),
+    ).toString("base64url");
+    await expect(page({ cursor: huge })).rejects.toBeInstanceOf(
       InvalidCursorError,
     );
   });

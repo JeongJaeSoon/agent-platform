@@ -100,6 +100,9 @@ export type ToolCallCursor =
 
 const positive = (value: unknown): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 1;
+// tool_calls.ord is a Postgres integer; a larger one fails the cast as 500.
+const ordinal = (value: unknown): value is number =>
+  positive(value) && value <= 2_147_483_647;
 
 export function encodeToolCallCursor(cursor: ToolCallCursor): string {
   return encodeJsonCursor(cursor);
@@ -111,7 +114,7 @@ export function decodeToolCallCursor(
   sort: ToolCallCursor["sort"],
 ): ToolCallCursor {
   return decodeJsonCursor(value, (parsed): ToolCallCursor | undefined => {
-    if (parsed.sort !== sort || !positive(parsed.id) || !positive(parsed.ord)) {
+    if (parsed.sort !== sort || !positive(parsed.id) || !ordinal(parsed.ord)) {
       return undefined;
     }
     if (
