@@ -230,6 +230,45 @@ describe("fake Slack bot calls, through the slack role's client", () => {
     expect(await api.channelKind(bot, "C0GROUP")).toBe("private_channel");
   });
 
+  test("the bot joins a public channel itself; a private one only by /fake/invites", async () => {
+    const [open, closed, old] = slack.seedChannels([
+      { name: "open" },
+      { name: "closed", isPrivate: true },
+      { name: "old", isArchived: true },
+    ]);
+    const ids = [open?.id ?? "", closed?.id ?? "", old?.id ?? ""] as const;
+    expect(await api.channelMembership(bot, ids[0])).toEqual({
+      kind: "public_channel",
+      isMember: false,
+      isArchived: false,
+    });
+    await api.joinChannel(bot, ids[0]);
+    expect((await api.channelMembership(bot, ids[0])).isMember).toBe(true);
+    expect(
+      await api.joinChannel(bot, ids[1]).catch((error) => error.code),
+    ).toBe("method_not_supported_for_channel_type");
+    expect(await api.joinChannel(bot, ids[2]).catch((error) => error.code)).toBe(
+      "is_archived",
+    );
+
+    const root = slack.url.replace(/\/api$/, "");
+    const appId = [...slack.apps.values()].find((app) =>
+      app.botTokens.includes(bot),
+    )?.appId;
+    const invite = (channel_id: string) =>
+      fetch(`${root}/fake/invites`, {
+        method: "POST",
+        body: JSON.stringify({ app_id: appId, channel_id }),
+      });
+    const answered = await invite(ids[1]);
+    expect(await answered.json()).toEqual({
+      ok: true,
+      bot_user_id: `U${appId}BOT`,
+    });
+    expect((await api.channelMembership(bot, ids[1])).isMember).toBe(true);
+    expect((await invite("C0NOWHERE")).status).toBe(400);
+  });
+
   test("setStatus records the thread; a status without a thread, a set failure or another token is refused", async () => {
     await api.setStatus(bot, {
       channelId: "C0OPEN",
