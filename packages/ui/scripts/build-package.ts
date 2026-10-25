@@ -22,6 +22,7 @@ const FONTS_IMPORT = '@import "./fonts.css";\n';
 type Manifest = {
   name: string;
   version: string;
+  license: string;
   type: string;
   sideEffects: string[];
   exports: Record<string, string>;
@@ -121,7 +122,7 @@ const manifest = {
   version: source.version,
   // Packable, but nothing here names a registry: publishing is a person's call.
   private: false,
-  license: "SEE LICENSE IN LICENSE",
+  license: source.license,
   type: source.type,
   sideEffects: source.sideEffects,
   exports: distExports(source.exports),

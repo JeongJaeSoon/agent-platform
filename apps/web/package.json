@@ -3,6 +3,7 @@
   "description": "Web console: a single-page app the control host's api role serves from WEB_DIST_DIR",
   "version": "0.0.0",
   "private": true,
+  "license": "PolyForm-Small-Business-1.0.0",
   "type": "module",
   "scripts": {
     "dev": "bun --bun vite",
