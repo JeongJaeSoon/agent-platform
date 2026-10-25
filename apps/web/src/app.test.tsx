@@ -12,7 +12,7 @@ const { render, screen, waitFor, within } = await setupDom();
 // After the DOM exists: the router and Testing Library look for it on load.
 const { createMemoryHistory } = await import("@tanstack/react-router");
 const { App } = await import("./app.tsx");
-const { GuardedButton } = await import("./auth/guard.tsx");
+const { GuardedButton } = await import("./auth/reason-button.tsx");
 const { I18nProvider } = await import("./i18n/i18n.tsx");
 const { createServices } = await import("./services.tsx");
 const { AgentPlatformProvider } = await import("@werft-ai/react");
@@ -356,6 +356,7 @@ describe("권한 없는 버튼", () => {
     const { queryClient } = services;
     queryClient.setQueryData(["me"], me(scopes));
     const { QueryClientProvider } = await import("@tanstack/react-query");
+    const pressed: string[] = [];
     render(
       <I18nProvider locale="ko">
         <QueryClientProvider client={queryClient}>
@@ -364,28 +365,82 @@ describe("권한 없는 버튼", () => {
             locale="ko"
             renderLink={({ children }) => children}
           >
-            <GuardedButton scope="sessions:recover">복구</GuardedButton>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                pressed.push("submit");
+              }}
+            >
+              <input aria-label="이름" />
+              <GuardedButton
+                scope="sessions:recover"
+                type="submit"
+                onClick={() => pressed.push("click")}
+              >
+                복구
+              </GuardedButton>
+            </form>
           </AgentPlatformProvider>
         </QueryClientProvider>
       </I18nProvider>,
     );
-    return screen.getByRole("button", { name: "복구" });
+    return { button: screen.getByRole("button", { name: "복구" }), pressed };
   }
 
-  test("scope가 없으면 비활성이고 이유를 말한다", async () => {
-    const button = await renderButton(["sessions:read"]);
-    expect(button.hasAttribute("disabled")).toBe(true);
+  // The note is aria-hidden: the button reads its hidden copy instead.
+  function note() {
+    return document.querySelector('[role="tooltip"]');
+  }
+
+  test("scope가 없으면 누를 수 없게 두고, 이유는 설명으로 읽힌다", async () => {
+    const { button } = await renderButton(["sessions:read"]);
+    // Focusable, so the keyboard reaches the reason.
+    expect(button.hasAttribute("disabled")).toBe(false);
+    expect(button.getAttribute("aria-disabled")).toBe("true");
     const reason = document.getElementById(
       button.getAttribute("aria-describedby") ?? "",
     );
     expect(reason?.textContent).toBe(
       "sessions:recover 권한이 있어야 할 수 있습니다.",
     );
+    expect(note()).toBeNull();
   });
 
-  test("scope가 있으면 누를 수 있다", async () => {
-    const button = await renderButton(["sessions:read", "sessions:recover"]);
-    expect(button.hasAttribute("disabled")).toBe(false);
+  test("scope가 없으면 누르거나 칸에서 Enter를 쳐도 아무 일도 없다", async () => {
+    const user = await setupUser();
+    const { button, pressed } = await renderButton(["sessions:read"]);
+    await user.click(button);
+    await user.type(screen.getByLabelText("이름"), "x{Enter}");
+    expect(pressed).toEqual([]);
+  });
+
+  test("Tab으로 닿으면 이유가 보이고, Escape로 닫혀도 포커스는 버튼에 남는다", async () => {
+    const user = await setupUser();
+    const { button } = await renderButton(["sessions:read"]);
+    screen.getByLabelText("이름").focus();
+    await user.tab();
+    expect(document.activeElement === button).toBe(true);
+    await waitFor(() =>
+      expect(note()?.textContent).toBe(
+        "sessions:recover 권한이 있어야 할 수 있습니다.",
+      ),
+    );
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(note()).toBeNull());
+    expect(document.activeElement === button).toBe(true);
+  });
+
+  test("scope가 있으면 누를 수 있고 이유가 없다", async () => {
+    const user = await setupUser();
+    const { button, pressed } = await renderButton([
+      "sessions:read",
+      "sessions:recover",
+    ]);
+    expect(button.hasAttribute("aria-disabled")).toBe(false);
+    await user.hover(button);
+    expect(note()).toBeNull();
+    await user.click(button);
+    expect(pressed).toEqual(["click", "submit"]);
   });
 });
 

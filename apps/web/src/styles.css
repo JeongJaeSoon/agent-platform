@@ -126,11 +126,6 @@ select:focus-visible,
   margin: 0;
 }
 
-.web-guarded {
-  display: inline-flex;
-  flex-direction: column;
-  gap: var(--ap-space-1);
-}
 .web-guarded__reason {
   color: var(--ap-color-muted-foreground);
   font-size: var(--ap-text-xs);

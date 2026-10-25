@@ -94,9 +94,11 @@ function LocaleSwitch() {
 
 // The router opens these with a trailing slash too.
 const SESSION_PATH = /^\/sessions\/([^/]+)\/?$/;
+const MAP_PATH = /^\/sessions\/map\/?$/;
 const AGENT_PATH = /^\/agents\/([^/]+)\/?$/;
-// Home, the sessions list and a session: screens with a right rail.
-const RAIL_PATH = /^\/(sessions(\/[^/]+)?)?\/?$/;
+// Home, the sessions list and a session: screens with a right rail. The
+// agent map, under the same path, sits in the page frame.
+const RAIL_PATH = /^\/(sessions(\/(?!map\/?$)[^/]+)?)?\/?$/;
 const SETTINGS_PATH = /^\/settings(\/|$)/;
 
 export function AuthedLayout() {
@@ -203,6 +205,7 @@ function useLeafTitle(pathname: string): string | undefined {
     return session.title || sessionId.slice(0, 8);
   }
   if (agentId === "new") return t("agents.newTitle");
+  if (MAP_PATH.test(pathname)) return t("sessionList.map");
   return agent?.agent.name;
 }
 

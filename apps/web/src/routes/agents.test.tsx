@@ -291,14 +291,17 @@ describe("에이전트 목록", () => {
 
   test("agent.create가 없으면 새 에이전트 버튼을 끈 채 말로 된 이유를 적는다", async () => {
     const none = { ...memberMe(), permissions: [] };
-    renderAt("/agents", {
+    const { history } = renderAt("/agents", {
       "GET /v1/auth/me": () => json(200, none),
       "GET /v1/agents": () =>
         apiError(403, "FORBIDDEN", "This principal does not hold agent.manage"),
       "GET /v1/administered-agents": () => json(200, { items: [] }),
     });
+    const user = await setupUser();
     const button = await screen.findByRole("button", { name: "새 에이전트" });
-    expect((button as HTMLButtonElement).disabled).toBe(true);
+    expect(button.getAttribute("aria-disabled")).toBe("true");
+    await user.click(button);
+    expect(history.location.pathname).toBe("/agents");
     expect(
       document.getElementById(button.getAttribute("aria-describedby") ?? "")
         ?.textContent,
