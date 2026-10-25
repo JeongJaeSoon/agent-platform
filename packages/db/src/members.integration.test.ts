@@ -737,24 +737,28 @@ integration("members, identity and takeover on PostgreSQL", () => {
       ).toBeNull();
     });
 
-    test("a session stays parked while the account is still disabled", async () => {
+    test("a suspended account's membership stays off, and its sessions parked", async () => {
       const ws = await workspace();
       const owner = await member(ws, "owner");
       const target = await member(ws, "member");
       const asked = await createSession(asUser(ws, target));
       await setAccess(ws, owner, target);
       await setAccess(ws, owner, target, { scope: "account" });
-      expect(
-        await setAccess(ws, owner, target, { disabled: false }),
-      ).toMatchObject({ effects: { sessionsReleased: 0 } });
-      expect(
-        (await sessionRow(asked.session_id)).takeoverRequiredAt,
-      ).not.toBeNull();
+      expect(await setAccess(ws, owner, target, { disabled: false })).toEqual({
+        outcome: "account_disabled",
+      });
+      expect(await membershipDisabledAt(ws, target)).not.toBeNull();
       expect(
         await setAccess(ws, owner, target, {
           scope: "account",
           disabled: false,
         }),
+      ).toMatchObject({ effects: { sessionsReleased: 0 } });
+      expect(
+        (await sessionRow(asked.session_id)).takeoverRequiredAt,
+      ).not.toBeNull();
+      expect(
+        await setAccess(ws, owner, target, { disabled: false }),
       ).toMatchObject({ effects: { sessionsReleased: 1 } });
     });
 
@@ -790,12 +794,14 @@ integration("members, identity and takeover on PostgreSQL", () => {
       ).not.toBeNull();
     });
 
-    test("the only live owner cannot be turned off", async () => {
+    test("nobody turns themselves off, in either scope", async () => {
       const ws = await workspace();
       const owner = await member(ws, "owner");
-      expect(await setAccess(ws, owner, owner)).toEqual({
-        outcome: "last_owner",
-      });
+      for (const scope of ["membership", "account"] as const) {
+        expect(await setAccess(ws, owner, owner, { scope })).toEqual({
+          outcome: "self_protected",
+        });
+      }
       expect(await membershipDisabledAt(ws, owner)).toBeNull();
     });
 
