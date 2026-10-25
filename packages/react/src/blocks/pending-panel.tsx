@@ -78,6 +78,8 @@ function PanelBody({
   // request is gone, so its "sent" line keeps the keyboard.
   const [seen, setSeen] = useState<readonly string[]>([]);
   const nodes = useRef(new Map<string, HTMLDivElement>());
+  // The page the panel is drawn on, known once it is: the nodes are its own.
+  const [page, setPage] = useState<Document | null>(null);
   const items = pending.data?.items ?? [];
   const asked = new Set(
     events.events.flatMap((frame) =>
@@ -93,10 +95,10 @@ function PanelBody({
         !seen.includes(requestId) && (settled || asked.has(requestId)),
     );
   if (fresh.length > 0) setSeen([...seen, ...fresh]);
-  const nodeOf = (requestId: string) => {
+  const nodeOf = (requestId: string, on: Document) => {
     let node = nodes.current.get(requestId);
     if (node === undefined) {
-      node = document.createElement("div");
+      node = on.createElement("div");
       nodes.current.set(requestId, node);
     }
     return node;
@@ -105,8 +107,9 @@ function PanelBody({
     <div
       key={requestId}
       ref={(host) => {
-        const node = nodeOf(requestId);
-        if (host && node.parentNode !== host) host.appendChild(node);
+        if (host === null) return;
+        const node = nodeOf(requestId, host.ownerDocument);
+        if (node.parentNode !== host) host.appendChild(node);
       }}
     />
   );
@@ -115,23 +118,26 @@ function PanelBody({
   const onTop = seen.filter((requestId) => !asked.has(requestId));
   const status = detail.data?.status ?? listed.status;
   const title = detail.data?.title ?? listed.title ?? id.slice(0, 8);
-  const forms = pending.data
-    ? seen.map((requestId) =>
-        createPortal(
-          <PendingAnswers
-            sessionId={id}
-            items={items.filter((request) => request.request_id === requestId)}
-            answerable={pending.data.answerable}
-            showEmpty={false}
-            unavailable={unavailable}
-            refusal={refusal}
-            {...(onAnswered ? { onAnswered } : {})}
-          />,
-          nodeOf(requestId),
-          requestId,
-        ),
-      )
-    : null;
+  const forms =
+    pending.data && page
+      ? seen.map((requestId) =>
+          createPortal(
+            <PendingAnswers
+              sessionId={id}
+              items={items.filter(
+                (request) => request.request_id === requestId,
+              )}
+              answerable={pending.data.answerable}
+              showEmpty={false}
+              unavailable={unavailable}
+              refusal={refusal}
+              {...(onAnswered ? { onAnswered } : {})}
+            />,
+            nodeOf(requestId, page),
+            requestId,
+          ),
+        )
+      : null;
   const facts = [
     listed.agent?.name,
     id.slice(0, 8),
@@ -170,7 +176,12 @@ function PanelBody({
           </Button>
         </DialogClose>
       </div>
-      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
+      <div
+        ref={(body) => {
+          if (body && page === null) setPage(body.ownerDocument);
+        }}
+        className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4"
+      >
         {pending.error
           ? renderError(pending.error, () => void pending.refetch())
           : null}
