@@ -55,7 +55,7 @@ function app(
 
 // The real service behind the route, on the fake Slack, with every caller
 // allowed: the policy itself is the platform test's and the integration's.
-function world() {
+function world(options: { offline?: boolean } = {}) {
   const slack = createFakeSlackWebApi();
   const botToken = fakeSlackValue("xoxb");
   slack.apps.set(APP_ID, {
@@ -106,9 +106,13 @@ function world() {
     secrets: secrets.store,
     api: createSlackBotApi({
       apiUrl: "http://slack.test/api",
-      fetch: (async (input: RequestInfo | URL, init?: RequestInit) =>
-        (await slack.handle(new Request(input, init))) ??
-        new Response("not found", { status: 404 })) as typeof fetch,
+      fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (options.offline) return outage();
+        return (
+          (await slack.handle(new Request(input, init))) ??
+          new Response("not found", { status: 404 })
+        );
+      }) as typeof fetch,
     }),
   });
   return { slack, botToken, service, channels };
@@ -120,7 +124,7 @@ describe("GET /v1/agents/{id}/slack-channels", () => {
     const { slack, service, channels, botToken } = world();
     const id = channels[12]?.id ?? "C0MISSINGFIXTURE";
     const api = app(service);
-    const url = `${lookupPath}?ids=${id},C0MISSING`;
+    const url = `${lookupPath}?ids=${id}`;
     const responses = await Promise.all([
       api.request(url, { headers: owner }),
       api.request(url, { headers: owner }),
@@ -131,17 +135,14 @@ describe("GET /v1/agents/{id}/slack-channels", () => {
       expect(text).not.toContain(botToken);
       expect(lookupSlackChannelsResponseSchema.parse(JSON.parse(text))).toEqual(
         {
-          items: [
-            { id, name: "general", state: "known" },
-            { id: "C0MISSING", name: "unknown", state: "unknown" },
-          ],
+          items: [{ id, name: "general", state: "known" }],
         },
       );
     }
     expect((await api.request(url, { headers: owner })).status).toBe(200);
     expect(
       slack.calls.filter((call) => call.method === "conversations.info"),
-    ).toHaveLength(2);
+    ).toHaveLength(1);
     expect(
       slack.calls.filter((call) => call.method === "conversations.list"),
     ).toHaveLength(0);
@@ -162,6 +163,40 @@ describe("GET /v1/agents/{id}/slack-channels", () => {
       ).toBe(400);
     }
     expect(slack.calls).toHaveLength(0);
+  });
+  test("only inaccessible channels are cached as unknown", async () => {
+    const { slack, service } = world();
+    slack.failures.set("conversations.info", "channel_not_found");
+    const api = app(service);
+    for (let i = 0; i < 2; i++) {
+      const response = await api.request(`${lookupPath}?ids=C01`, {
+        headers: owner,
+      });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({
+        items: [{ id: "C01", name: "unknown", state: "unknown" }],
+      });
+    }
+    expect(
+      slack.calls.filter((call) => call.method === "conversations.info"),
+    ).toHaveLength(1);
+  });
+  test("transport failures, upstream errors and revoked tokens are not cached as unknown", async () => {
+    const options = { offline: true };
+    const { slack, service, channels } = world(options);
+    const api = app(service);
+    const url = `${lookupPath}?ids=${channels[0]?.id}`;
+    expect((await api.request(url, { headers: owner })).status).toBe(503);
+    options.offline = false;
+    slack.failures.set("conversations.info", "internal_error");
+    expect((await api.request(url, { headers: owner })).status).toBe(503);
+    slack.failures.set("conversations.info", "token_revoked");
+    expect((await api.request(url, { headers: owner })).status).toBe(409);
+    slack.failures.delete("conversations.info");
+    expect((await api.request(url, { headers: owner })).status).toBe(200);
+    expect(
+      slack.calls.filter((call) => call.method === "conversations.info"),
+    ).toHaveLength(3);
   });
   test("Slack 429 returns 503 and Retry-After without repeated calls", async () => {
     const { slack, service } = world();

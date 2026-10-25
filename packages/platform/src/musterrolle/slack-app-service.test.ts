@@ -52,7 +52,7 @@ test("event registration results persist across reads and expose only a safe err
     checked_at: "2026-10-23T00:00:00.000Z",
   });
   slack.api.updateApp = async () => {
-    throw new SlackApiError("apps.manifest.update", "invalid_manifest");
+    throw new SlackApiError("apps.manifest.update", "invalid_manifest", true);
   };
   await expect(
     service.updateAgentAppManifest(WORKSPACE, created.slack_app.id, input),

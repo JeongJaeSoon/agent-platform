@@ -39,6 +39,13 @@ export const SLACK_CHANNEL_CACHE_MAX_CHANNELS = 10_000;
 /** Apps cached at once; the least recently used is dropped first. */
 export const SLACK_CHANNEL_CACHE_MAX_APPS = 500;
 const ACTION = "binding.manage";
+const UNKNOWN_CHANNEL_ERRORS = new Set([
+  "channel_not_found",
+  "not_in_channel",
+  "missing_scope",
+  "no_permission",
+  "method_not_supported_for_channel_type",
+]);
 
 export type SlackChannelApi = Pick<SlackBotApi, "listChannels"> &
   Partial<Pick<SlackBotApi, "channelInfo">>;
@@ -396,6 +403,14 @@ export function createSlackChannelSearchService(deps: {
                 );
               }
               if (!(error instanceof SlackApiError)) throw error;
+              if (error.answered && TOKEN_GONE.has(error.code))
+                throw notInstalled();
+              if (!error.answered || !UNKNOWN_CHANNEL_ERRORS.has(error.code)) {
+                throw new SessionServiceError(
+                  "BACKEND_UNAVAILABLE",
+                  "Slack did not answer conversations.info; try again",
+                );
+              }
               value = { id, name: "unknown", state: "unknown" };
             }
             names.delete(key);
