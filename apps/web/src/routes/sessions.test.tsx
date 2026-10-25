@@ -243,10 +243,22 @@ const detailRoutes = {
 };
 
 describe("approval inbox", () => {
-  // A row names the request and session on its buttons, as the card title does.
-  const ALLOW = `허용: Bash · ${SESSION_ID.slice(0, 8)}`;
+  // A line names its session on its one button.
+  const DETAIL = `${SESSION_ID.slice(0, 8)} 상세 보기`;
+  // The line opens the session in the rail, where the request is answered.
+  const allowInRail = async (user: Awaited<ReturnType<typeof setupUser>>) => {
+    await user.click(await screen.findByRole("button", { name: DETAIL }));
+    const rail = await screen.findByRole("complementary", {
+      name: SESSION_ID.slice(0, 8),
+    });
+    // The form waits for the stream to say where the request was asked.
+    await act(async () => stream.open());
+    return within(rail).findByRole("button", { name: /^허용/ });
+  };
   const waitingRoutes = (items: unknown[], next_cursor: string | null) => ({
     "GET /v1/auth/me": () => json(200, me()),
+    [`GET /v1/sessions/${SESSION_ID}`]: () => json(200, detail),
+    [EVENTS_ROUTE]: (request: Request) => stream.route(request),
     "GET /v1/sessions": () => json(200, { items: [], next_cursor: null }),
     "GET /v1/sessions?status=needs_input": () =>
       json(200, { items, next_cursor }),
@@ -272,9 +284,10 @@ describe("approval inbox", () => {
     );
     const inbox = await screen.findByRole("region", { name: "답변 대기" });
     expect(
-      await within(inbox).findAllByRole("button", { name: ALLOW }),
+      await within(inbox).findAllByRole("button", { name: DETAIL }),
     ).toHaveLength(1);
-    expect(inbox.querySelector('[data-slot="approval-row"]')).toBeTruthy();
+    // The line answers nothing itself.
+    expect(within(inbox).queryByRole("button", { name: /^허용/ })).toBeNull();
     // OTHER_ID was answered or lapsed since the waiting list was read: no
     // line of its own saying nothing waits, and not counted.
     expect(within(inbox).queryByText(/요청이 없습니다/)).toBeNull();
@@ -332,7 +345,7 @@ describe("approval inbox", () => {
     });
     const waitingReads = () =>
       api.calls.filter((call) => call.search === "?status=needs_input").length;
-    const allow = await screen.findByRole("button", { name: ALLOW });
+    const allow = await allowInRail(user);
     const before = waitingReads();
     await user.click(allow);
     expect(await screen.findByText("답을 보냈습니다.")).toBeTruthy();
@@ -356,13 +369,13 @@ describe("approval inbox", () => {
     const waitingReads = () =>
       api.calls.filter((call) => call.search === "?status=needs_input").length;
     await waitFor(() => expect(waitingReads()).toBe(2));
-    await user.click(await screen.findByRole("button", { name: ALLOW }));
+    await user.click(await allowInRail(user));
     expect(await screen.findByText("답을 보냈습니다.")).toBeTruthy();
     // The inbox's page and the tab's list are separate queries: both read again.
     await waitFor(() => expect(waitingReads()).toBeGreaterThanOrEqual(4));
   });
 
-  test("a session answered from the keyboard leaves and hands focus to the inbox heading", async () => {
+  test("a session answered in the rail leaves; closing the rail hands focus to the inbox heading", async () => {
     const user = await setupUser();
     let waiting = [summary(SESSION_ID, { status: "needs_input" })];
     renderAt("/sessions", {
@@ -377,12 +390,24 @@ describe("approval inbox", () => {
         });
       },
     });
-    const allow = await screen.findByRole("button", { name: ALLOW });
-    allow.focus();
+    (await screen.findByRole("button", { name: DETAIL })).focus();
+    await user.keyboard("{Enter}");
+    const rail = await screen.findByRole("complementary", {
+      name: SESSION_ID.slice(0, 8),
+    });
+    await waitFor(() =>
+      expect(document.activeElement).toBe(rail.querySelector("h2")),
+    );
+    await act(async () => stream.open());
+    (await within(rail).findByRole("button", { name: /^허용/ })).focus();
     await user.keyboard("{Enter}");
     expect(
       await screen.findByText("답을 기다리는 세션이 없습니다."),
     ).toBeTruthy();
+    // The rail keeps the keyboard while the line leaves behind it.
+    expect(rail.contains(document.activeElement)).toBe(true);
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("complementary")).toBeNull();
     await waitFor(() =>
       expect(document.activeElement).toBe(
         screen.getByRole("heading", { name: "답변 대기" }),
