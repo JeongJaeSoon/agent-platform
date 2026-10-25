@@ -201,12 +201,17 @@ export function activityQuery(ids: readonly string[]) {
            ${epochMs(sql`cur.since`)} AS current_since_ms,
            qb.payload ->> 'kind' AS request_kind,
            CASE WHEN qb.payload ->> 'kind' = 'question' THEN
-             left(regexp_replace((SELECT q ->> 'question'
+             -- The control plane stores each question as a pending question
+             -- (prompt); an older worker published the SDK's input (question).
+             left(regexp_replace((SELECT x.t
                          FROM jsonb_array_elements(
                            CASE WHEN jsonb_typeof(qb.payload -> 'input' -> 'questions') = 'array'
                                 THEN qb.payload -> 'input' -> 'questions' ELSE '[]'::jsonb END
                          ) AS q
-                         WHERE jsonb_typeof(q -> 'question') = 'string' AND q ->> 'question' ~ '\\S'
+                         CROSS JOIN LATERAL (
+                           SELECT coalesce(${str(sql`q -> 'prompt'`)}, ${str(sql`q -> 'question'`)}) AS t
+                         ) x
+                         WHERE x.t ~ '\\S'
                          LIMIT 1), '^\\s+|\\s+$', '', 'g'), ${TEXT_MAX})
            END AS request_prompt
     FROM page p

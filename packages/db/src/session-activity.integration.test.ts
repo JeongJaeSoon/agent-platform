@@ -255,16 +255,26 @@ integration("session list activity on PostgreSQL", () => {
         kind: "question",
         input: { questions },
       });
-    await asked([
-      { question: "  " },
-      { question: " 'workspace'를 어떻게 옮길까요?\n" },
-    ]);
+    // As the control plane stores them (pendingQuestionSchema).
+    const pending = (prompt: string) => ({
+      question_id: "q0",
+      prompt,
+      options: [{ option_id: "q0o0", label: "A" }],
+      multi_select: false,
+      allow_free_text: true,
+    });
+    await asked([pending("  "), pending(" 'workspace'를 어떻게 옮길까요?\n")]);
     expect((await activity(s.id))?.current_tool?.request).toEqual({
       kind: "question",
       prompt: "'workspace'를 어떻게 옮길까요?",
     });
-    // The newer question for the call is the one shown.
-    await asked([{ question: "😀".repeat(250) }]);
+    // The newer question for the call is the one shown; an older worker
+    // published the SDK's own input.
+    await asked([{ question: "Which customer?" }]);
+    expect((await activity(s.id))?.current_tool?.request?.prompt).toBe(
+      "Which customer?",
+    );
+    await asked([pending("😀".repeat(250))]);
     const prompt = (await activity(s.id))?.current_tool?.request?.prompt;
     expect([...(prompt ?? "")]).toEqual(Array(200).fill("😀"));
     await asked([{ header: "no text" }]);
@@ -308,7 +318,17 @@ integration("session list activity on PostgreSQL", () => {
       request_id: "r-q",
       tool_use_id: "t-q",
       kind: "question",
-      input: { questions: [{ question: "Which customer?" }] },
+      input: {
+        questions: [
+          {
+            question_id: "q0",
+            prompt: "Which customer?",
+            options: [],
+            multi_select: false,
+            allow_free_text: true,
+          },
+        ],
+      },
     });
     const listed = async (userId: string) =>
       (
