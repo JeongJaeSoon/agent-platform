@@ -33,7 +33,7 @@ import {
   type TempDatabase,
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 
@@ -354,6 +354,27 @@ integration("usage series on PostgreSQL", () => {
     expect(days.buckets[0]).toMatchObject({
       date: "2004-06-01",
       session_count: 2,
+    });
+  });
+
+  test("every UTC day has its bucket whatever the database session's time zone", async () => {
+    for (const day of ["2026-09-05", "2026-09-06", "2026-09-07"]) {
+      await session("alice", `${day}T12:00:00Z`, 1, 1);
+    }
+    // Santiago skips 2026-09-06 00:00 → 01:00, which once stepped the day
+    // series past 09-07's bucket.
+    await db.transaction(async (tx) => {
+      await tx.execute(sql`SET LOCAL TIME ZONE 'America/Santiago'`);
+      const days = await series(
+        user("owner", "owner"),
+        { scope: "installation", since: "2026-09-05", until: "2026-09-08" },
+        tx as unknown as NodePgDatabase<typeof schema>,
+      );
+      expect(days.buckets.map((b) => [b.date, b.session_count])).toEqual([
+        ["2026-09-05", 1],
+        ["2026-09-06", 1],
+        ["2026-09-07", 1],
+      ]);
     });
   });
 

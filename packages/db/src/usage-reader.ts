@@ -220,20 +220,26 @@ export function createPostgresUsageReader(db: Database): UsageReader {
           WHERE ${inPeriod}
           GROUP BY 1
         ),
+        bounds AS (
+          SELECT (${since} AT TIME ZONE 'UTC')::date AS first,
+                 ((${until} AT TIME ZONE 'UTC') - interval '1 microsecond')::date AS last
+        ),
+        days AS (
+          -- date + integer: a generate_series over dates steps timestamptz
+          -- in the session's time zone, and a DST jump at midnight skips a day.
+          SELECT bounds.first + n AS day
+          FROM bounds, generate_series(0, bounds.last - bounds.first) n
+        ),
         buckets AS (
-          SELECT d::date AS day,
+          SELECT days.day,
                  coalesce(per_day.session_count, 0) AS session_count,
                  coalesce(per_day.cost_usd, 0) AS cost_usd,
                  coalesce(per_day.provider_tokens, 0) AS provider_tokens,
                  coalesce(turn_day.incomplete, 0) AS incomplete,
                  coalesce(turn_day.seconds, 0) AS seconds
-          FROM generate_series(
-            (${since} AT TIME ZONE 'UTC')::date,
-            ((${until} AT TIME ZONE 'UTC') - interval '1 microsecond')::date,
-            interval '1 day'
-          ) d
-          LEFT JOIN per_day ON per_day.day = d::date
-          LEFT JOIN turn_day ON turn_day.day = d::date
+          FROM days
+          LEFT JOIN per_day ON per_day.day = days.day
+          LEFT JOIN turn_day ON turn_day.day = days.day
         )
         SELECT now() AS read_at,
                ${until} AS until,
