@@ -1,0 +1,1 @@
+CREATE INDEX "tool_calls_session_name_idx" ON "tool_calls" USING btree ("session_id","name");

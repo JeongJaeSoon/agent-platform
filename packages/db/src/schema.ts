@@ -1205,6 +1205,9 @@ export const toolCalls = pgTable(
       table.ord.desc(),
     ),
     index("tool_calls_created_at_idx").on(table.createdAt),
+    // A scope with few sessions reads its calls from them; the name-led
+    // indexes above would walk every call of the tool in the period.
+    index("tool_calls_session_name_idx").on(table.sessionId, table.name),
   ],
 );
 

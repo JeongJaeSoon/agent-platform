@@ -2,7 +2,8 @@
  * The tool call projection on real PostgreSQL. An empty database is first
  * seeded with a whole installation: `per-day` sessions a day for `days`
  * days, `events` events each (30% tool_use, 30% their results), started by
- * 20 users in turn; later runs reuse it. Then:
+ * 20 users in turn and one in a thousand by a 21st; later runs reuse it.
+ * Then:
  *
  *   backfill  every existing event from cursor 0, one reconciler-sized batch
  *             per transaction, timing each batch
@@ -63,11 +64,12 @@ if (empty.rows[0]?.n === 0) {
     INSERT INTO users (id, email, display_name)
     SELECT ('00000000-0000-4000-8000-' || lpad(g::text, 12, '0'))::uuid,
            'bench-' || g || '@example.invalid', 'bench ' || g
-    FROM generate_series(1, ${USERS}) g`);
+    FROM generate_series(1, ${USERS + 1}) g`);
+  // User USERS + 1 starts one session in a thousand: a scope with few calls.
   await pool.query(`
     INSERT INTO sessions (id, owner_id, repo_url, branch, created_by_user_id, created_at)
     SELECT gen_random_uuid(), '${OWNER}', 'https://example.invalid/app.git', 'main',
-           ('00000000-0000-4000-8000-' || lpad((1 + g % ${USERS})::text, 12, '0'))::uuid,
+           ('00000000-0000-4000-8000-' || lpad((CASE WHEN g % 1000 = 0 THEN ${USERS + 1} ELSE 1 + g % ${USERS} END)::text, 12, '0'))::uuid,
            now() - g * (interval '1 day' * ${days} / ${perDay * days})
     FROM generate_series(1, ${perDay * days}) g`);
   // Per ten events: three tool_use, their three results (2% failing), four
