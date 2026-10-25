@@ -17,13 +17,15 @@
 #                   (K8S_BACKEND_TEST=1) against this cluster
 #
 #   deploy/kind/smoke.sh        run all of it; delete the cluster and registry
-#                               at the end if this run created them
+#                               at the end if this run created them (with
+#                               CLUSTER_PROVIDER=orbstack, the namespace)
 #   deploy/kind/smoke.sh down   delete them (up.sh down)
 #
 # Each step prints `== k8s-smoke: <step>` and ends in `PASS <step>`; any
 # failure exits non-zero after printing the cluster's state.
 #
-# Settings, besides up.sh's (CLUSTER_NAME, REGISTRY_PORT, the CI mirror):
+# Settings, besides up.sh's (CLUSTER_NAME, REGISTRY_PORT, CLUSTER_PROVIDER,
+# EXTRA_VALUES, the CI mirror):
 #   KIND_MODEL=fake      default: config/fake-model's catalog and fake
 #                        Messages API; no provider account, no cost
 #   KIND_MODEL=real      opt-in, paid: the chart's claude-coding-real profile
@@ -45,7 +47,18 @@ export CLUSTER_NAME="${CLUSTER_NAME:-agent-platform-smoke}"
 export KIND_MODEL="${KIND_MODEL:-fake}"
 export NAMESPACE="${NAMESPACE:-agent-platform}"
 export RELEASE="${RELEASE:-agent-platform}"
-export STATE_DIR="${STATE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/agent-platform/kind/${CLUSTER_NAME}}"
+# As up.sh checks it: it is in a path below, and the namespace the teardown
+# may delete.
+if ! [[ "$NAMESPACE" =~ ^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$ ]]; then
+  echo "NAMESPACE must be a Kubernetes namespace name, not '${NAMESPACE}'" >&2
+  exit 1
+fi
+# up.sh's default.
+if [ "${CLUSTER_PROVIDER:-kind}" = orbstack ]; then
+  export STATE_DIR="${STATE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/agent-platform/orbstack/${NAMESPACE}}"
+else
+  export STATE_DIR="${STATE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/agent-platform/kind/${CLUSTER_NAME}}"
+fi
 export KUBECONFIG="${STATE_DIR}/kubeconfig"
 PROBE_IMAGE="${PROBE_IMAGE:-busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662}"
 API_PORT="${SMOKE_API_PORT:-13080}"
