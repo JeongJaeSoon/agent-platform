@@ -92,6 +92,19 @@ function renderInbox({
 }) {
   const posted: Posted[] = [];
   let waitingReads = 0;
+  let stream: ReadableStreamDefaultController<Uint8Array> | undefined;
+  let sequence = 0;
+  const frame = ([event, data]: readonly [string, unknown]) => {
+    sequence += 1;
+    return `id: ev_${sequence}\nevent: ${event}\ndata: ${JSON.stringify({
+      schema_version: 1,
+      session_id: SESSION_ID,
+      turn_id: "1",
+      attempt_id: null,
+      occurred_at: "2026-10-21T00:59:00.000Z",
+      data,
+    })}\n\n`;
+  };
   let items = open;
   const fakeFetch = async (request: Request) => {
     const url = new URL(request.url);
@@ -117,21 +130,10 @@ function renderInbox({
       return json(200, { answerable, items });
     }
     if (url.pathname === `/v1/sessions/${SESSION_ID}/events`) {
-      const frames = events
-        .map(
-          ([event, data], index) =>
-            `id: ev_${index + 1}\nevent: ${event}\ndata: ${JSON.stringify({
-              schema_version: 1,
-              session_id: SESSION_ID,
-              turn_id: "1",
-              attempt_id: null,
-              occurred_at: "2026-10-21T00:59:00.000Z",
-              data,
-            })}\n\n`,
-        )
-        .join("");
+      const frames = events.map(frame).join("");
       const body = new ReadableStream<Uint8Array>({
         start: (controller) => {
+          stream = controller;
           controller.enqueue(new TextEncoder().encode(frames));
           request.signal.addEventListener("abort", () =>
             controller.error(new DOMException("aborted", "AbortError")),
@@ -180,7 +182,14 @@ function renderInbox({
       </AgentPlatformProvider>
     </QueryClientProvider>,
   );
-  return { ...view, posted, waitingReads: () => waitingReads };
+  return {
+    ...view,
+    posted,
+    waitingReads: () => waitingReads,
+    /** Sends more frames down the open event stream. */
+    push: (...more: (readonly [event: string, data: unknown])[]) =>
+      stream?.enqueue(new TextEncoder().encode(more.map(frame).join(""))),
+  };
 }
 
 describe("ApprovalInbox", () => {
@@ -556,5 +565,48 @@ describe("ApprovalInbox", () => {
     await user.keyboard("{Escape}");
     await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
     await waitFor(() => expect(document.activeElement === opener).toBe(true));
+  });
+
+  test("패널에서 위에 그린 답 폼은 질문 이벤트가 늦게 와도 옮겨지지 않고 고른 값을 지킨다", async () => {
+    const user = await setupUser();
+    const view = renderInbox({
+      open: [QUESTION],
+      layout: "summary",
+      extra: { panel: true },
+    });
+    await user.click(
+      await view.findByRole("button", { name: `View details of ${SHORT}` }),
+    );
+    const panel = await view.findByRole("dialog");
+    const radio = await waitFor(() => {
+      const found = panel.querySelector<HTMLInputElement>("[role='radio']");
+      expect(found).toBeTruthy();
+      return found as HTMLInputElement;
+    });
+    // Drawn above the timeline: the stream has not said where it was asked.
+    expect(radio.closest("ol")).toBeNull();
+    await user.click(radio);
+    expect(radio.getAttribute("aria-checked")).toBe("true");
+    await act(async () => {
+      view.push([
+        "question",
+        {
+          request_id: "req_q",
+          tool_use_id: "tu_1",
+          kind: "question",
+          tool: "AskUserQuestion",
+          input: {
+            questions: QUESTION.kind === "question" ? QUESTION.questions : [],
+          },
+        },
+      ]);
+    });
+    await waitFor(() =>
+      expect(panel.querySelector("ol")?.textContent).toContain("Which branch?"),
+    );
+    // The same form, with what was chosen, and no second one in the line.
+    expect(panel.querySelectorAll("[role='radio']")).toHaveLength(1);
+    expect(radio.isConnected).toBe(true);
+    expect(radio.getAttribute("aria-checked")).toBe("true");
   });
 });

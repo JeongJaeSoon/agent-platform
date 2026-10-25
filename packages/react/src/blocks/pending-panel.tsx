@@ -70,23 +70,41 @@ function PanelBody({
   const detail = useSession(id);
   const pending = usePendingRequests(id, true);
   const events = useSessionEvents(id, true);
-  // A request answered here stays a slot, so its "sent" line keeps the
-  // keyboard once the request itself is gone.
-  const [shown, setShown] = useState<ReadonlySet<string>>(new Set());
+  // Where each request is answered, fixed the first time it is drawn: a
+  // form that moved would drop what was chosen and a send in flight. Once
+  // placed, a slot stays after its request is gone, so its "sent" line
+  // keeps the keyboard.
+  const [placed, setPlaced] = useState<ReadonlyMap<string, "top" | "timeline">>(
+    new Map(),
+  );
   const items = pending.data?.items ?? [];
   const asked = new Set(
     events.events.flatMap((frame) =>
       frame.payload.event === "question" ? [frame.payload.data.request_id] : [],
     ),
   );
-  const open = new Set(items.map((request) => request.request_id));
-  if (
-    [...open].some((requestId) => asked.has(requestId) && !shown.has(requestId))
-  ) {
-    setShown(new Set([...shown, ...[...open].filter((r) => asked.has(r))]));
+  // Until the stream has replayed, a request's line may still be on its way.
+  const settled = events.state !== "connecting";
+  const fresh = items.filter(
+    (request) =>
+      !placed.has(request.request_id) &&
+      (settled || asked.has(request.request_id)),
+  );
+  if (fresh.length > 0) {
+    const next = new Map(placed);
+    for (const request of fresh) {
+      next.set(
+        request.request_id,
+        asked.has(request.request_id) ? "timeline" : "top",
+      );
+    }
+    setPlaced(next);
   }
-  // Asked before the timeline's window, or not arrived on the stream yet.
-  const elsewhere = items.filter((request) => !asked.has(request.request_id));
+  // Asked before the timeline's window, or never seen on the stream.
+  const elsewhere = items.filter(
+    (request) => placed.get(request.request_id) === "top",
+  );
+  const anyTop = [...placed.values()].includes("top");
   const status = detail.data?.status ?? listed.status;
   const title = detail.data?.title ?? listed.title ?? id.slice(0, 8);
   const answers = (requests: readonly PendingRequest[]) =>
@@ -143,7 +161,7 @@ function PanelBody({
         {pending.error
           ? renderError(pending.error, () => void pending.refetch())
           : null}
-        {elsewhere.length === 0 ? null : answers(elsewhere)}
+        {anyTop ? answers(elsewhere) : null}
         <p className="m-0 text-caption text-muted-foreground">
           {t("panel.note")}
         </p>
@@ -155,7 +173,7 @@ function PanelBody({
             events={events.events}
             state={events.state}
             request={(requestId) =>
-              shown.has(requestId)
+              placed.get(requestId) === "timeline"
                 ? answers(
                     items.filter((request) => request.request_id === requestId),
                   )
