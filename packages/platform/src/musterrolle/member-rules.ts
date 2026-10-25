@@ -1,7 +1,8 @@
-import type {
-  MemberActions,
-  MemberVerdict,
-  WorkspaceRole,
+import {
+  type MemberActions,
+  type MemberVerdict,
+  WORKSPACE_ROLE_VALUES,
+  type WorkspaceRole,
 } from "@werft-ai/contracts";
 import { MANAGEMENT_ROLES } from "./policy.ts";
 
@@ -31,6 +32,11 @@ export function mayGrantRole(
   role: WorkspaceRole,
 ): boolean {
   return actorRole === "owner" || role !== "owner";
+}
+
+/** The roles an invite from `actorRole` may carry, in the contract's order. */
+export function assignableRoles(actorRole: WorkspaceRole): WorkspaceRole[] {
+  return WORKSPACE_ROLE_VALUES.filter((role) => mayGrantRole(actorRole, role));
 }
 
 export type MemberActor = { userId: string; role: WorkspaceRole };
