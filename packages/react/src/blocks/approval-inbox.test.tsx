@@ -211,6 +211,23 @@ describe("ApprovalInbox", () => {
     );
   });
 
+  test("답할 때마다 제목 줄의 알림을 새로 써서 두 번째 답도 읽힌다", async () => {
+    const user = await setupUser();
+    const view = renderInbox({
+      open: [permission("req_1", "Bash"), permission("req_2", "Write")],
+      layout: "summary",
+    });
+    await user.click(
+      await view.findByRole("button", { name: `Allow: Bash · ${SHORT}` }),
+    );
+    const first = await view.findByText("Answer sent.");
+    await user.click(
+      await view.findByRole("button", { name: `Allow: Write · ${SHORT}` }),
+    );
+    await waitFor(() => expect(view.posted).toHaveLength(2));
+    await waitFor(() => expect(view.getByText("Answer sent.")).not.toBe(first));
+  });
+
   test("행에서 거부하면 적은 이유를 함께 보낸다", async () => {
     const user = await setupUser();
     const view = renderInbox({
@@ -348,6 +365,23 @@ describe("ApprovalInbox", () => {
       timeout: 4000,
     });
     expect(document.activeElement?.textContent).toBe(
+      "This request expired and takes no answer.",
+    );
+    expect(document.activeElement?.closest("[hidden]")).toBeNull();
+  });
+
+  test("요약 배치에서 접힌 질문의 답하기에 둔 채 만료되면 키보드는 줄의 만료 안내로 간다", async () => {
+    const view = renderInbox({
+      open: [
+        { ...QUESTION, expires_at: new Date(Date.now() + 1500).toISOString() },
+      ],
+      layout: "summary",
+    });
+    (await view.findByRole("button", { name: "Answer" })).focus();
+    await waitFor(() => expect(document.activeElement?.tagName).toBe("P"), {
+      timeout: 4000,
+    });
+    expect(document.activeElement?.textContent).toContain(
       "This request expired and takes no answer.",
     );
     expect(document.activeElement?.closest("[hidden]")).toBeNull();

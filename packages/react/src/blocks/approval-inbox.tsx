@@ -110,7 +110,7 @@ export function ApprovalInbox({
   const now = useMinute(layout === "summary" && givenNow === undefined);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const shownBefore = useRef<readonly string[]>([]);
-  const [sent, setSent] = useState(false);
+  const [sent, setSent] = useState(0);
 
   const sessions = waiting.data?.items ?? [];
   // The same reads each line makes, so the block knows which sessions still
@@ -207,7 +207,7 @@ export function ApprovalInbox({
               renderError={renderError}
               layout={layout}
               now={givenNow ?? now}
-              onAnswered={() => setSent(true)}
+              onAnswered={() => setSent((count) => count + 1)}
             />
           ))}
           {left > 0 && moreLine !== undefined ? (
@@ -243,7 +243,8 @@ export function ApprovalInbox({
               with the read that follows. Always mounted so a screen reader
               hears it; in the line, so nothing below moves. */}
           <output className="min-w-0 truncate text-caption text-muted-foreground">
-            {sent ? t("session.answer.sent") : null}
+            {/* A fresh node each time, so every answer is announced. */}
+            {sent ? <span key={sent}>{t("session.answer.sent")}</span> : null}
           </output>
         </div>
         {action}
