@@ -76,6 +76,7 @@ API를 로컬 인증 비활성 모드로 띄울 때만 `X-Owner-Id`를 사용할
 deploy/preview/preview.sh up 123     # PR head를 꺼내 이미지 3종(태그 pr-123)을 빌드하고 설치·업그레이드
 deploy/preview/preview.sh list       # 떠 있는 미리보기의 URL·head·메모리·/readyz
 deploy/preview/preview.sh down 123   # namespace, 이미지 태그, checkout을 지운다
+deploy/preview/preview.sh reap       # PR이 닫혔거나 머지됐거나 TTL이 지난 미리보기를 down한다
 ```
 
 - 설치는 PR head의 트리(Dockerfile·chart·대역 서비스)를 이 checkout의 `deploy/kind/up.sh`(orbstack 모드)로 한다. up.sh를 PR checkout에 복사해 돌리므로 orbstack 모드가 없는 오래된 head도 뜬다. 값은 `deploy/preview/values.yaml`을 얹는다(api·egress proxy를 1개로, worker 메모리를 fake 모델에 맞게 낮춘다).
@@ -84,6 +85,36 @@ deploy/preview/preview.sh down 123   # namespace, 이미지 태그, checkout을 
 - 새 미리보기를 띄우기 전에 노드 allocatable 메모리에서 Pod requests 합을 뺀 값이 `PREVIEW_MEMORY_MI`(기본 2560: 미리보기 Deployment requests 1792Mi와 worker 하나 768Mi)보다 작으면 이유를 적고 멈춘다. `MAX_MEMORY_MI`는 allocatable 대신 셀 값이다. 이미 있는 미리보기를 다시 `up`할 때는 세지 않는다.
 - namespace에는 label `agent-platform.dev/preview=true`, annotation `agent-platform.dev/preview-head`(설치한 head)·`agent-platform.dev/preview-up-at`(마지막 `up` 시작 시각, UTC)이 붙는다. `down`은 이 label이 없는 namespace를 지우지 않는다.
 - checkout과 up.sh 상태는 `PREVIEW_HOME`(기본 `~/.cache/agent-platform/preview`) 아래 `pr-<번호>`에, PR head는 ref `refs/preview/pr-<번호>`에 둔다. 둘 다 `down`이 지운다.
+
+### 미리보기 자동 정리
+
+`reap`은 label `agent-platform.dev/preview=true`가 붙고 이름이 `pr-<번호>`인 namespace만 본다. 하나씩 다음 순서로 판단하고, 지울 때는 `down <번호>`를 부른다.
+
+1. `preview-up-at`이 `PREVIEW_TTL_HOURS`(기본 24)시간보다 오래됐으면 PR 상태와 상관없이 지운다. annotation이 없거나 읽을 수 없으면 TTL은 건너뛴다.
+2. 이 checkout에서 `gh pr view <번호> --json state`로 PR 상태를 읽어 `CLOSED`·`MERGED`면 지운다. `OPEN`이면 남긴다.
+3. 조회가 실패하면(네트워크, 인증, 없는 PR) 닫힘으로 읽지 않고 남기며, gh가 낸 오류를 로그에 적는다.
+
+실행마다 시각, namespace별 판단, 지운 namespace 목록(`reap deleted: …`)을 출력한다. `down`이 하나라도 실패하면 나머지를 마저 본 뒤 0이 아닌 값으로 끝난다.
+
+이 Mac에서는 LaunchAgent `dev.94soon.agent-platform.preview-reap`이 15분마다 `reap`을 돌린다. 스크립트는 지워지지 않는 checkout에서 돌려야 하므로 메인 checkout(작업용 worktree가 아닌 곳)에서 설치한다. 그 checkout의 `deploy/preview/preview.sh`가 그대로 실행되니, 그곳은 main을 따라가는 읽기 전용으로 둔다.
+
+```bash
+# 메인 checkout에서
+mkdir -p ~/Library/Logs/agent-platform
+sed -e "s|@CHECKOUT@|$PWD|g" -e "s|@HOME@|$HOME|g" deploy/preview/preview-reap.plist \
+  > ~/Library/LaunchAgents/dev.94soon.agent-platform.preview-reap.plist
+plutil -lint ~/Library/LaunchAgents/dev.94soon.agent-platform.preview-reap.plist
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.94soon.agent-platform.preview-reap.plist
+
+launchctl print gui/$(id -u)/dev.94soon.agent-platform.preview-reap   # 상태·마지막 종료 코드
+tail ~/Library/Logs/agent-platform/preview-reap.log                    # 실행 기록
+
+# 해제
+launchctl bootout gui/$(id -u)/dev.94soon.agent-platform.preview-reap
+rm ~/Library/LaunchAgents/dev.94soon.agent-platform.preview-reap.plist
+```
+
+설치하면 바로 한 번 돌고, 그 뒤 15분마다 돈다. gh는 로그인한 사용자의 keychain 토큰을 쓰므로 GUI 세션의 LaunchAgent로만 설치한다. 로그는 지워지지 않고 쌓이니 필요하면 손으로 비운다.
 
 ## 테스트·스크립트 배치
 

@@ -10,6 +10,9 @@
 #                                       and the checkout
 #   deploy/preview/preview.sh list      the previews: URL, head, memory in use,
 #                                       /readyz
+#   deploy/preview/preview.sh reap      `down` every preview whose last `up`
+#                                       is older than the TTL or whose PR is
+#                                       closed or merged
 #
 # The PR's own tree is installed (Dockerfiles, chart, stand-ins) by this
 # checkout's deploy/kind/up.sh, copied into it, so a head that predates
@@ -28,11 +31,14 @@
 #                      and one session worker)
 #   MAX_MEMORY_MI      the node memory the check counts from, in place of
 #                      its allocatable memory
+#   PREVIEW_TTL_HOURS  how long after its last `up` reap deletes a preview
+#                      (default 24)
 set -euo pipefail
 
 PREVIEW_HOME="${PREVIEW_HOME:-${XDG_CACHE_HOME:-$HOME/.cache}/agent-platform/preview}"
 PREVIEW_DOMAIN="${PREVIEW_DOMAIN:-preview.94soon.dev}"
 PREVIEW_MEMORY_MI="${PREVIEW_MEMORY_MI:-2560}"
+PREVIEW_TTL_HOURS="${PREVIEW_TTL_HOURS:-24}"
 INGRESS_NAMESPACE=preview-ingress
 TRAEFIK_CHART=oci://ghcr.io/traefik/helm/traefik
 TRAEFIK_VERSION=42.1.3
@@ -44,7 +50,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$here/../.." && pwd)"
 
 usage() {
-  echo "usage: $0 up <PR number> | down <PR number> | list" >&2
+  echo "usage: $0 up <PR number> | down <PR number> | list | reap" >&2
   exit 2
 }
 
@@ -59,6 +65,10 @@ for name in PREVIEW_MEMORY_MI MAX_MEMORY_MI; do
     exit 1
   fi
 done
+if ! [[ "$PREVIEW_TTL_HOURS" =~ ^[0-9]+$ ]]; then
+  echo "PREVIEW_TTL_HOURS must be a whole number of hours, not '${PREVIEW_TTL_HOURS}'" >&2
+  exit 1
+fi
 
 pr_number() {
   if ! [[ "${1:-}" =~ ^[1-9][0-9]{0,6}$ ]]; then
@@ -281,9 +291,61 @@ list() {
   local_hint "pr-<N>.${PREVIEW_DOMAIN}"
 }
 
+# Only labeled pr-<N> namespaces. The TTL needs no GitHub; a PR state that
+# cannot be read keeps the preview, never counts as closed.
+reap() {
+  local rows namespace age n reason state deleted=() failed=()
+  echo "reap $(date -u +%Y-%m-%dT%H:%M:%SZ): TTL ${PREVIEW_TTL_HOURS}h"
+  rows="$(kubectl get namespaces -l agent-platform.dev/preview=true -o json | jq -r '.items[]
+    | [.metadata.name,
+       (.metadata.annotations["agent-platform.dev/preview-up-at"] // ""
+         | try (now - fromdateiso8601 | floor) catch "")] | @tsv')"
+  while IFS=$'\t' read -r namespace age; do
+    [ -n "$namespace" ] || continue
+    if ! [[ "$namespace" =~ ^pr-([1-9][0-9]{0,6})$ ]]; then
+      echo "${namespace}: kept, not named pr-<N>"
+      continue
+    fi
+    n="${BASH_REMATCH[1]}"
+    reason=""
+    if [ -z "$age" ]; then
+      echo "${namespace}: no readable agent-platform.dev/preview-up-at, TTL not applied"
+    elif [ "$age" -gt $((PREVIEW_TTL_HOURS * 3600)) ]; then
+      reason="last up $((age / 3600))h ago"
+    fi
+    if [ -z "$reason" ]; then
+      if ! state="$(cd "$root" && GH_NO_UPDATE_NOTIFIER=1 \
+        gh pr view "$n" --json state --jq .state 2>"${PREVIEW_HOME}/gh-error" </dev/null)"; then
+        echo "${namespace}: kept, GitHub lookup failed: $(tr '\n' ' ' <"${PREVIEW_HOME}/gh-error")"
+        continue
+      fi
+      case "$state" in
+        CLOSED | MERGED) reason="PR ${state}" ;;
+        OPEN)
+          echo "${namespace}: kept, PR OPEN${age:+, last up $((age / 3600))h ago}"
+          continue
+          ;;
+        *)
+          echo "${namespace}: kept, unexpected PR state '${state}'"
+          continue
+          ;;
+      esac
+    fi
+    echo "${namespace}: deleting, ${reason}"
+    if "$here/preview.sh" down "$n" </dev/null; then
+      deleted+=("$namespace")
+    else
+      failed+=("$namespace")
+    fi
+  done <<<"$rows"
+  echo "reap deleted: ${deleted[*]:-none}${failed[*]:+, failed: ${failed[*]}}"
+  [ "${#failed[@]}" = 0 ]
+}
+
 case "${1:-}" in
   up) up "${2:-}" ;;
   down) down "${2:-}" ;;
   list) list ;;
+  reap) reap ;;
   *) usage ;;
 esac

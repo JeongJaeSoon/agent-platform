@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Runs `preview.sh reap` every 15 minutes. @CHECKOUT@ and @HOME@ are
+     filled in on install: docs/contributing/development.md. -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>dev.94soon.agent-platform.preview-reap</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>@CHECKOUT@/deploy/preview/preview.sh</string>
+		<string>reap</string>
+	</array>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key>
+		<string>@HOME@/.orbstack/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+	</dict>
+	<key>WorkingDirectory</key>
+	<string>@CHECKOUT@</string>
+	<key>StartInterval</key>
+	<integer>900</integer>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>ProcessType</key>
+	<string>Background</string>
+	<key>StandardOutPath</key>
+	<string>@HOME@/Library/Logs/agent-platform/preview-reap.log</string>
+	<key>StandardErrorPath</key>
+	<string>@HOME@/Library/Logs/agent-platform/preview-reap.log</string>
+</dict>
+</plist>
