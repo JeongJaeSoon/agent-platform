@@ -183,7 +183,8 @@ echo '{"status":"ready"}'
 
     const kept = await run(["down", "--keep-volumes"], workers);
     expect(kept.exitCode).toBe(0);
-    expect(kept.stderr).toContain("volumes kept");
+    expect(kept.stderr).toContain("volumes and checkpoint objects kept");
+    expect(kept.stderr).not.toContain("checkpoint objects lost");
     expect(await calls("docker-calls")).toEqual([
       `${noMode} ps -aq egress-proxy`,
       'inspect --format {{index .Config.Labels "agent-platform.egress-proxy"}} proxy-id',

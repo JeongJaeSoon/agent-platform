@@ -7,6 +7,7 @@
 #   deploy/kind/up.sh        create (or reuse) the cluster and registry, build,
 #                            push, install, check
 #   deploy/kind/up.sh down   delete the cluster and the registry container
+#                            (with CLUSTER_PROVIDER=orbstack, NAMESPACE alone)
 #
 # Images go through a registry container connected to the kind network (the
 # kind + registry:2 pattern), so they have the digests the chart requires.
@@ -23,6 +24,17 @@
 #         key goes into the Secret from a file descriptor: never printed,
 #         never in an argument. A fresh cluster only.
 #
+# CLUSTER_PROVIDER=orbstack uses OrbStack's built-in cluster (`orb start k8s`)
+# instead of kind: it shares the Docker engine, so the images are built
+# locally and referenced by their local digest, with no registry container.
+# `down` then deletes only NAMESPACE; the cluster stays as OrbStack keeps it.
+# STATE_DIR defaults to ~/.cache/agent-platform/orbstack/<namespace>.
+# The images are tagged IMAGE_TAG (default kind-dev), apart from the tags
+# the compose stacks give the same repositories.
+#
+# EXTRA_VALUES names one more values file, laid over all the others (for example
+# fewer replicas on a laptop).
+#
 # CI pulls nothing from Docker Hub (docs/contributing/ci.md § 서드파티 이미지 미러):
 #   KIND_NODE_IMAGE, REGISTRY_IMAGE  the node and registry images
 #   KIND_IMAGE_MIRROR                prefix the stand-ins' images are pulled
@@ -38,14 +50,41 @@ FORWARD_PORT="${FORWARD_PORT:-13000}"
 NAMESPACE="${NAMESPACE:-agent-platform}"
 RELEASE="${RELEASE:-agent-platform}"
 KIND_MODEL="${KIND_MODEL:-none}"
-# Per user, not a shared /tmp path another user could create first.
-STATE_DIR="${STATE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/agent-platform/kind/${CLUSTER_NAME}}"
+CLUSTER_PROVIDER="${CLUSTER_PROVIDER:-kind}"
 REGISTRY_IMAGE="${REGISTRY_IMAGE:-registry:2@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373}"
+
+case "$CLUSTER_PROVIDER" in
+  kind | orbstack) ;;
+  *) echo "CLUSTER_PROVIDER must be kind or orbstack, not '${CLUSTER_PROVIDER}'" >&2; exit 1 ;;
+esac
+# It names the one namespace `down` deletes, and a path below.
+if ! [[ "$NAMESPACE" =~ ^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$ ]]; then
+  echo "NAMESPACE must be a Kubernetes namespace name, not '${NAMESPACE}'" >&2
+  exit 1
+fi
+# Per user, not a shared /tmp path another user could create first. The
+# OrbStack cluster is shared, so there it is per namespace, and never the
+# kind cluster's: its kubeconfig would point a later kind run at OrbStack.
+if [ "$CLUSTER_PROVIDER" = orbstack ]; then
+  STATE_DIR="${STATE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/agent-platform/orbstack/${NAMESPACE}}"
+else
+  STATE_DIR="${STATE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/agent-platform/kind/${CLUSTER_NAME}}"
+fi
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 export KUBECONFIG="${STATE_DIR}/kubeconfig"
 mkdir -p "$STATE_DIR"
 chmod 700 "$STATE_DIR"
+
+if [ "$CLUSTER_PROVIDER" = orbstack ]; then
+  # OrbStack writes its context to the default kubeconfig.
+  env -u KUBECONFIG kubectl config view --raw --minify --context orbstack >"$KUBECONFIG"
+  chmod 600 "$KUBECONFIG"
+  if [ "${1:-}" = down ]; then
+    kubectl delete namespace "$NAMESPACE" --ignore-not-found --wait
+    exit 0
+  fi
+fi
 
 if [ "${1:-}" = down ]; then
   kind delete cluster --name "$CLUSTER_NAME" --kubeconfig "$KUBECONFIG"
@@ -73,6 +112,7 @@ manifest() {
   fi
 }
 
+if [ "$CLUSTER_PROVIDER" = kind ]; then
 if [ -z "$(docker ps -q --filter "name=^${REGISTRY_NAME}$")" ]; then
   docker run -d --restart=always -p "127.0.0.1:${REGISTRY_PORT}:5000" \
     --network bridge --name "$REGISTRY_NAME" "$REGISTRY_IMAGE" >/dev/null
@@ -96,15 +136,33 @@ for node in $(kind get nodes --name "$CLUSTER_NAME"); do
   printf '[host."http://%s:5000"]\n' "$REGISTRY_NAME" | docker exec -i "$node" cp /dev/stdin "$dir/hosts.toml"
 done
 docker network connect kind "$REGISTRY_NAME" 2>/dev/null || true
+fi
 
-# Builds and pushes one app image; prints its registry digest.
+image_repo="localhost:${REGISTRY_PORT}/agent-platform"
+[ "$CLUSTER_PROVIDER" = kind ] || image_repo="agent-platform"
+# Builds one app image and prints the digest the chart pins it by: the
+# registry's after a push on kind; on OrbStack, whose cluster pulls from the
+# Docker engine's own store, the manifest digest the containerd image store
+# gives a local build.
 publish() {
-  local ref="localhost:${REGISTRY_PORT}/agent-platform-$1:dev"
+  local ref="${image_repo}-$1:dev"
+  [ "$CLUSTER_PROVIDER" = kind ] || ref="${image_repo}-$1:${IMAGE_TAG:-kind-dev}"
   docker build -q -f "$root/apps/$1/Dockerfile" -t "$ref" \
     ${BUN_IMAGE:+--build-arg "BUN_IMAGE=$BUN_IMAGE"} \
     ${BUILDKIT_SYNTAX:+--build-arg "BUILDKIT_SYNTAX=$BUILDKIT_SYNTAX"} \
-    "$root" >/dev/null
-  docker push -q "$ref" >/dev/null
+    "$root" >/dev/null || return
+  if [ "$CLUSTER_PROVIDER" = orbstack ]; then
+    local digest
+    digest="$(docker images --digests --format '{{.Digest}}' "$ref")"
+    # The classic image store has no digest for an image never pushed.
+    if ! [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+      echo "no manifest digest for ${ref} ('${digest}'): the Docker engine must use the containerd image store" >&2
+      return 1
+    fi
+    echo "$digest"
+    return
+  fi
+  docker push -q "$ref" >/dev/null || return
   docker inspect --format '{{index .RepoDigests 0}}' "$ref" | sed 's/.*@//'
 }
 control_host_digest="$(publish control-host)"
@@ -190,11 +248,12 @@ done
 helm upgrade --install "$RELEASE" "$root/deploy/helm/agent-platform" \
   --namespace "$NAMESPACE" \
   "${values[@]}" \
-  --set "images.controlHost.repository=localhost:${REGISTRY_PORT}/agent-platform-control-host" \
+  ${EXTRA_VALUES:+-f "$EXTRA_VALUES"} \
+  --set "images.controlHost.repository=${image_repo}-control-host" \
   --set "images.controlHost.digest=${control_host_digest}" \
-  --set "images.egressProxy.repository=localhost:${REGISTRY_PORT}/agent-platform-egress-proxy" \
+  --set "images.egressProxy.repository=${image_repo}-egress-proxy" \
   --set "images.egressProxy.digest=${egress_proxy_digest}" \
-  --set "images.worker.repository=localhost:${REGISTRY_PORT}/agent-platform-worker" \
+  --set "images.worker.repository=${image_repo}-worker" \
   --set "images.worker.digest=${worker_digest}" \
   --timeout 10m
 
