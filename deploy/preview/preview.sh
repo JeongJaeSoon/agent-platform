@@ -89,7 +89,9 @@ require_local_only() {
 }
 
 ensure_traefik() {
-  helm status traefik --namespace "$INGRESS_NAMESPACE" >/dev/null 2>&1 && return
+  local status
+  status="$(helm status traefik --namespace "$INGRESS_NAMESPACE" -o json 2>/dev/null | jq -r .info.status || true)"
+  [ "$status" = deployed ] && return
   echo "installing Traefik ${TRAEFIK_VERSION} into ${INGRESS_NAMESPACE}"
   # Without the CRD provider the chart needs none of its CRDs, and skipping
   # them leaves nothing cluster-wide behind an uninstall but the IngressClass.
@@ -170,7 +172,9 @@ up() {
   kubectl annotate namespace "$namespace" --overwrite \
     "agent-platform.dev/preview-up-at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >/dev/null
 
-  CLUSTER_PROVIDER=orbstack KIND_MODEL=fake NAMESPACE="$namespace" IMAGE_TAG="$namespace" \
+  # RELEASE fixes the Service name the Ingress below points at.
+  CLUSTER_PROVIDER=orbstack KIND_MODEL=fake RELEASE=agent-platform \
+    NAMESPACE="$namespace" IMAGE_TAG="$namespace" \
     EXTRA_VALUES="$here/values.yaml" STATE_DIR="${dir}/state" FORWARD_PORT="$(free_port)" \
     "${dir}/src/deploy/kind/preview-up.sh"
 
