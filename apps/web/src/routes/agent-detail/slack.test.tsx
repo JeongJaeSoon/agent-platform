@@ -90,6 +90,8 @@ function routes(app: typeof APP | null = null, installed = false) {
     [`GET ${PATH}/identities`]: () =>
       json(200, { items: installed ? [IDENTITY] : [] }),
     [`GET ${PATH}/slack-bindings`]: () => json(200, { items: [] }),
+    [`GET ${PATH}/slack/app/settings`]: () =>
+      json(200, { default_mode: "off" }),
     [`GET ${PATH}/slack/channels`]: () =>
       json(200, {
         items: [],
@@ -120,9 +122,9 @@ describe("Slack management", () => {
     // Home and DM both read as unknown.
     expect(within(state).getAllByText("—")).toHaveLength(2);
     expect(screen.queryByText("설정 안 됨") === null).toBe(true);
-    expect(
-      screen.queryByRole("switch", { name: "다이렉트 메시지" }) === null,
-    ).toBe(true);
+    expect(screen.queryByRole("switch", { name: "DM 받기" }) === null).toBe(
+      true,
+    );
     await screen.findByRole("navigation", { name: "Slack 구역" });
     await waitFor(() =>
       expect(document.querySelector("[data-slot=field-error]") !== null).toBe(
@@ -406,11 +408,18 @@ describe("Slack management", () => {
     });
   });
 
-  test("applies the current screen's default response to a newly connected channel", async () => {
+  test("saves the default response on the server and applies it to a newly connected channel", async () => {
     let items: (typeof BINDING)[] = [];
+    let mode = "off";
     const { api } = renderAt(DETAIL, {
       ...routes(APP, true),
       [`GET ${PATH}/slack-bindings`]: () => json(200, { items }),
+      [`GET ${PATH}/slack/app/settings`]: () =>
+        json(200, { default_mode: mode }),
+      [`PUT ${PATH}/slack/app/settings`]: async (request: Request) => {
+        mode = (await request.json()).default_mode;
+        return json(200, { default_mode: mode });
+      },
       [`GET ${PATH}/slack/channels`]: () =>
         json(200, {
           items: [
@@ -434,13 +443,27 @@ describe("Slack management", () => {
     });
     const user = await setupUser();
     await screen.findByRole("navigation", { name: "Slack 구역" });
-    await user.click(
-      await screen.findByRole("switch", {
-        name: "새로 연결할 채널에서 멘션할 때 반응",
-      }),
+    const toggle = await screen.findByRole("switch", {
+      name: "새 채널의 기본 반응",
+    });
+    await waitFor(() =>
+      expect(toggle.getAttribute("aria-disabled")).toBe("false"),
     );
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    await user.click(toggle);
+    await screen.findByText(
+      "새 채널의 기본 반응을 '멘션할 때'(으)로 바꿨습니다. 이미 연결된 채널은 그대로입니다.",
+    );
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    const saved = api.calls.find(
+      (call) =>
+        call.method === "PUT" && call.path === `${PATH}/slack/app/settings`,
+    );
+    expect(saved?.body).toEqual({ default_mode: "mention" });
+    expect(
+      (saved?.headers.get("Idempotency-Key") ?? "").length,
+    ).toBeGreaterThan(0);
     await user.click(await screen.findByRole("button", { name: "채널 추가" }));
-    expect(await screen.findByText("/invite 필요")).toBeDefined();
     await user.click(
       await screen.findByRole("button", { name: "#general 연결" }),
     );
@@ -448,14 +471,227 @@ describe("Slack management", () => {
     expect(document.querySelector("[data-slot=toast]")?.tagName).toBe("OUTPUT");
     expect(
       api.calls
-        .filter((call) => call.method === "PUT")
+        .filter(
+          (call) =>
+            call.method === "PUT" && call.path === `${PATH}/slack-bindings`,
+        )
         .map((call) => call.body),
-    ).toEqual([{ channel_id: "C123", mode: "off", home: false }]);
+    ).toEqual([{ channel_id: "C123", mode: "mention", home: false }]);
+  });
+
+  test("asks for /invite only on a private channel the bot has not joined", async () => {
+    const row = (
+      id: string,
+      kind: "public_channel" | "private_channel",
+      state: "joined" | "awaiting_invite" | "join_failed" | null,
+    ) => ({
+      ...BINDING,
+      id: `${ID.slice(0, -1)}${id.at(-1)}`,
+      external_surface_id: id,
+      surface_kind: kind,
+      home: false,
+      ...(state ? { membership: { state, error: null } } : {}),
+    });
+    const channel = (id: string, name: string, isPrivate: boolean) => ({
+      id,
+      name,
+      is_private: isPrivate,
+      is_member: false,
+    });
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack-bindings`]: () =>
+        json(200, {
+          items: [
+            row("C1", "public_channel", "joined"),
+            row("C2", "private_channel", "awaiting_invite"),
+            row("C3", "public_channel", "join_failed"),
+            row("C4", "private_channel", null),
+            row("C5", "public_channel", null),
+            // The server's membership wins over a channel list that lags.
+            row("C6", "private_channel", "joined"),
+          ],
+        }),
+      [`GET ${PATH}/slack/channels`]: () =>
+        json(200, {
+          items: [
+            channel("C1", "pub-joined", false),
+            channel("C2", "priv-waiting", true),
+            channel("C3", "pub-failed", false),
+            channel("C4", "priv-unchecked", true),
+            channel("C5", "pub-unchecked", false),
+            channel("C6", "priv-joined", true),
+          ],
+          next_cursor: null,
+          stale: false,
+          truncated: false,
+        }),
+    });
+    const user = await setupUser();
     const list = await screen.findByRole("list", { name: "연결된 채널" });
-    expect(within(list).getByText("/invite 필요")).toBeDefined();
+    await within(list).findByText("#priv-waiting");
+    const hinted = (scope: HTMLElement) =>
+      within(scope)
+        .queryAllByText("/invite 필요")
+        .map(
+          (badge) =>
+            badge.closest("[data-slot=setting-row], li")?.textContent ?? "",
+        );
+    expect(hinted(list).map((text) => text.match(/#[a-z-]+/)?.[0])).toEqual([
+      "#priv-waiting",
+      "#priv-unchecked",
+    ]);
+    await user.click(await screen.findByRole("button", { name: "채널 추가" }));
+    const dialog = screen.getByRole("dialog");
+    await within(dialog).findByText("#pub-joined");
+    expect(hinted(dialog).map((text) => text.match(/#[a-z-]+/)?.[0])).toEqual([
+      "#priv-waiting",
+      "#priv-unchecked",
+    ]);
+  });
+
+  for (const refused of [false, true]) {
+    test(`does not connect a new channel while the default response is ${refused ? "unreadable" : "loading"}`, async () => {
+      const { api } = renderAt(DETAIL, {
+        ...routes(APP, true),
+        [`GET ${PATH}/slack/app/settings`]: () =>
+          refused
+            ? apiError(403, "FORBIDDEN", "internal message")
+            : new Promise<Response>(() => {}),
+        [`GET ${PATH}/slack/channels`]: () =>
+          json(200, {
+            items: [
+              {
+                id: "C123",
+                name: "general",
+                is_private: false,
+                is_member: true,
+              },
+            ],
+            next_cursor: null,
+            stale: false,
+            truncated: false,
+          }),
+      });
+      const user = await setupUser();
+      await screen.findByRole("navigation", { name: "Slack 구역" });
+      await user.click(
+        await screen.findByRole("button", { name: "채널 추가" }),
+      );
+      const dialog = screen.getByRole("dialog");
+      const connect = await within(dialog).findByRole("button", {
+        name: "#general 연결",
+      });
+      // The picker says why it cannot connect.
+      if (refused) await within(dialog).findByRole("alert");
+      expect(connect.hasAttribute("disabled")).toBe(true);
+      await user.click(connect);
+      expect(api.calls.some((call) => call.method === "PUT")).toBe(false);
+    });
+  }
+
+  test("keeps a saved default response when an older read lands after the save", async () => {
+    let mode = "off";
+    let reads = 0;
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/app/settings`]: async () => {
+        reads += 1;
+        const seen = mode;
+        if (reads === 2) await gate;
+        return json(200, { default_mode: seen });
+      },
+      [`PUT ${PATH}/slack/app/settings`]: async (request: Request) => {
+        mode = (await request.json()).default_mode;
+        return json(200, { default_mode: mode });
+      },
+    });
+    const user = await setupUser();
+    const toggle = await screen.findByRole("switch", {
+      name: "새 채널의 기본 반응",
+    });
+    await waitFor(() =>
+      expect(toggle.getAttribute("aria-disabled")).toBe("false"),
+    );
+    // Refresh refetches every Slack query, the setting included.
+    await user.click(screen.getByRole("button", { name: "새로고침" }));
+    await waitFor(() => expect(reads).toBe(2));
+    await user.click(toggle);
+    await screen.findByText(
+      "새 채널의 기본 반응을 '멘션할 때'(으)로 바꿨습니다. 이미 연결된 채널은 그대로입니다.",
+    );
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+  });
+
+  test("keeps a saved default response when a read started during the save lands after it", async () => {
+    let mode = "off";
+    let reads = 0;
+    let saved = () => {};
+    const saving = new Promise<void>((resolve) => {
+      saved = resolve;
+    });
+    let late = () => {};
+    const stale = new Promise<void>((resolve) => {
+      late = resolve;
+    });
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/app/settings`]: async () => {
+        reads += 1;
+        const seen = mode;
+        if (reads === 2) await stale;
+        return json(200, { default_mode: seen });
+      },
+      [`PUT ${PATH}/slack/app/settings`]: async (request: Request) => {
+        const next = (await request.json()).default_mode;
+        await saving;
+        mode = next;
+        return json(200, { default_mode: mode });
+      },
+    });
+    const user = await setupUser();
+    const toggle = await screen.findByRole("switch", {
+      name: "새 채널의 기본 반응",
+    });
+    await waitFor(() =>
+      expect(toggle.getAttribute("aria-disabled")).toBe("false"),
+    );
+    await user.click(toggle);
+    // The refresh reads the old value while the save is still open.
+    await user.click(screen.getByRole("button", { name: "새로고침" }));
+    await waitFor(() => expect(reads).toBe(2));
+    saved();
+    await screen.findByText(
+      "새 채널의 기본 반응을 '멘션할 때'(으)로 바꿨습니다. 이미 연결된 채널은 그대로입니다.",
+    );
+    late();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await waitFor(() =>
+      expect(toggle.getAttribute("aria-checked")).toBe("true"),
+    );
+  });
+
+  test("withholds the default response switch when its setting cannot be read", async () => {
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/app/settings`]: () =>
+        apiError(403, "FORBIDDEN", "internal message"),
+    });
+    const basic = await screen.findByRole("region", { name: "기본" });
+    await waitFor(() =>
+      expect(within(basic).queryByText("—") !== null).toBe(true),
+    );
     expect(
-      within(list).getByRole("button", { name: "/invite 명령 복사" }),
-    ).toBeDefined();
+      within(basic).queryByRole("switch", { name: "새 채널의 기본 반응" }),
+    ).toBeNull();
+    expect(within(basic).getByRole("alert")).toBeDefined();
+    expect(document.body.textContent).not.toContain("internal message");
   });
 
   test("announces a failed channel connection in a toast", async () => {
@@ -502,7 +738,7 @@ describe("Slack management", () => {
             {
               id: "C123",
               name: "general",
-              is_private: false,
+              is_private: true,
               is_member: false,
             },
           ],
@@ -554,7 +790,16 @@ describe("Slack management", () => {
       renderAt(DETAIL, {
         ...routes(APP, true),
         [`GET ${PATH}/slack-bindings`]: () =>
-          json(200, { items: [{ ...BINDING, home: false }] }),
+          json(200, {
+            items: [
+              {
+                ...BINDING,
+                surface_kind: "private_channel",
+                home: false,
+                membership: { state: "awaiting_invite", error: null },
+              },
+            ],
+          }),
         [`GET ${PATH}/slack/channels`]: () =>
           json(200, {
             items: [
@@ -643,6 +888,51 @@ describe("Slack management", () => {
       expect(status.textContent?.includes(text)).toBe(true);
     }
   });
+
+  for (const refused of [false, true]) {
+    test(`copies the app ID from Advanced${refused ? " and asks for a manual copy when the clipboard refuses" : ""}`, async () => {
+      renderAt(DETAIL, routes(APP, true));
+      const user = await setupUser();
+      const copied: string[] = [];
+      const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: {
+          writeText: async (text: string) => {
+            if (refused) throw new Error("denied");
+            copied.push(text);
+          },
+        },
+      });
+      try {
+        const advanced = await screen.findByRole("region", { name: "고급" });
+        const button = within(advanced).getByRole("button", {
+          name: "앱 ID 복사",
+        });
+        await user.click(button);
+        await waitFor(() =>
+          expect(document.querySelector("[data-slot=toast]")?.textContent).toBe(
+            refused
+              ? "클립보드에 복사하지 못했습니다. 앱 ID를 직접 선택해 복사하세요."
+              : "복사됨",
+          ),
+        );
+        expect(copied).toEqual(refused ? [] : ["A123"]);
+        expect(document.activeElement === button).toBe(true);
+        const open = within(advanced).getByRole("link", {
+          name: "Slack에서 열기 (새 탭에서 열림)",
+        });
+        expect(open.getAttribute("href")).toBe(
+          "https://api.slack.com/apps/A123",
+        );
+        expect(open.getAttribute("target")).toBe("_blank");
+        expect(open.getAttribute("rel")).toBe("noopener noreferrer");
+      } finally {
+        if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
+        else Reflect.deleteProperty(navigator, "clipboard");
+      }
+    });
+  }
 
   test("creates the app before requesting installation", async () => {
     const server = agentServer();
@@ -783,9 +1073,7 @@ describe("Slack management", () => {
     });
     const user = await setupUser();
     await screen.findByRole("navigation", { name: "Slack 구역" });
-    const toggle = await screen.findByRole("switch", {
-      name: "다이렉트 메시지",
-    });
+    const toggle = await screen.findByRole("switch", { name: "DM 받기" });
     await waitFor(() =>
       expect(toggle.getAttribute("aria-disabled")).toBe("false"),
     );
@@ -794,8 +1082,16 @@ describe("Slack management", () => {
       expect(toggle.getAttribute("aria-checked")).toBe("true"),
     );
     expect(
-      await screen.findByText("다이렉트 메시지 설정을 저장했습니다."),
+      await screen.findByText("DM 받기 설정을 저장했습니다."),
     ).toBeDefined();
+    // A switch reads on/off, not the binding's mention mode.
+    const status = screen.getByRole("region", { name: "상태" });
+    await waitFor(() =>
+      expect(within(status).queryByText("켜짐")).not.toBeNull(),
+    );
+    expect(
+      within(screen.getByRole("region", { name: "기본" })).getAllByText("켜짐"),
+    ).toHaveLength(1);
     expect(api.calls.find((call) => call.method === "PUT")?.body).toEqual({
       channel_id: null,
       mode: "mention",
@@ -899,7 +1195,7 @@ describe("Slack management", () => {
       renderAt(DETAIL, routes(app, installed));
       expect((await screen.findAllByText(label)).length).toBeGreaterThan(0);
       // The /invite hint belongs to the channel picker alone.
-      expect(screen.queryByText(/공개·비공개 채널 모두 \/invite/)).toBeNull();
+      expect(screen.queryByText(/비공개 채널은 \/invite/)).toBeNull();
       if (installed) {
         const user = await setupUser();
         await user.click(
@@ -907,7 +1203,7 @@ describe("Slack management", () => {
         );
         expect(
           within(screen.getByRole("dialog")).getByText(
-            /공개·비공개 채널 모두 \/invite/,
+            "공개 채널은 반응을 켜면 봇이 자동으로 참여합니다. 비공개 채널은 /invite로 봇을 초대하세요.",
           ),
         ).toBeDefined();
       }

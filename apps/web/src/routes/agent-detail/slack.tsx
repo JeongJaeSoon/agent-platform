@@ -22,6 +22,7 @@ import {
   FieldError,
   FieldLabel,
   Input,
+  Link,
   RowList,
   RowListItem,
   SettingRow,
@@ -32,7 +33,7 @@ import {
   Skeleton,
   Switch,
 } from "@werft-ai/ui";
-import { Copy } from "lucide-react";
+import { Copy, Plus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useMe } from "../../auth/guard.tsx";
 import { copyText } from "../../components/copy.ts";
@@ -54,6 +55,13 @@ const modeKey = (mode: Binding["mode"]) =>
     : mode === "off"
       ? "slack.off"
       : "slack.mention";
+// The DM row is an on/off switch, so mention reads as on there.
+const dmKey = (dm: Binding | undefined) =>
+  !dm
+    ? "slack.notConfigured"
+    : dm.mode === "mention"
+      ? "slack.on"
+      : modeKey(dm.mode);
 
 const SECTION = {
   channels: "slack-channels",
@@ -140,6 +148,21 @@ function useSlackBindings(agentId: string) {
   });
 }
 
+function useSlackSettings(agentId: string) {
+  const { client } = useAgentPlatform();
+  return useQuery({
+    queryKey: ["agents", agentId, "slack", "settings"],
+    queryFn: () =>
+      unwrap(
+        client.GET("/v1/agents/{id}/slack/app/settings", {
+          params: { path: { id: agentId } },
+        }),
+      ),
+    staleTime: 30_000,
+    retry: false,
+  });
+}
+
 function useSlackChannels(agentId: string, query: string) {
   const { client } = useAgentPlatform();
   return useInfiniteQuery({
@@ -163,6 +186,23 @@ function useSlackChannels(agentId: string, query: string) {
     staleTime: 60_000,
     retry: false,
   });
+}
+
+/**
+ * The server joins a public channel once its response is on, so only a
+ * private channel waits for `/invite`. The binding's membership wins; a
+ * channel not bound or not checked yet falls back to the channel list.
+ */
+function awaitsInvite(
+  binding: Binding | undefined,
+  listed: { readonly private?: boolean; readonly member: boolean } | undefined,
+): boolean {
+  if (binding?.membership)
+    return binding.membership.state === "awaiting_invite";
+  const isPrivate = binding
+    ? binding.surface_kind === "private_channel"
+    : listed?.private;
+  return Boolean(isPrivate && listed && !listed.member);
 }
 
 /** Copies the `/invite` line for a channel the bot has not joined. */
@@ -280,7 +320,7 @@ function SlackStatus({ agentId }: { readonly agentId: string }) {
     >
       {error ? <FieldError>{slackFailure(error, t)}</FieldError> : null}
       <RowList variant="joined">
-        <RowListItem className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-control">
+        <RowListItem className="flex flex-wrap items-center gap-x-4 gap-y-2 text-control">
           <Badge
             variant={
               state === "connected"
@@ -292,13 +332,13 @@ function SlackStatus({ agentId }: { readonly agentId: string }) {
           >
             {t(`slack.state.${state}`)}
           </Badge>
-          <span className="flex items-center gap-1.5">
+          <span className="flex items-center gap-2">
             <span className="text-muted-foreground">{t("slack.botId")}</span>
             <span className="font-mono text-caption">
               {identity?.bot_user_id ?? "—"}
             </span>
           </span>
-          <span className="flex items-center gap-1.5">
+          <span className="flex items-center gap-2">
             <span className="text-muted-foreground">
               {t("slack.homeChannel")}
             </span>
@@ -316,16 +356,14 @@ function SlackStatus({ agentId }: { readonly agentId: string }) {
               </span>
             )}
           </span>
-          <span className="flex items-center gap-1.5">
-            <span className="text-muted-foreground">{t("slack.dm")}</span>
+          <span className="flex items-center gap-2">
+            <span className="text-muted-foreground">
+              {t("slack.dmSetting")}
+            </span>
             {bindings.isPending ? (
               placeholder
             ) : (
-              <span>
-                {bindingsLost
-                  ? "—"
-                  : t(dm ? modeKey(dm.mode) : "slack.notConfigured")}
-              </span>
+              <span>{bindingsLost ? "—" : t(dmKey(dm))}</span>
             )}
           </span>
         </RowListItem>
@@ -339,12 +377,15 @@ export function SlackConnect({
   active = true,
   manage = true,
   inPage = false,
+  notify,
 }: {
   readonly agentId: string;
   readonly active?: boolean;
   readonly manage?: boolean;
   /** Rendered as the side list's Advanced section, below the status strip. */
   readonly inPage?: boolean;
+  /** Offers app ID copy and open actions, reporting the copy through it. */
+  readonly notify?: Notify;
 }) {
   const { t } = useI18n();
   const { client } = useAgentPlatform();
@@ -468,6 +509,39 @@ export function SlackConnect({
                   <span className="font-mono text-caption">
                     {record.app_id}
                   </span>
+                }
+                actions={
+                  notify ? (
+                    <>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        aria-label={t("slack.copyAppId")}
+                        onClick={() => {
+                          const value = record.app_id ?? "";
+                          void copyText(value, { current: null }).then((ok) =>
+                            notify(
+                              t(ok ? "slack.copied" : "slack.copyAppIdFailed"),
+                            ),
+                          );
+                        }}
+                      >
+                        <Copy aria-hidden="true" strokeWidth={1.5} />
+                        {t("slack.copy")}
+                      </Button>
+                      <Button asChild variant="outline" size="sm">
+                        <Link
+                          href={`https://api.slack.com/apps/${encodeURIComponent(record.app_id)}`}
+                          target="_blank"
+                          newTabLabel={t("slack.newTab")}
+                          className="text-inherit hover:no-underline"
+                        >
+                          {t("slack.openInSlack")}
+                        </Link>
+                      </Button>
+                    </>
+                  ) : null
                 }
               />
             ) : null}
@@ -607,7 +681,7 @@ export function SlackConnect({
           >
             {identity ? (
               <SettingRow
-                title={t("slack.revoke")}
+                title={t("slack.revokeTitle")}
                 description={t("slack.revokeWarning")}
                 actions={
                   <Button
@@ -623,7 +697,7 @@ export function SlackConnect({
               />
             ) : null}
             <SettingRow
-              title={t("slack.delete")}
+              title={t("slack.deleteTitle")}
               description={t("slack.deleteWarning")}
               actions={
                 <Button
@@ -650,12 +724,10 @@ export function SlackConnect({
 
 function SlackChannels({
   agentId,
-  defaultMention,
   invite,
   notify,
 }: {
   readonly agentId: string;
-  readonly defaultMention: boolean;
   /** The line to paste in a channel to add the bot. */
   readonly invite: string;
   readonly notify: Notify;
@@ -679,6 +751,9 @@ function SlackChannels({
   }, [input]);
   const bindings = useSlackBindings(agentId);
   const channels = useSlackChannels(agentId, query);
+  // A new binding takes the saved default; until it is read there is none.
+  const settings = useSlackSettings(agentId);
+  const defaultMode = settings.data?.default_mode;
   const update = useMutation({
     onMutate: () => setNotice(""),
     mutationFn: ({ body }: BindingChange) =>
@@ -729,17 +804,13 @@ function SlackChannels({
   const error = bindings.error ?? channels.error ?? update.error;
   const connectChannel = (channelId: string) => {
     const row = rows.find((item) => item.external_surface_id === channelId);
+    const mode = row ? (row.mode === "off" ? "off" : "mention") : defaultMode;
+    if (!mode) return;
     update.mutate({
       kind: pickHome ? "home" : "connect",
       body: {
         channel_id: channelId,
-        mode: row
-          ? row.mode === "off"
-            ? "off"
-            : "mention"
-          : defaultMention
-            ? "mention"
-            : "off",
+        mode,
         home: pickHome || (row?.home ?? false),
         ...(row ? { ceiling: row.ceiling } : {}),
       },
@@ -789,6 +860,7 @@ function SlackChannels({
               setPicking(true);
             }}
           >
+            <Plus aria-hidden="true" strokeWidth={1.5} />
             {t("slack.addChannel")}
           </Button>
         </div>
@@ -838,7 +910,7 @@ function SlackChannels({
                     : "slack.public",
                 )}
                 meta={
-                  known && !known.member ? (
+                  awaitsInvite(row, known) ? (
                     <span className="flex flex-wrap items-center gap-1">
                       <Badge variant="gray">{t("slack.privateInvite")}</Badge>
                       <InviteCopy command={invite} notify={notify} />
@@ -877,9 +949,11 @@ function SlackChannels({
             <DialogTitle>
               {t(pickHome ? "slack.setHome" : "slack.addChannel")}
             </DialogTitle>
-            <DialogDescription>{t("slack.joinHint")}</DialogDescription>
+            <DialogDescription>{t("slack.joinHintAuto")}</DialogDescription>
           </DialogHeader>
-          {error ? <FieldError>{slackFailure(error, t)}</FieldError> : null}
+          {(error ?? settings.error) ? (
+            <FieldError>{slackFailure(error ?? settings.error, t)}</FieldError>
+          ) : null}
           <Field>
             <FieldLabel>{t("slack.search")}</FieldLabel>
             <Input
@@ -907,7 +981,15 @@ function SlackChannels({
                               : "slack.public",
                           )}
                         </Badge>
-                        {!channel.is_member ? (
+                        {awaitsInvite(
+                          rows.find(
+                            (row) => row.external_surface_id === channel.id,
+                          ),
+                          {
+                            private: channel.is_private,
+                            member: channel.is_member,
+                          },
+                        ) ? (
                           <span className="flex flex-wrap items-center gap-1">
                             <Badge variant="gray">
                               {t("slack.privateInvite")}
@@ -933,6 +1015,10 @@ function SlackChannels({
                         disabled={
                           update.isPending ||
                           !bindings.isSuccess ||
+                          (!defaultMode &&
+                            !rows.some(
+                              (row) => row.external_surface_id === channel.id,
+                            )) ||
                           channels.isPlaceholderData ||
                           input.trim() !== query ||
                           (!pickHome &&
@@ -1020,13 +1106,11 @@ function SlackDmSetting({ agentId }: { readonly agentId: string }) {
   const error = bindings.error ?? update.error;
   return (
     <SettingRow
-      title={t("slack.dm")}
+      title={t("slack.dmSetting")}
       description={t("slack.dmHint")}
       status={
         <span className="text-control text-muted-foreground">
-          {bindings.isError && !bindings.data
-            ? "—"
-            : t(dm ? modeKey(dm.mode) : "slack.notConfigured")}
+          {bindings.isError && !bindings.data ? "—" : t(dmKey(dm))}
         </span>
       }
       meta={
@@ -1043,11 +1127,96 @@ function SlackDmSetting({ agentId }: { readonly agentId: string }) {
       control={
         bindings.isError && !bindings.data ? null : (
           <Switch
-            aria-label={t("slack.dm")}
+            aria-label={t("slack.dmSetting")}
             checked={dm !== undefined && dm.mode !== "off"}
             aria-disabled={unavailable}
             onCheckedChange={(checked) => {
               if (!unavailable) update.mutate(checked);
+            }}
+          />
+        )
+      }
+    />
+  );
+}
+
+function SlackDefaultReaction({ agentId }: { readonly agentId: string }) {
+  const { t } = useI18n();
+  const { client } = useAgentPlatform();
+  const cache = useQueryClient();
+  const settings = useSlackSettings(agentId);
+  const [notice, setNotice] = useState("");
+  const update = useMutation({
+    onMutate: async () => {
+      setNotice("");
+      // A read still in flight would land after the save and undo it.
+      await cache.cancelQueries({
+        queryKey: ["agents", agentId, "slack", "settings"],
+      });
+    },
+    mutationFn: (checked: boolean) =>
+      unwrap(
+        client.PUT("/v1/agents/{id}/slack/app/settings", {
+          params: {
+            path: { id: agentId },
+            header: { "Idempotency-Key": crypto.randomUUID() },
+          },
+          body: { default_mode: checked ? "mention" : "off" },
+        }),
+      ),
+    onSuccess: (saved) => {
+      cache.setQueryData(["agents", agentId, "slack", "settings"], saved);
+      setNotice(
+        t("slack.defaultSaved", {
+          mode: t(
+            saved.default_mode === "mention" ? "slack.mention" : "slack.off",
+          ),
+        }),
+      );
+    },
+    // A read started during the save may hold the old value; drop it and
+    // read again now that the save is done.
+    onSettled: () =>
+      cache.invalidateQueries({
+        queryKey: ["agents", agentId, "slack", "settings"],
+      }),
+  });
+  const lost = settings.isError && !settings.data;
+  const mention = settings.data?.default_mode === "mention";
+  const error = settings.error ?? update.error;
+  return (
+    <SettingRow
+      title={t("slack.defaultReaction")}
+      description={t("slack.defaultHint")}
+      status={
+        <span className="text-control text-muted-foreground">
+          {lost
+            ? "—"
+            : settings.data
+              ? t(mention ? "slack.mention" : "slack.off")
+              : null}
+        </span>
+      }
+      meta={
+        <>
+          {error ? <FieldError>{slackFailure(error, t)}</FieldError> : null}
+          <output
+            aria-live="polite"
+            className={notice ? "text-control" : "sr-only"}
+          >
+            {notice}
+          </output>
+        </>
+      }
+      control={
+        lost ? null : (
+          <Switch
+            aria-label={t("slack.defaultReaction")}
+            checked={mention}
+            aria-disabled={!settings.isSuccess || update.isPending}
+            onCheckedChange={(checked) => {
+              if (settings.isSuccess && !update.isPending)
+                update.mutate(checked);
             }}
           />
         )
@@ -1083,7 +1252,6 @@ export default function SlackTab({
       state: ({ slackInstalled: _, ...rest }) => rest,
     });
   }, [justInstalled, notify, navigate, t]);
-  const [defaultMention, setDefaultMention] = useState(true);
   const { app, identities } = useSlackState(agentId);
   // The danger zone exists only while there is an app to revoke or delete.
   const keys: readonly SectionKey[] = app.data?.slack_app
@@ -1161,7 +1329,6 @@ export default function SlackTab({
           <SlackStatus agentId={agentId} />
           <SlackChannels
             agentId={agentId}
-            defaultMention={defaultMention}
             invite={`/invite @${slug}`}
             notify={notify}
           />
@@ -1176,25 +1343,15 @@ export default function SlackTab({
             </h2>
             <RowList variant="joined">
               <SlackDmSetting agentId={agentId} />
-              <SettingRow
-                title={t("slack.defaultReaction")}
-                description={t("slack.defaultHint")}
-                status={
-                  <span className="text-control text-muted-foreground">
-                    {t(defaultMention ? "slack.mention" : "slack.off")}
-                  </span>
-                }
-                control={
-                  <Switch
-                    aria-label={t("slack.defaultReaction")}
-                    checked={defaultMention}
-                    onCheckedChange={setDefaultMention}
-                  />
-                }
-              />
+              <SlackDefaultReaction agentId={agentId} />
             </RowList>
           </section>
-          <SlackConnect agentId={agentId} active={active} inPage />
+          <SlackConnect
+            agentId={agentId}
+            active={active}
+            inPage
+            notify={notify}
+          />
         </div>
       </SideNavLayout>
       {toast}
