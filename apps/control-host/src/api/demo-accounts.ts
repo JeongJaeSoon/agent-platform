@@ -114,6 +114,26 @@ export function demoAccountsRefusal(
 
 type Lookup = (host: string) => Promise<{ address: string }[]>;
 
+// The trailing dot keeps the search domains out of every lookup of it.
+function previewService(env: Record<string, string | undefined>) {
+  return `postgres.${env.PREVIEW_NAMESPACE}.svc.cluster.local.`;
+}
+
+/**
+ * The URL the CLI connects with. A preview pod uses the absolute Service
+ * name previewDatabaseRefusal checked: pg resolves the host again on every
+ * connection, and a short name could by then fall through elsewhere.
+ */
+export function demoDatabaseUrl(
+  env: Record<string, string | undefined>,
+): string {
+  const raw = env.DATABASE_URL ?? "";
+  if (!env.KUBERNETES_SERVICE_HOST) return raw;
+  const url = new URL(raw);
+  url.hostname = previewService(env);
+  return url.toString();
+}
+
 /**
  * The DNS half of the preview exception, once demoAccountsRefusal passed:
  * the DATABASE_URL host must resolve to this namespace's postgres Service.
@@ -125,8 +145,7 @@ export async function previewDatabaseRefusal(
   lookup: Lookup = (host) => dnsLookup(host, { all: true }),
 ): Promise<string | null> {
   if (!env.KUBERNETES_SERVICE_HOST) return null;
-  // The trailing dot keeps the search domains out of this lookup.
-  const service = `postgres.${env.PREVIEW_NAMESPACE}.svc.cluster.local.`;
+  const service = previewService(env);
   const host = new URL(env.DATABASE_URL ?? "").hostname;
   const addresses = async (name: string) =>
     (await lookup(name))
@@ -302,7 +321,7 @@ async function main(): Promise<void> {
     return;
   }
   const pool = createEnforcedPool(
-    process.env.DATABASE_URL ?? "",
+    demoDatabaseUrl(process.env),
     createLogger(),
     "demo-accounts",
     JOB_POOL_TIMEOUTS,

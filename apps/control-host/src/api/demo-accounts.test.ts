@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import {
   demoAccountsRefusal,
+  demoDatabaseUrl,
   previewDatabaseRefusal,
 } from "./demo-accounts.ts";
 
@@ -174,6 +175,24 @@ describe("demoAccountsRefusal", () => {
     test("does nothing outside Kubernetes", async () => {
       const lookup = resolver({});
       expect(await previewDatabaseRefusal(local, lookup)).toBeNull();
+    });
+  });
+
+  describe("demoDatabaseUrl", () => {
+    test("connects a preview pod through the absolute Service name", () => {
+      expect(
+        demoDatabaseUrl({
+          ...local,
+          KUBERNETES_SERVICE_HOST: "10.0.0.1",
+          PREVIEW_NAMESPACE: "k8s-963-demo",
+        }),
+      ).toBe(
+        "postgresql://postgres:dev@postgres.k8s-963-demo.svc.cluster.local.:5432/sessions",
+      );
+    });
+
+    test("leaves the compose stack's URL alone", () => {
+      expect(demoDatabaseUrl(local)).toBe(local.DATABASE_URL);
     });
   });
 

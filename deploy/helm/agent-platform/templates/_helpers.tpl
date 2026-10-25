@@ -112,6 +112,20 @@ imagePullSecrets:
 {{- end }}
 {{- end -}}
 
+{{/*
+Fails when a values-named variable is PREVIEW_NAMESPACE: preview.enabled is
+the only way to declare a preview install (demo-accounts.ts).
+*/}}
+{{- define "ap.previewEnvReserved" -}}
+{{- $names := concat (keys .Values.config.limits) .Values.secrets.catalogEnv -}}
+{{- range $key := list "api" "scheduler" "reconciler" "slack" "egressProxy" -}}
+{{- $names = concat $names (keys (index $.Values $key).extraEnv) -}}
+{{- end -}}
+{{- if has "PREVIEW_NAMESPACE" $names -}}
+{{- fail "PREVIEW_NAMESPACE must not be set through extraEnv, config.limits or secrets.catalogEnv; preview.enabled is the only way to declare a preview install" -}}
+{{- end -}}
+{{- end -}}
+
 {{/* /tmp is the only writable path: the root filesystem is read-only. */}}
 {{- define "ap.tmpVolume" -}}
 - name: tmp

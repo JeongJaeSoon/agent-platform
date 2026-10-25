@@ -66,9 +66,7 @@ spec:
             - name: AWS_ENDPOINT_URL_SECRETS_MANAGER
               value: {{ . | quote }}
             {{- end }}
-            {{- if hasKey .Values.api.extraEnv "PREVIEW_NAMESPACE" }}
-            {{- fail "api.extraEnv must not set PREVIEW_NAMESPACE; preview.enabled is the only way to declare a preview install" }}
-            {{- end }}
+            {{- include "ap.previewEnvReserved" . }}
             {{- if .Values.preview.enabled }}
             - name: PREVIEW_NAMESPACE
               valueFrom:

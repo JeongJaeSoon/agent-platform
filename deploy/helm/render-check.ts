@@ -530,11 +530,16 @@ const MUST_FAIL: [string, string[], RegExp][] = [
     ["-f", ciDigests, "--set", "installationId=not/a/label"],
     /installationId must be a Kubernetes label value/,
   ],
-  [
-    "PREVIEW_NAMESPACE through api.extraEnv",
-    ["-f", ciDigests, "--set", "api.extraEnv.PREVIEW_NAMESPACE=prod"],
-    /api.extraEnv must not set PREVIEW_NAMESPACE/,
-  ],
+  ...[
+    "api.extraEnv.PREVIEW_NAMESPACE=prod",
+    "scheduler.extraEnv.PREVIEW_NAMESPACE=prod",
+    "config.limits.PREVIEW_NAMESPACE=prod",
+    "secrets.catalogEnv={ANTHROPIC_API_KEY,PREVIEW_NAMESPACE}",
+  ].map((set): [string, string[], RegExp] => [
+    `PREVIEW_NAMESPACE through ${set.split(/[.=]/).slice(0, 2).join(".")}`,
+    ["-f", ciDigests, "--set", set],
+    /PREVIEW_NAMESPACE must not be set through/,
+  ]),
 ];
 
 const slackOff = render(["-f", ciDigests, "--set", "slack.enabled=false"]);
