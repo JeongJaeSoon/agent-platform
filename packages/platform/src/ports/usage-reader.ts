@@ -1,3 +1,5 @@
+import type { SessionViewer } from "./session-share-store.ts";
+
 /** Installation-wide figures, summed across every owner. */
 export type InstallationUsage = {
   /** When the database read them; each figure comes from the same statement. */
@@ -114,6 +116,27 @@ export type UsageToolsFilter = {
   agentId?: string;
 };
 
+/** One call of a tool. Session id and title are null when hidden. */
+export type UsageToolCallRecord = {
+  sessionId: string | null;
+  title: string | null;
+  agent: string | null;
+  occurredAt: Date;
+  durationMs: number | null;
+  outcome: "ok" | "failed" | "unknown";
+};
+
+export type UsageToolCallsFilter = UsageToolsFilter & {
+  name: string;
+  sort: "recent" | "slowest";
+  limit: number;
+  /** Opaque; a malformed one is InvalidCursorError. */
+  cursor?: string;
+  /** A session shows its id and title only in this owner, to this viewer. */
+  ownerId: string;
+  viewer: SessionViewer;
+};
+
 export interface UsageReader {
   installationUsage(): Promise<InstallationUsage>;
   /** null when the session is not visible to the owner. */
@@ -140,4 +163,13 @@ export interface UsageReader {
     tools: UsageToolsFilter,
     limit: number,
   ): Promise<UsageToolRecord[]>;
+  usageToolCalls(
+    filter: UsageSummaryFilter,
+    calls: UsageToolCallsFilter,
+  ): Promise<{ calls: UsageToolCallRecord[]; nextCursor: string | null }>;
+  /** Every UTC date the period touches, oldest first, zeros included. */
+  usageToolDays(
+    filter: UsageSummaryFilter,
+    tools: UsageToolsFilter & { name: string },
+  ): Promise<{ date: string; calls: number }[]>;
 }

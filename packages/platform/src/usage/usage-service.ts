@@ -8,6 +8,8 @@ import {
   type UsageSeriesResponse,
   type UsageSummaryQuery,
   type UsageSummaryResponse,
+  type UsageToolCallsQuery,
+  type UsageToolCallsResponse,
   type UsageToolsQuery,
   type UsageToolsResponse,
 } from "@werft-ai/contracts";
@@ -281,6 +283,45 @@ export function createUsageService(deps: {
         max_ms: row.maxMs,
       }));
       return { tools, findings: toolFindings(tools) };
+    },
+
+    async getUsageToolCalls(
+      actor: Caller,
+      name: string,
+      query: UsageToolCallsQuery,
+    ): Promise<UsageToolCallsResponse> {
+      const filter = await filterFor(actor, query.scope);
+      const tools = {
+        period: {
+          since: query.since,
+          ...(query.until === undefined ? {} : { until: query.until }),
+        },
+        ...(query.agent_id === undefined ? {} : { agentId: query.agent_id }),
+      };
+      const page = await reader.usageToolCalls(filter, {
+        ...tools,
+        name,
+        sort: query.sort,
+        limit: query.limit,
+        ...(query.cursor === undefined ? {} : { cursor: query.cursor }),
+        ownerId: actor.ownerId,
+        viewer: {
+          userId: actor.actor?.userId ?? null,
+          apiKeyId: actor.actor?.apiKeyId ?? null,
+        },
+      });
+      return {
+        calls: page.calls.map((call) => ({
+          session_id: call.sessionId,
+          title: call.title,
+          agent: call.agent,
+          occurred_at: call.occurredAt.toISOString(),
+          duration_ms: call.durationMs,
+          outcome: call.outcome,
+        })),
+        next_cursor: page.nextCursor,
+        per_day: await reader.usageToolDays(filter, { ...tools, name }),
+      };
     },
 
     async getSessionUsage(

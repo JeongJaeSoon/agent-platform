@@ -279,11 +279,14 @@ export type ToolCallTotals = {
   maxMs: number;
 };
 
-const DAY_MS = 86_400_000;
+export const DAY_MS = 86_400_000;
 
 // Which tool_call_days rows a usage filter reads, and the same sessions as
-// a condition on `sessions` for the part of the period no whole day covers.
-function scopeOf(filter: UsageSummaryFilter, agentId: string | undefined) {
+// a condition on `sessions s` for the part of the period no whole day covers.
+export function scopeOf(
+  filter: UsageSummaryFilter,
+  agentId: string | undefined,
+) {
   // Rows are keyed by uuid::text, which Postgres writes in lowercase.
   const agentKey = agentId?.toLowerCase() ?? "";
   const agent =
