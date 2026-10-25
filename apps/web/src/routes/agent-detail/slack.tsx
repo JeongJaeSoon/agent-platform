@@ -237,6 +237,27 @@ function ChannelSkeleton() {
   );
 }
 
+function slackState(
+  error: unknown,
+  identity: object | undefined,
+  record:
+    | {
+        readonly secrets: { readonly slack_bot_token: { configured: boolean } };
+      }
+    | null
+    | undefined,
+) {
+  return error
+    ? "error"
+    : identity
+      ? "connected"
+      : record?.secrets.slack_bot_token.configured
+        ? "reinstall"
+        : record
+          ? "pending"
+          : "none";
+}
+
 function SlackStatus({ agentId }: { readonly agentId: string }) {
   const { t } = useI18n();
   const { app, identities } = useSlackState(agentId);
@@ -251,13 +272,7 @@ function SlackStatus({ agentId }: { readonly agentId: string }) {
     .flatMap((page) => page.items)
     .find((channel) => channel.id === home?.external_surface_id)?.name;
   const error = app.error ?? identities.error ?? bindings.error;
-  const state = error
-    ? "error"
-    : identity
-      ? "connected"
-      : app.data?.slack_app
-        ? "reinstall"
-        : "none";
+  const state = slackState(error, identity, app.data?.slack_app);
   const placeholder = <Skeleton className="h-5 w-24" />;
   const bindingsLost = bindings.isError && !bindings.data;
   return (
@@ -413,15 +428,7 @@ export function SlackConnect({
   if (app.isPending || identities.isPending) return <SlackSkeleton />;
   const busy = connect.isPending || remove.isPending || revoke.isPending;
   const pending = record?.state === "creating" || record?.state === "deleting";
-  const status = error
-    ? "error"
-    : identity
-      ? "connected"
-      : record?.secrets.slack_bot_token.configured
-        ? "reinstall"
-        : record
-          ? "pending"
-          : "none";
+  const status = slackState(error, identity, record);
   return (
     <>
       <section

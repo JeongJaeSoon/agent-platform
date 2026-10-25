@@ -706,6 +706,49 @@ describe("Slack management", () => {
     ).toBe(true);
   });
 
+  for (const [configured, label] of [
+    [false, "설치 대기"],
+    [true, "재설치 필요"],
+  ] as const) {
+    test(`shows ${label} in the status row after a revoke with bot token configured=${configured}`, async () => {
+      const app = {
+        ...APP,
+        secrets: {
+          ...APP.secrets,
+          slack_bot_token: { ...APP.secrets.slack_bot_token, configured },
+        },
+      };
+      let installed = true;
+      renderAt(DETAIL, {
+        ...routes(app, true),
+        [`GET ${PATH}/identities`]: () =>
+          json(200, { items: installed ? [IDENTITY] : [] }),
+        [`DELETE ${PATH}/identities/${ID}`]: () => {
+          installed = false;
+          return json(200, {
+            agent_identity: { ...IDENTITY, status: "revoked", revoked_at: AT },
+            receipt_id: ID,
+          });
+        },
+      });
+      const user = await setupUser();
+      await user.click(
+        await screen.findByRole("button", { name: "연결 해제" }),
+      );
+      await user.click(
+        within(await screen.findByRole("dialog")).getByRole("button", {
+          name: "연결 해제",
+        }),
+      );
+      await screen.findByText("Slack 연결을 해제했습니다.");
+      await waitFor(() =>
+        expect(
+          screen.getByRole("region", { name: "상태" }).textContent,
+        ).toContain(label),
+      );
+    });
+  }
+
   test("saves the DM binding independently of channels", async () => {
     let dm = {
       ...BINDING,
