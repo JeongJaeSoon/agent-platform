@@ -407,9 +407,11 @@ export function OperationsUsageScreen() {
   });
   const models = useQuery(breakdown("model"));
   const agents = useQuery(breakdown("agent"));
-  // The three answers are shown as one set: until every one of them is for
-  // the picked scope and period, the last whole set stays with its own basis.
-  const settled = [series, models, agents].every(
+  // The three answers are shown as one set: until every one of them has come
+  // for the picked scope and period, the last whole set stays with its own
+  // basis, through a failure and its retry too.
+  const queries = [series, models, agents];
+  const settled = queries.every(
     (query) => !query.isPending && !query.isPlaceholderData,
   );
   const current = {
@@ -419,7 +421,8 @@ export function OperationsUsageScreen() {
     agents: agents.data,
   };
   const last = useRef(current);
-  if (settled) last.current = current;
+  if (settled && queries.every((query) => query.isSuccess))
+    last.current = current;
   const shown = last.current;
   const empty =
     shown.series?.buckets.every((bucket) => bucket.session_count === 0) ??
@@ -459,7 +462,7 @@ export function OperationsUsageScreen() {
         </Card>
       ) : (
         <div
-          aria-busy={!settled || undefined}
+          aria-busy={queries.some((query) => query.isFetching) || undefined}
           className="flex min-w-0 flex-col gap-8"
         >
           <UsageKpis buckets={shown.series?.buckets} />

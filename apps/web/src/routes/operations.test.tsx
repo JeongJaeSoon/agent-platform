@@ -763,6 +763,80 @@ describe("운영", () => {
     expect(screen.getByText(/^내 사용량 · 2026-09-25/)).toBeTruthy();
   });
 
+  test("사용량 탭: series가 실패한 뒤 다시 시도하는 동안에도 마지막 수치가 남는다", async () => {
+    setSystemTime(NOW);
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let sevenDayCalls = 0;
+    renderAt("/operations/usage", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/limits": () => json(200, LIMITS),
+      ...usageRoutes,
+      "GET /v1/usage/series": async (request: Request) => {
+        const since = new URL(request.url).searchParams.get("since");
+        if (since?.startsWith("2026-10-18")) {
+          sevenDayCalls += 1;
+          if (sevenDayCalls === 1)
+            return json(500, { error: { code: "INTERNAL", message: "x" } });
+          await held;
+        }
+        return usageRoutes["GET /v1/usage/series"](request);
+      },
+    });
+    await screen.findByRole("figure", { name: "일자별 추정 비용, 30일" });
+    const user = await setupUser();
+    await user.click(screen.getByRole("button", { name: "7일" }));
+    await user.click(await screen.findByRole("button", { name: "다시 시도" }));
+    await waitFor(() => expect(sevenDayCalls).toBe(2));
+    expect(
+      screen.getByRole("figure", { name: "일자별 추정 비용, 30일" }),
+    ).toBeTruthy();
+    expect(screen.getByText(/^설치 전체 · 2026-09-25/)).toBeTruthy();
+    release();
+    expect(
+      await screen.findByRole("figure", { name: "일자별 추정 비용, 7일" }),
+    ).toBeTruthy();
+  });
+
+  test("사용량 탭: 오래된 캐시 기간으로 돌아오면 수치는 바로 보이고 다시 읽는 동안 aria-busy다", async () => {
+    setSystemTime(NOW);
+    let release = () => {};
+    let held: Promise<void> | undefined;
+    const { api } = renderAt("/operations/usage", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/limits": () => json(200, LIMITS),
+      ...usageRoutes,
+      "GET /v1/usage/series": async (request: Request) => {
+        await held;
+        return usageRoutes["GET /v1/usage/series"](request);
+      },
+    });
+    const busy = () =>
+      document.querySelector("[aria-busy]")?.getAttribute("aria-busy") ?? null;
+    await screen.findByRole("figure", { name: "일자별 추정 비용, 30일" });
+    await waitFor(() => expect(busy()).toBeNull());
+    const user = await setupUser();
+    await user.click(screen.getByRole("button", { name: "7일" }));
+    await screen.findByRole("figure", { name: "일자별 추정 비용, 7일" });
+    await waitFor(() => expect(busy()).toBeNull());
+    // The 30-day answers are past their stale time; the refetch is held.
+    setSystemTime(new Date(NOW.getTime() + 61_000));
+    held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const before = api.calls.length;
+    await user.click(screen.getByRole("button", { name: "30일" }));
+    expect(
+      screen.getByRole("figure", { name: "일자별 추정 비용, 30일" }),
+    ).toBeTruthy();
+    await waitFor(() => expect(busy()).toBe("true"));
+    expect(api.calls.length).toBeGreaterThan(before);
+    release();
+    await waitFor(() => expect(busy()).toBeNull());
+  });
+
   test("예전 /usage는 기간·범위를 그대로 들고 /operations/usage로 간다", async () => {
     setSystemTime(NOW);
     const { history } = renderAt("/usage?days=7&scope=me", {
