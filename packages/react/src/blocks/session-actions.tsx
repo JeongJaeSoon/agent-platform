@@ -35,7 +35,7 @@ import {
   Composer,
   QuestionCard,
 } from "../components/index.ts";
-import { useExpired } from "../components/session/expiry.ts";
+import { useExpired, useExpiryFocus } from "../components/session/expiry.ts";
 import {
   type SessionControl,
   useAnswer,
@@ -138,6 +138,8 @@ function SummaryQuestion({
     request.expires_at,
     Date.now(),
   );
+  // Expiry takes the line's toggle away; the form's own notice may be hidden.
+  const { noticeRef, within } = useExpiryFocus(expired);
   const prompt = request.questions[0]?.prompt;
 
   useEffect(() => {
@@ -153,7 +155,10 @@ function SummaryQuestion({
 
   return (
     <>
-      <div className="flex min-h-[var(--ap-row-min-height)] flex-wrap items-center justify-end gap-x-4 gap-y-2 px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)]">
+      <div
+        className="flex min-h-[var(--ap-row-min-height)] flex-wrap items-center justify-end gap-x-4 gap-y-2 px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)]"
+        {...within}
+      >
         <div className="flex min-w-0 flex-1 basis-60 flex-col gap-0.5">
           <p className="m-0 flex min-w-0 items-center gap-2 font-medium text-control leading-5">
             <span className="min-w-0 truncate">{heading}</span>
@@ -166,7 +171,11 @@ function SummaryQuestion({
           {prompt === undefined || open ? null : (
             <p className="m-0 truncate text-control leading-5">{prompt}</p>
           )}
-          <p className="m-0 text-caption text-muted-foreground leading-4 [overflow-wrap:anywhere]">
+          <p
+            ref={noticeRef}
+            tabIndex={expired ? -1 : undefined}
+            className="m-0 text-caption text-muted-foreground leading-4 [overflow-wrap:anywhere]"
+          >
             {meta}
             {meta === undefined ? null : <span aria-hidden="true"> · </span>}
             {expired ? messages.expired : messages.expires}
@@ -198,7 +207,8 @@ function SummaryQuestion({
       <div
         ref={formRef}
         id={formId}
-        hidden={!open || expired}
+        // Open past its expiry, the form stays: its notice takes the focus.
+        hidden={!open}
         className="px-[var(--ap-row-padding-x)] pb-[var(--ap-row-padding-y)]"
       >
         {children}
@@ -312,9 +322,18 @@ export function PendingAnswers({
     const next =
       root?.querySelector<HTMLElement>(
         "li button:not(:disabled), li input:not(:disabled)",
-      ) ?? root?.querySelector<HTMLElement>("li summary");
-    (next ?? noticeRef.current)?.focus();
-  }, [items]);
+      ) ??
+      root?.querySelector<HTMLElement>("li summary") ??
+      (announceSent
+        ? noticeRef.current
+        : // The notice line stays empty when the host announces the answer
+          // elsewhere; only lapsed requests are left, so their visible
+          // expiry notice takes the keyboard.
+          Array.from(
+            root?.querySelectorAll<HTMLElement>("li [tabindex='-1']") ?? [],
+          ).find((notice) => notice.closest("[hidden]") === null));
+    next?.focus();
+  }, [items, announceSent]);
 
   const send = (body: Parameters<typeof answer.mutate>[0]) => {
     // The buttons are off while an answer is on its way; a second press
@@ -378,9 +397,10 @@ export function PendingAnswers({
   );
   // An error shows on its card; once the card is gone, it shows here.
   const shownHere =
-    (outcome?.kind === "notice" && announceSent) ||
-    (outcome !== null &&
-      !items.some((request) => request.request_id === outcome.requestId));
+    outcome !== null &&
+    (outcome.kind === "notice"
+      ? announceSent
+      : !items.some((request) => request.request_id === outcome.requestId));
 
   return (
     <div

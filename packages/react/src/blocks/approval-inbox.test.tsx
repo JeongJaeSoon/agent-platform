@@ -18,6 +18,7 @@ type ApprovalInboxProps = import("./approval-inbox.tsx").ApprovalInboxProps;
 const SESSION_ID = "0192f0c4-3d1e-4c7a-9b2f-5e6d7c8a9b01";
 const SHORT = SESSION_ID.slice(0, 8);
 const STALE_ID = "0192f0c4-3d1e-4c7a-9b2f-5e6d7c8a9b02";
+const NEWER_ID = "0192f0c4-3d1e-4c7a-9b2f-5e6d7c8a9b03";
 const LATER = "2099-01-01T00:00:00.000Z";
 
 const permission = (request_id: string, tool: string): PendingRequest => ({
@@ -113,6 +114,8 @@ function renderInbox({
     })}\n\n`;
   };
   let items = open;
+  // Set by `addNewer`: a session that starts waiting ahead of SESSION_ID.
+  let newer = false;
   const fakeFetch = async (request: Request) => {
     const url = new URL(request.url);
     const route = `${request.method} ${url.pathname}${url.search}`;
@@ -120,6 +123,9 @@ function renderInbox({
       waitingReads += 1;
       return json(200, {
         items: [
+          ...(newer
+            ? [{ id: NEWER_ID, title: "Newer", status: "needs_input" }]
+            : []),
           ...(jumped
             ? [{ id: STALE_ID, title: null, status: "needs_input" }]
             : []),
@@ -132,6 +138,9 @@ function renderInbox({
         ],
         next_cursor: null,
       });
+    }
+    if (route === `GET /v1/sessions/${NEWER_ID}/pending-requests`) {
+      return json(200, { answerable, items: [permission("req_n", "Read")] });
     }
     if (route === `GET /v1/sessions/${STALE_ID}/pending-requests`) {
       return json(200, { answerable: true, items: ahead });
@@ -165,11 +174,11 @@ function renderInbox({
     }
     return json(404, { error: { code: "NOT_FOUND", message: route } });
   };
-  const queryClient = new QueryClient();
   const client = createApiClient({
     baseUrl: "https://console.test",
     fetch: fakeFetch as unknown as NonNullable<ApiClientOptions["fetch"]>,
   });
+  const queryClient = new QueryClient();
   const view = render(
     <QueryClientProvider client={queryClient}>
       <AgentPlatformProvider
@@ -210,6 +219,10 @@ function renderInbox({
     },
     posted,
     waitingReads: () => waitingReads,
+    addNewer: async () => {
+      newer = true;
+      await act(() => queryClient.invalidateQueries());
+    },
     /** Sends more frames down the open event stream. */
     push: (...more: (readonly [event: string, data: unknown])[]) =>
       stream?.enqueue(new TextEncoder().encode(more.map(frame).join(""))),
@@ -293,6 +306,42 @@ describe("ApprovalInbox", () => {
         `Allow: Write · ${SHORT}`,
       ),
     );
+  });
+
+  test("답할 때마다 제목 줄의 알림을 새로 써서 두 번째 답도 읽힌다", async () => {
+    const user = await setupUser();
+    const view = renderInbox({
+      open: [permission("req_1", "Bash"), permission("req_2", "Write")],
+      layout: "summary",
+    });
+    await user.click(
+      await view.findByRole("button", { name: `Allow: Bash · ${SHORT}` }),
+    );
+    const first = await view.findByText("Answer sent.");
+    await user.click(
+      await view.findByRole("button", { name: `Allow: Write · ${SHORT}` }),
+    );
+    await waitFor(() => expect(view.posted).toHaveLength(2));
+    await waitFor(() => expect(view.getByText("Answer sent.")).not.toBe(first));
+  });
+
+  test("새 세션이 앞에 들어와 포커스를 쥔 줄이 한도 밖으로 밀리면 키보드는 제목으로 간다", async () => {
+    const view = renderInbox({
+      open: [permission("req_1", "Bash")],
+      layout: "row",
+      extra: { limit: 1 },
+    });
+    (
+      await view.findByRole("button", { name: `Allow: Bash · ${SHORT}` })
+    ).focus();
+    await view.addNewer();
+    await view.findByRole("button", {
+      name: `Allow: Read · ${NEWER_ID.slice(0, 8)}`,
+    });
+    expect(
+      view.queryByRole("button", { name: `Allow: Bash · ${SHORT}` }),
+    ).toBeNull();
+    expect(document.activeElement?.tagName).toBe("H2");
   });
 
   test("행에서 거부하면 적은 이유를 함께 보낸다", async () => {
@@ -416,6 +465,65 @@ describe("ApprovalInbox", () => {
       kind: "question",
       answers: [{ question_id: "q1", selected_option_ids: ["dev"] }],
     });
+  });
+
+  test("요약 배치에서 펼친 질문이 만료되면 키보드는 보이는 만료 안내로 간다", async () => {
+    const user = await setupUser();
+    const view = renderInbox({
+      open: [
+        { ...QUESTION, expires_at: new Date(Date.now() + 1500).toISOString() },
+      ],
+      layout: "summary",
+    });
+    await user.click(await view.findByRole("button", { name: "Answer" }));
+    view.getByRole("button", { name: "Send answer" }).focus();
+    await waitFor(() => expect(document.activeElement?.tagName).toBe("P"), {
+      timeout: 4000,
+    });
+    expect(document.activeElement?.textContent).toBe(
+      "This request expired and takes no answer.",
+    );
+    expect(document.activeElement?.closest("[hidden]")).toBeNull();
+  });
+
+  test("요약 배치에서 접힌 질문의 답하기에 둔 채 만료되면 키보드는 줄의 만료 안내로 간다", async () => {
+    const view = renderInbox({
+      open: [
+        { ...QUESTION, expires_at: new Date(Date.now() + 1500).toISOString() },
+      ],
+      layout: "summary",
+    });
+    (await view.findByRole("button", { name: "Answer" })).focus();
+    await waitFor(() => expect(document.activeElement?.tagName).toBe("P"), {
+      timeout: 4000,
+    });
+    expect(document.activeElement?.textContent).toContain(
+      "This request expired and takes no answer.",
+    );
+    expect(document.activeElement?.closest("[hidden]")).toBeNull();
+  });
+
+  test("요약 배치에서 남은 요청이 만료된 질문뿐이면 답한 뒤 키보드는 그 만료 안내로 간다", async () => {
+    const user = await setupUser();
+    const view = renderInbox({
+      open: [
+        permission("req_1", "Bash"),
+        { ...QUESTION, expires_at: "2020-01-01T00:00:00.000Z" },
+      ],
+      layout: "summary",
+    });
+    await user.click(
+      await view.findByRole("button", { name: `Allow: Bash · ${SHORT}` }),
+    );
+    await waitFor(() =>
+      expect(view.queryByText("Permission request: Bash")).toBeNull(),
+    );
+    await waitFor(() =>
+      expect(document.activeElement?.textContent).toContain(
+        "This request expired and takes no answer.",
+      ),
+    );
+    expect(document.activeElement?.closest("[hidden]")).toBeNull();
   });
 
   test("답이 가는 동안 누른 버튼이 돌고 줄은 aria-busy, 두 번 눌러도 한 번만 보낸다", async () => {

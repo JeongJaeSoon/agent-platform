@@ -123,8 +123,8 @@ export function ApprovalInbox({
   const waiting = useQuery(waitingSessionsQuery(client));
   const now = useMinute(layout === "summary" && givenNow === undefined);
   const titleRef = useRef<HTMLHeadingElement>(null);
-  const shownBefore = useRef<readonly string[]>([]);
-  const [sent, setSent] = useState(false);
+  const drawnBefore = useRef<readonly string[]>([]);
+  const [sent, setSent] = useState(0);
 
   const sessions = waiting.data?.items ?? [];
   // The same reads each line makes, so the block knows which sessions still
@@ -174,8 +174,8 @@ export function ApprovalInbox({
   const railOpen = rail?.openedId != null;
   useLayoutEffect(() => {
     const ids = lineKey === "" ? [] : lineKey.split(",");
-    const left = shownBefore.current.some((id) => !ids.includes(id));
-    shownBefore.current = ids;
+    const left = drawnBefore.current.some((id) => !ids.includes(id));
+    drawnBefore.current = ids;
     if (
       left &&
       (!railOpen || focusInList.current) &&
@@ -251,7 +251,7 @@ export function ApprovalInbox({
               renderError={renderError}
               layout={layout}
               now={givenNow ?? now}
-              onAnswered={() => setSent(true)}
+              onAnswered={() => setSent((count) => count + 1)}
               opened={rail?.openedId === session.id}
               onOpen={
                 rail && layout === "summary"
@@ -293,7 +293,8 @@ export function ApprovalInbox({
               with the read that follows. Always mounted so a screen reader
               hears it; in the line, so nothing below moves. */}
           <output className="min-w-0 truncate text-caption text-muted-foreground">
-            {sent ? t("session.answer.sent") : null}
+            {/* A fresh node each time, so every answer is announced. */}
+            {sent ? <span key={sent}>{t("session.answer.sent")}</span> : null}
           </output>
         </div>
         {action}
