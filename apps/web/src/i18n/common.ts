@@ -24,6 +24,9 @@ export const commonKo = {
   "operations.findings.description": "도구 호출 기록에서 찾았습니다",
   "operations.findings.more": "도구 활동",
   "operations.tools": "도구와 명령",
+  "operations.topAgents": "비용이 큰 에이전트",
+  "operations.topAgentsNote": "최근 {days}일 추정 비용 순",
+  "operations.agent": "에이전트",
 
   "role.owner": "소유자",
   "role.admin": "관리자",
@@ -95,6 +98,9 @@ export const commonEn: Record<keyof typeof commonKo, string> = {
   "operations.findings.description": "Found in the tool call records",
   "operations.findings.more": "Tool activity",
   "operations.tools": "Tools and commands",
+  "operations.topAgents": "Agents that cost the most",
+  "operations.topAgentsNote": "Estimated cost, last {days} days",
+  "operations.agent": "Agent",
 
   "role.owner": "Owner",
   "role.admin": "Admin",
@@ -168,6 +174,9 @@ export const commonJa: Record<keyof typeof commonKo, string> = {
   "operations.findings.description": "ツール呼び出しの記録から見つけました",
   "operations.findings.more": "ツールの活動",
   "operations.tools": "ツールとコマンド",
+  "operations.topAgents": "コストが大きいエージェント",
+  "operations.topAgentsNote": "直近{days}日の推定コスト順",
+  "operations.agent": "エージェント",
 
   "role.owner": "オーナー",
   "role.admin": "管理者",

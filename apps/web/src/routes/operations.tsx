@@ -18,7 +18,7 @@ import type {
   UsageToolCallsResponse,
   UsageToolsResponse,
 } from "@werft-ai/contracts";
-import { usageSeriesQuery } from "@werft-ai/core";
+import { usageBreakdownQuery, usageSeriesQuery } from "@werft-ai/core";
 import { useAgentPlatform } from "@werft-ai/react";
 import {
   DetailLayout,
@@ -37,6 +37,7 @@ import {
   ToolsFilter,
   ToolsSummary,
   ToolTable,
+  UsageCostTable,
   UsageFilters,
   UsageKpis,
   type UsagePeriod,
@@ -52,11 +53,9 @@ import { SESSION_FILTERS } from "./sessions.tsx";
 
 const DAY_MS = 86_400_000;
 const USAGE_STALE_MS = 60_000;
+const TOP_AGENTS = 3;
 
-/**
- * The last `days` UTC days, today included, cut at the next UTC midnight so
- * the query key stays the same all day.
- */
+// Cut at the next UTC midnight so the query key stays the same all day.
 export function usagePeriod(
   days: number,
   now = new Date(),
@@ -72,7 +71,6 @@ export function usagePeriod(
   };
 }
 
-/** The scope and period picked, defaulted, with setters that keep the URL. */
 function useUsageFilters() {
   // Every tab with filters validates its search as OperationsSearch at least.
   const search: OperationsSearch = useSearch({ strict: false });
@@ -158,7 +156,6 @@ function usageToolCallsQuery(
   });
 }
 
-/** GET /v1/limits, the installation operator's alone; others get 403. */
 export function useInstallationLimits(enabled: boolean) {
   const { client } = useAgentPlatform();
   return useQuery({
@@ -178,13 +175,16 @@ const TAB_PATHS: Readonly<Record<OperationsTab, string>> = {
   limits: "/operations/limits",
 };
 
+// Shown where the design puts it until its screen lands (94S-914).
+const SOON: readonly OperationsTab[] = ["usage"];
+
 function useCurrentTab() {
   const operator = useHasPermission("usage.installation_read");
   const pathname = useRouterState({
     // The screen on show, not the one still loading: the head moves with it.
     select: (s) => (s.resolvedLocation ?? s.location).pathname,
   });
-  const tabs: OperationsTab[] = ["overview", "tools"];
+  const tabs: OperationsTab[] = ["overview", "usage", "tools"];
   if (operator) tabs.push("limits");
   const current =
     tabs.find(
@@ -199,6 +199,7 @@ function MenuHead() {
   return (
     <OperationsHead
       tabs={tabs}
+      soon={SOON}
       current={current}
       tabLink={(tab, label) => (
         <Link to={TAB_PATHS[tab]} activeOptions={{ exact: true }}>
@@ -235,9 +236,7 @@ export function OperationsOverviewScreen() {
     retry: false,
   });
   const limits = useInstallationLimits(filters.operator);
-  // The KPIs add up the series rather than ask the summary, which is slow over
-  // a long period. The old period's figures stay while the new one is read,
-  // and going back to a period read a moment ago asks nothing.
+  // The KPIs add up the series: the summary is slow over a long period.
   const series = useQuery({
     ...usageSeriesQuery(client, filters.scope, since, until),
     placeholderData: keepPreviousData,
@@ -248,14 +247,20 @@ export function OperationsOverviewScreen() {
     placeholderData: keepPreviousData,
     staleTime: USAGE_STALE_MS,
   });
+  const agents = useQuery({
+    ...usageBreakdownQuery(client, filters.scope, since, "agent", until),
+    placeholderData: keepPreviousData,
+    staleTime: USAGE_STALE_MS,
+  });
   return (
     <div
-      aria-busy={series.isPending || tools.isPending || undefined}
+      aria-busy={
+        series.isPending || tools.isPending || agents.isPending || undefined
+      }
       className="flex min-w-0 flex-col gap-8"
     >
       <SessionCounts
         counts={counts.data?.counts}
-        // The slot line is the installation's; it waits for the counts too.
         slots={
           !filters.operator || limits.isError
             ? undefined
@@ -267,7 +272,6 @@ export function OperationsOverviewScreen() {
               : null
         }
         statusLink={(status, link) => {
-          // The list has no queued tab; that count opens every session.
           const filter = SESSION_FILTERS.find((name) => name === status);
           return (
             <Link
@@ -332,6 +336,28 @@ export function OperationsOverviewScreen() {
             </Card>
           ) : (
             <Findings data={tools.data} />
+          )}
+        </Section>
+        <Section
+          title={t("operations.topAgents")}
+          description={t("operations.topAgentsNote", { days: filters.days })}
+        >
+          {agents.isError ? (
+            <Card className="py-0">
+              <LoadFailure
+                error={agents.error}
+                onRetry={() => void agents.refetch()}
+              />
+            </Card>
+          ) : (
+            <UsageCostTable
+              label={t("operations.topAgents")}
+              head={t("operations.agent")}
+              by="agent"
+              rows={agents.data?.rows.slice(0, TOP_AGENTS)}
+              tokens={false}
+              placeholderRows={TOP_AGENTS}
+            />
           )}
         </Section>
       </div>

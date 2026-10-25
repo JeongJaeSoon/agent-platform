@@ -201,6 +201,17 @@ const session = createRoute({
   component: SessionDetailScreen,
 });
 
+// A path of its own beats /sessions/$id. The graph's code loads only here.
+const agentMap = createRoute({
+  getParentRoute: () => authed,
+  path: "/sessions/map",
+  component: lazyRouteComponent(
+    () => import("./routes/agent-map.tsx"),
+    "AgentMapScreen",
+  ),
+  pendingComponent: () => <StatusScreen kind="loading" />,
+});
+
 const linkedAccounts = createRoute({
   getParentRoute: () => authed,
   path: "/settings/linked-accounts",
@@ -343,6 +354,7 @@ const routeTree = root.addChildren([
     newAgent,
     agent,
     sessions,
+    agentMap,
     session,
     linkedAccounts,
     slackLink,

@@ -20,7 +20,7 @@ export interface UsageFiltersProps {
   readonly messages?: Partial<UsageFiltersMessages> | undefined;
 }
 
-/** Whose usage and how many UTC days back; the period sits at the far end. */
+/** Whose usage and how many UTC days back. */
 export function UsageFilters({
   scope,
   onScopeChange,

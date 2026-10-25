@@ -147,6 +147,27 @@ describe("app shell", () => {
     });
   }
 
+  test("/sessions/map is a screen under 세션, not a session", async () => {
+    renderAt("/sessions/map", {
+      ...signedIn,
+      "GET /v1/sessions": () => json(200, { items: [], next_cursor: null }),
+    });
+    await screen.findByRole("heading", { level: 1, name: "에이전트 지도" });
+    const [header] = await screen.findAllByRole("banner");
+    await waitFor(() =>
+      expect(header?.textContent).toBe("메뉴 열기세션/에이전트 지도"),
+    );
+    expect(contentColumn()?.dataset.slot).toBe("page-frame");
+  });
+
+  test("the sessions list opens the agent map", async () => {
+    renderAt("/sessions", signedIn);
+    await screen.findByRole("heading", { level: 1, name: "세션" });
+    expect(
+      screen.getByRole("link", { name: "에이전트 지도" }).getAttribute("href"),
+    ).toBe("/sessions/map");
+  });
+
   test("a session's detail lays out the whole area itself", async () => {
     renderAt(`/sessions/${FIRST}`, signedIn);
     await waitFor(() =>

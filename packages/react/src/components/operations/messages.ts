@@ -33,6 +33,8 @@ export interface OperationsHeadMessages {
   readonly description: string;
   readonly tabs: string;
   readonly tab: Readonly<Record<OperationsTab, string>>;
+  /** Why a tab that is shown cannot be opened yet. */
+  readonly soon: string;
 }
 
 export interface UsageFiltersMessages {
@@ -90,6 +92,19 @@ export interface InstallationLimitsMessages {
   readonly maxTurn: string;
   readonly maxTurnNote: string;
   readonly loading: string;
+}
+
+export interface UsageCostTableMessages {
+  readonly sessions: string;
+  readonly tokens: string;
+  readonly cost: string;
+  readonly costShare: (name: string) => string;
+  /** The row of sessions without an agent. */
+  readonly noAgent: string;
+  /** The row of cost no metered call explains. */
+  readonly noModel: string;
+  readonly emptyAgent: string;
+  readonly emptyModel: string;
 }
 
 export interface SessionCountsMessages {
@@ -205,6 +220,7 @@ export interface OperationsMessages {
   readonly usageFilters: UsageFiltersMessages;
   readonly usageKpis: UsageKpisMessages;
   readonly installationLimits: InstallationLimitsMessages;
+  readonly usageCostTable: UsageCostTableMessages;
 }
 
 function format(
@@ -212,7 +228,6 @@ function format(
   hours: (h: number, m: number) => string,
   minutes: (m: number) => string,
   seconds: (s: string) => string,
-  // [hundred million, ten thousand] units; none counts in millions.
   units?: readonly [string, string],
 ): OperationsFormat {
   const nf = new Intl.NumberFormat(locale === "ko" ? "ko-KR" : locale);
@@ -232,7 +247,9 @@ function format(
       ms >= 60000 ? duration(ms / 1000) : seconds((ms / 1000).toFixed(1)),
     percent: (a, b) => `${(b ? (100 * a) / b : 0).toFixed(1)}%`,
     usd: (amount) =>
-      `$${Number(amount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      Number(amount) > 0 && Number(amount) < 0.005
+        ? "<$0.01"
+        : `$${Number(amount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
     tokens: (n) =>
       !units
         ? n >= 1e4
@@ -383,6 +400,7 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
           tools: "도구 활동",
           limits: "한도",
         },
+        soon: "아직 준비 중인 화면입니다.",
       },
       usageFilters: {
         scope: "집계 범위",
@@ -439,6 +457,16 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         maxTurn: "turn 최대 시간",
         maxTurnNote: "turn 하나가 돌 수 있는 시간",
         loading: "한도를 읽는 중",
+      },
+      usageCostTable: {
+        sessions: "세션",
+        tokens: "토큰",
+        cost: "비용",
+        costShare: (name) => `${name} 비용 비율`,
+        noAgent: "에이전트 없음",
+        noModel: "호출 기록이 없는 비용",
+        emptyAgent: "이 기간에 비용을 쓴 에이전트가 없습니다.",
+        emptyModel: "이 기간에 비용을 쓴 모델이 없습니다.",
       },
     },
     ja: {
@@ -539,6 +567,7 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
           tools: "ツール活動",
           limits: "上限",
         },
+        soon: "この画面はまだ準備中です。",
       },
       usageFilters: {
         scope: "集計範囲",
@@ -598,6 +627,16 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         maxTurn: "turn の最大時間",
         maxTurnNote: "1つの turn が実行できる時間",
         loading: "上限を読み込み中",
+      },
+      usageCostTable: {
+        sessions: "セッション",
+        tokens: "トークン",
+        cost: "コスト",
+        costShare: (name) => `${name} のコスト比率`,
+        noAgent: "エージェントなし",
+        noModel: "呼び出し記録のないコスト",
+        emptyAgent: "この期間にコストを使ったエージェントはありません。",
+        emptyModel: "この期間にコストを使ったモデルはありません。",
       },
     },
     en: {
@@ -696,6 +735,7 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
           tools: "Tool activity",
           limits: "Limits",
         },
+        soon: "This screen is not ready yet.",
       },
       usageFilters: {
         scope: "Scope",
@@ -754,6 +794,16 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         maxTurn: "Longest turn",
         maxTurnNote: "How long one turn may run",
         loading: "Loading limits",
+      },
+      usageCostTable: {
+        sessions: "Sessions",
+        tokens: "Tokens",
+        cost: "Cost",
+        costShare: (name) => `${name} share of cost`,
+        noAgent: "No agent",
+        noModel: "Cost without metered calls",
+        emptyAgent: "No agent spent anything in this period.",
+        emptyModel: "No model was billed in this period.",
       },
     },
   };

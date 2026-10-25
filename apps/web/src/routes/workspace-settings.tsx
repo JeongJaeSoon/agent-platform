@@ -24,12 +24,12 @@ import { type FormEvent, type ReactNode, useId, useState } from "react";
 import { profilesQuery, queryKeys } from "../api/queries.ts";
 import {
   permissionReason,
-  ReasonButton,
   refusalText,
   useHasPermission,
   useMe,
   useRole,
 } from "../auth/guard.tsx";
+import { ReasonButton } from "../auth/reason-button.tsx";
 import { FormError, Notice } from "../components/auth-page.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import type { Outcome } from "../components/outcome.tsx";

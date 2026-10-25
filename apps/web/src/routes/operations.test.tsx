@@ -42,8 +42,6 @@ const LIMITS = {
   },
 };
 
-// Over 30 days the installation adds up to 435 sessions, 64h 15m, $1,045.50
-// and 38.16M tokens; "me" to 17 sessions.
 function series(scope: "me" | "installation", days: number) {
   return {
     period: {
@@ -63,6 +61,25 @@ function series(scope: "me" | "installation", days: number) {
     })),
   };
 }
+
+function figures(sessions: number, cost: string) {
+  return {
+    session_count: sessions,
+    input_tokens: 1000 * sessions,
+    output_tokens: 500 * sessions,
+    cache_read_input_tokens: 2000 * sessions,
+    cache_creation_input_tokens: 100 * sessions,
+    token_count: 3600 * sessions,
+    cost_usd: cost,
+  };
+}
+
+const AGENTS = [
+  { key: "a1", label: "release-notes-writer", ...figures(40, "412.30") },
+  { key: "a2", label: "triage-bot", ...figures(30, "301.20") },
+  { key: "a3", label: "pr-reviewer", ...figures(20, "200.00") },
+  { key: null, label: null, ...figures(10, "132.00") },
+];
 
 const TOOLS = {
   tools: [
@@ -153,6 +170,8 @@ const usageRoutes = {
       () => json(200, toolCalls(name)),
     ]),
   ),
+  "GET /v1/usage/breakdown": () =>
+    json(200, { rows: AGENTS, totals: figures(100, "1045.50") }),
   "GET /v1/usage/series": (request: Request) => {
     const query = new URL(request.url).searchParams;
     const days = Math.round(
@@ -208,7 +227,7 @@ describe("운영", () => {
       within(tabs)
         .getAllByRole("link")
         .map((a) => a.textContent),
-    ).toEqual(["개요", "도구 활동", "한도"]);
+    ).toEqual(["개요", "사용량", "도구 활동", "한도"]);
     expect(screen.getByRole("group", { name: "집계 범위" })).toBeTruthy();
     const asked = api.calls.find((call) => call.path === "/v1/usage/series");
     expect(asked?.search).toBe(
@@ -233,7 +252,7 @@ describe("운영", () => {
         .filter((call) => call.path.startsWith("/v1/usage/"))
         .map((call) => call.path)
         .sort(),
-    ).toEqual(["/v1/usage/series", "/v1/usage/tools"]);
+    ).toEqual(["/v1/usage/breakdown", "/v1/usage/series", "/v1/usage/tools"]);
   });
 
   test("개요의 '살펴볼 것'은 /v1/usage/tools의 findings이고 도구 활동 탭으로 이어진다", async () => {
@@ -265,6 +284,49 @@ describe("운영", () => {
     ).toBe("/operations/tools?days=7");
   });
 
+  test("'비용이 큰 에이전트'는 에이전트별 비용 위 3개이고 기간을 따른다", async () => {
+    setSystemTime(NOW);
+    const { api } = renderAt("/operations?days=7", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      ...usageRoutes,
+    });
+    const table = await screen.findByRole("table", {
+      name: "비용이 큰 에이전트",
+    });
+    await within(table).findByText("release-notes-writer");
+    expect(within(table).getByText("pr-reviewer")).toBeTruthy();
+    expect(within(table).queryByText("에이전트 없음")).toBeNull();
+    expect(within(table).queryByText("토큰")).toBeNull();
+    expect(screen.getByText("최근 7일 추정 비용 순")).toBeTruthy();
+    const asked = api.calls.find((call) => call.path === "/v1/usage/breakdown");
+    expect(asked?.search).toBe(
+      "?scope=me&since=2026-10-18T00%3A00%3A00.000Z&by=agent&until=2026-10-25T00%3A00%3A00.000Z",
+    );
+  });
+
+  test("아직 없는 사용량 탭은 제자리에 비활성이고 이유를 말하며, 도구 활동 탭은 열린다", async () => {
+    setSystemTime(NOW);
+    const { history } = renderAt("/operations", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      ...usageRoutes,
+    });
+    const tabs = await screen.findByRole("navigation", { name: "운영 탭" });
+    const usage = within(tabs).getByRole("link", { name: "사용량" });
+    expect(usage.getAttribute("aria-disabled")).toBe("true");
+    expect(usage.getAttribute("href")).toBeNull();
+    const tools = within(tabs).getByRole("link", { name: "도구 활동" });
+    expect(tools.getAttribute("aria-disabled")).toBeNull();
+    expect(tools.getAttribute("href")).toBe("/operations/tools");
+    const user = await setupUser();
+    await user.click(usage);
+    expect(history.location.pathname).toBe("/operations");
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-slot="popover-content"]')?.textContent,
+      ).toBe("아직 준비 중인 화면입니다."),
+    );
+  });
+
   for (const [role, who] of [
     ["admin", () => me(undefined, "admin")],
     ["member", memberMe],
@@ -281,7 +343,7 @@ describe("운영", () => {
         within(tabs)
           .getAllByRole("link")
           .map((a) => a.textContent),
-      ).toEqual(["개요", "도구 활동"]);
+      ).toEqual(["개요", "사용량", "도구 활동"]);
       expect(screen.queryByRole("group", { name: "집계 범위" })).toBeNull();
       expect(screen.queryByText("동시 실행 slot · 설치 전체")).toBeNull();
       expect(api.calls.some((call) => call.path === "/v1/limits")).toBe(false);
@@ -318,7 +380,7 @@ describe("운영", () => {
           )
           .map((call) => call.path)
           .sort(),
-      ).toEqual(["/v1/usage/series", "/v1/usage/tools"]),
+      ).toEqual(["/v1/usage/breakdown", "/v1/usage/series", "/v1/usage/tools"]),
     );
   });
 
