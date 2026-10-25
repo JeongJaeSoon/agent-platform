@@ -1,13 +1,20 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import type { UsageSummaryScope } from "@werft-ai/contracts";
 import {
   DetailLayout,
   DetailRail,
   DetailRailSection,
   Findings,
+  InstallationLimits,
+  OperationsHead,
+  type OperationsTab,
   SessionCounts,
   ToolCalls,
   ToolsSummary,
   ToolTable,
+  UsageFilters,
+  UsageKpis,
+  type UsagePeriod,
 } from "@werft-ai/react/components";
 import {
   Badge,
@@ -23,10 +30,7 @@ import {
   GridTableRow,
   KeyValueList,
   Link,
-  LinkTab,
-  LinkTabs,
   Meter,
-  PageHeader,
   RowList,
   RowListItem,
   SearchInput,
@@ -34,8 +38,6 @@ import {
   SegmentedControl,
   SegmentedControlItem,
   Skeleton,
-  Sparkline,
-  StatCard,
   Text,
 } from "@werft-ai/ui";
 import {
@@ -66,16 +68,11 @@ import { MOBILE, ScreenShell } from "./screen-kit.tsx";
  * operations part; the data is the design's own, as API responses.
  */
 
-type Tab = "overview" | "usage" | "tools" | "limits";
+type Tab = OperationsTab;
 type Role = "owner" | "admin" | "member";
-type Days = 7 | 30 | 90;
+type Days = UsagePeriod;
 
-const TABS: readonly (readonly [Tab, string])[] = [
-  ["overview", "개요"],
-  ["usage", "사용량"],
-  ["tools", "도구 활동"],
-  ["limits", "한도"],
-];
+const TABS: readonly Tab[] = ["overview", "usage", "tools", "limits"];
 
 // ---------- display transforms (not API fields) ----------
 const nf = new Intl.NumberFormat("ko-KR");
@@ -92,10 +89,6 @@ const dur = (s: number) => {
   const m = Math.floor((s % 3600) / 60);
   return h ? `${h}시간 ${m}분` : `${m}분`;
 };
-const bytes = (n: number) =>
-  n >= 1073741824
-    ? `${(n / 1073741824).toFixed(1).replace(/\.0$/, "")} GB`
-    : `${Math.round(n / 1048576)} MB`;
 const monthDay = (date: string) =>
   `${Number(date.slice(5, 7))}/${Number(date.slice(8, 10))}`;
 
@@ -183,53 +176,26 @@ function Box({
 }
 
 function Filters({ role, days }: { readonly role: Role; readonly days: Days }) {
-  const [scope, setScope] = useState(role === "owner" ? "installation" : "me");
-  const [period, setPeriod] = useState(String(days));
+  const [scope, setScope] = useState<UsageSummaryScope>(
+    role === "owner" ? "installation" : "me",
+  );
+  const [period, setPeriod] = useState<UsagePeriod>(days);
   return (
-    <div className="mb-6 flex flex-wrap items-center gap-2">
-      {role === "owner" ? (
-        <SegmentedControl
-          aria-label="집계 범위"
-          value={scope}
-          onValueChange={setScope}
-        >
-          <SegmentedControlItem value="me">내 사용량</SegmentedControlItem>
-          <SegmentedControlItem value="installation">
-            설치 전체
-          </SegmentedControlItem>
-        </SegmentedControl>
-      ) : null}
-      <SegmentedControl
-        aria-label="기간"
-        value={period}
-        onValueChange={setPeriod}
-        className="ml-auto"
-      >
-        <SegmentedControlItem value="7">7일</SegmentedControlItem>
-        <SegmentedControlItem value="30">30일</SegmentedControlItem>
-        <SegmentedControlItem value="90">90일</SegmentedControlItem>
-      </SegmentedControl>
-    </div>
+    <UsageFilters
+      {...(role === "owner" ? { scope, onScopeChange: setScope } : {})}
+      days={period}
+      onDaysChange={setPeriod}
+    />
   );
 }
 
 function Head({ tab, viewer }: { readonly tab: Tab; readonly viewer: Role }) {
   return (
-    <>
-      <PageHeader
-        title="운영"
-        description="에이전트가 얼마나 돌고, 얼마나 쓰고, 어디서 막히는지 봅니다."
-      />
-      <LinkTabs aria-label="운영 탭" className="mb-6">
-        {TABS.filter(([id]) => id !== "limits" || viewer === "owner").map(
-          ([id, label]) => (
-            <LinkTab key={id} href={`#operations/${id}`} current={id === tab}>
-              {label}
-            </LinkTab>
-          ),
-        )}
-      </LinkTabs>
-    </>
+    <OperationsHead
+      tabs={TABS.filter((id) => id !== "limits" || viewer === "owner")}
+      current={tab}
+      tabLink={(id, label) => <a href={`#operations/${id}`}>{label}</a>}
+    />
   );
 }
 
@@ -251,60 +217,12 @@ function More({
 }
 
 function Kpis({ screen }: { readonly screen: ScreenData }) {
-  const s = summaryOf(screen.series);
   const loading = useContext(Loading);
-  const field = (pick: (b: UsageSeriesResponse["buckets"][number]) => number) =>
-    screen.series.buckets.map(pick);
-  const spark = (values: readonly number[], label: string) =>
-    loading ? (
-      <Box height="2rem" />
-    ) : (
-      <Sparkline values={values} label={label} />
-    );
   return (
-    <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,14rem),1fr))] gap-4">
-      <StatCard
-        label="세션"
-        value={<Value>{nf.format(s.session_count)}</Value>}
-        chart={spark(
-          field((b) => b.session_count),
-          "일자별 세션 수",
-        )}
-        description="이 기간에 시작한 세션"
-      />
-      <StatCard
-        label="실행 시간"
-        value={<Value width="6rem">{dur(s.run_seconds)}</Value>}
-        chart={spark(
-          field((b) => b.run_seconds),
-          "일자별 실행 시간",
-        )}
-        description="turn 시작부터 끝까지, 답을 기다린 시간 포함"
-      />
-      <StatCard
-        label="비용"
-        badge={<Badge>추정</Badge>}
-        value={<Value width="5rem">{usd(s.cost_usd)}</Value>}
-        chart={spark(
-          field((b) => Number(b.cost_usd)),
-          "일자별 비용",
-        )}
-        description={
-          s.cost_complete
-            ? undefined
-            : "진행 중이거나 비용을 보고하지 않은 turn이 있어 실제보다 적을 수 있음"
-        }
-      />
-      <StatCard
-        label="토큰"
-        value={<Value width="4rem">{tok(s.token_count)}</Value>}
-        chart={spark(
-          field((b) => b.token_count),
-          "일자별 토큰",
-        )}
-        description="비용을 센 호출의 토큰"
-      />
-    </div>
+    <UsageKpis
+      buckets={loading ? undefined : screen.series.buckets}
+      messages={{ loading: "" }}
+    />
   );
 }
 
@@ -779,138 +697,13 @@ function Tools({
 }
 
 function Limits({ limits = LIMITS }: { readonly limits?: typeof LIMITS }) {
-  const L = limits.limits;
-  const U = limits.usage;
   const loading = useContext(Loading);
-  const perSession = (
-    <Text as="span" variant="sub" className="text-subtle-foreground">
-      세션마다 셉니다
-    </Text>
-  );
-  const rows: readonly (readonly [string, ReactNode, ReactNode, string])[] = [
-    [
-      "동시 실행 slot",
-      `${U.execution_slots_used} / ${L.execution_slot_limit}`,
-      nf.format(L.execution_slot_limit),
-      "설치 설정의 상한. 빈 slot이 없으면 세션이 대기합니다",
-    ],
-    [
-      "입력 메시지 저장",
-      bytes(U.storage.used_bytes),
-      bytes(L.storage_limit_bytes),
-      "세션에 보낸 입력 메시지만 셉니다. 결과물 용량은 아직 세지 않습니다",
-    ],
-    [
-      "세션당 비용",
-      perSession,
-      usd(L.session_cost_limit_usd),
-      "추정 비용이 넘은 세션은 새 turn을 시작하지 않습니다",
-    ],
-    [
-      "세션당 토큰",
-      perSession,
-      L.session_token_limit === null ? (
-        <Badge key="unset">설정 안 됨</Badge>
-      ) : (
-        nf.format(L.session_token_limit)
-      ),
-      "토큰이 넘은 세션은 새 turn을 시작하지 않습니다",
-    ],
-    [
-      "세션당 대기 입력",
-      perSession,
-      `${nf.format(L.queued_input_limit_per_session)}건`,
-      "세션 하나에 쌓아 둘 수 있는 입력 수",
-    ],
-    [
-      "turn 최대 시간",
-      perSession,
-      dur(L.max_turn_seconds),
-      "turn 하나가 돌 수 있는 시간",
-    ],
-  ];
   return (
-    <div
-      aria-busy={loading || undefined}
-      className="flex min-w-0 flex-col gap-8"
-    >
-      <Section
-        title="실행 용량"
-        description="설치 전체에 적용됩니다 · 오후 9:40 기준"
-      >
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,14rem),1fr))] gap-4">
-          <StatCard
-            label="사용 중인 slot"
-            value={<Value width="4rem">{U.execution_slots_used}</Value>}
-            outOf={<Value width="1.5rem">{L.execution_slot_limit}</Value>}
-            chart={
-              loading ? (
-                <Box height="0.5rem" />
-              ) : (
-                <Meter
-                  value={U.execution_slots_used}
-                  max={L.execution_slot_limit}
-                  label="slot 사용률"
-                />
-              )
-            }
-            description={
-              <Value width="5rem">
-                {`빈 slot ${L.execution_slot_limit - U.execution_slots_used}개`}
-              </Value>
-            }
-          />
-          <StatCard
-            label="입력 메시지 저장"
-            value={<Value width="4rem">{bytes(U.storage.used_bytes)}</Value>}
-            outOf={<Value width="3rem">{bytes(L.storage_limit_bytes)}</Value>}
-            chart={
-              loading ? (
-                <Box height="0.5rem" />
-              ) : (
-                <Meter
-                  value={U.storage.used_bytes}
-                  max={L.storage_limit_bytes}
-                  label="입력 메시지 저장 사용률"
-                />
-              )
-            }
-            description="입력 메시지만 셉니다"
-          />
-        </div>
-      </Section>
-      <Section title="한도">
-        <Card flush>
-          <GridTable
-            aria-label="한도"
-            columns="minmax(0,1fr) 128px 112px minmax(0,1.6fr)"
-            narrowAt={480}
-            narrowColumns="minmax(0,1fr) 112px 80px"
-          >
-            <GridTableHeader>
-              <GridTableColumnHeader>항목</GridTableColumnHeader>
-              <GridTableColumnHeader>현재</GridTableColumnHeader>
-              <GridTableColumnHeader>한도</GridTableColumnHeader>
-              <GridTableColumnHeader hideNarrow>설명</GridTableColumnHeader>
-            </GridTableHeader>
-            {rows.map(([item, now, limit, note]) => (
-              <GridTableRow key={item}>
-                <GridTableCell>{item}</GridTableCell>
-                <GridTableCell className="tabular-nums">
-                  {now === perSession ? now : <Value>{now}</Value>}
-                </GridTableCell>
-                <GridTableCell className="tabular-nums">
-                  <Value>{limit}</Value>
-                </GridTableCell>
-                <GridTableCell hideNarrow className="text-muted-foreground">
-                  {note}
-                </GridTableCell>
-              </GridTableRow>
-            ))}
-          </GridTable>
-        </Card>
-      </Section>
-    </div>
+    <InstallationLimits
+      limits={loading ? undefined : limits}
+      timeZone="Asia/Seoul"
+      messages={{ loading: "" }}
+    />
   );
 }
 

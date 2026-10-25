@@ -25,15 +25,29 @@ export {
 } from "./list/load-more-button.tsx";
 export { Findings, type FindingsProps } from "./operations/findings.tsx";
 export {
+  InstallationLimits,
+  type InstallationLimitsProps,
+} from "./operations/installation-limits.tsx";
+export {
   type FindingsMessages,
+  type InstallationLimitsMessages,
   OPERATIONS_MESSAGES,
   type OperationsFormat,
+  type OperationsHeadMessages,
   type OperationsMessages,
+  type OperationsTab,
   type SessionCountsMessages,
   type ToolCallsMessages,
   type ToolsSummaryMessages,
   type ToolTableMessages,
+  type UsageCostTableMessages,
+  type UsageFiltersMessages,
+  type UsageKpisMessages,
 } from "./operations/messages.ts";
+export {
+  OperationsHead,
+  type OperationsHeadProps,
+} from "./operations/operations-head.tsx";
 export {
   SessionCounts,
   type SessionCountsProps,
@@ -51,6 +65,17 @@ export {
   ToolsSummary,
   type ToolsSummaryProps,
 } from "./operations/tools-summary.tsx";
+export {
+  UsageCostTable,
+  type UsageCostTableProps,
+} from "./operations/usage-cost-table.tsx";
+export {
+  USAGE_PERIODS,
+  UsageFilters,
+  type UsageFiltersProps,
+  type UsagePeriod,
+} from "./operations/usage-filters.tsx";
+export { UsageKpis, type UsageKpisProps } from "./operations/usage-kpis.tsx";
 export { ReceiptLink, type ReceiptLinkProps } from "./receipt/receipt-link.tsx";
 export {
   RECEIPT_OPERATION_LABEL,
