@@ -136,13 +136,17 @@ export function HomeScreen() {
     failure: readerFailure,
     deciding,
   } = useReader();
-  const name = useMe()?.user?.display_name;
-  const intro =
-    reader === "owner" || reader === "admin"
-      ? t(INTRO[reader])
-      : reader && name
-        ? t(INTRO[reader], { name })
-        : undefined;
+  const name = useMe()?.user?.display_name ?? "";
+  const role = useRole();
+  // Every line this role may get, laid over one another: the header holds
+  // the tallest from the first render, so telling the reader apart never
+  // pushes the body down, however the words wrap.
+  const intros: readonly Reader[] =
+    role === undefined
+      ? []
+      : role === "owner" || role === "admin"
+        ? [role]
+        : ["manager", "requester"];
   const now = useNow();
   const unavailable = useUnavailable();
   const { client } = useAgentPlatform();
@@ -595,11 +599,24 @@ export function HomeScreen() {
   return (
     <Page
       title={t("nav.home")}
-      // Its line is held while the reader is told apart, so the body does
-      // not move down when the words arrive.
       description={
-        intro ??
-        (deciding ? <span aria-hidden="true">{"\u00a0"}</span> : undefined)
+        intros.length > 0 ? (
+          <span className="grid">
+            {intros.map((key) => (
+              <span
+                key={key}
+                className={
+                  key === reader
+                    ? "[grid-area:1/1]"
+                    : "invisible [grid-area:1/1]"
+                }
+                aria-hidden={key === reader ? undefined : true}
+              >
+                {t(INTRO[key], { name })}
+              </span>
+            ))}
+          </span>
+        ) : undefined
       }
     >
       {settled ? null : <HomeSkeleton />}

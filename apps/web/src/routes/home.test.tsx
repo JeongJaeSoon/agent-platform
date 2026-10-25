@@ -508,6 +508,41 @@ describe("홈 요약", () => {
     });
   }
 
+  // At 390px a member's line wraps to two; the header holds both candidates
+  // from the first render, so telling the reader apart moves nothing.
+  test("구성원 설명 칸은 관리하는 에이전트를 알기 전부터 두 문장의 자리를 잡는다", async () => {
+    let answer: () => void = () => {};
+    const asked = new Promise<void>((resolve) => {
+      answer = resolve;
+    });
+    let held = false;
+    renderAt("/", {
+      ...homeRoutes(),
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/administered-agents": async () => {
+        held = true;
+        await asked;
+        return json(200, { items: [] });
+      },
+    });
+    await screen.findByRole("heading", { name: "홈" });
+    await waitFor(() => expect(held).toBe(true));
+    const manager = await screen.findByText(/님이 관리하는 에이전트와 내 세션/);
+    const requester = screen.getByText(/님이 시작했거나 공유받은 세션/);
+    for (const line of [manager, requester]) {
+      expect(line.getAttribute("aria-hidden")).toBe("true");
+      expect(line.classList.contains("invisible")).toBe(true);
+    }
+    expect(manager.parentElement).toBe(requester.parentElement);
+    act(() => answer());
+    await waitFor(() =>
+      expect(requester.getAttribute("aria-hidden")).toBeNull(),
+    );
+    expect(requester.classList.contains("invisible")).toBe(false);
+    expect(manager.getAttribute("aria-hidden")).toBe("true");
+    expect(manager.classList.contains("invisible")).toBe(true);
+  });
+
   test("카드 세 장에 최근 30일 사용량과 미계측을 나눠 보이고, 답변 대기는 가장 오래된 요청 하나만 가리킨다", async () => {
     renderAt("/", homeRoutes());
     const overview = await screen.findByRole("region", { name: "한눈에 보기" });
@@ -883,7 +918,10 @@ describe("홈 요약", () => {
         "GET /v1/auth/me": () => json(200, me(undefined, role)),
         "GET /v1/administered-agents": () => json(200, { items: administered }),
       });
-      expect(await screen.findByText(intro)).toBeDefined();
+      const line = await screen.findByText(intro);
+      // The other member line stays laid under it, hidden.
+      await waitFor(() => expect(line.getAttribute("aria-hidden")).toBeNull());
+      expect(line.classList.contains("invisible")).toBe(false);
     },
   );
 
