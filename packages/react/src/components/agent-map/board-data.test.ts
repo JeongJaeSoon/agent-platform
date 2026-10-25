@@ -119,6 +119,28 @@ describe("mapSessionOf", () => {
     expect(waiting({ kind: "question", prompt: null })?.tool).toBe("질문");
   });
 
+  test("a card waiting on a question says what it asks, not the tool's name", () => {
+    const card = mapSessionOf(
+      summary({
+        status: "needs_input",
+        activity: activity({
+          last: { kind: "tool", name: "AskUserQuestion", target: "" },
+          current_tool: {
+            id: "toolu_1",
+            name: "AskUserQuestion",
+            target: "",
+            state: "waiting",
+            since: ago(2),
+            request: { kind: "question", prompt: "어느 언어로 번역할까요?" },
+          },
+        }),
+      }),
+      NOW,
+      KO,
+    );
+    expect(card.note).toBe("질문 · 어느 언어로 번역할까요?");
+  });
+
   test("a call that is only running is not a request", () => {
     const card = mapSessionOf(
       summary({

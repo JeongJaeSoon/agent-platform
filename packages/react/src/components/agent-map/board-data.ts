@@ -20,6 +20,19 @@ export function mapSessionOf(
   const last = activity?.last ?? null;
   const current = activity?.current_tool ?? null;
   const request = current?.state === "waiting" ? current.request : null;
+  const pending =
+    current && request
+      ? {
+          tool:
+            request.kind === "question"
+              ? joinTool(messages.question, request.prompt ?? "")
+              : joinTool(current.name, current.target),
+          waitedMinutes: Math.max(
+            0,
+            Math.floor((now - Date.parse(current.since)) / 60_000),
+          ),
+        }
+      : undefined;
   return {
     id: summary.id,
     title: summary.title ?? summary.id.slice(0, 8),
@@ -28,31 +41,20 @@ export function mapSessionOf(
     model: summary.model ?? "",
     branch: summary.repository?.branch ?? null,
     lastEventAt: summary.last_event_at ?? summary.created_at,
+    // A card that waits says what it waits on, as the strip does.
     note:
-      last === null
+      pending?.tool ??
+      (last === null
         ? summary.status === "queued"
           ? messages.queuedNote
           : messages.noActivity
         : last.kind === "text"
           ? last.text
-          : joinTool(last.name, last.target),
+          : joinTool(last.name, last.target)),
     toolCount: activity?.tool_count ?? 0,
     errorCount: activity?.error_count ?? 0,
     subagentCount: activity?.subagent_count ?? 0,
-    ...(current && request
-      ? {
-          pending: {
-            tool:
-              request.kind === "question"
-                ? joinTool(messages.question, request.prompt ?? "")
-                : joinTool(current.name, current.target),
-            waitedMinutes: Math.max(
-              0,
-              Math.floor((now - Date.parse(current.since)) / 60_000),
-            ),
-          },
-        }
-      : {}),
+    ...(pending ? { pending } : {}),
   };
 }
 
