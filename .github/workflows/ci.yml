@@ -144,8 +144,9 @@ jobs:
     name: integration (${{ matrix.domain }})
     if: contains(fromJSON('["all","integration"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04
-    # Ceiling for a job measured at about 2m15s.
-    timeout-minutes: 8
+    # Recent main runs reached 8m before the API split; DB reached 5m42s.
+    # Keep 2m beyond that observed ceiling for runner and service variability.
+    timeout-minutes: 10
     strategy:
       # A failing job must not cancel the rest: each one's failures are
       # their own, and a cancelled job would hide them until the next push.
@@ -161,8 +162,8 @@ jobs:
             paths:
               - packages/db/
               - packages/testkit/src/postgres.
-          # The HTTP surface and what it serves: routes, auth, events, the
-          # reconciler, the contracts it publishes and the UI that reads them.
+          # HTTP routes and the control-host flows they drive. The former API
+          # domain reached 8m, so Slack and client/UI suites run separately.
           - domain: api
             postgres: true
             localstack: true
@@ -172,6 +173,17 @@ jobs:
               - apps/control-host/src/main
               - apps/control-host/src/pass-loop/
               - apps/control-host/src/reconciler/
+              - tests/catalog-mismatch.
+              - tests/context-gap-flow.
+              - tests/interrupt-flow.
+              - tests/lease-clock.
+          # Slack and the contracts, clients and UI that consume the API.
+          # Preserve both opt-in services so moving files cannot disable tests.
+          - domain: surface
+            postgres: true
+            localstack: true
+            docker: false
+            paths:
               - apps/control-host/src/slack/
               - packages/contracts/
               - packages/client/
@@ -181,10 +193,6 @@ jobs:
               - packages/ui/
               - apps/web/
               - apps/storybook/
-              - tests/catalog-mismatch.
-              - tests/context-gap-flow.
-              - tests/interrupt-flow.
-              - tests/lease-clock.
           # Object storage: checkpoint objects, the S3 transport and its bounds.
           - domain: storage
             postgres: false
