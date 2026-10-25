@@ -704,10 +704,12 @@ esac
     expect(await Bun.file(join(runDir, "ports.yml")).exists()).toBe(true);
   });
 
-  test("refuses any other argument without calling docker", async () => {
-    const { exitCode, calls } = await down(["-v"]);
+  test("refuses any other or extra argument without calling docker", async () => {
+    for (const args of [["-v"], ["--keep-volumes", "-v"]]) {
+      const { exitCode, calls } = await down(args);
 
-    expect(exitCode).toBe(2);
-    expect(calls).toEqual([]);
+      expect(exitCode).toBe(2);
+      expect(calls).toEqual([]);
+    }
   });
 });

@@ -14,8 +14,8 @@
 set -uo pipefail
 
 keep=${2:-}
-case "$keep" in
-  "" | --keep-volumes) ;;
+case "$#:$keep" in
+  [01]: | 2:--keep-volumes) ;;
   *) echo "usage: down.sh <run id | run dir> [--keep-volumes]" >&2; exit 2 ;;
 esac
 
