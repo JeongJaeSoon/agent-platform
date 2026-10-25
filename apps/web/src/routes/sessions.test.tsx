@@ -1359,6 +1359,41 @@ describe("session detail", () => {
     expect(list.textContent).not.toContain("실행 중");
   });
 
+  test("a result for one of several calls in an event stays a row of its own", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
+    await waitFor(() => expect(stream.requests).toHaveLength(1));
+    await act(async () => stream.open());
+    act(() => {
+      stream.emit("ev_calls", "tool_use", {
+        type: "assistant",
+        message: {
+          content: [
+            {
+              type: "tool_use",
+              id: "tu_a",
+              name: "Bash",
+              input: { command: "make" },
+            },
+            {
+              type: "tool_use",
+              id: "tu_b",
+              name: "Bash",
+              input: { command: "test" },
+            },
+          ],
+        },
+      });
+      stream.emit("ev_result", "tool_result", {
+        type: "tool_result",
+        tool_use_id: "tu_a",
+        content: "built",
+      });
+    });
+    expect(await screen.findByText("Bash 결과 · 성공 · built")).toBeTruthy();
+    const list = screen.getByRole("list", { name: "이벤트" });
+    expect(list.querySelectorAll("li")).toHaveLength(2);
+  });
+
   test("a run of status lines folds into one button that opens it", async () => {
     renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
     await waitFor(() => expect(stream.requests).toHaveLength(1));

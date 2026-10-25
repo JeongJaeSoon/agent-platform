@@ -289,11 +289,17 @@ function toolCalls(payload: SessionEventPayload) {
     : [];
 }
 
-/** The tool_use id a call or its result carries, for pairing them on screen. */
+/**
+ * The tool_use id a call or its result carries, for pairing them on screen.
+ * An event with several calls has none: one result would end them all.
+ */
 export function eventToolCallId(
   payload: SessionEventPayload,
 ): string | undefined {
-  if (payload.event !== "tool_result") return toolCalls(payload)[0]?.[0];
+  if (payload.event !== "tool_result") {
+    const calls = toolCalls(payload);
+    return calls.length === 1 ? calls[0]?.[0] : undefined;
+  }
   const id = (payload.data as { tool_use_id?: unknown } | null)?.tool_use_id;
   return typeof id === "string" ? id : undefined;
 }
