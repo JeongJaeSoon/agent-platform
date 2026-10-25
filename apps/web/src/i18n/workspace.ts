@@ -68,6 +68,11 @@ export const workspaceKo = {
     "새 token을 저장할 때까지 새 Slack 앱을 만들 수 없습니다. 이미 연결된 에이전트는 그대로 동작합니다.",
   "workspace.tokenDeleteTitle": "App Configuration Token을 삭제할까요?",
   "workspace.delete": "삭제",
+  "workspace.tokenIssuer": "발급자 {id}",
+  "workspace.tokenIssuerChanged":
+    "저장했습니다. 발급자가 바뀌어 앞으로 만드는 앱의 협업자도 바뀝니다.",
+  "workspace.tokenStoreUnavailable":
+    "비밀 저장소를 사용할 수 없습니다. 관리자에게 저장소 설정을 확인해 달라고 요청하세요.",
   "workspace.tokenDeleted": "App Configuration Token을 삭제했습니다.",
 };
 
@@ -142,6 +147,11 @@ export const workspaceEn: Record<keyof typeof workspaceKo, string> = {
     "No new Slack app can be made until a new token is saved. Agents already connected keep working.",
   "workspace.tokenDeleteTitle": "Delete the App Configuration Token?",
   "workspace.delete": "Delete",
+  "workspace.tokenIssuer": "Issuer {id}",
+  "workspace.tokenIssuerChanged":
+    "Saved. The issuer changed; new apps will have a different collaborator.",
+  "workspace.tokenStoreUnavailable":
+    "The secret store is unavailable. Ask an administrator to check its configuration.",
   "workspace.tokenDeleted": "Deleted the App Configuration Token.",
 };
 
@@ -218,5 +228,10 @@ export const workspaceJa: Record<keyof typeof workspaceKo, string> = {
     "新しいトークンを保存するまで新しい Slack アプリは作れません。接続済みのエージェントはそのまま動きます。",
   "workspace.tokenDeleteTitle": "App Configuration Token を削除しますか?",
   "workspace.delete": "削除",
+  "workspace.tokenIssuer": "発行者 {id}",
+  "workspace.tokenIssuerChanged":
+    "保存しました。発行者が変わったため、今後作成するアプリの共同管理者も変わります。",
+  "workspace.tokenStoreUnavailable":
+    "秘密情報ストアを利用できません。管理者に設定の確認を依頼してください。",
   "workspace.tokenDeleted": "App Configuration Token を削除しました。",
 };
