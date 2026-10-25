@@ -41,6 +41,23 @@ export interface AgentMapMessages {
   readonly back: string;
   readonly relations: string;
   readonly loading: string;
+  readonly title: string;
+  readonly description: string;
+  /** How long ago the list was last read; null before the first read. */
+  readonly listUpdated: (seconds: number | null) => string;
+  readonly liveScope: string;
+  readonly tidy: (count: number) => string;
+  /** Read aloud when a read of the list moved something. */
+  readonly changes: (
+    changes: readonly { title: string; to: SessionStatus }[],
+    added: number,
+  ) => string;
+  /** A queued session's card before it has done anything. */
+  readonly queuedNote: string;
+  readonly noActivity: string;
+  readonly noAgent: string;
+  /** Leads a pending question on the approval strip. */
+  readonly question: string;
 }
 
 const STATUS_KO: Record<SessionStatus, string> = {
@@ -128,6 +145,22 @@ export const AGENT_MAP_MESSAGES: Readonly<Record<Locale, AgentMapMessages>> = {
     back: "← 목록으로",
     relations: "세션 관계",
     loading: "에이전트 지도를 읽는 중",
+    title: "에이전트 지도",
+    description:
+      "지금 동작 중인 세션, 그 안의 하위 에이전트와 쓴 도구를 봅니다.",
+    listUpdated: (seconds) =>
+      seconds === null ? "목록을 읽는 중" : `목록 갱신 ${seconds}초 전`,
+    liveScope: "실시간은 선택한 세션만",
+    tidy: (count) => `자리 정리 (${count})`,
+    changes: (changes, added) =>
+      [
+        ...changes.map((c) => `${c.title}: ${STATUS_KO[c.to]}`),
+        ...(added > 0 ? [`새 세션 ${added}개`] : []),
+      ].join(", "),
+    queuedNote: "작업자 배정을 기다리는 중",
+    noActivity: "아직 활동 없음",
+    noAgent: "에이전트 없음",
+    question: "질문",
   },
   ja: {
     status: (status) => STATUS_JA[status],
@@ -187,6 +220,22 @@ export const AGENT_MAP_MESSAGES: Readonly<Record<Locale, AgentMapMessages>> = {
     back: "← 一覧へ",
     relations: "セッションの関係",
     loading: "エージェントマップを読み込み中",
+    title: "エージェントマップ",
+    description:
+      "動作中のセッションと、その中のサブエージェント、使ったツールを表示します。",
+    listUpdated: (seconds) =>
+      seconds === null ? "一覧を読み込み中" : `一覧の更新 ${seconds}秒前`,
+    liveScope: "リアルタイムは選択したセッションのみ",
+    tidy: (count) => `並べ替え (${count})`,
+    changes: (changes, added) =>
+      [
+        ...changes.map((c) => `${c.title}: ${STATUS_JA[c.to]}`),
+        ...(added > 0 ? [`新しいセッション ${added}件`] : []),
+      ].join("、"),
+    queuedNote: "ワーカーの割り当てを待っています",
+    noActivity: "まだ活動なし",
+    noAgent: "エージェントなし",
+    question: "質問",
   },
   en: {
     status: (status) => STATUS_EN[status],
@@ -247,5 +296,21 @@ export const AGENT_MAP_MESSAGES: Readonly<Record<Locale, AgentMapMessages>> = {
     back: "← Back to list",
     relations: "Session relations",
     loading: "Loading the agent map",
+    title: "Agent map",
+    description:
+      "Sessions at work now, with the subagents inside them and the tools they used.",
+    listUpdated: (seconds) =>
+      seconds === null ? "Reading the list" : `List updated ${seconds}s ago`,
+    liveScope: "live for the selected session only",
+    tidy: (count) => `Tidy up (${count})`,
+    changes: (changes, added) =>
+      [
+        ...changes.map((c) => `${c.title}: ${STATUS_EN[c.to]}`),
+        ...(added > 0 ? [`${added} new sessions`] : []),
+      ].join(", "),
+    queuedNote: "Waiting for a worker",
+    noActivity: "No activity yet",
+    noAgent: "No agent",
+    question: "Question",
   },
 };

@@ -1,10 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import {
-  AgentMap,
+  AgentMapPage,
   type MapNode,
   type MapSession,
 } from "@werft-ai/react/agent-map";
-import { Button, PageHeader } from "@werft-ai/ui";
+import { Button } from "@werft-ai/ui";
 import { type ReactNode, useState } from "react";
 import { expect, userEvent, within } from "storybook/test";
 
@@ -32,6 +32,9 @@ function AgentMapScreen({
   initialSelected,
   detailOnly = false,
   loading = false,
+  waiting = 0,
+  pendingMoves = 0,
+  onTidy,
   toolbar,
 }: {
   readonly sessions: readonly MapSession[];
@@ -39,6 +42,10 @@ function AgentMapScreen({
   readonly initialSelected: string;
   readonly detailOnly?: boolean;
   readonly loading?: boolean;
+  /** Open requests the loading board keeps a place for. */
+  readonly waiting?: number;
+  readonly pendingMoves?: number;
+  readonly onTidy?: () => void;
   readonly toolbar?: ReactNode;
 }) {
   const [selectedId, setSelectedId] = useState(initialSelected);
@@ -48,31 +55,24 @@ function AgentMapScreen({
   const session = sessions.find((s) => s.id === selectedId) ?? sessions[0];
   return (
     <ScreenShell current="sessions" crumb={["세션", "에이전트 지도"]}>
-      <div className="flex flex-col gap-6">
-        <PageHeader
-          title="에이전트 지도"
-          description="지금 동작 중인 세션, 그 안의 하위 에이전트와 쓴 도구를 봅니다."
-        />
-        <p className="-mt-3 m-0 flex flex-wrap items-center gap-2 text-caption text-muted-foreground">
-          목록 갱신 3초 전 · 실시간은 선택한 세션만
-        </p>
-        {toolbar}
-        <AgentMap
-          sessions={sessions}
-          doneCount={DONE_COUNT}
-          selected={
-            session ? { session, nodes: nodes[session.id] ?? [] } : null
-          }
-          onSelect={(id) => {
-            setSelectedId(id);
-            setView("detail");
-          }}
-          view={view}
-          onBack={() => setView("board")}
-          loading={loading}
-          now={NOW}
-        />
-      </div>
+      {toolbar}
+      <AgentMapPage
+        updatedAt={loading ? null : NOW - 3_000}
+        pendingMoves={pendingMoves}
+        onTidy={onTidy}
+        sessions={sessions}
+        doneCount={DONE_COUNT}
+        selected={session ? { session, nodes: nodes[session.id] ?? [] } : null}
+        onSelect={(id) => {
+          setSelectedId(id);
+          setView("detail");
+        }}
+        view={view}
+        onBack={() => setView("board")}
+        loading={loading}
+        waiting={waiting}
+        now={NOW}
+      />
     </ScreenShell>
   );
 }
@@ -188,6 +188,8 @@ function DynamicScreen({ initialStep = 0 }: { readonly initialStep?: number }) {
       sessions={sessions}
       nodes={nodes}
       initialSelected="s4"
+      pendingMoves={step >= 5 ? 0 : pendingMoves}
+      onTidy={() => setStep(5)}
       toolbar={
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-caption text-muted-foreground">
@@ -282,10 +284,11 @@ export const MessagesMobile: Story = {
   globals: MOBILE,
 };
 
-export const Loading: Story = { args: { loading: true } };
+/** The board's data loading: its two open requests already have their place. */
+export const Loading: Story = { args: { loading: true, waiting: 2 } };
 export const LoadingMobile: Story = {
   name: "Loading (390px)",
-  args: { loading: true },
+  args: { loading: true, waiting: 2 },
   globals: MOBILE,
 };
 
