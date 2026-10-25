@@ -3,6 +3,7 @@ import { Link as RouterLink } from "@tanstack/react-router";
 import type { AgentDetail } from "@werft-ai/contracts";
 import { usageBreakdownQuery } from "@werft-ai/core";
 import { useAgentPlatform } from "@werft-ai/react";
+import { OPERATIONS_MESSAGES } from "@werft-ai/react/components";
 import {
   Badge,
   Button,
@@ -130,18 +131,12 @@ function Figure({
   );
 }
 
-// The operations cost table's rounding.
-const usd = (amount: string) =>
-  Number(amount) > 0 && Number(amount) < 0.005
-    ? "<$0.01"
-    : `$${Number(amount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
 /**
  * The agent's cost over the last 7 days. Only the install-wide figures split
  * by agent, so without them, or when the read fails, there is no card.
  */
 function WeekCost({ agentId }: { readonly agentId: string }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { client } = useAgentPlatform();
   const operator = useHasPermission("usage.installation_read");
   const { since, until } = usagePeriod(7);
@@ -159,7 +154,7 @@ function WeekCost({ agentId }: { readonly agentId: string }) {
         badge={<Badge variant="gray">{t("usage.kpi.estimated")}</Badge>}
         value={
           breakdown.data ? (
-            usd(row?.cost_usd ?? "0")
+            OPERATIONS_MESSAGES[locale].format.usd(row?.cost_usd ?? "0")
           ) : (
             <Skeleton lines={1} label={t("status.loading.title")} />
           )
