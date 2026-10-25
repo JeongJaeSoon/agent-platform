@@ -298,28 +298,38 @@ export async function runPassLoop(input: {
 
 type PassChild = {
   process: Bun.Subprocess;
-  /** Who hears the child's answer to the pass now running, if any. */
-  listen(listener: ((message: unknown) => void) | undefined): void;
+  /**
+   * Who hears the pass now running end: its answer, or the child's exit.
+   * One exit reaction per child, not per pass, so a long-lived child does
+   * not pile them up.
+   */
+  listen(listener: PassListener | undefined): void;
+  /** Set once the child answered a pass: from then on it is serving. */
+  serving: boolean;
 };
+
+type PassListener = (event: { message: unknown } | "exited") => void;
 
 function spawnPassChild(
   command: readonly string[],
   env: Record<string, string | undefined> | undefined,
 ): PassChild {
-  let listener: ((message: unknown) => void) | undefined;
+  let listener: PassListener | undefined;
   const child = Bun.spawn([...command], {
     ...(env === undefined ? {} : { env }),
     stdin: "ignore",
     stdout: "inherit",
     stderr: "inherit",
     serialization: "json",
-    ipc: (message) => listener?.(message),
+    ipc: (message) => listener?.({ message }),
   });
+  void child.exited.then(() => listener?.("exited"));
   return {
     process: child,
     listen: (next) => {
       listener = next;
     },
+    serving: false,
   };
 }
 
@@ -340,19 +350,20 @@ async function runPass(
     stop();
   }, config.passTimeoutMs);
   signal?.addEventListener("abort", stop, { once: true });
-  const answered = new Promise<unknown>((resolve) => passChild.listen(resolve));
+  const ended = new Promise<{ message: unknown } | "exited">((resolve) => {
+    passChild.listen(resolve);
+    if (!running(child)) resolve("exited");
+  });
   try {
     try {
       child.send(PASS_REQUEST);
     } catch {
       // Already gone: its exit below says how the pass went.
     }
-    const answer = await Promise.race([
-      answered.then((message) => ({ message })),
-      child.exited.then(() => undefined),
-    ]);
-    if (answer !== undefined && !timedOut && !signal?.aborted) {
-      const code = answerCode(answer.message);
+    const event = await ended;
+    if (event !== "exited" && !timedOut && !signal?.aborted) {
+      passChild.serving = true;
+      const code = answerCode(event.message);
       if (code === 0) return { outcome: "succeeded" };
       if (code === PASS_SKIPPED_EXIT) return { outcome: "skipped" };
       if (code === PASS_DEGRADED_EXIT) return { outcome: "degraded" };
@@ -379,6 +390,18 @@ async function runPass(
     }
     if (child.signalCode !== null) {
       return { outcome: "failed", reason: `pass ended by ${child.signalCode}` };
+    }
+    // A serving child answers every pass it completes; one that exits with
+    // a completed pass's code instead may have ended before it ran this one.
+    if (
+      passChild.serving &&
+      event === "exited" &&
+      (code === 0 || code === PASS_SKIPPED_EXIT || code === PASS_DEGRADED_EXIT)
+    ) {
+      return {
+        outcome: "failed",
+        reason: `pass process exited with code ${code} without answering`,
+      };
     }
     if (code === 0) return { outcome: "succeeded" };
     if (code === PASS_SKIPPED_EXIT) return { outcome: "skipped" };

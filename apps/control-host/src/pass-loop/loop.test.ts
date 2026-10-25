@@ -488,6 +488,23 @@ describe("pass loop: a serving child", () => {
     expect(pids.some(alive)).toBe(false);
   }, 30_000);
 
+  test("a serving child that exits 0 instead of answering has not completed the pass", async () => {
+    const code = await runPassLoop({
+      name: "Test",
+      // The second request finds the child on its way out, the way an idle
+      // scheduler child ends on SIGTERM.
+      command: serving("if (pass === 1) process.exit(0); return 0;"),
+      config: config({ maxConsecutiveFailures: 1 }),
+      logger,
+    });
+    expect(code).toBe(1);
+    expect(await readStatus(join(dir, "status.json"))).toMatchObject({
+      passes: 2,
+      lastSuccessAt: expect.any(String),
+      lastFailureReason: "pass process exited with code 0 without answering",
+    });
+  }, 30_000);
+
   test("a child that dies between passes is a failed pass", async () => {
     const code = await runPassLoop({
       name: "Test",
