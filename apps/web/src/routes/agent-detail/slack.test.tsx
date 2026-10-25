@@ -1261,6 +1261,22 @@ describe("Slack management", () => {
     ).toBeDefined();
     expect(document.body.textContent).not.toContain("서버가 응답하지 않습니다");
   });
+  test("names the missing secret store in English too", async () => {
+    renderAt(
+      DETAIL,
+      {
+        ...routes(),
+        [`GET ${PATH}/slack/app`]: () =>
+          apiError(503, "BACKEND_UNAVAILABLE", "secret store off"),
+      },
+      "en",
+    );
+    expect(
+      await screen.findByText(
+        "The secret store is unavailable. Ask an administrator to check its configuration.",
+      ),
+    ).toBeDefined();
+  });
   test("keeps the try-again text for a 503 a retry can clear", async () => {
     renderAt(DETAIL, {
       ...routes(),
