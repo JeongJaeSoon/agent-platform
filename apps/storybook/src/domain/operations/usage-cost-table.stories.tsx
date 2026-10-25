@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { UsageCostTable } from "@werft-ai/react/components";
+import { expect } from "storybook/test";
 
 import {
   breakdown,
@@ -42,6 +43,37 @@ const BY_MODEL = {
 
 /** By model: the names in mono, the token column hidden below 480px. */
 export const ByModel: Story = { args: BY_MODEL };
+
+/** Names without a space or hyphen wrap in their column; the figures keep theirs. */
+export const LongNames: Story = {
+  name: "Long names (390px)",
+  args: {
+    rows: split.agent.rows.slice(0, 2).map((row, i) => ({
+      ...row,
+      label:
+        i === 0 ? "NightlyReleaseNotesAndChangelogWriterForPlatform" : null,
+    })),
+  },
+  globals: MOBILE,
+  // The 390 frame's body width, so the test runner (no viewport) sees it too.
+  decorators: [
+    (Story) => (
+      <div style={{ width: 343 }}>
+        <Story />
+      </div>
+    ),
+  ],
+  play: async ({ canvas }) => {
+    // The glyphs, not the span: an unbroken name overflows its box.
+    const text = document.createRange();
+    text.selectNodeContents(canvas.getByText(/^NightlyRelease/));
+    const sessions = canvas.getAllByRole("cell").at(1) as HTMLElement;
+    await expect(text.getBoundingClientRect().right).toBeLessThanOrEqual(
+      sessions.getBoundingClientRect().left,
+    );
+    await expect(canvas.getByText("에이전트 없음")).toBeVisible();
+  },
+};
 
 export const Empty: Story = { args: { rows: [] } };
 

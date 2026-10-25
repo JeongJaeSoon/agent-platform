@@ -38,7 +38,7 @@ import {
   NativeSelectOption,
   Stepper,
 } from "@werft-ai/ui";
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useWatch } from "react-hook-form";
 import type { z } from "zod";
 import { agentQuery, profilesQuery, queryKeys } from "../api/queries.ts";
@@ -57,11 +57,25 @@ import {
 import { Notice } from "./auth-page.tsx";
 import { StepHeading, useStepMoved } from "./step-heading.tsx";
 
+const SlackConnect = lazy(() =>
+  import("../routes/agent-detail/slack.tsx").then((module) => ({
+    default: module.SlackConnect,
+  })),
+);
+
 /**
  * `flow` names one run of the flow; every step's input carries it. `card` is
  * the job step's input as typed, kept so a reload does not lose it.
  */
 type Steps = {
+  channels: {
+    flow: string;
+    name: string;
+    slug: string;
+    agentId: string;
+    versionId: string;
+    releaseId: string;
+  };
   name: { flow: string; name?: string; slug?: string };
   job: { flow: string; name: string; slug: string; card?: unknown };
   release: {
@@ -88,8 +102,9 @@ const hasText = (data: unknown, keys: readonly string[]) =>
     (key) => typeof (data as Record<string, unknown>)[key] === "string",
   );
 
-const STEP_IDS = ["name", "job", "release", "activate"] as const;
+const STEP_IDS = ["name", "job", "release", "activate", "channels"] as const;
 const STEP_LABEL = {
+  channels: "agents.flow.channels",
   name: "agents.flow.name",
   job: "agents.flow.job",
   release: "agents.flow.release",
@@ -202,6 +217,17 @@ export function NewAgentFlow({
     id: "new-agent",
     initial: { step: "name", context: { flow: newFlow } },
     steps: {
+      channels: {
+        guard: (data): data is Steps["channels"] =>
+          hasText(data, [
+            "flow",
+            "name",
+            "slug",
+            "agentId",
+            "versionId",
+            "releaseId",
+          ]),
+      },
       name: {
         guard: (data): data is Steps["name"] => hasText(data, ["flow"]),
       },
@@ -282,7 +308,10 @@ export function NewAgentFlow({
     withResolver: true,
   });
   const catalog = useQuery(profilesQuery(client));
-  const savedPastJob = funnel.step === "release" || funnel.step === "activate";
+  const savedPastJob =
+    funnel.step === "release" ||
+    funnel.step === "activate" ||
+    funnel.step === "channels";
   const moved = useStepMoved(funnel.step);
 
   const stepper = useStepper({
@@ -395,13 +424,24 @@ export function NewAgentFlow({
             refuse={refuse}
           />
         )}
-        activate={({ context }) => (
+        activate={({ context, history }) => (
           <ActivateStep
             agentId={context.agentId}
             releaseId={context.releaseId}
             focus={moved}
             refuse={refuse}
+            onNext={() => void history.push("channels", {})}
           />
+        )}
+        channels={({ context }) => (
+          <section className={AGENT_FORM}>
+            <StepHeading focus={moved}>{t("agents.flow.channels")}</StepHeading>
+            <Notice>{t("agents.flow.done", { name: context.name })}</Notice>
+            <Suspense fallback={<p aria-busy="true">{t("slack.working")}</p>}>
+              <SlackConnect agentId={context.agentId} />
+            </Suspense>
+            <LaterLink agentId={context.agentId} />
+          </section>
         )}
       />
       <ConfirmDialog
@@ -697,11 +737,13 @@ function ActivateStep({
   releaseId,
   focus,
   refuse,
+  onNext,
 }: {
   readonly agentId: string;
   readonly releaseId: string;
   readonly focus: boolean;
   readonly refuse: (error: unknown) => string;
+  readonly onNext: () => void;
 }) {
   const { t } = useI18n();
   const { client } = useAgentPlatform();
@@ -720,53 +762,31 @@ function ActivateStep({
         queryClient.invalidateQueries({ queryKey: queryKeys.agents }),
         queryClient.invalidateQueries({ queryKey: queryKeys.agent(agentId) }),
       ]);
+      onNext();
     },
   });
-  const name = agent.data?.agent.name ?? "";
-  // The button pressed is gone after the switch; focus goes to what is next.
-  const opened = useRef<HTMLAnchorElement>(null);
-  useEffect(() => {
-    if (activate.isSuccess) opened.current?.focus();
-  }, [activate.isSuccess]);
   return (
     <section className={AGENT_FORM}>
       <StepHeading focus={focus}>{t("agents.flow.activate")}</StepHeading>
-      {/* Mounted before the result, so the result is read when it lands. */}
-      <Notice>
-        {activate.isSuccess ? t("agents.flow.done", { name }) : null}
-      </Notice>
-      {activate.isSuccess ? (
-        <div>
-          <Button asChild>
-            <Link to="/agents/$id" params={{ id: agentId }} ref={opened}>
-              {t("agents.flow.open")}
-            </Link>
-          </Button>
-        </div>
-      ) : (
-        <>
-          <p className="m-0 text-muted-foreground text-sm">
-            {t("agents.flow.activateIntro")}
-          </p>
-          {activate.error ? <Alerts lines={[refuse(activate.error)]} /> : null}
-          {agent.error ? <Alerts lines={[refuse(agent.error)]} /> : null}
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              disabled={activate.isPending || !agent.data}
-              onClick={() =>
-                agent.data &&
-                activate.mutate(agent.data.agent.activation_revision)
-              }
-            >
-              {activate.isPending
-                ? t("agents.flow.activating")
-                : t("agents.flow.turnOn")}
-            </Button>
-            <LaterLink agentId={agentId} />
-          </div>
-        </>
-      )}
+      <p className="m-0 text-muted-foreground text-sm">
+        {t("agents.flow.activateIntro")}
+      </p>
+      {activate.error ? <Alerts lines={[refuse(activate.error)]} /> : null}
+      {agent.error ? <Alerts lines={[refuse(agent.error)]} /> : null}
+      <div className="flex flex-wrap gap-2">
+        <Button
+          type="button"
+          disabled={activate.isPending || !agent.data}
+          onClick={() =>
+            agent.data && activate.mutate(agent.data.agent.activation_revision)
+          }
+        >
+          {activate.isPending
+            ? t("agents.flow.activating")
+            : t("agents.flow.turnOn")}
+        </Button>
+        <LaterLink agentId={agentId} />
+      </div>
     </section>
   );
 }
