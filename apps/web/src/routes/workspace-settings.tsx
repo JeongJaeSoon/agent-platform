@@ -50,7 +50,6 @@ const STATUS = `${META} min-w-6 text-right`;
 
 export type OnOutcome = (outcome: Outcome | null) => void;
 
-/** A page of the settings nav's workspace group, under its own title. */
 export function WorkspacePage({
   page,
   children,

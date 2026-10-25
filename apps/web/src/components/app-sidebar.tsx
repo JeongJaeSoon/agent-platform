@@ -145,7 +145,6 @@ export function useNavGroups(): readonly NavGroup[] {
   return groups;
 }
 
-/** The settings nav's groups: the workspace's pages, then the person's. */
 export function useSettingsNavGroups(): readonly NavGroup[] {
   const workspaceManage = useHasPermission("workspace.manage");
   const retentionManage = useHasPermission("audit_retention.manage");

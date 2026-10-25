@@ -308,7 +308,6 @@ function tokenLine(
     : t("workspace.tokenSavedAt", { at });
 }
 
-/** The last block of a settings page: what cannot be undone. */
 function DangerZone({ children }: { readonly children: ReactNode }) {
   const { t } = useI18n();
   const titleId = useId();
