@@ -592,6 +592,9 @@ export async function finished(
       outputs.status === 409 &&
       outputs.body?.error?.code === "CHECKPOINT_UNAVAILABLE"
     ) {
+      console.warn(
+        `awaiting-recovery session ${sessionId}: CHECKPOINT_UNAVAILABLE; existing demo left unchanged`,
+      );
       return true;
     }
     if (outputs.status !== 200) {

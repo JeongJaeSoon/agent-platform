@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { join } from "node:path";
 import { readCatalogConfig } from "./catalog-config.ts";
 import {
@@ -181,6 +181,7 @@ describe("finished", () => {
   ] as const)(
     "outputs %p %p skips recovery only: %p",
     async (status, code, skips) => {
+      const warning = spyOn(console, "warn").mockImplementation(() => {});
       const server = Bun.serve({
         port: 0,
         fetch: () => Response.json({ error: { code } }, { status }),
@@ -190,12 +191,17 @@ describe("finished", () => {
         const result = finished(client, "s", spec("approve-then-idle"));
         if (skips) {
           expect(await result).toBe(true);
+          expect(warning).toHaveBeenCalledWith(
+            "awaiting-recovery session s: CHECKPOINT_UNAVAILABLE; existing demo left unchanged",
+          );
         } else {
           await expect(result).rejects.toThrow(
             `answered ${status}, expected 200`,
           );
+          expect(warning).not.toHaveBeenCalled();
         }
       } finally {
+        warning.mockRestore();
         server.stop(true);
       }
     },

@@ -370,7 +370,7 @@ scripts/local.sh up --fake-model           # 실제 Claude 스택이면 옵션 �
 
 잃은 checkpoint가 없으면 `No checkpoint is missing from the bucket`만 출력하고 끝난다. 세션까지 모두 지우고 새로 하려면 여전히 `scripts/local.sh reset --fake-model`이다.
 
-`up --fake-model`의 데모 데이터 시드는 기존 데모 세션의 outputs 조회가 409 `CHECKPOINT_UNAVAILABLE`이면 그 세션을 그대로 두고 나머지 시드를 계속한다. 잃은 산출물을 다시 만들거나 복구 결정을 대신하지 않는다. 다른 조회 오류는 시드를 중단한다.
+`up --fake-model`의 데모 데이터 시드는 기존 데모 세션의 outputs 조회가 409 `CHECKPOINT_UNAVAILABLE`이면 `awaiting-recovery session <id>: CHECKPOINT_UNAVAILABLE; existing demo left unchanged`를 출력하고 그 세션을 그대로 둔 채 나머지 시드를 계속한다. 뒤의 `exists session <제목>`은 기존 세션이 있다는 뜻이며 산출물이 복구됐다는 뜻이 아니다. 잃은 산출물을 다시 만들거나 복구 결정을 대신하지 않는다. 다른 조회 오류는 시드를 중단한다.
 
 ## 8. 막혔을 때
 
