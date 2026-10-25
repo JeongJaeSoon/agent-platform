@@ -333,6 +333,21 @@ describe("Slack management", () => {
     ).toHaveLength(1);
   });
 
+  test("folds the narrow list after a pick and leaves focus on the section", async () => {
+    renderAt(DETAIL, routes(APP, true));
+    const user = await setupUser();
+    const nav = await screen.findByRole("navigation", { name: "Slack 구역" });
+    const toggle = within(nav).getByRole("button", { name: /^Slack 구역/ });
+    await user.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    await user.click(within(nav).getByRole("link", { name: "고급" }));
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(toggle.textContent).toContain("고급");
+    expect(
+      document.activeElement === screen.getByRole("region", { name: "고급" }),
+    ).toBe(true);
+  });
+
   test("shows an ambient binding consistently and keeps it read-only", async () => {
     const { api } = renderAt(DETAIL, {
       ...routes(APP, true),

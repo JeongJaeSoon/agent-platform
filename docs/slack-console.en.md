@@ -2,7 +2,7 @@
 
 Open the agent's **Slack** tab to see its app status. New agents reach the same component at **Connect channels**, after name, job, release and activation. Connecting Slack is optional.
 
-Once the app is installed, the Slack tab is one page. A status row at the top shows the connection, bot ID, home channel and direct messages, followed by **Channels**, **Basic**, **Advanced** and **Danger zone**. Choose a section in the list on the left to jump to it. On narrow screens the list sits above the content.
+Once the app is installed, the Slack tab is one page. A status row at the top shows the connection, bot ID, home channel and direct messages, followed by **Channels**, **Basic**, **Advanced** and **Danger zone**. Choose a section in the list on the left to jump to it. On narrow screens the list folds into one button above the content that names the section you are in; pick a section from it and the list folds again.
 
 1. Turn on the agent and choose **Create and install Slack app**. A workspace administrator must configure app creation first.
 2. Install the app on Slack's consent screen. The callback completes installation, returns to the Slack tab and shows the result in a notice at the bottom of the screen. If consent is declined or the link expires, a notice says so; start a new installation from that tab. Used links are never retried automatically. When permissions or event settings change, choose **Reinstall** in the app card under **Advanced**.

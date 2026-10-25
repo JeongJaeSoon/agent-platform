@@ -25,6 +25,10 @@ import {
   RowList,
   RowListItem,
   SettingRow,
+  SideNav,
+  SideNavGroup,
+  SideNavLayout,
+  SideNavLink,
   Skeleton,
   Switch,
 } from "@werft-ai/ui";
@@ -34,14 +38,8 @@ import { useMe } from "../../auth/guard.tsx";
 import { copyText } from "../../components/copy.ts";
 import { errorKey, type Translate, useI18n } from "../../i18n/i18n.tsx";
 import { useAppServices } from "../../services.tsx";
-import {
-  SideNav,
-  SideNavGroup,
-  SideNavLayout,
-  SideNavLink,
-  useCurrentSection,
-} from "./side-nav.tsx";
 import { type Notify, useToast } from "./toast.tsx";
+import { useCurrentSection } from "./use-current-section.ts";
 
 type Binding =
   components["schemas"]["ListSlackBindingsResponse"]["items"][number];
@@ -1090,6 +1088,7 @@ export default function SlackTab({
   const [current, setCurrent] = useCurrentSection(
     keys.map((key) => SECTION[key]),
   );
+  const jumped = useRef<string>(undefined);
   const installed =
     identities.data?.items.some((item) => item.status === "active") ?? false;
   const [wasConnected, setWasConnected] = useState(installed);
@@ -1120,19 +1119,33 @@ export default function SlackTab({
             : "smooth",
         });
         target?.focus({ preventScroll: true });
+        jumped.current = SECTION[key];
         setCurrent(SECTION[key]);
       }}
     >
       {t(SECTION_LABEL[key])}
     </SideNavLink>
   );
+  const here = keys.find((key) => SECTION[key] === current);
   return (
     <>
       <SideNavLayout
         nav={
-          <SideNav aria-label={t("slack.sectionNav")}>
-            {link("channels")}
-            {link("basic")}
+          <SideNav
+            aria-label={t("slack.sectionNav")}
+            current={here ? t(SECTION_LABEL[here]) : undefined}
+            // Folding the list sends focus to its button; take it back to
+            // the section the link jumped to.
+            onPick={() =>
+              document
+                .getElementById(jumped.current ?? "")
+                ?.focus({ preventScroll: true })
+            }
+          >
+            <SideNavGroup>
+              {link("channels")}
+              {link("basic")}
+            </SideNavGroup>
             <SideNavGroup label={t("slack.manage")}>
               {link("advanced")}
               {keys.includes("danger") ? link("danger") : null}
@@ -1140,43 +1153,45 @@ export default function SlackTab({
           </SideNav>
         }
       >
-        <SlackStatus agentId={agentId} />
-        <SlackChannels
-          agentId={agentId}
-          defaultMention={defaultMention}
-          invite={`/invite @${slug}`}
-          notify={notify}
-        />
-        <section
-          id={SECTION.basic}
-          tabIndex={-1}
-          className={SECTION_BOX}
-          aria-labelledby={`${SECTION.basic}-title`}
-        >
-          <h2 id={`${SECTION.basic}-title`} className={HEADING}>
-            {t("slack.basic")}
-          </h2>
-          <RowList variant="joined">
-            <SlackDmSetting agentId={agentId} />
-            <SettingRow
-              title={t("slack.defaultReaction")}
-              description={t("slack.defaultHint")}
-              status={
-                <span className="text-control text-muted-foreground">
-                  {t(defaultMention ? "slack.mention" : "slack.off")}
-                </span>
-              }
-              control={
-                <Switch
-                  aria-label={t("slack.defaultReaction")}
-                  checked={defaultMention}
-                  onCheckedChange={setDefaultMention}
-                />
-              }
-            />
-          </RowList>
-        </section>
-        <SlackConnect agentId={agentId} active={active} inPage />
+        <div className="flex flex-col gap-8">
+          <SlackStatus agentId={agentId} />
+          <SlackChannels
+            agentId={agentId}
+            defaultMention={defaultMention}
+            invite={`/invite @${slug}`}
+            notify={notify}
+          />
+          <section
+            id={SECTION.basic}
+            tabIndex={-1}
+            className={SECTION_BOX}
+            aria-labelledby={`${SECTION.basic}-title`}
+          >
+            <h2 id={`${SECTION.basic}-title`} className={HEADING}>
+              {t("slack.basic")}
+            </h2>
+            <RowList variant="joined">
+              <SlackDmSetting agentId={agentId} />
+              <SettingRow
+                title={t("slack.defaultReaction")}
+                description={t("slack.defaultHint")}
+                status={
+                  <span className="text-control text-muted-foreground">
+                    {t(defaultMention ? "slack.mention" : "slack.off")}
+                  </span>
+                }
+                control={
+                  <Switch
+                    aria-label={t("slack.defaultReaction")}
+                    checked={defaultMention}
+                    onCheckedChange={setDefaultMention}
+                  />
+                }
+              />
+            </RowList>
+          </section>
+          <SlackConnect agentId={agentId} active={active} inPage />
+        </div>
       </SideNavLayout>
       {toast}
     </>
