@@ -52,7 +52,10 @@ import { useHasPermission } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
-import type { OperationsSearch } from "./operations-search.ts";
+import {
+  type OperationsSearch,
+  operationsSearch,
+} from "./operations-search.ts";
 import { SESSION_FILTERS } from "./sessions.tsx";
 
 const DAY_MS = 86_400_000;
@@ -202,7 +205,13 @@ function MenuHead() {
       tabs={tabs}
       current={current}
       tabLink={(tab, label) => (
-        <Link to={TAB_PATHS[tab]} activeOptions={{ exact: true }}>
+        // The period and scope picked follow the viewer between the tabs
+        // that filter by them; a tool's agent stays on the tools tab.
+        <Link
+          to={TAB_PATHS[tab]}
+          search={(prev) => (tab === "limits" ? {} : operationsSearch(prev))}
+          activeOptions={{ exact: true, includeSearch: false }}
+        >
           {label}
         </Link>
       )}

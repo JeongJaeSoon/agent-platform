@@ -345,6 +345,40 @@ describe("운영", () => {
     );
   });
 
+  test("탭을 오가도 기간·범위가 남고, 한도 탭과 도구의 에이전트는 들고 가지 않는다", async () => {
+    setSystemTime(NOW);
+    const { history } = renderAt(
+      "/operations/tools?days=7&scope=me&agent_id=00000000-0000-4000-8000-000000000001",
+      {
+        "GET /v1/auth/me": () => json(200, me()),
+        "GET /v1/limits": () => json(200, LIMITS),
+        ...usageRoutes,
+      },
+    );
+    // The tools tab draws the head in its own body, so look it up each time.
+    const tab = async (name: string) =>
+      within(
+        await screen.findByRole("navigation", { name: "운영 탭" }),
+      ).getByRole("link", { name });
+    const search = () =>
+      Object.fromEntries(new URLSearchParams(history.location.search));
+    const user = await setupUser();
+    for (const [name, path] of [
+      ["개요", "/operations"],
+      ["사용량", "/operations/usage"],
+      ["도구 활동", "/operations/tools"],
+    ] as const) {
+      await user.click(await tab(name));
+      await waitFor(() => expect(history.location.pathname).toBe(path));
+      expect(search()).toEqual({ days: "7", scope: "me" });
+    }
+    await user.click(await tab("한도"));
+    await waitFor(() =>
+      expect(history.location.pathname).toBe("/operations/limits"),
+    );
+    expect(search()).toEqual({});
+  });
+
   for (const [role, who] of [
     ["admin", () => me(undefined, "admin")],
     ["member", memberMe],
