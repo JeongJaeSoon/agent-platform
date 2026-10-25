@@ -14,8 +14,8 @@ import { useOperationsMessages } from "./use-messages.ts";
 
 type Bucket = UsageSeriesResponse["buckets"][number];
 
-// BarChart's rendered height, x labels included.
-const BAR_CHART_HEIGHT = "11.25rem";
+const BAR_CHART_HEIGHT_WITH_X_LABELS = "11.25rem";
+const DESIGN_Y_STEP_USD = 20;
 
 const monthDay = (date: string) =>
   `${Number(date.slice(5, 7))}/${Number(date.slice(8, 10))}`;
@@ -38,8 +38,7 @@ export function UsageDailyCost({
     override,
   );
   const max = Math.max(0, ...(buckets ?? []).map((b) => Number(b.cost_usd)));
-  // Whole $20 steps as the design draws them; a few cents get the chart's own.
-  const wide = max >= 20;
+  const designSteps = max >= DESIGN_Y_STEP_USD;
   return (
     <Section
       title={messages.title}
@@ -56,7 +55,7 @@ export function UsageDailyCost({
       <Card>
         <CardContent>
           {buckets === undefined ? (
-            <Box chart height={BAR_CHART_HEIGHT} />
+            <Box chart height={BAR_CHART_HEIGHT_WITH_X_LABELS} />
           ) : (
             <BarChart
               label={messages.chart(days)}
@@ -65,9 +64,16 @@ export function UsageDailyCost({
                 y: Number(b.cost_usd),
                 partial: !b.cost_complete,
               }))}
-              {...(wide ? { yMax: Math.ceil(max / 20) * 20 } : {})}
+              {...(designSteps
+                ? {
+                    yMax:
+                      Math.ceil(max / DESIGN_Y_STEP_USD) * DESIGN_Y_STEP_USD,
+                  }
+                : {})}
               formatX={monthDay}
-              formatY={(y) => (wide ? `$${Math.round(y)}` : format.usd(y))}
+              formatY={(y) =>
+                designSteps ? `$${Math.round(y)}` : format.usd(y)
+              }
               formatTip={(d) =>
                 messages.tip(
                   monthDay(d.x),

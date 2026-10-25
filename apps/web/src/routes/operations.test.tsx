@@ -355,7 +355,6 @@ describe("운영", () => {
         ...usageRoutes,
       },
     );
-    // The tools tab draws the head in its own body, so look it up each time.
     const tab = async (name: string) =>
       within(
         await screen.findByRole("navigation", { name: "운영 탭" }),

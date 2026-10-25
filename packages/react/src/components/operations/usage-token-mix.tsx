@@ -20,6 +20,8 @@ const KINDS = [
   ["cacheWrite", "cache_creation_input_tokens"],
 ] as const;
 
+const TYPICAL_TOTAL_TOKENS = 38_160_000;
+
 export interface UsageTokenMixProps {
   /** GET /v1/usage/breakdown `totals`; undefined while they are read. */
   readonly totals: UsageBreakdownResponse["totals"] | undefined;
@@ -41,9 +43,8 @@ export function UsageTokenMix({
         totals ? (
           messages.description(format.tokens(total))
         ) : (
-          // A sentence of the usual length keeps the lines it will wrap to.
           <span aria-hidden="true" className="invisible">
-            {messages.description(format.tokens(38_160_000))}
+            {messages.description(format.tokens(TYPICAL_TOTAL_TOKENS))}
           </span>
         )
       }

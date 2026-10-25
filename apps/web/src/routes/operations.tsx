@@ -198,6 +198,13 @@ function useCurrentTab() {
   return { tabs, current };
 }
 
+function periodFiltersFor(
+  tab: OperationsTab,
+  search: Record<string, unknown>,
+): OperationsSearch {
+  return tab === "limits" ? {} : operationsSearch(search);
+}
+
 function MenuHead() {
   const { tabs, current } = useCurrentTab();
   return (
@@ -205,11 +212,9 @@ function MenuHead() {
       tabs={tabs}
       current={current}
       tabLink={(tab, label) => (
-        // The period and scope picked follow the viewer between the tabs
-        // that filter by them; a tool's agent stays on the tools tab.
         <Link
           to={TAB_PATHS[tab]}
-          search={(prev) => (tab === "limits" ? {} : operationsSearch(prev))}
+          search={(prev) => periodFiltersFor(tab, prev)}
           activeOptions={{ exact: true, includeSearch: false }}
         >
           {label}

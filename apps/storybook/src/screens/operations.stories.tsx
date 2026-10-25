@@ -157,7 +157,6 @@ function Kpis({ screen }: { readonly screen: ScreenData }) {
   );
 }
 
-/** Model, agent and top-agent tables, the rows held in place while loading. */
 function CostTable({
   label,
   rows,
