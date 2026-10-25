@@ -475,7 +475,10 @@ describe("팀 화면", () => {
       ...server.routes,
       "GET /v1/members?limit=100": async () => {
         await asked;
-        return json(200, { items: [owner, mate], next_cursor: null });
+        return json(
+          200,
+          memberPage({ items: [owner, mate], next_cursor: null }),
+        );
       },
     });
     await screen.findByRole("link", { name: "결제팀" });

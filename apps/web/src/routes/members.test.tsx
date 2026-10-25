@@ -535,12 +535,15 @@ describe("구성원 화면", () => {
     const { api } = renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": (request) =>
-        json(200, {
-          items: new URL(request.url).searchParams.has("q")
-            ? [{ ...gone, email: long }]
-            : [owner],
-          next_cursor: null,
-        }),
+        json(
+          200,
+          memberPage({
+            items: new URL(request.url).searchParams.has("q")
+              ? [{ ...gone, email: long }]
+              : [owner],
+            next_cursor: null,
+          }),
+        ),
       ...noInvites,
     });
     const user = await setupUser();
