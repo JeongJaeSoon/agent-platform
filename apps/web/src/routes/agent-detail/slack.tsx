@@ -64,7 +64,6 @@ const SECTION = {
   danger: "slack-danger",
 } as const;
 type SectionKey = keyof typeof SECTION;
-const SECTION_IDS = Object.values(SECTION);
 const SECTION_LABEL = {
   channels: "slack.channels",
   basic: "slack.basic",
@@ -1071,8 +1070,14 @@ export default function SlackTab({
     });
   }, [justInstalled, notify, navigate, t]);
   const [defaultMention, setDefaultMention] = useState(true);
-  const [current, setCurrent] = useCurrentSection(SECTION_IDS);
-  const { identities } = useSlackState(agentId);
+  const { app, identities } = useSlackState(agentId);
+  // The danger zone exists only while there is an app to revoke or delete.
+  const keys: readonly SectionKey[] = app.data?.slack_app
+    ? ["channels", "basic", "advanced", "danger"]
+    : ["channels", "basic", "advanced"];
+  const [current, setCurrent] = useCurrentSection(
+    keys.map((key) => SECTION[key]),
+  );
   const installed =
     identities.data?.items.some((item) => item.status === "active") ?? false;
   const [wasConnected, setWasConnected] = useState(installed);
@@ -1118,7 +1123,7 @@ export default function SlackTab({
             {link("basic")}
             <SideNavGroup label={t("slack.manage")}>
               {link("advanced")}
-              {link("danger")}
+              {keys.includes("danger") ? link("danger") : null}
             </SideNavGroup>
           </SideNav>
         }

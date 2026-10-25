@@ -985,4 +985,30 @@ describe("Slack management", () => {
       ),
     ).toBeDefined();
   });
+
+  test("drops the danger zone link once the installed app is deleted", async () => {
+    let app: typeof APP | null = APP;
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/app`]: () => json(200, appResponse(app)),
+      [`DELETE /v1/workspaces/${WORKSPACE_ID}/slack/apps/${ID}`]: () => {
+        app = null;
+        return json(200, { slack_app: { ...APP, state: "deleted" } });
+      },
+    });
+    const user = await setupUser();
+    const nav = await screen.findByRole("navigation", { name: "Slack 구역" });
+    expect(within(nav).getByRole("link", { name: "위험 구역" })).toBeDefined();
+    await user.click(screen.getByRole("button", { name: "앱 삭제" }));
+    await user.click(
+      within(await screen.findByRole("dialog")).getByRole("button", {
+        name: "앱 삭제",
+      }),
+    );
+    await screen.findByText("Slack 앱을 삭제했습니다.");
+    await waitFor(() =>
+      expect(within(nav).queryByRole("link", { name: "위험 구역" })).toBeNull(),
+    );
+    expect(document.getElementById("slack-danger")).toBeNull();
+  });
 });
