@@ -237,9 +237,10 @@ function forward(
   bytes: Uint8Array,
 ): Promise<Response> {
   const headers = new Headers(request.headers);
-  for (const name of HOP_HEADERS) headers.delete(name);
-  // S3 signs the host header; LocalStack does not check signatures, and the
-  // gateway ignores it, so the upstream's own name is what goes out.
+  // S3 verifies the signed host even when this proxy changes the destination.
+  for (const name of HOP_HEADERS) {
+    if (name !== "host" || upstream !== "s3") headers.delete(name);
+  }
   return fetch(`${UPSTREAMS[upstream].target}${path}`, {
     method: request.method,
     headers,

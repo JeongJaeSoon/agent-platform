@@ -2,11 +2,11 @@
 # test-ops' AWS account needs to run the product. docker-compose.yml merges
 # the two. It adds
 # - the local dependencies: persistent SeaweedFS S3 and the sample repository;
-# - the fake Messages API and, apart from the S3 LocalStack, the API's
-#   Secrets Manager its catalog reads, both off unless
+# - the fake Messages API and a separate LocalStack Secrets Manager
+#   the API catalog reads, both off unless
 #   infra/compose.fake-model.yml turns them on;
 # - the builds of the apps from this checkout;
-# - the endpoints and LocalStack credentials that point the API at them,
+# - the endpoints and local credentials that point the API at them,
 #   and the ordering on them.
 # Nothing here loosens what compose.core.yml sets; tests/images.test.ts
 # keeps the security settings out of this file. Paths are relative to this
