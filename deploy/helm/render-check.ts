@@ -59,6 +59,7 @@ function podSpecOf(m: Manifest): any {
 const DIGEST_REF = /^[^@\s]+@sha256:[0-9a-f]{64}$/;
 const SCHEDULER_RULES = {
   pods: ["create", "delete", "get", "list"],
+  "pods/log": ["get"],
   secrets: ["create", "delete", "get", "list"],
   persistentvolumeclaims: ["create", "delete", "get", "list"],
 };
@@ -158,6 +159,12 @@ function check(
     const backend = variables.find((v) => v.name === "EXECUTION_BACKEND");
     if (backend?.value !== "kubernetes") {
       fail(m, "EXECUTION_BACKEND is not kubernetes");
+    }
+    const disk = variables.find(
+      (v) => v.name === "EXECUTION_K8S_WORKER_EPHEMERAL_STORAGE_MB",
+    );
+    if (!/^[1-9]\d*$/.test(disk?.value ?? "")) {
+      fail(m, "worker ephemeral-storage is not a positive MB count");
     }
   }
   if (manifests.some((m) => m.kind.startsWith("Cluster"))) {

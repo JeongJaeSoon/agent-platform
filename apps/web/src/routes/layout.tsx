@@ -94,7 +94,10 @@ function LocaleSwitch() {
 
 // The router opens these with a trailing slash too.
 const SESSION_PATH = /^\/sessions\/([^/]+)\/?$/;
+const MAP_PATH = /^\/sessions\/map\/?$/;
 const AGENT_PATH = /^\/agents\/([^/]+)\/?$/;
+// The agent map, under the sessions path, sits in the page frame.
+const RAIL_PATH = /^\/(sessions(\/(?!map\/?$)[^/]+)?|operations\/tools)?\/?$/;
 const SETTINGS_PATH = /^\/settings(\/|$)/;
 
 export function AuthedLayout() {
@@ -201,6 +204,7 @@ function useLeafTitle(pathname: string): string | undefined {
     return session.title || sessionId.slice(0, 8);
   }
   if (agentId === "new") return t("agents.newTitle");
+  if (MAP_PATH.test(pathname)) return t("sessionList.map");
   return agent?.agent.name;
 }
 
@@ -249,10 +253,14 @@ function PageTrail({
 }
 
 function ShellMain({ children }: { readonly children: ReactNode }) {
-  // A session's rail runs to the screen's edge, so that screen frames its
-  // own body (V4-RAIL); every other screen sits in the shared frame.
-  const pathname = usePathname();
-  const flush = SESSION_PATH.test(pathname);
+  // A rail runs to the screen's edge, so a screen that may open one frames
+  // its own body (V4-RAIL); every other screen sits in the shared frame.
+  // Read from the screen on show: switching the frame while the next one
+  // loads would remount the leaving screen, which reads its queries again.
+  const pathname = useRouterState({
+    select: (state) => (state.resolvedLocation ?? state.location).pathname,
+  });
+  const flush = RAIL_PATH.test(pathname);
   return (
     <Main className="web-shell__main flex w-full min-w-0 flex-col bg-surface md:col-start-2 md:row-start-2">
       {flush ? (

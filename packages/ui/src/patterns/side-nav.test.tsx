@@ -57,6 +57,22 @@ describe("SideNav", () => {
     expect(getAllByRole("link")).toHaveLength(3);
   });
 
+  test("그룹 제목은 링크 글자색과 다른 subtle 색으로 링크와 구분된다", () => {
+    const { getByText, getByRole } = render(settings());
+    const heading = getByText("워크스페이스").className.split(" ");
+    expect(heading).toContain("text-caption");
+    expect(heading).toContain("text-subtle-foreground");
+    const link = getByRole("link", { name: "일반" }).className.split(" ");
+    expect(link).toContain("text-muted-foreground");
+    expect(link).not.toContain("text-subtle-foreground");
+    // 12px between groups, as in the mockup's sidebar.
+    const toggle = getByRole("button", { name: /설정/ });
+    const list = document.getElementById(
+      toggle.getAttribute("aria-controls") ?? "",
+    );
+    expect(list?.className.split(" ")).toContain("gap-3");
+  });
+
   test("current는 aria-current를 page로, location은 location으로 둔다", () => {
     const { getByRole } = render(
       <SideNav aria-label="Slack">
@@ -164,7 +180,7 @@ describe("SideNav", () => {
     expect(document.activeElement === toggle).toBe(true);
   });
 
-  test("펼친 목록에서 링크를 고르면 링크의 onClick이 돈 뒤 닫히고 onPick을 부른다", async () => {
+  test("펼친 목록에서 링크를 고르면 닫히고, 링크의 onClick 뒤에 onPick을 부른다", async () => {
     const user = await setupUser();
     const order: string[] = [];
     const onClick = mock((event: { preventDefault(): void }) => {
@@ -187,6 +203,61 @@ describe("SideNav", () => {
     expect(order).toEqual(["link", "pick"]);
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     // Without a move by onPick, focus would have gone with the hidden link.
+    expect(document.activeElement === toggle).toBe(true);
+  });
+
+  test("펼친 목록에서 고르면 링크의 onClick 전에 목록이 접히고, 버튼으로 돌아가는 포커스는 스크롤하지 않는다", async () => {
+    const user = await setupUser();
+    const seen: (string | null)[] = [];
+    const { getByRole } = render(
+      <SideNav aria-label="Slack">
+        <SideNavGroup>
+          <SideNavLink
+            href="#app"
+            onClick={(event) => {
+              event.preventDefault();
+              seen.push(toggle.getAttribute("aria-expanded"));
+            }}
+          >
+            앱
+          </SideNavLink>
+        </SideNavGroup>
+      </SideNav>,
+    );
+    const toggle = getByRole("button", { name: /^Slack/ });
+    const focus = mock(toggle.focus.bind(toggle));
+    toggle.focus = focus;
+    await user.click(toggle);
+    await user.click(getByRole("link", { name: "앱" }));
+    // A section link scrolls in its onClick: the list it measures past must
+    // already be gone, or the jump lands short by the list's height.
+    expect(seen).toEqual(["false"]);
+    expect(focus.mock.calls.at(-1)).toEqual([{ preventScroll: true }]);
+  });
+
+  test("링크가 click 전파를 막으면 onPick은 부르지 않고 포커스는 버튼에 둔다", async () => {
+    const user = await setupUser();
+    const onPick = mock(() => {});
+    const { getByRole } = render(
+      <SideNav aria-label="Slack" onPick={onPick}>
+        <SideNavGroup>
+          <SideNavLink
+            href="#app"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+          >
+            앱
+          </SideNavLink>
+        </SideNavGroup>
+      </SideNav>,
+    );
+    const toggle = getByRole("button", { name: /^Slack/ });
+    await user.click(toggle);
+    await user.click(getByRole("link", { name: "앱" }));
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(onPick).not.toHaveBeenCalled();
     expect(document.activeElement === toggle).toBe(true);
   });
 

@@ -10,6 +10,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { flushSync } from "react-dom";
 
 import { cn } from "../foundations/cn.ts";
 import { Button } from "../primitives/button.tsx";
@@ -18,9 +19,10 @@ import { Button } from "../primitives/button.tsx";
  * A list of the pages or sections inside one screen, on its left: settings
  * pages, or the sections of a long agent setting. Use it when there are four
  * or more siblings and people stay a while; two or three are LinkTabs, panels
- * switched in place are Tabs. Below md the list folds behind one button above
- * the page that names where you are. It lays out a page, not a dialog: a
- * Radix dialog takes Escape before the folded list can.
+ * switched in place are Tabs. Below lg the list folds behind one button above
+ * the page that names where you are: from md the app's sidebar already takes
+ * the left, and both beside the page leave it too narrow. It lays out a page,
+ * not a dialog: a Radix dialog takes Escape before the folded list can.
  */
 
 export type SideNavLayoutProps = Omit<ComponentProps<"div">, "children"> & {
@@ -39,7 +41,7 @@ export function SideNavLayout({
     <div
       data-slot="side-nav-layout"
       className={cn(
-        "flex w-full flex-col gap-6 md:flex-row md:gap-8",
+        "flex w-full flex-col gap-6 lg:flex-row lg:gap-8",
         className,
       )}
       {...props}
@@ -59,8 +61,9 @@ export type SideNavProps = Omit<
   /** The current item's label, shown on the folded button after the name. */
   readonly current?: ReactNode | undefined;
   /**
-   * Called when a link picked from the unfolded list folds it away. Move focus
-   * to what the link opened here; otherwise it returns to the button.
+   * Called when a link picked from the unfolded list folds it away, after the
+   * link's onClick. Move focus to what the link opened here; otherwise it
+   * stays on the button.
    */
   readonly onPick?: (() => void) | undefined;
   readonly children: ReactNode;
@@ -77,14 +80,25 @@ export function SideNav({
   const [open, setOpen] = useState(false);
   const listId = useId();
   const toggle = useRef<HTMLButtonElement>(null);
+  const picking = useRef(false);
   const fold = () => {
     setOpen(false);
     toggle.current?.focus();
   };
-  // Bubbles up after the link's own onClick, which is never stopped here.
-  const picked = (event: MouseEvent<HTMLDivElement>) => {
-    if (!open || !(event.target as Element).closest("a")) return;
-    fold();
+  // Folds before the link's own onClick, which may scroll to a section below
+  // the list and must measure the page without it.
+  const pick = (event: MouseEvent<HTMLDivElement>) => {
+    picking.current = open && !!(event.target as Element).closest("a");
+    if (!picking.current) return;
+    flushSync(() => setOpen(false));
+    // Where the link scrolls stays: the button may be above the screen then.
+    toggle.current?.focus({ preventScroll: true });
+  };
+  // Bubbles up after the link's own onClick; a link that stops the click
+  // keeps focus on the button and gets no onPick.
+  const picked = () => {
+    if (!picking.current) return;
+    picking.current = false;
     onPick?.();
   };
   const closeOnEscape = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -100,7 +114,7 @@ export function SideNav({
       data-slot="side-nav"
       aria-label={label}
       className={cn(
-        "md:sticky md:top-4 md:w-55 md:flex-none md:self-start",
+        "lg:sticky lg:top-4 lg:w-55 lg:flex-none lg:self-start",
         className,
       )}
       {...props}
@@ -110,7 +124,7 @@ export function SideNav({
         type="button"
         variant="outline"
         size="sm"
-        className="w-full justify-between md:hidden"
+        className="w-full justify-between lg:hidden"
         aria-expanded={open}
         aria-controls={listId}
         onClick={() => setOpen((value) => !value)}
@@ -126,13 +140,14 @@ export function SideNav({
         </span>
         <ChevronDown aria-hidden="true" className="size-4 shrink-0" />
       </Button>
-      {/* biome-ignore lint/a11y/noStaticElementInteractions: the handlers only watch what bubbles from the links inside */}
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: the handlers only watch clicks and keys from the links inside */}
       <div
         id={listId}
         className={cn(
           open ? "mt-2 flex rounded-card border p-2" : "hidden",
-          "flex-col gap-4 md:mt-0 md:flex md:border-0 md:p-0",
+          "flex-col gap-3 lg:mt-0 lg:flex lg:border-0 lg:p-0",
         )}
+        onClickCapture={pick}
         onClick={picked}
         onKeyDown={closeOnEscape}
       >
@@ -166,7 +181,7 @@ export function SideNavGroup({
       {label ? (
         <p
           id={headingId}
-          className="m-0 px-3 text-caption text-muted-foreground"
+          className="m-0 px-3 text-caption text-subtle-foreground"
         >
           {label}
         </p>

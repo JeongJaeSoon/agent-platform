@@ -1,4 +1,4 @@
-import { Badge, Button, RelativeTime } from "@werft-ai/ui";
+import { Badge, Button, RelativeTime, Skeleton } from "@werft-ai/ui";
 import { Bot, ShieldQuestion } from "lucide-react";
 import { type JSX, useId, useRef } from "react";
 
@@ -101,6 +101,62 @@ export function MapSessionCard({
   );
 }
 
+// Shared with the strip's stand-in, which must come out the same height.
+const STRIP =
+  "flex flex-col gap-1 rounded-(--radius-card) border border-(color:--ap-tone-attention-border) bg-(color:--ap-tone-attention-bg) p-2";
+const STRIP_TITLE =
+  "m-0 px-1 font-semibold text-(color:--ap-tone-attention-fg) text-control";
+const STRIP_LIST = "m-0 flex list-none flex-col gap-1 p-0";
+const STRIP_ITEM =
+  "flex items-center gap-2 rounded-(--radius-control) bg-card px-2 py-2";
+// With height 1lh, a block skeleton one line of its text style tall; a block
+// bar's 4rem floor would spill over it.
+const LINE = "min-w-0 [&>span]:min-h-0";
+
+/** The strip's place while the list loads, as tall as `rows` requests make it. */
+export function ApprovalStripStandIn({
+  rows,
+}: {
+  readonly rows: number;
+}): JSX.Element | null {
+  if (rows === 0) return null;
+  return (
+    <div aria-hidden="true" data-stand-in="strip" className={STRIP}>
+      <Skeleton
+        shape="block"
+        height="1lh"
+        width="45%"
+        label=""
+        className={`${STRIP_TITLE} ${LINE}`}
+      />
+      <div className={STRIP_LIST}>
+        {Array.from({ length: rows }, (_, row) => `row-${row}`).map((key) => (
+          <div key={key} className={STRIP_ITEM}>
+            <span className="size-4 flex-none" />
+            <span className="flex min-w-0 flex-1 flex-col">
+              <Skeleton
+                shape="block"
+                height="1lh"
+                width="60%"
+                label=""
+                className={`text-control ${LINE}`}
+              />
+              <Skeleton
+                shape="block"
+                height="1lh"
+                width="80%"
+                label=""
+                className={`text-caption ${LINE}`}
+              />
+            </span>
+            <span className="h-(--ap-control-height-sm) w-12 flex-none" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export interface ApprovalStripProps {
   readonly sessions: readonly MapSession[];
   readonly onSelect: (id: string) => void;
@@ -122,17 +178,14 @@ export function ApprovalStrip({
     );
   if (waiting.length === 0) return null;
   return (
-    <section
-      aria-label={messages.waitingLabel}
-      className="flex flex-col gap-1 rounded-(--radius-card) border border-(color:--ap-tone-attention-border) bg-(color:--ap-tone-attention-bg) p-2"
-    >
-      <h2 className="m-0 px-1 font-semibold text-(color:--ap-tone-attention-fg) text-control">
+    <section aria-label={messages.waitingLabel} className={STRIP}>
+      <h2 className={STRIP_TITLE}>
         {messages.waitingTitle(
           waiting.length,
           waiting[0]?.pending?.waitedMinutes ?? 0,
         )}
       </h2>
-      <ul className="m-0 flex list-none flex-col gap-1 p-0">
+      <ul className={STRIP_LIST}>
         {waiting.map((s) => (
           <ApprovalStripItem
             key={s.id}
@@ -162,7 +215,7 @@ function ApprovalStripItem({
     <li
       ref={ref}
       data-fresh={session.fresh ? "" : undefined}
-      className={`flex items-center gap-2 rounded-(--radius-control) bg-card px-2 py-2 ${FRESH_CLASS}`}
+      className={`${STRIP_ITEM} ${FRESH_CLASS}`}
     >
       <ShieldQuestion
         aria-hidden="true"

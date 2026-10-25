@@ -9,6 +9,7 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  Gauge,
   Globe,
   House,
   KeyRound,
@@ -44,6 +45,7 @@ type NavPath =
   | "/"
   | "/sessions"
   | "/agents"
+  | "/operations"
   | "/members"
   | "/settings/workspace"
   | "/settings/workspace/slack"
@@ -120,6 +122,7 @@ export function useNavGroups(): readonly NavGroup[] {
         { to: "/", label: "nav.home", icon: House },
         { to: "/sessions", label: "nav.sessions", icon: ListIcon },
         { to: "/agents", label: "nav.agents", icon: Bot },
+        { to: "/operations", label: "nav.operations", icon: Gauge },
       ],
     },
     {

@@ -1,3 +1,4 @@
+import { Skeleton } from "@werft-ai/ui";
 import type { JSX } from "react";
 
 import type { ToolsSummaryMessages } from "./messages.ts";
@@ -5,8 +6,8 @@ import type { UsageTool } from "./tools.ts";
 import { useOperationsMessages } from "./use-messages.ts";
 
 export interface ToolsSummaryProps {
-  /** GET /v1/usage/tools `tools`. */
-  readonly tools: readonly UsageTool[];
+  /** GET /v1/usage/tools `tools`; undefined while read. */
+  readonly tools: readonly UsageTool[] | undefined;
   /** The period in words, e.g. "최근 30일". */
   readonly period: string;
   readonly messages?: Partial<ToolsSummaryMessages> | undefined;
@@ -19,6 +20,16 @@ export function ToolsSummary({
   messages: override,
 }: ToolsSummaryProps): JSX.Element {
   const { messages, format } = useOperationsMessages("toolsSummary", override);
+  if (tools === undefined) {
+    // One line from about 40rem of the host's @container, two below.
+    return (
+      <Skeleton
+        decorative
+        lines={2}
+        className="h-12 justify-around @min-[40rem]:h-6 @min-[40rem]:justify-center @min-[40rem]:[&>:nth-child(2)]:hidden"
+      />
+    );
+  }
   const calls = tools.reduce((sum, tool) => sum + tool.calls, 0);
   const failed = tools.reduce((sum, tool) => sum + tool.failed, 0);
   const totalMs = tools.reduce((sum, tool) => sum + tool.total_ms, 0);
@@ -30,7 +41,11 @@ export function ToolsSummary({
     rate: format.percent(failed, calls),
   });
   return (
-    <p data-slot="tools-summary" className="m-0 text-body leading-6">
+    // As tall as the placeholder, so a short sentence does not pull the table up.
+    <p
+      data-slot="tools-summary"
+      className="m-0 min-h-12 text-body leading-6 @min-[40rem]:min-h-6"
+    >
       {parts.map((part, index) =>
         typeof part === "string" ? (
           part

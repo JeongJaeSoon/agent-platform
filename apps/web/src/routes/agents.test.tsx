@@ -14,6 +14,7 @@ import {
 } from "@werft-ai/contracts";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
 import { queryKeys } from "../api/queries.ts";
+import { avatarTone } from "../components/agent-cards.tsx";
 import { type Locale, translate } from "../i18n/i18n.tsx";
 import { AGENT_ID, agentServer, CARD } from "../test-support/fake-agents.ts";
 import {
@@ -90,7 +91,13 @@ const currentStep = () =>
   screen
     .getByRole("navigation", { name: "에이전트 만들기 단계" })
     .querySelector('[aria-current="step"]')?.textContent;
-const STEP_NO = { 이름: 1, "하는 일": 2, "배포 판": 3, 켜기: 4 } as const;
+const STEP_NO = {
+  이름: 1,
+  "하는 일": 2,
+  "배포 판": 3,
+  켜기: 4,
+  "채널 연결": 5,
+} as const;
 const atStep = (label: keyof typeof STEP_NO) =>
   waitFor(() => expect(currentStep()).toBe(`${STEP_NO[label]}${label}`));
 const posted = (api: Api, path: string) =>
@@ -285,14 +292,17 @@ describe("에이전트 목록", () => {
 
   test("agent.create가 없으면 새 에이전트 버튼을 끈 채 말로 된 이유를 적는다", async () => {
     const none = { ...memberMe(), permissions: [] };
-    renderAt("/agents", {
+    const { history } = renderAt("/agents", {
       "GET /v1/auth/me": () => json(200, none),
       "GET /v1/agents": () =>
         apiError(403, "FORBIDDEN", "This principal does not hold agent.manage"),
       "GET /v1/administered-agents": () => json(200, { items: [] }),
     });
+    const user = await setupUser();
     const button = await screen.findByRole("button", { name: "새 에이전트" });
-    expect((button as HTMLButtonElement).disabled).toBe(true);
+    expect(button.getAttribute("aria-disabled")).toBe("true");
+    await user.click(button);
+    expect(history.location.pathname).toBe("/agents");
     expect(
       document.getElementById(button.getAttribute("aria-describedby") ?? "")
         ?.textContent,
@@ -326,7 +336,7 @@ describe("에이전트 카드", () => {
   beforeEach(() => localStorage.clear());
 
   /** One released agent whose card asks for two credentials, one bound. */
-  function releasedServer() {
+  function releasedServer(mcp: readonly string[] = ["linear"]) {
     const server = agentServer();
     const base = server.detail();
     const version = base.versions[0];
@@ -335,7 +345,7 @@ describe("에이전트 카드", () => {
       ...version.card,
       capabilities: {
         ...version.card.capabilities,
-        mcp: [{ server: "linear" }],
+        mcp: mcp.map((server) => ({ server })),
         credential_refs: ["github", "linear"],
       },
     };
@@ -405,24 +415,63 @@ describe("에이전트 카드", () => {
     [...card.querySelectorAll("dt")].find((dt) => dt.textContent === term)
       ?.nextElementSibling?.textContent;
 
-  test("배포 판·역할·지시 사항·실행 프로필·MCP·자격 증명·관리자를 카드에 모은다", async () => {
+  test("배포 판·역할·지시문·실행 프로필·MCP·자격 증명·담당을 카드에 모은다", async () => {
     renderAt("/agents", { ...meOk, ...releasedServer() });
     const card = await cardFor("결제 담당");
     await waitFor(() => expect(card.textContent).toContain("v1 배포됨"));
     expect(card.textContent).toContain(CARD.role);
-    expect(card.textContent).toContain(CARD.instructions);
+    expect(card.textContent).toContain(`지시문${CARD.instructions}`);
     expect(fact(card, "실행 프로필")).toBe(PROFILE);
     expect(fact(card, "MCP")).toBe("linear");
     expect(fact(card, "자격 증명")).toBe("연결 필요 1개");
-    expect(card.textContent).toContain("관리자 Owner");
+    // The colour beside the words is decoration; the words carry the state.
+    const dot = card.querySelector("[data-slot=status-dot]");
+    expect(dot?.getAttribute("data-status")).toBe("failed");
+    expect(dot?.getAttribute("aria-hidden")).toBe("true");
+    expect(card.textContent).toContain("담당 Owner");
   });
 
-  test("API에 없는 답변 대기·스킬은 값을 지어내지 않고 미계측이라 적는다", async () => {
+  test("API에 없는 답변 대기·스킬 줄은 두지 않고, 카드는 이름 하나로 열린다", async () => {
     renderAt("/agents", { ...meOk, ...releasedServer() });
     const card = await cardFor("결제 담당");
     await waitFor(() => expect(card.textContent).toContain("v1 배포됨"));
-    expect(fact(card, "답변 대기")).toBe("미계측");
-    expect(fact(card, "스킬")).toBe("미계측");
+    expect(
+      [...card.querySelectorAll("dt")].map((dt) => dt.textContent),
+    ).toEqual(["실행 프로필", "MCP", "자격 증명"]);
+    expect(card.textContent).not.toContain("미계측");
+    expect(
+      within(card)
+        .getAllByRole("link")
+        .map((a) => a.textContent),
+    ).toEqual(["결제 담당"]);
+  });
+
+  test("긴 MCP 이름은 칩 안에서 잘리고 전체 이름은 title로 남는다", async () => {
+    const long = `mcp-${"x".repeat(28)}`;
+    renderAt("/agents", { ...meOk, ...releasedServer([long]) });
+    const card = await cardFor("결제 담당");
+    await waitFor(() => expect(card.textContent).toContain("v1 배포됨"));
+    const chip = [...card.querySelectorAll("dt")]
+      .find((dt) => dt.textContent === "MCP")
+      ?.nextElementSibling?.querySelector("[data-slot=badge]");
+    expect(chip?.textContent).toBe(long);
+    expect(chip?.getAttribute("title")).toBe(long);
+    expect(chip?.firstElementChild?.className).toContain("truncate");
+    // Under the card's stretched link the hover would never reach the title.
+    expect(chip?.className).toContain("relative z-1");
+  });
+
+  test("아바타 색은 이름으로 정해져 목록과 상세에서 같다", async () => {
+    const tone = `--ap-avatar-${avatarTone("결제 담당")}-bg`;
+    renderAt("/agents", { ...meOk, ...releasedServer() });
+    const card = await cardFor("결제 담당");
+    const avatar = card.querySelector("[data-slot=avatar]");
+    expect(avatar?.className).toContain(tone);
+    expect(avatar?.getAttribute("aria-hidden")).toBe("true");
+    expect(avatarTone("결제 담당")).toBe(avatarTone("결제 담당"));
+    expect(
+      new Set(["a", "b", "c", "d"].map((name) => avatarTone(name))).size,
+    ).toBe(4);
   });
 
   test("추가 정보를 못 불러와도 카드는 이름·상태와 상세 링크를 지킨다", async () => {
@@ -450,7 +499,7 @@ describe("에이전트 카드", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
-  test("카드 내용을 못 불러오면 지시 사항·자격 증명 칸도 비우지 않고 그렇다고 적는다", async () => {
+  test("카드 내용을 못 불러오면 지시문·자격 증명 칸도 비우지 않고 그렇다고 적는다", async () => {
     const routes = releasedServer();
     renderAt("/agents", {
       ...meOk,
@@ -460,7 +509,7 @@ describe("에이전트 카드", () => {
     });
     const card = await cardFor("결제 담당");
     await waitFor(() => expect(fact(card, "자격 증명")).toBe("—불러오지 못함"));
-    expect(card.textContent).toContain("지시 사항—불러오지 못함");
+    expect(card.textContent).toContain("지시문—불러오지 못함");
   });
 
   test("카드 내용이 늦으면 자격 증명 칸은 연결 목록이 먼저 와도 기다린다", async () => {
@@ -534,7 +583,7 @@ describe("에이전트 카드", () => {
     test("창이나 네트워크로 돌아와도 이미 불러온 카드를 다시 부르지 않는다", async () => {
       const { api } = renderAt("/agents", { ...meOk, ...releasedServer() });
       const card = await cardFor("결제 담당");
-      await waitFor(() => expect(card.textContent).toContain("관리자 Owner"));
+      await waitFor(() => expect(card.textContent).toContain("담당 Owner"));
       await waitFor(() => expect(detailCalls(api).length).toBe(3));
       act(() => {
         focusManager.setFocused(false);
@@ -772,11 +821,18 @@ describe("찾을 수 없는 에이전트", () => {
 });
 
 describe("새 에이전트", () => {
-  test("이름 → 하는 일 → 배포 판 → 켜기로 만들고, Stepper가 지금 단계를 가리킨다", async () => {
+  test("이름부터 채널 연결까지 만들고 Slack 연결은 나중에 할 수 있다", async () => {
     const server = agentServer();
     const { api } = renderAt("/agents/new", {
       ...meOk,
       ...server.routes,
+      [`GET /v1/agents/${AGENT_ID}/slack/app`]: () =>
+        json(200, {
+          slack_app: null,
+          event_url: null,
+          events: { state: "pending", checked_at: null },
+        }),
+      [`GET /v1/agents/${AGENT_ID}/identities`]: () => json(200, { items: [] }),
     });
     const user = await setupUser();
     await atStep("이름");
@@ -827,15 +883,17 @@ describe("새 에이전트", () => {
       runtime_profile_id: PROFILE,
     });
     await user.click(screen.getByRole("button", { name: "에이전트 켜기" }));
+    await atStep("채널 연결");
+    expect(await screen.findByText(/결제 담당을\(를\) 켰습니다/)).toBeDefined();
     expect(
-      (await screen.findByText(/결제 담당을\(를\) 켰습니다/)).closest("output"),
-    ).not.toBeNull();
+      await screen.findByRole("button", { name: "Slack 앱 만들고 설치" }),
+    ).toBeDefined();
     expect(posted(api, `/v1/agents/${AGENT_ID}/activate`)).toEqual({
       release_id: server.releases[0]?.id,
       expected_revision: -1,
     });
     expect(
-      screen.getByRole("link", { name: "에이전트 보기" }).getAttribute("href"),
+      screen.getByRole("link", { name: "나중에 하기" }).getAttribute("href"),
     ).toBe(DETAIL);
   });
 

@@ -9,6 +9,9 @@ import {
   ConfirmDialog,
   cn,
   formatTimestamp,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from "@werft-ai/ui";
 import {
   ChevronDown,
@@ -97,12 +100,8 @@ export function focusLost(node: Element | null): boolean {
   return page !== undefined && page.activeElement === page.body;
 }
 
-function Reason({ id, text }: { readonly id?: string; readonly text: string }) {
-  return (
-    <p id={id} className="m-0 text-muted-foreground text-body">
-      {text}
-    </p>
-  );
+function Reason({ text }: { readonly text: string }) {
+  return <p className="m-0 text-muted-foreground text-body">{text}</p>;
 }
 
 /**
@@ -575,12 +574,14 @@ const CONTROL_ICON = {
 export interface SessionControlsProps extends SessionActionProps {
   readonly session: SessionDetailData;
   /**
-   * `icons` draws each command as a square icon button named by its label,
-   * for a page header; `buttons` (the default) draws labelled buttons.
+   * `head`, for a page header, draws each command with its icon and label
+   * from 1280px and as a square icon below, where the body is too narrow to
+   * keep the title beside labelled buttons; `icons` draws square icon
+   * buttons at every width; `buttons` (the default) draws labelled buttons.
    */
-  readonly variant?: "buttons" | "icons";
-  /** Drawn before the icon buttons on their row, such as a back link. */
-  readonly leading?: ReactNode;
+  readonly variant?: "buttons" | "head" | "icons";
+  /** Drawn after the commands at the right end of their row, such as a back link. */
+  readonly trailing?: ReactNode;
 }
 
 export function SessionControls({
@@ -588,7 +589,7 @@ export function SessionControls({
   unavailable,
   refusal,
   variant = "buttons",
-  leading,
+  trailing,
 }: SessionControlsProps) {
   const { t } = useBlockText();
   const control = useSessionControl(session.id);
@@ -596,7 +597,6 @@ export function SessionControls({
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [confirming, setConfirming] = useState(false);
   const reason = unavailable?.control;
-  const reasonId = useId();
   const actions = actionsFor(session);
   const actionSet = actions.join(" ");
   const groupRef = useRef<HTMLDivElement>(null);
@@ -658,38 +658,59 @@ export function SessionControls({
     });
   };
 
+  const head = variant !== "buttons";
   const icons = variant === "icons";
   const buttons = actions.map((action) => {
     const label = t(`session.control.${action}`);
     const Icon = CONTROL_ICON[action];
-    return (
+    const button = (
       <Button
-        key={action}
         type="button"
         data-action={action}
-        variant={action === "terminate" && !icons ? "destructive" : "outline"}
-        disabled={reason !== undefined}
-        // Not `disabled` while a command runs: Chrome takes focus off a
-        // disabled button, and the keyboard would lose its place.
-        aria-disabled={control.isPending || undefined}
+        variant={action === "terminate" && !head ? "destructive" : "outline"}
+        // Not `disabled`: Chrome takes focus off a disabled button, and the
+        // keyboard would lose its place while a command runs; a withheld one
+        // still takes hover and focus to say why.
+        aria-disabled={reason !== undefined || control.isPending || undefined}
         size={icons ? "icon-sm" : "sm"}
-        className={
-          icons && action === "terminate"
-            ? "text-destructive hover:text-destructive aria-disabled:opacity-50"
-            : "aria-disabled:opacity-50"
-        }
+        className={cn(
+          "aria-disabled:opacity-50",
+          head &&
+            action === "terminate" &&
+            "text-destructive hover:text-destructive",
+          head &&
+            !icons &&
+            "max-xl:w-[var(--ap-control-height-sm)] max-xl:px-0",
+        )}
         aria-label={icons ? label : undefined}
-        // Until @werft-ai/ui has a Tooltip, the native one names the icon.
-        title={icons ? label : undefined}
-        aria-describedby={reason === undefined ? undefined : reasonId}
+        // The ui Tooltip opens on a press too, which a command cannot share;
+        // the native one names the icon where the label is hidden. A
+        // withheld command has nothing to press, so it shows the reason.
+        title={head && reason === undefined ? label : undefined}
         onClick={() => {
-          if (control.isPending) return;
+          if (reason !== undefined || control.isPending) return;
           if (action === "terminate") setConfirming(true);
           else run(action);
         }}
       >
-        {icons ? <Icon strokeWidth={1.5} aria-hidden="true" /> : label}
+        {icons ? (
+          <Icon strokeWidth={1.5} aria-hidden="true" />
+        ) : head ? (
+          <>
+            <Icon strokeWidth={1.5} aria-hidden="true" />
+            <span className="max-xl:sr-only">{label}</span>
+          </>
+        ) : (
+          label
+        )}
       </Button>
+    );
+    // One tree either way, so a reason that clears keeps the focus.
+    return (
+      <Tooltip key={action} {...(reason === undefined && { open: false })}>
+        <TooltipTrigger asChild={true}>{button}</TooltipTrigger>
+        <TooltipContent side="top">{reason}</TooltipContent>
+      </Tooltip>
     );
   });
   const group = (
@@ -700,14 +721,15 @@ export function SessionControls({
 
   return (
     <>
-      {icons ? (
-        // Wrapped under the title on a narrow page, the row starts at the left.
-        <div className="flex min-w-0 flex-col items-start gap-1 md:items-end">
-          <div className="flex flex-wrap items-center gap-2 md:justify-end">
-            {leading}
+      {head ? (
+        // Under the title on a narrow page, the row starts at the left.
+        <div className="flex min-w-0 flex-1 flex-col items-start gap-1 md:items-end">
+          <div className="flex flex-wrap items-center gap-2 self-stretch md:justify-end">
             {actions.length === 0 ? null : group}
+            {trailing === undefined ? null : (
+              <div className="ms-auto flex">{trailing}</div>
+            )}
           </div>
-          {reason === undefined ? null : <Reason id={reasonId} text={reason} />}
           <OutcomeLine ref={outcomeRef} outcome={outcome} />
         </div>
       ) : (
@@ -719,7 +741,6 @@ export function SessionControls({
           ) : (
             group
           )}
-          {reason === undefined ? null : <Reason id={reasonId} text={reason} />}
           <OutcomeLine ref={outcomeRef} outcome={outcome} />
         </>
       )}

@@ -1,12 +1,12 @@
 # The local layer over compose.core.yml: what a machine without
 # test-ops' AWS account needs to run the product. docker-compose.yml merges
 # the two. It adds
-# - the local dependencies: LocalStack for S3 and the sample repository;
-# - the fake Messages API and, apart from the S3 LocalStack, the API's
-#   Secrets Manager its catalog reads, both off unless
+# - the local dependencies: persistent SeaweedFS S3 and the sample repository;
+# - the fake Messages API and a separate LocalStack Secrets Manager
+#   the API catalog reads, both off unless
 #   infra/compose.fake-model.yml turns them on;
 # - the builds of the apps from this checkout;
-# - the endpoints and LocalStack credentials that point the API at them,
+# - the endpoints and local credentials that point the API at them,
 #   and the ordering on them.
 # Nothing here loosens what compose.core.yml sets; tests/images.test.ts
 # keeps the security settings out of this file. Paths are relative to this
@@ -16,29 +16,40 @@ services:
   # (EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST in compose.core.yml), which
   # the API signs for one session's prefix. It runs S3 alone all the same: nothing here
   # uses Secrets Manager.
+  # Keep the service name and port stable for local clients and proxy routes.
   localstack:
-    image: localstack/localstack:3@sha256:b279c01f4cfb8f985a482e4014cabc1e2697b9d7a6c8c8db2e40f4d9f93687c7
+    image: chrislusf/seaweedfs:4.48@sha256:4e61d15fd35994cb1e43e1e553dff106794841fd9a99ade2fc8c8bfce4d7872d
+    entrypoint: ["/bin/sh", "/usr/local/bin/local-s3.sh"]
     environment:
-      SERVICES: s3
       AWS_DEFAULT_REGION: ${AWS_REGION:-ap-northeast-1}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-test}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-test}
     ports:
       - "127.0.0.1:4566:4566"
-    # No data volume: LocalStack keeps S3 in memory, so the bucket is gone
-    # with the container whatever is mounted. The API refuses to
-    # start on an empty bucket the database still holds checkpoints for.
     volumes:
-      - ./localstack/init/10-create-resources.sh:/etc/localstack/init/ready.d/10-create-resources.sh:ro
+      - local-s3-data:/data
+      - ./s3/start.sh:/usr/local/bin/local-s3.sh:ro
     healthcheck:
-      # Healthy once the init script has also set the bucket's default
-      # encryption: the API refuses to start on anything but AES256. The
-      # timeout covers the three sequential CLI calls.
-      test: ["CMD-SHELL", "curl -fsS http://localhost:4566/_localstack/health >/dev/null && awslocal s3api get-object-lock-configuration --bucket claude-sessions >/dev/null && [ \"$$(awslocal s3api get-bucket-encryption --bucket claude-sessions --query 'ServerSideEncryptionConfiguration.Rules[0].ApplyServerSideEncryptionByDefault.SSEAlgorithm' --output text)\" = AES256 ]"]
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 4566"]
       interval: 5s
-      timeout: 10s
+      timeout: 3s
       retries: 12
       start_period: 5s
+
+  local-s3-init:
+    image: localstack/localstack:3@sha256:b279c01f4cfb8f985a482e4014cabc1e2697b9d7a6c8c8db2e40f4d9f93687c7
+    entrypoint: ["/bin/sh", "/init-wrapper.sh"]
+    environment:
+      AWS_ENDPOINT_URL: http://localstack:4566
+      AWS_DEFAULT_REGION: ${AWS_REGION:-ap-northeast-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-test}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-test}
+    volumes:
+      - ./s3/init.sh:/init-wrapper.sh:ro
+      - ./localstack/init/10-create-resources.sh:/create-resources.sh:ro
+    depends_on:
+      localstack:
+        condition: service_healthy
 
   # The API's Secrets Manager, apart from `localstack` on purpose
   # workers reach that one through the egress proxy, and nothing on the
@@ -164,6 +175,8 @@ services:
     depends_on:
       localstack:
         condition: service_healthy
+      local-s3-init:
+        condition: service_completed_successfully
 
   slack:
     environment:
@@ -181,5 +194,10 @@ services:
     depends_on:
       localstack:
         condition: service_healthy
+      local-s3-init:
+        condition: service_completed_successfully
       gitea-init:
         condition: service_completed_successfully
+
+volumes:
+  local-s3-data:

@@ -414,4 +414,37 @@ describe("Timeline 잡음 접기", () => {
     expect(document.querySelector("button")).toBeNull();
     expect(rows().map((row) => row.dataset.noise)).toEqual(["true", "true"]);
   });
+
+  test("질문 행은 선택지를 보이고, request 슬롯을 주면 그 자리에 슬롯을 그린다", () => {
+    const asked: TimelineEntry = {
+      ...entry("question", {
+        kind: "question",
+        input: { questions: [{ prompt: "Deploy where first?" }] },
+      }),
+      requestId: "req_1",
+      options: ["Staging", "Production"],
+    };
+    const { rerender } = render(
+      <Timeline
+        entries={[asked]}
+        formatMessage={formatMessage}
+        messages={{ ...MESSAGES, options: "options" }}
+      />,
+    );
+    const list = document.querySelector("ul[aria-label='options']");
+    expect(list?.textContent).toBe("StagingProduction");
+    expect(rows()[0]?.textContent).toContain("Deploy where first?");
+    rerender(
+      <Timeline
+        entries={[asked]}
+        formatMessage={formatMessage}
+        messages={{ ...MESSAGES, options: "options" }}
+        request={(id) => <form aria-label={`answer ${id}`} />}
+      />,
+    );
+    expect(
+      document.querySelector("form[aria-label='answer req_1']"),
+    ).toBeTruthy();
+    expect(document.querySelector("ul[aria-label='options']")).toBeNull();
+  });
 });

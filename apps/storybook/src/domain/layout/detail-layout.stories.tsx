@@ -115,9 +115,9 @@ const meta = {
       sections={(context.parameters.sections as number | undefined) ?? 3}
     />
   ),
-  // At whatever width the story runs: from 768px the rail keeps 24px inside
-  // on every side and, from 1280px, 24px on each side of a section's line
-  // (V4-RAIL-PAD); narrower, it keeps the body's gutter.
+  // At whatever width the story runs: 24px above and below inside the rail;
+  // on the sides 24px from 768px and the body's gutter narrower; from
+  // 1280px, 24px on each side of a section's line (V4-RAIL-PAD).
   play: async ({ canvasElement }) => {
     const content = canvasElement.querySelector<HTMLElement>(
       '[data-slot="detail-rail-content"]',
@@ -136,13 +136,21 @@ const meta = {
     await expect(padding(content)).toEqual(
       width >= 768
         ? ["24px", "24px", "24px", "24px"]
-        : ["24px", "16px", "16px", "16px"],
+        : ["24px", "16px", "24px", "16px"],
     );
-    if (width < 1280) return;
     const sections = content.querySelectorAll(
       '[data-slot="detail-rail-section"]',
     );
     await expect(sections.length).toBeGreaterThanOrEqual(3);
+    // Below 1280px the grid's row gap parts the sections, so nothing adds to
+    // the rail's own 24px at the bottom.
+    if (width < 1280) {
+      for (const section of sections) {
+        const [top, , bottom] = padding(section);
+        await expect([top, bottom]).toEqual(["0px", "0px"]);
+      }
+      return;
+    }
     for (const [index, section] of sections.entries()) {
       const [top, , bottom] = padding(section);
       await expect([top, bottom]).toEqual([

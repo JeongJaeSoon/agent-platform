@@ -1,8 +1,17 @@
-import type {
-  InstallationLimitsResponse,
-  SessionUsageResponse,
-  UsageSummaryQuery,
-  UsageSummaryResponse,
+import {
+  type InstallationLimitsResponse,
+  type SessionUsageResponse,
+  USAGE_TOOLS_LIMIT,
+  type UsageBreakdownQuery,
+  type UsageBreakdownResponse,
+  type UsageSeriesQuery,
+  type UsageSeriesResponse,
+  type UsageSummaryQuery,
+  type UsageSummaryResponse,
+  type UsageToolCallsQuery,
+  type UsageToolCallsResponse,
+  type UsageToolsQuery,
+  type UsageToolsResponse,
 } from "@werft-ai/contracts";
 import {
   budgetExceeded,
@@ -11,7 +20,11 @@ import {
   sessionBudgetOf,
 } from "../limits/installation-limits.ts";
 import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
-import type { UsageReader, UsageSummaryFilter } from "../ports/usage-reader.ts";
+import type {
+  UsageBreakdownFiguresRecord,
+  UsageReader,
+  UsageSummaryFilter,
+} from "../ports/usage-reader.ts";
 import {
   requirePermitted,
   SessionServiceError,
@@ -28,6 +41,70 @@ export function decimalUsd(value: number): string {
   if (!exponent) return text;
   const [, lead, fraction = "", power] = exponent;
   return `0.${"0".repeat(Number(power) - 1)}${lead}${fraction}`;
+}
+
+// The rollup stops each column at the largest safe integer, as
+// provider_tokens stops; their sums stop there too rather than break the
+// response.
+const saturated = (count: number) => Math.min(count, Number.MAX_SAFE_INTEGER);
+
+// token_count is the four columns, as the provider_tokens trigger sums them.
+function breakdownFigures(
+  figures: UsageBreakdownFiguresRecord,
+): UsageBreakdownResponse["totals"] {
+  return {
+    session_count: figures.sessionCount,
+    input_tokens: saturated(figures.inputTokens),
+    output_tokens: saturated(figures.outputTokens),
+    cache_read_input_tokens: saturated(figures.cacheReadInputTokens),
+    cache_creation_input_tokens: saturated(figures.cacheCreationInputTokens),
+    token_count: saturated(
+      figures.inputTokens +
+        figures.outputTokens +
+        figures.cacheReadInputTokens +
+        figures.cacheCreationInputTokens,
+    ),
+    cost_usd: figures.costUsd,
+  };
+}
+
+type UsageToolRow = UsageToolsResponse["tools"][number];
+
+function top(
+  tools: readonly UsageToolRow[],
+  rank: (tool: UsageToolRow) => number,
+): UsageToolRow | undefined {
+  let best: UsageToolRow | undefined;
+  for (const tool of tools) {
+    const score = rank(tool);
+    if (score <= 0) continue;
+    if (
+      best === undefined ||
+      score > rank(best) ||
+      (score === rank(best) && tool.name < best.name)
+    ) {
+      best = tool;
+    }
+  }
+  return best;
+}
+
+/**
+ * The tool taking the most time in all, the one failing at the highest rate
+ * and the one slowest per call (median), ties to the first name. A kind no
+ * tool qualifies for (no time, no failure) is left out.
+ */
+export function toolFindings(
+  tools: readonly UsageToolRow[],
+): UsageToolsResponse["findings"] {
+  const picks = [
+    ["most_time", top(tools, (t) => t.total_ms)],
+    ["fails_often", top(tools, (t) => t.failed / t.calls)],
+    ["slowest", top(tools, (t) => t.median_ms)],
+  ] as const;
+  return picks.flatMap(([kind, tool]) =>
+    tool ? [{ kind, name: tool.name }] : [],
+  );
 }
 
 export function createUsageService(deps: {
@@ -129,6 +206,121 @@ export function createUsageService(deps: {
           cost: "provider_usage_estimate",
           run_time: "turn_wall_clock",
         },
+      };
+    },
+
+    async getUsageSeries(
+      actor: Caller,
+      query: UsageSeriesQuery,
+    ): Promise<UsageSeriesResponse> {
+      const filter = await filterFor(actor, query.scope);
+      const series = await reader.usageSeries(filter, {
+        since: query.since,
+        ...(query.until === undefined ? {} : { until: query.until }),
+      });
+      return {
+        period: {
+          since: query.since.toISOString(),
+          until: series.until.toISOString(),
+        },
+        refreshed_at: series.readAt.toISOString(),
+        buckets: series.buckets.map((bucket) => ({
+          date: bucket.date,
+          session_count: bucket.sessionCount,
+          cost_usd: bucket.costUsd,
+          cost_complete: bucket.incompleteTurnCount === 0,
+          token_count: bucket.providerTokens,
+          run_seconds: bucket.runSeconds,
+        })),
+      };
+    },
+
+    async getUsageBreakdown(
+      actor: Caller,
+      query: UsageBreakdownQuery,
+    ): Promise<UsageBreakdownResponse> {
+      const filter = await filterFor(actor, query.scope);
+      const breakdown = await reader.usageBreakdown(
+        filter,
+        {
+          since: query.since,
+          ...(query.until === undefined ? {} : { until: query.until }),
+        },
+        query.by,
+      );
+      return {
+        rows: breakdown.rows.map(({ key, label, ...figures }) => ({
+          key,
+          label,
+          ...breakdownFigures(figures),
+        })),
+        totals: breakdownFigures(breakdown.totals),
+      };
+    },
+
+    async getUsageTools(
+      actor: Caller,
+      query: UsageToolsQuery,
+    ): Promise<UsageToolsResponse> {
+      const filter = await filterFor(actor, query.scope);
+      const rows = await reader.usageTools(
+        filter,
+        {
+          period: {
+            since: query.since,
+            ...(query.until === undefined ? {} : { until: query.until }),
+          },
+          ...(query.agent_id === undefined ? {} : { agentId: query.agent_id }),
+        },
+        USAGE_TOOLS_LIMIT,
+      );
+      const tools = rows.map((row) => ({
+        name: row.name,
+        calls: row.calls,
+        failed: row.failed,
+        total_ms: row.totalMs,
+        median_ms: row.medianMs,
+        max_ms: row.maxMs,
+      }));
+      return { tools, findings: toolFindings(tools) };
+    },
+
+    async getUsageToolCalls(
+      actor: Caller,
+      name: string,
+      query: UsageToolCallsQuery,
+    ): Promise<UsageToolCallsResponse> {
+      const filter = await filterFor(actor, query.scope);
+      const tools = {
+        period: {
+          since: query.since,
+          ...(query.until === undefined ? {} : { until: query.until }),
+        },
+        ...(query.agent_id === undefined ? {} : { agentId: query.agent_id }),
+      };
+      const page = await reader.usageToolCalls(filter, {
+        ...tools,
+        name,
+        sort: query.sort,
+        limit: query.limit,
+        ...(query.cursor === undefined ? {} : { cursor: query.cursor }),
+        ownerId: actor.ownerId,
+        viewer: {
+          userId: actor.actor?.userId ?? null,
+          apiKeyId: actor.actor?.apiKeyId ?? null,
+        },
+      });
+      return {
+        calls: page.calls.map((call) => ({
+          session_id: call.sessionId,
+          title: call.title,
+          agent: call.agent,
+          occurred_at: call.occurredAt.toISOString(),
+          duration_ms: call.durationMs,
+          outcome: call.outcome,
+        })),
+        next_cursor: page.nextCursor,
+        per_day: await reader.usageToolDays(filter, { ...tools, name }),
       };
     },
 

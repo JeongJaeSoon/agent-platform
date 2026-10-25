@@ -8,6 +8,7 @@ import type {
 } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
 import {
+  Avatar,
   Badge,
   Card,
   CardAction,
@@ -16,9 +17,9 @@ import {
   CardHeader,
   CardTitle,
   cn,
-  Link,
   linkVariants,
   Skeleton,
+  StatusDot,
 } from "@werft-ai/ui";
 import { ArrowRight } from "lucide-react";
 import type { ReactNode } from "react";
@@ -105,11 +106,13 @@ function AgentCard({
           <AgentAvatar name={agent.name} />
           <div className="flex min-w-0 flex-col gap-1">
             <CardTitle className="[overflow-wrap:anywhere]">
-              <Link asChild className={ROW_LINK}>
-                <RouterLink to="/agents/$id" params={{ id: agent.id }}>
-                  {agent.name}
-                </RouterLink>
-              </Link>
+              <RouterLink
+                to="/agents/$id"
+                params={{ id: agent.id }}
+                className={cn("text-foreground no-underline", ROW_LINK)}
+              >
+                {agent.name}
+              </RouterLink>
             </CardTitle>
             <span className="font-mono text-caption text-muted-foreground [overflow-wrap:anywhere]">
               <span className="sr-only">{t("agents.slug")} </span>
@@ -129,14 +132,14 @@ function AgentCard({
       </CardHeader>
       <CardContent className="flex flex-1 flex-col gap-3">
         {/* Two lines whether read or not, so the card never grows as it loads. */}
-        <div className="h-[2lh] text-body">
+        <div className="h-[2lh] text-control">
           <Detail query={detail} lines={2}>
             {card ? <p className="m-0 line-clamp-2">{card.role}</p> : null}
           </Detail>
         </div>
         <div className="flex flex-col gap-1 rounded-control bg-muted px-3 py-2">
           <span className="text-caption text-muted-foreground">
-            {t("agentCard.instructions")}
+            {t("agents.cards.instructions")}
           </span>
           <div className="h-[2lh] text-control">
             <Detail query={detail} lines={2}>
@@ -167,9 +170,6 @@ function AgentCard({
               ) : null}
             </Detail>
           </Fact>
-          <Fact term={t("agents.cards.waiting")}>
-            <Unmeasured />
-          </Fact>
           <Fact term={t("agents.cards.credentials")}>
             {/* What the card asks for and what is bound: both must answer. */}
             <Detail query={[detail, bindings]}>
@@ -183,14 +183,11 @@ function AgentCard({
               ) : null}
             </Detail>
           </Fact>
-          <Fact term={t("agents.cards.skills")}>
-            <Unmeasured />
-          </Fact>
         </dl>
       </CardContent>
       <CardFooter className="justify-between gap-3 border-t pt-4 text-control">
         <span className="min-w-0 truncate text-muted-foreground">
-          {t("agent.tabs.admins")}{" "}
+          {t("agents.cards.admins")}{" "}
           <Detail query={admins} inline>
             {admins.data
               ? adminNames(admins.data, t("agent.panel.none"))
@@ -276,16 +273,6 @@ function Fact({
   );
 }
 
-/** What the API does not report yet: said so, never a made-up value. */
-function Unmeasured() {
-  const { t } = useI18n();
-  return (
-    <span className="text-muted-foreground">
-      {t("agents.cards.unmeasured")}
-    </span>
-  );
-}
-
 function Names({
   names,
   none,
@@ -295,12 +282,18 @@ function Names({
 }) {
   if (names.length === 0) return <>{none}</>;
   return (
-    // One row like every other value; the clipped names are still read out,
-    // and the detail screen lists them in full.
-    <span className="flex gap-1 overflow-hidden [justify-content:safe_flex-end]">
+    // A card names one MCP server today; a long name is cut, not pushed off
+    // the card, and reads in full on hover and to a screen reader. The chip
+    // sits above the card's link so the hover reaches its title.
+    <span className="flex flex-wrap justify-end gap-1">
       {names.map((name) => (
-        <Badge key={name} variant="gray" className="font-mono">
-          {name}
+        <Badge
+          key={name}
+          variant="gray"
+          className="relative z-1 min-w-0 max-w-full shrink font-mono"
+          title={name}
+        >
+          <span className="truncate">{name}</span>
         </Badge>
       ))}
     </span>
@@ -320,14 +313,16 @@ function CredentialNeed({
   readonly bound: readonly string[];
 }) {
   const { t } = useI18n();
-  if (refs.length === 0) return <>{t("agents.cards.credentialsNone")}</>;
   const missing = refs.filter((ref) => !bound.includes(ref)).length;
-  return missing > 0 ? (
-    <Badge variant="red">
-      {t("agents.cards.credentialsMissing", { count: missing })}
-    </Badge>
-  ) : (
-    t("agents.cards.credentialsBound", { count: refs.length })
+  return (
+    <span className="inline-flex items-center gap-2">
+      <StatusDot status={missing > 0 ? "failed" : "done"} />
+      {refs.length === 0
+        ? t("agents.cards.credentialsNone")
+        : missing > 0
+          ? t("agents.cards.credentialsMissing", { count: missing })
+          : t("agents.cards.credentialsBound", { count: refs.length })}
+    </span>
   );
 }
 
@@ -339,19 +334,23 @@ function adminNames(view: AgentAdminsView, none: string) {
   return names.length === 0 ? none : names.join(", ");
 }
 
-/**
- * The design's 32px square initials mark (console v4 `.avatar.lg.sq`).
- * Stands in until @werft-ai/ui has an Avatar.
- */
+/** The design's 32px square initials mark, one colour per name. */
 export function AgentAvatar({ name }: { readonly name: string }) {
   return (
-    <span
-      aria-hidden="true"
-      className="grid size-8 flex-none place-items-center rounded-control bg-active font-semibold text-caption text-muted-foreground"
-    >
-      {initials(name)}
-    </span>
+    <Avatar
+      size="lg"
+      shape="square"
+      tone={avatarTone(name)}
+      initials={initials(name)}
+    />
   );
+}
+
+/** The same name gets the same colour on every screen and visit. */
+export function avatarTone(key: string): 1 | 2 | 3 | 4 {
+  let sum = 0;
+  for (const char of key) sum += char.codePointAt(0) ?? 0;
+  return ((sum % 4) + 1) as 1 | 2 | 3 | 4;
 }
 
 /** Up to two letters: the first of the first two words, or the first two. */

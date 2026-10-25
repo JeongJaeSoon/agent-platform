@@ -88,4 +88,14 @@ describe("PageHeader", () => {
     );
     expect(nav.contains(getByRole("button", { name: "주 버튼" }))).toBe(false);
   });
+
+  test("titleAside는 제목 줄에 놓이지만 h1의 이름에는 들지 않는다", () => {
+    const { getByRole, getByText } = render(
+      <PageHeader title="결제 담당" titleAside={<span>활성</span>} />,
+    );
+    const heading = getByRole("heading", { level: 1, name: "결제 담당" });
+    const tag = getByText("활성");
+    expect(heading.contains(tag)).toBe(false);
+    expect(heading.nextElementSibling === tag).toBe(true);
+  });
 });

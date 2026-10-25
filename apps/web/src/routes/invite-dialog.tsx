@@ -35,12 +35,8 @@ import {
 import { Plus } from "lucide-react";
 import { type RefObject, useEffect, useRef, useState } from "react";
 import { queryKeys } from "../api/queries.ts";
-import {
-  ReasonButton,
-  roleLabel,
-  useRole,
-  WORKSPACE_ROLE_VALUES,
-} from "../auth/guard.tsx";
+import { roleLabel, useRole, WORKSPACE_ROLE_VALUES } from "../auth/guard.tsx";
+import { ReasonButton } from "../auth/reason-button.tsx";
 import { FormError, Notice } from "../components/auth-page.tsx";
 import { copyText } from "../components/copy.ts";
 import { SEARCH_MAX, useSearchTerm } from "../components/search-term.ts";

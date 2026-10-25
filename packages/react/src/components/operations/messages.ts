@@ -16,6 +16,95 @@ export interface OperationsFormat {
   readonly elapsed: (ms: number) => string;
   /** a / b as "1.7%". */
   readonly percent: (a: number, b: number) => string;
+  /** A `cost_usd` string as "$1,045.48". */
+  readonly usd: (amount: string | number) => string;
+  /** A token count in the locale's large units: "3,816만", "38.2M". */
+  readonly tokens: (n: number) => string;
+  /** "2 GB", "512 MB". */
+  readonly bytes: (n: number) => string;
+  /** The clock time of an instant: "오후 9:40". */
+  readonly clock: (iso: string, timeZone?: string) => string;
+}
+
+export type OperationsTab = "overview" | "usage" | "tools" | "limits";
+
+export interface OperationsHeadMessages {
+  readonly title: string;
+  readonly description: string;
+  readonly tabs: string;
+  readonly tab: Readonly<Record<OperationsTab, string>>;
+  /** Why a tab that is shown cannot be opened yet. */
+  readonly soon: string;
+}
+
+export interface UsageFiltersMessages {
+  readonly scope: string;
+  readonly me: string;
+  readonly installation: string;
+  readonly period: string;
+  readonly days: (days: number) => string;
+}
+
+export interface UsageKpisMessages {
+  readonly sessions: string;
+  readonly sessionsNote: string;
+  readonly sessionsChart: string;
+  readonly runTime: string;
+  readonly runTimeNote: string;
+  readonly runTimeChart: string;
+  readonly cost: string;
+  readonly estimated: string;
+  readonly costIncomplete: string;
+  readonly costChart: string;
+  readonly tokens: string;
+  readonly tokensNote: string;
+  readonly tokensChart: string;
+  readonly loading: string;
+}
+
+export interface InstallationLimitsMessages {
+  readonly capacity: string;
+  readonly capacityNote: string;
+  readonly asOf: (at: string) => string;
+  readonly slotsInUse: string;
+  readonly slotsFree: (free: string) => string;
+  readonly slotsMeter: string;
+  readonly storage: string;
+  readonly storageMeter: string;
+  readonly storageNote: string;
+  readonly limits: string;
+  readonly item: string;
+  readonly current: string;
+  readonly limit: string;
+  readonly note: string;
+  readonly perSession: string;
+  readonly notSet: string;
+  readonly slots: string;
+  readonly slotsRowNote: string;
+  readonly storageRowNote: string;
+  readonly sessionCost: string;
+  readonly sessionCostNote: string;
+  readonly sessionTokens: string;
+  readonly sessionTokensNote: string;
+  readonly queuedInput: string;
+  readonly queuedInputValue: (count: string) => string;
+  readonly queuedInputNote: string;
+  readonly maxTurn: string;
+  readonly maxTurnNote: string;
+  readonly loading: string;
+}
+
+export interface UsageCostTableMessages {
+  readonly sessions: string;
+  readonly tokens: string;
+  readonly cost: string;
+  readonly costShare: (name: string) => string;
+  /** The row of sessions without an agent. */
+  readonly noAgent: string;
+  /** The row of cost no metered call explains. */
+  readonly noModel: string;
+  readonly emptyAgent: string;
+  readonly emptyModel: string;
 }
 
 export interface SessionCountsMessages {
@@ -54,6 +143,7 @@ export interface ToolTableMessages {
   readonly open: (name: string) => string;
   readonly callsMeter: (name: string) => string;
   readonly empty: string;
+  readonly noMatch: string;
   readonly loading: string;
 }
 
@@ -84,6 +174,39 @@ export interface ToolCallsMessages {
   readonly empty: string;
 }
 
+export type ToolSort = "calls" | "time" | "slow" | "failed";
+
+export interface ToolsFilterMessages {
+  readonly sort: string;
+  readonly by: Readonly<Record<ToolSort, string>>;
+  readonly search: string;
+  readonly placeholder: string;
+}
+
+export type ToolCallSort = "recent" | "slowest";
+
+export interface ToolRailMessages {
+  readonly label: string;
+  readonly calls: string;
+  readonly total: string;
+  readonly median: string;
+  readonly failed: string;
+  readonly callsValue: (calls: string) => string;
+  readonly failedValue: (failed: string, rate: string) => string;
+  readonly perDay: string;
+  readonly perDayNote: (days: number) => string;
+  readonly perDayChart: (parts: {
+    readonly name: string;
+    readonly days: number;
+    readonly total: string;
+    readonly peakDay: string;
+    readonly peak: string;
+  }) => string;
+  readonly recent: string;
+  readonly callSort: string;
+  readonly callSortBy: Readonly<Record<ToolCallSort, string>>;
+}
+
 export interface OperationsMessages {
   readonly format: OperationsFormat;
   readonly sessionCounts: SessionCountsMessages;
@@ -91,6 +214,13 @@ export interface OperationsMessages {
   readonly toolTable: ToolTableMessages;
   readonly toolsSummary: ToolsSummaryMessages;
   readonly toolCalls: ToolCallsMessages;
+  readonly toolsFilter: ToolsFilterMessages;
+  readonly toolRail: ToolRailMessages;
+  readonly head: OperationsHeadMessages;
+  readonly usageFilters: UsageFiltersMessages;
+  readonly usageKpis: UsageKpisMessages;
+  readonly installationLimits: InstallationLimitsMessages;
+  readonly usageCostTable: UsageCostTableMessages;
 }
 
 function format(
@@ -98,8 +228,13 @@ function format(
   hours: (h: number, m: number) => string,
   minutes: (m: number) => string,
   seconds: (s: string) => string,
+  units?: readonly [string, string],
 ): OperationsFormat {
   const nf = new Intl.NumberFormat(locale === "ko" ? "ko-KR" : locale);
+  const compact = new Intl.NumberFormat(locale, {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  });
   const duration = (s: number) => {
     const h = Math.floor(s / 3600);
     const m = Math.floor((s % 3600) / 60);
@@ -111,6 +246,33 @@ function format(
     elapsed: (ms) =>
       ms >= 60000 ? duration(ms / 1000) : seconds((ms / 1000).toFixed(1)),
     percent: (a, b) => `${(b ? (100 * a) / b : 0).toFixed(1)}%`,
+    usd: (amount) =>
+      Number(amount) > 0 && Number(amount) < 0.005
+        ? "<$0.01"
+        : `$${Number(amount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+    tokens: (n) =>
+      !units
+        ? n >= 1e4
+          ? compact.format(n)
+          : nf.format(n)
+        : n >= 1e8
+          ? `${(n / 1e8).toFixed(1)}${units[0]}`
+          : n >= 1e4
+            ? `${nf.format(Math.round(n / 1e4))}${units[1]}`
+            : nf.format(n),
+    bytes: (n) =>
+      n >= 1073741824
+        ? `${(n / 1073741824).toFixed(1).replace(/\.0$/, "")} GB`
+        : `${Math.round(n / 1048576)} MB`,
+    clock: (iso, timeZone) =>
+      new Intl.DateTimeFormat(locale, {
+        hour: "numeric",
+        minute: "2-digit",
+        timeZone,
+      })
+        .format(new Date(iso))
+        // ICU puts a narrow no-break space before "PM" and after "오후".
+        .replace(/ /g, " "),
   };
 }
 
@@ -147,6 +309,7 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         (h, m) => `${h}시간 ${m}분`,
         (m) => `${m}분`,
         (s) => `${s}초`,
+        ["억", "만"],
       ),
       sessionCounts: {
         title: "지금 · 내가 볼 수 있는 세션",
@@ -178,6 +341,7 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         open: (name) => `${name} 자세히 보기`,
         callsMeter: (name) => `${name} 호출 비율`,
         empty: "이 기간에 불린 도구가 없습니다.",
+        noMatch: "찾는 이름의 도구가 없습니다.",
         loading: "도구 목록을 읽는 중",
       },
       toolsSummary: {
@@ -198,6 +362,112 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         none: "—",
         empty: "이 기간에 부른 기록이 없습니다.",
       },
+      toolsFilter: {
+        sort: "정렬",
+        by: {
+          calls: "많이 쓴 순",
+          time: "오래 걸린 순",
+          slow: "느린 순",
+          failed: "실패",
+        },
+        search: "도구 찾기",
+        placeholder: "도구나 명령 찾기",
+      },
+      toolRail: {
+        label: "선택한 도구",
+        calls: "호출",
+        total: "총 시간",
+        median: "보통",
+        failed: "실패",
+        callsValue: (calls) => `${calls}번`,
+        failedValue: (failed, rate) => `${failed}번 (${rate})`,
+        perDay: "일자별 호출",
+        perDayNote: (days) => `최근 ${days}일`,
+        perDayChart: ({ name, days, total, peakDay, peak }) =>
+          `${name} 일자별 호출, 최근 ${days}일, 합계 ${total}번, 가장 많은 날 ${peakDay} ${peak}번`,
+        recent: "최근 호출",
+        callSort: "호출 정렬",
+        callSortBy: { recent: "최근", slowest: "느린 순" },
+      },
+      head: {
+        title: "운영",
+        description:
+          "에이전트가 얼마나 돌고, 얼마나 쓰고, 어디서 막히는지 봅니다.",
+        tabs: "운영 탭",
+        tab: {
+          overview: "개요",
+          usage: "사용량",
+          tools: "도구 활동",
+          limits: "한도",
+        },
+        soon: "아직 준비 중인 화면입니다.",
+      },
+      usageFilters: {
+        scope: "집계 범위",
+        me: "내 사용량",
+        installation: "설치 전체",
+        period: "기간",
+        days: (days) => `${days}일`,
+      },
+      usageKpis: {
+        sessions: "세션",
+        sessionsNote: "이 기간에 시작한 세션",
+        sessionsChart: "일자별 세션 수",
+        runTime: "실행 시간",
+        runTimeNote: "turn 시작부터 끝까지, 답을 기다린 시간 포함",
+        runTimeChart: "일자별 실행 시간",
+        cost: "비용",
+        estimated: "추정",
+        costIncomplete:
+          "진행 중이거나 비용을 보고하지 않은 turn이 있어 실제보다 적을 수 있음",
+        costChart: "일자별 비용",
+        tokens: "토큰",
+        tokensNote: "비용을 센 호출의 토큰",
+        tokensChart: "일자별 토큰",
+        loading: "사용량을 읽는 중",
+      },
+      installationLimits: {
+        capacity: "실행 용량",
+        capacityNote: "설치 전체에 적용됩니다",
+        asOf: (at) => `${at} 기준`,
+        slotsInUse: "사용 중인 slot",
+        slotsFree: (free) => `빈 slot ${free}개`,
+        slotsMeter: "slot 사용률",
+        storage: "입력 메시지 저장",
+        storageMeter: "입력 메시지 저장 사용률",
+        storageNote: "입력 메시지만 셉니다",
+        limits: "한도",
+        item: "항목",
+        current: "현재",
+        limit: "한도",
+        note: "설명",
+        perSession: "세션마다 셉니다",
+        notSet: "설정 안 됨",
+        slots: "동시 실행 slot",
+        slotsRowNote: "설치 설정의 상한. 빈 slot이 없으면 세션이 대기합니다",
+        storageRowNote:
+          "세션에 보낸 입력 메시지만 셉니다. 결과물 용량은 아직 세지 않습니다",
+        sessionCost: "세션당 비용",
+        sessionCostNote: "추정 비용이 넘은 세션은 새 turn을 시작하지 않습니다",
+        sessionTokens: "세션당 토큰",
+        sessionTokensNote: "토큰이 넘은 세션은 새 turn을 시작하지 않습니다",
+        queuedInput: "세션당 대기 입력",
+        queuedInputValue: (count) => `${count}건`,
+        queuedInputNote: "세션 하나에 쌓아 둘 수 있는 입력 수",
+        maxTurn: "turn 최대 시간",
+        maxTurnNote: "turn 하나가 돌 수 있는 시간",
+        loading: "한도를 읽는 중",
+      },
+      usageCostTable: {
+        sessions: "세션",
+        tokens: "토큰",
+        cost: "비용",
+        costShare: (name) => `${name} 비용 비율`,
+        noAgent: "에이전트 없음",
+        noModel: "호출 기록이 없는 비용",
+        emptyAgent: "이 기간에 비용을 쓴 에이전트가 없습니다.",
+        emptyModel: "이 기간에 비용을 쓴 모델이 없습니다.",
+      },
     },
     ja: {
       format: format(
@@ -205,6 +475,7 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         (h, m) => `${h}時間${m}分`,
         (m) => `${m}分`,
         (s) => `${s}秒`,
+        ["億", "万"],
       ),
       sessionCounts: {
         title: "現在 · 閲覧できるセッション",
@@ -237,6 +508,7 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         open: (name) => `${name} の詳細を見る`,
         callsMeter: (name) => `${name} の呼び出し比率`,
         empty: "この期間に呼ばれたツールはありません。",
+        noMatch: "その名前のツールはありません。",
         loading: "ツール一覧を読み込み中",
       },
       toolsSummary: {
@@ -256,6 +528,115 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         outcome: { ok: "完了", failed: "失敗", unknown: "結果不明" },
         none: "—",
         empty: "この期間の呼び出し記録はありません。",
+      },
+      toolsFilter: {
+        sort: "並べ替え",
+        by: {
+          calls: "呼び出し順",
+          time: "合計時間順",
+          slow: "遅い順",
+          failed: "失敗",
+        },
+        search: "ツールを検索",
+        placeholder: "ツールやコマンドを検索",
+      },
+      toolRail: {
+        label: "選択したツール",
+        calls: "呼び出し",
+        total: "合計時間",
+        median: "中央値",
+        failed: "失敗",
+        callsValue: (calls) => `${calls}回`,
+        failedValue: (failed, rate) => `${failed}回 (${rate})`,
+        perDay: "日別の呼び出し",
+        perDayNote: (days) => `直近${days}日`,
+        perDayChart: ({ name, days, total, peakDay, peak }) =>
+          `${name} の日別の呼び出し、直近${days}日、合計${total}回、最も多い日 ${peakDay} ${peak}回`,
+        recent: "最近の呼び出し",
+        callSort: "呼び出しの並べ替え",
+        callSortBy: { recent: "最近", slowest: "遅い順" },
+      },
+      head: {
+        title: "運用",
+        description:
+          "エージェントがどれだけ動き、どれだけ使い、どこで詰まっているかを見ます。",
+        tabs: "運用タブ",
+        tab: {
+          overview: "概要",
+          usage: "使用量",
+          tools: "ツール活動",
+          limits: "上限",
+        },
+        soon: "この画面はまだ準備中です。",
+      },
+      usageFilters: {
+        scope: "集計範囲",
+        me: "自分の使用量",
+        installation: "インストール全体",
+        period: "期間",
+        days: (days) => `${days}日`,
+      },
+      usageKpis: {
+        sessions: "セッション",
+        sessionsNote: "この期間に開始したセッション",
+        sessionsChart: "日別セッション数",
+        runTime: "実行時間",
+        runTimeNote: "turn の開始から終了まで、回答待ちの時間を含む",
+        runTimeChart: "日別実行時間",
+        cost: "コスト",
+        estimated: "推定",
+        costIncomplete:
+          "進行中かコストを報告していない turn があり、実際より少ない可能性があります",
+        costChart: "日別コスト",
+        tokens: "トークン",
+        tokensNote: "コストを数えた呼び出しのトークン",
+        tokensChart: "日別トークン",
+        loading: "使用量を読み込み中",
+      },
+      installationLimits: {
+        capacity: "実行容量",
+        capacityNote: "インストール全体に適用されます",
+        asOf: (at) => `${at} 時点`,
+        slotsInUse: "使用中のスロット",
+        slotsFree: (free) => `空きスロット ${free}個`,
+        slotsMeter: "スロット使用率",
+        storage: "入力メッセージの保存",
+        storageMeter: "入力メッセージ保存の使用率",
+        storageNote: "入力メッセージのみ数えます",
+        limits: "上限",
+        item: "項目",
+        current: "現在",
+        limit: "上限",
+        note: "説明",
+        perSession: "セッションごとに数えます",
+        notSet: "未設定",
+        slots: "同時実行スロット",
+        slotsRowNote:
+          "インストール設定の上限。空きスロットがないとセッションは待機します",
+        storageRowNote:
+          "セッションに送った入力メッセージのみ数えます。成果物の容量はまだ数えません",
+        sessionCost: "セッションあたりのコスト",
+        sessionCostNote:
+          "推定コストを超えたセッションは新しい turn を始めません",
+        sessionTokens: "セッションあたりのトークン",
+        sessionTokensNote:
+          "トークンを超えたセッションは新しい turn を始めません",
+        queuedInput: "セッションあたりの待機入力",
+        queuedInputValue: (count) => `${count}件`,
+        queuedInputNote: "1つのセッションに溜めておける入力の数",
+        maxTurn: "turn の最大時間",
+        maxTurnNote: "1つの turn が実行できる時間",
+        loading: "上限を読み込み中",
+      },
+      usageCostTable: {
+        sessions: "セッション",
+        tokens: "トークン",
+        cost: "コスト",
+        costShare: (name) => `${name} のコスト比率`,
+        noAgent: "エージェントなし",
+        noModel: "呼び出し記録のないコスト",
+        emptyAgent: "この期間にコストを使ったエージェントはありません。",
+        emptyModel: "この期間にコストを使ったモデルはありません。",
       },
     },
     en: {
@@ -295,6 +676,7 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         open: (name) => `Show ${name}`,
         callsMeter: (name) => `${name} share of calls`,
         empty: "No tools were called in this period.",
+        noMatch: "No tool has that name.",
         loading: "Loading tools",
       },
       toolsSummary: {
@@ -314,6 +696,114 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         outcome: { ok: "Done", failed: "Failed", unknown: "Unknown" },
         none: "—",
         empty: "No calls in this period.",
+      },
+      toolsFilter: {
+        sort: "Sort",
+        by: {
+          calls: "Most used",
+          time: "Most time",
+          slow: "Slowest",
+          failed: "Failed",
+        },
+        search: "Find a tool",
+        placeholder: "Find a tool or command",
+      },
+      toolRail: {
+        label: "Selected tool",
+        calls: "Calls",
+        total: "Total",
+        median: "Median",
+        failed: "Failed",
+        callsValue: (calls) => calls,
+        failedValue: (failed, rate) => `${failed} (${rate})`,
+        perDay: "Calls per day",
+        perDayNote: (days) => `Last ${days} days`,
+        perDayChart: ({ name, days, total, peakDay, peak }) =>
+          `${name} calls per day, last ${days} days, ${total} in all, most on ${peakDay} with ${peak}`,
+        recent: "Recent calls",
+        callSort: "Sort calls",
+        callSortBy: { recent: "Recent", slowest: "Slowest" },
+      },
+      head: {
+        title: "Operations",
+        description:
+          "See how much agents run, what they spend, and where they get stuck.",
+        tabs: "Operations tabs",
+        tab: {
+          overview: "Overview",
+          usage: "Usage",
+          tools: "Tool activity",
+          limits: "Limits",
+        },
+        soon: "This screen is not ready yet.",
+      },
+      usageFilters: {
+        scope: "Scope",
+        me: "My usage",
+        installation: "Whole installation",
+        period: "Period",
+        days: (days) => `${days} days`,
+      },
+      usageKpis: {
+        sessions: "Sessions",
+        sessionsNote: "Sessions started in this period",
+        sessionsChart: "Sessions per day",
+        runTime: "Run time",
+        runTimeNote:
+          "From each turn's start to its end, time waiting for answers included",
+        runTimeChart: "Run time per day",
+        cost: "Cost",
+        estimated: "Estimate",
+        costIncomplete:
+          "Turns still running or without a reported cost may make this lower than the real cost",
+        costChart: "Cost per day",
+        tokens: "Tokens",
+        tokensNote: "Tokens of the calls the cost counts",
+        tokensChart: "Tokens per day",
+        loading: "Loading usage",
+      },
+      installationLimits: {
+        capacity: "Execution capacity",
+        capacityNote: "Applies to the whole installation",
+        asOf: (at) => `As of ${at}`,
+        slotsInUse: "Slots in use",
+        slotsFree: (free) => `${free} free`,
+        slotsMeter: "Slot use",
+        storage: "Input message storage",
+        storageMeter: "Input message storage use",
+        storageNote: "Counts input messages only",
+        limits: "Limits",
+        item: "Item",
+        current: "Current",
+        limit: "Limit",
+        note: "Note",
+        perSession: "Counted per session",
+        notSet: "Not set",
+        slots: "Concurrent slots",
+        slotsRowNote:
+          "The installation's cap. Sessions wait when no slot is free",
+        storageRowNote:
+          "Counts only the input messages sent to sessions, not outputs yet",
+        sessionCost: "Cost per session",
+        sessionCostNote: "A session past its estimated cost starts no new turn",
+        sessionTokens: "Tokens per session",
+        sessionTokensNote: "A session past its tokens starts no new turn",
+        queuedInput: "Queued inputs per session",
+        queuedInputValue: (count) => count,
+        queuedInputNote: "How many inputs one session may hold",
+        maxTurn: "Longest turn",
+        maxTurnNote: "How long one turn may run",
+        loading: "Loading limits",
+      },
+      usageCostTable: {
+        sessions: "Sessions",
+        tokens: "Tokens",
+        cost: "Cost",
+        costShare: (name) => `${name} share of cost`,
+        noAgent: "No agent",
+        noModel: "Cost without metered calls",
+        emptyAgent: "No agent spent anything in this period.",
+        emptyModel: "No model was billed in this period.",
       },
     },
   };

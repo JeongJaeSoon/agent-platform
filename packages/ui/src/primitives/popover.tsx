@@ -31,6 +31,8 @@ export function PopoverAnchor(
 export function PopoverContent({
   className,
   sideOffset = 4,
+  // The 1rem that max-w leaves on each side, kept when it slides off an edge.
+  collisionPadding = 16,
   ...props
 }: ComponentProps<typeof PopoverPrimitive.Content>): JSX.Element {
   return (
@@ -38,6 +40,7 @@ export function PopoverContent({
       <PopoverPrimitive.Content
         data-slot="popover-content"
         sideOffset={sideOffset}
+        collisionPadding={collisionPadding}
         className={cn(
           "z-50 max-w-[min(20rem,calc(100vw-2rem))] rounded-card border bg-popover px-3 py-2 text-caption text-popover-foreground shadow-pop outline-none",
           className,
