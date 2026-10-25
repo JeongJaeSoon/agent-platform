@@ -115,6 +115,17 @@ export const slackKo = {
     "찾은 채널이 없습니다. 비공개 채널은 먼저 /invite로 초대하세요.",
   "slack.partial": "일부 채널이 없거나 이전 검색 결과일 수 있습니다.",
   "slack.more": "더 보기",
+  "slack.reinstallTitle": "Slack 앱 다시 설치",
+  "slack.reinstallHint":
+    "권한이나 이벤트 설정이 바뀌었을 때 다시 설치합니다. Slack 동의 화면으로 이동합니다.",
+  "slack.installHint":
+    "Slack 동의 화면으로 이동해 이 워크스페이스에 앱을 설치합니다.",
+  "slack.installed": "Slack에 앱을 설치했습니다.",
+  "slack.copyInvite": "/invite 명령 복사",
+  "slack.inviteCommand": "/invite 명령",
+  "slack.copied": "복사됨",
+  "slack.copyFailed":
+    "클립보드에 복사하지 못했습니다. 선택된 명령을 직접 복사하세요.",
 } as const;
 
 export const ko = {

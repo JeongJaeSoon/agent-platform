@@ -422,11 +422,136 @@ describe("Slack management", () => {
       await screen.findByRole("button", { name: "#general 연결" }),
     );
     await screen.findByText("채널을 연결했습니다.");
+    expect(document.querySelector("[data-slot=toast]")?.tagName).toBe(
+      "OUTPUT",
+    );
     expect(
       api.calls
         .filter((call) => call.method === "PUT")
         .map((call) => call.body),
     ).toEqual([{ channel_id: "C123", mode: "off", home: false }]);
+    const list = await screen.findByRole("list", { name: "연결된 채널" });
+    expect(within(list).getByText("/invite 필요")).toBeDefined();
+    expect(
+      within(list).getByRole("button", { name: "/invite 명령 복사" }),
+    ).toBeDefined();
+  });
+
+  test("announces a failed channel connection in a toast", async () => {
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/channels`]: () =>
+        json(200, {
+          items: [
+            { id: "C123", name: "general", is_private: false, is_member: true },
+          ],
+          next_cursor: null,
+          stale: false,
+          truncated: false,
+        }),
+      [`PUT ${PATH}/slack-bindings`]: () =>
+        apiError(409, "SLACK_NOT_INSTALLED", "internal message"),
+    });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("tab", { name: "채널" }));
+    await user.click(await screen.findByRole("button", { name: "채널 추가" }));
+    await user.click(
+      await screen.findByRole("button", { name: "#general 연결" }),
+    );
+    await waitFor(() =>
+      expect(document.querySelector("[data-slot=toast]")?.textContent).toBe(
+        "Slack 앱을 설치한 뒤 채널을 연결하세요.",
+      ),
+    );
+  });
+
+  for (const refused of [false, true]) {
+    test(`copies the /invite line for a channel the bot has not joined${refused ? ", selecting it when the clipboard refuses" : ""}`, async () => {
+      renderAt(DETAIL, {
+        ...routes(APP, true),
+        [`GET ${PATH}/slack-bindings`]: () =>
+          json(200, { items: [{ ...BINDING, home: false }] }),
+        [`GET ${PATH}/slack/channels`]: () =>
+          json(200, {
+            items: [
+              {
+                id: "C123",
+                name: "general",
+                is_private: true,
+                is_member: false,
+              },
+            ],
+            next_cursor: null,
+            stale: false,
+            truncated: false,
+          }),
+      });
+      const user = await setupUser();
+      // After setupUser, which installs a clipboard of its own.
+      const copied: string[] = [];
+      const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: {
+          writeText: async (text: string) => {
+            if (refused) throw new Error("denied");
+            copied.push(text);
+          },
+        },
+      });
+      try {
+        await user.click(await screen.findByRole("tab", { name: "채널" }));
+        const list = await screen.findByRole("list", { name: "연결된 채널" });
+        await user.click(
+          await within(list).findByRole("button", {
+            name: "/invite 명령 복사",
+          }),
+        );
+        const toast = () =>
+          document.querySelector("[data-slot=toast]")?.textContent;
+        if (!refused) {
+          expect(copied).toEqual(["/invite @billing"]);
+          await waitFor(() => expect(toast()).toBe("복사됨"));
+          return;
+        }
+        const field = (await within(list).findByRole("textbox", {
+          name: "/invite 명령",
+        })) as HTMLInputElement;
+        expect(field.value).toBe("/invite @billing");
+        await waitFor(() =>
+          expect(document.activeElement === field).toBe(true),
+        );
+        expect([field.selectionStart, field.selectionEnd]).toEqual([
+          0,
+          field.value.length,
+        ]);
+        await waitFor(() =>
+          expect(toast()).toBe(
+            "클립보드에 복사하지 못했습니다. 선택된 명령을 직접 복사하세요.",
+          ),
+        );
+      } finally {
+        if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
+        else Reflect.deleteProperty(navigator, "clipboard");
+      }
+    });
+  }
+
+  test("keeps reinstall in the app card with its own title and description", async () => {
+    renderAt(DETAIL, routes(APP, true));
+    const user = await setupUser();
+    await user.click(await screen.findByRole("tab", { name: "설정" }));
+    const title = await screen.findByText("Slack 앱 다시 설치");
+    const card = title.closest("[data-slot=row-list]") as HTMLElement;
+    expect(within(card).getByText("앱 ID")).toBeDefined();
+    expect(
+      within(card).getByText(
+        "권한이나 이벤트 설정이 바뀌었을 때 다시 설치합니다. Slack 동의 화면으로 이동합니다.",
+      ),
+    ).toBeDefined();
+    expect(
+      within(card).getByRole("button", { name: "다시 설치" }),
+    ).toBeDefined();
   });
 
   test("creates the app before requesting installation", async () => {
@@ -633,11 +758,21 @@ describe("Slack management", () => {
     test(`shows ${label} from API state`, async () => {
       renderAt(DETAIL, routes(app, installed));
       expect((await screen.findAllByText(label)).length).toBeGreaterThan(0);
+      // The /invite hint belongs to the channel picker alone.
+      expect(screen.queryByText(/공개·비공개 채널 모두 \/invite/)).toBeNull();
       if (installed) {
         const user = await setupUser();
         await user.click(screen.getByRole("tab", { name: "채널" }));
+        expect(screen.queryByText(/공개·비공개 채널 모두 \/invite/)).toBeNull();
+        await user.click(
+          await screen.findByRole("button", { name: "채널 추가" }),
+        );
+        expect(
+          within(screen.getByRole("dialog")).getByText(
+            /공개·비공개 채널 모두 \/invite/,
+          ),
+        ).toBeDefined();
       }
-      expect(screen.getByText(/공개·비공개 채널 모두 \/invite/)).toBeDefined();
     });
   }
   test("does not load Slack endpoints from the overview tab", async () => {

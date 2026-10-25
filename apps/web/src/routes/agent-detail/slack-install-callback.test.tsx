@@ -89,6 +89,15 @@ describe("Slack install callback", () => {
     expect(new URLSearchParams(history.location.search).get("tab")).toBe(
       "slack",
     );
+    await waitFor(() =>
+      expect(document.querySelector("[data-slot=toast]")?.textContent).toBe(
+        "Slack에 앱을 설치했습니다.",
+      ),
+    );
+    // Said once: the history entry no longer carries it.
+    await waitFor(() =>
+      expect(history.location.state.slackInstalled).toBeUndefined(),
+    );
   });
 
   test("shows verification guidance when finalization is incomplete", async () => {
@@ -122,6 +131,13 @@ describe("Slack install callback", () => {
           apiError(409, code, "internal message"),
       });
       await screen.findByText((text) => text.startsWith(message));
+      await waitFor(() =>
+        expect(
+          document
+            .querySelector("[data-slot=toast]")
+            ?.textContent?.startsWith(message),
+        ).toBe(true),
+      );
       expect(
         screen.getByRole("link", { name: "Slack 앱" }).getAttribute("href"),
       ).toBe(`/agents/${AGENT_ID}?tab=slack`);

@@ -12,6 +12,14 @@ import { useEffect, useRef } from "react";
 import { Page } from "../../components/page.tsx";
 import { useI18n } from "../../i18n/i18n.tsx";
 import { slackFailure } from "./slack.tsx";
+import { useToast } from "./toast.tsx";
+
+declare module "@tanstack/react-router" {
+  interface HistoryState {
+    /** The Slack tab announces a finished install once. */
+    readonly slackInstalled?: boolean;
+  }
+}
 
 export function SlackInstallCallback() {
   const { id } = useParams({ from: "/authed/agents/$id/slack/callback" });
@@ -21,6 +29,7 @@ export function SlackInstallCallback() {
   const cache = useQueryClient();
   const navigate = useNavigate();
   const started = useRef(false);
+  const { notify, toast } = useToast();
   const complete = useMutation({
     mutationFn: () =>
       unwrap(
@@ -40,9 +49,12 @@ export function SlackInstallCallback() {
           to: "/agents/$id",
           params: { id },
           search: { tab: "slack" },
+          state: (previous) => ({ ...previous, slackInstalled: true }),
           replace: true,
         });
+      else notify(t("slack.installed"));
     },
+    onError: (failure) => notify(slackFailure(failure, t)),
   });
   useEffect(() => {
     if (started.current) return;
@@ -75,6 +87,7 @@ export function SlackInstallCallback() {
           </Link>
         </Button>
       ) : null}
+      {toast}
     </Page>
   );
 }

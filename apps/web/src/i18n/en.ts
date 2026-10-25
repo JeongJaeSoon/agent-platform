@@ -110,6 +110,17 @@ export const slackEn = {
   "slack.partial":
     "Some channels may be missing or results may be out of date.",
   "slack.more": "Load more",
+  "slack.reinstallTitle": "Reinstall the Slack app",
+  "slack.reinstallHint":
+    "Reinstall when permissions or event settings change. Opens Slack's consent screen.",
+  "slack.installHint":
+    "Opens Slack's consent screen to install the app in this workspace.",
+  "slack.installed": "Installed the app in Slack.",
+  "slack.copyInvite": "Copy /invite command",
+  "slack.inviteCommand": "/invite command",
+  "slack.copied": "Copied",
+  "slack.copyFailed":
+    "Couldn't copy to the clipboard. Copy the selected command yourself.",
 } as const;
 
 export const en: Record<MessageKey, string> = {

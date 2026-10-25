@@ -111,6 +111,17 @@ export const slackJa = {
   "slack.partial":
     "一部のチャンネルが表示されないか、古い結果の可能性があります。",
   "slack.more": "もっと見る",
+  "slack.reinstallTitle": "Slack アプリを再インストール",
+  "slack.reinstallHint":
+    "権限やイベント設定が変わったときに再インストールします。Slack の同意画面に移動します。",
+  "slack.installHint":
+    "Slack の同意画面に移動して、このワークスペースにアプリをインストールします。",
+  "slack.installed": "Slack にアプリをインストールしました。",
+  "slack.copyInvite": "/invite コマンドをコピー",
+  "slack.inviteCommand": "/invite コマンド",
+  "slack.copied": "コピーしました",
+  "slack.copyFailed":
+    "クリップボードにコピーできませんでした。選択されたコマンドを手動でコピーしてください。",
 } as const;
 
 export const ja: Record<MessageKey, string> = {
