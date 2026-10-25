@@ -41,8 +41,20 @@ describe("control host executable", () => {
         const { exitCode, stderr } = await run(args);
         expect(exitCode, args.join(" ")).toBe(2);
         expect(stderr).toContain(
-          "usage: bun run src/main.ts api | <scheduler|reconciler|slack> [--once|--health]",
+          "usage: bun run src/main.ts api | <scheduler|reconciler|slack> [--once|--health|--serve]",
         );
+      }
+    },
+    TIMEOUT_MS,
+  );
+
+  test(
+    "--serve refuses to run outside the pass loop",
+    async () => {
+      for (const role of ["scheduler", "reconciler", "slack"]) {
+        const { exitCode, stderr } = await run([role, "--serve"]);
+        expect(exitCode, role).not.toBe(0);
+        expect(stderr, role).toContain("no IPC channel");
       }
     },
     TIMEOUT_MS,
