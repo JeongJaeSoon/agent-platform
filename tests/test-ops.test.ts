@@ -469,6 +469,7 @@ describe("rendered installation", () => {
         return found;
       };
       services.localstack = { image: "localstack/localstack:3" };
+      services["local-s3-init"] = { image: "localstack/localstack:3" };
       services.migrate = { ...services.migrate, build: { context: ".." } };
       services.worker = { ...services.worker, image: "ghcr.io/x/worker:v1" };
       services.gitea = {
@@ -493,6 +494,7 @@ describe("rendered installation", () => {
       );
       for (const expected of [
         "service localstack is local-only",
+        "service local-s3-init is local-only",
         "service migrate builds its image",
         "service worker runs ghcr.io/x/worker:v1, not an image by digest",
         "service gitea publishes 3001 on 0.0.0.0",

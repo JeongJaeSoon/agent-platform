@@ -281,7 +281,7 @@ export async function reproMeta(
       "{{.NCPU}} CPUs, {{.MemTotal}} bytes",
     ]),
     object_store:
-      "LocalStack S3, versioned bucket with Object Lock (CHECKPOINT_OBJECT_PROTECTION=locked)",
+      "SeaweedFS S3 on a named volume, versioned bucket with Object Lock (CHECKPOINT_OBJECT_PROTECTION=locked)",
     model_api:
       "scripts/soak/messages.ts (scripted Messages API with latency/error injection)",
     ...extra,

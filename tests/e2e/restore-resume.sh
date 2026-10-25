@@ -264,8 +264,8 @@ manifest "$restored" "$session" "$revision" >"$out/manifest-restored.json"
 echo restored >"$out/phase"
 store_before="$(dst ps -q localstack)"
 dst up -d --no-build >"$out/up-restored.log" 2>&1 || { tail -50 "$out/up-restored.log" >&2; exit 1; }
-# LocalStack keeps no S3 state across a recreate here; the restored objects
-# live only in the container restore.sh started.
+# Keep app startup from needlessly recreating the restored object store.
+# Its objects and encryption key persist in the named volume.
 [ "$(dst ps -q localstack)" = "$store_before" ] || fail "starting the apps recreated the restored localstack"
 
 # --- 4. resume on a new worker ------------------------------------------------
