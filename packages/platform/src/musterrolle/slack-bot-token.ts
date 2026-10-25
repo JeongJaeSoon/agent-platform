@@ -18,6 +18,19 @@ export function slackBotToken(
   });
 }
 
+/** The bot token of the agent's own app; null without one. */
+export async function agentSlackBotToken(
+  deps: {
+    apps: Pick<SlackAppStore, "findForAgent">;
+    secrets: Pick<SecretStore, "get">;
+  },
+  workspaceId: string,
+  agentId: string,
+): Promise<string | null> {
+  const app = await deps.apps.findForAgent(workspaceId, agentId);
+  return app === null ? null : slackBotToken(deps.secrets, workspaceId, app.id);
+}
+
 /**
  * Channel kinds as the agent's own app sees them. Without a secret store
  * (no master key) there is no bot token to ask with, so a channel cannot
@@ -36,11 +49,11 @@ export function createSlackChannelKinds(deps: {
   return {
     async kindOf(workspaceId, agentId, channelId) {
       if (deps.apps === null || deps.secrets === null) throw notInstalled();
-      const app = await deps.apps.findForAgent(workspaceId, agentId);
-      const token =
-        app === null
-          ? null
-          : await slackBotToken(deps.secrets, workspaceId, app.id);
+      const token = await agentSlackBotToken(
+        { apps: deps.apps, secrets: deps.secrets },
+        workspaceId,
+        agentId,
+      );
       if (token === null) throw notInstalled();
       try {
         return await deps.slack.channelKind(token, channelId);

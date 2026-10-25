@@ -519,6 +519,13 @@
       "when": 1792880164091,
       "tag": "0164_slack_outbox",
       "breakpoints": true
+    },
+    {
+      "idx": 165,
+      "version": "7",
+      "when": 1792899318313,
+      "tag": "0165_channel_membership",
+      "breakpoints": true
     }
   ]
 }

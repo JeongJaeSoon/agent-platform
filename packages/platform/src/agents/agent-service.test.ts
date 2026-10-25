@@ -385,4 +385,37 @@ describe("agent service", () => {
       ),
     ).toBe("REVISION_CONFLICT");
   });
+
+  test("an activation hands the welcome its release and the one it replaced; a refused one does not", async () => {
+    const memory = memoryStore();
+    const welcomed: unknown[][] = [];
+    const service = createAgentService({
+      authorization: createAuthorizationPolicy(),
+      store: memory.store,
+      catalog: catalogOf(PROFILE),
+      credentials: { unboundRefs: async () => [] },
+      welcome: {
+        activated: async (...args) => {
+          welcomed.push(args);
+          return null;
+        },
+      },
+    });
+    const { release: made } = await service.createRelease(
+      owner,
+      AGENT,
+      release,
+    );
+    await service.activateAgent(owner, AGENT, {
+      release_id: made.id,
+      expected_revision: -1,
+    });
+    await codeOf(
+      service.activateAgent(owner, AGENT, {
+        release_id: made.id,
+        expected_revision: 5,
+      }),
+    );
+    expect(welcomed).toEqual([[WORKSPACE, AGENT, made, null]]);
+  });
 });

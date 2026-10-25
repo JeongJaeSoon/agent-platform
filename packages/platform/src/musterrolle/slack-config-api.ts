@@ -369,10 +369,23 @@ export type SlackChannelPage = {
   nextCursor: string | null;
 };
 
+export type SlackChannelMembership = {
+  kind: SurfaceChannelKind;
+  isMember: boolean;
+  isArchived: boolean;
+};
+
 /** The calls a bot token makes about the people and places it hears from. */
 export interface SlackBotApi {
   /** `users.info`: the flags that tell a member from a guest or a stranger. */
   userInfo(botToken: string, userId: string): Promise<SlackUser>;
+  /** `conversations.info`, read for whether the bot is in the channel. */
+  channelMembership(
+    botToken: string,
+    channelId: string,
+  ): Promise<SlackChannelMembership>;
+  /** `conversations.join` (`channels:join`): public channels only. */
+  joinChannel(botToken: string, channelId: string): Promise<void>;
   /** `conversations.info`: what kind of place the channel is. */
   channelKind(botToken: string, channelId: string): Promise<SurfaceChannelKind>;
   /**
@@ -392,7 +405,8 @@ export interface SlackBotApi {
 /** What the outbox sends with a bot token. */
 export interface SlackBotSender {
   /**
-   * `chat.postMessage` into a thread, as Kollegium sends it: no
+   * `chat.postMessage` into a thread (the channel itself when `threadTs`
+   * is ""), as Kollegium sends it: no
    * `@name` linking, no unfurls. Answers what Slack said, whatever it was;
    * throws `SlackApiError` only when no answer came.
    */
@@ -435,6 +449,8 @@ const conversationInfoAnswer = z.object({
     is_im: z.boolean().optional(),
     is_mpim: z.boolean().optional(),
     is_private: z.boolean().optional(),
+    is_member: z.boolean().optional(),
+    is_archived: z.boolean().optional(),
   }),
 });
 
@@ -492,6 +508,31 @@ export function createSlackBotApi(
         : "public_channel";
     },
 
+    async channelMembership(botToken, channelId) {
+      const { channel } = await call(
+        "conversations.info",
+        { token: botToken, body: new URLSearchParams({ channel: channelId }) },
+        conversationInfoAnswer,
+      );
+      return {
+        kind: channel.is_im
+          ? "dm"
+          : channel.is_private || channel.is_mpim
+            ? "private_channel"
+            : "public_channel",
+        isMember: channel.is_member ?? false,
+        isArchived: channel.is_archived ?? false,
+      };
+    },
+
+    async joinChannel(botToken, channelId) {
+      await call(
+        "conversations.join",
+        { token: botToken, body: new URLSearchParams({ channel: channelId }) },
+        z.object({}),
+      );
+    },
+
     async listChannels(botToken, cursor) {
       const answer = await call(
         "conversations.list",
@@ -537,7 +578,7 @@ export function createSlackBotApi(
     postMessage(botToken, input) {
       return send("chat.postMessage", botToken, {
         channel: input.channelId,
-        thread_ts: input.threadTs,
+        ...(input.threadTs === "" ? {} : { thread_ts: input.threadTs }),
         text: input.text,
         link_names: false,
         unfurl_links: false,

@@ -27,6 +27,7 @@ import {
   createPostgresSlackGuestSetting,
   createPostgresSlackInboundEventStore,
   createPostgresSlackInstallStore,
+  createPostgresSlackOutboxStore,
   createPostgresSurfaceBindingStore,
   createPostgresTeamStore,
   createPostgresTurnInterrupts,
@@ -39,6 +40,7 @@ import {
 } from "@werft-ai/db";
 import { createLogger, sanitizeText } from "@werft-ai/observability";
 import {
+  agentSlackBotToken,
   catalogRevision,
   composeSlackFinalize,
   createAgentAdminService,
@@ -60,6 +62,7 @@ import {
   createSessionShareService,
   createSlackAppService,
   createSlackBotApi,
+  createSlackChannelJoiner,
   createSlackChannelKinds,
   createSlackChannelSearchService,
   createSlackConfigApi,
@@ -70,6 +73,7 @@ import {
   createSlackLinkAppService,
   createSlackSecretService,
   createSlackSigningSecrets,
+  createSlackWelcome,
   createSurfaceBindingService,
   createTeamService,
   createUsageService,
@@ -289,11 +293,44 @@ const authorization = createAuthorizationPolicy({
   sessions: sessionShares,
   decisions: createPostgresDecisionLog(db),
 });
+const agentStore = createPostgresAgentStore(db);
+const surfaceBindingStore = createPostgresSurfaceBindingStore(db);
+const slackBotApi = createSlackBotApi({ apiUrl: slackApiUrlFrom(process.env) });
+const slackAppStore =
+  secretKey === null ? null : createPostgresSlackAppStore(db, secretKey);
+const slackJoin =
+  secretKey === null || slackAppStore === null // narrows both
+    ? null
+    : createSlackChannelJoiner({
+        bindings: surfaceBindingStore,
+        slack: slackBotApi,
+        botToken: (workspaceId, agentId) =>
+          agentSlackBotToken(
+            {
+              apps: slackAppStore,
+              secrets: createPostgresSecretStore(db, secretKey),
+            },
+            workspaceId,
+            agentId,
+          ),
+      });
+const slackWelcome =
+  slackAppStore === null
+    ? null
+    : createSlackWelcome({
+        agents: agentStore,
+        bindings: surfaceBindingStore,
+        apps: slackAppStore,
+        outbox: createPostgresSlackOutboxStore(db),
+        join: slackJoin,
+        logger,
+      });
 const agents = createAgentService({
   authorization,
-  store: createPostgresAgentStore(db),
+  store: agentStore,
   catalog,
   credentials: credentialBindings,
+  ...(slackWelcome === null ? {} : { welcome: slackWelcome }),
 });
 const sessions = createSessionService({
   authorization,
@@ -331,17 +368,17 @@ const agentIdentities = createAgentIdentityService({
   authorization,
   store: createPostgresAgentIdentityStore(db),
 });
-const slackBotApi = createSlackBotApi({ apiUrl: slackApiUrlFrom(process.env) });
 const slackBindings = createSurfaceBindingService({
   authorization,
-  store: createPostgresSurfaceBindingStore(db),
+  store: surfaceBindingStore,
   channels: createSlackChannelKinds({
-    apps:
-      secretKey === null ? null : createPostgresSlackAppStore(db, secretKey),
+    apps: slackAppStore,
     secrets:
       secretKey === null ? null : createPostgresSecretStore(db, secretKey),
     slack: slackBotApi,
   }),
+  ...(slackJoin === null ? {} : { join: slackJoin }),
+  ...(slackWelcome === null ? {} : { welcome: slackWelcome }),
 });
 const linkedAccounts = createLinkedAccountService({
   authorization,
@@ -374,8 +411,6 @@ const slackSecrets = createSlackSecretService({
   appKind: (workspaceId, slackAppId) =>
     slackAppKind(db, workspaceId, slackAppId),
 });
-const slackAppStore =
-  secretKey === null ? null : createPostgresSlackAppStore(db, secretKey);
 const slackSigningSecrets =
   secretKey === null || slackAppStore === null // narrows both
     ? null
@@ -421,8 +456,7 @@ const slackInstall = createSlackInstallService({
   tokens: slackConfigTokens,
   identities: slackIdentityStore,
   api: slackConfigApi,
-  // 94S-794 appends the home channel and welcome step here.
-  ...(slackAppStore === null
+  ...(slackAppStore === null || slackWelcome === null
     ? {}
     : {
         finalize: composeSlackFinalize(
@@ -431,6 +465,7 @@ const slackInstall = createSlackInstallService({
             agents: slackAppStore,
             publicUrl: slackEventsPublicUrl,
           }),
+          slackWelcome.finalize,
         ),
       }),
 });

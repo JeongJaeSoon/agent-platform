@@ -345,22 +345,40 @@ export function createFakeSlackWebApi(
       };
     },
 
+    // A channel not seeded has the bot in it already: nothing to join.
     "conversations.info"(context) {
-      installedBot(context);
+      const app = installedBot(context);
       const id = context.params.channel;
       if (!id) throw new SlackError("channel_not_found");
       const channel = channels.get(id) ?? {
         isIm: id.startsWith("D"),
         isPrivate: id.startsWith("G"),
       };
+      const listed = conversations.find((candidate) => candidate.id === id);
       return {
         channel: {
           id,
           is_im: channel.isIm ?? false,
           is_private: channel.isPrivate ?? false,
           is_mpim: channel.isMpim ?? false,
+          is_member: listed ? listed.members.includes(app.appId) : true,
+          is_archived: listed?.isArchived ?? false,
         },
       };
+    },
+
+    "conversations.join"(context) {
+      const app = installedBot(context);
+      const listed = conversations.find(
+        (candidate) => candidate.id === context.params.channel,
+      );
+      if (!listed) throw new SlackError("channel_not_found");
+      if (listed.isArchived) throw new SlackError("is_archived");
+      if (listed.isPrivate) {
+        throw new SlackError("method_not_supported_for_channel_type");
+      }
+      if (!listed.members.includes(app.appId)) listed.members.push(app.appId);
+      return { channel: { id: listed.id, is_member: true } };
     },
 
     // Posted, but the answer names no message: Slack holds it all the same.
@@ -663,6 +681,26 @@ export function createFakeSlackWebApi(
             is_private: channel.isPrivate,
           })),
         });
+      }
+      // For curl on the local stack: `/invite` of `app_id`'s bot. The
+      // member_joined_channel event is sent with /fake/events.
+      if (url.pathname === "/fake/invites" && request.method === "POST") {
+        const input = (await request.json().catch(() => null)) as {
+          app_id?: unknown;
+          channel_id?: unknown;
+        } | null;
+        const appId = input?.app_id;
+        const listed = conversations.find(
+          (candidate) => candidate.id === input?.channel_id,
+        );
+        if (typeof appId !== "string" || !apps.has(appId) || !listed) {
+          return Response.json(
+            { ok: false, error: "invalid_request" },
+            { status: 400 },
+          );
+        }
+        if (!listed.members.includes(appId)) listed.members.push(appId);
+        return Response.json({ ok: true, bot_user_id: `U${appId}BOT` });
       }
       if (url.pathname === "/fake/statuses" && request.method === "GET") {
         return Response.json({ ok: true, statuses });

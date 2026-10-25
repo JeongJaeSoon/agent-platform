@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   DEFAULT_SURFACE_CEILING,
   type SlackSurfaceAction,
+  type SurfaceMembershipState,
 } from "@werft-ai/contracts";
 import type {
   Principal,
@@ -45,21 +46,35 @@ const columns = {
   home: surfaceBindings.home,
   memoryWritePolicy: surfaceBindings.memoryWritePolicy,
   status: surfaceBindings.status,
+  membershipState: surfaceBindings.membership,
+  membershipError: surfaceBindings.membershipError,
   muted: surfaceBindings.muted,
   revision: surfaceBindings.revision,
   createdAt: surfaceBindings.createdAt,
   revokedAt: surfaceBindings.revokedAt,
 };
 
-type Row = Omit<SurfaceBindingRecord, "ceiling"> & {
+type Row = Omit<SurfaceBindingRecord, "ceiling" | "membership"> & {
   ceilingActions: string[];
   ceilingDisclosure: SurfaceBindingRecord["ceiling"]["disclosure"];
+  membershipState: SurfaceMembershipState | null;
+  membershipError: string | null;
 };
 
 function recordOf(row: Row): SurfaceBindingRecord {
-  const { ceilingActions, ceilingDisclosure, ...rest } = row;
+  const {
+    ceilingActions,
+    ceilingDisclosure,
+    membershipState,
+    membershipError,
+    ...rest
+  } = row;
   return {
     ...rest,
+    membership:
+      membershipState === null
+        ? null
+        : { state: membershipState, error: membershipError },
     // The ceiling check keeps the column inside the Slack actions.
     ceiling: {
       actions: ceilingActions as SlackSurfaceAction[],
@@ -285,6 +300,22 @@ export function createPostgresSurfaceBindingStore(
           ON CONFLICT DO NOTHING`);
       }
       return resolveSlackChannel(db, id, null);
+    },
+    async setMembership(bindingId, membership) {
+      if (!UUID.test(bindingId)) return;
+      await db
+        .update(surfaceBindings)
+        .set({
+          membership: membership.state,
+          membershipError: membership.error,
+          updatedAt: DB_NOW,
+        })
+        .where(
+          and(
+            eq(surfaceBindings.id, bindingId.toLowerCase()),
+            isNull(surfaceBindings.revokedAt),
+          ),
+        );
     },
   };
 }

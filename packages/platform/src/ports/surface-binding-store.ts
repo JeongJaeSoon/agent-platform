@@ -4,6 +4,7 @@ import type {
   SurfaceBindingStatus,
   SurfaceCeiling,
   SurfaceChannelKind,
+  SurfaceMembership,
   WorkspaceRole,
 } from "@werft-ai/contracts";
 import type { Principal } from "../musterrolle/policy.ts";
@@ -21,6 +22,8 @@ export type SurfaceBindingRecord = {
   home: boolean;
   memoryWritePolicy: MemoryWritePolicy;
   status: SurfaceBindingStatus;
+  /** Null until Slack was asked; always null on the DM binding. */
+  membership: SurfaceMembership | null;
   muted: boolean;
   revision: number;
   createdAt: Date;
@@ -76,4 +79,9 @@ export interface SurfaceBindingStore {
    * identity or its DM row is not ready.
    */
   ensureDmBinding(installationId: string): Promise<SurfaceBindingRecord | null>;
+  /**
+   * Records what Slack said about the bot's place in a live binding's
+   * channel. Observed state, not a setting: no revision, no receipt.
+   */
+  setMembership(bindingId: string, membership: SurfaceMembership): Promise<void>;
 }

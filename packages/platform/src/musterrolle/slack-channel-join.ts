@@ -1,0 +1,154 @@
+import type { SurfaceMembership } from "@werft-ai/contracts";
+import { z } from "zod";
+import type { AgentIdentityStore } from "../ports/agent-identity-store.ts";
+import type {
+  SurfaceBindingRecord,
+  SurfaceBindingStore,
+} from "../ports/surface-binding-store.ts";
+import { agentForSlackEvent } from "./agent-identity-service.ts";
+import { SlackApiError, type SlackBotApi } from "./slack-config-api.ts";
+import type { SlackInboundHandler } from "./slack-inbox.ts";
+import type { SlackWelcome } from "./slack-welcome.ts";
+
+// Slack refusing the token or the app, not saying the bot is out: the
+// console shows these apart from a missing invite.
+const CONFIG_ERRORS = new Set([
+  "missing_scope",
+  "not_authed",
+  "invalid_auth",
+  "account_inactive",
+  "token_revoked",
+  "token_expired",
+  "no_permission",
+  "not_allowed_token_type",
+  "ekm_access_denied",
+]);
+
+const JOINED: SurfaceMembership = { state: "joined", error: null };
+
+function refused(
+  error: unknown,
+  otherwise: "awaiting_invite" | "join_failed",
+): SurfaceMembership | null {
+  // No answer, or a rate limit: nothing is known, so nothing is recorded.
+  if (
+    !(error instanceof SlackApiError) ||
+    !error.answered ||
+    error.code === "ratelimited"
+  ) {
+    return null;
+  }
+  if (CONFIG_ERRORS.has(error.code)) {
+    return { state: "config_error", error: error.code };
+  }
+  return { state: otherwise, error: error.code };
+}
+
+/**
+ * Asks Slack whether the bot is in the channel and joins it when it is
+ * public. A private channel waits for an invite (`member_joined_channel`).
+ * Null when Slack could not be asked; joining twice is harmless.
+ */
+export async function joinSlackChannel(
+  slack: Pick<SlackBotApi, "channelMembership" | "joinChannel">,
+  botToken: string,
+  channelId: string,
+): Promise<SurfaceMembership | null> {
+  let seen: Awaited<ReturnType<SlackBotApi["channelMembership"]>>;
+  try {
+    seen = await slack.channelMembership(botToken, channelId);
+  } catch (error) {
+    // A private channel the bot is not in is one it cannot see.
+    return refused(error, "awaiting_invite");
+  }
+  if (seen.isMember) return JOINED;
+  if (seen.isArchived) return { state: "join_failed", error: "is_archived" };
+  if (seen.kind !== "public_channel") {
+    return { state: "awaiting_invite", error: null };
+  }
+  try {
+    await slack.joinChannel(botToken, channelId);
+  } catch (error) {
+    return refused(error, "join_failed");
+  }
+  return JOINED;
+}
+
+const memberJoinedSchema = z.object({
+  type: z.literal("member_joined_channel"),
+  user: z.string().min(1),
+  channel: z.string().min(1),
+});
+
+/**
+ * The `slack` role's handler for `member_joined_channel`: when the one who
+ * joined is this app's bot and the channel is bound, the binding is
+ * `joined`, and a home hears the welcome it was waiting for. Every other
+ * event goes to `next`.
+ */
+export function createSlackMemberJoinedHandler(deps: {
+  agents: Pick<AgentIdentityStore, "resolveSlackEvent">;
+  bindings: Pick<SurfaceBindingStore, "resolveSlackChannel" | "setMembership">;
+  welcome: Pick<SlackWelcome, "welcome">;
+  next: SlackInboundHandler;
+}): SlackInboundHandler {
+  return async (claim) => {
+    const parsed = memberJoinedSchema.safeParse(
+      (claim.payload as { event?: unknown }).event,
+    );
+    if (!parsed.success) return deps.next(claim);
+    const agent = await agentForSlackEvent(deps.agents, {
+      appId: claim.appId,
+      teamId: claim.teamId,
+      agentId: claim.agentId,
+    });
+    if (agent.status === "dropped" || parsed.data.user !== agent.botUserId) {
+      return;
+    }
+    const binding = await deps.bindings.resolveSlackChannel(
+      agent.installationId,
+      parsed.data.channel,
+    );
+    if (binding === null) return;
+    await deps.bindings.setMembership(binding.id, JOINED);
+    if (binding.home) {
+      await deps.welcome.welcome(binding.workspaceId, binding.agentId, {
+        ask: false,
+      });
+    }
+  };
+}
+
+export type SlackChannelJoiner = (
+  binding: SurfaceBindingRecord,
+) => Promise<SurfaceMembership | null>;
+
+/**
+ * Joins a live channel binding's channel and records what Slack said on
+ * the binding. Null, and nothing recorded, for the DM row, a binding that
+ * is off, an app with no bot token, or a Slack that did not answer.
+ */
+export function createSlackChannelJoiner(deps: {
+  bindings: Pick<SurfaceBindingStore, "setMembership">;
+  slack: Pick<SlackBotApi, "channelMembership" | "joinChannel">;
+  botToken(workspaceId: string, agentId: string): Promise<string | null>;
+}): SlackChannelJoiner {
+  return async (binding) => {
+    if (binding.channelId === null || binding.mode === "off") return null;
+    const botToken = await deps.botToken(binding.workspaceId, binding.agentId);
+    if (botToken === null) return null;
+    const membership = await joinSlackChannel(
+      deps.slack,
+      botToken,
+      binding.channelId,
+    );
+    if (
+      membership !== null &&
+      (binding.membership?.state !== membership.state ||
+        binding.membership.error !== membership.error)
+    ) {
+      await deps.bindings.setMembership(binding.id, membership);
+    }
+    return membership;
+  };
+}

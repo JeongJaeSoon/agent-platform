@@ -4,13 +4,15 @@ import type { SlackNotice } from "@werft-ai/contracts";
  * `reply`: a turn's answer in its thread. `failure_notice`: a turn the model
  * could not finish, or a reply whose send nobody can vouch for. `input_notice`:
  * a turn waiting on an approval only the web can give. `notice`: a refusal,
- * ephemeral to the person who typed.
+ * ephemeral to the person who typed. `welcome`: a deployment's one message
+ * in the agent's home channel, outside any thread (`threadTs` is "").
  */
 export type SlackOutboxKind =
   | "reply"
   | "notice"
   | "failure_notice"
-  | "input_notice";
+  | "input_notice"
+  | "welcome";
 
 /**
  * `uncertain`: the send was under way when its lease ran out or its answer

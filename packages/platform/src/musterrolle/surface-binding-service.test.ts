@@ -36,6 +36,7 @@ function service(kindOf: (channelId: string) => Promise<SurfaceChannelKind>) {
           home: input.home,
           memoryWritePolicy: "deny",
           status: "ready",
+          membership: null,
           muted: false,
           revision: 1,
           createdAt: new Date(0),
@@ -46,6 +47,7 @@ function service(kindOf: (channelId: string) => Promise<SurfaceChannelKind>) {
     list: async () => [],
     resolveSlackChannel: async () => null,
     ensureDmBinding: async () => null,
+    setMembership: async () => {},
   };
   const bindings = createSurfaceBindingService({
     authorization: {
@@ -112,6 +114,12 @@ describe("channel kinds through the agent's own app", () => {
   const slackApp = { id: "slack-app-1" };
   const api = (channelKind: SlackBotApi["channelKind"]): SlackBotApi => ({
     channelKind,
+    channelMembership: async () => {
+      throw new Error("not asked");
+    },
+    joinChannel: async () => {
+      throw new Error("not asked");
+    },
     userInfo: async () => {
       throw new Error("not asked");
     },
