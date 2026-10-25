@@ -510,10 +510,13 @@ function Usage({ screen }: { readonly screen: ScreenData }) {
 function Tools({
   screen,
   hideSessions = false,
+  hideNotes = false,
 }: {
   readonly screen: ScreenData;
   readonly hideSessions?: boolean | undefined;
+  readonly hideNotes?: boolean | undefined;
 }) {
+  const note = (name: string) => (hideNotes ? undefined : TOOL_NOTE[name]?.ko);
   const [sort, setSort] = useState<ToolSort>("calls");
   const [query, setQuery] = useState("");
   const [callSort, setCallSort] = useState<ToolCallSort>("recent");
@@ -532,7 +535,7 @@ function Tools({
       <ToolRail
         name={tool.name}
         tool={loading ? undefined : tool}
-        note={TOOL_NOTE[tool.name]?.ko}
+        note={note(tool.name)}
         perDay={loading ? undefined : detail.perDay}
         calls={loading ? undefined : calls}
         callSort={callSort}
@@ -574,7 +577,7 @@ function Tools({
             label="도구와 명령"
             selected={selected}
             onSelect={setSelected}
-            describe={(name) => TOOL_NOTE[name]?.ko}
+            describe={hideNotes ? undefined : note}
             loadingRows={TOOLS.tools.length}
             searched={query !== ""}
           />
@@ -599,10 +602,12 @@ function OperationsScreen({
   tab,
   screen,
   hideSessions,
+  hideNotes,
 }: {
   readonly tab: Tab;
   readonly screen: ScreenData;
   readonly hideSessions?: boolean | undefined;
+  readonly hideNotes?: boolean | undefined;
 }) {
   return (
     <Loading.Provider value={screen.loading ?? false}>
@@ -616,7 +621,11 @@ function OperationsScreen({
           role={screen.role}
           flush
         >
-          <Tools screen={screen} hideSessions={hideSessions} />
+          <Tools
+            screen={screen}
+            hideSessions={hideSessions}
+            hideNotes={hideNotes}
+          />
         </ScreenShell>
       ) : (
         <ScreenShell
@@ -789,6 +798,13 @@ export const ToolsSelectRead: Story = {
 
 export const ToolsHiddenSessions: Story = {
   args: { tab: "tools", hideSessions: true },
+};
+/**
+ * The app until the notes have a source (94S-936): no note under a name, so
+ * every row is one line shorter, loading rows too.
+ */
+export const ToolsWithoutNotes: Story = {
+  args: { tab: "tools", hideNotes: true },
 };
 export const ToolsRailBelow1280: Story = {
   name: "Tools (768px, rail below)",
