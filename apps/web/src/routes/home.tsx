@@ -1080,7 +1080,8 @@ function RecentSessionTable({
     );
   if (items.length === 0)
     return (
-      <p className="m-0 text-body text-muted-foreground">
+      // Framed as the table it stands in for, inside its padding.
+      <p className="m-0 rounded-card border bg-card px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)] text-body text-muted-foreground">
         {t("sessions.empty")}
       </p>
     );
