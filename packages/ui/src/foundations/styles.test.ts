@@ -298,7 +298,7 @@ describe("tokens.css", () => {
     expect(failures).toEqual([]);
   });
 
-  test("입력 칸 테두리가 surface·sidebar에서 3:1을 넘는다", () => {
+  test("입력 칸 테두리가 surface·sidebar·surface-sunken에서 3:1을 넘는다", () => {
     const themes: [string, Map<string, string>][] = [
       [
         "light",
@@ -321,13 +321,32 @@ describe("tokens.css", () => {
       "var(--ap-color-border-input)",
     );
     const ratios = themes.flatMap(([theme, palette]) =>
-      ["--ap-color-surface", "--ap-color-sidebar"].map((surface) => {
+      // surface-sunken: the default Tabs track the active tab's edge sits on.
+      [
+        "--ap-color-surface",
+        "--ap-color-sidebar",
+        "--ap-color-surface-sunken",
+      ].map((surface) => {
         const border = palette.get("--ap-color-border-input") ?? "";
         const ratio = contrast(border, palette.get(surface) ?? "");
         return `${theme} ${surface} ${ratio >= 3 ? "ok" : ratio.toFixed(2)}`;
       }),
     );
     expect(ratios.filter((line) => !line.endsWith("ok"))).toEqual([]);
+    // Hover (subtle-foreground) never stands out less than the resting edge.
+    const hover = themes.map(([theme, palette]) => {
+      const surface = palette.get("--ap-color-surface") ?? "";
+      const rest = contrast(
+        palette.get("--ap-color-border-input") ?? "",
+        surface,
+      );
+      const over = contrast(
+        palette.get("--ap-color-subtle-foreground") ?? "",
+        surface,
+      );
+      return `${theme} ${over >= rest ? "ok" : `${over.toFixed(2)} < ${rest.toFixed(2)}`}`;
+    });
+    expect(hover.filter((line) => !line.endsWith("ok"))).toEqual([]);
   });
 
   test("링크·상태 점·채운 위험 버튼·켜진 Switch가 바탕에서 AA를 넘는다", () => {

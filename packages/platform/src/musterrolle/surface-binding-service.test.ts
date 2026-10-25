@@ -36,6 +36,7 @@ function service(kindOf: (channelId: string) => Promise<SurfaceChannelKind>) {
           home: input.home,
           memoryWritePolicy: "deny",
           status: "ready",
+          membership: null,
           muted: false,
           revision: 1,
           createdAt: new Date(0),
@@ -46,6 +47,7 @@ function service(kindOf: (channelId: string) => Promise<SurfaceChannelKind>) {
     list: async () => [],
     resolveSlackChannel: async () => null,
     ensureDmBinding: async () => null,
+    setMembership: async () => {},
   };
   const bindings = createSurfaceBindingService({
     authorization: {
@@ -112,6 +114,12 @@ describe("channel kinds through the agent's own app", () => {
   const slackApp = { id: "slack-app-1" };
   const api = (channelKind: SlackBotApi["channelKind"]): SlackBotApi => ({
     channelKind,
+    channelMembership: async () => {
+      throw new Error("not asked");
+    },
+    joinChannel: async () => {
+      throw new Error("not asked");
+    },
     userInfo: async () => {
       throw new Error("not asked");
     },
@@ -152,11 +160,7 @@ describe("channel kinds through the agent's own app", () => {
       [fine, null, true, "SLACK_NOT_INSTALLED"],
       [
         api(async () => {
-          throw new SlackApiError(
-            "conversations.info",
-            "channel_not_found",
-            true,
-          );
+          throw new SlackApiError("conversations.info", "missing_scope", true);
         }),
         "bot-credential",
         true,
@@ -175,5 +179,18 @@ describe("channel kinds through the agent's own app", () => {
         await codeOf(kinds(slack, token, apps).kindOf(WORKSPACE, AGENT, "C0")),
       ).toBe(code);
     }
+  });
+
+  test("a channel hidden from the bot is a private one waiting for the invite; a hidden DM is refused", async () => {
+    const hidden = api(async () => {
+      throw new SlackApiError("conversations.info", "channel_not_found", true);
+    });
+    const channelKinds = kinds(hidden, "bot-credential", true);
+    expect(await channelKinds.kindOf(WORKSPACE, AGENT, "G0SECRET")).toBe(
+      "private_channel",
+    );
+    expect(
+      await codeOf(channelKinds.kindOf(WORKSPACE, AGENT, "D0SOMEONE")),
+    ).toBe("BAD_REQUEST");
   });
 });

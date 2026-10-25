@@ -44,6 +44,29 @@ export const SURFACE_BINDING_STATUS_VALUES = [
 export const surfaceBindingStatusSchema = z.enum(SURFACE_BINDING_STATUS_VALUES);
 
 /**
+ * Whether the agent's bot is in a bound channel, as last seen from Slack.
+ * `awaiting_invite`: a private channel the bot cannot join itself.
+ * `config_error`: Slack refused the token or scope, so membership is
+ * unknown, not missing. `join_failed`: joining a public channel was
+ * refused (archived, policy). `error` is Slack's error code.
+ */
+export const SURFACE_MEMBERSHIP_STATE_VALUES = [
+  "joined",
+  "awaiting_invite",
+  "config_error",
+  "join_failed",
+] as const;
+export const surfaceMembershipSchema = z
+  .object({
+    state: z.enum(SURFACE_MEMBERSHIP_STATE_VALUES),
+    error: z
+      .string()
+      .regex(/^[a-z_]{1,64}$/)
+      .nullable(),
+  })
+  .strict();
+
+/**
  * What a Slack installation can ever do: read, ask, steer and approve.
  * Recovery, sharing, audit reads, the admin list and deletion are web
  * actions, so no channel setting can hand them to Slack.
@@ -102,6 +125,8 @@ export const surfaceBindingSchema = z
     home: z.boolean(),
     memory_write_policy: memoryWritePolicySchema,
     status: surfaceBindingStatusSchema,
+    /** Absent on a DM binding and on a channel not checked yet. */
+    membership: surfaceMembershipSchema.optional(),
     muted: z.boolean(),
     revision: revisionSchema,
     created_at: timestampSchema,
@@ -266,6 +291,8 @@ export type SurfaceChannelKind = z.infer<typeof surfaceChannelKindSchema>;
 export type BindingMode = z.infer<typeof bindingModeSchema>;
 export type MemoryWritePolicy = z.infer<typeof memoryWritePolicySchema>;
 export type SurfaceBindingStatus = z.infer<typeof surfaceBindingStatusSchema>;
+export type SurfaceMembership = z.infer<typeof surfaceMembershipSchema>;
+export type SurfaceMembershipState = SurfaceMembership["state"];
 export type SlackSurfaceAction = z.infer<typeof slackSurfaceActionSchema>;
 export type SurfaceDisclosure = z.infer<typeof surfaceDisclosureSchema>;
 export type SurfaceCeiling = z.infer<typeof surfaceCeilingSchema>;
