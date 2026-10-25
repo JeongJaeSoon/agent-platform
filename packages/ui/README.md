@@ -108,7 +108,7 @@ main에 있을 때만 돌고, `release` environment의 필수 승인자가 승�
 
 아직 게시하지 않는다. 첫 게시 전에 사람이 정할 것:
 
-1. **D-7a 라이선스.** 지금 `LICENSE`는 서면 허락 없는 사용·배포를 금지한다. 패키지에 붙일 문구를 소유자가 정한다.
+1. **D-7a 라이선스.** 정했다: PolyForm Small Business 1.0.0. 배포 package.json의 `license`는 저장소 것을 그대로 쓰고, `LICENSE` 사본이 전문과 `Required Notice:` 줄을 싣는다.
 2. **D-7b 게시 위치와 토큰.** 스코프 `@werft-ai`는 GitHub 조직 `Werft-ai`의 것이고 저장소는 사용자 소유다. 이 저장소의
    `GITHUB_TOKEN`이 조직 패키지에 쓸 수 있는지 확인하고, 안 되면 저장소를 조직으로 옮기거나 조직 범위 PAT를 등록한다.
    PAT를 쓰면 `publish` job의 `NODE_AUTH_TOKEN` 한 줄만 바꾼다.
