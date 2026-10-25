@@ -10,7 +10,14 @@ import {
   FieldLabel,
   Input,
 } from "@werft-ai/ui";
-import { type FormEvent, type ReactNode, useId, useState } from "react";
+import {
+  type FormEvent,
+  type ReactNode,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
 import { profilesQuery, queryKeys } from "../../api/queries.ts";
 import { useRole } from "../../auth/guard.tsx";
 import {
@@ -31,12 +38,18 @@ export function CardEditor({
   result,
   onOutcome,
   onSaved,
+  onClose,
 }: {
   readonly detail: AgentDetail;
   readonly result: ReactNode;
   readonly onOutcome: (outcome: Outcome | null) => void;
   /** The version the save resolved to, which the release form then offers. */
   readonly onSaved: (versionId: string) => void;
+  /**
+   * Back to the read-only card: on cancel, or after a save nothing was typed
+   * after. Only a cancel hands the keyboard back; a save's result takes it.
+   */
+  readonly onClose: (cancelled: boolean) => void;
 }) {
   const { t } = useI18n();
   const { client } = useAgentPlatform();
@@ -59,6 +72,11 @@ export function CardEditor({
   const { name, draft } = edit;
   const catalog = useQuery(profilesQuery(client));
   const titleId = useId();
+  const latestEdit = useRef(edit);
+  latestEdit.current = edit;
+  const title = useRef<HTMLHeadingElement>(null);
+  // The editor replaces the button that opened it.
+  useEffect(() => title.current?.focus(), []);
 
   const save = useMutation<AgentDetail, ApiError, Edit>({
     mutationFn: ({ baseName, name, draft }) =>
@@ -91,6 +109,7 @@ export function CardEditor({
             ? t("agent.savedExisting", { version: saved.version_no })
             : t("agent.savedNoChange"),
       });
+      if (sameEdit(latestEdit.current, submitted)) onClose(false);
       // Input typed while the request was in flight stays; it is now an edit
       // of the version just saved.
       setEdit((current) =>
@@ -120,7 +139,12 @@ export function CardEditor({
 
   return (
     <section className={SECTION} aria-labelledby={titleId}>
-      <h2 id={titleId} className={SECTION_TITLE}>
+      <h2
+        id={titleId}
+        ref={title}
+        tabIndex={-1}
+        className={`${SECTION_TITLE} outline-none`}
+      >
         {t("agent.card.title")}
       </h2>
       <p className={MUTED}>{t("agent.card.intro")}</p>
@@ -157,13 +181,25 @@ export function CardEditor({
             onChange={setDraft}
           />
         ) : null}
-        <Button
-          type="submit"
-          className="self-start"
-          disabled={save.isPending || (draft !== null && !catalog.isSuccess)}
-        >
-          {save.isPending ? t("agent.card.saving") : t("agent.card.save")}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="submit"
+            disabled={save.isPending || (draft !== null && !catalog.isSuccess)}
+          >
+            {save.isPending ? t("agent.card.saving") : t("agent.card.save")}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={save.isPending}
+            onClick={() => {
+              onOutcome(null);
+              onClose(true);
+            }}
+          >
+            {t("common.cancel")}
+          </Button>
+        </div>
       </form>
       {result}
     </section>

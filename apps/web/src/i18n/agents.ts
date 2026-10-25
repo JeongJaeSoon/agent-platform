@@ -97,6 +97,7 @@ export const agentsKo = {
   "agent.noActive": "없음",
   "agent.releaseLabel": "version {version} · {profile}",
   "agent.versionLabel": "version {version}",
+  "agent.versionShort": "v{version}",
   "agent.saved":
     "저장했습니다 — version {version}. 아직 활성화되지 않았습니다. 배포 탭에서 release를 만들고 활성화해야 반영됩니다.",
   "agent.savedExisting":
@@ -124,7 +125,18 @@ export const agentsKo = {
   "agent.versions.active": "활성",
   "agent.versions.before": "비교 기준",
   "agent.versions.after": "비교 대상",
-  "agent.releases.title": "release",
+  "agent.releases.title": "배포 기록",
+  "agent.releases.new": "새 release",
+  "agent.releases.colVersion": "버전",
+  "agent.releases.colStatus": "상태",
+  "agent.releases.colBy": "만든 사람",
+  "agent.releases.colAt": "만든 시각",
+  "agent.releases.colActions": "동작",
+  "agent.releases.previous": "이전",
+  "agent.releases.never": "활성화 전",
+  "agent.releases.byMember": "구성원",
+  "agent.releases.emptyBody":
+    "새 release로 version과 프로필을 묶으면 여기에 쌓입니다.",
   "agent.releases.intro":
     "release는 version을 프로필에 묶어 고정한 것입니다. 만들기만 해서는 쓰이지 않고, 활성화해야 새 세션이 씁니다.",
   "agent.releases.version": "version",
@@ -233,7 +245,9 @@ export const agentsKo = {
   "agent.card.subStopped":
     "활성 release의 version이지만 에이전트가 {status} 상태라 새 세션은 쓰지 않습니다. 읽기 전용.",
   "agent.card.raw": "카드 원문",
-  "agent.card.rawSub": "API가 돌려주는 카드 JSON",
+  "agent.card.rawSub": "최신 버전 기준 · 읽기 전용",
+  "agent.card.rawSubActive": "배포된 버전 기준 · 읽기 전용",
+  "agent.card.edit": "카드 편집",
   "agent.card.copy": "복사",
   "agent.card.copied": "복사했습니다",
   "agent.card.copyFailed":
@@ -257,11 +271,10 @@ export const agentsKo = {
     "관리자로 받은 이 에이전트의 관리 권한이 없어집니다. 다시 관리자로 추가하면 돌아옵니다.",
   "agentAdmins.removeSelfConsequence":
     "나 자신을 빼면 관리 권한을 잃습니다. 내가 속한 팀이 관리자가 아니면 이 에이전트를 더 바꿀 수 없고, 나를 다시 추가할 수도 없습니다.",
-  "agentAdmins.pickPerson": "관리자로 추가할 사람",
-  "agentAdmins.pickTeam": "관리자로 추가할 팀",
-  "agentAdmins.pickPlaceholder": "고르세요",
-  "agentAdmins.addPerson": "사람 추가",
-  "agentAdmins.addTeam": "팀 추가",
+  "agentAdmins.pick": "관리자로 추가할 사람이나 팀",
+  "agentAdmins.pickPlaceholder": "사람이나 팀 고르기",
+  "agentAdmins.add": "관리자로 추가",
+  "agentAdmins.since": "{date}부터 담당",
   "agentAdmins.added": "{name}을(를) 관리자로 추가했습니다.",
   "agentAdmins.removed": "{name}을(를) 관리자에서 뺐습니다.",
   "agentAdmins.mine.title": "내가 관리하는 에이전트",
@@ -370,6 +383,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.noActive": "none",
   "agent.releaseLabel": "version {version} · {profile}",
   "agent.versionLabel": "version {version}",
+  "agent.versionShort": "v{version}",
   "agent.saved":
     "Saved as version {version}. It is not in use yet — create a release on the Release tab and activate it.",
   "agent.savedExisting":
@@ -396,7 +410,18 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.versions.active": "active",
   "agent.versions.before": "Compare from",
   "agent.versions.after": "Compare to",
-  "agent.releases.title": "Releases",
+  "agent.releases.title": "Release history",
+  "agent.releases.new": "New release",
+  "agent.releases.colVersion": "Version",
+  "agent.releases.colStatus": "Status",
+  "agent.releases.colBy": "Created by",
+  "agent.releases.colAt": "Created",
+  "agent.releases.colActions": "Actions",
+  "agent.releases.previous": "Previous",
+  "agent.releases.never": "Never active",
+  "agent.releases.byMember": "A member",
+  "agent.releases.emptyBody":
+    "Releases you make with New release, a version on a profile, appear here.",
   "agent.releases.intro":
     "A release pins a version to a profile. Creating one changes nothing until you activate it.",
   "agent.releases.version": "Version",
@@ -502,7 +527,9 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.card.subStopped":
     "The active release's version, but the agent is {status}, so new sessions do not use it. Read-only.",
   "agent.card.raw": "Card source",
-  "agent.card.rawSub": "The card JSON the API returns",
+  "agent.card.rawSub": "Latest version · read-only",
+  "agent.card.rawSubActive": "Released version · read-only",
+  "agent.card.edit": "Edit card",
   "agent.card.copy": "Copy",
   "agent.card.copied": "Copied",
   "agent.card.copyFailed":
@@ -526,11 +553,10 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
     "The rights to manage this agent that came with being its admin go away. Adding them again restores them.",
   "agentAdmins.removeSelfConsequence":
     "Removing yourself takes away your admin rights. Unless a team you are in is an admin, you can no longer change this agent or add yourself back.",
-  "agentAdmins.pickPerson": "Person to add as admin",
-  "agentAdmins.pickTeam": "Team to add as admin",
-  "agentAdmins.pickPlaceholder": "Choose one",
-  "agentAdmins.addPerson": "Add person",
-  "agentAdmins.addTeam": "Add team",
+  "agentAdmins.pick": "Person or team to add as admin",
+  "agentAdmins.pickPlaceholder": "Choose a person or team",
+  "agentAdmins.add": "Add as admin",
+  "agentAdmins.since": "Admin since {date}",
   "agentAdmins.added": "Added {name} as an admin.",
   "agentAdmins.removed": "{name} is no longer an admin.",
   "agentAdmins.mine.title": "Agents you administer",
@@ -635,6 +661,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.noActive": "なし",
   "agent.releaseLabel": "バージョン {version} · {profile}",
   "agent.versionLabel": "バージョン {version}",
+  "agent.versionShort": "v{version}",
   "agent.saved":
     "バージョン {version} として保存しました。まだ使われていません。「リリース」タブでリリースを作成して有効化してください。",
   "agent.savedExisting":
@@ -662,7 +689,18 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.versions.active": "有効",
   "agent.versions.before": "比較元",
   "agent.versions.after": "比較先",
-  "agent.releases.title": "リリース",
+  "agent.releases.title": "リリース履歴",
+  "agent.releases.new": "新しいリリース",
+  "agent.releases.colVersion": "バージョン",
+  "agent.releases.colStatus": "状態",
+  "agent.releases.colBy": "作成者",
+  "agent.releases.colAt": "作成日時",
+  "agent.releases.colActions": "操作",
+  "agent.releases.previous": "以前",
+  "agent.releases.never": "有効化前",
+  "agent.releases.byMember": "メンバー",
+  "agent.releases.emptyBody":
+    "新しいリリースでバージョンとプロファイルを結ぶと、ここに並びます。",
   "agent.releases.intro":
     "リリースはバージョンをプロファイルに固定します。作成しただけでは何も変わらず、有効化すると反映されます。",
   "agent.releases.version": "バージョン",
@@ -772,7 +810,9 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.card.subStopped":
     "有効なリリースのバージョンですが、エージェントが「{status}」のため新しいセッションでは使われません。読み取り専用。",
   "agent.card.raw": "カードの原文",
-  "agent.card.rawSub": "APIが返すカードのJSON",
+  "agent.card.rawSub": "最新バージョン · 読み取り専用",
+  "agent.card.rawSubActive": "リリース済みバージョン · 読み取り専用",
+  "agent.card.edit": "カードを編集",
   "agent.card.copy": "コピー",
   "agent.card.copied": "コピーしました",
   "agent.card.copyFailed":
@@ -796,11 +836,10 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
     "管理者として持っていた、このエージェントを管理する権限がなくなります。再び追加すると元に戻ります。",
   "agentAdmins.removeSelfConsequence":
     "自分を外すと、管理者権限がなくなります。所属チームが管理者でない限り、このエージェントを変更することも、自分を再追加することもできなくなります。",
-  "agentAdmins.pickPerson": "管理者に追加する人",
-  "agentAdmins.pickTeam": "管理者に追加するチーム",
-  "agentAdmins.pickPlaceholder": "選択してください",
-  "agentAdmins.addPerson": "人を追加",
-  "agentAdmins.addTeam": "チームを追加",
+  "agentAdmins.pick": "管理者に追加する人またはチーム",
+  "agentAdmins.pickPlaceholder": "人またはチームを選択",
+  "agentAdmins.add": "管理者に追加",
+  "agentAdmins.since": "{date}から担当",
   "agentAdmins.added": "{name}を管理者に追加しました。",
   "agentAdmins.removed": "{name}を管理者から外しました。",
   "agentAdmins.mine.title": "管理しているエージェント",

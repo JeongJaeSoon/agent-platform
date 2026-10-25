@@ -356,8 +356,15 @@ export function AgentRecentSessions() {
   );
 }
 
-/** The card tab's read-only half: the card in words, and as sent. */
-export function CardSummary({ detail }: { readonly detail: AgentDetail }) {
+/** The card tab when not editing: the card in words, and as sent. */
+export function CardSummary({
+  detail,
+  edit,
+}: {
+  readonly detail: AgentDetail;
+  /** The button that turns this view into the editor. */
+  readonly edit: ReactNode;
+}) {
   const { t } = useI18n();
   const titleId = useId();
   const rawId = useId();
@@ -405,29 +412,38 @@ export function CardSummary({ detail }: { readonly detail: AgentDetail }) {
                       })}
             </span>
           </div>
-          {version ? (
-            <Badge variant="gray" className="font-mono font-normal">
-              {t("agent.versionLabel", { version: version.version_no })}
-            </Badge>
-          ) : null}
+          <div className="flex flex-none items-center gap-2">
+            {version ? (
+              <Badge variant="gray" className="font-mono font-normal">
+                {t("agent.versionShort", { version: version.version_no })}
+              </Badge>
+            ) : null}
+            {edit}
+          </div>
         </div>
         <dl className="m-0 grid grid-cols-1 items-baseline gap-x-4 gap-y-1 text-control sm:grid-cols-[140px_minmax(0,1fr)] sm:gap-y-2">
           <dt className={TERM}>{t("agents.name")}</dt>
           <dd className={VALUE}>{detail.agent.name}</dd>
           <dt className={TERM}>{t("agents.slug")}</dt>
-          <dd className={`${VALUE} font-mono text-caption`}>
-            {detail.agent.slug}
-          </dd>
+          <dd className={`${VALUE} font-mono`}>{detail.agent.slug}</dd>
           {card ? (
             <>
               <dt className={TERM}>{t("agentCard.role")}</dt>
               <dd className={VALUE}>{card.role}</dd>
               <dt className={TERM}>{t("agentCard.instructions")}</dt>
               <dd className={`${VALUE} line-clamp-3`}>{card.instructions}</dd>
-              <dt className={TERM}>{t("agentCard.model")}</dt>
-              <dd className={`${VALUE} font-mono text-caption`}>
-                {card.model}
+              <dt className={TERM}>{t("agents.cards.credentials")}</dt>
+              <dd className={VALUE}>
+                {names(card.capabilities.credential_refs ?? [])}
               </dd>
+              <dt className={TERM}>{t("agents.cards.mcp")}</dt>
+              <dd className={VALUE}>
+                {names(
+                  (card.capabilities.mcp ?? []).map((server) => server.server),
+                )}
+              </dd>
+              <dt className={TERM}>{t("agentCard.model")}</dt>
+              <dd className={`${VALUE} font-mono`}>{card.model}</dd>
               <dt className={TERM}>{t("agentCard.language")}</dt>
               <dd className={VALUE}>
                 {card.language === "ko" ? "한국어" : "English"}
@@ -440,16 +456,6 @@ export function CardSummary({ detail }: { readonly detail: AgentDetail }) {
               </dd>
               <dt className={TERM}>{t("agentCard.forbidden")}</dt>
               <dd className={VALUE}>{names(card.capabilities.forbidden)}</dd>
-              <dt className={TERM}>{t("agents.cards.mcp")}</dt>
-              <dd className={VALUE}>
-                {names(
-                  (card.capabilities.mcp ?? []).map((server) => server.server),
-                )}
-              </dd>
-              <dt className={TERM}>{t("agents.cards.credentials")}</dt>
-              <dd className={VALUE}>
-                {names(card.capabilities.credential_refs ?? [])}
-              </dd>
             </>
           ) : null}
         </dl>
@@ -467,7 +473,9 @@ export function CardSummary({ detail }: { readonly detail: AgentDetail }) {
               <h2 id={rawId} className={SECTION_TITLE}>
                 {t("agent.card.raw")}
               </h2>
-              <span className={META}>{t("agent.card.rawSub")}</span>
+              <span className={META}>
+                {live ? t("agent.card.rawSubActive") : t("agent.card.rawSub")}
+              </span>
             </div>
             <Button
               type="button"

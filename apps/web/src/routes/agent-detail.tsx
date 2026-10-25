@@ -300,6 +300,16 @@ function AgentView({
     className: PANEL,
   });
   const releaseTab = useRef<HTMLButtonElement>(null);
+  const [editing, setEditing] = useState(false);
+  const editButton = useRef<HTMLButtonElement>(null);
+  // Closing the editor hands the keyboard back to the button that opened it.
+  const editReturns = useRef(false);
+  useEffect(() => {
+    if (!editing && editReturns.current) {
+      editReturns.current = false;
+      editButton.current?.focus();
+    }
+  }, [editing]);
   // The tab it opens is where the keyboard goes next, not this button.
   const toRelease = (
     <Button
@@ -340,35 +350,51 @@ function AgentView({
         <AgentRecentSessions />
       </TabsContent>
       <TabsContent {...tabPanel("card")}>
-        <CardSummary detail={detail} />
-        <CardEditor
-          detail={detail}
-          result={
-            <>
-              <PlacedOutcome placed={placed} at="card" />
-              {placed?.at === "card" && placed.outcome.kind === "notice"
-                ? toRelease
-                : null}
-            </>
-          }
-          onOutcome={outcomeAt("card")}
-          onSaved={setReleaseVersion}
-        />
+        {/* The panel stays mounted, so an open editor keeps its input across tabs. */}
+        {editing ? (
+          <CardEditor
+            detail={detail}
+            result={<PlacedOutcome placed={placed} at="card" />}
+            onOutcome={outcomeAt("card")}
+            onSaved={setReleaseVersion}
+            onClose={(cancelled) => {
+              setEditing(false);
+              editReturns.current = cancelled;
+            }}
+          />
+        ) : (
+          <>
+            <CardSummary
+              detail={detail}
+              edit={
+                <Button
+                  ref={editButton}
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setEditing(true)}
+                >
+                  {t("agent.card.edit")}
+                </Button>
+              }
+            />
+            {placed?.at === "card" ? (
+              <div className="flex flex-col gap-3">
+                <PlacedOutcome placed={placed} at="card" />
+                {placed.outcome.kind === "notice" ? toRelease : null}
+              </div>
+            ) : null}
+          </>
+        )}
         <VersionHistory
           key={`${latestVersion(detail)?.id}:${agent.active_release_id}`}
           detail={detail}
         />
       </TabsContent>
       <TabsContent {...tabPanel("release")}>
-        <Credentials
-          detail={detail}
-          missing={unbound ?? []}
-          titleRef={credentialsTitle}
-          result={<PlacedOutcome placed={placed} at="credentials" />}
-          onOutcome={outcomeAt("credentials")}
-        />
         <Releases
           detail={detail}
+          shown={tab === "release"}
           picked={releaseVersion}
           onPick={setReleaseVersion}
           versionNo={versionNo}
@@ -451,6 +477,13 @@ function AgentView({
               seenActive: agent.active_release_id,
             })
           }
+        />
+        <Credentials
+          detail={detail}
+          missing={unbound ?? []}
+          titleRef={credentialsTitle}
+          result={<PlacedOutcome placed={placed} at="credentials" />}
+          onOutcome={outcomeAt("credentials")}
         />
       </TabsContent>
       <TabsContent {...tabPanel("admins")}>
