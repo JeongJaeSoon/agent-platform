@@ -25,6 +25,8 @@ const slack: LinkedAccount = {
   provider: "slack",
   external_tenant: "T0MOCK",
   external_user_id: "U0MOCK",
+  external_tenant_name: null,
+  external_user_name: null,
   status: "active",
   verified_at: "2026-10-11T00:00:00.000Z",
   revision: 1,
@@ -87,10 +89,10 @@ describe("연동 계정", () => {
     expect(
       await screen.findByText("Slack 사용자 U0MOCK (워크스페이스 T0MOCK)"),
     ).toBeDefined();
-    // Another Slack workspace can be linked alongside this one.
+    // A linked row offers unlinking only.
     expect(
-      screen.getByRole("button", { name: "Slack 계정 연결" }),
-    ).toBeDefined();
+      screen.queryByRole("button", { name: "Slack 계정 연결" }),
+    ).toBeNull();
     // The notice line is there, empty, before anything is announced on it.
     const status = screen.getByRole("status");
     expect(status.textContent).toBe("");
@@ -107,6 +109,36 @@ describe("연동 계정", () => {
           screen.getByRole("heading", { name: "Slack" }),
       ).toBe(true),
     );
+  });
+
+  test("Slack이 준 이름을 보이고 ID는 그 아래에 둔다", async () => {
+    renderAt("/settings/linked-accounts", {
+      ...meOk,
+      "GET /v1/linked-accounts": () =>
+        json(200, {
+          items: [
+            {
+              ...slack,
+              external_tenant_name: "94soon-dev",
+              external_user_name: "재순",
+            },
+          ],
+        }),
+    });
+    expect(await screen.findByText("재순 · 94soon-dev")).toBeDefined();
+    expect(
+      screen.getByText("사용자 ID U0MOCK · 워크스페이스 ID T0MOCK"),
+    ).toBeDefined();
+    expect(screen.queryByText(/Slack 사용자 U0MOCK/)).toBeNull();
+  });
+
+  test("이름 하나만 있으면 빠진 쪽은 ID로 보인다", async () => {
+    renderAt("/settings/linked-accounts", {
+      ...meOk,
+      "GET /v1/linked-accounts": () =>
+        json(200, { items: [{ ...slack, external_user_name: "재순" }] }),
+    });
+    expect(await screen.findByText("재순 · T0MOCK")).toBeDefined();
   });
 
   const OTHER_ID = "5f6a7b8c-9d0e-4f1a-8b2c-3d4e5f6a7b8c";

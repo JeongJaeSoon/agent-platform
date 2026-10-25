@@ -990,6 +990,8 @@ describe("홈 요약", () => {
               provider: "slack",
               external_tenant: "T0001",
               external_user_id: "U0001",
+              external_tenant_name: null,
+              external_user_name: null,
               status: "stale",
               verified_at: "2026-10-01T00:00:00Z",
               revision: 1,

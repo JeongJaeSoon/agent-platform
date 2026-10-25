@@ -198,9 +198,9 @@ export function LinkedAccountsScreen() {
               </span>
               <span className={SECONDARY}>{t("linked.use.slack")}</span>
             </RowLines>
-            {/* One link per Slack workspace, so another workspace can still
-                be added while one is linked. */}
-            {accounts.isSuccess ? (
+            {/* Linked rows offer only unlinking (94S-942); linking again
+                starts from there. */}
+            {accounts.isSuccess && live.length === 0 ? (
               <Button
                 type="button"
                 variant="outline"
@@ -311,12 +311,7 @@ function SlackAccounts({
           )}
         >
           <RowLines>
-            <span className={PRIMARY}>
-              {t("linked.slackAccount", {
-                user: account.external_user_id,
-                team: account.external_tenant,
-              })}
-            </span>
+            <SlackAccountName account={account} />
             <span className={SECONDARY}>
               {account.status === "stale"
                 ? t("linked.stale")
@@ -342,6 +337,35 @@ function SlackAccounts({
         </RowListItem>
       ))}
     </ul>
+  );
+}
+
+/**
+ * Names when Slack gave any, with the ids under them; a link made before
+ * names were kept shows its ids alone. A missing name falls back to its id.
+ */
+function SlackAccountName({ account }: { readonly account: LinkedAccount }) {
+  const { t } = useI18n();
+  const ids = {
+    user: account.external_user_id,
+    team: account.external_tenant,
+  };
+  if (
+    account.external_user_name === null &&
+    account.external_tenant_name === null
+  ) {
+    return <span className={PRIMARY}>{t("linked.slackAccount", ids)}</span>;
+  }
+  return (
+    <>
+      <span className={PRIMARY}>
+        {t("linked.slackNamed", {
+          user: account.external_user_name ?? ids.user,
+          team: account.external_tenant_name ?? ids.team,
+        })}
+      </span>
+      <span className={SECONDARY}>{t("linked.slackIds", ids)}</span>
+    </>
   );
 }
 
