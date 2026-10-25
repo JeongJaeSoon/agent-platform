@@ -511,6 +511,24 @@ describe("inspect", () => {
     ).toEqual([200, 20]);
   });
 
+  test("a last line longer than a read keeps its start and says its end is lost", async () => {
+    const { api, backend } = setup();
+    const { intent } = intentFor();
+    await backend.ensureExecution(intent);
+    api.setPhase(NS, podName, "Failed");
+    api.logs.set(podName, `start ${"x".repeat(100_000)} the end\n`);
+    const tail = (await backend.inspect(intent)).logTail ?? "";
+    expect(tail).toStartWith("start xxx");
+    expect(tail).not.toContain("the end");
+    expect(tail).toEndWith(
+      "[log tail cut: the last line is longer than 65536 bytes; its end was not read]\n",
+    );
+    expect(new TextEncoder().encode(tail).length).toBeLessThan(8 * 1024 + 100);
+    expect(
+      logReads(api).map((c) => (c.body as { tailLines: number }).tailLines),
+    ).toEqual([200, 20, 1]);
+  });
+
   test("a log that cannot be read costs the tail, not the inspect", async () => {
     const { api, backend } = setup();
     const { intent } = intentFor();

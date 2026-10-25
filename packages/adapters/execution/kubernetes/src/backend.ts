@@ -656,11 +656,12 @@ export class KubernetesBackend implements ExecutionBackend {
     ) {
       return undefined;
     }
-    let log: string | null = null;
+    let bytes = new Uint8Array();
     // The server cuts at `limitBytes` from the front of the lines asked
     // for, so a read that hit the cut holds the middle of the log, not its
     // end: it is asked again for fewer lines.
     for (const tailLines of LOG_TAIL_LINES) {
+      let log: string | null;
       try {
         log = await this.client.podLog(
           this.config.namespace,
@@ -674,18 +675,16 @@ export class KubernetesBackend implements ExecutionBackend {
       } catch {
         return undefined;
       }
-      if (
-        log === null ||
-        new TextEncoder().encode(log).length < LOG_TAIL_READ_BYTES
-      ) {
-        break;
+      if (log === null) return undefined;
+      bytes = new TextEncoder().encode(log);
+      if (bytes.length < LOG_TAIL_READ_BYTES) {
+        if (bytes.length === 0) return undefined;
+        return new TextDecoder().decode(bytes.subarray(-LOG_TAIL_BYTES));
       }
     }
-    if (log === null || log === "") return undefined;
-    const bytes = new TextEncoder().encode(log);
-    return bytes.length <= LOG_TAIL_BYTES
-      ? log
-      : new TextDecoder().decode(bytes.subarray(-LOG_TAIL_BYTES));
+    // One last line longer than a read: its end is out of reach, so its
+    // start is kept and says so rather than passing for the end.
+    return `${new TextDecoder().decode(bytes.subarray(0, LOG_TAIL_BYTES))}\n[log tail cut: the last line is longer than ${LOG_TAIL_READ_BYTES} bytes; its end was not read]\n`;
   }
 
   /** Whether the Pod `uid` names is gone from under `name` within `ms`. */
