@@ -1,5 +1,7 @@
 import {
   agentIdParamsSchema,
+  lookupSlackChannelsQuerySchema,
+  lookupSlackChannelsResponseSchema,
   searchSlackChannelsQuerySchema,
   searchSlackChannelsResponseSchema,
 } from "@werft-ai/contracts";
@@ -13,6 +15,15 @@ export function registerSlackChannelRoutes(
   deps: { service: SlackChannelSearchService; logger?: StructuredLogger },
 ) {
   const { service, logger } = deps;
+
+  apiRoute(router, "lookupSlackChannels", async (context) => {
+    const params = requireParams(context, agentIdParamsSchema);
+    const query = requireQuery(context, lookupSlackChannelsQuerySchema);
+    const found = await mapped(() =>
+      service.lookupSlackChannels(context.get("caller"), params.id, query),
+    );
+    return jsonWithSchema(context, lookupSlackChannelsResponseSchema, found);
+  });
 
   apiRoute(router, "searchSlackChannels", async (context) => {
     const params = requireParams(context, agentIdParamsSchema);

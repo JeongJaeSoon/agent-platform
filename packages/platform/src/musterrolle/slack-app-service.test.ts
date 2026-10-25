@@ -30,6 +30,40 @@ const IDLE_AGENT = "019a0000-0000-7000-8000-0000000000c2";
 const AGENT_ADMIN = "019a0000-0000-7000-8000-0000000000a2";
 const ORIGIN = "https://console.example.ts.net";
 
+test("event registration results persist across reads and expose only a safe error", async () => {
+  const { service, slack } = await setup();
+  const caller = user("owner");
+  const created = await service.createAgentApp(caller, AGENT, {
+    replace_uncertain: false,
+  });
+  const input = {
+    name: "Release notes",
+    botName: "release-notes",
+    description: "Writes the release notes",
+    eventsUrl: `https://events.example.test/v1/slack/events/${AGENT}`,
+  };
+  expect((await service.getAgentApp(caller, AGENT)).events).toEqual({
+    state: "pending",
+    checked_at: null,
+  });
+  await service.updateAgentAppManifest(WORKSPACE, created.slack_app.id, input);
+  expect((await service.getAgentApp(caller, AGENT)).events).toMatchObject({
+    state: "verified",
+    checked_at: "2026-10-23T00:00:00.000Z",
+  });
+  slack.api.updateApp = async () => {
+    throw new SlackApiError("apps.manifest.update", "invalid_manifest", true);
+  };
+  await expect(
+    service.updateAgentAppManifest(WORKSPACE, created.slack_app.id, input),
+  ).rejects.toThrow();
+  expect((await service.getAgentApp(caller, AGENT)).events).toEqual({
+    state: "failed",
+    checked_at: "2026-10-23T00:00:00.000Z",
+    error: "events_registration_failed",
+  });
+});
+
 function user(
   role: WorkspaceRole,
   options: { surface?: "web" | "api"; id?: string } = {},

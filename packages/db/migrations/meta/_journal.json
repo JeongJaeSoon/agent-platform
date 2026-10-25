@@ -519,6 +519,13 @@
       "when": 1792880164091,
       "tag": "0164_slack_outbox",
       "breakpoints": true
+    },
+    {
+      "idx": 165,
+      "version": "7",
+      "when": 1792899229884,
+      "tag": "0165_slack_app_read_settings",
+      "breakpoints": true
     }
   ]
 }

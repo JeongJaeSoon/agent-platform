@@ -139,8 +139,32 @@ export const createSlackAppResponseSchema = z
   .strict();
 
 export const getSlackAppResponseSchema = z
-  .object({ slack_app: slackAppSchema.nullable() })
+  .object({
+    slack_app: slackAppSchema.nullable(),
+    event_url: z.url().nullable(),
+    events: z
+      .object({
+        state: z.enum(["verified", "pending", "failed"]),
+        checked_at: timestampSchema.nullable(),
+        error: z.string().max(128).optional(),
+      })
+      .strict(),
+  })
   .strict();
+
+export const slackAppSettingsSchema = z
+  .object({
+    default_mode: z.enum(["off", "mention"]),
+  })
+  .strict();
+
+export const getSlackAppManifestResponseSchema = z
+  .object({
+    manifest_yaml: z.string(),
+  })
+  .strict();
+
+export type SlackAppSettings = z.infer<typeof slackAppSettingsSchema>;
 
 export const slackAppParamsSchema = workspaceParamsSchema
   .extend({ app_id: slackAppIdSchema })
