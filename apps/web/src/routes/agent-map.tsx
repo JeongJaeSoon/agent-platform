@@ -2,7 +2,7 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { unwrap } from "@werft-ai/client";
 import type { ListSessionsResponse } from "@werft-ai/contracts";
-import { queryKeys, waitingSessionsQuery } from "@werft-ai/core";
+import { queryKeys } from "@werft-ai/core";
 import { useAgentPlatform } from "@werft-ai/react";
 import {
   AgentMapPage,
@@ -53,15 +53,12 @@ function firstCard(sessions: readonly MapSession[]) {
  * on its own, so the graph does not weigh on the other screens.
  */
 export function AgentMapScreen() {
-  const { client } = useAgentPlatform();
   const navigate = useNavigate();
   const list = useBoardList();
   const { board, pendingMoves, tidy, announcement } = useAgentMapBoard(
     list.data,
     list.dataUpdatedAt,
   );
-  // The sidebar reads it already; here it sizes the loading board's strip.
-  const waiting = useQuery(waitingSessionsQuery(client));
   const [chosen, setChosen] = useState<string | null>(null);
   const [view, setView] = useState<"board" | "detail">("board");
   const sessions = board?.sessions ?? [];
@@ -72,9 +69,10 @@ export function AgentMapScreen() {
 
   if (list.error && !list.data)
     return loadError(list.error, () => void list.refetch());
-  // The board's stand-in needs the strip's size; until then, the route's own
-  // loading screen goes on rather than a board that would grow a strip.
-  if (waiting.isPending) return <StatusScreen kind="loading" />;
+  // The board's stand-in would need the strip's size, which only the list
+  // tells (open requests older than its page are not on it); until the list
+  // comes, the route's own loading screen goes on.
+  if (!board) return <StatusScreen kind="loading" />;
   return (
     <AgentMapPage
       updatedAt={list.dataUpdatedAt || null}
@@ -82,7 +80,7 @@ export function AgentMapScreen() {
       onTidy={tidy}
       announcement={announcement}
       sessions={sessions}
-      doneCount={board?.doneCount ?? 0}
+      doneCount={board.doneCount}
       selected={selected ? { session: selected, nodes } : null}
       onSelect={(id) => {
         setChosen(id);
@@ -93,8 +91,6 @@ export function AgentMapScreen() {
       onExpandDone={() =>
         void navigate({ to: "/sessions", search: { status: "stopped" } })
       }
-      loading={!board}
-      waiting={waiting.data?.items.length ?? 0}
     />
   );
 }
