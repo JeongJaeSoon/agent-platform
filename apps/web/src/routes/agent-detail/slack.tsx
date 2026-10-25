@@ -54,6 +54,13 @@ const modeKey = (mode: Binding["mode"]) =>
     : mode === "off"
       ? "slack.off"
       : "slack.mention";
+// The DM row is an on/off switch, so mention reads as on there.
+const dmKey = (dm: Binding | undefined) =>
+  !dm
+    ? "slack.notConfigured"
+    : dm.mode === "mention"
+      ? "slack.on"
+      : modeKey(dm.mode);
 
 const SECTION = {
   channels: "slack-channels",
@@ -338,11 +345,7 @@ function SlackStatus({ agentId }: { readonly agentId: string }) {
             {bindings.isPending ? (
               placeholder
             ) : (
-              <span>
-                {bindingsLost
-                  ? "—"
-                  : t(dm ? modeKey(dm.mode) : "slack.notConfigured")}
-              </span>
+              <span>{bindingsLost ? "—" : t(dmKey(dm))}</span>
             )}
           </span>
         </RowListItem>
@@ -1073,9 +1076,7 @@ function SlackDmSetting({ agentId }: { readonly agentId: string }) {
       description={t("slack.dmHint")}
       status={
         <span className="text-control text-muted-foreground">
-          {bindings.isError && !bindings.data
-            ? "—"
-            : t(dm ? modeKey(dm.mode) : "slack.notConfigured")}
+          {bindings.isError && !bindings.data ? "—" : t(dmKey(dm))}
         </span>
       }
       meta={

@@ -122,9 +122,9 @@ describe("Slack management", () => {
     // Home and DM both read as unknown.
     expect(within(state).getAllByText("—")).toHaveLength(2);
     expect(screen.queryByText("설정 안 됨") === null).toBe(true);
-    expect(
-      screen.queryByRole("switch", { name: "DM 받기" }) === null,
-    ).toBe(true);
+    expect(screen.queryByRole("switch", { name: "DM 받기" }) === null).toBe(
+      true,
+    );
     await screen.findByRole("navigation", { name: "Slack 구역" });
     await waitFor(() =>
       expect(document.querySelector("[data-slot=field-error]") !== null).toBe(
@@ -460,9 +460,9 @@ describe("Slack management", () => {
         call.method === "PUT" && call.path === `${PATH}/slack/app/settings`,
     );
     expect(saved?.body).toEqual({ default_mode: "mention" });
-    expect((saved?.headers.get("Idempotency-Key") ?? "").length).toBeGreaterThan(
-      0,
-    );
+    expect(
+      (saved?.headers.get("Idempotency-Key") ?? "").length,
+    ).toBeGreaterThan(0);
     await user.click(await screen.findByRole("button", { name: "채널 추가" }));
     expect(await screen.findByText("/invite 필요")).toBeDefined();
     await user.click(
@@ -721,7 +721,9 @@ describe("Slack management", () => {
         const open = within(advanced).getByRole("link", {
           name: "Slack에서 열기",
         });
-        expect(open.getAttribute("href")).toBe("https://api.slack.com/apps/A123");
+        expect(open.getAttribute("href")).toBe(
+          "https://api.slack.com/apps/A123",
+        );
         expect(open.getAttribute("rel")).toBe("noreferrer");
       } finally {
         if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
@@ -877,7 +879,17 @@ describe("Slack management", () => {
     await waitFor(() =>
       expect(toggle.getAttribute("aria-checked")).toBe("true"),
     );
-    expect(await screen.findByText("DM 받기 설정을 저장했습니다.")).toBeDefined();
+    expect(
+      await screen.findByText("DM 받기 설정을 저장했습니다."),
+    ).toBeDefined();
+    // A switch reads on/off, not the binding's mention mode.
+    const status = screen.getByRole("region", { name: "상태" });
+    await waitFor(() =>
+      expect(within(status).queryByText("켜짐")).not.toBeNull(),
+    );
+    expect(
+      within(screen.getByRole("region", { name: "기본" })).getAllByText("켜짐"),
+    ).toHaveLength(1);
     expect(api.calls.find((call) => call.method === "PUT")?.body).toEqual({
       channel_id: null,
       mode: "mention",

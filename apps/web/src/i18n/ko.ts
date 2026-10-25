@@ -106,6 +106,7 @@ export const slackKo = {
   "slack.public": "공개",
   "slack.private": "비공개",
   "slack.off": "꺼짐",
+  "slack.on": "켜짐",
   "slack.mention": "멘션할 때",
   "slack.reaction": "{channel} 멘션할 때 반응",
   "slack.defaultReaction": "새 채널의 기본 반응",

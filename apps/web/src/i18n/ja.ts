@@ -101,6 +101,7 @@ export const slackJa = {
   "slack.public": "公開",
   "slack.private": "非公開",
   "slack.off": "オフ",
+  "slack.on": "オン",
   "slack.mention": "メンション時",
   "slack.reaction": "{channel} のメンションに応答",
   "slack.defaultReaction": "新しいチャンネルの既定の応答",

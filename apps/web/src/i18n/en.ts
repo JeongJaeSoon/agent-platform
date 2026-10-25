@@ -100,6 +100,7 @@ export const slackEn = {
   "slack.public": "Public",
   "slack.private": "Private",
   "slack.off": "Off",
+  "slack.on": "On",
   "slack.mention": "When mentioned",
   "slack.reaction": "Respond when mentioned in {channel}",
   "slack.defaultReaction": "Default response for new channels",
