@@ -127,6 +127,7 @@ export const slackEn = {
   "slack.copyAppIdFailed":
     "Couldn't copy to the clipboard. Select the app ID and copy it yourself.",
   "slack.openInSlack": "Open in Slack",
+  "slack.newTab": "(opens in a new tab)",
   "slack.copyFailed":
     "Couldn't copy to the clipboard. Copy the selected command yourself.",
 } as const;

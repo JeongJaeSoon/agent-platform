@@ -719,12 +719,13 @@ describe("Slack management", () => {
         expect(copied).toEqual(refused ? [] : ["A123"]);
         expect(document.activeElement === button).toBe(true);
         const open = within(advanced).getByRole("link", {
-          name: "Slack에서 열기",
+          name: "Slack에서 열기 (새 탭에서 열림)",
         });
         expect(open.getAttribute("href")).toBe(
           "https://api.slack.com/apps/A123",
         );
-        expect(open.getAttribute("rel")).toBe("noreferrer");
+        expect(open.getAttribute("target")).toBe("_blank");
+        expect(open.getAttribute("rel")).toBe("noopener noreferrer");
       } finally {
         if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
         else Reflect.deleteProperty(navigator, "clipboard");

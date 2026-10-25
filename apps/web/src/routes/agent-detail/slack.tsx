@@ -22,6 +22,7 @@ import {
   FieldError,
   FieldLabel,
   Input,
+  Link,
   RowList,
   RowListItem,
   SettingRow,
@@ -513,13 +514,14 @@ export function SlackConnect({
                         {t("slack.copy")}
                       </Button>
                       <Button asChild variant="outline" size="sm">
-                        <a
+                        <Link
                           href={`https://api.slack.com/apps/${encodeURIComponent(record.app_id)}`}
                           target="_blank"
-                          rel="noreferrer"
+                          newTabLabel={t("slack.newTab")}
+                          className="text-inherit hover:no-underline"
                         >
                           {t("slack.openInSlack")}
-                        </a>
+                        </Link>
                       </Button>
                     </>
                   ) : null

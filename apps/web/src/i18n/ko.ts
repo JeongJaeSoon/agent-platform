@@ -132,6 +132,7 @@ export const slackKo = {
   "slack.copyAppIdFailed":
     "클립보드에 복사하지 못했습니다. 앱 ID를 직접 선택해 복사하세요.",
   "slack.openInSlack": "Slack에서 열기",
+  "slack.newTab": "(새 탭에서 열림)",
   "slack.copyFailed":
     "클립보드에 복사하지 못했습니다. 선택된 명령을 직접 복사하세요.",
 } as const;

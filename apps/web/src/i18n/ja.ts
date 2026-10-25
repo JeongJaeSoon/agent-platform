@@ -128,6 +128,7 @@ export const slackJa = {
   "slack.copyAppIdFailed":
     "クリップボードにコピーできませんでした。アプリ ID を選択して手動でコピーしてください。",
   "slack.openInSlack": "Slack で開く",
+  "slack.newTab": "(新しいタブで開きます)",
   "slack.copyFailed":
     "クリップボードにコピーできませんでした。選択されたコマンドを手動でコピーしてください。",
 } as const;
