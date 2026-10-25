@@ -424,6 +424,29 @@ describe("ApprovalInbox", () => {
     expect(document.activeElement?.closest("[hidden]")).toBeNull();
   });
 
+  test("요약 배치에서 남은 요청이 만료된 질문뿐이면 답한 뒤 키보드는 그 만료 안내로 간다", async () => {
+    const user = await setupUser();
+    const view = renderInbox({
+      open: [
+        permission("req_1", "Bash"),
+        { ...QUESTION, expires_at: "2020-01-01T00:00:00.000Z" },
+      ],
+      layout: "summary",
+    });
+    await user.click(
+      await view.findByRole("button", { name: `Allow: Bash · ${SHORT}` }),
+    );
+    await waitFor(() =>
+      expect(view.queryByText("Permission request: Bash")).toBeNull(),
+    );
+    await waitFor(() =>
+      expect(document.activeElement?.textContent).toContain(
+        "This request expired and takes no answer.",
+      ),
+    );
+    expect(document.activeElement?.closest("[hidden]")).toBeNull();
+  });
+
   test("답이 가는 동안 누른 버튼이 돌고 줄은 aria-busy, 두 번 눌러도 한 번만 보낸다", async () => {
     const user = await setupUser();
     const view = renderInbox({

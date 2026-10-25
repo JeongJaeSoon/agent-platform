@@ -322,9 +322,18 @@ export function PendingAnswers({
     const next =
       root?.querySelector<HTMLElement>(
         "li button:not(:disabled), li input:not(:disabled)",
-      ) ?? root?.querySelector<HTMLElement>("li summary");
-    (next ?? noticeRef.current)?.focus();
-  }, [items]);
+      ) ??
+      root?.querySelector<HTMLElement>("li summary") ??
+      (announceSent
+        ? noticeRef.current
+        : // The notice line stays empty when the host announces the answer
+          // elsewhere; only lapsed requests are left, so their visible
+          // expiry notice takes the keyboard.
+          Array.from(
+            root?.querySelectorAll<HTMLElement>("li [tabindex='-1']") ?? [],
+          ).find((notice) => notice.closest("[hidden]") === null));
+    next?.focus();
+  }, [items, announceSent]);
 
   const send = (body: Parameters<typeof answer.mutate>[0]) => {
     // The buttons are off while an answer is on its way; a second press
