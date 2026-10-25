@@ -425,7 +425,7 @@ export function CardSummary({
           <dt className={TERM}>{t("agents.name")}</dt>
           <dd className={VALUE}>{detail.agent.name}</dd>
           <dt className={TERM}>{t("agents.slug")}</dt>
-          <dd className={`${VALUE} font-mono text-caption`}>
+          <dd className={`${VALUE} font-mono`}>
             {detail.agent.slug}
           </dd>
           {card ? (
@@ -445,7 +445,7 @@ export function CardSummary({
                 )}
               </dd>
               <dt className={TERM}>{t("agentCard.model")}</dt>
-              <dd className={`${VALUE} font-mono text-caption`}>
+              <dd className={`${VALUE} font-mono`}>
                 {card.model}
               </dd>
               <dt className={TERM}>{t("agentCard.language")}</dt>
