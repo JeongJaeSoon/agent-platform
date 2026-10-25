@@ -90,7 +90,9 @@ function ConfigToken({ onOutcome }: { readonly onOutcome: OnOutcome }) {
   // a keyboard user keeps their place.
   useEffect(() => {
     if (editing) inputRef.current?.focus();
-    else if (wasEditing.current) actionRef.current?.focus();
+    // Only when the closing form took focus with it, not when the user moved.
+    else if (wasEditing.current && document.activeElement === document.body)
+      actionRef.current?.focus();
     wasEditing.current = editing;
   }, [editing]);
 
@@ -128,7 +130,8 @@ function ConfigToken({ onOutcome }: { readonly onOutcome: OnOutcome }) {
     onSuccess: async () => {
       setEditing(false);
       onOutcome({ kind: "notice", text: t("workspace.tokenStored") });
-      await refresh();
+      // Not awaited: the reset that drops the value waits for this callback.
+      void refresh();
     },
     onError: refused,
   });

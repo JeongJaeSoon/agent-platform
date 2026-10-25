@@ -638,6 +638,46 @@ describe("워크스페이스 설정", () => {
     );
   });
 
+  test("저장 뒤 다시 읽기가 끝나지 않아도 token 값은 캐시에 남지 않는다", async () => {
+    let saved = false;
+    const { services } = renderAt("/settings/workspace/slack", {
+      "GET /v1/auth/me": () => json(200, me()),
+      // The read after the save never answers.
+      [`GET ${TOKEN}`]: () =>
+        saved ? new Promise<Response>(() => {}) : json(200, UNSET_TOKEN),
+      [`PUT ${TOKEN}`]: () => {
+        saved = true;
+        return json(200, {
+          ...UNSET_TOKEN,
+          configured: true,
+          last4: "abcd",
+          state: "active",
+          updated_at: "2026-10-25T05:00:00.000Z",
+          receipt_id: "5f0c2c1e-8a4b-4c1d-9e2f-3a4b5c6d7e8f",
+          warnings: [],
+        });
+      },
+    });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "token 넣기" }));
+    await user.type(
+      screen.getByLabelText("새 App Configuration Token"),
+      "fake-config-value",
+    );
+    await user.click(screen.getByRole("button", { name: "저장" }));
+    await screen.findByRole("status");
+    await waitFor(() =>
+      expect(
+        JSON.stringify(
+          services.queryClient
+            .getMutationCache()
+            .getAll()
+            .map((mutation) => mutation.state.variables),
+        ),
+      ).not.toContain("fake-config-value"),
+    );
+  });
+
   test("token 칸을 취소하면 포커스가 칸을 연 버튼으로 돌아간다", async () => {
     renderAt("/settings/workspace/slack", {
       "GET /v1/auth/me": () => json(200, me()),
