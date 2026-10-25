@@ -4,6 +4,7 @@ import {
   DEMO_ACCOUNTS,
   DEMO_PASSWORD,
   demoAccountsRefusal,
+  previewDatabaseRefusal,
 } from "./demo-accounts.ts";
 
 // Agents, sessions and their outputs for the demo accounts to look at
@@ -738,7 +739,9 @@ async function seedAs(
 
 async function main(): Promise<void> {
   // The installation is checked before anything of it is read.
-  let refusal = demoAccountsRefusal(process.env);
+  let refusal =
+    demoAccountsRefusal(process.env) ??
+    (await previewDatabaseRefusal(process.env));
   if (refusal === null) {
     try {
       refusal = demoDataRefusal(

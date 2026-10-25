@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
+import { lookup as dnsLookup } from "node:dns/promises";
 import { scopesForRole, type WorkspaceRole } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
@@ -107,6 +108,45 @@ export function demoAccountsRefusal(
     !allowed.has(host)
   ) {
     return `DATABASE_URL points at ${host}, not ${expected}`;
+  }
+  return null;
+}
+
+type Lookup = (host: string) => Promise<{ address: string }[]>;
+
+/**
+ * The DNS half of the preview exception, once demoAccountsRefusal passed:
+ * the DATABASE_URL host must resolve to this namespace's postgres Service.
+ * With no such Service a bare `postgres` falls through the pod's search
+ * domains to whatever other host answers.
+ */
+export async function previewDatabaseRefusal(
+  env: Record<string, string | undefined>,
+  lookup: Lookup = (host) => dnsLookup(host, { all: true }),
+): Promise<string | null> {
+  if (!env.KUBERNETES_SERVICE_HOST) return null;
+  // The trailing dot keeps the search domains out of this lookup.
+  const service = `postgres.${env.PREVIEW_NAMESPACE}.svc.cluster.local.`;
+  const host = new URL(env.DATABASE_URL ?? "").hostname;
+  const addresses = async (name: string) =>
+    (await lookup(name))
+      .map(({ address }) => address)
+      .sort()
+      .join(",");
+  let want: string;
+  try {
+    want = await addresses(service);
+  } catch (error) {
+    return `cannot resolve ${service}: ${error instanceof Error ? error.message : String(error)}`;
+  }
+  let got: string;
+  try {
+    got = await addresses(host);
+  } catch (error) {
+    return `cannot resolve ${host}: ${error instanceof Error ? error.message : String(error)}`;
+  }
+  if (got !== want) {
+    return `DATABASE_URL host ${host} does not resolve to ${service}`;
   }
   return null;
 }
@@ -253,7 +293,9 @@ export async function seedDemoAccounts(
 }
 
 async function main(): Promise<void> {
-  const refusal = demoAccountsRefusal(process.env);
+  const refusal =
+    demoAccountsRefusal(process.env) ??
+    (await previewDatabaseRefusal(process.env));
   if (refusal) {
     console.error(`demo accounts refused: ${refusal}`);
     process.exitCode = 2;

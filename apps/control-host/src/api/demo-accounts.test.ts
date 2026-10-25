@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { demoAccountsRefusal } from "./demo-accounts.ts";
+import {
+  demoAccountsRefusal,
+  previewDatabaseRefusal,
+} from "./demo-accounts.ts";
 
 const local = {
   DEMO_ACCOUNTS: "local",
@@ -125,6 +128,52 @@ describe("demoAccountsRefusal", () => {
       [{ ...preview, DEMO_ACCOUNTS: undefined }, "DEMO_ACCOUNTS=local"],
     ])("refuses %p", (env, reason) => {
       expect(demoAccountsRefusal(env)).toContain(reason);
+    });
+  });
+
+  describe("previewDatabaseRefusal", () => {
+    const preview = {
+      ...local,
+      KUBERNETES_SERVICE_HOST: "10.0.0.1",
+      PREVIEW_NAMESPACE: "k8s-963-demo",
+    };
+    const service = "postgres.k8s-963-demo.svc.cluster.local.";
+    const resolver =
+      (table: Record<string, string[]>) => async (host: string) => {
+        const addresses = table[host];
+        if (!addresses) throw new Error(`getaddrinfo ENOTFOUND ${host}`);
+        return addresses.map((address) => ({ address, family: 4 }));
+      };
+
+    test("allows a host that resolves to this namespace's postgres Service", async () => {
+      const lookup = resolver({
+        [service]: ["10.96.0.20"],
+        postgres: ["10.96.0.20"],
+      });
+      expect(await previewDatabaseRefusal(preview, lookup)).toBeNull();
+    });
+
+    test("refuses when this namespace has no postgres Service", async () => {
+      // A bare `postgres` would fall through the pod's search domains.
+      const lookup = resolver({ postgres: ["10.20.30.40"] });
+      expect(await previewDatabaseRefusal(preview, lookup)).toContain(
+        `cannot resolve ${service}`,
+      );
+    });
+
+    test("refuses a host that resolves elsewhere", async () => {
+      const lookup = resolver({
+        [service]: ["10.96.0.20"],
+        postgres: ["10.20.30.40"],
+      });
+      expect(await previewDatabaseRefusal(preview, lookup)).toContain(
+        `DATABASE_URL host postgres does not resolve to ${service}`,
+      );
+    });
+
+    test("does nothing outside Kubernetes", async () => {
+      const lookup = resolver({});
+      expect(await previewDatabaseRefusal(local, lookup)).toBeNull();
     });
   });
 

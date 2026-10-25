@@ -428,21 +428,23 @@ function checkPreview(
     const role = m.metadata.labels?.["app.kubernetes.io/component"] ?? "";
     for (const c of [...(pod.initContainers ?? []), ...pod.containers]) {
       // biome-ignore lint/suspicious/noExplicitAny: rendered Kubernetes objects
-      const entry = (c.env ?? []).find((v: any) => v.name === PREVIEW_ENV);
-      if (entry === undefined) continue;
-      const where = `${label}: ${m.kind}/${m.metadata.name}: container ${c.name}`;
-      if (!enabled || role !== "api" || c.name !== "api") {
-        errors.push(
-          `${where} has ${PREVIEW_ENV}, expected ${enabled ? "only on the api container" : "nowhere: preview.enabled is off"}`,
-        );
-        continue;
-      }
-      holders++;
-      if (
-        entry.value !== undefined ||
-        entry.valueFrom?.fieldRef?.fieldPath !== "metadata.namespace"
-      ) {
-        errors.push(`${where}: ${PREVIEW_ENV} is not the pod's namespace`);
+      const env: any[] = c.env ?? [];
+      // Every entry: with a duplicate name the last one wins.
+      for (const entry of env.filter((v) => v.name === PREVIEW_ENV)) {
+        const where = `${label}: ${m.kind}/${m.metadata.name}: container ${c.name}`;
+        if (!enabled || role !== "api" || c.name !== "api") {
+          errors.push(
+            `${where} has ${PREVIEW_ENV}, expected ${enabled ? "only on the api container" : "nowhere: preview.enabled is off"}`,
+          );
+          continue;
+        }
+        holders++;
+        if (
+          entry.value !== undefined ||
+          entry.valueFrom?.fieldRef?.fieldPath !== "metadata.namespace"
+        ) {
+          errors.push(`${where}: ${PREVIEW_ENV} is not the pod's namespace`);
+        }
       }
     }
   }
@@ -527,6 +529,11 @@ const MUST_FAIL: [string, string[], RegExp][] = [
     "an installation id that is no label value",
     ["-f", ciDigests, "--set", "installationId=not/a/label"],
     /installationId must be a Kubernetes label value/,
+  ],
+  [
+    "PREVIEW_NAMESPACE through api.extraEnv",
+    ["-f", ciDigests, "--set", "api.extraEnv.PREVIEW_NAMESPACE=prod"],
+    /api.extraEnv must not set PREVIEW_NAMESPACE/,
   ],
 ];
 
