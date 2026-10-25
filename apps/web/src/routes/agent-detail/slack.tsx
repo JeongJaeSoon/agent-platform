@@ -302,7 +302,7 @@ function SlackStatus({ agentId }: { readonly agentId: string }) {
     >
       {error ? <FieldError>{slackFailure(error, t)}</FieldError> : null}
       <RowList variant="joined">
-        <RowListItem className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-control">
+        <RowListItem className="flex flex-wrap items-center gap-x-4 gap-y-2 text-control">
           <Badge
             variant={
               state === "connected"
@@ -314,13 +314,13 @@ function SlackStatus({ agentId }: { readonly agentId: string }) {
           >
             {t(`slack.state.${state}`)}
           </Badge>
-          <span className="flex items-center gap-1.5">
+          <span className="flex items-center gap-2">
             <span className="text-muted-foreground">{t("slack.botId")}</span>
             <span className="font-mono text-caption">
               {identity?.bot_user_id ?? "—"}
             </span>
           </span>
-          <span className="flex items-center gap-1.5">
+          <span className="flex items-center gap-2">
             <span className="text-muted-foreground">
               {t("slack.homeChannel")}
             </span>
@@ -338,7 +338,7 @@ function SlackStatus({ agentId }: { readonly agentId: string }) {
               </span>
             )}
           </span>
-          <span className="flex items-center gap-1.5">
+          <span className="flex items-center gap-2">
             <span className="text-muted-foreground">
               {t("slack.dmSetting")}
             </span>
