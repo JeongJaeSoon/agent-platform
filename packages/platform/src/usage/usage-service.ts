@@ -2,6 +2,10 @@ import {
   type InstallationLimitsResponse,
   type SessionUsageResponse,
   USAGE_TOOLS_LIMIT,
+  type UsageBreakdownQuery,
+  type UsageBreakdownResponse,
+  type UsageSeriesQuery,
+  type UsageSeriesResponse,
   type UsageSummaryQuery,
   type UsageSummaryResponse,
   type UsageToolCallsQuery,
@@ -16,7 +20,11 @@ import {
   sessionBudgetOf,
 } from "../limits/installation-limits.ts";
 import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
-import type { UsageReader, UsageSummaryFilter } from "../ports/usage-reader.ts";
+import type {
+  UsageBreakdownFiguresRecord,
+  UsageReader,
+  UsageSummaryFilter,
+} from "../ports/usage-reader.ts";
 import {
   requirePermitted,
   SessionServiceError,
@@ -33,6 +41,31 @@ export function decimalUsd(value: number): string {
   if (!exponent) return text;
   const [, lead, fraction = "", power] = exponent;
   return `0.${"0".repeat(Number(power) - 1)}${lead}${fraction}`;
+}
+
+// The rollup stops each column at the largest safe integer, as
+// provider_tokens stops; their sums stop there too rather than break the
+// response.
+const saturated = (count: number) => Math.min(count, Number.MAX_SAFE_INTEGER);
+
+// token_count is the four columns, as the provider_tokens trigger sums them.
+function breakdownFigures(
+  figures: UsageBreakdownFiguresRecord,
+): UsageBreakdownResponse["totals"] {
+  return {
+    session_count: figures.sessionCount,
+    input_tokens: saturated(figures.inputTokens),
+    output_tokens: saturated(figures.outputTokens),
+    cache_read_input_tokens: saturated(figures.cacheReadInputTokens),
+    cache_creation_input_tokens: saturated(figures.cacheCreationInputTokens),
+    token_count: saturated(
+      figures.inputTokens +
+        figures.outputTokens +
+        figures.cacheReadInputTokens +
+        figures.cacheCreationInputTokens,
+    ),
+    cost_usd: figures.costUsd,
+  };
 }
 
 type UsageToolRow = UsageToolsResponse["tools"][number];
@@ -173,6 +206,55 @@ export function createUsageService(deps: {
           cost: "provider_usage_estimate",
           run_time: "turn_wall_clock",
         },
+      };
+    },
+
+    async getUsageSeries(
+      actor: Caller,
+      query: UsageSeriesQuery,
+    ): Promise<UsageSeriesResponse> {
+      const filter = await filterFor(actor, query.scope);
+      const series = await reader.usageSeries(filter, {
+        since: query.since,
+        ...(query.until === undefined ? {} : { until: query.until }),
+      });
+      return {
+        period: {
+          since: query.since.toISOString(),
+          until: series.until.toISOString(),
+        },
+        refreshed_at: series.readAt.toISOString(),
+        buckets: series.buckets.map((bucket) => ({
+          date: bucket.date,
+          session_count: bucket.sessionCount,
+          cost_usd: bucket.costUsd,
+          cost_complete: bucket.incompleteTurnCount === 0,
+          token_count: bucket.providerTokens,
+          run_seconds: bucket.runSeconds,
+        })),
+      };
+    },
+
+    async getUsageBreakdown(
+      actor: Caller,
+      query: UsageBreakdownQuery,
+    ): Promise<UsageBreakdownResponse> {
+      const filter = await filterFor(actor, query.scope);
+      const breakdown = await reader.usageBreakdown(
+        filter,
+        {
+          since: query.since,
+          ...(query.until === undefined ? {} : { until: query.until }),
+        },
+        query.by,
+      );
+      return {
+        rows: breakdown.rows.map(({ key, label, ...figures }) => ({
+          key,
+          label,
+          ...breakdownFigures(figures),
+        })),
+        totals: breakdownFigures(breakdown.totals),
       };
     },
 

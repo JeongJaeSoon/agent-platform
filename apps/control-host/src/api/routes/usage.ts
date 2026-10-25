@@ -2,6 +2,10 @@ import {
   installationLimitsResponseSchema,
   sessionIdParamsSchema,
   sessionUsageResponseSchema,
+  usageBreakdownQuerySchema,
+  usageBreakdownResponseSchema,
+  usageSeriesQuerySchema,
+  usageSeriesResponseSchema,
   usageSummaryQuerySchema,
   usageSummaryResponseSchema,
   usageToolCallsParamsSchema,
@@ -28,6 +32,22 @@ export function registerUsageRoutes(router: ApiRouter, service: UsageService) {
       service.getUsageSummary(context.get("caller"), query),
     );
     return jsonWithSchema(context, usageSummaryResponseSchema, summary);
+  });
+
+  apiRoute(router, "getUsageSeries", async (context) => {
+    const query = requireQuery(context, usageSeriesQuerySchema);
+    const series = await mapped(() =>
+      service.getUsageSeries(context.get("caller"), query),
+    );
+    return jsonWithSchema(context, usageSeriesResponseSchema, series);
+  });
+
+  apiRoute(router, "getUsageBreakdown", async (context) => {
+    const query = requireQuery(context, usageBreakdownQuerySchema);
+    const breakdown = await mapped(() =>
+      service.getUsageBreakdown(context.get("caller"), query),
+    );
+    return jsonWithSchema(context, usageBreakdownResponseSchema, breakdown);
   });
 
   apiRoute(router, "getUsageTools", async (context) => {

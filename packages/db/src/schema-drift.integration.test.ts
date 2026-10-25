@@ -42,11 +42,11 @@ const MIGRATIONS_ONLY = [
   // 0000: the queue's admission count.
   "function queue_unassigned_session_count() double precision language sql volatility=s parallel=u body md5 77ab23e0fa3455549b846ff0e7980c2a",
   // 0127, capped by 0129: a session's provider tokens are counted as usage
-  // rows are inserted.
-  "function sessions_count_provider_tokens() trigger language plpgsql volatility=v parallel=u body md5 10b430e39e60b9de258ff213c7718c04",
+  // rows are inserted; usage_breakdown_rollup also keeps session_model_usage.
+  "function sessions_count_provider_tokens() trigger language plpgsql volatility=v parallel=u body md5 d379ea7e669588977ef342b8f7d882d5",
   // 0107: retained input is charged to storage_usage as turns are inserted.
   "function storage_usage_charge_turn() trigger language plpgsql volatility=v parallel=u body md5 181d4bb80e87699778f44b2c2d4b738f",
-  // 0167: tool_call_days' duration histogram, filled and summed in SQL.
+  // 0170: tool_call_days' duration histogram, filled and summed in SQL.
   "function tool_hist(integer, integer) integer[] language internal volatility=i parallel=u body md5 3eb6d2f5e7ee95ed566dd6cdda54dac3",
   "function tool_hist_add(a integer[], b integer[]) integer[] language sql volatility=i parallel=s body md5 06b5f26e393c4c8ceab73150900e0667",
   "function tool_hist_step(state integer[], bucket integer, delta integer) integer[] language sql volatility=i parallel=s body md5 20e7f2741f305c44a7febf7acc1b90ff",

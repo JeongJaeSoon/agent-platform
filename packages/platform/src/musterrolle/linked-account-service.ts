@@ -23,6 +23,8 @@ function linkedAccountView(record: LinkedAccountRecord): LinkedAccount {
     provider: record.provider,
     external_tenant: record.externalTenant,
     external_user_id: record.externalUserId,
+    external_tenant_name: record.externalTenantName,
+    external_user_name: record.externalUserName,
     status: record.status,
     verified_at: record.verifiedAt.toISOString(),
     revision: record.revision,
@@ -77,10 +79,15 @@ export function createLinkedAccountService(deps: {
       return { userId, teams };
     },
 
-    /** `teamId` and `userId` come from an id_token the caller verified. */
+    /** Every field comes from an id_token the caller verified. */
     async linkSlackAccount(
       caller: Caller,
-      verified: { teamId: string; userId: string },
+      verified: {
+        teamId: string;
+        userId: string;
+        teamName: string | null;
+        userName: string | null;
+      },
     ): Promise<SlackLinkCallbackResponse> {
       const userId = await permittedPerson(caller);
       const result = await store.link({
@@ -91,6 +98,10 @@ export function createLinkedAccountService(deps: {
           provider: "slack",
           externalTenant: verified.teamId,
           externalUserId: verified.userId,
+        },
+        names: {
+          externalTenantName: verified.teamName,
+          externalUserName: verified.userName,
         },
       });
       switch (result.outcome) {

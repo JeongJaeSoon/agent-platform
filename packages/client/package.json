@@ -3,6 +3,7 @@
   "description": "API client for the agent-platform HTTP API: typed requests, ApiError and the session event stream, with no UI framework",
   "version": "0.0.0",
   "private": true,
+  "license": "PolyForm-Small-Business-1.0.0",
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
