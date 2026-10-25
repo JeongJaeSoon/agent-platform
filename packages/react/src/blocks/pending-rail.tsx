@@ -50,6 +50,8 @@ interface Opened {
   readonly session: SessionSummary;
   readonly opener: HTMLElement;
   readonly fallback: HTMLElement | null;
+  /** Counts each open, so opening the session on show again still focuses. */
+  readonly turn: number;
 }
 
 /**
@@ -64,7 +66,13 @@ export function usePendingRail(options: PendingRailOptions): PendingRail {
       session: SessionSummary,
       opener: HTMLElement,
       fallback: HTMLElement | null = null,
-    ) => setOpened({ session, opener, fallback }),
+    ) =>
+      setOpened((last) => ({
+        session,
+        opener,
+        fallback,
+        turn: (last?.turn ?? 0) + 1,
+      })),
     [],
   );
   const close = () => {
@@ -81,6 +89,7 @@ export function usePendingRail(options: PendingRailOptions): PendingRail {
           // A new session is a new rail: its forms and stream start over.
           key={opened.session.id}
           session={opened.session}
+          turn={opened.turn}
           onClose={close}
           {...options}
         />
@@ -90,12 +99,14 @@ export function usePendingRail(options: PendingRailOptions): PendingRail {
 
 function RailBody({
   session: listed,
+  turn,
   onClose,
   renderError,
   unavailable,
   refusal,
 }: PendingRailOptions & {
   readonly session: SessionSummary;
+  readonly turn: number;
   readonly onClose: () => void;
 }) {
   const { t } = useBlockText();
@@ -106,14 +117,15 @@ function RailBody({
   const detail = useSession(id);
   const pending = usePendingRequests(id, true);
   const events = useSessionEvents(id, true);
-  // Opening moves the keyboard to the rail. Below 1280px the rail is under
+  // Each open moves the keyboard to the rail. Below 1280px the rail is under
   // the page, and the title's scroll margin brings it near the top; focus's
   // own scrolling ignores scroll margins.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: each open focuses again
   useEffect(() => {
     const heading = titleRef.current;
     heading?.focus({ preventScroll: true });
     heading?.scrollIntoView?.({ block: "nearest" });
-  }, []);
+  }, [turn]);
   // Each request's form is rendered once, into a node of its own, and the
   // node is moved to where the request stands: on its timeline line, or on
   // top when the stream has no line for it. Moving never remounts the form,

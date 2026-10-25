@@ -610,6 +610,52 @@ describe("ApprovalInbox", () => {
     await waitFor(() => expect(document.activeElement === opener).toBe(true));
   });
 
+  test("레일에 이미 연 세션의 상세 보기를 다시 누르면 키보드가 다시 레일 제목으로 간다", async () => {
+    const user = await setupUser();
+    const view = renderInbox({
+      open: [permission("req_1", "Bash")],
+      layout: "summary",
+      rail: true,
+    });
+    const opener = await view.findByRole("button", {
+      name: `View details of ${SHORT}`,
+    });
+    await user.click(opener);
+    const rail = await view.findByRole("complementary");
+    const heading = rail.querySelector("h2");
+    await waitFor(() => expect(document.activeElement === heading).toBe(true));
+    await user.click(opener);
+    expect(view.getByRole("complementary") === rail).toBe(true);
+    await waitFor(() => expect(document.activeElement === heading).toBe(true));
+  });
+
+  test("레일이 열려 있어도 포커스를 쥔 줄이 목록에서 빠지면 키보드는 받은편지함 제목으로 간다", async () => {
+    const view = renderInbox({
+      open: [QUESTION],
+      layout: "summary",
+      rail: true,
+    });
+    const opener = await view.findByRole("button", {
+      name: `View details of ${SHORT}`,
+    });
+    opener.click();
+    const rail = await view.findByRole("complementary");
+    const radio = await waitFor(() => {
+      const found = rail.querySelector<HTMLElement>("[role='radio']");
+      expect(found).toBeTruthy();
+      return found as HTMLElement;
+    });
+    // Back in the list; the answer goes out without moving the keyboard.
+    opener.focus();
+    await act(async () => radio.click());
+    const send = view.getByRole("button", { name: "Send answer" });
+    await act(async () => send.click());
+    await waitFor(() => expect(opener.isConnected).toBe(false));
+    await waitFor(() =>
+      expect(document.activeElement?.textContent).toBe("Waiting for an answer"),
+    );
+  });
+
   test("레일에서 위에 그린 답 폼은 질문 이벤트가 늦게 와도 옮겨지지 않고 고른 값을 지킨다", async () => {
     const user = await setupUser();
     const view = renderInbox({

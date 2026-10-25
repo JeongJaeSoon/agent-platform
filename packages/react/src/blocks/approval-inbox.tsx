@@ -155,13 +155,19 @@ export function ApprovalInbox({
 
   // A session answered from here leaves the list with the focus it held;
   // the keyboard goes back to the inbox's heading. One answered in the open
-  // rail keeps it there.
+  // rail keeps it there: only focus last held in the list is given back.
+  // A removed element fires no blur, so the flag outlives its line.
+  const focusInList = useRef(false);
   const railOpen = rail?.openedId != null;
   useLayoutEffect(() => {
     const ids = shownKey === "" ? [] : shownKey.split(",");
     const left = shownBefore.current.some((id) => !ids.includes(id));
     shownBefore.current = ids;
-    if (left && !railOpen && focusLost(titleRef.current)) {
+    if (
+      left &&
+      (!railOpen || focusInList.current) &&
+      focusLost(titleRef.current)
+    ) {
       titleRef.current?.focus();
     }
   }, [shownKey, railOpen]);
@@ -213,6 +219,16 @@ export function ApprovalInbox({
               ? cn("divide-y", FRAME)
               : "gap-[var(--ap-space-block)]",
           )}
+          onFocus={() => {
+            focusInList.current = true;
+          }}
+          onBlur={(event) => {
+            // Null when focus falls to the page, as when its line is removed.
+            const next = event.relatedTarget;
+            if (next !== null && !event.currentTarget.contains(next)) {
+              focusInList.current = false;
+            }
+          }}
         >
           {drawn.map((session) => (
             <WaitingSession
