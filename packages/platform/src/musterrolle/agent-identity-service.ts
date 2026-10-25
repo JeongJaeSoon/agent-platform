@@ -31,8 +31,6 @@ import { ACTOR_INACTIVE, NOT_FOUND, OUTRANKED } from "./service-errors.ts";
 const ACTION = "binding.manage";
 const MANAGERS: readonly WorkspaceRole[] = MANAGEMENT_ROLES[ACTION] ?? [];
 
-// The caller's role or admin row fell between the decision and the write.
-
 export function agentIdentityView(record: AgentIdentityRecord): AgentIdentity {
   return {
     id: record.id,

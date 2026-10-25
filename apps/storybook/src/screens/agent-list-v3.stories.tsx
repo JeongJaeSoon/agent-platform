@@ -34,6 +34,8 @@ interface Row {
   readonly name: string;
   readonly slug: string;
   readonly draft: boolean;
+  /** agents.tsx draws an archived row in the inactive tone. */
+  readonly archived?: boolean;
   readonly slack: Slack;
   readonly why: string;
   // Detail stories only draw Release Notes; other rows stay unlinked rather
@@ -90,6 +92,17 @@ const ROWS = {
       why: "",
     },
   ],
+  archived: [
+    RELEASE_NOTES,
+    {
+      name: "Old Digest",
+      slug: "old-digest",
+      draft: false,
+      archived: true,
+      slack: "connected",
+      why: "@old-digest",
+    },
+  ],
 } as const satisfies Record<string, readonly Row[]>;
 
 // agents.tsx: FIT shrinks a column to its content; WIDE hides it below 480px.
@@ -132,7 +145,7 @@ function AgentTable({ rows }: { readonly rows: readonly Row[] }) {
               </>
             );
             return (
-              <TableRow key={row.slug}>
+              <TableRow key={row.slug} inactive={row.archived}>
                 {/* max-w-0 lets a narrow table truncate the name instead of growing. */}
                 <TableCell className="w-full max-w-0 @[480px]:max-w-none">
                   <div className="flex min-w-0 flex-col gap-[var(--ap-row-line-gap)] leading-4">
@@ -179,9 +192,13 @@ function AgentTable({ rows }: { readonly rows: readonly Row[] }) {
                   </div>
                 </TableCell>
                 <TableCell className={cn(FIT, LAST_WHEN_NARROW)}>
-                  <Badge variant={row.draft ? "gray" : "green"}>
-                    {row.draft ? "초안" : "활성"}
-                  </Badge>
+                  {row.archived ? (
+                    <Badge variant="gray">보관됨</Badge>
+                  ) : (
+                    <Badge variant={row.draft ? "gray" : "green"}>
+                      {row.draft ? "초안" : "활성"}
+                    </Badge>
+                  )}
                 </TableCell>
                 <TableCell className={cn(FIT, WIDE)}>
                   <div className="flex flex-col gap-[var(--ap-row-line-gap)]">
@@ -217,7 +234,7 @@ function AgentTable({ rows }: { readonly rows: readonly Row[] }) {
   );
 }
 
-function AgentListScreen({ rows }: { readonly rows: "ok" | "mixed" }) {
+function AgentListScreen({ rows }: { readonly rows: keyof typeof ROWS }) {
   const agents = ROWS[rows];
   return (
     <ScreenShell current="agents" crumb={["에이전트"]}>
@@ -310,5 +327,21 @@ export const AgentListSlackMixedDark: Story = {
 export const AgentListSlackMixedMobile: Story = {
   ...AgentListSlackMixed,
   name: "Slack 열: 섞임 (390px)",
+  globals: MOBILE,
+};
+
+/** An archived agent: the whole row in the inactive tone, its state in words. */
+export const AgentListArchived: Story = {
+  name: "보관된 에이전트",
+  args: { rows: "archived" },
+};
+export const AgentListArchivedDark: Story = {
+  ...AgentListArchived,
+  name: "보관된 에이전트 (dark)",
+  globals: DARK,
+};
+export const AgentListArchivedMobile: Story = {
+  ...AgentListArchived,
+  name: "보관된 에이전트 (390px)",
   globals: MOBILE,
 };

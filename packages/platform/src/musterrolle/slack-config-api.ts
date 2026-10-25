@@ -216,6 +216,52 @@ function slackCaller(options?: SlackApiOptions) {
   };
 }
 
+// A send answers whatever Slack said, for the caller to classify; only a
+// missing answer throws, since Slack may then hold the message.
+function slackSender(options?: SlackApiOptions) {
+  const apiUrl = (options?.apiUrl ?? SLACK_API_URL).replace(/\/+$/, "");
+  const fetchImpl = options?.fetch ?? fetch;
+  const timeoutMs = options?.timeoutMs ?? SLACK_HTTP_TIMEOUT_MS;
+
+  return async function send(
+    method: string,
+    botToken: string,
+    body: Record<string, unknown>,
+  ): Promise<SlackSendResponse> {
+    let response: Response;
+    try {
+      response = await fetchImpl(`${apiUrl}/${method}`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${botToken}`,
+          "Content-Type": "application/json; charset=utf-8",
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch (error) {
+      throw new SlackApiError(
+        method,
+        error instanceof Error && error.name === "TimeoutError"
+          ? "timeout"
+          : "unreachable",
+        false,
+      );
+    }
+    // A body that breaks off mid-read is no body: the status and Retry-After
+    // already came, and the caller judges what they leave known.
+    let parsed: unknown = null;
+    try {
+      parsed = JSON.parse(await response.text());
+    } catch {}
+    return {
+      httpStatus: response.status,
+      retryAfterHeader: response.headers.get("retry-after"),
+      body: parsed,
+    };
+  };
+}
+
 export function createSlackConfigApi(
   options?: SlackApiOptions,
 ): SlackConfigApi & SlackInstallApi {
@@ -343,6 +389,37 @@ export interface SlackBotApi {
   ): Promise<void>;
 }
 
+/** What the outbox sends with a bot token. */
+export interface SlackBotSender {
+  /**
+   * `chat.postMessage` into a thread, as Kollegium sends it: no
+   * `@name` linking, no unfurls. Answers what Slack said, whatever it was;
+   * throws `SlackApiError` only when no answer came.
+   */
+  postMessage(
+    botToken: string,
+    input: { channelId: string; threadTs: string; text: string },
+  ): Promise<SlackSendResponse>;
+  /** `chat.postEphemeral`; Slack's `message_ts` comes back as `ts`. */
+  postEphemeral(
+    botToken: string,
+    input: {
+      channelId: string;
+      userId: string;
+      threadTs: string;
+      text: string;
+    },
+  ): Promise<SlackSendResponse>;
+}
+
+/** Slack's answer to a send, for `classifySlackSendResult`. */
+export type SlackSendResponse = {
+  httpStatus: number;
+  retryAfterHeader: string | null;
+  /** The parsed JSON body, or null when there was none or it did not parse. */
+  body: unknown;
+};
+
 const userInfoAnswer = z.object({
   user: z.object({
     id: slackId,
@@ -376,8 +453,11 @@ const listChannelsAnswer = z.object({
     .optional(),
 });
 
-export function createSlackBotApi(options?: SlackApiOptions): SlackBotApi {
+export function createSlackBotApi(
+  options?: SlackApiOptions,
+): SlackBotApi & SlackBotSender {
   const call = slackCaller(options);
+  const send = slackSender(options);
   return {
     async userInfo(botToken, userId) {
       const { user } = await call(
@@ -452,6 +532,31 @@ export function createSlackBotApi(options?: SlackApiOptions): SlackBotApi {
         },
         z.object({}),
       );
+    },
+
+    postMessage(botToken, input) {
+      return send("chat.postMessage", botToken, {
+        channel: input.channelId,
+        thread_ts: input.threadTs,
+        text: input.text,
+        link_names: false,
+        unfurl_links: false,
+        unfurl_media: false,
+      });
+    },
+
+    async postEphemeral(botToken, input) {
+      const answer = await send("chat.postEphemeral", botToken, {
+        channel: input.channelId,
+        user: input.userId,
+        thread_ts: input.threadTs,
+        text: input.text,
+        link_names: false,
+      });
+      const body = answer.body as Record<string, unknown> | null;
+      return body !== null && typeof body === "object" && "message_ts" in body
+        ? { ...answer, body: { ...body, ts: body.message_ts } }
+        : answer;
     },
   };
 }

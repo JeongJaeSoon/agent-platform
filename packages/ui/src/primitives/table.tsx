@@ -109,14 +109,24 @@ export function TableBody({
   );
 }
 
+export type TableRowProps = ComponentProps<"tr"> & {
+  /**
+   * Draws the row in the inactive tone (styles.css): faint text, badges
+   * without hue, buttons untouched. Say "inactive" in the row's text too.
+   */
+  readonly inactive?: boolean | undefined;
+};
+
 /** A table row's height is its floor, as min-height is for a block. */
 export function TableRow({
+  inactive = false,
   className,
   ...props
-}: ComponentProps<"tr">): JSX.Element {
+}: TableRowProps): JSX.Element {
   return (
     <tr
       data-slot="table-row"
+      data-inactive={inactive || undefined}
       className={cn("h-[var(--ap-row-min-height)] border-b", className)}
       {...props}
     />

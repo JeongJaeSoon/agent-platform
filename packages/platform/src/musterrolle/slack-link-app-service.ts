@@ -60,7 +60,6 @@ const FORBIDDEN_WEB_ONLY = () =>
     undefined,
     { reason_code: "web_session_required" },
   );
-
 const NOT_CONFIGURED = (reason: "store_off" | "no_console" | "config_token") =>
   new SessionServiceError(
     "SLACK_LINK_NOT_CONFIGURED",

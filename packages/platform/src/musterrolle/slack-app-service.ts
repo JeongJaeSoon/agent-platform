@@ -49,7 +49,6 @@ const FORBIDDEN_WEB_ONLY = () =>
     undefined,
     { reason_code: "web_session_required" },
   );
-
 const STORE_OFF = () =>
   new SessionServiceError(
     "BACKEND_UNAVAILABLE",

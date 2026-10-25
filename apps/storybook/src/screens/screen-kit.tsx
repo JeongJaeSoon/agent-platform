@@ -23,12 +23,14 @@ export type NavKey =
   | "agents"
   | "members"
   | "settings"
-  | "usage";
+  | "usage"
+  | "operations";
 
 const NAV: readonly (readonly [NavKey, string])[] = [
   ["home", "홈"],
   ["sessions", "세션"],
   ["agents", "에이전트"],
+  ["operations", "운영"],
 ];
 const WORKSPACE_NAV: readonly (readonly [NavKey, string])[] = [
   ["members", "구성원"],

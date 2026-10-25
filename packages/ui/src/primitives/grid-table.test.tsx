@@ -184,4 +184,20 @@ describe("GridTable", () => {
       "has-[[data-slot=grid-table-row-opener]]:hover:bg-hover",
     );
   });
+
+  test("inactive 행만 data-inactive를 갖는다", () => {
+    const { getAllByRole } = render(
+      <GridTable aria-label="구성원" columns="1fr">
+        <GridTableRow inactive={true}>
+          <GridTableCell>김하나</GridTableCell>
+        </GridTableRow>
+        <GridTableRow>
+          <GridTableCell>이두리</GridTableCell>
+        </GridTableRow>
+      </GridTable>,
+    );
+    const [inactive, active] = getAllByRole("row") as HTMLElement[];
+    expect(inactive?.getAttribute("data-inactive")).toBe("true");
+    expect(active?.hasAttribute("data-inactive")).toBe(false);
+  });
 });

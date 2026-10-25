@@ -1,4 +1,11 @@
 export {
+  BarChart,
+  type BarChartDatum,
+  BarChartLegend,
+  type BarChartLegendProps,
+  type BarChartProps,
+} from "./bar-chart.tsx";
+export {
   Combobox,
   type ComboboxOption,
   type ComboboxProps,

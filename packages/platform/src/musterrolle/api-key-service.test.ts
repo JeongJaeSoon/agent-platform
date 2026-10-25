@@ -57,6 +57,7 @@ function fakeStore() {
         id: input.id,
         workspaceId: input.workspaceId,
         kind: input.kind,
+        name: input.name,
         agentId: input.agentId,
         createdByUserId: input.createdByUserId,
         createdByDisplayName: "Issuer",
@@ -109,12 +110,8 @@ const personal: CreateApiKeyRequest = {
   kind: "personal",
   scopes: ["sessions:read"],
 };
-const service_: CreateApiKeyRequest = {
-  kind: "service",
-  scopes: ["sessions:read", "sessions:write"],
-};
 const agentKey = (agent: string): CreateApiKeyRequest => ({
-  kind: "service",
+  kind: "agent",
   scopes: ["sessions:read", "sessions:write"],
   agent_id: agent,
 });
@@ -130,22 +127,26 @@ describe("issuing a key", () => {
     });
     expect(issued[0]?.createdByUserId).toBe(MEMBER);
 
-    const denied = await refusal(keys.issue(caller, service_));
+    const denied = await refusal(keys.issue(caller, agentKey(AGENT_A)));
     expect(denied.code).toBe("FORBIDDEN");
     expect(denied.details).toEqual({ reason_code: "role" });
-    expect((await refusal(keys.issue(caller, agentKey(AGENT_A)))).code).toBe(
-      "FORBIDDEN",
-    );
   });
 
-  test("owners and admins issue service keys", async () => {
+  test("owners and admins issue any agent's key", async () => {
     const { keys } = service();
     for (const caller of [user(OWNER, "owner"), user(ADMIN, "admin")]) {
-      expect((await keys.issue(caller, service_)).key.kind).toBe("service");
-      expect((await keys.issue(caller, agentKey(AGENT_B))).key.agent_id).toBe(
-        AGENT_B,
-      );
+      const created = await keys.issue(caller, agentKey(AGENT_B));
+      expect(created.key).toMatchObject({ kind: "agent", agent_id: AGENT_B });
     }
+  });
+
+  test("the name the issuer gives is kept, and none is null", async () => {
+    const { keys, issued } = service();
+    const caller = user(OWNER, "owner");
+    const named = await keys.issue(caller, { ...personal, name: "laptop" });
+    expect(named.key.name).toBe("laptop");
+    expect(issued[0]?.name).toBe("laptop");
+    expect((await keys.issue(caller, personal)).key.name).toBeNull();
   });
 
   test("an agent's admin issues keys for that agent only", async () => {
@@ -157,16 +158,13 @@ describe("issuing a key", () => {
     expect((await refusal(keys.issue(caller, agentKey(AGENT_B)))).code).toBe(
       "FORBIDDEN",
     );
-    expect((await refusal(keys.issue(caller, service_))).code).toBe(
-      "FORBIDDEN",
-    );
   });
 
   test("never above what the issuer holds now", async () => {
     const { keys } = service();
     const admin = await refusal(
       keys.issue(user(ADMIN, "admin"), {
-        kind: "service",
+        ...agentKey(AGENT_B),
         scopes: ["sessions:read", "sessions:recover"],
       }),
     );
@@ -176,14 +174,14 @@ describe("issuing a key", () => {
     expect(
       (
         await keys.issue(user(OWNER, "owner"), {
-          kind: "service",
+          kind: "personal",
           scopes: [...SESSION_SCOPE_VALUES],
         })
       ).key.scopes,
     ).toContain("sessions:recover");
   });
 
-  test("a key bound to an agent never approves (D26)", async () => {
+  test("an agent key never approves (D26)", async () => {
     const { keys } = service();
     const error = await refusal(
       keys.issue(user(OWNER, "owner"), {
@@ -208,7 +206,7 @@ describe("issuing a key", () => {
       crypto.randomUUID(),
       { creatorId: OWNER },
     );
-    for (const body of [personal, service_, agentKey(AGENT_A)]) {
+    for (const body of [personal, agentKey(AGENT_A)]) {
       expect((await refusal(keys.issue(caller, body))).code).toBe("FORBIDDEN");
     }
     expect(issued).toHaveLength(0);
@@ -226,7 +224,8 @@ describe("issuing a key", () => {
       };
       const { keys } = service(fake);
       expect(
-        (await refusal(keys.issue(user(OWNER, "owner"), service_))).code,
+        (await refusal(keys.issue(user(OWNER, "owner"), agentKey(AGENT_B))))
+          .code,
       ).toBe(code);
       expect(fake.issued[0]?.issuerRoles).toEqual(["owner", "admin"]);
     }
@@ -263,11 +262,11 @@ describe("revoking a key", () => {
     ).toBeNull();
   });
 
-  test("an agent's key falls to that agent's admin, a service key does not", async () => {
+  test("an agent's key falls to that agent's admin, another agent's does not", async () => {
     const { keys } = service();
     const owner = user(OWNER, "owner");
     const bound = (await keys.issue(owner, agentKey(AGENT_A))).key;
-    const plain = (await keys.issue(owner, service_)).key;
+    const plain = (await keys.issue(owner, agentKey(AGENT_B))).key;
     const caller = user(AGENT_ADMIN, "member");
     expect((await refusal(keys.revoke(caller, plain.id))).code).toBe(
       "FORBIDDEN",

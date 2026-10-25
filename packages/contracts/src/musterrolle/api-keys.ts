@@ -10,11 +10,22 @@ import {
 import { sessionScopeSchema } from "./authorization.ts";
 
 // API keys issued from the web or the API (design 4.2). A personal key acts
-// as the person who made it; a service key belongs to the workspace and, when
-// it names an agent, reaches that agent's sessions only.
+// as the person who made it; an agent key belongs to one agent and reaches
+// that agent's sessions only. No key reaches a whole workspace.
 
-export const API_KEY_KIND_VALUES = ["personal", "service"] as const;
+export const API_KEY_KIND_VALUES = ["personal", "agent"] as const;
 export const apiKeyKindSchema = z.enum(API_KEY_KIND_VALUES);
+
+export const API_KEY_NAME_MAX = 64;
+export const apiKeyNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(API_KEY_NAME_MAX)
+  .meta({
+    description:
+      "A label the issuer gives the key, so a list tells one integration's key from another's.",
+  });
 
 export const API_KEY_LIST_LIMIT = 200;
 
@@ -25,6 +36,8 @@ export const apiKeyViewSchema = z
   .object({
     id: apiKeyIdSchema,
     kind: apiKeyKindSchema,
+    /** Null on a key issued without one. */
+    name: z.string().nullable(),
     workspace_id: workspaceIdSchema,
     agent_id: agentIdSchema.nullable(),
     /** Null on a key issued before keys recorded who issued them. */
@@ -51,8 +64,10 @@ export const apiKeyViewSchema = z
 export const createApiKeyRequestSchema = z
   .object({
     kind: apiKeyKindSchema,
+    name: apiKeyNameSchema.optional(),
     // Never more than the issuer holds now; an agent's key never approves.
     scopes: z.array(sessionScopeSchema).min(1),
+    /** Required for an agent key, refused on a personal key. */
     agent_id: agentIdSchema.optional(),
     expires_at: timestampSchema.optional(),
   })
@@ -63,6 +78,13 @@ export const createApiKeyRequestSchema = z
         code: "custom",
         path: ["agent_id"],
         message: "a personal key acts as its creator, never as an agent",
+      });
+    }
+    if (request.kind === "agent" && request.agent_id === undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["agent_id"],
+        message: "an agent key names the agent it belongs to",
       });
     }
   });
@@ -77,7 +99,7 @@ export const createApiKeyResponseSchema = z
   .strict();
 
 /**
- * The caller's own personal keys, plus the service keys they may revoke:
+ * The caller's own personal keys, plus the agent keys they may revoke:
  * every one for an owner or admin, their agents' for an agent's admin.
  * Newest first.
  */

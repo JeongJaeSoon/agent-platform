@@ -7,7 +7,7 @@ const COPY = {
   ko: {
     keys: "API 키 종류",
     personal: "개인 키",
-    service: "서비스 키",
+    agent: "에이전트 키",
     status: "세션 상태",
     all: "전체",
     running: "실행 중",
@@ -30,7 +30,7 @@ const COPY = {
   ja: {
     keys: "API キーの種類",
     personal: "個人キー",
-    service: "サービスキー",
+    agent: "エージェントキー",
     status: "セッションの状態",
     all: "すべて",
     running: "実行中",
@@ -53,7 +53,7 @@ const COPY = {
   en: {
     keys: "API key kinds",
     personal: "Personal keys",
-    service: "Service keys",
+    agent: "Agent keys",
     status: "Session status",
     all: "All",
     running: "Running",
@@ -110,11 +110,11 @@ function KeyTabs(context: Globals) {
         {copy.personal}
       </LinkTab>
       <LinkTab
-        href="/api-keys/service"
-        current={current === "service"}
-        onClick={select("service")}
+        href="/api-keys/agents"
+        current={current === "agent"}
+        onClick={select("agent")}
       >
-        {copy.service}
+        {copy.agent}
       </LinkTab>
     </LinkTabs>
   );

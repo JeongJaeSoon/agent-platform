@@ -16,6 +16,7 @@
 //   browser.mjs <run> press <text|css> [Key]      focus it, then a real key (Enter): click leaves focus where it was
 //   browser.mjs <run> key <Key> [count] | eval <expr>   @N: the Nth field in <main>, from 0
 //   browser.mjs <run> measure <name>              evidence/layout/<name>.json for layout-report.mjs
+//   browser.mjs <run> slack-consent [team]        in-page Slack link start, mock consent, open the callback
 //
 // Every page command takes W (default 1280), H (900) and THEME (light|dark)
 // from the environment, e.g. W=390 THEME=dark browser.mjs <run> shot home-390-dark.
@@ -241,9 +242,12 @@ async function capture(name, full = false) {
   writeFileSync(shotPath(name), Buffer.from(r.data, "base64"));
   return shotPath(name);
 }
-// The invite token is a path segment; never print it.
+// The invite token is a path segment and OAuth callbacks carry code/state in
+// the query; never print them.
 const masked = (text) =>
-  String(text).replace(/\/invite\/[^/?#\s|]+/g, "/invite/(token)");
+  String(text)
+    .replace(/\/invite\/[^/?#\s|]+/g, "/invite/(token)")
+    .replace(/([?&](?:code|state)=)[^&#\s|]+/g, "$1(hidden)");
 const here = async () =>
   masked(await evaluate("location.pathname + location.search"));
 // "@N" is the Nth field in <main> (from 0), for forms whose inputs have no name.
@@ -392,6 +396,65 @@ switch (cmd) {
     );
     break;
   }
+  case "slack-consent": {
+    // authorize_url carries the OAuth state and the callback URL the code, so
+    // both stay in this process: CDP in, bun's stdin, CDP out. Never argv.
+    if (!state.COMPOSE_PROJECT_NAME?.startsWith("verify-ap-"))
+      throw new Error("not a verification project");
+    if (!state.COMPOSE_FILE?.includes("infra/compose.mock-slack.yml"))
+      throw new Error("mock Slack overlay required");
+    const team = args[0];
+    if (team && !/^T[0-9A-Z]+$/.test(team))
+      throw new Error("mock team id like T0OTHER");
+    const authorize = await evaluate(
+      'fetch("/v1/linked-accounts/slack/start",{method:"POST",headers:{"x-requested-with":"agent-platform-web"}}).then(r=>r.json()).then(j=>j.authorize_url ?? "")',
+    );
+    if (!/^https?:/.test(authorize ?? ""))
+      throw new Error(
+        "link start gave no authorize_url (logged in? Slack set up?)",
+      );
+    let location;
+    try {
+      location = execFileSync(
+        "docker",
+        [
+          "compose",
+          "--profile",
+          "apps",
+          "--profile",
+          "fake-model",
+          "exec",
+          "-T",
+          "api",
+          "bun",
+          "-e",
+          'let status; try { const r = await fetch((await Bun.stdin.text()).trim(), { redirect: "manual" }); status = r.status; if (status !== 302) throw new Error(); const location = r.headers.get("location"); if (!location || !/^https?:$/.test(new URL(location).protocol)) throw new Error(); console.log(location); } catch { console.error(`mock consent failed (HTTP ${status ?? "unavailable"})`); process.exit(1); }',
+        ],
+        {
+          cwd: state.VERIFY_REPO,
+          env: { ...process.env, ...state },
+          encoding: "utf8",
+          stdio: ["pipe", "pipe", "pipe"],
+          input: team ? `${authorize}&mock_team=${team}` : authorize,
+        },
+      ).trim();
+    } catch (error) {
+      // Child errors can include the authorization URL; only a status is safe.
+      const status =
+        /^mock consent failed \(HTTP (\d{3}|unavailable)\)\s*$/.exec(
+          String(error.stderr ?? ""),
+        )?.[1] ?? "unavailable";
+      throw new Error(`mock consent failed (HTTP ${status})`);
+    }
+    if (!/^https?:/.test(location))
+      throw new Error("mock consent gave no redirect");
+    // The redirect names the overlay's 127.0.0.1:3000 origin, not this run's port.
+    const back = new URL(location);
+    await navigate(url(back.pathname + back.search));
+    await settle();
+    console.log(`slack-consent -> ${await evaluate("location.pathname")}`);
+    break;
+  }
   case "shot": {
     await settle();
     const file = await capture(args[0], args[1] === "full");
@@ -499,6 +562,7 @@ switch (cmd) {
       readFileSync(new URL("./measure-layout.js", import.meta.url), "utf8"),
     );
     if (typeof m === "string") throw new Error(m);
+    m.path = masked(m.path);
     const file = join(run, "evidence", "layout", `${args[0]}.json`);
     mkdirSync(join(run, "evidence", "layout"), { recursive: true });
     writeFileSync(file, `${JSON.stringify(m, null, 1)}\n`);

@@ -65,6 +65,7 @@ export {
   GridTableRow,
   GridTableRowOpener,
   type GridTableRowOpenerProps,
+  type GridTableRowProps,
 } from "./grid-table.tsx";
 export { Heading, type HeadingProps } from "./heading.tsx";
 export { Input } from "./input.tsx";
@@ -75,6 +76,7 @@ export {
   SkipLink,
   type SkipLinkProps,
 } from "./link.tsx";
+export { Meter, type MeterProps } from "./meter.tsx";
 export {
   NativeSelect,
   NativeSelectOptGroup,
@@ -102,6 +104,7 @@ export {
   type SegmentedControlProps,
 } from "./segmented-control.tsx";
 export { Skeleton, type SkeletonProps } from "./skeleton.tsx";
+export { Sparkline, type SparklineProps } from "./sparkline.tsx";
 export {
   StatusDot,
   type StatusDotProps,
@@ -120,6 +123,7 @@ export {
   TableHeader,
   type TableHeadProps,
   TableRow,
+  type TableRowProps,
 } from "./table.tsx";
 export {
   Tabs,

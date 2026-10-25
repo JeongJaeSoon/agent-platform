@@ -95,7 +95,11 @@ const SESSION_PATH = /^\/sessions\/([^/]+)\/?$/;
 const AGENT_PATH = /^\/agents\/([^/]+)\/?$/;
 
 // Lists, though they sit under settings.
-const KEY_LISTS = new Set(["/settings/api-keys", "/settings/api-keys/service"]);
+const KEY_LISTS = new Set([
+  "/settings/api-keys",
+  "/settings/api-keys/agents",
+  "/settings/api-keys/org",
+]);
 
 /**
  * How wide a screen's content may grow before it centres in the space beside
