@@ -349,6 +349,26 @@ describe("tools tab loading", () => {
     expect(getByText("읽지 못했습니다")).toBeTruthy();
     expect(queryByRole("heading", { name: "최근 호출" })).toBeNull();
   });
+
+  test("ToolRail은 14일 내내 호출이 없어도 막대 높이를 숫자로 쓴다", () => {
+    const { container } = withPlatform(
+      <ToolRail
+        name="Bash"
+        tool={TOOLS[0]}
+        perDay={Array.from({ length: 14 }, (_, i) => ({
+          date: `2026-10-${String(10 + i).padStart(2, "0")}`,
+          calls: 0,
+        }))}
+        calls={[]}
+        callSort="recent"
+        onCallSortChange={() => {}}
+      />,
+    );
+    const heights = [
+      ...container.querySelectorAll<HTMLElement>("[role=img] > span > span"),
+    ].map((bar) => bar.style.height);
+    expect(heights).toEqual(Array(14).fill("0.0%"));
+  });
 });
 
 describe("tools sort and search", () => {

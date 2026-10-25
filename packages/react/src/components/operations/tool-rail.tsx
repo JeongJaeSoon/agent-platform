@@ -146,7 +146,7 @@ export function ToolRail({
           <BarChart
             compact
             data={days.map((d) => ({ x: d.date, y: d.calls }))}
-            yMax={peak.calls}
+            yMax={peak.calls || undefined}
             label={messages.perDayChart({
               name,
               days: days.length,

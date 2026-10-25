@@ -10,7 +10,7 @@ import type { UsageTool } from "./tools.ts";
 import { useOperationsMessages } from "./use-messages.ts";
 
 const SORTS: readonly ToolSort[] = ["calls", "time", "slow", "failed"];
-const SORT_KEY: Readonly<Record<ToolSort, keyof UsageTool>> = {
+const SORT_KEY: Readonly<Record<ToolSort, Exclude<keyof UsageTool, "name">>> = {
   calls: "calls",
   time: "total_ms",
   slow: "median_ms",
@@ -25,7 +25,7 @@ export function sortTools(
   sort: ToolSort,
 ): readonly UsageTool[] {
   const key = SORT_KEY[sort];
-  return [...tools].sort((a, b) => Number(b[key]) - Number(a[key]));
+  return [...tools].sort((a, b) => b[key] - a[key]);
 }
 
 /** Tools whose name holds `query`, case aside. */
