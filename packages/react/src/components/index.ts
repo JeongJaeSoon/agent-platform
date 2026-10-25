@@ -37,12 +37,17 @@ export {
   type OperationsMessages,
   type OperationsTab,
   type SessionCountsMessages,
+  type ToolCallSort,
   type ToolCallsMessages,
+  type ToolRailMessages,
+  type ToolSort,
+  type ToolsFilterMessages,
   type ToolsSummaryMessages,
   type ToolTableMessages,
   type UsageFiltersMessages,
   type UsageKpisMessages,
 } from "./operations/messages.ts";
+export { MoreLink } from "./operations/more-link.tsx";
 export {
   OperationsHead,
   type OperationsHeadProps,
@@ -52,6 +57,12 @@ export {
   type SessionCountsProps,
 } from "./operations/session-counts.tsx";
 export { ToolCalls, type ToolCallsProps } from "./operations/tool-calls.tsx";
+export {
+  TOOL_RAIL_CALLS,
+  TOOL_RAIL_DAYS,
+  ToolRail,
+  type ToolRailProps,
+} from "./operations/tool-rail.tsx";
 export { ToolTable, type ToolTableProps } from "./operations/tool-table.tsx";
 export type {
   UsageTool,
@@ -60,6 +71,13 @@ export type {
   UsageToolFindingKind,
   UsageToolsResponse,
 } from "./operations/tools.ts";
+export {
+  findTools,
+  sortTools,
+  TOOL_SEARCH_DEBOUNCE_MS,
+  ToolsFilter,
+  type ToolsFilterProps,
+} from "./operations/tools-filter.tsx";
 export {
   ToolsSummary,
   type ToolsSummaryProps,

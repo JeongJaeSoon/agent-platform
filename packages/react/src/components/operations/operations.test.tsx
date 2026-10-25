@@ -10,6 +10,10 @@ const { Findings } = await import("./findings.tsx");
 const { SessionCounts } = await import("./session-counts.tsx");
 const { ToolCalls } = await import("./tool-calls.tsx");
 const { ToolTable } = await import("./tool-table.tsx");
+const { ToolRail } = await import("./tool-rail.tsx");
+const { ToolsSummary } = await import("./tools-summary.tsx");
+const { findTools, sortTools, TOOL_SEARCH_DEBOUNCE_MS, ToolsFilter } =
+  await import("./tools-filter.tsx");
 const { InstallationLimits } = await import("./installation-limits.tsx");
 const { OperationsHead } = await import("./operations-head.tsx");
 const { UsageFilters } = await import("./usage-filters.tsx");
@@ -236,6 +240,179 @@ describe("ToolTable loading", () => {
     expect(getAllByRole("row")).toHaveLength(TOOLS.length + 1);
     expect(queryByText("도구 목록을 읽는 중")).toBeNull();
   });
+
+  // The rows keep their height when the tools come only while the loading
+  // rows draw the lines a tool row has: no note line without `describe`.
+  test("describe가 없으면 읽는 중 행도 설명 줄이 없어 도구 행과 줄 수가 같다", () => {
+    const lines = (tools: typeof TOOLS | undefined) => {
+      const { container, unmount } = withPlatform(
+        <ToolTable tools={tools} label="도구와 명령" loadingRows={1} />,
+      );
+      const cell = container.querySelector(
+        "[role=row]:nth-child(2) [role=cell]",
+      );
+      const count = [...(cell?.children ?? [])].filter(
+        (child) =>
+          !child.matches("button, .sr-only") &&
+          !child.className.includes("sr-only"),
+      ).length;
+      unmount();
+      return count;
+    };
+    // A name and a meter.
+    expect(lines(undefined)).toBe(2);
+    expect(lines(TOOLS)).toBe(2);
+  });
+
+  test("검색 결과가 없으면 '기간에 불린 도구 없음'이 아니라 '찾는 이름 없음'이다", () => {
+    const { getByText, unmount } = withPlatform(
+      <ToolTable tools={[]} label="도구와 명령" searched />,
+    );
+    expect(getByText("찾는 이름의 도구가 없습니다.")).toBeTruthy();
+    unmount();
+    expect(
+      withPlatform(<ToolTable tools={[]} label="도구와 명령" />).getByText(
+        "이 기간에 불린 도구가 없습니다.",
+      ),
+    ).toBeTruthy();
+  });
+});
+
+describe("tools tab loading", () => {
+  test("Findings와 ToolsSummary는 읽는 중에 숨긴 자리표시만 둔다", () => {
+    const { container, queryAllByRole } = withPlatform(
+      <>
+        <Findings data={undefined} loadingRows={3} />
+        <ToolsSummary tools={undefined} period="최근 30일" />
+      </>,
+    );
+    expect(container.querySelectorAll("li")).toHaveLength(3);
+    expect(queryAllByRole("listitem")).toHaveLength(0);
+    expect(queryAllByRole("status")).toHaveLength(0);
+    expect(container.querySelector("[data-slot=tools-summary]")).toBeNull();
+  });
+
+  test("ToolRail은 이름도 모를 때 자리표시로 서고, 값이 오면 같은 자리에 그린다", () => {
+    const rail = (ready: boolean) => (
+      <AgentPlatformProvider
+        client={{} as ApiClient}
+        locale="ko"
+        renderLink={({ id, children }) => <a href={`/s/${id}`}>{children}</a>}
+      >
+        <ToolRail
+          name={ready ? "Bash" : undefined}
+          tool={ready ? TOOLS[0] : undefined}
+          perDay={
+            ready
+              ? Array.from({ length: 20 }, (_, i) => ({
+                  date: `2026-10-${String(5 + i).padStart(2, "0")}`,
+                  calls: i,
+                }))
+              : undefined
+          }
+          calls={ready ? [] : undefined}
+          callSort="recent"
+          onCallSortChange={() => {}}
+        />
+      </AgentPlatformProvider>
+    );
+    const { getByRole, queryByRole, rerender, container } = render(rail(false));
+    const aside = getByRole("complementary", { name: "선택한 도구" });
+    expect(queryByRole("img")).toBeNull();
+    expect(
+      [...container.querySelectorAll("dd")].map(
+        (dd) => dd.querySelector("[aria-hidden=true]") !== null,
+      ),
+    ).toEqual([true, true, true, true]);
+    rerender(rail(true));
+    expect(getByRole("complementary", { name: "선택한 도구" }) === aside).toBe(
+      true,
+    );
+    expect(getByRole("heading", { name: "Bash" })).toBeTruthy();
+    expect(
+      [...container.querySelectorAll("dd")].map((dd) => dd.textContent),
+    ).toEqual(["1,840번", "3시간 42분", "3.1초", "21번 (1.1%)"]);
+    // The last 14 of 20 days: 6..19.
+    expect(getByRole("img").getAttribute("aria-label")).toBe(
+      "Bash 일자별 호출, 최근 14일, 합계 175번, 가장 많은 날 10/24 19번",
+    );
+  });
+
+  test("ToolRail error는 차트 자리에 서고 최근 호출 칸은 두지 않는다", () => {
+    const { getByText, queryByRole } = withPlatform(
+      <ToolRail
+        name="Bash"
+        tool={TOOLS[0]}
+        perDay={undefined}
+        calls={undefined}
+        callSort="recent"
+        onCallSortChange={() => {}}
+        error={<p>읽지 못했습니다</p>}
+      />,
+    );
+    expect(getByText("읽지 못했습니다")).toBeTruthy();
+    expect(queryByRole("heading", { name: "최근 호출" })).toBeNull();
+  });
+});
+
+describe("tools sort and search", () => {
+  test("정렬은 그 값이 큰 순이고 같으면 API 순서를 지킨다; 검색은 대소문자를 가리지 않는다", () => {
+    const names = (tools: readonly { name: string }[]) =>
+      tools.map((t) => t.name);
+    expect(names(sortTools(TOOLS, "calls"))).toEqual([
+      "Bash",
+      "Edit",
+      "WebFetch",
+    ]);
+    expect(names(sortTools(TOOLS, "time"))).toEqual([
+      "Bash",
+      "WebFetch",
+      "Edit",
+    ]);
+    expect(names(sortTools(TOOLS, "slow"))).toEqual([
+      "WebFetch",
+      "Bash",
+      "Edit",
+    ]);
+    expect(
+      names(
+        sortTools(
+          [
+            ...TOOLS,
+            {
+              name: "Z",
+              calls: 1,
+              failed: 21,
+              total_ms: 0,
+              median_ms: 0,
+              max_ms: 0,
+            },
+          ],
+          "failed",
+        ),
+      ),
+    ).toEqual(["Bash", "Z", "Edit", "WebFetch"]);
+    expect(names(findTools(TOOLS, " web "))).toEqual(["WebFetch"]);
+    expect(names(findTools(TOOLS, ""))).toEqual(names(TOOLS));
+  });
+
+  test("검색어는 입력이 멈춘 뒤 한 번만 알린다", async () => {
+    const seen: string[] = [];
+    const { getByRole } = withPlatform(
+      <ToolsFilter
+        sort="calls"
+        onSortChange={() => {}}
+        onQueryChange={(query) => seen.push(query)}
+      />,
+    );
+    const user = await setupUser();
+    await user.type(getByRole("searchbox", { name: "도구 찾기" }), "bash");
+    expect(seen).toEqual([]);
+    await new Promise((resolve) =>
+      setTimeout(resolve, TOOL_SEARCH_DEBOUNCE_MS + 50),
+    );
+    expect(seen).toEqual(["bash"]);
+  });
 });
 
 describe("ToolCalls loading", () => {
@@ -271,17 +448,28 @@ describe("ToolCalls", () => {
             duration_ms: 41200,
             outcome: "ok",
           },
+          {
+            occurred_at: "2026-10-24T12:31:02Z",
+            agent: null,
+            session_id: "ses_06",
+            title: "릴리스 노트 초안",
+            duration_ms: 3400,
+            outcome: "failed",
+          },
         ]}
       />,
     );
     expect(queryAllByRole("link").map((a) => a.getAttribute("href"))).toEqual([
       "/session/ses_05",
+      "/session/ses_06",
     ]);
     expect(getAllByText("볼 수 없는 세션")).toHaveLength(1);
     const rows = getAllByRole("listitem").map((item) => item.textContent);
     expect(rows).toEqual([
       "PR #813 리뷰리뷰 봇 · 21:39—결과 모름",
       "볼 수 없는 세션배포 도우미 · 21:3641.2초완료",
+      // No agent: the time alone, no separator left before it.
+      "릴리스 노트 초안21:313.4초실패",
     ]);
   });
 });
