@@ -36,12 +36,8 @@ import {
   teamQuery,
   teamsQuery,
 } from "../api/queries.ts";
-import {
-  ReasonButton,
-  refusalText,
-  useHasPermission,
-  useRole,
-} from "../auth/guard.tsx";
+import { refusalText, useHasPermission, useRole } from "../auth/guard.tsx";
+import { ReasonButton } from "../auth/reason-button.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import {
   MUTED,

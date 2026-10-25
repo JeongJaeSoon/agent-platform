@@ -10,7 +10,6 @@ import type {
   WorkspaceRole,
 } from "@werft-ai/contracts";
 import { useMe as useMeQuery } from "@werft-ai/react";
-import { type ButtonHTMLAttributes, useId } from "react";
 import {
   errorKey,
   isMessageKey,
@@ -81,63 +80,6 @@ export function useHasPermission(action: AuthorizationAction): boolean {
 
 export function useCan(scope: SessionScope): boolean {
   return useMe()?.scopes.includes(scope) ?? false;
-}
-
-export interface GuardedButtonProps
-  extends ButtonHTMLAttributes<HTMLButtonElement> {
-  readonly scope: SessionScope;
-}
-
-/** A button that stays visible but disabled, saying why, without the scope. */
-export function GuardedButton({ scope, ...rest }: GuardedButtonProps) {
-  const allowed = useCan(scope);
-  const { t } = useI18n();
-  return (
-    <ReasonButton
-      {...rest}
-      reason={allowed ? undefined : t("guard.missingScope", { scope })}
-    />
-  );
-}
-
-export interface ReasonButtonProps
-  extends ButtonHTMLAttributes<HTMLButtonElement> {
-  /** Why the action is unavailable; the button is disabled while it is set. */
-  readonly reason: string | undefined;
-}
-
-/**
- * The shape every withheld action takes: still on the page, disabled, and
- * described by the reason so a screen reader hears why.
- */
-export function ReasonButton({
-  reason,
-  disabled,
-  className = "ap-button",
-  children,
-  ...rest
-}: ReasonButtonProps) {
-  const reasonId = useId();
-  return (
-    <span className="web-guarded">
-      <button
-        type="button"
-        {...rest}
-        className={className}
-        disabled={disabled || reason !== undefined}
-        aria-describedby={
-          reason === undefined ? rest["aria-describedby"] : reasonId
-        }
-      >
-        {children}
-      </button>
-      {reason === undefined ? null : (
-        <span id={reasonId} className="web-guarded__reason">
-          {reason}
-        </span>
-      )}
-    </span>
-  );
 }
 
 /**

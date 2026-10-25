@@ -561,6 +561,13 @@
       "when": 1792936457051,
       "tag": "0170_tool_calls",
       "breakpoints": true
+    },
+    {
+      "idx": 171,
+      "version": "7",
+      "when": 1792942860118,
+      "tag": "0171_tool_calls_session_name",
+      "breakpoints": true
     }
   ]
 }

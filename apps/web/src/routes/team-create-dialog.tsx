@@ -22,7 +22,8 @@ import {
 import { Plus } from "lucide-react";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { queryKeys } from "../api/queries.ts";
-import { ReasonButton, refusalText, useRole } from "../auth/guard.tsx";
+import { refusalText, useRole } from "../auth/guard.tsx";
+import { ReasonButton } from "../auth/reason-button.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 
 /**

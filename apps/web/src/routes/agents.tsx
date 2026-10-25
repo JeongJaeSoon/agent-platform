@@ -26,11 +26,11 @@ import { useRef, useState } from "react";
 import { administeredAgentsQuery, agentsQuery } from "../api/queries.ts";
 import {
   permissionReason,
-  ReasonButton,
   useHasPermission,
   useMe,
   useRole,
 } from "../auth/guard.tsx";
+import { ReasonButton } from "../auth/reason-button.tsx";
 import {
   ADMINISTERED_LIST_LIMIT,
   AdministeredAgents,

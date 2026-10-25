@@ -54,6 +54,49 @@ describe("에이전트 상세 탭", () => {
     expect(document.activeElement === visiblePanel()).toBe(true);
   });
 
+  test("머리의 버튼 줄은 새 세션 뒤 맨 끝에 에이전트 목록으로 돌아가는 버튼을 두고, 제목 위 위치 줄은 없다", async () => {
+    renderAt(DETAIL, { ...meOk, ...agentServer().routes });
+    const heading = await screen.findByRole("heading", { level: 1 });
+    const header = heading.closest("header") as HTMLElement;
+    expect(
+      within(header).queryByRole("navigation", { name: "위치" }),
+    ).toBeNull();
+    const back = within(header).getByRole("link", { name: "에이전트 목록" });
+    expect(back.getAttribute("href")).toBe("/agents");
+    const create = within(header).getByRole("button", {
+      name: /이 에이전트로 새 세션/,
+    });
+    expect(
+      within(header)
+        .getAllByRole("button")
+        .map((button) => button.textContent),
+    ).toEqual(["이 에이전트로 새 세션"]);
+    // The keyboard reaches the title, the command, then the way back.
+    expect(
+      heading.compareDocumentPosition(create) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      create.compareDocumentPosition(back) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  test("상태 태그는 제목 줄의 이름 옆에 있되 제목 이름에 섞이지 않고, 설명 줄에는 역할만 둔다", async () => {
+    renderAt(DETAIL, { ...meOk, ...agentServer().routes });
+    const heading = await screen.findByRole("heading", {
+      level: 1,
+      name: "결제 담당",
+    });
+    await waitFor(() =>
+      expect(heading.nextElementSibling?.textContent).toBe("아직 쓸 수 없음"),
+    );
+    expect(heading.nextElementSibling?.getAttribute("data-slot")).toBe("badge");
+    const description = document.getElementById(
+      heading.getAttribute("aria-describedby") ?? "",
+    );
+    expect(description?.textContent).toBe("결제 문의 담당");
+  });
+
   test("주소의 tab으로 다시 열면 그 탭이고, 탭 이동은 뒤로 가기 기록을 쌓지 않는다", async () => {
     const server = agentServer();
     const { history } = renderAt("/agents", { ...meOk, ...server.routes });
@@ -327,15 +370,24 @@ describe("에이전트 상세 탭", () => {
   });
 
   test("머리의 새 세션 버튼은 꺼져 있고 이유를 읽어 준다", async () => {
-    renderAt(DETAIL, { ...meOk, ...agentServer().routes });
-    const button = (await screen.findByRole("button", {
+    const { history } = renderAt(DETAIL, { ...meOk, ...agentServer().routes });
+    const user = await setupUser();
+    const button = await screen.findByRole("button", {
       name: "이 에이전트로 새 세션",
-    })) as HTMLButtonElement;
-    expect(button.disabled).toBe(true);
+    });
+    expect(button.getAttribute("aria-disabled")).toBe("true");
     expect(
       document.getElementById(button.getAttribute("aria-describedby") ?? "")
         ?.textContent,
     ).toContain("웹에서는 아직 세션을 시작할 수 없습니다");
+    // The reason is a note on the button, not a line under it.
+    expect(
+      screen
+        .getAllByText(/웹에서는 아직 세션을 시작할 수 없습니다/)
+        .filter((node) => node.closest("[hidden]") === null),
+    ).toHaveLength(0);
+    await user.click(button);
+    expect(history.location.pathname).toBe(DETAIL);
   });
 
   test("카드 탭은 카드를 읽기 전용으로 보이고 원문 JSON을 함께 둔다", async () => {
