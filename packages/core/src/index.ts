@@ -20,6 +20,7 @@ export {
   sessionUsageQuery,
   teamQuery,
   teamsQuery,
+  usageBreakdownQuery,
   usageSeriesQuery,
   viewerQuery,
   waitingSessionsQuery,

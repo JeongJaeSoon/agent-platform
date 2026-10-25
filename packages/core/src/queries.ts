@@ -27,6 +27,8 @@ import type {
   SessionDetail,
   SessionUsageResponse,
   TeamDetail,
+  UsageBreakdownBy,
+  UsageBreakdownResponse,
   UsageSeriesResponse,
   UsageSummaryScope,
 } from "@werft-ai/contracts";
@@ -111,6 +113,12 @@ export const queryKeys = {
     since: string,
     until: string | null,
   ) => ["usage-series", scope, since, until] as const,
+  usageBreakdown: (
+    scope: UsageSummaryScope,
+    since: string,
+    until: string | null,
+    by: UsageBreakdownBy,
+  ) => ["usage-breakdown", scope, since, until, by] as const,
 };
 
 export function meQuery(client: ApiClient) {
@@ -435,6 +443,27 @@ export function usageSeriesQuery(
           },
         }),
       ) as Promise<UsageSeriesResponse>,
+    retry: false,
+  });
+}
+
+export function usageBreakdownQuery(
+  client: ApiClient,
+  scope: UsageSummaryScope,
+  since: string,
+  by: UsageBreakdownBy,
+  until: string | null = null,
+) {
+  return queryOptions({
+    queryKey: queryKeys.usageBreakdown(scope, since, until, by),
+    queryFn: () =>
+      unwrap(
+        client.GET("/v1/usage/breakdown", {
+          params: {
+            query: { scope, since, by, ...(until === null ? {} : { until }) },
+          },
+        }),
+      ) as Promise<UsageBreakdownResponse>,
     retry: false,
   });
 }
