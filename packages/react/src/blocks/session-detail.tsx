@@ -291,8 +291,9 @@ export function SessionDetail({
     <DetailLayout rail={rail}>
       <PageHeader
         // Wide, the meta line wraps under the title and the commands stay
-        // top right (console v4 `.page-head`); narrow, the commands wrap below.
-        className="flex-wrap md:flex-nowrap"
+        // top right (console v4 `.page-head`); narrow, the commands go below
+        // across the full width, the way back at the right end.
+        className="max-md:flex-col max-md:items-stretch"
         title={
           <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
             {/* A server from before titles sends none at all. */}

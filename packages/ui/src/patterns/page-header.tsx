@@ -19,7 +19,8 @@ export interface PageHeaderProps {
   readonly actions?: ReactNode | undefined;
   /**
    * A `PageBreadcrumb` on the line above the title, where another page's
-   * title starts; the way back to a list goes here, not in `actions`.
+   * title starts. A detail screen's way back to its list is a button at
+   * the end of `actions` instead (user decision 2026-10-25).
    */
   readonly breadcrumb?: ReactNode | undefined;
   readonly className?: string | undefined;

@@ -384,7 +384,7 @@ export function SessionDetailScreen() {
         back={
           <Link
             to="/sessions"
-            className={buttonVariants({ variant: "outline" })}
+            className={buttonVariants({ variant: "outline", size: "sm" })}
           >
             <ArrowLeft strokeWidth={1.5} aria-hidden="true" />
             {t("session.back")}

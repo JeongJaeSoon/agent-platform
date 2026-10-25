@@ -602,8 +602,8 @@ export function SessionControls({
   return (
     <>
       {head ? (
-        // Wrapped under the title on a narrow page, the row starts at the left.
-        <div className="flex min-w-0 flex-col items-start gap-1 md:items-end">
+        // Under the title on a narrow page, the row starts at the left.
+        <div className="flex min-w-0 flex-1 flex-col items-start gap-1 md:items-end">
           <div className="flex flex-wrap items-center gap-2 self-stretch md:justify-end">
             {actions.length === 0 ? null : group}
             {trailing === undefined ? null : (

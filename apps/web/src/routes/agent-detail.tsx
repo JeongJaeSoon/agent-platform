@@ -452,7 +452,10 @@ function AgentView({
   return (
     <Page
       // As on a session's page: narrow, the commands go under the title.
-      headClassName="max-md:flex-col"
+      // Below 1024 the two buttons leave the name too little room to keep
+      // its tag beside it, so they go under the title, the way back at the
+      // row's right end.
+      headClassName="max-lg:flex-col max-lg:items-stretch"
       title={
         <span className="flex min-w-0 items-center gap-3">
           <AgentAvatar name={agent.name} />
@@ -480,7 +483,7 @@ function AgentView({
       }
       actions={
         // The way back ends the row, the command before it.
-        <div className="flex flex-wrap items-start gap-2">
+        <div className="flex flex-1 flex-wrap items-start gap-2">
           <ReasonButton
             className={buttonVariants()}
             reason={t("sessionList.newUnavailable")}
