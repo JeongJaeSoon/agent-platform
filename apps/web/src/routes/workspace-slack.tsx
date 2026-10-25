@@ -1,11 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ApiError, isApiError, unwrap } from "@werft-ai/client";
-import type { SlackConfigTokenSummary } from "@werft-ai/contracts";
+import type {
+  PutSlackConfigTokenResponse,
+  SlackConfigTokenSummary,
+} from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
 import {
   Badge,
   Button,
   ConfirmDialog,
+  ErrorState,
   Field,
   FieldDescription,
   FieldError,
@@ -105,6 +109,7 @@ function ConfigToken({ onOutcome }: { readonly onOutcome: OnOutcome }) {
         }),
       ),
     enabled: workspaceId !== "" && canManage,
+    retry: (failures, error) => !storeOff(error) && failures < 3,
   });
   const refresh = () =>
     queryClient.invalidateQueries({ queryKey: tokenKey(workspaceId) });
@@ -113,10 +118,12 @@ function ConfigToken({ onOutcome }: { readonly onOutcome: OnOutcome }) {
       kind: "error",
       text: isApiError(error, "CONFIG_TOKEN_INVALID")
         ? t("workspace.tokenRejected")
-        : refusalText(t, error, "workspace.manage", role),
+        : storeOff(error)
+          ? t("workspace.tokenStoreUnavailable")
+          : refusalText(t, error, "workspace.manage", role),
     });
 
-  const save = useMutation<unknown, ApiError, string>({
+  const save = useMutation<PutSlackConfigTokenResponse, ApiError, string>({
     // The variables hold the token; keep it nowhere once the attempt ends.
     gcTime: 0,
     mutationFn: (value) =>
@@ -127,9 +134,16 @@ function ConfigToken({ onOutcome }: { readonly onOutcome: OnOutcome }) {
         }),
       ),
     onMutate: () => onOutcome(null),
-    onSuccess: async () => {
+    onSuccess: async (stored) => {
       setEditing(false);
-      onOutcome({ kind: "notice", text: t("workspace.tokenStored") });
+      onOutcome({
+        kind: "notice",
+        text: t(
+          stored.warnings.length > 0
+            ? "workspace.tokenIssuerChanged"
+            : "workspace.tokenStored",
+        ),
+      });
       // Not awaited: the reset that drops the value waits for this callback.
       void refresh();
     },
@@ -148,8 +162,16 @@ function ConfigToken({ onOutcome }: { readonly onOutcome: OnOutcome }) {
       onOutcome({ kind: "notice", text: t("workspace.tokenDeleted") });
       await refresh();
     },
-    onError: (error) => {
+    onError: async (error) => {
       setDeleting(false);
+      // Another tab or person deleted it first: the token is gone either way.
+      if (isApiError(error, "NOT_FOUND")) {
+        const again = await token.refetch();
+        if (again.data?.state === "unset") {
+          onOutcome({ kind: "notice", text: t("workspace.tokenDeleted") });
+          return;
+        }
+      }
       refused(error);
     },
   });
@@ -182,7 +204,14 @@ function ConfigToken({ onOutcome }: { readonly onOutcome: OnOutcome }) {
     </RowListItem>
   ) : token.isError ? (
     <RowListItem>
-      <LoadFailure error={token.error} onRetry={() => void token.refetch()} />
+      {storeOff(token.error) ? (
+        <ErrorState
+          title={t("status.loadFailed")}
+          message={t("workspace.tokenStoreUnavailable")}
+        />
+      ) : (
+        <LoadFailure error={token.error} onRetry={() => void token.refetch()} />
+      )}
     </RowListItem>
   ) : (
     <>
@@ -330,10 +359,23 @@ function tokenLine(
   }
   if (!summary?.updated_at) return undefined;
   const at = formatTimestamp(summary.updated_at, locale);
-  return summary.updated_by
-    ? t("workspace.tokenSavedBy", { at, by: summary.updated_by.display_name })
-    : t("workspace.tokenSavedAt", { at });
+  return [
+    summary.last4 ? `••••${summary.last4}` : null,
+    summary.updated_by
+      ? t("workspace.tokenSavedBy", { at, by: summary.updated_by.display_name })
+      : t("workspace.tokenSavedAt", { at }),
+    summary.issuer
+      ? t("workspace.tokenIssuer", { id: summary.issuer.user_id })
+      : null,
+  ]
+    .filter((part) => part !== null)
+    .join(" · ");
 }
+
+// The API answers this way when it runs without its secret key; a retry
+// cannot help, an administrator has to configure the store.
+const storeOff = (error: unknown) =>
+  isApiError(error, "BACKEND_UNAVAILABLE") && error.retryable === false;
 
 function DangerZone({ children }: { readonly children: ReactNode }) {
   const { t } = useI18n();

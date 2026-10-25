@@ -1,13 +1,24 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import type { UsageSummaryScope } from "@werft-ai/contracts";
 import {
   DetailLayout,
-  DetailRail,
-  DetailRailSection,
   Findings,
+  findTools,
+  InstallationLimits,
+  MoreLink,
+  OperationsHead,
+  type OperationsTab,
   SessionCounts,
-  ToolCalls,
+  sortTools,
+  type ToolCallSort,
+  ToolRail,
+  type ToolSort,
+  ToolsFilter,
   ToolsSummary,
   ToolTable,
+  UsageFilters,
+  UsageKpis,
+  type UsagePeriod,
 } from "@werft-ai/react/components";
 import {
   Badge,
@@ -21,21 +32,10 @@ import {
   GridTableColumnHeader,
   GridTableHeader,
   GridTableRow,
-  KeyValueList,
   Link,
-  LinkTab,
-  LinkTabs,
   Meter,
-  PageHeader,
-  RowList,
-  RowListItem,
-  SearchInput,
   Section,
-  SegmentedControl,
-  SegmentedControlItem,
   Skeleton,
-  Sparkline,
-  StatCard,
   Text,
 } from "@werft-ai/ui";
 import {
@@ -66,16 +66,11 @@ import { MOBILE, ScreenShell } from "./screen-kit.tsx";
  * operations part; the data is the design's own, as API responses.
  */
 
-type Tab = "overview" | "usage" | "tools" | "limits";
+type Tab = OperationsTab;
 type Role = "owner" | "admin" | "member";
-type Days = 7 | 30 | 90;
+type Days = UsagePeriod;
 
-const TABS: readonly (readonly [Tab, string])[] = [
-  ["overview", "개요"],
-  ["usage", "사용량"],
-  ["tools", "도구 활동"],
-  ["limits", "한도"],
-];
+const TABS: readonly Tab[] = ["overview", "usage", "tools", "limits"];
 
 // ---------- display transforms (not API fields) ----------
 const nf = new Intl.NumberFormat("ko-KR");
@@ -87,15 +82,6 @@ const tok = (n: number) =>
     : n >= 1e4
       ? `${nf.format(Math.round(n / 1e4))}만`
       : nf.format(n);
-const dur = (s: number) => {
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  return h ? `${h}시간 ${m}분` : `${m}분`;
-};
-const bytes = (n: number) =>
-  n >= 1073741824
-    ? `${(n / 1073741824).toFixed(1).replace(/\.0$/, "")} GB`
-    : `${Math.round(n / 1048576)} MB`;
 const monthDay = (date: string) =>
   `${Number(date.slice(5, 7))}/${Number(date.slice(8, 10))}`;
 
@@ -160,9 +146,7 @@ function Value({
   );
 }
 
-// BarChart's rendered height, full and compact, x labels included.
 const BAR_CHART_HEIGHT = "11.25rem";
-const RAIL_CHART_HEIGHT = "5.25rem";
 
 // A block skeleton is at least 4rem; shorter boxes center a text bar.
 function Box({
@@ -183,128 +167,36 @@ function Box({
 }
 
 function Filters({ role, days }: { readonly role: Role; readonly days: Days }) {
-  const [scope, setScope] = useState(role === "owner" ? "installation" : "me");
-  const [period, setPeriod] = useState(String(days));
+  const [scope, setScope] = useState<UsageSummaryScope>(
+    role === "owner" ? "installation" : "me",
+  );
+  const [period, setPeriod] = useState<UsagePeriod>(days);
   return (
-    <div className="mb-6 flex flex-wrap items-center gap-2">
-      {role === "owner" ? (
-        <SegmentedControl
-          aria-label="집계 범위"
-          value={scope}
-          onValueChange={setScope}
-        >
-          <SegmentedControlItem value="me">내 사용량</SegmentedControlItem>
-          <SegmentedControlItem value="installation">
-            설치 전체
-          </SegmentedControlItem>
-        </SegmentedControl>
-      ) : null}
-      <SegmentedControl
-        aria-label="기간"
-        value={period}
-        onValueChange={setPeriod}
-        className="ml-auto"
-      >
-        <SegmentedControlItem value="7">7일</SegmentedControlItem>
-        <SegmentedControlItem value="30">30일</SegmentedControlItem>
-        <SegmentedControlItem value="90">90일</SegmentedControlItem>
-      </SegmentedControl>
-    </div>
+    <UsageFilters
+      {...(role === "owner" ? { scope, onScopeChange: setScope } : {})}
+      days={period}
+      onDaysChange={setPeriod}
+    />
   );
 }
 
 function Head({ tab, viewer }: { readonly tab: Tab; readonly viewer: Role }) {
   return (
-    <>
-      <PageHeader
-        title="운영"
-        description="에이전트가 얼마나 돌고, 얼마나 쓰고, 어디서 막히는지 봅니다."
-      />
-      <LinkTabs aria-label="운영 탭" className="mb-6">
-        {TABS.filter(([id]) => id !== "limits" || viewer === "owner").map(
-          ([id, label]) => (
-            <LinkTab key={id} href={`#operations/${id}`} current={id === tab}>
-              {label}
-            </LinkTab>
-          ),
-        )}
-      </LinkTabs>
-    </>
-  );
-}
-
-function More({
-  href,
-  children,
-}: {
-  readonly href: string;
-  readonly children: ReactNode;
-}) {
-  return (
-    <Link
-      href={href}
-      className="whitespace-nowrap font-normal text-caption leading-4"
-    >
-      {children}
-    </Link>
+    <OperationsHead
+      tabs={TABS.filter((id) => id !== "limits" || viewer === "owner")}
+      current={tab}
+      tabLink={(id, label) => <a href={`#operations/${id}`}>{label}</a>}
+    />
   );
 }
 
 function Kpis({ screen }: { readonly screen: ScreenData }) {
-  const s = summaryOf(screen.series);
   const loading = useContext(Loading);
-  const field = (pick: (b: UsageSeriesResponse["buckets"][number]) => number) =>
-    screen.series.buckets.map(pick);
-  const spark = (values: readonly number[], label: string) =>
-    loading ? (
-      <Box height="2rem" />
-    ) : (
-      <Sparkline values={values} label={label} />
-    );
   return (
-    <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,14rem),1fr))] gap-4">
-      <StatCard
-        label="세션"
-        value={<Value>{nf.format(s.session_count)}</Value>}
-        chart={spark(
-          field((b) => b.session_count),
-          "일자별 세션 수",
-        )}
-        description="이 기간에 시작한 세션"
-      />
-      <StatCard
-        label="실행 시간"
-        value={<Value width="6rem">{dur(s.run_seconds)}</Value>}
-        chart={spark(
-          field((b) => b.run_seconds),
-          "일자별 실행 시간",
-        )}
-        description="turn 시작부터 끝까지, 답을 기다린 시간 포함"
-      />
-      <StatCard
-        label="비용"
-        badge={<Badge>추정</Badge>}
-        value={<Value width="5rem">{usd(s.cost_usd)}</Value>}
-        chart={spark(
-          field((b) => Number(b.cost_usd)),
-          "일자별 비용",
-        )}
-        description={
-          s.cost_complete
-            ? undefined
-            : "진행 중이거나 비용을 보고하지 않은 turn이 있어 실제보다 적을 수 있음"
-        }
-      />
-      <StatCard
-        label="토큰"
-        value={<Value width="4rem">{tok(s.token_count)}</Value>}
-        chart={spark(
-          field((b) => b.token_count),
-          "일자별 토큰",
-        )}
-        description="비용을 센 호출의 토큰"
-      />
-    </div>
+    <UsageKpis
+      buckets={loading ? undefined : screen.series.buckets}
+      messages={{ loading: "" }}
+    />
   );
 }
 
@@ -437,7 +329,7 @@ function Overview({ screen }: { readonly screen: ScreenData }) {
         <Filters role={screen.role} days={screen.days} />
         <Section
           title={`최근 ${screen.days}일`}
-          actions={<More href="#operations/usage">사용량 자세히</More>}
+          actions={<MoreLink href="#operations/usage">사용량 자세히</MoreLink>}
         >
           <Kpis screen={screen} />
         </Section>
@@ -446,30 +338,18 @@ function Overview({ screen }: { readonly screen: ScreenData }) {
         <Section
           title="살펴볼 것"
           description="도구 호출 기록에서 찾았습니다"
-          actions={<More href="#operations/tools">도구 활동</More>}
+          actions={<MoreLink href="#operations/tools">도구 활동</MoreLink>}
         >
-          {loading ? (
-            <RowList variant="joined" aria-hidden="true">
-              {TOOLS.findings.map(({ kind }) => (
-                <RowListItem key={kind} className="min-h-16 flex-nowrap">
-                  <Skeleton decorative shape="circle" className="size-6" />
-                  {/* Findings' two lines, so the row is as tall at any padding. */}
-                  <div className="min-w-0 flex-1">
-                    <p className="m-0">
-                      <Skeleton inline decorative width="60%" height="1lh" />
-                    </p>
-                    <p className="m-0 text-caption leading-4">
-                      <Skeleton inline decorative width="40%" height="1lh" />
-                    </p>
-                  </div>
-                </RowListItem>
-              ))}
-            </RowList>
-          ) : (
-            <Findings
-              data={screen.empty ? { tools: [], findings: [] } : TOOLS}
-            />
-          )}
+          <Findings
+            data={
+              loading
+                ? undefined
+                : screen.empty
+                  ? { tools: [], findings: [] }
+                  : TOOLS
+            }
+            loadingRows={TOOLS.findings.length}
+          />
         </Section>
         <Section
           title="비용이 큰 에이전트"
@@ -629,92 +509,38 @@ function Usage({ screen }: { readonly screen: ScreenData }) {
 function Tools({
   screen,
   hideSessions = false,
+  hideNotes = false,
 }: {
   readonly screen: ScreenData;
   readonly hideSessions?: boolean | undefined;
+  readonly hideNotes?: boolean | undefined;
 }) {
-  const [sort, setSort] = useState("calls");
-  const [callSort, setCallSort] = useState("recent");
+  const note = (name: string) => (hideNotes ? undefined : TOOL_NOTE[name]?.ko);
+  const [sort, setSort] = useState<ToolSort>("calls");
+  const [query, setQuery] = useState("");
+  const [callSort, setCallSort] = useState<ToolCallSort>("recent");
   const [selected, setSelected] = useState("Bash");
   const loading = useContext(Loading);
-  const tools = screen.empty ? [] : TOOLS.tools;
+  const tools = screen.empty
+    ? []
+    : findTools(sortTools(TOOLS.tools, sort), query);
   const tool = TOOLS.tools.find((t) => t.name === selected) ?? TOOLS.tools[0];
   const detail = tool ? toolDetail(tool) : { calls: [], perDay: [] };
   const calls = hideSessions
     ? detail.calls.map((call) => ({ ...call, session_id: null, title: null }))
     : detail.calls;
-  const peak = detail.perDay.reduce(
-    (a, b) => (b.calls > a.calls ? b : a),
-    detail.perDay[0] ?? { date: "", calls: 0 },
-  );
-  const perDayTotal = detail.perDay.reduce((sum, d) => sum + d.calls, 0);
   const rail =
     tool && !screen.empty ? (
-      <DetailRail label="선택한 도구">
-        <DetailRailSection
-          title={
-            <Text as="span" mono className="text-body font-semibold leading-5">
-              {tool.name}
-            </Text>
-          }
-          description={TOOL_NOTE[tool.name]?.ko}
-        >
-          <KeyValueList
-            items={[
-              { label: "호출", value: `${nf.format(tool.calls)}번` },
-              { label: "총 시간", value: dur(tool.total_ms / 1000) },
-              {
-                label: "보통",
-                value:
-                  tool.median_ms >= 60000
-                    ? dur(tool.median_ms / 1000)
-                    : `${(tool.median_ms / 1000).toFixed(1)}초`,
-              },
-              {
-                label: "실패",
-                value: `${tool.failed}번 (${((100 * tool.failed) / tool.calls).toFixed(1)}%)`,
-              },
-            ].map((item) => ({
-              ...item,
-              value: <Value width="4rem">{item.value}</Value>,
-            }))}
-          />
-        </DetailRailSection>
-        <DetailRailSection title="일자별 호출" description="최근 14일">
-          {loading ? (
-            <Box chart height={RAIL_CHART_HEIGHT} />
-          ) : (
-            <BarChart
-              compact
-              data={detail.perDay.map((d) => ({ x: d.date, y: d.calls }))}
-              yMax={peak.calls}
-              label={`${tool.name} 일자별 호출, 최근 14일, 합계 ${nf.format(perDayTotal)}번, 가장 많은 날 ${monthDay(peak.date)} ${peak.calls}번`}
-              formatX={monthDay}
-            />
-          )}
-        </DetailRailSection>
-        <DetailRailSection
-          title="최근 호출"
-          actions={
-            <SegmentedControl
-              aria-label="호출 정렬"
-              value={callSort}
-              onValueChange={setCallSort}
-            >
-              <SegmentedControlItem value="recent">최근</SegmentedControlItem>
-              <SegmentedControlItem value="slowest">
-                느린 순
-              </SegmentedControlItem>
-            </SegmentedControl>
-          }
-        >
-          <ToolCalls
-            calls={loading ? undefined : calls}
-            loadingRows={calls.length}
-            timeZone="Asia/Seoul"
-          />
-        </DetailRailSection>
-      </DetailRail>
+      <ToolRail
+        name={tool.name}
+        tool={loading ? undefined : tool}
+        note={note(tool.name)}
+        perDay={loading ? undefined : detail.perDay}
+        calls={loading ? undefined : calls}
+        callSort={callSort}
+        onCallSortChange={setCallSort}
+        timeZone="Asia/Seoul"
+      />
     ) : undefined;
   return (
     <DetailLayout rail={rail}>
@@ -724,53 +550,35 @@ function Tools({
         aria-busy={loading || undefined}
         className="@container flex min-w-0 flex-col gap-8"
       >
-        {screen.empty ? null : loading ? (
-          // The summary sentence is one 24px line from about 40rem, two below.
-          <Skeleton
-            decorative
-            lines={2}
-            className="h-12 justify-around @min-[40rem]:h-6 @min-[40rem]:justify-center @min-[40rem]:[&>:nth-child(2)]:hidden"
+        {screen.empty ? null : (
+          <ToolsSummary
+            tools={loading ? undefined : TOOLS.tools}
+            period={`최근 ${screen.days}일`}
           />
-        ) : (
-          <ToolsSummary tools={tools} period={`최근 ${screen.days}일`} />
         )}
         <Section
           title="도구와 명령"
           badge={
             <Badge>
-              <Value width="0.75rem">{tools.length}</Value>
+              <Value width="0.75rem">
+                {screen.empty ? 0 : TOOLS.tools.length}
+              </Value>
             </Badge>
           }
         >
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-            <SegmentedControl
-              aria-label="정렬"
-              value={sort}
-              onValueChange={setSort}
-            >
-              <SegmentedControlItem value="calls">
-                많이 쓴 순
-              </SegmentedControlItem>
-              <SegmentedControlItem value="time">
-                오래 걸린 순
-              </SegmentedControlItem>
-              <SegmentedControlItem value="slow">느린 순</SegmentedControlItem>
-              <SegmentedControlItem value="failed">실패</SegmentedControlItem>
-            </SegmentedControl>
-            <SearchInput
-              aria-label="도구 찾기"
-              type="search"
-              placeholder="도구나 명령 찾기"
-              wrapperClassName="max-w-none flex-[1_1_100%] sm:ml-auto sm:w-60 sm:flex-none"
-            />
-          </div>
+          <ToolsFilter
+            sort={sort}
+            onSortChange={setSort}
+            onQueryChange={setQuery}
+          />
           <ToolTable
             tools={loading ? undefined : tools}
             label="도구와 명령"
             selected={selected}
             onSelect={setSelected}
-            describe={(name) => TOOL_NOTE[name]?.ko}
+            describe={hideNotes ? undefined : note}
             loadingRows={TOOLS.tools.length}
+            searched={query !== ""}
           />
         </Section>
       </div>
@@ -779,138 +587,13 @@ function Tools({
 }
 
 function Limits({ limits = LIMITS }: { readonly limits?: typeof LIMITS }) {
-  const L = limits.limits;
-  const U = limits.usage;
   const loading = useContext(Loading);
-  const perSession = (
-    <Text as="span" variant="sub" className="text-subtle-foreground">
-      세션마다 셉니다
-    </Text>
-  );
-  const rows: readonly (readonly [string, ReactNode, ReactNode, string])[] = [
-    [
-      "동시 실행 slot",
-      `${U.execution_slots_used} / ${L.execution_slot_limit}`,
-      nf.format(L.execution_slot_limit),
-      "설치 설정의 상한. 빈 slot이 없으면 세션이 대기합니다",
-    ],
-    [
-      "입력 메시지 저장",
-      bytes(U.storage.used_bytes),
-      bytes(L.storage_limit_bytes),
-      "세션에 보낸 입력 메시지만 셉니다. 결과물 용량은 아직 세지 않습니다",
-    ],
-    [
-      "세션당 비용",
-      perSession,
-      usd(L.session_cost_limit_usd),
-      "추정 비용이 넘은 세션은 새 turn을 시작하지 않습니다",
-    ],
-    [
-      "세션당 토큰",
-      perSession,
-      L.session_token_limit === null ? (
-        <Badge key="unset">설정 안 됨</Badge>
-      ) : (
-        nf.format(L.session_token_limit)
-      ),
-      "토큰이 넘은 세션은 새 turn을 시작하지 않습니다",
-    ],
-    [
-      "세션당 대기 입력",
-      perSession,
-      `${nf.format(L.queued_input_limit_per_session)}건`,
-      "세션 하나에 쌓아 둘 수 있는 입력 수",
-    ],
-    [
-      "turn 최대 시간",
-      perSession,
-      dur(L.max_turn_seconds),
-      "turn 하나가 돌 수 있는 시간",
-    ],
-  ];
   return (
-    <div
-      aria-busy={loading || undefined}
-      className="flex min-w-0 flex-col gap-8"
-    >
-      <Section
-        title="실행 용량"
-        description="설치 전체에 적용됩니다 · 오후 9:40 기준"
-      >
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,14rem),1fr))] gap-4">
-          <StatCard
-            label="사용 중인 slot"
-            value={<Value width="4rem">{U.execution_slots_used}</Value>}
-            outOf={<Value width="1.5rem">{L.execution_slot_limit}</Value>}
-            chart={
-              loading ? (
-                <Box height="0.5rem" />
-              ) : (
-                <Meter
-                  value={U.execution_slots_used}
-                  max={L.execution_slot_limit}
-                  label="slot 사용률"
-                />
-              )
-            }
-            description={
-              <Value width="5rem">
-                {`빈 slot ${L.execution_slot_limit - U.execution_slots_used}개`}
-              </Value>
-            }
-          />
-          <StatCard
-            label="입력 메시지 저장"
-            value={<Value width="4rem">{bytes(U.storage.used_bytes)}</Value>}
-            outOf={<Value width="3rem">{bytes(L.storage_limit_bytes)}</Value>}
-            chart={
-              loading ? (
-                <Box height="0.5rem" />
-              ) : (
-                <Meter
-                  value={U.storage.used_bytes}
-                  max={L.storage_limit_bytes}
-                  label="입력 메시지 저장 사용률"
-                />
-              )
-            }
-            description="입력 메시지만 셉니다"
-          />
-        </div>
-      </Section>
-      <Section title="한도">
-        <Card flush>
-          <GridTable
-            aria-label="한도"
-            columns="minmax(0,1fr) 128px 112px minmax(0,1.6fr)"
-            narrowAt={480}
-            narrowColumns="minmax(0,1fr) 112px 80px"
-          >
-            <GridTableHeader>
-              <GridTableColumnHeader>항목</GridTableColumnHeader>
-              <GridTableColumnHeader>현재</GridTableColumnHeader>
-              <GridTableColumnHeader>한도</GridTableColumnHeader>
-              <GridTableColumnHeader hideNarrow>설명</GridTableColumnHeader>
-            </GridTableHeader>
-            {rows.map(([item, now, limit, note]) => (
-              <GridTableRow key={item}>
-                <GridTableCell>{item}</GridTableCell>
-                <GridTableCell className="tabular-nums">
-                  {now === perSession ? now : <Value>{now}</Value>}
-                </GridTableCell>
-                <GridTableCell className="tabular-nums">
-                  <Value>{limit}</Value>
-                </GridTableCell>
-                <GridTableCell hideNarrow className="text-muted-foreground">
-                  {note}
-                </GridTableCell>
-              </GridTableRow>
-            ))}
-          </GridTable>
-        </Card>
-      </Section>
-    </div>
+    <InstallationLimits
+      limits={loading ? undefined : limits}
+      timeZone="Asia/Seoul"
+      messages={{ loading: "" }}
+    />
   );
 }
 
@@ -918,10 +601,12 @@ function OperationsScreen({
   tab,
   screen,
   hideSessions,
+  hideNotes,
 }: {
   readonly tab: Tab;
   readonly screen: ScreenData;
   readonly hideSessions?: boolean | undefined;
+  readonly hideNotes?: boolean | undefined;
 }) {
   return (
     <Loading.Provider value={screen.loading ?? false}>
@@ -935,7 +620,11 @@ function OperationsScreen({
           role={screen.role}
           flush
         >
-          <Tools screen={screen} hideSessions={hideSessions} />
+          <Tools
+            screen={screen}
+            hideSessions={hideSessions}
+            hideNotes={hideNotes}
+          />
         </ScreenShell>
       ) : (
         <ScreenShell
@@ -1108,6 +797,13 @@ export const ToolsSelectRead: Story = {
 
 export const ToolsHiddenSessions: Story = {
   args: { tab: "tools", hideSessions: true },
+};
+/**
+ * The app until the notes have a source (94S-936): no note under a name, so
+ * every row is one line shorter, loading rows too.
+ */
+export const ToolsWithoutNotes: Story = {
+  args: { tab: "tools", hideNotes: true },
 };
 export const ToolsRailBelow1280: Story = {
   name: "Tools (768px, rail below)",

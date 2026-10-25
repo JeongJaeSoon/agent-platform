@@ -10,6 +10,7 @@ import { isApiError } from "@werft-ai/client";
 import { meQuery, viewerQuery } from "./api/queries.ts";
 import { Main } from "./components/main.tsx";
 import { StatusScreen } from "./components/status-screen.tsx";
+import { slackInstallSearch } from "./routes/agent-detail/slack-install-search.ts";
 import {
   AgentDetailScreen,
   type AgentSearch,
@@ -49,6 +50,12 @@ import {
   MembersLayout,
   MembersScreen,
 } from "./routes/members.tsx";
+import {
+  type OperationsSearch,
+  type OperationsToolsSearch,
+  operationsSearch,
+  operationsToolsSearch,
+} from "./routes/operations-search.ts";
 import { PreferencesScreen } from "./routes/preferences.tsx";
 import {
   SessionDetailScreen,
@@ -229,6 +236,16 @@ const linkedAccounts = createRoute({
   component: LinkedAccountsScreen,
 });
 
+const slackInstall = createRoute({
+  getParentRoute: () => authed,
+  path: "/agents/$id/slack/callback",
+  validateSearch: slackInstallSearch,
+  component: lazyRouteComponent(
+    () => import("./routes/agent-detail/slack-install-callback.tsx"),
+    "SlackInstallCallback",
+  ),
+});
+
 // Slack sends the browser back here (SLACK_OIDC_REDIRECT_URI).
 const slackLink = createRoute({
   getParentRoute: () => authed,
@@ -301,6 +318,36 @@ const usage = createRoute({
   component: UsageScreen,
 });
 
+const loadOperations = () => import("./routes/operations.tsx");
+
+const operations = createRoute({
+  getParentRoute: () => authed,
+  path: "/operations",
+  component: lazyRouteComponent(loadOperations, "OperationsLayout"),
+});
+
+const operationsOverview = createRoute({
+  getParentRoute: () => operations,
+  path: "/",
+  validateSearch: (search: Record<string, unknown>): OperationsSearch =>
+    operationsSearch(search),
+  component: lazyRouteComponent(loadOperations, "OperationsOverviewScreen"),
+});
+
+const operationsTools = createRoute({
+  getParentRoute: () => operations,
+  path: "tools",
+  validateSearch: (search: Record<string, unknown>): OperationsToolsSearch =>
+    operationsToolsSearch(search),
+  component: lazyRouteComponent(loadOperations, "OperationsToolsScreen"),
+});
+
+const operationsLimits = createRoute({
+  getParentRoute: () => operations,
+  path: "limits",
+  component: lazyRouteComponent(loadOperations, "OperationsLimitsScreen"),
+});
+
 const agents = createRoute({
   getParentRoute: () => authed,
   path: "/agents",
@@ -339,6 +386,7 @@ const routeTree = root.addChildren([
     session,
     linkedAccounts,
     slackLink,
+    slackInstall,
     apiKeys,
     newApiKey,
     agentKeys,
@@ -349,6 +397,11 @@ const routeTree = root.addChildren([
     workspaceSlack,
     orgKeys,
     usage,
+    operations.addChildren([
+      operationsOverview,
+      operationsTools,
+      operationsLimits,
+    ]),
   ]),
 ]);
 

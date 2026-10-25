@@ -90,7 +90,13 @@ const currentStep = () =>
   screen
     .getByRole("navigation", { name: "에이전트 만들기 단계" })
     .querySelector('[aria-current="step"]')?.textContent;
-const STEP_NO = { 이름: 1, "하는 일": 2, "배포 판": 3, 켜기: 4 } as const;
+const STEP_NO = {
+  이름: 1,
+  "하는 일": 2,
+  "배포 판": 3,
+  켜기: 4,
+  "채널 연결": 5,
+} as const;
 const atStep = (label: keyof typeof STEP_NO) =>
   waitFor(() => expect(currentStep()).toBe(`${STEP_NO[label]}${label}`));
 const posted = (api: Api, path: string) =>
@@ -775,11 +781,18 @@ describe("찾을 수 없는 에이전트", () => {
 });
 
 describe("새 에이전트", () => {
-  test("이름 → 하는 일 → 배포 판 → 켜기로 만들고, Stepper가 지금 단계를 가리킨다", async () => {
+  test("이름부터 채널 연결까지 만들고 Slack 연결은 나중에 할 수 있다", async () => {
     const server = agentServer();
     const { api } = renderAt("/agents/new", {
       ...meOk,
       ...server.routes,
+      [`GET /v1/agents/${AGENT_ID}/slack/app`]: () =>
+        json(200, {
+          slack_app: null,
+          event_url: null,
+          events: { state: "pending", checked_at: null },
+        }),
+      [`GET /v1/agents/${AGENT_ID}/identities`]: () => json(200, { items: [] }),
     });
     const user = await setupUser();
     await atStep("이름");
@@ -830,15 +843,17 @@ describe("새 에이전트", () => {
       runtime_profile_id: PROFILE,
     });
     await user.click(screen.getByRole("button", { name: "에이전트 켜기" }));
+    await atStep("채널 연결");
+    expect(await screen.findByText(/결제 담당을\(를\) 켰습니다/)).toBeDefined();
     expect(
-      (await screen.findByText(/결제 담당을\(를\) 켰습니다/)).closest("output"),
-    ).not.toBeNull();
+      await screen.findByRole("button", { name: "Slack 앱 만들고 설치" }),
+    ).toBeDefined();
     expect(posted(api, `/v1/agents/${AGENT_ID}/activate`)).toEqual({
       release_id: server.releases[0]?.id,
       expected_revision: -1,
     });
     expect(
-      screen.getByRole("link", { name: "에이전트 보기" }).getAttribute("href"),
+      screen.getByRole("link", { name: "나중에 하기" }).getAttribute("href"),
     ).toBe(DETAIL);
   });
 
