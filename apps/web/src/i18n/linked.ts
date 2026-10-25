@@ -13,6 +13,8 @@ export const linkedKo = {
   "linked.connect": "Slack 계정 연결",
   "linked.starting": "Slack으로 이동하는 중…",
   "linked.slackAccount": "Slack 사용자 {user} (워크스페이스 {team})",
+  "linked.slackNamed": "{user} · {team}",
+  "linked.slackIds": "사용자 ID {user} · 워크스페이스 ID {team}",
   "linked.verified": "{at} 확인",
   "linked.stale":
     "Slack에서 이 계정이 비활성화됐다고 알려 와, 이 계정의 요청을 나와 연결하지 않습니다 — 연결을 해제한 뒤 다시 연결하세요.",
@@ -39,6 +41,8 @@ export const linkedEn: Record<keyof typeof linkedKo, string> = {
   "linked.connect": "Link Slack account",
   "linked.starting": "Going to Slack…",
   "linked.slackAccount": "Slack user {user} (workspace {team})",
+  "linked.slackNamed": "{user} · {team}",
+  "linked.slackIds": "User ID {user} · workspace ID {team}",
   "linked.verified": "verified {at}",
   "linked.stale":
     "Slack says this account was deactivated, so requests from it are not matched to you — unlink it and link it again.",
@@ -65,6 +69,8 @@ export const linkedJa: Record<keyof typeof linkedKo, string> = {
   "linked.connect": "Slack アカウントを連携",
   "linked.starting": "Slack に移動しています…",
   "linked.slackAccount": "Slack ユーザー {user}（ワークスペース {team}）",
+  "linked.slackNamed": "{user} · {team}",
+  "linked.slackIds": "ユーザー ID {user} · ワークスペース ID {team}",
   "linked.verified": "{at}に確認",
   "linked.stale":
     "Slack でこのアカウントが無効化されたため、このアカウントからのリクエストはあなたと紐付けられません。連携を解除してから、もう一度連携してください。",

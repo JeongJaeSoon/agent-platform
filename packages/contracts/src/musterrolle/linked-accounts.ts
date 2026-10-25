@@ -47,6 +47,13 @@ export const linkedAccountSchema = z
     external_tenant: z.string().min(1).max(255),
     /** The Slack user id. */
     external_user_id: z.string().min(1).max(255),
+    /**
+     * The workspace name Slack gave when the account was last verified;
+     * null for links made before names were kept, or when Slack sent none.
+     */
+    external_tenant_name: z.string().min(1).max(255).nullable(),
+    /** The person's Slack display name, on the same terms. */
+    external_user_name: z.string().min(1).max(255).nullable(),
     status: linkedAccountStatusSchema,
     verified_at: timestampSchema,
     revision: revisionSchema,

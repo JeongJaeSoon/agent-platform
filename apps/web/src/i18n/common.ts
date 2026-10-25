@@ -15,6 +15,7 @@ export const commonKo = {
   "nav.linkedAccounts": "연동 계정",
   "nav.apiKeys": "API key",
   "nav.preferences": "언어·테마",
+  "nav.settings": "설정",
   "nav.workspace": "워크스페이스 설정",
   "nav.agents": "에이전트",
 
@@ -79,6 +80,7 @@ export const commonEn: Record<keyof typeof commonKo, string> = {
   "nav.linkedAccounts": "Linked accounts",
   "nav.apiKeys": "API keys",
   "nav.preferences": "Language & theme",
+  "nav.settings": "Settings",
   "nav.workspace": "Workspace settings",
   "nav.agents": "Agents",
 
@@ -145,6 +147,7 @@ export const commonJa: Record<keyof typeof commonKo, string> = {
   "nav.linkedAccounts": "連携アカウント",
   "nav.apiKeys": "API キー",
   "nav.preferences": "言語・テーマ",
+  "nav.settings": "設定",
   "nav.workspace": "ワークスペース設定",
   "nav.agents": "エージェント",
 

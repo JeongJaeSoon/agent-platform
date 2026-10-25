@@ -82,9 +82,7 @@ describe("preferences", () => {
     ).toBeDefined();
     cleanup();
     renderAt("/", signedIn, null);
-    expect(
-      await screen.findByRole("link", { name: "Language & theme" }),
-    ).toBeDefined();
+    expect(await screen.findByRole("link", { name: "Settings" })).toBeDefined();
   });
 
   test("theme and language chosen here show in the account menu at once, and the other way round", async () => {
