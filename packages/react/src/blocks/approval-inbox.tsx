@@ -141,6 +141,19 @@ export function ApprovalInbox({
     (_, index) => lists[index]?.data?.items.length !== 0,
   );
   const shownKey = shown.map((session) => session.id).join();
+  // Rail lines are one per request, and one can leave while its session
+  // stays; answer forms move focus within their session themselves.
+  const railLines = rail !== undefined && layout === "summary";
+  const lineKey = railLines
+    ? sessions
+        .flatMap(
+          (session, index) =>
+            lists[index]?.data?.items.map((request) => request.request_id) ?? [
+              session.id,
+            ],
+        )
+        .join()
+    : shownKey;
   const emptyKey = sessions
     .filter((_, index) => lists[index]?.data?.items.length === 0)
     .map((session) => session.id)
@@ -160,7 +173,7 @@ export function ApprovalInbox({
   const focusInList = useRef(false);
   const railOpen = rail?.openedId != null;
   useLayoutEffect(() => {
-    const ids = shownKey === "" ? [] : shownKey.split(",");
+    const ids = lineKey === "" ? [] : lineKey.split(",");
     const left = shownBefore.current.some((id) => !ids.includes(id));
     shownBefore.current = ids;
     if (
@@ -170,7 +183,7 @@ export function ApprovalInbox({
     ) {
       titleRef.current?.focus();
     }
-  }, [shownKey, railOpen]);
+  }, [lineKey, railOpen]);
 
   let body: ReactNode;
   let count: ReactNode = null;

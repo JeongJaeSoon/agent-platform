@@ -656,6 +656,38 @@ describe("ApprovalInbox", () => {
     );
   });
 
+  test("레일이 열려 있을 때 세션은 남고 포커스를 쥔 요청 줄만 빠져도 키보드는 받은편지함 제목으로 간다", async () => {
+    const view = renderInbox({
+      open: [permission("req_1", "Bash"), permission("req_2", "Edit")],
+      layout: "summary",
+      rail: true,
+    });
+    const [first] = await view.findAllByRole("button", {
+      name: `View details of ${SHORT}`,
+    });
+    if (!first) throw new Error("no line");
+    first.click();
+    const rail = await view.findByRole("complementary");
+    const allow = await waitFor(() => {
+      const [found] = view
+        .getAllByRole("button", { name: /^Allow/ })
+        .filter((button) => rail.contains(button));
+      expect(found).toBeTruthy();
+      return found as HTMLElement;
+    });
+    // Back on the first line; its request is answered without moving the
+    // keyboard, and the session stays for the second.
+    first.focus();
+    await act(async () => allow.click());
+    await waitFor(() => expect(first.isConnected).toBe(false));
+    expect(
+      view.getAllByRole("button", { name: `View details of ${SHORT}` }),
+    ).toHaveLength(1);
+    await waitFor(() =>
+      expect(document.activeElement?.textContent).toBe("Waiting for an answer"),
+    );
+  });
+
   test("레일에서 위에 그린 답 폼은 질문 이벤트가 늦게 와도 옮겨지지 않고 고른 값을 지킨다", async () => {
     const user = await setupUser();
     const view = renderInbox({
