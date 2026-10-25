@@ -1,5 +1,5 @@
 {
-  "id": "b8c7989a-c825-4aa2-96b8-1619cdbb939c",
+  "id": "e7f2b222-4bec-4c6e-802c-84afe36b0aad",
   "prevId": "cd26832a-1f19-4325-bada-6c356fe47a3a",
   "version": "7",
   "dialect": "postgresql",
@@ -7082,6 +7082,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": 0
+        },
+        "batch_size": {
+          "name": "batch_size",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
         },
         "updated_at": {
           "name": "updated_at",

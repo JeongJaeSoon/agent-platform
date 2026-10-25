@@ -151,10 +151,11 @@ async function applyResults(tx: Database, from: number, to: number) {
  * Projects tool calls from events the reconciler has not read yet, a batch
  * of `batchSize` events per transaction, until it has read up to the newest
  * event or `budgetMs` has passed. A batch cut by the statement timeout is
- * retried at a tenth of the size for the rest of the pass, so 5,000 reaches a
- * single event after four timeouts, inside the reconciler's pass timeout.
- * Passes must not overlap; the progress row lock makes a second one wait
- * rather than double-count.
+ * retried at a tenth of the size, and that size is committed at once, so a
+ * pass killed before any batch lands leaves the next one starting smaller. A
+ * pass with no timeout grows it back tenfold, up to `batchSize`. Passes must
+ * not overlap; the progress row lock makes a second one wait rather than
+ * double-count.
  */
 export async function projectToolCalls(
   db: Database,
@@ -174,10 +175,19 @@ export async function projectToolCalls(
   let batches = 0;
   let appliedThrough = 0;
   let caughtUp = false;
-  let batchSize = options.batchSize;
+  const [stored] = rowsOf<{ batch_size: number | null }>(
+    await db.execute(
+      sql`SELECT batch_size FROM tool_call_progress WHERE id = 1`,
+    ),
+  );
+  const startSize = Math.min(
+    stored?.batch_size ?? options.batchSize,
+    options.batchSize,
+  );
+  let batchSize = startSize;
   let timedOut = 0;
-  // At least one batch lands per pass: the next pass starts at full size
-  // again, so one that gave up after timeouts alone would never move.
+  // At least one batch lands per pass, or a pass spent on timeouts alone
+  // would end without moving.
   while (!caughtUp && (batches === 0 || now() - started < options.budgetMs)) {
     let batch: Awaited<ReturnType<typeof projectBatch>>;
     try {
@@ -191,6 +201,7 @@ export async function projectToolCalls(
       }
       const retrySize = Math.ceil(batchSize / 10);
       options.onTimeout?.(batchSize, retrySize);
+      await storeBatchSize(db, retrySize);
       batchSize = retrySize;
       timedOut += 1;
       continue;
@@ -201,7 +212,17 @@ export async function projectToolCalls(
     appliedThrough = batch.cursor;
     caughtUp = batch.n < batchSize;
   }
+  if (timedOut === 0 && startSize < options.batchSize) {
+    const grown = startSize * 10;
+    await storeBatchSize(db, grown >= options.batchSize ? null : grown);
+  }
   return { eventsRead, batches, appliedThrough, caughtUp, timedOut };
+}
+
+function storeBatchSize(db: Database, size: number | null) {
+  return db.execute(
+    sql`UPDATE tool_call_progress SET batch_size = ${size} WHERE id = 1`,
+  );
 }
 
 function projectBatch(

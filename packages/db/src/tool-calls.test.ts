@@ -455,12 +455,27 @@ describe("projectToolCalls", () => {
     await expect(
       projectToolCalls(failing(1, "40P01"), { batchSize: 8, budgetMs: 60_000 }),
     ).rejects.toThrow("Failed query");
+    const reset = async () => {
+      await db.execute(sql`TRUNCATE tool_call_days, tool_calls`);
+      await db.execute(
+        sql`UPDATE tool_call_progress SET applied_through = 0, batch_size = NULL WHERE id = 1`,
+      );
+    };
+    const storedSize = async () =>
+      rowsOf<{ batch_size: number | null }>(
+        await db.execute(
+          sql`SELECT batch_size FROM tool_call_progress WHERE id = 1`,
+        ),
+      )[0]?.batch_size;
     await expect(
       projectToolCalls(failing(99, "57014"), {
         batchSize: 8,
         budgetMs: 60_000,
       }),
     ).rejects.toThrow("Failed query");
+    // Committed before the pass failed: the next one starts there.
+    expect(await storedSize()).toBe(1);
+    await reset();
     // A budget spent on the failures still gets one batch through.
     let clock = 0;
     const once = await projectToolCalls(failing(2, "57014"), {
@@ -469,10 +484,7 @@ describe("projectToolCalls", () => {
       now: () => clock++,
     });
     expect(once).toMatchObject({ batches: 1, eventsRead: 1 });
-    await db.execute(sql`TRUNCATE tool_call_days, tool_calls`);
-    await db.execute(
-      sql`UPDATE tool_call_progress SET applied_through = 0 WHERE id = 1`,
-    );
+    await reset();
     const sizes: [number, number][] = [];
     const cut = await projectToolCalls(failing(2, "57014"), {
       batchSize: 100,
@@ -491,6 +503,20 @@ describe("projectToolCalls", () => {
       timedOut: 2,
     });
     expect(await days()).toEqual(await fromEvents());
+    // The next pass starts at the cut size; clean passes grow it back.
+    expect(await storedSize()).toBe(1);
+    await reset();
+    await db.execute(
+      sql`UPDATE tool_call_progress SET batch_size = 1 WHERE id = 1`,
+    );
+    const small = await projectToolCalls(db, {
+      batchSize: 100,
+      budgetMs: 60_000,
+    });
+    expect(small).toMatchObject({ batches: n + 1, eventsRead: n });
+    expect(await storedSize()).toBe(10);
+    await projectToolCalls(db, { batchSize: 100, budgetMs: 60_000 });
+    expect(await storedSize()).toBeNull();
   });
 });
 
