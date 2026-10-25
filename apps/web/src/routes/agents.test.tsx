@@ -443,7 +443,9 @@ describe("에이전트 카드", () => {
       "초안",
     );
     expect(
-      within(card).getByRole("link", { name: "결제 담당" }).getAttribute("href"),
+      within(card)
+        .getByRole("link", { name: "결제 담당" })
+        .getAttribute("href"),
     ).toBe(DETAIL);
     expect(screen.queryByRole("alert")).toBeNull();
   });
