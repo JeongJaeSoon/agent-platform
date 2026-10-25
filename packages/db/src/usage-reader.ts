@@ -178,11 +178,11 @@ export function createPostgresUsageReader(db: Database): UsageReader {
     // From the reconciler's projection: calls made since its last pass do
     // not count yet.
     usageTools(filter, tools, limit) {
-      const { since } = tools.period;
       return toolCallTotals(db, filter, {
-        since,
-        until:
-          tools.period.until ?? new Date(Math.max(Date.now(), since.getTime())),
+        since: tools.period.since,
+        ...(tools.period.until === undefined
+          ? {}
+          : { until: tools.period.until }),
         ...(tools.agentId === undefined ? {} : { agentId: tools.agentId }),
         limit,
       });
