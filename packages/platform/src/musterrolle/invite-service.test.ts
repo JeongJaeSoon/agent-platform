@@ -242,14 +242,17 @@ describe("invite service", () => {
         }),
       ],
       next_cursor: "next",
+      assignable_roles: ["owner", "admin", "member"],
     });
     // The row is an owner's: what it offers follows the caller's role.
-    const [seenByAdmin] = (
-      await s.listMembers(user(OWNER, "admin"), { limit: 50, q: "x" })
-    ).items;
-    expect(seenByAdmin?.actions.disable).toEqual({
+    const seenByAdmin = await s.listMembers(user(OWNER, "admin"), {
+      limit: 50,
+      q: "x",
+    });
+    expect(seenByAdmin.items[0]?.actions.disable).toEqual({
       allowed: false,
       reason: "owner_protected",
     });
+    expect(seenByAdmin.assignable_roles).toEqual(["admin", "member"]);
   });
 });
