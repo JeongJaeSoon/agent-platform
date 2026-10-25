@@ -153,6 +153,40 @@ describe("구성원 화면", () => {
       expect(memberViewSchema.safeParse(view).success).toBe(true);
   });
 
+  test("행에 actions가 없는 이전 API에서도 화면이 오류로 떨어지지 않고 동작을 연다", async () => {
+    renderAt(
+      "/members",
+      {
+        "GET /v1/auth/me": () => json(200, me()),
+        // What the API answered before rows carried actions.
+        "GET /v1/members": () =>
+          json(200, { items: [owner, teammate, gone], next_cursor: null }),
+        ...noInvites,
+      },
+      "ko",
+      "warn",
+    );
+    const user = await setupUser();
+    const edit = await openEdit(user, "Mate");
+    expect(
+      within(edit)
+        .getAllByRole("radio")
+        .map((radio) => (radio as HTMLButtonElement).disabled),
+    ).toEqual([false, false, false]);
+    await user.click(within(edit).getByRole("button", { name: "취소" }));
+    expect(screen.queryByText("문제가 생겼습니다")).toBeNull();
+    const goneRow = screen
+      .getByText(/^Gone/)
+      .closest("[role=row]") as HTMLElement;
+    expect(
+      (
+        within(goneRow).getByRole("button", {
+          name: /다시 활성화/,
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false);
+  });
+
   test("목록과 상태를 보이고, 역할 선택지는 contracts의 역할 그대로다", async () => {
     renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me()),

@@ -56,6 +56,7 @@ import {
   teamsQuery,
 } from "../api/queries.ts";
 import {
+  offeredActions,
   permissionReason,
   roleLabel,
   useHasPermission,
@@ -252,7 +253,9 @@ export function MembersScreen() {
 
   if (!manages) return null;
 
-  const items = members.data?.pages.flatMap((page) => page.items) ?? [];
+  const items = (members.data?.pages.flatMap((page) => page.items) ?? []).map(
+    (member) => ({ ...member, actions: offeredActions(member) }),
+  );
   // The clear button leaves with the empty state; focus goes back to the box.
   const clear = () => {
     setQuery("");

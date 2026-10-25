@@ -2,6 +2,9 @@ import { type ApiError, isApiError } from "@werft-ai/client";
 import type {
   AuthMeResponse,
   AuthorizationAction,
+  MemberActions,
+  MemberRow,
+  MemberVerdict,
   SessionScope,
   WorkspaceRole,
 } from "@werft-ai/contracts";
@@ -30,6 +33,23 @@ const BELOW_OWNER = WORKSPACE_ROLE_VALUES.filter((value) => value !== "owner");
  */
 export function useGrantableRoles(): readonly WorkspaceRole[] {
   return useRole() === "owner" ? WORKSPACE_ROLE_VALUES : BELOW_OWNER;
+}
+
+const OFFERED: MemberVerdict = { allowed: true };
+
+/**
+ * What the member list offers on a row. An API older than the field leaves
+ * it out, and production hands such an answer on (validate "warn"): offer
+ * everything and let the server's refusal speak, rather than fail the screen.
+ */
+export function offeredActions(member: MemberRow): MemberActions {
+  return (
+    member.actions ?? {
+      change_role: { owner: OFFERED, admin: OFFERED, member: OFFERED },
+      disable: OFFERED,
+      enable: OFFERED,
+    }
+  );
 }
 
 /** The signed-in principal; screens under the authenticated layout only. */
