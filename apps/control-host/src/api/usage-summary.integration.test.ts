@@ -6,6 +6,7 @@ import {
   type UsageSummaryResponse,
   usageSummaryQuerySchema,
   usageSummaryResponseSchema,
+  usageToolsResponseSchema,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
@@ -516,12 +517,13 @@ integration("installation figures over HTTP on PostgreSQL", () => {
   test("the owner reads GET /v1/limits and scope=installation; admin and member get 403", async () => {
     const installation =
       "/v1/usage/summary?scope=installation&since=2026-10-01";
+    const tools = "/v1/usage/tools?scope=installation&since=2026-10-01";
     for (const [role, status] of [
       ["owner", 200],
       ["admin", 403],
       ["member", 403],
     ] as const) {
-      for (const path of ["/v1/limits", installation]) {
+      for (const path of ["/v1/limits", installation, tools]) {
         const response = await get(path, role);
         expect(response.status, `${role} ${path}`).toBe(status);
         if (status === 403) {
@@ -537,6 +539,14 @@ integration("installation figures over HTTP on PostgreSQL", () => {
         scope: "me",
         session_count: 0,
       });
+      const myTools = await get(
+        "/v1/usage/tools?scope=me&since=2026-10-01",
+        role,
+      );
+      expect(myTools.status, role).toBe(200);
+      expect(
+        usageToolsResponseSchema.parse(await myTools.json()),
+      ).toMatchObject({ scope: "me", tools: [] });
     }
   });
 });
