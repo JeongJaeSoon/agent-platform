@@ -356,12 +356,15 @@ export function SlackConnect({
   active = true,
   manage = true,
   inPage = false,
+  notify,
 }: {
   readonly agentId: string;
   readonly active?: boolean;
   readonly manage?: boolean;
   /** Rendered as the side list's Advanced section, below the status strip. */
   readonly inPage?: boolean;
+  /** Offers app ID copy and open actions, reporting the copy through it. */
+  readonly notify?: Notify;
 }) {
   const { t } = useI18n();
   const { client } = useAgentPlatform();
@@ -487,7 +490,7 @@ export function SlackConnect({
                   </span>
                 }
                 actions={
-                  inPage ? (
+                  notify ? (
                     <>
                       <Button
                         type="button"
@@ -497,7 +500,7 @@ export function SlackConnect({
                         onClick={() => {
                           const value = record.app_id ?? "";
                           void copyText(value, { current: null }).then((ok) =>
-                            setNotice(
+                            notify(
                               t(ok ? "slack.copied" : "slack.copyAppIdFailed"),
                             ),
                           );
@@ -1299,7 +1302,12 @@ export default function SlackTab({
               <SlackDefaultReaction agentId={agentId} />
             </RowList>
           </section>
-          <SlackConnect agentId={agentId} active={active} inPage />
+          <SlackConnect
+            agentId={agentId}
+            active={active}
+            inPage
+            notify={notify}
+          />
         </div>
       </SideNavLayout>
       {toast}
