@@ -51,6 +51,25 @@ export type UsageSummaryRecord = {
   runSeconds: number;
 };
 
+/** One UTC day of a series: `UsageSummaryRecord`'s figures for that day. */
+export type UsageSeriesBucketRecord = {
+  /** YYYY-MM-DD. */
+  date: string;
+  sessionCount: number;
+  costUsd: string;
+  providerTokens: number;
+  incompleteTurnCount: number;
+  /** The floor of the running total minus the floor of the one before. */
+  runSeconds: number;
+};
+
+/** Every UTC day [since, until) touches, read in one statement. */
+export type UsageSeriesRecord = {
+  readAt: Date;
+  until: Date;
+  buckets: UsageSeriesBucketRecord[];
+};
+
 /**
  * One tool name's calls among tool_use events created in the period. A call
  * is timed only when its result is paired and both events carry a time.
@@ -82,6 +101,10 @@ export interface UsageReader {
     filter: UsageSummaryFilter,
     period: { since: Date; until?: Date },
   ): Promise<UsageSummaryRecord>;
+  usageSeries(
+    filter: UsageSummaryFilter,
+    period: { since: Date; until?: Date },
+  ): Promise<UsageSeriesRecord>;
   /** The most-called tools first, at most `limit` of them. */
   usageTools(
     filter: UsageSummaryFilter,

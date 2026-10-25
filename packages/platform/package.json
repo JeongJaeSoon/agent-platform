@@ -3,6 +3,7 @@
   "description": "Kiel session runtime: session, worker gateway, scheduler and checkpoint services over ports, plus the Musterrolle authorization policy",
   "version": "0.0.0",
   "private": true,
+  "license": "PolyForm-Small-Business-1.0.0",
   "type": "module",
   "exports": {
     ".": "./src/index.ts",

@@ -20,6 +20,7 @@ export {
   sessionUsageQuery,
   teamQuery,
   teamsQuery,
+  usageSeriesQuery,
   viewerQuery,
   waitingSessionsQuery,
 } from "./queries.ts";

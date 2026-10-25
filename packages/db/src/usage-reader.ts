@@ -58,6 +58,27 @@ function startedBy(filter: UsageSummaryFilter): SQL | undefined {
   }
 }
 
+function periodBounds(period: { since: Date; until?: Date }) {
+  const since = sql`${period.since.toISOString()}::timestamptz`;
+  // The API's clock passed since; the database's may be a moment behind,
+  // and a period must not end before it starts.
+  const until = period.until
+    ? sql`${period.until.toISOString()}::timestamptz`
+    : sql`greatest(now(), ${since})`;
+  return { since, until };
+}
+
+// On a 90-day installation read JIT spent longer compiling than the
+// aggregate took to run (packages/db/bench/usage-reads.ts), so it is off for
+// that one transaction.
+async function executeWithoutJit<Row>(db: Database, query: SQL) {
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`SET LOCAL jit = off`);
+    const { rows } = (await tx.execute(query)) as unknown as { rows: Row[] };
+    return rows;
+  });
+}
+
 function counted(condition: SQL | undefined) {
   return sql<number>`count(${turns.id}) FILTER (WHERE ${condition})`.mapWith(
     Number,
@@ -122,12 +143,7 @@ export function createPostgresUsageReader(db: Database): UsageReader {
     },
 
     async usageSummary(filter, period) {
-      const since = sql`${period.since.toISOString()}::timestamptz`;
-      // The API's clock passed since; the database's may be a moment behind,
-      // and a period must not end before it starts.
-      const until = period.until
-        ? sql`${period.until.toISOString()}::timestamptz`
-        : sql`greatest(now(), ${since})`;
+      const { since, until } = periodBounds(period);
       const picked = db.$with("picked").as(
         db
           .select({
@@ -173,6 +189,95 @@ export function createPostgresUsageReader(db: Database): UsageReader {
         .from(picked);
       if (!row) throw new Error("usage summary read returned no row");
       return row;
+    },
+
+    async usageSeries(filter, period) {
+      const { since, until } = periodBounds(period);
+      const inPeriod = sql`${sessions.createdAt} >= ${since}
+            AND ${sessions.createdAt} < ${until}
+            AND ${startedBy(filter) ?? sql`TRUE`}`;
+      const day = sql`(${sessions.createdAt} AT TIME ZONE 'UTC')::date`;
+      // The summary's figures per UTC day of created_at. Sessions and their
+      // turns are each grouped by day, never by session, so a long period is
+      // two hash aggregates. Run time is summed exactly (numeric) per day and
+      // floored on the running total, so the days add up to the summary's
+      // one floor over the whole period.
+      const query = sql`
+        WITH per_day AS (
+          SELECT ${day} AS day,
+                 count(*) AS session_count,
+                 sum(${sessions.costUsd}) AS cost_usd,
+                 sum(${sessions.providerTokens}) AS provider_tokens
+          FROM ${sessions}
+          WHERE ${inPeriod}
+          GROUP BY 1
+        ),
+        turn_day AS (
+          SELECT ${day} AS day,
+                 count(*) FILTER (WHERE ${incomplete}) AS incomplete,
+                 sum(${runSeconds}) FILTER (WHERE ${ran}) AS seconds
+          FROM ${sessions}
+          JOIN ${turns} ON ${turns.sessionId} = ${sessions.id}
+          WHERE ${inPeriod}
+          GROUP BY 1
+        ),
+        bounds AS (
+          SELECT (${since} AT TIME ZONE 'UTC')::date AS first,
+                 ((${until} AT TIME ZONE 'UTC') - interval '1 microsecond')::date AS last
+        ),
+        days AS (
+          -- date + integer: a generate_series over dates steps timestamptz
+          -- in the session's time zone, and a DST jump at midnight skips a day.
+          SELECT bounds.first + n AS day
+          FROM bounds, generate_series(0, bounds.last - bounds.first) n
+        ),
+        buckets AS (
+          SELECT days.day,
+                 coalesce(per_day.session_count, 0) AS session_count,
+                 coalesce(per_day.cost_usd, 0) AS cost_usd,
+                 coalesce(per_day.provider_tokens, 0) AS provider_tokens,
+                 coalesce(turn_day.incomplete, 0) AS incomplete,
+                 coalesce(turn_day.seconds, 0) AS seconds
+          FROM days
+          LEFT JOIN per_day ON per_day.day = days.day
+          LEFT JOIN turn_day ON turn_day.day = days.day
+        )
+        SELECT now() AS read_at,
+               ${until} AS until,
+               to_char(day, 'YYYY-MM-DD') AS date,
+               session_count::int AS session_count,
+               cost_usd::text AS cost_usd,
+               provider_tokens::bigint AS provider_tokens,
+               incomplete::int AS incomplete,
+               (floor(sum(seconds) OVER running)
+                 - floor(sum(seconds) OVER running - seconds))::bigint AS run_seconds
+        FROM buckets
+        WINDOW running AS (ORDER BY day ROWS UNBOUNDED PRECEDING)
+        ORDER BY day`;
+      const rows = await executeWithoutJit<{
+        read_at: Date | string;
+        until: Date | string;
+        date: string;
+        session_count: number;
+        cost_usd: string;
+        provider_tokens: number | string;
+        incomplete: number;
+        run_seconds: number | string;
+      }>(db, query);
+      const [first] = rows;
+      if (!first) throw new Error("usage series read returned no day");
+      return {
+        readAt: new Date(first.read_at),
+        until: new Date(first.until),
+        buckets: rows.map((row) => ({
+          date: row.date,
+          sessionCount: row.session_count,
+          costUsd: row.cost_usd,
+          providerTokens: Number(row.provider_tokens),
+          incompleteTurnCount: row.incomplete,
+          runSeconds: Number(row.run_seconds),
+        })),
+      };
     },
 
     // From the reconciler's projection: calls made since its last pass do

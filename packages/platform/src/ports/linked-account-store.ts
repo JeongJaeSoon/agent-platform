@@ -12,6 +12,8 @@ export type LinkedAccountRecord = {
   provider: LinkedAccountProvider;
   externalTenant: string;
   externalUserId: string;
+  externalTenantName: string | null;
+  externalUserName: string | null;
   status: LinkedAccountStatus;
   verifiedAt: Date;
   revision: number;
@@ -21,6 +23,12 @@ export type ExternalAccountRef = {
   provider: LinkedAccountProvider;
   externalTenant: string;
   externalUserId: string;
+};
+
+/** Names the provider gave at verification; display only, never matched on. */
+export type ExternalAccountNames = {
+  externalTenantName: string | null;
+  externalUserName: string | null;
 };
 
 /** What a decision carries forward and compares at processing time. */
@@ -76,13 +84,15 @@ export interface LinkedAccountStore {
    * Links the account to the caller after checking, under the membership
    * lock, that its team is installed for the workspace and that no one else
    * holds it. The caller's own active or stale link to the same account is
-   * re-verified and made active. Writes a `link_account` receipt.
+   * re-verified and made active, its names replaced by these. Writes a
+   * `link_account` receipt.
    */
   link(input: {
     principal: Principal;
     workspaceId: string;
     userId: string;
     account: ExternalAccountRef;
+    names: ExternalAccountNames;
   }): Promise<LinkAccountResult>;
   /** Revokes the caller's own link and writes an `unlink_account` receipt. */
   unlink(input: {

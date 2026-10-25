@@ -338,6 +338,57 @@
           "since"
         ]
       },
+      "UsageSeriesQuery": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "installation",
+              "me"
+            ]
+          },
+          "since": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+              },
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              }
+            ]
+          },
+          "until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+              },
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              }
+            ]
+          },
+          "bucket": {
+            "default": "day",
+            "type": "string",
+            "enum": [
+              "day"
+            ]
+          }
+        },
+        "required": [
+          "scope",
+          "since"
+        ]
+      },
       "UsageToolsQuery": {
         "type": "object",
         "properties": {
@@ -2652,6 +2703,212 @@
               }
             ]
           },
+          "activity": {
+            "description": "What the session's newest events did, for a list card. Absent from a server older than the field.",
+            "type": "object",
+            "properties": {
+              "last": {
+                "anyOf": [
+                  {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "text"
+                          },
+                          "text": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "The first non-blank line of the text, trimmed and cut to 200 code points."
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "text"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "tool"
+                          },
+                          "name": {
+                            "type": "string",
+                            "description": "The tool_use name; empty when the call named none."
+                          },
+                          "target": {
+                            "type": "string",
+                            "description": "What the call acts on, the first of its input's `command`, `file_path`, `path`, `pattern`, `url`, `query` or `description` that is a non-empty string; empty when none is."
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "name",
+                          "target"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The newest text with a non-blank line or tool call in the window's `assistant` and `tool_use` events, a subagent's included. Null when the window has neither."
+              },
+              "tool_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991,
+                "description": "Distinct tool_use ids called in the window."
+              },
+              "error_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991,
+                "description": "Of those calls, the ones whose tool_result has `is_error: true`. A call left without a result is not counted."
+              },
+              "subagent_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991,
+                "description": "Subagent runs in the window: one per `Task` or `Agent` call, and one per call the window's events name as `parent_tool_use_id`, whether or not that call is in the window."
+              },
+              "current_tool": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "name": {
+                        "type": "string",
+                        "description": "The tool_use name; empty when the call named none."
+                      },
+                      "target": {
+                        "type": "string",
+                        "description": "What the call acts on, the first of its input's `command`, `file_path`, `path`, `pattern`, `url`, `query` or `description` that is a non-empty string; empty when none is."
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "running",
+                          "waiting"
+                        ],
+                        "description": "`waiting` while a question for the call is unanswered: the session has not moved past `needs_input` since it was asked."
+                      },
+                      "since": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                        "description": "When the call was made, or for `waiting` when its question was asked."
+                      },
+                      "request": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "permission",
+                                  "question"
+                                ]
+                              },
+                              "prompt": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "For `question`, the first question's text, trimmed and cut to 200 code points; null for `permission` and for a question with no text."
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "prompt"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "What the call waits on: the newest question the session asked for it. Null unless `state` is `waiting`."
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "name",
+                      "target",
+                      "state",
+                      "since",
+                      "request"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The newest call still open: no tool_result yet, and neither a `result` of its turn nor a status of a session that stopped working (anything but `running`, `needs_input`, `interrupting`) came after it. Such a call reads `interrupted` and is never current."
+              },
+              "window": {
+                "type": "object",
+                "properties": {
+                  "events": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "complete": {
+                    "type": "boolean",
+                    "description": "True when the window holds every event of the session, so the counts are the session's own."
+                  },
+                  "since": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "When the oldest event of the window was recorded; null for a session with none."
+                  }
+                },
+                "required": [
+                  "events",
+                  "complete",
+                  "since"
+                ],
+                "additionalProperties": false,
+                "description": "The events the counts read: the session's newest 500 as recorded. They are ordered by `occurred_at`, and events at the same instant in the order they were recorded."
+              }
+            },
+            "required": [
+              "last",
+              "tool_count",
+              "error_count",
+              "subagent_count",
+              "current_tool",
+              "window"
+            ],
+            "additionalProperties": false
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -2968,6 +3225,212 @@
                 "type": "null"
               }
             ]
+          },
+          "activity": {
+            "description": "What the session's newest events did, for a list card. Absent from a server older than the field.",
+            "type": "object",
+            "properties": {
+              "last": {
+                "anyOf": [
+                  {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "text"
+                          },
+                          "text": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "The first non-blank line of the text, trimmed and cut to 200 code points."
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "text"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "tool"
+                          },
+                          "name": {
+                            "type": "string",
+                            "description": "The tool_use name; empty when the call named none."
+                          },
+                          "target": {
+                            "type": "string",
+                            "description": "What the call acts on, the first of its input's `command`, `file_path`, `path`, `pattern`, `url`, `query` or `description` that is a non-empty string; empty when none is."
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "name",
+                          "target"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The newest text with a non-blank line or tool call in the window's `assistant` and `tool_use` events, a subagent's included. Null when the window has neither."
+              },
+              "tool_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991,
+                "description": "Distinct tool_use ids called in the window."
+              },
+              "error_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991,
+                "description": "Of those calls, the ones whose tool_result has `is_error: true`. A call left without a result is not counted."
+              },
+              "subagent_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991,
+                "description": "Subagent runs in the window: one per `Task` or `Agent` call, and one per call the window's events name as `parent_tool_use_id`, whether or not that call is in the window."
+              },
+              "current_tool": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "name": {
+                        "type": "string",
+                        "description": "The tool_use name; empty when the call named none."
+                      },
+                      "target": {
+                        "type": "string",
+                        "description": "What the call acts on, the first of its input's `command`, `file_path`, `path`, `pattern`, `url`, `query` or `description` that is a non-empty string; empty when none is."
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "running",
+                          "waiting"
+                        ],
+                        "description": "`waiting` while a question for the call is unanswered: the session has not moved past `needs_input` since it was asked."
+                      },
+                      "since": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                        "description": "When the call was made, or for `waiting` when its question was asked."
+                      },
+                      "request": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "permission",
+                                  "question"
+                                ]
+                              },
+                              "prompt": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "For `question`, the first question's text, trimmed and cut to 200 code points; null for `permission` and for a question with no text."
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "prompt"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "What the call waits on: the newest question the session asked for it. Null unless `state` is `waiting`."
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "name",
+                      "target",
+                      "state",
+                      "since",
+                      "request"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The newest call still open: no tool_result yet, and neither a `result` of its turn nor a status of a session that stopped working (anything but `running`, `needs_input`, `interrupting`) came after it. Such a call reads `interrupted` and is never current."
+              },
+              "window": {
+                "type": "object",
+                "properties": {
+                  "events": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "complete": {
+                    "type": "boolean",
+                    "description": "True when the window holds every event of the session, so the counts are the session's own."
+                  },
+                  "since": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "When the oldest event of the window was recorded; null for a session with none."
+                  }
+                },
+                "required": [
+                  "events",
+                  "complete",
+                  "since"
+                ],
+                "additionalProperties": false,
+                "description": "The events the counts read: the session's newest 500 as recorded. They are ordered by `occurred_at`, and events at the same instant in the order they were recorded."
+              }
+            },
+            "required": [
+              "last",
+              "tool_count",
+              "error_count",
+              "subagent_count",
+              "current_tool",
+              "window"
+            ],
+            "additionalProperties": false
           },
           "created_at": {
             "type": "string",
@@ -5015,6 +5478,30 @@
                 "minLength": 1,
                 "maxLength": 255
               },
+              "external_tenant_name": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 255
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "external_user_name": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 255
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "status": {
                 "type": "string",
                 "enum": [
@@ -5040,6 +5527,8 @@
               "provider",
               "external_tenant",
               "external_user_id",
+              "external_tenant_name",
+              "external_user_name",
               "status",
               "verified_at",
               "revision"
@@ -5093,6 +5582,30 @@
                   "minLength": 1,
                   "maxLength": 255
                 },
+                "external_tenant_name": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 255
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "external_user_name": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 255
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "status": {
                   "type": "string",
                   "enum": [
@@ -5118,6 +5631,8 @@
                 "provider",
                 "external_tenant",
                 "external_user_id",
+                "external_tenant_name",
+                "external_user_name",
                 "status",
                 "verified_at",
                 "revision"
@@ -8822,6 +9337,86 @@
           "token_count",
           "run_seconds",
           "basis"
+        ],
+        "additionalProperties": false
+      },
+      "UsageSeriesResponse": {
+        "type": "object",
+        "properties": {
+          "period": {
+            "type": "object",
+            "properties": {
+              "since": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              "until": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              }
+            },
+            "required": [
+              "since",
+              "until"
+            ],
+            "additionalProperties": false
+          },
+          "refreshed_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "buckets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                },
+                "session_count": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "cost_usd": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d+)?$"
+                },
+                "cost_complete": {
+                  "type": "boolean"
+                },
+                "token_count": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "run_seconds": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "date",
+                "session_count",
+                "cost_usd",
+                "cost_complete",
+                "token_count",
+                "run_seconds"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "period",
+          "refreshed_at",
+          "buckets"
         ],
         "additionalProperties": false
       },
@@ -43471,6 +44066,289 @@
                 },
                 "schema": {
                   "$ref": "#/components/schemas/UsageSummaryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "- `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BAD_REQUEST"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "- `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "UNAUTHORIZED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "- `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, checked before the body or the resource is read.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "FORBIDDEN"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "description": "- `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BACKEND_UNAVAILABLE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/usage/series": {
+      "get": {
+        "operationId": "getUsageSeries",
+        "tags": [
+          "Limits & receipts"
+        ],
+        "summary": "The usage summary of a period, one bucket per UTC day",
+        "description": "Splits `GET /v1/usage/summary` by the UTC day each session was created on: one bucket per day the period `[since, until)` touches, oldest first, days without sessions included. `scope`, `since`, `until` and who may read which scope are exactly the summary's; the period spans at most 366 days. `bucket` is `day`, the only size.\n\nThe buckets of one response add up to the summary of the same period: `session_count`, `cost_usd` and `token_count` sum, and `cost_complete` is false on a day whose sessions include one the summary would mark incomplete. `run_seconds` is the floor of the running total of turn time minus the floor of the one before it, so two days of 0.6 seconds read 0 and 1, as the summary reads 1. A long session's cost and time count on the day it started. It changes nothing.\n\n**Scope:** `sessions:read` (API key or cookie session).",
+        "x-scope": "sessions:read",
+        "security": [
+          {
+            "bearerApiKey": [
+              "sessions:read"
+            ]
+          },
+          {
+            "cookieSession": [
+              "sessions:read"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "name": "scope",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "installation",
+                "me"
+              ]
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                },
+                {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                }
+              ]
+            }
+          },
+          {
+            "name": "until",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                },
+                {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                }
+              ]
+            }
+          },
+          {
+            "name": "bucket",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": "day",
+              "type": "string",
+              "enum": [
+                "day"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The buckets as of `refreshed_at`.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "example": {
+                  "period": {
+                    "since": "2026-10-09T00:00:00.000Z",
+                    "until": "2026-10-11T08:15:43.000Z"
+                  },
+                  "refreshed_at": "2026-10-11T08:15:43.000Z",
+                  "buckets": [
+                    {
+                      "date": "2026-10-09",
+                      "session_count": 5,
+                      "cost_usd": "1.204100",
+                      "cost_complete": true,
+                      "token_count": 702300,
+                      "run_seconds": 2210
+                    },
+                    {
+                      "date": "2026-10-10",
+                      "session_count": 0,
+                      "cost_usd": "0",
+                      "cost_complete": true,
+                      "token_count": 0,
+                      "run_seconds": 0
+                    },
+                    {
+                      "date": "2026-10-11",
+                      "session_count": 2,
+                      "cost_usd": "0.381000",
+                      "cost_complete": false,
+                      "token_count": 154200,
+                      "run_seconds": 640
+                    }
+                  ]
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/UsageSeriesResponse"
                 }
               }
             }
