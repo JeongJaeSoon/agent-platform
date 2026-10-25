@@ -233,10 +233,13 @@ const newAgentKey = createRoute({
   component: NewAgentKeyScreen,
 });
 
-const orgKeys = createRoute({
+// Where the organization key lived before it joined the workspace settings.
+const oldOrgKeys = createRoute({
   getParentRoute: () => authed,
   path: "/settings/api-keys/org",
-  component: OrgKeysScreen,
+  beforeLoad: () => {
+    throw redirect({ to: "/settings/workspace/api-keys", replace: true });
+  },
 });
 
 const preferences = createRoute({
@@ -255,6 +258,12 @@ const workspaceSlack = createRoute({
   getParentRoute: () => authed,
   path: "/settings/workspace/slack",
   component: WorkspaceSlackScreen,
+});
+
+const orgKeys = createRoute({
+  getParentRoute: () => authed,
+  path: "/settings/workspace/api-keys",
+  component: OrgKeysScreen,
 });
 
 const usage = createRoute({
@@ -304,10 +313,11 @@ const routeTree = root.addChildren([
     newApiKey,
     agentKeys,
     newAgentKey,
-    orgKeys,
+    oldOrgKeys,
     preferences,
     workspaceSettings,
     workspaceSlack,
+    orgKeys,
     usage,
   ]),
 ]);

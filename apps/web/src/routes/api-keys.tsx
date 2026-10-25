@@ -294,22 +294,18 @@ function useCreateReason(kind: KeyKind): string | undefined {
   return agentKeys ? undefined : t("apiKeys.noAgents");
 }
 
-const ORG_LIST = "/settings/api-keys/org";
-
 function KeyScreenNav({
   current,
   keys,
 }: {
-  readonly current: KeyKind | "org";
+  readonly current: KeyKind;
   /** The listed keys; until they load, the tabs show no counts. */
   readonly keys: readonly ApiKeyView[] | undefined;
 }) {
   const { t } = useI18n();
   const agentKeys = useIssuesAgentKeys();
-  // The admin key's place is the workspace managers'; the server says who.
-  const org = useHasPermission("api_key.manage");
-  if (!agentKeys && !org && current === "personal") return null;
-  const tabs: { id: KeyKind | "org"; to: string; title: MessageKey }[] = [
+  if (!agentKeys && current === "personal") return null;
+  const tabs: { id: KeyKind; to: string; title: MessageKey }[] = [
     { id: "personal", to: SCREEN.personal.list, title: SCREEN.personal.title },
   ];
   if (agentKeys || current === "agent")
@@ -318,14 +314,10 @@ function KeyScreenNav({
       to: SCREEN.agent.list,
       title: SCREEN.agent.title,
     });
-  if (org) tabs.push({ id: "org", to: ORG_LIST, title: "apiKeys.orgTitle" });
   return (
     <LinkTabs aria-label={t("apiKeys.nav")}>
       {tabs.map((tab) => {
-        const count =
-          tab.id === "org"
-            ? undefined
-            : keys?.filter((key) => key.kind === tab.id).length;
+        const count = keys?.filter((key) => key.kind === tab.id).length;
         return (
           <LinkTab
             key={tab.id}
@@ -417,17 +409,19 @@ export function AgentKeysScreen() {
 
 /**
  * The organization admin key's place, held until it exists: no list, no
- * issuing, only what it will be.
+ * issuing, only what it will be. It belongs to the workspace, so it sits in
+ * the workspace's settings, not beside the person's keys.
  */
 export function OrgKeysScreen() {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
-  const keys = useQuery(apiKeysQuery(client));
   if (!useHasPermission("api_key.manage"))
     return <StatusScreen kind="forbidden" />;
   return (
-    <Page title={t("apiKeys.title")} description={t("apiKeys.orgIntro")}>
-      <KeyScreenNav current="org" keys={keys.data?.items} />
+    <Page
+      width="form"
+      title={t("apiKeys.orgTitle")}
+      description={t("apiKeys.orgIntro")}
+    >
       <EmptyState
         title={t("apiKeys.orgPending")}
         description={t("apiKeys.orgPendingBody")}

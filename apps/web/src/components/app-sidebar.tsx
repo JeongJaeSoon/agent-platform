@@ -47,6 +47,7 @@ type NavPath =
   | "/members"
   | "/settings/workspace"
   | "/settings/workspace/slack"
+  | "/settings/workspace/api-keys"
   | "/settings/linked-accounts"
   | "/settings/api-keys"
   | "/settings/preferences";
@@ -161,6 +162,14 @@ export function useSettingsNavGroups(): readonly NavGroup[] {
       to: "/settings/workspace/slack",
       label: "workspace.slack",
       icon: SettingsIcon,
+    });
+  }
+  // The admin key's place is the workspace managers'; the server says who.
+  if (useHasPermission("api_key.manage")) {
+    workspace.push({
+      to: "/settings/workspace/api-keys",
+      label: "apiKeys.orgTitle",
+      icon: KeyRound,
     });
   }
   const groups: NavGroup[] = [
