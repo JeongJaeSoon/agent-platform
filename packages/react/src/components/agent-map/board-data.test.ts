@@ -119,26 +119,42 @@ describe("mapSessionOf", () => {
     expect(waiting({ kind: "question", prompt: null })?.tool).toBe("질문");
   });
 
-  test("a card waiting on a question says what it asks, not the tool's name", () => {
-    const card = mapSessionOf(
-      summary({
-        status: "needs_input",
-        activity: activity({
-          last: { kind: "tool", name: "AskUserQuestion", target: "" },
-          current_tool: {
-            id: "toolu_1",
-            name: "AskUserQuestion",
-            target: "",
-            state: "waiting",
-            since: ago(2),
-            request: { kind: "question", prompt: "어느 언어로 번역할까요?" },
-          },
+  test("a waiting card says what it waits on, not its last line", () => {
+    const note = (current: {
+      name: string;
+      target: string;
+      request: { kind: "permission" | "question"; prompt: string | null };
+    }) =>
+      mapSessionOf(
+        summary({
+          status: "needs_input",
+          activity: activity({
+            last: { kind: "tool", name: "Read", target: "old.ts" },
+            current_tool: {
+              id: "toolu_1",
+              state: "waiting",
+              since: ago(2),
+              ...current,
+            },
+          }),
         }),
+        NOW,
+        KO,
+      ).note;
+    expect(
+      note({
+        name: "AskUserQuestion",
+        target: "",
+        request: { kind: "question", prompt: "어느 언어로 번역할까요?" },
       }),
-      NOW,
-      KO,
-    );
-    expect(card.note).toBe("질문 · 어느 언어로 번역할까요?");
+    ).toBe("질문 · 어느 언어로 번역할까요?");
+    expect(
+      note({
+        name: "Bash",
+        target: "npm test",
+        request: { kind: "permission", prompt: null },
+      }),
+    ).toBe("Bash · npm test");
   });
 
   test("a call that is only running is not a request", () => {
