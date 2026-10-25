@@ -17,6 +17,7 @@ import {
   requirePermitted,
   SessionServiceError,
 } from "../sessions/session-service.ts";
+import { memberActions } from "./member-rules.ts";
 import type { AuthorizationPolicy, Caller } from "./policy.ts";
 
 export const INVITE_TTL_MS = INVITE_TTL_DAYS * 24 * 60 * 60 * 1000;
@@ -151,8 +152,23 @@ export function createInviteService(deps: {
       query: ListMembersQuery,
     ): Promise<ListMembersResponse> {
       const actor = await actingOwner(caller);
+      const principal = caller.subject.principal;
+      // member.manage is never an API key's, so the caller is a person.
+      if (principal?.kind !== "user") {
+        throw new SessionServiceError(
+          "FORBIDDEN",
+          "This principal does not hold member.manage",
+        );
+      }
       const page = await store.listMembers(actor.workspaceId, query);
-      return { ...page, items: page.items.map(memberView) };
+      const viewer = { userId: actor.userId, role: principal.role };
+      return {
+        ...page,
+        items: page.items.map((row) => ({
+          ...memberView(row),
+          actions: memberActions(viewer, row),
+        })),
+      };
     },
 
     async changeMemberRole(
@@ -179,6 +195,21 @@ export function createInviteService(deps: {
           throw new SessionServiceError("FORBIDDEN", NOT_AN_OWNER);
         case "owner_protected":
           throw OWNER_PROTECTED();
+        case "self_protected":
+          throw new SessionServiceError(
+            "SELF_PROTECTED",
+            "A manager cannot change their own role",
+          );
+        case "member_disabled":
+          throw new SessionServiceError(
+            "MEMBER_DISABLED",
+            "The membership is disabled; enable it first",
+          );
+        case "account_disabled":
+          throw new SessionServiceError(
+            "ACCOUNT_DISABLED",
+            "The account is suspended; lift the suspension first",
+          );
         default:
           return memberView(result.member);
       }

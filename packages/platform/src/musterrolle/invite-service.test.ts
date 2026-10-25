@@ -212,7 +212,16 @@ describe("invite service", () => {
       listInvites: async (workspaceId) =>
         workspaceId === WORKSPACE ? [INVITE] : [],
       listMembers: async (workspaceId, query) => ({
-        items: workspaceId === WORKSPACE && query.q === "x" ? [MEMBER_ROW] : [],
+        items:
+          workspaceId === WORKSPACE && query.q === "x"
+            ? [
+                {
+                  ...MEMBER_ROW,
+                  membershipDisabled: false,
+                  accountDisabled: false,
+                },
+              ]
+            : [],
         next_cursor: "next",
       }),
     });
@@ -225,8 +234,22 @@ describe("invite service", () => {
       }),
     ]);
     expect(await s.listMembers(owner, { limit: 50, q: "x" })).toEqual({
-      items: [expect.objectContaining({ user_id: MEMBER, disabled_at: null })],
+      items: [
+        expect.objectContaining({
+          user_id: MEMBER,
+          disabled_at: null,
+          actions: expect.objectContaining({ disable: { allowed: true } }),
+        }),
+      ],
       next_cursor: "next",
+    });
+    // The row is an owner's: what it offers follows the caller's role.
+    const [seenByAdmin] = (
+      await s.listMembers(user(OWNER, "admin"), { limit: 50, q: "x" })
+    ).items;
+    expect(seenByAdmin?.actions.disable).toEqual({
+      allowed: false,
+      reason: "owner_protected",
     });
   });
 });

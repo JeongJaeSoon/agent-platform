@@ -19,6 +19,7 @@ import {
   type InviteService,
   type InviteStore,
   type MemberRecord,
+  type MemberRowRecord,
   type MemberService,
   type MemberStore,
 } from "@werft-ai/platform";
@@ -67,6 +68,16 @@ function store(overrides: Partial<MemberStore> = {}): MemberStore {
 function asPerson(caller: Caller): Caller {
   return {
     ...caller,
+    subject: {
+      ...caller.subject,
+      principal: {
+        kind: "user",
+        id: OWNER_USER,
+        workspace_id: caller.ownerId,
+        role: "owner",
+        scopes: [],
+      },
+    },
     actor: {
       principal: { kind: "user", id: OWNER_USER },
       userId: OWNER_USER,
@@ -85,6 +96,12 @@ const MEMBER: MemberRecord = {
   createdAt: new Date("2026-10-11T00:00:00.000Z"),
 };
 
+const MEMBER_ROW: MemberRowRecord = {
+  ...MEMBER,
+  membershipDisabled: false,
+  accountDisabled: false,
+};
+
 function roleStore(overrides: Partial<InviteStore> = {}): InviteStore {
   const unused = async () => {
     throw new Error("not used by the member routes");
@@ -95,7 +112,7 @@ function roleStore(overrides: Partial<InviteStore> = {}): InviteStore {
     revokeInvite: unused,
     peekInvite: unused,
     acceptInvite: unused,
-    listMembers: async () => ({ items: [MEMBER], next_cursor: null }),
+    listMembers: async () => ({ items: [MEMBER_ROW], next_cursor: null }),
     changeMemberRole: async (input) => ({
       outcome: "changed",
       member: { ...MEMBER, role: input.role },
@@ -341,6 +358,15 @@ describe("GET /v1/members", () => {
           role: "member",
           disabled_at: null,
           created_at: "2026-10-11T00:00:00.000Z",
+          actions: {
+            change_role: {
+              owner: { allowed: true },
+              admin: { allowed: true },
+              member: { allowed: false, reason: "unchanged" },
+            },
+            disable: { allowed: true },
+            enable: { allowed: false, reason: "unchanged" },
+          },
         },
       ],
       next_cursor: null,
@@ -353,7 +379,7 @@ describe("GET /v1/members", () => {
       roles: roleStore({
         listMembers: async (_workspaceId, query) => {
           seen.push(query);
-          return { items: [MEMBER], next_cursor: "page-2" };
+          return { items: [MEMBER_ROW], next_cursor: "page-2" };
         },
       }),
     }).request("/v1/members?q=%20Ki%25_%20&limit=1&cursor=abc", {
@@ -464,6 +490,37 @@ describe("PATCH /v1/members/{user_id}", () => {
       role: "owner",
       actor: OWNER_USER,
     });
+  });
+
+  test.each([
+    ["self_protected", 403, "SELF_PROTECTED"],
+    ["owner_protected", 403, "OWNER_PROTECTED"],
+    ["member_disabled", 409, "MEMBER_DISABLED"],
+    ["account_disabled", 409, "ACCOUNT_DISABLED"],
+  ] as const)("a %s refusal answers %d %s", async (outcome, status, code) => {
+    const response = await patch(
+      app(store(), {
+        roles: roleStore({ changeMemberRole: async () => ({ outcome }) }),
+      }),
+      { role: "member" },
+    );
+    expect(response.status).toBe(status);
+    expect((await errorOf(response)).code).toBe(code);
+  });
+
+  test("the role it already has answers 200 and writes nothing", async () => {
+    const response = await patch(
+      app(store(), {
+        roles: roleStore({
+          changeMemberRole: async () => ({
+            outcome: "unchanged",
+            member: MEMBER,
+          }),
+        }),
+      }),
+      { role: "member" },
+    );
+    expect(response.status).toBe(200);
   });
 
   test("the last owner cannot be demoted", async () => {
@@ -634,13 +691,24 @@ describe.each([
   });
 
   if (disabled) {
-    test("the last owner, or yourself, cannot be disabled", async () => {
+    test("yourself cannot be disabled", async () => {
+      const self = await post(answering({ outcome: "self_protected" }));
+      expect(self.status).toBe(403);
+      expect((await errorOf(self)).code).toBe("SELF_PROTECTED");
+    });
+  }
+  if (disabled && scope === "membership") {
+    test("the last owner cannot be disabled", async () => {
       const last = await post(answering({ outcome: "last_owner" }));
       expect(last.status).toBe(409);
       expect((await errorOf(last)).code).toBe("LAST_OWNER");
-      const self = await post(app(), {}, OWNER_USER);
-      expect(self.status).toBe(409);
-      expect((await errorOf(self)).code).toBe("LAST_OWNER");
+    });
+  }
+  if (!disabled && scope === "membership") {
+    test("a suspended account is not enabled through its membership", async () => {
+      const response = await post(answering({ outcome: "account_disabled" }));
+      expect(response.status).toBe(409);
+      expect((await errorOf(response)).code).toBe("ACCOUNT_DISABLED");
     });
   }
 });

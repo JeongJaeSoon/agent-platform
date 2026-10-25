@@ -3,7 +3,13 @@ import type { QueryClient } from "@tanstack/react-query";
 import type { UserEvent } from "@testing-library/user-event";
 import type { MemberView } from "@werft-ai/contracts";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
-import { apiError, json, me, USER_ID } from "../test-support/fake-api.ts";
+import {
+  apiError,
+  json,
+  me,
+  memberPage,
+  USER_ID,
+} from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
 const { act, renderAt, screen, waitFor, within } = await appHarness();
@@ -38,7 +44,8 @@ const createdEach = () => {
 function renderMembers(invite: () => Response = created) {
   return renderAt("/members/invites", {
     "GET /v1/auth/me": () => json(200, me()),
-    "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
+    "GET /v1/members": () =>
+      json(200, memberPage({ items: [owner], next_cursor: null })),
     "GET /v1/invites": () => json(200, { items: [] }),
     "POST /v1/invites": invite,
   });
@@ -105,7 +112,13 @@ describe("초대 보내기 대화상자", () => {
     const { api } = renderAt("/members/invites", {
       "GET /v1/auth/me": () => json(200, me(undefined, "admin")),
       "GET /v1/members": () =>
-        json(200, { items: [{ ...owner, role: "admin" }], next_cursor: null }),
+        json(
+          200,
+          memberPage({
+            items: [{ ...owner, role: "admin" }],
+            next_cursor: null,
+          }),
+        ),
       "GET /v1/invites": () => json(200, { items: [] }),
       "POST /v1/invites": created,
     });
@@ -129,7 +142,8 @@ describe("초대 보내기 대화상자", () => {
     let role: "owner" | "admin" = "owner";
     const { api, services } = renderAt("/members/invites", {
       "GET /v1/auth/me": () => json(200, me(undefined, role)),
-      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [owner], next_cursor: null })),
       "GET /v1/invites": () => json(200, { items: [] }),
       "POST /v1/invites": created,
     });
