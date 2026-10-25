@@ -323,7 +323,7 @@ describe("AgentMap", () => {
     );
   });
 
-  test("loading in the detail view stands in for the panel, not the board, below md", () => {
+  test("loading in the detail view stands in for the panel, not the board, below xl", () => {
     const view = withPlatform(
       <AgentMap
         sessions={[]}
@@ -342,7 +342,7 @@ describe("AgentMap", () => {
     expect(standIn("panel")).not.toContain("hidden");
   });
 
-  test("the detail view below md offers the way back", async () => {
+  test("the detail view below xl offers the way back", async () => {
     const user = await setupUser();
     let back = 0;
     const view = withPlatform(

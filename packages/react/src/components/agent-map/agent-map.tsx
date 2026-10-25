@@ -17,8 +17,9 @@ export interface AgentMapProps {
   } | null;
   readonly onSelect: (id: string) => void;
   /**
-   * Below md the board and the panel take turns: "detail" shows the panel
-   * with a way back. From md up both always show.
+   * Below xl the board and the panel take turns: "detail" shows the panel
+   * with a way back. From xl up both always show: below it the console's
+   * sidebar leaves too little beside the board for the relation graph.
    */
   readonly view?: "board" | "detail" | undefined;
   readonly onBack?: (() => void) | undefined;
@@ -34,8 +35,7 @@ export interface AgentMapProps {
   readonly messages?: Partial<AgentMapMessages> | undefined;
 }
 
-const COLUMNS =
-  "grid items-start gap-6 md:grid-cols-[300px_minmax(0,1fr)] xl:grid-cols-[360px_minmax(0,1fr)]";
+const COLUMNS = "grid items-start gap-6 xl:grid-cols-[360px_minmax(0,1fr)]";
 
 /** The board of status lanes beside the selected session's relations. */
 export function AgentMap({
@@ -59,7 +59,7 @@ export function AgentMap({
     );
   return (
     <div className={COLUMNS}>
-      <div className={detail ? "hidden md:block" : undefined}>
+      <div className={detail ? "hidden xl:block" : undefined}>
         <LaneBoard
           sessions={sessions}
           doneCount={doneCount}
@@ -71,14 +71,14 @@ export function AgentMap({
         />
       </div>
       <div
-        className={`flex flex-col gap-3 md:sticky md:top-4 ${detail ? "" : "hidden md:flex"}`}
+        className={`flex flex-col gap-3 xl:sticky xl:top-4 ${detail ? "" : "hidden xl:flex"}`}
       >
         {detail ? (
           <Button
             type="button"
             variant="ghost"
             size="sm"
-            className="self-start md:hidden"
+            className="self-start xl:hidden"
             onClick={onBack}
           >
             {messages.back}
@@ -124,7 +124,7 @@ function AgentMapLoading({
       <div
         aria-hidden="true"
         data-stand-in="board"
-        className={`min-w-0 flex-col gap-4 ${detail ? "hidden md:flex" : "flex"}`}
+        className={`min-w-0 flex-col gap-4 ${detail ? "hidden xl:flex" : "flex"}`}
       >
         <ApprovalStripStandIn rows={waiting} />
         {(["attention", "running", "queued", "idle"] as const).map((lane) => (
@@ -151,7 +151,7 @@ function AgentMapLoading({
       <Card
         aria-hidden="true"
         data-stand-in="panel"
-        className={`min-w-0 gap-4 p-4 ${detail ? "flex" : "hidden md:flex"}`}
+        className={`min-w-0 gap-4 p-4 ${detail ? "flex" : "hidden xl:flex"}`}
       >
         <Skeleton width="45%" label="" />
         <Skeleton width="60%" label="" />
