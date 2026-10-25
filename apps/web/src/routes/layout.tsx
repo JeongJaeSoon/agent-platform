@@ -27,8 +27,10 @@ import {
   type NavGroup,
   navItemFor,
   useNavGroups,
+  useSettingsNavGroups,
 } from "../components/app-sidebar.tsx";
 import { MAIN_CONTENT_ID, Main } from "../components/main.tsx";
+import { SettingsLayout } from "../components/settings-nav.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { applyTheme, storedTheme } from "../components/theme.ts";
 import {
@@ -95,6 +97,7 @@ const SESSION_PATH = /^\/sessions\/([^/]+)\/?$/;
 const AGENT_PATH = /^\/agents\/([^/]+)\/?$/;
 // Home, the sessions list and a session: screens with a right rail.
 const RAIL_PATH = /^\/(sessions(\/[^/]+)?)?\/?$/;
+const SETTINGS_PATH = /^\/settings(\/|$)/;
 
 export function AuthedLayout() {
   const { t } = useI18n();
@@ -114,9 +117,11 @@ export function AuthedLayout() {
       }),
     // Only once the server has dropped the session: on any other failure the
     // cookie still works, and saying "logged out" would be a lie.
+    // Clear once the shell is gone: a shell still mounted refetches the
+    // principal it reads into the emptied cache.
     onSuccess: async () => {
-      queryClient.clear();
       await navigate({ to: "/login", search: { notice: "logged_out" } });
+      queryClient.clear();
     },
   });
 
@@ -210,7 +215,9 @@ function PageTrail({
 }) {
   const { t } = useI18n();
   const pathname = usePathname();
-  const here = navItemFor(groups, pathname);
+  // A settings page reads as its own name, not the one sidebar item.
+  const settingsGroups = useSettingsNavGroups();
+  const here = navItemFor([...settingsGroups, ...groups], pathname);
   const leaf = useLeafTitle(pathname);
   if (!here) {
     return (
@@ -248,11 +255,10 @@ function ShellMain({ children }: { readonly children: ReactNode }) {
   // its own body (V4-RAIL); every other screen sits in the shared frame.
   // Read from the screen on show: switching the frame while the next one
   // loads would remount the leaving screen, which reads its queries again.
-  const flush = RAIL_PATH.test(
-    useRouterState({
-      select: (state) => (state.resolvedLocation ?? state.location).pathname,
-    }),
-  );
+  const pathname = useRouterState({
+    select: (state) => (state.resolvedLocation ?? state.location).pathname,
+  });
+  const flush = RAIL_PATH.test(pathname);
   return (
     <Main className="web-shell__main flex w-full min-w-0 flex-col bg-surface md:col-start-2 md:row-start-2">
       {flush ? (
@@ -263,7 +269,13 @@ function ShellMain({ children }: { readonly children: ReactNode }) {
           {children}
         </div>
       ) : (
-        <PageFrame className="flex-1">{children}</PageFrame>
+        <PageFrame className="flex-1">
+          {SETTINGS_PATH.test(pathname) ? (
+            <SettingsLayout>{children}</SettingsLayout>
+          ) : (
+            children
+          )}
+        </PageFrame>
       )}
     </Main>
   );

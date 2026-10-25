@@ -75,7 +75,10 @@ export function Findings({
             <div className="min-w-0">
               <p className="m-0">
                 {messages[finding.kind]}
-                <code className="font-mono text-control">{tool.name}</code>
+                {/* leading-none: the mono font's metrics would stretch the line once it loads. */}
+                <code className="font-mono text-control leading-none">
+                  {tool.name}
+                </code>
               </p>
               <p className="m-0 text-caption text-subtle-foreground leading-4">
                 {detail[finding.kind](tool)}

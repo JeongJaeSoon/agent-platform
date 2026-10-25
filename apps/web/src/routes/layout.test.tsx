@@ -43,7 +43,7 @@ afterEach(() => {
 });
 
 describe("app shell", () => {
-  test("the sidebar groups work, workspace and personal settings", async () => {
+  test("the sidebar groups work and the workspace, settings behind one item", async () => {
     renderAt("/", signedIn);
     const nav = await screen.findByRole("navigation", { name: "주요 메뉴" });
     const groups = within(nav).getAllByRole("group");
@@ -55,8 +55,7 @@ describe("app shell", () => {
       ),
     ).toEqual([
       ["홈", "세션", "에이전트"],
-      ["구성원", "워크스페이스 설정"],
-      ["연동 계정", "API key", "언어·테마"],
+      ["구성원", "설정"],
     ]);
     expect(groups[0]?.getAttribute("aria-labelledby")).toBeTruthy();
     expect(within(nav).getByRole("group", { name: "업무" })).toBeDefined();
@@ -68,9 +67,10 @@ describe("app shell", () => {
     // 구성원 holds the teams a member is in, so everyone has it.
     await within(nav).findByRole("link", { name: "구성원" });
     expect(within(nav).queryByRole("link", { name: "팀" })).toBeNull();
+    // Their settings open on the person's own pages.
     expect(
-      within(nav).queryByRole("link", { name: "워크스페이스 설정" }),
-    ).toBeNull();
+      within(nav).getByRole("link", { name: "설정" }).getAttribute("href"),
+    ).toBe("/settings/linked-accounts");
   });
 
   test("the top bar names the page with the sidebar's words", async () => {
@@ -83,8 +83,9 @@ describe("app shell", () => {
   // V4-PAGE-FRAME: settings and forms used to stop at 1100px.
   for (const [path, title] of [
     ["/settings/api-keys", "API key"],
-    ["/settings/workspace", "워크스페이스 설정"],
-    ["/settings/workspace/", "워크스페이스 설정"],
+    ["/settings/workspace", "일반"],
+    ["/settings/workspace/", "일반"],
+    ["/settings/workspace/slack", "Slack 연결 설정"],
     ["/settings/preferences", "언어·테마"],
     ["/settings/linked-accounts", "연동 계정"],
     ["/settings/api-keys/new", "새 개인 key"],
@@ -125,7 +126,7 @@ describe("app shell", () => {
   for (const [path, title, width] of [
     ["/sessions", "세션", "full"],
     ["/settings/api-keys", "API key", "full"],
-    ["/settings/workspace", "워크스페이스 설정", "form"],
+    ["/settings/workspace", "일반", "form"],
     ["/settings/preferences", "언어·테마", "form"],
     ["/settings/linked-accounts", "연동 계정", "form"],
     ["/settings/api-keys/new", "새 개인 key", "form"],

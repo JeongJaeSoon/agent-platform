@@ -188,14 +188,17 @@ export function openActions(view: MemberView): MemberActions {
 /**
  * A GET /v1/members page. A row without `actions` gets them: the signed-in
  * user's own is refused as `self_protected`, as the server always does, and
- * any other is open.
+ * any other is open. Without `assignable_roles` an invite may carry any role,
+ * as an owner's may.
  */
 export function memberPage(page: {
   items: readonly (MemberView | MemberRow)[];
   next_cursor: string | null;
+  assignable_roles?: readonly WorkspaceRole[];
 }) {
   return {
     ...page,
+    assignable_roles: page.assignable_roles ?? ["owner", "admin", "member"],
     items: page.items.map(
       (item): MemberRow =>
         "actions" in item
