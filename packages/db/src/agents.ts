@@ -36,6 +36,38 @@ type ReleaseRow = typeof agentReleases.$inferSelect;
 
 const newer = alias(agentReleases, "newer");
 
+/** A release of the agent made after this one has been activated. */
+export async function releaseSuperseded(
+  db: Database,
+  agentId: string,
+  releaseId: string,
+  workspaceId?: string,
+): Promise<boolean> {
+  const [row] = await db
+    .select({ id: newer.id })
+    .from(newer)
+    .innerJoin(agents, eq(agents.id, newer.agentId))
+    .innerJoin(
+      agentReleases,
+      and(
+        eq(agentReleases.agentId, newer.agentId),
+        eq(agentReleases.id, releaseId),
+      ),
+    )
+    .where(
+      and(
+        eq(newer.agentId, agentId),
+        workspaceId === undefined
+          ? undefined
+          : eq(agents.workspaceId, workspaceId),
+        isNotNull(newer.approvedAt),
+        gt(newer.createdAt, agentReleases.createdAt),
+      ),
+    )
+    .limit(1);
+  return row !== undefined;
+}
+
 export function agentOf(row: AgentRow): Agent {
   return {
     id: row.id,
@@ -236,29 +268,8 @@ export function createPostgresAgentStore(db: Database): AgentStore {
       return row ? releaseOf(row.release) : null;
     },
 
-    async releaseSuperseded(workspaceId, agentId, releaseId) {
-      const [row] = await db
-        .select({ id: newer.id })
-        .from(newer)
-        .innerJoin(agents, eq(agents.id, newer.agentId))
-        .innerJoin(
-          agentReleases,
-          and(
-            eq(agentReleases.agentId, newer.agentId),
-            eq(agentReleases.id, releaseId),
-          ),
-        )
-        .where(
-          and(
-            eq(newer.agentId, agentId),
-            eq(agents.workspaceId, workspaceId),
-            isNotNull(newer.approvedAt),
-            gt(newer.createdAt, agentReleases.createdAt),
-          ),
-        )
-        .limit(1);
-      return row !== undefined;
-    },
+    releaseSuperseded: (workspaceId, agentId, releaseId) =>
+      releaseSuperseded(db, agentId, releaseId, workspaceId),
 
     create(input) {
       return db.transaction(async (tx) => {

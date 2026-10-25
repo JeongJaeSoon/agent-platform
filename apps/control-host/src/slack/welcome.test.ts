@@ -591,6 +591,18 @@ describe.each(ENGINES)("the deployment welcome on %s", (engine) => {
     expect(
       await outbox.enqueue(entry, { bindingId: homeId, releaseId: release.id }),
     ).toBe("enqueued");
+
+    // R1 → R2 → R1 while a welcome for R1 was on its way: R1 is active
+    // again, and still a rollback.
+    const { release: second } = await fixture.release("changed");
+    await fixture.activate(second.id);
+    await fixture.activate(release.id);
+    expect(
+      await outbox.enqueue(
+        { ...entry, dedupeKey: "deployment-welcome:probe-2" },
+        { bindingId: homeId, releaseId: release.id },
+      ),
+    ).toBe("not_home");
   });
 
   test("a membership answer from before an invite does not overwrite it", async () => {

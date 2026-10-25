@@ -16,6 +16,7 @@ import {
   type SQL,
   sql,
 } from "drizzle-orm";
+import { releaseSuperseded } from "./agents.ts";
 import { actionableOfTurn } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
 import {
@@ -111,6 +112,11 @@ export function createPostgresSlackOutboxStore(db: Database): SlackOutboxStore {
             )
             .for("share");
           if (!home || !live) return "not_home";
+          // A statement of its own, after the lock: R1 → R2 → R1 leaves R1
+          // active again, and only a newer activation says it is a rollback.
+          if (await releaseSuperseded(tx, input.agentId, whileHome.releaseId)) {
+            return "not_home";
+          }
         }
         const [row] = await tx
           .insert(t)
