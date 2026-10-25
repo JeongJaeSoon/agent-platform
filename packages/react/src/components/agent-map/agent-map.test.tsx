@@ -70,8 +70,8 @@ const NODES: readonly MapNode[] = [
   ),
 ];
 
-function withPlatform(node: ReactNode, locale: "ko" | "en" = "ko") {
-  return render(
+function withProvider(node: ReactNode, locale: "ko" | "en" = "ko") {
+  return (
     <AgentPlatformProvider
       client={{} as ApiClient}
       locale={locale}
@@ -82,8 +82,12 @@ function withPlatform(node: ReactNode, locale: "ko" | "en" = "ko") {
       )}
     >
       {node}
-    </AgentPlatformProvider>,
+    </AgentPlatformProvider>
   );
+}
+
+function withPlatform(node: ReactNode, locale: "ko" | "en" = "ko") {
+  return render(withProvider(node, locale));
 }
 
 describe("laneOf", () => {
@@ -430,6 +434,50 @@ describe("AgentMap", () => {
     expect(
       document.activeElement === view.getByRole("heading", { level: 1 }),
     ).toBe(true);
+  });
+
+  test("a panel still loading takes focus once its title arrives", () => {
+    const map = (loading: boolean) => (
+      <AgentMap
+        sessions={[selected.session]}
+        doneCount={0}
+        selected={selected}
+        onSelect={() => {}}
+        view="detail"
+        loading={loading}
+        now={NOW}
+      />
+    );
+    const view = withPlatform(
+      <AgentMap
+        sessions={[selected.session]}
+        doneCount={0}
+        selected={selected}
+        onSelect={() => {}}
+        now={NOW}
+      />,
+    );
+    view.rerender(withProvider(map(true)));
+    expect(document.activeElement === document.body).toBe(true);
+    view.rerender(withProvider(map(false)));
+    expect(document.activeElement?.tagName).toBe("H2");
+  });
+
+  test("from xl up the open card keeps focus", async () => {
+    // Stands in for Tailwind's xl:hidden at 1280px and wider.
+    const xl = document.createElement("style");
+    xl.textContent = ".xl\\:hidden { display: none; }";
+    document.head.append(xl);
+    try {
+      const user = await setupUser();
+      const view = withPlatform(<Turns />);
+      const second = card(view, "둘째 세션");
+      if (!second) throw new Error("no card");
+      await user.click(second);
+      expect(document.activeElement === second).toBe(true);
+    } finally {
+      xl.remove();
+    }
   });
 
   test("opening on the detail view leaves focus where the page put it", () => {

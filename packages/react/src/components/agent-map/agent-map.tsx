@@ -60,23 +60,30 @@ export function AgentMap({
   const back = useRef<HTMLButtonElement>(null);
   const title = useRef<HTMLHeadingElement>(null);
   const shown = useRef(detail);
+  // Set on the way in, cleared once the title is there to take focus: a
+  // panel still loading, or with no session yet, gets it when it arrives.
+  const entering = useRef(false);
+  const ready = !loading && selected !== null;
   // Taking turns, the part that held focus goes away with its turn: the
   // panel's title takes it on the way in, the card just read on the way back.
   // From xl up both parts stay and focus stays where it is.
   useEffect(() => {
-    if (shown.current === detail) return;
-    shown.current = detail;
-    if (detail) {
-      const way = back.current;
-      if (way && getComputedStyle(way).display !== "none")
-        title.current?.focus();
-      return;
+    if (shown.current !== detail) {
+      shown.current = detail;
+      entering.current = detail;
+      if (!detail) {
+        (
+          board.current?.querySelector<HTMLElement>("[aria-pressed='true']") ??
+          listTitle?.current
+        )?.focus();
+        return;
+      }
     }
-    (
-      board.current?.querySelector<HTMLElement>("[aria-pressed='true']") ??
-      listTitle?.current
-    )?.focus();
-  }, [detail, listTitle]);
+    if (!entering.current || !ready) return;
+    entering.current = false;
+    const way = back.current;
+    if (way && getComputedStyle(way).display !== "none") title.current?.focus();
+  }, [detail, ready, listTitle]);
   if (loading)
     return (
       <AgentMapLoading detail={detail} waiting={waiting} messages={messages} />
