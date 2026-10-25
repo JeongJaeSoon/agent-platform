@@ -16,6 +16,7 @@ import {
   json,
   me,
   memberMe,
+  memberPage,
   RECEIPT_ID,
   USER_ID,
   WORKSPACE_ID,
@@ -70,7 +71,7 @@ function teamServer() {
     routes: {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": () =>
-        json(200, { items: [owner, mate], next_cursor: null }),
+        json(200, memberPage({ items: [owner, mate], next_cursor: null })),
       "GET /v1/teams": () => json(200, { items: team ? [view()] : [] }),
       "POST /v1/teams": async (request: Request) => {
         const { name } = (await request.json()) as { name: string };
@@ -474,7 +475,10 @@ describe("팀 화면", () => {
       ...server.routes,
       "GET /v1/members?limit=100": async () => {
         await asked;
-        return json(200, { items: [owner, mate], next_cursor: null });
+        return json(
+          200,
+          memberPage({ items: [owner, mate], next_cursor: null }),
+        );
       },
     });
     await screen.findByRole("link", { name: "결제팀" });

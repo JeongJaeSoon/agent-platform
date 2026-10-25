@@ -48,7 +48,8 @@
     --ap-color-border: #eaeaea;
     --ap-color-border-strong: #d4d4d4;
     /* A control's edge is how it is found (WCAG 1.4.11): 3:1 on surface and
-     canvas, which border-strong is not. */
+     canvas, which border-strong is not. Text fields draw it on the bottom
+     edge only and border-strong on the rest, so they read lighter. */
     --ap-color-border-input: #8a8a8a;
     --ap-color-foreground: #171717;
     --ap-color-muted-foreground: #4d4d4d;
@@ -216,7 +217,7 @@
      * header row 40px. Lines stacked in one cell sit 2px apart.
      */
     --ap-row-padding-x: var(--ap-space-4);
-    --ap-row-padding-y: var(--ap-space-3);
+    --ap-row-padding-y: var(--ap-space-4);
     --ap-row-head-padding-y: var(--ap-space-2);
     --ap-row-min-height: 3rem;
     --ap-row-head-min-height: 2.5rem;
@@ -259,7 +260,7 @@
 
       --ap-color-border: #262626;
       --ap-color-border-strong: #3a3a3a;
-      --ap-color-border-input: #737373;
+      --ap-color-border-input: #616161;
       --ap-color-foreground: #ededed;
       --ap-color-muted-foreground: #a1a1a1;
       --ap-color-subtle-foreground: #8f8f8f;
@@ -342,7 +343,7 @@
 
     --ap-color-border: #262626;
     --ap-color-border-strong: #3a3a3a;
-    --ap-color-border-input: #737373;
+    --ap-color-border-input: #616161;
     --ap-color-foreground: #ededed;
     --ap-color-muted-foreground: #a1a1a1;
     --ap-color-subtle-foreground: #8f8f8f;

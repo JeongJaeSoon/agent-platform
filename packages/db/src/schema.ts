@@ -22,7 +22,9 @@ import {
   SURFACE_CHANNEL_KIND_VALUES,
   SURFACE_DISCLOSURE_VALUES,
   SURFACE_KIND_VALUES,
+  SURFACE_MEMBERSHIP_STATE_VALUES,
   type SurfaceKind,
+  type SurfaceMembershipState,
 } from "@werft-ai/contracts";
 import type {
   SecretOwnerRef,
@@ -506,6 +508,12 @@ export const slackApps = pgTable(
     appId: text("app_id"),
     clientId: text("client_id"),
     redirectUrl: text("redirect_url").notNull(),
+    eventsState: text("events_state")
+      .$type<"pending" | "verified" | "failed">()
+      .notNull()
+      .default("pending"),
+    eventsCheckedAt: timestamp("events_checked_at", { withTimezone: true }),
+    eventsError: text("events_error"),
     createdByTokenUser: text("created_by_token_user"),
     /** No foreign key: the row outlives the account; null for the CLI. */
     createdBy: uuid("created_by"),
@@ -521,6 +529,10 @@ export const slackApps = pgTable(
   },
   (table) => [
     unique("slack_apps_app_id_key").on(table.appId),
+    check(
+      "slack_apps_events_state_check",
+      sql`${table.eventsState} IN ('pending', 'verified', 'failed')`,
+    ),
     uniqueIndex("slack_apps_live_agent_idx")
       .on(table.workspaceId, table.agentId)
       .where(
@@ -676,6 +688,9 @@ export const linkedAccounts = pgTable(
     /** The Slack team id. */
     externalTenant: text("external_tenant").notNull(),
     externalUserId: text("external_user_id").notNull(),
+    /** Names from the last verification, for display; null on older links. */
+    externalTenantName: text("external_tenant_name"),
+    externalUserName: text("external_user_name"),
     status: text()
       .$type<"active" | "stale" | "revoked">()
       .notNull()
@@ -1910,6 +1925,10 @@ export const agents = pgTable(
     status: text().notNull().default("active"),
     activeReleaseId: text("active_release_id"),
     activationRevision: integer("activation_revision").notNull().default(-1),
+    slackDefaultMode: text("slack_default_mode")
+      .$type<"off" | "mention">()
+      .notNull()
+      .default("off"),
     createdBy: uuid("created_by").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -1920,6 +1939,10 @@ export const agents = pgTable(
   },
   (table) => [
     uniqueIndex("agents_workspace_slug_idx").on(table.workspaceId, table.slug),
+    check(
+      "agents_slack_default_mode_check",
+      sql`${table.slackDefaultMode} IN ('off', 'mention')`,
+    ),
     // What agent_admins and api_keys reference, so neither can name another
     // workspace's agent.
     unique("agents_workspace_id_key").on(table.workspaceId, table.id),
@@ -2236,6 +2259,9 @@ export const surfaceBindings = pgTable(
       .notNull()
       .default("ready"),
     muted: boolean().notNull().default(false),
+    /** `surfaceMembershipSchema`; null until Slack was asked. */
+    membership: text().$type<SurfaceMembershipState>(),
+    membershipError: text("membership_error"),
     revision: integer().notNull().default(1),
     createdBy: uuid("created_by").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -2291,6 +2317,10 @@ export const surfaceBindings = pgTable(
     check(
       "surface_bindings_status_check",
       sql`${table.status} IN (${sql.raw(sqlList(SURFACE_BINDING_STATUS_VALUES))})`,
+    ),
+    check(
+      "surface_bindings_membership_check",
+      sql`(${table.membership} IS NULL OR ${table.membership} IN (${sql.raw(sqlList(SURFACE_MEMBERSHIP_STATE_VALUES))})) AND (${table.membershipError} IS NULL OR ${table.membership} IS NOT NULL)`,
     ),
     check(
       "surface_bindings_revoked_check",
@@ -2496,7 +2526,7 @@ export const slackOutbox = pgTable(
     }),
     check(
       "slack_outbox_kind_check",
-      sql`${table.kind} IN ('reply', 'notice', 'failure_notice', 'input_notice')`,
+      sql`${table.kind} IN ('reply', 'notice', 'failure_notice', 'input_notice', 'welcome')`,
     ),
     check(
       "slack_outbox_status_check",

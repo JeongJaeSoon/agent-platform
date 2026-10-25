@@ -447,7 +447,7 @@ integration("invites and roles over HTTP on PostgreSQL", () => {
     ]);
   });
 
-  test("roles change, and the last owner cannot be demoted", async () => {
+  test("roles change, and nobody changes their own", async () => {
     const listed = listMembersResponseSchema.parse(
       await (
         await send("GET", "/v1/members", undefined, as(ownerCookie))
@@ -484,8 +484,8 @@ integration("invites and roles over HTTP on PostgreSQL", () => {
       { role: "member" },
       as(memberCookie),
     );
-    expect(last.status).toBe(409);
-    expect((await last.json()).error.code).toBe("LAST_OWNER");
+    expect(last.status).toBe(403);
+    expect((await last.json()).error.code).toBe("SELF_PROTECTED");
     expect(await liveOwners()).toBe(1);
 
     // The demoted owner lost the right at once, with their session intact.
@@ -629,8 +629,7 @@ integration("invites and roles over HTTP on PostgreSQL", () => {
       expect(results.map((r) => r.status).sort()).toEqual([200, 403]);
       expect(await liveOwners()).toBe(1);
 
-      // Each stepping down at once locks no row the other one writes, so
-      // only locking every owner row keeps one of them.
+      // Stepping down yourself is refused outright, so both stay.
       await db
         .update(memberships)
         .set({ role: "owner" })
@@ -649,8 +648,11 @@ integration("invites and roles over HTTP on PostgreSQL", () => {
           as(ownerCookie),
         ),
       ]);
-      expect(stepDowns.map((r) => r.status).sort()).toEqual([200, 409]);
-      expect(await liveOwners()).toBe(1);
+      for (const response of stepDowns) {
+        expect(response.status).toBe(403);
+        expect((await response.json()).error.code).toBe("SELF_PROTECTED");
+      }
+      expect(await liveOwners()).toBe(2);
     });
   });
 });

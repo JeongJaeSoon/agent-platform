@@ -29,6 +29,10 @@ export const membersKo = {
     "하나뿐인 소유자의 역할은 바꿀 수 없습니다 — 다른 사람을 먼저 소유자로 정하세요.",
   "members.roleOwnerProtected": "소유자의 역할은 관리자가 바꿀 수 없습니다.",
   "members.roleOwnerGrant": "소유자 역할은 소유자만 줄 수 있습니다.",
+  "members.roleAccountDisabled":
+    "계정이 정지된 사람의 역할은 바꿀 수 없습니다 — 계정 정지를 먼저 풀어야 합니다.",
+  "members.enableAccountDisabled":
+    "계정이 정지된 사람은 여기서 다시 활성화할 수 없습니다 — 계정 정지를 먼저 풀어야 합니다.",
   "members.disable": "비활성화",
   "members.disableFor": "{name} 비활성화",
   "members.enableFor": "{name} 다시 활성화",
@@ -123,6 +127,10 @@ export const membersEn: Record<keyof typeof membersKo, string> = {
     "The only owner's role cannot change — make someone else an owner first.",
   "members.roleOwnerProtected": "An admin cannot change an owner's role.",
   "members.roleOwnerGrant": "Only an owner can grant the owner role.",
+  "members.roleAccountDisabled":
+    "A suspended account's role cannot change — lift the suspension first.",
+  "members.enableAccountDisabled":
+    "A suspended account cannot be re-enabled here — lift the suspension first.",
   "members.disable": "Disable",
   "members.disableFor": "Disable {name}",
   "members.enableFor": "Re-enable {name}",
@@ -218,6 +226,10 @@ export const membersJa: Record<keyof typeof membersKo, string> = {
   "members.roleOwnerProtected": "管理者はオーナーのロールを変更できません。",
   "members.roleOwnerGrant":
     "オーナーのロールを付与できるのはオーナーのみです。",
+  "members.roleAccountDisabled":
+    "アカウントが停止中のユーザーのロールは変更できません。先にアカウントの停止を解除してください。",
+  "members.enableAccountDisabled":
+    "アカウントが停止中のユーザーはここでは再有効化できません。先にアカウントの停止を解除してください。",
   "members.disable": "無効化",
   "members.disableFor": "{name}を無効化",
   "members.enableFor": "{name}を再有効化",

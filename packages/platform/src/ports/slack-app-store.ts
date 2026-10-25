@@ -1,6 +1,8 @@
 import type {
+  GetSlackAppResponse,
   SlackAppKind,
   SlackAppSecretPurpose,
+  SlackAppSettings,
   SlackAppState,
   WorkspaceRole,
 } from "@werft-ai/contracts";
@@ -20,6 +22,7 @@ export type SlackAppRecord = {
   createdByTokenUser: string | null;
   createdAt: Date;
   updatedAt: Date;
+  events?: GetSlackAppResponse["events"];
   secrets: Record<SlackAppSecretPurpose, SecretSummary | null>;
 };
 
@@ -74,6 +77,21 @@ export type BeginDeleteResult =
  * Slack answered and seals the app's secrets in the same transaction.
  */
 export interface SlackAppStore {
+  setEvents(
+    workspaceId: string,
+    slackAppId: string,
+    events: GetSlackAppResponse["events"],
+  ): Promise<void>;
+  getSettings(
+    workspaceId: string,
+    agentId: string,
+  ): Promise<SlackAppSettings | null>;
+  putSettings(input: {
+    workspaceId: string;
+    agentId: string;
+    actor: SlackAppActor;
+    settings: SlackAppSettings;
+  }): Promise<"saved" | "not_found" | "actor_inactive" | "outranked">;
   beginAgentApp(input: {
     workspaceId: string;
     agentId: string;

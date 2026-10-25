@@ -34,8 +34,9 @@ export type SegmentedControlProps = Omit<
   readonly value: string;
   readonly onValueChange: (value: string) => void;
   /**
-   * `toolbar` is 32px tall with the control corner and the 3:1 input edge,
-   * so it lines up with a search field and a filter chip in a list toolbar.
+   * `toolbar` is 32px tall with the control corner, so it lines up with a
+   * search field and a filter chip in a list toolbar. Its edge is the
+   * table's: the item labels, not the border, make it findable.
    */
   readonly size?: "default" | "toolbar" | undefined;
 };
@@ -57,7 +58,8 @@ export function SegmentedControl({
         className={cn(
           "inline-flex max-w-full flex-wrap items-center gap-0.5 rounded-card border border-border bg-card p-0.5",
           // 28px items + 1px padding + 1px border on each side = 32px.
-          size === "toolbar" && "rounded-control border-input p-px",
+          size === "toolbar" &&
+            "rounded-control p-px hover:border-border-strong",
           className,
         )}
         {...props}

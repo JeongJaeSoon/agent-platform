@@ -1324,6 +1324,89 @@ describe("session detail", () => {
     expect(screen.queryByText("Bash: make")).toBeNull();
   });
 
+  test("a tool call runs until its result arrives, then holds it in the same row", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
+    await waitFor(() => expect(stream.requests).toHaveLength(1));
+    await act(async () => stream.open());
+    act(() =>
+      stream.emit("ev_call", "tool_use", {
+        type: "assistant",
+        message: {
+          content: [
+            {
+              type: "tool_use",
+              id: "tu_1",
+              name: "Bash",
+              input: { command: "make" },
+            },
+          ],
+        },
+      }),
+    );
+    const call = (await screen.findByText("Bash: make")).closest("li");
+    expect(call?.textContent).toContain("실행 중");
+    act(() =>
+      stream.emit("ev_result", "tool_result", {
+        type: "tool_result",
+        tool_use_id: "tu_1",
+        content: "built",
+      }),
+    );
+    expect(await screen.findByText("Bash 결과 · 성공 · built")).toBeTruthy();
+    const list = screen.getByRole("list", { name: "이벤트" });
+    expect(list.querySelectorAll("li")).toHaveLength(1);
+    expect(list.textContent).not.toContain("실행 중");
+  });
+
+  test("a result for one of several calls in an event stays a row of its own", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
+    await waitFor(() => expect(stream.requests).toHaveLength(1));
+    await act(async () => stream.open());
+    act(() => {
+      stream.emit("ev_calls", "tool_use", {
+        type: "assistant",
+        message: {
+          content: [
+            {
+              type: "tool_use",
+              id: "tu_a",
+              name: "Bash",
+              input: { command: "make" },
+            },
+            {
+              type: "tool_use",
+              id: "tu_b",
+              name: "Bash",
+              input: { command: "test" },
+            },
+          ],
+        },
+      });
+      stream.emit("ev_result", "tool_result", {
+        type: "tool_result",
+        tool_use_id: "tu_a",
+        content: "built",
+      });
+    });
+    expect(await screen.findByText("Bash 결과 · 성공 · built")).toBeTruthy();
+    const list = screen.getByRole("list", { name: "이벤트" });
+    expect(list.querySelectorAll("li")).toHaveLength(2);
+  });
+
+  test("a run of status lines folds into one button that opens it", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
+    await waitFor(() => expect(stream.requests).toHaveLength(1));
+    await act(async () => stream.open());
+    act(() => {
+      stream.emit("ev_s1", "status", { phase: "running" });
+      stream.emit("ev_s2", "status", { phase: "idle" });
+    });
+    const toggle = await screen.findByRole("button", { name: /^이벤트 2개/ });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    await (await setupUser()).click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+  });
+
   test("thinking ticks fold into one line and an empty message draws no card", async () => {
     renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
     await waitFor(() => expect(stream.requests).toHaveLength(1));

@@ -207,6 +207,7 @@ function bind(channelId: string | null, binding: Binding) {
     home: false,
     memoryWritePolicy: "deny",
     status: "ready",
+    membership: null,
     muted: false,
     revision: 1,
     createdAt: new Date(0),

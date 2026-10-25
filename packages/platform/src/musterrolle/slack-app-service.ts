@@ -4,6 +4,7 @@ import type {
   DeleteSlackAppResponse,
   GetSlackAppResponse,
   SlackApp,
+  SlackAppSettings,
   SlackWarning,
 } from "@werft-ai/contracts";
 import type {
@@ -27,6 +28,7 @@ import {
   type SlackConfigApi,
 } from "./slack-config-api.ts";
 import type { SlackConfigTokens } from "./slack-config-token.ts";
+import { slackEventsUrl } from "./slack-events-finalize.ts";
 import {
   type AgentAppManifestInput,
   buildAgentAppManifest,
@@ -116,6 +118,7 @@ export function createSlackAppService(deps: {
   api: SlackConfigApi;
   /** The console's origin, from SLACK_OIDC_REDIRECT_URI; null when unset. */
   consoleOrigin: string | null;
+  eventsPublicUrl?: string | null;
   onAgentAppChanged?: (agentId: string) => void;
   now?: () => Date;
   newId?: () => string;
@@ -296,7 +299,64 @@ export function createSlackAppService(deps: {
       await permitAgent(caller, agentId);
       const { apps } = ready();
       const record = await apps.findForAgent(caller.ownerId, agentId);
-      return { slack_app: record === null ? null : slackAppView(record) };
+      if (
+        record === null &&
+        (await apps.getSettings(caller.ownerId, agentId)) === null
+      )
+        throw NOT_FOUND();
+      return {
+        slack_app: record === null ? null : slackAppView(record),
+        event_url:
+          deps.eventsPublicUrl == null
+            ? null
+            : slackEventsUrl(deps.eventsPublicUrl, agentId),
+        events: record?.events ?? { state: "pending", checked_at: null },
+      };
+    },
+
+    async getAgentAppManifest(caller: Caller, agentId: string) {
+      await permitAgent(caller, agentId);
+      const { apps } = ready();
+      const record = await apps.findForAgent(caller.ownerId, agentId);
+      const agent = await apps.manifestAgent(caller.ownerId, agentId);
+      if (record === null || agent === null) throw NOT_FOUND();
+      return buildAgentAppManifest({
+        name: agent.name,
+        botName: agent.slug,
+        description: agent.role,
+        redirectUrl: record.redirectUrl,
+        ...(deps.eventsPublicUrl == null
+          ? {}
+          : { eventsUrl: slackEventsUrl(deps.eventsPublicUrl, agentId) }),
+      });
+    },
+
+    async getAgentAppSettings(
+      caller: Caller,
+      agentId: string,
+    ): Promise<SlackAppSettings> {
+      await permitAgent(caller, agentId);
+      const settings = await ready().apps.getSettings(caller.ownerId, agentId);
+      if (settings === null) throw NOT_FOUND();
+      return settings;
+    },
+
+    async putAgentAppSettings(
+      caller: Caller,
+      agentId: string,
+      settings: SlackAppSettings,
+    ): Promise<SlackAppSettings> {
+      await permitAgent(caller, agentId);
+      const result = await ready().apps.putSettings({
+        workspaceId: caller.ownerId,
+        agentId,
+        actor: actorOf(caller, SLACK_INSTALL_ACTION),
+        settings,
+      });
+      if (result === "not_found") throw NOT_FOUND();
+      if (result === "actor_inactive") throw ACTOR_INACTIVE();
+      if (result === "outranked") throw OUTRANKED();
+      return settings;
     },
 
     async deleteApp(
@@ -376,10 +436,22 @@ export function createSlackAppService(deps: {
         redirectUrl: record.redirectUrl,
       });
       try {
-        return await tokens.withToken(workspaceId, (token) =>
+        const result = await tokens.withToken(workspaceId, (token) =>
           api.updateApp(token, appId, manifest),
         );
+        if (input.eventsUrl !== undefined)
+          await apps.setEvents(workspaceId, slackAppId, {
+            state: "verified",
+            checked_at: now().toISOString(),
+          });
+        return result;
       } catch (error) {
+        if (input.eventsUrl !== undefined)
+          await apps.setEvents(workspaceId, slackAppId, {
+            state: "failed",
+            checked_at: now().toISOString(),
+            error: "events_registration_failed",
+          });
         if (error instanceof SlackApiError) {
           throw error.answered
             ? slackRefused(error)

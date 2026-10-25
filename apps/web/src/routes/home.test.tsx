@@ -1,5 +1,6 @@
 import { describe, expect, jest, test } from "bun:test";
 import type { ApiClient } from "@werft-ai/client";
+import type { MemberView } from "@werft-ai/contracts";
 import { queryKeys, waitingSessionsQuery } from "@werft-ai/core";
 import { AGENT_ID, agentServer } from "../test-support/fake-agents.ts";
 import {
@@ -7,6 +8,7 @@ import {
   json,
   me,
   memberMe,
+  memberPage,
   USER_ID,
   WORKSPACE_ID,
 } from "../test-support/fake-api.ts";
@@ -23,7 +25,7 @@ function shownText(element: Element): string {
 const { act, renderAt, renderHook, screen, waitFor, within } =
   await appHarness();
 
-const owner = {
+const owner: MemberView = {
   user_id: USER_ID,
   email: "owner@example.com",
   display_name: "Owner",
@@ -92,7 +94,8 @@ describe("bootstrap checklist", () => {
     const server = agentServer();
     const { api } = renderAt("/", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [owner], next_cursor: null })),
       "GET /v1/invites": () => json(200, { items: [] }),
       "GET /v1/agents": server.routes["GET /v1/agents"],
       ...noSessions,
@@ -127,7 +130,8 @@ describe("bootstrap checklist", () => {
     const agent = { ...server.detail().agent, active_release_id: "rel-1" };
     renderAt("/", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [owner], next_cursor: null })),
       "GET /v1/invites": () =>
         json(200, {
           items: [
@@ -160,10 +164,13 @@ describe("bootstrap checklist", () => {
     renderAt("/", {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": () =>
-        json(200, {
-          items: [owner, { ...owner, user_id: AGENT_ID }],
-          next_cursor: null,
-        }),
+        json(
+          200,
+          memberPage({
+            items: [owner, { ...owner, user_id: AGENT_ID }],
+            next_cursor: null,
+          }),
+        ),
       "GET /v1/invites": () => json(200, { items: [] }),
       "GET /v1/agents": server.routes["GET /v1/agents"],
       ...noSessions,
@@ -177,7 +184,8 @@ describe("bootstrap checklist", () => {
   test("구성원은 혼자인데 초대 조회가 실패하면 초대 단계는 모른다", async () => {
     renderAt("/", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [owner], next_cursor: null })),
       "GET /v1/invites": () => apiError(500, "INTERNAL", "boom"),
       "GET /v1/agents": () => json(200, { items: [], next_cursor: null }),
       ...noSessions,
@@ -246,7 +254,8 @@ describe("bootstrap checklist", () => {
   test("소유자에게는 내 세션이 하나라도 있으면 세션 단계가 완료다", async () => {
     renderAt("/", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [owner], next_cursor: null })),
       "GET /v1/invites": () => json(200, { items: [] }),
       "GET /v1/agents": () => json(200, { items: [], next_cursor: null }),
       "GET /v1/sessions": () =>
@@ -261,7 +270,8 @@ describe("bootstrap checklist", () => {
   test("세션 목록을 읽지 못하면 세션 단계는 모른다", async () => {
     renderAt("/", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [owner], next_cursor: null })),
       "GET /v1/invites": () => json(200, { items: [] }),
       "GET /v1/agents": () => json(200, { items: [], next_cursor: null }),
       "GET /v1/sessions": () => apiError(500, "INTERNAL", "boom"),
@@ -277,7 +287,8 @@ describe("최근 세션 표", () => {
   test("좁은 표(820px 이하)에서는 에이전트·저장소 열이 머리와 칸이 함께 빠지고 남는 세 열이 좁은 열 틀과 맞는다", async () => {
     renderAt("/", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [owner], next_cursor: null })),
       "GET /v1/invites": () => json(200, { items: [] }),
       "GET /v1/agents": () => json(200, { items: [], next_cursor: null }),
       "GET /v1/sessions": () =>
@@ -427,7 +438,8 @@ describe("홈 요약", () => {
     };
     return {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [owner], next_cursor: null })),
       "GET /v1/invites": () => json(200, { items: [] }),
       "GET /v1/agents": () =>
         json(200, {
@@ -861,18 +873,21 @@ describe("홈 요약", () => {
     renderAt("/", {
       ...homeRoutes(),
       "GET /v1/members": () =>
-        json(200, {
-          items: [
-            owner,
-            {
-              ...owner,
-              user_id: "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e",
-              email: "member@example.com",
-              role: "member",
-            },
-          ],
-          next_cursor: null,
-        }),
+        json(
+          200,
+          memberPage({
+            items: [
+              owner,
+              {
+                ...owner,
+                user_id: "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e",
+                email: "member@example.com",
+                role: "member",
+              },
+            ],
+            next_cursor: null,
+          }),
+        ),
     });
     // The recent table reads the same session list the last step does.
     await screen.findByRole("table", { name: "최근 세션" });
@@ -884,7 +899,8 @@ describe("홈 요약", () => {
   test("목록 하나라도 읽는 중이면 시작하기를 그리지 않는다", async () => {
     const { api } = renderAt("/", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [owner], next_cursor: null })),
       "GET /v1/invites": () => json(200, { items: [] }),
       "GET /v1/agents": () => new Promise<Response>(() => {}),
       ...noSessions,
@@ -990,6 +1006,8 @@ describe("홈 요약", () => {
               provider: "slack",
               external_tenant: "T0001",
               external_user_id: "U0001",
+              external_tenant_name: null,
+              external_user_name: null,
               status: "stale",
               verified_at: "2026-10-01T00:00:00Z",
               revision: 1,
@@ -1199,7 +1217,8 @@ describe("내가 속한 팀", () => {
   test("팀을 관리하는 사람에게는 팀 화면 링크다", async () => {
     renderAt("/", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [owner], next_cursor: null })),
       "GET /v1/invites": () => json(200, { items: [] }),
       "GET /v1/agents": () => json(200, { items: [], next_cursor: null }),
       "GET /v1/my-teams": () => json(200, { items: [TEAM] }),
@@ -1267,7 +1286,8 @@ describe("내가 관리하는 에이전트", () => {
     const server = agentServer();
     const { api } = renderAt("/", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [owner], next_cursor: null })),
       "GET /v1/invites": () => json(200, { items: [] }),
       "GET /v1/agents": server.routes["GET /v1/agents"],
       ...noSessions,

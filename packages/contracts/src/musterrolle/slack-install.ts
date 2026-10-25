@@ -12,15 +12,28 @@ import { slackAppSchema } from "./slack-apps.ts";
  * `events_url_unset`: SLACK_EVENTS_PUBLIC_URL is not set, so the app's event
  * subscription was not registered. `reinstall_required`: Slack answered the
  * manifest update with `permissions_updated`, so the app must be installed
- * again before the new scopes apply.
+ * again before the new scopes apply. The membership states of
+ * `surfaceMembershipSchema` name the bound channel the bot is not in yet;
+ * the welcome waits for it when it is the home.
  */
 export const SLACK_FINALIZE_WARNING_VALUES = [
   "events_url_unset",
   "reinstall_required",
   "finalize_failed",
+  "awaiting_invite",
+  "config_error",
+  "join_failed",
 ] as const;
 export const slackFinalizeWarningSchema = z
-  .object({ code: z.enum(SLACK_FINALIZE_WARNING_VALUES) })
+  .object({
+    code: z.enum(SLACK_FINALIZE_WARNING_VALUES),
+    channel_id: slackIdSchema.optional(),
+    /** Slack's error code, for `config_error` and `join_failed`. */
+    error: z
+      .string()
+      .regex(/^[a-z_]{1,64}$/)
+      .optional(),
+  })
   .strict();
 export type SlackFinalizeWarning = z.infer<typeof slackFinalizeWarningSchema>;
 
