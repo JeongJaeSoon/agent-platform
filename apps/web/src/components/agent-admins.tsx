@@ -33,6 +33,7 @@ import {
 import { useI18n } from "../i18n/i18n.tsx";
 import { LoadFailure } from "./load-failure.tsx";
 import type { Outcome } from "./outcome.tsx";
+import { OPENS_ROW, ROW_LINK } from "./row-link.ts";
 import { StatusScreen } from "./status-screen.tsx";
 
 // Lines that wrap on a narrow screen sit a line gap apart, not RowListItem's 8px.
@@ -402,8 +403,11 @@ export function AdministeredAgents({
           <p className="web-field__hint">{t("agentAdmins.mine.intro")}</p>
           <RowList>
             {items.map((agent) => (
-              <RowListItem key={agent.id} className={ADMIN_ROW}>
-                <TextLink asChild className={PRIMARY}>
+              <RowListItem
+                key={agent.id}
+                className={`${ADMIN_ROW} ${OPENS_ROW}`}
+              >
+                <TextLink asChild className={`${PRIMARY} ${ROW_LINK}`}>
                   <Link to="/agents/$id" params={{ id: agent.id }}>
                     {agent.name}
                   </Link>

@@ -2,10 +2,12 @@ import { randomUUID } from "node:crypto";
 import type { SessionStatus } from "@werft-ai/contracts";
 import type {
   MemberStore,
+  MembershipRole,
   SetAccessResult,
   TakeOverResult,
   TakeoverRecord,
 } from "@werft-ai/platform";
+import { managesMembers, memberVerdict } from "@werft-ai/platform";
 import {
   and,
   asc,
@@ -34,10 +36,6 @@ import {
 const TAKEOVER = "takeover";
 
 type SetAccessInput = Parameters<MemberStore["setAccess"]>[0];
-
-// Roles that hold member.manage; which of them may act is the policy's call,
-// this only re-checks it under the locks.
-const MANAGERS: ReadonlySet<string> = new Set(["owner", "admin"]);
 
 const OPERATIONS = {
   membership: { true: "disable_member", false: "enable_member" },
@@ -175,35 +173,48 @@ async function setAccess(
       locked
         .filter(
           (row) =>
-            row.userId === actor.userId && MANAGERS.has(row.role) && live(row),
+            row.userId === actor.userId &&
+            managesMembers(row.role) &&
+            live(row),
         )
         .map((row) => [row.workspaceId, row.role]),
     );
-    if (!managing.has(workspaceId)) return { outcome: "actor_inactive" };
+    const actorRole = managing.get(workspaceId) as MembershipRole | undefined;
+    if (!actorRole) return { outcome: "actor_inactive" };
     const target = locked.find(
       (row) => row.userId === userId && row.workspaceId === workspaceId,
     );
     if (!target) return { outcome: "not_found" };
-    // Only a live owner of that workspace changes an owner's access, wherever
-    // the change reaches. Disabled memberships count too: an owner whose
-    // membership is off is still an owner. Only the elsewhere check needs
-    // live ones.
-    const touched = locked.filter(
-      (row) =>
-        row.userId === userId &&
-        (scope === "account" || row.workspaceId === workspaceId),
-    );
-    const reached = touched.filter(
-      (row) => scope === "membership" || row.membershipDisabledAt === null,
-    );
-    const outranked = touched.some(
-      (row) =>
-        row.role === "owner" && managing.get(row.workspaceId) !== "owner",
-    );
-    if (outranked) return { outcome: "outranked" };
 
     let current: Date | null;
     if (scope === "membership") {
+      const verdict = memberVerdict(
+        { userId: actor.userId, role: actorRole },
+        {
+          userId,
+          role: target.role as MembershipRole,
+          membershipDisabled: target.membershipDisabledAt !== null,
+          // From the account rows locked above, not the joined snapshot.
+          accountDisabled:
+            (accounts.find((row) => row.id === userId)?.disabledAt ?? null) !==
+            null,
+        },
+        { kind: disabled ? "disable" : "enable" },
+      );
+      if (!verdict.allowed) {
+        switch (verdict.reason) {
+          case "unchanged":
+            return { outcome: "unchanged", member: memberRecord(target) };
+          case "owner_protected":
+            return { outcome: "outranked" };
+          case "self_protected":
+          case "account_disabled":
+          case "last_owner":
+            return { outcome: verdict.reason };
+          default:
+            throw new Error(`no ${verdict.reason} for a membership's access`);
+        }
+      }
       current = target.membershipDisabledAt;
       const otherLiveOwners = locked.filter(
         (row) =>
@@ -221,6 +232,23 @@ async function setAccess(
         return { outcome: "last_owner" };
       }
     } else {
+      // As memberVerdict says for a membership: it would end this session.
+      if (disabled && userId === actor.userId) {
+        return { outcome: "self_protected" };
+      }
+      // Only a live owner of a workspace changes an owner's access there,
+      // whichever workspace the change starts from. Disabled memberships
+      // count too: an owner whose membership is off is still an owner. Only
+      // the elsewhere check needs live ones.
+      const touched = locked.filter((row) => row.userId === userId);
+      const outranked = touched.some(
+        (row) =>
+          row.role === "owner" && managing.get(row.workspaceId) !== "owner",
+      );
+      if (outranked) return { outcome: "outranked" };
+      const reached = touched.filter(
+        (row) => row.membershipDisabledAt === null,
+      );
       current = accounts.find((row) => row.id === userId)?.disabledAt ?? null;
       const elsewhere = reached.some((row) => !managing.has(row.workspaceId));
       if (elsewhere) return { outcome: "elsewhere" };

@@ -33,3 +33,32 @@ export const DefaultDark: Story = {
   name: "Default (dark)",
   globals: { theme: "dark" },
 };
+
+export const DefaultMobile: Story = {
+  ...Default,
+  name: "Default (390px)",
+  globals: { viewport: { value: "mobile390", isRotated: false } },
+};
+
+/** Console v4 L516: title, one line, the request id, a retry. */
+export const CodeAndRetry: Story = {
+  args: {
+    title: "홈을 불러오지 못했습니다",
+    guidance: "잠시 뒤 다시 시도하세요.",
+    message: undefined,
+    code: "req_01JBA7T2K9QX4M",
+    retry: fn(),
+  },
+};
+
+/** In a card, where the console shows it. */
+export const InCard: Story = {
+  ...CodeAndRetry,
+  decorators: [
+    (Story) => (
+      <div className="rounded-card border bg-card">
+        <Story />
+      </div>
+    ),
+  ],
+};

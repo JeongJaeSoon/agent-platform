@@ -1,6 +1,6 @@
 {
-  "id": "08c832c8-641b-4bb5-96b6-76037b76eb06",
-  "prevId": "d725b464-5b4c-4d1f-98c5-ef9de641717f",
+  "id": "28dc3648-5e2c-403b-8fd7-e3002a226634",
+  "prevId": "9d9687ad-5676-4386-9578-928c6c6caee9",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -4938,141 +4938,6 @@
       },
       "isRLSEnabled": false
     },
-    "public.session_model_usage": {
-      "name": "session_model_usage",
-      "schema": "",
-      "columns": {
-        "session_id": {
-          "name": "session_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "model": {
-          "name": "model",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "session_created_at": {
-          "name": "session_created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "agent_id": {
-          "name": "agent_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "input_tokens": {
-          "name": "input_tokens",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "output_tokens": {
-          "name": "output_tokens",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "cache_read_input_tokens": {
-          "name": "cache_read_input_tokens",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "cache_creation_input_tokens": {
-          "name": "cache_creation_input_tokens",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "cost_usd": {
-          "name": "cost_usd",
-          "type": "numeric(14, 6)",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {
-        "session_model_usage_created_at_idx": {
-          "name": "session_model_usage_created_at_idx",
-          "columns": [
-            {
-              "expression": "session_created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "session_model_usage_session_id_model_pk": {
-          "name": "session_model_usage_session_id_model_pk",
-          "columns": ["session_id", "model"]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.session_pre_metering_cost": {
-      "name": "session_pre_metering_cost",
-      "schema": "",
-      "columns": {
-        "session_id": {
-          "name": "session_id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "session_created_at": {
-          "name": "session_created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "cost_usd": {
-          "name": "cost_usd",
-          "type": "numeric(14, 6)",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {
-        "session_pre_metering_cost_created_at_idx": {
-          "name": "session_pre_metering_cost_created_at_idx",
-          "columns": [
-            {
-              "expression": "session_created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.session_share_targets": {
       "name": "session_share_targets",
       "schema": "",
@@ -6804,7 +6669,7 @@
       "checkConstraints": {
         "slack_outbox_kind_check": {
           "name": "slack_outbox_kind_check",
-          "value": "\"slack_outbox\".\"kind\" IN ('reply', 'notice', 'failure_notice', 'input_notice')"
+          "value": "\"slack_outbox\".\"kind\" IN ('reply', 'notice', 'failure_notice', 'input_notice', 'welcome')"
         },
         "slack_outbox_status_check": {
           "name": "slack_outbox_status_check",
@@ -6951,6 +6816,18 @@
           "primaryKey": false,
           "notNull": true,
           "default": false
+        },
+        "membership": {
+          "name": "membership",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "membership_error": {
+          "name": "membership_error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "revision": {
           "name": "revision",
@@ -7113,6 +6990,10 @@
         "surface_bindings_status_check": {
           "name": "surface_bindings_status_check",
           "value": "\"surface_bindings\".\"status\" IN ('ready','partial','failed','revoked')"
+        },
+        "surface_bindings_membership_check": {
+          "name": "surface_bindings_membership_check",
+          "value": "(\"surface_bindings\".\"membership\" IS NULL OR \"surface_bindings\".\"membership\" IN ('joined','awaiting_invite','config_error','join_failed')) AND (\"surface_bindings\".\"membership_error\" IS NULL OR \"surface_bindings\".\"membership\" IS NOT NULL)"
         },
         "surface_bindings_revoked_check": {
           "name": "surface_bindings_revoked_check",
