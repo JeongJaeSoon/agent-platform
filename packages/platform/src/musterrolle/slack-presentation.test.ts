@@ -62,16 +62,95 @@ describe("escapeSlackControls without a policy", () => {
     expect(escapeSlackControls("if a < b and c > d")).toBe(
       "if a &lt; b and c &gt; d",
     );
-    expect(escapeSlackControls("a < b\nc > d")).toBe("a < b\nc > d");
+    expect(escapeSlackControls("a < b\nc > d")).toBe("a &lt; b\nc > d");
   });
 
-  test("code spans and fenced code are not touched", () => {
-    // Kollegium presentation.test.ts: fenced code keeps `<@U999>`.
-    const fenced =
-      '코드:\n```ts\nconst marker = "**literal** <@U999> & x";\n```';
-    expect(escapeSlackControls(fenced)).toBe(fenced);
+  test("code spans and fenced code show their controls as written", () => {
+    // Slack parses `<!here>` inside backticks into a broadcast token too.
+    expect(
+      escapeSlackControls(
+        '코드:\n```ts\nconst marker = "**literal** <@U999> & x";\n```',
+      ),
+    ).toBe(
+      '코드:\n```ts\nconst marker = "**literal** &lt;@U999&gt; &amp; x";\n```',
+    );
     expect(escapeSlackControls("run `echo <!here>` then <!here>")).toBe(
-      "run `echo <!here>` then &lt;!here&gt;",
+      "run `echo &lt;!here&gt;` then &lt;!here&gt;",
+    );
+    for (const control of [
+      "<!here>",
+      "<!channel>",
+      "<!everyone>",
+      "<!subteam^S1|@oncall>",
+      "<@U1>",
+      "<#C1>",
+      "<https://example.com|x>",
+    ]) {
+      const inner = control.slice(1, -1);
+      expect(escapeSlackControls(`\`${control}\``)).toBe(
+        `\`&lt;${inner}&gt;\``,
+      );
+      expect(escapeSlackControls(`\`\`\`\n${control}\n\`\`\``)).toBe(
+        `\`\`\`\n&lt;${inner}&gt;\n\`\`\``,
+      );
+    }
+  });
+
+  test("code ignores the policy and nested brackets", () => {
+    const policy = {
+      userIds: ["U1"],
+      userGroupIds: ["S1"],
+      special: ["here", "channel", "everyone"] as const,
+    };
+    expect(
+      escapeSlackControls("`<@U1> <!here> <!subteam^S1>` <@U1>", policy),
+    ).toBe("`&lt;@U1&gt; &lt;!here&gt; &lt;!subteam^S1&gt;` <@U1>");
+    expect(escapeSlackControls("`<<!here>>` and `a<b>c`")).toBe(
+      "`&lt;&lt;!here&gt;&gt;` and `a&lt;b&gt;c`",
+    );
+    expect(escapeSlackControls("`&lt;!here&gt; &amp; R&D`")).toBe(
+      "`&lt;!here&gt; &amp; R&amp;D`",
+    );
+  });
+
+  test("escaping its own output again changes nothing", () => {
+    for (const text of [
+      "`<!here>` <!here> ```\n<@U1> & <x>\n``` <https://a.example|a>",
+      "<https://example.com|<!here>> a < b `c > d`",
+    ]) {
+      const once = escapeSlackControls(text, { maskedLinks: "expand" });
+      expect(escapeSlackControls(once, { maskedLinks: "expand" })).toBe(once);
+    }
+    const policy = { userIds: ["U1"], maskedLinks: "expand" } as const;
+    const once = escapeSlackControls("<@U1> `<@U1>` <@U2>", policy);
+    expect(once).toBe("<@U1> `&lt;@U1&gt;` &lt;@U2&gt;");
+    expect(escapeSlackControls(once, policy)).toBe(once);
+  });
+
+  test("a backtick inside a control cannot move a code boundary", () => {
+    // Expanding `|`>` would join "``" and "`" into a fence around <@U1>.
+    const policy = { maskedLinks: "expand", userIds: ["U1"] } as const;
+    const once = escapeSlackControls("```<@U1>\n``<https://a|`>", policy);
+    expect(once).toBe("```<@U1>\n``&lt;https://a|`&gt;");
+    expect(escapeSlackControls(once, policy)).toBe(once);
+  });
+
+  test("a control split by a code span cannot reach Slack whole", () => {
+    expect(escapeSlackControls("<!subteam^S1|`x`>")).toBe(
+      "&lt;!subteam^S1|`x`>",
+    );
+    expect(
+      escapeSlackControls("<@U1|`x`> <!here|`y`>", { userIds: ["U1"] }),
+    ).toBe("&lt;@U1|`x`> &lt;!here|`y`>");
+    expect(escapeSlackControls("<https://a.example/`x`|y>")).toBe(
+      "&lt;https://a.example/`x`|y>",
+    );
+  });
+
+  test("ordinary code renders as written", () => {
+    expect(escapeSlackControls("`a < b && c`")).toBe("`a &lt; b &amp;&amp; c`");
+    expect(escapeSlackControls("```html\n<b>bold</b>\n```")).toBe(
+      "```html\n&lt;b&gt;bold&lt;/b&gt;\n```",
     );
   });
 
@@ -152,7 +231,7 @@ describe("escapeSlackControls with maskedLinks: expand", () => {
     );
   });
 
-  test("a label's text stays text, and code is left as written", () => {
+  test("a label's text stays text, and code shows its link as written", () => {
     expect(
       escapeSlackControls("<https://example.com|!here @channel>", expand),
     ).toBe("!here @channel (https://example.com)");
@@ -161,7 +240,7 @@ describe("escapeSlackControls with maskedLinks: expand", () => {
         "`<https://example.com|x>` <https://b.example|y>",
         expand,
       ),
-    ).toBe("`<https://example.com|x>` y (https://b.example)");
+    ).toBe("`&lt;https://example.com|x&gt;` y (https://b.example)");
   });
 
   test("keep is the default", () => {

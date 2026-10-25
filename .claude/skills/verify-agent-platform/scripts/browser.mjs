@@ -16,7 +16,7 @@
 //   browser.mjs <run> press <text|css> [Key]      focus it, then a real key (Enter): click leaves focus where it was
 //   browser.mjs <run> key <Key> [count] | eval <expr>   @N: the Nth field in <main>, from 0
 //   browser.mjs <run> measure <name>              evidence/layout/<name>.json for layout-report.mjs
-//   browser.mjs <run> slack-consent [team]        in-page Slack link start, mock consent, open the callback
+//   browser.mjs <run> slack-consent [team] [nameless]  in-page Slack link start, mock consent, open the callback
 //   browser.mjs <run> slack-install-consent <agent id> [deny]   finish a UI-started install through mock consent
 //
 // Every page command takes W (default 1280), H (900) and THEME (light|dark)
@@ -408,9 +408,13 @@ switch (cmd) {
       throw new Error("not a verification project");
     if (!state.COMPOSE_FILE?.includes("infra/compose.mock-slack.yml"))
       throw new Error("mock Slack overlay required");
-    const team = args[0];
+    // `nameless`: the id_token carries no names, like a link made before
+    // names were kept.
+    const nameless = args.includes("nameless");
+    const team = args.find((arg) => arg !== "nameless");
     if (team && !/^T[0-9A-Z]+$/.test(team))
       throw new Error("mock team id like T0OTHER");
+    const extra = `${team ? `&mock_team=${team}` : ""}${nameless ? "&mock_team_name=&mock_user_name=" : ""}`;
     const authorize = await evaluate(
       'fetch("/v1/linked-accounts/slack/start",{method:"POST",headers:{"x-requested-with":"agent-platform-web"}}).then(r=>r.json()).then(j=>j.authorize_url ?? "")',
     );
@@ -440,7 +444,7 @@ switch (cmd) {
           env: { ...process.env, ...state },
           encoding: "utf8",
           stdio: ["pipe", "pipe", "pipe"],
-          input: team ? `${authorize}&mock_team=${team}` : authorize,
+          input: `${authorize}${extra}`,
         },
       ).trim();
     } catch (error) {

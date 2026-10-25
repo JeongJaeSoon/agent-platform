@@ -59,6 +59,8 @@ const record: LinkedAccountRecord = {
   provider: "slack",
   externalTenant: TEAM,
   externalUserId: SLACK_USER,
+  externalTenantName: "Acme",
+  externalUserName: "Alice",
   status: "active",
   verifiedAt: new Date("2026-10-11T00:00:00.000Z"),
   revision: 1,
@@ -357,6 +359,8 @@ describe("POST /v1/linked-accounts/slack/callback", () => {
         provider: "slack",
         external_tenant: TEAM,
         external_user_id: SLACK_USER,
+        external_tenant_name: "Acme",
+        external_user_name: "Alice",
         status: "active",
         verified_at: "2026-10-11T00:00:00.000Z",
         revision: 1,
@@ -408,25 +412,28 @@ describe("POST /v1/linked-accounts/slack/callback", () => {
     expect((await errorOf(response)).message).toBe(LINK_MESSAGES.expired);
   });
 
-  test("hands the store exactly the team and user from the id_token", async () => {
+  test("hands the store exactly the team, user and names from the id_token", async () => {
     let linked: unknown;
     const api = app(
       store({
         link: async (input) => {
-          linked = input.account;
+          linked = { account: input.account, names: input.names };
           return { outcome: "linked", account: record, receiptId: RECEIPT };
         },
       }),
     );
     const { code, state, cookie } = await consented(
       api,
-      "mock_team=T0ELSEWHERE&mock_user=U0SOMEONE",
+      "mock_team=T0ELSEWHERE&mock_user=U0SOMEONE&mock_user_name=Someone",
     );
     await callback(api, { code, state }, { ...owner, Cookie: cookie });
     expect(linked).toEqual({
-      provider: "slack",
-      externalTenant: "T0ELSEWHERE",
-      externalUserId: "U0SOMEONE",
+      account: {
+        provider: "slack",
+        externalTenant: "T0ELSEWHERE",
+        externalUserId: "U0SOMEONE",
+      },
+      names: { externalTenantName: null, externalUserName: "Someone" },
     });
   });
 

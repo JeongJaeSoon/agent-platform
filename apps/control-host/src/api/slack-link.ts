@@ -182,7 +182,12 @@ export function slackAuthorizeUrl(
   return url.toString();
 }
 
-export type VerifiedSlackAccount = { teamId: string; userId: string };
+export type VerifiedSlackAccount = {
+  teamId: string;
+  userId: string;
+  teamName: string | null;
+  userName: string | null;
+};
 
 /** The IdP refused the code or returned a token that does not verify. */
 export class SlackOidcRejectedError extends Error {}
@@ -212,6 +217,15 @@ async function slackFetch(url: string, init: RequestInit): Promise<Response> {
 function claim(payload: Record<string, unknown>, name: string): string | null {
   const value = payload[name];
   return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+/** A name too long for the API's 255 is dropped; the page shows the id. */
+function displayName(
+  payload: Record<string, unknown>,
+  name: string,
+): string | null {
+  const value = claim(payload, name)?.trim();
+  return value && value.length <= 255 ? value : null;
 }
 
 export async function exchangeSlackCode(
@@ -271,5 +285,12 @@ export async function exchangeSlackCode(
   if (teamId === null || userId === null) {
     throw new SlackOidcRejectedError("id_token names no Slack team or user");
   }
-  return { teamId, userId };
+  return {
+    teamId,
+    userId,
+    // Display only, from the `profile` scope: `name` is the person's display
+    // name; the team name is the claim openid.connect.userInfo documents.
+    teamName: displayName(payload, "https://slack.com/team_name"),
+    userName: displayName(payload, "name"),
+  };
 }

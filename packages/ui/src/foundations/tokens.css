@@ -217,7 +217,7 @@
      * header row 40px. Lines stacked in one cell sit 2px apart.
      */
     --ap-row-padding-x: var(--ap-space-4);
-    --ap-row-padding-y: var(--ap-space-3);
+    --ap-row-padding-y: var(--ap-space-4);
     --ap-row-head-padding-y: var(--ap-space-2);
     --ap-row-min-height: 3rem;
     --ap-row-head-min-height: 2.5rem;
