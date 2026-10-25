@@ -1660,7 +1660,7 @@ export const providerUsage = pgTable(
 );
 
 // provider_usage summed per session and model by the provider_usage insert
-// trigger (migration 0167), so the usage breakdown reads a row per pair
+// trigger (migration 0168), so the usage breakdown reads a row per pair
 // instead of every call. The session's created_at and agent are copied for
 // the period filter and the grouping; neither changes after the session is
 // created. No foreign keys: rows only come from provider_usage, which holds
@@ -1696,7 +1696,7 @@ export const sessionModelUsage = pgTable(
 );
 
 // The part of a session's cost_usd no metered call explains: the engine's
-// turn totals from before provider_usage. Written once by migration 0167;
+// turn totals from before provider_usage. Written once by migration 0168;
 // a call adds to cost_usd and to its own sum alike, so the difference stays
 // put and new sessions never get a row. No foreign key, as above.
 export const sessionPreMeteringCost = pgTable(
