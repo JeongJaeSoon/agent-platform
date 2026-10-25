@@ -80,14 +80,14 @@ export function RunNode({
   useArrival(ref, node.fresh);
   const body = (
     <>
-      <span className="flex items-center gap-2 text-control">
+      <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-control">
         <StatusDot status={nodeDot(node)} />
         <span className="font-medium">
           {node.kind === "run"
             ? (node.label ?? messages.ownRun)
             : `${node.agent} · ${node.title}`}
         </span>
-        <span className="text-caption text-muted-foreground">
+        <span className="whitespace-nowrap text-caption text-muted-foreground">
           {node.kind === "run"
             ? messages.run(node.status)
             : messages.status(node.status)}

@@ -1,5 +1,5 @@
 import { Button, Card, Skeleton } from "@werft-ai/ui";
-import type { JSX } from "react";
+import { type JSX, type RefObject, useEffect, useRef } from "react";
 
 import { ApprovalStripStandIn, LaneBoard } from "./lane-board.tsx";
 import type { AgentMapMessages } from "./messages.ts";
@@ -23,6 +23,8 @@ export interface AgentMapProps {
    */
   readonly view?: "board" | "detail" | undefined;
   readonly onBack?: (() => void) | undefined;
+  /** Where the way back puts focus when the card just read is gone. */
+  readonly listTitle?: RefObject<HTMLElement | null> | undefined;
   readonly onExpandDone?: (() => void) | undefined;
   /** The list has not arrived: the board and panel keep their places. */
   readonly loading?: boolean | undefined;
@@ -45,6 +47,7 @@ export function AgentMap({
   onSelect,
   view = "board",
   onBack,
+  listTitle,
   onExpandDone,
   loading = false,
   waiting = 0,
@@ -53,13 +56,34 @@ export function AgentMap({
 }: AgentMapProps): JSX.Element {
   const messages = useAgentMapMessages(override);
   const detail = view === "detail";
+  const board = useRef<HTMLDivElement>(null);
+  const back = useRef<HTMLButtonElement>(null);
+  const title = useRef<HTMLHeadingElement>(null);
+  const shown = useRef(detail);
+  // Taking turns, the part that held focus goes away with its turn: the
+  // panel's title takes it on the way in, the card just read on the way back.
+  // From xl up both parts stay and focus stays where it is.
+  useEffect(() => {
+    if (shown.current === detail) return;
+    shown.current = detail;
+    if (detail) {
+      const way = back.current;
+      if (way && getComputedStyle(way).display !== "none")
+        title.current?.focus();
+      return;
+    }
+    (
+      board.current?.querySelector<HTMLElement>("[aria-pressed='true']") ??
+      listTitle?.current
+    )?.focus();
+  }, [detail, listTitle]);
   if (loading)
     return (
       <AgentMapLoading detail={detail} waiting={waiting} messages={messages} />
     );
   return (
     <div className={COLUMNS}>
-      <div className={detail ? "hidden xl:block" : undefined}>
+      <div ref={board} className={detail ? "hidden xl:block" : undefined}>
         <LaneBoard
           sessions={sessions}
           doneCount={doneCount}
@@ -75,6 +99,7 @@ export function AgentMap({
       >
         {detail ? (
           <Button
+            ref={back}
             type="button"
             variant="ghost"
             size="sm"
@@ -90,6 +115,7 @@ export function AgentMap({
             nodes={selected.nodes}
             now={now}
             messages={messages}
+            titleRef={title}
           />
         ) : null}
       </div>
