@@ -71,7 +71,7 @@ export function activityQuery(ids: readonly string[]) {
              b.ord,
              CASE WHEN b.ord IS NULL THEN e.type ELSE b.kind END AS kind,
              coalesce(b.tool_id, e.ref_tool) AS tool_id,
-             b.spawns, e.error, e.phase
+             b.spawns, e.parent, e.error, e.phase
       FROM page p
       CROSS JOIN LATERAL (
         SELECT id, type, turn_id, created_at,
@@ -81,6 +81,8 @@ export function activityQuery(ids: readonly string[]) {
                CASE WHEN type = 'tool_result'
                     THEN payload -> 'is_error' = 'true'::jsonb END AS error,
                CASE WHEN type = 'status' THEN payload ->> 'phase' END AS phase,
+               CASE WHEN type IN ('assistant', 'tool_use')
+                    THEN ${str(sql`payload -> 'parent_tool_use_id'`)} END AS parent,
                CASE WHEN type IN ('assistant', 'tool_use')
                      AND jsonb_typeof(payload -> 'message' -> 'content') = 'array'
                     THEN payload -> 'message' -> 'content' END AS content
@@ -121,7 +123,7 @@ export function activityQuery(ids: readonly string[]) {
       -- A call recorded twice keeps its earliest frame; a later question
       -- replaces an earlier one for the same call.
       SELECT session_id, tool_id,
-             ${firstUse(sql`spawns`)} AS spawns,
+             bool_or(spawns) FILTER (WHERE kind = 'use') AS spawns,
              ${firstUse(sql`at`)} AS used_at,
              ${firstUse(sql`id`)} AS use_id,
              ${firstUse(sql`ord`)} AS use_ord,
@@ -139,10 +141,21 @@ export function activityQuery(ids: readonly string[]) {
     counts AS (
       SELECT session_id,
              count(*)::int AS tool_count,
-             count(*) FILTER (WHERE error)::int AS error_count,
-             count(*) FILTER (WHERE spawns)::int AS subagent_count
+             count(*) FILTER (WHERE error)::int AS error_count
       FROM calls
       GROUP BY session_id
+    ),
+    -- The run tree's runs besides the session's own: one per Task or Agent
+    -- call, and one per call its events name as their parent, whether or
+    -- not that call is in the window.
+    runs AS (
+      SELECT session_id, tool_id AS run_id FROM calls WHERE spawns
+      UNION
+      SELECT session_id, parent FROM stream
+      WHERE parent IS NOT NULL AND parent NOT IN ('', ${ROOT_RUN_ID})
+    ),
+    run_counts AS (
+      SELECT session_id, count(*)::int AS subagent_count FROM runs GROUP BY session_id
     ),
     current AS (
       SELECT DISTINCT ON (session_id) session_id, tool_id, use_id, use_ord, waiting, question_id,
@@ -173,7 +186,7 @@ export function activityQuery(ids: readonly string[]) {
            sp.since_ms,
            coalesce(c.tool_count, 0) AS tool_count,
            coalesce(c.error_count, 0) AS error_count,
-           coalesce(c.subagent_count, 0) AS subagent_count,
+           coalesce(rc.subagent_count, 0) AS subagent_count,
            l.kind AS last_kind,
            CASE WHEN l.kind = 'text' THEN
              left(btrim((SELECT line FROM regexp_split_to_table(lb.block ->> 'text', E'\\r?\\n') AS line
@@ -199,6 +212,7 @@ export function activityQuery(ids: readonly string[]) {
     FROM page p
     LEFT JOIN span sp USING (session_id)
     LEFT JOIN counts c USING (session_id)
+    LEFT JOIN run_counts rc USING (session_id)
     LEFT JOIN last l USING (session_id)
     LEFT JOIN current cur USING (session_id)
     LEFT JOIN LATERAL (

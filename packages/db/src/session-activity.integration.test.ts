@@ -188,6 +188,25 @@ integration("session list activity on PostgreSQL", () => {
     });
   });
 
+  test("a subagent run counts once its events name it, and for a call any frame of which is a Task", async () => {
+    const s = await session();
+    // The Task call fell out of the window; its subagent's calls remain.
+    await s.record(
+      "tool_use",
+      assistant([use("t-in", "Read", { path: "a.ts" })], "t-gone"),
+    );
+    await s.record(
+      "tool_use",
+      assistant([use("t-in2", "Read", { path: "b.ts" })], "t-gone"),
+    );
+    await s.record("assistant", assistant([use("t-twice", "Bash")]));
+    await s.record("assistant", assistant([use("t-twice", "Task")]));
+    expect(await activity(s.id)).toMatchObject({
+      tool_count: 3,
+      subagent_count: 2,
+    });
+  });
+
   test("an open call waits on its question until the session moves past needs_input", async () => {
     const s = await session();
     await s.record("status", { phase: "running" });

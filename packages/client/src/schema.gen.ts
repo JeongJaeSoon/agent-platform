@@ -2744,7 +2744,7 @@ export interface components {
                 tool_count: number;
                 /** @description Of those calls, the ones whose tool_result has `is_error: true`. A call left without a result is not counted. */
                 error_count: number;
-                /** @description Of those calls, the `Task` and `Agent` calls: each spawns a subagent run. */
+                /** @description Subagent runs in the window: one per `Task` or `Agent` call, and one per call the window's events name as `parent_tool_use_id`, whether or not that call is in the window. */
                 subagent_count: number;
                 /** @description The newest call still open: no tool_result yet, and neither a `result` of its turn nor a status of a session that stopped working (anything but `running`, `needs_input`, `interrupting`) came after it. Such a call reads `interrupted` and is never current. */
                 current_tool: {
@@ -2771,7 +2771,7 @@ export interface components {
                         prompt: string | null;
                     } | null;
                 } | null;
-                /** @description The events the counts read: the session's newest 500, in the order they were recorded. */
+                /** @description The events the counts read: the session's newest 500 as recorded. They are ordered by `occurred_at`, and events at the same instant in the order they were recorded. */
                 window: {
                     events: number;
                     /** @description True when the window holds every event of the session, so the counts are the session's own. */
@@ -2874,7 +2874,7 @@ export interface components {
                 tool_count: number;
                 /** @description Of those calls, the ones whose tool_result has `is_error: true`. A call left without a result is not counted. */
                 error_count: number;
-                /** @description Of those calls, the `Task` and `Agent` calls: each spawns a subagent run. */
+                /** @description Subagent runs in the window: one per `Task` or `Agent` call, and one per call the window's events name as `parent_tool_use_id`, whether or not that call is in the window. */
                 subagent_count: number;
                 /** @description The newest call still open: no tool_result yet, and neither a `result` of its turn nor a status of a session that stopped working (anything but `running`, `needs_input`, `interrupting`) came after it. Such a call reads `interrupted` and is never current. */
                 current_tool: {
@@ -2901,7 +2901,7 @@ export interface components {
                         prompt: string | null;
                     } | null;
                 } | null;
-                /** @description The events the counts read: the session's newest 500, in the order they were recorded. */
+                /** @description The events the counts read: the session's newest 500 as recorded. They are ordered by `occurred_at`, and events at the same instant in the order they were recorded. */
                 window: {
                     events: number;
                     /** @description True when the window holds every event of the session, so the counts are the session's own. */

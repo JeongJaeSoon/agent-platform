@@ -331,7 +331,7 @@ export const sessionActivitySchema = z.object({
   }),
   subagent_count: z.number().int().nonnegative().meta({
     description:
-      "Of those calls, the `Task` and `Agent` calls: each spawns a subagent run.",
+      "Subagent runs in the window: one per `Task` or `Agent` call, and one per call the window's events name as `parent_tool_use_id`, whether or not that call is in the window.",
   }),
   current_tool: z
     .object({
@@ -381,7 +381,7 @@ export const sessionActivitySchema = z.object({
       }),
     })
     .meta({
-      description: `The events the counts read: the session's newest ${SESSION_ACTIVITY_WINDOW_EVENTS}, in the order they were recorded.`,
+      description: `The events the counts read: the session's newest ${SESSION_ACTIVITY_WINDOW_EVENTS} as recorded. They are ordered by \`occurred_at\`, and events at the same instant in the order they were recorded.`,
     }),
 });
 
