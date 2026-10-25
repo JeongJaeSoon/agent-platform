@@ -33,10 +33,7 @@ import { SESSION_FILTERS } from "./sessions.tsx";
 const DAY_MS = 86_400_000;
 const USAGE_STALE_MS = 60_000;
 
-/**
- * The last `days` UTC days, today included, cut at the next UTC midnight so
- * the query key stays the same all day.
- */
+// Cut at the next UTC midnight so the query key stays the same all day.
 export function usagePeriod(
   days: number,
   now = new Date(),
@@ -52,7 +49,6 @@ export function usagePeriod(
   };
 }
 
-/** The scope and period picked, defaulted, with setters that keep the URL. */
 function useUsageFilters() {
   const search = useSearch({ from: "/authed/operations/" });
   const navigate = useNavigate({ from: "/operations/" });
@@ -72,7 +68,6 @@ function useUsageFilters() {
   };
 }
 
-/** GET /v1/limits, the installation operator's alone; others get 403. */
 export function useInstallationLimits(enabled: boolean) {
   const { client } = useAgentPlatform();
   return useQuery({
@@ -92,7 +87,6 @@ const TAB_PATHS: Readonly<Record<OperationsTab, string>> = {
   limits: "/operations/limits",
 };
 
-/** The menu's head and tabs over the tab shown. */
 export function OperationsLayout() {
   const operator = useHasPermission("usage.installation_read");
   const pathname = useRouterState({ select: (s) => s.location.pathname });
@@ -132,9 +126,7 @@ export function OperationsOverviewScreen() {
     retry: false,
   });
   const limits = useInstallationLimits(filters.operator);
-  // The KPIs add up the series rather than ask the summary, which is slow over
-  // a long period. The old period's figures stay while the new one is read,
-  // and going back to a period read a moment ago asks nothing.
+  // The KPIs add up the series: the summary is slow over a long period.
   const series = useQuery({
     ...usageSeriesQuery(client, filters.scope, since, until),
     placeholderData: keepPreviousData,
@@ -147,7 +139,6 @@ export function OperationsOverviewScreen() {
     >
       <SessionCounts
         counts={counts.data?.counts}
-        // The slot line is the installation's; it waits for the counts too.
         slots={
           !filters.operator || limits.isError
             ? undefined
@@ -159,7 +150,6 @@ export function OperationsOverviewScreen() {
               : null
         }
         statusLink={(status, link) => {
-          // The list has no queued tab; that count opens every session.
           const filter = SESSION_FILTERS.find((name) => name === status);
           return (
             <Link

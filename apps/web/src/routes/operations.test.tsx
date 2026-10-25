@@ -42,8 +42,6 @@ const LIMITS = {
   },
 };
 
-// Over 30 days the installation adds up to 435 sessions, 64h 15m, $1,045.50
-// and 38.16M tokens; "me" to 17 sessions.
 function series(scope: "me" | "installation", days: number) {
   return {
     period: {
@@ -64,8 +62,6 @@ function series(scope: "me" | "installation", days: number) {
   };
 }
 
-// The fake API answers by path, and nothing for /v1/usage/summary; the call
-// log says which period was asked.
 const usageRoutes = {
   "GET /v1/sessions/counts": () => json(200, COUNTS),
   "GET /v1/usage/series": (request: Request) => {

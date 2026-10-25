@@ -1,11 +1,6 @@
 import type { UsageSummaryScope } from "@werft-ai/contracts";
 import { USAGE_PERIODS, type UsagePeriod } from "@werft-ai/react/components";
 
-/*
- * The operations menu's URL state, apart from its screens so the router
- * validates a search without loading them.
- */
-
 export interface OperationsSearch {
   readonly scope?: UsageSummaryScope;
   readonly days?: UsagePeriod;

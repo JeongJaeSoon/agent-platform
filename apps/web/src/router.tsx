@@ -277,8 +277,6 @@ const usage = createRoute({
   component: UsageScreen,
 });
 
-// 개요 and 한도 are tabs of one menu; 한도 is the installation owner's. The
-// menu's screens load when it opens, not with every other screen.
 const loadOperations = () => import("./routes/operations.tsx");
 
 const operations = createRoute({

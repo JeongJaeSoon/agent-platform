@@ -16,7 +16,6 @@ interface Totals {
   readonly token_count: number;
 }
 
-/** The period's figures: the series buckets add up to its summary. */
 function totalsOf(buckets: readonly Bucket[]): Totals {
   return {
     session_count: buckets.reduce((sum, b) => sum + b.session_count, 0),
@@ -73,8 +72,8 @@ export function UsageKpis({
         chart={spark((b) => Number(b.cost_usd), messages.costChart)}
         description={
           totals === undefined ? (
-            // Unknown until read; most periods hold a running turn, so its
-            // room is kept and the card does not grow when the answer comes.
+            // Most periods hold a running turn; keeping its room stops the
+            // card growing when the figures come.
             <span aria-hidden="true" className="invisible">
               {messages.costIncomplete}
             </span>

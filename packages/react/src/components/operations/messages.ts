@@ -176,7 +176,6 @@ function format(
   hours: (h: number, m: number) => string,
   minutes: (m: number) => string,
   seconds: (s: string) => string,
-  // [hundred million, ten thousand] units; none counts in millions.
   units?: readonly [string, string],
 ): OperationsFormat {
   const nf = new Intl.NumberFormat(locale === "ko" ? "ko-KR" : locale);
@@ -195,7 +194,6 @@ function format(
     elapsed: (ms) =>
       ms >= 60000 ? duration(ms / 1000) : seconds((ms / 1000).toFixed(1)),
     percent: (a, b) => `${(b ? (100 * a) / b : 0).toFixed(1)}%`,
-    // A fake or cheap model costs fractions of a cent; "$0.00" would read as free.
     usd: (amount) =>
       Number(amount) > 0 && Number(amount) < 0.005
         ? "<$0.01"

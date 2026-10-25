@@ -1,13 +1,6 @@
 import { Skeleton } from "@werft-ai/ui";
 import type { ReactNode } from "react";
 
-/*
- * Placeholders that hold a value's or a chart's place while it is read, so
- * the layout stands before the data and nothing moves when it comes. They are
- * hidden from assistive tech; each part says once that it is reading.
- */
-
-/** A text value at its line height, or the value once it is read. */
 export function Value({
   loading,
   width = "3rem",
@@ -30,7 +23,6 @@ export function Value({
   );
 }
 
-/** A box of a chart's or meter's height; under 4rem it centers a text bar. */
 export function Box({
   height,
   chart = false,
