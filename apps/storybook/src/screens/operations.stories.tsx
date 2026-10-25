@@ -220,7 +220,6 @@ function Kpis({ screen }: { readonly screen: ScreenData }) {
   const loading = useContext(Loading);
   return (
     <UsageKpis
-      summary={loading ? undefined : summaryOf(screen.series)}
       buckets={loading ? undefined : screen.series.buckets}
       messages={{ loading: "" }}
     />

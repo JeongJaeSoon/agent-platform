@@ -10,7 +10,6 @@ import { unwrap } from "@werft-ai/client";
 import type {
   CountSessionsResponse,
   InstallationLimitsResponse,
-  UsageSummaryResponse,
   UsageSummaryScope,
 } from "@werft-ai/contracts";
 import { usageSeriesQuery } from "@werft-ai/core";
@@ -70,24 +69,6 @@ function useUsageFilters() {
       void navigate({ search: (prev) => ({ ...prev, scope: next }) }),
     setDays: (next: UsagePeriod) =>
       void navigate({ search: (prev) => ({ ...prev, days: next }) }),
-  };
-}
-
-function usageSummaryQuery(
-  client: ReturnType<typeof useAgentPlatform>["client"],
-  scope: UsageSummaryScope,
-  since: string,
-  until: string,
-) {
-  return {
-    queryKey: ["usage-summary", scope, since, until],
-    queryFn: () =>
-      unwrap(
-        client.GET("/v1/usage/summary", {
-          params: { query: { scope, since, until } },
-        }),
-      ) as Promise<UsageSummaryResponse>,
-    retry: false,
   };
 }
 
@@ -151,22 +132,17 @@ export function OperationsOverviewScreen() {
     retry: false,
   });
   const limits = useInstallationLimits(filters.operator);
-  // The old period's figures stay while the new one is read, and going back
-  // to a period read a moment ago asks nothing.
-  const summary = useQuery({
-    ...usageSummaryQuery(client, filters.scope, since, until),
-    placeholderData: keepPreviousData,
-    staleTime: USAGE_STALE_MS,
-  });
+  // The KPIs add up the series rather than ask the summary, which is slow over
+  // a long period. The old period's figures stay while the new one is read,
+  // and going back to a period read a moment ago asks nothing.
   const series = useQuery({
     ...usageSeriesQuery(client, filters.scope, since, until),
     placeholderData: keepPreviousData,
     staleTime: USAGE_STALE_MS,
   });
-  const usageError = summary.error ?? series.error;
   return (
     <div
-      aria-busy={summary.isPending || series.isPending || undefined}
+      aria-busy={series.isPending || undefined}
       className="flex min-w-0 flex-col gap-8"
     >
       <SessionCounts
@@ -215,18 +191,15 @@ export function OperationsOverviewScreen() {
           onDaysChange={filters.setDays}
         />
         <Section title={t("operations.recent", { days: filters.days })}>
-          {usageError ? (
+          {series.isError ? (
             <Card className="py-0">
               <LoadFailure
-                error={usageError}
-                onRetry={() => {
-                  void summary.refetch();
-                  void series.refetch();
-                }}
+                error={series.error}
+                onRetry={() => void series.refetch()}
               />
             </Card>
           ) : (
-            <UsageKpis summary={summary.data} buckets={series.data?.buckets} />
+            <UsageKpis buckets={series.data?.buckets} />
           )}
         </Section>
       </div>

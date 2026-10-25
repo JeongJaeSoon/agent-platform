@@ -348,24 +348,6 @@ describe("InstallationLimits", () => {
 });
 
 describe("UsageKpis", () => {
-  const SUMMARY = {
-    scope: "me" as const,
-    period: {
-      since: "2026-10-22T00:00:00Z",
-      until: "2026-10-24T00:00:00Z",
-    },
-    refreshed_at: "2026-10-24T12:40:00Z",
-    session_count: 400,
-    run_seconds: 230580,
-    cost_usd: "1045.48",
-    cost_complete: true,
-    token_count: 38160000,
-    basis: {
-      sessions: "created_in_period" as const,
-      cost: "provider_usage_estimate" as const,
-      run_time: "turn_wall_clock" as const,
-    },
-  };
   const BUCKETS = [
     {
       date: "2026-10-22",
@@ -385,9 +367,9 @@ describe("UsageKpis", () => {
     },
   ];
 
-  test("숫자를 locale 단위로 쓰고 카드마다 자기 필드의 스파크라인을 둔다", () => {
+  test("버킷 합을 locale 단위로 쓰고 카드마다 자기 필드의 스파크라인을 둔다", () => {
     const { getAllByRole, queryByText } = withPlatform(
-      <UsageKpis summary={SUMMARY} buckets={BUCKETS} />,
+      <UsageKpis buckets={BUCKETS} />,
     );
     const text = document.body.textContent ?? "";
     for (const value of ["400", "64시간 3분", "$1,045.48", "3,816만"]) {
@@ -404,24 +386,23 @@ describe("UsageKpis", () => {
     expect(queryByText(/실제보다 적을 수 있음/)).toBeNull();
   });
 
-  test("cost_complete=false면 비용 카드가 적을 수 있다고 말한다", () => {
+  test("cost_complete=false인 날이 하나라도 있으면 비용 카드가 적을 수 있다고 말한다", () => {
     const { getByText } = withPlatform(
       <UsageKpis
-        summary={{ ...SUMMARY, cost_complete: false }}
-        buckets={BUCKETS}
+        buckets={BUCKETS.map((b, i) => ({ ...b, cost_complete: i === 0 }))}
       />,
     );
     expect(getByText(/실제보다 적을 수 있음/)).toBeTruthy();
   });
 
   test("영어는 백만 단위로 줄인다", () => {
-    withPlatform(<UsageKpis summary={SUMMARY} buckets={BUCKETS} />, "en");
+    withPlatform(<UsageKpis buckets={BUCKETS} />, "en");
     expect(document.body.textContent).toContain("38.2M");
   });
 
   test("읽는 동안 값과 스파크라인 없이 한 번만 알린다", () => {
     const { queryAllByRole, getAllByRole } = withPlatform(
-      <UsageKpis summary={undefined} buckets={undefined} />,
+      <UsageKpis buckets={undefined} />,
     );
     expect(queryAllByRole("img")).toHaveLength(0);
     expect(getAllByRole("status").map((s) => s.textContent)).toEqual([

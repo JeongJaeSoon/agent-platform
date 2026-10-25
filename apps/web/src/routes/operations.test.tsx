@@ -42,28 +42,9 @@ const LIMITS = {
   },
 };
 
-function summary(scope: "me" | "installation", days: number) {
-  return {
-    scope,
-    period: {
-      since: new Date(Date.UTC(2026, 9, 25 - days)).toISOString(),
-      until: "2026-10-25T00:00:00.000Z",
-    },
-    refreshed_at: NOW.toISOString(),
-    session_count: scope === "me" ? 17 : 400,
-    cost_usd: "1045.48",
-    cost_complete: true,
-    token_count: 38_160_000,
-    run_seconds: 64 * 3600 + 3 * 60,
-    basis: {
-      sessions: "created_in_period",
-      cost: "provider_usage_estimate",
-      run_time: "turn_wall_clock",
-    },
-  };
-}
-
-function series(days: number) {
+// Over 30 days the installation adds up to 435 sessions, 64h 15m, $1,045.50
+// and 38.16M tokens; "me" to 17 sessions.
+function series(scope: "me" | "installation", days: number) {
   return {
     period: {
       since: new Date(Date.UTC(2026, 9, 25 - days)).toISOString(),
@@ -74,30 +55,19 @@ function series(days: number) {
       date: new Date(Date.UTC(2026, 9, 25 - days + i))
         .toISOString()
         .slice(0, 10),
-      session_count: i,
-      cost_usd: "1.00",
+      session_count: scope === "me" ? (i < 17 ? 1 : 0) : i,
+      cost_usd: "34.85",
       cost_complete: true,
-      token_count: 100,
-      run_seconds: 60,
+      token_count: 1_272_000,
+      run_seconds: 7710,
     })),
   };
 }
 
-// The fake API answers by path; the call log says which period was asked.
+// The fake API answers by path, and nothing for /v1/usage/summary; the call
+// log says which period was asked.
 const usageRoutes = {
   "GET /v1/sessions/counts": () => json(200, COUNTS),
-  "GET /v1/usage/summary": (request: Request) => {
-    const query = new URL(request.url).searchParams;
-    const days = Math.round(
-      (Date.parse(query.get("until") ?? "") -
-        Date.parse(query.get("since") ?? "")) /
-        86_400_000,
-    );
-    return json(
-      200,
-      summary(query.get("scope") as "me" | "installation", days),
-    );
-  },
   "GET /v1/usage/series": (request: Request) => {
     const query = new URL(request.url).searchParams;
     const days = Math.round(
@@ -105,7 +75,7 @@ const usageRoutes = {
         Date.parse(query.get("since") ?? "")) /
         86_400_000,
     );
-    return json(200, series(days));
+    return json(200, series(query.get("scope") as "me" | "installation", days));
   },
 };
 
@@ -155,11 +125,27 @@ describe("운영", () => {
         .map((a) => a.textContent),
     ).toEqual(["개요", "한도"]);
     expect(screen.getByRole("group", { name: "집계 범위" })).toBeTruthy();
-    expect(await screen.findByText("400")).toBeTruthy();
-    const asked = api.calls.find((call) => call.path === "/v1/usage/summary");
+    const asked = api.calls.find((call) => call.path === "/v1/usage/series");
     expect(asked?.search).toBe(
       "?scope=installation&since=2026-09-25T00%3A00%3A00.000Z&until=2026-10-25T00%3A00%3A00.000Z",
     );
+  });
+
+  test("KPI 4개는 summary를 부르지 않고 같은 series 버킷의 합이다", async () => {
+    setSystemTime(NOW);
+    const { api } = renderAt("/operations", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/limits": () => json(200, LIMITS),
+      ...usageRoutes,
+    });
+    expect(await screen.findByText("435")).toBeTruthy();
+    const text = document.body.textContent ?? "";
+    for (const value of ["64시간 15분", "$1,045.50", "3,816만"]) {
+      expect(text).toContain(value);
+    }
+    expect(
+      api.calls.filter((call) => call.path.startsWith("/v1/usage/")),
+    ).toEqual([expect.objectContaining({ path: "/v1/usage/series" })]);
   });
 
   for (const [role, who] of [
@@ -209,18 +195,11 @@ describe("운영", () => {
       expect(
         api.calls.filter(
           (call) =>
-            call.path === "/v1/usage/series" &&
+            call.path.startsWith("/v1/usage/") &&
             call.search.includes("since=2026-10-18"),
         ),
-      ).toHaveLength(1),
+      ).toEqual([expect.objectContaining({ path: "/v1/usage/series" })]),
     );
-    expect(
-      api.calls.filter(
-        (call) =>
-          call.path === "/v1/usage/summary" &&
-          call.search.includes("since=2026-10-18"),
-      ),
-    ).toHaveLength(1);
   });
 
   test("한도 탭: owner는 한도 표를 본다", async () => {
