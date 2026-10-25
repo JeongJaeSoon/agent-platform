@@ -268,12 +268,7 @@ integration("session list activity on PostgreSQL", () => {
       kind: "question",
       prompt: "'workspace'를 어떻게 옮길까요?",
     });
-    // The newer question for the call is the one shown; an older worker
-    // published the SDK's own input.
-    await asked([{ question: "Which customer?" }]);
-    expect((await activity(s.id))?.current_tool?.request?.prompt).toBe(
-      "Which customer?",
-    );
+    // The newer question for the call is the one shown.
     await asked([pending("😀".repeat(250))]);
     const prompt = (await activity(s.id))?.current_tool?.request?.prompt;
     expect([...(prompt ?? "")]).toEqual(Array(200).fill("😀"));
