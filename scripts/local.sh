@@ -15,10 +15,11 @@
 #                                        after a Docker restart: give up the lost checkpoints, keep the rest
 #   scripts/local.sh demo-accounts       add whichever demo account, agent or session is missing to a running stack
 #
-# A local installation is volatile: LocalStack keeps S3 in memory, so any
-# `down` or Docker restart loses every checkpoint object while postgres keeps
-# the rows that point at them. `down` therefore deletes the volumes too, and
-# the API refuses to start on a bucket emptied behind the database's back.
+# The local S3 server keeps checkpoints and its encryption seed on a named
+# volume, just as postgres keeps its rows. Container and Docker restarts, or
+# raw `docker compose down` without -v, preserve both. This script's explicit
+# `down` and `reset` still delete the installation's data. The API refuses
+# to start on a bucket emptied behind the database's back.
 # `forget-lost-checkpoints` is the way on without a reset: it marks those
 # checkpoints collected and holds their open sessions in recovery_required,
 # prints them, and acts only on a bucket with no object version left; `up`

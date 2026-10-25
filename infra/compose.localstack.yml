@@ -1,0 +1,26 @@
+# Volatile LocalStack S3 for test-ops; independent of the persistent local store.
+services:
+  localstack:
+    image: localstack/localstack:3@sha256:b279c01f4cfb8f985a482e4014cabc1e2697b9d7a6c8c8db2e40f4d9f93687c7
+    environment:
+      SERVICES: s3
+      AWS_DEFAULT_REGION: ${AWS_REGION:-ap-northeast-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-test}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-test}
+    ports:
+      - "127.0.0.1:4566:4566"
+    # No data volume: LocalStack keeps S3 in memory, so the bucket is gone
+    # with the container whatever is mounted. The API refuses to
+    # start on an empty bucket the database still holds checkpoints for.
+    volumes:
+      - ./localstack/init/10-create-resources.sh:/etc/localstack/init/ready.d/10-create-resources.sh:ro
+    healthcheck:
+      # Healthy once the init script has also set the bucket's default
+      # encryption: the API refuses to start on anything but AES256. The
+      # timeout covers the three sequential CLI calls.
+      test: ["CMD-SHELL", "curl -fsS http://localhost:4566/_localstack/health >/dev/null && awslocal s3api get-object-lock-configuration --bucket claude-sessions >/dev/null && [ \"$$(awslocal s3api get-bucket-encryption --bucket claude-sessions --query 'ServerSideEncryptionConfiguration.Rules[0].ApplyServerSideEncryptionByDefault.SSEAlgorithm' --output text)\" = AES256 ]"]
+      interval: 5s
+      timeout: 10s
+      retries: 12
+      start_period: 5s
+
