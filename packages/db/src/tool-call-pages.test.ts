@@ -269,7 +269,7 @@ describe("toolCallPage", () => {
           .select({ title: sessions.title })
           .from(sessions)
           .where(sql`${sessions.id} = ${id}`)
-      )[0]?.title;
+      )[0]?.title ?? null;
     expect(await shown()).toEqual([
       [mine, await title(mine)],
       [null, null],
