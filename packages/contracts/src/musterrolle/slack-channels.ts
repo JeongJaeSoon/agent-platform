@@ -1,6 +1,41 @@
 import { z } from "zod";
 
 import { opaqueCursorSchema } from "../shared/index.ts";
+import { slackIdSchema } from "./agent-identities.ts";
+
+export const lookupSlackChannelsQuerySchema = z
+  .object({
+    ids: z
+      .string()
+      .min(1)
+      .max(3249)
+      .transform((value) => value.split(","))
+      .pipe(z.array(slackIdSchema).min(1).max(50)),
+  })
+  .strict();
+
+export const lookupSlackChannelsResponseSchema = z
+  .object({
+    items: z
+      .array(
+        z
+          .object({
+            id: slackIdSchema,
+            name: z.string().min(1).max(255),
+            state: z.enum(["known", "unknown"]),
+          })
+          .strict(),
+      )
+      .max(50),
+  })
+  .strict();
+
+export type LookupSlackChannelsQuery = z.infer<
+  typeof lookupSlackChannelsQuerySchema
+>;
+export type LookupSlackChannelsResponse = z.infer<
+  typeof lookupSlackChannelsResponseSchema
+>;
 
 // Searching the channels an agent's Slack bot can see, for the console's
 // channel picker (94S-898). The server reads Slack's whole list into a short
