@@ -84,7 +84,10 @@ import {
   teamChangeResponseSchema,
   teamDetailSchema,
   terminateSessionResponseSchema,
+  usageBreakdownResponseSchema,
+  usageSeriesResponseSchema,
   usageSummaryResponseSchema,
+  usageToolsResponseSchema,
 } from "@werft-ai/contracts";
 // biome-ignore lint/style/noRestrictedImports: the schemas entry is where the core may name zod; the root entry still may not.
 import type { ZodType } from "zod";
@@ -216,5 +219,8 @@ export const responseSchemas = {
   "GET /v1/profiles": listProfilesResponseSchema,
   "GET /v1/limits": installationLimitsResponseSchema,
   "GET /v1/usage/summary": usageSummaryResponseSchema,
+  "GET /v1/usage/series": usageSeriesResponseSchema,
+  "GET /v1/usage/breakdown": usageBreakdownResponseSchema,
+  "GET /v1/usage/tools": usageToolsResponseSchema,
   "GET /v1/receipts/{id}": getReceiptResponseSchema,
 } as const satisfies Partial<Record<OperationKey, ZodType>>;

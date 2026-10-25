@@ -90,6 +90,13 @@ describe("reconciler run", () => {
         expect(options).toEqual({ dryRun: false, limit: 12 });
         return 5;
       },
+      projectToolCalls: async () => ({
+        eventsRead: 40,
+        batches: 2,
+        appliedThrough: 31,
+        caughtUp: true,
+        timedOut: 1,
+      }),
     });
 
     expect(calls).toBe(1);
@@ -157,6 +164,18 @@ describe("reconciler run", () => {
         message: "Expired authorization decisions deleted",
         fields: { dry_run: false, deleted_count: 5 },
       }),
+      expect.objectContaining({
+        level: "info",
+        message: "Tool calls projected",
+        fields: {
+          dry_run: false,
+          events_read: 40,
+          batches: 2,
+          applied_through: 31,
+          caught_up: true,
+          timed_out_batches: 1,
+        },
+      }),
     ]);
     expect(result.inputReturns).toEqual([
       { sessionId: "session-e", phase: "running" },
@@ -166,7 +185,7 @@ describe("reconciler run", () => {
   test("a dry run asks every pass not to write and logs what it would do", async () => {
     const sink = new MemoryLogSink();
     const seen: boolean[] = [];
-    await runReconciler({
+    const run = await runReconciler({
       environment: { RECONCILER_DRY_RUN: "1" },
       logger: new StructuredLogger({ sinks: [sink] }),
       reconcile: async ({ dryRun }) => {
@@ -204,9 +223,19 @@ describe("reconciler run", () => {
         seen.push(dryRun);
         return 0;
       },
+      projectToolCalls: async () => {
+        throw new Error("a dry run projects nothing");
+      },
     });
 
     expect(seen).toEqual([true, true, true, true, true, true, true]);
+    expect(run.toolCalls).toBeNull();
+    expect(sink.records).toContainEqual(
+      expect.objectContaining({
+        message: "Tool calls projected",
+        fields: { dry_run: true },
+      }),
+    );
     expect(sink.records).toContainEqual(
       expect.objectContaining({
         message: "Overdue interrupt receipts marked unknown",
@@ -234,6 +263,13 @@ describe("reconciler run", () => {
     const expireTerminations = async () => 0;
     const announceInputReturns = async () => [];
     const expireDecisions = async () => 0;
+    const projectToolCalls = async () => ({
+      eventsRead: 0,
+      batches: 0,
+      appliedThrough: 0,
+      caughtUp: true,
+      timedOut: 0,
+    });
     // Valid or not: the reconciler has no TTL to be told, so a value here is
     // an operator who believes it does. It must not start and quietly
     // judge by the deadlines the API wrote with a different one.
@@ -253,6 +289,7 @@ describe("reconciler run", () => {
           expireTerminations,
           announceInputReturns,
           expireDecisions,
+          projectToolCalls,
         }),
       ).rejects.toThrow("HEARTBEAT_TTL_SEC is read by the API only");
       expect(reconciled).toBe(0);
@@ -268,6 +305,7 @@ describe("reconciler run", () => {
         expireTerminations,
         announceInputReturns,
         expireDecisions,
+        projectToolCalls,
       }),
     ).rejects.toThrow("RECONCILER_BATCH_SIZE");
     await expect(
@@ -281,6 +319,7 @@ describe("reconciler run", () => {
         expireTerminations,
         announceInputReturns,
         expireDecisions,
+        projectToolCalls,
       }),
     ).rejects.toThrow("RECONCILER_DRY_RUN");
   });

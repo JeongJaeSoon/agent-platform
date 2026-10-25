@@ -72,6 +72,9 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "GET /v1/limits",
     "GET /v1/sessions/{id}/usage",
     "GET /v1/usage/summary",
+    "GET /v1/usage/series",
+    "GET /v1/usage/breakdown",
+    "GET /v1/usage/tools",
   ],
   "routes/outputs.test.ts": [
     "GET /v1/sessions/{id}/outputs",
