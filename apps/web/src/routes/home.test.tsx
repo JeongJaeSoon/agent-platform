@@ -1,5 +1,6 @@
 import { describe, expect, jest, test } from "bun:test";
 import type { ApiClient } from "@werft-ai/client";
+import type { MemberView } from "@werft-ai/contracts";
 import { queryKeys, waitingSessionsQuery } from "@werft-ai/core";
 import { AGENT_ID, agentServer } from "../test-support/fake-agents.ts";
 import {
@@ -7,6 +8,7 @@ import {
   json,
   me,
   memberMe,
+  memberPage,
   USER_ID,
   WORKSPACE_ID,
 } from "../test-support/fake-api.ts";
@@ -23,7 +25,7 @@ function shownText(element: Element): string {
 const { act, renderAt, renderHook, screen, waitFor, within } =
   await appHarness();
 
-const owner = {
+const owner: MemberView = {
   user_id: USER_ID,
   email: "owner@example.com",
   display_name: "Owner",
@@ -92,7 +94,8 @@ describe("bootstrap checklist", () => {
     const server = agentServer();
     const { api } = renderAt("/", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [owner], next_cursor: null })),
       "GET /v1/invites": () => json(200, { items: [] }),
       "GET /v1/agents": server.routes["GET /v1/agents"],
       ...noSessions,
@@ -127,7 +130,8 @@ describe("bootstrap checklist", () => {
     const agent = { ...server.detail().agent, active_release_id: "rel-1" };
     renderAt("/", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [owner], next_cursor: null })),
       "GET /v1/invites": () =>
         json(200, {
           items: [
@@ -160,10 +164,13 @@ describe("bootstrap checklist", () => {
     renderAt("/", {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": () =>
-        json(200, {
-          items: [owner, { ...owner, user_id: AGENT_ID }],
-          next_cursor: null,
-        }),
+        json(
+          200,
+          memberPage({
+            items: [owner, { ...owner, user_id: AGENT_ID }],
+            next_cursor: null,
+          }),
+        ),
       "GET /v1/invites": () => json(200, { items: [] }),
       "GET /v1/agents": server.routes["GET /v1/agents"],
       ...noSessions,
@@ -177,7 +184,8 @@ describe("bootstrap checklist", () => {
   test("구성원은 혼자인데 초대 조회가 실패하면 초대 단계는 모른다", async () => {
     renderAt("/", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [owner], next_cursor: null })),
       "GET /v1/invites": () => apiError(500, "INTERNAL", "boom"),
       "GET /v1/agents": () => json(200, { items: [], next_cursor: null }),
       ...noSessions,
@@ -246,7 +254,8 @@ describe("bootstrap checklist", () => {
   test("소유자에게는 내 세션이 하나라도 있으면 세션 단계가 완료다", async () => {
     renderAt("/", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [owner], next_cursor: null })),
       "GET /v1/invites": () => json(200, { items: [] }),
       "GET /v1/agents": () => json(200, { items: [], next_cursor: null }),
       "GET /v1/sessions": () =>
@@ -261,7 +270,8 @@ describe("bootstrap checklist", () => {
   test("세션 목록을 읽지 못하면 세션 단계는 모른다", async () => {
     renderAt("/", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [owner], next_cursor: null })),
       "GET /v1/invites": () => json(200, { items: [] }),
       "GET /v1/agents": () => json(200, { items: [], next_cursor: null }),
       "GET /v1/sessions": () => apiError(500, "INTERNAL", "boom"),
@@ -277,7 +287,8 @@ describe("최근 세션 표", () => {
   test("좁은 표(820px 이하)에서는 에이전트·저장소 열이 머리와 칸이 함께 빠지고 남는 세 열이 좁은 열 틀과 맞는다", async () => {
     renderAt("/", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [owner], next_cursor: null })),
       "GET /v1/invites": () => json(200, { items: [] }),
       "GET /v1/agents": () => json(200, { items: [], next_cursor: null }),
       "GET /v1/sessions": () =>
@@ -427,7 +438,8 @@ describe("홈 요약", () => {
     };
     return {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [owner], next_cursor: null })),
       "GET /v1/invites": () => json(200, { items: [] }),
       "GET /v1/agents": () =>
         json(200, {
@@ -449,6 +461,101 @@ describe("홈 요약", () => {
       ...pending(waitingSession.id, "2026-10-23T09:00:00.000Z"),
     };
   };
+
+  // Each read that changes which sections show or how tall they are: the
+  // inbox row grows once its requests arrive, a card gains its footer once
+  // its usage does.
+  for (const [what, route, body] of [
+    [
+      "대기 세션의 요청",
+      `GET /v1/sessions/${waitingSession.id}/pending-requests`,
+      () => ({
+        answerable: true,
+        items: [request("2026-10-23T09:00:00.000Z")],
+      }),
+    ],
+    ["내 사용량", summaryRoute("me"), () => summary("me", 3)],
+    ["설치 한도 값", "GET /v1/limits", () => limits],
+  ] as const) {
+    test(`${what}이 올 때까지 본문은 자리표시 하나이고, 오면 한 번에 보인다`, async () => {
+      let answer: () => void = () => {};
+      const asked = new Promise<void>((resolve) => {
+        answer = resolve;
+      });
+      let held = false;
+      renderAt("/", {
+        ...homeRoutes(),
+        [route]: async () => {
+          held = true;
+          await asked;
+          return json(200, body());
+        },
+      });
+      await screen.findByRole("heading", { name: "홈" });
+      await waitFor(() => expect(held).toBe(true));
+      // Every other read answers at once; give them time to land.
+      await act(() => new Promise((resolve) => setTimeout(resolve, 300)));
+      await waitFor(() =>
+        expect(
+          screen
+            .getAllByRole("status")
+            .some((s) => s.getAttribute("aria-busy") === "true"),
+        ).toBe(true),
+      );
+      expect(screen.queryByRole("region", { name: "한눈에 보기" })).toBeNull();
+      expect(
+        screen.queryByRole("region", { name: /^답이 필요한 요청/ }),
+      ).toBeNull();
+      act(() => answer());
+      expect(
+        await screen.findByRole("region", { name: "한눈에 보기" }),
+      ).toBeTruthy();
+      expect(
+        screen.getByRole("region", { name: /^답이 필요한 요청/ }),
+      ).toBeTruthy();
+      expect(
+        screen
+          .queryAllByRole("status")
+          .some((s) => s.getAttribute("aria-busy") === "true"),
+      ).toBe(false);
+    });
+  }
+
+  // At 390px a member's line wraps to two; the header holds both candidates
+  // from the first render, so telling the reader apart moves nothing.
+  test("구성원 설명 칸은 관리하는 에이전트를 알기 전부터 두 문장의 자리를 잡는다", async () => {
+    let answer: () => void = () => {};
+    const asked = new Promise<void>((resolve) => {
+      answer = resolve;
+    });
+    let held = false;
+    renderAt("/", {
+      ...homeRoutes(),
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/administered-agents": async () => {
+        held = true;
+        await asked;
+        return json(200, { items: [] });
+      },
+    });
+    await screen.findByRole("heading", { name: "홈" });
+    await waitFor(() => expect(held).toBe(true));
+    const manager = await screen.findByText(/님이 관리하는 에이전트와 내 세션/);
+    const requester = screen.getByText(/님이 시작했거나 공유받은 세션/);
+    for (const line of [manager, requester]) {
+      expect(line.getAttribute("aria-hidden")).toBe("true");
+      expect(line.classList.contains("invisible")).toBe(true);
+      expect(line.classList.contains("[grid-area:1/1]")).toBe(true);
+    }
+    expect(manager.parentElement).toBe(requester.parentElement);
+    act(() => answer());
+    await waitFor(() =>
+      expect(requester.getAttribute("aria-hidden")).toBeNull(),
+    );
+    expect(requester.classList.contains("invisible")).toBe(false);
+    expect(manager.getAttribute("aria-hidden")).toBe("true");
+    expect(manager.classList.contains("invisible")).toBe(true);
+  });
 
   test("카드 세 장에 최근 30일 사용량과 미계측을 나눠 보이고, 답변 대기는 가장 오래된 요청 하나만 가리킨다", async () => {
     renderAt("/", homeRoutes());
@@ -766,18 +873,21 @@ describe("홈 요약", () => {
     renderAt("/", {
       ...homeRoutes(),
       "GET /v1/members": () =>
-        json(200, {
-          items: [
-            owner,
-            {
-              ...owner,
-              user_id: "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e",
-              email: "member@example.com",
-              role: "member",
-            },
-          ],
-          next_cursor: null,
-        }),
+        json(
+          200,
+          memberPage({
+            items: [
+              owner,
+              {
+                ...owner,
+                user_id: "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e",
+                email: "member@example.com",
+                role: "member",
+              },
+            ],
+            next_cursor: null,
+          }),
+        ),
     });
     // The recent table reads the same session list the last step does.
     await screen.findByRole("table", { name: "최근 세션" });
@@ -789,7 +899,8 @@ describe("홈 요약", () => {
   test("목록 하나라도 읽는 중이면 시작하기를 그리지 않는다", async () => {
     const { api } = renderAt("/", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [owner], next_cursor: null })),
       "GET /v1/invites": () => json(200, { items: [] }),
       "GET /v1/agents": () => new Promise<Response>(() => {}),
       ...noSessions,
@@ -825,7 +936,10 @@ describe("홈 요약", () => {
         "GET /v1/auth/me": () => json(200, me(undefined, role)),
         "GET /v1/administered-agents": () => json(200, { items: administered }),
       });
-      expect(await screen.findByText(intro)).toBeDefined();
+      const line = await screen.findByText(intro);
+      // The other member line stays laid under it, hidden.
+      await waitFor(() => expect(line.getAttribute("aria-hidden")).toBeNull());
+      expect(line.classList.contains("invisible")).toBe(false);
     },
   );
 
@@ -1101,7 +1215,8 @@ describe("내가 속한 팀", () => {
   test("팀을 관리하는 사람에게는 팀 화면 링크다", async () => {
     renderAt("/", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [owner], next_cursor: null })),
       "GET /v1/invites": () => json(200, { items: [] }),
       "GET /v1/agents": () => json(200, { items: [], next_cursor: null }),
       "GET /v1/my-teams": () => json(200, { items: [TEAM] }),
@@ -1169,7 +1284,8 @@ describe("내가 관리하는 에이전트", () => {
     const server = agentServer();
     const { api } = renderAt("/", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner], next_cursor: null }),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [owner], next_cursor: null })),
       "GET /v1/invites": () => json(200, { items: [] }),
       "GET /v1/agents": server.routes["GET /v1/agents"],
       ...noSessions,

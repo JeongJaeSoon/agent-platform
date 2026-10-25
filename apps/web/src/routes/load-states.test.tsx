@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
 import { AGENT_ID, agentServer } from "../test-support/fake-agents.ts";
-import { apiError, json, me } from "../test-support/fake-api.ts";
+import { apiError, json, me, memberPage } from "../test-support/fake-api.ts";
 import { appHarness, type Routes } from "../test-support/render-app.tsx";
 
 const { renderAt, screen, waitFor, within } = await appHarness();
@@ -80,13 +80,13 @@ const RETRY_CASES: ReadonlyArray<{
     routes: {
       ...meOk,
       "GET /v1/invites": () => json(200, { items: [] }),
-      // The head's invite button reads every member, 100 a page; the tab's
+      // The head's invite button asks for the first two members; the tab's
       // own first page is the read that fails here.
-      "GET /v1/members?limit=100": () =>
-        json(200, { items: [], next_cursor: null }),
+      "GET /v1/members?limit=2": () =>
+        json(200, memberPage({ items: [], next_cursor: null })),
     },
     failingKey: "GET /v1/members",
-    answer: () => json(200, { items: [], next_cursor: null }),
+    answer: () => json(200, memberPage({ items: [], next_cursor: null })),
     after: /아직 구성원이 없습니다/,
   },
   {
@@ -126,7 +126,8 @@ const RETRY_CASES: ReadonlyArray<{
     path: "/",
     routes: {
       ...meOk,
-      "GET /v1/members": () => json(200, { items: [], next_cursor: null }),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [], next_cursor: null })),
       "GET /v1/invites": () => json(200, { items: [] }),
       "GET /v1/agents": () => json(200, { items: [], next_cursor: null }),
       "GET /v1/sessions": () => json(200, { items: [], next_cursor: null }),

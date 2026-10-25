@@ -395,6 +395,20 @@
         },
         "additionalProperties": false
       },
+      "LookupSlackChannelsQuery": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 3249
+          }
+        },
+        "required": [
+          "ids"
+        ],
+        "additionalProperties": false
+      },
       "PostSessionAnswerRequest": {
         "oneOf": [
           {
@@ -2088,6 +2102,9 @@
                   "INVITE_USED",
                   "LAST_OWNER",
                   "OWNER_PROTECTED",
+                  "SELF_PROTECTED",
+                  "MEMBER_DISABLED",
+                  "ACCOUNT_DISABLED",
                   "SCOPE_NOT_GRANTABLE",
                   "RELEASE_PROFILE_MISMATCH",
                   "CREDENTIAL_UNBOUND",
@@ -5317,7 +5334,292 @@
           "items": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/MemberView"
+              "type": "object",
+              "properties": {
+                "user_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "email": {
+                  "type": "string",
+                  "maxLength": 254,
+                  "format": "email",
+                  "pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+                },
+                "display_name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                },
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "owner",
+                    "admin",
+                    "member"
+                  ]
+                },
+                "disabled_at": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                },
+                "actions": {
+                  "type": "object",
+                  "properties": {
+                    "change_role": {
+                      "type": "object",
+                      "properties": {
+                        "owner": {
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "allowed": {
+                                  "type": "boolean",
+                                  "const": true
+                                }
+                              },
+                              "required": [
+                                "allowed"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "allowed": {
+                                  "type": "boolean",
+                                  "const": false
+                                },
+                                "reason": {
+                                  "type": "string",
+                                  "enum": [
+                                    "self_protected",
+                                    "owner_protected",
+                                    "last_owner",
+                                    "member_disabled",
+                                    "account_disabled",
+                                    "unchanged"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "allowed",
+                                "reason"
+                              ],
+                              "additionalProperties": false
+                            }
+                          ]
+                        },
+                        "admin": {
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "allowed": {
+                                  "type": "boolean",
+                                  "const": true
+                                }
+                              },
+                              "required": [
+                                "allowed"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "allowed": {
+                                  "type": "boolean",
+                                  "const": false
+                                },
+                                "reason": {
+                                  "type": "string",
+                                  "enum": [
+                                    "self_protected",
+                                    "owner_protected",
+                                    "last_owner",
+                                    "member_disabled",
+                                    "account_disabled",
+                                    "unchanged"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "allowed",
+                                "reason"
+                              ],
+                              "additionalProperties": false
+                            }
+                          ]
+                        },
+                        "member": {
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "allowed": {
+                                  "type": "boolean",
+                                  "const": true
+                                }
+                              },
+                              "required": [
+                                "allowed"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "allowed": {
+                                  "type": "boolean",
+                                  "const": false
+                                },
+                                "reason": {
+                                  "type": "string",
+                                  "enum": [
+                                    "self_protected",
+                                    "owner_protected",
+                                    "last_owner",
+                                    "member_disabled",
+                                    "account_disabled",
+                                    "unchanged"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "allowed",
+                                "reason"
+                              ],
+                              "additionalProperties": false
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "owner",
+                        "admin",
+                        "member"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "disable": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "allowed": {
+                              "type": "boolean",
+                              "const": true
+                            }
+                          },
+                          "required": [
+                            "allowed"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "allowed": {
+                              "type": "boolean",
+                              "const": false
+                            },
+                            "reason": {
+                              "type": "string",
+                              "enum": [
+                                "self_protected",
+                                "owner_protected",
+                                "last_owner",
+                                "member_disabled",
+                                "account_disabled",
+                                "unchanged"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "allowed",
+                            "reason"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
+                    },
+                    "enable": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "allowed": {
+                              "type": "boolean",
+                              "const": true
+                            }
+                          },
+                          "required": [
+                            "allowed"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "allowed": {
+                              "type": "boolean",
+                              "const": false
+                            },
+                            "reason": {
+                              "type": "string",
+                              "enum": [
+                                "self_protected",
+                                "owner_protected",
+                                "last_owner",
+                                "member_disabled",
+                                "account_disabled",
+                                "unchanged"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "allowed",
+                            "reason"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "change_role",
+                    "disable",
+                    "enable"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "user_id",
+                "email",
+                "display_name",
+                "role",
+                "disabled_at",
+                "created_at",
+                "actions"
+              ],
+              "additionalProperties": false
             }
           },
           "next_cursor": {
@@ -6224,6 +6526,9 @@
                       "INVITE_USED",
                       "LAST_OWNER",
                       "OWNER_PROTECTED",
+                      "SELF_PROTECTED",
+                      "MEMBER_DISABLED",
+                      "ACCOUNT_DISABLED",
                       "SCOPE_NOT_GRANTABLE",
                       "RELEASE_PROFILE_MISMATCH",
                       "CREDENTIAL_UNBOUND",
@@ -7102,10 +7407,85 @@
                 "type": "null"
               }
             ]
+          },
+          "event_url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uri"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "events": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "verified",
+                  "pending",
+                  "failed"
+                ]
+              },
+              "checked_at": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "error": {
+                "type": "string",
+                "maxLength": 128
+              }
+            },
+            "required": [
+              "state",
+              "checked_at"
+            ],
+            "additionalProperties": false
           }
         },
         "required": [
-          "slack_app"
+          "slack_app",
+          "event_url",
+          "events"
+        ],
+        "additionalProperties": false
+      },
+      "GetSlackAppManifestResponse": {
+        "type": "object",
+        "properties": {
+          "manifest_yaml": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "manifest_yaml"
+        ],
+        "additionalProperties": false
+      },
+      "SlackAppSettings": {
+        "type": "object",
+        "properties": {
+          "default_mode": {
+            "type": "string",
+            "enum": [
+              "off",
+              "mention"
+            ]
+          }
+        },
+        "required": [
+          "default_mode"
         ],
         "additionalProperties": false
       },
@@ -11934,6 +12314,48 @@
           "next_cursor",
           "truncated",
           "stale"
+        ],
+        "additionalProperties": false
+      },
+      "LookupSlackChannelsResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "pattern": "^[A-Z0-9]+$"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 255
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "known",
+                    "unknown"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "state"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "items"
         ],
         "additionalProperties": false
       },
@@ -28690,7 +29112,7 @@
           "Members"
         ],
         "summary": "Members of the workspace, oldest first",
-        "description": "Lists the workspace's members, disabled ones included, oldest membership first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. `q` keeps the members whose display name or email contains it, ignoring case.\n\n**Auth:** cookie session only; no scope.",
+        "description": "Lists the workspace's members, disabled ones included, oldest membership first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. `q` keeps the members whose display name or email contains it, ignoring case. Each row's `actions` says, for the caller as the list was read, whether each role change, disable and enable would be accepted, and if not, why: the reason is the lower-cased error code the write answers with, or `unchanged` when it would answer 200 and change nothing. The write checks again when it runs. A client that validates responses strictly needs this version's schema to read the field.\n\n**Auth:** cookie session only; no scope.",
         "security": [
           {
             "cookieSession": []
@@ -28901,7 +29323,7 @@
           "Members"
         ],
         "summary": "Change a member's role",
-        "description": "Demoting the workspace's last live owner answers 409 LAST_OWNER. Writes a `change_member_role` receipt when the role changes.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "When several apply, the first answers: no `member.manage` (403 FORBIDDEN), your own role (403 SELF_PROTECTED), no such member (404), an owner targeted, or the owner role granted, by an admin (403 OWNER_PROTECTED), a suspended account (409 ACCOUNT_DISABLED), a disabled membership (409 MEMBER_DISABLED), the role it already has (200, nothing written), demoting the workspace's last live owner (409 LAST_OWNER). Writes a `change_member_role` receipt when the role changes.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -29028,7 +29450,7 @@
             }
           },
           "403": {
-            "description": "- `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.\n- `OWNER_PROTECTED`: Only an owner may grant the owner role or change an owner's role or access (disable, suspend, enable).",
+            "description": "- `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.\n- `SELF_PROTECTED`: A manager cannot change their own role or disable or enable themselves; another manager does it.\n- `OWNER_PROTECTED`: Only an owner may grant the owner role or change an owner's role or access (disable, suspend, enable).",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -29051,6 +29473,7 @@
                               "type": "string",
                               "enum": [
                                 "FORBIDDEN",
+                                "SELF_PROTECTED",
                                 "OWNER_PROTECTED"
                               ]
                             }
@@ -29134,7 +29557,7 @@
             }
           },
           "409": {
-            "description": "- `LAST_OWNER`: The change would leave the workspace with no live owner.",
+            "description": "- `ACCOUNT_DISABLED`: The account is suspended. Lift the suspension before changing the role or enabling the membership.\n- `MEMBER_DISABLED`: The membership is disabled. Enable it before changing the role.\n- `LAST_OWNER`: The change would leave the workspace with no live owner.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -29156,6 +29579,8 @@
                             "code": {
                               "type": "string",
                               "enum": [
+                                "ACCOUNT_DISABLED",
+                                "MEMBER_DISABLED",
                                 "LAST_OWNER"
                               ]
                             }
@@ -29254,7 +29679,7 @@
           "Members"
         ],
         "summary": "Disable a member of the workspace",
-        "description": "In the same transaction: the membership is disabled, every web session of the person is revoked (open event streams end), their personal keys in the workspace are revoked, and the sessions they asked for wait for an owner's takeover. Agent keys are untouched. Only an owner disables an owner: an admin targeting one answers 403 OWNER_PROTECTED and nothing changes. Disabling yourself, or the last live owner, answers 409 LAST_OWNER. When several apply, the first answers: no `member.manage` (403 FORBIDDEN), yourself (409), no such member (404), an owner targeted by an admin (403 OWNER_PROTECTED), the last live owner (409). Writes a `disable_member` receipt unless the membership was already disabled (`receipt_id` null).\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "In the same transaction: the membership is disabled, every web session of the person is revoked (open event streams end), their personal keys in the workspace are revoked, and the sessions they asked for wait for an owner's takeover. Agent keys are untouched. Only an owner disables an owner: an admin targeting one answers 403 OWNER_PROTECTED and nothing changes. Disabling yourself answers 403 SELF_PROTECTED, the last live owner 409 LAST_OWNER. When several apply, the first answers: no `member.manage` (403 FORBIDDEN), no such member (404), yourself (403 SELF_PROTECTED), an owner targeted by an admin (403 OWNER_PROTECTED), already disabled (200, nothing written), the last live owner (409). Writes a `disable_member` receipt unless the membership was already disabled (`receipt_id` null).\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -29381,7 +29806,7 @@
             }
           },
           "403": {
-            "description": "- `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.\n- `OWNER_PROTECTED`: Only an owner may grant the owner role or change an owner's role or access (disable, suspend, enable).",
+            "description": "- `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.\n- `SELF_PROTECTED`: A manager cannot change their own role or disable or enable themselves; another manager does it.\n- `OWNER_PROTECTED`: Only an owner may grant the owner role or change an owner's role or access (disable, suspend, enable).",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -29404,6 +29829,7 @@
                               "type": "string",
                               "enum": [
                                 "FORBIDDEN",
+                                "SELF_PROTECTED",
                                 "OWNER_PROTECTED"
                               ]
                             }
@@ -29607,7 +30033,7 @@
           "Members"
         ],
         "summary": "Enable a disabled member again",
-        "description": "Revoked web sessions and personal keys stay revoked: the person signs in again. Sessions no owner took over go back to them. An admin enabling an owner answers 403 OWNER_PROTECTED. Writes an `enable_member` receipt unless the membership was already live (`receipt_id` null).\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "Revoked web sessions and personal keys stay revoked: the person signs in again. Sessions no owner took over go back to them. When several apply, the first answers: no `member.manage` (403 FORBIDDEN), no such member (404), yourself (403 SELF_PROTECTED), an owner targeted by an admin (403 OWNER_PROTECTED), a suspended account (409 ACCOUNT_DISABLED: the membership alone would not bring them back, lift the suspension), already live (200, nothing written). Writes an `enable_member` receipt unless the membership was already live (`receipt_id` null).\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -29734,7 +30160,7 @@
             }
           },
           "403": {
-            "description": "- `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.\n- `OWNER_PROTECTED`: Only an owner may grant the owner role or change an owner's role or access (disable, suspend, enable).",
+            "description": "- `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.\n- `SELF_PROTECTED`: A manager cannot change their own role or disable or enable themselves; another manager does it.\n- `OWNER_PROTECTED`: Only an owner may grant the owner role or change an owner's role or access (disable, suspend, enable).",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -29757,6 +30183,7 @@
                               "type": "string",
                               "enum": [
                                 "FORBIDDEN",
+                                "SELF_PROTECTED",
                                 "OWNER_PROTECTED"
                               ]
                             }
@@ -29828,6 +30255,41 @@
                               "type": "string",
                               "enum": [
                                 "REQUEST_TIMEOUT"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "- `ACCOUNT_DISABLED`: The account is suspended. Lift the suspension before changing the role or enabling the membership.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "ACCOUNT_DISABLED"
                               ]
                             }
                           }
@@ -29925,7 +30387,7 @@
           "Members"
         ],
         "summary": "Suspend an account",
-        "description": "Allowed only when every live membership of the account is in a workspace the caller owns or administers; otherwise 403 FORBIDDEN. An account that is an owner, even with that membership disabled, in any workspace the caller is not a live owner of answers 403 OWNER_PROTECTED first. The account cannot sign in anywhere, and the same cut-off as disabling a member applies in each of its workspaces. Suspending yourself answers 409 LAST_OWNER. Writes a `disable_user` receipt unless the account was already suspended (`receipt_id` null).\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "Allowed only when every live membership of the account is in a workspace the caller owns or administers; otherwise 403 FORBIDDEN. An account that is an owner, even with that membership disabled, in any workspace the caller is not a live owner of answers 403 OWNER_PROTECTED first. The account cannot sign in anywhere, and the same cut-off as disabling a member applies in each of its workspaces. Suspending yourself answers 403 SELF_PROTECTED. Writes a `disable_user` receipt unless the account was already suspended (`receipt_id` null).\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -30052,7 +30514,7 @@
             }
           },
           "403": {
-            "description": "- `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.\n- `OWNER_PROTECTED`: Only an owner may grant the owner role or change an owner's role or access (disable, suspend, enable).",
+            "description": "- `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.\n- `SELF_PROTECTED`: A manager cannot change their own role or disable or enable themselves; another manager does it.\n- `OWNER_PROTECTED`: Only an owner may grant the owner role or change an owner's role or access (disable, suspend, enable).",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -30075,6 +30537,7 @@
                               "type": "string",
                               "enum": [
                                 "FORBIDDEN",
+                                "SELF_PROTECTED",
                                 "OWNER_PROTECTED"
                               ]
                             }
@@ -30146,41 +30609,6 @@
                               "type": "string",
                               "enum": [
                                 "REQUEST_TIMEOUT"
-                              ]
-                            }
-                          }
-                        }
-                      }
-                    }
-                  ]
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "- `LAST_OWNER`: The change would leave the workspace with no live owner.",
-            "headers": {
-              "X-Request-Id": {
-                "$ref": "#/components/headers/RequestId"
-              }
-            },
-            "content": {
-              "application/json": {
-                "schema": {
-                  "allOf": [
-                    {
-                      "$ref": "#/components/schemas/ApiErrorResponse"
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "error": {
-                          "type": "object",
-                          "properties": {
-                            "code": {
-                              "type": "string",
-                              "enum": [
-                                "LAST_OWNER"
                               ]
                             }
                           }
@@ -36007,6 +36435,285 @@
         }
       }
     },
+    "/v1/agents/{id}/slack-channels": {
+      "get": {
+        "operationId": "lookupSlackChannels",
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Resolve up to 50 Slack channel IDs by name",
+        "description": "Accepts comma-separated IDs only, with no cursor or full scan. Reads conversations.info concurrently and caches each app and channel for 60 seconds, coalescing concurrent reads. IDs Slack reports as missing or inaccessible return state and name unknown. Transport failures and upstream errors answer 503 without caching; a revoked or invalid bot token answers 409 SLACK_NOT_INSTALLED. Slack rate limits answer 503 with Retry-After. Agent managers only.\n\n**Auth:** cookie session only; no scope.",
+        "security": [
+          {
+            "cookieSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "ids",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 3249
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Names for the requested IDs.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "example": {
+                  "items": [
+                    {
+                      "id": "C0DEPLOY1",
+                      "name": "deploy",
+                      "state": "known"
+                    }
+                  ]
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/LookupSlackChannelsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "- `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BAD_REQUEST"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "- `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "UNAUTHORIZED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "- `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "FORBIDDEN"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "- `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "NOT_FOUND"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "- `SLACK_NOT_INSTALLED`: The workspace has no verified Slack install for this team.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "SLACK_NOT_INSTALLED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "description": "- `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BACKEND_UNAVAILABLE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/agents/{id}/slack/channels": {
       "get": {
         "operationId": "searchSlackChannels",
@@ -36319,6 +37026,724 @@
         }
       }
     },
+    "/v1/agents/{id}/slack/app/manifest": {
+      "get": {
+        "operationId": "getSlackAppManifest",
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Read the agent app manifest as YAML",
+        "description": "Builds the manifest from the agent and server configuration without reading secret values. Agent managers with a web session only.\n\n**Auth:** cookie session only; no scope.",
+        "security": [
+          {
+            "cookieSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The generated manifest without secret values.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "example": {
+                  "manifest_yaml": "display_information:\n  name: Agent\n"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/GetSlackAppManifestResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "- `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "UNAUTHORIZED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "- `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "FORBIDDEN"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "- `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "NOT_FOUND"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "description": "- `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BACKEND_UNAVAILABLE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/agents/{id}/slack/app/settings": {
+      "get": {
+        "operationId": "getSlackAppSettings",
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Read the default response mode for new Slack channels",
+        "description": "Returns the agent's saved default mode, initially off. Agent managers with a web session only.\n\n**Auth:** cookie session only; no scope.",
+        "security": [
+          {
+            "cookieSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The saved default mode.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "example": {
+                  "default_mode": "off"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/SlackAppSettings"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "- `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "UNAUTHORIZED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "- `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "FORBIDDEN"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "- `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "NOT_FOUND"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "description": "- `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BACKEND_UNAVAILABLE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "putSlackAppSettings",
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Save the default response mode for new Slack channels",
+        "description": "Saves off or mention for the agent. Defaults to off. Agent managers with a web session only. Applying this default to new bindings is handled separately.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** required.",
+        "security": [
+          {
+            "cookieSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Required, 1–255 characters; a UUID per user intent works. A retry with the same key and the same body returns the original response and runs the command once; the same key with a different body answers `409 IDEMPOTENCY_CONFLICT`. A missing or invalid key answers `400 BAD_REQUEST`, after the body is read.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            }
+          },
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "required": false,
+            "description": "Required with a cookie session: the literal `agent-platform-web`.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "agent-platform-web"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "default_mode": "mention"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/SlackAppSettings"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The saved default mode.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "example": {
+                  "default_mode": "mention"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/SlackAppSettings"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "- `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema; the `Idempotency-Key` header is missing, empty or longer than 255 characters. Fix the request before retrying.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BAD_REQUEST"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "- `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "UNAUTHORIZED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "- `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "FORBIDDEN"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "- `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "NOT_FOUND"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "- `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`).",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "REQUEST_TIMEOUT"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "- `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "PAYLOAD_TOO_LARGE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "description": "- `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BACKEND_UNAVAILABLE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/agents/{id}/slack/app": {
       "get": {
         "operationId": "getSlackApp",
@@ -36386,6 +37811,11 @@
                         "updated_by": null
                       }
                     }
+                  },
+                  "event_url": "https://agents.example.test/v1/slack/events/019a0000-0000-7000-8000-0000000000c1",
+                  "events": {
+                    "state": "pending",
+                    "checked_at": null
                   }
                 },
                 "schema": {

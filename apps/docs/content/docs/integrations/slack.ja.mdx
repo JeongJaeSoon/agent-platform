@@ -83,6 +83,16 @@ unset SLACK_BOT_TOKEN
 
 ## エージェントの Slack アプリ
 
+### アプリ設定の読み取り
+
+owner・admin を含むエージェント管理者が Web セッションで呼び出す。`GET /v1/agents/{id}/slack/app` は `event_url` と `events` を返す。イベント URL はサーバーの `SLACK_EVENTS_PUBLIC_URL` に `/v1/slack/events/{agent_id}` を付けた絶対 URL で、未設定なら null になる。`events.state` は `pending`・`verified`・`failed`、`checked_at` は最後の登録試行時刻(未試行なら null)である。失敗時は秘密値を含まない `error` コードを返す。verified はインストール finalize による manifest 登録成功を表す。
+
+`GET /v1/agents/{id}/slack/app/manifest` は現在のエージェントとサーバー設定から生成した `manifest_yaml` を返す。秘密値は含まない。
+
+`GET /v1/agents/{id}/slack-channels?ids=C1,C2` は最大 50 個の ID の名前を返す。各 item は `id`・`name`・`state` を持ち、Slack が存在しないかアクセスできないと答えた ID だけ名前と状態が `unknown` になる。通信失敗・上位サーバーのエラーはキャッシュせずリクエスト全体が 503 になり、失効したか無効な bot token は 409 `SLACK_NOT_INSTALLED` になる。cursor と全件走査はない。アプリ・チャンネルごとに 60 秒キャッシュし、Slack 429 は `Retry-After` 付きの 503 になる。
+
+`GET`・`PUT /v1/agents/{id}/slack/app/settings` は `{ "default_mode": "off" }` または `mention` を読み書きする。初期値は `off` で、アプリ作成前にも保存できる。新しい binding への既定値適用は後続作業である。アプリ全体のオン・オフは提供しない。
+
 エージェントごとに自分の Slack アプリを持つ。接続には、アプリ id、チーム id、bot token が入った認証情報への参照の名前(`credential_ref`、値ではない)を送る。
 
 ```sh

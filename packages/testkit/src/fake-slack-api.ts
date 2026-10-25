@@ -374,6 +374,7 @@ export function createFakeSlackWebApi(
       return {
         channel: {
           id,
+          name: conversations.find((item) => item.id === id)?.name,
           is_im: channel.isIm ?? false,
           is_private: channel.isPrivate ?? false,
           is_mpim: channel.isMpim ?? false,

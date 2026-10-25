@@ -523,8 +523,15 @@
     {
       "idx": 165,
       "version": "7",
-      "when": 1792899318313,
-      "tag": "0165_channel_membership",
+      "when": 1792899229884,
+      "tag": "0165_slack_app_read_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 166,
+      "version": "7",
+      "when": 1792911299561,
+      "tag": "0166_channel_membership",
       "breakpoints": true
     }
   ]

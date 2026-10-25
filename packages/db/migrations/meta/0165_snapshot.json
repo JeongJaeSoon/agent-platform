@@ -1,5 +1,5 @@
 {
-  "id": "6b9b5fb5-6e26-4c29-b40c-cce4e42216d4",
+  "id": "cd26832a-1f19-4325-bada-6c356fe47a3a",
   "prevId": "40c6206a-377b-4b31-8cfe-30f13afbb85f",
   "version": "7",
   "dialect": "postgresql",
@@ -864,6 +864,13 @@
           "notNull": true,
           "default": -1
         },
+        "slack_default_mode": {
+          "name": "slack_default_mode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'off'"
+        },
         "created_by": {
           "name": "created_by",
           "type": "uuid",
@@ -947,6 +954,10 @@
       },
       "policies": {},
       "checkConstraints": {
+        "agents_slack_default_mode_check": {
+          "name": "agents_slack_default_mode_check",
+          "value": "\"agents\".\"slack_default_mode\" IN ('off', 'mention')"
+        },
         "agents_status_check": {
           "name": "agents_status_check",
           "value": "\"agents\".\"status\" IN ('active','paused','archived')"
@@ -5709,6 +5720,25 @@
           "primaryKey": false,
           "notNull": true
         },
+        "events_state": {
+          "name": "events_state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "events_checked_at": {
+          "name": "events_checked_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "events_error": {
+          "name": "events_error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_by_token_user": {
           "name": "created_by_token_user",
           "type": "text",
@@ -5824,6 +5854,10 @@
       },
       "policies": {},
       "checkConstraints": {
+        "slack_apps_events_state_check": {
+          "name": "slack_apps_events_state_check",
+          "value": "\"slack_apps\".\"events_state\" IN ('pending', 'verified', 'failed')"
+        },
         "slack_apps_kind_check": {
           "name": "slack_apps_kind_check",
           "value": "\"slack_apps\".\"kind\" IN ('agent','link','manual')"
@@ -6620,7 +6654,7 @@
       "checkConstraints": {
         "slack_outbox_kind_check": {
           "name": "slack_outbox_kind_check",
-          "value": "\"slack_outbox\".\"kind\" IN ('reply', 'notice', 'failure_notice', 'input_notice', 'welcome')"
+          "value": "\"slack_outbox\".\"kind\" IN ('reply', 'notice', 'failure_notice', 'input_notice')"
         },
         "slack_outbox_status_check": {
           "name": "slack_outbox_status_check",
@@ -6767,18 +6801,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": false
-        },
-        "membership": {
-          "name": "membership",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "membership_error": {
-          "name": "membership_error",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
         },
         "revision": {
           "name": "revision",
@@ -6941,10 +6963,6 @@
         "surface_bindings_status_check": {
           "name": "surface_bindings_status_check",
           "value": "\"surface_bindings\".\"status\" IN ('ready','partial','failed','revoked')"
-        },
-        "surface_bindings_membership_check": {
-          "name": "surface_bindings_membership_check",
-          "value": "(\"surface_bindings\".\"membership\" IS NULL OR \"surface_bindings\".\"membership\" IN ('joined','awaiting_invite','config_error','join_failed')) AND (\"surface_bindings\".\"membership_error\" IS NULL OR \"surface_bindings\".\"membership\" IS NOT NULL)"
         },
         "surface_bindings_revoked_check": {
           "name": "surface_bindings_revoked_check",

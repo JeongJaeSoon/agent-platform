@@ -11,6 +11,7 @@ export * from "./musterrolle/api-key-service.ts";
 export * from "./musterrolle/credential-binding-service.ts";
 export * from "./musterrolle/invite-service.ts";
 export * from "./musterrolle/linked-account-service.ts";
+export * from "./musterrolle/member-rules.ts";
 export * from "./musterrolle/member-service.ts";
 export * from "./musterrolle/policy.ts";
 export * from "./musterrolle/session-share-service.ts";

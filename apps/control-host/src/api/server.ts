@@ -431,6 +431,7 @@ const slackApps = createSlackAppService({
   tokens: slackConfigTokens,
   api: slackConfigApi,
   consoleOrigin,
+  eventsPublicUrl: slackEventsPublicUrlFrom(process.env),
   onAgentAppChanged: (agentId) => slackSigningSecrets?.invalidate(agentId),
 });
 const slackEventsPublicUrl = slackEventsPublicUrlFrom(process.env);
