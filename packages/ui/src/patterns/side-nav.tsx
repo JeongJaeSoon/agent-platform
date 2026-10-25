@@ -61,8 +61,9 @@ export type SideNavProps = Omit<
   /** The current item's label, shown on the folded button after the name. */
   readonly current?: ReactNode | undefined;
   /**
-   * Called when a link picked from the unfolded list folds it away. Move focus
-   * to what the link opened here; otherwise it returns to the button.
+   * Called when a link picked from the unfolded list folds it away, after the
+   * link's onClick. Move focus to what the link opened here; otherwise it
+   * stays on the button.
    */
   readonly onPick?: (() => void) | undefined;
   readonly children: ReactNode;
@@ -88,14 +89,16 @@ export function SideNav({
   // the list and must measure the page without it.
   const pick = (event: MouseEvent<HTMLDivElement>) => {
     picking.current = open && !!(event.target as Element).closest("a");
-    if (picking.current) flushSync(() => setOpen(false));
+    if (!picking.current) return;
+    flushSync(() => setOpen(false));
+    // Where the link scrolls stays: the button may be above the screen then.
+    toggle.current?.focus({ preventScroll: true });
   };
-  // Bubbles up after the link's own onClick, which is never stopped here.
+  // Bubbles up after the link's own onClick; a link that stops the click
+  // keeps focus on the button and gets no onPick.
   const picked = () => {
     if (!picking.current) return;
     picking.current = false;
-    // Where the link scrolled stays: the button may be above the screen now.
-    toggle.current?.focus({ preventScroll: true });
     onPick?.();
   };
   const closeOnEscape = (event: KeyboardEvent<HTMLDivElement>) => {

@@ -180,7 +180,7 @@ describe("SideNav", () => {
     expect(document.activeElement === toggle).toBe(true);
   });
 
-  test("펼친 목록에서 링크를 고르면 링크의 onClick이 돈 뒤 닫히고 onPick을 부른다", async () => {
+  test("펼친 목록에서 링크를 고르면 닫히고, 링크의 onClick 뒤에 onPick을 부른다", async () => {
     const user = await setupUser();
     const order: string[] = [];
     const onClick = mock((event: { preventDefault(): void }) => {
@@ -233,6 +233,32 @@ describe("SideNav", () => {
     // already be gone, or the jump lands short by the list's height.
     expect(seen).toEqual(["false"]);
     expect(focus.mock.calls.at(-1)).toEqual([{ preventScroll: true }]);
+  });
+
+  test("링크가 click 전파를 막으면 onPick은 부르지 않고 포커스는 버튼에 둔다", async () => {
+    const user = await setupUser();
+    const onPick = mock(() => {});
+    const { getByRole } = render(
+      <SideNav aria-label="Slack" onPick={onPick}>
+        <SideNavGroup>
+          <SideNavLink
+            href="#app"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+          >
+            앱
+          </SideNavLink>
+        </SideNavGroup>
+      </SideNav>,
+    );
+    const toggle = getByRole("button", { name: /^Slack/ });
+    await user.click(toggle);
+    await user.click(getByRole("link", { name: "앱" }));
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(onPick).not.toHaveBeenCalled();
+    expect(document.activeElement === toggle).toBe(true);
   });
 
   test("접히지 않은 목록에서 고르면 onPick을 부르지 않는다", async () => {
