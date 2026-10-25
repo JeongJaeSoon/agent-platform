@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { OperationsHead } from "@werft-ai/react/components";
+import { expect, waitFor } from "storybook/test";
 
 import { MOBILE } from "../../screens/screen-kit.tsx";
 
@@ -21,6 +22,23 @@ export const Owner: Story = {};
 
 export const Member: Story = {
   args: { tabs: ["overview", "usage", "tools"], current: "usage" },
+};
+
+/** Tabs whose screens have not landed stay in place, inert, saying why. */
+export const Soon: Story = {
+  args: { soon: ["usage", "tools"] },
+  play: async ({ canvas, userEvent }) => {
+    const usage = canvas.getByRole("link", { name: "사용량" });
+    await expect(usage).toHaveAttribute("aria-disabled", "true");
+    await userEvent.tab();
+    await userEvent.tab();
+    await expect(usage).toHaveFocus();
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-slot="popover-content"]'),
+      ).toHaveTextContent("아직 준비 중인 화면입니다."),
+    );
+  },
 };
 
 export const Dark: Story = { globals: { theme: "dark" } };

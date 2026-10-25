@@ -12,13 +12,14 @@ import type {
   InstallationLimitsResponse,
   UsageSummaryScope,
 } from "@werft-ai/contracts";
-import { usageSeriesQuery } from "@werft-ai/core";
+import { usageBreakdownQuery, usageSeriesQuery } from "@werft-ai/core";
 import { useAgentPlatform } from "@werft-ai/react";
 import {
   InstallationLimits,
   OperationsHead,
   type OperationsTab,
   SessionCounts,
+  UsageCostTable,
   UsageFilters,
   UsageKpis,
   type UsagePeriod,
@@ -32,6 +33,7 @@ import { SESSION_FILTERS } from "./sessions.tsx";
 
 const DAY_MS = 86_400_000;
 const USAGE_STALE_MS = 60_000;
+const TOP_AGENTS = 3;
 
 // Cut at the next UTC midnight so the query key stays the same all day.
 export function usagePeriod(
@@ -87,10 +89,13 @@ const TAB_PATHS: Readonly<Record<OperationsTab, string>> = {
   limits: "/operations/limits",
 };
 
+// Shown where the design puts them until their screens land (94S-914, 915).
+const SOON: readonly OperationsTab[] = ["usage", "tools"];
+
 export function OperationsLayout() {
   const operator = useHasPermission("usage.installation_read");
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const tabs: OperationsTab[] = ["overview"];
+  const tabs: OperationsTab[] = ["overview", "usage", "tools"];
   if (operator) tabs.push("limits");
   const current =
     tabs.find((tab) => tab !== "overview" && pathname === TAB_PATHS[tab]) ??
@@ -99,6 +104,7 @@ export function OperationsLayout() {
     <>
       <OperationsHead
         tabs={tabs}
+        soon={SOON}
         current={current}
         tabLink={(tab, label) => (
           <Link to={TAB_PATHS[tab]} activeOptions={{ exact: true }}>
@@ -132,9 +138,14 @@ export function OperationsOverviewScreen() {
     placeholderData: keepPreviousData,
     staleTime: USAGE_STALE_MS,
   });
+  const agents = useQuery({
+    ...usageBreakdownQuery(client, filters.scope, since, "agent", until),
+    placeholderData: keepPreviousData,
+    staleTime: USAGE_STALE_MS,
+  });
   return (
     <div
-      aria-busy={series.isPending || undefined}
+      aria-busy={series.isPending || agents.isPending || undefined}
       className="flex min-w-0 flex-col gap-8"
     >
       <SessionCounts
@@ -190,6 +201,32 @@ export function OperationsOverviewScreen() {
             </Card>
           ) : (
             <UsageKpis buckets={series.data?.buckets} />
+          )}
+        </Section>
+      </div>
+      <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
+        {/* The design's tool findings, 94S-915's to fill. */}
+        <div className="max-lg:hidden" />
+        <Section
+          title={t("operations.topAgents")}
+          description={t("operations.topAgentsNote", { days: filters.days })}
+        >
+          {agents.isError ? (
+            <Card className="py-0">
+              <LoadFailure
+                error={agents.error}
+                onRetry={() => void agents.refetch()}
+              />
+            </Card>
+          ) : (
+            <UsageCostTable
+              label={t("operations.topAgents")}
+              head={t("operations.agent")}
+              by="agent"
+              rows={agents.data?.rows.slice(0, TOP_AGENTS)}
+              tokens={false}
+              placeholderRows={TOP_AGENTS}
+            />
           )}
         </Section>
       </div>

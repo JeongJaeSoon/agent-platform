@@ -3,7 +3,7 @@ import type { ApiClient } from "@werft-ai/client";
 import { setupDom, setupUser } from "@werft-ai/ui/test-support/dom";
 import { type ReactNode, useState } from "react";
 
-const { render } = await setupDom();
+const { render, waitFor } = await setupDom();
 // After setupDom: these load @werft-ai/ui (see detail-layout.test.tsx).
 const { AgentPlatformProvider } = await import("../../provider.tsx");
 const { Findings } = await import("./findings.tsx");
@@ -383,10 +383,8 @@ describe("UsageKpis", () => {
       "일자별 비용",
       "일자별 토큰",
     ]);
-    // Said to no one, its room kept so the cards below do not move.
-    expect(
-      queryByText(/실제보다 적을 수 있음/)?.closest("[aria-hidden=true]"),
-    ).toBeTruthy();
+    // The design's stacked cards at 390 keep no empty lines under the cost.
+    expect(queryByText(/실제보다 적을 수 있음/)).toBeNull();
   });
 
   test("cost_complete=false인 날이 하나라도 있으면 비용 카드가 적을 수 있다고 말한다", () => {
@@ -473,6 +471,44 @@ describe("OperationsHead", () => {
       ["개요", null],
       ["한도", "page"],
     ]);
+  });
+
+  test("아직 없는 탭은 제자리에 비활성으로 두고, 포커스하면 이유를 말한다", async () => {
+    const { getAllByRole, getByRole } = withPlatform(
+      <OperationsHead
+        tabs={["overview", "usage", "tools", "limits"]}
+        soon={["usage", "tools"]}
+        current="overview"
+        tabLink={(tab, label) => <a href={`/operations/${tab}`}>{label}</a>}
+      />,
+    );
+    expect(
+      getAllByRole("link").map((a) => [
+        a.textContent,
+        a.getAttribute("href"),
+        a.getAttribute("aria-disabled"),
+      ]),
+    ).toEqual([
+      ["개요", "/operations/overview", null],
+      ["사용량", null, "true"],
+      ["도구 활동", null, "true"],
+      ["한도", "/operations/limits", null],
+    ]);
+    const usage = getByRole("link", { name: "사용량" });
+    expect(usage.tabIndex).toBe(0);
+    const reason = (usage.getAttribute("aria-describedby") ?? "")
+      .split(" ")
+      .map((id) => document.getElementById(id)?.textContent);
+    expect(reason).toEqual(["아직 준비 중인 화면입니다."]);
+    const user = await setupUser();
+    await user.tab();
+    await user.tab();
+    expect(document.activeElement === usage).toBe(true);
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-slot="popover-content"]')?.textContent,
+      ).toBe("아직 준비 중인 화면입니다."),
+    );
   });
 });
 

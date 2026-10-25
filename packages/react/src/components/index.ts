@@ -40,6 +40,7 @@ export {
   type ToolCallsMessages,
   type ToolsSummaryMessages,
   type ToolTableMessages,
+  type UsageCostTableMessages,
   type UsageFiltersMessages,
   type UsageKpisMessages,
 } from "./operations/messages.ts";
@@ -64,6 +65,10 @@ export {
   ToolsSummary,
   type ToolsSummaryProps,
 } from "./operations/tools-summary.tsx";
+export {
+  UsageCostTable,
+  type UsageCostTableProps,
+} from "./operations/usage-cost-table.tsx";
 export {
   USAGE_PERIODS,
   UsageFilters,
