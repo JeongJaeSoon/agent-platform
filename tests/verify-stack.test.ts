@@ -71,6 +71,7 @@ esac
         PATH: `${join(dir, "bin")}:${process.env.PATH ?? ""}`,
         VERIFY_AP_ROOT: join(dir, "runs"),
         VERIFY_SLOT_LIMIT: "",
+        VERIFY_DEMO_ACCOUNTS: "",
         STUB_POOLS: JSON.stringify(stub.pools),
         STUB_IDS: stub.networks.map((_, i) => `id${i}`).join("\n"),
         STUB_NETWORKS: JSON.stringify(stub.networks),
@@ -242,19 +243,43 @@ esac
     expect(await dockerCalls()).toEqual([]);
   });
 
-  test("up.sh hands local.sh 3 worker slots, or VERIFY_SLOT_LIMIT, over the caller's own", async () => {
-    for (const value of ["", "5"]) {
+  test("up.sh hands local.sh 3 worker slots, 7 with the demo data, or VERIFY_SLOT_LIMIT, over the caller's own", async () => {
+    for (const [slots, demo] of [
+      ["", ""],
+      ["", "1"],
+      ["5", "1"],
+      ["5", ""],
+    ]) {
       // The stand-in refuses `docker version`: local.sh stops at its first
       // docker call, which records the limit it was given.
       const { exitCode } = await run(
         "up.sh",
         [],
         { pools: orbstackPools(30), networks: [] },
-        { VERIFY_SLOT_LIMIT: value, EXECUTION_SLOT_LIMIT: "10" },
+        {
+          VERIFY_SLOT_LIMIT: String(slots),
+          VERIFY_DEMO_ACCOUNTS: String(demo),
+          EXECUTION_SLOT_LIMIT: "10",
+        },
       );
       expect(exitCode).not.toBe(0);
     }
 
-    expect(await Bun.file(join(dir, "slot-limits")).text()).toBe("3\n5\n");
+    expect(await Bun.file(join(dir, "slot-limits")).text()).toBe(
+      "3\n7\n5\n5\n",
+    );
+  });
+
+  test("up.sh checks the pool for the slots the demo data gets", async () => {
+    const { exitCode, stderr } = await run(
+      "up.sh",
+      [],
+      { pools: orbstackPools(7), networks: [] },
+      { VERIFY_DEMO_ACCOUNTS: "1" },
+    );
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("7 free of 7, 8 needed");
+    expect(await runs()).toEqual([]);
   });
 });
