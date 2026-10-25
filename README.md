@@ -36,4 +36,12 @@ bun run --filter @werft-ai/storybook test:stories  # 모든 스토리를 Chrome�
 
 Storybook과 Vitest CLI는 Node 20.19 이상에서 돈다. `test:stories`는 설치된 Chrome을 쓴다. CI의 `storybook` job이 빌드와 a11y 검사를 하고, `pages` job이 [apps/docs](apps/docs) 문서 사이트를 루트에, Storybook을 `/storybook/`에, API 레퍼런스를 `/api/`에 모은다. main push에서만 `storybook-pages` job이 GitHub Pages에 배포한다.
 
-라이선스는 [LICENSE](LICENSE)를 따른다. 이 저장소는 source-available이며 오픈소스가 아니다. 소스는 읽고 검토할 수 있게 공개돼 있지만, 사용·실행·복제·수정·재배포에는 저작권자의 사전 서면 허가가 필요하다.
+## 라이선스
+
+[PolyForm Small Business License 1.0.0](LICENSE)을 따르는 source-available 저장소다.
+
+- 직원과 독립 계약자를 합쳐 100명 미만이고 직전 과세연도 총매출이 100만 달러(2019년 기준, 물가 보정) 미만인 회사는 무료로 사용·수정·배포·셀프호스팅할 수 있다. 회사를 지배하거나 회사가 지배하는 조직, 회사와 같은 지배를 받는 조직도 합쳐서 센다.
+- 그 기준을 넘는 회사가 쓰려면 상용 라이선스가 필요하다.
+- 복사본을 넘길 때는 라이선스 전문(또는 그 URL)과 `LICENSE` 첫 줄의 `Required Notice:`를 함께 넘긴다.
+
+평가·상용 라이선스 문의: jaesoon@94soon.dev

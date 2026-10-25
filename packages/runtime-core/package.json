@@ -3,6 +3,7 @@
   "description": "Kiel session runtime: engine-neutral run contract, checkpoint limits and ports, workspace and bundle logic",
   "version": "0.0.0",
   "private": true,
+  "license": "PolyForm-Small-Business-1.0.0",
   "type": "module",
   "exports": "./src/index.ts",
   "scripts": {
