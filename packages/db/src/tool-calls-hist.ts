@@ -1,4 +1,4 @@
-// tool_call_days.hist as SQL `tool_ms_bucket` fills it (migration 0167):
+// tool_call_days.hist as SQL `tool_ms_bucket` fills it (migration 0168):
 // bucket 0 is 0ms, bucket b >= 1 holds [1.1^(b-1), 1.1^b) ms.
 export const TOOL_MS_BUCKET_COUNT = 161;
 const RATIO = 1.1;
