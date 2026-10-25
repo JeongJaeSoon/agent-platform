@@ -3197,6 +3197,8 @@ export interface components {
                 provider: "slack";
                 external_tenant: string;
                 external_user_id: string;
+                external_tenant_name: string | null;
+                external_user_name: string | null;
                 /** @enum {string} */
                 status: "active" | "stale" | "revoked";
                 /** Format: date-time */
@@ -3216,6 +3218,8 @@ export interface components {
                 provider: "slack";
                 external_tenant: string;
                 external_user_id: string;
+                external_tenant_name: string | null;
+                external_user_name: string | null;
                 /** @enum {string} */
                 status: "active" | "stale" | "revoked";
                 /** Format: date-time */

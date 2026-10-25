@@ -8,7 +8,13 @@ import type { FakeSlackWebApi } from "./fake-slack-api.ts";
 // It also answers the Web API calls the slack-install CLI makes
 // (`/api/auth.test`, `/api/bots.info`) for one bot in the configured team.
 
-export type MockSlackAccount = { teamId: string; userId: string };
+export type MockSlackAccount = {
+  teamId: string;
+  userId: string;
+  /** Sent as `https://slack.com/team_name` and `name` when set. */
+  teamName?: string | undefined;
+  userName?: string | undefined;
+};
 
 export type MockSlackOidc = {
   /** The issuer: what SLACK_OIDC_ISSUER is set to. */
@@ -122,6 +128,8 @@ export async function startMockSlackOidc(
         nonce: pending.nonce,
         "https://slack.com/user_id": pending.account.userId,
         "https://slack.com/team_id": pending.account.teamId,
+        "https://slack.com/team_name": pending.account.teamName,
+        name: pending.account.userName,
       }),
     );
     const signature = await crypto.subtle.sign(
@@ -200,8 +208,10 @@ export async function startMockSlackOidc(
           redirectUri,
           nonce,
           account: {
+            ...account,
             teamId: query.get("mock_team") ?? account.teamId,
             userId: query.get("mock_user") ?? account.userId,
+            userName: query.get("mock_user_name") ?? account.userName,
           },
         });
         const back = new URL(redirectUri);

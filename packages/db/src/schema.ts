@@ -676,6 +676,9 @@ export const linkedAccounts = pgTable(
     /** The Slack team id. */
     externalTenant: text("external_tenant").notNull(),
     externalUserId: text("external_user_id").notNull(),
+    /** Names from the last verification, for display; null before 94S-942. */
+    externalTenantName: text("external_tenant_name"),
+    externalUserName: text("external_user_name"),
     status: text()
       .$type<"active" | "stale" | "revoked">()
       .notNull()
