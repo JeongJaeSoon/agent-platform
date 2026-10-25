@@ -326,6 +326,15 @@ describe("the e2e compose overlay", () => {
     return entryOf(name, digest);
   };
 
+  test("local and CI use the same persistent S3 server and AWS CLI initializer", () => {
+    expect(resolve(overlay.localstack?.image)?.source).toBe(
+      "docker.io/chrislusf/seaweedfs",
+    );
+    expect(resolve(overlay["local-s3-init"]?.image)?.source).toBe(
+      "docker.io/localstack/localstack",
+    );
+  });
+
   test("pulls every third-party image of the stack from the mirror, by the stack's digest", () => {
     // Any other image, a variable or not, is pulled and needs the overlay.
     const built = new Set(

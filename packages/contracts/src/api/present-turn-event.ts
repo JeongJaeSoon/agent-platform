@@ -197,7 +197,9 @@ function question(data: Record<string, unknown>): TurnEventPresentation {
   const prompts = Array.isArray(questions)
     ? questions
         .flatMap((entry) => {
-          const prompt = asRecord(entry)?.question;
+          const fields = asRecord(entry);
+          // The worker sends `prompt`; `question` is the SDK's own input.
+          const prompt = fields?.prompt ?? fields?.question;
           return typeof prompt === "string" ? [prompt] : [];
         })
         .join(" / ")

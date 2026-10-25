@@ -95,6 +95,8 @@ function LocaleSwitch() {
 // The router opens these with a trailing slash too.
 const SESSION_PATH = /^\/sessions\/([^/]+)\/?$/;
 const AGENT_PATH = /^\/agents\/([^/]+)\/?$/;
+// Home, the sessions list and a session: screens with a right rail.
+const RAIL_PATH = /^\/(sessions(\/[^/]+)?)?\/?$/;
 const SETTINGS_PATH = /^\/settings(\/|$)/;
 
 export function AuthedLayout() {
@@ -249,10 +251,14 @@ function PageTrail({
 }
 
 function ShellMain({ children }: { readonly children: ReactNode }) {
-  // A session's rail runs to the screen's edge, so that screen frames its
-  // own body (V4-RAIL); every other screen sits in the shared frame.
-  const pathname = usePathname();
-  const flush = SESSION_PATH.test(pathname);
+  // A rail runs to the screen's edge, so a screen that may open one frames
+  // its own body (V4-RAIL); every other screen sits in the shared frame.
+  // Read from the screen on show: switching the frame while the next one
+  // loads would remount the leaving screen, which reads its queries again.
+  const pathname = useRouterState({
+    select: (state) => (state.resolvedLocation ?? state.location).pathname,
+  });
+  const flush = RAIL_PATH.test(pathname);
   return (
     <Main className="web-shell__main flex w-full min-w-0 flex-col bg-surface md:col-start-2 md:row-start-2">
       {flush ? (

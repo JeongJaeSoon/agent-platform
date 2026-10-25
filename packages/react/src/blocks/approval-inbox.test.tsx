@@ -11,6 +11,7 @@ const { render, waitFor, act } = await setupDom();
 // whether a DOM exists, for every later file in the run too.
 const { AgentPlatformProvider } = await import("../provider.tsx");
 const { ApprovalInbox } = await import("./approval-inbox.tsx");
+const { usePendingRail } = await import("./pending-rail.tsx");
 const { PendingAnswers } = await import("./session-actions.tsx");
 type ApprovalInboxProps = import("./approval-inbox.tsx").ApprovalInboxProps;
 
@@ -74,6 +75,8 @@ function renderInbox({
   body,
   stale = false,
   hold = false,
+  events = [],
+  rail = false,
 }: {
   open: PendingRequest[];
   layout?: ApprovalLayout;
@@ -87,9 +90,29 @@ function renderInbox({
   stale?: boolean;
   /** Answers never come back, as a slow server's. */
   hold?: boolean;
+  /** The session's event stream, held open after these frames. */
+  events?: (readonly [event: string, data: unknown])[];
+  /** Lines open the session in a rail the host draws beside the inbox. */
+  rail?: boolean;
 }) {
+  /** STALE_ID's requests, listed after SESSION_ID until `jump`. */
+  let ahead: PendingRequest[] = [];
+  let jumped = false;
   const posted: Posted[] = [];
   let waitingReads = 0;
+  let stream: ReadableStreamDefaultController<Uint8Array> | undefined;
+  let sequence = 0;
+  const frame = ([event, data]: readonly [string, unknown]) => {
+    sequence += 1;
+    return `id: ev_${sequence}\nevent: ${event}\ndata: ${JSON.stringify({
+      schema_version: 1,
+      session_id: SESSION_ID,
+      turn_id: "1",
+      attempt_id: null,
+      occurred_at: "2026-10-21T00:59:00.000Z",
+      data,
+    })}\n\n`;
+  };
   let items = open;
   // Set by `addNewer`: a session that starts waiting ahead of SESSION_ID.
   let newer = false;
@@ -103,10 +126,13 @@ function renderInbox({
           ...(newer
             ? [{ id: NEWER_ID, title: "Newer", status: "needs_input" }]
             : []),
+          ...(jumped
+            ? [{ id: STALE_ID, title: null, status: "needs_input" }]
+            : []),
           ...(items.length
             ? [{ id: SESSION_ID, title, status: "needs_input" }]
             : []),
-          ...(stale
+          ...(stale || (ahead.length && !jumped)
             ? [{ id: STALE_ID, title: null, status: "needs_input" }]
             : []),
         ],
@@ -117,10 +143,25 @@ function renderInbox({
       return json(200, { answerable, items: [permission("req_n", "Read")] });
     }
     if (route === `GET /v1/sessions/${STALE_ID}/pending-requests`) {
-      return json(200, { answerable: true, items: [] });
+      return json(200, { answerable: true, items: ahead });
     }
     if (route === `GET /v1/sessions/${SESSION_ID}/pending-requests`) {
       return json(200, { answerable, items });
+    }
+    if (url.pathname === `/v1/sessions/${SESSION_ID}/events`) {
+      const frames = events.map(frame).join("");
+      const body = new ReadableStream<Uint8Array>({
+        start: (controller) => {
+          stream = controller;
+          controller.enqueue(new TextEncoder().encode(frames));
+          request.signal.addEventListener("abort", () =>
+            controller.error(new DOMException("aborted", "AbortError")),
+          );
+        },
+      });
+      return new Response(body, {
+        headers: { "content-type": "text/event-stream" },
+      });
     }
     if (route === `POST /v1/sessions/${SESSION_ID}/answers`) {
       const body = JSON.parse(await request.text()) as {
@@ -149,27 +190,65 @@ function renderInbox({
           </a>
         )}
       >
-        {body ?? (
-          <ApprovalInbox
-            loading={<p>loading</p>}
-            renderError={() => <p>failed</p>}
-            layout={layout}
-            unavailable={unavailable}
-            {...extra}
-          />
-        )}
+        {body ??
+          (rail ? (
+            <RailHost layout={layout} extra={extra} />
+          ) : (
+            <ApprovalInbox
+              loading={<p>loading</p>}
+              renderError={() => <p>failed</p>}
+              layout={layout}
+              unavailable={unavailable}
+              {...extra}
+            />
+          ))}
       </AgentPlatformProvider>
     </QueryClientProvider>,
   );
   return {
     ...view,
+    /** Gives STALE_ID `requests`, listed after SESSION_ID. */
+    second: (requests: PendingRequest[]) => {
+      ahead = requests;
+      return queryClient.invalidateQueries();
+    },
+    /** Moves STALE_ID ahead of SESSION_ID and reads the lists again. */
+    jump: () => {
+      jumped = true;
+      return queryClient.invalidateQueries();
+    },
     posted,
     waitingReads: () => waitingReads,
     addNewer: async () => {
       newer = true;
       await act(() => queryClient.invalidateQueries());
     },
+    /** Sends more frames down the open event stream. */
+    push: (...more: (readonly [event: string, data: unknown])[]) =>
+      stream?.enqueue(new TextEncoder().encode(more.map(frame).join(""))),
   };
+}
+
+function RailHost({
+  layout,
+  extra,
+}: {
+  readonly layout?: ApprovalLayout | undefined;
+  readonly extra?: Partial<ApprovalInboxProps> | undefined;
+}) {
+  const rail = usePendingRail({ renderError: () => <p>failed</p> });
+  return (
+    <>
+      <ApprovalInbox
+        loading={<p>loading</p>}
+        renderError={() => <p>failed</p>}
+        layout={layout}
+        rail={rail}
+        {...extra}
+      />
+      {rail.rail}
+    </>
+  );
 }
 
 describe("ApprovalInbox", () => {
@@ -552,5 +631,306 @@ describe("ApprovalInbox", () => {
       interval.mockRestore();
       setSystemTime();
     }
+  });
+
+  test("레일 배치는 줄마다 상세 보기 하나를 두고, 오른쪽 레일의 타임라인 질문 행에서 답한다", async () => {
+    const user = await setupUser();
+    const view = renderInbox({
+      open: [QUESTION],
+      layout: "summary",
+      title: "Fix README",
+      rail: true,
+      events: [
+        [
+          "question",
+          {
+            request_id: "req_q",
+            tool_use_id: "tu_1",
+            kind: "question",
+            tool: "AskUserQuestion",
+            input: {
+              questions: QUESTION.kind === "question" ? QUESTION.questions : [],
+            },
+          },
+        ],
+        ["error", { message: "No input for 1802s" }],
+      ],
+    });
+    const opener = await view.findByRole("button", {
+      name: "View details of Fix README",
+    });
+    // The line answers nothing itself.
+    expect(view.queryByRole("button", { name: "Answer" })).toBeNull();
+    expect(view.getByText("Which branch?").className).toContain("truncate");
+    await user.click(opener);
+    const panel = await view.findByRole("complementary", {
+      name: "Fix README",
+    });
+    // The question's line says what it asks, not the tool's name, and its
+    // form sits right under it.
+    const timeline = await waitFor(() => {
+      const list = panel.querySelector("ol");
+      expect(list?.textContent).toContain("Which branch?");
+      return list as HTMLOListElement;
+    });
+    expect(timeline.textContent).not.toContain("AskUserQuestion");
+    await waitFor(() =>
+      expect(
+        timeline.querySelector(
+          "[data-kind='request'] [data-slot='question-card']",
+        ),
+      ).toBeTruthy(),
+    );
+    expect(timeline.textContent).toContain(
+      "Stopped after 30 minutes with no input",
+    );
+    expect(timeline.querySelector("details")?.textContent).toContain(
+      "No input for 1802s",
+    );
+    await user.click(view.getByRole("radio", { name: "dev" }));
+    await user.click(view.getByRole("button", { name: "Send answer" }));
+    await waitFor(() => expect(view.posted).toHaveLength(1));
+    expect(view.posted[0]?.body).toEqual({
+      request_id: "req_q",
+      kind: "question",
+      answers: [{ question_id: "q1", selected_option_ids: ["dev"] }],
+    });
+    // The rail stays while the session leaves the list behind it.
+    await waitFor(() => expect(panel.textContent).toContain("Answer sent."));
+    expect(view.getByRole("complementary") === panel).toBe(true);
+    await user.keyboard("{Escape}");
+    await waitFor(() =>
+      expect(view.queryByRole("complementary") === null).toBe(true),
+    );
+    // Its line left with the session: the keyboard goes to the heading.
+    await waitFor(() => expect(document.activeElement?.tagName).toBe("H2"));
+    expect(document.activeElement?.textContent).toBe("Waiting for an answer");
+  });
+
+  test("레일은 열면 머리로 키보드를 옮기고, 닫기·Esc로 닫히면 연 버튼으로 돌려준다", async () => {
+    const user = await setupUser();
+    const view = renderInbox({
+      open: [permission("req_1", "Bash")],
+      layout: "summary",
+      rail: true,
+    });
+    const opener = await view.findByRole("button", {
+      name: `View details of ${SHORT}`,
+    });
+    expect(view.getByText("Bash: ls")).toBeTruthy();
+    expect(opener.getAttribute("aria-expanded")).toBe("false");
+    await user.click(opener);
+    const rail = await view.findByRole("complementary");
+    expect(opener.getAttribute("aria-expanded")).toBe("true");
+    // Opening moves the keyboard to the rail's heading.
+    await waitFor(() =>
+      expect(document.activeElement === rail.querySelector("h2")).toBe(true),
+    );
+    await user.click(view.getByRole("button", { name: "Close panel" }));
+    expect(view.queryByRole("complementary") === null).toBe(true);
+    expect(document.activeElement === opener).toBe(true);
+    await user.click(opener);
+    await view.findByRole("complementary");
+    await user.keyboard("{Escape}");
+    await waitFor(() =>
+      expect(view.queryByRole("complementary") === null).toBe(true),
+    );
+    await waitFor(() => expect(document.activeElement === opener).toBe(true));
+  });
+
+  test("레일에 이미 연 세션의 상세 보기를 다시 누르면 키보드가 다시 레일 제목으로 간다", async () => {
+    const user = await setupUser();
+    const view = renderInbox({
+      open: [permission("req_1", "Bash")],
+      layout: "summary",
+      rail: true,
+    });
+    const opener = await view.findByRole("button", {
+      name: `View details of ${SHORT}`,
+    });
+    await user.click(opener);
+    const rail = await view.findByRole("complementary");
+    const heading = rail.querySelector("h2");
+    await waitFor(() => expect(document.activeElement === heading).toBe(true));
+    await user.click(opener);
+    expect(view.getByRole("complementary") === rail).toBe(true);
+    await waitFor(() => expect(document.activeElement === heading).toBe(true));
+  });
+
+  test("레일이 열려 있어도 포커스를 쥔 줄이 목록에서 빠지면 키보드는 받은편지함 제목으로 간다", async () => {
+    const view = renderInbox({
+      open: [QUESTION],
+      layout: "summary",
+      rail: true,
+    });
+    const opener = await view.findByRole("button", {
+      name: `View details of ${SHORT}`,
+    });
+    opener.click();
+    const rail = await view.findByRole("complementary");
+    const radio = await waitFor(() => {
+      const found = rail.querySelector<HTMLElement>("[role='radio']");
+      expect(found).toBeTruthy();
+      return found as HTMLElement;
+    });
+    // Back in the list; the answer goes out without moving the keyboard.
+    opener.focus();
+    await act(async () => radio.click());
+    const send = view.getByRole("button", { name: "Send answer" });
+    await act(async () => send.click());
+    await waitFor(() => expect(opener.isConnected).toBe(false));
+    await waitFor(() =>
+      expect(document.activeElement?.textContent).toBe("Waiting for an answer"),
+    );
+  });
+
+  test("레일이 열려 있을 때 세션은 남고 포커스를 쥔 요청 줄만 빠져도 키보드는 받은편지함 제목으로 간다", async () => {
+    const view = renderInbox({
+      open: [permission("req_1", "Bash"), permission("req_2", "Edit")],
+      layout: "summary",
+      rail: true,
+    });
+    const [first] = await view.findAllByRole("button", {
+      name: `View details of ${SHORT}`,
+    });
+    if (!first) throw new Error("no line");
+    first.click();
+    const rail = await view.findByRole("complementary");
+    const allow = await waitFor(() => {
+      const [found] = view
+        .getAllByRole("button", { name: /^Allow/ })
+        .filter((button) => rail.contains(button));
+      expect(found).toBeTruthy();
+      return found as HTMLElement;
+    });
+    // Back on the first line; its request is answered without moving the
+    // keyboard, and the session stays for the second.
+    first.focus();
+    await act(async () => allow.click());
+    await waitFor(() => expect(first.isConnected).toBe(false));
+    expect(
+      view.getAllByRole("button", { name: `View details of ${SHORT}` }),
+    ).toHaveLength(1);
+    await waitFor(() =>
+      expect(document.activeElement?.textContent).toBe("Waiting for an answer"),
+    );
+  });
+
+  test("레일이 열려 있을 때 포커스를 쥔 줄이 줄 수 제한 밖으로 밀려나도 키보드는 받은편지함 제목으로 간다", async () => {
+    const view = renderInbox({
+      open: [permission("req_1", "Bash")],
+      layout: "summary",
+      rail: true,
+      extra: { limit: 1 },
+    });
+    const opener = await view.findByRole("button", {
+      name: `View details of ${SHORT}`,
+    });
+    // A second session, past the one line there is room for.
+    await act(() => view.second([permission("req_2", "Edit")]));
+    await waitFor(() => expect(view.waitingReads()).toBeGreaterThan(1));
+    opener.click();
+    await view.findByRole("complementary");
+    opener.focus();
+    // It moves ahead: this session's line goes, its request stays.
+    await act(() => view.jump());
+    await waitFor(() => expect(opener.isConnected).toBe(false));
+    await waitFor(() =>
+      expect(document.activeElement?.textContent).toBe("Waiting for an answer"),
+    );
+  });
+
+  test("레일에서 위에 그린 답 폼은 질문 이벤트가 늦게 와도 옮겨지지 않고 고른 값을 지킨다", async () => {
+    const user = await setupUser();
+    const view = renderInbox({
+      open: [QUESTION],
+      layout: "summary",
+      rail: true,
+    });
+    await user.click(
+      await view.findByRole("button", { name: `View details of ${SHORT}` }),
+    );
+    const panel = await view.findByRole("complementary");
+    const radio = await waitFor(() => {
+      const found = panel.querySelector<HTMLInputElement>("[role='radio']");
+      expect(found).toBeTruthy();
+      return found as HTMLInputElement;
+    });
+    // Drawn above the timeline: the stream has not said where it was asked.
+    expect(radio.closest("ol")).toBeNull();
+    await user.click(radio);
+    expect(radio.getAttribute("aria-checked")).toBe("true");
+    await act(async () => {
+      view.push([
+        "question",
+        {
+          request_id: "req_q",
+          tool_use_id: "tu_1",
+          kind: "question",
+          tool: "AskUserQuestion",
+          input: {
+            questions: QUESTION.kind === "question" ? QUESTION.questions : [],
+          },
+        },
+      ]);
+    });
+    await waitFor(() =>
+      expect(panel.querySelector("ol")?.textContent).toContain("Which branch?"),
+    );
+    // The same form, with what was chosen, and no second one in the line.
+    expect(panel.querySelectorAll("[role='radio']")).toHaveLength(1);
+    expect(radio.isConnected).toBe(true);
+    expect(radio.getAttribute("aria-checked")).toBe("true");
+  });
+
+  test("레일에서 질문 행이 이벤트 창 밖으로 밀려나도 그 요청은 위에서 계속 답할 수 있다", async () => {
+    const user = await setupUser();
+    const asked = [
+      "question",
+      {
+        request_id: "req_q",
+        tool_use_id: "tu_1",
+        kind: "question",
+        tool: "AskUserQuestion",
+        input: {
+          questions: QUESTION.kind === "question" ? QUESTION.questions : [],
+        },
+      },
+    ] as const;
+    const view = renderInbox({
+      open: [QUESTION],
+      layout: "summary",
+      rail: true,
+      events: [asked],
+    });
+    await user.click(
+      await view.findByRole("button", { name: `View details of ${SHORT}` }),
+    );
+    const panel = await view.findByRole("complementary");
+    const radio = await waitFor(() => {
+      const found = panel.querySelector<HTMLElement>("ol [role='radio']");
+      expect(found).toBeTruthy();
+      return found as HTMLElement;
+    });
+    await user.click(radio);
+    expect(radio.getAttribute("aria-checked")).toBe("true");
+    await act(async () => {
+      view.push(
+        ...Array.from(
+          { length: 200 },
+          () => ["status", { phase: "needs_input" }] as const,
+        ),
+      );
+    });
+    await waitFor(() =>
+      expect(panel.querySelector("ol")?.textContent).not.toContain(
+        "Which branch?",
+      ),
+    );
+    await waitFor(() => expect(radio.closest("ol")).toBeNull());
+    // The same form, moved: what was chosen is still chosen.
+    expect(panel.querySelectorAll("[role='radio']")).toHaveLength(1);
+    expect(radio.isConnected).toBe(true);
+    expect(radio.getAttribute("aria-checked")).toBe("true");
   });
 });
