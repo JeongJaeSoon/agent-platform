@@ -3,7 +3,11 @@
 export const TOOL_MS_BUCKET_COUNT = 161;
 const RATIO = 1.1;
 
-/** A bucket read back as its geometric middle: within 5% of any ms in it. */
+/**
+ * A bucket read back as its geometric middle, rounded to whole ms: within 5%
+ * or 1ms of any ms in it, except the last bucket, which has no upper end and
+ * reads back as about 65 minutes whatever it holds.
+ */
 export function bucketMs(bucket: number): number {
   return bucket === 0 ? 0 : Math.round(RATIO ** (bucket - 0.5));
 }
