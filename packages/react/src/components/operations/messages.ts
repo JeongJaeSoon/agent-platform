@@ -195,8 +195,11 @@ function format(
     elapsed: (ms) =>
       ms >= 60000 ? duration(ms / 1000) : seconds((ms / 1000).toFixed(1)),
     percent: (a, b) => `${(b ? (100 * a) / b : 0).toFixed(1)}%`,
+    // A fake or cheap model costs fractions of a cent; "$0.00" would read as free.
     usd: (amount) =>
-      `$${Number(amount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      Number(amount) > 0 && Number(amount) < 0.005
+        ? "<$0.01"
+        : `$${Number(amount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
     tokens: (n) =>
       !units
         ? n >= 1e4

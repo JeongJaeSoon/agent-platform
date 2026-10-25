@@ -395,6 +395,16 @@ describe("UsageKpis", () => {
     expect(getByText(/실제보다 적을 수 있음/)).toBeTruthy();
   });
 
+  test("1센트에 못 미치는 비용은 $0.00이 아니라 <$0.01로 쓴다", () => {
+    withPlatform(
+      <UsageKpis
+        buckets={BUCKETS.map((b) => ({ ...b, cost_usd: "0.000063" }))}
+      />,
+    );
+    expect(document.body.textContent).toContain("<$0.01");
+    expect(document.body.textContent).not.toContain("$0.00");
+  });
+
   test("영어는 백만 단위로 줄인다", () => {
     withPlatform(<UsageKpis buckets={BUCKETS} />, "en");
     expect(document.body.textContent).toContain("38.2M");
