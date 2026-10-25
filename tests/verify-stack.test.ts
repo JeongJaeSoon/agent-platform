@@ -47,6 +47,7 @@ case "$*" in
   "info --format {{json .DefaultAddressPools}}") echo "$STUB_POOLS" ;;
   "network ls -q") [ -z "$STUB_IDS" ] || echo "$STUB_IDS" ;;
   "network inspect "*) echo "$STUB_NETWORKS" ;;
+  "version "*) echo "$EXECUTION_SLOT_LIMIT" >> "${dir}/slot-limits"; exit 1 ;;
   *) exit 1 ;;
 esac
 `,
@@ -174,6 +175,31 @@ esac
     ).toBe(1);
   });
 
+  test("a pool entry is taken once however many subnets share it, and every entry a wide subnet covers", async () => {
+    const pools = [{ Base: "192.168.0.0/16", Size: 24 }];
+    const halves = [
+      network("a", ["192.168.0.0/25"], {
+        "com.docker.compose.project": "p",
+      }),
+      network("b", ["192.168.0.128/25"], {
+        "com.docker.compose.project": "p",
+      }),
+    ];
+    const short = await run("address-pool.sh", ["256"], {
+      pools,
+      networks: halves,
+    });
+    expect(short.stderr).toContain("255 free of 256, 256 needed");
+    expect(short.stderr).toContain("  1\tp\n");
+
+    const covering = await run("address-pool.sh", ["1"], {
+      pools,
+      networks: [network("all", ["192.168.0.0/15"])],
+    });
+    expect(covering.exitCode).toBe(1);
+    expect(covering.stderr).toContain("0 free of 256, 1 needed");
+  });
+
   test("no IPv4 pool reported is not checked", async () => {
     const { exitCode, stderr } = await run("address-pool.sh", ["4"], {
       pools: null,
@@ -202,7 +228,7 @@ esac
   });
 
   test("up.sh refuses a slot limit that is not a positive integer without asking docker", async () => {
-    for (const value of ["0", "-1", "two", "08"]) {
+    for (const value of ["0", "-1", "two", "08", "10000"]) {
       const { exitCode, stderr } = await run(
         "up.sh",
         [],
@@ -216,32 +242,19 @@ esac
     expect(await dockerCalls()).toEqual([]);
   });
 
-  test("up.sh hands the stack 3 worker slots, or VERIFY_SLOT_LIMIT", async () => {
-    for (const [value, expected] of [
-      ["", "3"],
-      ["5", "5"],
-    ] as const) {
-      await rm(join(dir, "runs"), { force: true, recursive: true });
-      // The stand-in refuses `docker version`, so local.sh stops right after
-      // up.sh has written the run's state.
+  test("up.sh hands local.sh 3 worker slots, or VERIFY_SLOT_LIMIT, over the caller's own", async () => {
+    for (const value of ["", "5"]) {
+      // The stand-in refuses `docker version`: local.sh stops at its first
+      // docker call, which records the limit it was given.
       const { exitCode } = await run(
         "up.sh",
         [],
         { pools: orbstackPools(30), networks: [] },
-        { VERIFY_SLOT_LIMIT: value },
+        { VERIFY_SLOT_LIMIT: value, EXECUTION_SLOT_LIMIT: "10" },
       );
       expect(exitCode).not.toBe(0);
-
-      const [runId] = await runs();
-      const state = join(dir, "runs", String(runId), "state.env");
-      const read = Bun.spawnSync([
-        "bash",
-        "-c",
-        `. "$1" && printf %s "$EXECUTION_SLOT_LIMIT"`,
-        "_",
-        state,
-      ]);
-      expect(read.stdout.toString()).toBe(expected);
     }
+
+    expect(await Bun.file(join(dir, "slot-limits")).text()).toBe("3\n5\n");
   });
 });

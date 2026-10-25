@@ -21,21 +21,28 @@ report=$(jq -n -r --argjson pools "${pools:-null}" --argjson needed "$needed" --
   def ip: split(".") | map(tonumber) | .[0] * 16777216 + .[1] * 65536 + .[2] * 256 + .[3];
   def cidr: split("/") | {start: (.[0] | ip), len: (.[1] | tonumber)};
   def ipv4: test("^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+/[0-9]+$");
-  [($pools // [])[] | select(.Base | ipv4) | (.Base | cidr) + {size: .Size}] as $p
+  [($pools // [])[] | select(.Base | ipv4) | (.Base | cidr) + {size: .Size}
+    | . + {end: (.start + pow(2; 32 - .len)), block: pow(2; 32 - .size)}] as $p
   | ([$p[] | pow(2; .size - .len)] | add // 0) as $capacity
+  # Every pool entry a subnet overlaps, as "<pool>:<entry>": counted once
+  # however many subnets share it, all of them when one subnet covers several.
   | [$networks[]
       | (.Labels // {}) as $l
       | ($l["com.docker.compose.project"] // $l["agent-platform.installation"] // .Name) as $owner
-      | (.IPAM.Config // [])[] | .Subnet // "" | select(ipv4) | cidr as $s
-      | $p[] | select($s.start >= .start and $s.start < .start + pow(2; 32 - .len) and $s.len >= .len)
-      | {owner: $owner, used: (if $s.len >= .size then 1 else pow(2; .size - $s.len) end)}
+      | (.IPAM.Config // [])[] | .Subnet // "" | select(ipv4) | cidr
+      | {start, end: (.start + pow(2; 32 - .len))} as $s
+      | range($p | length) as $i | $p[$i]
+      | ([$s.start, .start] | max) as $lo | ([$s.end, .end] | min) as $hi
+      | select($lo < $hi)
+      | range(($lo - .start) / .block | floor; ($hi - 1 - .start) / .block | floor + 1)
+      | {owner: $owner, entry: "\($i):\(.)"}
     ] as $used
-  | ([$used[].used] | add // 0) as $taken
+  | ($used | map(.entry) | unique | length) as $taken
   | if $capacity == 0 then "unknown"
     elif $capacity - $taken >= $needed then "ok \($capacity - $taken) free of \($capacity), \($needed) needed"
     else
       "short \($capacity - $taken) free of \($capacity), \($needed) needed",
-      ($used | group_by(.owner) | map({owner: .[0].owner, n: (map(.used) | add)}) | sort_by(-.n, .owner)[]
+      ($used | group_by(.owner) | map({owner: .[0].owner, n: (map(.entry) | unique | length)}) | sort_by(-.n, .owner)[]
         | "  \(.n)\t\(.owner)")
     end
 ')
