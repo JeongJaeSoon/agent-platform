@@ -65,6 +65,7 @@ export {
   GridTableRow,
   GridTableRowOpener,
   type GridTableRowOpenerProps,
+  type GridTableRowProps,
 } from "./grid-table.tsx";
 export { Heading, type HeadingProps } from "./heading.tsx";
 export { Input } from "./input.tsx";
@@ -122,6 +123,7 @@ export {
   TableHeader,
   type TableHeadProps,
   TableRow,
+  type TableRowProps,
 } from "./table.tsx";
 export {
   Tabs,

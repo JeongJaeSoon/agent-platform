@@ -135,19 +135,29 @@ export function GridTableHeader({
   );
 }
 
+export type GridTableRowProps = Omit<ComponentProps<"div">, "role"> & {
+  /**
+   * Draws the row in the inactive tone (styles.css): faint text, badges
+   * without hue, buttons untouched. Say "inactive" in the row's text too.
+   */
+  readonly inactive?: boolean | undefined;
+};
+
 /**
  * A body row, v4 `.tr`. A row holding a GridTableRowOpener is clickable as a
  * whole: it takes the hover fill and the pointer.
  */
 export function GridTableRow({
+  inactive = false,
   className,
   ...props
-}: Omit<ComponentProps<"div">, "role">): JSX.Element {
+}: GridTableRowProps): JSX.Element {
   const narrow = useNarrow();
   return (
     <div
       role="row"
       data-slot="grid-table-row"
+      data-inactive={inactive || undefined}
       className={cn(
         ROW,
         narrow?.row,
@@ -210,6 +220,7 @@ export type GridTableCellProps = Omit<ComponentProps<"div">, "role"> &
     /**
      * v4 `.cell.z`: drawn above the row's opener, so the buttons and links in
      * it take their own clicks. Never put the opener itself in a raised cell.
+     * An `inactive` row leaves a raised cell at full contrast.
      */
     readonly raised?: boolean | undefined;
   };
@@ -229,6 +240,7 @@ export function GridTableCell({
       data-slot="grid-table-cell"
       data-hide-narrow={hideNarrow || undefined}
       data-lines={lines || undefined}
+      data-raised={raised || undefined}
       className={cn(
         cellClasses(narrow, { align, hideNarrow }),
         // The lines after the first that is not the row opener.
