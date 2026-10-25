@@ -872,6 +872,13 @@ function SlackChannels({
             const known = row.external_surface_id
               ? names[row.external_surface_id]
               : undefined;
+            // The server joins public channels itself; a binding saved before
+            // it recorded membership falls back to the channel list.
+            const awaitingInvite = row.membership
+              ? row.membership.state === "awaiting_invite"
+              : row.surface_kind === "private_channel" &&
+                known !== undefined &&
+                !known.member;
             const name =
               row.surface_kind === "dm"
                 ? t("slack.dm")
@@ -893,7 +900,7 @@ function SlackChannels({
                     : "slack.public",
                 )}
                 meta={
-                  known && !known.member ? (
+                  awaitingInvite ? (
                     <span className="flex flex-wrap items-center gap-1">
                       <Badge variant="gray">{t("slack.privateInvite")}</Badge>
                       <InviteCopy command={invite} notify={notify} />
@@ -932,7 +939,7 @@ function SlackChannels({
             <DialogTitle>
               {t(pickHome ? "slack.setHome" : "slack.addChannel")}
             </DialogTitle>
-            <DialogDescription>{t("slack.joinHint")}</DialogDescription>
+            <DialogDescription>{t("slack.joinHintAuto")}</DialogDescription>
           </DialogHeader>
           {(error ?? settings.error) ? (
             <FieldError>{slackFailure(error ?? settings.error, t)}</FieldError>
@@ -964,7 +971,7 @@ function SlackChannels({
                               : "slack.public",
                           )}
                         </Badge>
-                        {!channel.is_member ? (
+                        {channel.is_private && !channel.is_member ? (
                           <span className="flex flex-wrap items-center gap-1">
                             <Badge variant="gray">
                               {t("slack.privateInvite")}

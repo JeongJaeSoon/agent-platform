@@ -464,7 +464,6 @@ describe("Slack management", () => {
       (saved?.headers.get("Idempotency-Key") ?? "").length,
     ).toBeGreaterThan(0);
     await user.click(await screen.findByRole("button", { name: "채널 추가" }));
-    expect(await screen.findByText("/invite 필요")).toBeDefined();
     await user.click(
       await screen.findByRole("button", { name: "#general 연결" }),
     );
@@ -478,11 +477,74 @@ describe("Slack management", () => {
         )
         .map((call) => call.body),
     ).toEqual([{ channel_id: "C123", mode: "mention", home: false }]);
+  });
+
+  test("asks for /invite only on a private channel the bot has not joined", async () => {
+    const row = (
+      id: string,
+      kind: "public_channel" | "private_channel",
+      state: "joined" | "awaiting_invite" | "join_failed" | null,
+    ) => ({
+      ...BINDING,
+      id: `${ID.slice(0, -1)}${id.at(-1)}`,
+      external_surface_id: id,
+      surface_kind: kind,
+      home: false,
+      ...(state ? { membership: { state, error: null } } : {}),
+    });
+    const channel = (id: string, name: string, isPrivate: boolean) => ({
+      id,
+      name,
+      is_private: isPrivate,
+      is_member: false,
+    });
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack-bindings`]: () =>
+        json(200, {
+          items: [
+            row("C1", "public_channel", "joined"),
+            row("C2", "private_channel", "awaiting_invite"),
+            row("C3", "public_channel", "join_failed"),
+            row("C4", "private_channel", null),
+            row("C5", "public_channel", null),
+          ],
+        }),
+      [`GET ${PATH}/slack/channels`]: () =>
+        json(200, {
+          items: [
+            channel("C1", "pub-joined", false),
+            channel("C2", "priv-waiting", true),
+            channel("C3", "pub-failed", false),
+            channel("C4", "priv-unchecked", true),
+            channel("C5", "pub-unchecked", false),
+          ],
+          next_cursor: null,
+          stale: false,
+          truncated: false,
+        }),
+    });
+    const user = await setupUser();
     const list = await screen.findByRole("list", { name: "연결된 채널" });
-    expect(within(list).getByText("/invite 필요")).toBeDefined();
-    expect(
-      within(list).getByRole("button", { name: "/invite 명령 복사" }),
-    ).toBeDefined();
+    await within(list).findByText("#priv-waiting");
+    const hinted = (scope: HTMLElement) =>
+      within(scope)
+        .queryAllByText("/invite 필요")
+        .map(
+          (badge) =>
+            badge.closest("[data-slot=setting-row], li")?.textContent ?? "",
+        );
+    expect(hinted(list).map((text) => text.match(/#[a-z-]+/)?.[0])).toEqual([
+      "#priv-waiting",
+      "#priv-unchecked",
+    ]);
+    await user.click(await screen.findByRole("button", { name: "채널 추가" }));
+    const dialog = screen.getByRole("dialog");
+    await within(dialog).findByText("#pub-joined");
+    expect(hinted(dialog).map((text) => text.match(/#[a-z-]+/)?.[0])).toEqual([
+      "#priv-waiting",
+      "#priv-unchecked",
+    ]);
   });
 
   for (const refused of [false, true]) {
@@ -673,7 +735,7 @@ describe("Slack management", () => {
             {
               id: "C123",
               name: "general",
-              is_private: false,
+              is_private: true,
               is_member: false,
             },
           ],
@@ -725,7 +787,16 @@ describe("Slack management", () => {
       renderAt(DETAIL, {
         ...routes(APP, true),
         [`GET ${PATH}/slack-bindings`]: () =>
-          json(200, { items: [{ ...BINDING, home: false }] }),
+          json(200, {
+            items: [
+              {
+                ...BINDING,
+                surface_kind: "private_channel",
+                home: false,
+                membership: { state: "awaiting_invite", error: null },
+              },
+            ],
+          }),
         [`GET ${PATH}/slack/channels`]: () =>
           json(200, {
             items: [
@@ -1121,7 +1192,7 @@ describe("Slack management", () => {
       renderAt(DETAIL, routes(app, installed));
       expect((await screen.findAllByText(label)).length).toBeGreaterThan(0);
       // The /invite hint belongs to the channel picker alone.
-      expect(screen.queryByText(/공개·비공개 채널 모두 \/invite/)).toBeNull();
+      expect(screen.queryByText(/비공개 채널은 \/invite/)).toBeNull();
       if (installed) {
         const user = await setupUser();
         await user.click(
@@ -1129,7 +1200,7 @@ describe("Slack management", () => {
         );
         expect(
           within(screen.getByRole("dialog")).getByText(
-            /공개·비공개 채널 모두 \/invite/,
+            "공개 채널은 연결하면 봇이 자동으로 참여합니다. 비공개 채널은 /invite로 봇을 초대하세요.",
           ),
         ).toBeDefined();
       }

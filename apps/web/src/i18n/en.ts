@@ -37,8 +37,8 @@ export const slackEn = {
   "slack.app": "Slack app",
   "slack.verifyNeeded":
     "The app is installed, but event registration needs verification. Contact your administrator.",
-  "slack.joinHint":
-    "Invite the bot to public and private channels with /invite. Connecting a channel does not join it automatically.",
+  "slack.joinHintAuto":
+    "The bot joins a public channel when you connect it. Invite the bot to private channels with /invite.",
   "slack.appId": "App ID",
   "slack.state.none": "Not created",
   "slack.state.pending": "Awaiting installation",

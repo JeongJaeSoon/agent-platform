@@ -37,8 +37,8 @@ export const slackJa = {
   "slack.app": "Slack アプリ",
   "slack.verifyNeeded":
     "アプリはインストール済みですが、イベント登録の確認が必要です。管理者に確認してください。",
-  "slack.joinHint":
-    "公開・非公開チャンネルの両方で /invite によりボットを招待してください。接続だけではボットは参加しません。",
+  "slack.joinHintAuto":
+    "公開チャンネルは接続するとボットが自動で参加します。非公開チャンネルには /invite でボットを招待してください。",
   "slack.appId": "アプリ ID",
   "slack.state.none": "作成前",
   "slack.state.pending": "インストール待ち",
