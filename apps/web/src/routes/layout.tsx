@@ -92,12 +92,12 @@ function LocaleSwitch() {
   );
 }
 
-// The router opens these with a trailing slash too. /sessions/map is a
-// screen under 세션, not a session.
-const SESSION_PATH = /^\/sessions\/(?!map\/?$)([^/]+)\/?$/;
+// The router opens these with a trailing slash too.
+const SESSION_PATH = /^\/sessions\/([^/]+)\/?$/;
 const MAP_PATH = /^\/sessions\/map\/?$/;
 const AGENT_PATH = /^\/agents\/([^/]+)\/?$/;
-// Home, the sessions list and a session: screens with a right rail.
+// Home, the sessions list and a session: screens with a right rail. The
+// agent map, under the same path, sits in the page frame.
 const RAIL_PATH = /^\/(sessions(\/(?!map\/?$)[^/]+)?)?\/?$/;
 const SETTINGS_PATH = /^\/settings(\/|$)/;
 
