@@ -3875,7 +3875,9 @@ export interface components {
             finalized: boolean;
             warnings: {
                 /** @enum {string} */
-                code: "events_url_unset" | "reinstall_required" | "finalize_failed";
+                code: "events_url_unset" | "reinstall_required" | "finalize_failed" | "awaiting_invite" | "config_error" | "join_failed";
+                channel_id?: string;
+                error?: string;
             }[];
         };
         SlackEventsResponse: {
@@ -4616,6 +4618,11 @@ export interface components {
                 memory_write_policy: "deny" | "allow_explicit";
                 /** @enum {string} */
                 status: "ready" | "partial" | "failed" | "revoked";
+                membership?: {
+                    /** @enum {string} */
+                    state: "joined" | "awaiting_invite" | "config_error" | "join_failed";
+                    error: string | null;
+                };
                 muted: boolean;
                 revision: number;
                 /** Format: date-time */
@@ -4649,6 +4656,11 @@ export interface components {
                 memory_write_policy: "deny" | "allow_explicit";
                 /** @enum {string} */
                 status: "ready" | "partial" | "failed" | "revoked";
+                membership?: {
+                    /** @enum {string} */
+                    state: "joined" | "awaiting_invite" | "config_error" | "join_failed";
+                    error: string | null;
+                };
                 muted: boolean;
                 revision: number;
                 /** Format: date-time */
