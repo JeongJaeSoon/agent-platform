@@ -16,6 +16,7 @@ import {
   createPostgresSessionUnitOfWork,
   createPostgresSlackGuestSetting,
   createPostgresSlackInboundEventStore,
+  createPostgresSlackOutboxStore,
   createPostgresSurfaceBindingStore,
   type Database,
 } from "@werft-ai/db";
@@ -28,10 +29,12 @@ import {
 import {
   createAuthorizationPolicy,
   createLoggingSlackNoticeSink,
+  createOutboxSlackNoticeSink,
   createSessionService,
   createSlackBotApi,
   createSlackSessionHandler,
   drainSlackInbox,
+  drainSlackOutbox,
   installationLimitsFromEnv,
   resolveAgentRelease,
   type SecretKey,
@@ -202,6 +205,11 @@ export async function main(
   );
   try {
     const db = drizzle(pool, { schema });
+    // Inbox and outbox share one pass budget. The inbox stops at half of it,
+    // so a steady stream of mentions cannot starve the answers.
+    const started = Date.now();
+    const deadline = started + settings.passBudgetMs;
+    const outbox = createPostgresSlackOutboxStore(db);
     const { catalog, secretKey } = await slackRoleStartup(environment);
     const drain = await drainSlackInbox({
       inbox: createPostgresSlackInboundEventStore(db),
@@ -213,13 +221,33 @@ export async function main(
         catalog,
         secretKey,
         leaseMs: settings.leaseMs,
+        notices: createOutboxSlackNoticeSink(outbox),
       }),
       logger,
       batchSize: settings.batchSize,
       leaseMs: settings.leaseMs,
-      deadline: Date.now() + settings.passBudgetMs,
+      deadline: started + settings.passBudgetMs / 2,
     });
     if (drain.claimed > 0) logger.info("Slack inbox pass", drain);
+    const secrets =
+      secretKey === null ? null : createPostgresSecretStore(db, secretKey);
+    const sent = await drainSlackOutbox({
+      outbox,
+      slack: createSlackBotApi({ apiUrl: slackApiUrlFrom(environment) }),
+      botToken:
+        secrets === null
+          ? null
+          : (workspaceId, slackAppId) =>
+              slackBotToken(secrets, workspaceId, slackAppId),
+      logger,
+      consoleOrigin: consoleOriginFrom(environment),
+      batchSize: settings.batchSize,
+      leaseMs: settings.leaseMs,
+      deadline,
+    });
+    if (sent.enqueued + sent.claimed + sent.uncertain > 0) {
+      logger.info("Slack outbox pass", sent);
+    }
     return drain;
   } finally {
     await pool.end();

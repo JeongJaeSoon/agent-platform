@@ -78,7 +78,12 @@ const PRIMARY =
 const SECONDARY =
   "block text-muted-foreground text-xs [overflow-wrap:anywhere]";
 
-const MEMBER_COLUMNS = "minmax(0,1.6fr) 120px minmax(0,1fr)";
+// Role and actions keep one width on every row, so badges and buttons line
+// up under their headers; the actions track never drops below its button.
+const MEMBER_COLUMNS =
+  "minmax(0,1.6fr) 120px minmax(var(--ap-row-action-min-width),1fr)";
+const MEMBER_NARROW_COLUMNS =
+  "minmax(0,1fr) 72px var(--ap-row-action-min-width)";
 const MEMBER_TABLE_MIN = "min-w-[320px]";
 
 type Outcome =
@@ -515,6 +520,8 @@ function MemberTable({
           <GridTable
             aria-label={t("members.tableLabel")}
             columns={MEMBER_COLUMNS}
+            narrowAt={640}
+            narrowColumns={MEMBER_NARROW_COLUMNS}
             className={MEMBER_TABLE_MIN}
           >
             <GridTableHeader>
@@ -567,14 +574,17 @@ function MemberTable({
               return (
                 <GridTableRow
                   key={member.user_id}
-                  className="group"
+                  inactive={disabled}
                   data-disabled={disabled}
                 >
                   <GridTableCell lines={true}>
                     <GridTableRowOpener
-                      aria-label={t("members.editFor", {
-                        name: member.display_name,
-                      })}
+                      aria-label={t(
+                        disabled
+                          ? "members.editForDisabled"
+                          : "members.editFor",
+                        { name: member.display_name },
+                      )}
                       onClick={(event) => {
                         editOpener.current = event.currentTarget;
                         setEditing(member);
@@ -584,8 +594,13 @@ function MemberTable({
                       blue stays for links that move (→). */}
                     {/* Below md the "you" badge drops to its own line under
                       the name, so the name gets the whole column (QA L-17). */}
-                    <span className="grid max-w-full grid-cols-[minmax(0,auto)_auto] items-center gap-y-[var(--ap-row-line-gap)] font-medium text-foreground @max-md:grid-cols-[minmax(0,auto)] group-data-[disabled=true]:text-muted-foreground">
+                    <span className="grid max-w-full grid-cols-[minmax(0,auto)_auto] items-center gap-y-[var(--ap-row-line-gap)] font-medium text-foreground @max-md:grid-cols-[minmax(0,auto)]">
                       <span className="truncate">{member.display_name}</span>
+                      {disabled ? (
+                        <span className="sr-only">
+                          {` (${t("members.state.disabled")})`}
+                        </span>
+                      ) : null}
                       {member.user_id === self ? (
                         <Badge
                           variant="gray"
@@ -602,17 +617,10 @@ function MemberTable({
                       {member.email}
                     </span>
                   </GridTableCell>
-                  {/* At 390px the actions spill left past their track; stacked
-                    badges leave them room. */}
-                  <GridTableCell className="flex-wrap gap-1 @max-md:flex-col @max-md:items-start">
+                  <GridTableCell>
                     <Badge variant={member.role === "member" ? "gray" : "blue"}>
                       {roleLabel(t, member.role)}
                     </Badge>
-                    {disabled ? (
-                      <Badge variant="gray">
-                        {t("members.state.disabled")}
-                      </Badge>
-                    ) : null}
                   </GridTableCell>
                   {/* The button keeps one width as "disable" turns "enable". */}
                   <GridTableCell

@@ -26,6 +26,9 @@ export const Default: Story = {};
 
 export const Empty: Story = { args: { calls: [] } };
 
+/** A row per call to come, at a call row's height. */
+export const Loading: Story = { args: { calls: undefined } };
+
 export const Dark: Story = { globals: { theme: "dark" } };
 
 export const English: Story = { globals: { locale: "en" } };

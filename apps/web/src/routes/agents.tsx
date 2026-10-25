@@ -36,7 +36,7 @@ import {
   AdministeredAgents,
 } from "../components/agent-admins.tsx";
 import { AgentCards } from "../components/agent-cards.tsx";
-import { AgentStateBadge } from "../components/agent-state.tsx";
+import { AgentStateBadge, agentState } from "../components/agent-state.tsx";
 import {
   AGENT_VIEWS,
   type AgentView,
@@ -310,7 +310,10 @@ function AgentTable({ agents }: { readonly agents: readonly Agent[] }) {
         </TableHeader>
         <TableBody>
           {agents.map((agent) => (
-            <TableRow key={agent.id}>
+            <TableRow
+              key={agent.id}
+              inactive={agentState(agent) === "archived"}
+            >
               <TableCell>
                 <RowLines>
                   <Link

@@ -11,7 +11,6 @@ import {
   CardHeader,
   CardTitle,
   ConfirmDialog,
-  cn,
   DestructiveActionDialog,
   Dialog,
   DialogClose,
@@ -28,11 +27,16 @@ import {
   FieldLabel,
   FieldLegend,
   FieldSet,
+  GridTable,
+  GridTableCell,
+  GridTableColumnHeader,
+  GridTableHeader,
+  GridTableRow,
+  GridTableRowOpener,
   Input,
   Link,
   LinkTab,
   LinkTabs,
-  linkVariants,
   PageHeader,
   RadioGroup,
   RadioGroupItem,
@@ -178,40 +182,12 @@ const INVITES = [
   },
 ] as const;
 
-// As in apps/web: at 390px the name drops the text column's minimum and the
-// role badges stack, so the table never scrolls sideways.
-const NARROW_NAME = "@max-md:min-w-0";
-const NARROW_ROLE = "@max-md:flex-col @max-md:items-start";
-
-/** Name that opens 구성원 편집 (role lives there, not in the row). */
-function NameButton({
-  children,
-  badge,
-  onClick,
-}: {
-  readonly children: ReactNode;
-  readonly badge?: ReactNode;
-  readonly onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      className={cn(
-        linkVariants(),
-        "grid w-fit max-w-full grid-cols-[minmax(0,auto)_auto] items-center gap-y-[var(--ap-row-line-gap)] text-left font-medium text-foreground focus-visible:underline @max-md:grid-cols-[minmax(0,auto)]",
-      )}
-      onClick={onClick}
-    >
-      <span className="truncate">{children}</span>
-      {/* As in apps/web: below md the badge takes the line under the name. */}
-      {badge ? (
-        <span className="ms-1.5 flex @max-md:col-start-1 @max-md:row-start-2 @max-md:ms-0">
-          {badge}
-        </span>
-      ) : null}
-    </button>
-  );
-}
+// As in apps/web members.tsx: role and actions keep one width on every row,
+// and the actions track never drops below its button.
+const MEMBER_COLUMNS =
+  "minmax(0,1.6fr) 120px minmax(var(--ap-row-action-min-width),1fr)";
+const MEMBER_NARROW_COLUMNS =
+  "minmax(0,1fr) 72px var(--ap-row-action-min-width)";
 
 function access(member: Member, viewer: Role) {
   const self = member.id === ME[viewer];
@@ -415,62 +391,66 @@ function MembersTab({
         {/* Console v4 .t-mem without agents managed and last active: GET
             /v1/members has neither yet (94S-816), and a column empty on
             every row is left out. */}
-        <TableContainer label="구성원" className="@container">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead variant="text" className={NARROW_NAME}>
-                  구성원
-                </TableHead>
-                <TableHead variant="nowrap">역할</TableHead>
-                <TableHead variant="actions" className="text-right">
-                  관리
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
+        <div className="-m-1 grid overflow-x-auto p-1">
+          <div className="rounded-card border bg-card">
+            <GridTable
+              aria-label="구성원"
+              columns={MEMBER_COLUMNS}
+              narrowAt={640}
+              narrowColumns={MEMBER_NARROW_COLUMNS}
+              className="min-w-[320px]"
+            >
+              <GridTableHeader>
+                <GridTableColumnHeader>구성원</GridTableColumnHeader>
+                <GridTableColumnHeader>역할</GridTableColumnHeader>
+                <GridTableColumnHeader align="end">관리</GridTableColumnHeader>
+              </GridTableHeader>
               {MEMBERS.map((member) => (
-                <TableRow key={member.id}>
-                  <TableCell variant="text" className={NARROW_NAME}>
-                    <RowLines>
-                      <NameButton
-                        badge={
-                          member.id === ME[viewer] ? (
-                            <Badge variant="gray">나</Badge>
-                          ) : null
-                        }
-                        onClick={() => onEdit(member)}
-                      >
-                        {member.name}
-                      </NameButton>
-                      <span
-                        className="text-muted-foreground text-xs"
-                        title={member.email}
-                      >
-                        {member.email}
-                      </span>
-                    </RowLines>
-                  </TableCell>
-                  <TableCell variant="nowrap">
-                    <div className={cn("flex items-center gap-1", NARROW_ROLE)}>
-                      <Badge
-                        variant={member.role === "member" ? "gray" : "blue"}
-                      >
-                        {ROLE_LABEL[member.role]}
-                      </Badge>
-                      {member.active ? null : <Badge>비활성</Badge>}
-                    </div>
-                  </TableCell>
-                  <TableCell variant="actions">
-                    <div className="flex justify-end">
-                      {access(member, viewer)}
-                    </div>
-                  </TableCell>
-                </TableRow>
+                <GridTableRow key={member.id} inactive={!member.active}>
+                  <GridTableCell lines={true}>
+                    {/* As in apps/web: the whole row opens 구성원 편집. */}
+                    <GridTableRowOpener
+                      aria-label={`${member.name} 편집${member.active ? "" : " (비활성)"}`}
+                      onClick={() => onEdit(member)}
+                    />
+                    <span className="grid max-w-full grid-cols-[minmax(0,auto)_auto] items-center gap-y-[var(--ap-row-line-gap)] font-medium text-foreground @max-md:grid-cols-[minmax(0,auto)]">
+                      <span className="truncate">{member.name}</span>
+                      {member.active ? null : (
+                        <span className="sr-only"> (비활성)</span>
+                      )}
+                      {member.id === ME[viewer] ? (
+                        <Badge
+                          variant="gray"
+                          className="ms-1.5 @max-md:col-start-1 @max-md:row-start-2 @max-md:ms-0"
+                        >
+                          나
+                        </Badge>
+                      ) : null}
+                    </span>
+                    <span
+                      className="text-muted-foreground text-xs"
+                      title={member.email}
+                    >
+                      {member.email}
+                    </span>
+                  </GridTableCell>
+                  <GridTableCell>
+                    <Badge variant={member.role === "member" ? "gray" : "blue"}>
+                      {ROLE_LABEL[member.role]}
+                    </Badge>
+                  </GridTableCell>
+                  <GridTableCell
+                    align="end"
+                    raised={true}
+                    className="[&_[data-slot=button]:not([data-size^=icon])]:min-w-[var(--ap-row-action-min-width)]"
+                  >
+                    {access(member, viewer)}
+                  </GridTableCell>
+                </GridTableRow>
               ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
+            </GridTable>
+          </div>
+        </div>
       </ListBody>
     </div>
   );
