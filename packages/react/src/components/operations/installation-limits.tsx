@@ -113,14 +113,16 @@ export function InstallationLimits({
       <Section
         title={messages.capacity}
         description={
-          <>
-            {messages.capacityNote} ·{" "}
-            <Value loading={loading} width="5rem">
-              {limits
-                ? messages.asOf(format.clock(limits.refreshed_at, timeZone))
-                : null}
-            </Value>
-          </>
+          limits ? (
+            `${messages.capacityNote} · ${messages.asOf(format.clock(limits.refreshed_at, timeZone))}`
+          ) : (
+            <>
+              {messages.capacityNote} ·{" "}
+              <Value loading width="5rem">
+                {null}
+              </Value>
+            </>
+          )
         }
       >
         <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,14rem),1fr))] gap-4">

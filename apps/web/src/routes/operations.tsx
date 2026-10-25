@@ -32,6 +32,7 @@ import { useI18n } from "../i18n/i18n.tsx";
 import { SESSION_FILTERS } from "./sessions.tsx";
 
 const DAY_MS = 86_400_000;
+const USAGE_STALE_MS = 60_000;
 
 /**
  * The last `days` UTC days, today included, cut at the next UTC midnight so
@@ -150,13 +151,17 @@ export function OperationsOverviewScreen() {
     retry: false,
   });
   const limits = useInstallationLimits(filters.operator);
+  // The old period's figures stay while the new one is read, and going back
+  // to a period read a moment ago asks nothing.
   const summary = useQuery({
     ...usageSummaryQuery(client, filters.scope, since, until),
     placeholderData: keepPreviousData,
+    staleTime: USAGE_STALE_MS,
   });
   const series = useQuery({
     ...usageSeriesQuery(client, filters.scope, since, until),
     placeholderData: keepPreviousData,
+    staleTime: USAGE_STALE_MS,
   });
   const usageError = summary.error ?? series.error;
   return (

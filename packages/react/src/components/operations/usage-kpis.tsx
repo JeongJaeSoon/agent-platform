@@ -61,7 +61,15 @@ export function UsageKpis({
         value={value("5rem", (s) => format.usd(s.cost_usd))}
         chart={spark((b) => Number(b.cost_usd), messages.costChart)}
         description={
-          summary?.cost_complete === false ? messages.costIncomplete : undefined
+          summary === undefined ? (
+            // Unknown until read; most periods hold a running turn, so its
+            // room is kept and the card does not grow when the answer comes.
+            <span aria-hidden="true" className="invisible">
+              {messages.costIncomplete}
+            </span>
+          ) : summary.cost_complete ? undefined : (
+            messages.costIncomplete
+          )
         }
       />
       <StatCard

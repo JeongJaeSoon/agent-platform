@@ -216,7 +216,10 @@ function format(
         hour: "numeric",
         minute: "2-digit",
         timeZone,
-      }).format(new Date(iso)),
+      })
+        .format(new Date(iso))
+        // ICU puts a narrow no-break space before "PM" and after "오후".
+        .replace(/ /g, " "),
   };
 }
 
