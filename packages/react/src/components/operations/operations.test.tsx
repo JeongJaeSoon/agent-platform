@@ -10,6 +10,11 @@ const { Findings } = await import("./findings.tsx");
 const { SessionCounts } = await import("./session-counts.tsx");
 const { ToolCalls } = await import("./tool-calls.tsx");
 const { ToolTable } = await import("./tool-table.tsx");
+const { InstallationLimits } = await import("./installation-limits.tsx");
+const { OperationsHead } = await import("./operations-head.tsx");
+const { UsageFilters } = await import("./usage-filters.tsx");
+const { UsageKpis } = await import("./usage-kpis.tsx");
+const { OPERATIONS_MESSAGES } = await import("./messages.ts");
 
 const TOOLS = [
   {
@@ -278,5 +283,207 @@ describe("ToolCalls", () => {
       "PR #813 리뷰리뷰 봇 · 21:39—결과 모름",
       "볼 수 없는 세션배포 도우미 · 21:3641.2초완료",
     ]);
+  });
+});
+
+const LIMITS = {
+  scope: "installation" as const,
+  refreshed_at: "2026-10-24T12:40:00Z",
+  limits: {
+    execution_slot_limit: 10,
+    queued_input_limit_per_session: 20,
+    storage_limit_bytes: 10737418240,
+    max_turn_seconds: 3600,
+    session_cost_limit_usd: "25.00",
+    session_token_limit: null,
+    provider_max_retries: 3,
+  },
+  usage: {
+    execution_slots_used: 7,
+    queued_input_count: 4,
+    storage: {
+      used_bytes: 2147483648,
+      accounted_content: ["input_messages" as const],
+      updated_at: "2026-10-24T12:31:00Z",
+    },
+  },
+};
+
+describe("InstallationLimits", () => {
+  test("한도 행마다 현재·한도를 쓰고, 토큰 한도가 null이면 '설정 안 됨'이다", () => {
+    const { getByRole } = withPlatform(
+      <InstallationLimits limits={LIMITS} timeZone="Asia/Seoul" />,
+    );
+    const rows = [
+      ...getByRole("table", { name: "한도" }).querySelectorAll("[role=row]"),
+    ]
+      .slice(1)
+      .map((row) =>
+        [...row.querySelectorAll("[role=cell]")]
+          .slice(0, 3)
+          .map((cell) => cell.textContent),
+      );
+    expect(rows).toEqual([
+      ["동시 실행 slot", "7 / 10", "10"],
+      ["입력 메시지 저장", "2 GB", "10 GB"],
+      ["세션당 비용", "세션마다 셉니다", "$25.00"],
+      ["세션당 토큰", "세션마다 셉니다", "설정 안 됨"],
+      ["세션당 대기 입력", "세션마다 셉니다", "20건"],
+      ["turn 최대 시간", "세션마다 셉니다", "1시간 0분"],
+    ]);
+    expect(document.body.textContent).toContain(
+      "설치 전체에 적용됩니다 · 오후 9:40 기준",
+    );
+  });
+
+  test("읽는 동안 meter 없이 한 번만 알린다", () => {
+    const { queryAllByRole, getAllByRole } = withPlatform(
+      <InstallationLimits limits={undefined} />,
+    );
+    expect(queryAllByRole("meter")).toHaveLength(0);
+    expect(getAllByRole("status").map((s) => s.textContent)).toEqual([
+      "한도를 읽는 중",
+    ]);
+  });
+});
+
+describe("UsageKpis", () => {
+  const SUMMARY = {
+    scope: "me" as const,
+    period: {
+      since: "2026-10-22T00:00:00Z",
+      until: "2026-10-24T00:00:00Z",
+    },
+    refreshed_at: "2026-10-24T12:40:00Z",
+    session_count: 400,
+    run_seconds: 230580,
+    cost_usd: "1045.48",
+    cost_complete: true,
+    token_count: 38160000,
+    basis: {
+      sessions: "created_in_period" as const,
+      cost: "provider_usage_estimate" as const,
+      run_time: "turn_wall_clock" as const,
+    },
+  };
+  const BUCKETS = [
+    {
+      date: "2026-10-22",
+      session_count: 150,
+      cost_usd: "400.00",
+      cost_complete: true,
+      token_count: 18160000,
+      run_seconds: 100000,
+    },
+    {
+      date: "2026-10-23",
+      session_count: 250,
+      cost_usd: "645.48",
+      cost_complete: true,
+      token_count: 20000000,
+      run_seconds: 130580,
+    },
+  ];
+
+  test("숫자를 locale 단위로 쓰고 카드마다 자기 필드의 스파크라인을 둔다", () => {
+    const { getAllByRole, queryByText } = withPlatform(
+      <UsageKpis summary={SUMMARY} buckets={BUCKETS} />,
+    );
+    const text = document.body.textContent ?? "";
+    for (const value of ["400", "64시간 3분", "$1,045.48", "3,816만"]) {
+      expect(text).toContain(value);
+    }
+    expect(
+      getAllByRole("img").map((img) => img.getAttribute("aria-label")),
+    ).toEqual([
+      "일자별 세션 수",
+      "일자별 실행 시간",
+      "일자별 비용",
+      "일자별 토큰",
+    ]);
+    expect(queryByText(/실제보다 적을 수 있음/)).toBeNull();
+  });
+
+  test("cost_complete=false면 비용 카드가 적을 수 있다고 말한다", () => {
+    const { getByText } = withPlatform(
+      <UsageKpis
+        summary={{ ...SUMMARY, cost_complete: false }}
+        buckets={BUCKETS}
+      />,
+    );
+    expect(getByText(/실제보다 적을 수 있음/)).toBeTruthy();
+  });
+
+  test("영어는 백만 단위로 줄인다", () => {
+    withPlatform(<UsageKpis summary={SUMMARY} buckets={BUCKETS} />, "en");
+    expect(document.body.textContent).toContain("38.2M");
+  });
+
+  test("읽는 동안 값과 스파크라인 없이 한 번만 알린다", () => {
+    const { queryAllByRole, getAllByRole } = withPlatform(
+      <UsageKpis summary={undefined} buckets={undefined} />,
+    );
+    expect(queryAllByRole("img")).toHaveLength(0);
+    expect(getAllByRole("status").map((s) => s.textContent)).toEqual([
+      "사용량을 읽는 중",
+    ]);
+  });
+});
+
+describe("UsageFilters", () => {
+  test("scope가 없으면 범위 선택이 없고, 기간을 누르면 그 일수를 알린다", async () => {
+    const user = await setupUser();
+    const picked: number[] = [];
+    const { getByRole, queryByRole } = withPlatform(
+      <UsageFilters days={30} onDaysChange={(days) => picked.push(days)} />,
+    );
+    expect(queryByRole("group", { name: "집계 범위" })).toBeNull();
+    expect(queryByRole("button", { name: "설치 전체" })).toBeNull();
+    await user.click(getByRole("button", { name: "90일" }));
+    expect(picked).toEqual([90]);
+  });
+
+  test("scope가 있으면 내 사용량·설치 전체를 고른다", async () => {
+    const user = await setupUser();
+    const picked: string[] = [];
+    const { getByRole } = withPlatform(
+      <UsageFilters
+        scope="me"
+        onScopeChange={(scope) => picked.push(scope)}
+        days={30}
+        onDaysChange={() => {}}
+      />,
+    );
+    await user.click(getByRole("button", { name: "설치 전체" }));
+    expect(picked).toEqual(["installation"]);
+  });
+});
+
+describe("OperationsHead", () => {
+  test("주어진 탭만 링크로 그리고 지금 탭에 aria-current=page를 단다", () => {
+    const { getAllByRole } = withPlatform(
+      <OperationsHead
+        tabs={["overview", "limits"]}
+        current="limits"
+        tabLink={(tab, label) => <a href={`/operations/${tab}`}>{label}</a>}
+      />,
+    );
+    expect(
+      getAllByRole("link").map((a) => [
+        a.textContent,
+        a.getAttribute("aria-current"),
+      ]),
+    ).toEqual([
+      ["개요", null],
+      ["한도", "page"],
+    ]);
+  });
+});
+
+describe("OPERATIONS_MESSAGES format", () => {
+  test("토큰은 ko 억·만, ja 億·万, en compact로 쓴다", () => {
+    expect(OPERATIONS_MESSAGES.ko.format.tokens(123_456_789)).toBe("1.2억");
+    expect(OPERATIONS_MESSAGES.ja.format.tokens(38_160_000)).toBe("3,816万");
+    expect(OPERATIONS_MESSAGES.en.format.tokens(9_999)).toBe("9,999");
   });
 });
