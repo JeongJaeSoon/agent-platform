@@ -1336,7 +1336,7 @@ describe("에이전트 상세", () => {
     );
     expect(agentDetailSchema.safeParse(server.detail()).success).toBe(true);
   });
-  test("release 만들기는 대화상자를 먼저 닫고, 다시 읽기가 늦어도 결과 줄이 포커스를 받는다", async () => {
+  test("release 만들기는 응답을 기다리기 전에 대화상자를 닫고, 결과 줄이 포커스를 받는다", async () => {
     const server = agentServer();
     let answer: (() => void) | undefined;
     const held = new Promise<void>((resolve) => {
