@@ -276,6 +276,7 @@ jobs:
               - tests/third-party-notices.
               - tests/ui-release.
               - tests/unit-part.
+              - tests/verify-stack.
             skips:
               # The Kubernetes backend's suites need a kind cluster
               # (K8S_BACKEND_TEST=1 and a KUBECONFIG); the job that brings one

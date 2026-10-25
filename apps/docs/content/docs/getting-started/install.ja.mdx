@@ -3,7 +3,7 @@ title: "インストール"
 description: ローカルマシンに Werft スタックを立ち上げる
 ---
 
-Werft は API サーバー、scheduler、セッションごとに起動する worker コンテナ、PostgreSQL、S3 (LocalStack)、Git サーバー (Gitea)、egress proxy で構成される。このページではそのすべてを Docker Compose で 1 台のマシンに立ち上げる。モデルはキーなしで動く fake モデルを使うため、Anthropic アカウントは不要である。
+Werft は API サーバー、scheduler、セッションごとに起動する worker コンテナ、PostgreSQL、S3 (SeaweedFS)、Git サーバー (Gitea)、egress proxy で構成される。このページではそのすべてを Docker Compose で 1 台のマシンに立ち上げる。モデルはキーなしで動く fake モデルを使うため、Anthropic アカウントは不要である。
 
 ## 必要なもの
 
@@ -13,7 +13,7 @@ Werft は API サーバー、scheduler、セッションごとに起動する wo
 | Docker Compose | 2.24.6 以上 |
 | curl, jq, uuidgen, git | 任意のバージョン |
 
-スタックは `127.0.0.1` にのみポートを開く。3000 (API・Web コンソール)、5432 (PostgreSQL)、4566・4567 (LocalStack)、3001 (Gitea) が空いている必要がある。
+スタックは `127.0.0.1` にのみポートを開く。3000 (API・Web コンソール)、5432 (PostgreSQL)、4566 (S3)・4567 (LocalStack Secrets Manager)、3001 (Gitea) が空いている必要がある。
 
 ```sh
 docker version --format 'Docker Engine {{.Server.Version}}'
@@ -60,7 +60,11 @@ scripts/local.sh status
 scripts/local.sh down
 ```
 
-`down` はスタックと**すべてのデータ** (セッション、checkpoint、API キー、Gitea リポジトリ) を削除する。ローカルの S3 はメモリ上にしかないため、データを残したまま停止する方法はない。最初からやり直すには `scripts/local.sh reset --fake-model` を実行する。
+`scripts/local.sh down` はスタックと**すべてのデータ** (セッション、checkpoint、API キー、Gitea リポジトリ) を削除する。最初からやり直すには `scripts/local.sh reset --fake-model` を実行する。
+
+データを残し worker コンテナとネットワークも片付けるには `scripts/local.sh down --keep-volumes` を実行する。再開は `scripts/local.sh up --fake-model`。PostgreSQL・Gitea・S3 のデータは named volume に残る。S3 オブジェクトと暗号化キーは `local-s3-data` に保存され、Docker/OrbStack を再起動しても checkpoint を読める。
+
+以前の LocalStack から移行するときは、pull 前に古い checkout でバックアップし、pull 後に未使用の新しい project へ復元する。失われたオブジェクトはバックアップなしでは復元できないため、参照を放棄するか明示的に判断する。[移行・バックアップ手順](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/quickstart.md#재부팅이나-docker-재시작-뒤)を参照する。
 
 ## うまくいかないとき
 
@@ -69,7 +73,7 @@ scripts/local.sh down
 | `Docker Engine … is too old` | Docker Engine を 28 以上に上げる |
 | `127.0.0.1 port(s) … already in use` | 上の `lsof` ループで、そのポートを使っているプロセスを探す |
 | `up needs ANTHROPIC_API_KEY exported or in .env` | オプションなしの `up` は実際の Claude を使う。キーなしで動かすには `--fake-model` を付ける |
-| Docker を再起動した後に API が起動しない | ローカルの S3 が空になっている。`scripts/local.sh reset --fake-model` で立ち上げ直す |
+| Docker を再起動した後に API が起動しない | S3 volume・暗号化キー・ログを確認する。以前の LocalStack のデータ消失なら移行・バックアップ手順に従う |
 
 ## 次のステップ
 

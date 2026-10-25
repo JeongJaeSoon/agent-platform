@@ -34,8 +34,9 @@ function trustedControl(
   policy: SlackMentionPolicy | undefined,
 ): boolean {
   // A nested control can smuggle a mention into a link label, and a Slack link
-  // never needs another `<...>` inside it.
-  if (control.includes("<")) return false;
+  // never needs another `<...>` inside it. A backtick is refused too: keeping
+  // escaping from moving backticks keeps the code boundaries found in the input.
+  if (control.includes("<") || control.includes("`")) return false;
 
   const user = /^@([UW][A-Z0-9]+)$/i.exec(control);
   if (user?.[1] !== undefined)
@@ -65,24 +66,44 @@ function trustedControl(
   return isSafeUrl(destination);
 }
 
+function escapeAmpersands(value: string): string {
+  return value.replace(/&(?!(?:amp|lt|gt);)/g, "&amp;");
+}
+
 function escapeControls(
   value: string,
   policy: SlackMentionPolicy | undefined,
 ): string {
-  const escapedAmpersands = value.replace(/&(?!(?:amp|lt|gt);)/g, "&amp;");
-  return escapedAmpersands.replace(/<([^>\n]+)>/g, (whole, control: string) => {
-    if (!trustedControl(control, policy)) {
-      return `&lt;${control.replace(/</g, "&lt;")}&gt;`;
-    }
-    const bar = control.indexOf("|");
-    const url = control.slice(0, bar);
-    return policy?.maskedLinks === "expand" && bar !== -1 && isSafeUrl(url)
-      ? `${control.slice(bar + 1)} (${url})`
-      : whole;
-  });
+  const escapedAmpersands = escapeAmpersands(value);
+  // A lone `<` is escaped too: a backtick can split a control so this walk
+  // sees no `>`, while Slack still reads `<!subteam^S1|`x`>` as one mention.
+  return escapedAmpersands.replace(
+    /<([^>\n]+)>|</g,
+    (whole, control?: string) => {
+      if (control === undefined) return "&lt;";
+      if (!trustedControl(control, policy)) {
+        return `&lt;${control.replace(/</g, "&lt;")}&gt;`;
+      }
+      const bar = control.indexOf("|");
+      const url = control.slice(0, bar);
+      return policy?.maskedLinks === "expand" && bar !== -1 && isSafeUrl(url)
+        ? `${control.slice(bar + 1)} (${url})`
+        : whole;
+    },
+  );
 }
 
-function mapOutsideCode(value: string, map: (part: string) => string): string {
+// Slack still parses controls inside backticks, so code shows every bracket as
+// a character and no policy applies there.
+function escapeCode(value: string): string {
+  return escapeAmpersands(value).replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function mapCodeAndText(
+  value: string,
+  text: (part: string) => string,
+  code: (part: string) => string,
+): string {
   let output = "";
   let plainStart = 0;
   let index = 0;
@@ -97,8 +118,8 @@ function mapOutsideCode(value: string, map: (part: string) => string): string {
         index += 3;
         continue;
       }
-      output += map(value.slice(plainStart, index));
-      output += value.slice(index, end + 3);
+      output += text(value.slice(plainStart, index));
+      output += code(value.slice(index, end + 3));
       index = end + 3;
       plainStart = index;
       continue;
@@ -110,8 +131,8 @@ function mapOutsideCode(value: string, map: (part: string) => string): string {
         index += 1;
         continue;
       }
-      output += map(value.slice(plainStart, index));
-      output += value.slice(index, end + 1);
+      output += text(value.slice(plainStart, index));
+      output += code(value.slice(index, end + 1));
       index = end + 1;
       plainStart = index;
       continue;
@@ -120,17 +141,22 @@ function mapOutsideCode(value: string, map: (part: string) => string): string {
     index += 1;
   }
 
-  return output + map(value.slice(plainStart));
+  return output + text(value.slice(plainStart));
 }
 
 /**
- * Escapes Slack mentions and control sequences outside inline and fenced
- * code. Without a policy every user, channel, group and broad mention is
- * escaped; safe links and date controls are kept.
+ * Escapes Slack mentions and control sequences. Outside code, without a
+ * policy every user, channel, group and broad mention is escaped; safe links
+ * and date controls are kept. Inside inline and fenced code every control is
+ * escaped.
  */
 export function escapeSlackControls(
   text: string,
   policy?: SlackMentionPolicy,
 ): string {
-  return mapOutsideCode(text, (part) => escapeControls(part, policy));
+  return mapCodeAndText(
+    text,
+    (part) => escapeControls(part, policy),
+    escapeCode,
+  );
 }
