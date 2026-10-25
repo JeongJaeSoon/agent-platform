@@ -136,7 +136,7 @@ describe("포커스", () => {
     }
   });
 
-  test("입력 칸은 아래 변에만 3:1 테두리를 두고 hover에 진해진다", () => {
+  test("입력 칸은 네 변 모두 3:1 테두리를 두고 hover에 진해진다", () => {
     const { container } = render(
       <>
         <Input aria-label="이름" />
@@ -149,8 +149,9 @@ describe("포커스", () => {
         container
           .querySelector(`[data-slot="${slot}"]`)
           ?.className.split(" ") ?? [];
-      expect(classes).toContain("border-border-strong");
-      expect(classes).toContain("border-b-input");
+      expect(classes).toContain("border-input");
+      expect(classes).not.toContain("border-border-strong");
+      expect(classes).not.toContain("border-b-input");
       expect(classes).toContain("hover:border-subtle-foreground");
     }
   });

@@ -6,8 +6,6 @@ export const authKo = {
   "login.submitting": "로그인하는 중…",
   "login.bootstrapPrompt":
     "첫 소유자는 설치 때 출력된 bootstrap 토큰으로 한 번만 만들 수 있습니다.",
-  "login.signedIn": "이미 {email} 계정으로 로그인되어 있습니다.",
-  "login.signedInHome": "워크스페이스로 가기",
   "login.bootstrapLink": "첫 소유자 만들기",
   "login.notice.bootstrapDone":
     "이미 소유자가 있습니다. 그 계정으로 로그인하세요.",
@@ -95,8 +93,6 @@ export const authEn: Record<keyof typeof authKo, string> = {
   "login.submitting": "Logging in…",
   "login.bootstrapPrompt":
     "The first owner is created once, with the bootstrap token printed during installation.",
-  "login.signedIn": "You are already logged in as {email}.",
-  "login.signedInHome": "Go to the workspace",
   "login.bootstrapLink": "Create the first owner",
   "login.notice.bootstrapDone":
     "An owner already exists. Log in with that account.",
@@ -185,8 +181,6 @@ export const authJa: Record<keyof typeof authKo, string> = {
   "login.submitting": "ログイン中…",
   "login.bootstrapPrompt":
     "最初のオーナーは、インストール時に出力された bootstrap トークンで一度だけ作成できます。",
-  "login.signedIn": "すでに {email} でログインしています。",
-  "login.signedInHome": "ワークスペースへ移動",
   "login.bootstrapLink": "最初のオーナーを作成",
   "login.notice.bootstrapDone":
     "オーナーはすでに存在します。そのアカウントでログインしてください。",

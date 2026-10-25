@@ -15,7 +15,7 @@ export function Textarea({
     <textarea
       data-slot="textarea"
       className={cn(
-        "field-sizing-content flex max-h-64 min-h-16 w-full rounded-control border border-border-strong border-b-input bg-card px-3 py-2 text-control transition-[color,border-color] placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none",
+        "field-sizing-content flex max-h-64 min-h-16 w-full rounded-control border border-input bg-card px-3 py-2 text-control transition-[color,border-color] placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none",
         "hover:border-subtle-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring",
         "aria-invalid:border-destructive",
         className,
