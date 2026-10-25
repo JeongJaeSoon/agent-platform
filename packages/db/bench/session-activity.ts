@@ -139,10 +139,16 @@ const ids = (
   await reader.listSessions(OWNER, { limit: Math.max(...PAGES) }, VIEWER)
 ).items.map((item) => item.id);
 const query = new PgDialect().sqlToQuery(activityQuery(ids));
-const plan = await pool.query<{ "QUERY PLAN": string }>(
+// As readSessionActivity runs it.
+const client = await pool.connect();
+await client.query("BEGIN");
+await client.query("SET LOCAL jit = off");
+const plan = await client.query<{ "QUERY PLAN": string }>(
   `EXPLAIN (ANALYZE, BUFFERS) ${query.sql}`,
   query.params,
 );
+await client.query("COMMIT");
+client.release();
 console.log(`\n-- activity of a ${ids.length}-session page`);
 for (const row of plan.rows) console.log(row["QUERY PLAN"]);
 await pool.end();
