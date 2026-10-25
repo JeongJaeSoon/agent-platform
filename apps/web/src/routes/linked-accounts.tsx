@@ -84,6 +84,9 @@ export function LinkedAccountsScreen() {
   // Its row leaving takes focus with it, which fires neither event.
   const focusedRow = useRef<string | null>(null);
   const shownIds = useRef<readonly string[]>([]);
+  // Same for the link button, which goes when a link shows up (another tab).
+  const startRef = useRef<HTMLButtonElement>(null);
+  const focusedStart = useRef(false);
 
   const live =
     accounts.data?.items.filter((account) => account.status !== "revoked") ??
@@ -99,6 +102,8 @@ export function LinkedAccountsScreen() {
         row && listRef.current?.contains(row)
           ? (row.dataset.account ?? null)
           : null;
+      focusedStart.current =
+        startRef.current !== null && event.target === startRef.current;
     };
     const stop = new AbortController();
     for (const type of ["focusin", "pointerdown"]) {
@@ -121,6 +126,13 @@ export function LinkedAccountsScreen() {
     const ids = rows.map((row) => row.dataset.account ?? "");
     const before = shownIds.current;
     shownIds.current = ids;
+    if (focusedStart.current && !startRef.current) {
+      focusedStart.current = false;
+      if (document.activeElement === document.body) {
+        (rows[0]?.querySelector("button") ?? headingRef.current)?.focus();
+      }
+      return;
+    }
     const gone = focusedRow.current;
     if (!gone || ids.includes(gone)) return;
     focusedRow.current = null;
@@ -202,6 +214,7 @@ export function LinkedAccountsScreen() {
                 starts from there. */}
             {accounts.isSuccess && live.length === 0 ? (
               <Button
+                ref={startRef}
                 type="button"
                 variant="outline"
                 className={SERVICE_BUTTON}

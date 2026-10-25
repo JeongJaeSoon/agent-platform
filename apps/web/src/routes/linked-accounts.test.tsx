@@ -111,6 +111,31 @@ describe("연동 계정", () => {
     );
   });
 
+  test("연결 버튼에 있던 포커스는 다른 탭의 연결로 버튼이 사라지면 새 행의 해제 버튼으로 간다", async () => {
+    let items: LinkedAccount[] = [];
+    const { services } = renderAt("/settings/linked-accounts", {
+      ...meOk,
+      "GET /v1/linked-accounts": () => json(200, { items }),
+    });
+    const start = await screen.findByRole("button", {
+      name: "Slack 계정 연결",
+    });
+    start.focus();
+    items = [slack];
+    await services.queryClient.invalidateQueries({
+      queryKey: queryKeys.linkedAccounts,
+    });
+    await waitFor(() =>
+      expect(
+        document.activeElement ===
+          screen.getByRole("button", { name: "연결 해제" }),
+      ).toBe(true),
+    );
+    expect(
+      screen.queryByRole("button", { name: "Slack 계정 연결" }),
+    ).toBeNull();
+  });
+
   test("Slack이 준 이름을 보이고 ID는 그 아래에 둔다", async () => {
     renderAt("/settings/linked-accounts", {
       ...meOk,
