@@ -17,13 +17,15 @@
 #                   (K8S_BACKEND_TEST=1) against this cluster
 #
 #   deploy/kind/smoke.sh        run all of it; delete the cluster and registry
-#                               at the end if this run created them
+#                               at the end if this run created them (with
+#                               CLUSTER_PROVIDER=orbstack, the namespace)
 #   deploy/kind/smoke.sh down   delete them (up.sh down)
 #
 # Each step prints `== k8s-smoke: <step>` and ends in `PASS <step>`; any
 # failure exits non-zero after printing the cluster's state.
 #
-# Settings, besides up.sh's (CLUSTER_NAME, REGISTRY_PORT, the CI mirror):
+# Settings, besides up.sh's (CLUSTER_NAME, REGISTRY_PORT, CLUSTER_PROVIDER,
+# EXTRA_VALUES, the CI mirror):
 #   KIND_MODEL=fake      default: config/fake-model's catalog and fake
 #                        Messages API; no provider account, no cost
 #   KIND_MODEL=real      opt-in, paid: the chart's claude-coding-real profile

@@ -7,6 +7,7 @@
 #   deploy/kind/up.sh        create (or reuse) the cluster and registry, build,
 #                            push, install, check
 #   deploy/kind/up.sh down   delete the cluster and the registry container
+#                            (with CLUSTER_PROVIDER=orbstack, NAMESPACE alone)
 #
 # Images go through a registry container connected to the kind network (the
 # kind + registry:2 pattern), so they have the digests the chart requires.
@@ -27,6 +28,11 @@
 # instead of kind: it shares the Docker engine, so the images are built
 # locally and referenced by their local digest, with no registry container.
 # `down` then deletes only NAMESPACE; the cluster stays as OrbStack keeps it.
+# The images are tagged IMAGE_TAG (default kind-dev), apart from the tags
+# the compose stacks give the same repositories.
+#
+# EXTRA_VALUES names one more values file, laid over the others (for example
+# fewer replicas on a laptop).
 #
 # CI pulls nothing from Docker Hub (docs/contributing/ci.md § 서드파티 이미지 미러):
 #   KIND_NODE_IMAGE, REGISTRY_IMAGE  the node and registry images
@@ -133,7 +139,14 @@ publish() {
     ${BUILDKIT_SYNTAX:+--build-arg "BUILDKIT_SYNTAX=$BUILDKIT_SYNTAX"} \
     "$root" >/dev/null
   if [ "$CLUSTER_PROVIDER" = orbstack ]; then
-    docker images --digests --format '{{.Digest}}' "$ref"
+    local digest
+    digest="$(docker images --digests --format '{{.Digest}}' "$ref")"
+    # The classic image store has no digest for an image never pushed.
+    if ! [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+      echo "no manifest digest for ${ref} ('${digest}'): the Docker engine must use the containerd image store" >&2
+      return 1
+    fi
+    echo "$digest"
     return
   fi
   docker push -q "$ref" >/dev/null
