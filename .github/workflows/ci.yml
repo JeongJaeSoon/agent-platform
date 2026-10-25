@@ -144,7 +144,7 @@ jobs:
     name: integration (${{ matrix.domain }})
     if: contains(fromJSON('["all","integration"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04
-    # The longest domain, DB, reached 5m42s on main and 5m19s on the PR.
+    # The longest domain, DB, reached 5m42s on main and 4m55s on the PR.
     # Allow 10m for runner variability, service startup and cleanup.
     timeout-minutes: 10
     strategy:

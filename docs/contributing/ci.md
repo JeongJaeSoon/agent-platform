@@ -2,7 +2,7 @@
 
 `.github/workflows/images.yml`은 ci.yml과 별도 workflow로 세 앱 이미지를 빌드·smoke하고 digest artifact를 남긴다([이미지와 공급망 § 이미지와 Compose `apps` profile](../operator/images-and-supply-chain.md#이미지와-compose-apps-profile)). 아래는 ci.yml이다.
 
-`.github/workflows/ci.yml`은 `main` push와 모든 pull request에서 `check`의 여섯 부분과 도메인별 integration job 7개를 **동시에** 시작한다. `check`가 성공해야 `integration`을 돌리면 실패한 변경에서 서비스 컨테이너 분을 아끼지만, 저장소가 public이라 그 분은 무료이고 대가인 대기(`check` 약 5분 + `integration` 약 7분 30초 직렬)만 남는다. 같은 커밋이 push와 pull_request로 두 번 돌지 않게 push는 `main`으로만 제한한다.
+`.github/workflows/ci.yml`은 `main` push와 모든 pull request에서 `check`의 여섯 부분과 도메인별 integration job 7개를 **동시에** 시작한다. `check`가 성공해야 `integration`을 돌리면 실패한 변경에서 서비스 컨테이너 분을 아끼지만, 저장소가 public이라 그 분은 무료이고 대가인 대기(`check` 각 부분의 최장 시간과 가장 긴 integration 도메인의 시간을 직렬로 더함)만 남는다. 현재 가장 긴 integration 도메인은 DB로, 최근 main 최대 5분42초·분리된 구성의 PR에서 4분55초다. 같은 커밋이 push와 pull_request로 두 번 돌지 않게 push는 `main`으로만 제한한다.
 
 integration 스위트는 숫자 샤드가 아니라 도메인별 job 7개(`integration (db)`·`(api)`·`(surface)`·`(storage)`·`(docker)`·`(egress)`·`(worker)`)로 나뉘어 각자의 runner에서 돈다. job마다 **자기 파일이 요구하는 서비스만** 띄운다 — PostgreSQL만 쓰는 `db`는 LocalStack을 기다리지 않고, 서비스가 필요 없는 `worker`는 컨테이너 없이 곧바로 테스트에 들어간다. job끼리는 DB·컨테이너·네트워크를 공유하지 않고, 한 job 안에서는 파일들이 한 `bun test` 프로세스에서 순서대로 돈다. 어느 파일이 어느 job인지는 ci.yml의 `integration-domain` matrix에 있는 `paths`(저장소 기준 상대 경로의 접두어)가 유일한 기록이다. `.github/scripts/integration-jobs.ts`가 그것을 읽어 `package.json`의 `test` 스크립트가 도는 파일 전부를 나누고(파일 찾기는 `.github/scripts/test-files.ts` — Bun과 같은 규칙이며 Bun은 `tests packages apps` 인자를 디렉터리가 아니라 부분 문자열로 맞춘다), **어느 job에도 속하지 않는 파일, 두 job에 걸리는 파일, 아무 파일도 잡지 않는 접두어, 빈 job**이 하나라도 있으면 모든 integration job이 테스트 전에 실패한다. 같은 검사가 `tests/integration-jobs.test.ts`로 `check`에서도 돈다. 새 테스트 파일을 기존 접두어 밖에 만들면 matrix에 한 줄 넣어야 한다. 가장 긴 도메인이 가장 긴 `check` 부분보다 길어지면 그 도메인을 의미 단위로 다시 나눈다 — `egress`(egress proxy와 worker 네트워크 격리, suite가 LocalStack 이미지를 직접 받아 혼자 70초 남짓)를 `docker`와 따로 두는 이유다.
 
@@ -14,7 +14,7 @@ integration 스위트는 숫자 샤드가 아니라 도메인별 job 7개(`integ
 
 `agent-sdk-compat`는 **pull request에서는 돌지 않는다.** 결과가 어차피 run을 막지 않으므로(아래 참고) PR 커밋마다 돌려도 `main` push가 주는 신호 이상을 얻지 못한다. `main` push와 수동 실행에서만 돈다. `scripts/agent-sdk-compat`을 건드리거나 SDK·LiteLLM 버전을 올리는 PR은 `-f only=agent-sdk-compat`로 직접 확인한다.
 
-모든 job의 OS는 `ubuntu-24.04`로 고정한다. `ubuntu-latest`의 자동 major-version 변경을 피하기 위한 것이며, runner 이미지의 패치 업데이트까지 고정하는 것은 아니다. `timeout-minutes`는 `check` 각 부분 6분, integration 도메인 job 10분, `workspace-quota`·`agent-sdk-compat` 15분이며, 부분·도메인 job만 기다리는 집계 job `check`·`integration`은 2분이다. integration에서 가장 긴 DB 도메인은 최근 main 최대 5분42초, 분리된 구성의 PR에서 5분19초였으며 runner 편차·서비스 준비·정리 시간을 포함해 10분을 허용한다. HTTP 경로와 제어 흐름은 `api`, Slack·계약·클라이언트·화면은 `surface`로 나눠 한 프로세스에 쌓이지 않게 한다. 한 번 멈춘 job이 태우는 분의 상한이지 정상 실행에 거는 제약이 아니다.
+모든 job의 OS는 `ubuntu-24.04`로 고정한다. `ubuntu-latest`의 자동 major-version 변경을 피하기 위한 것이며, runner 이미지의 패치 업데이트까지 고정하는 것은 아니다. `timeout-minutes`는 `check` 각 부분 6분, integration 도메인 job 10분, `workspace-quota`·`agent-sdk-compat` 15분이며, 부분·도메인 job만 기다리는 집계 job `check`·`integration`은 2분이다. integration에서 가장 긴 DB 도메인은 최근 main 최대 5분42초, 분리된 구성의 PR에서 4분55초였으며 runner 편차·서비스 준비·정리 시간을 포함해 10분을 허용한다. HTTP 경로와 제어 흐름은 `api`, Slack·계약·클라이언트·화면은 `surface`로 나눠 한 프로세스에 쌓이지 않게 한다. 한 번 멈춘 job이 태우는 분의 상한이지 정상 실행에 거는 제약이 아니다.
 
 그 대가로 **pull request가 없는 브랜치에 push하면 CI가 돌지 않는다.** PR을 열기 전에 확인하고 싶으면 `workflow_dispatch`로 수동 실행한다(`gh workflow run CI --ref <branch>`). tag push도 빌드하지 않는다 — 태그가 가리키는 트리는 이미 main push에서 돌았다. merge queue를 켜려면 `merge_group` 이벤트를 따로 추가해야 한다.
 
