@@ -14,6 +14,7 @@ import {
   useSessionRunTree,
 } from "@werft-ai/react/agent-map";
 import { useMemo, useState } from "react";
+import { StatusScreen } from "../components/status-screen.tsx";
 import { loadError } from "./sessions.tsx";
 
 /** How often the board reads the list again; only the open session streams. */
@@ -57,6 +58,7 @@ export function AgentMapScreen() {
   const list = useBoardList();
   const { board, pendingMoves, tidy, announcement } = useAgentMapBoard(
     list.data,
+    list.dataUpdatedAt,
   );
   // The sidebar reads it already; here it sizes the loading board's strip.
   const waiting = useQuery(waitingSessionsQuery(client));
@@ -70,6 +72,9 @@ export function AgentMapScreen() {
 
   if (list.error && !list.data)
     return loadError(list.error, () => void list.refetch());
+  // The board's stand-in needs the strip's size; until then, the route's own
+  // loading screen goes on rather than a board that would grow a strip.
+  if (waiting.isPending) return <StatusScreen kind="loading" />;
   return (
     <AgentMapPage
       updatedAt={list.dataUpdatedAt || null}
@@ -88,7 +93,7 @@ export function AgentMapScreen() {
       onExpandDone={() =>
         void navigate({ to: "/sessions", search: { status: "stopped" } })
       }
-      loading={!board || waiting.isPending}
+      loading={!board}
       waiting={waiting.data?.items.length ?? 0}
     />
   );

@@ -148,7 +148,10 @@ describe("app shell", () => {
   }
 
   test("/sessions/map is a screen under 세션, not a session", async () => {
-    renderAt("/sessions/map", signedIn);
+    renderAt("/sessions/map", {
+      ...signedIn,
+      "GET /v1/sessions": () => json(200, { items: [], next_cursor: null }),
+    });
     await screen.findByRole("heading", { level: 1, name: "에이전트 지도" });
     const [header] = await screen.findAllByRole("banner");
     await waitFor(() =>

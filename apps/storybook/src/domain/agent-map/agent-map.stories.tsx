@@ -4,12 +4,7 @@ import { Button } from "@werft-ai/ui";
 import { useState } from "react";
 import { expect, userEvent, waitFor, within } from "storybook/test";
 
-import {
-  DONE_COUNT,
-  NOW,
-  SESSIONS,
-  selectedOf,
-} from "./agent-map-fixtures.ts";
+import { DONE_COUNT, NOW, SESSIONS, selectedOf } from "./agent-map-fixtures.ts";
 
 const WAITING = SESSIONS.filter((s) => s.pending).length;
 
