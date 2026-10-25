@@ -289,6 +289,15 @@ function toolCalls(payload: SessionEventPayload) {
     : [];
 }
 
+/** The tool_use id a call or its result carries, for pairing them on screen. */
+export function eventToolCallId(
+  payload: SessionEventPayload,
+): string | undefined {
+  if (payload.event !== "tool_result") return toolCalls(payload)[0]?.[0];
+  const id = (payload.data as { tool_use_id?: unknown } | null)?.tool_use_id;
+  return typeof id === "string" ? id : undefined;
+}
+
 /**
  * The session's event stream, replayed from the start. The client resumes
  * with Last-Event-ID after a dropped connection and delivers each event once;
@@ -332,11 +341,11 @@ export function useSessionEvents(id: string, enabled: boolean) {
         }
         const callId =
           payload.event === "tool_result"
-            ? (payload.data as { tool_use_id?: unknown } | null)?.tool_use_id
+            ? eventToolCallId(payload)
             : undefined;
         const toolName =
-          typeof callId === "string" ? callNames.get(callId) : undefined;
-        if (typeof callId === "string") callNames.delete(callId);
+          callId === undefined ? undefined : callNames.get(callId);
+        if (callId !== undefined) callNames.delete(callId);
         const event: SessionEventFrame =
           toolName === undefined ? frame : { ...frame, toolName };
         setEvents((current) => [...current, event].slice(-EVENT_WINDOW));
