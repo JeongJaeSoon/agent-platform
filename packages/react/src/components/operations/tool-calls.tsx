@@ -91,7 +91,8 @@ export function ToolCalls({
                   </span>
                 )}
                 <span className="text-caption text-subtle-foreground leading-4">
-                  {call.agent} · {time.format(new Date(call.occurred_at))}
+                  {call.agent === null ? "" : `${call.agent} · `}
+                  {time.format(new Date(call.occurred_at))}
                 </span>
               </span>
               <span className="text-subtle-foreground tabular-nums">

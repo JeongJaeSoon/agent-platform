@@ -81,8 +81,95 @@ const AGENTS = [
   { key: null, label: null, ...figures(10, "132.00") },
 ];
 
+const TOOLS = {
+  tools: [
+    {
+      name: "Bash",
+      calls: 1840,
+      failed: 21,
+      total_ms: 13320000,
+      median_ms: 3100,
+      max_ms: 298000,
+    },
+    {
+      name: "Read",
+      calls: 1204,
+      failed: 2,
+      total_ms: 1080000,
+      median_ms: 400,
+      max_ms: 9100,
+    },
+    {
+      name: "Edit",
+      calls: 702,
+      failed: 12,
+      total_ms: 1620000,
+      median_ms: 900,
+      max_ms: 14200,
+    },
+    {
+      name: "WebFetch",
+      calls: 214,
+      failed: 1,
+      total_ms: 3960000,
+      median_ms: 12400,
+      max_ms: 61000,
+    },
+  ],
+  findings: [
+    { kind: "most_time", name: "Bash" },
+    { kind: "fails_often", name: "Edit" },
+    { kind: "slowest", name: "WebFetch" },
+  ],
+};
+
+function toolCalls(name: string) {
+  return {
+    calls: [
+      {
+        session_id: "11111111-1111-4111-8111-111111111111",
+        title: `${name} 리뷰`,
+        agent: "리뷰 봇",
+        occurred_at: "2026-10-24T12:39:10.000Z",
+        duration_ms: null,
+        outcome: "unknown",
+      },
+      {
+        session_id: null,
+        title: null,
+        agent: "배포 도우미",
+        occurred_at: "2026-10-24T12:36:41.000Z",
+        duration_ms: 41200,
+        outcome: "ok",
+      },
+      {
+        session_id: "22222222-2222-4222-8222-222222222222",
+        title: "에이전트 없는 세션",
+        agent: null,
+        occurred_at: "2026-10-24T12:31:15.000Z",
+        duration_ms: 3400,
+        outcome: "failed",
+      },
+    ],
+    next_cursor: null,
+    per_day: Array.from({ length: 30 }, (_, i) => ({
+      date: new Date(Date.UTC(2026, 8, 25 + i)).toISOString().slice(0, 10),
+      calls: i + 1,
+    })),
+  };
+}
+
+// The fake API answers by path, and nothing for /v1/usage/summary; the call
+// log says which period was asked.
 const usageRoutes = {
   "GET /v1/sessions/counts": () => json(200, COUNTS),
+  "GET /v1/usage/tools": () => json(200, TOOLS),
+  ...Object.fromEntries(
+    TOOLS.tools.map(({ name }) => [
+      `GET /v1/usage/tools/${name}/calls`,
+      () => json(200, toolCalls(name)),
+    ]),
+  ),
   "GET /v1/usage/breakdown": () =>
     json(200, { rows: AGENTS, totals: figures(100, "1045.50") }),
   "GET /v1/usage/series": (request: Request) => {
@@ -165,7 +252,36 @@ describe("운영", () => {
         .filter((call) => call.path.startsWith("/v1/usage/"))
         .map((call) => call.path)
         .sort(),
-    ).toEqual(["/v1/usage/breakdown", "/v1/usage/series"]);
+    ).toEqual(["/v1/usage/breakdown", "/v1/usage/series", "/v1/usage/tools"]);
+  });
+
+  test("개요의 '살펴볼 것'은 /v1/usage/tools의 findings이고 도구 활동 탭으로 이어진다", async () => {
+    setSystemTime(NOW);
+    renderAt("/operations?days=7", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/limits": () => json(200, LIMITS),
+      ...usageRoutes,
+    });
+    const section = (
+      await screen.findByRole("heading", { name: "살펴볼 것" })
+    ).closest("section");
+    if (!section) throw new Error("no 살펴볼 것 section");
+    await waitFor(() =>
+      expect(
+        within(section)
+          .getAllByRole("listitem")
+          .map((item) => item.textContent),
+      ).toEqual([
+        "가장 오래 걸리는 도구: Bash3시간 42분 · 전체 도구 시간의 67%",
+        "자주 실패하는 도구: Edit702번 중 12번 실패 (1.7%)",
+        "가장 느린 도구: WebFetch보통 12.4초 · 호출 214번",
+      ]),
+    );
+    expect(
+      within(section)
+        .getByRole("link", { name: "도구 활동" })
+        .getAttribute("href"),
+    ).toBe("/operations/tools?days=7");
   });
 
   test("'비용이 큰 에이전트'는 에이전트별 비용 위 3개이고 기간을 따른다", async () => {
@@ -188,7 +304,7 @@ describe("운영", () => {
     );
   });
 
-  test("아직 없는 사용량·도구 활동 탭은 제자리에 비활성이고 이유를 말한다", async () => {
+  test("아직 없는 사용량 탭은 제자리에 비활성이고 이유를 말하며, 도구 활동 탭은 열린다", async () => {
     setSystemTime(NOW);
     const { history } = renderAt("/operations", {
       "GET /v1/auth/me": () => json(200, memberMe()),
@@ -198,11 +314,9 @@ describe("운영", () => {
     const usage = within(tabs).getByRole("link", { name: "사용량" });
     expect(usage.getAttribute("aria-disabled")).toBe("true");
     expect(usage.getAttribute("href")).toBeNull();
-    expect(
-      within(tabs)
-        .getByRole("link", { name: "도구 활동" })
-        .getAttribute("aria-disabled"),
-    ).toBe("true");
+    const tools = within(tabs).getByRole("link", { name: "도구 활동" });
+    expect(tools.getAttribute("aria-disabled")).toBeNull();
+    expect(tools.getAttribute("href")).toBe("/operations/tools");
     const user = await setupUser();
     await user.click(usage);
     expect(history.location.pathname).toBe("/operations");
@@ -258,16 +372,140 @@ describe("운영", () => {
     expect(history.location.search).toBe("?days=7");
     await waitFor(() =>
       expect(
-        api.calls.filter(
-          (call) =>
-            call.path.startsWith("/v1/usage/") &&
-            call.search.includes("since=2026-10-18"),
-        ),
+        api.calls
+          .filter(
+            (call) =>
+              call.path.startsWith("/v1/usage/") &&
+              call.search.includes("since=2026-10-18"),
+          )
+          .map((call) => call.path)
+          .sort(),
+      ).toEqual(["/v1/usage/breakdown", "/v1/usage/series", "/v1/usage/tools"]),
+    );
+  });
+
+  test("도구 활동 탭: 표와 레일, 볼 수 없는 세션은 링크가 없고 결과 모름·시간 없음·에이전트 없음을 그대로 쓴다", async () => {
+    setSystemTime(NOW);
+    const { api } = renderAt("/operations/tools", {
+      "GET /v1/auth/me": () => json(200, me()),
+      ...usageRoutes,
+    });
+    const table = await screen.findByRole("table", { name: "도구와 명령" });
+    await waitFor(() =>
+      expect(
+        within(table)
+          .getAllByRole("row")
+          .slice(1)
+          .map((row) => row.textContent),
       ).toEqual([
-        expect.objectContaining({ path: "/v1/usage/series" }),
-        expect.objectContaining({ path: "/v1/usage/breakdown" }),
+        "Bash1,8403시간 42분3.1초21",
+        "Read1,20418분0.4초2",
+        "Edit70227분0.9초12",
+        "WebFetch2141시간 6분12.4초1",
       ]),
     );
+    const tabs = screen.getByRole("navigation", { name: "운영 탭" });
+    expect(
+      within(tabs)
+        .getByRole("link", { name: "도구 활동" })
+        .getAttribute("aria-current"),
+    ).toBe("page");
+    expect(document.querySelector("[data-slot=page-flush]")).not.toBeNull();
+    const rail = screen.getByRole("complementary", { name: "선택한 도구" });
+    expect(within(rail).getByRole("heading", { name: "Bash" })).toBeTruthy();
+    const items = await within(rail).findAllByRole("listitem");
+    expect(items.map((item) => item.textContent)).toEqual([
+      "Bash 리뷰리뷰 봇 · 12:39—결과 모름",
+      "볼 수 없는 세션배포 도우미 · 12:3641.2초완료",
+      "에이전트 없는 세션12:313.4초실패",
+    ]);
+    expect(
+      within(rail)
+        .getAllByRole("link")
+        .map((a) => a.getAttribute("href")),
+    ).toEqual([
+      "/sessions/11111111-1111-4111-8111-111111111111",
+      "/sessions/22222222-2222-4222-8222-222222222222",
+    ]);
+    expect(
+      within(rail)
+        .getByRole("img", { name: /^Bash 일자별 호출/ })
+        .getAttribute("aria-label"),
+    ).toBe("Bash 일자별 호출, 최근 14일, 합계 329번, 가장 많은 날 10/24 30번");
+    expect(
+      api.calls
+        .filter((call) => call.path.startsWith("/v1/usage/tools"))
+        .map((call) => `${call.path}${call.search}`),
+    ).toEqual([
+      "/v1/usage/tools?scope=installation&since=2026-09-25T00%3A00%3A00.000Z&until=2026-10-25T00%3A00%3A00.000Z",
+      "/v1/usage/tools/Bash/calls?scope=installation&since=2026-09-25T00%3A00%3A00.000Z&until=2026-10-25T00%3A00%3A00.000Z&sort=recent&limit=7",
+    ]);
+  });
+
+  test("도구 활동 탭: 다른 도구를 고르면 그 도구의 호출을 한 번 읽고, 정렬·검색은 다시 읽지 않는다", async () => {
+    setSystemTime(NOW);
+    const { api } = renderAt("/operations/tools", {
+      "GET /v1/auth/me": () => json(200, me()),
+      ...usageRoutes,
+    });
+    const table = await screen.findByRole("table", { name: "도구와 명령" });
+    const user = await setupUser();
+    await user.click(
+      await within(table).findByRole("button", { name: "Edit 자세히 보기" }),
+    );
+    const rail = screen.getByRole("complementary", { name: "선택한 도구" });
+    await waitFor(() =>
+      expect(within(rail).getByText("Edit 리뷰")).toBeTruthy(),
+    );
+    const callsOf = (name: string) =>
+      api.calls.filter((call) => call.path === `/v1/usage/tools/${name}/calls`);
+    expect(callsOf("Edit")).toHaveLength(1);
+
+    const before = api.calls.length;
+    await user.click(
+      within(screen.getByRole("group", { name: "정렬" })).getByRole("button", {
+        name: "느린 순",
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        within(table)
+          .getAllByRole("row")
+          .slice(1)
+          .map((row) => row.querySelector(".font-mono")?.textContent),
+      ).toEqual(["WebFetch", "Bash", "Edit", "Read"]),
+    );
+    await user.type(screen.getByRole("searchbox", { name: "도구 찾기" }), "ed");
+    expect(within(table).getAllByRole("row")).toHaveLength(5);
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("table", { name: "도구와 명령" })
+          .querySelectorAll("[role=row]"),
+      ).toHaveLength(2),
+    );
+    expect(api.calls.length).toBe(before);
+  });
+
+  test("도구 활동 탭: agent_id search param은 두 API에 그대로 간다", async () => {
+    setSystemTime(NOW);
+    const agent = "33333333-3333-4333-8333-333333333333";
+    const { api } = renderAt(`/operations/tools?agent_id=${agent}`, {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      ...usageRoutes,
+    });
+    await screen.findByRole("complementary", { name: "선택한 도구" });
+    await waitFor(() =>
+      expect(
+        api.calls.filter((call) => call.path.startsWith("/v1/usage/tools")),
+      ).toHaveLength(2),
+    );
+    for (const call of api.calls.filter((c) =>
+      c.path.startsWith("/v1/usage/tools"),
+    )) {
+      expect(new URLSearchParams(call.search).get("agent_id")).toBe(agent);
+      expect(new URLSearchParams(call.search).get("scope")).toBe("me");
+    }
   });
 
   test("한도 탭: owner는 한도 표를 본다", async () => {

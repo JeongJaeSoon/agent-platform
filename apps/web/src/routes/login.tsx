@@ -15,7 +15,7 @@ import {
   Link as TextLink,
 } from "@werft-ai/ui";
 import { type FormEvent, useState } from "react";
-import { loginMethodsQuery, viewerQuery } from "../api/queries.ts";
+import { loginMethodsQuery } from "../api/queries.ts";
 import {
   ASIDE,
   AuthPage,
@@ -77,8 +77,10 @@ export function LoginScreen() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const search = useSearch({ from: "/login" });
+  // The root route passes the raw query through, so a value loginSearch
+  // dropped can still be here.
+  const redirect = safeRedirect(search.redirect);
   const loginEmail = useLocation({ select: (l) => l.state.loginEmail });
-  const viewer = useQuery(viewerQuery(client));
   const [email, setEmail] = useState(loginEmail ?? "");
   const [password, setPassword] = useState("");
 
@@ -95,7 +97,7 @@ export function LoginScreen() {
       ),
     onSuccess: async () => {
       queryClient.clear();
-      await navigate({ to: search.redirect ?? "/" });
+      await navigate({ to: redirect ?? "/" });
     },
   });
 
@@ -106,19 +108,7 @@ export function LoginScreen() {
 
   return (
     <AuthPage title={t("login.title")}>
-      {viewer.data?.user ? (
-        <Notice>
-          <span>
-            {t("login.signedIn", { email: viewer.data.user.email })}{" "}
-            <TextLink asChild underline="always">
-              <Link to="/">{t("login.signedInHome")}</Link>
-            </TextLink>
-          </span>
-        </Notice>
-      ) : null}
-      {search.redirect ? (
-        <StatusScreen kind="login-required" action={false} />
-      ) : null}
+      {redirect ? <StatusScreen kind="login-required" action={false} /> : null}
       {/* A failed attempt makes "the owner is ready" old news. */}
       {search.notice && !login.error ? (
         <Notice>{t(NOTICE_KEY[search.notice])}</Notice>
@@ -153,7 +143,7 @@ export function LoginScreen() {
           {login.isPending ? t("login.submitting") : t("login.submit")}
         </Button>
       </form>
-      <GoogleChoice redirect={search.redirect} />
+      <GoogleChoice redirect={redirect} />
       <p className={ASIDE}>
         {t("login.bootstrapPrompt")}{" "}
         <TextLink asChild underline="always">

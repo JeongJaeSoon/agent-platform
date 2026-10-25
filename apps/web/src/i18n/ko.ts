@@ -44,8 +44,8 @@ export const slackKo = {
   "slack.app": "Slack 앱",
   "slack.verifyNeeded":
     "앱은 설치했지만 이벤트 등록 확인이 필요합니다. 관리자에게 확인을 요청하세요.",
-  "slack.joinHint":
-    "공개·비공개 채널 모두 /invite로 봇을 초대하세요. 채널 연결만으로 봇이 참여하지는 않습니다.",
+  "slack.joinHintAuto":
+    "공개 채널은 반응을 켜면 봇이 자동으로 참여합니다. 비공개 채널은 /invite로 봇을 초대하세요.",
   "slack.appId": "앱 ID",
   "slack.state.none": "만들기 전",
   "slack.state.pending": "설치 대기",
@@ -58,12 +58,14 @@ export const slackKo = {
   "slack.working": "준비 중…",
   "slack.refresh": "새로고침",
   "slack.delete": "앱 삭제",
+  "slack.deleteTitle": "Slack 앱 삭제",
   "slack.deleteWarning":
-    "Slack 앱과 저장한 자격을 삭제합니다. 이 앱을 통한 메시지를 더 이상 받지 않습니다.",
+    "Slack에서 앱을 지우고 저장한 자격도 삭제합니다. 되돌릴 수 없고, 다시 연결하면 새 앱이 생깁니다.",
   "slack.deleted": "Slack 앱을 삭제했습니다.",
   "slack.revoke": "연결 해제",
+  "slack.revokeTitle": "Slack 연결 해제",
   "slack.revokeWarning":
-    "이 에이전트의 Slack 신원과 채널 연결을 해제합니다. 이후 이벤트는 받지 않습니다.",
+    "이 에이전트의 Slack 신원과 채널 연결을 해제합니다. 이후 이벤트는 받지 않고, Slack 앱은 남아 다시 설치할 수 있습니다.",
   "slack.revoked": "Slack 연결을 해제했습니다.",
   "slack.activateFirst": "에이전트를 먼저 켠 뒤 Slack 앱을 만들 수 있습니다.",
   "slack.channels": "채널",
@@ -72,10 +74,12 @@ export const slackKo = {
   "slack.saved": "채널 반응을 저장했습니다.",
   "slack.homeSaved": "홈 채널을 지정했습니다.",
   "slack.channelConnected": "채널을 연결했습니다.",
-  "slack.dmSaved": "다이렉트 메시지 설정을 저장했습니다.",
+  "slack.dmSaved": "DM 받기 설정을 저장했습니다.",
+  "slack.defaultSaved":
+    "새 채널의 기본 반응을 '{mode}'(으)로 바꿨습니다. 이미 연결된 채널은 그대로입니다.",
   "slack.ambient": "항상 반응",
   "slack.notConfigured": "설정 안 됨",
-  "slack.home": "홈",
+  "slack.home": "홈 채널",
   "slack.setHome": "홈 지정",
   "slack.channelHome": "{channel} 홈 지정",
   "slack.channelConnect": "{channel} 연결",
@@ -94,16 +98,18 @@ export const slackKo = {
   "slack.danger": "위험 구역",
   "slack.botId": "봇 ID",
   "slack.defaultHint":
-    "이 화면에서 새로 연결하는 채널에만 적용합니다. 이미 연결된 채널은 바꾸지 않습니다.",
+    "켜면 새로 추가한 채널이 멘션할 때 반응하고, 끄면 반응하지 않습니다. 이미 연결된 채널은 그대로입니다.",
   "slack.dm": "다이렉트 메시지",
+  "slack.dmSetting": "DM 받기",
   "slack.dmHint":
-    "Slack 앱의 메시지 탭에서 연결된 구성원의 1:1 대화를 받습니다.",
+    "Slack 앱의 메시지 탭에서 1:1 대화를 받습니다. Slack 계정을 연동한 구성원만 쓸 수 있습니다.",
   "slack.public": "공개",
   "slack.private": "비공개",
   "slack.off": "꺼짐",
+  "slack.on": "켜짐",
   "slack.mention": "멘션할 때",
   "slack.reaction": "{channel} 멘션할 때 반응",
-  "slack.defaultReaction": "새로 연결할 채널에서 멘션할 때 반응",
+  "slack.defaultReaction": "새 채널의 기본 반응",
   "slack.search": "채널 찾기",
   "slack.invite": "참여 대기",
   "slack.privateInvite": "/invite 필요",
@@ -121,6 +127,12 @@ export const slackKo = {
   "slack.copyInvite": "/invite 명령 복사",
   "slack.inviteCommand": "/invite 명령",
   "slack.copied": "복사됨",
+  "slack.copy": "복사",
+  "slack.copyAppId": "앱 ID 복사",
+  "slack.copyAppIdFailed":
+    "클립보드에 복사하지 못했습니다. 앱 ID를 직접 선택해 복사하세요.",
+  "slack.openInSlack": "Slack에서 열기",
+  "slack.newTab": "(새 탭에서 열림)",
   "slack.copyFailed":
     "클립보드에 복사하지 못했습니다. 선택된 명령을 직접 복사하세요.",
 } as const;

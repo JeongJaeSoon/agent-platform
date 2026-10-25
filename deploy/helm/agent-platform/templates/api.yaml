@@ -47,7 +47,7 @@ spec:
             - name: AUTH_MODE
               value: {{ .Values.config.authMode | quote }}
             {{- range $name, $value := .Values.config.limits }}
-            - name: {{ $name }}
+            - name: {{ $name | quote }}
               value: {{ $value | toString | quote }}
             {{- end }}
             - name: HEARTBEAT_TTL_SEC
@@ -65,6 +65,13 @@ spec:
             {{- with .Values.config.aws.secretsManagerEndpointUrl }}
             - name: AWS_ENDPOINT_URL_SECRETS_MANAGER
               value: {{ . | quote }}
+            {{- end }}
+            {{- include "ap.previewEnvReserved" . }}
+            {{- if .Values.preview.enabled }}
+            - name: PREVIEW_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
             {{- end }}
             {{- include "ap.checkpointEnv" . | nindent 12 }}
             {{- include "ap.extraEnv" .Values.api.extraEnv | nindent 12 }}

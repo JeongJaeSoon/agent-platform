@@ -36,7 +36,7 @@ export function Steps({
           key={item.id}
           data-slot="steps-item"
           data-state={item.done ? "done" : "todo"}
-          className="flex items-center gap-3 border-t py-3 break-keep first:border-t-0 first:pt-0"
+          className="flex items-center gap-3 border-t py-3 break-keep first:border-t-0 first:pt-0 last:pb-0"
         >
           <span
             aria-hidden="true"

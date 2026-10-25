@@ -14,6 +14,7 @@ import {
 } from "@werft-ai/contracts";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
 import { queryKeys } from "../api/queries.ts";
+import { avatarTone } from "../components/agent-cards.tsx";
 import { type Locale, translate } from "../i18n/i18n.tsx";
 import { AGENT_ID, agentServer, CARD } from "../test-support/fake-agents.ts";
 import {
@@ -350,7 +351,7 @@ describe("에이전트 카드", () => {
   beforeEach(() => localStorage.clear());
 
   /** One released agent whose card asks for two credentials, one bound. */
-  function releasedServer() {
+  function releasedServer(mcp: readonly string[] = ["linear"]) {
     const server = agentServer();
     const base = server.detail();
     const version = base.versions[0];
@@ -359,7 +360,7 @@ describe("에이전트 카드", () => {
       ...version.card,
       capabilities: {
         ...version.card.capabilities,
-        mcp: [{ server: "linear" }],
+        mcp: mcp.map((server) => ({ server })),
         credential_refs: ["github", "linear"],
       },
     };
@@ -429,24 +430,63 @@ describe("에이전트 카드", () => {
     [...card.querySelectorAll("dt")].find((dt) => dt.textContent === term)
       ?.nextElementSibling?.textContent;
 
-  test("배포 판·역할·지시 사항·실행 프로필·MCP·자격 증명·관리자를 카드에 모은다", async () => {
+  test("배포 판·역할·지시문·실행 프로필·MCP·자격 증명·담당을 카드에 모은다", async () => {
     renderAt("/agents", { ...meOk, ...releasedServer() });
     const card = await cardFor("결제 담당");
     await waitFor(() => expect(card.textContent).toContain("v1 배포됨"));
     expect(card.textContent).toContain(CARD.role);
-    expect(card.textContent).toContain(CARD.instructions);
+    expect(card.textContent).toContain(`지시문${CARD.instructions}`);
     expect(fact(card, "실행 프로필")).toBe(PROFILE);
     expect(fact(card, "MCP")).toBe("linear");
     expect(fact(card, "자격 증명")).toBe("연결 필요 1개");
-    expect(card.textContent).toContain("관리자 Owner");
+    // The colour beside the words is decoration; the words carry the state.
+    const dot = card.querySelector("[data-slot=status-dot]");
+    expect(dot?.getAttribute("data-status")).toBe("failed");
+    expect(dot?.getAttribute("aria-hidden")).toBe("true");
+    expect(card.textContent).toContain("담당 Owner");
   });
 
-  test("API에 없는 답변 대기·스킬은 값을 지어내지 않고 미계측이라 적는다", async () => {
+  test("API에 없는 답변 대기·스킬 줄은 두지 않고, 카드는 이름 하나로 열린다", async () => {
     renderAt("/agents", { ...meOk, ...releasedServer() });
     const card = await cardFor("결제 담당");
     await waitFor(() => expect(card.textContent).toContain("v1 배포됨"));
-    expect(fact(card, "답변 대기")).toBe("미계측");
-    expect(fact(card, "스킬")).toBe("미계측");
+    expect(
+      [...card.querySelectorAll("dt")].map((dt) => dt.textContent),
+    ).toEqual(["실행 프로필", "MCP", "자격 증명"]);
+    expect(card.textContent).not.toContain("미계측");
+    expect(
+      within(card)
+        .getAllByRole("link")
+        .map((a) => a.textContent),
+    ).toEqual(["결제 담당"]);
+  });
+
+  test("긴 MCP 이름은 칩 안에서 잘리고 전체 이름은 title로 남는다", async () => {
+    const long = `mcp-${"x".repeat(28)}`;
+    renderAt("/agents", { ...meOk, ...releasedServer([long]) });
+    const card = await cardFor("결제 담당");
+    await waitFor(() => expect(card.textContent).toContain("v1 배포됨"));
+    const chip = [...card.querySelectorAll("dt")]
+      .find((dt) => dt.textContent === "MCP")
+      ?.nextElementSibling?.querySelector("[data-slot=badge]");
+    expect(chip?.textContent).toBe(long);
+    expect(chip?.getAttribute("title")).toBe(long);
+    expect(chip?.firstElementChild?.className).toContain("truncate");
+    // Under the card's stretched link the hover would never reach the title.
+    expect(chip?.className).toContain("relative z-1");
+  });
+
+  test("아바타 색은 이름으로 정해져 목록과 상세에서 같다", async () => {
+    const tone = `--ap-avatar-${avatarTone("결제 담당")}-bg`;
+    renderAt("/agents", { ...meOk, ...releasedServer() });
+    const card = await cardFor("결제 담당");
+    const avatar = card.querySelector("[data-slot=avatar]");
+    expect(avatar?.className).toContain(tone);
+    expect(avatar?.getAttribute("aria-hidden")).toBe("true");
+    expect(avatarTone("결제 담당")).toBe(avatarTone("결제 담당"));
+    expect(
+      new Set(["a", "b", "c", "d"].map((name) => avatarTone(name))).size,
+    ).toBe(4);
   });
 
   test("추가 정보를 못 불러와도 카드는 이름·상태와 상세 링크를 지킨다", async () => {
@@ -474,7 +514,7 @@ describe("에이전트 카드", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
-  test("카드 내용을 못 불러오면 지시 사항·자격 증명 칸도 비우지 않고 그렇다고 적는다", async () => {
+  test("카드 내용을 못 불러오면 지시문·자격 증명 칸도 비우지 않고 그렇다고 적는다", async () => {
     const routes = releasedServer();
     renderAt("/agents", {
       ...meOk,
@@ -484,7 +524,7 @@ describe("에이전트 카드", () => {
     });
     const card = await cardFor("결제 담당");
     await waitFor(() => expect(fact(card, "자격 증명")).toBe("—불러오지 못함"));
-    expect(card.textContent).toContain("지시 사항—불러오지 못함");
+    expect(card.textContent).toContain("지시문—불러오지 못함");
   });
 
   test("카드 내용이 늦으면 자격 증명 칸은 연결 목록이 먼저 와도 기다린다", async () => {
@@ -558,7 +598,7 @@ describe("에이전트 카드", () => {
     test("창이나 네트워크로 돌아와도 이미 불러온 카드를 다시 부르지 않는다", async () => {
       const { api } = renderAt("/agents", { ...meOk, ...releasedServer() });
       const card = await cardFor("결제 담당");
-      await waitFor(() => expect(card.textContent).toContain("관리자 Owner"));
+      await waitFor(() => expect(card.textContent).toContain("담당 Owner"));
       await waitFor(() => expect(detailCalls(api).length).toBe(3));
       act(() => {
         focusManager.setFocused(false);

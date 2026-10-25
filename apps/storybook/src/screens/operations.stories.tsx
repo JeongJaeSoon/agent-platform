@@ -2,14 +2,18 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { UsageSummaryScope } from "@werft-ai/contracts";
 import {
   DetailLayout,
-  DetailRail,
-  DetailRailSection,
   Findings,
+  findTools,
   InstallationLimits,
+  MoreLink,
   OperationsHead,
   type OperationsTab,
   SessionCounts,
-  ToolCalls,
+  sortTools,
+  type ToolCallSort,
+  ToolRail,
+  type ToolSort,
+  ToolsFilter,
   ToolsSummary,
   ToolTable,
   UsageFilters,
@@ -28,15 +32,9 @@ import {
   GridTableColumnHeader,
   GridTableHeader,
   GridTableRow,
-  KeyValueList,
   Link,
   Meter,
-  RowList,
-  RowListItem,
-  SearchInput,
   Section,
-  SegmentedControl,
-  SegmentedControlItem,
   Skeleton,
   Text,
 } from "@werft-ai/ui";
@@ -84,11 +82,6 @@ const tok = (n: number) =>
     : n >= 1e4
       ? `${nf.format(Math.round(n / 1e4))}만`
       : nf.format(n);
-const dur = (s: number) => {
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  return h ? `${h}시간 ${m}분` : `${m}분`;
-};
 const monthDay = (date: string) =>
   `${Number(date.slice(5, 7))}/${Number(date.slice(8, 10))}`;
 
@@ -153,9 +146,7 @@ function Value({
   );
 }
 
-// BarChart's rendered height, full and compact, x labels included.
 const BAR_CHART_HEIGHT = "11.25rem";
-const RAIL_CHART_HEIGHT = "5.25rem";
 
 // A block skeleton is at least 4rem; shorter boxes center a text bar.
 function Box({
@@ -196,23 +187,6 @@ function Head({ tab, viewer }: { readonly tab: Tab; readonly viewer: Role }) {
       current={tab}
       tabLink={(id, label) => <a href={`#operations/${id}`}>{label}</a>}
     />
-  );
-}
-
-function More({
-  href,
-  children,
-}: {
-  readonly href: string;
-  readonly children: ReactNode;
-}) {
-  return (
-    <Link
-      href={href}
-      className="whitespace-nowrap font-normal text-caption leading-4"
-    >
-      {children}
-    </Link>
   );
 }
 
@@ -355,7 +329,7 @@ function Overview({ screen }: { readonly screen: ScreenData }) {
         <Filters role={screen.role} days={screen.days} />
         <Section
           title={`최근 ${screen.days}일`}
-          actions={<More href="#operations/usage">사용량 자세히</More>}
+          actions={<MoreLink href="#operations/usage">사용량 자세히</MoreLink>}
         >
           <Kpis screen={screen} />
         </Section>
@@ -364,30 +338,18 @@ function Overview({ screen }: { readonly screen: ScreenData }) {
         <Section
           title="살펴볼 것"
           description="도구 호출 기록에서 찾았습니다"
-          actions={<More href="#operations/tools">도구 활동</More>}
+          actions={<MoreLink href="#operations/tools">도구 활동</MoreLink>}
         >
-          {loading ? (
-            <RowList variant="joined" aria-hidden="true">
-              {TOOLS.findings.map(({ kind }) => (
-                <RowListItem key={kind} className="min-h-16 flex-nowrap">
-                  <Skeleton decorative shape="circle" className="size-6" />
-                  {/* Findings' two lines, so the row is as tall at any padding. */}
-                  <div className="min-w-0 flex-1">
-                    <p className="m-0">
-                      <Skeleton inline decorative width="60%" height="1lh" />
-                    </p>
-                    <p className="m-0 text-caption leading-4">
-                      <Skeleton inline decorative width="40%" height="1lh" />
-                    </p>
-                  </div>
-                </RowListItem>
-              ))}
-            </RowList>
-          ) : (
-            <Findings
-              data={screen.empty ? { tools: [], findings: [] } : TOOLS}
-            />
-          )}
+          <Findings
+            data={
+              loading
+                ? undefined
+                : screen.empty
+                  ? { tools: [], findings: [] }
+                  : TOOLS
+            }
+            loadingRows={TOOLS.findings.length}
+          />
         </Section>
         <Section
           title="비용이 큰 에이전트"
@@ -547,92 +509,38 @@ function Usage({ screen }: { readonly screen: ScreenData }) {
 function Tools({
   screen,
   hideSessions = false,
+  hideNotes = false,
 }: {
   readonly screen: ScreenData;
   readonly hideSessions?: boolean | undefined;
+  readonly hideNotes?: boolean | undefined;
 }) {
-  const [sort, setSort] = useState("calls");
-  const [callSort, setCallSort] = useState("recent");
+  const note = (name: string) => (hideNotes ? undefined : TOOL_NOTE[name]?.ko);
+  const [sort, setSort] = useState<ToolSort>("calls");
+  const [query, setQuery] = useState("");
+  const [callSort, setCallSort] = useState<ToolCallSort>("recent");
   const [selected, setSelected] = useState("Bash");
   const loading = useContext(Loading);
-  const tools = screen.empty ? [] : TOOLS.tools;
+  const tools = screen.empty
+    ? []
+    : findTools(sortTools(TOOLS.tools, sort), query);
   const tool = TOOLS.tools.find((t) => t.name === selected) ?? TOOLS.tools[0];
   const detail = tool ? toolDetail(tool) : { calls: [], perDay: [] };
   const calls = hideSessions
     ? detail.calls.map((call) => ({ ...call, session_id: null, title: null }))
     : detail.calls;
-  const peak = detail.perDay.reduce(
-    (a, b) => (b.calls > a.calls ? b : a),
-    detail.perDay[0] ?? { date: "", calls: 0 },
-  );
-  const perDayTotal = detail.perDay.reduce((sum, d) => sum + d.calls, 0);
   const rail =
     tool && !screen.empty ? (
-      <DetailRail label="선택한 도구">
-        <DetailRailSection
-          title={
-            <Text as="span" mono className="text-body font-semibold leading-5">
-              {tool.name}
-            </Text>
-          }
-          description={TOOL_NOTE[tool.name]?.ko}
-        >
-          <KeyValueList
-            items={[
-              { label: "호출", value: `${nf.format(tool.calls)}번` },
-              { label: "총 시간", value: dur(tool.total_ms / 1000) },
-              {
-                label: "보통",
-                value:
-                  tool.median_ms >= 60000
-                    ? dur(tool.median_ms / 1000)
-                    : `${(tool.median_ms / 1000).toFixed(1)}초`,
-              },
-              {
-                label: "실패",
-                value: `${tool.failed}번 (${((100 * tool.failed) / tool.calls).toFixed(1)}%)`,
-              },
-            ].map((item) => ({
-              ...item,
-              value: <Value width="4rem">{item.value}</Value>,
-            }))}
-          />
-        </DetailRailSection>
-        <DetailRailSection title="일자별 호출" description="최근 14일">
-          {loading ? (
-            <Box chart height={RAIL_CHART_HEIGHT} />
-          ) : (
-            <BarChart
-              compact
-              data={detail.perDay.map((d) => ({ x: d.date, y: d.calls }))}
-              yMax={peak.calls}
-              label={`${tool.name} 일자별 호출, 최근 14일, 합계 ${nf.format(perDayTotal)}번, 가장 많은 날 ${monthDay(peak.date)} ${peak.calls}번`}
-              formatX={monthDay}
-            />
-          )}
-        </DetailRailSection>
-        <DetailRailSection
-          title="최근 호출"
-          actions={
-            <SegmentedControl
-              aria-label="호출 정렬"
-              value={callSort}
-              onValueChange={setCallSort}
-            >
-              <SegmentedControlItem value="recent">최근</SegmentedControlItem>
-              <SegmentedControlItem value="slowest">
-                느린 순
-              </SegmentedControlItem>
-            </SegmentedControl>
-          }
-        >
-          <ToolCalls
-            calls={loading ? undefined : calls}
-            loadingRows={calls.length}
-            timeZone="Asia/Seoul"
-          />
-        </DetailRailSection>
-      </DetailRail>
+      <ToolRail
+        name={tool.name}
+        tool={loading ? undefined : tool}
+        note={note(tool.name)}
+        perDay={loading ? undefined : detail.perDay}
+        calls={loading ? undefined : calls}
+        callSort={callSort}
+        onCallSortChange={setCallSort}
+        timeZone="Asia/Seoul"
+      />
     ) : undefined;
   return (
     <DetailLayout rail={rail}>
@@ -642,53 +550,35 @@ function Tools({
         aria-busy={loading || undefined}
         className="@container flex min-w-0 flex-col gap-8"
       >
-        {screen.empty ? null : loading ? (
-          // The summary sentence is one 24px line from about 40rem, two below.
-          <Skeleton
-            decorative
-            lines={2}
-            className="h-12 justify-around @min-[40rem]:h-6 @min-[40rem]:justify-center @min-[40rem]:[&>:nth-child(2)]:hidden"
+        {screen.empty ? null : (
+          <ToolsSummary
+            tools={loading ? undefined : TOOLS.tools}
+            period={`최근 ${screen.days}일`}
           />
-        ) : (
-          <ToolsSummary tools={tools} period={`최근 ${screen.days}일`} />
         )}
         <Section
           title="도구와 명령"
           badge={
             <Badge>
-              <Value width="0.75rem">{tools.length}</Value>
+              <Value width="0.75rem">
+                {screen.empty ? 0 : TOOLS.tools.length}
+              </Value>
             </Badge>
           }
         >
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-            <SegmentedControl
-              aria-label="정렬"
-              value={sort}
-              onValueChange={setSort}
-            >
-              <SegmentedControlItem value="calls">
-                많이 쓴 순
-              </SegmentedControlItem>
-              <SegmentedControlItem value="time">
-                오래 걸린 순
-              </SegmentedControlItem>
-              <SegmentedControlItem value="slow">느린 순</SegmentedControlItem>
-              <SegmentedControlItem value="failed">실패</SegmentedControlItem>
-            </SegmentedControl>
-            <SearchInput
-              aria-label="도구 찾기"
-              type="search"
-              placeholder="도구나 명령 찾기"
-              wrapperClassName="max-w-none flex-[1_1_100%] sm:ml-auto sm:w-60 sm:flex-none"
-            />
-          </div>
+          <ToolsFilter
+            sort={sort}
+            onSortChange={setSort}
+            onQueryChange={setQuery}
+          />
           <ToolTable
             tools={loading ? undefined : tools}
             label="도구와 명령"
             selected={selected}
             onSelect={setSelected}
-            describe={(name) => TOOL_NOTE[name]?.ko}
+            describe={hideNotes ? undefined : note}
             loadingRows={TOOLS.tools.length}
+            searched={query !== ""}
           />
         </Section>
       </div>
@@ -711,10 +601,12 @@ function OperationsScreen({
   tab,
   screen,
   hideSessions,
+  hideNotes,
 }: {
   readonly tab: Tab;
   readonly screen: ScreenData;
   readonly hideSessions?: boolean | undefined;
+  readonly hideNotes?: boolean | undefined;
 }) {
   return (
     <Loading.Provider value={screen.loading ?? false}>
@@ -728,7 +620,11 @@ function OperationsScreen({
           role={screen.role}
           flush
         >
-          <Tools screen={screen} hideSessions={hideSessions} />
+          <Tools
+            screen={screen}
+            hideSessions={hideSessions}
+            hideNotes={hideNotes}
+          />
         </ScreenShell>
       ) : (
         <ScreenShell
@@ -901,6 +797,13 @@ export const ToolsSelectRead: Story = {
 
 export const ToolsHiddenSessions: Story = {
   args: { tab: "tools", hideSessions: true },
+};
+/**
+ * The app until the notes have a source (94S-936): no note under a name, so
+ * every row is one line shorter, loading rows too.
+ */
+export const ToolsWithoutNotes: Story = {
+  args: { tab: "tools", hideNotes: true },
 };
 export const ToolsRailBelow1280: Story = {
   name: "Tools (768px, rail below)",

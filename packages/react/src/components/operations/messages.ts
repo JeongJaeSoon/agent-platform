@@ -143,6 +143,7 @@ export interface ToolTableMessages {
   readonly open: (name: string) => string;
   readonly callsMeter: (name: string) => string;
   readonly empty: string;
+  readonly noMatch: string;
   readonly loading: string;
 }
 
@@ -173,6 +174,39 @@ export interface ToolCallsMessages {
   readonly empty: string;
 }
 
+export type ToolSort = "calls" | "time" | "slow" | "failed";
+
+export interface ToolsFilterMessages {
+  readonly sort: string;
+  readonly by: Readonly<Record<ToolSort, string>>;
+  readonly search: string;
+  readonly placeholder: string;
+}
+
+export type ToolCallSort = "recent" | "slowest";
+
+export interface ToolRailMessages {
+  readonly label: string;
+  readonly calls: string;
+  readonly total: string;
+  readonly median: string;
+  readonly failed: string;
+  readonly callsValue: (calls: string) => string;
+  readonly failedValue: (failed: string, rate: string) => string;
+  readonly perDay: string;
+  readonly perDayNote: (days: number) => string;
+  readonly perDayChart: (parts: {
+    readonly name: string;
+    readonly days: number;
+    readonly total: string;
+    readonly peakDay: string;
+    readonly peak: string;
+  }) => string;
+  readonly recent: string;
+  readonly callSort: string;
+  readonly callSortBy: Readonly<Record<ToolCallSort, string>>;
+}
+
 export interface OperationsMessages {
   readonly format: OperationsFormat;
   readonly sessionCounts: SessionCountsMessages;
@@ -180,6 +214,8 @@ export interface OperationsMessages {
   readonly toolTable: ToolTableMessages;
   readonly toolsSummary: ToolsSummaryMessages;
   readonly toolCalls: ToolCallsMessages;
+  readonly toolsFilter: ToolsFilterMessages;
+  readonly toolRail: ToolRailMessages;
   readonly head: OperationsHeadMessages;
   readonly usageFilters: UsageFiltersMessages;
   readonly usageKpis: UsageKpisMessages;
@@ -305,6 +341,7 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         open: (name) => `${name} 자세히 보기`,
         callsMeter: (name) => `${name} 호출 비율`,
         empty: "이 기간에 불린 도구가 없습니다.",
+        noMatch: "찾는 이름의 도구가 없습니다.",
         loading: "도구 목록을 읽는 중",
       },
       toolsSummary: {
@@ -324,6 +361,33 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         outcome: { ok: "완료", failed: "실패", unknown: "결과 모름" },
         none: "—",
         empty: "이 기간에 부른 기록이 없습니다.",
+      },
+      toolsFilter: {
+        sort: "정렬",
+        by: {
+          calls: "많이 쓴 순",
+          time: "오래 걸린 순",
+          slow: "느린 순",
+          failed: "실패",
+        },
+        search: "도구 찾기",
+        placeholder: "도구나 명령 찾기",
+      },
+      toolRail: {
+        label: "선택한 도구",
+        calls: "호출",
+        total: "총 시간",
+        median: "보통",
+        failed: "실패",
+        callsValue: (calls) => `${calls}번`,
+        failedValue: (failed, rate) => `${failed}번 (${rate})`,
+        perDay: "일자별 호출",
+        perDayNote: (days) => `최근 ${days}일`,
+        perDayChart: ({ name, days, total, peakDay, peak }) =>
+          `${name} 일자별 호출, 최근 ${days}일, 합계 ${total}번, 가장 많은 날 ${peakDay} ${peak}번`,
+        recent: "최근 호출",
+        callSort: "호출 정렬",
+        callSortBy: { recent: "최근", slowest: "느린 순" },
       },
       head: {
         title: "운영",
@@ -444,6 +508,7 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         open: (name) => `${name} の詳細を見る`,
         callsMeter: (name) => `${name} の呼び出し比率`,
         empty: "この期間に呼ばれたツールはありません。",
+        noMatch: "その名前のツールはありません。",
         loading: "ツール一覧を読み込み中",
       },
       toolsSummary: {
@@ -463,6 +528,33 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         outcome: { ok: "完了", failed: "失敗", unknown: "結果不明" },
         none: "—",
         empty: "この期間の呼び出し記録はありません。",
+      },
+      toolsFilter: {
+        sort: "並べ替え",
+        by: {
+          calls: "呼び出し順",
+          time: "合計時間順",
+          slow: "遅い順",
+          failed: "失敗",
+        },
+        search: "ツールを検索",
+        placeholder: "ツールやコマンドを検索",
+      },
+      toolRail: {
+        label: "選択したツール",
+        calls: "呼び出し",
+        total: "合計時間",
+        median: "中央値",
+        failed: "失敗",
+        callsValue: (calls) => `${calls}回`,
+        failedValue: (failed, rate) => `${failed}回 (${rate})`,
+        perDay: "日別の呼び出し",
+        perDayNote: (days) => `直近${days}日`,
+        perDayChart: ({ name, days, total, peakDay, peak }) =>
+          `${name} の日別の呼び出し、直近${days}日、合計${total}回、最も多い日 ${peakDay} ${peak}回`,
+        recent: "最近の呼び出し",
+        callSort: "呼び出しの並べ替え",
+        callSortBy: { recent: "最近", slowest: "遅い順" },
       },
       head: {
         title: "運用",
@@ -584,6 +676,7 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         open: (name) => `Show ${name}`,
         callsMeter: (name) => `${name} share of calls`,
         empty: "No tools were called in this period.",
+        noMatch: "No tool has that name.",
         loading: "Loading tools",
       },
       toolsSummary: {
@@ -603,6 +696,33 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         outcome: { ok: "Done", failed: "Failed", unknown: "Unknown" },
         none: "—",
         empty: "No calls in this period.",
+      },
+      toolsFilter: {
+        sort: "Sort",
+        by: {
+          calls: "Most used",
+          time: "Most time",
+          slow: "Slowest",
+          failed: "Failed",
+        },
+        search: "Find a tool",
+        placeholder: "Find a tool or command",
+      },
+      toolRail: {
+        label: "Selected tool",
+        calls: "Calls",
+        total: "Total",
+        median: "Median",
+        failed: "Failed",
+        callsValue: (calls) => calls,
+        failedValue: (failed, rate) => `${failed} (${rate})`,
+        perDay: "Calls per day",
+        perDayNote: (days) => `Last ${days} days`,
+        perDayChart: ({ name, days, total, peakDay, peak }) =>
+          `${name} calls per day, last ${days} days, ${total} in all, most on ${peakDay} with ${peak}`,
+        recent: "Recent calls",
+        callSort: "Sort calls",
+        callSortBy: { recent: "Recent", slowest: "Slowest" },
       },
       head: {
         title: "Operations",
