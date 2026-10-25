@@ -1,7 +1,11 @@
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { PendingRequest, SessionSummary } from "@werft-ai/contracts";
+import {
+  type PendingRequest,
+  presentTurnEvent,
+  type SessionSummary,
+} from "@werft-ai/contracts";
 import { pendingRequestsQuery, waitingSessionsQuery } from "@werft-ai/core";
-import { Badge, cn, Skeleton } from "@werft-ai/ui";
+import { Badge, Button, cn, formatTimestamp, Skeleton } from "@werft-ai/ui";
 import {
   type ReactNode,
   useEffect,
@@ -10,8 +14,11 @@ import {
   useRef,
   useState,
 } from "react";
+import { turnSummaryText } from "../components/index.ts";
+import { useExpired } from "../components/session/expiry.ts";
 import { useMinute } from "../components/session/use-minute.ts";
 import { useAgentPlatform } from "../provider.tsx";
+import { PendingPanel } from "./pending-panel.tsx";
 import {
   type ApprovalLayout,
   focusLost,
@@ -46,6 +53,11 @@ export interface ApprovalInboxProps extends SessionActionProps {
    * first page: `count` is how many, with "+" when the page has more.
    */
   readonly more?: ((count: string) => ReactNode) | undefined;
+  /**
+   * Summary layout only: each line opens the session in a side panel, its
+   * timeline and its answers, instead of answering on the line.
+   */
+  readonly panel?: boolean | undefined;
 }
 
 // Framed like the list it stands in for, one placeholder per line at a
@@ -101,6 +113,7 @@ export function ApprovalInbox({
   now: givenNow,
   limit,
   more: moreLine,
+  panel = false,
 }: ApprovalInboxProps) {
   const { t } = useBlockText();
   const { client } = useAgentPlatform();
@@ -111,6 +124,10 @@ export function ApprovalInbox({
   const titleRef = useRef<HTMLHeadingElement>(null);
   const shownBefore = useRef<readonly string[]>([]);
   const [sent, setSent] = useState(false);
+  // Held here, not on the line: the panel stays open when an answer takes
+  // the session off the list.
+  const [opened, setOpened] = useState<SessionSummary | null>(null);
+  const openerRef = useRef<HTMLElement | null>(null);
 
   const sessions = waiting.data?.items ?? [];
   // The same reads each line makes, so the block knows which sessions still
@@ -208,6 +225,14 @@ export function ApprovalInbox({
               layout={layout}
               now={givenNow ?? now}
               onAnswered={() => setSent(true)}
+              onOpen={
+                panel && layout === "summary"
+                  ? (opener) => {
+                      openerRef.current = opener;
+                      setOpened(session);
+                    }
+                  : undefined
+              }
             />
           ))}
           {left > 0 && moreLine !== undefined ? (
@@ -249,6 +274,28 @@ export function ApprovalInbox({
         {action}
       </div>
       {body}
+      {panel ? (
+        <PendingPanel
+          session={opened}
+          onClose={() => setOpened(null)}
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            // The line that opened it may have left with its session.
+            const opener = openerRef.current;
+            (opener?.isConnected ? opener : titleRef.current)?.focus();
+          }}
+          renderError={renderError}
+          unavailable={unavailable}
+          refusal={refusal}
+          onAnswered={() => {
+            setSent(true);
+            void queryClient.invalidateQueries({
+              ...waitingSessionsQuery(client),
+              exact: true,
+            });
+          }}
+        />
+      ) : null}
     </section>
   );
 }
@@ -261,12 +308,15 @@ function WaitingSession({
   layout,
   now,
   onAnswered,
+  onOpen,
 }: SessionActionProps & {
   readonly session: SessionSummary;
   readonly renderError: ApprovalInboxProps["renderError"];
   readonly layout: ApprovalInboxProps["layout"];
   readonly now: number;
   readonly onAnswered: () => void;
+  /** Given, each line opens the side panel instead of answering. */
+  readonly onOpen?: ((opener: HTMLElement) => void) | undefined;
 }) {
   const { t } = useBlockText();
   const { renderLink, client } = useAgentPlatform();
@@ -324,7 +374,21 @@ function WaitingSession({
   if (pending.data?.items.length === 0) return null;
   return (
     <li className={cn("flex min-w-0 flex-col", summary ? null : "gap-2")}>
-      {pending.data ? (
+      {pending.data && onOpen ? (
+        <ul className="m-0 flex list-none flex-col divide-y p-0">
+          {pending.data.items.map((request) => (
+            <li key={request.request_id}>
+              <PanelLine
+                request={request}
+                heading={heading}
+                meta={meta(request)}
+                name={session.title ?? short}
+                onOpen={onOpen}
+              />
+            </li>
+          ))}
+        </ul>
+      ) : pending.data ? (
         <PendingAnswers
           sessionId={session.id}
           items={pending.data.items}
@@ -370,5 +434,83 @@ function WaitingSession({
         </div>
       )}
     </li>
+  );
+}
+
+/**
+ * A waiting request as one list line whose one action opens the side panel:
+ * what it asks or wants to run, and until when.
+ */
+function PanelLine({
+  request,
+  heading,
+  meta,
+  name,
+  onOpen,
+}: {
+  readonly request: PendingRequest;
+  readonly heading: ReactNode;
+  readonly meta: ReactNode;
+  /** The session as the button's accessible name says it. */
+  readonly name: string;
+  readonly onOpen: (opener: HTMLElement) => void;
+}) {
+  const { t, formatMessage, locale } = useBlockText();
+  const expired = useExpired(
+    request.request_id,
+    request.expires_at,
+    Date.now(),
+  );
+  const asks =
+    request.kind === "question"
+      ? request.questions[0]?.prompt
+      : turnSummaryText(
+          presentTurnEvent({
+            event: "question",
+            data: {
+              kind: "permission",
+              tool: request.tool,
+              input: request.input,
+            },
+          }).summary,
+          formatMessage,
+        );
+  return (
+    <div className="flex min-h-[var(--ap-row-min-height)] flex-wrap items-center justify-end gap-x-4 gap-y-2 px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)]">
+      <div className="flex min-w-0 flex-1 basis-60 flex-col gap-0.5">
+        <p className="m-0 flex min-w-0 items-center gap-2 font-medium text-control leading-5">
+          <span className="min-w-16 truncate">{heading}</span>
+          <Badge variant="amber" className="min-w-0 max-w-max shrink">
+            <span className="truncate">
+              {request.kind === "question"
+                ? t("session.pending.question")
+                : t("session.pending.permission", { tool: request.tool })}
+            </span>
+          </Badge>
+        </p>
+        {asks ? (
+          <p className="m-0 truncate text-control leading-5">{asks}</p>
+        ) : null}
+        <p className="m-0 text-caption text-muted-foreground leading-4 [overflow-wrap:anywhere]">
+          {meta}
+          <span aria-hidden="true"> · </span>
+          {expired
+            ? t("session.pending.expired")
+            : t("session.pending.expires", {
+                at: formatTimestamp(request.expires_at, locale),
+              })}
+        </p>
+      </div>
+      <Button
+        type="button"
+        variant="outline"
+        className="shrink-0"
+        aria-haspopup="dialog"
+        aria-label={t("inbox.detailFor", { session: name })}
+        onClick={(event) => onOpen(event.currentTarget)}
+      >
+        {t("inbox.detail")}
+      </Button>
+    </div>
   );
 }

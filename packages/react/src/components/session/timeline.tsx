@@ -1,5 +1,5 @@
 import type { TurnEventPart, TurnEventPresentation } from "@werft-ai/contracts";
-import { cn, formatTimestamp, type TimestampLocale } from "@werft-ai/ui";
+import { Badge, cn, formatTimestamp, type TimestampLocale } from "@werft-ai/ui";
 import {
   CircleDot,
   CircleX,
@@ -7,7 +7,7 @@ import {
   LoaderCircle,
   type LucideIcon,
 } from "lucide-react";
-import type { JSX } from "react";
+import type { JSX, ReactNode } from "react";
 
 import { Sparkles } from "../console-icons.ts";
 import { type FormatTurnMessage, turnSummaryText } from "./turn-text.ts";
@@ -18,6 +18,10 @@ export interface TimelineEntry {
   readonly turnId: string | null;
   /** presentTurnEvent's reading, with the tool call paired by the screen. */
   readonly presentation: TurnEventPresentation;
+  /** A question or permission event's request, for the `request` slot. */
+  readonly requestId?: string | undefined;
+  /** What a question offers to choose from, shown under its line. */
+  readonly options?: readonly string[] | undefined;
 }
 
 /** Who or what an event came from; each has its own icon. */
@@ -30,6 +34,8 @@ export interface TimelineMessages {
   readonly connecting: string;
   readonly closed: string;
   readonly turn: (turnId: string) => string;
+  /** Names a question's list of options. */
+  readonly options?: string | undefined;
   /** Names each icon; without it the icons stay hidden from screen readers. */
   readonly kind?: ((kind: TimelineKind) => string) | undefined;
 }
@@ -89,6 +95,11 @@ export interface TimelineProps {
   readonly showDebug?: boolean | undefined;
   readonly locale?: TimestampLocale | undefined;
   readonly className?: string | undefined;
+  /**
+   * Drawn under a request's line, such as its answer form while it waits;
+   * null leaves the line as it is, with a question's options listed.
+   */
+  readonly request?: ((requestId: string) => ReactNode) | undefined;
 }
 
 interface TimelineRow extends TimelineEntry {
@@ -145,6 +156,7 @@ export function Timeline({
   showDebug = false,
   locale = "ko",
   className,
+  request,
 }: TimelineProps): JSX.Element {
   const rows = timelineRows(entries, showDebug);
   return (
@@ -182,6 +194,7 @@ export function Timeline({
               formatMessage={formatMessage}
               messages={messages}
               locale={locale}
+              request={request}
             />
           ))}
         </ol>
@@ -195,11 +208,13 @@ function TimelineItem({
   formatMessage,
   messages,
   locale,
+  request,
 }: {
   readonly row: TimelineRow;
   readonly formatMessage: FormatTurnMessage;
   readonly messages: TimelineMessages;
   readonly locale: TimestampLocale;
+  readonly request: TimelineProps["request"];
 }): JSX.Element {
   const { presentation } = row;
   const error = presentation.error === true;
@@ -211,6 +226,9 @@ function TimelineItem({
     "min-w-0 text-control leading-[1.5] [overflow-wrap:anywhere]",
     error && "text-destructive",
   );
+  const slot =
+    row.requestId === undefined ? null : (request?.(row.requestId) ?? null);
+  const options = row.options ?? [];
   return (
     <li
       data-error={error || undefined}
@@ -250,6 +268,23 @@ function TimelineItem({
         ) : (
           <span className={summaryClass}>{summary}</span>
         )}
+        {slot ??
+          (options.length === 0 ? null : (
+            <ul
+              aria-label={messages.options}
+              className="m-0 flex list-none flex-wrap gap-1.5 p-0"
+            >
+              {options.map((option, index) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: labels may repeat; the position tells them apart
+                <li key={index} className="max-w-full">
+                  {/* A long option wraps inside the badge, never past the row. */}
+                  <Badge className="h-auto min-h-5 max-w-full whitespace-normal [overflow-wrap:anywhere]">
+                    {option}
+                  </Badge>
+                </li>
+              ))}
+            </ul>
+          ))}
       </div>
     </li>
   );

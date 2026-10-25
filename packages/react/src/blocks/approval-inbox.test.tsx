@@ -73,6 +73,7 @@ function renderInbox({
   body,
   stale = false,
   hold = false,
+  events = [],
 }: {
   open: PendingRequest[];
   layout?: ApprovalLayout;
@@ -86,6 +87,8 @@ function renderInbox({
   stale?: boolean;
   /** Answers never come back, as a slow server's. */
   hold?: boolean;
+  /** The session's event stream, held open after these frames. */
+  events?: (readonly [event: string, data: unknown])[];
 }) {
   const posted: Posted[] = [];
   let waitingReads = 0;
@@ -112,6 +115,32 @@ function renderInbox({
     }
     if (route === `GET /v1/sessions/${SESSION_ID}/pending-requests`) {
       return json(200, { answerable, items });
+    }
+    if (url.pathname === `/v1/sessions/${SESSION_ID}/events`) {
+      const frames = events
+        .map(
+          ([event, data], index) =>
+            `id: ev_${index + 1}\nevent: ${event}\ndata: ${JSON.stringify({
+              schema_version: 1,
+              session_id: SESSION_ID,
+              turn_id: "1",
+              attempt_id: null,
+              occurred_at: "2026-10-21T00:59:00.000Z",
+              data,
+            })}\n\n`,
+        )
+        .join("");
+      const body = new ReadableStream<Uint8Array>({
+        start: (controller) => {
+          controller.enqueue(new TextEncoder().encode(frames));
+          request.signal.addEventListener("abort", () =>
+            controller.error(new DOMException("aborted", "AbortError")),
+          );
+        },
+      });
+      return new Response(body, {
+        headers: { "content-type": "text/event-stream" },
+      });
     }
     if (route === `POST /v1/sessions/${SESSION_ID}/answers`) {
       const body = JSON.parse(await request.text()) as {
@@ -439,5 +468,93 @@ describe("ApprovalInbox", () => {
       interval.mockRestore();
       setSystemTime();
     }
+  });
+
+  test("패널 배치는 줄마다 상세 보기 하나를 두고, 오른쪽 패널의 타임라인 질문 행에서 답한다", async () => {
+    const user = await setupUser();
+    const view = renderInbox({
+      open: [QUESTION],
+      layout: "summary",
+      title: "Fix README",
+      extra: { panel: true },
+      events: [
+        [
+          "question",
+          {
+            request_id: "req_q",
+            tool_use_id: "tu_1",
+            kind: "question",
+            tool: "AskUserQuestion",
+            input: {
+              questions: QUESTION.kind === "question" ? QUESTION.questions : [],
+            },
+          },
+        ],
+        ["error", { message: "No input for 1802s" }],
+      ],
+    });
+    const opener = await view.findByRole("button", {
+      name: "View details of Fix README",
+    });
+    // The line answers nothing itself.
+    expect(view.queryByRole("button", { name: "Answer" })).toBeNull();
+    expect(view.getByText("Which branch?").className).toContain("truncate");
+    await user.click(opener);
+    const panel = await view.findByRole("dialog", { name: "Fix README" });
+    // The question's line says what it asks, not the tool's name, and its
+    // form sits right under it.
+    const timeline = await waitFor(() => {
+      const list = panel.querySelector("ol");
+      expect(list?.textContent).toContain("Which branch?");
+      return list as HTMLOListElement;
+    });
+    expect(timeline.textContent).not.toContain("AskUserQuestion");
+    await waitFor(() =>
+      expect(
+        timeline.querySelector(
+          "[data-kind='request'] [data-slot='question-card']",
+        ),
+      ).toBeTruthy(),
+    );
+    expect(timeline.textContent).toContain(
+      "Stopped after 30 minutes with no input",
+    );
+    expect(timeline.querySelector("details")?.textContent).toContain(
+      "No input for 1802s",
+    );
+    await user.click(view.getByRole("radio", { name: "dev" }));
+    await user.click(view.getByRole("button", { name: "Send answer" }));
+    await waitFor(() => expect(view.posted).toHaveLength(1));
+    expect(view.posted[0]?.body).toEqual({
+      request_id: "req_q",
+      kind: "question",
+      answers: [{ question_id: "q1", selected_option_ids: ["dev"] }],
+    });
+    // The panel stays while the session leaves the list behind it.
+    await waitFor(() => expect(panel.textContent).toContain("Answer sent."));
+    expect(view.getByRole("dialog")).toBe(panel);
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
+    // Its line left with the session: the keyboard goes to the heading.
+    await waitFor(() => expect(document.activeElement?.tagName).toBe("H2"));
+  });
+
+  test("패널은 Esc로 닫히면 연 버튼으로 키보드를 돌려준다", async () => {
+    const user = await setupUser();
+    const view = renderInbox({
+      open: [permission("req_1", "Bash")],
+      layout: "summary",
+      extra: { panel: true },
+    });
+    const opener = await view.findByRole("button", {
+      name: `View details of ${SHORT}`,
+    });
+    expect(view.getByText("Bash: ls")).toBeTruthy();
+    await user.click(opener);
+    await view.findByRole("dialog");
+    expect(document.activeElement?.closest("[role='dialog']")).toBeTruthy();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(document.activeElement === opener).toBe(true));
   });
 });

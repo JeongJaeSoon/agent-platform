@@ -629,6 +629,7 @@ export function HomeScreen() {
         {checklistShown ? <Checklist steps={steps} /> : null}
         <ApprovalInbox
           layout="summary"
+          panel
           title={t("home.requests.title")}
           action={
             <ArrowLink to="/sessions" search={{ status: "needs_input" }}>
