@@ -78,6 +78,13 @@ export type ExecutionObservation = {
   providerRef: string | null;
   observedAt: Date;
   exitCode?: number;
+  /** Why a terminated resource ended, as the provider names it (`OOMKilled`). */
+  terminationReason?: string;
+  /**
+   * The bounded end of a failed resource's output, read before anything
+   * removes it. Only logged: it may carry whatever the worker printed.
+   */
+  logTail?: string;
   /**
    * The resource exists but was created under an older isolation contract,
    * so it does not have the guarantees this control host now promises. The

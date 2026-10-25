@@ -286,6 +286,8 @@ jobs:
               - file: packages/adapters/execution/kubernetes/src/backend.integration.test.ts
                 test: "a delete conditioned on the replaced Pod's UID leaves the replacement running"
               - file: packages/adapters/execution/kubernetes/src/backend.integration.test.ts
+                test: "a failed worker reports its exit, reason and log tail"
+              - file: packages/adapters/execution/kubernetes/src/backend.integration.test.ts
                 test: "terminating one generation leaves the next generation's Pod untouched"
               - file: packages/adapters/execution/kubernetes/src/backend.integration.test.ts
                 test: "the nonce is in the Pod's own Secret only, never in the Pod"

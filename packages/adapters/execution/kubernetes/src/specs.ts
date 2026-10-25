@@ -69,7 +69,7 @@ export const ENV = {
 
 /** The key in the nonce Secret the worker's env reads. */
 export const NONCE_KEY = "nonce";
-const CONTAINER_NAME = "worker";
+export const CONTAINER_NAME = "worker";
 
 export const NO_PROXY_VALUE = "localhost,127.0.0.1,::1";
 
@@ -133,6 +133,7 @@ export function isolationStampFor(
     config.workerServiceAccount,
     config.stopTimeoutSeconds,
     config.workerLimits ?? null,
+    config.ephemeralStorageBytes,
   ]);
   const digest = createHash("sha256").update(shape).digest("hex").slice(0, 16);
   return `${ISOLATION_CONTRACT}:${digest}`;
@@ -227,6 +228,7 @@ export function podFor(
   }
   const resources = {
     cpu: cpuQuantity(cpus),
+    "ephemeral-storage": String(config.ephemeralStorageBytes),
     memory: String(memoryBytes),
   };
   const [uid, gid = uid] = config.user.split(":").map(Number);
