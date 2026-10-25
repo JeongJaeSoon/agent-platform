@@ -19,7 +19,6 @@ export const TOOL_RAIL_CALLS = 7;
 /** The days the chart draws, the period's last. */
 export const TOOL_RAIL_DAYS = 14;
 
-// BarChart compact's rendered height, x labels included.
 const CHART_HEIGHT = "5.25rem";
 
 const monthDay = (date: string) =>

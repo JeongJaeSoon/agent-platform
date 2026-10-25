@@ -146,7 +146,6 @@ function Value({
   );
 }
 
-// BarChart's rendered height, x labels included.
 const BAR_CHART_HEIGHT = "11.25rem";
 
 // A block skeleton is at least 4rem; shorter boxes center a text bar.

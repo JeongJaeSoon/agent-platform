@@ -17,7 +17,6 @@ const SORT_KEY: Readonly<Record<ToolSort, keyof UsageTool>> = {
   failed: "failed",
 };
 
-/** The search waits this long after the last keystroke. */
 export const TOOL_SEARCH_DEBOUNCE_MS = 200;
 
 /** `tools` by the chosen figure, largest first; ties keep the API's order. */
@@ -48,7 +47,6 @@ export interface ToolsFilterProps {
   readonly messages?: Partial<ToolsFilterMessages> | undefined;
 }
 
-/** The tools table's sort and search, over the table. */
 export function ToolsFilter({
   sort,
   onSortChange,

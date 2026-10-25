@@ -21,8 +21,7 @@ export function ToolsSummary({
 }: ToolsSummaryProps): JSX.Element {
   const { messages, format } = useOperationsMessages("toolsSummary", override);
   if (tools === undefined) {
-    // The sentence is one 24px line from about 40rem of its container (the
-    // host's @container), two below.
+    // One line from about 40rem of the host's @container, two below.
     return (
       <Skeleton
         decorative
@@ -42,8 +41,7 @@ export function ToolsSummary({
     rate: format.percent(failed, calls),
   });
   return (
-    // At least the placeholder's lines, so a short sentence does not pull the
-    // table up when it comes.
+    // As tall as the placeholder, so a short sentence does not pull the table up.
     <p
       data-slot="tools-summary"
       className="m-0 min-h-12 text-body leading-6 @min-[40rem]:min-h-6"

@@ -39,7 +39,6 @@ export function Findings({
         {Array.from({ length: loadingRows }, (_, row) => row).map((row) => (
           <RowListItem key={row} className="min-h-16 flex-nowrap">
             <Skeleton decorative shape="circle" className="size-6" />
-            {/* A finding's two lines, so the row is as tall at any padding. */}
             <div className="min-w-0 flex-1">
               <p className="m-0">
                 <Skeleton inline decorative width="60%" height="1lh" />

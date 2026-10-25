@@ -241,8 +241,6 @@ describe("ToolTable loading", () => {
     expect(queryByText("도구 목록을 읽는 중")).toBeNull();
   });
 
-  // The rows keep their height when the tools come only while the loading
-  // rows draw the lines a tool row has: no note line without `describe`.
   test("describe가 없으면 읽는 중 행도 설명 줄이 없어 도구 행과 줄 수가 같다", () => {
     const lines = (tools: typeof TOOLS | undefined) => {
       const { container, unmount } = withPlatform(
@@ -259,7 +257,6 @@ describe("ToolTable loading", () => {
       unmount();
       return count;
     };
-    // A name and a meter.
     expect(lines(undefined)).toBe(2);
     expect(lines(TOOLS)).toBe(2);
   });
@@ -332,7 +329,6 @@ describe("tools tab loading", () => {
     expect(
       [...container.querySelectorAll("dd")].map((dd) => dd.textContent),
     ).toEqual(["1,840번", "3시간 42분", "3.1초", "21번 (1.1%)"]);
-    // The last 14 of 20 days: 6..19.
     expect(getByRole("img").getAttribute("aria-label")).toBe(
       "Bash 일자별 호출, 최근 14일, 합계 175번, 가장 많은 날 10/24 19번",
     );
@@ -468,7 +464,6 @@ describe("ToolCalls", () => {
     expect(rows).toEqual([
       "PR #813 리뷰리뷰 봇 · 21:39—결과 모름",
       "볼 수 없는 세션배포 도우미 · 21:3641.2초완료",
-      // No agent: the time alone, no separator left before it.
       "릴리스 노트 초안21:313.4초실패",
     ]);
   });

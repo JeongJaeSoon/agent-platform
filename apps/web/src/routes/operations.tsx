@@ -93,7 +93,6 @@ function useUsageFilters() {
   };
 }
 
-/** GET /v1/usage/tools; the overview's findings and the tools tab share it. */
 function usageToolsQuery(
   client: ApiClient,
   scope: UsageSummaryScope,
@@ -120,7 +119,6 @@ function usageToolsQuery(
   });
 }
 
-/** One page of a tool's calls, with its calls per day. */
 function usageToolCallsQuery(
   client: ApiClient,
   name: string,
@@ -182,8 +180,8 @@ const TAB_PATHS: Readonly<Record<OperationsTab, string>> = {
 
 function useCurrentTab() {
   const operator = useHasPermission("usage.installation_read");
-  // The shell's frame follows the screen on show; the head moves with it.
   const pathname = useRouterState({
+    // The screen on show, not the one still loading: the head moves with it.
     select: (s) => (s.resolvedLocation ?? s.location).pathname,
   });
   const tabs: OperationsTab[] = ["overview", "tools"];
@@ -211,14 +209,11 @@ function MenuHead() {
   );
 }
 
-/**
- * The menu's head and tabs over the tab shown. The tools tab has a rail, so
- * it lays out its own body and draws the head inside it.
- */
 export function OperationsLayout() {
   const { current } = useCurrentTab();
   return (
     <>
+      {/* The tools tab has a rail, so it draws the head inside its own body. */}
       {current === "tools" ? null : <MenuHead />}
       <Outlet />
     </>
@@ -344,7 +339,6 @@ export function OperationsOverviewScreen() {
   );
 }
 
-/** The tool table and, for the tool picked, the rail. */
 export function OperationsToolsScreen() {
   const { t } = useI18n();
   const { client } = useAgentPlatform();
@@ -361,7 +355,6 @@ export function OperationsToolsScreen() {
   const [picked, setPicked] = useState<string>();
   const [callSort, setCallSort] = useState<ToolCallSort>("recent");
   const rows = tools.data?.tools;
-  // The tool picked while the period still has it, else the most called.
   const tool = rows?.find((row) => row.name === picked) ?? rows?.[0];
   const calls = useQuery({
     ...usageToolCallsQuery(
@@ -374,8 +367,6 @@ export function OperationsToolsScreen() {
       callSort,
     ),
     enabled: tool !== undefined,
-    // Another sort or period of the same tool keeps its calls in view;
-    // another tool's would be wrong under this name.
     placeholderData: (previous, previousQuery) =>
       previousQuery?.queryKey[1] === tool?.name ? previous : undefined,
     staleTime: USAGE_STALE_MS,

@@ -353,7 +353,6 @@ describe("운영", () => {
     expect(within(rail).getByRole("heading", { name: "Bash" })).toBeTruthy();
     const items = await within(rail).findAllByRole("listitem");
     expect(items.map((item) => item.textContent)).toEqual([
-      // The viewer's zone, UTC here.
       "Bash 리뷰리뷰 봇 · 12:39—결과 모름",
       "볼 수 없는 세션배포 도우미 · 12:3641.2초완료",
       "에이전트 없는 세션12:313.4초실패",
@@ -366,7 +365,6 @@ describe("운영", () => {
       "/sessions/11111111-1111-4111-8111-111111111111",
       "/sessions/22222222-2222-4222-8222-222222222222",
     ]);
-    // The chart draws the period's last 14 days.
     expect(
       within(rail)
         .getByRole("img", { name: /^Bash 일자별 호출/ })
@@ -416,7 +414,6 @@ describe("운영", () => {
       ).toEqual(["WebFetch", "Bash", "Edit", "Read"]),
     );
     await user.type(screen.getByRole("searchbox", { name: "도구 찾기" }), "ed");
-    // The table keeps every row until typing stops, then shows the matches.
     expect(within(table).getAllByRole("row")).toHaveLength(5);
     await waitFor(() =>
       expect(

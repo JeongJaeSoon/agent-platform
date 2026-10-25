@@ -12,7 +12,6 @@ export interface OperationsSearch {
 }
 
 export interface OperationsToolsSearch extends OperationsSearch {
-  /** Narrows the tools tab to one agent's sessions. */
   readonly agent_id?: string;
 }
 
