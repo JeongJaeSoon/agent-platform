@@ -451,8 +451,17 @@ function Overview({ screen }: { readonly screen: ScreenData }) {
           {loading ? (
             <RowList variant="joined" aria-hidden="true">
               {TOOLS.findings.map(({ kind }) => (
-                <RowListItem key={kind} className="min-h-16">
-                  <Skeleton width="60%" lines={2} />
+                <RowListItem key={kind} className="min-h-16 flex-nowrap">
+                  <Skeleton decorative shape="circle" className="size-6" />
+                  {/* Findings' two lines, so the row is as tall at any padding. */}
+                  <div className="min-w-0 flex-1">
+                    <p className="m-0">
+                      <Skeleton inline decorative width="60%" height="1lh" />
+                    </p>
+                    <p className="m-0 text-caption leading-4">
+                      <Skeleton inline decorative width="40%" height="1lh" />
+                    </p>
+                  </div>
                 </RowListItem>
               ))}
             </RowList>
@@ -888,7 +897,7 @@ function Limits({ limits = LIMITS }: { readonly limits?: typeof LIMITS }) {
               <GridTableRow key={item}>
                 <GridTableCell>{item}</GridTableCell>
                 <GridTableCell className="tabular-nums">
-                  <Value>{now}</Value>
+                  {now === perSession ? now : <Value>{now}</Value>}
                 </GridTableCell>
                 <GridTableCell className="tabular-nums">
                   <Value>{limit}</Value>
