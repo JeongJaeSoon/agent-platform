@@ -205,6 +205,8 @@ type Turn = {
 
 const CLAIM_RETRY_MS = 1_000;
 const GATEWAY_RETRY_MS = 500;
+const CHECKPOINT_PROCESS_GRACE_MS = 1_000;
+const CHECKPOINT_PROCESS_POLL_MS = 20;
 /** How long an interrupted engine gets to produce its terminal frame. */
 const INTERRUPT_GRACE_MS = 5_000;
 /**
@@ -1880,10 +1882,19 @@ export class WorkerHost {
     const { lease, preparation: runPreparation } = await run.leaseCheckpoint();
     let ref: CheckpointRef | null;
     try {
-      const descendants =
+      const deadline = performance.now() + CHECKPOINT_PROCESS_GRACE_MS;
+      let descendants =
         runPreparation.status === "ready"
           ? ((await this.options.engines?.descendants?.()) ?? [])
           : [];
+      // Startup helpers may briefly outlive the terminal frame. Keep the lease
+      // while waiting, and refuse any process still present at the deadline.
+      while (descendants.length > 0) {
+        const remaining = deadline - performance.now();
+        if (remaining <= 0) break;
+        await this.sleep(Math.min(CHECKPOINT_PROCESS_POLL_MS, remaining));
+        descendants = (await this.options.engines?.descendants?.()) ?? [];
+      }
       const preparation: CheckpointPreparation =
         descendants.length === 0
           ? runPreparation
