@@ -183,6 +183,7 @@ function RailBody({
                 (request) => request.request_id === requestId,
               )}
               answerable={pending.data.answerable}
+              status={status}
               showEmpty={false}
               unavailable={unavailable}
               refusal={refusal}
