@@ -1270,11 +1270,12 @@ describe("홈 요약", () => {
     ])(
       "admin 카드는 %s 미계측 그대로이고 0을 만들지 않는다",
       async (_, agents) => {
-        const { card, api } = await agentCardOf("admin", agents);
+        const { card, services } = await agentCardOf("admin", agents);
         await waitFor(() =>
-          expect(api.calls.some((c) => c.path === "/v1/agents")).toBe(true),
+          expect(
+            services.queryClient.getQueryState(queryKeys.agents)?.status,
+          ).not.toBe("pending"),
         );
-        await Bun.sleep(50);
         expect(card()?.value).toBe("—미계측");
         expect(card()?.rows).toEqual([
           ["작업 중", "—미계측"],
@@ -1283,6 +1284,29 @@ describe("홈 요약", () => {
         ]);
       },
     );
+
+    test("다시 읽기가 실패하면 앞서 읽은 summary를 보이지 않는다", async () => {
+      let fails = false;
+      const { card, services } = await agentCardOf("admin", () =>
+        fails
+          ? apiError(500, "INTERNAL", "boom")
+          : json(200, {
+              items: [{ ...agent, summary: summary([], []) }],
+              next_cursor: null,
+            }),
+      );
+      await waitFor(() => expect(card()?.value).toBe("2"));
+      fails = true;
+      await act(() =>
+        services.queryClient.refetchQueries({ queryKey: queryKeys.agents }),
+      );
+      await waitFor(() => expect(card()?.value).toBe("—미계측"));
+      expect(card()?.rows).toEqual([
+        ["작업 중", "—미계측"],
+        ["최근 7일 세션", "—미계측"],
+        ["자격 증명", "—미계측"],
+      ]);
+    });
 
     test("목록을 읽을 수 없는 구성원 관리자 카드는 미계측이고 목록을 부르지 않는다", async () => {
       const { card, api } = await agentCardOf("member", () =>

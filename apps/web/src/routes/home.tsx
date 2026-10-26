@@ -568,10 +568,10 @@ export function HomeScreen() {
   );
   const agentCard = (agent: Agent) => {
     // Only a workspace manager may list agents; an agent's own admin gets
-    // no summary and keeps "not measured".
-    const summary = agents.data?.items.find(
-      (item) => item.id === agent.id,
-    )?.summary;
+    // no summary and keeps "not measured". A failed refetch keeps its old
+    // data, which must not pass for the current figures.
+    const listed = managesAgents && !agents.isError ? agents.data : undefined;
+    const summary = listed?.items.find((item) => item.id === agent.id)?.summary;
     return (
       <GlanceCard
         key={agent.id}
