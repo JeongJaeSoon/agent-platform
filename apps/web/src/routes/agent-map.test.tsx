@@ -138,6 +138,28 @@ describe("/sessions/map", () => {
     expect(strip.textContent).toContain("답변 대기 1");
   });
 
+  test("more waiting sessions than one page read as the badge does, with a plus", async () => {
+    const waiting = Array.from({ length: 50 }, (_, i) =>
+      summary(i + 1, { status: "needs_input" }),
+    );
+    renderAt("/sessions/map", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/sessions": () =>
+        json(200, { items: waiting, next_cursor: "older" }),
+      "GET /v1/sessions?status=needs_input": () =>
+        json(200, { items: waiting, next_cursor: "older" }),
+    });
+    const strip = await screen.findByRole("region", {
+      name: "내 답변을 기다리는 요청",
+    });
+    expect(strip.querySelector("h2")?.textContent).toStartWith(
+      "답변 대기 50+ ·",
+    );
+    expect(screen.getAllByText("답변 대기 50개 이상").length).toBeGreaterThan(
+      0,
+    );
+  });
+
   test("a waiting session whose requests fail to read still stands on the strip", async () => {
     const hidden = summary(0, { title: "창 밖의 질문", status: "needs_input" });
     renderAt("/sessions/map", {
