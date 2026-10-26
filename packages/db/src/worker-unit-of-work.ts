@@ -42,7 +42,6 @@ import {
   payloadHash,
   type ReadyInput,
   type ReadyResult,
-  type RegisterLaunchInput,
   type ReleaseInput,
   type ReleaseResult,
   type RepositoryPair,
@@ -1155,23 +1154,6 @@ export function createPostgresWorkerUnitOfWork(
   options: { logger?: StructuredLogger } = {},
 ): WorkerUnitOfWork {
   return {
-    async registerLaunchAtomic(input: RegisterLaunchInput) {
-      const inserted = await db
-        .insert(workerLaunches)
-        .values({
-          executionId: input.executionId,
-          generation: input.generation,
-          partition: input.partition,
-          sessionId: input.sessionId,
-          backend: input.backend,
-          nonceHash: input.nonceHash,
-          nonceExpiresAt: fromDbNow(input.nonceTtlMs),
-        })
-        .onConflictDoNothing({ target: workerLaunches.executionId })
-        .returning({ executionId: workerLaunches.executionId });
-      return { outcome: inserted.length === 1 ? "registered" : "exists" };
-    },
-
     claimAtomic(input: ClaimInput): Promise<ClaimResult> {
       return db.transaction(async (tx) => {
         const [launch] = await tx
@@ -3122,21 +3104,6 @@ export function createPostgresWorkerUnitOfWork(
         }
         return result;
       });
-    },
-
-    async countReservedSlots(partition?: string): Promise<number> {
-      const [row] = await db
-        .select({ reserved: count() })
-        .from(workerLaunches)
-        .where(
-          and(
-            isNull(workerLaunches.slotReleasedAt),
-            partition === undefined
-              ? undefined
-              : eq(workerLaunches.partition, partition),
-          ),
-        );
-      return row?.reserved ?? 0;
     },
   };
 }
