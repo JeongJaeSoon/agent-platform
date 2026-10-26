@@ -11,7 +11,7 @@ describe("exitCodeFor", () => {
     ["idle", 0],
     ["paused", 0],
     ["unclaimed", 0],
-    ["lease_lost", 1],
+    ["lease_lost", 75],
     ["failed", 1],
   ] as const)("reports %s as exit code %d", (outcome, code) => {
     expect(exitCodeFor({ outcome, reason: "because", turns: [] })).toBe(code);

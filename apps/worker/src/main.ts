@@ -1,4 +1,5 @@
 import { lstat, mkdir } from "node:fs/promises";
+import { WORKER_EXIT_LEASE_LOST } from "@werft-ai/contracts";
 
 import { createWorkerHost } from "./composition.ts";
 import { type WorkerEnvironment, workerConfigFromEnv } from "./config.ts";
@@ -55,9 +56,8 @@ export async function verifyWorkspace(directory: string): Promise<void> {
 
 /** Non-zero only when the session was left in a state somebody has to resolve. */
 export function exitCodeFor(summary: WorkerRunSummary): number {
-  return summary.outcome === "failed" || summary.outcome === "lease_lost"
-    ? 1
-    : 0;
+  if (summary.outcome === "lease_lost") return WORKER_EXIT_LEASE_LOST;
+  return summary.outcome === "failed" ? 1 : 0;
 }
 
 if (import.meta.main) {

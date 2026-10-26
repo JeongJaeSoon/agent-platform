@@ -370,11 +370,15 @@ export interface SchedulerStore {
    * speaks for the launch whatever it runs now, which only a kill intent
    * may. `deferred` is the pending replacement above; a launch asked to go
    * is never deferred, since it is killed rather than rebuilt.
+   *
+   * `endReason` is what the attempts it ends record, when the exit said more
+   * than that the execution is gone.
    */
   confirmExecutionGone(
     executionId: string,
     now: Date,
     incarnation: ExecutionIncarnation | null,
+    endReason?: string,
   ): Promise<"confirmed" | "deferred" | "superseded">;
   /**
    * The row's kill intent as it stands now, not as the pass's snapshot had
