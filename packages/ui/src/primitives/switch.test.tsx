@@ -157,6 +157,17 @@ describe("Switch", () => {
     );
   });
 
+  test("켜짐·꺼짐 모두 포인터를 올리면 트랙 색이 바뀐다", () => {
+    const { getByRole } = render(<Switch aria-label="게스트 허용" />);
+    const classes = getByRole("switch").className.split(" ");
+    expect(classes).toContain(
+      "data-[state=unchecked]:enabled:hover:bg-subtle-foreground",
+    );
+    expect(classes).toContain(
+      "data-[state=checked]:enabled:hover:bg-control-checked/80",
+    );
+  });
+
   test("저장 중(aria-disabled)에만 thumb 안에 스피너가 돈다", () => {
     const { container, rerender } = render(
       <Switch aria-label="게스트 허용" defaultChecked={true} />,

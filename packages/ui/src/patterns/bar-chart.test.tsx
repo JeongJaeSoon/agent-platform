@@ -94,6 +94,20 @@ describe("BarChart", () => {
     }
   });
 
+  test("포인터가 고른 막대는 보고 안 된 날도 진하게 바뀌고 차트는 손가락 커서다", () => {
+    const { container, getAllByRole } = render(<Chart />);
+    const plot = container.querySelector(
+      "[data-slot=bar-chart-plot]",
+    ) as HTMLElement;
+    expect(plot.className.split(" ")).toContain("cursor-pointer");
+    const partial = getAllByRole("button")[13] as HTMLElement;
+    expect(partial.dataset.partial).toBe("true");
+    const mark = partial.firstElementChild as HTMLElement;
+    expect(mark.className.split(" ")).toContain(
+      "group-data-active:[--ap-chart-mark:var(--ap-chart-mark-active)]",
+    );
+  });
+
   test("Escape는 포인터나 포커스를 옮기지 않고 툴팁을 닫는다", async () => {
     const user = await setupUser();
     const { container, getAllByRole, getByRole } = render(<Chart />);
