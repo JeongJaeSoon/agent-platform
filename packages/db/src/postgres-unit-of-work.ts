@@ -844,6 +844,15 @@ export function createPostgresSessionReader(
           and(
             sessionFilter(ownerId, query, viewer),
             query.status ? publicStatusIs(query.status) : undefined,
+            query.agent_id
+              ? inArray(
+                  sessions.agentReleaseId,
+                  db
+                    .select({ id: agentReleases.id })
+                    .from(agentReleases)
+                    .where(eq(agentReleases.agentId, query.agent_id)),
+                )
+              : undefined,
             cursor
               ? sql`(${sessions.createdAt}, ${sessions.id}) < (${cursor.created_at}::timestamptz, ${cursor.id}::uuid)`
               : undefined,

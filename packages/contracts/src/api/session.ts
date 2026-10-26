@@ -533,6 +533,10 @@ export const listSessionsQuerySchema = paginationQuerySchema
       description:
         "Filters on the status each item reports, needs_input included as derived when read.",
     }),
+    agent_id: agentIdSchema.optional().meta({
+      description:
+        "Keeps the sessions created for this agent, whichever of its releases they are pinned to. An agent with no session the caller can read, or no such agent, gives an empty page.",
+    }),
   })
   .extend(sessionFilterQuerySchema.shape);
 export const listSessionsResponseSchema = pageSchema(sessionSummarySchema);
