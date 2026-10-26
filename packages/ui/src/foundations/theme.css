@@ -82,4 +82,40 @@
   ::before {
     border-color: var(--ap-color-border);
   }
+
+  /*
+   * Tailwind 4's preflight leaves <button> on the arrow cursor (Console.dc.html
+   * has `button{cursor:pointer}`). Zero specificity, so a part's own cursor
+   * utility, such as a busy Switch's `cursor-progress`, still wins.
+   */
+  :where(
+      button,
+      [role="button"],
+      [role="tab"],
+      [role="switch"],
+      [role="radio"],
+      [role="checkbox"],
+      [role="menuitem"],
+      [role="menuitemradio"],
+      [role="menuitemcheckbox"],
+      summary,
+      select
+    ):where(:not(:disabled, [aria-disabled="true"])) {
+    cursor: pointer;
+  }
+  :where(
+      button,
+      [role="button"],
+      [role="tab"],
+      [role="switch"],
+      [role="radio"],
+      [role="checkbox"],
+      [role="menuitem"],
+      [role="menuitemradio"],
+      [role="menuitemcheckbox"],
+      summary,
+      select
+    ):where(:disabled, [aria-disabled="true"]) {
+    cursor: not-allowed;
+  }
 }

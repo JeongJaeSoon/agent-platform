@@ -1,5 +1,7 @@
 import type { CheckpointRef } from "@werft-ai/contracts";
 import {
+  type CheckpointOutput,
+  storedOutputs,
   type TranscriptSizeProblem,
   transcriptBytes,
   transcriptParts,
@@ -8,10 +10,28 @@ import type { ManifestVerdict } from "../checkpoints/checkpoint-service.ts";
 import type { CheckpointFence } from "./checkpoint-store.ts";
 import type { WorkerFence } from "./worker-unit-of-work.ts";
 
+export type CheckpointOutputObject = { key: string; bytes: number };
+
+// Two paths with the same content share one object, so one row per key.
+export function checkpointOutputObjects(
+  outputs: readonly CheckpointOutput[] | undefined,
+): CheckpointOutputObject[] {
+  const byKey = new Map<string, number>();
+  for (const { key, bytes } of storedOutputs(outputs)) byKey.set(key, bytes);
+  return [...byKey].map(([key, bytes]) => ({ key, bytes }));
+}
+
 export type CheckpointVerdict =
   // `versionsHeld`: see `ManifestVerdict`; finalize records it on the pointer.
   // `transcriptBytes`: the manifest's transcript total, recorded on its row.
-  | { status: "verified"; transcriptBytes?: number; versionsHeld?: boolean }
+  // `outputs`: the stored output objects it names, inherited ones included;
+  // finalize records them beside its row.
+  | {
+      status: "verified";
+      outputs?: readonly CheckpointOutputObject[];
+      transcriptBytes?: number;
+      versionsHeld?: boolean;
+    }
   // `limit`: see `ManifestVerdict`; the gateway records it on the session.
   | {
       limit?: TranscriptSizeProblem["reason"];
@@ -90,9 +110,15 @@ export function serviceCheckpointVerifier(service: {
       const bytes = transcriptBytes(
         transcriptParts(verdict.manifest.transcripts),
       );
+      const outputs = checkpointOutputObjects(verdict.manifest.outputs);
       return verdict.versionsHeld === true
-        ? { status: "verified", transcriptBytes: bytes, versionsHeld: true }
-        : { status: "verified", transcriptBytes: bytes };
+        ? {
+            status: "verified",
+            outputs,
+            transcriptBytes: bytes,
+            versionsHeld: true,
+          }
+        : { status: "verified", outputs, transcriptBytes: bytes };
     },
   };
 }

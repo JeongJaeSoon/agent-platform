@@ -8,6 +8,11 @@ export {
 } from "@werft-ai/runtime-claude-codec";
 export type { ClaudeRuntimeConfig, RuntimeProfile } from "./config.ts";
 export {
+  ClaudeAgentRuntime,
+  claudeContractRun,
+  claudeRuntimeModule,
+} from "./contract.ts";
+export {
   FakeAgentRuntime,
   type FakeRuntimeOptions,
   type FakeStep,

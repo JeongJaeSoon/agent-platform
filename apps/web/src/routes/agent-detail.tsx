@@ -512,6 +512,11 @@ function AgentView({
   );
 
   const cardRole = latestVersion(detail)?.card.role;
+  const activeVersion = agent.active_release_id
+    ? detail.versions.find(
+        (version) => version.id === detail.active_release?.version_id,
+      )
+    : undefined;
   return (
     <Page
       // As on a session's page: narrow, the commands go under the title.
@@ -533,12 +538,16 @@ function AgentView({
               : "gray"
           }
         >
-          {agent.active_release_id
-            ? t(`agents.status.${agent.status}`)
-            : t("agents.state.notReleased")}
+          {activeVersion
+            ? t("agent.headStatus", {
+                version: activeVersion.version_no,
+                status: t(`agents.status.${agent.status}`),
+              })
+            : agent.active_release_id
+              ? t(`agents.status.${agent.status}`)
+              : t("agents.state.notReleased")}
         </Badge>
       }
-      // Identifier and release are the overview's.
       description={
         cardRole ? (
           <span className="[overflow-wrap:anywhere]">{cardRole}</span>

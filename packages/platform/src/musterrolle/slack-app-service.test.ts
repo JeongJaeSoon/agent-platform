@@ -47,8 +47,8 @@ test("event registration results persist across reads and expose only a safe err
     checked_at: null,
   });
   await service.updateAgentAppManifest(WORKSPACE, created.slack_app.id, input);
-  expect((await service.getAgentApp(caller, AGENT)).events).toMatchObject({
-    state: "verified",
+  expect((await service.getAgentApp(caller, AGENT)).events).toEqual({
+    state: "pending",
     checked_at: "2026-10-23T00:00:00.000Z",
   });
   slack.api.updateApp = async () => {
@@ -63,6 +63,49 @@ test("event registration results persist across reads and expose only a safe err
     error: "events_registration_failed",
   });
 });
+
+test.each([
+  ["answers", false],
+  ["is lost", true],
+])(
+  "a challenge Slack answers while the manifest update %s keeps the subscription verified",
+  async (_, lost) => {
+    const { service, slack, apps } = await setup();
+    const created = await service.createAgentApp(user("owner"), AGENT, {
+      replace_uncertain: false,
+    });
+    const update = slack.api.updateApp;
+    slack.api.updateApp = async (...args) => {
+      await apps.store.setEventsUnlessVerified(
+        WORKSPACE,
+        created.slack_app.id,
+        {
+          state: "verified",
+          checked_at: "2026-10-23T00:00:01.000Z",
+        },
+      );
+      if (lost)
+        throw new SlackApiError("apps.manifest.update", "timeout", false);
+      return update(...args);
+    };
+    const updating = service.updateAgentAppManifest(
+      WORKSPACE,
+      created.slack_app.id,
+      {
+        name: "Release notes",
+        botName: "release-notes",
+        description: "Writes the release notes",
+        eventsUrl: `https://events.example.test/v1/slack/events/${AGENT}`,
+      },
+    );
+    if (lost) await expect(updating).rejects.toThrow();
+    else await updating;
+    expect((await service.getAgentApp(user("owner"), AGENT)).events).toEqual({
+      state: "verified",
+      checked_at: "2026-10-23T00:00:01.000Z",
+    });
+  },
+);
 
 function user(
   role: WorkspaceRole,

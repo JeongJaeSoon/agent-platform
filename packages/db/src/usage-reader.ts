@@ -1,5 +1,5 @@
 import type { TurnStatus } from "@werft-ai/contracts";
-import type { UsageReader, UsageSummaryFilter } from "@werft-ai/platform";
+import type { UsageReader, UsageTotalsFilter } from "@werft-ai/platform";
 import {
   type AnyColumn,
   and,
@@ -16,6 +16,8 @@ import type { Database } from "./queries.ts";
 import {
   agentReleases,
   agents,
+  checkpointOutputs,
+  checkpoints,
   sessionModelUsage,
   sessionPreMeteringCost,
   sessions,
@@ -66,7 +68,7 @@ const ran = and(
   ),
 );
 
-function startedBy(filter: UsageSummaryFilter): SQL | undefined {
+function startedBy(filter: UsageTotalsFilter): SQL | undefined {
   switch (filter.kind) {
     case "installation":
       return undefined;
@@ -79,6 +81,11 @@ function startedBy(filter: UsageSummaryFilter): SQL | undefined {
       return and(
         eq(sessions.ownerId, filter.ownerId),
         eq(sessions.createdByApiKeyId, filter.apiKeyId),
+      );
+    case "agent":
+      return and(
+        eq(sessions.ownerId, filter.ownerId),
+        sql`EXISTS (SELECT 1 FROM ${agentReleases} WHERE ${agentReleases.id} = ${sessions.agentReleaseId} AND ${agentReleases.agentId} = ${filter.agentId})`,
       );
   }
 }
@@ -298,6 +305,14 @@ function figuresOf(row: BreakdownRow) {
   };
 }
 
+// One row per output object: an object stays in the store while any
+// checkpoint naming it is uncollected, and a later checkpoint names its
+// parent's objects again rather than uploading them. Object keys carry the
+// session prefix, so a key never spans sessions. A collected revision still
+// counts until a pass has deleted its objects (objects_purged_at). Scans
+// checkpoint_outputs on every read.
+const outputObjects = sql`(SELECT ${checkpointOutputs.objectKey}, max(${checkpointOutputs.bytes}) AS bytes, bool_or(${checkpoints.objectsPurgedAt} IS NULL) AS kept, min(${checkpoints.committedAt}) AS first_at, max(${checkpoints.objectsPurgedAt}) AS released_at FROM ${checkpointOutputs} JOIN ${checkpoints} ON ${checkpoints.sessionId} = ${checkpointOutputs.sessionId} AND ${checkpoints.revision} = ${checkpointOutputs.revision} GROUP BY ${checkpointOutputs.objectKey}) AS output_objects`;
+
 function counted(condition: SQL | undefined) {
   return sql<number>`count(${turns.id}) FILTER (WHERE ${condition})`.mapWith(
     Number,
@@ -327,6 +342,19 @@ export function createPostgresUsageReader(db: Database): UsageReader {
           storageUsedBytes:
             sql<number>`coalesce(${storageUsage.bytes}, 0)`.mapWith(Number),
           storageUpdatedAt: storageUsage.updatedAt,
+          outputsUsedBytes:
+            sql<number>`(SELECT coalesce(sum(bytes) FILTER (WHERE kept), 0) FROM ${outputObjects})`.mapWith(
+              Number,
+            ),
+          // A kept key's count moved when its first checkpoint committed; a
+          // released key's when the last checkpoint naming it was purged.
+          outputsUpdatedAt:
+            sql<Date | null>`(SELECT greatest(max(first_at), max(released_at) FILTER (WHERE NOT kept)) FROM ${outputObjects})`.mapWith(
+              (value) => new Date(value),
+            ),
+          // Rows collected before objects_purged_at existed are stamped by
+          // the next collection pass that deletes cleanly.
+          outputsComplete: sql<boolean>`NOT EXISTS (SELECT 1 FROM ${checkpoints} WHERE ${checkpoints.objectsPurgedAt} IS NULL AND NOT ${checkpoints.outputsRecorded})`,
         })
         .from(sql`(SELECT 1) AS one`)
         .leftJoin(
@@ -335,6 +363,14 @@ export function createPostgresUsageReader(db: Database): UsageReader {
         );
       if (!row) throw new Error("installation usage read returned no row");
       return row;
+    },
+
+    async agentExists(ownerId, agentId) {
+      const [row] = await db
+        .select({ id: agents.id })
+        .from(agents)
+        .where(and(eq(agents.workspaceId, ownerId), eq(agents.id, agentId)));
+      return row !== undefined;
     },
 
     async sessionUsage(ownerId, sessionId) {

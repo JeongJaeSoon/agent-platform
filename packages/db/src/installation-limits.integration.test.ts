@@ -28,7 +28,6 @@ import {
 import { createPostgresSchedulerStore } from "./scheduler-store.ts";
 import * as schema from "./schema.ts";
 import {
-  executions,
   MAX_SESSION_COST_USD,
   providerUsage,
   receipts,
@@ -37,6 +36,7 @@ import {
   turns,
   unassignedSessions,
 } from "./schema.ts";
+import { confirmExecutionGone, launchSession } from "./testing/launches.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -214,29 +214,8 @@ integration("installation limits on PostgreSQL", () => {
     return row?.costUsd ?? Number.NaN;
   }
 
-  async function launch(partition: string, sessionId: string) {
-    const executionId = `exec-${crypto.randomUUID()}`;
-    const registered = await gateway.registerLaunch({
-      executionId,
-      generation: 1,
-      partition,
-      sessionId,
-      backend: "local_docker",
-    });
-    if (registered.nonce === null) throw new Error("launch already registered");
-    await db.insert(executions).values({
-      backend: "local_docker",
-      desiredState: "running",
-      generation: 1,
-      id: executionId,
-      observedState: "running",
-      sessionId,
-    });
-    await db
-      .update(sessions)
-      .set({ executionId })
-      .where(eq(sessions.id, sessionId));
-    return { executionId, nonce: registered.nonce, generation: 1 };
+  function launch(sessionId: string) {
+    return launchSession(db, { sessionId });
   }
 
   function claim(l: Awaited<ReturnType<typeof launch>>) {
@@ -288,7 +267,7 @@ integration("installation limits on PostgreSQL", () => {
 
   async function bound() {
     const session = await queuedSession();
-    const l = await launch(session.partition, session.session_id);
+    const l = await launch(session.session_id);
     const claimed = await claim(l);
     return { session, claimed, launched: l };
   }
@@ -489,7 +468,7 @@ integration("installation limits on PostgreSQL", () => {
         ...scopeOf(claimed),
         reason: "drained",
       });
-      await gateway.confirmExecutionGone(launched.executionId);
+      await confirmExecutionGone(db, launched.executionId);
 
       await gateway.recordProviderUsage({
         exchangeId: crypto.randomUUID(),
@@ -716,7 +695,7 @@ integration("installation limits on PostgreSQL", () => {
         reason:
           "The session has spent its cost or token budget (BUDGET_EXCEEDED)",
       });
-      await gateway.confirmExecutionGone(launched.executionId);
+      await confirmExecutionGone(db, launched.executionId);
 
       const detail = await createPostgresSessionReader(db).getSession(
         session.ownerId,
@@ -822,16 +801,14 @@ integration("installation limits on PostgreSQL", () => {
         ...scopeOf(claimed),
         reason: "drained",
       });
-      await gateway.confirmExecutionGone(launched.executionId);
+      await confirmExecutionGone(db, launched.executionId);
       // It never asked for input, so it counts as a failed startup.
       await db
         .update(sessions)
         .set({ restoreRetryAt: sql`clock_timestamp() - interval '1 second'` })
         .where(eq(sessions.id, session.session_id));
 
-      const again = await claim(
-        await launch(session.partition, session.session_id),
-      );
+      const again = await claim(await launch(session.session_id));
 
       expect(again.attempt_id).not.toBe(claimed.attempt_id);
       expect(again.remaining_budget_usd).toBe(COST_LIMIT_USD - 4.25);
@@ -920,7 +897,7 @@ integration("installation limits on PostgreSQL", () => {
     test("a spent session is not claimed, demanded or reserved", async () => {
       const spent = await queuedSession();
       await spend(spent.session_id, COST_LIMIT_USD);
-      const l = await launch(spent.partition, spent.session_id);
+      const l = await launch(spent.session_id);
       expect(await failure(claim(l))).toEqual({
         status: 404,
         code: "NOT_FOUND",
@@ -1107,7 +1084,7 @@ integration("installation limits on PostgreSQL", () => {
     test("a session at its token limit is not claimed, demanded or reserved", async () => {
       const spent = await queuedSession();
       await spendTokens(spent.session_id, TOKEN_LIMIT);
-      const l = await launch(spent.partition, spent.session_id);
+      const l = await launch(spent.session_id);
       expect(
         await failure(
           tokenGateway.bootstrapClaim(bootstrap, {

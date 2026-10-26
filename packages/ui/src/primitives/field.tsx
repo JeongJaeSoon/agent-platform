@@ -229,6 +229,7 @@ export function FieldLabel({
         "group/field-label peer/field-label flex w-fit select-none items-center gap-2 font-medium text-sm leading-snug group-data-[disabled=true]/field:opacity-50 peer-disabled:cursor-not-allowed peer-disabled:opacity-50",
         "has-[>[data-slot=field]]:w-full has-[>[data-slot=field]]:flex-col has-[>[data-slot=field]]:rounded-card has-[>[data-slot=field]]:border [&>*]:data-[slot=field]:p-4",
         "has-data-[state=checked]:border-primary has-data-[state=checked]:bg-primary/5",
+        "has-[>[data-slot=field]]:cursor-pointer has-[>[data-slot=field]]:has-[:disabled]:cursor-not-allowed has-[>[data-slot=field]]:not-has-[:disabled,[data-state=checked]]:hover:border-border-strong has-[>[data-slot=field]]:not-has-[:disabled,[data-state=checked]]:hover:bg-hover",
         className,
       )}
       {...props}
