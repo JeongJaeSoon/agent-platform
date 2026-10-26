@@ -3,7 +3,6 @@ import type {
   AttemptState,
   CheckpointBlockReason,
   CheckpointRef,
-  ExecutionBackend,
   FinalizeRequest,
   PauseBlockedReason,
   WorkerEvent,
@@ -27,19 +26,6 @@ export type WorkerFence = {
 
 export type FenceRejection = {
   outcome: "stale_epoch" | "lease_expired";
-};
-
-export type RegisterLaunchInput = {
-  executionId: string;
-  generation: number;
-  partition: string;
-  // The session this launch was started for, when the caller reserved one.
-  sessionId: string | null;
-  backend: ExecutionBackend;
-  nonceHash: Uint8Array;
-  // A lifetime, not a deadline: the storage clock decides when the nonce
-  // stops being accepted, so the caller's clock never enters the judgment.
-  nonceTtlMs: number;
 };
 
 export type WorkerBinding = {
@@ -478,7 +464,8 @@ export type ConfirmExecutionGoneInput = {
    * incarnation. A scheduler pass that lost its lock can have watched an old
    * resource go while another pass built a replacement a worker has since
    * bound; confirming that would hand back the new binding and its slot.
-   * The gateway leaves it out: it speaks for the attempt it fenced.
+   * Left out, it speaks for the launch whatever it runs now, which only a
+   * kill intent may.
    */
   incarnation?: ExecutionIncarnation;
 };
@@ -495,9 +482,6 @@ export type ConfirmExecutionGoneResult = {
 };
 
 export interface WorkerUnitOfWork {
-  registerLaunchAtomic(
-    input: RegisterLaunchInput,
-  ): Promise<{ outcome: "registered" | "exists" }>;
   claimAtomic(input: ClaimInput): Promise<ClaimResult>;
   // Expiry is judged on the storage clock, so no caller time is taken.
   resolveCredential(tokenHash: Uint8Array): Promise<ResolvedCredential>;
@@ -543,5 +527,4 @@ export interface WorkerUnitOfWork {
   confirmExecutionGoneAtomic(
     input: ConfirmExecutionGoneInput,
   ): Promise<ConfirmExecutionGoneResult>;
-  countReservedSlots(partition?: string): Promise<number>;
 }

@@ -16,6 +16,7 @@ import {
   turns,
   unassignedSessions,
 } from "@werft-ai/db";
+import { launchSession } from "@werft-ai/db/testing/launches";
 import { createLogger } from "@werft-ai/observability";
 import {
   createAuthorizationPolicy,
@@ -308,14 +309,7 @@ integration("POST /v1/sessions/{id}/interrupt end to end", () => {
       .update(unassignedSessions)
       .set({ partition })
       .where(eq(unassignedSessions.sessionId, sessionId));
-    const executionId = `exec-${crypto.randomUUID()}`;
-    const launch = await gateway.registerLaunch({
-      executionId,
-      generation: 1,
-      partition,
-      backend: "local_docker",
-    });
-    if (launch.nonce === null) throw new Error("launch already registered");
+    const launch = await launchSession(db, { sessionId });
 
     const uuid = (turn: number) =>
       inputUuid(sessionId, String(turn), String(turn));
@@ -332,8 +326,8 @@ integration("POST /v1/sessions/{id}/interrupt end to end", () => {
       checkpoints: capturing(),
       execution: {
         bootstrapNonce: launch.nonce,
-        generation: 1,
-        id: executionId,
+        generation: launch.generation,
+        id: launch.executionId,
       },
       gateway: new HttpWorkerGatewayClient({
         baseUrl: base(),

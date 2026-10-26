@@ -22,12 +22,16 @@ import { createPostgresSchedulerStore } from "./scheduler-store.ts";
 import * as schema from "./schema.ts";
 import {
   attempts,
-  executions,
   receipts,
   sessions,
   unassignedSessions,
   workerCredentials,
 } from "./schema.ts";
+import {
+  confirmExecutionGone,
+  launchSession,
+  type TestLaunch,
+} from "./testing/launches.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 // a claim whose response was lost is retried with the same nonce
@@ -143,32 +147,7 @@ integration("claim replay against the session's current binding", () => {
     return { ...result.response, ownerId };
   }
 
-  // The scheduler's reservation writes the executions row the kill outbox
-  // lives on; the gateway alone does not.
-  async function launch(partition: string, sessionId: string, generation = 1) {
-    const executionId = `exec-${crypto.randomUUID()}`;
-    const registered = await gateway.registerLaunch({
-      executionId,
-      generation,
-      partition,
-      sessionId,
-      backend: "local_docker",
-    });
-    if (registered.nonce === null) throw new Error("launch already registered");
-    await db.insert(executions).values({
-      backend: "local_docker",
-      desiredState: "running",
-      generation,
-      id: executionId,
-      observedState: "running",
-      sessionId,
-    });
-    return { executionId, nonce: registered.nonce, generation };
-  }
-
-  type Launch = Awaited<ReturnType<typeof launch>>;
-
-  function claim(l: Launch, via: WorkerGateway = gateway) {
+  function claim(l: TestLaunch, via: WorkerGateway = gateway) {
     return via.bootstrapClaim(bootstrap, {
       execution_id: l.executionId,
       execution_generation: l.generation,
@@ -215,7 +194,7 @@ integration("claim replay against the session's current binding", () => {
   async function bound(name: string) {
     const partition = `${name}-${crypto.randomUUID()}`;
     const session = await queuedSession(partition);
-    const l = await launch(partition, session.session_id);
+    const l = await launchSession(db, { sessionId: session.session_id });
     const claimed = await claim(l);
     return { session, partition, launch: l, claimed };
   }
@@ -294,7 +273,7 @@ integration("claim replay against the session's current binding", () => {
       ).toEqual(before);
       // The kill still settles the session: the refusal left the attempt for
       // the exit observation to close, as terminate intends.
-      expect(await gateway.confirmExecutionGone(l.executionId)).toEqual({
+      expect(await confirmExecutionGone(db, l.executionId)).toEqual({
         sessionReleased: true,
         slotReleased: true,
       });
@@ -481,7 +460,7 @@ integration("claim replay against the session's current binding", () => {
       expect(
         await replayFootprint(session.session_id, claimed.attempt_id),
       ).toEqual(before);
-      await gateway.confirmExecutionGone(l.executionId);
+      await confirmExecutionGone(db, l.executionId);
       expect((await sessionRow(session.session_id)).admissionState).toBe(
         "closed",
       );
@@ -523,7 +502,7 @@ integration("claim replay against the session's current binding", () => {
       // The pause does not hang on the refused worker: the exit observation
       // settles it. This session never ran a turn, so it has no checkpoint to
       // pause onto and the pause fails back to active.
-      await gateway.confirmExecutionGone(l.executionId);
+      await confirmExecutionGone(db, l.executionId);
       expect((await sessionRow(session.session_id)).admissionState).toBe(
         "active",
       );
@@ -569,7 +548,7 @@ integration("claim replay against the session's current binding", () => {
       for (let round = 0; round < 8; round++) {
         const partition = `replace-race-${round}-${crypto.randomUUID()}`;
         const session = await queuedSession(partition);
-        const l = await launch(partition, session.session_id);
+        const l = await launchSession(db, { sessionId: session.session_id });
         const [claimed, replaced] = await Promise.allSettled([
           claim(l),
           store().requestReplacement(
@@ -603,7 +582,7 @@ integration("claim replay against the session's current binding", () => {
       const brief = gatewayWithLease(300);
       const partition = `sweep-${crypto.randomUUID()}`;
       const session = await queuedSession(partition);
-      const old = await launch(partition, session.session_id);
+      const old = await launchSession(db, { sessionId: session.session_id });
       const first = await claim(old, brief);
       await new Promise((resolve) => setTimeout(resolve, 400));
       const swept = await reconcileExpiredLeases(db, { now: clock });
@@ -617,7 +596,7 @@ integration("claim replay against the session's current binding", () => {
 
       // The replacement worker claims the session once the old one is gone
       // and the startup backoff its unready exit started is over.
-      await gateway.confirmExecutionGone(old.executionId);
+      await confirmExecutionGone(db, old.executionId);
       await db
         .update(sessions)
         .set({ restoreRetryAt: sql`clock_timestamp() - interval '1 second'` })
@@ -630,7 +609,9 @@ integration("claim replay against the session's current binding", () => {
         .update(unassignedSessions)
         .set({ partition })
         .where(eq(unassignedSessions.sessionId, session.session_id));
-      const replacement = await launch(partition, session.session_id, 2);
+      const replacement = await launchSession(db, {
+        sessionId: session.session_id,
+      });
       const second = await claim(replacement);
       expect(second.session_id).toBe(session.session_id);
       expect(second.attempt_id).not.toBe(first.attempt_id);
@@ -663,7 +644,7 @@ integration("claim replay against the session's current binding", () => {
       for (let round = 0; round < 8; round++) {
         const partition = `late-${round}-${crypto.randomUUID()}`;
         const session = await queuedSession(partition);
-        const l = await launch(partition, session.session_id);
+        const l = await launchSession(db, { sessionId: session.session_id });
         const [a, b] = await Promise.all([claim(l), claim(l)]);
         expect(a.attempt_id).toBe(b.attempt_id);
         expect(a.lease_epoch).toBe(b.lease_epoch);

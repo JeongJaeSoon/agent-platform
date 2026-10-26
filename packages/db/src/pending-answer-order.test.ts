@@ -23,7 +23,8 @@ import {
   createPostgresSessionUnitOfWork,
 } from "./postgres-unit-of-work.ts";
 import * as schema from "./schema.ts";
-import { executions, pendingRequests, sessions } from "./schema.ts";
+import { pendingRequests } from "./schema.ts";
+import { launchSession } from "./testing/launches.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 /**
@@ -112,32 +113,15 @@ async function askingSession() {
     },
   });
   const sessionId = created.session_id;
-  const executionId = `exec-${crypto.randomUUID()}`;
-  const registered = await gateway.registerLaunch({
-    executionId,
-    generation: 1,
-    backend: "local_docker",
+  const { executionId, generation, nonce } = await launchSession(db, {
     sessionId,
   });
-  if (registered.nonce === null) throw new Error("launch already registered");
-  await db.insert(executions).values({
-    backend: "local_docker",
-    desiredState: "running",
-    generation: 1,
-    id: executionId,
-    observedState: "running",
-    sessionId,
-  });
-  await db
-    .update(sessions)
-    .set({ executionId })
-    .where(eq(sessions.id, sessionId));
   const claimed = await gateway.bootstrapClaim(
     { kind: "bootstrap" },
     {
       execution_id: executionId,
-      execution_generation: 1,
-      credential: { kind: "launch_nonce", nonce: registered.nonce },
+      execution_generation: generation,
+      credential: { kind: "launch_nonce", nonce },
     },
   );
   const principal: WorkerPrincipal = {

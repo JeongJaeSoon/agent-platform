@@ -11,6 +11,7 @@ import {
   createPostgresWorkerUnitOfWork,
   sessions,
 } from "@werft-ai/db";
+import { launchSession } from "@werft-ai/db/testing/launches";
 import { acceptAllCheckpoints, createWorkerGateway } from "@werft-ai/platform";
 import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
@@ -744,18 +745,14 @@ integration("API server on PostgreSQL", () => {
         message: "first turn",
       });
       if (accepted.outcome !== "accepted") throw new Error(accepted.outcome);
-      const executionId = crypto.randomUUID();
-      const launch = await gateway.registerLaunch({
-        executionId,
-        generation: 1,
-        backend: "local_docker",
+      const launch = await launchSession(db, {
+        sessionId: accepted.response.session_id,
       });
-      if (launch.nonce === null) throw new Error("launch already registered");
       const claimed = await gateway.bootstrapClaim(
         { kind: "bootstrap" },
         {
-          execution_id: executionId,
-          execution_generation: 1,
+          execution_id: launch.executionId,
+          execution_generation: launch.generation,
           credential: { kind: "launch_nonce", nonce: launch.nonce },
         },
       );
