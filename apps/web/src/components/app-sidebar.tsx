@@ -742,11 +742,6 @@ function UserMenu({
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
-        // The role shows in the menu head, not on the pill; it is still
-        // heard with the name.
-        aria-label={
-          roleLabel ? t("shell.accountOf", { name, role: roleLabel }) : name
-        }
         onClick={() => setOpen((value) => !value)}
         onKeyDown={(event) => {
           if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
@@ -764,6 +759,15 @@ function UserMenu({
         <span className="min-w-0 truncate font-medium text-control">
           {name}
         </span>
+        {/* The role shows in the menu head, not on the pill; it is still
+            heard after the name. No aria-label: the name must begin with the
+            text people see (WCAG 2.5.3). */}
+        {roleLabel ? (
+          <span className="sr-only">
+            {" "}
+            {t("shell.accountRole", { role: roleLabel })}
+          </span>
+        ) : null}
         <ChevronDown
           aria-hidden="true"
           className="size-3.5 shrink-0 text-muted-foreground"
