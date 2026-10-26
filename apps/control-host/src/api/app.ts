@@ -209,9 +209,9 @@ export class ApiHttpError extends Error {
 // A lost connection (isConnectionFailure), insufficient resources (53xxx:
 // too many connections, disk full), operator intervention (57xxx: admin
 // shutdown, and 57014 for a statement_timeout cancel), a transaction rolled
-// back for losing to a concurrent one (40001 serialization, 40P01 deadlock:
-// nothing it wrote landed, so the same request can simply be sent again), or
-// the request's own deadline. Walks the cause chain because Drizzle and
+// back for losing to a concurrent one (40001 serialization, 40P01 deadlock,
+// 55P03 a lock_timeout: nothing it wrote landed, so the same request can
+// simply be sent again), or the request's own deadline. Walks the cause chain because Drizzle and
 // pg-pool both wrap the original error.
 export function isStorageUnavailable(error: unknown): boolean {
   for (let depth = 0, current = error; depth < 5; depth += 1) {
@@ -227,7 +227,8 @@ export function isStorageUnavailable(error: unknown): boolean {
       (code.startsWith("53") ||
         code.startsWith("57") ||
         code === "40001" ||
-        code === "40P01")
+        code === "40P01" ||
+        code === "55P03")
     ) {
       return true;
     }
@@ -427,8 +428,14 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
       try {
         await next();
       } finally {
-        if (context.req.path === "/v1" || context.req.path.startsWith("/v1/")) {
-          const status = context.res.status;
+        const status = context.res.status;
+        // Worker routes are too frequent to log every call; their 5xx are
+        // what a lost lease is traced back to.
+        if (
+          context.req.path === "/v1" ||
+          context.req.path.startsWith("/v1/") ||
+          (status >= 500 && context.req.path.startsWith("/internal/"))
+        ) {
           logger.info("API request completed", {
             event: "api.request.completed",
             operation: "api_request",

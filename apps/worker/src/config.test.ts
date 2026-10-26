@@ -42,7 +42,7 @@ describe("workerConfigFromEnv", () => {
       answerPollIntervalMs: 1_000,
       claimTimeoutMs: 60_000,
       drainTimeoutMs: 100_000,
-      heartbeatIntervalMs: 10_000,
+      heartbeatIntervalMs: 5_000,
       idleTimeoutMs: 1_800_000,
       leaseSafetyMarginMs: 10_000,
       maxTurnMs: 3_600_000,

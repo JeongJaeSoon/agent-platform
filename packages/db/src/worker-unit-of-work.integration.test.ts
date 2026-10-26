@@ -1,7 +1,12 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import type { WorkerEvent, WorkerScope } from "@werft-ai/contracts";
+import {
+  WORKER_LEASE_SAFETY_MARGIN_MS,
+  type WorkerEvent,
+  type WorkerScope,
+} from "@werft-ai/contracts";
 import {
   createWorkerGateway,
+  DEFAULT_LEASE_TTL_MS,
   DEFAULT_NONCE_TTL_MS,
   hashWorkerToken,
   profileFingerprint,
@@ -57,6 +62,14 @@ const integration = testDatabaseUrl() ? describe : describe.skip;
 
 // The worker's own numbered stream, without the status events the control
 // plane writes beside it at each turn boundary.
+function pgCode(error: unknown): string | undefined {
+  for (let current = error; current instanceof Error; current = current.cause) {
+    const code = (current as { code?: unknown }).code;
+    if (typeof code === "string") return code;
+  }
+  return undefined;
+}
+
 function workerStream(sessionId: string) {
   return and(eq(events.sessionId, sessionId), isNotNull(events.sourceSequence));
 }
@@ -1901,6 +1914,71 @@ integration("worker gateway on PostgreSQL", () => {
     } finally {
       blocker.release();
     }
+  });
+
+  test("a heartbeat queued behind a held session row gives up within its lock timeout and renews once the row is free", async () => {
+    const partition = partitionFor("sessionlock");
+    const queued = await queuedSession(partition);
+    const l = await launch(queued.session_id);
+    const production = briefGateway(DEFAULT_LEASE_TTL_MS);
+    const claimed = await production.bootstrapClaim(bootstrap, {
+      execution_id: l.executionId,
+      execution_generation: l.generation,
+      credential: { kind: "launch_nonce", nonce: l.nonce },
+    });
+    const blocker = await pool.connect();
+    try {
+      await blocker.query("BEGIN");
+      await blocker.query("SELECT 1 FROM sessions WHERE id = $1 FOR UPDATE", [
+        queued.session_id,
+      ]);
+      const queuedBeat = production
+        .heartbeat(principalOf(claimed), {
+          ...scopeOf(claimed),
+          attempt_state: "running",
+        })
+        .then(
+          () => "renewed",
+          (error: unknown) => pgCode(error) ?? error,
+        );
+      // A quarter of the production lease budget: the worker's next beat
+      // still goes out while the lease can be renewed.
+      const answered = await Promise.race([
+        queuedBeat,
+        sleep((DEFAULT_LEASE_TTL_MS - WORKER_LEASE_SAFETY_MARGIN_MS) / 4).then(
+          () => "still waiting",
+        ),
+      ]);
+      expect(answered).toBe("55P03");
+    } finally {
+      await blocker.query("COMMIT");
+      blocker.release();
+    }
+    const beat = await production.heartbeat(principalOf(claimed), {
+      ...scopeOf(claimed),
+      attempt_state: "running",
+    });
+    expect(beat.lease_remaining_ms).toBeGreaterThan(0);
+  }, 30_000);
+
+  test("an exit confirmed with an end reason records it on the attempts it ends", async () => {
+    const reasons: (string | null | undefined)[] = [];
+    for (const endReason of ["worker_lease_lost", undefined]) {
+      const queued = await queuedSession(partitionFor("endreason"));
+      const l = await launch(queued.session_id);
+      const claimed = await claim(l);
+      await createPostgresWorkerUnitOfWork(db).confirmExecutionGoneAtomic({
+        executionId: l.executionId,
+        now: new Date(),
+        ...(endReason === undefined ? {} : { endReason }),
+      });
+      const [attempt] = await db
+        .select({ endReason: attempts.endReason })
+        .from(attempts)
+        .where(eq(attempts.id, claimed.attempt_id));
+      reasons.push(attempt?.endReason);
+    }
+    expect(reasons).toEqual(["worker_lease_lost", "execution_gone"]);
   });
 
   test("a claim that waits out its TTL on the launch row still hands out a live lease", async () => {

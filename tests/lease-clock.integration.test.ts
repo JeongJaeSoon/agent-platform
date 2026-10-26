@@ -6,7 +6,11 @@ import {
   setSystemTime,
   test,
 } from "bun:test";
-import { createSessionResponseSchema } from "@werft-ai/contracts";
+import {
+  createSessionResponseSchema,
+  WORKER_HEARTBEAT_INTERVAL_MS,
+  WORKER_LEASE_SAFETY_MARGIN_MS,
+} from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
   attempts,
@@ -27,8 +31,8 @@ import {
   createAuthorizationPolicy,
   createSessionService,
   createWorkerGateway,
+  DEFAULT_LEASE_TTL_MS,
   type SessionCatalog,
-  type WorkerGateway,
 } from "@werft-ai/platform";
 import { claudeContractRun, FakeAgentRuntime } from "@werft-ai/runtime-claude";
 import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
@@ -115,8 +119,8 @@ integration("worker lease on the monotonic clock end to end", () => {
   let database: TempDatabase;
   let pool: Pool;
   let db: NodePgDatabase<typeof schema>;
-  let gateway: WorkerGateway;
   let server: ReturnType<typeof Bun.serve>;
+  let production: ReturnType<typeof Bun.serve>;
   const owner = `owner-${crypto.randomUUID()}`;
 
   beforeAll(async () => {
@@ -137,29 +141,36 @@ integration("worker lease on the monotonic clock end to end", () => {
         sessionTokenLimit: null,
       },
     });
-    gateway = createWorkerGateway({
-      work: createPostgresWorkerUnitOfWork(db),
-      catalog,
-      checkpoints: { verify: async () => ({ status: "verified" }) },
-      pending: createPostgresWorkerPendingStore(db),
-      options: {
-        leaseTtlMs: LEASE_TTL_MS,
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
-      },
-    });
-    const app = createApiApp({
-      authMode: "none",
-      logger,
-      registerRoutes: (router) => registerSessionRoutes(router, sessions),
-      registerInternalRoutes: (router) => registerWorkerRoutes(router, gateway),
-    });
-    server = Bun.serve({ port: 0, fetch: (request) => app.fetch(request) });
+    const serve = (leaseTtlMs: number) => {
+      const workers = createWorkerGateway({
+        work: createPostgresWorkerUnitOfWork(db),
+        catalog,
+        checkpoints: { verify: async () => ({ status: "verified" }) },
+        pending: createPostgresWorkerPendingStore(db),
+        options: {
+          leaseTtlMs,
+          sessionCostLimitUsd: 1_000,
+          sessionTokenLimit: null,
+        },
+      });
+      const app = createApiApp({
+        authMode: "none",
+        logger,
+        registerRoutes: (router) => registerSessionRoutes(router, sessions),
+        registerInternalRoutes: (router) =>
+          registerWorkerRoutes(router, workers),
+      });
+      return Bun.serve({ port: 0, fetch: (request) => app.fetch(request) });
+    };
+    server = serve(LEASE_TTL_MS);
+    // The lease the API hands out by default, for the worker's own defaults.
+    production = serve(DEFAULT_LEASE_TTL_MS);
   }, 90_000);
 
   afterAll(async () => {
     setSystemTime();
     server?.stop(true);
+    production?.stop(true);
     await pool?.end();
     await database?.drop();
   }, 90_000);
@@ -183,7 +194,7 @@ integration("worker lease on the monotonic clock end to end", () => {
   }
 
   /** A session waiting in a partition of its own, and the launch to claim it. */
-  async function queuedLaunch(): Promise<TestLaunch> {
+  async function queuedLaunch(): Promise<TestLaunch & { sessionId: string }> {
     const created = await fetch(`http://127.0.0.1:${server.port}/v1/sessions`, {
       method: "POST",
       headers: {
@@ -210,7 +221,7 @@ integration("worker lease on the monotonic clock end to end", () => {
       .update(unassignedSessions)
       .set({ partition })
       .where(eq(unassignedSessions.sessionId, sessionId));
-    return launchSession(db, { sessionId });
+    return { ...(await launchSession(db, { sessionId })), sessionId };
   }
 
   function workerHost(input: {
@@ -220,8 +231,11 @@ integration("worker lease on the monotonic clock end to end", () => {
     logger: WorkerLogger;
     fetch: FetchLike;
     requestTimeoutMs: number;
+    /** The API on the default lease, with the worker's default lease clock. */
+    production?: boolean;
   }): WorkerHost {
     const { runtime } = input;
+    const port = input.production ? production.port : server.port;
     return new WorkerHost({
       checkpoints: noCheckpoints,
       execution: {
@@ -230,7 +244,7 @@ integration("worker lease on the monotonic clock end to end", () => {
         id: input.executionId,
       },
       gateway: new HttpWorkerGatewayClient({
-        baseUrl: `http://127.0.0.1:${server.port}`,
+        baseUrl: `http://127.0.0.1:${port}`,
         credential: input.nonce,
         requestTimeoutMs: input.requestTimeoutMs,
         fetch: input.fetch,
@@ -262,9 +276,13 @@ integration("worker lease on the monotonic clock end to end", () => {
         answerPollIntervalMs: 1_000,
         claimTimeoutMs: 5_000,
         drainTimeoutMs: 5_000,
-        heartbeatIntervalMs: HEARTBEAT_MS,
+        heartbeatIntervalMs: input.production
+          ? WORKER_HEARTBEAT_INTERVAL_MS
+          : HEARTBEAT_MS,
         idleTimeoutMs: 60_000,
-        leaseSafetyMarginMs: MARGIN_MS,
+        leaseSafetyMarginMs: input.production
+          ? WORKER_LEASE_SAFETY_MARGIN_MS
+          : MARGIN_MS,
         maxTurnMs: 60_000,
         nextInputRetryTimeoutMs: 60_000,
         nextInputWaitMs: 100,
@@ -472,5 +490,183 @@ integration("worker lease on the monotonic clock end to end", () => {
 
     const summary = await loop;
     expect(summary.outcome).toBe("lease_lost");
+  }, 90_000);
+  /**
+   * Takes the session row the way a slow terminate or reconciler pass does,
+   * and gives it back `ms` later; resolves once the lock is held.
+   */
+  async function holdSessionRow(
+    sessionId: string,
+    ms: number,
+    whileHeld?: () => Promise<unknown>,
+  ): Promise<{ released: Promise<number> }> {
+    const holder = await pool.connect();
+    await holder.query("BEGIN");
+    await holder.query("SELECT 1 FROM sessions WHERE id = $1 FOR UPDATE", [
+      sessionId,
+    ]);
+    const pending = whileHeld?.();
+    const released = (async () => {
+      await Bun.sleep(ms);
+      await holder.query("COMMIT");
+      holder.release();
+      const at = performance.now();
+      await pending;
+      return at;
+    })();
+    return { released };
+  }
+
+  type Beat = { sentAt: number; answeredAt: number; status: number };
+
+  /** A worker on the default lease clock whose beats are recorded. */
+  function productionWorker(
+    launch: TestLaunch,
+    onBeat: (sentAt: number) => Promise<void>,
+  ) {
+    const runtime = new FakeAgentRuntime([
+      { type: "await-input" },
+      { type: "delay", delayMs: 120_000 },
+    ]);
+    const beats: Beat[] = [];
+    const seen: { attemptId?: string; lostReason?: string; lostAt?: number } =
+      {};
+    const host = workerHost({
+      executionId: launch.executionId,
+      nonce: launch.nonce,
+      runtime,
+      production: true,
+      logger: {
+        info: (event, fields) => {
+          if (event === "worker.claimed") {
+            seen.attemptId = String(fields?.attempt_id);
+          }
+          if (event === "worker.stopping" && fields?.kind === "lost") {
+            seen.lostReason = String(fields?.reason);
+            seen.lostAt = performance.now();
+          }
+        },
+        warn: () => {},
+        error: () => {},
+      },
+      requestTimeoutMs: 30_000,
+      fetch: async (input, init) => {
+        if (!input.endsWith("/heartbeat")) return globalThis.fetch(input, init);
+        const sentAt = performance.now();
+        await onBeat(sentAt);
+        const response = await globalThis.fetch(input, init);
+        beats.push({
+          sentAt,
+          answeredAt: performance.now(),
+          status: response.status,
+        });
+        return response;
+      },
+    });
+    return { beats, host, runtime, seen };
+  }
+
+  test("on the default lease clock, a session row held for 12s from just before a beat costs no lease", async () => {
+    const launch = await queuedLaunch();
+    let arm = false;
+    let hold: Promise<{ released: Promise<number> }> | undefined;
+    const worker = productionWorker(launch, async () => {
+      if (!arm) return;
+      arm = false;
+      hold = holdSessionRow(launch.sessionId, 12_000);
+      await hold;
+    });
+    const loop = worker.host.runLoop();
+    try {
+      await until(
+        () => worker.runtime.inputs.length === 1,
+        "turn 1 running",
+        30_000,
+      );
+      const id = worker.seen.attemptId;
+      if (id === undefined) throw new Error("the claim was not logged");
+      arm = true;
+      await until(() => hold !== undefined, "a beat behind the lock", 15_000);
+      const releasedAt = await (await (hold as NonNullable<typeof hold>))
+        .released;
+      await until(
+        () =>
+          worker.beats.some(
+            (b) =>
+              b.sentAt >= releasedAt - 2_000 &&
+              b.status === 200 &&
+              b.answeredAt >= releasedAt,
+          ),
+        "a renewal once the row is free",
+        15_000,
+      );
+
+      expect(worker.seen.lostReason).toBeUndefined();
+      const refused = worker.beats.filter((b) => b.status !== 200);
+      // Each beat behind the lock was answered retryably and soon, not after
+      // the whole wait.
+      expect(refused.length).toBeGreaterThan(0);
+      for (const beat of refused) {
+        expect(beat.status).toBe(503);
+        expect(beat.answeredAt - beat.sentAt).toBeLessThan(5_000);
+      }
+      // Nothing for the reconciler to fence: the lease runs well past now.
+      expect(await leaseOf(id)).toBeGreaterThan((await dbNowMs()) + 15_000);
+      const [attempt] = await db
+        .select({ state: attempts.state })
+        .from(attempts)
+        .where(eq(attempts.id, id));
+      expect(attempt?.state).not.toBe("lost");
+    } finally {
+      worker.host.drain("test over");
+      await loop;
+    }
+  }, 90_000);
+
+  test("on the default lease clock, a fence that commits behind a held session row stops the worker and no beat renews it", async () => {
+    const launch = await queuedLaunch();
+    let arm = false;
+    let hold: Promise<{ released: Promise<number> }> | undefined;
+    const worker = productionWorker(launch, async () => {
+      if (!arm) return;
+      arm = false;
+      // The fence queues on the row behind the holder, ahead of every beat
+      // that retries meanwhile, and commits the moment the row is free.
+      hold = holdSessionRow(launch.sessionId, 12_000, () =>
+        confirmExecutionGone(db, launch.executionId),
+      );
+      await hold;
+    });
+    const loop = worker.host.runLoop();
+    await until(
+      () => worker.runtime.inputs.length === 1,
+      "turn 1 running",
+      30_000,
+    );
+    const id = worker.seen.attemptId;
+    if (id === undefined) throw new Error("the claim was not logged");
+    arm = true;
+    await until(() => hold !== undefined, "a beat behind the lock", 15_000);
+    const fencedAt = await (await (hold as NonNullable<typeof hold>)).released;
+    const leaseAtFence = await leaseOf(id);
+
+    const summary = await loop;
+
+    expect(summary.outcome).toBe("lease_lost");
+    const lostAt = worker.seen.lostAt;
+    if (lostAt === undefined) throw new Error("the loss was not logged");
+    expect(lostAt).toBeGreaterThan(fencedAt - 1_000);
+    // Stopped on the fence, not by waiting out its own lease budget.
+    expect(lostAt - fencedAt).toBeLessThan(10_000);
+    expect(worker.seen.lostReason).not.toContain("lease given up");
+    expect(
+      worker.beats.filter((b) => b.answeredAt > fencedAt && b.status === 200),
+    ).toEqual([]);
+    expect(await leaseOf(id)).toBe(leaseAtFence);
+    const [attempt] = await db
+      .select({ state: attempts.state, endReason: attempts.endReason })
+      .from(attempts)
+      .where(eq(attempts.id, id));
+    expect(attempt).toEqual({ state: "lost", endReason: "execution_gone" });
   }, 90_000);
 });

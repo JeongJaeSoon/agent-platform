@@ -77,6 +77,8 @@ export class Heartbeat {
   private owed = false;
   /** Whether a beat the gateway answered carried a `mirror_error`. */
   private mirrorErrorAnswered = false;
+  /** The last retryable refusal, for the reason a lease is given up with. */
+  private lastRefusal: string | undefined;
 
   constructor(options: HeartbeatOptions) {
     this.options = options;
@@ -230,6 +232,7 @@ export class Heartbeat {
       this.deadline,
       sentAt + response.lease_remaining_ms,
     );
+    this.lastRefusal = undefined;
     if (transcript?.mirror_error != null) this.mirrorErrorAnswered = true;
     if (response.control_pending) this.options.onControlPending?.();
   }
@@ -241,6 +244,7 @@ export class Heartbeat {
     }
     // A gateway that is merely unreachable is survivable right up to the
     // point where the lease it granted is given up.
+    this.lastRefusal = message(error);
     if (this.leaseLeftMs <= 0) this.giveUp("the gateway is unreachable");
   }
 
@@ -265,7 +269,10 @@ export class Heartbeat {
    */
   private giveUp(why: string): void {
     this.declareLost(
-      `lease given up ${this.marginMs}ms before it runs out: ${why}`,
+      `lease given up ${this.marginMs}ms before it runs out: ${why}` +
+        (this.lastRefusal === undefined
+          ? ""
+          : ` (last refusal: ${this.lastRefusal})`),
     );
   }
 
