@@ -1275,7 +1275,7 @@ describe("홈 요약", () => {
         const { card, services } = await agentCardOf("admin", agents);
         await waitFor(() =>
           expect(
-            services.queryClient.getQueryState(queryKeys.agents)?.status,
+            services.queryClient.getQueryState(keys.agents)?.status,
           ).not.toBe("pending"),
         );
         expect(card()?.value).toBe("—미계측");
@@ -1300,7 +1300,7 @@ describe("홈 요약", () => {
       await waitFor(() => expect(card()?.value).toBe("2"));
       fails = true;
       await act(() =>
-        services.queryClient.refetchQueries({ queryKey: queryKeys.agents }),
+        services.queryClient.refetchQueries({ queryKey: keys.agents }),
       );
       await waitFor(() => expect(card()?.value).toBe("—미계측"));
       expect(card()?.rows).toEqual([
