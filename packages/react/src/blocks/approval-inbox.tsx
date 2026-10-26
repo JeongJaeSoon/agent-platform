@@ -1,11 +1,23 @@
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  type PendingRequest,
-  presentTurnEvent,
-  type SessionSummary,
+import type {
+  PendingRequest,
+  SessionRelation,
+  SessionSummary,
 } from "@werft-ai/contracts";
-import { pendingRequestsQuery, waitingSessionsQuery } from "@werft-ai/core";
-import { Badge, Button, cn, formatTimestamp, Skeleton } from "@werft-ai/ui";
+import {
+  pendingRequestsQuery,
+  waitingSessionsByQuery,
+  waitingSessionsQuery,
+} from "@werft-ai/core";
+import {
+  Avatar,
+  avatarInitials,
+  avatarTone,
+  Badge,
+  Button,
+  cn,
+  Skeleton,
+} from "@werft-ai/ui";
 import {
   type ReactNode,
   useEffect,
@@ -14,8 +26,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { turnSummaryText } from "../components/index.ts";
-import { useExpired } from "../components/session/expiry.ts";
 import { useMinute } from "../components/session/use-minute.ts";
 import { useAgentPlatform } from "../provider.tsx";
 import type { PendingRail } from "./pending-rail.tsx";
@@ -94,6 +104,14 @@ function InboxSkeleton({
   );
 }
 
+// Why a request came to the reader, the first that holds in the design's order.
+const REASONS = [
+  "started",
+  "shared",
+  "administered",
+] as const satisfies readonly SessionRelation[];
+type Reason = (typeof REASONS)[number];
+
 const FRAME = "rounded-card border bg-card";
 const FRAME_PADDING =
   "px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)]";
@@ -146,6 +164,31 @@ export function ApprovalInbox({
   // Rail lines are one per request, and one can leave while its session
   // stays; answer forms move focus within their session themselves.
   const railLines = rail !== undefined && layout === "summary";
+  // Read only once a line is drawn, so a reader with nothing waiting pays
+  // for none of them.
+  const lineDrawn = lists.some((list) => (list.data?.items.length ?? 0) > 0);
+  const related = useQueries({
+    queries: REASONS.map((relation) => ({
+      ...waitingSessionsByQuery(client, relation),
+      enabled: railLines && lineDrawn,
+    })),
+  });
+  // The waiting list is read again after an answer or a status change; the
+  // relation lists follow it, so a session that just arrived has its reason.
+  const waitedAt = waiting.dataUpdatedAt;
+  useEffect(() => {
+    if (waitedAt === 0) return;
+    for (const relation of REASONS) {
+      void queryClient.invalidateQueries({
+        ...waitingSessionsByQuery(client, relation),
+        exact: true,
+      });
+    }
+  }, [waitedAt, queryClient, client]);
+  const reasonOf = (id: string) =>
+    REASONS.find((_, index) =>
+      related[index]?.data?.items.some((session) => session.id === id),
+    );
   const lineKey = drawn
     .flatMap((session) => {
       const items = railLines
@@ -253,6 +296,7 @@ export function ApprovalInbox({
               now={givenNow ?? now}
               onAnswered={() => setSent((count) => count + 1)}
               opened={rail?.openedId === session.id}
+              reason={railLines ? reasonOf(session.id) : undefined}
               onOpen={
                 rail && layout === "summary"
                   ? (opener) => rail.open(session, opener, titleRef.current)
@@ -313,6 +357,7 @@ function WaitingSession({
   now,
   onAnswered,
   opened,
+  reason,
   onOpen,
 }: SessionActionProps & {
   readonly session: SessionSummary;
@@ -322,6 +367,8 @@ function WaitingSession({
   readonly onAnswered: () => void;
   /** Whether the rail shows this session. */
   readonly opened: boolean;
+  /** Why the session came to the reader, when a relation list names it. */
+  readonly reason?: Reason | undefined;
   /** Given, each line opens the rail instead of answering. */
   readonly onOpen?: ((opener: HTMLElement) => void) | undefined;
 }) {
@@ -354,20 +401,27 @@ function WaitingSession({
         Math.floor((now - Date.parse(request.created_at)) / 60_000),
       ),
     });
-    // Untitled, the name line already is the short id.
+    // Untitled, the name line already is the short id. A rail line follows
+    // the design: why it came to the reader in place of the id.
     const parts = [
       session.agent?.name,
-      session.title ? short : undefined,
+      onOpen
+        ? reason && t("inbox.why", { reason: t(`inbox.why.${reason}`) })
+        : session.title
+          ? short
+          : undefined,
       waited,
     ].filter((part) => part !== undefined);
     return (
       <>
         {parts.map((part, index) => (
-          // A long agent name wraps; the id and the wait stay whole.
+          // A long agent name or reason wraps; the id and the wait stay whole.
           <span
             key={part}
             className={
-              part === session.agent?.name ? undefined : "whitespace-nowrap"
+              part === short || part === waited
+                ? "whitespace-nowrap"
+                : undefined
             }
           >
             {index === 0 ? null : <span aria-hidden="true"> · </span>}
@@ -386,6 +440,7 @@ function WaitingSession({
           {pending.data.items.map((request) => (
             <li key={request.request_id}>
               <PanelLine
+                session={session}
                 request={request}
                 heading={heading}
                 meta={meta(request)}
@@ -446,10 +501,11 @@ function WaitingSession({
 }
 
 /**
- * A waiting request as one list line whose one action opens the rail:
- * what it asks or wants to run, and until when.
+ * A waiting request as one list line whose one action opens the rail, where
+ * what it asks and until when are shown.
  */
 function PanelLine({
+  session,
   request,
   heading,
   meta,
@@ -457,6 +513,7 @@ function PanelLine({
   opened,
   onOpen,
 }: {
+  readonly session: SessionSummary;
   readonly request: PendingRequest;
   readonly heading: ReactNode;
   readonly meta: ReactNode;
@@ -465,61 +522,47 @@ function PanelLine({
   readonly opened: boolean;
   readonly onOpen: (opener: HTMLElement) => void;
 }) {
-  const { t, formatMessage, locale } = useBlockText();
-  const expired = useExpired(
-    request.request_id,
-    request.expires_at,
-    Date.now(),
-  );
-  const asks =
-    request.kind === "question"
-      ? request.questions[0]?.prompt
-      : turnSummaryText(
-          presentTurnEvent({
-            event: "question",
-            data: {
-              kind: "permission",
-              tool: request.tool,
-              input: request.input,
-            },
-          }).summary,
-          formatMessage,
-        );
+  const { t } = useBlockText();
+  // An agent's own colour; a session without one shows its starter, uncoloured.
+  const agent = session.agent?.name;
   return (
-    <div className="flex min-h-[var(--ap-row-min-height)] flex-wrap items-center justify-end gap-x-4 gap-y-2 px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)]">
-      <div className="flex min-w-0 flex-1 basis-60 flex-col gap-0.5">
+    <div className="flex min-h-[var(--ap-row-min-height)] items-center gap-3 px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)]">
+      <Avatar
+        shape="square"
+        tone={agent === undefined ? "default" : avatarTone(agent)}
+        initials={avatarInitials(
+          agent ?? session.created_by?.display_name ?? "",
+        )}
+        // The meta names the agent, never the starter.
+        label={
+          agent === undefined ? session.created_by?.display_name : undefined
+        }
+      />
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <p className="m-0 flex min-w-0 items-center gap-2 font-medium text-control leading-5">
           <span className="min-w-16 truncate">{heading}</span>
           <Badge variant="amber" className="min-w-0 max-w-max shrink">
             <span className="truncate">
               {request.kind === "question"
                 ? t("session.pending.question")
-                : t("session.pending.permission", { tool: request.tool })}
+                : t("inbox.permission", { tool: request.tool })}
             </span>
           </Badge>
         </p>
-        {asks ? (
-          <p className="m-0 truncate text-control leading-5">{asks}</p>
-        ) : null}
         <p className="m-0 text-caption text-muted-foreground leading-4 [overflow-wrap:anywhere]">
           {meta}
-          <span aria-hidden="true"> · </span>
-          {expired
-            ? t("session.pending.expired")
-            : t("session.pending.expires", {
-                at: formatTimestamp(request.expires_at, locale),
-              })}
         </p>
       </div>
       <Button
         type="button"
         variant="outline"
+        size="sm"
         className="shrink-0"
         aria-expanded={opened}
-        aria-label={t("inbox.detailFor", { session: name })}
+        aria-label={t("inbox.answerFor", { session: name })}
         onClick={(event) => onOpen(event.currentTarget)}
       >
-        {t("inbox.detail")}
+        {t("inbox.answer")}
       </Button>
     </div>
   );
