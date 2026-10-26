@@ -161,10 +161,10 @@ describe("Switch", () => {
     const { getByRole } = render(<Switch aria-label="게스트 허용" />);
     const classes = getByRole("switch").className.split(" ");
     expect(classes).toContain(
-      "data-[state=unchecked]:enabled:hover:bg-subtle-foreground",
+      "data-[state=unchecked]:enabled:not-aria-disabled:hover:bg-subtle-foreground",
     );
     expect(classes).toContain(
-      "data-[state=checked]:enabled:hover:bg-control-checked/80",
+      "data-[state=checked]:enabled:not-aria-disabled:hover:bg-control-checked/80",
     );
   });
 

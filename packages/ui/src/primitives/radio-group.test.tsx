@@ -16,7 +16,9 @@ describe("RadioGroupItem", () => {
     );
     for (const radio of getAllByRole("radio")) {
       const classes = radio.className.split(" ");
-      expect(classes).toContain("enabled:hover:border-foreground");
+      expect(classes).toContain(
+        "enabled:not-focus-visible:not-aria-invalid:hover:border-foreground",
+      );
       expect(classes).toContain("enabled:hover:bg-hover");
     }
   });
