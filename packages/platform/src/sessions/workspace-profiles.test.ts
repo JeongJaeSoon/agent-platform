@@ -242,6 +242,29 @@ describe("listing", () => {
 });
 
 describe("the registry", () => {
+  test("a read that began earlier never replaces one that began later", async () => {
+    const pending: Array<(rows: WorkspaceProfileRecord[]) => void> = [];
+    const registry = createWorkspaceProfiles(
+      {
+        listAll: () =>
+          new Promise<WorkspaceProfileRecord[]>((resolve) => {
+            pending.push(resolve);
+          }),
+      },
+      () => 0,
+    );
+    const older = registry.refresh();
+    const newer = registry.refresh();
+    const retiredAt = new Date("2026-10-28T00:00:00Z");
+    pending[1]?.([version({ retired_at: retiredAt })]);
+    await newer;
+    pending[0]?.([version()]);
+    await older;
+    expect(registry.records.get("ws_acme_strict_v1")?.retired_at).toEqual(
+      retiredAt,
+    );
+  });
+
   test("joins a recent read, reads again past its age, and keeps the last read on failure", async () => {
     let clock = 0;
     let reads = 0;

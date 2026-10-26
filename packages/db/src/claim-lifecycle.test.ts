@@ -171,6 +171,7 @@ function claim(ref: ExecutionRef, nonce: string) {
   return work.claimAtomic({
     attemptId: `att-${crypto.randomUUID()}`,
     catalogRevision: "catalog-under-test",
+    workspaceProfileIds: new Set(),
     costLimitUsd: 1_000,
     tokenLimit: null,
     credentialHash: hashWorkerToken(`wkt-${crypto.randomUUID()}`),

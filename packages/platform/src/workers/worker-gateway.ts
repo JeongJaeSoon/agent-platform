@@ -538,12 +538,16 @@ export function createWorkerGateway(deps: {
     ];
   }
 
-  // Another replica's new version reaches this one within a second. A
-  // failed read leaves the versions already read, so a database blip never
-  // stops the operator's profiles from running.
-  async function refreshWorkspaceProfiles(): Promise<void> {
-    await catalog.workspace_profiles
-      ?.refresh(WORKSPACE_PROFILE_MAX_AGE_MS)
+  // Another replica's new version reaches this one within a second, or at
+  // once when `needed` names one not read yet. A failed read leaves the
+  // versions already read, so a database blip never stops the operator's
+  // profiles from running.
+  async function refreshWorkspaceProfiles(needed?: string): Promise<void> {
+    const registry = catalog.workspace_profiles;
+    if (!registry) return;
+    const known = needed === undefined || registry.records.has(needed);
+    await registry
+      .refresh(known ? WORKSPACE_PROFILE_MAX_AGE_MS : 0)
       .catch(() => undefined);
   }
 
@@ -897,6 +901,9 @@ export function createWorkerGateway(deps: {
       const result = await work.claimAtomic({
         runnable: runnablePairs(),
         catalogRevision: revision,
+        workspaceProfileIds: new Set(
+          catalog.workspace_profiles?.records.keys() ?? [],
+        ),
         costLimitUsd: deps.options.sessionCostLimitUsd,
         tokenLimit,
         nonceHash: hashWorkerToken(request.credential.nonce),
@@ -1074,6 +1081,11 @@ export function createWorkerGateway(deps: {
         attempt_id: result.attemptId,
         upstream,
       });
+      // The attempt may have been claimed on a replica that read the
+      // version before this one did.
+      if (result.profileId?.startsWith(WORKSPACE_PROFILE_PREFIX)) {
+        await refreshWorkspaceProfiles(result.profileId);
+      }
       if (request.purpose === "provider") {
         // What a session has spent is metered here, a tool's direct calls
         // with the engine's token included; a session past its
@@ -1090,9 +1102,6 @@ export function createWorkerGateway(deps: {
             "BUDGET_EXCEEDED",
             "The session has reached its cost or token limit",
           );
-        }
-        if (result.profileId?.startsWith(WORKSPACE_PROFILE_PREFIX)) {
-          await refreshWorkspaceProfiles();
         }
         const listed = result.profileId
           ? catalogProfile(catalog, result.profileId)

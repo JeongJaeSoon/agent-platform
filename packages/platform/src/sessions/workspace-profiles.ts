@@ -38,6 +38,9 @@ export function createWorkspaceProfiles(
 ): WorkspaceProfiles {
   let records: ReadonlyMap<string, WorkspaceProfileRecord> = new Map();
   let readAt = Number.NEGATIVE_INFINITY;
+  // Reads are applied in the order they began, never the order they end.
+  let begun = 0;
+  let applied = 0;
   let latest: { startedAt: number; done: Promise<void> } | null = null;
   return {
     get records() {
@@ -48,11 +51,13 @@ export function createWorkspaceProfiles(
       if (maxAgeMs > 0 && readAt >= oldest) return Promise.resolve();
       if (latest !== null && latest.startedAt > oldest) return latest.done;
       const startedAt = now();
+      begun += 1;
+      const order = begun;
       const done = store.listAll().then(
         (rows) => {
-          // A slower read begun earlier never replaces a newer one.
-          if (startedAt < readAt) return;
+          if (order < applied) return;
           records = new Map(rows.map((row) => [row.id, row]));
+          applied = order;
           readAt = startedAt;
         },
         (error: unknown) => {
