@@ -1180,7 +1180,7 @@ async function pass(
    */
   async function kill(
     execution: ExecutionRef & { sessionId: string } & Partial<
-        Pick<ActiveExecution, "observedAt" | "observedState">
+        Pick<ActiveExecution, "observedAt" | "observedState" | "providerRef">
       >,
   ): Promise<void> {
     const ref = refOf(execution);
@@ -1208,9 +1208,11 @@ async function pass(
     }
     if (outcome.outcome === "stopping") {
       // A client timeout reads as `stopping` whether or not the daemon took
-      // the stop, so the deadline runs from the first one that went out.
+      // the stop, so the deadline runs from the first one that went out to
+      // this very resource.
       const since =
-        execution.observedState === "terminating"
+        execution.observedState === "terminating" &&
+        execution.providerRef === outcome.providerRef
           ? (execution.observedAt ?? null)
           : null;
       if (since === null) {
@@ -1412,10 +1414,13 @@ async function pass(
       // Not waited on: a claimed worker may be draining a turn past its
       // drain deadline, and two hung unclaimed ones would outlast the pass.
       // One still stopping is asked again by the next pass, which finishes
-      // the recorded replacement without counting another.
+      // the recorded replacement without counting another — if it can tell
+      // the old resource by its revoked credential. One built before that
+      // label cannot be told apart, so it is waited on as before.
       outcome = await backend.terminate(ref, {
         ...pinnedTo(observed),
-        waitForExit: false,
+        waitForExit:
+          !execution.claimed && observed.credentialFingerprint == null,
       });
     } catch (error) {
       summary.reconcileFailed.push(ref);

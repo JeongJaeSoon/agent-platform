@@ -1691,6 +1691,29 @@ describe("runScheduler", () => {
     return { ...fixture, name, row };
   }
 
+  test("an unlabelled unclaimed resource is waited on, so its replacement is counted once", async () => {
+    const { backend, run, store } = harness();
+    const row = store.seedActive({
+      executionId: "exec-1",
+      observedState: "running",
+    });
+    // Built before the credential label: nothing shows a later pass that it
+    // is the old resource, so a teardown left stopping would be asked for,
+    // and counted, again.
+    backend.containers.set("exec-1#1", {
+      exited: false,
+      generation: 1,
+      operationId: row.operationId ?? "op",
+      sessionId: row.sessionId,
+    });
+    backend.staleFor.add("exec-1#1");
+    backend.drainingFor.add("exec-1#1");
+
+    for (const _ of [1, 2, 3]) await run();
+    expect(backend.terminateOptions[0]?.waitForExit).toBe(true);
+    expect(row.replacementCount).toBe(1);
+  });
+
   test("a rebuilt replacement judged again is a new replacement and is counted", async () => {
     const { backend, run, name, row } = await unsettledRebuild();
     backend.staleFor.add(name);
@@ -2967,6 +2990,36 @@ describe("runScheduler", () => {
     const confirmed = await run();
     expect(confirmed.killed).toEqual([ref]);
     expect(store.confirmedGone).toEqual([launch.executionId]);
+  });
+
+  test("a kill's deadline does not start from another resource's teardown", async () => {
+    const { backend, run, store } = harness(10, { stopDeadlineMs: 60_000 });
+    // An earlier resource of this launch was being reclaimed long ago; the
+    // one the kill now stops is another.
+    const row = store.seedActive({
+      claimed: true,
+      desiredState: "terminated",
+      executionId: "exec-1",
+      observedAt: new Date(Date.now() - 10 * 60_000),
+      observedState: "terminating",
+      providerRef: "ctr-old",
+    });
+    backend.containers.set("exec-1#1", {
+      exited: false,
+      generation: 1,
+      id: "ctr-new",
+      operationId: row.operationId ?? "op",
+      sessionId: row.sessionId,
+    });
+    backend.drainingFor.add("exec-1#1");
+
+    const asked = await run();
+    expect(asked.killFailed).toEqual([]);
+    expect(asked.killsStopping).toEqual([
+      { executionId: "exec-1", generation: 1 },
+    ]);
+    expect(row.providerRef).toBe("ctr-new");
+    expect(row.observedAt?.getTime()).toBeGreaterThan(Date.now() - 60_000);
   });
 
   test("a kill does not wait on a worker draining its turn, and a later pass confirms it gone", async () => {
