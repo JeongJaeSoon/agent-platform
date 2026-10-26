@@ -70,10 +70,10 @@ test("a list names every key's issuer in one statement, departed ones included",
   }
 
   statements = [];
-  const listed = await createPostgresWorkspaceKeyStore(db).list(
+  const { items: listed } = await createPostgresWorkspaceKeyStore(db).list(
     workspaceId,
     { personalOf: owner, allAgentKeysFor: ["owner"] },
-    10,
+    { limit: 10 },
   );
 
   expect(statements).toHaveLength(1);

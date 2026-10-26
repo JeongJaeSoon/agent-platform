@@ -102,7 +102,7 @@ const RETRY_CASES: ReadonlyArray<{
     path: "/settings/api-keys",
     routes: meOk,
     failingKey: "GET /v1/api-keys",
-    answer: () => json(200, { items: [] }),
+    answer: () => json(200, { items: [], next_cursor: null }),
     after: /아직 만든 개인 key가 없습니다/,
   },
   {

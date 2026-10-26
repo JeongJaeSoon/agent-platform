@@ -80,7 +80,7 @@ function issued(view: ApiKeyView) {
 function keysServer(initial: ApiKeyView[] = []) {
   let items = [...initial];
   return {
-    "GET /v1/api-keys": () => json(200, { items }),
+    "GET /v1/api-keys": () => json(200, { items, next_cursor: null }),
     "POST /v1/api-keys": async (request: Request) => {
       const body = (await request.json()) as {
         kind: ApiKeyView["kind"];
@@ -172,6 +172,30 @@ describe("API key", () => {
     expect(
       list.compareDocumentPosition(guide) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+  });
+
+  test("목록이 여러 페이지면 다음 페이지까지 이어 읽어 모두 보인다", async () => {
+    const second = "4d5e6f7a-8b9c-4d0e-9f1a-2b3c4d5e6f7a";
+    const { api } = renderAt(PERSONAL, {
+      ...ownerOk,
+      "GET /v1/api-keys": (request: Request) =>
+        new URL(request.url).searchParams.get("cursor") === "page-2"
+          ? json(200, {
+              items: [key({ id: second, kind: "personal", agent_id: null })],
+              next_cursor: null,
+            })
+          : json(200, {
+              items: [key({ kind: "personal", agent_id: null })],
+              next_cursor: "page-2",
+            }),
+    });
+    await screen.findByText(second);
+    expect(screen.getByText(KEY_ID)).toBeDefined();
+    expect(
+      api.calls
+        .filter((c) => c.method === "GET" && c.path === "/v1/api-keys")
+        .map((c) => c.search),
+    ).toEqual(["?limit=100", "?cursor=page-2&limit=100"]);
   });
 
   test("에이전트 key 화면은 에이전트와 이름으로 key를 보이고, 이름 없는 key는 그렇다고 하며 승인 배지를 달지 않는다", async () => {

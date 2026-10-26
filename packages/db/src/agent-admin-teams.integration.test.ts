@@ -326,9 +326,9 @@ integration("teams as agent admins on PostgreSQL", () => {
         await keys.list(
           workspaceId,
           { personalOf: idOf(managed), allAgentKeysFor: MANAGERS },
-          50,
+          { limit: 50 },
         )
-      ).map((k) => k.id);
+      ).items.map((k) => k.id);
 
     const issued = await issue();
     if (issued.outcome !== "issued") throw new Error(issued.outcome);

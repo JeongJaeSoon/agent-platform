@@ -1892,7 +1892,7 @@ export interface paths {
         };
         /**
          * The caller's personal keys and the agent keys they manage
-         * @description Owners and admins see every agent key; an agent's admin sees that agent's keys. Secrets are never returned.
+         * @description Owners and admins see every agent key; an agent's admin sees that agent's keys. Who sees which agent keys is read from the caller's role on every page, so a page read after a role change follows the new role. Newest `created_at` first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. Secrets are never returned.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -2382,6 +2382,11 @@ export interface components {
             limit: number;
             /** @constant */
             include?: "summary";
+        };
+        ListApiKeysQuery: {
+            cursor?: string;
+            /** @default 50 */
+            limit: number;
         };
         ListMembersQuery: {
             cursor?: string;
@@ -4692,6 +4697,7 @@ export interface components {
                 /** @description When the key last authenticated a request, recorded at most once a minute. A use made while another request is writing a session with the key is recorded on the next use instead, so it can lag by more. Null means no use has been recorded since last-use recording began, not that the key was never used. */
                 last_used_at: string | null;
             }[];
+            next_cursor: string | null;
         };
         RevokeApiKeyResponse: {
             key: {
@@ -17525,7 +17531,10 @@ export interface operations {
     };
     listApiKeys: {
         parameters: {
-            query?: never;
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -17540,6 +17549,21 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ListApiKeysResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
                 };
             };
             /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */

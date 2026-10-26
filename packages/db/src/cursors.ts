@@ -43,7 +43,7 @@ function decodeJsonCursor<T>(
   throw new InvalidCursorError();
 }
 
-// Sessions and agents page on (created_at, id). created_at is the database's
+// Sessions, agents and API keys page on (created_at, id). created_at is the database's
 // own text rendering so microsecond precision survives the round trip (JS Date
 // would truncate to milliseconds).
 export type CreatedAtCursor = { created_at: string; id: string };

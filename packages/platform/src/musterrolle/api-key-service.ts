@@ -1,12 +1,12 @@
-import {
-  API_KEY_LIST_LIMIT,
-  type ApiKeyView,
-  type AuthorizationAction,
-  type AuthorizationResource,
-  type CreateApiKeyRequest,
-  type CreateApiKeyResponse,
-  type ListApiKeysResponse,
-  type RevokeApiKeyResponse,
+import type {
+  ApiKeyView,
+  AuthorizationAction,
+  AuthorizationResource,
+  CreateApiKeyRequest,
+  CreateApiKeyResponse,
+  ListApiKeysQuery,
+  ListApiKeysResponse,
+  RevokeApiKeyResponse,
 } from "@werft-ai/contracts";
 import type {
   WorkspaceKey,
@@ -160,7 +160,10 @@ export function createApiKeyService(deps: {
       return { key: viewOf(result.key), secret, receipt_id: receiptId };
     },
 
-    async list(caller: Caller): Promise<ListApiKeysResponse> {
+    async list(
+      caller: Caller,
+      query: ListApiKeysQuery,
+    ): Promise<ListApiKeysResponse> {
       await requirePermitted(authorization, caller, "api_key.manage_own", {
         kind: "workspace",
         id: caller.ownerId,
@@ -169,15 +172,15 @@ export function createApiKeyService(deps: {
       // Who sees every agent key is the role table's, applied by the store
       // to the role held now; a refused probe would record a denial for
       // each listing.
-      const keys = await store.list(
+      const page = await store.list(
         caller.ownerId,
         {
           personalOf: userId,
           allAgentKeysFor: MANAGEMENT_ROLES["api_key.manage"] ?? [],
         },
-        API_KEY_LIST_LIMIT,
+        query,
       );
-      return { items: keys.map(viewOf) };
+      return { items: page.items.map(viewOf), next_cursor: page.nextCursor };
     },
 
     async revoke(caller: Caller, keyId: string): Promise<RevokeApiKeyResponse> {

@@ -247,6 +247,7 @@ test("issues in many rows of a list collapse to one path", () => {
   const rows = Array.from({ length: 3 }, () => ({ ...createdKey().key, x: 1 }));
   const issues = contractValidators.responses?.["GET /v1/api-keys"]?.({
     items: rows,
+    next_cursor: null,
   });
   const logged: ContractMismatch[] = [];
   warnOncePerIssue((_, mismatch) => logged.push(mismatch))({

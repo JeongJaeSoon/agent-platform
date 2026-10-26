@@ -362,26 +362,30 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
     const ids = (keys: { id: string }[]) => keys.map((key) => key.id).sort();
     expect(
       ids(
-        await store.list(
-          workspaceId,
-          {
-            personalOf: member.actor?.userId ?? "",
-            allAgentKeysFor: AGENT_KEY_ISSUERS,
-          },
-          50,
-        ),
+        (
+          await store.list(
+            workspaceId,
+            {
+              personalOf: member.actor?.userId ?? "",
+              allAgentKeysFor: AGENT_KEY_ISSUERS,
+            },
+            { limit: 50 },
+          )
+        ).items,
       ),
     ).toEqual(ids([bound.key, personal.key]));
     expect(
       ids(
-        await store.list(
-          workspaceId,
-          {
-            personalOf: owner.actor?.userId ?? "",
-            allAgentKeysFor: AGENT_KEY_ISSUERS,
-          },
-          50,
-        ),
+        (
+          await store.list(
+            workspaceId,
+            {
+              personalOf: owner.actor?.userId ?? "",
+              allAgentKeysFor: AGENT_KEY_ISSUERS,
+            },
+            { limit: 50 },
+          )
+        ).items,
       ),
     ).toEqual(ids([bound.key, othersKey.key]));
 
@@ -594,9 +598,9 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
     const listed = await store.list(
       workspaceId,
       { personalOf: userId, allAgentKeysFor: AGENT_KEY_ISSUERS },
-      50,
+      { limit: 50 },
     );
-    expect(listed.map((key) => key.id)).toEqual([bound.key.id]);
+    expect(listed.items.map((key) => key.id)).toEqual([bound.key.id]);
 
     if (othersKey.outcome !== "issued") throw new Error("not issued");
     const revoke = (keyId: string) =>
