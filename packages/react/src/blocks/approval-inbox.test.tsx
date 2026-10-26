@@ -707,6 +707,68 @@ describe("ApprovalInbox", () => {
     expect(document.activeElement?.textContent).toBe("Waiting for an answer");
   });
 
+  test("레일 타임라인은 답을 기다리는 요청의 호출만 답변 대기로, 답한 요청의 호출은 실행 중으로 그린다", async () => {
+    const user = await setupUser();
+    const call = (id: string, name: string) =>
+      [
+        "tool_use",
+        {
+          message: {
+            content: [{ type: "tool_use", id, name, input: { command: "ls" } }],
+          },
+        },
+      ] as const;
+    const ask = (requestId: string, toolUseId: string, tool: string) =>
+      [
+        "question",
+        {
+          request_id: requestId,
+          tool_use_id: toolUseId,
+          kind: "permission",
+          tool,
+          input: { command: "ls" },
+        },
+      ] as const;
+    // req_1 was answered before the rail opened; the session still waits on
+    // req_2, so no status says it moved on.
+    const view = renderInbox({
+      open: [permission("req_2", "Write")],
+      layout: "summary",
+      title: "Two calls",
+      rail: true,
+      events: [
+        call("tu_1", "Bash"),
+        ask("req_1", "tu_1", "Bash"),
+        call("tu_2", "Write"),
+        ask("req_2", "tu_2", "Write"),
+        ["status", { phase: "needs_input" }],
+      ],
+    });
+    await user.click(
+      await view.findByRole("button", { name: "View details of Two calls" }),
+    );
+    const panel = await view.findByRole("complementary", { name: "Two calls" });
+    const calls = () =>
+      [...panel.querySelectorAll("ol li[data-kind='tool']")].map(
+        (row) => row.textContent ?? "",
+      );
+    await waitFor(() => {
+      const [bash, write] = calls();
+      expect(bash).toContain("Running");
+      expect(bash).not.toContain("Waiting for an answer");
+      expect(write).toContain("Waiting for an answer");
+      expect(write).not.toContain("Running");
+    });
+    await user.click(await view.findByRole("button", { name: /^Allow/ }));
+    await waitFor(() => expect(view.posted).toHaveLength(1));
+    view.push(["status", { phase: "running" }]);
+    await waitFor(() => {
+      const [, write] = calls();
+      expect(write).toContain("Running");
+      expect(write).not.toContain("Waiting for an answer");
+    });
+  });
+
   test("레일은 열면 머리로 키보드를 옮기고, 닫기·Esc로 닫히면 연 버튼으로 돌려준다", async () => {
     const user = await setupUser();
     const view = renderInbox({

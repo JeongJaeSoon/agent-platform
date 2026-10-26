@@ -118,6 +118,21 @@ export function heldToolCalls(
   return held;
 }
 
+/** A pending requests query as `SessionTimeline`'s `pending` reads it. */
+export function listedRequests(query: {
+  readonly data?:
+    | { readonly items: readonly { request_id: string }[] }
+    | undefined;
+  readonly dataUpdatedAt: number;
+}) {
+  return query.data
+    ? {
+        requestIds: query.data.items.map((item) => item.request_id),
+        at: query.dataUpdatedAt,
+      }
+    : undefined;
+}
+
 /** A session's events as the timeline reads them. */
 export function SessionTimeline({
   events,
@@ -133,10 +148,13 @@ export function SessionTimeline({
   /** Drawn under a request's line; see `Timeline`. */
   readonly request?: ((requestId: string) => ReactNode) | undefined;
   /**
-   * The requests waiting for an answer, as last listed: one listed before
-   * and gone since was answered, so its call no longer waits.
+   * The requests waiting for an answer and when they were listed: a request
+   * on the stream before then and missing from the list was answered, so
+   * its call no longer waits.
    */
-  readonly pending?: readonly string[] | undefined;
+  readonly pending?:
+    | { readonly requestIds: readonly string[]; readonly at: number }
+    | undefined;
   /** The session's turns: each one's message heads its events. */
   readonly turns?: readonly TurnSummary[] | undefined;
 }) {
@@ -159,13 +177,27 @@ export function SessionTimeline({
       ),
     [events, t, locale],
   );
-  const [listed, setListed] = useState<readonly string[]>([]);
-  const fresh = pending?.filter((requestId) => !listed.includes(requestId));
-  if (fresh !== undefined && fresh.length > 0) setListed([...listed, ...fresh]);
+  // When each request's line first arrived, on the clock `pending.at` reads.
+  const [seenAt, setSeenAt] = useState<ReadonlyMap<string, number>>(
+    () => new Map(),
+  );
+  const unseen = events.flatMap(({ payload }) =>
+    payload.event === "question" && !seenAt.has(payload.data.request_id)
+      ? [payload.data.request_id]
+      : [],
+  );
+  if (unseen.length > 0) {
+    const now = Date.now();
+    setSeenAt(new Map([...seenAt, ...unseen.map((id) => [id, now] as const)]));
+  }
   const answered = new Set(
     pending === undefined
       ? []
-      : listed.filter((requestId) => !pending.includes(requestId)),
+      : [...seenAt].flatMap(([requestId, at]) =>
+          at <= pending.at && !pending.requestIds.includes(requestId)
+            ? [requestId]
+            : [],
+        ),
   );
   const held = heldToolCalls(events, answered);
   const asked = useMemo(
