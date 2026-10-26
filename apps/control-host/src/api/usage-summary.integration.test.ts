@@ -377,6 +377,166 @@ integration("usage summary on PostgreSQL", () => {
     }
   });
 
+  test("group_by splits the same summary by agent or user, and the groups add up to it", async () => {
+    const period = { since: "2006-01-01", until: "2006-02-01" };
+    const alice = user("alice", "member");
+    const bob = user("bob", "member");
+    const halfSecond = async (id: string, start: string) =>
+      setTurn(id, {
+        startedAt: new Date(start),
+        endedAt: new Date(new Date(start).getTime() + 1_500),
+      });
+    const a1 = await session(alice, "2006-01-02T00:00:00Z", 0.1, 1);
+    await halfSecond(a1, "2006-01-02T00:00:00Z");
+    const a2 = await session(
+      alice,
+      "2006-01-03T00:00:00Z",
+      0.25,
+      2,
+      agentReleaseId,
+    );
+    await halfSecond(a2, "2006-01-03T00:00:00Z");
+    const b1 = await session(bob, "2006-01-04T00:00:00Z", 0.3, 3);
+    await setTurn(b1, { status: "failed", resultJson: null });
+    await session(
+      key(agentKey, null),
+      "2006-01-05T00:00:00Z",
+      0.4,
+      4,
+      agentReleaseId,
+    );
+
+    const whole = await summary(user("owner", "owner"), {
+      scope: "installation",
+      ...period,
+    });
+    expect(whole).toMatchObject({ session_count: 4, cost_complete: false });
+    for (const group_by of ["agent", "user"] as const) {
+      const grouped = await summary(user("owner", "owner"), {
+        scope: "installation",
+        ...period,
+        group_by,
+      });
+      const { groups, ...totals } = grouped;
+      expect({ ...totals, refreshed_at: "" }).toEqual({
+        ...whole,
+        refreshed_at: "",
+      });
+      const sum = (pick: (g: NonNullable<typeof groups>[number]) => number) =>
+        (groups ?? []).reduce((total, group) => total + pick(group), 0);
+      expect(sum((g) => g.session_count)).toBe(whole.session_count);
+      expect(sum((g) => g.run_seconds)).toBe(whole.run_seconds);
+      expect(Math.round(sum((g) => Number(g.cost_usd)) * 1e6)).toBe(
+        Math.round(Number(whole.cost_usd) * 1e6),
+      );
+      expect(groups?.some((g) => !g.cost_complete)).toBe(true);
+    }
+    // 60 + 1.5 + 1.5 + 60 seconds: the halves meet in the total's one floor.
+    expect(whole.run_seconds).toBe(123);
+    expect(
+      (
+        await summary(user("owner", "owner"), {
+          scope: "installation",
+          ...period,
+          group_by: "agent",
+        })
+      ).groups,
+    ).toEqual([
+      {
+        id: agentId,
+        name: "Bot",
+        session_count: 2,
+        run_seconds: 61,
+        cost_usd: "0.650000",
+        cost_complete: true,
+      },
+      {
+        id: null,
+        name: null,
+        session_count: 2,
+        run_seconds: 62,
+        cost_usd: "0.400000",
+        cost_complete: false,
+      },
+    ]);
+    const byUser = await summary(user("owner", "owner"), {
+      scope: "installation",
+      ...period,
+      group_by: "user",
+    });
+    expect(
+      byUser.groups?.map((g) => [g.id, g.name, g.session_count, g.cost_usd]),
+    ).toEqual([
+      [null, null, 1, "0.400000"],
+      [ids.alice, "alice", 2, "0.350000"],
+      [ids.bob, "bob", 1, "0.300000"],
+    ]);
+
+    // scope=me groups only the caller's own sessions.
+    const mine = await summary(alice, {
+      scope: "me",
+      ...period,
+      group_by: "user",
+    });
+    expect(mine.groups).toEqual([
+      {
+        id: ids.alice,
+        name: "alice",
+        session_count: 2,
+        run_seconds: 3,
+        cost_usd: "0.350000",
+        cost_complete: true,
+      },
+    ]);
+    expect(
+      (
+        await summary(alice, { scope: "me", ...period, group_by: "agent" })
+      ).groups?.map((g) => [g.id, g.session_count]),
+    ).toEqual([
+      [agentId, 1],
+      [null, 1],
+    ]);
+    // A period without sessions has no groups and zero totals.
+    expect(
+      await summary(bob, {
+        scope: "me",
+        since: "1999-01-01",
+        until: "1999-02-01",
+        group_by: "user",
+      }),
+    ).toMatchObject({
+      session_count: 0,
+      cost_usd: "0",
+      run_seconds: 0,
+      cost_complete: true,
+      groups: [],
+    });
+  });
+
+  test("group_by reads in the same statements whatever the number of groups", async () => {
+    const statements: string[] = [];
+    const reader = createPostgresUsageReader(
+      drizzle(pool, {
+        schema,
+        logger: { logQuery: (query) => statements.push(query) },
+      }),
+    );
+    const count = async (since: string, until: string) => {
+      statements.length = 0;
+      const read = await reader.usageSummaryGroups(
+        { kind: "installation" },
+        { since: new Date(since), until: new Date(until) },
+        "user",
+      );
+      return { groups: read.groups.length, statements: statements.length };
+    };
+    const one = await count("2001-03-02T00:00:00Z", "2001-03-03T00:00:00Z");
+    const many = await count("2001-01-01T00:00:00Z", "2007-01-01T00:00:00Z");
+    expect(one.groups).toBe(1);
+    expect(many.groups).toBeGreaterThan(2);
+    expect(many.statements).toBe(one.statements);
+  });
+
   test("since and until cut on UTC, since included and until not", async () => {
     const caller = user("alice", "member");
     await session(caller, "2005-09-30T23:59:59.999Z", 1, 1);

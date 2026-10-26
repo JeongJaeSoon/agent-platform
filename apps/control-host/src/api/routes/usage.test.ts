@@ -37,6 +37,9 @@ const app = createApiApp({
           usageSummary: async () => {
             throw new Error("not read in these tests");
           },
+          usageSummaryGroups: async () => {
+            throw new Error("not read in these tests");
+          },
           usageSeries: async () => {
             throw new Error("not read in these tests");
           },

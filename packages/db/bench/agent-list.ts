@@ -95,7 +95,8 @@ const bindings = createPostgresCredentialBindingStore(
 );
 const page = await agents.list(WORKSPACE, { limit: PAGE });
 const ids = page.items.map((agent) => agent.id);
-const summaries = await agents.summaries(WORKSPACE, ids);
+const VIEWER = { userId: null, apiKeyId: null };
+const summaries = await agents.summaries(WORKSPACE, ids, VIEWER);
 const listed = Math.min(agentCount, PAGE);
 if (ids.length !== listed || summaries.size !== listed)
   throw new Error("seed failed");
@@ -123,6 +124,7 @@ console.table({
     await agents.summaries(
       WORKSPACE,
       first.items.map((agent) => agent.id),
+      VIEWER,
     );
   }),
   // The three reads one card makes without a summary, for one agent.

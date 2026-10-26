@@ -1456,7 +1456,7 @@ export interface paths {
         };
         /**
          * The workspace's agents
-         * @description Lists the workspace's agents oldest `created_at` first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. `include=summary` adds to each item a `summary` of what a card shows (the version people talk to, its runtime profile, live credential bindings and admins), read for the whole page at once; without it the items are as before. API keys are refused.
+         * @description Lists the workspace's agents oldest `created_at` first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. `include=summary` adds to each item a `summary` of what a card shows (the version people talk to, its runtime profile, live credential bindings, admins, and how many of the agent's sessions the caller can see are `needs_input` and `running`, as `GET /v1/sessions` shows them), read for the whole page at once; without it the items are as before. API keys are refused.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -2193,7 +2193,9 @@ export interface paths {
          *     - `scope=me`: the sessions the caller started. A personal API key counts as the person who created it; a key nobody created counts the sessions it started itself. Sessions shared with the caller are not added. A key bound to an agent gets 403, as it does from `GET /v1/sessions`.
          *     - `scope=installation`: every session of every owner. Only the workspace owner, signed in, reads it: any other member and every API key get 403.
          *
-         *     `cost_usd` is the sum of `cost.amount_usd` from `GET /v1/sessions/{id}/usage` over the same sessions: an estimate, not a bill. `cost_complete: false` means one of them has a turn still open or one that ended without reporting its cost, so the true total is unknown. `run_seconds` is wall-clock turn time, waiting for an answer included; an open turn counts up to `refreshed_at`. Sessions from before tokens were metered count 0 tokens. It changes nothing.
+         *     `cost_usd` is the sum of `cost.amount_usd` from `GET /v1/sessions/{id}/usage` over the same sessions: an estimate, not a bill. `cost_complete: false` means one of them has a turn still open or one that ended without reporting its cost, so the true total is unknown. `run_seconds` is wall-clock turn time, waiting for an answer included; an open turn counts up to `refreshed_at`. Sessions from before tokens were metered count 0 tokens.
+         *
+         *     `group_by=agent` or `group_by=user` adds `groups`: the same sessions, each once, under its agent or the user holding it, largest cost first, read in the same statement as the totals. The groups' `session_count`, `cost_usd` and `run_seconds` add up to the totals (`run_seconds` is the floor of the running total minus the floor of the one before it, so two groups of 1.5 seconds read 1 and 2), and `cost_complete` is false when any group's is. `id` is the agent id or user id; it is null for sessions without an agent, or started by a key no person created. `name` is the agent's name or the user's display name, never an email; under `scope=me` a user other than the caller is null. Without `group_by` there is no `groups`. It changes nothing.
          *
          *     **Scope:** `sessions:read` (API key or cookie session).
          */
@@ -2423,6 +2425,8 @@ export interface components {
             scope: "installation" | "me";
             since: string;
             until?: string;
+            /** @enum {string} */
+            group_by?: "agent" | "user";
         };
         UsageSeriesQuery: {
             /** @enum {string} */
@@ -4315,6 +4319,14 @@ export interface components {
                 /** @constant */
                 run_time: "turn_wall_clock";
             };
+            groups?: {
+                id: string | null;
+                name: string | null;
+                session_count: number;
+                run_seconds: number;
+                cost_usd: string;
+                cost_complete: boolean;
+            }[];
         };
         UsageSeriesResponse: {
             period: {
@@ -4456,6 +4468,8 @@ export interface components {
                     runtime_profile_id: string | null;
                     bound_credential_refs: string[];
                     admins: string[];
+                    needs_input_count: number;
+                    running_count: number;
                 };
             }[];
             next_cursor: string | null;
@@ -19386,6 +19400,7 @@ export interface operations {
                 scope: "installation" | "me";
                 since: string;
                 until?: string;
+                group_by?: "agent" | "user";
             };
             header?: never;
             path?: never;
