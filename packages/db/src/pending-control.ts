@@ -69,12 +69,16 @@ function questionEvent(
   };
 }
 
+// A parked request's answer is not for the attempt that asked, even one
+// still up between the park's finalize and its release: it goes to the turn
+// that resumes the park.
 function undelivered(fence: WorkerFence) {
   return and(
     eq(pendingRequests.sessionId, fence.sessionId),
     eq(pendingRequests.attemptId, fence.attemptId),
     isNotNull(pendingRequests.answeredAt),
     isNull(pendingRequests.settledAt),
+    isNull(pendingRequests.parkedAt),
   );
 }
 
@@ -237,8 +241,7 @@ export function createPostgresWorkerPendingStore(
                       pendingRequests.requestId,
                       input.settled.map((item) => item.request_id),
                     ),
-                    // A parked request left its worker behind: the answer,
-                    // the expiry or a close settles it.
+                    // The answer, the expiry or a close settles a parked one.
                     isNull(pendingRequests.parkedAt),
                   ),
                 )

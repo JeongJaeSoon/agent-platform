@@ -104,7 +104,11 @@ import { CLOSE, drainBlocker, drainOf, openDrainReceipt } from "./drain.ts";
 import { catalogMismatchCause, quarantineLaunch } from "./launch-quarantine.ts";
 import { sessionMcpOf } from "./mcp-egress.ts";
 import { openPauseReceipt, pauseReceiptResult } from "./pause-control.ts";
-import { abandonUndeliveredAnswers } from "./pending-requests.ts";
+import {
+  abandonUndeliveredAnswers,
+  awaitingInputAt,
+  publicStatus,
+} from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
 import {
   boundedReason,
@@ -2949,7 +2953,11 @@ export function createPostgresWorkerUnitOfWork(
                 ? "failed"
                 : settledInto === "stopped" || settledInto === "closed"
                   ? "stopped"
-                  : session.status,
+                  : // A park settles paused with its requests still open.
+                    publicStatus(
+                      session.status,
+                      await awaitingInputAt(tx, session.id, await dbNow(tx)),
+                    ),
             extra: {
               admission_state: settledInto,
               ...(pauseFailed

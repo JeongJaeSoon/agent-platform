@@ -20,7 +20,7 @@ import {
   type TempDatabase,
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
-import { and, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresSessionControl } from "./control-unit-of-work.ts";
@@ -36,6 +36,8 @@ import {
 import * as schema from "./schema.ts";
 import {
   attempts,
+  checkpoints,
+  events,
   pendingRequests,
   permissionGrants,
   receipts,
@@ -436,12 +438,69 @@ integration("parked pending requests on PostgreSQL", () => {
       .update(pendingRequests)
       .set({ parkedAt: sql`now()` })
       .where(eq(pendingRequests.requestId, requestId));
-    await poll(worker, [{ request_id: requestId, outcome: "cancelled" }]);
+    // Nor is its answer handed to the attempt that asked, which may still
+    // be up between the park's finalize and its release.
+    const polled = await poll(worker, [
+      { request_id: requestId, outcome: "cancelled" },
+    ]);
+    expect(polled.answers).toEqual([]);
     expect(await request(requestId)).toMatchObject({
       settledAt: null,
       settledOutcome: null,
+      deliveredAt: null,
     });
     expect((await receipt(accepted.receipt_id))?.status).toBe("accepted");
+  });
+
+  test("a park that settles paused reports the session waiting for input", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    const requestId = await register(worker);
+    const turnRowId = await parkRows(worker, [requestId]);
+    await db.insert(checkpoints).values({
+      sessionId,
+      revision: 0,
+      manifestRef: `manifests/${sessionId}/0`,
+      manifestSha256: "c".repeat(64),
+      parentRevision: null,
+      turnId: turnRowId,
+    });
+    await db
+      .update(sessions)
+      .set({
+        checkpointRevision: 0,
+        admissionState: "pausing",
+        pauseReason: "awaiting_input",
+        status: "idle",
+      })
+      .where(eq(sessions.id, sessionId));
+    await db.insert(receipts).values({
+      id: crypto.randomUUID(),
+      ownerId: owner.ownerId,
+      actor: { kind: "system" },
+      requestId: null,
+      operation: "pause",
+      targetRef: { session_id: sessionId, turn_id: null, request_id: null },
+      status: "accepted",
+      result: null,
+    });
+    await executionGone(worker);
+
+    expect(await sessionRow(sessionId)).toMatchObject({
+      admissionState: "paused",
+      pauseReason: "awaiting_input",
+      inputAnnounced: true,
+    });
+    const [last] = await db
+      .select({ payload: events.payload })
+      .from(events)
+      .where(and(eq(events.sessionId, sessionId), eq(events.type, "status")))
+      .orderBy(desc(events.id))
+      .limit(1);
+    expect(last?.payload).toMatchObject({
+      phase: "needs_input",
+      admission_state: "paused",
+    });
+    expect((await reads(owner, sessionId)).status).toBe("needs_input");
   });
 
   test("pendingControl stamps delivered_at once, when it first hands an answer over", async () => {
@@ -594,6 +653,21 @@ integration("parked pending requests on PostgreSQL", () => {
       .set({ pauseReason: "awaiting_input" })
       .where(eq(sessions.id, sessionId));
     expect((await sessionRow(sessionId)).pauseReason).toBeNull();
+    // No trigger runs on an insert: the check refuses it outright.
+    const refused = await db
+      .insert(sessions)
+      .values({
+        id: crypto.randomUUID(),
+        ownerId: "owner-check",
+        repoUrl: "https://example.invalid/app.git",
+        branch: "main",
+        pauseReason: "awaiting_input",
+      })
+      .then(
+        () => null,
+        (error: { cause?: { constraint?: string } }) => error.cause?.constraint,
+      );
+    expect(refused).toBe("sessions_pause_reason_check");
     await db
       .update(sessions)
       .set({ admissionState: "paused" })
