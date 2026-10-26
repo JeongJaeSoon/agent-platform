@@ -41,19 +41,23 @@ describe("자격 연결 단계", () => {
     const { api, services } = renderAt(DETAIL, { ...meOk, ...server.routes });
     // The list's summaries say what is bound, so a change marks it stale;
     // the overview watches the list, so it may be read again at once.
-    const listed = () => {
-      const seeded = services.queryClient.setQueryData(queryKeys.agents, {
-        items: [],
-        next_cursor: null,
-      });
-      return () => {
-        const state = services.queryClient.getQueryState(queryKeys.agents);
-        return state?.isInvalidated === true || state?.data !== seeded;
-      };
+    const listReads = () =>
+      api.calls.filter((c) => c.method === "GET" && c.path === "/v1/agents")
+        .length;
+    const listed = async () => {
+      await waitFor(() =>
+        expect(
+          services.queryClient.getQueryState(queryKeys.agents)?.fetchStatus,
+        ).toBe("idle"),
+      );
+      const reads = listReads();
+      return () =>
+        services.queryClient.getQueryState(queryKeys.agents)?.isInvalidated ===
+          true || listReads() > reads;
     };
     const user = await setupUser();
     const section = await step();
-    let list = listed();
+    let list = await listed();
 
     const unbound = await within(section).findByRole("list", {
       name: "연결되지 않은 자격",
@@ -72,7 +76,7 @@ describe("자격 연결 단계", () => {
       { credential_ref: "github/app" },
     ]);
     await waitFor(() => expect(list()).toBe(true));
-    list = listed();
+    list = await listed();
     const bound = await within(section).findByRole("list", {
       name: "연결된 자격",
     });
