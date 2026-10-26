@@ -1207,7 +1207,7 @@ describe("내가 속한 팀", () => {
       "GET /v1/members": forbidden,
       "GET /v1/invites": forbidden,
       "GET /v1/agents": forbidden,
-      "GET /v1/my-teams": () => json(200, { items: [TEAM] }),
+      "GET /v1/my-teams": () => json(200, { items: [TEAM], next_cursor: null }),
     });
     const section = await screen.findByRole("region", {
       name: "내가 속한 팀",
@@ -1223,7 +1223,7 @@ describe("내가 속한 팀", () => {
         json(200, memberPage({ items: [owner], next_cursor: null })),
       "GET /v1/invites": () => json(200, { items: [] }),
       "GET /v1/agents": () => json(200, { items: [], next_cursor: null }),
-      "GET /v1/my-teams": () => json(200, { items: [TEAM] }),
+      "GET /v1/my-teams": () => json(200, { items: [TEAM], next_cursor: null }),
     });
     const link = await screen.findByRole("link", { name: "결제팀" });
     expect(link.getAttribute("href")).toBe(`/members/teams/${TEAM.id}`);
@@ -1235,7 +1235,7 @@ describe("내가 속한 팀", () => {
       "GET /v1/members": forbidden,
       "GET /v1/invites": forbidden,
       "GET /v1/agents": forbidden,
-      "GET /v1/my-teams": () => json(200, { items: [] }),
+      "GET /v1/my-teams": () => json(200, { items: [], next_cursor: null }),
     });
     await screen.findByRole("heading", { name: "홈" });
     await waitFor(() =>

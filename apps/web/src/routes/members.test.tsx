@@ -1579,7 +1579,7 @@ describe("구성원 · 팀 · 초대 탭", () => {
   test("관리 권한이 없으면 팀 탭만 보인다", async () => {
     renderAt("/members/teams", {
       "GET /v1/auth/me": () => json(200, memberMe()),
-      "GET /v1/my-teams": () => json(200, { items: [] }),
+      "GET /v1/my-teams": () => json(200, { items: [], next_cursor: null }),
     });
     expect(await screen.findByText("아직 속한 팀이 없습니다.")).toBeDefined();
     expect(tabsOf()).toEqual([["팀", "/members/teams", "page"]]);
