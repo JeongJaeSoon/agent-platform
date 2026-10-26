@@ -7,6 +7,26 @@ import { z } from "zod";
 export const repositoryModeSchema = z.enum(["required", "optional", "none"]);
 
 /**
+ * How long a session of the profile waits on a permission or question
+ * request, as resolved for new sessions, and where each value came from:
+ * the profile, or the installation default where the profile sets none. A
+ * session may only shorten them (`permission_wait` at create).
+ */
+const permissionWaitSourceSchema = z.enum(["profile", "installation"]);
+export const permissionWaitSchema = z
+  .object({
+    park_after_seconds: z.number().int().nonnegative(),
+    expire_after_seconds: z.number().int().positive(),
+    source: z
+      .object({
+        park_after_seconds: permissionWaitSourceSchema,
+        expire_after_seconds: permissionWaitSourceSchema,
+      })
+      .strict(),
+  })
+  .strict();
+
+/**
  * GET /v1/profiles: the catalog profiles a session or a release may name.
  * Only what a caller picks by; the provider endpoint and credential
  * reference stay with the operator.
@@ -22,6 +42,8 @@ export const profileSummarySchema = z
     // no recorded cost and with no dollar limit.
     billing: z.enum(["metered", "none"]),
     repository_mode: repositoryModeSchema,
+    // Optional so a reader ahead of its server reads a profile without it.
+    permission_wait: permissionWaitSchema.optional(),
   })
   .strict();
 
