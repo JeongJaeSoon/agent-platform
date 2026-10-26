@@ -25,8 +25,8 @@ import {
 } from "../musterrolle/policy.ts";
 import type {
   SessionUsageRecord,
-  UsageSummaryFilter,
   UsageToolCallsFilter,
+  UsageTotalsFilter,
 } from "../ports/usage-reader.ts";
 import { SessionServiceError } from "../sessions/session-service.ts";
 import {
@@ -61,6 +61,7 @@ const WORKSPACE = crypto.randomUUID();
 const USER = crypto.randomUUID();
 const OTHER = crypto.randomUUID();
 const SERVICE_KEY_ID = crypto.randomUUID();
+const AGENT = crypto.randomUUID();
 
 function user(role: WorkspaceRole): Caller {
   return callerFor(
@@ -91,7 +92,7 @@ function serviceKey(): Caller {
   );
 }
 
-const asked: UsageSummaryFilter[] = [];
+const asked: UsageTotalsFilter[] = [];
 
 function service(
   session: SessionUsageRecord | null = record,
@@ -111,6 +112,8 @@ function service(
         outputsUpdatedAt: null,
         outputsComplete: true,
       }),
+      agentExists: async (ownerId, agentId) =>
+        ownerId === WORKSPACE && agentId === AGENT,
       sessionUsage: async () => session,
       usageSummary: async (filter, period) => {
         asked.push(filter);
@@ -467,6 +470,54 @@ describe("usage service", () => {
     expect((error as SessionServiceError).code).toBe("FORBIDDEN");
   });
 
+  test("scope=agent sums one agent's sessions for its managers, after the agent is found", async () => {
+    const agentQuery = (agentId: string) =>
+      usageSummaryQuerySchema.parse({
+        scope: "agent",
+        agent_id: agentId,
+        since: "2026-10-01",
+      });
+    asked.length = 0;
+    for (const [caller, agentId, code] of [
+      [user("member"), crypto.randomUUID(), "NOT_FOUND"],
+      [user("owner"), crypto.randomUUID(), "NOT_FOUND"],
+      [user("member"), AGENT, "FORBIDDEN"],
+      [serviceKey(), AGENT, "FORBIDDEN"],
+    ] as const) {
+      const error = await service()
+        .getUsageSummary(caller, agentQuery(agentId))
+        .catch((caught: unknown) => caught);
+      expect((error as SessionServiceError).code).toBe(code);
+    }
+    expect(asked).toEqual([]);
+
+    const body = await service().getUsageSummary(
+      user("admin"),
+      agentQuery(AGENT),
+    );
+    expect(usageSummaryResponseSchema.parse(body)).toMatchObject({
+      scope: "agent",
+      session_count: 3,
+    });
+    expect(body).not.toHaveProperty("groups");
+    expect(asked).toEqual([
+      { kind: "agent", ownerId: WORKSPACE, agentId: AGENT },
+    ]);
+  });
+
+  test("scope=agent needs agent_id and no group_by; agent_id needs scope=agent", () => {
+    for (const input of [
+      { scope: "agent" },
+      { scope: "agent", agent_id: AGENT, group_by: "user" },
+      { scope: "me", agent_id: AGENT },
+    ]) {
+      expect(
+        usageSummaryQuerySchema.safeParse({ ...input, since: "2026-10-01" })
+          .success,
+      ).toBe(false);
+    }
+  });
+
   // The rule GET /v1/sessions applies: a key bound to an agent reaches that
   // agent's sessions one by one, never a read across them.
   test("a key bound to an agent is refused scope=me, as it is the session list", async () => {
@@ -485,6 +536,7 @@ describe("usage service", () => {
         installationUsage: async () => {
           throw new Error("not read");
         },
+        agentExists: async () => false,
         sessionUsage: async () => null,
         usageSummary: async () => {
           throw new Error("not read");
@@ -647,6 +699,7 @@ describe("usage service", () => {
         installationUsage: async () => {
           throw new Error("not read");
         },
+        agentExists: async () => false,
         sessionUsage: async () => null,
         usageSummary: async () => {
           throw new Error("not read");

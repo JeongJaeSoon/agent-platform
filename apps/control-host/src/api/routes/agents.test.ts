@@ -362,6 +362,7 @@ describe("POST /v1/agents", () => {
       },
       { ...body, slug: "Finance Team" },
       { ...body, card: { ...card, api_key: "x" } },
+      { ...body, card: { ...card, tone: "공손하게" } },
     ]) {
       const response = await send(app(), "POST", "/v1/agents", bad);
       expect(response.status).toBe(400);
@@ -446,6 +447,13 @@ describe("PATCH /v1/agents/{id}", () => {
     expect((await send(app(), "PATCH", `/v1/agents/${AGENT}`, {})).status).toBe(
       400,
     );
+    expect(
+      (
+        await send(app(), "PATCH", `/v1/agents/${AGENT}`, {
+          card: { ...card, tone: "공손하게" },
+        })
+      ).status,
+    ).toBe(400);
     expect(
       (
         await send(

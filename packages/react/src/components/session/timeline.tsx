@@ -59,6 +59,8 @@ export interface TimelineMessages {
   readonly folded?: ((count: number) => string) | undefined;
   /** Marks a tool call whose result has not arrived. */
   readonly running?: string | undefined;
+  /** Marks a tool call that waits on an answer instead; see `held`. */
+  readonly waiting?: string | undefined;
   /** Names a question's list of options. */
   readonly options?: string | undefined;
 }
@@ -136,6 +138,11 @@ export interface TimelineProps {
    * null leaves the line as it is, with a question's options listed.
    */
   readonly request?: ((requestId: string) => ReactNode) | undefined;
+  /**
+   * The tool calls a question or permission request holds back until it is
+   * answered: they do not run yet, so they read as waiting, not running.
+   */
+  readonly held?: ReadonlySet<string> | undefined;
   /**
    * Drawn under a turn's head, before its lines, such as the message the
    * turn was asked; null leaves the turn as it is.
@@ -387,6 +394,7 @@ export function Timeline({
   now,
   className,
   request,
+  held,
   prompt,
 }: TimelineProps): JSX.Element {
   const idBase = useId();
@@ -467,6 +475,7 @@ export function Timeline({
                 first={first}
                 last={last}
                 request={request}
+                held={held}
               />
             ),
         });
@@ -665,23 +674,28 @@ function EventItem({
   first,
   last,
   request,
+  held,
 }: LineProps & {
   readonly row: TimelineRow;
   readonly time: TimeContext;
   readonly shown: boolean;
   readonly resultShown: boolean;
   readonly request: TimelineProps["request"];
+  readonly held: TimelineProps["held"];
 }): JSX.Element {
   const { presentation, result } = row;
   const error =
     presentation.error === true || result?.presentation.error === true;
   const kind = error ? "error" : timelineKind(presentation);
-  const running =
+  const open =
     row.toolCallId !== undefined &&
     result === undefined &&
-    presentation.label.key === "session.event.kind.toolUse"
-      ? messages.running
-      : undefined;
+    presentation.label.key === "session.event.kind.toolUse";
+  const progress = !open
+    ? undefined
+    : held?.has(row.toolCallId as string)
+      ? { text: messages.waiting, tone: "text-[var(--ap-tone-attention-fg)]" }
+      : { text: messages.running, tone: "text-[var(--ap-tone-progress-fg)]" };
   const slot =
     row.requestId === undefined ? null : (request?.(row.requestId) ?? null);
   const options = row.options ?? [];
@@ -700,9 +714,9 @@ function EventItem({
             {shown ? null : <HiddenStamp at={row.occurredAt} time={time} />}
           </span>
           {shown ? <Stamp at={row.occurredAt} time={time} /> : null}
-          {running ? (
-            <span className="text-caption font-normal text-[var(--ap-tone-progress-fg)]">
-              {running}
+          {progress?.text ? (
+            <span className={cn("text-caption font-normal", progress.tone)}>
+              {progress.text}
             </span>
           ) : null}
         </div>

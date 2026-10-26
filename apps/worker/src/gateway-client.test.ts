@@ -257,6 +257,39 @@ describe("HttpWorkerGatewayClient", () => {
     expect(lost).toEqual([]);
   });
 
+  test("a heartbeat answer with or without auth_revision keeps the lease", async () => {
+    const answer = {
+      lease_expires_at: new Date(Date.now() + 30_000).toISOString(),
+      lease_remaining_ms: 30_000,
+      control_pending: false,
+    };
+    for (const fromServer of [{ ...answer, auth_revision: 0 }, answer]) {
+      let beats = 0;
+      const { gateway } = client(() => {
+        beats += 1;
+        return ok(fromServer);
+      });
+      expect(
+        await gateway.heartbeat({ ...scope, attempt_state: "running" }),
+      ).toEqual(fromServer);
+      beats = 0;
+      const lost: string[] = [];
+      const heartbeat = new Heartbeat({
+        gateway,
+        scope: () => scope,
+        attemptState: () => "running",
+        intervalMs: 1,
+        lease: { remainingMs: 30_000, sentAt: performance.now() },
+        safetyMarginMs: 1_000,
+        onLost: (reason) => lost.push(reason),
+      });
+      heartbeat.start();
+      while (beats < 3) await Bun.sleep(5);
+      await heartbeat.stop();
+      expect(lost).toEqual([]);
+    }
+  });
+
   test("refuses a success body that does not match the contract", async () => {
     const { gateway } = client(() => ok({ accepted_through: "not a number" }));
     const error = (await gateway

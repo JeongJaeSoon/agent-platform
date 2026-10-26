@@ -1269,6 +1269,12 @@ describe("내가 속한 팀", () => {
     });
     const link = within(section).getByRole("link", { name: "결제팀" });
     expect(link.getAttribute("href")).toBe(`/members/teams/${TEAM.id}`);
+    // A member has no 구성원 item in the sidebar; this is their way to the list.
+    expect(
+      within(section)
+        .getByRole("link", { name: "모든 팀" })
+        .getAttribute("href"),
+    ).toBe("/members/teams");
   });
 
   test("팀을 관리하는 사람에게도 팀 화면 링크다", async () => {
@@ -1284,12 +1290,32 @@ describe("내가 속한 팀", () => {
     expect(link.getAttribute("href")).toBe(`/members/teams/${TEAM.id}`);
   });
 
-  test("속한 팀이 없으면 홈에 섹션을 두지 않는다", async () => {
-    const { api } = renderAt("/", {
+  test("팀이 없는 구성원에게도 홈에서 팀 목록으로 가는 길이 남는다", async () => {
+    renderAt("/", {
       "GET /v1/auth/me": () => json(200, memberMe()),
       "GET /v1/members": forbidden,
       "GET /v1/invites": forbidden,
       "GET /v1/agents": forbidden,
+      "GET /v1/my-teams": () => json(200, { items: [], next_cursor: null }),
+    });
+    const section = await screen.findByRole("region", {
+      name: "내가 속한 팀",
+    });
+    expect(within(section).getByText("아직 속한 팀이 없습니다.")).toBeDefined();
+    expect(
+      within(section)
+        .getByRole("link", { name: "모든 팀" })
+        .getAttribute("href"),
+    ).toBe("/members/teams");
+  });
+
+  test("구성원 메뉴가 있는 관리자에게 팀이 없으면 홈에 섹션을 두지 않는다", async () => {
+    const { api } = renderAt("/", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [], next_cursor: null })),
+      "GET /v1/invites": () => json(200, { items: [] }),
+      "GET /v1/agents": () => json(200, { items: [], next_cursor: null }),
       "GET /v1/my-teams": () => json(200, { items: [], next_cursor: null }),
     });
     await screen.findByRole("heading", { name: "홈" });

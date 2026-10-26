@@ -51,7 +51,7 @@ import {
   SessionComposer,
   SessionControls,
 } from "./session-actions.tsx";
-import { SessionTimeline } from "./session-timeline.tsx";
+import { listedRequests, SessionTimeline } from "./session-timeline.tsx";
 import { type BlockText, useBlockText } from "./text.ts";
 
 /** A tab a host adds between the timeline and the info tab. */
@@ -173,6 +173,7 @@ export function SessionDetail({
             events={events.events}
             state={events.state}
             debug={debug}
+            pending={listedRequests(pending)}
             turns={turns.data?.items}
           />
         </div>

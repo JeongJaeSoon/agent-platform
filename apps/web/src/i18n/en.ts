@@ -11,6 +11,7 @@ import { membersEn } from "./members.ts";
 import { modelsEn } from "./models.ts";
 import { outputsEn } from "./outputs.ts";
 import { preferencesEn } from "./preferences.ts";
+import { profilesEn } from "./profiles.ts";
 import { sessionListEn } from "./session-list.ts";
 import { shellEn } from "./shell.ts";
 import { teamsEn } from "./teams.ts";
@@ -149,6 +150,7 @@ export const en: Record<MessageKey, string> = {
   ...teamsEn,
   ...agentsEn,
   ...modelsEn,
+  ...profilesEn,
   ...sessionsEn,
   ...sessionListEn,
   ...flowEn,
