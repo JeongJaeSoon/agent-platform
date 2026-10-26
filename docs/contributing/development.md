@@ -131,7 +131,7 @@ git worktree remove ~/.cache/agent-platform/preview-reap/checkout
 - 수동 벤치는 `<패키지>/bench/`에 두고 그 패키지 tsconfig의 include에 넣는다. 테스트 파일 이름을 쓰지 않는다.
 - 새 루트 `tests/*.test.ts`는 ci.yml `integration-domain`의 `paths`에 접두어가 있어야 한다. 없으면 integration job이 모두 실패한다([ci.md](ci.md)).
 - 서비스가 필요한 테스트는 opt-in 변수(`localstackEnabled()`, `QUEUE_DATABASE_URL` 등)가 꺼지면 `describe.skip`·`skipIf`로 skip된다. 그 skip은 해당 변수를 켜는 integration job에서 사라져야 한다. 그 밖의 이유로 skip하는 코드(플랫폼 조건 등)를 새로 넣으면 integration job이 선언되지 않은 skip으로 실패시키므로 ci.yml `skips`에 선언한다.
-- 루트 `tests/`·`scripts/`·`.github/scripts`의 `.ts`는 어느 tsconfig에도 들어 있지 않아 `bun run typecheck`가 보지 않는다. 고친 파일은 직접 실행해 확인한다.
+- `bun run typecheck`는 workspace 패키지마다 typecheck를 돈 뒤 루트 `tsconfig.json`으로 `scripts/**`·`.github/scripts/*`의 `.ts`를 본다. `scripts/agent-sdk-compat`은 자기 tsconfig로 `agent-sdk-compat` job이 본다. 루트 `tests/`는 아직 typecheck 범위 밖이라 고친 파일은 직접 실행해 확인한다.
 - 운영자와 개발자가 부르는 도구는 `scripts/`에, workflow만 부르는 helper는 `.github/scripts/`에 둔다.
 
 ## 문서 쓰기

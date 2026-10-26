@@ -400,8 +400,11 @@ describe("팀 화면", () => {
     const section = await screen.findByRole("region", {
       name: "내가 속한 팀",
     });
-    expect(within(section).getByText("결제팀")).toBeDefined();
-    expect(within(section).queryByRole("link")).toBeNull();
+    expect(
+      within(section)
+        .getByRole("link", { name: "결제팀" })
+        .getAttribute("href"),
+    ).toBe(`/members/teams/${TEAM_ID}`);
     joined.container.remove();
 
     renderAt("/members/teams", {
@@ -410,6 +413,44 @@ describe("팀 화면", () => {
       "GET /v1/my-teams": () => json(200, { items: [], next_cursor: null }),
     });
     expect(await screen.findByText("아직 속한 팀이 없습니다.")).toBeDefined();
+  });
+
+  test("구성원이 연 자기 팀 상세는 읽기 전용이고 구성원 목록을 묻지 않는다", async () => {
+    const detail: TeamDetail = {
+      id: TEAM_ID,
+      workspace_id: WORKSPACE_ID,
+      name: "결제팀",
+      created_by: USER_ID,
+      created_at: AT,
+      revision: 1,
+      member_count: 1,
+      members: [
+        {
+          user_id: MATE_ID,
+          email: mate.email,
+          display_name: mate.display_name,
+          added_by: USER_ID,
+          added_at: AT,
+        },
+      ],
+    };
+    const { api } = renderAt(`/members/teams/${TEAM_ID}`, {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      [`GET /v1/teams/${TEAM_ID}`]: () => json(200, detail),
+    });
+    expect(
+      await screen.findByRole("heading", { level: 2, name: "결제팀" }),
+    ).toBeDefined();
+    expect(screen.getByText("Mate")).toBeDefined();
+    for (const control of ["이름 바꾸기", "구성원 추가", "팀 삭제"])
+      expect(
+        screen.queryByRole("button", { name: control }),
+        control,
+      ).toBeNull();
+    expect(screen.queryByRole("button", { name: /빼기/ })).toBeNull();
+    expect(screen.queryByLabelText("팀 이름")).toBeNull();
+    expect(screen.queryByLabelText("추가할 사람")).toBeNull();
+    expect(api.calls.some((c) => c.path === "/v1/members")).toBe(false);
   });
 
   test("팀 상세를 볼 수 없는 사람에게도 화면 제목이 있다", async () => {
