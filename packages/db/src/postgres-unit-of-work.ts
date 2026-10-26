@@ -8,6 +8,7 @@ import {
   checkpointBlockReasonSchema,
   createSessionResponseSchema,
   executionObservationSchema,
+  type InputWait,
   type ListSessionsQuery,
   type ListTurnsQuery,
   type PostSessionMessageResponse,
@@ -90,6 +91,7 @@ import {
   actionableOfTurn,
   IN_FLIGHT_STATUSES,
   publicStatus,
+  readInputWaits,
 } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
 import {
@@ -277,6 +279,7 @@ export function createPostgresSessionUnitOfWork(
           model: input.model ?? null,
           unmetered: input.unmetered ?? false,
           agentReleaseId: input.agentReleaseId ?? null,
+          permissionWaitOverride: input.permissionWait ?? null,
           workspaceId: actor?.workspaceId ?? null,
           createdByUserId: actor?.userId ?? null,
           createdByApiKeyId: actor?.apiKeyId ?? null,
@@ -666,6 +669,11 @@ export function createPostgresSessionReader(
     return eq(sessions.status, status);
   }
 
+  // A list row says only which stage; the detail says what it waits on.
+  function summaryWait(wait: InputWait | null) {
+    return wait === null ? null : { state: wait.state };
+  }
+
   async function summarize(
     executor: Database,
     rows: {
@@ -716,6 +724,10 @@ export function createPostgresSessionReader(
             .from(users)
             .where(inArray(users.id, creatorIds));
     const activities = await readSessionActivity(executor, ids);
+    const inputWaits = await readInputWaits(
+      executor,
+      rows.map(({ session }) => session),
+    );
     const openTurns = await executor
       .select({
         sessionId: turns.sessionId,
@@ -755,6 +767,7 @@ export function createPostgresSessionReader(
         revision: row.revision,
         admission_state: row.admissionState,
         status: publicStatus(row.status, awaitingInput),
+        input_wait: summaryWait(inputWaits.get(row.id) ?? null),
         profile_id: row.profileId,
         profile_fingerprint: row.profileFingerprint,
         model: row.model,
@@ -986,6 +999,9 @@ export function createPostgresSessionReader(
                 })
               : null,
             checkpoint_revision: row.checkpointRevision,
+            input_wait: (await readInputWaits(tx, [row])).get(row.id) ?? null,
+            pause_reason:
+              row.pauseReason === "awaiting_input" ? row.pauseReason : null,
             pending_request_count: read.pendingCount,
             attention:
               (await drainAttention(tx, row)) ??

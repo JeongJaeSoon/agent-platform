@@ -15,6 +15,8 @@ import type {
   HeartbeatResponse,
   NextInputRequest,
   NextInputResponse,
+  ParkDeclinedRequest,
+  ParkDeclinedResponse,
   PendingControlRequest,
   PendingControlResponse,
   RegisterPendingRequest,
@@ -1314,6 +1316,16 @@ export function createWorkerGateway(deps: {
       request: PendingControlRequest,
     ): Promise<PendingControlResponse> {
       const fence = requireScope(principal, request);
+      // Only a turn resumed from a park reports these, and this server
+      // resumes none yet: refused rather than dropped, so the receipts they
+      // would settle are never left looking settled.
+      if (request.delivered !== undefined) {
+        throw new WorkerGatewayError(
+          400,
+          "BAD_REQUEST",
+          "This server resumes no parked turn, so it takes no delivery reports",
+        );
+      }
       const result = await requirePending().pendingControlAtomic({
         fence,
         answersAfter: request.answers_after,
@@ -1336,6 +1348,20 @@ export function createWorkerGateway(deps: {
           input_hash: item.inputHash,
         })),
       };
+    },
+
+    async parkDeclined(
+      principal: WorkerPrincipal,
+      request: ParkDeclinedRequest,
+    ): Promise<ParkDeclinedResponse> {
+      const fence = requireScope(principal, request);
+      const result = await requirePending().parkDeclinedAtomic({
+        fence,
+        pauseControlId: request.pause_control_id,
+        reason: request.reason,
+      });
+      if (result.outcome !== "ok") return rejected(result);
+      return { reverted: result.reverted };
     },
 
     async finalize(

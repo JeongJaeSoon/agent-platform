@@ -11,6 +11,8 @@ import {
   heartbeatResponseSchema,
   nextInputRequestSchema,
   nextInputResponseSchema,
+  parkDeclinedRequestSchema,
+  parkDeclinedResponseSchema,
   pendingControlRequestSchema,
   pendingControlResponseSchema,
   registerPendingRequestSchema,
@@ -152,6 +154,12 @@ export function registerWorkerRoutes(
     pendingControlRequestSchema,
     pendingControlResponseSchema,
     (principal, body) => gateway.pendingControl(principal, body),
+  );
+  call(
+    "/park-declined",
+    parkDeclinedRequestSchema,
+    parkDeclinedResponseSchema,
+    (principal, body) => gateway.parkDeclined(principal, body),
   );
   call(
     "/finalize",

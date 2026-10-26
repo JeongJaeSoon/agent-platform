@@ -107,7 +107,9 @@ import { openPauseReceipt, pauseReceiptResult } from "./pause-control.ts";
 import {
   abandonUndeliveredAnswers,
   awaitingInputAt,
+  closeWorkerRequests,
   publicStatus,
+  recordLostInputWait,
 } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
 import {
@@ -129,7 +131,6 @@ import {
   events,
   executions,
   MAX_SESSION_COST_USD,
-  pendingRequests,
   providerUsage,
   queueMessages,
   receipts,
@@ -2740,17 +2741,13 @@ export function createPostgresWorkerUnitOfWork(
         // Requests the gone worker raised can never be answered by it; left
         // open they would keep the session reporting pending input forever.
         // A parked one was never the worker's to answer: it stays open.
-        await tx
-          .update(pendingRequests)
-          .set({ resolvedAt: now })
-          .where(
-            and(
-              eq(pendingRequests.sessionId, session.id),
-              isNull(pendingRequests.resolvedAt),
-              isNull(pendingRequests.parkedAt),
-            ),
-          );
+        const closedRequests = await closeWorkerRequests(tx, session.id, now);
         await abandonUndeliveredAnswers(tx, session.id, now);
+        await recordLostInputWait(tx, {
+          sessionId: session.id,
+          closed: closedRequests,
+          now,
+        });
         for (const turn of unresolved) {
           // `result` stays the acceptance response (receiptSchema.result).
           await tx

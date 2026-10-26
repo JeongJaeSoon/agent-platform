@@ -12,6 +12,7 @@ import {
   type SessionCatalog,
   SessionServiceError,
   type WorkerGateway,
+  WorkerGatewayError,
   type WorkerPrincipal,
 } from "@werft-ai/platform";
 import { testCaller } from "@werft-ai/testkit/callers";
@@ -792,7 +793,10 @@ integration("parked pending requests on PostgreSQL", () => {
       .update(sessions)
       .set({ admissionState: "pausing", pauseReason: "awaiting_input" })
       .where(eq(sessions.id, sessionId));
-    expect((await poll(worker)).control?.control_id).toBe(parkReceipt);
+    expect((await poll(worker)).control).toMatchObject({
+      control_id: parkReceipt,
+      kind: "park",
+    });
     const pausing = await sessionRow(sessionId);
     // A park waits on its open requests by design; only the turn holds it.
     expect(await pauseBlocker(db, pausing)).toBe("long_turn");
@@ -859,5 +863,339 @@ integration("parked pending requests on PostgreSQL", () => {
         .from(permissionGrants)
         .where(eq(permissionGrants.sessionId, sessionId)),
     ).toEqual([]);
+  });
+
+  // The system pause a timed park opens (94S-860): a pause receipt with no
+  // person behind it, and the session pausing for input.
+  async function openPark(
+    owner: ReturnType<typeof testCaller>,
+    sessionId: string,
+  ) {
+    const parkReceipt = crypto.randomUUID();
+    await db.insert(receipts).values({
+      id: parkReceipt,
+      ownerId: owner.ownerId,
+      actor: { kind: "system" },
+      requestId: null,
+      operation: "pause",
+      targetRef: { session_id: sessionId, turn_id: null, request_id: null },
+      status: "accepted",
+      result: null,
+    });
+    await db
+      .update(sessions)
+      .set({ admissionState: "pausing", pauseReason: "awaiting_input" })
+      .where(eq(sessions.id, sessionId));
+    return parkReceipt;
+  }
+
+  function declinePark(worker: Worker, pauseControlId: string) {
+    return gateway.parkDeclined(worker.principal, {
+      ...worker.scope,
+      pause_control_id: pauseControlId,
+      reason: "answer_applied",
+    });
+  }
+
+  async function systemEvents(sessionId: string) {
+    const rows = await db
+      .select({ payload: events.payload, turnId: events.turnId })
+      .from(events)
+      .where(and(eq(events.sessionId, sessionId), eq(events.type, "system")))
+      .orderBy(events.id);
+    return rows.filter(
+      (row) => (row.payload as { subtype?: string }).subtype === "input_wait",
+    );
+  }
+
+  test("a declined park puts the session back to active with its requests waiting", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    const requestId = await register(worker);
+    const parkReceipt = await openPark(owner, sessionId);
+    const before = await sessionRow(sessionId);
+
+    expect(await declinePark(worker, parkReceipt)).toEqual({ reverted: true });
+    expect(await sessionRow(sessionId)).toMatchObject({
+      admissionState: "active",
+      pauseReason: null,
+      revision: before.revision + 1,
+      leaseEpoch: before.leaseEpoch,
+    });
+    expect(await receipt(parkReceipt)).toMatchObject({
+      status: "failed",
+      error: { code: "PAUSE_CANCELLED" },
+    });
+    expect((await poll(worker)).control).toBeNull();
+    expect(await reads(owner, sessionId)).toMatchObject({
+      status: "needs_input",
+      listed: [requestId],
+    });
+    const [last] = await db
+      .select({ payload: events.payload })
+      .from(events)
+      .where(and(eq(events.sessionId, sessionId), eq(events.type, "status")))
+      .orderBy(desc(events.id))
+      .limit(1);
+    expect(last?.payload).toMatchObject({
+      phase: "needs_input",
+      admission_state: "active",
+      park_declined: {
+        pause_control_id: parkReceipt,
+        reason: "answer_applied",
+      },
+    });
+    // Said again, it finds no park to undo.
+    expect(await declinePark(worker, parkReceipt)).toEqual({ reverted: false });
+  });
+
+  test("a declined park leaves a person's pause, another pause and a fenced worker alone", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    await register(worker);
+    const parkReceipt = await openPark(owner, sessionId);
+    expect(await declinePark(worker, crypto.randomUUID())).toEqual({
+      reverted: false,
+    });
+    expect((await sessionRow(sessionId)).admissionState).toBe("pausing");
+
+    const pausing = await sessionRow(sessionId);
+    const takeover = await controls().pauseAtomic({
+      principal: owner,
+      sessionId,
+      idempotencyKey: crypto.randomUUID(),
+      payloadHash: crypto.randomUUID(),
+      expectedRevision: pausing.revision,
+      reason: "mine now",
+      now: new Date(),
+    });
+    if (takeover.outcome !== "accepted") throw new Error(takeover.outcome);
+    // The park was superseded by the person's pause, which the worker's
+    // late word does not undo.
+    expect(await declinePark(worker, parkReceipt)).toEqual({ reverted: false });
+    expect(await declinePark(worker, takeover.response.receipt_id)).toEqual({
+      reverted: false,
+    });
+    expect(await sessionRow(sessionId)).toMatchObject({
+      admissionState: "pausing",
+      pauseReason: null,
+    });
+    expect((await receipt(takeover.response.receipt_id))?.status).toBe(
+      "accepted",
+    );
+
+    const fenced = await runningSession();
+    await register(fenced.worker);
+    const fencedPark = await openPark(fenced.owner, fenced.sessionId);
+    await db
+      .update(sessions)
+      .set({ leaseEpoch: sql`${sessions.leaseEpoch} + 1` })
+      .where(eq(sessions.id, fenced.sessionId));
+    const refused = await declinePark(fenced.worker, fencedPark).catch(
+      (error: unknown) => error,
+    );
+    expect(refused).toBeInstanceOf(WorkerGatewayError);
+    expect((refused as WorkerGatewayError).code).toBe("STALE_EPOCH");
+    expect((await sessionRow(fenced.sessionId)).admissionState).toBe("pausing");
+  });
+
+  test("a declined park and a person's pause racing never undo the person's pause", async () => {
+    for (let round = 0; round < 6; round++) {
+      const { owner, sessionId, worker } = await runningSession();
+      await register(worker);
+      const parkReceipt = await openPark(owner, sessionId);
+      const pausing = await sessionRow(sessionId);
+      const [declined, paused] = await Promise.all([
+        declinePark(worker, parkReceipt),
+        controls().pauseAtomic({
+          principal: owner,
+          sessionId,
+          idempotencyKey: crypto.randomUUID(),
+          payloadHash: crypto.randomUUID(),
+          // A takeover keeps the revision the park left; after a decline the
+          // person's pause meets the one the decline wrote.
+          expectedRevision: pausing.revision,
+          reason: "mine now",
+          now: new Date(),
+        }),
+      ]);
+      const row = await sessionRow(sessionId);
+      expect(row.pauseReason).toBeNull();
+      if (declined.reverted) {
+        // The decline went first: the pause met a newer revision.
+        expect(paused.outcome).toBe("revision_conflict");
+        expect(row.admissionState).toBe("active");
+      } else {
+        expect(paused.outcome).toBe("accepted");
+        if (paused.outcome !== "accepted") continue;
+        expect(row.admissionState).toBe("pausing");
+        expect((await receipt(paused.response.receipt_id))?.status).toBe(
+          "accepted",
+        );
+      }
+    }
+  });
+
+  test("execution-gone and a revocation report the waits they lose; a terminate does not", async () => {
+    const gone = await runningSession();
+    const lost = await register(gone.worker, HASH_A);
+    const kept = await register(gone.worker, HASH_B);
+    const lapsed = await register(gone.worker, "c".repeat(64));
+    await db
+      .update(pendingRequests)
+      .set({ expiresAt: sql`now() - interval '1 second'` })
+      .where(eq(pendingRequests.requestId, lapsed));
+    const turnRowId = await parkRows(gone.worker, [kept]);
+    await executionGone(gone.worker);
+    expect(await systemEvents(gone.sessionId)).toEqual([
+      {
+        payload: {
+          type: "system",
+          subtype: "input_wait",
+          stage: "lost",
+          request_ids: [lost],
+        },
+        turnId: turnRowId,
+      },
+    ]);
+
+    const revoked = await runningSession();
+    const revokedId = await register(revoked.worker);
+    await revokeExecutionAtomic(db, {
+      sessionId: revoked.sessionId,
+      reason: "grant revoked",
+      now: new Date(),
+    });
+    expect(
+      (await systemEvents(revoked.sessionId)).map((row) => row.payload),
+    ).toEqual([
+      {
+        type: "system",
+        subtype: "input_wait",
+        stage: "lost",
+        request_ids: [revokedId],
+      },
+    ]);
+    // Nothing more once it is gone: the requests were closed already.
+    await executionGone(revoked.worker);
+    expect(await systemEvents(revoked.sessionId)).toHaveLength(1);
+
+    const terminated = await runningSession();
+    await register(terminated.worker);
+    const row = await sessionRow(terminated.sessionId);
+    const killed = await controls().terminateAtomic({
+      principal: terminated.owner,
+      sessionId: terminated.sessionId,
+      idempotencyKey: crypto.randomUUID(),
+      payloadHash: crypto.randomUUID(),
+      expectedRevision: row.revision,
+      reason: "done",
+      now: new Date(),
+    });
+    expect(killed.outcome).toBe("accepted");
+    await executionGone(terminated.worker);
+    expect(await systemEvents(terminated.sessionId)).toEqual([]);
+  });
+
+  test("detail, list and pending items say which stage the wait is in", async () => {
+    const viewer = { userId: null, apiKeyId: null };
+    const listed = async (owner: ReturnType<typeof testCaller>) =>
+      (await reader().listSessions(owner.ownerId, { limit: 10 }, viewer))
+        .items[0]?.input_wait;
+
+    const { owner, sessionId, worker } = await runningSession();
+    const none = await reader().getSession(owner.ownerId, sessionId);
+    expect(none).toMatchObject({ input_wait: null, pause_reason: null });
+    expect(await listed(owner)).toBeNull();
+
+    const first = await register(worker, HASH_A);
+    await db
+      .update(pendingRequests)
+      .set({ parkAt: sql`created_at + interval '30 minutes'` })
+      .where(eq(pendingRequests.requestId, first));
+    const second = await register(worker, HASH_B);
+    const [a, b] = [await request(first), await request(second)];
+    const waiting = await reader().getSession(owner.ownerId, sessionId);
+    expect(waiting?.input_wait).toEqual({
+      state: "waiting",
+      since: a.createdAt.toISOString(),
+      kinds: ["permission"],
+      request_ids: [first, second],
+      park_at: a.parkAt?.toISOString() ?? null,
+      expires_at: (a.expiresAt < b.expiresAt ? a : b).expiresAt.toISOString(),
+    });
+    expect(await listed(owner)).toEqual({ state: "waiting" });
+    const items = (await service.listPendingRequests(owner, sessionId)).items;
+    expect(
+      items.map(({ state, park_at, group }) => ({ state, park_at, group })),
+    ).toEqual([
+      { state: "waiting", park_at: a.parkAt?.toISOString(), group: "1" },
+      { state: "waiting", park_at: null, group: "1" },
+    ]);
+
+    await openPark(owner, sessionId);
+    expect(
+      (await reader().getSession(owner.ownerId, sessionId))?.input_wait?.state,
+    ).toBe("parking");
+    expect(
+      (await reader().getSession(owner.ownerId, sessionId))?.pause_reason,
+    ).toBe("awaiting_input");
+
+    const p = await parked();
+    const parkedDetail = await reader().getSession(
+      p.owner.ownerId,
+      p.sessionId,
+    );
+    expect(parkedDetail).toMatchObject({
+      status: "needs_input",
+      pause_reason: "awaiting_input",
+      input_wait: { state: "parked", request_ids: [p.requestId] },
+    });
+    expect(
+      (await service.listPendingRequests(p.owner, p.sessionId)).items[0]?.state,
+    ).toBe("parked");
+
+    // The group expired unanswered: the wait reads expired until a resume.
+    await db
+      .update(pendingRequests)
+      .set({
+        expiresAt: sql`now() - interval '1 second'`,
+        resolvedAt: sql`now()`,
+        settledAt: sql`now()`,
+        settledOutcome: "expired",
+      })
+      .where(eq(pendingRequests.requestId, p.requestId));
+    const expired = await reader().getSession(p.owner.ownerId, p.sessionId);
+    expect(expired).toMatchObject({
+      status: "idle",
+      pause_reason: "awaiting_input",
+      input_wait: { state: "expired", request_ids: [p.requestId] },
+    });
+    expect(await listed(p.owner)).toEqual({ state: "expired" });
+
+    // An answered group is not expired, whatever the session still says.
+    const answered = await parked();
+    await answer(answered.owner, answered.sessionId, answered.requestId);
+    expect(
+      (await reader().getSession(answered.owner.ownerId, answered.sessionId))
+        ?.input_wait,
+    ).toBeNull();
+  });
+
+  test("a session keeps the waits it was created with", async () => {
+    const accepted = await createPostgresSessionUnitOfWork(
+      db,
+    ).acceptInputAtomic({
+      limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
+      principal: testCaller(`owner-${crypto.randomUUID()}`),
+      idempotencyKey: crypto.randomUUID(),
+      payloadHash: crypto.randomUUID(),
+      profileId: "claude-coding-v1",
+      repository: "none",
+      permissionWait: { park_after_seconds: 0 },
+      message: "first input",
+    });
+    if (accepted.outcome !== "accepted") throw new Error(accepted.outcome);
+    expect(
+      (await sessionRow(accepted.response.session_id)).permissionWaitOverride,
+    ).toEqual({ park_after_seconds: 0 });
   });
 });

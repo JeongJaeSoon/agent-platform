@@ -223,6 +223,15 @@ export const WORKER_LEASE_SAFETY_MARGIN_MS = 10_000;
 // checkpoints still reachable from the pointer went through, at most.
 export const MAX_RESTORE_PROFILES = 16;
 
+export const permissionGrantSchema = z
+  .object({
+    request_id: requestIdSchema,
+    turn_id: turnIdSchema,
+    tool: z.string().min(1),
+    input_hash: sha256HexSchema,
+  })
+  .strict();
+
 export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
   session_credential: z.string().min(1),
   lease_expires_at: timestampSchema,
@@ -252,6 +261,13 @@ export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
   // limit, checked before every turn. Null when the session's profile
   // declared `billing: none`: no dollar limit applies to it.
   remaining_budget_usd: z.number().nonnegative().nullable(),
+  // The answers the turn this attempt resumes was parked on, as allows it
+  // may apply once each: a permission request of that turn whose tool and
+  // input hash match a grant is answered allow_once without asking, and the
+  // grant is spent. `request_id` is the parked request the grant answers.
+  // Absent when there are none; a worker older than the field drops it and
+  // asks again.
+  grants: z.array(permissionGrantSchema).min(1).optional(),
 });
 
 // The claim as a log line may carry it: an allowlist of identifiers, never
@@ -440,6 +456,18 @@ export const pendingSettlementSchema = z
 
 export const PENDING_SETTLEMENTS_MAX = 256;
 
+// How the answer to a parked request reached the turn that resumed it, where
+// no callback was left to take it: `input_delivered` once the turn's input
+// carried it (a question's answer, a deny, an expiry), `grant_consumed` when
+// an allow was spent on the matching call, `grant_unused` when the turn
+// ended with that allow unspent.
+export const parkedDeliverySchema = z
+  .object({
+    request_id: requestIdSchema,
+    outcome: z.enum(["input_delivered", "grant_consumed", "grant_unused"]),
+  })
+  .strict();
+
 // Answers are redelivered until the worker advances answers_after, so a crash
 // between applying an answer and the next poll replays the same sequence.
 // Settlements ride along and are resent until a call carrying them succeeds;
@@ -451,11 +479,25 @@ export const pendingControlRequestSchema = workerScopeSchema
       .array(pendingSettlementSchema)
       .max(PENDING_SETTLEMENTS_MAX)
       .optional(),
+    // Resent like `settled`. Sent only by a turn resumed from a park, which
+    // only a server that parks hands out.
+    delivered: z
+      .array(parkedDeliverySchema)
+      .min(1)
+      .max(PENDING_SETTLEMENTS_MAX)
+      .optional(),
   })
   .strict();
+// `park` is a pause the platform asked for because the turn's requests went
+// unanswered: unlike `pause` it does not wait for the turn to end. The worker
+// cancels the open callbacks, interrupts the turn, finalizes it interrupted
+// with TURN_INPUT_WAIT_PARKED_REASON and its checkpoint, and releases with
+// `pause_control_id: control_id`; or it declines (parkDeclinedRequest) before
+// it touches the turn. Only a server that parks sends it, and a worker older
+// than the kind refuses the whole response, so workers deploy first.
 export const controlIntentSchema = z.object({
   control_id: z.string().min(1),
-  kind: z.enum(["interrupt", "pause"]),
+  kind: z.enum(["interrupt", "pause", "park"]),
   target_turn_id: turnIdSchema.nullable(),
   issued_at: timestampSchema,
 });
@@ -471,6 +513,38 @@ export const pendingControlResponseSchema = z.object({
       input_hash: sha256HexSchema,
     }),
   ),
+});
+
+// The worker will not park after all, and says so before it has cancelled a
+// callback or interrupted the turn: `answer_applied` when the poll that
+// brought the park also brought an answer the worker applied,
+// `checkpoint_unavailable` when it could not leave a checkpoint to park on.
+// The server puts the session back to active only while the park is still
+// the open pause; a person's pause that took it over stands.
+export const PARK_DECLINED_REASON_VALUES = [
+  "answer_applied",
+  "checkpoint_unavailable",
+] as const;
+export const parkDeclinedRequestSchema = workerScopeSchema
+  .extend({
+    pause_control_id: z.string().min(1),
+    reason: z.enum(PARK_DECLINED_REASON_VALUES),
+  })
+  .strict();
+// `reverted` is false when the park was no longer the open pause: the worker
+// then follows whatever control the next poll delivers.
+export const parkDeclinedResponseSchema = z.object({ reverted: z.boolean() });
+
+// The worker parks its own turn, which is about to run past its deadline
+// with nothing left but unanswered requests: the server opens the same
+// system pause a timed park would and names it, and only then may the
+// worker interrupt, finalize and release under that id. A refusal is a 409;
+// a server without the route answers 404, and the worker drains as before.
+export const requestParkRequestSchema = workerScopeSchema
+  .extend({ turn_id: turnIdSchema })
+  .strict();
+export const requestParkResponseSchema = z.object({
+  pause_control_id: z.string().min(1),
 });
 
 // Asks the server where the next checkpoint goes. The runtime's own verdict
@@ -626,6 +700,13 @@ export const restorePlanResponseSchema = z.discriminatedUnion("status", [
  */
 export const TURN_BUDGET_EXCEEDED_REASON = "budget_exceeded";
 
+/**
+ * The terminal reason of a turn interrupted to park it on unanswered
+ * requests. Its requests stay open, and the checkpoint it commits is what an
+ * answer resumes from, so it is only ever an `interrupted` turn with one.
+ */
+export const TURN_INPUT_WAIT_PARKED_REASON = "input_wait_parked";
+
 export const finalizeRequestSchema = workerScopeSchema
   .extend({
     turn_id: turnIdSchema,
@@ -654,7 +735,17 @@ export const finalizeRequestSchema = workerScopeSchema
     }),
     checkpoint: checkpointRefSchema.nullable(),
   })
-  .strict();
+  .strict()
+  .refine(
+    (request) =>
+      request.terminal.reason !== TURN_INPUT_WAIT_PARKED_REASON ||
+      (request.terminal.status === "interrupted" &&
+        request.checkpoint !== null),
+    {
+      message: `${TURN_INPUT_WAIT_PARKED_REASON} is an interrupted turn with a checkpoint`,
+      path: ["terminal", "reason"],
+    },
+  );
 export const finalizeResponseSchema = z.object({
   turn_id: turnIdSchema,
   status: terminalTurnStatusSchema,
@@ -732,6 +823,12 @@ export type PendingControlResponse = z.infer<
   typeof pendingControlResponseSchema
 >;
 export type FinalizeRequest = z.infer<typeof finalizeRequestSchema>;
+export type PermissionGrant = z.infer<typeof permissionGrantSchema>;
+export type ParkedDelivery = z.infer<typeof parkedDeliverySchema>;
+export type ParkDeclinedRequest = z.infer<typeof parkDeclinedRequestSchema>;
+export type ParkDeclinedResponse = z.infer<typeof parkDeclinedResponseSchema>;
+export type RequestParkRequest = z.infer<typeof requestParkRequestSchema>;
+export type RequestParkResponse = z.infer<typeof requestParkResponseSchema>;
 
 // What the engine made of the proxy's refusal: a 403 it calls an
 // authentication failure, the refusal text, the last retry's status.

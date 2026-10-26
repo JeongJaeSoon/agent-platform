@@ -1,4 +1,6 @@
 import {
+  type InputWaitEventData,
+  inputWaitEventDataSchema,
   type SessionEventName,
   type StatusEventPhase,
   sessionEventPayloadSchema,
@@ -51,6 +53,37 @@ export async function recordEvent(
   await measure("notify_status_event_ms", () =>
     tx.execute(sql`SELECT pg_notify('session_events', ${input.sessionId})`),
   );
+}
+
+/**
+ * The `input_wait` system record of a stage the wait reached without its
+ * worker. Nothing is written for no requests.
+ */
+export async function recordInputWaitStage(
+  tx: Database,
+  input: {
+    sessionId: string;
+    stage: InputWaitEventData["stage"];
+    requestIds: string[];
+    turnRowId: number | null;
+    measure?: ControlStageMeasure;
+    now: Date;
+  },
+) {
+  if (input.requestIds.length === 0) return;
+  await recordEvent(tx, {
+    sessionId: input.sessionId,
+    type: "system",
+    payload: inputWaitEventDataSchema.parse({
+      type: "system",
+      subtype: "input_wait",
+      stage: input.stage,
+      request_ids: input.requestIds,
+    }),
+    turnRowId: input.turnRowId,
+    ...(input.measure ? { measure: input.measure } : {}),
+    now: input.now,
+  });
 }
 
 /**
