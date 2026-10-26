@@ -23,6 +23,10 @@ export function mapSessionOf(
   const pending =
     current && request
       ? {
+          kind:
+            request.kind === "question"
+              ? ("question" as const)
+              : ("approval" as const),
           tool:
             request.kind === "question"
               ? joinTool(messages.question, request.prompt ?? "")

@@ -84,7 +84,11 @@ export interface MapSession {
   readonly subagentCount: number;
   /** The open request a person has to answer. */
   readonly pending?:
-    | { readonly tool: string; readonly waitedMinutes: number }
+    | {
+        readonly kind: "approval" | "question";
+        readonly tool: string;
+        readonly waitedMinutes: number;
+      }
     | undefined;
   /** The lane the card keeps until the reader tidies the board. */
   readonly pinnedLane?: Lane | undefined;

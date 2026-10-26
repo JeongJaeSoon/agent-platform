@@ -27,6 +27,7 @@ export interface AgentMapMessages {
   readonly tools: (count: number) => string;
   readonly errors: (count: number) => string;
   readonly approvals: (count: number) => string;
+  readonly questions: (count: number) => string;
   readonly pinned: string;
   readonly ownRun: string;
   readonly sessionRun: string;
@@ -124,6 +125,7 @@ export const AGENT_MAP_MESSAGES: Readonly<Record<Locale, AgentMapMessages>> = {
     tools: (count) => `도구 ${count}`,
     errors: (count) => `오류 ${count}`,
     approvals: (count) => `승인 ${count}`,
+    questions: (count) => `질문 ${count}`,
     pinned: "자리 정리 대기",
     ownRun: "직접 호출",
     sessionRun: "세션 실행",
@@ -199,6 +201,7 @@ export const AGENT_MAP_MESSAGES: Readonly<Record<Locale, AgentMapMessages>> = {
     tools: (count) => `ツール ${count}`,
     errors: (count) => `エラー ${count}`,
     approvals: (count) => `承認 ${count}`,
+    questions: (count) => `質問 ${count}`,
     pinned: "並べ替え待ち",
     ownRun: "直接呼び出し",
     sessionRun: "セッション実行",
@@ -275,6 +278,7 @@ export const AGENT_MAP_MESSAGES: Readonly<Record<Locale, AgentMapMessages>> = {
     tools: (count) => `${count} tools`,
     errors: (count) => `${count} errors`,
     approvals: (count) => `${count} approval`,
+    questions: (count) => `${count} question`,
     pinned: "Waiting to tidy",
     ownRun: "Direct calls",
     sessionRun: "Session run",

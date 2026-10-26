@@ -159,7 +159,11 @@ function applyStep(step: number, settled: boolean) {
     update("s4", {
       status: "needs_input",
       note: "리포트를 #ops에 올리기 전에 승인을 기다리는 중",
-      pending: { tool: "Bash · slack-post #ops", waitedMinutes: 0 },
+      pending: {
+        kind: "approval",
+        tool: "Bash · slack-post #ops",
+        waitedMinutes: 0,
+      },
       lastEventAt: ago(0),
       fresh: step === 3,
     });

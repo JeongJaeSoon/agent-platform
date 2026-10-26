@@ -91,7 +91,11 @@ export function MapSessionCard({
           <Badge variant="red">{messages.errors(session.errorCount)}</Badge>
         ) : null}
         {session.pending ? (
-          <Badge variant="amber">{messages.approvals(1)}</Badge>
+          <Badge variant="amber">
+            {session.pending.kind === "question"
+              ? messages.questions(1)
+              : messages.approvals(1)}
+          </Badge>
         ) : null}
         {session.pinnedLane ? (
           <Badge variant="gray">{messages.pinned}</Badge>
