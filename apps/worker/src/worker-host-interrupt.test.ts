@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import type { CheckpointRef } from "@werft-ai/contracts";
-import { FakeAgentRuntime, type FakeStep } from "@werft-ai/runtime-claude";
+import {
+  FakeAgentRuntime,
+  type FakeStep,
+} from "@werft-ai/runtime-claude/testing";
 import {
   type AgentRun,
   type NativeSdkMessage,
@@ -100,24 +103,21 @@ function harness(
   let starts = 0;
   const runtimes: RuntimeRegistry = {
     launcherFor: () => ({
-      start: ({ runtimeConfig, principal, ...launch }, hooks) => {
+      start: ({ runtimeConfig, principal, ...launch }) => {
         starts += 1;
-        const run = runtime.start(
-          {
-            claudeConfigDir: "/tmp/fake/config",
-            cwd: "/tmp/fake/workspace",
-            home: "/tmp/fake/home",
-            model: runtimeConfig.model,
-            profile: engineProfile(
-              runtimeConfig.provider,
-              principal.owner_scope,
-              "http://egress-proxy.test:3129",
-            ),
-            tools: runtimeConfig.tools,
-            ...launch,
-          },
-          hooks,
-        );
+        const run = runtime.run({
+          claudeConfigDir: "/tmp/fake/config",
+          cwd: "/tmp/fake/workspace",
+          home: "/tmp/fake/home",
+          model: runtimeConfig.model,
+          profile: engineProfile(
+            runtimeConfig.provider,
+            principal.owner_scope,
+            "http://egress-proxy.test:3129",
+          ),
+          tools: runtimeConfig.tools,
+          ...launch,
+        });
         return overrides.wrap?.(run) ?? run;
       },
     }),
@@ -1101,7 +1101,7 @@ describe("WorkerHost interrupt", () => {
     await loop;
     await Bun.sleep(1);
 
-    expect(await run?.prepareCheckpoint()).not.toMatchObject({
+    expect(await run?.prepareCheckpoint("turn_end")).not.toMatchObject({
       reason: "checkpoint_lease_held",
     });
   });

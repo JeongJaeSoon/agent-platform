@@ -57,6 +57,7 @@ import {
   operationsToolsSearch,
 } from "./routes/operations-search.ts";
 import { PreferencesScreen } from "./routes/preferences.tsx";
+import { ProfilesScreen } from "./routes/profiles.tsx";
 import {
   SessionDetailScreen,
   SessionsScreen,
@@ -319,6 +320,12 @@ const oldUsage = createRoute({
   },
 });
 
+const profiles = createRoute({
+  getParentRoute: () => authed,
+  path: "/profiles",
+  component: ProfilesScreen,
+});
+
 const loadOperations = () => import("./routes/operations.tsx");
 
 const operations = createRoute({
@@ -404,6 +411,7 @@ const routeTree = root.addChildren([
     workspaceSlack,
     orgKeys,
     oldUsage,
+    profiles,
     operations.addChildren([
       operationsOverview,
       operationsUsage,

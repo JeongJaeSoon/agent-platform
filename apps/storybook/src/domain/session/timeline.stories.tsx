@@ -35,6 +35,7 @@ function copyFrom(catalog: Catalog) {
     kind: (kind) => catalog[`session.events.kind.${kind}`],
     folded: (count) => fill(catalog["session.events.folded"], { count }),
     running: catalog["session.events.running"],
+    waiting: catalog["sessions.status.needs_input"],
   };
   return { formatMessage, messages };
 }
@@ -85,6 +86,14 @@ export const SameAsCapture: Story = {
 /** A call whose result has not arrived yet. */
 export const RunningCall: Story = {
   args: { entries: pairedTimelineEntries(RUNNING_EVENTS) },
+};
+
+/** The same call held by a permission request that has no answer yet. */
+export const WaitingCall: Story = {
+  args: {
+    entries: pairedTimelineEntries(RUNNING_EVENTS),
+    held: new Set(["call_4"]),
+  },
 };
 
 /** The turn's end reported no usage, so its head has no token count. */

@@ -22,6 +22,7 @@ import {
   unassignedSessions,
   workerLaunches,
 } from "./schema.ts";
+import { insertUnreservedLaunch } from "./testing/launches.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 /**
@@ -361,19 +362,9 @@ describe("claim lifecycle", () => {
       .update(unassignedSessions)
       .set({ partition: second })
       .where(eq(unassignedSessions.sessionId, sessionId));
-    const pool = { executionId: `exec-${crypto.randomUUID()}`, generation: 0 };
-    const nonce = `nonce-${crypto.randomUUID()}`;
-    await work.registerLaunchAtomic({
-      backend: "local_docker",
-      executionId: pool.executionId,
-      generation: pool.generation,
-      nonceHash: hashWorkerToken(nonce),
-      nonceTtlMs: 60_000,
-      partition: second,
-      sessionId: null,
-    });
+    const pool = await insertUnreservedLaunch(db, { partition: second });
 
-    expect((await claim(pool, nonce)).outcome).toBe("no_session");
+    expect((await claim(pool, pool.nonce)).outcome).toBe("no_session");
     expect(
       await db
         .select({ partition: sessions.partition, podId: sessions.podId })

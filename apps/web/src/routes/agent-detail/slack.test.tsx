@@ -337,6 +337,80 @@ describe("Slack management", () => {
     ).toHaveLength(1);
   });
 
+  test("hides the wide section list while the whole page fits the window", async () => {
+    const root = document.documentElement;
+    let pageHeight = 900;
+    Object.defineProperty(root, "clientHeight", {
+      configurable: true,
+      get: () => 900,
+    });
+    Object.defineProperty(root, "scrollHeight", {
+      configurable: true,
+      get: () => pageHeight,
+    });
+    try {
+      renderAt(DETAIL, routes(APP, true));
+      const nav = await screen.findByRole("navigation", { name: "Slack 구역" });
+      // A page that fits from the start never shows the list.
+      expect(nav.classList.contains("lg:hidden")).toBe(true);
+      pageHeight = 2000;
+      window.dispatchEvent(new Event("resize"));
+      await waitFor(() =>
+        expect(nav.classList.contains("lg:hidden")).toBe(false),
+      );
+      const link = within(nav).getByRole("link", { name: "기본" });
+      link.focus();
+      // happy-dom applies no stylesheet: lay the list out as lg:hidden would.
+      nav.getClientRects = () => [] as unknown as DOMRectList;
+      pageHeight = 900;
+      window.dispatchEvent(new Event("resize"));
+      await waitFor(() =>
+        expect(nav.classList.contains("lg:hidden")).toBe(true),
+      );
+      // Focus leaves the hidden list for the section it stands for.
+      const here = nav.querySelector("a[aria-current=location]");
+      expect(`#${document.activeElement?.id}`).toBe(
+        here?.getAttribute("href") ?? "",
+      );
+      // Below lg the folded button stays; widening past lg hides it while
+      // the page still fits.
+      nav.getClientRects = () => [new DOMRect()] as unknown as DOMRectList;
+      within(nav)
+        .getByRole("button", { name: /^Slack 구역/ })
+        .focus();
+      window.dispatchEvent(new Event("resize"));
+      expect(document.activeElement?.closest("nav") === nav).toBe(true);
+      nav.getClientRects = () => [] as unknown as DOMRectList;
+      window.dispatchEvent(new Event("resize"));
+      expect(
+        `#${document.activeElement?.id}` ===
+          nav.querySelector("a[aria-current=location]")?.getAttribute("href"),
+      ).toBe(true);
+      pageHeight = 1200;
+      window.dispatchEvent(new Event("resize"));
+      await waitFor(() =>
+        expect(nav.classList.contains("lg:hidden")).toBe(false),
+      );
+      // Another tab's short page says nothing about this one: the panel is
+      // hidden, so the measured Slack body has no boxes.
+      const body = nav.nextElementSibling?.firstElementChild as HTMLElement;
+      body.getClientRects = () => [] as unknown as DOMRectList;
+      pageHeight = 900;
+      window.dispatchEvent(new Event("resize"));
+      await new Promise((done) => setTimeout(done, 100));
+      expect(nav.classList.contains("lg:hidden")).toBe(false);
+      // Shown again, the same resize does hide it.
+      Reflect.deleteProperty(body, "getClientRects");
+      window.dispatchEvent(new Event("resize"));
+      await waitFor(() =>
+        expect(nav.classList.contains("lg:hidden")).toBe(true),
+      );
+    } finally {
+      Reflect.deleteProperty(root, "clientHeight");
+      Reflect.deleteProperty(root, "scrollHeight");
+    }
+  });
+
   test("folds the narrow list after a pick and leaves focus on the section", async () => {
     renderAt(DETAIL, routes(APP, true));
     const user = await setupUser();
@@ -995,6 +1069,41 @@ describe("Slack management", () => {
       screen.getByRole("button", { name: "Slack 앱 만들고 설치" }),
     ).toBeDefined();
   });
+
+  const subscribed = (
+    events: components["schemas"]["GetSlackAppResponse"]["events"],
+    eventUrl: string | null = `https://events.test/v1/slack/events/${AGENT_ID}`,
+  ) => ({
+    ...routes(APP, true),
+    [`GET ${PATH}/slack/app`]: () =>
+      json(200, { ...appResponse(APP), event_url: eventUrl, events }),
+  });
+
+  test("asks to verify the Request URL while the subscription is pending", async () => {
+    renderAt(DETAIL, subscribed({ state: "pending", checked_at: AT }));
+    const status = await screen.findByRole("region", { name: "상태" });
+    await within(status).findByText("Slack에서 Request URL을 Verify하세요");
+    const link = within(status).getByRole("link", {
+      name: /Event Subscriptions 열기/,
+    });
+    expect(link.getAttribute("href")).toBe(
+      "https://api.slack.com/apps/A123/event-subscriptions",
+    );
+    expect(link.getAttribute("target")).toBe("_blank");
+  });
+
+  for (const [name, events, eventUrl] of [
+    ["once verified", { state: "verified", checked_at: AT }, undefined],
+    ["without an event URL", { state: "pending", checked_at: null }, null],
+  ] as const) {
+    test(`shows no Verify request ${name}`, async () => {
+      renderAt(DETAIL, subscribed(events, eventUrl));
+      const status = await screen.findByRole("region", { name: "상태" });
+      // The app card reads the same query, so the status has it too.
+      await screen.findByText("앱 ID");
+      expect(status.textContent).not.toContain("Verify");
+    });
+  }
 
   test("shows no repository warning when the profile needs none", async () => {
     renderAt(DETAIL, routes(APP, true));

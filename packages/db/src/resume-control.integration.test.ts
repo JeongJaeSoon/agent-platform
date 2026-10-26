@@ -34,6 +34,7 @@ import {
   turns,
   unassignedSessions,
 } from "./schema.ts";
+import { confirmExecutionGone, launchSession } from "./testing/launches.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -198,21 +199,14 @@ integration(
       };
     }
 
-    // A pool worker registered straight on the partition, as tests do.
     async function claim(session: Session): Promise<Worker> {
-      const executionId = `exec-${crypto.randomUUID()}`;
-      const registered = await gateway.registerLaunch({
-        executionId,
-        generation: 1,
-        partition: session.partition,
-        backend: "local_docker",
+      const { executionId, generation, nonce } = await launchSession(db, {
+        sessionId: session.sessionId,
       });
-      if (registered.nonce === null)
-        throw new Error("launch already registered");
       const claimed = await gateway.bootstrapClaim(bootstrap, {
         execution_id: executionId,
-        execution_generation: 1,
-        credential: { kind: "launch_nonce", nonce: registered.nonce },
+        execution_generation: generation,
+        credential: { kind: "launch_nonce", nonce },
       });
       expect(claimed.session_id).toBe(session.sessionId);
       return workerOf(claimed, executionId);
@@ -386,7 +380,7 @@ integration(
           pause_control_id: pause.receipt_id,
         }),
       ).toEqual({ released: true });
-      await gateway.confirmExecutionGone(worker.executionId);
+      await confirmExecutionGone(db, worker.executionId);
       const row = await sessionRow(session.sessionId);
       expect(row.admissionState).toBe("paused");
       expect(row.checkpointRevision).toBe(0);
@@ -498,7 +492,7 @@ integration(
         reason: "pause",
         pause_control_id: pause.receipt_id,
       });
-      await gateway.confirmExecutionGone(worker.executionId);
+      await confirmExecutionGone(db, worker.executionId);
 
       const resume = await accepted("resume", session);
       const signal = await db
@@ -557,7 +551,7 @@ integration(
         ...worker.scope,
         reason: "restore failed",
       });
-      await gateway.confirmExecutionGone(worker.executionId);
+      await confirmExecutionGone(db, worker.executionId);
       expect((await sessionRow(session.sessionId)).admissionState).toBe(
         "recovery_required",
       );
@@ -651,7 +645,7 @@ integration(
 
       // Reserved, never claimed: its resource going proves nothing.
       const intent = await reserve(session);
-      await gateway.confirmExecutionGone(intent.executionId);
+      await confirmExecutionGone(db, intent.executionId);
       const still = await sessionRow(session.sessionId);
       expect(still.admissionState).toBe("resuming");
       expect(still.executionId).toBeNull();
@@ -660,14 +654,9 @@ integration(
 
       // A claimed one dying before its report (a deploy's SIGTERM, a slow
       // workspace) is retried on the same checkpoint, input still held.
-      // The first is a pool worker registered with a low generation of its
-      // own choosing: it still counts.
       for (let launch = 1; launch < RESUME_LAUNCH_LIMIT; launch++) {
-        const worker =
-          launch === 1
-            ? await claim(session)
-            : (await claimReserved(session)).worker;
-        await gateway.confirmExecutionGone(worker.executionId);
+        const { worker } = await claimReserved(session);
+        await confirmExecutionGone(db, worker.executionId);
         expect((await sessionRow(session.sessionId)).admissionState).toBe(
           "resuming",
         );
@@ -677,7 +666,7 @@ integration(
 
       // The last allowed one dies too: an operator decides.
       const { worker } = await claimReserved(session);
-      await gateway.confirmExecutionGone(worker.executionId);
+      await confirmExecutionGone(db, worker.executionId);
       const failed = await sessionRow(session.sessionId);
       expect(failed.admissionState).toBe("recovery_required");
       const receipt = await receiptRow(resume.receipt_id);
@@ -877,7 +866,7 @@ integration(
       expect(reconciled.map((lease) => lease.attemptId)).toContain(
         worker.scope.attempt_id,
       );
-      await gateway.confirmExecutionGone(worker.executionId);
+      await confirmExecutionGone(db, worker.executionId);
       return { session, pause };
     }
 
@@ -1018,7 +1007,7 @@ integration(
       ).toEqual([]);
       expect((await admissionEvents(session)).at(-1)).toBe("recovery_required");
       // The kill confirmed later does not reopen anything.
-      await gateway.confirmExecutionGone(intent.executionId);
+      await confirmExecutionGone(db, intent.executionId);
       expect((await sessionRow(session.sessionId)).admissionState).toBe(
         "recovery_required",
       );

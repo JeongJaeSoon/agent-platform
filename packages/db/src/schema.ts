@@ -1668,6 +1668,9 @@ export const checkpoints = pgTable(
     // revision's objects: no restore reaches this revision any more, and a
     // backup leaves it out rather than fail on what is gone.
     collectedAt: timestamp("collected_at", { withTimezone: true }),
+    // Set once a collection pass after collected_at deleted every object it
+    // found; output usage counts the revision's outputs until then.
+    objectsPurgedAt: timestamp("objects_purged_at", { withTimezone: true }),
     // The profile of the attempt that committed it: its runtime fingerprint
     // was computed from that profile, so a restore after a profile change
     // is checked against it. Null on rows from before the column.
@@ -1675,8 +1678,36 @@ export const checkpoints = pgTable(
     profileFingerprint: text("profile_fingerprint"),
     // The attempt's model; null where the fingerprint names it (version 1).
     model: text(),
+    // Whether checkpoint_outputs holds what this revision's manifest names
+    // under outputs. False on rows committed before it was recorded, whose
+    // outputs no figure counts.
+    outputsRecorded: boolean("outputs_recorded").notNull().default(false),
   },
   (table) => [primaryKey({ columns: [table.sessionId, table.revision] })],
+);
+
+// Every output object a committed revision's manifest names, the ones it
+// inherited included, so the bytes still kept are the distinct keys of the
+// revisions garbage collection has not released.
+export const checkpointOutputs = pgTable(
+  "checkpoint_outputs",
+  {
+    sessionId: uuid("session_id").notNull(),
+    revision: integer().notNull(),
+    objectKey: text("object_key").notNull(),
+    bytes: bigint({ mode: "number" }).notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.sessionId, table.revision, table.objectKey],
+    }),
+    foreignKey({
+      name: "checkpoint_outputs_checkpoint_fk",
+      columns: [table.sessionId, table.revision],
+      foreignColumns: [checkpoints.sessionId, checkpoints.revision],
+    }),
+    check("checkpoint_outputs_bytes_nonneg", sql`${table.bytes} >= 0`),
+  ],
 );
 
 export const executions = pgTable(

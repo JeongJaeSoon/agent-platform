@@ -19,6 +19,10 @@ import {
   turns,
   unassignedSessions,
 } from "@werft-ai/db";
+import {
+  confirmExecutionGone,
+  launchSession,
+} from "@werft-ai/db/testing/launches";
 import { createLogger } from "@werft-ai/observability";
 import {
   createAuthorizationPolicy,
@@ -27,7 +31,7 @@ import {
   type SessionCatalog,
   type WorkerGateway,
 } from "@werft-ai/platform";
-import { FakeAgentRuntime } from "@werft-ai/runtime-claude";
+import { FakeAgentRuntime } from "@werft-ai/runtime-claude/testing";
 import type {
   CheckpointPreparation,
   NativeSdkMessage,
@@ -353,41 +357,29 @@ integration(
      */
     async function runWorker(input: {
       sessionId: string;
-      partition: string;
-      turn: number | null;
+      turn: number;
       engineSession: string;
       checkpoints:
         | WorkerCheckpointPort
         | ((gateway: HttpWorkerGatewayClient) => WorkerCheckpointPort);
-      claimTimeoutMs?: number;
     }) {
-      const executionId = `exec-${crypto.randomUUID()}`;
-      const launch = await gateway.registerLaunch({
-        executionId,
-        generation: 1,
-        partition: input.partition,
-        backend: "local_docker",
-      });
-      if (launch.nonce === null) throw new Error("launch already registered");
-      const runtime = new FakeAgentRuntime(
-        input.turn === null
-          ? [{ type: "await-input" }]
-          : [
-              { type: "await-input" },
-              {
-                type: "emit",
-                message: result(
-                  inputUuid(
-                    input.sessionId,
-                    String(input.turn),
-                    await queueIdOf(input.sessionId, input.turn),
-                  ),
-                  input.engineSession,
-                ),
-              },
-              { type: "await-input" },
-            ],
-      );
+      const launch = await launchSession(db, { sessionId: input.sessionId });
+      const executionId = launch.executionId;
+      const runtime = new FakeAgentRuntime([
+        { type: "await-input" },
+        {
+          type: "emit",
+          message: result(
+            inputUuid(
+              input.sessionId,
+              String(input.turn),
+              await queueIdOf(input.sessionId, input.turn),
+            ),
+            input.engineSession,
+          ),
+        },
+        { type: "await-input" },
+      ]);
       const launches: Array<{ mode: string; resume: string | null }> = [];
       const client = new HttpWorkerGatewayClient({
         baseUrl: base(),
@@ -401,39 +393,36 @@ integration(
             : input.checkpoints,
         execution: {
           bootstrapNonce: launch.nonce,
-          generation: 1,
+          generation: launch.generation,
           id: executionId,
         },
         gateway: client,
         logger: silent,
         runtimes: {
           launcherFor: () => ({
-            start: ({ runtimeConfig, principal, ...rest }, hooks) => {
+            start: ({ runtimeConfig, principal, ...rest }) => {
               launches.push({
                 mode: rest.mode,
                 resume: rest.mode === "resume" ? rest.resume : null,
               });
-              return runtime.start(
-                {
-                  claudeConfigDir: "/tmp/fake/config",
-                  cwd: "/tmp/fake/workspace",
-                  home: "/tmp/fake/home",
-                  model: runtimeConfig.model,
-                  profile: {
-                    ...runtimeConfig.provider,
-                    principal: { ownerScope: principal.owner_scope },
-                  },
-                  tools: runtimeConfig.tools,
-                  ...rest,
+              return runtime.run({
+                claudeConfigDir: "/tmp/fake/config",
+                cwd: "/tmp/fake/workspace",
+                home: "/tmp/fake/home",
+                model: runtimeConfig.model,
+                profile: {
+                  ...runtimeConfig.provider,
+                  principal: { ownerScope: principal.owner_scope },
                 },
-                hooks,
-              );
+                tools: runtimeConfig.tools,
+                ...rest,
+              });
             },
           }),
         },
         timeouts: {
           answerPollIntervalMs: 1_000,
-          claimTimeoutMs: input.claimTimeoutMs ?? 5_000,
+          claimTimeoutMs: 5_000,
           drainTimeoutMs: 5_000,
           heartbeatIntervalMs: 10_000,
           idleTimeoutMs: 300,
@@ -475,7 +464,6 @@ integration(
       const firstPort = checkpointPort(false);
       const first = await runWorker({
         sessionId,
-        partition,
         turn: 1,
         engineSession: "engine-9b81",
         checkpoints: firstPort.port,
@@ -503,7 +491,7 @@ integration(
 
       // 3. The scheduler observes the exit. The session is not handed to a
       // new worker: it waits on an operator and says why.
-      await gateway.confirmExecutionGone(first.executionId);
+      await confirmExecutionGone(db, first.executionId);
       const held = await detail(sessionId);
       expect(held).toMatchObject({
         admission_state: "recovery_required",
@@ -535,8 +523,8 @@ integration(
         detected_at: "execution_gone",
       });
 
-      // More input is refused, and a worker launched now finds nothing to
-      // claim: no engine session starts without the conversation.
+      // More input is refused, and nothing is launched for it: no engine
+      // session starts without the conversation.
       const refused = await post(`/v1/sessions/${sessionId}/messages`, {
         message: "third",
         mode: "enqueue",
@@ -545,16 +533,9 @@ integration(
       expect(
         ((await refused.json()) as { error: { code: string } }).error.code,
       ).toBe("RECOVERY_REQUIRED");
-      const idle = await runWorker({
-        sessionId,
-        partition,
-        turn: null,
-        engineSession: "never",
-        checkpoints: checkpointPort(true).port,
-        claimTimeoutMs: 500,
-      });
-      expect(idle.summary.outcome).toBe("unclaimed");
-      expect(idle.launches).toEqual([]);
+      await expect(launchSession(db, { sessionId })).rejects.toThrow(
+        "not launchable",
+      );
 
       // 4. The operator decides to go on without it.
       const decided = await post(
@@ -593,7 +574,6 @@ integration(
       const freshPort = checkpointPort(true);
       const fresh = await runWorker({
         sessionId,
-        partition,
         turn: 2,
         engineSession: "engine-7d25",
         checkpoints: freshPort.port,
@@ -604,7 +584,7 @@ integration(
         { turnId: "2", status: "completed", reason: null },
       ]);
       expect(fresh.runtime.inputs.map((i) => i.message)).toEqual(["second"]);
-      await gateway.confirmExecutionGone(fresh.executionId);
+      await confirmExecutionGone(db, fresh.executionId);
       const covered = await detail(sessionId);
       expect(covered).toMatchObject({
         admission_state: "active",
@@ -645,7 +625,6 @@ integration(
       );
       const restored = await runWorker({
         sessionId,
-        partition,
         turn: 3,
         engineSession: "engine-7d25",
         checkpoints: restoredPort.port,
@@ -686,12 +665,11 @@ integration(
       // Turn 1 is covered by revision 0.
       const first = await runWorker({
         sessionId,
-        partition,
         turn: 1,
         engineSession: "engine-4c1e",
         checkpoints: checkpointPort(true).port,
       });
-      await gateway.confirmExecutionGone(first.executionId);
+      await confirmExecutionGone(db, first.executionId);
       expect(
         (
           await post(`/v1/sessions/${sessionId}/messages`, {
@@ -707,7 +685,6 @@ integration(
       let failing: ReturnType<typeof failingPublishPort> | undefined;
       const second = await runWorker({
         sessionId,
-        partition,
         turn: 2,
         engineSession: "engine-4c1e",
         checkpoints: (client) => {
@@ -760,8 +737,8 @@ integration(
 
       // 3. The worker is gone before any later publish succeeds: the
       // replacement could only restore revision 0, so the session goes to
-      // an operator with CONTEXT_GAP and nothing claims it.
-      await gateway.confirmExecutionGone(second.executionId);
+      // an operator with CONTEXT_GAP and nothing is launched for it.
+      await confirmExecutionGone(db, second.executionId);
       expect(await detail(sessionId)).toMatchObject({
         admission_state: "recovery_required",
         status: "failed",
@@ -776,16 +753,9 @@ integration(
           checkpoint_revision: 0,
         },
       });
-      const replaced = await runWorker({
-        sessionId,
-        partition,
-        turn: null,
-        engineSession: "never",
-        checkpoints: checkpointPort(true, 1).port,
-        claimTimeoutMs: 500,
-      });
-      expect(replaced.summary.outcome).toBe("unclaimed");
-      expect(replaced.launches).toEqual([]);
+      await expect(launchSession(db, { sessionId })).rejects.toThrow(
+        "not launchable",
+      );
     }, 60_000);
   },
 );

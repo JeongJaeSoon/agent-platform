@@ -16,6 +16,7 @@ import {
   turns,
   unassignedSessions,
 } from "@werft-ai/db";
+import { launchSession } from "@werft-ai/db/testing/launches";
 import { createLogger } from "@werft-ai/observability";
 import {
   createAuthorizationPolicy,
@@ -25,7 +26,10 @@ import {
   type SessionCatalog,
   type WorkerGateway,
 } from "@werft-ai/platform";
-import { FakeAgentRuntime, type FakeStep } from "@werft-ai/runtime-claude";
+import {
+  FakeAgentRuntime,
+  type FakeStep,
+} from "@werft-ai/runtime-claude/testing";
 import type { NativeSdkMessage } from "@werft-ai/runtime-core";
 import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { and, eq } from "drizzle-orm";
@@ -304,14 +308,7 @@ integration("POST /v1/sessions/{id}/interrupt end to end", () => {
       .update(unassignedSessions)
       .set({ partition })
       .where(eq(unassignedSessions.sessionId, sessionId));
-    const executionId = `exec-${crypto.randomUUID()}`;
-    const launch = await gateway.registerLaunch({
-      executionId,
-      generation: 1,
-      partition,
-      backend: "local_docker",
-    });
-    if (launch.nonce === null) throw new Error("launch already registered");
+    const launch = await launchSession(db, { sessionId });
 
     const uuid = (turn: number) =>
       inputUuid(sessionId, String(turn), String(turn));
@@ -328,8 +325,8 @@ integration("POST /v1/sessions/{id}/interrupt end to end", () => {
       checkpoints: capturing(),
       execution: {
         bootstrapNonce: launch.nonce,
-        generation: 1,
-        id: executionId,
+        generation: launch.generation,
+        id: launch.executionId,
       },
       gateway: new HttpWorkerGatewayClient({
         baseUrl: base(),
@@ -339,22 +336,19 @@ integration("POST /v1/sessions/{id}/interrupt end to end", () => {
       logger: silent,
       runtimes: {
         launcherFor: () => ({
-          start: ({ runtimeConfig, principal, ...rest }, hooks) =>
-            runtime.start(
-              {
-                claudeConfigDir: "/tmp/fake/config",
-                cwd: "/tmp/fake/workspace",
-                home: "/tmp/fake/home",
-                model: runtimeConfig.model,
-                profile: {
-                  ...runtimeConfig.provider,
-                  principal: { ownerScope: principal.owner_scope },
-                },
-                tools: runtimeConfig.tools,
-                ...rest,
+          start: ({ runtimeConfig, principal, ...rest }) =>
+            runtime.run({
+              claudeConfigDir: "/tmp/fake/config",
+              cwd: "/tmp/fake/workspace",
+              home: "/tmp/fake/home",
+              model: runtimeConfig.model,
+              profile: {
+                ...runtimeConfig.provider,
+                principal: { ownerScope: principal.owner_scope },
               },
-              hooks,
-            ),
+              tools: runtimeConfig.tools,
+              ...rest,
+            }),
         }),
       },
       // Production cadences: the heartbeat alone would take 10s to say anything.

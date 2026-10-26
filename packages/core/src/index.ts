@@ -19,11 +19,13 @@ export {
   queryKeys,
   sessionQuery,
   sessionsQuery,
+  sessionTurnsQuery,
   sessionUsageQuery,
   teamQuery,
   teamsQuery,
   usageBreakdownQuery,
   usageSeriesQuery,
   viewerQuery,
+  waitingSessionsByQuery,
   waitingSessionsQuery,
 } from "./queries.ts";

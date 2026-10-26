@@ -128,11 +128,19 @@ describe("팀 화면", () => {
     expect(teamDetailSchema.safeParse(teamServer().team).success).toBe(true);
   });
 
-  test("팀은 구성원 메뉴 아래에 있어 구성원 메뉴가 모두에게 보이고 팀 메뉴는 따로 없다", async () => {
-    for (const who of [me(), memberMe()]) {
+  // Console v4 navWs: 구성원 is the workspace managers' item; a member's
+  // teams still open by address.
+  test("팀은 구성원 메뉴 아래에 있고 팀 메뉴는 따로 없다. 구성원 메뉴는 소유자·관리자에게만 보인다", async () => {
+    for (const [who, shows] of [
+      [me(), true],
+      [memberMe(), false],
+    ] as const) {
       const shown = renderAt("/", { "GET /v1/auth/me": () => json(200, who) });
       const nav = await screen.findByRole("navigation", { name: "주요 메뉴" });
-      expect(within(nav).getByRole("link", { name: "구성원" })).toBeDefined();
+      await within(nav).findByRole("link", { name: "실행 프로필" });
+      expect(within(nav).queryByRole("link", { name: "구성원" }) !== null).toBe(
+        shows,
+      );
       expect(within(nav).queryByRole("link", { name: "팀" })).toBeNull();
       shown.container.remove();
     }
@@ -723,6 +731,80 @@ describe("에이전트 관리자", () => {
     );
   });
 
+  test("더 고를 사람·팀이 없으면 칸을 끄지 않고 포커스를 둔 채 이유를 보인다", async () => {
+    let answer: () => void = () => {};
+    const ask = () =>
+      new Promise<void>((resolve) => {
+        answer = resolve;
+      });
+    let asked = ask();
+    let teamItems: object[] = [];
+    const everyone = admins({
+      users: [owner, mate].map((member) => ({
+        user_id: member.user_id,
+        email: member.email,
+        display_name: member.display_name,
+        created_by: USER_ID,
+        created_at: AT,
+      })),
+    });
+    const { api, services } = renderAt(`/agents/${AGENT_ID}?tab=admins`, {
+      ...agentServer().routes,
+      ...teamServer().routes,
+      "GET /v1/teams": async () => {
+        await asked;
+        return json(200, { items: teamItems, next_cursor: null });
+      },
+      [`GET /v1/agents/${AGENT_ID}/admins`]: () => json(200, everyone),
+    });
+    const picker = (await screen.findByLabelText(
+      "관리자로 추가할 사람이나 팀",
+    )) as HTMLSelectElement;
+    const reasonShown = () =>
+      document.getElementById(picker.getAttribute("aria-describedby") ?? "")
+        ?.textContent ?? "";
+    act(() => picker.focus());
+    await waitFor(() =>
+      expect(api.calls.some((c) => c.path === "/v1/members")).toBe(true),
+    );
+    await waitFor(() => expect(picker.getAttribute("aria-busy")).toBe("false"));
+    // Teams are still on their way, so nothing is known to be left out yet.
+    expect(picker.disabled).toBe(false);
+    expect(picker.getAttribute("aria-describedby")).toBeNull();
+
+    act(() => answer());
+    const reason = "추가할 수 있는 사람이나 팀이 없습니다.";
+    await waitFor(() => expect(reasonShown()).toContain(reason));
+    expect(picker.disabled).toBe(false);
+    expect(document.activeElement === picker).toBe(true);
+
+    // A team made since is on its way back: the old empty list says nothing.
+    asked = ask();
+    teamItems = [
+      {
+        id: TEAM_ID,
+        workspace_id: WORKSPACE_ID,
+        name: "결제팀",
+        member_count: 0,
+        created_by: USER_ID,
+        created_at: AT,
+        revision: 1,
+      },
+    ];
+    act(() => {
+      void services.queryClient.invalidateQueries({
+        queryKey: queryKeys.teams,
+      });
+    });
+    await waitFor(() =>
+      expect(api.calls.filter((c) => c.path === "/v1/teams").length).toBe(2),
+    );
+    expect(reasonShown()).not.toContain(reason);
+    act(() => answer());
+    expect(await screen.findByRole("option", { name: "결제팀" })).toBeTruthy();
+    expect(reasonShown()).not.toContain(reason);
+  });
+
   test("owner는 사람·팀을 지정하고 해제한다", async () => {
     const agentsApi = agentServer();
     const teams = teamServer();
@@ -755,11 +837,17 @@ describe("에이전트 관리자", () => {
       (await screen.findByText("Mate")).closest("li")?.textContent,
     ).toContain("mate@example.com · 10/11부터 담당");
     await screen.findByRole("option", { name: "결제팀" });
-    // The list's summaries name the admins, so a change marks it stale.
-    services.queryClient.setQueryData(queryKeys.agents, {
-      items: [],
-      next_cursor: null,
-    });
+    // The list's summaries name the admins, so a change marks it stale; the
+    // overview watches the list, so it may be read again at once.
+    const listReads = () =>
+      api.calls.filter((c) => c.method === "GET" && c.path === "/v1/agents")
+        .length;
+    await waitFor(() =>
+      expect(
+        services.queryClient.getQueryState(queryKeys.agents)?.fetchStatus,
+      ).toBe("idle"),
+    );
+    const reads = listReads();
     await user.selectOptions(
       screen.getByLabelText("관리자로 추가할 사람이나 팀"),
       `teams:${TEAM_ID}`,
@@ -772,9 +860,12 @@ describe("에이전트 관리자", () => {
       api.calls.find((c) => c.method === "POST" && c.path.endsWith("/admins"))
         ?.body,
     ).toEqual({ team_id: TEAM_ID });
-    expect(
-      services.queryClient.getQueryState(queryKeys.agents)?.isInvalidated,
-    ).toBe(true);
+    await waitFor(() =>
+      expect(
+        services.queryClient.getQueryState(queryKeys.agents)?.isInvalidated ===
+          true || listReads() > reads,
+      ).toBe(true),
+    );
 
     await user.click(
       screen.getByRole("button", { name: "Mate을(를) 관리자에서 빼기" }),

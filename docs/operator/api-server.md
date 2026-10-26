@@ -88,11 +88,11 @@ profile의 `repository`는 그 profile로 만든 세션이 저장소를 갖는�
 5. **기준이 사라지면** `base_missing`이다. 목록에는 판을 만들 때의 runtime·billing·저장소 모드로 남지만 아무것도 돌리지 않는다.
 6. **은퇴는 새 부착만 막는다.** `POST /v1/workspace-profiles/{profile_id}/retire`(receipt `retire_workspace_profile`)로 은퇴한 판은 새 release와 release 없는 새 세션을 받지 않는다. 이미 그 판으로 만든 release의 새 세션과 진행 중인 세션은 계속 돈다. 이미 은퇴한 판을 다시 은퇴하면 아무것도 바뀌지 않고 `receipt_id`가 null이다.
 7. **저장소 신뢰 쌍은 기준에서 물려받는다.** `repositories.<id>.profiles`에 기준 id가 있으면 그 저장소에서 판도 돈다. 저장소 allowlist에 `ws_` id를 적을 일은 없다.
-8. **카탈로그 revision에 들지 않는다.** 판은 DB(`workspace_profiles`, migration 0173)가 정본이다. replica는 세션 생성·release 생성·profile 변경 때 DB를 다시 읽고, worker claim과 provider egress 재허가 때는 1초 안에 읽은 것을 쓴다. 그 밖의 화면(세션 상세의 runtime 등)은 10초마다 다시 읽는다. 그래서 판을 만들고 지워도 `catalog-authority` 롤아웃 절차는 필요 없다.
+8. **카탈로그 revision에 들지 않는다.** 판은 DB(`workspace_profiles`, migration 0174)가 정본이다. replica는 세션 생성·release 생성·profile 변경 때 DB를 다시 읽고, worker claim과 provider egress 재허가 때는 1초 안에 읽은 것을 쓴다. 그 밖의 화면(세션 상세의 runtime 등)은 10초마다 다시 읽는다. 그래서 판을 만들고 지워도 `catalog-authority` 롤아웃 절차는 필요 없다.
 9. **누가.** 만들기·은퇴는 로그인한 owner·admin(`workspace.manage`)만, cookie 세션으로만 한다(workspace key로는 안 된다). 저장 시점에 역할을 다시 확인하므로 그사이 역할을 잃으면 `403`이다. 읽기(`GET /v1/profiles`)는 구성원과 read scope key 모두 한다. 다른 워크스페이스의 판은 목록에 나오지 않고, 그 id로 세션·release를 만들면 모르는 profile처럼 거절된다.
 10. **auto 규칙·스크립트 상한은 아직 칸만 있다.** 콘솔에 자리와 안내만 있고 저장하지 않는다(확장 설계 v2 결론 뒤).
 
-배포: migration 0173(테이블 추가만)을 먼저 적용하고 API를 올린다. worker 이미지는 바꿀 필요가 없다. 옛 API는 `ws_` id를 모르고, 판은 카탈로그 revision에 들지 않아 revision이 같다. 그래서 옛 replica가 판 세션의 claim을 받으면 그 세션을 `catalog_mismatch`로 실패시킨다. 모든 replica가 새 판으로 바뀐 뒤에 판을 만들게 한다. 되돌릴 때도 같다: 판으로 만든 세션은 옛 API에서 첫 claim에 실패하고 입력은 남는다. 다시 올린 뒤 새 입력을 보내면 이어서 돈다.
+배포: migration 0174(테이블 추가만)을 먼저 적용하고 API를 올린다. worker 이미지는 바꿀 필요가 없다. 옛 API는 `ws_` id를 모르고, 판은 카탈로그 revision에 들지 않아 revision이 같다. 그래서 옛 replica가 판 세션의 claim을 받으면 그 세션을 `catalog_mismatch`로 실패시킨다. 모든 replica가 새 판으로 바뀐 뒤에 판을 만들게 한다. 되돌릴 때도 같다: 판으로 만든 세션은 옛 API에서 첫 claim에 실패하고 입력은 남는다. 다시 올린 뒤 새 입력을 보내면 이어서 돈다.
 
 ### workspace volume을 잃었을 때 남는 것
 

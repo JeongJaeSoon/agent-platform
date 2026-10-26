@@ -615,6 +615,9 @@ export function createSessionService(deps: {
         ...(input.shareScope === undefined
           ? {}
           : { shareScope: input.shareScope }),
+        ...(input.body.permission_wait === undefined
+          ? {}
+          : { permissionWait: input.body.permission_wait }),
         message: input.body.message,
         limits: inputLimits,
       });

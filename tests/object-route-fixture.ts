@@ -5,6 +5,10 @@ import {
   createPostgresSessionUnitOfWork,
   createPostgresWorkerUnitOfWork,
 } from "@werft-ai/db";
+import {
+  confirmExecutionGone,
+  launchSession,
+} from "@werft-ai/db/testing/launches";
 import { createLogger } from "@werft-ai/observability";
 import { acceptAllCheckpoints, createWorkerGateway } from "@werft-ai/platform";
 import { createObjectRouteSigner } from "@werft-ai/storage";
@@ -129,13 +133,12 @@ export async function startObjectRouteFixture(options: {
     });
     if (accepted.outcome !== "accepted") throw new Error(accepted.outcome);
     const sessionId = accepted.response.session_id;
-    let generation = 0;
     let execution: string | null = null;
     return {
       sessionId,
       async claim() {
         if (execution !== null) {
-          await gateway.confirmExecutionGone(execution);
+          await confirmExecutionGone(db, execution);
           // A worker gone before asking for input is a failed startup whose
           // backoff holds the next launch back; here it has
           // elapsed, as the gateway's own tests let it.
@@ -146,20 +149,13 @@ export async function startObjectRouteFixture(options: {
             })
             .where(eq(schema.sessions.id, sessionId));
         }
-        generation += 1;
-        execution = `exec-${sessionId}-${generation}`;
-        const launch = await gateway.registerLaunch({
-          executionId: execution,
-          generation,
-          sessionId,
-          backend: "local_docker",
-        });
-        if (launch.nonce === null) throw new Error("launch already registered");
+        const launch = await launchSession(db, { sessionId });
+        execution = launch.executionId;
         const claim = await gateway.bootstrapClaim(
           { kind: "bootstrap" },
           {
-            execution_id: execution,
-            execution_generation: generation,
+            execution_id: launch.executionId,
+            execution_generation: launch.generation,
             credential: { kind: "launch_nonce", nonce: launch.nonce },
           },
         );

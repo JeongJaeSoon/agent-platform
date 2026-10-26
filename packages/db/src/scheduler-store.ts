@@ -763,6 +763,7 @@ export function createPostgresSchedulerStore(
           nonceExpiresAt: workerLaunches.nonceExpiresAt,
           nonceExpired: sql<boolean>`${workerLaunches.nonceExpiresAt} <= ${DB_NOW}`,
           nonceHash: workerLaunches.nonceHash,
+          observedAt: executions.observedAt,
           observedState: executions.observedState,
           operationId: executions.launchOperationId,
           providerRef: executions.providerRef,
@@ -797,6 +798,7 @@ export function createPostgresSchedulerStore(
         nonceFingerprint: row.nonceHash
           ? launchNonceFingerprint(row.nonceHash)
           : null,
+        observedAt: row.observedAt,
         observedState: observedStateOf(row.observedState),
         operationId: row.operationId,
         providerRef: row.providerRef,

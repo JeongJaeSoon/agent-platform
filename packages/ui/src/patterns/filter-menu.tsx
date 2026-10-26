@@ -72,7 +72,7 @@ export function FilterMenu({
         data-filtered={filtered ? "" : undefined}
         className={cn(
           buttonVariants({ variant: "outline" }),
-          "gap-1.5 px-3 font-normal hover:border-border-strong",
+          "gap-1.5 border-input px-3 font-normal hover:border-subtle-foreground",
           filtered && "bg-active",
           className,
         )}

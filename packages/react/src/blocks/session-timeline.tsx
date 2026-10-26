@@ -2,9 +2,11 @@ import {
   presentTurnEvent,
   type TurnEventPart,
   type TurnEventPresentation,
+  type TurnSummary,
 } from "@werft-ai/contracts";
-import { type ReactNode, useMemo } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import {
+  Message,
   Timeline,
   type TimelineEntry,
   turnSummaryText,
@@ -91,18 +93,70 @@ function questionOf(frame: SessionEventFrame) {
   return { requestId: request_id, options };
 }
 
+/**
+ * The tool calls a question or permission request holds back: asked, with
+ * neither an answer nor a result yet. As in run-tree, a request is answered
+ * once a later status leaves needs_input; the session stays there while any
+ * other request waits, so one known `answered` is let go sooner.
+ */
+export function heldToolCalls(
+  events: readonly SessionEventFrame[],
+  answered: ReadonlySet<string> = new Set(),
+): ReadonlySet<string> {
+  const held = new Set<string>();
+  for (const { payload } of events) {
+    if (payload.event === "question") {
+      if (!answered.has(payload.data.request_id))
+        held.add(payload.data.tool_use_id);
+    } else if (payload.event === "status") {
+      if (payload.data.phase !== "needs_input") held.clear();
+    } else if (payload.event === "tool_result") {
+      const id = eventToolCallId(payload);
+      if (id !== undefined) held.delete(id);
+    }
+  }
+  return held;
+}
+
+/** A pending requests query as `SessionTimeline`'s `pending` reads it. */
+export function listedRequests(query: {
+  readonly data?:
+    | { readonly items: readonly { request_id: string }[] }
+    | undefined;
+  readonly dataUpdatedAt: number;
+}) {
+  return query.data
+    ? {
+        requestIds: query.data.items.map((item) => item.request_id),
+        at: query.dataUpdatedAt,
+      }
+    : undefined;
+}
+
 /** A session's events as the timeline reads them. */
 export function SessionTimeline({
   events,
   state,
   debug = false,
   request,
+  pending,
+  turns,
 }: {
   readonly events: readonly SessionEventFrame[];
   readonly state: EventStreamState;
   readonly debug?: boolean;
   /** Drawn under a request's line; see `Timeline`. */
   readonly request?: ((requestId: string) => ReactNode) | undefined;
+  /**
+   * The requests waiting for an answer and when the list was read
+   * (`listedRequests`): one missing from it was answered, so its call no
+   * longer waits.
+   */
+  readonly pending?:
+    | { readonly requestIds: readonly string[]; readonly at: number }
+    | undefined;
+  /** The session's turns: each one's message heads its events. */
+  readonly turns?: readonly TurnSummary[] | undefined;
 }) {
   const { t, formatMessage, locale } = useBlockText();
   const entries = useMemo(
@@ -122,6 +176,40 @@ export function SessionTimeline({
         }),
       ),
     [events, t, locale],
+  );
+  // Each new `pending.at` is one more read of the list. A read already under
+  // way when a request's line arrived may predate the request, so only a list
+  // read twice since then can say it is gone; until then its call waits.
+  const [reads, setReads] = useState({ at: pending?.at, count: 0 });
+  const read = pending !== undefined && pending.at !== reads.at;
+  // A read that lands with a line counts as under way before it.
+  const count = read ? reads.count + 1 : reads.count;
+  if (read) setReads({ at: pending.at, count });
+  const [readsWhenSeen, setReadsWhenSeen] = useState<
+    ReadonlyMap<string, number>
+  >(() => new Map());
+  const unseen = events.flatMap(({ payload }) =>
+    payload.event === "question" && !readsWhenSeen.has(payload.data.request_id)
+      ? [payload.data.request_id]
+      : [],
+  );
+  if (unseen.length > 0)
+    setReadsWhenSeen(
+      new Map([...readsWhenSeen, ...unseen.map((id) => [id, count] as const)]),
+    );
+  const answered = new Set(
+    pending === undefined
+      ? []
+      : [...readsWhenSeen].flatMap(([requestId, seen]) =>
+          count > seen + 1 && !pending.requestIds.includes(requestId)
+            ? [requestId]
+            : [],
+        ),
+  );
+  const held = heldToolCalls(events, answered);
+  const asked = useMemo(
+    () => new Map(turns?.map((turn) => [turn.turn_id, turn])),
+    [turns],
   );
   const latestStatus = entries
     .filter((_, index) => events[index]?.payload.event === "status")
@@ -145,12 +233,24 @@ export function SessionTimeline({
           kind: (kind) => t(`session.events.kind.${kind}`),
           folded: (count) => t("session.events.folded", { count }),
           running: t("session.events.running"),
+          waiting: t("sessions.status.needs_input"),
           options: t("session.events.options"),
         }}
         state={state}
         showDebug={debug}
         locale={locale}
         request={request}
+        held={held}
+        prompt={(turnId) => {
+          const turn = asked.get(turnId);
+          return turn ? (
+            <Message
+              from="user"
+              author={t("session.events.prompt")}
+              text={turn.message}
+            />
+          ) : null;
+        }}
       />
     </div>
   );

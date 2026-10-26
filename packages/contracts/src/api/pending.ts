@@ -26,6 +26,20 @@ const pendingRequestBase = {
   attempt_id: attemptIdSchema,
   created_at: timestampSchema,
   expires_at: timestampSchema,
+  // The three below are absent from a server older than them: read that as
+  // a live wait that never parks.
+  state: z.enum(["waiting", "parked"]).optional().meta({
+    description:
+      "`waiting`: the turn that asked is still open on it. `parked`: that turn stopped with its checkpoint and the session is paused; an answer before `expires_at` still counts, whichever worker asked, and resumes the turn once its group is closed.",
+  }),
+  park_at: timestampSchema.nullable().optional().meta({
+    description:
+      "When the platform parks the turn if this is still unanswered. Null when it does not park: it waits for its worker until it expires.",
+  }),
+  group: turnIdSchema.optional().meta({
+    description:
+      "The turn the request was asked in, as `turn_id`: a parked turn resumes once every request of its group is answered or expired, and they expire together.",
+  }),
 };
 export const pendingRequestSchema = z.discriminatedUnion("kind", [
   z.object({

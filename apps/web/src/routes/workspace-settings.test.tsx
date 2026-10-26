@@ -583,11 +583,11 @@ describe("워크스페이스 설정", () => {
     ).toBe("/settings/workspace");
   });
 
-  test("구성원의 설정 메뉴는 연동 계정으로 연다", async () => {
+  test("구성원의 사이드바에는 설정이 없다(내 설정은 계정 메뉴: layout.test)", async () => {
     renderAt("/", { "GET /v1/auth/me": () => json(200, memberMe()) });
-    expect(
-      (await screen.findByRole("link", { name: "설정" })).getAttribute("href"),
-    ).toBe("/settings/linked-accounts");
+    const nav = await screen.findByRole("navigation", { name: "주요 메뉴" });
+    await within(nav).findByRole("link", { name: "실행 프로필" });
+    expect(within(nav).queryByRole("link", { name: "설정" })).toBeNull();
   });
 
   test("App Configuration Token을 넣으면 다시 읽은 상태와 지우는 칸이 보인다", async () => {

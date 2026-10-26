@@ -10,9 +10,11 @@ import {
   TURN_BUDGET_EXCEEDED_REASON,
   type WorkspaceDescriptor,
 } from "@werft-ai/contracts";
-import { FakeAgentRuntime, type FakeStep } from "@werft-ai/runtime-claude";
 import {
-  type AgentFrame,
+  FakeAgentRuntime,
+  type FakeStep,
+} from "@werft-ai/runtime-claude/testing";
+import {
   type AgentRun,
   type CheckpointPreparation,
   type NativeSdkMessage,
@@ -109,7 +111,7 @@ function harness(
   const workspaces: Array<WorkspaceDescriptor | undefined> = [];
   const runtimes: RuntimeRegistry = {
     launcherFor: () => ({
-      start: ({ runtimeConfig, principal, workspace, ...launch }, hooks) => {
+      start: ({ runtimeConfig, principal, workspace, ...launch }) => {
         launched.push(runtimeConfig);
         workspaces.push(workspace);
         budgets.push(launch.maxBudgetUsd);
@@ -117,22 +119,19 @@ function harness(
         claudeMds.push(launch.committedClaudeMd());
         const wrap = overrides.wrap ?? ((run: AgentRun) => run);
         return wrap(
-          runtime.start(
-            {
-              claudeConfigDir: "/tmp/fake/config",
-              cwd: "/tmp/fake/workspace",
-              home: "/tmp/fake/home",
-              model: runtimeConfig.model,
-              profile: engineProfile(
-                runtimeConfig.provider,
-                principal.owner_scope,
-                "http://egress-proxy.test:3129",
-              ),
-              tools: runtimeConfig.tools,
-              ...launch,
-            },
-            hooks,
-          ),
+          runtime.run({
+            claudeConfigDir: "/tmp/fake/config",
+            cwd: "/tmp/fake/workspace",
+            home: "/tmp/fake/home",
+            model: runtimeConfig.model,
+            profile: engineProfile(
+              runtimeConfig.provider,
+              principal.owner_scope,
+              "http://egress-proxy.test:3129",
+            ),
+            tools: runtimeConfig.tools,
+            ...launch,
+          }),
         );
       },
     }),
@@ -1901,7 +1900,8 @@ describe("WorkerHost outcomes a drain must not hide", () => {
         override async finalize(
           request: FinalizeRequest,
         ): Promise<FinalizeResponse> {
-          if (run !== undefined) during.push(await run.prepareCheckpoint());
+          if (run !== undefined)
+            during.push(await run.prepareCheckpoint("turn_end"));
           return super.finalize(request);
         }
       }
@@ -1929,7 +1929,7 @@ describe("WorkerHost outcomes a drain must not hide", () => {
           detail: "Another checkpoint holds the lease",
         },
       ]);
-      expect(await run?.prepareCheckpoint()).not.toMatchObject({
+      expect(await run?.prepareCheckpoint("turn_end")).not.toMatchObject({
         reason: "checkpoint_lease_held",
       });
     });
@@ -1964,13 +1964,13 @@ describe("WorkerHost outcomes a drain must not hide", () => {
 
       // Given up on, not answered: a CAS could still land, so no writer may
       // start before it does.
-      expect(await run?.prepareCheckpoint()).toMatchObject({
+      expect(await run?.prepareCheckpoint("turn_end")).toMatchObject({
         reason: "checkpoint_lease_held",
       });
       answer.resolve();
       await waitFor(() => gateway.finalized.length === 1, "the late finalize");
       await Bun.sleep(1);
-      expect(await run?.prepareCheckpoint()).not.toMatchObject({
+      expect(await run?.prepareCheckpoint("turn_end")).not.toMatchObject({
         reason: "checkpoint_lease_held",
       });
     });
@@ -2010,7 +2010,7 @@ describe("WorkerHost outcomes a drain must not hide", () => {
       await waitFor(() => failed, "the finalize to fail");
       await Bun.sleep(5);
 
-      expect(await run?.prepareCheckpoint()).toMatchObject({
+      expect(await run?.prepareCheckpoint("turn_end")).toMatchObject({
         reason: "checkpoint_lease_held",
       });
     });
@@ -2054,7 +2054,7 @@ describe("WorkerHost outcomes a drain must not hide", () => {
 
       expect(calls).toBe(2);
       // The refusal answers the retry, not the request that timed out.
-      expect(await run?.prepareCheckpoint()).toMatchObject({
+      expect(await run?.prepareCheckpoint("turn_end")).toMatchObject({
         reason: "checkpoint_lease_held",
       });
     });
@@ -2081,7 +2081,7 @@ describe("WorkerHost outcomes a drain must not hide", () => {
       await host.runLoop();
       await Bun.sleep(1);
 
-      expect(await run?.prepareCheckpoint()).not.toMatchObject({
+      expect(await run?.prepareCheckpoint("turn_end")).not.toMatchObject({
         reason: "checkpoint_lease_held",
       });
     });
@@ -2093,7 +2093,8 @@ describe("WorkerHost outcomes a drain must not hide", () => {
         override async finalize(
           request: FinalizeRequest,
         ): Promise<FinalizeResponse> {
-          if (run !== undefined) during.push(await run.prepareCheckpoint());
+          if (run !== undefined)
+            during.push(await run.prepareCheckpoint("turn_end"));
           return super.finalize(request);
         }
       }
@@ -2146,7 +2147,7 @@ describe("WorkerHost outcomes a drain must not hide", () => {
       let run: AgentRun | undefined;
       const engines: EngineExitWatch = {
         descendants: async () => {
-          expect(await run?.prepareCheckpoint()).toMatchObject({
+          expect(await run?.prepareCheckpoint("turn_end")).toMatchObject({
             reason: "checkpoint_lease_held",
           });
           return ++checks < 3 ? [4243] : [];
@@ -2264,7 +2265,7 @@ describe("WorkerHost outcomes a drain must not hide", () => {
           outcome: "failed",
           reason: "procfs denied",
         });
-        expect(await run?.prepareCheckpoint()).not.toMatchObject({
+        expect(await run?.prepareCheckpoint("turn_end")).not.toMatchObject({
           reason: "checkpoint_lease_held",
         });
       },
@@ -3880,19 +3881,6 @@ describe("secrets in what the engine prints", () => {
 describe("frameTurn", () => {
   const ours = "input-2";
   const before = "input-1";
-  const frame = (
-    message: Record<string, unknown>,
-    inputs?: string[],
-  ): AgentFrame => ({
-    envelope: {
-      correlation_id: "c",
-      message: { type: "assistant", ...message },
-      schema_version: "sdk-envelope/v1",
-      sdk_version: "test",
-    },
-    events: [],
-    ...(inputs === undefined ? {} : { inputs }),
-  });
   const turn = (entered: boolean, closed = false) => ({
     closed,
     entered,
@@ -3902,70 +3890,48 @@ describe("frameTurn", () => {
 
   test.each([
     [
-      "the input's queued lifecycle enters the turn",
-      frame({ type: "command_lifecycle", command_uuid: ours, state: "queued" }),
-      turn(false),
-      { entered: true, turnId: "2" },
-    ],
-    [
-      "a reply stamped with the input enters it",
-      frame({ user_message_uuid: ours }),
+      "an event naming the input enters the turn",
+      [ours],
       turn(false),
       { entered: true, turnId: "2" },
     ],
     [
       "a batch naming the input among others enters it",
-      frame({ user_message_uuids: [before, ours] }),
+      [before, ours],
       turn(false),
       { entered: true, turnId: "2" },
     ],
     [
-      "an unnamed frame before the input is named stays out",
-      frame({}),
+      "an unnamed event before the input is named stays out",
+      [],
       turn(false),
       { entered: false, turnId: null },
     ],
     [
-      "an unnamed frame once it is named is the turn's",
-      frame({}),
+      "an unnamed event once it is named is the turn's",
+      [],
       turn(true),
       { entered: true, turnId: "2" },
     ],
     [
-      "the previous input's completed lifecycle stays out, entered or not",
-      frame({
-        type: "command_lifecycle",
-        command_uuid: before,
-        state: "completed",
-      }),
+      "an event for the previous input stays out, entered or not",
+      [before],
       turn(true),
       { entered: true, turnId: null },
     ],
     [
-      "a result for the previous input stays out",
-      frame({ type: "result", user_message_uuid: before }),
-      turn(true),
-      { entered: true, turnId: null },
-    ],
-    [
-      "the runtime's word counts when the message names nothing",
-      frame({}, [ours]),
-      turn(false),
-      { entered: true, turnId: "2" },
-    ],
-    [
-      "the message's own names win over the runtime's",
-      frame({ user_message_uuid: before }, [ours]),
+      "an event for the previous input does not enter the turn",
+      [before],
       turn(false),
       { entered: false, turnId: null },
     ],
     [
       "nothing is the turn's past its terminal",
-      frame({ user_message_uuid: ours }),
+      [ours],
       turn(true, true),
       { entered: true, turnId: null },
     ],
-  ] as const)("%s", (_, given, current, expected) => {
-    expect(frameTurn(given, current)).toEqual(expected);
+  ] as const)("%s", (_, inputs, current, expected) => {
+    expect(frameTurn(inputs, current)).toEqual(expected);
   });
 });

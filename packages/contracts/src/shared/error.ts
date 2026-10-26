@@ -114,6 +114,11 @@ export const API_ERROR_CODE_VALUES = [
   // request was opened from it yet.
   "PUSH_NOT_PUSHED",
   "PULL_REQUEST_MISSING",
+  // A resume of a session parked on its requests while one of them is
+  // neither answered nor expired.
+  "PENDING_REQUESTS_OPEN",
+  // A session asked to wait on its requests longer than its profile allows.
+  "PERMISSION_WAIT_ABOVE_PROFILE",
 ] as const;
 
 export const apiErrorCodeSchema = z.enum(API_ERROR_CODE_VALUES);

@@ -351,6 +351,7 @@ describe("홈 요약", () => {
         accounted_content: ["input_messages"],
         updated_at: null,
       },
+      outputs: { used_bytes: 0, updated_at: null, complete: true },
     },
   };
   const since = new Date(Date.now() - 30 * 86_400_000)
@@ -368,7 +369,7 @@ describe("홈 요약", () => {
     },
     refreshed_at: "2026-10-23T09:00:00.000Z",
     session_count: sessions,
-    cost_usd: scope === "me" ? "1.250000" : "4.500000",
+    cost_usd: scope === "me" ? "1.250000" : "69.461386",
     cost_complete: complete,
     token_count: sessions * 1200,
     run_seconds: sessions * 600,
@@ -453,6 +454,11 @@ describe("홈 요약", () => {
           items: [waitingSession, oneSession],
           next_cursor: "next",
         }),
+      "GET /v1/sessions?status=running": () =>
+        json(200, { items: [], next_cursor: null }),
+      "GET /v1/sessions?status=idle": () =>
+        json(200, { items: [oneSession], next_cursor: null }),
+      "GET /v1/linked-accounts": () => json(200, { items: [] }),
       "GET /v1/limits": () => json(200, limits),
       [summaryRoute("me")]: () => json(200, summary("me", 3)),
       [summaryRoute("installation")]: () =>
@@ -477,6 +483,17 @@ describe("홈 요약", () => {
     ],
     ["내 사용량", summaryRoute("me"), () => summary("me", 3)],
     ["설치 한도 값", "GET /v1/limits", () => limits],
+    [
+      "작업 중 세션",
+      "GET /v1/sessions?status=running",
+      () => ({ items: [], next_cursor: null }),
+    ],
+    [
+      "쉬는 세션",
+      "GET /v1/sessions?status=idle",
+      () => ({ items: [], next_cursor: null }),
+    ],
+    ["연동 계정", "GET /v1/linked-accounts", () => ({ items: [] })],
   ] as const) {
     test(`${what}이 올 때까지 본문은 자리표시 하나이고, 오면 한 번에 보인다`, async () => {
       let answer: () => void = () => {};
@@ -558,15 +575,45 @@ describe("홈 요약", () => {
     expect(manager.classList.contains("invisible")).toBe(true);
   });
 
-  test("카드 세 장에 최근 30일 사용량과 미계측을 나눠 보이고, 답변 대기는 가장 오래된 요청 하나만 가리킨다", async () => {
+  test("소유자 홈은 구성원 카드 세 장 뒤에 전체 사용량과 확인할 항목을 두고, 답변 대기 수는 진행 상황에만 센다", async () => {
     renderAt("/", homeRoutes());
     const overview = await screen.findByRole("region", { name: "한눈에 보기" });
     await waitFor(() =>
       expect(cards(overview)).toEqual([
         {
+          title: "내가 시작한 세션 기준",
+          badge: undefined,
+          value: "$1.25",
+          rows: [
+            ["세션", "3"],
+            ["실행 시간", "30분"],
+            ["토큰", "3,600"],
+          ],
+        },
+        {
+          title: "진행 상황",
+          badge: "지금",
+          value: "2",
+          rows: [
+            ["답변 대기", "1"],
+            ["작업 중", "0"],
+            ["쉬는 중", "1"],
+          ],
+        },
+        {
+          title: "연결 상태",
+          badge: "내 계정",
+          value: "0 / 3",
+          rows: [
+            ["GitHub", "준비 중"],
+            ["Slack", "연결 안 됨"],
+            ["Google Workspace", "준비 중"],
+          ],
+        },
+        {
           title: "전체 사용량",
           badge: undefined,
-          value: "$4.500000",
+          value: "$69.46",
           rows: [
             ["세션", "12"],
             ["동시 실행", "3 / 8 slot"],
@@ -578,21 +625,10 @@ describe("홈 요약", () => {
           badge: "운영",
           value: "2",
           rows: [
-            ["답변 대기", "1"],
             ["30분 넘게 대기", "1개 세션"],
             ["가장 오래된 요청", expect.stringContaining("1a2b3c4d · ")],
             ["결제 담당", "3일 후 만료"],
             ["에이전트", "켜짐 1 · 초안 1"],
-          ],
-        },
-        {
-          title: "내가 시작한 세션 기준",
-          badge: undefined,
-          value: "$1.250000",
-          rows: [
-            ["세션", "3"],
-            ["실행 시간", "30분"],
-            ["토큰", "3,600"],
           ],
         },
       ]),
@@ -690,8 +726,10 @@ describe("홈 요약", () => {
     const overview = await screen.findByRole("region", { name: "한눈에 보기" });
     await waitFor(() =>
       expect(cards(overview).map((card) => card.title)).toEqual([
-        "확인할 항목",
         "내가 시작한 세션 기준",
+        "진행 상황",
+        "연결 상태",
+        "확인할 항목",
       ]),
     );
     expect(api.calls.some((call) => call.path === "/v1/limits")).toBe(false);
@@ -709,7 +747,7 @@ describe("홈 요약", () => {
     });
     const overview = await screen.findByRole("region", { name: "한눈에 보기" });
     await waitFor(() =>
-      expect(cards(overview)[2]).toMatchObject({
+      expect(cards(overview)[0]).toMatchObject({
         title: "내가 시작한 세션 기준",
         value: "—",
         rows: [
@@ -741,15 +779,14 @@ describe("홈 요약", () => {
     });
     const overview = await screen.findByRole("region", { name: "한눈에 보기" });
     await waitFor(() => {
-      const check = cards(overview)[1];
+      const check = cards(overview)[4];
       expect(check?.value).toBe("0");
       expect(check?.rows.map(([label]) => label)).toEqual([
-        "답변 대기",
         "30분 넘게 대기",
         "가장 오래된 요청",
         "에이전트",
       ]);
-      expect(check?.rows[1]).toEqual(["30분 넘게 대기", "0개 세션"]);
+      expect(check?.rows[0]).toEqual(["30분 넘게 대기", "0개 세션"]);
     });
   });
 
@@ -795,7 +832,7 @@ describe("홈 요약", () => {
     });
     expect(name.getAttribute("href")).toBe(`/sessions/${waitingSession.id}`);
     expect(inbox.textContent).toMatch(
-      new RegExp(`${waitingSession.id.slice(0, 8)} · \\d+분째 대기`),
+      /내게 온 이유: 내가 시작한 세션 · \d+분째 대기/,
     );
     expect(
       within(inbox)
@@ -862,8 +899,8 @@ describe("홈 요약", () => {
         within(overview).getByRole("link", { name: "결제 담당" }),
       ).toBeDefined(),
     );
-    expect(cards(overview)[1]?.value).toBe("—");
-    expect(cards(overview)[1]?.rows[1]).toEqual(["30분 넘게 대기", "—"]);
+    expect(cards(overview)[4]?.value).toBe("—");
+    expect(cards(overview)[4]?.rows[0]).toEqual(["30분 넘게 대기", "—"]);
     expect(
       within(overview).queryByRole("link", {
         name: waitingSession.id.slice(0, 8),
@@ -1104,8 +1141,20 @@ describe("홈 요약", () => {
   });
 
   test.each([
-    ["member", ["내가 시작한 세션 기준", "AGENT", "AGENT"]],
-    ["admin", ["내가 시작한 세션 기준", "AGENT", "확인할 항목"]],
+    [
+      "member",
+      ["내가 시작한 세션 기준", "진행 상황", "연결 상태", "AGENT", "AGENT"],
+    ],
+    [
+      "admin",
+      [
+        "내가 시작한 세션 기준",
+        "진행 상황",
+        "연결 상태",
+        "AGENT",
+        "확인할 항목",
+      ],
+    ],
   ] as const)(
     "%s가 관리하는 에이전트는 카드로 보인다",
     async (role, titles) => {
@@ -1131,11 +1180,16 @@ describe("홈 요약", () => {
         name: "한눈에 보기",
       });
       const expected = titles.map((title, index) =>
-        title === "AGENT" ? [agent.name, other.name][index - 1] : title,
+        title === "AGENT"
+          ? [agent.name, other.name][index - titles.indexOf("AGENT")]
+          : title,
       );
       await waitFor(() =>
         expect(cards(overview).map((card) => card.title)).toEqual(expected),
       );
+      // Read for this reader too, not left as unknown.
+      await waitFor(() => expect(cards(overview)[1]?.value).toBe("2"));
+      expect(cards(overview)[2]?.value).toBe("0 / 3");
       expect(
         within(overview)
           .getAllByRole("link", { name: /에이전트 보기/ })[0]
@@ -1215,6 +1269,12 @@ describe("내가 속한 팀", () => {
     });
     const link = within(section).getByRole("link", { name: "결제팀" });
     expect(link.getAttribute("href")).toBe(`/members/teams/${TEAM.id}`);
+    // A member has no 구성원 item in the sidebar; this is their way to the list.
+    expect(
+      within(section)
+        .getByRole("link", { name: "모든 팀" })
+        .getAttribute("href"),
+    ).toBe("/members/teams");
   });
 
   test("팀을 관리하는 사람에게도 팀 화면 링크다", async () => {
@@ -1230,12 +1290,32 @@ describe("내가 속한 팀", () => {
     expect(link.getAttribute("href")).toBe(`/members/teams/${TEAM.id}`);
   });
 
-  test("속한 팀이 없으면 홈에 섹션을 두지 않는다", async () => {
-    const { api } = renderAt("/", {
+  test("팀이 없는 구성원에게도 홈에서 팀 목록으로 가는 길이 남는다", async () => {
+    renderAt("/", {
       "GET /v1/auth/me": () => json(200, memberMe()),
       "GET /v1/members": forbidden,
       "GET /v1/invites": forbidden,
       "GET /v1/agents": forbidden,
+      "GET /v1/my-teams": () => json(200, { items: [], next_cursor: null }),
+    });
+    const section = await screen.findByRole("region", {
+      name: "내가 속한 팀",
+    });
+    expect(within(section).getByText("아직 속한 팀이 없습니다.")).toBeDefined();
+    expect(
+      within(section)
+        .getByRole("link", { name: "모든 팀" })
+        .getAttribute("href"),
+    ).toBe("/members/teams");
+  });
+
+  test("구성원 메뉴가 있는 관리자에게 팀이 없으면 홈에 섹션을 두지 않는다", async () => {
+    const { api } = renderAt("/", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [], next_cursor: null })),
+      "GET /v1/invites": () => json(200, { items: [] }),
+      "GET /v1/agents": () => json(200, { items: [], next_cursor: null }),
       "GET /v1/my-teams": () => json(200, { items: [], next_cursor: null }),
     });
     await screen.findByRole("heading", { name: "홈" });

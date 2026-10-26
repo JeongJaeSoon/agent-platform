@@ -1,5 +1,7 @@
 import { postSessionAnswerRequestSchema } from "@werft-ai/contracts";
 import type {
+  ParkDeclinedInput,
+  ParkDeclinedResult,
   PendingControlInput,
   PendingControlResult,
   RegisterPendingInput,
@@ -11,6 +13,7 @@ import { and, asc, eq, gt, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { OPEN_TURN_STATUSES, parseTurnSequence } from "./control-shared.ts";
 import { dbNow } from "./db-clock.ts";
 import { DRAINING_STATES, drainOf, openDrainReceipt } from "./drain.ts";
+import { openPauseReceipt } from "./pause-control.ts";
 import { awaitingInputAt, publicStatus } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
 import { pendingRequests, receipts, sessions, turns } from "./schema.ts";
@@ -365,7 +368,12 @@ export function createPostgresWorkerPendingStore(
                 ? null
                 : {
                     controlId: pause.id,
-                    kind: "pause",
+                    // pause_reason holds only while pausing or paused, so
+                    // a close's drain is never a park.
+                    kind:
+                      fenced.session.pauseReason === "awaiting_input"
+                        ? "park"
+                        : "pause",
                     turnId: null,
                     issuedAt: pause.createdAt,
                   },
@@ -375,6 +383,76 @@ export function createPostgresWorkerPendingStore(
             inputHash: row.inputHash,
           })),
         };
+      });
+    },
+
+    /**
+     * The worker will not park: the session goes back to active and the turn
+     * runs on, its requests still waiting. Only while the park is still the
+     * open pause — a person's pause that took it over, or one already
+     * superseded, stands.
+     */
+    parkDeclinedAtomic(input: ParkDeclinedInput): Promise<ParkDeclinedResult> {
+      const { fence } = input;
+      return db.transaction(async (tx) => {
+        const fenced = await acquireFence(tx, fence);
+        if (fenced.outcome !== "ok") return fenced;
+        const { session } = fenced;
+        if (
+          session.admissionState !== "pausing" ||
+          session.pauseReason !== "awaiting_input"
+        ) {
+          return { outcome: "ok", reverted: false };
+        }
+        const [pause] = await tx
+          .select({ id: receipts.id })
+          .from(receipts)
+          .where(openPauseReceipt(fence.sessionId))
+          .limit(1)
+          .for("update");
+        if (pause?.id !== input.pauseControlId) {
+          return { outcome: "ok", reverted: false };
+        }
+        // After the receipt lock's wait, before the first write.
+        const now = await dbNow(tx);
+        if (!leaseHeld(fenced.attempt, now)) {
+          return { outcome: "lease_expired" };
+        }
+        // The worker keeps its epoch and lease, as when a resume cancels a
+        // pause still draining; pause_reason clears with the admission.
+        await tx
+          .update(sessions)
+          .set({
+            revision: sql`${sessions.revision} + 1`,
+            admissionState: "active",
+            updatedAt: now,
+          })
+          .where(eq(sessions.id, fence.sessionId));
+        await tx
+          .update(receipts)
+          .set({
+            status: "failed",
+            error: {
+              code: "PAUSE_CANCELLED",
+              message: `the worker declined the park (${input.reason})`,
+            },
+            updatedAt: now,
+          })
+          .where(eq(receipts.id, pause.id));
+        await recordStatus(tx, {
+          sessionId: fence.sessionId,
+          phase: publicStatus(
+            session.status,
+            await awaitingInputAt(tx, fence.sessionId, now),
+          ),
+          extra: {
+            admission_state: "active",
+            park_declined: { pause_control_id: pause.id, reason: input.reason },
+          },
+          turnRowId: null,
+          now,
+        });
+        return { outcome: "ok", reverted: true };
       });
     },
 

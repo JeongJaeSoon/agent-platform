@@ -4,7 +4,10 @@ import type {
   ControlIntent,
   ReleaseResponse,
 } from "@werft-ai/contracts";
-import { FakeAgentRuntime, type FakeStep } from "@werft-ai/runtime-claude";
+import {
+  FakeAgentRuntime,
+  type FakeStep,
+} from "@werft-ai/runtime-claude/testing";
 import {
   type NativeSdkMessage,
   WorkerGatewayRequestError,
@@ -92,23 +95,20 @@ function harness(
   };
   const runtimes: RuntimeRegistry = {
     launcherFor: () => ({
-      start: ({ runtimeConfig, principal, ...launch }, hooks) =>
-        runtime.start(
-          {
-            claudeConfigDir: "/tmp/fake/config",
-            cwd: "/tmp/fake/workspace",
-            home: "/tmp/fake/home",
-            model: runtimeConfig.model,
-            profile: engineProfile(
-              runtimeConfig.provider,
-              principal.owner_scope,
-              "http://egress-proxy.test:3129",
-            ),
-            tools: runtimeConfig.tools,
-            ...launch,
-          },
-          hooks,
-        ),
+      start: ({ runtimeConfig, principal, ...launch }) =>
+        runtime.run({
+          claudeConfigDir: "/tmp/fake/config",
+          cwd: "/tmp/fake/workspace",
+          home: "/tmp/fake/home",
+          model: runtimeConfig.model,
+          profile: engineProfile(
+            runtimeConfig.provider,
+            principal.owner_scope,
+            "http://egress-proxy.test:3129",
+          ),
+          tools: runtimeConfig.tools,
+          ...launch,
+        }),
     }),
   };
   const host = new WorkerHost({

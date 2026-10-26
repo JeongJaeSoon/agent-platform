@@ -33,6 +33,7 @@ import {
   DetailLayout,
   DetailRail,
   DetailRailSection,
+  OPERATIONS_MESSAGES,
   SessionStatusLabel,
   StatusLabel,
 } from "../components/index.ts";
@@ -40,6 +41,7 @@ import {
   usePendingRequests,
   useSession,
   useSessionEvents,
+  useSessionTurns,
   useSessionUsage,
 } from "../sessions.ts";
 import {
@@ -49,7 +51,7 @@ import {
   SessionComposer,
   SessionControls,
 } from "./session-actions.tsx";
-import { SessionTimeline } from "./session-timeline.tsx";
+import { listedRequests, SessionTimeline } from "./session-timeline.tsx";
 import { type BlockText, useBlockText } from "./text.ts";
 
 /** A tab a host adds between the timeline and the info tab. */
@@ -103,6 +105,7 @@ export function SessionDetail({
   const usage = useSessionUsage(id, readable);
   const pending = usePendingRequests(id, readable);
   const events = useSessionEvents(id, readable);
+  const turns = useSessionTurns(id, readable);
 
   if (detail === undefined) {
     // The host leaves the gutters to this layout, rail or not.
@@ -170,6 +173,8 @@ export function SessionDetail({
             events={events.events}
             state={events.state}
             debug={debug}
+            pending={listedRequests(pending)}
+            turns={turns.data?.items}
           />
         </div>
         {usage.data ? <BudgetExceeded usage={usage.data} /> : null}
@@ -456,10 +461,10 @@ function MetaItem({
 }
 
 function Cost({ usage }: { readonly usage: SessionUsageResponse }) {
-  const { t } = useBlockText();
+  const { t, locale } = useBlockText();
   return usage.cost.kind === "unmetered"
     ? t("session.usage.unmetered")
-    : `$${usage.cost.amount_usd}`;
+    : OPERATIONS_MESSAGES[locale].format.usd(usage.cost.amount_usd);
 }
 
 // The rail's rows are split by lines instead of sitting in a card.
@@ -630,7 +635,8 @@ function Overview({ session }: { readonly session: SessionDetailData }) {
 }
 
 function Usage({ usage }: { readonly usage: SessionUsageResponse }) {
-  const { t } = useBlockText();
+  const { t, locale } = useBlockText();
+  const { usd } = OPERATIONS_MESSAGES[locale].format;
   const { cost } = usage;
   return (
     <>
@@ -641,7 +647,7 @@ function Usage({ usage }: { readonly usage: SessionUsageResponse }) {
             <span key="amount">
               {cost.kind === "unmetered"
                 ? t("session.usage.unmetered")
-                : `$${cost.amount_usd}`}
+                : usd(cost.amount_usd)}
               {cost.complete ? null : (
                 <span className="text-muted-foreground">
                   {" "}
@@ -658,7 +664,7 @@ function Usage({ usage }: { readonly usage: SessionUsageResponse }) {
             t("session.usage.costLimit"),
             usage.cost_limit_usd === null
               ? t("session.usage.noLimit")
-              : `$${usage.cost_limit_usd}`,
+              : usd(usage.cost_limit_usd),
           ],
           [t("session.usage.tokens"), usage.token_count],
           [

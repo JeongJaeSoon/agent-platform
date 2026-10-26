@@ -8,13 +8,14 @@ import type {
   BootstrapClaimResponse,
   CheckpointRequest,
   CheckpointRequestResponse,
-  ExecutionBackend,
   FinalizeRequest,
   FinalizeResponse,
   HeartbeatRequest,
   HeartbeatResponse,
   NextInputRequest,
   NextInputResponse,
+  ParkDeclinedRequest,
+  ParkDeclinedResponse,
   PendingControlRequest,
   PendingControlResponse,
   RegisterPendingRequest,
@@ -29,10 +30,7 @@ import type {
   WorkerReadyResponse,
   WorkerScope,
 } from "@werft-ai/contracts";
-import {
-  executionBackendSchema,
-  MAX_RESTORE_PROFILES,
-} from "@werft-ai/contracts";
+import { MAX_RESTORE_PROFILES } from "@werft-ai/contracts";
 import {
   type CheckpointRequestDecision,
   type RestoreFallback,
@@ -49,7 +47,10 @@ import {
   priceProviderUsage,
 } from "../limits/model-prices.ts";
 import type { CheckpointPointer } from "../ports/checkpoint-store.ts";
-import type { CheckpointVerifier } from "../ports/checkpoint-verifier.ts";
+import type {
+  CheckpointOutputObject,
+  CheckpointVerifier,
+} from "../ports/checkpoint-verifier.ts";
 import {
   type ForgeResolver,
   type GitCredential,
@@ -58,7 +59,6 @@ import {
 import type { McpEgressStore } from "../ports/mcp-egress.ts";
 import type { WorkerPendingStore } from "../ports/pending-requests.ts";
 import type {
-  ConfirmExecutionGoneResult,
   EgressBindings,
   EgressIssue,
   EgressPurpose,
@@ -158,8 +158,6 @@ export type WorkerGatewayOptions = {
   sessionTokenLimit: number | null;
   /** Lifetime of the session token handed out by bootstrapClaim. */
   sessionTokenTtlMs?: number;
-  /** Lifetime of a launch nonce registered through registerLaunch. */
-  nonceTtlMs?: number;
   /**
    * How long a registered permission or question takes answers (30 minutes
    * by default). The worker is told what is left, never a deadline.
@@ -461,7 +459,6 @@ export function createWorkerGateway(deps: {
   const leaseTtlMs = deps.options.leaseTtlMs;
   const sessionTokenTtlMs =
     deps.options.sessionTokenTtlMs ?? DEFAULT_SESSION_TOKEN_TTL_MS;
-  const nonceTtlMs = deps.options.nonceTtlMs ?? DEFAULT_NONCE_TTL_MS;
   const tokenLimit = deps.options.sessionTokenLimit;
   const pendingTtlMs = deps.options.pendingTtlMs ?? DEFAULT_PENDING_TTL_MS;
   const maxWaitMs = deps.options.maxWaitMs ?? DEFAULT_MAX_WAIT_MS;
@@ -816,49 +813,6 @@ export function createWorkerGateway(deps: {
   }
 
   return {
-    // Server side: the backend records the launch it is about to start and
-    // hands the returned nonce to the worker through the launch config.
-    async registerLaunch(input: {
-      executionId: string;
-      generation: number;
-      partition?: string;
-      // Pins the claim to one session. A backend that gives the container a
-      // session's workspace must set it; a pool of interchangeable workers
-      // leaves it out and the server picks from the partition.
-      sessionId?: string;
-      backend: ExecutionBackend;
-      nonce?: string;
-      // `nonce` is null when this execution was already registered: the
-      // original nonce is stored only as a hash, so a caller that lost it
-      // must launch a new execution rather than receive an unusable value.
-    }): Promise<{ nonce: string | null; outcome: "registered" | "exists" }> {
-      // The value is persisted and read back through the public session
-      // contract, so a backend the contract does not name would only surface
-      // as a parse failure on someone else's read.
-      const backend = executionBackendSchema.safeParse(input.backend);
-      if (!backend.success) {
-        throw new WorkerGatewayError(
-          400,
-          "BAD_REQUEST",
-          `Unknown execution backend: ${String(input.backend)}`,
-        );
-      }
-      const nonce = input.nonce ?? generateLaunchNonce();
-      const result = await work.registerLaunchAtomic({
-        executionId: input.executionId,
-        generation: input.generation,
-        partition: input.partition ?? "default",
-        sessionId: input.sessionId ?? null,
-        backend: backend.data,
-        nonceHash: hashWorkerToken(nonce),
-        nonceTtlMs,
-      });
-      return {
-        nonce: result.outcome === "registered" ? nonce : null,
-        outcome: result.outcome,
-      };
-    },
-
     async authenticate(token: string | null): Promise<WorkerPrincipal> {
       const principal = token
         ? await work.resolveCredential(hashWorkerToken(token))
@@ -1375,6 +1329,16 @@ export function createWorkerGateway(deps: {
       request: PendingControlRequest,
     ): Promise<PendingControlResponse> {
       const fence = requireScope(principal, request);
+      // Only a turn resumed from a park reports these, and this server
+      // resumes none yet: refused rather than dropped, so the receipts they
+      // would settle are never left looking settled.
+      if (request.delivered !== undefined) {
+        throw new WorkerGatewayError(
+          400,
+          "BAD_REQUEST",
+          "This server resumes no parked turn, so it takes no delivery reports",
+        );
+      }
       const result = await requirePending().pendingControlAtomic({
         fence,
         answersAfter: request.answers_after,
@@ -1397,6 +1361,20 @@ export function createWorkerGateway(deps: {
           input_hash: item.inputHash,
         })),
       };
+    },
+
+    async parkDeclined(
+      principal: WorkerPrincipal,
+      request: ParkDeclinedRequest,
+    ): Promise<ParkDeclinedResponse> {
+      const fence = requireScope(principal, request);
+      const result = await requirePending().parkDeclinedAtomic({
+        fence,
+        pauseControlId: request.pause_control_id,
+        reason: request.reason,
+      });
+      if (result.outcome !== "ok") return rejected(result);
+      return { reverted: result.reverted };
     },
 
     async finalize(
@@ -1423,6 +1401,7 @@ export function createWorkerGateway(deps: {
       if (settled.outcome !== "open") return finalizeAnswer(settled);
       let checkpointVersionsHeld = false;
       let checkpointTranscriptBytes: number | undefined;
+      let checkpointOutputs: readonly CheckpointOutputObject[] | undefined;
       if (request.checkpoint) {
         const checkpoint = request.checkpoint;
         const verdict = await checkpointInfrastructure(() =>
@@ -1453,6 +1432,7 @@ export function createWorkerGateway(deps: {
         }
         checkpointVersionsHeld = verdict.versionsHeld === true;
         checkpointTranscriptBytes = verdict.transcriptBytes;
+        checkpointOutputs = verdict.outputs;
       }
       // Verification is a network call that can outlast the lease, so the
       // fence is judged against the clock at commit time, not the one this
@@ -1464,6 +1444,7 @@ export function createWorkerGateway(deps: {
           ...(checkpointTranscriptBytes === undefined
             ? {}
             : { checkpointTranscriptBytes }),
+          ...(checkpointOutputs === undefined ? {} : { checkpointOutputs }),
           now: now(),
         }),
       );
@@ -1689,13 +1670,6 @@ export function createWorkerGateway(deps: {
       }
       if (result.outcome !== "ok") rejected(result);
       return { activated: result.activated };
-    },
-
-    // Server side, for the backend/reconciler that observed the exit.
-    confirmExecutionGone(
-      executionId: string,
-    ): Promise<ConfirmExecutionGoneResult> {
-      return work.confirmExecutionGoneAtomic({ executionId, now: now() });
     },
   };
 }

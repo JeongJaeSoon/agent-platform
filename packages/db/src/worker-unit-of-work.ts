@@ -42,7 +42,6 @@ import {
   payloadHash,
   type ReadyInput,
   type ReadyResult,
-  type RegisterLaunchInput,
   type ReleaseInput,
   type ReleaseResult,
   type RepositoryPair,
@@ -108,7 +107,9 @@ import { openPauseReceipt, pauseReceiptResult } from "./pause-control.ts";
 import {
   abandonUndeliveredAnswers,
   awaitingInputAt,
+  closeWorkerRequests,
   publicStatus,
+  recordLostInputWait,
 } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
 import {
@@ -126,11 +127,11 @@ import {
 import {
   attempts,
   catalogAuthority,
+  checkpointOutputs,
   checkpoints,
   events,
   executions,
   MAX_SESSION_COST_USD,
-  pendingRequests,
   providerUsage,
   queueMessages,
   receipts,
@@ -486,6 +487,8 @@ function parentRevisionOf(session: SessionRow, attemptId: string) {
     : base;
 }
 
+const OUTPUT_ROWS_PER_INSERT = 5_000;
+
 export async function advanceCheckpointPointer(
   tx: Database,
   input: {
@@ -496,6 +499,9 @@ export async function advanceCheckpointPointer(
     now: Date;
     versionsHeld: boolean;
     transcriptBytes?: number;
+    // Absent when the verifier did not read the manifest's outputs; the row
+    // then stays outputs_recorded = false and usage reports itself partial.
+    outputs?: readonly { key: string; bytes: number }[];
   },
 ): Promise<
   | { outcome: "committed"; revision: number }
@@ -525,7 +531,23 @@ export async function advanceCheckpointPointer(
     profileFingerprint: sql`(SELECT ${attempts.profileFingerprint} FROM ${attempts} WHERE ${attempts.id} = ${input.fence.attemptId})`,
     model: sql`(SELECT ${attempts.model} FROM ${attempts} WHERE ${attempts.id} = ${input.fence.attemptId})`,
     transcriptBytes: input.transcriptBytes ?? null,
+    outputsRecorded: input.outputs !== undefined,
   });
+  // A manifest may name up to DEFAULT_MAX_MANIFEST_OBJECTS objects; one
+  // statement for all of them would pass PostgreSQL's 65,535 bind parameters.
+  const outputs = input.outputs ?? [];
+  for (let start = 0; start < outputs.length; start += OUTPUT_ROWS_PER_INSERT) {
+    await tx.insert(checkpointOutputs).values(
+      outputs
+        .slice(start, start + OUTPUT_ROWS_PER_INSERT)
+        .map(({ key, bytes }) => ({
+          sessionId: input.fence.sessionId,
+          revision: input.checkpoint.revision,
+          objectKey: key,
+          bytes,
+        })),
+    );
+  }
   if (input.transcriptBytes !== undefined) {
     await warnNearTranscriptLimit(tx, input, input.transcriptBytes);
   }
@@ -1161,23 +1183,6 @@ export function createPostgresWorkerUnitOfWork(
   options: { logger?: StructuredLogger } = {},
 ): WorkerUnitOfWork {
   return {
-    async registerLaunchAtomic(input: RegisterLaunchInput) {
-      const inserted = await db
-        .insert(workerLaunches)
-        .values({
-          executionId: input.executionId,
-          generation: input.generation,
-          partition: input.partition,
-          sessionId: input.sessionId,
-          backend: input.backend,
-          nonceHash: input.nonceHash,
-          nonceExpiresAt: fromDbNow(input.nonceTtlMs),
-        })
-        .onConflictDoNothing({ target: workerLaunches.executionId })
-        .returning({ executionId: workerLaunches.executionId });
-      return { outcome: inserted.length === 1 ? "registered" : "exists" };
-    },
-
     claimAtomic(input: ClaimInput): Promise<ClaimResult> {
       return db.transaction(async (tx) => {
         const [launch] = await tx
@@ -2134,6 +2139,9 @@ export function createPostgresWorkerUnitOfWork(
             ...(input.checkpointTranscriptBytes === undefined
               ? {}
               : { transcriptBytes: input.checkpointTranscriptBytes }),
+            ...(input.checkpointOutputs === undefined
+              ? {}
+              : { outputs: input.checkpointOutputs }),
           });
           if (advanced.outcome === "not_next") {
             // An interrupt has no second capture to wait for: its checkpoint
@@ -2746,17 +2754,13 @@ export function createPostgresWorkerUnitOfWork(
         // Requests the gone worker raised can never be answered by it; left
         // open they would keep the session reporting pending input forever.
         // A parked one was never the worker's to answer: it stays open.
-        await tx
-          .update(pendingRequests)
-          .set({ resolvedAt: now })
-          .where(
-            and(
-              eq(pendingRequests.sessionId, session.id),
-              isNull(pendingRequests.resolvedAt),
-              isNull(pendingRequests.parkedAt),
-            ),
-          );
+        const closedRequests = await closeWorkerRequests(tx, session.id, now);
         await abandonUndeliveredAnswers(tx, session.id, now);
+        await recordLostInputWait(tx, {
+          sessionId: session.id,
+          closed: closedRequests,
+          now,
+        });
         for (const turn of unresolved) {
           // `result` stays the acceptance response (receiptSchema.result).
           await tx
@@ -3132,21 +3136,6 @@ export function createPostgresWorkerUnitOfWork(
         }
         return result;
       });
-    },
-
-    async countReservedSlots(partition?: string): Promise<number> {
-      const [row] = await db
-        .select({ reserved: count() })
-        .from(workerLaunches)
-        .where(
-          and(
-            isNull(workerLaunches.slotReleasedAt),
-            partition === undefined
-              ? undefined
-              : eq(workerLaunches.partition, partition),
-          ),
-        );
-      return row?.reserved ?? 0;
     },
   };
 }

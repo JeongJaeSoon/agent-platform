@@ -35,6 +35,7 @@ import {
   unassignedSessions,
   workerLaunches,
 } from "./schema.ts";
+import { confirmExecutionGone, launchSession } from "./testing/launches.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -140,36 +141,14 @@ integration("context gap on PostgreSQL", () => {
     return { session_id: result.response.session_id, ownerId, partition };
   }
 
-  /** What the scheduler's reservation leaves behind for one launch. */
-  async function launch(session: Session) {
-    const executionId = `exec-${crypto.randomUUID()}`;
-    const registered = await gateway.registerLaunch({
-      executionId,
-      generation: 1,
-      partition: session.partition,
-      sessionId: session.session_id,
-      backend: "local_docker",
-    });
-    if (registered.nonce === null) throw new Error("launch already registered");
-    await db.insert(executions).values({
-      backend: "local_docker",
-      desiredState: "running",
-      generation: 1,
-      id: executionId,
-      observedState: "pending",
-      sessionId: session.session_id,
-    });
-    await db
-      .update(sessions)
-      .set({ executionId })
-      .where(eq(sessions.id, session.session_id));
-    return { executionId, nonce: registered.nonce };
+  function launch(session: Session) {
+    return launchSession(db, { sessionId: session.session_id });
   }
 
   function claim(l: Awaited<ReturnType<typeof launch>>) {
     return gateway.bootstrapClaim(bootstrap, {
       execution_id: l.executionId,
-      execution_generation: 1,
+      execution_generation: l.generation,
       credential: { kind: "launch_nonce", nonce: l.nonce },
     });
   }
@@ -286,7 +265,7 @@ integration("context gap on PostgreSQL", () => {
       ...scopeOf(claimed),
       reason: "idle_timeout",
     });
-    await gateway.confirmExecutionGone(l.executionId);
+    await confirmExecutionGone(db, l.executionId);
     return { claimed, turnId, queued };
   }
 
@@ -561,7 +540,7 @@ integration("context gap on PostgreSQL", () => {
         ...scopeOf(claimed),
         reason: "idle_timeout",
       });
-      await gateway.confirmExecutionGone(l.executionId);
+      await confirmExecutionGone(db, l.executionId);
       expect((await sessionRow(session.session_id)).admissionState).toBe(
         "active",
       );
@@ -590,7 +569,7 @@ integration("context gap on PostgreSQL", () => {
       ...scopeOf(claimed),
       reason: "idle_timeout",
     });
-    await gateway.confirmExecutionGone(l.executionId);
+    await confirmExecutionGone(db, l.executionId);
     expect((await sessionRow(session.session_id)).admissionState).toBe(
       "active",
     );
@@ -648,7 +627,7 @@ integration("context gap on PostgreSQL", () => {
     });
     // The scheduler reclaims the launch; the exit leaves the session where
     // the claim put it and launches nothing.
-    await gateway.confirmExecutionGone(l.executionId);
+    await confirmExecutionGone(db, l.executionId);
     expect((await sessionRow(session.session_id)).admissionState).toBe(
       "recovery_required",
     );
@@ -807,7 +786,7 @@ integration("context gap on PostgreSQL", () => {
     const l = await launch(unknown);
     const claimed = await claim(l);
     await gateway.nextInput(principalOf(claimed), scopeOf(claimed));
-    await gateway.confirmExecutionGone(l.executionId);
+    await confirmExecutionGone(db, l.executionId);
     expect((await sessionRow(unknown.session_id)).admissionState).toBe(
       "recovery_required",
     );
@@ -883,7 +862,7 @@ integration("context gap on PostgreSQL", () => {
       now: clock,
     });
     expect(terminated.outcome).toBe("accepted");
-    await gateway.confirmExecutionGone(l.executionId);
+    await confirmExecutionGone(db, l.executionId);
     const stopped = await sessionRow(session.session_id);
     expect(stopped.admissionState).toBe("stopped");
 

@@ -5,6 +5,7 @@ import type {
   CreateSessionResponse,
   ListSessionsQuery,
   ListTurnsQuery,
+  PermissionWaitRequest,
   PostSessionMessageResponse,
   Receipt,
   SessionDetail,
@@ -62,6 +63,9 @@ export type AcceptSessionInput = {
   // A Slack DM's session starts seen by its creator alone (design 4.6);
   // left out, by the whole workspace.
   shareScope?: "private";
+  // The session's own waits, kept as given: a request takes the lower of
+  // them and its profile's when it is raised.
+  permissionWait?: PermissionWaitRequest;
   message: string;
   limits: InputLimits;
 };

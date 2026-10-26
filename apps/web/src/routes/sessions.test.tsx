@@ -178,7 +178,7 @@ const usage: SessionUsageResponse = {
   period: "session_lifetime",
   refreshed_at: AT,
   cost: {
-    amount_usd: "0.4200",
+    amount_usd: "0.000042",
     kind: "estimated",
     source: "provider_usage",
     completeness_scope: "turn_reports",
@@ -187,7 +187,7 @@ const usage: SessionUsageResponse = {
     unreported_turn_count: 0,
     open_turn_count: 1,
   },
-  cost_limit_usd: "5",
+  cost_limit_usd: "25",
   token_count: 1234,
   token_limit: null,
   budget_exceeded: true,
@@ -247,7 +247,7 @@ const detailRoutes = {
 
 describe("approval inbox", () => {
   // A line names its session on its one button.
-  const DETAIL = `${SESSION_ID.slice(0, 8)} 상세 보기`;
+  const DETAIL = `${SESSION_ID.slice(0, 8)} 답하기`;
   // The line opens the session in the rail, where the request is answered.
   const allowInRail = async (user: Awaited<ReturnType<typeof setupUser>>) => {
     await user.click(await screen.findByRole("button", { name: DETAIL }));
@@ -1227,8 +1227,8 @@ describe("session detail", () => {
     await setupInfo();
     expect(screen.getByText("BUDGET_EXCEEDED")).toBeTruthy();
     const info = within(screen.getByRole("tabpanel"));
-    expect(info.getByText("$0.4200")).toBeTruthy();
-    expect(screen.getByText("$5")).toBeTruthy();
+    expect(info.getByText("<$0.01")).toBeTruthy();
+    expect(screen.getByText("$25.00")).toBeTruthy();
     expect(info.getByText("1234")).toBeTruthy();
     expect(
       info.getByText(/진행 중인 turn이 있어 아직 확정되지 않았습니다/),
@@ -1435,6 +1435,65 @@ describe("session detail", () => {
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
   });
 
+  test("each turn opens with the message it was asked, read again as turns start", async () => {
+    const turn = (turn_id: string, message: string) => ({
+      turn_id,
+      session_id: SESSION_ID,
+      status: "completed",
+      message,
+      terminal_reason: null,
+      checkpoint_revision: null,
+      created_at: AT,
+      started_at: AT,
+      ended_at: AT,
+    });
+    let turns = [turn("1", "첫 지시"), turn("3", "아직 줄 선 지시")];
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}/turns`]: () =>
+        json(200, { items: turns, next_cursor: null }),
+    });
+    await waitFor(() => expect(stream.requests).toHaveLength(1));
+    await act(async () => stream.open());
+    act(() => {
+      stream.emit("ev_a1", "assistant", {
+        type: "assistant",
+        message: { content: [{ type: "text", text: "첫 답" }] },
+      });
+    });
+    const asked = async (turnId: string) => {
+      const head = await screen.findByText(`turn ${turnId}`);
+      const group = head.closest("[data-slot='timeline-turn']");
+      return group?.querySelector("[data-slot='message']") ?? null;
+    };
+    const first = await asked("1");
+    expect(first?.getAttribute("data-from")).toBe("user");
+    expect(first?.textContent).toContain("지시");
+    expect(first?.textContent).toContain("첫 지시");
+    // The message stands above the turn's lines, not as one of them.
+    const list = screen.getByRole("list", { name: "이벤트" });
+    expect(list.querySelectorAll("li")).toHaveLength(1);
+    // A queued turn has no events yet, so no group of its own.
+    expect(screen.queryByText("아직 줄 선 지시")).toBeNull();
+
+    turns = [turn("1", "첫 지시"), turn("2", "두 번째 지시")];
+    act(() => {
+      stream.emit("ev_s2", "status", { phase: "running" }, "2");
+      stream.emit(
+        "ev_a2",
+        "assistant",
+        {
+          type: "assistant",
+          message: { content: [{ type: "text", text: "두 번째 답" }] },
+        },
+        "2",
+      );
+    });
+    await waitFor(async () =>
+      expect((await asked("2"))?.textContent).toContain("두 번째 지시"),
+    );
+  });
+
   test("thinking ticks fold into one line and an empty message draws no card", async () => {
     renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
     await waitFor(() => expect(stream.requests).toHaveLength(1));
@@ -1550,6 +1609,22 @@ describe("session detail", () => {
         apiError(401, "UNAUTHORIZED", "Authentication required"),
     });
     await waitFor(() => expect(history.location.pathname).toBe("/login"));
+  });
+
+  test("cost reads with two decimals in the header and the info tab", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}/usage`]: () =>
+        json(200, { ...usage, cost: { ...usage.cost, amount_usd: "1.5" } }),
+    });
+    const header = (
+      await screen.findByRole("button", { name: "일시 정지" })
+    ).closest("header") as HTMLElement;
+    await waitFor(() => expect(header.textContent).toContain("$1.50"));
+    await setupInfo();
+    expect(
+      within(screen.getByRole("tabpanel")).getByText("$1.50"),
+    ).toBeTruthy();
   });
 
   test("a turn that ended without a cost report is not called running", async () => {
@@ -2488,7 +2563,7 @@ describe("세션 상세 레이아웃", () => {
     expect(heading.textContent).toContain("답변 대기");
     expect(header.textContent).toContain("demo");
     expect(header.textContent).toContain("model-default");
-    await waitFor(() => expect(header.textContent).toContain("$0.4200"));
+    await waitFor(() => expect(header.textContent).toContain("<$0.01"));
 
     const panel = screen.getByRole("complementary", { name: "세션 요약" });
     expect(within(panel).getByText("답할 수 있는 사람")).toBeTruthy();
@@ -2499,7 +2574,7 @@ describe("세션 상세 레이아웃", () => {
     const info = within(panel).getByRole("region", { name: "세션 정보" });
     expect(info.textContent).toContain("model-default");
     expect(info.textContent).toContain("demo");
-    await waitFor(() => expect(info.textContent).toContain("$0.4200"));
+    await waitFor(() => expect(info.textContent).toContain("<$0.01"));
     await setupInfo();
     // The session's API carries no branch yet.
     expect(screen.getAllByText("아직 볼 수 없습니다")).toHaveLength(1);

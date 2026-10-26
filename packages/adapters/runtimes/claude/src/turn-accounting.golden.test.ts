@@ -10,7 +10,7 @@ import { TurnAccounting } from "./turn-accounting.ts";
 
 const GOLDEN = join(
   import.meta.dir,
-  "../../../tests/fixtures/golden/worker/turn-accounting.json",
+  "../../../../../tests/fixtures/golden/worker/turn-accounting.json",
 );
 
 type Step = { observe: NativeSdkMessage } | "settle";
@@ -77,6 +77,27 @@ const scenarios: Record<string, Step[]> = {
     { observe: result("2") },
     "settle",
     { observe: result(2) },
+    "settle",
+  ],
+  // JSON writes both as null in the trace; the settled figure is what counts.
+  "totals that are not finite numbers": [
+    { observe: result(1) },
+    "settle",
+    { observe: result(Number.NaN) },
+    "settle",
+    { observe: result(Number.POSITIVE_INFINITY) },
+    "settle",
+    { observe: result(Number.NEGATIVE_INFINITY) },
+    "settle",
+    { observe: result(1.25) },
+    "settle",
+  ],
+  "a result without a session id": [
+    { observe: { type: "result", subtype: "success", total_cost_usd: 1 } },
+    "settle",
+    { observe: { type: "result", subtype: "success", total_cost_usd: 1.5 } },
+    "settle",
+    { observe: result(0.25, "s9") },
     "settle",
   ],
   "zero before anything was spent is a figure": [

@@ -32,7 +32,11 @@ const app = createApiApp({
             queuedInputCount: 0,
             storageUsedBytes: 0,
             storageUpdatedAt: null,
+            outputsUsedBytes: 0,
+            outputsUpdatedAt: null,
+            outputsComplete: true,
           }),
+          agentExists: async () => false,
           sessionUsage: async () => null,
           usageSummary: async () => {
             throw new Error("not read in these tests");
@@ -92,6 +96,9 @@ test("answers 400 for a summary query it cannot read", async () => {
     "scope=team&since=2026-10-01",
     "scope=me&since=2026-10-01T00:00:00",
     "scope=me&since=2026-10-02&until=2026-10-01",
+    "scope=agent&since=2026-10-01",
+    `scope=agent&agent_id=${crypto.randomUUID()}&since=2026-10-01&group_by=user`,
+    `scope=me&agent_id=${crypto.randomUUID()}&since=2026-10-01`,
   ]) {
     const response = await app.request(`/v1/usage/summary?${query}`, {
       headers,
@@ -101,6 +108,25 @@ test("answers 400 for a summary query it cannot read", async () => {
       "BAD_REQUEST",
     );
   }
+});
+
+test("answers 400 for a limits scope it does not know", async () => {
+  const response = await app.request("/v1/limits?scope=team", { headers });
+  expect(response.status).toBe(400);
+  expect(apiErrorResponseSchema.parse(await response.json()).error.code).toBe(
+    "BAD_REQUEST",
+  );
+});
+
+test("answers 404 for an agent summary of an agent the owner does not have", async () => {
+  const response = await app.request(
+    `/v1/usage/summary?scope=agent&agent_id=${crypto.randomUUID()}&since=2026-10-01`,
+    { headers },
+  );
+  expect(response.status).toBe(404);
+  expect(apiErrorResponseSchema.parse(await response.json()).error.code).toBe(
+    "NOT_FOUND",
+  );
 });
 
 test("answers 400 for a tools query it cannot read", async () => {

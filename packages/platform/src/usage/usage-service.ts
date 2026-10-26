@@ -1,5 +1,6 @@
 import {
   type InstallationLimitsResponse,
+  type MemberLimitsResponse,
   type SessionUsageResponse,
   USAGE_TOOLS_LIMIT,
   type UsageBreakdownQuery,
@@ -24,6 +25,8 @@ import type {
   UsageBreakdownFiguresRecord,
   UsageReader,
   UsageSummaryFilter,
+  UsageSummaryRecord,
+  UsageTotalsFilter,
 } from "../ports/usage-reader.ts";
 import {
   requirePermitted,
@@ -125,7 +128,7 @@ export function createUsageService(deps: {
   // console included; a key nobody created adds up its own.
   async function filterFor(
     actor: Caller,
-    scope: UsageSummaryQuery["scope"],
+    scope: "installation" | "me",
   ): Promise<UsageSummaryFilter> {
     if (scope === "installation") {
       await requireInstallationReader(actor);
@@ -149,7 +152,51 @@ export function createUsageService(deps: {
     );
   }
 
+  // Another workspace's agent, or none, is not found for anyone; only then
+  // does the caller's standing on it decide.
+  async function agentFilter(
+    actor: Caller,
+    agentId: string | undefined,
+  ): Promise<UsageTotalsFilter> {
+    if (
+      agentId === undefined ||
+      !(await reader.agentExists(actor.ownerId, agentId))
+    ) {
+      throw new SessionServiceError("NOT_FOUND", "Agent not found");
+    }
+    await requirePermitted(authorization, actor, "usage.agent_read", {
+      kind: "agent",
+      id: agentId,
+    });
+    return { kind: "agent", ownerId: actor.ownerId, agentId };
+  }
+
   return {
+    // Settings only, with nobody's usage, so every signed-in member's; a key
+    // is not a member.
+    async getMemberLimits(actor: Caller): Promise<MemberLimitsResponse> {
+      if (actor.actor?.principal.kind !== "user") {
+        throw new SessionServiceError(
+          "FORBIDDEN",
+          "Only a signed-in member reads its session limits",
+        );
+      }
+      await requirePermitted(authorization, actor, "session.read", {
+        kind: "session",
+        id: null,
+      });
+      return {
+        scope: "me",
+        refreshed_at: new Date().toISOString(),
+        limits: {
+          queued_input_limit_per_session: limits.queuedInputLimitPerSession,
+          max_turn_seconds: limits.maxTurnSeconds,
+          session_cost_limit_usd: decimalUsd(limits.sessionCostLimitUsd),
+          session_token_limit: limits.sessionTokenLimit,
+        },
+      };
+    },
+
     // Summed over every owner, so the installation owner's alone (94S-762).
     async getInstallationLimits(
       actor: Caller,
@@ -176,6 +223,11 @@ export function createUsageService(deps: {
             accounted_content: [...STORAGE_ACCOUNTED_CONTENT],
             updated_at: usage.storageUpdatedAt?.toISOString() ?? null,
           },
+          outputs: {
+            used_bytes: usage.outputsUsedBytes,
+            updated_at: usage.outputsUpdatedAt?.toISOString() ?? null,
+            complete: usage.outputsComplete,
+          },
         },
       };
     },
@@ -184,23 +236,11 @@ export function createUsageService(deps: {
       actor: Caller,
       query: UsageSummaryQuery,
     ): Promise<UsageSummaryResponse> {
-      const filter = await filterFor(actor, query.scope);
       const period = {
         since: query.since,
         ...(query.until === undefined ? {} : { until: query.until }),
       };
-      const grouped =
-        query.group_by === undefined
-          ? null
-          : await reader.usageSummaryGroups(filter, period, query.group_by);
-      const summary = grouped ?? (await reader.usageSummary(filter, period));
-      // An agent's name is on every session of it the caller reads; another
-      // person is named only to the installation reader.
-      const named = (id: string | null) =>
-        query.group_by === "agent" ||
-        filter.kind === "installation" ||
-        (filter.kind === "user" && id === filter.userId);
-      return {
+      const totals = (summary: UsageSummaryRecord) => ({
         scope: query.scope,
         period: {
           since: query.since.toISOString(),
@@ -213,10 +253,31 @@ export function createUsageService(deps: {
         token_count: summary.providerTokens,
         run_seconds: summary.runSeconds,
         basis: {
-          sessions: "created_in_period",
-          cost: "provider_usage_estimate",
-          run_time: "turn_wall_clock",
+          sessions: "created_in_period" as const,
+          cost: "provider_usage_estimate" as const,
+          run_time: "turn_wall_clock" as const,
         },
+      });
+      if (query.scope === "agent") {
+        const filter = await agentFilter(actor, query.agent_id);
+        return totals(await reader.usageSummary(filter, period));
+      }
+      const filter = await filterFor(actor, query.scope);
+      const grouped =
+        query.group_by === undefined
+          ? null
+          : await reader.usageSummaryGroups(filter, period, query.group_by);
+      const summary = grouped ?? (await reader.usageSummary(filter, period));
+      // An agent's name, or a profile's id, is on every session of it the
+      // caller reads; another person is named only to the installation
+      // reader.
+      const named = (id: string | null) =>
+        query.group_by === "agent" ||
+        query.group_by === "profile" ||
+        filter.kind === "installation" ||
+        (filter.kind === "user" && id === filter.userId);
+      return {
+        ...totals(summary),
         ...(grouped
           ? {
               groups: grouped.groups.map((group) => ({

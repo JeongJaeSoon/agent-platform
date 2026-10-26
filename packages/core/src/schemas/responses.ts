@@ -29,8 +29,8 @@ import {
   getSlackAppResponseSchema,
   getTurnResponseSchema,
   healthResponseSchema,
-  installationLimitsResponseSchema,
   issuePasswordResetResponseSchema,
+  limitsResponseSchema,
   linkAgentIdentityResponseSchema,
   listAdministeredAgentsResponseSchema,
   listAdminSessionsResponseSchema,
@@ -222,7 +222,7 @@ export const responseSchemas = {
   "POST /v1/workspace-profiles": workspaceProfileChangeResponseSchema,
   "POST /v1/workspace-profiles/{profile_id}/retire":
     workspaceProfileChangeResponseSchema,
-  "GET /v1/limits": installationLimitsResponseSchema,
+  "GET /v1/limits": limitsResponseSchema,
   "GET /v1/usage/summary": usageSummaryResponseSchema,
   "GET /v1/usage/series": usageSeriesResponseSchema,
   "GET /v1/usage/breakdown": usageBreakdownResponseSchema,
