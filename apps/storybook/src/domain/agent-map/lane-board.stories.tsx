@@ -54,7 +54,11 @@ export const PinnedUntilTidy: Story = {
             ...s,
             status: "needs_input" as const,
             pinnedLane: "running" as const,
-            pending: { tool: "Bash · slack-post #ops", waitedMinutes: 0 },
+            pending: {
+              kind: "approval",
+              tool: "Bash · slack-post #ops",
+              waitedMinutes: 0,
+            },
           }
         : s,
     ),

@@ -247,13 +247,13 @@ describe("LaneBoard", () => {
       id: "a",
       title: "짧게 기다림",
       status: "needs_input",
-      pending: { tool: "Bash · a", waitedMinutes: 4 },
+      pending: { kind: "approval", tool: "Bash · a", waitedMinutes: 4 },
     }),
     session({
       id: "b",
       title: "오래 기다림",
       status: "needs_input",
-      pending: { tool: "Bash · b", waitedMinutes: 12 },
+      pending: { kind: "approval", tool: "Bash · b", waitedMinutes: 12 },
     }),
     session({ id: "c", title: "도는 중" }),
   ];
@@ -292,6 +292,42 @@ describe("LaneBoard", () => {
         ?.getAttribute("aria-pressed");
     expect(pressed(/오래 기다림/)).toBe("true");
     expect(pressed(/도는 중/)).toBe("false");
+  });
+
+  test("a card names what it waits on: an approval or a question", () => {
+    const view = withPlatform(
+      <LaneBoard
+        sessions={[
+          session({
+            id: "p",
+            title: "승인 기다림",
+            status: "needs_input",
+            pending: { kind: "approval", tool: "Bash · a", waitedMinutes: 1 },
+          }),
+          session({
+            id: "q",
+            title: "질문 기다림",
+            status: "needs_input",
+            pending: {
+              kind: "question",
+              tool: "질문 · 어디로?",
+              waitedMinutes: 2,
+            },
+          }),
+        ]}
+        doneCount={0}
+        selectedId={null}
+        onSelect={() => {}}
+        now={NOW}
+      />,
+    );
+    const card = (name: RegExp) =>
+      view
+        .getAllByRole("button", { name })
+        .find((button) => button.hasAttribute("aria-pressed"));
+    expect(card(/승인 기다림/)?.textContent).toContain("승인 1");
+    expect(card(/질문 기다림/)?.textContent).toContain("질문 1");
+    expect(card(/질문 기다림/)?.textContent).not.toContain("승인");
   });
 
   test("an empty lane says so instead of disappearing", () => {

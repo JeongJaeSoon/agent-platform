@@ -30,6 +30,7 @@ export const SESSIONS: readonly MapSession[] = [
     errorCount: 1,
     subagentCount: 1,
     pending: {
+      kind: "approval",
       tool: "Bash · git push origin fix/webhook-retry",
       waitedMinutes: 12,
     },
@@ -47,6 +48,7 @@ export const SESSIONS: readonly MapSession[] = [
     errorCount: 0,
     subagentCount: 0,
     pending: {
+      kind: "question",
       tool: "질문 · 'workspace'를 어떻게 옮길까요?",
       waitedMinutes: 4,
     },
