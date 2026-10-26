@@ -50,6 +50,7 @@ import {
   createSlackAppRequestSchema,
   createSlackAppResponseSchema,
   createTeamRequestSchema,
+  createWorkspaceProfileRequestSchema,
   credentialBindingParamsSchema,
   decidePushRequestRequestSchema,
   deleteSlackAppResponseSchema,
@@ -189,6 +190,8 @@ import {
   usageToolsResponseSchema,
   WEB_SESSION_COOKIE_NAME,
   workspaceParamsSchema,
+  workspaceProfileChangeResponseSchema,
+  workspaceProfileIdParamsSchema,
 } from "@werft-ai/contracts";
 import { z } from "zod";
 import {
@@ -263,6 +266,7 @@ const requestComponents = {
   ActivateAgentRequest: activateAgentRequestSchema,
   CreateApiKeyRequest: createApiKeyRequestSchema,
   CreateTeamRequest: createTeamRequestSchema,
+  CreateWorkspaceProfileRequest: createWorkspaceProfileRequestSchema,
   SetSessionShareRequest: setSessionShareRequestSchema,
   AuditReadRequest: auditReadRequestSchema,
   AdminTerminateSessionRequest: adminTerminateSessionRequestSchema,
@@ -348,6 +352,7 @@ const responseComponents = {
   ListAgentsResponse: listAgentsResponseSchema,
   CountAgentsResponse: countAgentsResponseSchema,
   ListProfilesResponse: listProfilesResponseSchema,
+  WorkspaceProfileChangeResponse: workspaceProfileChangeResponseSchema,
   AgentDetail: agentDetailSchema,
   CreateAgentReleaseResponse: createAgentReleaseResponseSchema,
   ActivateAgentResponse: activateAgentResponseSchema,
@@ -618,6 +623,27 @@ const ALL_SCOPES = [
 ];
 const TEAM_PAGES =
   "By `name`, then `id`, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. A team renamed while the pages are read can show twice or not at all; every other team shows once.";
+
+const WORKSPACE_PROFILE_EXAMPLE = {
+  id: "ws_acme_strict-review_v2",
+  source: "workspace",
+  model: "claude-sonnet-5",
+  models: ["claude-sonnet-5"],
+  tools: ["Read", "Glob", "Grep"],
+  permission_mode: "default",
+  runtime_kind: "claude_agent_sdk",
+  runtime_version: "0.3.270",
+  billing: "metered",
+  repository_mode: "required",
+  workspace: {
+    name: "strict-review",
+    version: 2,
+    base_profile_id: "claude-coding-real",
+    state: "usable",
+    created_at: "2026-10-27T01:00:00.000Z",
+    retired_at: null,
+  },
+} as const;
 
 const EXAMPLE_AGENT = {
   id: EXAMPLE_AGENT_ID,
@@ -3322,29 +3348,93 @@ export const API_ROUTE_DECLARATIONS = [
     path: "/v1/profiles",
     operationId: "listProfiles",
     tag: "Agents",
-    summary: "The runtime profiles this installation can run",
+    summary: "The runtime profiles this workspace can run",
     description:
-      "Lists the catalog profiles a session's `profile_id` or a release's `runtime_profile_id` may name, by `id`, with the model each one runs and its `repository_mode`: whether a session of it names a repository (`required`), may (`optional`) or never does (`none`). The catalog is the operator's config, read once at startup; this reads it and changes nothing. A profile's provider endpoint and credential are not included.",
+      "Lists the profiles a session's `profile_id` or a release's `runtime_profile_id` may name, by `id`: the operator's (`source: operator`, from the catalog config read at startup) and the caller's workspace's (`source: workspace`, ids starting `ws_`), each with the models it offers, its tools, permission mode and `repository_mode`: whether a session of it names a repository (`required`), may (`optional`) or never does (`none`). A workspace profile lists every version, each with its `workspace.state`; only `usable` takes a new release or session. A profile's provider endpoint and credential are not included.",
     scope: "read",
     success: {
       status: 200,
       schema: "ListProfilesResponse",
-      description: "Every profile in the catalog, ordered by `id`.",
+      description:
+        "The operator's profiles ordered by `id`, then the workspace's.",
       example: {
         items: [
           {
             id: "claude-coding-real",
+            source: "operator",
             model: "claude-sonnet-5",
+            models: ["claude-sonnet-5", "claude-haiku-5"],
             tools: ["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
+            permission_mode: "acceptEdits",
             runtime_kind: "claude_agent_sdk",
             runtime_version: "0.3.270",
             billing: "metered",
             repository_mode: "required",
           },
+          WORKSPACE_PROFILE_EXAMPLE,
         ],
       },
     },
     errors: [401, 503],
+  },
+  {
+    method: "post",
+    path: "/v1/workspace-profiles",
+    operationId: "createWorkspaceProfile",
+    tag: "Agents",
+    summary: "Save a new version of a workspace profile",
+    description:
+      "Owners and admins (`workspace.manage`), signed in. Narrows the operator profile `base_profile_id`: `models` and `tools` are subsets of the base's, and `permission_mode` the base's or one that leaves more to a person. Anything wider is 400 with `details.field`. Each save makes the next version of `name` with a new id (`ws_<workspace slug>_<name>_v<n>`); earlier versions, and what already runs on them, stay as they were. Two saves of one name at once: the second is 409 REVISION_CONFLICT, and saving again makes the version after. Writes a `create_workspace_profile` receipt.",
+    auth: "session",
+    body: "CreateWorkspaceProfileRequest",
+    requestExample: {
+      name: "strict-review",
+      base_profile_id: "claude-coding-real",
+      model: "claude-sonnet-5",
+      models: ["claude-sonnet-5"],
+      tools: ["Read", "Glob", "Grep"],
+      permission_mode: "default",
+    },
+    success: {
+      status: 201,
+      schema: "WorkspaceProfileChangeResponse",
+      description: "The version saved, and its receipt.",
+      example: {
+        profile: WORKSPACE_PROFILE_EXAMPLE,
+        receipt_id: "019a0000-0000-7000-8000-0000000000e1",
+      },
+    },
+    errors: [400, 401, 403, 409, 413, 503],
+    errorCodes: { 409: ["REVISION_CONFLICT"] },
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/workspace-profiles/{profile_id}/retire",
+    operationId: "retireWorkspaceProfile",
+    tag: "Agents",
+    summary: "Retire a version of a workspace profile",
+    description:
+      "Owners and admins (`workspace.manage`), signed in. A retired version takes no new release and no new session of a new release; releases and sessions already on it keep running. Retiring one already retired changes nothing and answers a null `receipt_id`; otherwise writes a `retire_workspace_profile` receipt. Another workspace's version is 404.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "WorkspaceProfileChangeResponse",
+      description: "The version as retired.",
+      example: {
+        profile: {
+          ...WORKSPACE_PROFILE_EXAMPLE,
+          workspace: {
+            ...WORKSPACE_PROFILE_EXAMPLE.workspace,
+            state: "retired",
+            retired_at: "2026-10-28T01:00:00.000Z",
+          },
+        },
+        receipt_id: "019a0000-0000-7000-8000-0000000000e2",
+      },
+    },
+    errors: [401, 403, 404, 503],
+    idempotent: false,
   },
   {
     method: "get",
@@ -3819,6 +3909,8 @@ function paramsSchemaFor(path: string): z.ZodObject {
   if (path.startsWith("/v1/teams/{team_id}/members/"))
     return teamMemberParamsSchema;
   if (path.startsWith("/v1/teams/{team_id}")) return teamIdParamsSchema;
+  if (path.startsWith("/v1/workspace-profiles/{profile_id}"))
+    return workspaceProfileIdParamsSchema;
   if (path.startsWith("/v1/workspaces/{id}/members/{userId}"))
     return memberParamsSchema;
   if (path.includes("{app_id}/secrets/{purpose}"))

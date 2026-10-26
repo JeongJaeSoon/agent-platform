@@ -55,6 +55,7 @@ import {
 } from "../api/queries.ts";
 import { useHasPermission, useMe, useRole } from "../auth/guard.tsx";
 import { AdministeredAgents } from "../components/agent-admins.tsx";
+import { CredentialNeed } from "../components/agent-cards.tsx";
 import { AgentStateBadge } from "../components/agent-state.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { MyTeams } from "../components/my-teams.tsx";
@@ -567,32 +568,52 @@ export function HomeScreen() {
       }
     />
   );
-  const agentCard = (agent: Agent) => (
-    <GlanceCard
-      key={agent.id}
-      eyebrow={t("home.glance.agent")}
-      title={agent.name}
-      badge={<AgentStateBadge agent={agent} />}
-      value={unmeasured}
-      note={t("home.glance.agentWaitingNote")}
-      rows={[
-        { label: t("home.glance.running"), value: unmeasured },
-        { label: t("home.glance.recentSessions"), value: unmeasured },
-        { label: t("home.glance.credentials"), value: unmeasured },
-      ]}
-      link={
-        <TextLink
-          asChild
-          className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-(color:--ap-color-link) text-control"
-        >
-          <Link to="/agents/$id" params={{ id: agent.id }}>
-            {t("home.glance.toAgent")}
-            <ArrowRight className="size-3.5" aria-hidden="true" />
-          </Link>
-        </TextLink>
-      }
-    />
-  );
+  const agentCard = (agent: Agent) => {
+    // Only a workspace manager may list agents; an agent's own admin gets
+    // no summary and keeps "not measured". A failed refetch keeps its old
+    // data, which must not pass for the current figures.
+    const listed = managesAgents && !agents.isError ? agents.data : undefined;
+    const summary = listed?.items.find((item) => item.id === agent.id)?.summary;
+    return (
+      <GlanceCard
+        key={agent.id}
+        eyebrow={t("home.glance.agent")}
+        title={agent.name}
+        badge={<AgentStateBadge agent={agent} />}
+        value={summary ? number.format(summary.needs_input_count) : unmeasured}
+        note={t("home.glance.agentWaitingNote")}
+        rows={[
+          {
+            label: t("home.glance.running"),
+            value: summary ? number.format(summary.running_count) : unmeasured,
+          },
+          { label: t("home.glance.recentSessions"), value: unmeasured },
+          {
+            label: t("home.glance.credentials"),
+            value: summary ? (
+              <CredentialNeed
+                refs={summary.version.credential_refs}
+                bound={summary.bound_credential_refs}
+              />
+            ) : (
+              unmeasured
+            ),
+          },
+        ]}
+        link={
+          <TextLink
+            asChild
+            className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-(color:--ap-color-link) text-control"
+          >
+            <Link to="/agents/$id" params={{ id: agent.id }}>
+              {t("home.glance.toAgent")}
+              <ArrowRight className="size-3.5" aria-hidden="true" />
+            </Link>
+          </TextLink>
+        }
+      />
+    );
+  };
   // Every reader leads with the member's three (Console.dc.html homeCards
   // requester), then the cards of their role; the waiting count shows once,
   // on the progress card.

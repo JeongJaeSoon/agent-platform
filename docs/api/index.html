@@ -2128,6 +2128,64 @@
         ],
         "additionalProperties": false
       },
+      "CreateWorkspaceProfileRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,39}$"
+          },
+          "base_profile_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "model": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "models": {
+            "minItems": 1,
+            "maxItems": 32,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          "tools": {
+            "maxItems": 64,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          "permission_mode": {
+            "type": "string",
+            "enum": [
+              "default",
+              "acceptEdits",
+              "dontAsk",
+              "plan",
+              "bypassPermissions",
+              "auto"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "base_profile_id",
+          "model",
+          "models",
+          "tools",
+          "permission_mode"
+        ],
+        "additionalProperties": false
+      },
       "SetSessionShareRequest": {
         "type": "object",
         "properties": {
@@ -7326,7 +7384,9 @@
               "comment_pull_request",
               "call_mcp",
               "set_slack_secret",
-              "delete_slack_secret"
+              "delete_slack_secret",
+              "create_workspace_profile",
+              "retire_workspace_profile"
             ]
           },
           "target_ref": {
@@ -10851,9 +10911,24 @@
                   "type": "string",
                   "minLength": 1
                 },
+                "source": {
+                  "type": "string",
+                  "enum": [
+                    "operator",
+                    "workspace"
+                  ]
+                },
                 "model": {
                   "type": "string",
                   "minLength": 1
+                },
+                "models": {
+                  "minItems": 1,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
                 },
                 "tools": {
                   "type": "array",
@@ -10861,6 +10936,17 @@
                     "type": "string",
                     "minLength": 1
                   }
+                },
+                "permission_mode": {
+                  "type": "string",
+                  "enum": [
+                    "default",
+                    "acceptEdits",
+                    "dontAsk",
+                    "plan",
+                    "bypassPermissions",
+                    "auto"
+                  ]
                 },
                 "runtime_kind": {
                   "type": "string",
@@ -10929,12 +11015,68 @@
                     "source"
                   ],
                   "additionalProperties": false
+                },
+                "workspace": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9-]{0,39}$"
+                    },
+                    "version": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 9007199254740991
+                    },
+                    "base_profile_id": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "usable",
+                        "base_changed",
+                        "base_missing",
+                        "retired"
+                      ]
+                    },
+                    "created_at": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                    },
+                    "retired_at": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "version",
+                    "base_profile_id",
+                    "state",
+                    "created_at",
+                    "retired_at"
+                  ],
+                  "additionalProperties": false
                 }
               },
               "required": [
                 "id",
+                "source",
                 "model",
+                "models",
                 "tools",
+                "permission_mode",
                 "runtime_kind",
                 "runtime_version",
                 "billing",
@@ -10946,6 +11088,208 @@
         },
         "required": [
           "items"
+        ],
+        "additionalProperties": false
+      },
+      "WorkspaceProfileChangeResponse": {
+        "type": "object",
+        "properties": {
+          "profile": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "operator",
+                  "workspace"
+                ]
+              },
+              "model": {
+                "type": "string",
+                "minLength": 1
+              },
+              "models": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "tools": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "permission_mode": {
+                "type": "string",
+                "enum": [
+                  "default",
+                  "acceptEdits",
+                  "dontAsk",
+                  "plan",
+                  "bypassPermissions",
+                  "auto"
+                ]
+              },
+              "runtime_kind": {
+                "type": "string",
+                "const": "claude_agent_sdk"
+              },
+              "runtime_version": {
+                "type": "string",
+                "minLength": 1
+              },
+              "billing": {
+                "type": "string",
+                "enum": [
+                  "metered",
+                  "none"
+                ]
+              },
+              "repository_mode": {
+                "type": "string",
+                "enum": [
+                  "required",
+                  "optional",
+                  "none"
+                ]
+              },
+              "permission_wait": {
+                "type": "object",
+                "properties": {
+                  "park_after_seconds": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "expire_after_seconds": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "source": {
+                    "type": "object",
+                    "properties": {
+                      "park_after_seconds": {
+                        "type": "string",
+                        "enum": [
+                          "profile",
+                          "installation"
+                        ]
+                      },
+                      "expire_after_seconds": {
+                        "type": "string",
+                        "enum": [
+                          "profile",
+                          "installation"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "park_after_seconds",
+                      "expire_after_seconds"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "park_after_seconds",
+                  "expire_after_seconds",
+                  "source"
+                ],
+                "additionalProperties": false
+              },
+              "workspace": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9-]{0,39}$"
+                  },
+                  "version": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  "base_profile_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "usable",
+                      "base_changed",
+                      "base_missing",
+                      "retired"
+                    ]
+                  },
+                  "created_at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  },
+                  "retired_at": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "name",
+                  "version",
+                  "base_profile_id",
+                  "state",
+                  "created_at",
+                  "retired_at"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "id",
+              "source",
+              "model",
+              "models",
+              "tools",
+              "permission_mode",
+              "runtime_kind",
+              "runtime_version",
+              "billing",
+              "repository_mode"
+            ],
+            "additionalProperties": false
+          },
+          "receipt_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "profile",
+          "receipt_id"
         ],
         "additionalProperties": false
       },
@@ -44884,8 +45228,8 @@
         "tags": [
           "Agents"
         ],
-        "summary": "The runtime profiles this installation can run",
-        "description": "Lists the catalog profiles a session's `profile_id` or a release's `runtime_profile_id` may name, by `id`, with the model each one runs and its `repository_mode`: whether a session of it names a repository (`required`), may (`optional`) or never does (`none`). The catalog is the operator's config, read once at startup; this reads it and changes nothing. A profile's provider endpoint and credential are not included.\n\n**Scope:** `sessions:read` (API key or cookie session).",
+        "summary": "The runtime profiles this workspace can run",
+        "description": "Lists the profiles a session's `profile_id` or a release's `runtime_profile_id` may name, by `id`: the operator's (`source: operator`, from the catalog config read at startup) and the caller's workspace's (`source: workspace`, ids starting `ws_`), each with the models it offers, its tools, permission mode and `repository_mode`: whether a session of it names a repository (`required`), may (`optional`) or never does (`none`). A workspace profile lists every version, each with its `workspace.state`; only `usable` takes a new release or session. A profile's provider endpoint and credential are not included.\n\n**Scope:** `sessions:read` (API key or cookie session).",
         "x-scope": "sessions:read",
         "security": [
           {
@@ -44902,7 +45246,7 @@
         "parameters": [],
         "responses": {
           "200": {
-            "description": "Every profile in the catalog, ordered by `id`.",
+            "description": "The operator's profiles ordered by `id`, then the workspace's.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -44914,7 +45258,12 @@
                   "items": [
                     {
                       "id": "claude-coding-real",
+                      "source": "operator",
                       "model": "claude-sonnet-5",
+                      "models": [
+                        "claude-sonnet-5",
+                        "claude-haiku-5"
+                      ],
                       "tools": [
                         "Read",
                         "Edit",
@@ -44923,10 +45272,37 @@
                         "Grep",
                         "Bash"
                       ],
+                      "permission_mode": "acceptEdits",
                       "runtime_kind": "claude_agent_sdk",
                       "runtime_version": "0.3.270",
                       "billing": "metered",
                       "repository_mode": "required"
+                    },
+                    {
+                      "id": "ws_acme_strict-review_v2",
+                      "source": "workspace",
+                      "model": "claude-sonnet-5",
+                      "models": [
+                        "claude-sonnet-5"
+                      ],
+                      "tools": [
+                        "Read",
+                        "Glob",
+                        "Grep"
+                      ],
+                      "permission_mode": "default",
+                      "runtime_kind": "claude_agent_sdk",
+                      "runtime_version": "0.3.270",
+                      "billing": "metered",
+                      "repository_mode": "required",
+                      "workspace": {
+                        "name": "strict-review",
+                        "version": 2,
+                        "base_profile_id": "claude-coding-real",
+                        "state": "usable",
+                        "created_at": "2026-10-27T01:00:00.000Z",
+                        "retired_at": null
+                      }
                     }
                   ]
                 },
@@ -44995,6 +45371,622 @@
                               "type": "string",
                               "enum": [
                                 "FORBIDDEN"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "description": "- `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BACKEND_UNAVAILABLE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/workspace-profiles": {
+      "post": {
+        "operationId": "createWorkspaceProfile",
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Save a new version of a workspace profile",
+        "description": "Owners and admins (`workspace.manage`), signed in. Narrows the operator profile `base_profile_id`: `models` and `tools` are subsets of the base's, and `permission_mode` the base's or one that leaves more to a person. Anything wider is 400 with `details.field`. Each save makes the next version of `name` with a new id (`ws_\u003cworkspace slug>_\u003cname>_v\u003cn>`); earlier versions, and what already runs on them, stay as they were. Two saves of one name at once: the second is 409 REVISION_CONFLICT, and saving again makes the version after. Writes a `create_workspace_profile` receipt.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "security": [
+          {
+            "cookieSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "required": false,
+            "description": "Required with a cookie session: the literal `agent-platform-web`.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "agent-platform-web"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "name": "strict-review",
+                "base_profile_id": "claude-coding-real",
+                "model": "claude-sonnet-5",
+                "models": [
+                  "claude-sonnet-5"
+                ],
+                "tools": [
+                  "Read",
+                  "Glob",
+                  "Grep"
+                ],
+                "permission_mode": "default"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/CreateWorkspaceProfileRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The version saved, and its receipt.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "example": {
+                  "profile": {
+                    "id": "ws_acme_strict-review_v2",
+                    "source": "workspace",
+                    "model": "claude-sonnet-5",
+                    "models": [
+                      "claude-sonnet-5"
+                    ],
+                    "tools": [
+                      "Read",
+                      "Glob",
+                      "Grep"
+                    ],
+                    "permission_mode": "default",
+                    "runtime_kind": "claude_agent_sdk",
+                    "runtime_version": "0.3.270",
+                    "billing": "metered",
+                    "repository_mode": "required",
+                    "workspace": {
+                      "name": "strict-review",
+                      "version": 2,
+                      "base_profile_id": "claude-coding-real",
+                      "state": "usable",
+                      "created_at": "2026-10-27T01:00:00.000Z",
+                      "retired_at": null
+                    }
+                  },
+                  "receipt_id": "019a0000-0000-7000-8000-0000000000e1"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceProfileChangeResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "- `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BAD_REQUEST"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "- `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "UNAUTHORIZED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "- `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "FORBIDDEN"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "- `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`).",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "REQUEST_TIMEOUT"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "- `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "REVISION_CONFLICT"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "- `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "PAYLOAD_TOO_LARGE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "description": "- `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BACKEND_UNAVAILABLE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/workspace-profiles/{profile_id}/retire": {
+      "post": {
+        "operationId": "retireWorkspaceProfile",
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Retire a version of a workspace profile",
+        "description": "Owners and admins (`workspace.manage`), signed in. A retired version takes no new release and no new session of a new release; releases and sessions already on it keep running. Retiring one already retired changes nothing and answers a null `receipt_id`; otherwise writes a `retire_workspace_profile` receipt. Another workspace's version is 404.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "security": [
+          {
+            "cookieSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "required": false,
+            "description": "Required with a cookie session: the literal `agent-platform-web`.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "agent-platform-web"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The version as retired.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "example": {
+                  "profile": {
+                    "id": "ws_acme_strict-review_v2",
+                    "source": "workspace",
+                    "model": "claude-sonnet-5",
+                    "models": [
+                      "claude-sonnet-5"
+                    ],
+                    "tools": [
+                      "Read",
+                      "Glob",
+                      "Grep"
+                    ],
+                    "permission_mode": "default",
+                    "runtime_kind": "claude_agent_sdk",
+                    "runtime_version": "0.3.270",
+                    "billing": "metered",
+                    "repository_mode": "required",
+                    "workspace": {
+                      "name": "strict-review",
+                      "version": 2,
+                      "base_profile_id": "claude-coding-real",
+                      "state": "retired",
+                      "created_at": "2026-10-27T01:00:00.000Z",
+                      "retired_at": "2026-10-28T01:00:00.000Z"
+                    }
+                  },
+                  "receipt_id": "019a0000-0000-7000-8000-0000000000e2"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceProfileChangeResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "- `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "UNAUTHORIZED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "- `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "FORBIDDEN"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "- `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "NOT_FOUND"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "- `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`).",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "REQUEST_TIMEOUT"
                               ]
                             }
                           }

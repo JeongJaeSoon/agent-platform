@@ -7,7 +7,11 @@ import {
 import { callerFor, createAuthorizationPolicy } from "../musterrolle/policy.ts";
 import type { AgentContact } from "../ports/credential-binding-store.ts";
 import type { AcceptSessionInput } from "../ports/session-unit-of-work.ts";
-import type { SessionCatalog } from "./catalog.ts";
+import {
+  profileFingerprint,
+  type SessionCatalog,
+  type WorkspaceProfileRecord,
+} from "./catalog.ts";
 import {
   createSessionService,
   SessionServiceError,
@@ -56,6 +60,7 @@ function setup(
     contacts?: AgentContact[];
     /** What the acceptance finds: an earlier acceptance, or an unbind. */
     accept?: "replayed" | "credential_unbound";
+    catalog?: SessionCatalog;
   } = {},
 ) {
   const accepted: AcceptSessionInput[] = [];
@@ -70,7 +75,7 @@ function setup(
         return policy.authorize(request);
       },
     },
-    catalog,
+    catalog: options.catalog ?? catalog,
     releases: {
       async resolveRelease(_workspaceId, releaseId) {
         if (releaseId !== "rel-1") {
@@ -196,6 +201,45 @@ describe("a session pinned to an agent release", () => {
       })
       .catch((e: unknown) => e);
     expect(error).toMatchObject({ code: "RELEASE_PROFILE_MISMATCH" });
+    expect(accepted).toHaveLength(0);
+  });
+
+  test("a workspace version is not taken on what was read before a failed read: another replica may have retired it", async () => {
+    const record: WorkspaceProfileRecord = {
+      id: "ws_acme_strict_v1",
+      workspace_id: WORKSPACE,
+      name: "strict",
+      version: 1,
+      base_profile_id: "coding-v1",
+      base_fingerprint: profileFingerprint(profile),
+      model: "claude-sonnet-5",
+      models: ["claude-sonnet-5"],
+      tools: ["Read"],
+      permission_mode: "default",
+      base_runtime_version: "0.3.270",
+      base_billing: "metered",
+      base_repository_mode: "required",
+      created_at: new Date("2026-10-27T00:00:00Z"),
+      retired_at: null,
+    };
+    const { service, caller, accepted } = setup({
+      catalog: {
+        ...catalog,
+        workspace_profiles: {
+          records: new Map([[record.id, record]]),
+          refresh: async () => {
+            throw new Error("database down");
+          },
+        },
+      },
+    });
+    const error = await service
+      .createSession(caller, {
+        idempotencyKey: "k",
+        body: { ...body, profile_id: record.id },
+      })
+      .catch((e: unknown) => e);
+    expect(error).toMatchObject({ message: "database down" });
     expect(accepted).toHaveLength(0);
   });
 
