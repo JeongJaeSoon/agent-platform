@@ -381,9 +381,10 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         sentence: ({ period, calls, time, failed, rate }) => [
           `${period} 동안 에이전트가 도구를 `,
           { strong: `${calls}번` },
-          " 불렀고 실행에 ",
+          // "동안" reads the same after "2.8초" and "3시간 42분"; 을/를 does not.
+          " 불렀고 모두 ",
           { strong: time },
-          "을 썼습니다. ",
+          " 동안 실행했습니다. ",
           { danger: `${failed}번 실패` },
           `했습니다 (${rate}).`,
         ],

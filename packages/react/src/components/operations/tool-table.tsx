@@ -153,7 +153,7 @@ export function ToolTable({
                     hideNarrow
                     className="tabular-nums"
                   >
-                    {format.duration(tool.total_ms / 1000)}
+                    {format.elapsed(tool.total_ms)}
                   </GridTableCell>
                   <GridTableCell
                     align="end"

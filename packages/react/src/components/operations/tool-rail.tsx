@@ -108,7 +108,7 @@ export function ToolRail({
             },
             {
               label: messages.total,
-              value: tool && format.duration(tool.total_ms / 1000),
+              value: tool && format.elapsed(tool.total_ms),
             },
             {
               label: messages.median,

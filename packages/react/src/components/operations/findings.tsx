@@ -63,7 +63,7 @@ export function Findings({
   const detail = {
     most_time: (tool: (typeof rows)[number]["tool"]) =>
       messages.mostTimeDetail(
-        format.duration(tool.total_ms / 1000),
+        format.elapsed(tool.total_ms),
         Math.round((100 * tool.total_ms) / (totalMs || 1)),
       ),
     fails_often: (tool: (typeof rows)[number]["tool"]) =>
