@@ -59,6 +59,7 @@ const record: SessionUsageRecord = {
 
 const WORKSPACE = crypto.randomUUID();
 const USER = crypto.randomUUID();
+const OTHER = crypto.randomUUID();
 const SERVICE_KEY_ID = crypto.randomUUID();
 
 function user(role: WorkspaceRole): Caller {
@@ -118,6 +119,36 @@ function service(
           providerTokens: 42,
           incompleteTurnCount,
           runSeconds: 90,
+        };
+      },
+      usageSummaryGroups: async (filter, period) => {
+        asked.push(filter);
+        return {
+          readAt,
+          until: period.until ?? readAt,
+          sessionCount: 3,
+          costUsd: "1.250000",
+          providerTokens: 42,
+          incompleteTurnCount: 1,
+          runSeconds: 90,
+          groups: [
+            {
+              id: USER,
+              name: "나",
+              sessionCount: 2,
+              costUsd: "1.000000",
+              incompleteTurnCount: 0,
+              runSeconds: 60,
+            },
+            {
+              id: OTHER,
+              name: "남",
+              sessionCount: 1,
+              costUsd: "0.250000",
+              incompleteTurnCount: 1,
+              runSeconds: 30,
+            },
+          ],
         };
       },
       usageSeries: async (filter, period) => {
@@ -455,6 +486,9 @@ describe("usage service", () => {
         usageSummary: async () => {
           throw new Error("not read");
         },
+        usageSummaryGroups: async () => {
+          throw new Error("not read");
+        },
         usageSeries: async () => {
           throw new Error("not read");
         },
@@ -509,6 +543,51 @@ describe("usage service", () => {
       query("me"),
     );
     expect(open.cost_complete).toBe(false);
+  });
+
+  test("groups name another person only to the installation reader, and agents to anyone", async () => {
+    const grouped = (
+      scope: "installation" | "me",
+      group_by: "agent" | "user",
+    ) =>
+      usageSummaryQuerySchema.parse({ scope, since: "2026-10-01", group_by });
+    const names = async (
+      caller: Caller,
+      scope: "installation" | "me",
+      by: "agent" | "user",
+    ) => {
+      const summary = usageSummaryResponseSchema.parse(
+        await service().getUsageSummary(caller, grouped(scope, by)),
+      );
+      expect(summary.cost_complete).toBe(false);
+      return summary.groups?.map((group) => group.name);
+    };
+    expect(await names(user("owner"), "installation", "user")).toEqual([
+      "나",
+      "남",
+    ]);
+    expect(await names(user("member"), "me", "user")).toEqual(["나", null]);
+    expect(await names(serviceKey(), "me", "user")).toEqual([null, null]);
+    expect(await names(user("member"), "me", "agent")).toEqual(["나", "남"]);
+    const [mine, theirs] =
+      (await service().getUsageSummary(user("owner"), grouped("me", "user")))
+        .groups ?? [];
+    expect(mine).toEqual({
+      id: USER,
+      name: "나",
+      session_count: 2,
+      run_seconds: 60,
+      cost_usd: "1.000000",
+      cost_complete: true,
+    });
+    expect(theirs?.cost_complete).toBe(false);
+    // Without group_by the response is as before.
+    expect(
+      Object.hasOwn(
+        await service().getUsageSummary(user("member"), query("me")),
+        "groups",
+      ),
+    ).toBe(false);
   });
 
   test("a breakdown is gated like the summary and counts the four token columns", async () => {
@@ -567,6 +646,9 @@ describe("usage service", () => {
         },
         sessionUsage: async () => null,
         usageSummary: async () => {
+          throw new Error("not read");
+        },
+        usageSummaryGroups: async () => {
           throw new Error("not read");
         },
         usageSeries: async () => {

@@ -26,6 +26,7 @@ import {
 import {
   requirePermitted,
   SessionServiceError,
+  viewerOf,
 } from "../sessions/session-service.ts";
 import {
   assertReleaseIdentity,
@@ -123,9 +124,11 @@ export function createAgentService(deps: {
       if (query.include !== "summary") return page;
       // Listing needs agent.manage on the workspace, which already reads
       // every agent's detail, admins and bindings, so no per-agent check.
+      // Sessions are counted only where the caller could list them.
       const summaries = await store.summaries(
         caller.ownerId,
         page.items.map((agent) => agent.id),
+        viewerOf(caller),
       );
       return {
         ...page,

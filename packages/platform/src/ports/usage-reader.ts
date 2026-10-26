@@ -53,6 +53,23 @@ export type UsageSummaryRecord = {
   runSeconds: number;
 };
 
+/** One agent's or user's share of a summary; a null id is the sessions without one. */
+export type UsageSummaryGroupRecord = {
+  id: string | null;
+  /** The agent's name or the user's display name. */
+  name: string | null;
+  sessionCount: number;
+  costUsd: string;
+  incompleteTurnCount: number;
+  /** The floor of the running total minus the floor of the one before. */
+  runSeconds: number;
+};
+
+/** A summary and its groups from one statement, so they always add up. */
+export type UsageSummaryGroupsRecord = UsageSummaryRecord & {
+  groups: UsageSummaryGroupRecord[];
+};
+
 /** One UTC day of a series: `UsageSummaryRecord`'s figures for that day. */
 export type UsageSeriesBucketRecord = {
   /** YYYY-MM-DD. */
@@ -148,6 +165,12 @@ export interface UsageReader {
     filter: UsageSummaryFilter,
     period: { since: Date; until?: Date },
   ): Promise<UsageSummaryRecord>;
+  /** Largest cost first. */
+  usageSummaryGroups(
+    filter: UsageSummaryFilter,
+    period: { since: Date; until?: Date },
+    by: "agent" | "user",
+  ): Promise<UsageSummaryGroupsRecord>;
   usageSeries(
     filter: UsageSummaryFilter,
     period: { since: Date; until?: Date },
