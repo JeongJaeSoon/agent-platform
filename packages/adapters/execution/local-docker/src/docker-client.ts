@@ -122,6 +122,7 @@ export type ContainerInspect = {
   };
   State: {
     ExitCode: number;
+    OOMKilled?: boolean;
     Running: boolean;
     Status: string;
   };
@@ -284,6 +285,39 @@ export class DockerClient {
     );
     const { StatusCode } = (await response.json()) as { StatusCode: number };
     return StatusCode;
+  }
+
+  /**
+   * The last `tail` lines a container without a TTY wrote to stdout and
+   * stderr, read up to `limitBytes` of output; `cut` when there was more.
+   * null when the container does not exist.
+   */
+  async containerLogs(
+    idOrName: string,
+    tail: number,
+    limitBytes: number,
+  ): Promise<{ output: Uint8Array; cut: boolean } | null> {
+    const response = await this.request(
+      "GET",
+      `/containers/${encodeURIComponent(idOrName)}/logs?stdout=1&stderr=1&tail=${tail}`,
+      undefined,
+      [200, 404],
+    );
+    if (response.status === 404) return null;
+    const reader = response.body?.getReader();
+    const frames = new FrameReader();
+    let cut = false;
+    while (reader) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      frames.push(value);
+      if (frames.payloadBytes > limitBytes) {
+        cut = true;
+        await reader.cancel();
+        break;
+      }
+    }
+    return { output: frames.payload().subarray(0, limitBytes), cut };
   }
 
   /** null when the container does not exist. */
@@ -582,5 +616,45 @@ export class DockerClient {
       );
     }
     return response;
+  }
+}
+
+/**
+ * Docker's multiplexed log stream: each frame is an 8-byte header (stream,
+ * three zero bytes, a big-endian payload length) and its payload. Frames
+ * arrive split across chunks, so bytes wait here until a frame is whole.
+ */
+class FrameReader {
+  private pending = new Uint8Array();
+  private readonly payloads: Uint8Array[] = [];
+  payloadBytes = 0;
+
+  push(chunk: Uint8Array): void {
+    const joined = new Uint8Array(this.pending.length + chunk.length);
+    joined.set(this.pending);
+    joined.set(chunk, this.pending.length);
+    let offset = 0;
+    while (joined.length - offset >= 8) {
+      const size = new DataView(
+        joined.buffer,
+        joined.byteOffset + offset + 4,
+        4,
+      ).getUint32(0);
+      if (joined.length - offset - 8 < size) break;
+      this.payloads.push(joined.subarray(offset + 8, offset + 8 + size));
+      this.payloadBytes += size;
+      offset += 8 + size;
+    }
+    this.pending = joined.slice(offset);
+  }
+
+  payload(): Uint8Array {
+    const out = new Uint8Array(this.payloadBytes);
+    let offset = 0;
+    for (const part of this.payloads) {
+      out.set(part, offset);
+      offset += part.length;
+    }
+    return out;
   }
 }
