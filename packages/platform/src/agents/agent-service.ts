@@ -276,6 +276,7 @@ export function createAgentService(deps: {
           id: deriveReleaseId(identity),
           version_id: version.id,
           created_by: userId,
+          note: request.note ?? null,
           ...identity,
         },
       });

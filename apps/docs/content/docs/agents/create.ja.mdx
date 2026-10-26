@@ -96,6 +96,8 @@ echo "$release" | jq '{id: .release.id, created, tools: .release.effective_tools
 
 リリース id はカードとプロファイルの内容のハッシュである。同じ内容で再度作成すると、同じリリースが `created: false` で返る。
 
+リクエストに `note`(前後の空白を除いて 1–200 文字)を入れると、リリースにメモとして残る。メモは id に含まれないため、同じ内容で再度作成しても最初のメモのままである。空、または 200 文字を超えると 400 になる。
+
 ### 有効化
 
 `expected_revision` はエージェントの現在の `activation_revision` である。初回は `-1` である。他の場所で先に変更されていた場合は 409 `REVISION_CONFLICT` になる。

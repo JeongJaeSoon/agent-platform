@@ -109,6 +109,7 @@ function storedRelease(profile: CatalogProfile = PROFILE): AgentRelease {
     created_at: AT,
     approved_by: null,
     approved_at: null,
+    note: null,
     ...identity,
   };
 }
@@ -488,6 +489,25 @@ describe("POST /v1/agents/{id}/releases", () => {
     expect(released.release.id).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(released.release.approved_by).toBeNull();
     expect(JSON.stringify(released)).not.toContain("catalog-provider-key");
+  });
+
+  test("carries a trimmed note, null without one, and refuses a blank or long one", async () => {
+    const noted = createAgentReleaseResponseSchema.parse(
+      await (
+        await send(app(), "POST", path, { ...body, note: "  hotfix  " })
+      ).json(),
+    );
+    expect(noted.release.note).toBe("hotfix");
+    const bare = createAgentReleaseResponseSchema.parse(
+      await (await send(app(), "POST", path, body)).json(),
+    );
+    expect(bare.release.note).toBeNull();
+    expect(bare.release.id).toBe(noted.release.id);
+    for (const note of ["   ", "a".repeat(201), 7]) {
+      const response = await send(app(), "POST", path, { ...body, note });
+      expect(response.status).toBe(400);
+      expect(await codeOf(response)).toBe("BAD_REQUEST");
+    }
   });
 
   test("a card tool outside the profile or an unknown profile is 422", async () => {

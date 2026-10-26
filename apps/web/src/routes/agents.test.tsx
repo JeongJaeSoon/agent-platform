@@ -378,6 +378,7 @@ describe("에이전트 카드", () => {
       created_at: "2026-10-11T01:00:00.000Z",
       approved_by: null,
       approved_at: null,
+      note: null,
     };
     const agent = { ...base.agent, active_release_id: release.id };
     const detail = agentDetailSchema.parse({

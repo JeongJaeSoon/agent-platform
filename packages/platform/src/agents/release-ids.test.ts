@@ -69,6 +69,7 @@ function releaseOf(identity: ReleaseIdentity): AgentRelease {
     created_at: "2026-10-11T00:00:00.000Z",
     approved_by: null,
     approved_at: null,
+    note: null,
     ...identity,
   });
 }
@@ -164,13 +165,14 @@ describe("deriveReleaseId", () => {
     }
   });
 
-  test("leaves who made or approved the release out of the id", () => {
+  test("leaves who made or approved the release, and its note, out of the id", () => {
     const release = releaseOf(identityOf());
     const approved = {
       ...release,
       created_by: USER_B,
       approved_by: USER_B,
       approved_at: "2026-10-12T00:00:00.000Z",
+      note: "hotfix",
     };
     expect(deriveReleaseId(approved)).toBe(release.id);
     expect(() => assertReleaseIdentity(approved)).not.toThrow();

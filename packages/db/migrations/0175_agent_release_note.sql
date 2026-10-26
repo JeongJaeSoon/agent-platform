@@ -1,0 +1,2 @@
+ALTER TABLE "agent_releases" ADD COLUMN "note" text;--> statement-breakpoint
+ALTER TABLE "agent_releases" ADD CONSTRAINT "agent_releases_note_check" CHECK ("agent_releases"."note" IS NULL OR char_length("agent_releases"."note") BETWEEN 1 AND 200);

@@ -1538,7 +1538,7 @@ export interface paths {
         put?: never;
         /**
          * Release a version against a runtime profile
-         * @description The release id is a hash of the card, the profile's digest and the resolved runtime settings; releasing the same content again returns the stored release with `created: false`. A card tool outside the profile, a different model or an unknown profile answers 422. Releasing approves and activates nothing.
+         * @description The release id is a hash of the card, the profile's digest and the resolved runtime settings; releasing the same content again returns the stored release with `created: false`. The optional `note` (trimmed, 1 to 200 characters) is stored with the release but is not part of its id, so a re-release keeps the note it was first made with. A card tool outside the profile, a different model or an unknown profile answers 422. Releasing approves and activates nothing.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -2853,6 +2853,7 @@ export interface components {
             /** Format: uuid */
             version_id: string;
             runtime_profile_id: string;
+            note?: string;
         };
         ActivateAgentRequest: {
             release_id: string;
@@ -4805,6 +4806,7 @@ export interface components {
                 created_at: string;
                 approved_by: string | null;
                 approved_at: string | null;
+                note: string | null;
             }[];
             active_release: {
                 id: string;
@@ -4840,6 +4842,7 @@ export interface components {
                 created_at: string;
                 approved_by: string | null;
                 approved_at: string | null;
+                note: string | null;
             } | null;
         };
         CreateAgentReleaseResponse: {
@@ -4877,6 +4880,7 @@ export interface components {
                 created_at: string;
                 approved_by: string | null;
                 approved_at: string | null;
+                note: string | null;
             };
             created: boolean;
         };
