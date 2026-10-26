@@ -3,7 +3,9 @@ import {
   mkdir,
   mkdtemp,
   readdir,
+  rename,
   rm,
+  rmdir,
   stat,
   writeFile,
 } from "node:fs/promises";
@@ -198,18 +200,8 @@ export class GitWorkspace implements WorkspacePreparer {
       case "refuse":
         throw new Error(`Workspace ${this.root} refused: ${plan.reason}`);
       case "recreate":
-        await this.empty();
-        await this.clone(git, remote, plan.branch);
-        // A fresh clone nothing has run in yet.
-        this.instructions = await pinInstructions(
-          git,
-          this.root,
-          `refs/remotes/origin/${plan.branch}`,
-          input.signal,
-        );
-        return plan.action;
       case "clone":
-        await this.clone(git, remote, plan.branch);
+        await this.clone(git, remote, plan.branch, input.signal);
         // A fresh clone nothing has run in yet.
         this.instructions = await pinInstructions(
           git,
@@ -223,7 +215,7 @@ export class GitWorkspace implements WorkspacePreparer {
         // space that write needs, and a `.git` that is not the checkout's
         // own directory is refused before anything changes it.
         await sweepWorkerScratch(this.root);
-        // Only a reuse needs a mirror; a clone writes straight into the root.
+        // Only a reuse needs a mirror; a clone writes into its own staging.
         const scratch = await workerScratch(this.root, "fetch");
         if (scratch === undefined) {
           throw new Error(
@@ -354,6 +346,17 @@ export class GitWorkspace implements WorkspacePreparer {
       throw error;
     });
     if (entries.length === 0) return { kind: "empty" };
+    if (await cloneStaged(this.root)) return { kind: "interrupted" };
+    // What a clone stopped between making `.git` and the staging in it
+    // leaves: nothing to lose.
+    if (
+      entries.length === 1 &&
+      entries[0] === ".git" &&
+      (await lstat(join(this.root, ".git")).catch(() => null))?.isDirectory() &&
+      (await readdir(join(this.root, ".git"))).length === 0
+    ) {
+      return { kind: "empty" };
+    }
     // A directory for a clone, a file for a linked worktree.
     if ((await stat(join(this.root, ".git")).catch(() => null)) === null) {
       return { kind: "foreign" };
@@ -422,8 +425,46 @@ export class GitWorkspace implements WorkspacePreparer {
     );
   }
 
-  private async clone(git: Git, remote: Remote, branch: string): Promise<void> {
-    // Not from the root: it may not exist yet, and git creates it.
+  /**
+   * Clones into `.git/CLONE_STAGING` and only then moves the result up: the
+   * tree to the root, the clone's git directory into the root's `.git`, the
+   * staging directory last. It is made before anything at the root is
+   * deleted, so an attempt stopped at any point leaves `interrupted`.
+   */
+  private async clone(
+    git: Git,
+    remote: Remote,
+    branch: string,
+    signal: AbortSignal,
+  ): Promise<void> {
+    signal.throwIfAborted();
+    const gitDirectory = join(this.root, ".git");
+    const staging = join(gitDirectory, CLONE_STAGING);
+    await mkdir(this.root, { recursive: true });
+    // As for a reuse: the staging could not go in it, and what it points at
+    // is not the root's to empty.
+    const found = await lstat(gitDirectory).catch(() => null);
+    if (found !== null && !found.isDirectory()) {
+      throw new Error(
+        `Workspace ${this.root} refused: its .git is not a directory`,
+      );
+    }
+    await mkdir(staging, { recursive: true });
+    if (!(await lstat(staging)).isDirectory()) {
+      throw new Error(`Workspace ${this.root} refused: ${staging} is a link`);
+    }
+    // The root is the backend's mount point: empty it, keep it.
+    for (const entry of await readdir(this.root)) {
+      if (entry === ".git") continue;
+      await rm(join(this.root, entry), { force: true, recursive: true });
+    }
+    for (const entry of await readdir(gitDirectory)) {
+      if (entry === CLONE_STAGING) continue;
+      await rm(join(gitDirectory, entry), { force: true, recursive: true });
+    }
+    for (const entry of await readdir(staging)) {
+      await rm(join(staging, entry), { force: true, recursive: true });
+    }
     await check(
       git(
         [
@@ -433,7 +474,7 @@ export class GitWorkspace implements WorkspacePreparer {
           branch,
           "--",
           remote.route?.url ?? remote.url,
-          this.root,
+          staging,
         ],
         // `/`, read-only: the mount above the root is the engine's to write
         // (the Kubernetes backend), so a git looking for a repository from
@@ -447,10 +488,20 @@ export class GitWorkspace implements WorkspacePreparer {
     // should see.
     if (remote.route !== undefined) {
       await check(
-        git(["remote", "set-url", "origin", remote.url]),
+        git(["remote", "set-url", "origin", remote.url], { cwd: staging }),
         "remote set-url",
       );
     }
+    const stagedGit = join(staging, ".git");
+    for (const entry of await readdir(staging)) {
+      if (entry === ".git") continue;
+      await rename(join(staging, entry), join(this.root, entry));
+    }
+    for (const entry of await readdir(stagedGit)) {
+      await rename(join(stagedGit, entry), join(gitDirectory, entry));
+    }
+    await rmdir(stagedGit);
+    await rmdir(staging);
   }
 
   /**
@@ -498,13 +549,24 @@ export class GitWorkspace implements WorkspacePreparer {
       signal,
     );
   }
+}
 
-  /** The root is the backend's mount point: empty it, keep it. */
-  private async empty(): Promise<void> {
-    for (const entry of await readdir(this.root)) {
-      await rm(join(this.root, entry), { force: true, recursive: true });
-    }
-  }
+/**
+ * Where `GitWorkspace` clones, inside `.git`, before the result moves up.
+ * No tracked path can be there, and `.git/agent-platform-*` is the worker's
+ * own, as for `workerScratch`.
+ */
+const CLONE_STAGING = "agent-platform-clone";
+
+/** Whether a clone began at `root` and never finished. */
+async function cloneStaged(root: string): Promise<boolean> {
+  const gitDirectory = join(root, ".git");
+  const found = await lstat(gitDirectory).catch(() => null);
+  if (found?.isDirectory() !== true) return false;
+  const staging = await lstat(join(gitDirectory, CLONE_STAGING)).catch(
+    () => null,
+  );
+  return staging?.isDirectory() === true;
 }
 
 /**

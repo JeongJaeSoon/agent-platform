@@ -36,7 +36,13 @@ export type WorkspaceObservation =
       readonly headCommit?: boolean;
     }
   /** Non-empty, but not a git checkout at the root. */
-  | { readonly kind: "foreign" };
+  | { readonly kind: "foreign" }
+  /**
+   * What a clone or recreate an earlier attempt began and never finished
+   * left behind. The worker starts no engine before its preparation
+   * finishes, so nothing here is an engine's work.
+   */
+  | { readonly kind: "interrupted" };
 
 export type WorkspacePlan =
   /**
@@ -68,8 +74,9 @@ export type WorkspacePlan =
  * clone, another repository or stray files would put the engine on a tree
  * the session never saw. Only a sound checkout of the same origin is kept, a
  * committed checkpoint always wins over whatever is on disk, and the only
- * thing ever deleted is this session's own unsound checkout that holds no
- * local work. Everything else is refused: a checkout of another repository
+ * things ever deleted are this session's own unsound checkout that holds no
+ * local work and a clone of its own that never finished. Everything else is
+ * refused: a checkout of another repository
  * or a non-git tree is not this policy's to judge, and an explicit recovery
  * step has to decide what to keep.
  *
@@ -94,6 +101,13 @@ export function planWorkspacePreparation(input: {
       return {
         action: "refuse",
         reason: "workspace root holds files that are not a git checkout",
+      };
+    case "interrupted":
+      return {
+        action: "recreate",
+        branch,
+        reason: "an earlier attempt's clone never finished",
+        url,
       };
     case "checkout": {
       if (!sameRepository(observed.remoteUrl, url)) {
@@ -127,6 +141,12 @@ function planLocalWorkspace(observed: WorkspaceObservation): WorkspacePlan {
       return {
         action: "refuse",
         reason: "workspace root holds files that are not a git checkout",
+      };
+    case "interrupted":
+      return {
+        action: "refuse",
+        reason:
+          "workspace root holds a clone, but the session has no repository",
       };
     case "checkout":
       if (observed.remoteUrl !== "") {

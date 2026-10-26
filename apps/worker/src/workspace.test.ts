@@ -434,6 +434,112 @@ describe("GitWorkspace", () => {
     await expect(prepare(descriptor(), stop.signal)).rejects.toThrow();
     expect(await readdir(root)).toEqual([]);
   });
+
+  test("a clone killed halfway is cloned again by the next attempt", async () => {
+    const stop = new AbortController();
+    const { server } = serveOrigin(null, () => stop.abort());
+    try {
+      const url = `http://127.0.0.1:${server.port}/repo.git`;
+      await expect(prepare(descriptor(url), stop.signal)).rejects.toThrow();
+      expect(await readdir(root)).not.toEqual([]);
+
+      expect(await prepare(descriptor(url))).toBe("recreate");
+      expect(await Bun.file(join(root, "README.md")).text()).toBe("seed\n");
+      expect((await readdir(root)).sort()).toEqual([".git", "README.md"]);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("a recreate killed in its clone is recreated by the next attempt", async () => {
+    git(["clone", "--quiet", "--depth=1", `file://${origin}`, root], scratch);
+    const stop = new AbortController();
+    const { server } = serveOrigin(null, () => stop.abort());
+    try {
+      const url = `http://127.0.0.1:${server.port}/repo.git`;
+      git(["remote", "set-url", "origin", url], root);
+      await expect(prepare(descriptor(url), stop.signal)).rejects.toThrow();
+
+      expect(await prepare(descriptor(url))).toBe("recreate");
+      expect(git(["rev-parse", "--is-shallow-repository"], root)).toBe("false");
+      expect((await readdir(root)).sort()).toEqual([".git", "README.md"]);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("a directory in the tree named like the clone's staging marks nothing", async () => {
+    git(["clone", "--quiet", "--depth=1", `file://${origin}`, root], scratch);
+    for (const name of [".agent-platform-clone", "agent-platform-clone"]) {
+      await mkdir(join(root, name));
+    }
+    await writeFile(join(root, "draft.txt"), "only here\n");
+
+    await expect(prepare(descriptor(`file://${origin}`))).rejects.toThrow(
+      "holds work that exists nowhere else",
+    );
+    expect(await Bun.file(join(root, "draft.txt")).text()).toBe("only here\n");
+  });
+
+  test("clones a repository that tracks paths named like the clone's staging", async () => {
+    const seed = join(scratch, "seed");
+    for (const name of [".agent-platform-clone", "agent-platform-clone"]) {
+      await mkdir(join(seed, name));
+      await writeFile(join(seed, name, "file.txt"), `${name}\n`);
+    }
+    git(["add", "-A"], seed);
+    git(["commit", "--quiet", "-m", "names"], seed);
+    git(["push", "--quiet", "origin", "HEAD:main"], seed);
+
+    expect(await prepare(descriptor())).toBe("clone");
+    expect(
+      await Bun.file(join(root, "agent-platform-clone", "file.txt")).text(),
+    ).toBe("agent-platform-clone\n");
+    expect(git(["status", "--porcelain"], root)).toBe("");
+  });
+
+  test("refuses a recreate whose .git is a link, and deletes nothing", async () => {
+    git(["clone", "--quiet", "--depth=1", `file://${origin}`, root], scratch);
+    const elsewhere = join(scratch, "elsewhere.git");
+    await rename(join(root, ".git"), elsewhere);
+    await symlink(elsewhere, join(root, ".git"));
+    const before = readdirSync(elsewhere).sort();
+
+    await expect(prepare(descriptor(`file://${origin}`))).rejects.toThrow(
+      "its .git is not a directory",
+    );
+    expect(readdirSync(elsewhere).sort()).toEqual(before);
+    expect((await readdir(root)).sort()).toEqual([".git", "README.md"]);
+  });
+
+  test("clones over the empty .git a clone stopped before its staging left", async () => {
+    await mkdir(join(root, ".git"));
+
+    expect(await prepare(descriptor())).toBe("clone");
+    expect(await Bun.file(join(root, "README.md")).text()).toBe("seed\n");
+  });
+
+  test("a recreate that failed while emptying the root is recreated by the next attempt", async () => {
+    const seed = join(scratch, "seed");
+    await mkdir(join(seed, "locked"));
+    await writeFile(join(seed, "locked", "inner.txt"), "x\n");
+    git(["add", "locked"], seed);
+    git(["commit", "--quiet", "-m", "locked"], seed);
+    git(["push", "--quiet", "origin", "HEAD:main"], seed);
+    git(["clone", "--quiet", "--depth=1", `file://${origin}`, root], scratch);
+    // Unwritable, so emptying the root fails partway through.
+    await chmod(join(root, "locked"), 0o500);
+    await expect(prepare(descriptor(`file://${origin}`))).rejects.toThrow();
+    await chmod(join(root, "locked"), 0o700);
+
+    expect(await prepare(descriptor(`file://${origin}`))).toBe("recreate");
+    expect(git(["rev-parse", "--is-shallow-repository"], root)).toBe("false");
+    expect((await readdir(root)).sort()).toEqual([
+      ".git",
+      "README.md",
+      "locked",
+    ]);
+  });
 });
 
 describe("GitWorkspace without a repository", () => {
