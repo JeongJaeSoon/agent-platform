@@ -2730,7 +2730,6 @@ export interface components {
             card: {
                 role: string;
                 instructions: string;
-                tone?: string;
                 /**
                  * @default ko
                  * @enum {string}
@@ -2771,7 +2770,6 @@ export interface components {
             card?: {
                 role: string;
                 instructions: string;
-                tone?: string;
                 /**
                  * @default ko
                  * @enum {string}
@@ -4626,7 +4624,6 @@ export interface components {
                 card: {
                     role: string;
                     instructions: string;
-                    tone?: string;
                     /**
                      * @default ko
                      * @enum {string}

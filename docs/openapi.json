@@ -1655,11 +1655,6 @@
                 "minLength": 1,
                 "maxLength": 20000
               },
-              "tone": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200
-              },
               "language": {
                 "default": "ko",
                 "type": "string",
@@ -1853,11 +1848,6 @@
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 20000
-              },
-              "tone": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200
               },
               "language": {
                 "default": "ko",
@@ -11070,11 +11060,6 @@
                       "type": "string",
                       "minLength": 1,
                       "maxLength": 20000
-                    },
-                    "tone": {
-                      "type": "string",
-                      "minLength": 1,
-                      "maxLength": 200
                     },
                     "language": {
                       "default": "ko",

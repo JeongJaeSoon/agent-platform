@@ -48,8 +48,9 @@
     --ap-color-border: #eaeaea;
     --ap-color-border-strong: #d4d4d4;
     /* A control's edge is how it is found (WCAG 1.4.11): 3:1 on surface and
-     canvas, which border-strong is not. Text fields draw it on all four
-     edges; one darker edge alone read as a shadow. */
+     canvas, which border-strong is not. Fields, selects, filter chips and
+     toolbar segments share it on all four edges, so one toolbar has one
+     edge colour; one darker edge alone read as a shadow. */
     --ap-color-border-input: #8a8a8a;
     --ap-color-foreground: #171717;
     --ap-color-muted-foreground: #4d4d4d;

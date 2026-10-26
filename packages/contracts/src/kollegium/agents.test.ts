@@ -17,6 +17,7 @@ import {
   listAgentsQuerySchema,
   listAgentsResponseSchema,
   policyPinsSchema,
+  storedAgentCardSchema,
   updateAgentRequestSchema,
 } from "./agents.ts";
 
@@ -124,9 +125,36 @@ describe("AgentCard", () => {
     // canonicalJson throws on undefined, so a parser that materialised the key
     // would fail the hash outright instead of quietly re-hashing every card.
     const parsed = agentCardSchema.parse(card);
-    expect(Object.hasOwn(parsed, "tone")).toBe(false);
+    expect(Object.hasOwn(parsed.capabilities, "tool_policy")).toBe(false);
     expect(parsed.language).toBe("ko");
     expect(parsed.rules).toEqual([]);
+  });
+
+  test("a new card cannot carry a tone", () => {
+    const withTone = { ...card, tone: "공손하게" };
+    expect(agentCardSchema.safeParse(withTone).success).toBe(false);
+    expect(
+      createAgentRequestSchema.safeParse({
+        slug: "finance",
+        name: "Finance",
+        card: withTone,
+      }).success,
+    ).toBe(false);
+    expect(updateAgentRequestSchema.safeParse({ card: withTone }).success).toBe(
+      false,
+    );
+  });
+
+  test("a stored card with a tone reads without it", () => {
+    const stored = storedAgentCardSchema.parse({ ...card, tone: "공손하게" });
+    expect(Object.hasOwn(stored, "tone")).toBe(false);
+    expect(stored).toEqual(agentCardSchema.parse(card));
+    expect(storedAgentCardSchema.parse(card)).toEqual(
+      agentCardSchema.parse(card),
+    );
+    expect(
+      storedAgentCardSchema.safeParse({ ...card, api_key: "x" }).success,
+    ).toBe(false);
   });
 
   test("has nowhere to put a credential", () => {
