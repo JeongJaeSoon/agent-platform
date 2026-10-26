@@ -399,6 +399,8 @@ describe("OpenAPI document", () => {
         "/v1/members/{user_id}/enable",
         "/v1/users/{user_id}/disable",
         "/v1/users/{user_id}/enable",
+        "/v1/workspace-profiles",
+        "/v1/workspace-profiles/{profile_id}/retire",
         "/v1/usage/summary",
         "/v1/usage/series",
         "/v1/usage/breakdown",

@@ -76,6 +76,24 @@ profile의 `repository`는 그 profile로 만든 세션이 저장소를 갖는�
 - 모든 profile이 `required`일 때만 `repositories`에 저장소가 하나 이상 있어야 한다.
 - 저장소 없이 만든 세션의 profile을 `required` profile로 바꾸는 요청(`POST /v1/sessions/{id}/profile`)은 `422 UNSUPPORTED_CAPABILITY`다.
 
+### 워크스페이스 프로필 (콘솔에서 좁힌 profile)
+
+워크스페이스 owner·admin은 콘솔(설정 › 실행 프로필) 또는 `POST /v1/workspace-profiles`로 운영자 profile 하나를 골라 좁힌 판을 만든다. 운영자 카탈로그 파일과 함께 쓸 때의 규칙은 아래와 같다.
+
+1. **두 층.** provider·endpoint·자격 증명·billing·runtime·저장소 신뢰 쌍은 운영자 파일에만 있다. 워크스페이스 판은 그 위에서 `models`·`tools`를 부분 집합으로 고르고 `permission_mode`를 더 조심스럽게만 바꾼다. 기준보다 넓히는 요청(기준에 없는 모델·도구, 승인 없이 도는 쪽으로 바꾸는 모드)은 `400 BAD_REQUEST`이고 `details.field`가 그 칸을 적는다.
+   - 기준 모드별로 고를 수 있는 모드: `bypassPermissions` → `bypassPermissions`·`auto`·`acceptEdits`·`default`·`plan`, `auto` → `auto`·`acceptEdits`·`default`·`plan`, `acceptEdits` → `acceptEdits`·`default`·`plan`, `default` → `default`·`plan`, `dontAsk` → `dontAsk`·`plan`, `plan` → `plan`.
+2. **이름 공간.** 워크스페이스 판의 id는 `ws_<워크스페이스 slug>_<이름>_v<n>`이다(slug가 `[a-z0-9-]` 밖이면 slug 대신 워크스페이스 id). 운영자 파일에 `ws_`로 시작하는 profile id가 있으면 API가 기동하지 않으므로 두 출처가 한 id를 두고 다투지 않는다. `GET /v1/profiles`는 운영자 profile(`source: operator`)과 호출자 워크스페이스의 판(`source: workspace`)을 함께, 출처와 함께 보여 준다.
+3. **판은 바뀌지 않는다.** 저장할 때마다 같은 이름의 다음 판(`v<n+1>`)이 새 id로 생긴다. 이미 만든 release·세션은 옛 판 id를 그대로 쓰며, 새 판으로 옮기려면 release를 새 판으로 다시 만든다. 같은 이름을 동시에 두 번 저장하면 뒤의 것은 `409 REVISION_CONFLICT`이고 다시 저장하면 그다음 판이 된다.
+4. **기준이 바뀌면 멈춘다.** 판은 저장할 때 기준 profile의 지문을 적어 둔다. 운영자가 기준의 설정(tools·permission_mode·endpoint·runtime 등)을 바꾸거나 판이 고른 모델을 기준 `models`에서 빼면 그 판은 `base_changed`가 된다. 새 release·세션은 `422 UNSUPPORTED_CAPABILITY`로 거절되고, 이미 그 판으로 만든 세션은 운영자 profile을 고쳤을 때와 같이 `CATALOG_MISMATCH`로 끝난다. 운영자가 기준을 되돌리면 다시 돈다. 콘솔의 "다시 만들기"는 바뀐 기준 위에 다음 판을 만든다.
+5. **기준이 사라지면** `base_missing`이다. 목록에는 판을 만들 때의 runtime·billing·저장소 모드로 남지만 아무것도 돌리지 않는다.
+6. **은퇴는 새 부착만 막는다.** `POST /v1/workspace-profiles/{profile_id}/retire`(receipt `retire_workspace_profile`)로 은퇴한 판은 새 release와 release 없는 새 세션을 받지 않는다. 이미 그 판으로 만든 release의 새 세션과 진행 중인 세션은 계속 돈다. 이미 은퇴한 판을 다시 은퇴하면 아무것도 바뀌지 않고 `receipt_id`가 null이다.
+7. **저장소 신뢰 쌍은 기준에서 물려받는다.** `repositories.<id>.profiles`에 기준 id가 있으면 그 저장소에서 판도 돈다. 저장소 allowlist에 `ws_` id를 적을 일은 없다.
+8. **카탈로그 revision에 들지 않는다.** 판은 DB(`workspace_profiles`, migration 0174)가 정본이다. replica는 세션 생성·release 생성·profile 변경 때 DB를 다시 읽고, worker claim과 provider egress 재허가 때는 1초 안에 읽은 것을 쓴다. 그 밖의 화면(세션 상세의 runtime 등)은 10초마다 다시 읽는다. 그래서 판을 만들고 지워도 `catalog-authority` 롤아웃 절차는 필요 없다.
+9. **누가.** 만들기·은퇴는 로그인한 owner·admin(`workspace.manage`)만, cookie 세션으로만 한다(workspace key로는 안 된다). 저장 시점에 역할을 다시 확인하므로 그사이 역할을 잃으면 `403`이다. 읽기(`GET /v1/profiles`)는 구성원과 read scope key 모두 한다. 다른 워크스페이스의 판은 목록에 나오지 않고, 그 id로 세션·release를 만들면 모르는 profile처럼 거절된다.
+10. **auto 규칙·스크립트 상한은 아직 칸만 있다.** 콘솔에 자리와 안내만 있고 저장하지 않는다(확장 설계 v2 결론 뒤).
+
+배포: migration 0174(테이블 추가만)을 먼저 적용하고 API를 올린다. worker 이미지는 바꿀 필요가 없다. 옛 API는 `ws_` id를 모르고, 판은 카탈로그 revision에 들지 않아 revision이 같다. 그래서 옛 replica가 판 세션의 claim을 받으면 그 세션을 `catalog_mismatch`로 실패시킨다. 모든 replica가 새 판으로 바뀐 뒤에 판을 만들게 한다. 되돌릴 때도 같다: 판으로 만든 세션은 옛 API에서 첫 claim에 실패하고 입력은 남는다. 다시 올린 뒤 새 입력을 보내면 이어서 돈다.
+
 ### workspace volume을 잃었을 때 남는 것
 
 worker의 작업 디렉터리는 세션의 workspace volume(Kubernetes backend에서는 PVC)에 있지만, 세션을 이어 가는 데 필요한 정본은 volume이 아니다. worker는 turn이 끝날 때마다 작업 디렉터리와 엔진 대화를 checkpoint로 object store(S3)에 올리고, DB의 checkpoint pointer가 그 revision을 가리킨다([checkpoint object store](#checkpoint-object-store)). volume이 없어진 세션을 resume하면 scheduler가 빈 volume을 새로 만들어 worker를 띄우고(Docker backend는 새 이름으로, Kubernetes backend는 같은 이름의 PVC를 다시 만든다), worker가 pointer의 checkpoint를 복원해 대화를 이어 간다. 저장소 모드와 상관없이 같은 경로다.

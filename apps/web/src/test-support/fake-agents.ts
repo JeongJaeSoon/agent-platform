@@ -244,8 +244,11 @@ export function agentServer() {
 function profile(id: string, model: string): ProfileSummary {
   return {
     id,
+    source: "operator",
     model,
+    models: [model],
     tools: ["Read"],
+    permission_mode: "default",
     runtime_kind: "claude_agent_sdk",
     runtime_version: "0.3.270",
     billing: "metered",

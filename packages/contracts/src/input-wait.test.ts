@@ -172,8 +172,11 @@ describe("the public wait contract", () => {
   test("a profile says what its sessions wait and where each value came from", () => {
     const profile = {
       id: "claude-coding-v1",
+      source: "operator",
       model: "claude-sonnet-5",
+      models: ["claude-sonnet-5"],
       tools: [],
+      permission_mode: "default",
       runtime_kind: "claude_agent_sdk",
       runtime_version: "0.3.270",
       billing: "metered",
