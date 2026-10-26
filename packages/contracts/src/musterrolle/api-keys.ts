@@ -2,6 +2,8 @@ import { z } from "zod";
 
 import {
   agentIdSchema,
+  pageSchema,
+  paginationQuerySchema,
   receiptIdSchema,
   timestampSchema,
   userIdSchema,
@@ -26,8 +28,6 @@ export const apiKeyNameSchema = z
     description:
       "A label the issuer gives the key, so a list tells one integration's key from another's.",
   });
-
-export const API_KEY_LIST_LIMIT = 200;
 
 export const apiKeyIdSchema = z.uuid();
 export const apiKeyIdParamsSchema = z.object({ id: apiKeyIdSchema }).strict();
@@ -98,14 +98,13 @@ export const createApiKeyResponseSchema = z
   })
   .strict();
 
+export const listApiKeysQuerySchema = paginationQuerySchema;
 /**
  * The caller's own personal keys, plus the agent keys they may revoke:
  * every one for an owner or admin, their agents' for an agent's admin.
  * Newest first.
  */
-export const listApiKeysResponseSchema = z
-  .object({ items: z.array(apiKeyViewSchema).max(API_KEY_LIST_LIMIT) })
-  .strict();
+export const listApiKeysResponseSchema = pageSchema(apiKeyViewSchema);
 
 export const revokeApiKeyResponseSchema = z
   .object({
@@ -119,5 +118,6 @@ export type ApiKeyKind = z.infer<typeof apiKeyKindSchema>;
 export type ApiKeyView = z.infer<typeof apiKeyViewSchema>;
 export type CreateApiKeyRequest = z.infer<typeof createApiKeyRequestSchema>;
 export type CreateApiKeyResponse = z.infer<typeof createApiKeyResponseSchema>;
+export type ListApiKeysQuery = z.infer<typeof listApiKeysQuerySchema>;
 export type ListApiKeysResponse = z.infer<typeof listApiKeysResponseSchema>;
 export type RevokeApiKeyResponse = z.infer<typeof revokeApiKeyResponseSchema>;

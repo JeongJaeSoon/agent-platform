@@ -2,6 +2,7 @@ import {
   apiKeyIdParamsSchema,
   createApiKeyRequestSchema,
   createApiKeyResponseSchema,
+  listApiKeysQuerySchema,
   listApiKeysResponseSchema,
   revokeApiKeyResponseSchema,
 } from "@werft-ai/contracts";
@@ -12,7 +13,7 @@ import {
   jsonWithSchema,
   parseJsonBody,
 } from "../app.ts";
-import { mapped, requireParams } from "./errors.ts";
+import { mapped, requireParams, requireQuery } from "./errors.ts";
 
 export function registerApiKeyRoutes(
   router: ApiRouter,
@@ -28,7 +29,10 @@ export function registerApiKeyRoutes(
   });
 
   apiRoute(router, "listApiKeys", async (context) => {
-    const listed = await mapped(() => service.list(context.get("caller")));
+    const query = requireQuery(context, listApiKeysQuerySchema);
+    const listed = await mapped(() =>
+      service.list(context.get("caller"), query),
+    );
     return jsonWithSchema(context, listApiKeysResponseSchema, listed);
   });
 

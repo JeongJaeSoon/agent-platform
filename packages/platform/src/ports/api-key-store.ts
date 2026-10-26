@@ -1,4 +1,8 @@
-import type { SessionScope, WorkspaceRole } from "@werft-ai/contracts";
+import type {
+  PaginationQuery,
+  SessionScope,
+  WorkspaceRole,
+} from "@werft-ai/contracts";
 import type { Principal } from "../musterrolle/policy.ts";
 
 export type WorkspaceKey = {
@@ -66,11 +70,12 @@ export type KeyListFilter = {
 export interface WorkspaceKeyStore {
   issue(input: IssueKeyInput): Promise<IssueKeyResult>;
   find(workspaceId: string, keyId: string): Promise<WorkspaceKey | null>;
+  /** One page, newest first; a malformed cursor throws InvalidCursorError. */
   list(
     workspaceId: string,
     filter: KeyListFilter,
-    limit: number,
-  ): Promise<WorkspaceKey[]>;
+    query: PaginationQuery,
+  ): Promise<{ items: WorkspaceKey[]; nextCursor: string | null }>;
   revoke(input: {
     principal: Principal;
     workspaceId: string;

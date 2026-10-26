@@ -7,7 +7,11 @@ import {
   REQUEST_BODY_MAX_BYTES,
   revokeApiKeyResponseSchema,
 } from "@werft-ai/contracts";
-import { type ApiKeyService, SessionServiceError } from "@werft-ai/platform";
+import {
+  type ApiKeyService,
+  InvalidCursorError,
+  SessionServiceError,
+} from "@werft-ai/platform";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerApiKeyRoutes } from "./api-keys.ts";
 
@@ -154,14 +158,36 @@ describe("POST /v1/api-keys", () => {
 });
 
 describe("GET /v1/api-keys", () => {
-  test("lists, refuses and fails closed", async () => {
-    const listed = await app({
-      list: async () => ({ items: [VIEW] }),
-    }).request("/v1/api-keys", { headers: owner });
+  test("lists a page, refuses and fails closed", async () => {
+    const queries: unknown[] = [];
+    const paged = app({
+      list: async (_caller, query) => {
+        queries.push(query);
+        if (query.cursor === "forged") throw new InvalidCursorError();
+        return { items: [VIEW], next_cursor: "next" };
+      },
+    });
+    const listed = await paged.request("/v1/api-keys", { headers: owner });
     expect(listed.status).toBe(200);
+    expect(listApiKeysResponseSchema.parse(await listed.json())).toEqual({
+      items: [VIEW],
+      next_cursor: "next",
+    });
     expect(
-      listApiKeysResponseSchema.parse(await listed.json()).items,
-    ).toHaveLength(1);
+      (
+        await paged.request("/v1/api-keys?limit=2&cursor=abc", {
+          headers: owner,
+        })
+      ).status,
+    ).toBe(200);
+    expect(queries).toEqual([{ limit: 50 }, { limit: 2, cursor: "abc" }]);
+    for (const bad of ["?cursor=forged", "?limit=0", "?limit=101"]) {
+      const response = await paged.request(`/v1/api-keys${bad}`, {
+        headers: owner,
+      });
+      expect(response.status, bad).toBe(400);
+      expect((await errorOf(response)).code, bad).toBe("BAD_REQUEST");
+    }
 
     const refused = await app({
       list: async () => {

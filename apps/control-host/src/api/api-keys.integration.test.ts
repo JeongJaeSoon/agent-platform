@@ -654,4 +654,39 @@ integration("API keys by authority over HTTP on PostgreSQL", () => {
       }
     }
   });
+
+  test("the list pages by cursor over HTTP, and a bad cursor or limit is a 400", async () => {
+    const page = async (query: string) => {
+      const response = await send(
+        "GET",
+        `/v1/api-keys${query}`,
+        asCookie(cookies.owner),
+      );
+      expect(response.status).toBe(200);
+      return listApiKeysResponseSchema.parse(await response.json());
+    };
+    const all = await page("");
+    expect(all.next_cursor).toBeNull();
+    expect(all.items.length).toBeGreaterThan(1);
+    const walked: string[] = [];
+    let query = "?limit=1";
+    for (;;) {
+      const one = await page(query);
+      expect(one.items).toHaveLength(1);
+      walked.push(...one.items.map((key) => key.id));
+      if (one.next_cursor === null) break;
+      query = `?limit=1&cursor=${encodeURIComponent(one.next_cursor)}`;
+    }
+    expect(walked).toEqual(all.items.map((key) => key.id));
+
+    for (const bad of ["?cursor=not-a-cursor", "?limit=0", "?limit=101"]) {
+      const response = await send(
+        "GET",
+        `/v1/api-keys${bad}`,
+        asCookie(cookies.owner),
+      );
+      expect(response.status, bad).toBe(400);
+      expect((await errorOf(response)).code, bad).toBe("BAD_REQUEST");
+    }
+  });
 });

@@ -17,11 +17,17 @@ import {
   isNotNull,
   isNull,
   or,
+  sql,
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { administers } from "./administers.ts";
 import { lockedAdministers } from "./agent-admins.ts";
 import { lockActorAccount, receiptActorOf } from "./control-shared.ts";
+import {
+  decodeCreatedAtCursor,
+  encodeCreatedAtCursor,
+  rethrowCursorCastError,
+} from "./cursors.ts";
 import { DB_NOW } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import { agents, apiKeys, memberships, receipts, users } from "./schema.ts";
@@ -249,7 +255,8 @@ export function createPostgresWorkspaceKeyStore(
 
     find: (workspaceId, keyId) => find(db, workspaceId, keyId, false),
 
-    async list(workspaceId, filter, limit) {
+    async list(workspaceId, filter, query) {
+      const cursor = query.cursor ? decodeCreatedAtCursor(query.cursor) : null;
       const own = and(
         eq(apiKeys.kind, "personal"),
         eq(apiKeys.createdByUserId, filter.personalOf),
@@ -277,13 +284,35 @@ export function createPostgresWorkspaceKeyStore(
         or(seesEveryAgentKey, administered),
       );
       const rows = await db
-        .select(keyWithIssuerColumns)
+        .select({
+          ...keyWithIssuerColumns,
+          cursorAt: sql<string>`${apiKeys.createdAt}::text`,
+        })
         .from(apiKeys)
         .leftJoin(issuer, eq(issuer.id, apiKeys.createdByUserId))
-        .where(and(eq(apiKeys.workspaceId, workspaceId), or(own, agentKey)))
+        .where(
+          and(
+            eq(apiKeys.workspaceId, workspaceId),
+            or(own, agentKey),
+            cursor
+              ? sql`(${apiKeys.createdAt}, ${apiKeys.id}) < (${cursor.created_at}::timestamptz, ${cursor.id}::uuid)`
+              : undefined,
+          ),
+        )
         .orderBy(desc(apiKeys.createdAt), desc(apiKeys.id))
-        .limit(limit);
-      return rows.map((row) => keyOf(row, row.createdByDisplayName));
+        .limit(query.limit + 1)
+        .catch(rethrowCursorCastError);
+      const page = rows.slice(0, query.limit);
+      const last = page[page.length - 1];
+      return {
+        items: page.map(({ cursorAt: _, ...row }) =>
+          keyOf(row, row.createdByDisplayName),
+        ),
+        nextCursor:
+          rows.length > query.limit && last
+            ? encodeCreatedAtCursor({ created_at: last.cursorAt, id: last.id })
+            : null,
+      };
     },
 
     revoke(input) {

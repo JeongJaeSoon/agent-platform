@@ -72,7 +72,7 @@ function fakeStore() {
     },
     find: async (_ws, id) => keys.get(id) ?? null,
     async list() {
-      return [...keys.values()];
+      return { items: [...keys.values()], nextCursor: null };
     },
     async revoke(input) {
       const key = keys.get(input.keyId);
