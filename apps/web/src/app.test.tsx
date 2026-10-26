@@ -512,6 +512,15 @@ describe("i18n·반응형·키보드", () => {
     },
   );
 
+  test("사용자 메뉴 버튼의 접근 이름은 보이는 이름으로 시작한다", async () => {
+    renderAt("/", meOk);
+    const trigger = await screen.findByRole("button", { name: /^Owner/ });
+    // axe label-content-name-mismatch compares an aria-label with the
+    // visible text, avatar letter included; the name comes from content.
+    expect(trigger.hasAttribute("aria-label")).toBe(false);
+    expect(trigger.textContent).toBe("OOwner · 소유자");
+  });
+
   test("본문 건너뛰기 링크가 처음 Tab에 잡힌다", async () => {
     renderAt("/login", {});
     await screen.findByRole("heading", { name: "로그인" });
