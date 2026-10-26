@@ -1753,22 +1753,12 @@ export class WorkerHost {
     })();
   }
 
-  /**
-   * The turn a frame's events are stored under: none past the turn's
-   * terminal, and none before a frame names its input, which a runtime that
-   * names no inputs leaves to the turn in flight.
-   */
   private frameTurn(frame: AgentFrame): string | null {
     const turn = this.turn;
-    if (turn === undefined) return this.scope.turn_id;
-    if (turn.closed) return null;
-    if (!turn.entered) {
-      if (frame.inputs !== undefined && !frame.inputs.includes(turn.uuid)) {
-        return null;
-      }
-      turn.entered = true;
-    }
-    return turn.turnId;
+    if (turn === undefined) return null;
+    const { entered, turnId } = frameTurn(frame, turn);
+    turn.entered = entered;
+    return turnId;
   }
 
   /** Absent while the port binds no mirror, so such a worker beats unchanged. */
@@ -2297,6 +2287,36 @@ export function inputUuid(
 }
 
 /** The inputs a result says it consumed, the way TurnLedger reads them. */
+/**
+ * The turn a frame's events are stored under, and whether the engine has
+ * shown it took the turn's input up. The SDK names an input on
+ * `command_lifecycle` from the moment it queues one, and on the first reply
+ * and the result of the turn that answers it; a frame naming none says
+ * nothing of its own and falls back to what the runtime says (`inputs`).
+ * A frame for another input belongs to no turn, before this one's input is
+ * named and after, and so does one past the terminal.
+ */
+export function frameTurn(
+  frame: AgentFrame,
+  turn: { closed: boolean; entered: boolean; turnId: string; uuid: string },
+): { entered: boolean; turnId: string | null } {
+  const native = frame.envelope.message;
+  const named = [
+    ...(native.type === "command_lifecycle" &&
+    typeof native.command_uuid === "string"
+      ? [native.command_uuid]
+      : []),
+    ...attributedUuids(native),
+  ];
+  const inputs = named.length > 0 ? named : (frame.inputs ?? []);
+  const entered = turn.entered || (!turn.closed && inputs.includes(turn.uuid));
+  const ours =
+    !turn.closed &&
+    entered &&
+    (inputs.length === 0 || inputs.includes(turn.uuid));
+  return { entered, turnId: ours ? turn.turnId : null };
+}
+
 function attributedUuids(native: NativeSdkMessage): string[] {
   const listed = Array.isArray(native.user_message_uuids)
     ? native.user_message_uuids.filter(

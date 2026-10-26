@@ -327,16 +327,14 @@ class FakeRun implements AgentRun {
   }
 
   /**
-   * Scripted messages name no input, so each frame names the one the script
-   * is on, as the SDK's would: the input the last `await-input` took, or the
-   * first one sent before any did.
+   * Scripted messages mostly name no input, so each frame says which one the
+   * script is on: the input the last `await-input` took, or the first one
+   * sent before any did.
    */
   private frame(message: NativeSdkMessage, cursor: string): AgentFrame {
     const frame = frameFromNativeMessage(message, this.correlationId, cursor);
     const current = this.accepted[Math.max(this.consumedInputs - 1, 0)];
-    return current === undefined || frame.inputs?.includes(current) === true
-      ? frame
-      : { ...frame, inputs: [...(frame.inputs ?? []), current] };
+    return current === undefined ? frame : { ...frame, inputs: [current] };
   }
 
   /**

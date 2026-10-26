@@ -34,27 +34,7 @@ export function frameFromNativeMessage(
   return {
     envelope,
     events: projectPublicEvents(envelope, cursor),
-    inputs: nativeInputs(message),
   };
-}
-
-/**
- * The input uuids an SDK message names: `command_lifecycle` from the moment
- * the engine queues an input, then the turn's first reply and its result.
- */
-function nativeInputs(message: NativeSdkMessage): string[] {
-  const named = [
-    message.type === "command_lifecycle" ? message.command_uuid : undefined,
-    message.user_message_uuid,
-    ...(Array.isArray(message.user_message_uuids)
-      ? message.user_message_uuids
-      : []),
-  ];
-  return [
-    ...new Set(
-      named.filter((uuid): uuid is string => typeof uuid === "string"),
-    ),
-  ];
 }
 
 export function sanitizeNativeMessage(

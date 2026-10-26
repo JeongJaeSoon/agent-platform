@@ -22,10 +22,8 @@ export type AgentFrame = {
   envelope: NativeEnvelope;
   events: SessionEvent[];
   /**
-   * The input uuids this frame shows the engine taking up or answering. A
-   * host keeps a new turn's frames out of it until one names its input, as
-   * the engine may still be emitting for the input before. Absent when the
-   * runtime cannot tell, and then every frame goes to the turn in flight.
+   * The input uuids the runtime says this frame is for, read only when its
+   * native message names none, as a scripted engine's messages do.
    */
   inputs?: readonly string[];
 };
