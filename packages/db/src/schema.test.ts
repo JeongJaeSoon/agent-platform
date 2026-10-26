@@ -117,6 +117,7 @@ describe("database schema", () => {
       "worker_credentials",
       "worker_launches",
       "workers",
+      "workspace_profiles",
       "workspaces",
     ]);
   });
