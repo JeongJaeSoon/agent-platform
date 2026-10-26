@@ -92,7 +92,7 @@ profile의 `repository`는 그 profile로 만든 세션이 저장소를 갖는�
 9. **누가.** 만들기·은퇴는 로그인한 owner·admin(`workspace.manage`)만, cookie 세션으로만 한다(workspace key로는 안 된다). 저장 시점에 역할을 다시 확인하므로 그사이 역할을 잃으면 `403`이다. 읽기(`GET /v1/profiles`)는 구성원과 read scope key 모두 한다. 다른 워크스페이스의 판은 목록에 나오지 않고, 그 id로 세션·release를 만들면 모르는 profile처럼 거절된다.
 10. **auto 규칙·스크립트 상한은 아직 칸만 있다.** 콘솔에 자리와 안내만 있고 저장하지 않는다(확장 설계 v2 결론 뒤).
 
-배포: migration 0173(테이블 추가만)을 먼저 적용하고 API를 올린다. worker 이미지는 바꿀 필요가 없다. 되돌릴 때는 API를 먼저 내린다. 옛 API는 `ws_` id를 모르므로 그 판으로 만든 세션은 claim되지 않고 기다린다. 판을 지우지 않는 한 다시 올리면 이어서 돈다.
+배포: migration 0173(테이블 추가만)을 먼저 적용하고 API를 올린다. worker 이미지는 바꿀 필요가 없다. 옛 API는 `ws_` id를 모르고, 판은 카탈로그 revision에 들지 않아 revision이 같다. 그래서 옛 replica가 판 세션의 claim을 받으면 그 세션을 `catalog_mismatch`로 실패시킨다. 모든 replica가 새 판으로 바뀐 뒤에 판을 만들게 한다. 되돌릴 때도 같다: 판으로 만든 세션은 옛 API에서 첫 claim에 실패하고 입력은 남는다. 다시 올린 뒤 새 입력을 보내면 이어서 돈다.
 
 ### workspace volume을 잃었을 때 남는 것
 
