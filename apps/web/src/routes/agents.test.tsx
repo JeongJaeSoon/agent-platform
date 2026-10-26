@@ -633,7 +633,7 @@ describe("에이전트 카드", () => {
       expect(fact(card, "MCP")).toBe("linear");
       expect(fact(card, "자격 증명")).toBe("연결 필요 1개");
       expect(card.textContent).toContain(CARD.instructions);
-      expect(card.textContent).toContain("관리자 Owner, 재무팀");
+      expect(card.textContent).toContain("담당 Owner, 재무팀");
       expect(api.calls.find((c) => c.path === "/v1/agents")?.search).toContain(
         "include=summary",
       );
