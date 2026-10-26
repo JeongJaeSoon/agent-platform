@@ -535,4 +535,46 @@ describe("claudeContractRun events", () => {
   ] as const)("%s", async (_, given, expected) => {
     expect(await eventsFor(given)).toMatchObject(expected);
   });
+
+  test("leaves no refusal from a settled turn on the next one's result", async () => {
+    const script = scriptedDriver();
+    const run = claudeContractRun((hooks) => script.start(hooks));
+    const events = run.events()[Symbol.asyncIterator]();
+    const ended = async () => {
+      for (;;) {
+        const next = await events.next();
+        if (next.done === true) throw new Error("the run ended");
+        if (next.value.type === "turn.ended") return next.value.turn;
+      }
+    };
+    const refused = (input: string) =>
+      frame({
+        type: "result",
+        subtype: "success",
+        is_error: true,
+        terminal_reason: "api_error",
+        user_message_uuid: input,
+      });
+    run.send({ uuid: "a", message: "first" });
+    script.push(
+      frame({ type: "system", subtype: "api_retry", error_status: 429 }),
+    );
+    script.push(frame({ type: "assistant", error: "rate_limit" }));
+    script.push(refused("a"));
+    const first = await ended();
+    run.send({ uuid: "b", message: "second" });
+    script.push(frame({ type: "assistant", error: "authentication_failed" }));
+    script.push(refused("b"));
+    const second = await ended();
+    script.end();
+
+    expect(first.engineResult).toMatchObject({
+      provider_error: "rate_limit",
+      last_retry_status: 429,
+    });
+    expect(second.engineResult).toMatchObject({
+      provider_error: "authentication_failed",
+      last_retry_status: null,
+    });
+  });
 });

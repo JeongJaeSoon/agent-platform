@@ -7,7 +7,7 @@ import { turnEndedOf } from "./turn-ended.ts";
 function ended(result: NativeSdkMessage, before: NativeSdkMessage[] = []) {
   const accounting = new TurnAccounting();
   for (const message of [...before, result]) accounting.observe(message);
-  return turnEndedOf(result, accounting);
+  return turnEndedOf(result, accounting, undefined);
 }
 
 describe("turnEndedOf", () => {
@@ -138,10 +138,10 @@ describe("turnEndedOf", () => {
     const first = { type: "result", total_cost_usd: 2, session_id: "s1" };
     const second = { type: "result", total_cost_usd: 0.5, session_id: "s2" };
     accounting.observe(first);
-    turnEndedOf(first, accounting);
+    turnEndedOf(first, accounting, undefined);
     accounting.observe(second);
 
-    expect(turnEndedOf(second, accounting).cost).toEqual({
+    expect(turnEndedOf(second, accounting, undefined).cost).toEqual({
       deltaUsd: 0.5,
       countRestarted: true,
       unknown: false,

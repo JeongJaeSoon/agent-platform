@@ -253,6 +253,7 @@ class ClaudeContractRun implements AgentRun {
   private readonly answered = new Set<string>();
   private wake: (() => void) | undefined;
   private consumed = false;
+  private latestInput: string | undefined;
 
   constructor(
     start: (hooks: RuntimeHooks) => DriverRun,
@@ -301,6 +302,7 @@ class ClaudeContractRun implements AgentRun {
 
   send(input: AgentInput): void {
     this.driver.send(input);
+    this.latestInput = input.uuid;
   }
 
   finishInput(): void {
@@ -436,7 +438,10 @@ class ClaudeContractRun implements AgentRun {
   private outcomeOf(message: NativeSdkMessage): RuntimeEvent[] {
     if (message.type === "result") {
       return [
-        { type: "turn.ended", turn: turnEndedOf(message, this.accounting) },
+        {
+          type: "turn.ended",
+          turn: turnEndedOf(message, this.accounting, this.latestInput),
+        },
       ];
     }
     if (message.type === "system" && message.subtype === "mirror_error") {

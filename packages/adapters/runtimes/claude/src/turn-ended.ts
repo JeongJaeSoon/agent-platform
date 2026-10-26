@@ -37,17 +37,26 @@ function consumedInputs(message: NativeSdkMessage): string[] {
 }
 
 /**
- * A result in the platform's terms. Settles `accounting`'s cost, which has
- * observed every message up to and including this one. The provider failure
- * is left standing: a result the host settles no turn with must not take it
- * from the one it does.
+ * A result in the platform's terms. Settles `accounting`, which has observed
+ * every message up to and including this one. The provider failure goes with
+ * a result for `latestInput`, or for no input, the way a host settles its
+ * turn on one; a result only for other inputs leaves it for the turn's own.
  */
 export function turnEndedOf(
   result: NativeSdkMessage,
   accounting: TurnAccounting,
+  latestInput: string | undefined,
 ): TurnEnded {
-  const providerFailure = accounting.lastProviderFailure;
-  const costUsd = accounting.settleCost();
+  const inputs = consumedInputs(result);
+  const settlesTurn =
+    inputs.length === 0 ||
+    (latestInput !== undefined && inputs.includes(latestInput));
+  const { costUsd, providerFailure } = settlesTurn
+    ? accounting.settle()
+    : {
+        providerFailure: accounting.lastProviderFailure,
+        costUsd: accounting.settleCost(),
+      };
   const subtype =
     typeof result.subtype === "string" ? result.subtype : "unknown";
   const isError = result.is_error === true || subtype !== "success";
@@ -78,7 +87,7 @@ export function turnEndedOf(
     ...(typeof result.session_id === "string"
       ? { engineSessionId: result.session_id }
       : {}),
-    inputs: consumedInputs(result),
+    inputs,
   };
 }
 
