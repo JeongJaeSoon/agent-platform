@@ -9,7 +9,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { dirname, join, posix, relative, resolve, sep } from "node:path";
 import * as ts from "typescript";
 import { webUiAllowlist } from "./web-ui-allowlist.ts";
 
@@ -292,7 +292,7 @@ async function parse(file: string): Promise<ts.SourceFile> {
     await readFile(file, "utf8"),
     ts.ScriptTarget.Latest,
     true,
-    file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+    /\.[jt]sx$/.test(file) ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
   );
 }
 
@@ -400,6 +400,50 @@ function isModuleSpecifier(node: ts.Node): boolean {
     (ts.isCallExpression(parent) &&
       parent.expression.kind === ts.SyntaxKind.ImportKeyword)
   );
+}
+
+const scriptFile = /\.(?:[cm]?[jt]s|[jt]sx)$/;
+
+/**
+ * Module references from runtime files under `directory` that reach a
+ * workspace package's `testing/` helpers. Test files and `testing/` itself
+ * are test support and may.
+ */
+async function testingHelperImports(
+  directory: string,
+): Promise<Array<{ file: string; specifier: string }>> {
+  const found: Array<{ file: string; specifier: string }> = [];
+  for (const entry of await readdir(directory, {
+    recursive: true,
+    withFileTypes: true,
+  })) {
+    const file = join(entry.parentPath, entry.name);
+    const path = relative(directory, file).split(sep);
+    if (
+      !entry.isFile() ||
+      !scriptFile.test(entry.name) ||
+      entry.name.includes(".test.") ||
+      path[0] === "testing" ||
+      path.includes("node_modules")
+    )
+      continue;
+    walk(await parse(file), (node) => {
+      if (!ts.isStringLiteralLike(node)) return;
+      const required =
+        ts.isCallExpression(node.parent) &&
+        ts.isIdentifier(node.parent.expression) &&
+        node.parent.expression.text === "require";
+      if (!required && !isModuleSpecifier(node)) return;
+      const specifier = node.text;
+      const segments = specifier.startsWith(".")
+        ? posix.normalize(specifier).split("/")
+        : specifier.startsWith("@werft-ai/")
+          ? specifier.split("/").slice(2)
+          : [];
+      if (segments.includes("testing")) found.push({ file, specifier });
+    });
+  }
+  return found;
 }
 
 /**
@@ -657,21 +701,48 @@ describe("architecture", () => {
   // helpers may reach them.
   test("no runtime source imports a package's testing helpers", async () => {
     const offenders: string[] = [];
-    for (const directory of await workspacePackages()) {
-      for (const file of await sourceFiles(join(directory, "src"))) {
-        if (file.includes(`${sep}src${sep}testing${sep}`)) continue;
-        const source = await readFile(file, "utf8");
-        const testing = specifiers(source).filter((s) =>
-          s
-            .split("/")
-            .slice(s.startsWith(".") ? 0 : s.startsWith("@") ? 2 : 1)
-            .includes("testing"),
-        );
-        for (const specifier of testing)
-          offenders.push(`${relative(root, file)}: ${specifier}`);
-      }
-    }
+    for (const directory of await workspacePackages())
+      for (const { file, specifier } of await testingHelperImports(
+        join(directory, "src"),
+      ))
+        offenders.push(`${relative(root, file)}: ${specifier}`);
     expect(offenders).toEqual([]);
+  });
+
+  test("the testing-helper scan sees every import form and skips comments", async () => {
+    const fixture = await mkdtemp(join(tmpdir(), "arch-"));
+    try {
+      await mkdir(join(fixture, "src", "testing"), { recursive: true });
+      const cases: Array<[string, string]> = [
+        ["static.ts", 'import { x } from "@werft-ai/db/testing/a";'],
+        ["view.tsx", 'import "./testing/a.ts";\nexport const V = () => <p />;'],
+        ["dynamic.ts", "export const f = () => import(/* c */ `./testing/a`);"],
+        ["required.js", 'module.exports = require("../src/testing/a");'],
+        ["reexport.mts", 'export * from "@werft-ai/db/testing/a";'],
+        ["commented.ts", '// import "@werft-ai/db/testing/a";'],
+        ["climbs.ts", 'import "./testing/../runtime.ts";'],
+        ["external.ts", 'import "react-dom/testing/utils";'],
+        ["unit.test.tsx", 'import "./testing/a.ts";'],
+        [join("testing", "a.ts"), 'import "@werft-ai/db/testing/b";'],
+      ];
+      for (const [name, body] of cases)
+        await writeFile(join(fixture, "src", name), `${body}\n`);
+      expect(
+        (await testingHelperImports(join(fixture, "src")))
+          .map(
+            ({ file, specifier }) => `${relative(fixture, file)} ${specifier}`,
+          )
+          .sort(),
+      ).toEqual([
+        `${join("src", "dynamic.ts")} ./testing/a`,
+        `${join("src", "reexport.mts")} @werft-ai/db/testing/a`,
+        `${join("src", "required.js")} ../src/testing/a`,
+        `${join("src", "static.ts")} @werft-ai/db/testing/a`,
+        `${join("src", "view.tsx")} ./testing/a.ts`,
+      ]);
+    } finally {
+      await rm(fixture, { recursive: true, force: true });
+    }
   });
 
   test("the import scan sees single-quoted and template-literal specifiers", async () => {
