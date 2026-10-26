@@ -33,7 +33,7 @@ import {
   type SessionCatalog,
   type WorkerGateway,
 } from "@werft-ai/platform";
-import { FakeAgentRuntime } from "@werft-ai/runtime-claude";
+import { claudeContractRun, FakeAgentRuntime } from "@werft-ai/runtime-claude";
 import type {
   CheckpointPreparation,
   NativeSdkMessage,
@@ -408,25 +408,27 @@ integration(
         logger: silent,
         runtimes: {
           launcherFor: () => ({
-            start: ({ runtimeConfig, principal, ...rest }, hooks) => {
+            start: ({ runtimeConfig, principal, ...rest }) => {
               launches.push({
                 mode: rest.mode,
                 resume: rest.mode === "resume" ? rest.resume : null,
               });
-              return runtime.start(
-                {
-                  claudeConfigDir: "/tmp/fake/config",
-                  cwd: "/tmp/fake/workspace",
-                  home: "/tmp/fake/home",
-                  model: runtimeConfig.model,
-                  profile: {
-                    ...runtimeConfig.provider,
-                    principal: { ownerScope: principal.owner_scope },
+              return claudeContractRun((hooks) =>
+                runtime.start(
+                  {
+                    claudeConfigDir: "/tmp/fake/config",
+                    cwd: "/tmp/fake/workspace",
+                    home: "/tmp/fake/home",
+                    model: runtimeConfig.model,
+                    profile: {
+                      ...runtimeConfig.provider,
+                      principal: { ownerScope: principal.owner_scope },
+                    },
+                    tools: runtimeConfig.tools,
+                    ...rest,
                   },
-                  tools: runtimeConfig.tools,
-                  ...rest,
-                },
-                hooks,
+                  hooks,
+                ),
               );
             },
           }),

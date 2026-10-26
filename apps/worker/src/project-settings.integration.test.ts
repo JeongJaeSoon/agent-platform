@@ -172,7 +172,6 @@ async function runOneTurn(
       cwd: repository.workspace,
       home: repository.home,
     },
-    timeouts,
   } as WorkerConfig;
   const engines = new EngineProcesses();
   const host = new WorkerHost({

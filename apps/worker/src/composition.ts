@@ -18,7 +18,7 @@ import {
 } from "@werft-ai/runtime-core";
 
 import type { WorkerCheckpointPort } from "./checkpoint.ts";
-import type { WorkerConfig } from "./config.ts";
+import type { WorkerConfig, WorkerTimeouts } from "./config.ts";
 import { consoleLogger } from "./console-logger.ts";
 import { EngineProcesses } from "./engine-processes.ts";
 import { HttpWorkerGatewayClient } from "./gateway-client.ts";
@@ -113,7 +113,9 @@ export function createWorkerHost(
  * replayable on the build that wrote it.
  */
 export function claudeRuntimeRegistry(
-  config: WorkerConfig,
+  config: Pick<WorkerConfig, "egressCredentialUrl" | "runtime"> & {
+    timeouts?: Pick<WorkerTimeouts, "toolUseFrameWaitMs">;
+  },
   engines: EngineProcesses,
 ): RuntimeRegistry {
   const installed = new InstalledRuntimes([claudeRuntimeModule]);
@@ -125,7 +127,7 @@ export function claudeRuntimeRegistry(
         processObserver: engines,
         stateDir: config.runtime.claudeConfigDir,
         providerMaxRetries: config.runtime.providerMaxRetries,
-        ...(config.timeouts.toolUseFrameWaitMs === undefined
+        ...(config.timeouts?.toolUseFrameWaitMs === undefined
           ? {}
           : { toolCallWaitMs: config.timeouts.toolUseFrameWaitMs }),
       });
