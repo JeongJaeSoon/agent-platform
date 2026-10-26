@@ -72,7 +72,7 @@ const RETRY_CASES: ReadonlyArray<{
     routes: { ...agentServer().routes, ...meOk },
     failingKey: `GET /v1/agents/${AGENT_ID}`,
     answer: () => json(200, agentServer().detail()),
-    after: /^배포된 버전$/,
+    after: /^답변 대기$/,
   },
   {
     name: "구성원 목록",

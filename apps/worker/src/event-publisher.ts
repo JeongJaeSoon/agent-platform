@@ -120,16 +120,20 @@ export class EventPublisher {
 
   /**
    * Resolves once the tool call with this id is stored, or rejects once
-   * `waitMs` has passed without it, or the stream has failed. The engine can
+   * `waitMs` has passed since `since` without it, or the stream has failed. The engine can
    * ask to use a tool before the frame carrying the call reaches `publish`,
    * and whatever is written about the request must follow the call in the
    * stream. Each numbered call answers one wait, so an id the engine uses
    * again waits for its own frame.
    */
-  async toolUseStored(toolUseId: string, waitMs: number): Promise<void> {
+  async toolUseStored(
+    toolUseId: string,
+    waitMs: number,
+    since = performance.now(),
+  ): Promise<void> {
     // A stream that already failed stores nothing more, whatever came first.
     if (this.failure !== undefined) throw this.failure;
-    const deadline = performance.now() + waitMs;
+    const deadline = since + waitMs;
     let sequence = this.toolUseSequences.get(toolUseId);
     while (sequence === undefined) {
       if (this.failure !== undefined) throw this.failure;

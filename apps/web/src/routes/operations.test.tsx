@@ -39,6 +39,7 @@ const LIMITS = {
       accounted_content: ["input_messages"],
       updated_at: "2026-10-24T12:31:00.000Z",
     },
+    outputs: { used_bytes: 0, updated_at: null, complete: true },
   },
 };
 

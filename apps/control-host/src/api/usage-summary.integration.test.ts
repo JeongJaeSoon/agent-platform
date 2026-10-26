@@ -11,8 +11,11 @@ import {
 } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
+  authzDecisions,
   createApiKey,
+  createDatabaseAgentAuthority,
   createDatabaseIdentityReader,
+  createPostgresDecisionLog,
   createPostgresSessionUnitOfWork,
   createPostgresUsageReader,
   memberships,
@@ -80,6 +83,8 @@ integration("usage summary on PostgreSQL", () => {
     service = createUsageService({
       authorization: createAuthorizationPolicy({
         identity: createDatabaseIdentityReader(db),
+        agents: createDatabaseAgentAuthority(db),
+        decisions: createPostgresDecisionLog(db),
       }),
       reader: createPostgresUsageReader(db),
       limits: {
@@ -339,6 +344,155 @@ integration("usage summary on PostgreSQL", () => {
       expect(await refusal(service.getInstallationLimits(caller)), label).toBe(
         "FORBIDDEN",
       );
+    }
+  });
+
+  test("scope=agent adds up the sessions of any of the agent's releases, for its managers alone", async () => {
+    const period = { since: "2004-01-01", until: "2005-01-01" };
+    // A second release of the agent, and another agent beside it.
+    async function release(agent: string) {
+      const versionId = crypto.randomUUID();
+      await db.insert(schema.agentVersions).values({
+        id: versionId,
+        agentId: agent,
+        versionNo: 1 + Math.floor(Math.random() * 1e6),
+        card: {},
+        contentSha256: "b".repeat(64),
+      });
+      const id = `rel-${crypto.randomUUID()}`;
+      await db.insert(schema.agentReleases).values({
+        id,
+        agentId: agent,
+        versionId,
+        cardSha256: "b".repeat(64),
+        runtimeProfileId: "claude-coding-v1",
+        profileDigest: "digest",
+        runtimeConfigSnapshot: {},
+        effectiveTools: [],
+      });
+      return id;
+    }
+    const secondRelease = await release(agentId);
+    const otherAgent = crypto.randomUUID();
+    await db
+      .insert(schema.agents)
+      .values({ id: otherAgent, workspaceId, slug: "other", name: "Other" });
+    const otherRelease = await release(otherAgent);
+    const elsewhere = crypto.randomUUID();
+    const foreignAgent = crypto.randomUUID();
+    await db
+      .insert(workspaces)
+      .values({ id: elsewhere, slug: "elsewhere", name: "Elsewhere" });
+    await db.insert(schema.agents).values({
+      id: foreignAgent,
+      workspaceId: elsewhere,
+      slug: "bot",
+      name: "Bot",
+    });
+    await db
+      .insert(schema.agentAdmins)
+      .values({ workspaceId, agentId, userId: ids.bob });
+
+    await session(
+      key(agentKey, null),
+      "2004-02-01T00:00:00Z",
+      1,
+      10,
+      agentReleaseId,
+    );
+    await session(
+      user("alice", "member"),
+      "2004-03-01T00:00:00Z",
+      2,
+      20,
+      secondRelease,
+    );
+    await session(
+      user("alice", "member"),
+      "2004-04-01T00:00:00Z",
+      4,
+      40,
+      otherRelease,
+    );
+    await session(user("alice", "member"), "2004-05-01T00:00:00Z", 8, 80);
+    // Outside the period.
+    await session(
+      user("alice", "member"),
+      "2005-01-01T00:00:00Z",
+      16,
+      160,
+      agentReleaseId,
+    );
+
+    const query = { scope: "agent", agent_id: agentId, ...period };
+    for (const [label, caller] of [
+      ["owner", user("owner", "owner")],
+      ["admin", user("admin", "admin")],
+      ["the agent's admin", user("bob", "member")],
+    ] as const) {
+      const body = await summary(caller, query);
+      expect(body, label).toMatchObject({
+        scope: "agent",
+        session_count: 2,
+        cost_usd: "3.000000",
+        token_count: 30,
+        cost_complete: true,
+        run_seconds: 120,
+      });
+      expect(body, label).not.toHaveProperty("groups");
+    }
+
+    const requestId = crypto.randomUUID();
+    const admin = callerFor(
+      {
+        kind: "user",
+        id: ids.admin,
+        workspace_id: workspaceId,
+        role: "admin",
+        scopes: [...scopesForRole("admin")],
+      },
+      { kind: "web" },
+      requestId,
+    );
+    await summary(admin, query);
+    const decided = await db
+      .select()
+      .from(authzDecisions)
+      .where(eq(authzDecisions.requestId, requestId));
+    expect(
+      decided.map(({ action, resourceKind, resourceId, outcome }) => ({
+        action,
+        resourceKind,
+        resourceId,
+        outcome,
+      })),
+    ).toEqual([
+      {
+        action: "usage.agent_read",
+        resourceKind: "agent",
+        resourceId: agentId,
+        outcome: "allow",
+      },
+    ]);
+
+    for (const [label, caller] of [
+      ["member", user("alice", "member")],
+      ["another agent's admin", user("bob", "member")],
+      ["agent key", key(agentKey, null)],
+      ["personal key", key(personalKey, ids.alice)],
+    ] as const) {
+      const agent = label === "another agent's admin" ? otherAgent : agentId;
+      expect(
+        await refusal(summary(caller, { ...query, agent_id: agent })),
+        label,
+      ).toBe("FORBIDDEN");
+    }
+    for (const agent of [foreignAgent, crypto.randomUUID()]) {
+      expect(
+        await refusal(
+          summary(user("owner", "owner"), { ...query, agent_id: agent }),
+        ),
+      ).toBe("NOT_FOUND");
     }
   });
 

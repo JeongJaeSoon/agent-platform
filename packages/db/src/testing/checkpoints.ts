@@ -41,6 +41,7 @@ export function commitCheckpoint(
       ...(input.transcriptBytes === undefined
         ? {}
         : { transcriptBytes: input.transcriptBytes }),
+      ...(input.outputs === undefined ? {} : { outputs: input.outputs }),
     });
     return advanced.outcome === "committed"
       ? advanced

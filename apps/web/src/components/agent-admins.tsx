@@ -8,6 +8,7 @@ import type {
 import { useAgentPlatform } from "@werft-ai/react";
 import {
   Avatar,
+  avatarInitials,
   Button,
   buttonVariants,
   ConfirmDialog,
@@ -38,7 +39,6 @@ import {
 } from "../auth/guard.tsx";
 import { ReasonButton } from "../auth/reason-button.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
-import { initials } from "./agent-cards.tsx";
 import { LoadFailure } from "./load-failure.tsx";
 import { MUTED, SECTION, SECTION_TITLE } from "./my-teams.tsx";
 import type { Outcome } from "./outcome.tsx";
@@ -249,20 +249,26 @@ function AdminList({
         ? personReason
         : `${personReason} ${teamReason}`
       : undefined;
+  // Said, not shown by disabling the picker: a picker disabled under the
+  // pointer or focus greys out and drops focus to the page.
+  const nothingLeft =
+    picking &&
+    members.isSuccess &&
+    !members.isFetching &&
+    teams.isSuccess &&
+    !teams.isFetching &&
+    people.length === 0 &&
+    groups.length === 0;
   const partial =
     addReason === undefined
       ? members.error
         ? personReason
         : teams.error
           ? teamReason
-          : undefined
+          : nothingLeft
+            ? t("agentAdmins.nothingLeft")
+            : undefined
       : undefined;
-  const nothingLeft =
-    picking &&
-    !members.isPending &&
-    !members.isFetching &&
-    people.length === 0 &&
-    groups.length === 0;
   const since = (at: string) => {
     const parts = new Map(
       DAY.formatToParts(new Date(at)).map((p) => [p.type, p.value] as const),
@@ -296,7 +302,7 @@ function AdminList({
             return (
               <RowListItem key={`u:${user.user_id}`}>
                 <Avatar
-                  initials={initials(name).slice(0, 1)}
+                  initials={avatarInitials(name).slice(0, 1)}
                   tone={avatarTone(user.user_id)}
                 />
                 <RowLines>
@@ -316,7 +322,7 @@ function AdminList({
             <RowListItem key={`t:${row.team_id}`}>
               <Avatar
                 shape="square"
-                initials={initials(row.name).slice(0, 1)}
+                initials={avatarInitials(row.name).slice(0, 1)}
                 tone={avatarTone(row.team_id)}
               />
               <RowLines>
@@ -360,7 +366,7 @@ function AdminList({
             id={pickerId}
             className="w-60 max-w-full"
             value={picked}
-            disabled={addReason !== undefined || nothingLeft}
+            disabled={addReason !== undefined}
             aria-busy={members.isFetching}
             aria-describedby={partial ? hintId : undefined}
             onChange={(event) => setPicked(event.target.value)}

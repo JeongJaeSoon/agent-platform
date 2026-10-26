@@ -45,6 +45,10 @@ export const slackEn = {
   "slack.state.pending": "Awaiting installation",
   "slack.state.connected": "Connected",
   "slack.state.reinstall": "Reinstall required",
+  "slack.eventsPending.title": "Verify the Request URL in Slack",
+  "slack.eventsPending.body":
+    "Slack sends no invites, mentions or DMs until it has checked this app's Request URL. In the app's Event Subscriptions settings, press Verify (or Retry). This notice goes away once Slack's check arrives.",
+  "slack.eventsPending.open": "Open Event Subscriptions",
   "slack.repositoryRequired.title": "Sessions can't start from Slack",
   "slack.repositoryRequired.body":
     "This agent's profile ({profile}) needs a repository for every session. Slack mentions and DMs can't pick one, so they are refused and only a notice is left in the thread. You can still connect. Switch the release to a profile that needs no repository, or start sessions from the web console.",

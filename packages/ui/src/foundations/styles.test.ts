@@ -203,6 +203,33 @@ describe("이름공간", () => {
   });
 });
 
+describe("theme.css", () => {
+  test("눌리는 부품은 손가락 커서, 비활성은 not-allowed 커서다", () => {
+    // Tailwind 4's preflight leaves <button> on the UA's arrow cursor.
+    const base = parse(THEME).filter(
+      (d) => d.atRules.includes("@layer base") && d.property === "cursor",
+    );
+    const cursorOf = (part: string, enabled: boolean) =>
+      base.find(
+        (d) =>
+          d.selector.includes(part) &&
+          d.selector.includes(":disabled") &&
+          d.selector.includes(":not(") === enabled,
+      )?.value;
+    for (const part of [
+      "button",
+      '[role="tab"]',
+      '[role="switch"]',
+      '[role="radio"]',
+      "summary",
+      "select",
+    ]) {
+      expect([part, cursorOf(part, true)]).toEqual([part, "pointer"]);
+      expect([part, cursorOf(part, false)]).toEqual([part, "not-allowed"]);
+    }
+  });
+});
+
 describe("tokens.css", () => {
   test("본문 색이 앉을 수 있는 모든 바탕에서 AA를 넘는다", () => {
     // 12px 상태 문구까지 포함하므로 large-text 예외(3:1)는 쓰지 않는다.

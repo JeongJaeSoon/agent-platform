@@ -28,7 +28,7 @@ export function Switch({
     <SwitchPrimitive.Root
       data-slot="switch"
       className={cn(
-        "peer inline-flex h-5 w-9 shrink-0 items-center rounded-full border-2 border-transparent transition-[background-color] duration-[var(--ap-motion-fast)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring aria-disabled:cursor-progress disabled:cursor-not-allowed disabled:opacity-40 data-[state=checked]:bg-control-checked data-[state=unchecked]:bg-input motion-reduce:transition-none",
+        "peer inline-flex h-5 w-9 shrink-0 items-center rounded-full border-2 border-transparent transition-[background-color] duration-[var(--ap-motion-fast)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring aria-disabled:cursor-progress disabled:cursor-not-allowed disabled:opacity-40 data-[state=checked]:bg-control-checked data-[state=unchecked]:bg-input data-[state=checked]:enabled:not-aria-disabled:hover:bg-control-checked/80 data-[state=unchecked]:enabled:not-aria-disabled:hover:bg-subtle-foreground motion-reduce:transition-none",
         className,
       )}
       onClick={(event) => {

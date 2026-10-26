@@ -22,12 +22,16 @@ import {
 } from "./postgres-unit-of-work.ts";
 import * as schema from "./schema.ts";
 import {
-  executions,
   sessions,
   turns,
   unassignedSessions,
   workerLaunches,
 } from "./schema.ts";
+import {
+  insertUnreservedLaunch,
+  launchSession,
+  type TestLaunch,
+} from "./testing/launches.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 /**
@@ -151,45 +155,18 @@ async function storedFingerprint(sessionId: string) {
  * own, the way the scheduler's reservation does; otherwise it is a pool
  * launch that claims whatever its host may run.
  */
-async function launch(
-  gateway: WorkerGateway,
-  sessionId: string,
-  pinned: boolean,
-) {
-  const executionId = `exec-${crypto.randomUUID()}`;
-  const registered = await gateway.registerLaunch({
-    executionId,
-    generation: 1,
-    backend: "local_docker",
-    ...(pinned ? { sessionId } : {}),
-  });
-  if (registered.nonce === null) throw new Error("launch already registered");
-  if (pinned) {
-    await db.insert(executions).values({
-      backend: "local_docker",
-      desiredState: "running",
-      generation: 1,
-      id: executionId,
-      observedState: "running",
-      sessionId,
-    });
-    await db
-      .update(sessions)
-      .set({ executionId })
-      .where(eq(sessions.id, sessionId));
-  }
-  return { executionId, nonce: registered.nonce };
+function launch(sessionId: string, pinned: boolean): Promise<TestLaunch> {
+  return pinned
+    ? launchSession(db, { sessionId })
+    : insertUnreservedLaunch(db, { partition: "default" });
 }
 
-function claim(
-  gateway: WorkerGateway,
-  l: { executionId: string; nonce: string },
-) {
+function claim(gateway: WorkerGateway, l: TestLaunch) {
   return gateway.bootstrapClaim(
     { kind: "bootstrap" },
     {
       execution_id: l.executionId,
-      execution_generation: 1,
+      execution_generation: l.generation,
       credential: { kind: "launch_nonce", nonce: l.nonce },
     },
   );
@@ -223,7 +200,7 @@ describe("profile fingerprint pinned at create", () => {
     const sessionId = await createSession(ORIGINAL);
     const widened = gatewayOf(WIDENED);
     expect(
-      await refusal(claim(widened, await launch(widened, sessionId, false))),
+      await refusal(claim(widened, await launch(sessionId, false))),
     ).toEqual({
       status: 404,
       code: "NOT_FOUND",
@@ -236,10 +213,7 @@ describe("profile fingerprint pinned at create", () => {
     ).toBeNull();
 
     const original = gatewayOf(ORIGINAL);
-    const claimed = await claim(
-      original,
-      await launch(original, sessionId, false),
-    );
+    const claimed = await claim(original, await launch(sessionId, false));
     expect(claimed.session_id).toBe(sessionId);
     expect(claimed.profile_fingerprint).toBe(profileFingerprint(profile()));
     expect(claimed.runtime_config.tools).toEqual(["Read"]);
@@ -250,7 +224,7 @@ describe("profile fingerprint pinned at create", () => {
     const sessionId = await createSession(ORIGINAL);
     const widened = gatewayOf(WIDENED);
     expect(
-      await refusal(claim(widened, await launch(widened, sessionId, true))),
+      await refusal(claim(widened, await launch(sessionId, true))),
     ).toEqual({
       status: 409,
       code: "CATALOG_MISMATCH",
@@ -274,7 +248,7 @@ describe("profile fingerprint pinned at create", () => {
   test("a replay through a host with other settings is refused before it rotates the token", async () => {
     const sessionId = await createSession(ORIGINAL);
     const original = gatewayOf(ORIGINAL);
-    const l = await launch(original, sessionId, false);
+    const l = await launch(sessionId, false);
     const first = await claim(original, l);
     expect(await refusal(claim(gatewayOf(WIDENED), l))).toEqual({
       status: 503,
@@ -292,10 +266,7 @@ describe("profile fingerprint pinned at create", () => {
   test("only the credential is taken at claim: a rotated value behind the same reference binds and reaches the provider route", async () => {
     const sessionId = await createSession(ORIGINAL);
     const rotated = gatewayOf(ROTATED);
-    const claimed = await claim(
-      rotated,
-      await launch(rotated, sessionId, false),
-    );
+    const claimed = await claim(rotated, await launch(sessionId, false));
     expect(claimed.session_id).toBe(sessionId);
     const auth = claimed.runtime_config.provider.auth;
     if (auth.kind !== "egress_token") throw new Error(auth.kind);
@@ -309,7 +280,7 @@ describe("profile fingerprint pinned at create", () => {
   test("a row from before the column, bound before it, replays only under the settings its first claim issued the provider token for", async () => {
     const sessionId = await createSession(ORIGINAL);
     const original = gatewayOf(ORIGINAL);
-    const l = await launch(original, sessionId, false);
+    const l = await launch(sessionId, false);
     const first = await claim(original, l);
     // As a claim made before 0119 left it: bound, nothing pinned.
     await db
@@ -350,7 +321,7 @@ describe("profile fingerprint pinned at create", () => {
     expect(await storedFingerprint(sessionId)).toBeNull();
 
     const widened = gatewayOf(WIDENED);
-    await claim(widened, await launch(widened, sessionId, false));
+    await claim(widened, await launch(sessionId, false));
     expect(await storedFingerprint(sessionId)).toBe(
       profileFingerprint(WIDENED.profiles[PROFILE_ID] as CatalogProfile),
     );
@@ -399,7 +370,7 @@ describe("billing none pinned at create", () => {
     expect(await stored(sessionId)).toEqual({ unmetered: true, costUsd: 0 });
 
     const local = gatewayOf(UNMETERED);
-    const claimed = await claim(local, await launch(local, sessionId, true));
+    const claimed = await claim(local, await launch(sessionId, true));
     expect(claimed.remaining_budget_usd).toBeNull();
 
     // Mid-rollout, the report lands on a replica with the old catalog.
@@ -419,10 +390,7 @@ describe("billing none pinned at create", () => {
     const sessionId = await createSession(ORIGINAL);
     expect((await stored(sessionId))?.unmetered).toBe(false);
     const gateway = gatewayOf(ORIGINAL);
-    const claimed = await claim(
-      gateway,
-      await launch(gateway, sessionId, true),
-    );
+    const claimed = await claim(gateway, await launch(sessionId, true));
     expect(claimed.remaining_budget_usd).toBe(1_000);
     const priced = await gateway.recordProviderUsage({
       exchangeId: crypto.randomUUID(),
@@ -465,10 +433,7 @@ describe("a model named at create", () => {
       permission_mode: "default",
     });
     const gateway = gatewayOf(OFFERS);
-    const claimed = await claim(
-      gateway,
-      await launch(gateway, sessionId, false),
-    );
+    const claimed = await claim(gateway, await launch(sessionId, false));
     expect(claimed.session_id).toBe(sessionId);
     expect(claimed.runtime_config.model).toBe("claude-opus-5-5");
     expect(claimed.profile_fingerprint).toBe(opus());
@@ -488,7 +453,7 @@ describe("a model named at create", () => {
     // Listing more models stops nothing created before the list.
     const before = (await create(ORIGINAL)).session_id;
     const gateway = gatewayOf(OFFERS);
-    const claimed = await claim(gateway, await launch(gateway, before, true));
+    const claimed = await claim(gateway, await launch(before, true));
     expect(claimed.runtime_config.model).toBe("claude-sonnet-5");
   });
 
@@ -513,7 +478,7 @@ describe("a model named at create", () => {
     ).toBe("CATALOG_MISMATCH");
     const narrowed = gatewayOf(ORIGINAL);
     expect(
-      await refusal(claim(narrowed, await launch(narrowed, sessionId, true))),
+      await refusal(claim(narrowed, await launch(sessionId, true))),
     ).toEqual({ status: 409, code: "CATALOG_MISMATCH" });
   });
 
@@ -521,10 +486,7 @@ describe("a model named at create", () => {
     const gateway = gatewayOf(OFFERS);
     const providerAuth = async (model?: string) => {
       const { session_id } = await create(OFFERS, model);
-      const claimed = await claim(
-        gateway,
-        await launch(gateway, session_id, false),
-      );
+      const claimed = await claim(gateway, await launch(session_id, false));
       const auth = claimed.runtime_config.provider.auth;
       if (auth.kind !== "egress_token") throw new Error(auth.kind);
       return { token: auth.token, purpose: "provider" as const };

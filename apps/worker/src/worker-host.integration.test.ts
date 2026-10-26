@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { CheckpointRef, RuntimeConfig } from "@werft-ai/contracts";
-import { ClaudeSdkRuntime } from "@werft-ai/runtime-claude";
+import { ClaudeSdkRuntime, claudeContractRun } from "@werft-ai/runtime-claude";
 import type { CheckpointPreparation } from "@werft-ai/runtime-core";
 import {
   type FakeAnthropicServer,
@@ -88,26 +88,28 @@ function sdkRuntimes(
   return {
     launcherFor: () => ({
       // What to run comes from the claim, as in composition.
-      start: ({ runtimeConfig, principal, ...launch }, hooks) =>
-        runtime.start(
-          {
-            claudeConfigDir: home,
-            cwd: workspace,
-            home,
-            maxTurns: 4,
-            model: runtimeConfig.model,
-            permissionMode: runtimeConfig.permission_mode,
-            // The fake server stands in for the proxy's route too.
-            profile: engineProfile(
-              runtimeConfig.provider,
-              principal.owner_scope,
-              runtimeConfig.provider.endpoint.replace(/\/$/, ""),
-            ),
-            settingSources: ["project"],
-            tools: runtimeConfig.tools,
-            ...launch,
-          },
-          hooks,
+      start: ({ runtimeConfig, principal, ...launch }) =>
+        claudeContractRun((hooks) =>
+          runtime.start(
+            {
+              claudeConfigDir: home,
+              cwd: workspace,
+              home,
+              maxTurns: 4,
+              model: runtimeConfig.model,
+              permissionMode: runtimeConfig.permission_mode,
+              // The fake server stands in for the proxy's route too.
+              profile: engineProfile(
+                runtimeConfig.provider,
+                principal.owner_scope,
+                runtimeConfig.provider.endpoint.replace(/\/$/, ""),
+              ),
+              settingSources: ["project"],
+              tools: runtimeConfig.tools,
+              ...launch,
+            },
+            hooks,
+          ),
         ),
     }),
   };

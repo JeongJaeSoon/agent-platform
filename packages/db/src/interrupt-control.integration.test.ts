@@ -39,6 +39,7 @@ import {
   turns,
   unassignedSessions,
 } from "./schema.ts";
+import { confirmExecutionGone, launchSession } from "./testing/launches.ts";
 import { expireOverdueInterrupts } from "./turn-interrupts.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
@@ -126,19 +127,14 @@ integration("turn interrupts on PostgreSQL", () => {
     executionId: string;
   };
 
-  async function claim(partition: string): Promise<Worker> {
-    const executionId = `exec-${crypto.randomUUID()}`;
-    const registered = await gateway.registerLaunch({
-      executionId,
-      generation: 1,
-      partition,
-      backend: "local_docker",
+  async function claim(sessionId: string): Promise<Worker> {
+    const { executionId, generation, nonce } = await launchSession(db, {
+      sessionId,
     });
-    if (registered.nonce === null) throw new Error("launch already registered");
     const claimed = await gateway.bootstrapClaim(bootstrap, {
       execution_id: executionId,
-      execution_generation: 1,
-      credential: { kind: "launch_nonce", nonce: registered.nonce },
+      execution_generation: generation,
+      credential: { kind: "launch_nonce", nonce },
     });
     return {
       executionId,
@@ -205,7 +201,7 @@ integration("turn interrupts on PostgreSQL", () => {
       .update(unassignedSessions)
       .set({ partition })
       .where(eq(unassignedSessions.sessionId, sessionId));
-    const worker = await claim(partition);
+    const worker = await claim(sessionId);
     expect(await next(worker)).toBe("1");
     return { owner, sessionId, worker };
   }
@@ -483,7 +479,7 @@ integration("turn interrupts on PostgreSQL", () => {
     const { owner, sessionId, worker } = await runningSession();
     const accepted = await interrupt(owner, sessionId, "1");
 
-    await gateway.confirmExecutionGone(worker.executionId);
+    await confirmExecutionGone(db, worker.executionId);
 
     expect(await receiptOf(accepted.receipt_id)).toMatchObject({
       status: "unknown",
@@ -611,7 +607,7 @@ integration("turn interrupts on PostgreSQL", () => {
       // The kill is asked for once; later passes wait on the scheduler.
       expect(await sweep(sessionId)).toEqual([]);
 
-      await gateway.confirmExecutionGone(worker.executionId);
+      await confirmExecutionGone(db, worker.executionId);
       expect(await receiptOf(accepted.receipt_id)).toMatchObject({
         status: "unknown",
         result: { turn_id: "1", terminal: "outcome_unknown", no_op: false },
@@ -712,7 +708,7 @@ integration("turn interrupts on PostgreSQL", () => {
         error: { code: "BACKEND_UNAVAILABLE" },
       });
 
-      await gateway.confirmExecutionGone(worker.executionId);
+      await confirmExecutionGone(db, worker.executionId);
       expect(await receiptOf(accepted.receipt_id)).toMatchObject({
         status: "unknown",
         result: { turn_id: "1", terminal: "outcome_unknown", no_op: false },

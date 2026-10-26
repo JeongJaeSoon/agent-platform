@@ -12,6 +12,7 @@ import {
   eq,
   gt,
   inArray,
+  isNotNull,
   isNull,
   lt,
   lte,
@@ -266,6 +267,28 @@ export function createPostgresCheckpointStore(
         )
         .returning({ revision: checkpoints.revision });
       return marked.length;
+    },
+
+    async markPurged(
+      sessionId: string,
+      options: { keep: readonly number[]; throughRevision: number },
+    ): Promise<void> {
+      // Rows an earlier, failed pass collected are included: this pass
+      // listed their directories again and deleted what it found.
+      await db
+        .update(checkpoints)
+        .set({ objectsPurgedAt: DB_NOW })
+        .where(
+          and(
+            eq(checkpoints.sessionId, sessionId),
+            lte(checkpoints.revision, options.throughRevision),
+            isNotNull(checkpoints.collectedAt),
+            isNull(checkpoints.objectsPurgedAt),
+            ...(options.keep.length === 0
+              ? []
+              : [notInArray(checkpoints.revision, [...options.keep])]),
+          ),
+        );
     },
 
     async listSessionIds(options: {

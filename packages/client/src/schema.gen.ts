@@ -2168,7 +2168,7 @@ export interface paths {
         };
         /**
          * Installation limits and installation-wide usage
-         * @description Reads the limits this installation runs under (execution slots, queued input per session, storage, turn length, per-session cost and token limits, provider retries) and the usage against the installation-wide ones, summed over every owner. Use it to explain `STORAGE_LIMIT_EXCEEDED`, a full input queue, or sessions waiting in `queued` for a slot.
+         * @description Reads the limits this installation runs under (execution slots, queued input per session, storage, turn length, per-session cost and token limits, provider retries) and the usage against the installation-wide ones, summed over every owner. Use it to explain `STORAGE_LIMIT_EXCEEDED`, a full input queue, or sessions waiting in `queued` for a slot. `usage.outputs` is the bytes of session outputs kept in the object store, shown beside storage and never enforced.
          *
          *     Only the workspace owner, signed in, reads it: any other member and every API key get 403. It changes nothing.
          *
@@ -2196,6 +2196,7 @@ export interface paths {
          *
          *     - `scope=me`: the sessions the caller started. A personal API key counts as the person who created it; a key nobody created counts the sessions it started itself. Sessions shared with the caller are not added. A key bound to an agent gets 403, as it does from `GET /v1/sessions`.
          *     - `scope=installation`: every session of every owner. Only the workspace owner, signed in, reads it: any other member and every API key get 403.
+         *     - `scope=agent` with `agent_id`: the sessions started from any release of that agent, whoever started them. The workspace's owner and admins and the agent's admins read it; anyone else, and every API key, gets 403, and an agent of another workspace, or none, is 404 for everyone. `agent_id` is required with it and refused with any other scope, and `group_by` is refused with it.
          *
          *     `cost_usd` is the sum of `cost.amount_usd` from `GET /v1/sessions/{id}/usage` over the same sessions: an estimate, not a bill. `cost_complete: false` means one of them has a turn still open or one that ended without reporting its cost, so the true total is unknown. `run_seconds` is wall-clock turn time, waiting for an answer included; an open turn counts up to `refreshed_at`. Sessions from before tokens were metered count 0 tokens.
          *
@@ -2431,9 +2432,11 @@ export interface components {
         };
         UsageSummaryQuery: {
             /** @enum {string} */
-            scope: "installation" | "me";
+            scope: "installation" | "me" | "agent";
             since: string;
             until?: string;
+            /** Format: uuid */
+            agent_id?: string;
             /** @enum {string} */
             group_by?: "agent" | "user";
         };
@@ -2718,7 +2721,6 @@ export interface components {
             card: {
                 role: string;
                 instructions: string;
-                tone?: string;
                 /**
                  * @default ko
                  * @enum {string}
@@ -2759,7 +2761,6 @@ export interface components {
             card?: {
                 role: string;
                 instructions: string;
-                tone?: string;
                 /**
                  * @default ko
                  * @enum {string}
@@ -4332,7 +4333,7 @@ export interface components {
                 created_at: string;
             } | null;
             scopes: ("sessions:read" | "sessions:write" | "sessions:approve" | "sessions:control" | "sessions:recover")[];
-            permissions: ("workspace.read" | "workspace.manage" | "audit_retention.manage" | "member.manage" | "team.manage" | "api_key.manage" | "api_key.manage_own" | "account.link" | "agent.create" | "agent.manage" | "agent.restore" | "agent.admin.manage" | "credential.bind" | "binding.manage" | "routine.manage" | "session.read" | "session.submit" | "session.approve" | "session.control" | "session.recover" | "session.share" | "session.rename" | "session.audit_read" | "session.admin_list" | "usage.installation_read" | "memory.read" | "memory.write" | "artifact.read" | "delivery.send")[];
+            permissions: ("workspace.read" | "workspace.manage" | "audit_retention.manage" | "member.manage" | "team.manage" | "api_key.manage" | "api_key.manage_own" | "account.link" | "agent.create" | "agent.manage" | "agent.restore" | "agent.admin.manage" | "credential.bind" | "binding.manage" | "routine.manage" | "session.read" | "session.submit" | "session.approve" | "session.control" | "session.recover" | "session.share" | "session.rename" | "session.audit_read" | "session.admin_list" | "usage.installation_read" | "usage.agent_read" | "memory.read" | "memory.write" | "artifact.read" | "delivery.send")[];
         };
         InstallationLimitsResponse: {
             /** @constant */
@@ -4356,11 +4357,16 @@ export interface components {
                     accounted_content: "input_messages"[];
                     updated_at: string | null;
                 };
+                outputs: {
+                    used_bytes: number;
+                    updated_at: string | null;
+                    complete: boolean;
+                };
             };
         };
         UsageSummaryResponse: {
             /** @enum {string} */
-            scope: "installation" | "me";
+            scope: "installation" | "me" | "agent";
             period: {
                 /** Format: date-time */
                 since: string;
@@ -4596,7 +4602,6 @@ export interface components {
                 card: {
                     role: string;
                     instructions: string;
-                    tone?: string;
                     /**
                      * @default ko
                      * @enum {string}
@@ -7360,7 +7365,8 @@ export interface operations {
                      *         "binding.manage",
                      *         "session.audit_read",
                      *         "session.admin_list",
-                     *         "usage.installation_read"
+                     *         "usage.installation_read",
+                     *         "usage.agent_read"
                      *       ]
                      *     }
                      */
@@ -19418,6 +19424,11 @@ export interface operations {
                      *             "input_messages"
                      *           ],
                      *           "updated_at": "2026-10-11T08:14:00Z"
+                     *         },
+                     *         "outputs": {
+                     *           "used_bytes": 3145728,
+                     *           "updated_at": "2026-10-11T08:12:30Z",
+                     *           "complete": true
                      *         }
                      *       }
                      *     }
@@ -19477,9 +19488,10 @@ export interface operations {
     getUsageSummary: {
         parameters: {
             query: {
-                scope: "installation" | "me";
+                scope: "installation" | "me" | "agent";
                 since: string;
                 until?: string;
+                agent_id?: string;
                 group_by?: "agent" | "user";
             };
             header?: never;
@@ -19559,6 +19571,21 @@ export interface operations {
                         error?: {
                             /** @enum {string} */
                             code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
                         };
                     };
                 };
