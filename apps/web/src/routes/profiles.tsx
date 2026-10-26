@@ -37,51 +37,54 @@ export function ProfilesScreen() {
 
   return (
     <Page title={t("profiles.title")} description={t("profiles.description")}>
-      <Alert variant="blue">
-        <AlertTitle>
-          {t(oversight ? "profiles.readOnlyTitle" : "profiles.pickTitle")}
-        </AlertTitle>
-        <AlertDescription>
-          {t(oversight ? "profiles.readOnlyText" : "profiles.pickText")}
-        </AlertDescription>
-      </Alert>
-      {profiles.isPending ? (
-        <Skeleton width="60%" />
-      ) : profiles.isError ? (
-        <LoadFailure
-          error={profiles.error}
-          onRetry={() => void profiles.refetch()}
-        />
-      ) : items.length === 0 ? (
-        <EmptyState title={t("profiles.empty")} />
-      ) : (
-        <div className="flex flex-col gap-3">
-          <div className="rounded-card border bg-card">
-            <GridTable
-              aria-label={t("profiles.title")}
-              columns={PROFILE_COLUMNS}
-            >
-              <GridTableHeader>
-                <GridTableColumnHeader>
-                  {t("profiles.column.profile")}
-                </GridTableColumnHeader>
-                <GridTableColumnHeader>
-                  {t("profiles.column.model")}
-                </GridTableColumnHeader>
-                <GridTableColumnHeader>
-                  {t("profiles.column.environment")}
-                </GridTableColumnHeader>
-              </GridTableHeader>
-              {items.map((profile) => (
-                <ProfileRow key={profile.id} profile={profile} />
-              ))}
-            </GridTable>
+      {/* The notice reads with the table it is about (v4: 16 between). */}
+      <div className="flex flex-col gap-[var(--ap-space-block)]">
+        <Alert variant="blue">
+          <AlertTitle>
+            {t(oversight ? "profiles.readOnlyTitle" : "profiles.pickTitle")}
+          </AlertTitle>
+          <AlertDescription>
+            {t(oversight ? "profiles.readOnlyText" : "profiles.pickText")}
+          </AlertDescription>
+        </Alert>
+        {profiles.isPending ? (
+          <Skeleton width="60%" />
+        ) : profiles.isError ? (
+          <LoadFailure
+            error={profiles.error}
+            onRetry={() => void profiles.refetch()}
+          />
+        ) : items.length === 0 ? (
+          <EmptyState title={t("profiles.empty")} />
+        ) : (
+          <div className="flex flex-col gap-[var(--ap-space-block)]">
+            <div className="rounded-card border bg-card">
+              <GridTable
+                aria-label={t("profiles.title")}
+                columns={PROFILE_COLUMNS}
+              >
+                <GridTableHeader>
+                  <GridTableColumnHeader>
+                    {t("profiles.column.profile")}
+                  </GridTableColumnHeader>
+                  <GridTableColumnHeader>
+                    {t("profiles.column.model")}
+                  </GridTableColumnHeader>
+                  <GridTableColumnHeader>
+                    {t("profiles.column.environment")}
+                  </GridTableColumnHeader>
+                </GridTableHeader>
+                {items.map((profile) => (
+                  <ProfileRow key={profile.id} profile={profile} />
+                ))}
+              </GridTable>
+            </div>
+            <p className={`m-0 ${META}`}>
+              {t("profiles.foot", { count: items.length })}
+            </p>
           </div>
-          <p className={`m-0 ${META}`}>
-            {t("profiles.foot", { count: items.length })}
-          </p>
-        </div>
-      )}
+        )}
+      </div>
     </Page>
   );
 }
