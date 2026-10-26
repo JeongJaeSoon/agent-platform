@@ -1839,7 +1839,7 @@ describe("session profile", () => {
     await user.keyboard("{Enter}");
     expect(
       await screen.findByText(
-        "요청을 보냈습니다. 바뀐 상태는 위 '상태'에 보입니다.",
+        "요청을 보냈습니다. 바뀐 상태는 제목 옆 배지에 보입니다.",
       ),
     ).toBeTruthy();
     const post = api.calls.find((call) => call.method === "POST");
@@ -1885,6 +1885,15 @@ describe("session profile", () => {
     await waitFor(() =>
       expect(document.activeElement?.textContent).toBe("다시 시작"),
     );
+    // The notice points at the badge that actually changed.
+    expect(
+      screen.getByText(
+        "요청을 보냈습니다. 바뀐 상태는 제목 옆 배지에 보입니다.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toContain(
+      "작업 상태: 쉬는 중세션 상태: 일시정지됨",
+    );
   });
 
   test("after resume the keyboard waits out resuming on the outcome and lands on pause, never on terminate", async () => {
@@ -1918,7 +1927,7 @@ describe("session profile", () => {
     );
     await waitFor(() =>
       expect(document.activeElement?.textContent).toBe(
-        "요청을 보냈습니다. 바뀐 상태는 위 '상태'에 보입니다.",
+        "요청을 보냈습니다. 바뀐 상태는 제목 옆 배지에 보입니다.",
       ),
     );
     state = { ...detail, current_turn_id: null };
@@ -2044,7 +2053,7 @@ describe("session profile", () => {
     await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
     await waitFor(() =>
       expect(document.activeElement?.textContent).toBe(
-        "요청을 보냈습니다. 바뀐 상태는 위 '상태'에 보입니다.",
+        "요청을 보냈습니다. 바뀐 상태는 제목 옆 배지에 보입니다.",
       ),
     );
   });
@@ -2496,6 +2505,34 @@ describe("세션 상세 레이아웃", () => {
     });
     const heading = await screen.findByRole("heading", { level: 1 });
     expect(heading.textContent?.startsWith(`${shown}작업 상태: `)).toBe(true);
+  });
+
+  test.each([
+    ["paused", "일시정지됨"],
+    ["pausing", "일시정지 중"],
+    ["resuming", "복원 중"],
+    ["stopping", "종료 중"],
+    ["stopped", "종료됨"],
+  ] as const)(
+    "세션 상태 %p는 머리 작업 상태 옆에 %p로 보인다",
+    async (admission_state, shown) => {
+      renderAt(`/sessions/${SESSION_ID}`, {
+        ...detailRoutes,
+        [`GET /v1/sessions/${SESSION_ID}`]: () =>
+          json(200, { ...detail, admission_state }),
+      });
+      const heading = await screen.findByRole("heading", { level: 1 });
+      expect(heading.textContent).toContain(
+        `작업 상태: 답변 대기세션 상태: ${shown}`,
+      );
+    },
+  );
+
+  test("열린 세션의 머리에는 세션 상태 배지가 없다", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
+    const heading = await screen.findByRole("heading", { level: 1 });
+    expect(heading.textContent?.endsWith("작업 상태: 답변 대기")).toBe(true);
+    expect(heading.querySelectorAll("[data-axis]")).toHaveLength(1);
   });
 
   test("ID 복사는 세션 ID 전체를 복사하고 그렇다고 알린다", async () => {
