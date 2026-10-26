@@ -86,6 +86,7 @@ import {
   InstallationConfigError,
   installationLimitsFromEnv,
   profileNeedsRepository,
+  WORKSPACE_PROFILE_REFRESH_MS,
 } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import {
@@ -258,9 +259,6 @@ if (checkpointStorage !== "disabled") {
 const pool = createApiPool(databaseUrl, logger);
 const db = drizzle(pool, { schema });
 // The services below read workspace profile versions through the catalog.
-// Session admission and claims read them fresh; this keeps the session views
-// of another replica's versions current between those.
-const WORKSPACE_PROFILE_REFRESH_MS = 10_000;
 const workspaceProfileStore = createPostgresWorkspaceProfileStore(db);
 const workspaceProfileVersions = createWorkspaceProfiles(workspaceProfileStore);
 catalog.workspace_profiles = workspaceProfileVersions;

@@ -65,6 +65,7 @@ import {
   type ProfilePin,
   profileFingerprint,
   profileWithModel,
+  refreshWorkspaceProfilesFor,
   repositoryModeOf,
   type SessionCatalogView,
   sessionProfile,
@@ -345,14 +346,13 @@ export function createSessionService(deps: {
       : allowedRun(catalog, profileId, record.repository_id);
   }
 
-  // A workspace version is read fresh: another replica may have made it.
   async function workspaceProfileRefusalOf(
     actor: Caller,
     profileId: string,
     retiredAllowed: boolean,
   ) {
     if (!profileId.startsWith(WORKSPACE_PROFILE_PREFIX)) return null;
-    await catalog.workspace_profiles?.refresh();
+    await refreshWorkspaceProfilesFor(catalog, [profileId]);
     return workspaceProfileRefusal(catalog, actor.ownerId, profileId, {
       retiredAllowed,
     });
@@ -482,6 +482,7 @@ export function createSessionService(deps: {
     if (!record) {
       throw new SessionServiceError("NOT_FOUND", "Resource not found");
     }
+    await refreshWorkspaceProfilesFor(catalog, [record.profile_id]);
     const {
       profile_id,
       cost_usd,
@@ -870,6 +871,9 @@ export function createSessionService(deps: {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
       }
       const wanted = input.body.profile_id;
+      // The current profile is read too: it says which runtime the
+      // session's checkpoints were taken on.
+      await refreshWorkspaceProfilesFor(catalog, [wanted, record.profile_id]);
       const workspaceRefusal = await workspaceProfileRefusalOf(
         actor,
         wanted,
@@ -1152,6 +1156,10 @@ export function createSessionService(deps: {
         actor.ownerId,
         query,
         viewerOf(actor),
+      );
+      await refreshWorkspaceProfilesFor(
+        catalog,
+        page.items.map((item) => item.profile_id),
       );
       return {
         items: page.items.map(

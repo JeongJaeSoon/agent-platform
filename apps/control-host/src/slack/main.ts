@@ -51,6 +51,7 @@ import {
   type SlackNoticeSink,
   sessionCatalogView,
   slackBotToken,
+  WORKSPACE_PROFILE_REFRESH_MS,
 } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import type { Pool } from "pg";
@@ -139,6 +140,17 @@ export function slackSessionHandler(deps: {
       createPostgresWorkspaceProfileStore(db),
     ),
   };
+  // As the API does: a lookup that does not read them itself, such as
+  // whether a release's profile needs a repository, sees them within this.
+  setInterval(() => {
+    catalog.workspace_profiles
+      .refresh(WORKSPACE_PROFILE_REFRESH_MS)
+      .catch((error: unknown) => {
+        logger.warn("Workspace profiles could not be read; retrying", {
+          error_name: error instanceof Error ? error.name : typeof error,
+        });
+      });
+  }, WORKSPACE_PROFILE_REFRESH_MS).unref();
   const credentials = createPostgresCredentialBindingStore(db);
   const authorization = createAuthorizationPolicy({
     identity: createDatabaseIdentityReader(db),

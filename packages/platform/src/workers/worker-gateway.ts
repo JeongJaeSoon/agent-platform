@@ -80,6 +80,7 @@ import {
   profileFingerprint,
   profilePins,
   providerUpstreamOf,
+  refreshWorkspaceProfilesFor,
   repositoryBinding,
   repositoryModeOf,
   repositoryUpstreamOf,
@@ -88,13 +89,12 @@ import {
   type SessionCatalog,
   type SessionMcp,
   sessionProfile,
-  WORKSPACE_PROFILE_PREFIX,
+  type WorkspaceProfiles,
   workspaceCatalogProfiles,
 } from "../sessions/catalog.ts";
+import { createMcpEgress, type McpEgressRequest } from "./mcp-egress.ts";
 
 const WORKSPACE_PROFILE_MAX_AGE_MS = 1000;
-
-import { createMcpEgress, type McpEgressRequest } from "./mcp-egress.ts";
 
 export type WorkerGatewayStatus = 400 | 401 | 403 | 404 | 409 | 503;
 
@@ -506,8 +506,20 @@ export function createWorkerGateway(deps: {
   ];
 
   // A workspace version runs where its base may, and only while its base
-  // still hashes as it did when the version was made.
+  // still hashes as it did when the version was made. Built again only when
+  // a read replaced the versions.
+  let runnableOf: {
+    records: WorkspaceProfiles["records"] | undefined;
+    pairs: RunnablePair[];
+  } | null = null;
   function runnablePairs(): RunnablePair[] {
+    const records = catalog.workspace_profiles?.records;
+    if (runnableOf?.records !== records || runnableOf === null) {
+      runnableOf = { records, pairs: buildRunnablePairs() };
+    }
+    return runnableOf.pairs;
+  }
+  function buildRunnablePairs(): RunnablePair[] {
     return [
       ...operatorRunnable,
       ...workspaceCatalogProfiles(catalog).flatMap(
@@ -538,16 +550,13 @@ export function createWorkerGateway(deps: {
     ];
   }
 
-  // Another replica's new version reaches this one within a second, or at
-  // once when `needed` names one not read yet. A failed read leaves the
-  // versions already read, so a database blip never stops the operator's
-  // profiles from running.
-  async function refreshWorkspaceProfiles(needed?: string): Promise<void> {
-    const registry = catalog.workspace_profiles;
-    if (!registry) return;
-    const known = needed === undefined || registry.records.has(needed);
-    await registry
-      .refresh(known ? WORKSPACE_PROFILE_MAX_AGE_MS : 0)
+  // Another replica's new version reaches a claim here within a second; a
+  // pinned launch of one not read yet waits for it (ClaimInput). A failed
+  // read leaves the versions already read, so a database blip never stops
+  // the operator's profiles from running.
+  async function refreshForClaim(): Promise<void> {
+    await catalog.workspace_profiles
+      ?.refresh(WORKSPACE_PROFILE_MAX_AGE_MS)
       .catch(() => undefined);
   }
 
@@ -897,7 +906,7 @@ export function createWorkerGateway(deps: {
       const repositoryToken = generateEgressToken("repository");
       const objectStoreToken = generateEgressToken("object_store");
       const mcpToken = generateEgressToken("mcp");
-      await refreshWorkspaceProfiles();
+      await refreshForClaim();
       const result = await work.claimAtomic({
         runnable: runnablePairs(),
         catalogRevision: revision,
@@ -1083,9 +1092,7 @@ export function createWorkerGateway(deps: {
       });
       // The attempt may have been claimed on a replica that read the
       // version before this one did.
-      if (result.profileId?.startsWith(WORKSPACE_PROFILE_PREFIX)) {
-        await refreshWorkspaceProfiles(result.profileId);
-      }
+      await refreshWorkspaceProfilesFor(catalog, [result.profileId]);
       if (request.purpose === "provider") {
         // What a session has spent is metered here, a tool's direct calls
         // with the engine's token included; a session past its

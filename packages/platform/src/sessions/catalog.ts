@@ -785,6 +785,31 @@ export function workspaceProfileRefusal(
   };
 }
 
+// Read at once when one of them was not read yet: another replica may have
+// made it. One already read is taken as up to this old; only its retirement
+// can have changed since.
+const WORKSPACE_PROFILE_KNOWN_MAX_AGE_MS = 1000;
+
+/**
+ * Brings the workspace versions among `profileIds` up to date enough to
+ * resolve them. A failed read keeps what was read before: an operator
+ * profile never waits on the database.
+ */
+export async function refreshWorkspaceProfilesFor(
+  catalog: Pick<ProfileLookup<CatalogProfileView>, "workspace_profiles">,
+  profileIds: ReadonlyArray<string | null | undefined>,
+): Promise<void> {
+  const registry = catalog.workspace_profiles;
+  const named = profileIds.filter(
+    (id): id is string => id?.startsWith(WORKSPACE_PROFILE_PREFIX) === true,
+  );
+  if (!registry || named.length === 0) return;
+  const unread = named.some((id) => !registry.records.has(id));
+  await registry
+    .refresh(unread ? 0 : WORKSPACE_PROFILE_KNOWN_MAX_AGE_MS)
+    .catch(() => undefined);
+}
+
 // The id a repository's `profiles` list names for this profile: a workspace
 // version runs where its base may.
 function trustedProfileId(

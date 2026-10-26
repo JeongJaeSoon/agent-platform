@@ -28,6 +28,12 @@ import { requirePermitted, SessionServiceError } from "./session-service.ts";
 // a release or session pinned never changes under it.
 
 /**
+ * How often a process reads the versions again on its own, for the lookups
+ * that do not read them first (a session's runtime in a list, for one).
+ */
+export const WORKSPACE_PROFILE_REFRESH_MS = 10_000;
+
+/**
  * The versions in `store`, read again on `refresh`. A refresh joins a read
  * that began recently enough, else starts one; a failed read keeps what was
  * read before.
@@ -99,7 +105,10 @@ function workspaceSummary(
       : {
           id: record.id,
           model: record.model,
-          models: [...record.models],
+          models: [
+            record.model,
+            ...record.models.filter((m) => m !== record.model),
+          ],
           tools: [...record.tools],
           permission_mode: record.permission_mode,
           runtime_kind: "claude_agent_sdk" as const,
@@ -186,9 +195,17 @@ export function createWorkspaceProfileService(deps: {
     };
   }
 
+  // After a write has committed, a failed read must not report it failed:
+  // the answer comes from the written row, and a retry would save again.
+  async function reread(): Promise<void> {
+    await catalog.workspace_profiles.refresh().catch(() => undefined);
+  }
+
   return {
     async list(caller: Caller): Promise<ListProfilesResponse> {
-      await catalog.workspace_profiles.refresh();
+      // Without the database the operator's profiles still list, beside
+      // the versions read last.
+      await reread();
       return listCatalogProfiles(catalog, caller.actor?.workspaceId ?? null);
     },
 
@@ -249,7 +266,7 @@ export function createWorkspaceProfileService(deps: {
             `Another version of ${request.name} was saved at the same time; save again to make the next one`,
           );
         default:
-          await catalog.workspace_profiles.refresh();
+          await reread();
           return changed(result.record, receiptId);
       }
     },
@@ -267,7 +284,7 @@ export function createWorkspaceProfileService(deps: {
         case "actor_inactive":
           throw OUTRANKED();
         default:
-          await catalog.workspace_profiles.refresh();
+          await reread();
           return changed(
             result.record,
             result.outcome === "retired" ? receiptId : null,

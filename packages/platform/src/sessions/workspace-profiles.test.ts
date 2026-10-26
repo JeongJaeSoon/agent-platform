@@ -18,6 +18,7 @@ import {
   catalogRevision,
   narrowingRefusal,
   profileFingerprint,
+  refreshWorkspaceProfilesFor,
   type SessionCatalog,
   sessionCatalogConfigSchema,
   type WorkspaceProfileRecord,
@@ -228,6 +229,15 @@ describe("listing", () => {
     ]);
   });
 
+  test("a version over a removed base still lists its default model first", () => {
+    const catalog = catalogWith(
+      [version({ models: ["claude-haiku-5", "claude-sonnet-5"] })],
+      { other: base },
+    );
+    const [, listed] = listCatalogProfiles(catalog, WORKSPACE).items;
+    expect(listed?.models).toEqual(["claude-sonnet-5", "claude-haiku-5"]);
+  });
+
   test("a version over a removed base is listed as the base was", () => {
     const catalog = catalogWith([version()], { other: base });
     const [, listed] = listCatalogProfiles(catalog, WORKSPACE).items;
@@ -238,6 +248,28 @@ describe("listing", () => {
       repository_mode: "required",
       workspace: { state: "base_missing" },
     });
+  });
+});
+
+describe("refreshing for a lookup", () => {
+  test("reads at once for a version not read yet, within a second for one read, never for an operator id, and swallows a failure", async () => {
+    const ages: number[] = [];
+    const lookup = {
+      workspace_profiles: {
+        records: new Map([["ws_acme_strict_v1", version()]]),
+        refresh: async (maxAgeMs?: number) => {
+          ages.push(maxAgeMs ?? 0);
+          throw new Error("down");
+        },
+      },
+    };
+    await refreshWorkspaceProfilesFor(lookup, ["coding", null]);
+    await refreshWorkspaceProfilesFor(lookup, ["ws_acme_strict_v1"]);
+    await refreshWorkspaceProfilesFor(lookup, [
+      "ws_acme_strict_v1",
+      "ws_acme_strict_v2",
+    ]);
+    expect(ages).toEqual([1000, 0]);
   });
 });
 
@@ -312,9 +344,14 @@ function caller(who: keyof typeof USERS): Caller {
   return callerFor(principal, { kind: "web" }, crypto.randomUUID());
 }
 
-function service(store: Partial<WorkspaceProfileStore> = {}) {
+function service(store: Partial<WorkspaceProfileStore> = {}, readable = true) {
   const writes: unknown[] = [];
   const catalog = catalogWith([]);
+  if (!readable && catalog.workspace_profiles) {
+    catalog.workspace_profiles.refresh = async () => {
+      throw new Error("database down");
+    };
+  }
   const profiles = createWorkspaceProfileService({
     authorization: createAuthorizationPolicy({
       agents: {
@@ -391,6 +428,15 @@ describe("the service", () => {
         },
       ]);
     }
+  });
+
+  test("a saved version is answered as saved though the reread after it fails, and the list still has the operator's", async () => {
+    const { profiles, writes } = service({}, false);
+    const saved = await profiles.create(caller("owner"), REQUEST);
+    expect(saved.profile.id).toBe("ws_acme_strict_v1");
+    expect(writes).toHaveLength(1);
+    const listed = await profiles.list(caller("member"));
+    expect(listed.items.map((p) => p.id)).toEqual(["coding"]);
   });
 
   test("a member is refused before anything is written", async () => {

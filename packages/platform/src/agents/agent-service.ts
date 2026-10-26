@@ -21,9 +21,9 @@ import {
   catalogProfile,
   profileModels,
   profilePinned,
+  refreshWorkspaceProfilesFor,
   type SessionCatalog,
   type SessionCatalogView,
-  WORKSPACE_PROFILE_PREFIX,
   workspaceProfileRefusal,
 } from "../sessions/catalog.ts";
 import {
@@ -55,9 +55,7 @@ export async function resolveAgentRelease(
   if (!release) throw NOT_FOUND();
   assertReleaseIdentity(release);
   const profileId = release.runtime_profile_id;
-  if (profileId.startsWith(WORKSPACE_PROFILE_PREFIX)) {
-    await deps.catalog.workspace_profiles?.refresh();
-  }
+  await refreshWorkspaceProfilesFor(deps.catalog, [profileId]);
   // Retired, a version still runs the releases already made on it.
   const profile =
     workspaceProfileRefusal(deps.catalog, workspaceId, profileId, {
@@ -233,9 +231,7 @@ export function createAgentService(deps: {
       );
       if (!version) throw NOT_FOUND();
       const profileId = request.runtime_profile_id;
-      if (profileId.startsWith(WORKSPACE_PROFILE_PREFIX)) {
-        await catalog.workspace_profiles?.refresh();
-      }
+      await refreshWorkspaceProfilesFor(catalog, [profileId]);
       const workspaceRefusal = workspaceProfileRefusal(
         catalog,
         caller.ownerId,
