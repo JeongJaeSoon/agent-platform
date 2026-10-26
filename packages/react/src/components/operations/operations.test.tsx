@@ -173,8 +173,12 @@ describe("1분 미만 도구 시간", () => {
       "가장 오래 걸리는 도구: Write1.7초 · 전체 도구 시간의 100%",
     );
     expect(
-      [...container.querySelectorAll("[role=row]:nth-child(1) [role=cell]")]
-        .slice(1, 3)
+      [
+        ...(container
+          .querySelectorAll("[role=row]")[1]
+          ?.querySelectorAll("[role=cell]") ?? []),
+      ]
+        .slice(2, 4)
         .map((cell) => cell.textContent),
     ).toEqual(["1.7초", "1.7초"]);
     expect(text("[data-slot=tools-summary]")).toContain("1.7초");

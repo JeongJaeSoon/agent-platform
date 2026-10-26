@@ -36,7 +36,7 @@ export function ToolsSummary({
   const parts = messages.sentence({
     period,
     calls: format.count(calls),
-    time: format.duration(totalMs / 1000),
+    time: format.elapsed(totalMs),
     failed: format.count(failed),
     rate: format.percent(failed, calls),
   });
