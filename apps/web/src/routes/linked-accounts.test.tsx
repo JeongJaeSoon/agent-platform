@@ -48,7 +48,13 @@ describe("연동 계정", () => {
     const mark = (heading: HTMLElement) =>
       heading.closest("li")?.querySelector("[aria-hidden='true']");
     const githubMark = mark(github);
-    expect(githubMark?.querySelector("svg") != null).toBe(true);
+    // simple-icons 16.36.0 icons/github.svg, unmodified.
+    expect(githubMark?.querySelector("svg")?.getAttribute("viewBox")).toBe(
+      "0 0 24 24",
+    );
+    expect(
+      githubMark?.querySelector("path")?.getAttribute("d")?.slice(0, 32),
+    ).toBe("M12 .297c-6.63 0-12 5.373-12 12 ");
     expect(githubMark?.textContent).toBe("");
     // The mark is decoration: the row is named by its heading alone.
     expect(screen.getAllByText("GitHub").length).toBe(1);
