@@ -1,5 +1,5 @@
 # The product services, defined once for every installation. Never
-# run alone: docker-compose.yml lays compose.local.yml over it for a local
+# run alone: compose.yml lays compose.local.yml over it for a local
 # stack, and compose.test-ops.yml is the test-ops layer. A layer adds what
 # its installation needs — builds, local dependencies, their endpoints — and
 # holds none of the security settings below, which tests/images.test.ts

@@ -44,7 +44,7 @@ export EXECUTION_INSTALLATION_ID="d2g${run_id}"
 export API_IMAGE="agent-platform-control-host:${project}"
 export WORKER_IMAGE="agent-platform-worker:${project}"
 export EGRESS_PROXY_IMAGE="agent-platform-egress-proxy:${project}"
-compose_files=(-f infra/docker-compose.yml -f scripts/d2-gate/compose.yml)
+compose_files=(-f infra/compose.yml -f scripts/d2-gate/compose.yml)
 overrides="${D2_GATE_COMPOSE_OVERRIDE:-}"
 for file in ${overrides//:/ }; do
   compose_files+=(-f "$file")

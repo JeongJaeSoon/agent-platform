@@ -100,7 +100,7 @@ scripts/restore.sh <dir> --into ap-drill-1 --object-store env --bucket ap-drill-
 2. **schema 검사** — manifest의 `schema.applied`가 이 checkout `packages/db/migrations`의 journal(각 SQL 파일 sha256, journal 순서)과 정확히 같아야 한다. 오래된 백업도, 이 checkout이 모르는 migration이 든 백업도 exit 3으로 거부한다. 오래된 백업을 올리려면 그 백업과 같은 commit을 checkout해 복원·검증한 뒤 migration을 별도 단계로 돌린다.
 3. `env`면 대상 bucket 검사(아래 6.1–6.2와 같은 것)를 docker를 건드리기 전에 먼저 한다. `--check-only`도 이 검사를 한다.
 4. 대상 project 이름을 label로 가진 container·volume·network가 하나라도 있으면 exit 4. 기존 설치는 절대 재사용하지 않는다. 같은 이름으로 동시에 들어오는 restore는 `<project>-restore-lock` network 생성으로 하나만 통과한다(끝나면 제거).
-5. `infra/docker-compose.restore.yml`을 겹쳐 postgres·gitea(`localstack`이면 localstack도)를 띄운다. 이 override는 host port를 `--port-base`부터 loopback에 다시 묶고(postgres, localstack, gitea http, gitea ssh 순. 스크립트가 `RESTORE_POSTGRES_PORT`·`RESTORE_LOCALSTACK_PORT`·`RESTORE_GITEA_HTTP_PORT`·`RESTORE_GITEA_SSH_PORT`로 넘긴다), postgres의 initdb SQL 마운트를 없애 dump가 빈 DB에 들어가게 한다.
+5. `infra/compose.restore.yml`을 겹쳐 postgres·gitea(`localstack`이면 localstack도)를 띄운다. 이 override는 host port를 `--port-base`부터 loopback에 다시 묶고(postgres, localstack, gitea http, gitea ssh 순. 스크립트가 `RESTORE_POSTGRES_PORT`·`RESTORE_LOCALSTACK_PORT`·`RESTORE_GITEA_HTTP_PORT`·`RESTORE_GITEA_SSH_PORT`로 넘긴다), postgres의 initdb SQL 마운트를 없애 dump가 빈 DB에 들어가게 한다.
 6. `psql --single-transaction < db.sql` → 복원된 journal이 manifest와 같은지 재확인.
 7. object와 재고정. 첫 쓰기 직전에 대상 bucket을 다시 검사한다(`object-store-cli.ts check-target`).
    1. `env`에서 대상 bucket 이름이 백업의 원본 bucket(`manifest.json`의 `objects.bucket`)과 같으면 endpoint와 상관없이 exit 4로 거부한다. 같은 저장소도 여러 주소로 부를 수 있어서(AWS S3의 전역·리전 endpoint, `localhost`와 `127.0.0.1`) 주소 비교로는 원본이 아님을 증명할 수 없다. 다른 저장소로 훈련할 때도 다른 이름의 bucket을 쓴다. `localstack`이면 대상이 방금 띄운 새 로컬 S3라 원본일 수 없다. bucket이 없으면 Object Lock과 SSE-S3로 만든다. 기본 `claude-sessions`는 `local-s3-init`이 만든다.
@@ -114,7 +114,7 @@ scripts/restore.sh <dir> --into ap-drill-1 --object-store env --bucket ap-drill-
 8. gitea를 멈추고 `gitea.db`·`app.ini`를 백업본으로 교체, bundle마다 `git clone --mirror`, 빈 repo는 `git init --bare`, `gitea admin regenerate hooks`, 재시작. `app.ini`는 secret(`SECRET_KEY`·`INTERNAL_TOKEN`·`[oauth2] JWT_SECRET`)을 지키려고 통째로 복사하므로 `[server]`의 외부 주소는 원본 것이다. restore override가 gitea에 `GITEA__server__ROOT_URL`·`DOMAIN`·`SSH_DOMAIN`·`SSH_PORT`를 주고, Gitea 이미지 entrypoint의 `environment-to-ini`가 기동할 때마다 이 네 키만 복원 주소(`http://127.0.0.1:<port-base+2>/`, ssh `<port-base+3>`)로 덮어쓴다. 나머지 키와 섹션은 백업본 그대로다. 컨테이너 안 포트인 `HTTP_PORT`(3000)·`SSH_LISTEN_PORT`(22)는 건드리지 않는다. 재시작 뒤 네 값이 실제로 들어갔는지 확인하고, 아니면 실패한다.
 9. `migrate` 서비스를 한 번 돌려 `db.migrate.noop`을 확인한다.
 
-끝나면 접속 정보, 다시 띄우는 명령, 정리 명령(`docker compose -p <project> -f infra/docker-compose.yml down -v`)을 출력한다.
+끝나면 접속 정보, 다시 띄우는 명령, 정리 명령(`docker compose -p <project> -f infra/compose.yml down -v`)을 출력한다.
 
 복원 project는 **항상 restore override와 같은 `RESTORE_*` 값으로** 다시 띄운다(출력된 "start again" 명령). base 파일만으로 `up`하면 컨테이너가 재생성되며 원본 포트(5432·4566·3001)와 공용 worker network로 되돌아가 원본 설치와 충돌하고, Gitea의 `app.ini`는 복원 포트를 계속 광고해 clone URL이 없는 listener를 가리킨다. 복원본을 원본 자리로 승격하는 절차는 아직 없다.
 
@@ -224,7 +224,7 @@ MAX_TURN_SECONDS=3600 SESSION_COST_LIMIT_USD=25 PROVIDER_MAX_RETRIES=2 \
 CHECKPOINT_OBJECT_PROTECTION=locked bun apps/control-host/src/api/server.ts   # + 위와 같은 AWS 자격 증명
 
 # 4. 정리 (복원본만. --rmi local은 복원이 빌드한 migrate 이미지)
-docker compose -p ap-restore-1 -f infra/docker-compose.yml down -v --rmi local
+docker compose -p ap-restore-1 -f infra/compose.yml down -v --rmi local
 docker compose start api scheduler reconciler   # 원본을 다시 연다
 ```
 
