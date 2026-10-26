@@ -303,8 +303,10 @@ function figuresOf(row: BreakdownRow) {
 // One row per output object: an object stays in the store while any
 // checkpoint naming it is uncollected, and a later checkpoint names its
 // parent's objects again rather than uploading them. Object keys carry the
-// session prefix, so a key never spans sessions. Scans checkpoint_outputs on
-// every read.
+// session prefix, so a key never spans sessions. Collection marks a revision
+// before it deletes, so a failed delete is uncounted until the next pass
+// lists the object again and deletes it. Scans checkpoint_outputs on every
+// read.
 const outputObjects = sql`(SELECT ${checkpointOutputs.objectKey}, max(${checkpointOutputs.bytes}) AS bytes, bool_or(${checkpoints.collectedAt} IS NULL) AS kept, min(${checkpoints.committedAt}) AS first_at, max(${checkpoints.collectedAt}) AS released_at FROM ${checkpointOutputs} JOIN ${checkpoints} ON ${checkpoints.sessionId} = ${checkpointOutputs.sessionId} AND ${checkpoints.revision} = ${checkpointOutputs.revision} GROUP BY ${checkpointOutputs.objectKey}) AS output_objects`;
 
 function counted(condition: SQL | undefined) {

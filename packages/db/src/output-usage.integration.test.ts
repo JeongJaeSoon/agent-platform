@@ -139,6 +139,21 @@ integration("installation output usage on PostgreSQL", () => {
     expect(released.outputsUpdatedAt).toEqual(collected?.at ?? null);
   });
 
+  test("records a checkpoint naming as many objects as a manifest may", async () => {
+    const before = await usage();
+    const { commit, key } = await claimedSession();
+    await commit(
+      0,
+      Array.from({ length: 20_000 }, (_, index) => ({
+        key: key(0, `${index}`),
+        bytes: 1,
+      })),
+    );
+    expect((await usage()).outputsUsedBytes).toBe(
+      before.outputsUsedBytes + 20_000,
+    );
+  });
+
   test("reports itself partial while a kept checkpoint predates output recording", async () => {
     const before = await usage();
     expect(before.outputsComplete).toBe(true);

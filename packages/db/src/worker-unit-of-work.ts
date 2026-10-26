@@ -486,6 +486,8 @@ function parentRevisionOf(session: SessionRow, attemptId: string) {
     : base;
 }
 
+const OUTPUT_ROWS_PER_INSERT = 5_000;
+
 export async function advanceCheckpointPointer(
   tx: Database,
   input: {
@@ -530,14 +532,19 @@ export async function advanceCheckpointPointer(
     transcriptBytes: input.transcriptBytes ?? null,
     outputsRecorded: input.outputs !== undefined,
   });
-  if (input.outputs !== undefined && input.outputs.length > 0) {
+  // A manifest may name up to DEFAULT_MAX_MANIFEST_OBJECTS objects; one
+  // statement for all of them would pass PostgreSQL's 65,535 bind parameters.
+  const outputs = input.outputs ?? [];
+  for (let start = 0; start < outputs.length; start += OUTPUT_ROWS_PER_INSERT) {
     await tx.insert(checkpointOutputs).values(
-      input.outputs.map(({ key, bytes }) => ({
-        sessionId: input.fence.sessionId,
-        revision: input.checkpoint.revision,
-        objectKey: key,
-        bytes,
-      })),
+      outputs
+        .slice(start, start + OUTPUT_ROWS_PER_INSERT)
+        .map(({ key, bytes }) => ({
+          sessionId: input.fence.sessionId,
+          revision: input.checkpoint.revision,
+          objectKey: key,
+          bytes,
+        })),
     );
   }
   if (input.transcriptBytes !== undefined) {
