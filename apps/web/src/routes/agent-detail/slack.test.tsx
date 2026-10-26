@@ -366,11 +366,32 @@ describe("Slack management", () => {
       expect(`#${document.activeElement?.id}`).toBe(
         here?.getAttribute("href") ?? "",
       );
+      // Below lg the folded button stays; widening past lg hides it while
+      // the page still fits.
+      nav.getClientRects = () => [new DOMRect()] as unknown as DOMRectList;
+      within(nav)
+        .getByRole("button", { name: /^Slack 구역/ })
+        .focus();
+      window.dispatchEvent(new Event("resize"));
+      expect(document.activeElement?.closest("nav") === nav).toBe(true);
+      nav.getClientRects = () => [] as unknown as DOMRectList;
+      window.dispatchEvent(new Event("resize"));
+      expect(
+        `#${document.activeElement?.id}` ===
+          nav.querySelector("a[aria-current=location]")?.getAttribute("href"),
+      ).toBe(true);
       pageHeight = 1200;
       window.dispatchEvent(new Event("resize"));
       await waitFor(() =>
         expect(nav.classList.contains("lg:hidden")).toBe(false),
       );
+      // Another tab's short page says nothing about this one.
+      const channels = document.getElementById("slack-channels") as HTMLElement;
+      channels.getClientRects = () => [] as unknown as DOMRectList;
+      pageHeight = 900;
+      window.dispatchEvent(new Event("resize"));
+      await new Promise((done) => requestAnimationFrame(done));
+      expect(nav.classList.contains("lg:hidden")).toBe(false);
     } finally {
       Reflect.deleteProperty(root, "clientHeight");
       Reflect.deleteProperty(root, "scrollHeight");

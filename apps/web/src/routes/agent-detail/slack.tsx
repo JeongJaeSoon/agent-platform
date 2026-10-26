@@ -1281,12 +1281,18 @@ export default function SlackTab({
   );
   const jumped = useRef<string>(undefined);
   // With nothing to scroll to, the wide list only takes room from the page.
-  const fits = usePageFits();
+  const fits = usePageFits(SECTION.channels);
+  // The list also hides when the window widens past lg while the page fits.
   useLayoutEffect(() => {
     if (!fits) return;
-    const nav = document.activeElement?.closest("[data-slot=side-nav]");
-    if (!nav || nav.getClientRects().length > 0) return;
-    document.getElementById(current ?? "")?.focus({ preventScroll: true });
+    const leave = () => {
+      const nav = document.activeElement?.closest("[data-slot=side-nav]");
+      if (!nav || nav.getClientRects().length > 0) return;
+      document.getElementById(current ?? "")?.focus({ preventScroll: true });
+    };
+    leave();
+    window.addEventListener("resize", leave);
+    return () => window.removeEventListener("resize", leave);
   }, [fits, current]);
   const installed =
     identities.data?.items.some((item) => item.status === "active") ?? false;
