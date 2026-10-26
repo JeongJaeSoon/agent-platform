@@ -531,6 +531,11 @@ describe("API validation and errors", () => {
     const completions = sink.records.filter(
       ({ event }) => event === "api.request.completed",
     );
+    expect(
+      sink.records.find(
+        (r) => r.message === "Storage unavailable during API request",
+      )?.fields,
+    ).toMatchObject({ sqlstate: "55P03" });
     expect(completions).toHaveLength(1);
     expect(completions[0]).toMatchObject({
       fields: {

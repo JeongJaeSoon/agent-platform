@@ -240,8 +240,6 @@ function leaseRemainingMs(leaseExpiresAt: Date, at: Date): number {
   return Math.max(0, leaseExpiresAt.getTime() - (at.getTime() + 1));
 }
 
-export const HEARTBEAT_LOCK_TIMEOUT_MS = 2_000;
-
 // Locks the session and attempt rows and classifies why the fence does not
 // hold: an expired lease on the current epoch is LEASE_EXPIRED, anything
 // else (bumped epoch, ended attempt, unknown binding) is STALE_EPOCH.
@@ -1830,9 +1828,7 @@ export function createPostgresWorkerUnitOfWork(
         // A beat stuck behind another transaction's session row would spend
         // the worker's whole lease budget waiting; failing fast lets it send
         // the next beat while a renewal can still land.
-        await tx.execute(
-          sql.raw(`SET LOCAL lock_timeout = ${HEARTBEAT_LOCK_TIMEOUT_MS}`),
-        );
+        await tx.execute(sql`SET LOCAL lock_timeout = '2s'`);
         const fenced = await acquireFence(tx, fence);
         if (fenced.outcome !== "ok") return fenced;
         const reported = ATTEMPT_PHASE_ORDER[input.attemptState] ?? -1;

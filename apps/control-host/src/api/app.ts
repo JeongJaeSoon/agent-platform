@@ -211,8 +211,8 @@ export class ApiHttpError extends Error {
 // shutdown, and 57014 for a statement_timeout cancel), a transaction rolled
 // back for losing to a concurrent one (40001 serialization, 40P01 deadlock,
 // 55P03 a lock_timeout: nothing it wrote landed, so the same request can
-// simply be sent again), or the request's own deadline. Walks the cause chain because Drizzle and
-// pg-pool both wrap the original error.
+// simply be sent again), or the request's own deadline. Walks the cause
+// chain because Drizzle and pg-pool both wrap the original error.
 export function isStorageUnavailable(error: unknown): boolean {
   for (let depth = 0, current = error; depth < 5; depth += 1) {
     if (
@@ -238,6 +238,18 @@ export function isStorageUnavailable(error: unknown): boolean {
     current = current.cause;
   }
   return false;
+}
+
+// Which of the storage failures above it was, for the log: a statement
+// timeout and a lock timeout read the same to the caller.
+function sqlstateOf(error: unknown): string | null {
+  for (let depth = 0, current = error; depth < 5; depth += 1) {
+    const code = (current as { code?: unknown } | null)?.code;
+    if (typeof code === "string" && /^[0-9A-Z]{5}$/.test(code)) return code;
+    if (!(current instanceof Error)) return null;
+    current = current.cause;
+  }
+  return null;
 }
 
 export function storageUnavailableError(): ApiHttpError {
@@ -677,6 +689,7 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
       logger.warn("Storage unavailable during API request", {
         method: context.req.method,
         path: context.req.path,
+        sqlstate: sqlstateOf(error),
       });
       context.header("Retry-After", String(unavailable.retryAfterSeconds));
       return errorResponse(

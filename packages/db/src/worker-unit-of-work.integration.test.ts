@@ -60,8 +60,6 @@ import {
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
-// The worker's own numbered stream, without the status events the control
-// plane writes beside it at each turn boundary.
 function pgCode(error: unknown): string | undefined {
   for (let current = error; current instanceof Error; current = current.cause) {
     const code = (current as { code?: unknown }).code;
@@ -70,6 +68,8 @@ function pgCode(error: unknown): string | undefined {
   return undefined;
 }
 
+// The worker's own numbered stream, without the status events the control
+// plane writes beside it at each turn boundary.
 function workerStream(sessionId: string) {
   return and(eq(events.sessionId, sessionId), isNotNull(events.sourceSequence));
 }

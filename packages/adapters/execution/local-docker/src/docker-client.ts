@@ -311,7 +311,9 @@ export class DockerClient {
       const { done, value } = await reader.read();
       if (done) break;
       frames.push(value);
-      if (frames.payloadBytes > limitBytes) {
+      // A frame still incomplete counts too: a header claiming a huge
+      // payload must not buffer the whole response.
+      if (frames.bufferedBytes > limitBytes) {
         cut = true;
         await reader.cancel();
         break;
@@ -646,6 +648,10 @@ class FrameReader {
       offset += 8 + size;
     }
     this.pending = joined.slice(offset);
+  }
+
+  get bufferedBytes(): number {
+    return this.payloadBytes + this.pending.length;
   }
 
   payload(): Uint8Array {
