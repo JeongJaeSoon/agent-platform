@@ -424,10 +424,10 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         callSortBy: { recent: "최근", slowest: "느린 순" },
       },
       head: {
-        title: "운영",
+        title: "사용량·한도",
         description:
           "에이전트가 얼마나 돌고, 얼마나 쓰고, 어디서 막히는지 봅니다.",
-        tabs: "운영 탭",
+        tabs: "사용량·한도 탭",
         tab: {
           overview: "개요",
           usage: "사용량",
@@ -615,10 +615,10 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         callSortBy: { recent: "最近", slowest: "遅い順" },
       },
       head: {
-        title: "運用",
+        title: "使用量・上限",
         description:
           "エージェントがどれだけ動き、どれだけ使い、どこで詰まっているかを見ます。",
-        tabs: "運用タブ",
+        tabs: "使用量・上限タブ",
         tab: {
           overview: "概要",
           usage: "使用量",
@@ -808,10 +808,10 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         callSortBy: { recent: "Recent", slowest: "Slowest" },
       },
       head: {
-        title: "Operations",
+        title: "Usage & limits",
         description:
           "See how much agents run, what they spend, and where they get stuck.",
-        tabs: "Operations tabs",
+        tabs: "Usage & limits tabs",
         tab: {
           overview: "Overview",
           usage: "Usage",

@@ -17,14 +17,13 @@ description: 에이전트 카드의 필드, version이 쌓이는 방식, 지금 
 | `capabilities.forbidden` | | 금지할 도구 이름 |
 | `capabilities.tool_policy` | | 도구별 `allow`·`ask`·`deny` |
 | `capabilities.credential_refs` | | 쓸 자격 증명의 이름(값이 아니다). [권한](/agents/permissions) |
-| `tone` | | 말투. 200자까지 |
 | `language` | | `ko`(기본) 또는 `en` |
 | `rules` | | `{id, text, source}` 목록. `source`는 `user` 또는 `correction` |
 
 ## 지금 모델이 읽는 것
 
 <Callout type="warn">
-카드의 `role`·`instructions`·`tone`·`rules`는 version과 release에 저장되고 세션에 고정되지만, 아직 모델에 전달되지 않는다.
+카드의 `role`·`instructions`·`rules`는 version과 release에 저장되고 세션에 고정되지만, 아직 모델에 전달되지 않는다.
 </Callout>
 
 지금 worker가 모델에 덧붙이는 지시는 둘이다.

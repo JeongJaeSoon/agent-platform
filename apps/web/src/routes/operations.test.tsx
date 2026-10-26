@@ -199,12 +199,12 @@ const usageRoutes = {
   },
 };
 
-describe("운영", () => {
+describe("사용량·한도", () => {
   afterEach(() => {
     setSystemTime();
   });
 
-  test("owner: 사이드바 '운영'에서 개요를 열고, '지금' 숫자는 /v1/sessions/counts 그대로다", async () => {
+  test("owner: 사이드바 '사용량·한도'에서 개요를 열고, '지금' 숫자는 /v1/sessions/counts 그대로다", async () => {
     setSystemTime(NOW);
     const { api } = renderAt("/operations", {
       "GET /v1/auth/me": () => json(200, me()),
@@ -214,7 +214,7 @@ describe("운영", () => {
     const nav = await screen.findByRole("navigation", { name: "주요 메뉴" });
     expect(
       within(nav)
-        .getByRole("link", { name: "운영" })
+        .getByRole("link", { name: "사용량·한도" })
         .getAttribute("aria-current"),
     ).toBe("page");
     const counts = await screen.findByRole("link", {
@@ -238,7 +238,7 @@ describe("운영", () => {
       ["멈춤12", "/sessions?status=stopped"],
     ]);
     expect(await screen.findByText("동시 실행 slot · 설치 전체")).toBeTruthy();
-    const tabs = screen.getByRole("navigation", { name: "운영 탭" });
+    const tabs = screen.getByRole("navigation", { name: "사용량·한도 탭" });
     expect(
       within(tabs)
         .getAllByRole("link")
@@ -332,7 +332,9 @@ describe("운영", () => {
       "GET /v1/auth/me": () => json(200, memberMe()),
       ...usageRoutes,
     });
-    const tabs = await screen.findByRole("navigation", { name: "운영 탭" });
+    const tabs = await screen.findByRole("navigation", {
+      name: "사용량·한도 탭",
+    });
     const usage = within(tabs).getByRole("link", { name: "사용량" });
     const tools = within(tabs).getByRole("link", { name: "도구 활동" });
     expect(usage.getAttribute("aria-disabled")).toBeNull();
@@ -358,7 +360,7 @@ describe("운영", () => {
     );
     const tab = async (name: string) =>
       within(
-        await screen.findByRole("navigation", { name: "운영 탭" }),
+        await screen.findByRole("navigation", { name: "사용량·한도 탭" }),
       ).getByRole("link", { name });
     const search = () =>
       Object.fromEntries(new URLSearchParams(history.location.search));
@@ -390,7 +392,7 @@ describe("운영", () => {
         ...usageRoutes,
       });
       expect(await screen.findByText("17")).toBeTruthy();
-      const tabs = screen.getByRole("navigation", { name: "운영 탭" });
+      const tabs = screen.getByRole("navigation", { name: "사용량·한도 탭" });
       expect(
         within(tabs)
           .getAllByRole("link")
@@ -456,7 +458,7 @@ describe("운영", () => {
         "WebFetch2141시간 6분12.4초1",
       ]),
     );
-    const tabs = screen.getByRole("navigation", { name: "운영 탭" });
+    const tabs = screen.getByRole("navigation", { name: "사용량·한도 탭" });
     expect(
       within(tabs)
         .getByRole("link", { name: "도구 활동" })
@@ -578,7 +580,7 @@ describe("운영", () => {
     ).toBeTruthy();
     expect(screen.getByRole("table", { name: "토큰 구성" })).toBeTruthy();
     expect(screen.getByText("435")).toBeTruthy();
-    const tabs = screen.getByRole("navigation", { name: "운영 탭" });
+    const tabs = screen.getByRole("navigation", { name: "사용량·한도 탭" });
     expect(
       within(tabs)
         .getByRole("link", { name: "사용량" })

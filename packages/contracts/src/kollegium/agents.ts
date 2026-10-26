@@ -132,7 +132,6 @@ export const agentCardSchema = z
   .object({
     role: z.string().min(1).max(200),
     instructions: z.string().min(1).max(20_000),
-    tone: z.string().min(1).max(200).optional(),
     language: z.enum(AGENT_CARD_LANGUAGE_VALUES).default("ko"),
     /** Must sit inside the runtime profile's model allowlist. */
     model: z.string().min(1).max(128),
@@ -140,6 +139,16 @@ export const agentCardSchema = z
     rules: z.array(agentRuleSchema).default([]),
   })
   .strict();
+
+/**
+ * A card as stored. Cards written before `tone` was dropped (94S-761) still
+ * hold it; it is accepted and left out of what is read. The version's
+ * `content_sha256` and its releases' `card_sha256` keep hashing the stored
+ * card, so nothing re-hashes what this returns.
+ */
+export const storedAgentCardSchema = agentCardSchema
+  .extend({ tone: z.string().optional() })
+  .transform(({ tone: _dropped, ...card }): AgentCard => card);
 
 /** `-1` until the first activation, which is why it is not a `revision`. */
 export const activationRevisionSchema = z.number().int().min(-1).max(INT4_MAX);
