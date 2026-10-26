@@ -4,7 +4,7 @@ import { type ApiClientOptions, createApiClient } from "@werft-ai/client";
 import type { PendingRequest } from "@werft-ai/contracts";
 import { queryKeysOf, withQueryScope } from "@werft-ai/core";
 import { setupDom, setupUser } from "@werft-ai/ui/test-support/dom";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import type { ApprovalLayout } from "./session-actions.tsx";
 
 const { render, waitFor, act } = await setupDom();
@@ -14,6 +14,7 @@ const { AgentPlatformProvider } = await import("../provider.tsx");
 const { ApprovalInbox } = await import("./approval-inbox.tsx");
 const { usePendingRail } = await import("./pending-rail.tsx");
 const { PendingAnswers } = await import("./session-actions.tsx");
+const { SessionTimeline } = await import("./session-timeline.tsx");
 type ApprovalInboxProps = import("./approval-inbox.tsx").ApprovalInboxProps;
 
 const SESSION_ID = "0192f0c4-3d1e-4c7a-9b2f-5e6d7c8a9b01";
@@ -851,6 +852,136 @@ describe("ApprovalInbox", () => {
     // Its line left with the session: the keyboard goes to the heading.
     await waitFor(() => expect(document.activeElement?.tagName).toBe("H2"));
     expect(document.activeElement?.textContent).toBe("Waiting for an answer");
+  });
+
+  test("레일 타임라인은 답을 기다리는 요청의 호출만 답변 대기로, 답한 요청의 호출은 실행 중으로 그린다", async () => {
+    const user = await setupUser();
+    const call = (id: string, name: string) =>
+      [
+        "tool_use",
+        {
+          message: {
+            content: [{ type: "tool_use", id, name, input: { command: "ls" } }],
+          },
+        },
+      ] as const;
+    const ask = (requestId: string, toolUseId: string, tool: string) =>
+      [
+        "question",
+        {
+          request_id: requestId,
+          tool_use_id: toolUseId,
+          kind: "permission",
+          tool,
+          input: { command: "ls" },
+        },
+      ] as const;
+    // req_1 was answered before the rail opened; the session still waits on
+    // req_2, so no status says it moved on.
+    const view = renderInbox({
+      open: [permission("req_2", "Write")],
+      layout: "summary",
+      title: "Two calls",
+      rail: true,
+      events: [
+        call("tu_1", "Bash"),
+        ask("req_1", "tu_1", "Bash"),
+        call("tu_2", "Write"),
+        ask("req_2", "tu_2", "Write"),
+        ["status", { phase: "needs_input" }],
+      ],
+    });
+    await user.click(
+      await view.findByRole("button", { name: "Answer Two calls" }),
+    );
+    const panel = await view.findByRole("complementary", { name: "Two calls" });
+    const calls = () =>
+      [...panel.querySelectorAll("ol li[data-kind='tool']")].map(
+        (row) => row.textContent ?? "",
+      );
+    await waitFor(() => expect(calls()).toHaveLength(2));
+    // The list's next live read, begun after the lines arrived.
+    await act(() => view.second([]));
+    await waitFor(() => {
+      const [bash, write] = calls();
+      expect(bash).toContain("Running");
+      expect(bash).not.toContain("Waiting for an answer");
+      expect(write).toContain("Waiting for an answer");
+      expect(write).not.toContain("Running");
+    });
+    await user.click(await view.findByRole("button", { name: /^Allow/ }));
+    await waitFor(() => expect(view.posted).toHaveLength(1));
+    view.push(["status", { phase: "running" }]);
+    await waitFor(() => {
+      const [, write] = calls();
+      expect(write).toContain("Running");
+      expect(write).not.toContain("Waiting for an answer");
+    });
+  });
+
+  test("요청보다 먼저 시작한 대기 목록 읽기에 그 요청이 없어도, 다시 읽기 전까지는 답변 대기다", async () => {
+    type Listed = { requestIds: readonly string[]; at: number } | undefined;
+    const frames = [
+      {
+        event: "tool_use",
+        data: {
+          message: {
+            content: [
+              { type: "tool_use", id: "tu_1", name: "Bash", input: {} },
+            ],
+          },
+        },
+      },
+      {
+        event: "question",
+        data: {
+          request_id: "req_1",
+          tool_use_id: "tu_1",
+          kind: "permission",
+          tool: "Bash",
+          input: {},
+        },
+      },
+    ].map((payload, index) => ({
+      id: `ev_${index}`,
+      occurredAt: "2026-10-21T00:59:00.000Z",
+      turnId: "1",
+      attemptId: null,
+      payload,
+    })) as unknown as import("../sessions.ts").SessionEventFrame[];
+    type Shown = { events: typeof frames; pending: Listed };
+    let show: (next: Shown) => void = () => {};
+    function Host() {
+      const [shown, setShown] = useState<Shown>({
+        events: [],
+        pending: { requestIds: [], at: 1 },
+      });
+      show = setShown;
+      return (
+        <SessionTimeline
+          events={shown.events}
+          state="open"
+          pending={shown.pending}
+        />
+      );
+    }
+    const view = renderInbox({ open: [], body: <Host /> });
+    const call = () =>
+      view.container.querySelector("li[data-kind='tool']")?.textContent ?? "";
+    // A read lands in the same render as the lines: it was under way before
+    // them, so it cannot say the request is gone.
+    act(() => show({ events: frames, pending: { requestIds: [], at: 2 } }));
+    expect(call()).toContain("Waiting for an answer");
+    // The cache is reset: that is no read at all.
+    act(() => show({ events: frames, pending: undefined }));
+    expect(call()).toContain("Waiting for an answer");
+    // The read the line's own refresh may have joined.
+    act(() => show({ events: frames, pending: { requestIds: [], at: 3 } }));
+    expect(call()).toContain("Waiting for an answer");
+    // A read begun after the lines: the request is gone, so it was answered.
+    act(() => show({ events: frames, pending: { requestIds: [], at: 4 } }));
+    expect(call()).toContain("Running");
+    expect(call()).not.toContain("Waiting for an answer");
   });
 
   test("레일은 열면 머리로 키보드를 옮기고, 닫기·Esc로 닫히면 연 버튼으로 돌려준다", async () => {

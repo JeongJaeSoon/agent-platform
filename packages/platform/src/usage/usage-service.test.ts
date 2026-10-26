@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   installationLimitsResponseSchema,
+  memberLimitsResponseSchema,
   scopesForRole,
   sessionUsageResponseSchema,
   type UsageToolsResponse,
@@ -377,6 +378,26 @@ describe("usage service", () => {
     }
   });
 
+  test("a signed-in member reads the per-session limits alone; a key reads none", async () => {
+    for (const role of ["member", "admin", "owner"] as const) {
+      const body = memberLimitsResponseSchema.parse(
+        await service().getMemberLimits(user(role)),
+      );
+      expect(body.limits).toEqual({
+        queued_input_limit_per_session: 3,
+        max_turn_seconds: 60,
+        session_cost_limit_usd: "0.0000005",
+        session_token_limit: null,
+      });
+    }
+    for (const caller of [serviceKey(), testCaller(WORKSPACE)]) {
+      const error = await service()
+        .getMemberLimits(caller)
+        .catch((caught: unknown) => caught);
+      expect((error as SessionServiceError).code).toBe("FORBIDDEN");
+    }
+  });
+
   test("installation figures are refused to anyone but the owner, before anything is read", async () => {
     for (const caller of [
       user("admin"),
@@ -600,16 +621,16 @@ describe("usage service", () => {
     expect(open.cost_complete).toBe(false);
   });
 
-  test("groups name another person only to the installation reader, and agents to anyone", async () => {
+  test("groups name another person only to the installation reader, and agents and profiles to anyone", async () => {
     const grouped = (
       scope: "installation" | "me",
-      group_by: "agent" | "user",
+      group_by: "agent" | "user" | "profile",
     ) =>
       usageSummaryQuerySchema.parse({ scope, since: "2026-10-01", group_by });
     const names = async (
       caller: Caller,
       scope: "installation" | "me",
-      by: "agent" | "user",
+      by: "agent" | "user" | "profile",
     ) => {
       const summary = usageSummaryResponseSchema.parse(
         await service().getUsageSummary(caller, grouped(scope, by)),
@@ -624,6 +645,7 @@ describe("usage service", () => {
     expect(await names(user("member"), "me", "user")).toEqual(["나", null]);
     expect(await names(serviceKey(), "me", "user")).toEqual([null, null]);
     expect(await names(user("member"), "me", "agent")).toEqual(["나", "남"]);
+    expect(await names(serviceKey(), "me", "profile")).toEqual(["나", "남"]);
     const [mine, theirs] =
       (await service().getUsageSummary(user("owner"), grouped("me", "user")))
         .groups ?? [];

@@ -31,17 +31,19 @@ export type NavKey =
   | "members"
   | "settings"
   | "usage"
+  | "profiles"
   | "operations";
 
 const NAV: readonly (readonly [NavKey, string])[] = [
   ["home", "홈"],
   ["sessions", "세션"],
   ["agents", "에이전트"],
-  ["operations", "운영"],
 ];
 const WORKSPACE_NAV: readonly (readonly [NavKey, string])[] = [
+  ["profiles", "실행 프로필"],
+  ["operations", "사용량·한도"],
   ["members", "구성원"],
-  ["settings", "워크스페이스 설정"],
+  ["settings", "설정"],
 ];
 
 function NavItem({
@@ -98,7 +100,8 @@ export function ScreenShell({
             워크스페이스
           </p>
           {WORKSPACE_NAV.filter(
-            ([key]) => role !== "member" || key !== "settings",
+            ([key]) =>
+              role !== "member" || (key !== "members" && key !== "settings"),
           ).map(([key, label]) => (
             <NavItem key={key} label={label} current={current === key} />
           ))}

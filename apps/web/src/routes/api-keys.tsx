@@ -41,7 +41,14 @@ import {
   PageBreadcrumbCurrent,
   PageBreadcrumbLink,
 } from "@werft-ai/ui";
-import { Check, CircleAlert, Clock, Copy, Plus } from "lucide-react";
+import {
+  Check,
+  CircleAlert,
+  Clock,
+  Copy,
+  InfinityIcon,
+  Plus,
+} from "lucide-react";
 import {
   type FormEvent,
   type RefObject,
@@ -540,6 +547,8 @@ function ExpiryMeta({
     >
       {danger ? (
         <CircleAlert aria-hidden="true" className={ICON} />
+      ) : state === "none" ? (
+        <InfinityIcon aria-hidden="true" className={ICON} />
       ) : (
         <Clock aria-hidden="true" className={ICON} />
       )}
