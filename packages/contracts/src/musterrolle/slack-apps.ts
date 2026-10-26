@@ -118,6 +118,18 @@ export const slackWarningSchema = z
   })
   .strict();
 
+/**
+ * The agent's active release runs on a profile whose sessions must name a
+ * repository. Slack names none, so every mention and DM is refused with a
+ * notice; connecting still goes ahead.
+ */
+export const slackAgentWarningSchema = z
+  .object({
+    code: z.literal("repository_required"),
+    profile_id: z.string(),
+  })
+  .strict();
+
 export const createSlackAppRequestSchema = z
   .object({
     /**
@@ -134,7 +146,12 @@ export const createSlackAppResponseSchema = z
     slack_app: slackAppSchema,
     /** False when the agent already had this app. */
     created: z.boolean(),
-    warnings: z.array(slackWarningSchema),
+    warnings: z.array(
+      z.discriminatedUnion("code", [
+        slackWarningSchema,
+        slackAgentWarningSchema,
+      ]),
+    ),
   })
   .strict();
 
@@ -149,6 +166,7 @@ export const getSlackAppResponseSchema = z
         error: z.string().max(128).optional(),
       })
       .strict(),
+    warnings: z.array(slackAgentWarningSchema),
   })
   .strict();
 
@@ -213,6 +231,7 @@ export type SlackAppState = z.infer<typeof slackAppStateSchema>;
 export type SlackAppSecretPurpose = z.infer<typeof slackAppSecretPurposeSchema>;
 export type SlackApp = z.infer<typeof slackAppSchema>;
 export type SlackWarning = z.infer<typeof slackWarningSchema>;
+export type SlackAgentWarning = z.infer<typeof slackAgentWarningSchema>;
 export type CreateSlackAppRequest = z.infer<typeof createSlackAppRequestSchema>;
 export type CreateSlackAppResponse = z.infer<
   typeof createSlackAppResponseSchema

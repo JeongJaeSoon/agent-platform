@@ -1,6 +1,6 @@
 /**
  * Builds the smallest ClientHello a test needs: one cipher suite, null
- * compression, and whatever extensions the case calls for. Used by the
+ * compression, and whatever extensions the case calls for. Used by the egress
  * proxy's own tests and by the Docker egress suite, which feeds the bytes
  * through `printf | nc` from inside the worker network.
  */

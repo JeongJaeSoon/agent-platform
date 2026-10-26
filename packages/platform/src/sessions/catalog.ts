@@ -578,6 +578,17 @@ export function repositoryModeOf(profile: CatalogProfileView): RepositoryMode {
   return profile.repository ?? "required";
 }
 
+/** Whether every session of the profile names a repository; false for an unknown profile. */
+export function profileNeedsRepository(
+  catalog: { profiles: Readonly<Record<string, CatalogProfileView>> },
+  profileId: string,
+): boolean {
+  const profile = Object.hasOwn(catalog.profiles, profileId)
+    ? catalog.profiles[profileId]
+    : undefined;
+  return profile !== undefined && repositoryModeOf(profile) === "required";
+}
+
 /** Whether the profile declared `billing: none`: no cost, no dollar limit. */
 export function isUnmetered(profile: CatalogProfileView): boolean {
   return profile.provider.billing === "none";

@@ -177,7 +177,7 @@ jobs:
               - tests/context-gap-flow.
               - tests/interrupt-flow.
               - tests/lease-clock.
-          # Slack and the contracts, clients and UI that consume the API.
+          # Slack and the contracts, clients and web apps that consume the API.
           # Enable PostgreSQL and LocalStack so service-gated tests do not skip.
           - domain: surface
             postgres: true
@@ -190,7 +190,6 @@ jobs:
               - packages/sdk/
               - packages/core/
               - packages/react/
-              - packages/ui/
               - apps/web/
               - apps/storybook/
           # Object storage: checkpoint objects, the S3 transport and its bounds.
@@ -241,8 +240,9 @@ jobs:
               - tests/credential-routes.
               - tests/sdk-egress-proxy.
           # What runs inside a worker, none of it needing a service: the worker
-          # process, runtime adapters, platform services — and the repository's
-          # own tooling suites, too small for a runner of their own.
+          # process, runtime adapters, platform services — plus the UI component
+          # library and the repository's own tooling suites, which need no
+          # service either and are too small for a runner of their own.
           - domain: worker
             postgres: false
             localstack: false
@@ -255,6 +255,7 @@ jobs:
               - packages/platform/
               - packages/runtime-core/
               - packages/system/
+              - packages/ui/
               - packages/testkit/src/fake-anthropic.
               - packages/testkit/src/fake-github.
               - packages/testkit/src/scripted-messages.

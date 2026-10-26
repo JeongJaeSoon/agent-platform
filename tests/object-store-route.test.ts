@@ -19,15 +19,15 @@ import {
   S3ServiceException,
 } from "@aws-sdk/client-s3";
 import {
-  type CredentialProxyServer,
-  startCredentialProxy,
-} from "@werft-ai/egress-proxy/src/credential.ts";
-import {
   createLocalstackBucket,
   type LocalstackBucket,
   localstackEnabled,
   localstackEnv,
 } from "@werft-ai/testkit/localstack";
+import {
+  type CredentialProxyServer,
+  startCredentialProxy,
+} from "../apps/egress-proxy/src/credential.ts";
 import {
   createWorkerObjectStore,
   objectStoreConfigFromEnv,

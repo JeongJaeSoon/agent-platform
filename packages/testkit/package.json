@@ -21,6 +21,7 @@
     "./pglite": "./src/pglite.ts",
     "./postgres": "./src/postgres.ts",
     "./scripted-messages": "./src/scripted-messages.ts",
+    "./tls-client-hello": "./src/tls-client-hello.ts",
     "./workspace": "./src/workspace.ts"
   },
   "scripts": {

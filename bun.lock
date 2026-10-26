@@ -67,6 +67,9 @@
     "apps/egress-proxy": {
       "name": "@werft-ai/egress-proxy",
       "version": "0.0.0",
+      "devDependencies": {
+        "@werft-ai/testkit": "workspace:*",
+      },
     },
     "apps/storybook": {
       "name": "@werft-ai/storybook",
