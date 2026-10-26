@@ -93,6 +93,27 @@ function questionOf(frame: SessionEventFrame) {
   return { requestId: request_id, options };
 }
 
+/**
+ * The tool calls a question or permission request holds back: asked, with
+ * neither an answer nor a result yet. As in run-tree, a request is answered
+ * once a later status leaves needs_input.
+ */
+export function heldToolCalls(
+  events: readonly SessionEventFrame[],
+): ReadonlySet<string> {
+  const held = new Set<string>();
+  for (const { payload } of events) {
+    if (payload.event === "question") held.add(payload.data.tool_use_id);
+    else if (payload.event === "status") {
+      if (payload.data.phase !== "needs_input") held.clear();
+    } else if (payload.event === "tool_result") {
+      const id = eventToolCallId(payload);
+      if (id !== undefined) held.delete(id);
+    }
+  }
+  return held;
+}
+
 /** A session's events as the timeline reads them. */
 export function SessionTimeline({
   events,
@@ -128,6 +149,7 @@ export function SessionTimeline({
       ),
     [events, t, locale],
   );
+  const held = useMemo(() => heldToolCalls(events), [events]);
   const asked = useMemo(
     () => new Map(turns?.map((turn) => [turn.turn_id, turn])),
     [turns],
@@ -154,12 +176,14 @@ export function SessionTimeline({
           kind: (kind) => t(`session.events.kind.${kind}`),
           folded: (count) => t("session.events.folded", { count }),
           running: t("session.events.running"),
+          waiting: t("sessions.status.needs_input"),
           options: t("session.events.options"),
         }}
         state={state}
         showDebug={debug}
         locale={locale}
         request={request}
+        held={held}
         prompt={(turnId) => {
           const turn = asked.get(turnId);
           return turn ? (
