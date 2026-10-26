@@ -66,5 +66,6 @@ export {
   useSessionControl,
   useSessionEvents,
   useSessions,
+  useSessionTurns,
   useSessionUsage,
 } from "./sessions.ts";

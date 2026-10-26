@@ -19,6 +19,7 @@ export {
   queryKeys,
   sessionQuery,
   sessionsQuery,
+  sessionTurnsQuery,
   sessionUsageQuery,
   teamQuery,
   teamsQuery,

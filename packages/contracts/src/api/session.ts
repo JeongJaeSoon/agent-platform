@@ -7,6 +7,7 @@ import {
   pageSchema,
   paginationQuerySchema,
   receiptIdSchema,
+  requestIdSchema,
   revisionSchema,
   sessionIdSchema,
   timestampSchema,
@@ -241,7 +242,7 @@ export const sessionDurabilitySchema = z.object({
 });
 
 const NEEDS_INPUT_PROJECTION =
-  "needs_input is derived when read: a running session or turn with at least one pending request a client can still answer (open, unexpired, raised by the attempt that holds the turn). It returns to running as soon as none is left, whether by an answer, the worker settling the request, expiry or the attempt losing the session, with no change to updated_at. The event stream reports both edges as status events: needs_input right after the question that opened the wait, and the status read here once the wait ends — at the answer or settlement that ended it, or within one reconciler pass when nothing was written (expiry, a lost attempt).";
+  "needs_input is derived when read: a running session or turn with at least one pending request a client can still answer (open, unexpired, raised by the attempt that holds the turn), or an idle session whose turn was parked on requests still open (`input_wait.state: parked`). It returns to running as soon as none is left, whether by an answer, the worker settling the request, expiry or the attempt losing the session, with no change to updated_at. The event stream reports both edges as status events: needs_input right after the question that opened the wait, and the status read here once the wait ends — at the answer or settlement that ended it, or within one reconciler pass when nothing was written (expiry, a lost attempt).";
 
 export const SESSION_TITLE_MAX_GRAPHEMES = 80;
 // Bounds the input before it is segmented; a title never needs more.
@@ -385,6 +386,58 @@ export const sessionActivitySchema = z.object({
     }),
 });
 
+export const PAUSE_REASON_VALUES = ["awaiting_input"] as const;
+export const pauseReasonSchema = z.enum(PAUSE_REASON_VALUES);
+export const INPUT_WAIT_STATE_VALUES = [
+  "waiting",
+  "parking",
+  "parked",
+  "expired",
+] as const;
+export const inputWaitStateSchema = z.enum(INPUT_WAIT_STATE_VALUES);
+export const PENDING_REQUEST_KIND_VALUES = ["permission", "question"] as const;
+
+export const inputWaitSchema = z
+  .object({
+    state: inputWaitStateSchema.meta({
+      description:
+        "`waiting`: a worker holds the turn open on the requests. `parking`: the platform is pausing the session to free its worker, and an answer can still reach the turn before it stops. `parked`: the turn stopped with its checkpoint and the session is paused; answering resumes it. `expired`: every request the parked turn waited on expired unanswered; the session stays paused until someone resumes it.",
+    }),
+    since: timestampSchema.meta({
+      description: "When the oldest of the requests was raised.",
+    }),
+    kinds: z.array(z.enum(PENDING_REQUEST_KIND_VALUES)).min(1),
+    request_ids: z.array(requestIdSchema).min(1),
+    park_at: timestampSchema.nullable().meta({
+      description:
+        "When the platform parks the turn if nobody answers: the earliest of the requests'. Null when none of them parks, so they wait for their worker until they expire.",
+    }),
+    expires_at: timestampSchema.meta({
+      description:
+        "When the earliest of the requests stops taking answers. An expired request is denied.",
+    }),
+  })
+  .strict();
+
+// Seconds, both optional: the profile's value stands for one left out.
+export const MAX_PERMISSION_WAIT_SECONDS = 604_800;
+export const permissionWaitRequestSchema = z
+  .object({
+    park_after_seconds: z
+      .number()
+      .int()
+      .nonnegative()
+      .max(MAX_PERMISSION_WAIT_SECONDS)
+      .optional(),
+    expire_after_seconds: z
+      .number()
+      .int()
+      .positive()
+      .max(MAX_PERMISSION_WAIT_SECONDS)
+      .optional(),
+  })
+  .strict();
+
 export const sessionSummarySchema = z.object({
   id: sessionIdSchema,
   // Defaults so a reader ahead of its server, during a rollout, reads a
@@ -425,6 +478,11 @@ export const sessionSummarySchema = z.object({
   revision: revisionSchema,
   admission_state: admissionStateSchema,
   status: sessionStatusSchema.meta({ description: NEEDS_INPUT_PROJECTION }),
+  // Optional like activity; the detail carries the whole wait.
+  input_wait: inputWaitSchema.pick({ state: true }).nullable().optional().meta({
+    description:
+      "Which stage the session's wait for an answer is in; null when it waits on none. `GET /v1/sessions/{id}` says what it waits on. Absent from a server older than the field.",
+  }),
   // What the catalog says the session's profile runs, or null when it cannot
   // say: a legacy row with no profile key, or a key the catalog no longer
   // has (detail reports CATALOG_MISMATCH). Never an estimate.
@@ -456,9 +514,17 @@ export const sessionSummarySchema = z.object({
 export const sessionDetailSchema = sessionSummarySchema.extend({
   execution: executionObservationSchema.nullable(),
   checkpoint_revision: revisionSchema.nullable(),
+  input_wait: inputWaitSchema.nullable().optional().meta({
+    description:
+      "The requests the session waits on and the stage of that wait; null when it waits on none. `waiting`, `parking` and `parked` read the requests GET /v1/sessions/{id}/pending-requests lists; `expired` reads the parked turn's requests after the last one expired. Absent from a server older than the field.",
+  }),
+  pause_reason: pauseReasonSchema.nullable().optional().meta({
+    description:
+      "Why the platform paused the session: `awaiting_input` while it is `pausing` or `paused` because its turn was parked on requests nobody answered. Null for a pause someone asked for, including one that took a park over, and for every other admission state. Absent from a server older than the field.",
+  }),
   pending_request_count: z.number().int().nonnegative().meta({
     description:
-      "The requests GET /v1/sessions/{id}/pending-requests lists, counted in the same read as status: status reads needs_input exactly when this is above zero and the session would otherwise read running.",
+      "The requests GET /v1/sessions/{id}/pending-requests lists, counted in the same read as status, parked sessions included: status reads needs_input exactly when this is above zero and the session would otherwise read running or, parked, idle.",
   }),
   attention: sessionAttentionSchema.nullable(),
   durability: sessionDurabilitySchema,
@@ -496,6 +562,10 @@ export const createSessionRequestSchema = z
     model: z.string().min(1).optional().meta({
       description:
         "One of the models the profile offers (its `model` or one of its `models` in the catalog). Omitted, the model of the agent release's card when `agent_release_id` is sent, else the profile's default `model`. Kept until the session's profile is changed, after which the new profile's default `model` runs.",
+    }),
+    permission_wait: permissionWaitRequestSchema.optional().meta({
+      description:
+        "How long the session's permission and question requests wait for an answer, in seconds: `park_after_seconds` before the platform parks the turn and frees its worker (0 parks at once), `expire_after_seconds` from the request until it stops taking answers and is denied. Each can only shorten the profile's value (`GET /v1/profiles`, `permission_wait`); a longer one is 400 `PERMISSION_WAIT_ABOVE_PROFILE`. Omitted, the profile's values apply. A request takes the values in force when it is raised.",
     }),
   })
   .strict();
@@ -579,6 +649,10 @@ export type SessionDurability = z.infer<typeof sessionDurabilitySchema>;
 export type SessionRepository = z.infer<typeof sessionRepositorySchema>;
 export type SessionActivity = z.infer<typeof sessionActivitySchema>;
 export type SessionSummary = z.infer<typeof sessionSummarySchema>;
+export type PauseReason = z.infer<typeof pauseReasonSchema>;
+export type InputWaitState = z.infer<typeof inputWaitStateSchema>;
+export type InputWait = z.infer<typeof inputWaitSchema>;
+export type PermissionWaitRequest = z.infer<typeof permissionWaitRequestSchema>;
 export type SessionDetail = z.infer<typeof sessionDetailSchema>;
 export type CreateSessionRequest = z.infer<typeof createSessionRequestSchema>;
 export type CreateSessionResponse = z.infer<typeof createSessionResponseSchema>;

@@ -69,6 +69,11 @@ exports[`query keys 1`] = `
     "sessions",
     "id-1",
   ],
+  "sessionTurns": [
+    "sessions",
+    "id-1",
+    "turns",
+  ],
   "sessionUsage": [
     "sessions",
     "id-1",
@@ -434,6 +439,31 @@ exports[`query options and the request each query makes 1`] = `
         "id-1",
       ],
       "refetchInterval": 5000,
+      "retry": false,
+    },
+  },
+  "sessionTurnsQuery": {
+    "calls": [
+      [
+        "/v1/sessions/{id}/turns",
+        {
+          "params": {
+            "path": {
+              "id": "id-1",
+            },
+            "query": {
+              "limit": 100,
+            },
+          },
+        },
+      ],
+    ],
+    "options": {
+      "queryKey": [
+        "sessions",
+        "id-1",
+        "turns",
+      ],
       "retry": false,
     },
   },

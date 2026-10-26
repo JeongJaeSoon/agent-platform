@@ -8,6 +8,7 @@ import {
   checkpointBlockReasonSchema,
   createSessionResponseSchema,
   executionObservationSchema,
+  type InputWait,
   type ListSessionsQuery,
   type ListTurnsQuery,
   type PostSessionMessageResponse,
@@ -90,6 +91,8 @@ import {
   actionableOfTurn,
   IN_FLIGHT_STATUSES,
   publicStatus,
+  READ_AT,
+  readInputWaits,
 } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
 import {
@@ -277,6 +280,7 @@ export function createPostgresSessionUnitOfWork(
           model: input.model ?? null,
           unmetered: input.unmetered ?? false,
           agentReleaseId: input.agentReleaseId ?? null,
+          permissionWaitOverride: input.permissionWait ?? null,
           workspaceId: actor?.workspaceId ?? null,
           createdByUserId: actor?.userId ?? null,
           createdByApiKeyId: actor?.apiKeyId ?? null,
@@ -666,6 +670,11 @@ export function createPostgresSessionReader(
     return eq(sessions.status, status);
   }
 
+  // A list row says only which stage; the detail says what it waits on.
+  function summaryWait(wait: InputWait | null) {
+    return wait === null ? null : { state: wait.state };
+  }
+
   async function summarize(
     executor: Database,
     rows: {
@@ -673,6 +682,8 @@ export function createPostgresSessionReader(
       awaitingInput: boolean;
       lastEventAt: Date | null;
     }[],
+    // READ_AT of the statement that read awaitingInput.
+    readAt: string,
   ): Promise<SessionRecord[]> {
     if (rows.length === 0) return [];
     const ids = rows.map(({ session }) => session.id);
@@ -716,6 +727,11 @@ export function createPostgresSessionReader(
             .from(users)
             .where(inArray(users.id, creatorIds));
     const activities = await readSessionActivity(executor, ids);
+    const inputWaits = await readInputWaits(
+      executor,
+      rows.map(({ session }) => session),
+      readAt,
+    );
     const openTurns = await executor
       .select({
         sessionId: turns.sessionId,
@@ -755,6 +771,7 @@ export function createPostgresSessionReader(
         revision: row.revision,
         admission_state: row.admissionState,
         status: publicStatus(row.status, awaitingInput),
+        input_wait: summaryWait(inputWaits.get(row.id) ?? null),
         profile_id: row.profileId,
         profile_fingerprint: row.profileFingerprint,
         model: row.model,
@@ -838,47 +855,55 @@ export function createPostgresSessionReader(
       viewer: SessionViewer,
     ) {
       const cursor = query.cursor ? decodeCreatedAtCursor(query.cursor) : null;
-      const rows = await db
-        .select({
-          session: sessions,
-          cursorAt: CREATED_AT_TEXT,
-          awaitingInput: sql<boolean>`exists (${actionableOfSession(db)})`,
-          lastEventAt: LAST_EVENT_AT,
-        })
-        .from(sessions)
-        .where(
-          and(
-            sessionFilter(ownerId, query, viewer),
-            query.status ? publicStatusIs(query.status) : undefined,
-            query.agent_id
-              ? inArray(
-                  sessions.agentReleaseId,
-                  db
-                    .select({ id: agentReleases.id })
-                    .from(agentReleases)
-                    .where(eq(agentReleases.agentId, query.agent_id)),
-                )
-              : undefined,
-            cursor
-              ? sql`(${sessions.createdAt}, ${sessions.id}) < (${cursor.created_at}::timestamptz, ${cursor.id}::uuid)`
-              : undefined,
-          ),
-        )
-        .orderBy(desc(sessions.createdAt), desc(sessions.id))
-        .limit(query.limit + 1)
-        .catch(rethrowCursorCastError);
-      const page = rows.slice(0, query.limit);
-      const last = page[page.length - 1];
-      return {
-        items: await summarize(db, page),
-        next_cursor:
-          rows.length > query.limit && last
-            ? encodeCreatedAtCursor({
-                created_at: last.cursorAt,
-                id: last.session.id,
-              })
-            : null,
-      };
+      // One snapshot, as the detail: an answer committed between the page
+      // and its summary read showed needs_input beside input_wait null.
+      return db.transaction(
+        async (tx) => {
+          const rows = await tx
+            .select({
+              session: sessions,
+              cursorAt: CREATED_AT_TEXT,
+              awaitingInput: sql<boolean>`exists (${actionableOfSession(db)})`,
+              lastEventAt: LAST_EVENT_AT,
+              readAt: READ_AT,
+            })
+            .from(sessions)
+            .where(
+              and(
+                sessionFilter(ownerId, query, viewer),
+                query.status ? publicStatusIs(query.status) : undefined,
+                query.agent_id
+                  ? inArray(
+                      sessions.agentReleaseId,
+                      db
+                        .select({ id: agentReleases.id })
+                        .from(agentReleases)
+                        .where(eq(agentReleases.agentId, query.agent_id)),
+                    )
+                  : undefined,
+                cursor
+                  ? sql`(${sessions.createdAt}, ${sessions.id}) < (${cursor.created_at}::timestamptz, ${cursor.id}::uuid)`
+                  : undefined,
+              ),
+            )
+            .orderBy(desc(sessions.createdAt), desc(sessions.id))
+            .limit(query.limit + 1)
+            .catch(rethrowCursorCastError);
+          const page = rows.slice(0, query.limit);
+          const last = page[page.length - 1];
+          return {
+            items: last ? await summarize(tx, page, last.readAt) : [],
+            next_cursor:
+              rows.length > query.limit && last
+                ? encodeCreatedAtCursor({
+                    created_at: last.cursorAt,
+                    id: last.session.id,
+                  })
+                : null,
+          };
+        },
+        { isolationLevel: "repeatable read", accessMode: "read only" },
+      );
     },
 
     getSession(
@@ -898,6 +923,7 @@ export function createPostgresSessionReader(
               session: sessions,
               pendingCount: sql<number>`(SELECT count(*)::int FROM (${actionableOfSession(tx)}) AS actionable)`,
               lastEventAt: LAST_EVENT_AT,
+              readAt: READ_AT,
               isolation: sql<string>`current_setting('transaction_isolation')`,
             })
             .from(sessions)
@@ -910,13 +936,17 @@ export function createPostgresSessionReader(
             throw new Error("Session detail needs a snapshot transaction");
           }
           const row = read.session;
-          const [summary] = await summarize(tx, [
-            {
-              session: row,
-              awaitingInput: read.pendingCount > 0,
-              lastEventAt: read.lastEventAt,
-            },
-          ]);
+          const [summary] = await summarize(
+            tx,
+            [
+              {
+                session: row,
+                awaitingInput: read.pendingCount > 0,
+                lastEventAt: read.lastEventAt,
+              },
+            ],
+            read.readAt,
+          );
           if (!summary) return null;
           // A pool launch carries whatever generation its backend picked, so
           // the highest generation need not be the execution that claimed
@@ -986,6 +1016,11 @@ export function createPostgresSessionReader(
                 })
               : null,
             checkpoint_revision: row.checkpointRevision,
+            input_wait:
+              (await readInputWaits(tx, [row], read.readAt)).get(row.id) ??
+              null,
+            pause_reason:
+              row.pauseReason === "awaiting_input" ? row.pauseReason : null,
             pending_request_count: read.pendingCount,
             attention:
               (await drainAttention(tx, row)) ??

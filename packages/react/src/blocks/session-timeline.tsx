@@ -2,9 +2,11 @@ import {
   presentTurnEvent,
   type TurnEventPart,
   type TurnEventPresentation,
+  type TurnSummary,
 } from "@werft-ai/contracts";
 import { type ReactNode, useMemo } from "react";
 import {
+  Message,
   Timeline,
   type TimelineEntry,
   turnSummaryText,
@@ -97,12 +99,15 @@ export function SessionTimeline({
   state,
   debug = false,
   request,
+  turns,
 }: {
   readonly events: readonly SessionEventFrame[];
   readonly state: EventStreamState;
   readonly debug?: boolean;
   /** Drawn under a request's line; see `Timeline`. */
   readonly request?: ((requestId: string) => ReactNode) | undefined;
+  /** The session's turns: each one's message heads its events. */
+  readonly turns?: readonly TurnSummary[] | undefined;
 }) {
   const { t, formatMessage, locale } = useBlockText();
   const entries = useMemo(
@@ -122,6 +127,10 @@ export function SessionTimeline({
         }),
       ),
     [events, t, locale],
+  );
+  const asked = useMemo(
+    () => new Map(turns?.map((turn) => [turn.turn_id, turn])),
+    [turns],
   );
   const latestStatus = entries
     .filter((_, index) => events[index]?.payload.event === "status")
@@ -151,6 +160,16 @@ export function SessionTimeline({
         showDebug={debug}
         locale={locale}
         request={request}
+        prompt={(turnId) => {
+          const turn = asked.get(turnId);
+          return turn ? (
+            <Message
+              from="user"
+              author={t("session.events.prompt")}
+              text={turn.message}
+            />
+          ) : null;
+        }}
       />
     </div>
   );

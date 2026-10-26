@@ -40,6 +40,7 @@ import {
   usePendingRequests,
   useSession,
   useSessionEvents,
+  useSessionTurns,
   useSessionUsage,
 } from "../sessions.ts";
 import {
@@ -103,6 +104,7 @@ export function SessionDetail({
   const usage = useSessionUsage(id, readable);
   const pending = usePendingRequests(id, readable);
   const events = useSessionEvents(id, readable);
+  const turns = useSessionTurns(id, readable);
 
   if (detail === undefined) {
     // The host leaves the gutters to this layout, rail or not.
@@ -170,6 +172,7 @@ export function SessionDetail({
             events={events.events}
             state={events.state}
             debug={debug}
+            turns={turns.data?.items}
           />
         </div>
         {usage.data ? <BudgetExceeded usage={usage.data} /> : null}

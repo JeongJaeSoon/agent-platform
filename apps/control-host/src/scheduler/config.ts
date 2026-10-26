@@ -141,11 +141,20 @@ function executionFromEnv(
   }
 }
 
+/** One whole stop: the backend's stop grace plus the request that asks for it. */
+export function stopDeadlineMsOf(execution: SchedulerExecution): number {
+  const { requestTimeoutMs, stopTimeoutSeconds } =
+    execution.backend === "local_docker"
+      ? execution.docker
+      : execution.kubernetes;
+  return stopTimeoutSeconds * 1_000 + requestTimeoutMs;
+}
+
 /**
- * A kill does not wait for a busy worker to drain, but a pass can
- * still wait out one whole stop: ensure removes a container it cannot adopt,
- * and the teardown of an unclaimed one, before building again. A pass killed
- * there counts as failed, and three in a row restart the scheduler.
+ * Kills and teardowns do not wait for a worker to stop, but a pass can
+ * still wait out one whole stop: ensure removes a container it cannot adopt
+ * before building again. A pass killed there counts as failed, and three in
+ * a row restart the scheduler.
  */
 export function assertPassOutlastsStop(
   passTimeoutMs: number,
@@ -155,7 +164,7 @@ export function assertPassOutlastsStop(
     execution.backend === "local_docker"
       ? execution.docker
       : execution.kubernetes;
-  if (passTimeoutMs <= stopTimeoutSeconds * 1_000 + requestTimeoutMs) {
+  if (passTimeoutMs <= stopDeadlineMsOf(execution)) {
     // Only the Docker backend lets either timeout be set.
     const stop =
       execution.backend === "local_docker"
