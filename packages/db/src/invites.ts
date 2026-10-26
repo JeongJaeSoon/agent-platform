@@ -8,6 +8,7 @@ import type {
   InviteRecord,
   InviteStore,
   MemberRecord,
+  MemberRowRecord,
   MembershipRole,
   RevokeInviteResult,
 } from "@werft-ai/platform";
@@ -18,7 +19,19 @@ import {
   mayGrantRole,
   memberVerdict,
 } from "@werft-ai/platform";
-import { and, asc, desc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNull,
+  max,
+  ne,
+  or,
+  sql,
+} from "drizzle-orm";
 import {
   containsPattern,
   lockActorAccount,
@@ -29,11 +42,17 @@ import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
 import { createWebSession } from "./identity.ts";
 import type { Database } from "./queries.ts";
 import {
+  agentAdmins,
+  agentAdminTeams,
+  agents,
   invites,
   loginMethods,
   memberships,
+  memberTeamMembers,
+  memberTeams,
   receipts,
   users,
+  webSessions,
 } from "./schema.ts";
 
 // Invites and roles (94S-153). Lock order, everywhere here: invite, then
@@ -526,6 +545,117 @@ async function changeMemberRole(
   });
 }
 
+type AdministeredAgent = MemberRowRecord["administeredAgents"][number];
+
+// Mirrors `administers`: a direct admin row, or a live membership of a live
+// team that is admin. Direct wins when both hold.
+async function administeredAgents(
+  db: Database,
+  workspaceId: string,
+  userIds: string[],
+): Promise<Map<string, AdministeredAgent[]>> {
+  if (userIds.length === 0) return new Map();
+  const live = and(
+    eq(agents.workspaceId, workspaceId),
+    ne(agents.status, "archived"),
+  );
+  const [direct, viaTeam] = await Promise.all([
+    db
+      .select({ userId: agentAdmins.userId, id: agents.id, name: agents.name })
+      .from(agentAdmins)
+      .innerJoin(
+        agents,
+        and(
+          eq(agents.workspaceId, agentAdmins.workspaceId),
+          eq(agents.id, agentAdmins.agentId),
+        ),
+      )
+      .where(
+        and(
+          eq(agentAdmins.workspaceId, workspaceId),
+          inArray(agentAdmins.userId, userIds),
+          live,
+        ),
+      ),
+    db
+      .selectDistinct({
+        userId: memberTeamMembers.userId,
+        id: agents.id,
+        name: agents.name,
+      })
+      .from(agentAdminTeams)
+      .innerJoin(
+        memberTeams,
+        and(
+          eq(memberTeams.id, agentAdminTeams.teamId),
+          isNull(memberTeams.archivedAt),
+        ),
+      )
+      .innerJoin(
+        memberTeamMembers,
+        and(
+          eq(memberTeamMembers.teamId, agentAdminTeams.teamId),
+          isNull(memberTeamMembers.removedAt),
+        ),
+      )
+      .innerJoin(
+        agents,
+        and(
+          eq(agents.workspaceId, agentAdminTeams.workspaceId),
+          eq(agents.id, agentAdminTeams.agentId),
+        ),
+      )
+      .where(
+        and(
+          eq(agentAdminTeams.workspaceId, workspaceId),
+          inArray(memberTeamMembers.userId, userIds),
+          live,
+        ),
+      ),
+  ]);
+  const byUser = new Map<string, Map<string, AdministeredAgent>>();
+  for (const [via, rows] of [
+    ["user", direct],
+    ["team", viaTeam],
+  ] as const) {
+    for (const row of rows) {
+      const held = byUser.get(row.userId) ?? new Map();
+      byUser.set(row.userId, held);
+      if (!held.has(row.id)) {
+        held.set(row.id, { id: row.id, name: row.name, via });
+      }
+    }
+  }
+  return new Map(
+    [...byUser].map(([userId, held]) => [
+      userId,
+      [...held.values()].sort((a, b) =>
+        a.name === b.name ? (a.id < b.id ? -1 : 1) : a.name < b.name ? -1 : 1,
+      ),
+    ]),
+  );
+}
+
+// A login prunes only older rows of the same user, so the newest last touch
+// survives in the table.
+async function lastActivity(
+  db: Database,
+  userIds: string[],
+): Promise<Map<string, Date>> {
+  if (userIds.length === 0) return new Map();
+  const rows = await db
+    .select({
+      userId: webSessions.userId,
+      at: max(webSessions.lastSeenAt),
+    })
+    .from(webSessions)
+    .where(inArray(webSessions.userId, userIds))
+    .groupBy(webSessions.userId);
+  return new Map(
+    rows.flatMap((row) => (row.at === null ? [] : [[row.userId, row.at]])),
+  );
+}
+
 export function createPostgresInviteStore(db: Database): InviteStore {
   return {
     createInvite: (input) => createInvite(db, input),
@@ -581,12 +711,19 @@ export function createPostgresInviteStore(db: Database): InviteStore {
         });
       const page = rows.slice(0, query.limit);
       const last = page[page.length - 1];
+      const userIds = page.map((row) => row.userId);
+      const [administered, activity] = await Promise.all([
+        administeredAgents(db, workspaceId, userIds),
+        lastActivity(db, userIds),
+      ]);
       return {
         items: page.map(
           ({ cursorAt: _, membershipDisabledAt, userDisabledAt, ...row }) => ({
             ...memberRecord(row),
             membershipDisabled: membershipDisabledAt !== null,
             accountDisabled: userDisabledAt !== null,
+            administeredAgents: administered.get(row.userId) ?? [],
+            lastActiveAt: activity.get(row.userId) ?? null,
           }),
         ),
         next_cursor:

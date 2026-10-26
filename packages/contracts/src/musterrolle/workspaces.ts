@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { PAYLOAD_TOO_LARGE_ISSUE } from "../api/session.ts";
 import {
+  agentIdSchema,
   inviteIdSchema,
   pageSchema,
   paginationQuerySchema,
@@ -151,9 +152,32 @@ export const memberActionsSchema = z
   })
   .strict();
 
+export const ADMINISTERED_VIA_VALUES = ["user", "team"] as const;
+
+export const administeredAgentSchema = z
+  .object({
+    id: agentIdSchema,
+    name: z.string(),
+    via: z.enum(ADMINISTERED_VIA_VALUES).meta({
+      description:
+        "`user` when the member is the agent's admin themselves, `team` when only a team they belong to is. A member who is both is listed once, as `user`.",
+    }),
+  })
+  .strict();
+
 /** A row of the member list: the member and what the caller may do to them. */
 export const memberRowSchema = memberViewSchema
-  .extend({ actions: memberActionsSchema })
+  .extend({
+    actions: memberActionsSchema,
+    administered_agents: z.array(administeredAgentSchema).meta({
+      description:
+        "The agents the member administers, archived agents left out, by name. A team counts while it is not archived and the member has not left it. A disabled member keeps the grants listed here; they act again once the member is enabled.",
+    }),
+    last_active_at: timestampSchema.nullable().meta({
+      description:
+        "When the member last used the web console: a web sign-in, or a web request, recorded at most once an hour. API key calls, Slack and session activity do not count. Null when the member has never signed in to the web console.",
+    }),
+  })
   .strict();
 
 export const INVITE_STATUS_VALUES = [
@@ -298,6 +322,7 @@ export type Workspace = z.infer<typeof workspaceSchema>;
 export type User = z.infer<typeof userSchema>;
 export type Membership = z.infer<typeof membershipSchema>;
 export type MemberView = z.infer<typeof memberViewSchema>;
+export type AdministeredAgent = z.infer<typeof administeredAgentSchema>;
 export type MemberRefusal = z.infer<typeof memberRefusalSchema>;
 export type MemberVerdict = z.infer<typeof memberVerdictSchema>;
 export type MemberActions = z.infer<typeof memberActionsSchema>;

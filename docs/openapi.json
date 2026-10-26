@@ -6346,6 +6346,50 @@
                     "enable"
                   ],
                   "additionalProperties": false
+                },
+                "administered_agents": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "via": {
+                        "type": "string",
+                        "enum": [
+                          "user",
+                          "team"
+                        ],
+                        "description": "`user` when the member is the agent's admin themselves, `team` when only a team they belong to is. A member who is both is listed once, as `user`."
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "name",
+                      "via"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "description": "The agents the member administers, archived agents left out, by name. A team counts while it is not archived and the member has not left it. A disabled member keeps the grants listed here; they act again once the member is enabled."
+                },
+                "last_active_at": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "When the member last used the web console: a web sign-in, or a web request, recorded at most once an hour. API key calls, Slack and session activity do not count. Null when the member has never signed in to the web console."
                 }
               },
               "required": [
@@ -6355,7 +6399,9 @@
                 "role",
                 "disabled_at",
                 "created_at",
-                "actions"
+                "actions",
+                "administered_agents",
+                "last_active_at"
               ],
               "additionalProperties": false
             }
