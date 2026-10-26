@@ -889,7 +889,7 @@ describe("ApprovalInbox", () => {
       ],
     });
     await user.click(
-      await view.findByRole("button", { name: "View details of Two calls" }),
+      await view.findByRole("button", { name: "Answer Two calls" }),
     );
     const panel = await view.findByRole("complementary", { name: "Two calls" });
     const calls = () =>
