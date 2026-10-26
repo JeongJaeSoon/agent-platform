@@ -13,6 +13,7 @@ import type {
   PermissionDecision,
   RuntimeHooks,
 } from "./driver.ts";
+import { frameFromNativeMessage } from "./mapper.ts";
 
 function scriptedDriver() {
   const frames: AgentFrame[] = [];
@@ -315,5 +316,139 @@ describe("claudeContractRun", () => {
       interrupt: true,
     });
     script.end();
+  });
+});
+
+describe("claudeContractRun events", () => {
+  function frame(message: NativeSdkMessage, inputs?: string[]): AgentFrame {
+    const built = frameFromNativeMessage(message, "c", "cursor");
+    return inputs === undefined ? built : { ...built, inputs };
+  }
+
+  async function eventsFor(...frames: AgentFrame[]): Promise<RuntimeEvent[]> {
+    const script = scriptedDriver();
+    const run = claudeContractRun((hooks) => script.start(hooks));
+    for (const pushed of frames) script.push(pushed);
+    script.end();
+    const events: RuntimeEvent[] = [];
+    for await (const event of run.events()) events.push(event);
+    return events;
+  }
+
+  const inputsOf = (events: RuntimeEvent[]) =>
+    events.flatMap((event) =>
+      event.type === "public" ? [event.inputs ?? null] : [],
+    );
+
+  test.each([
+    [
+      "an input the engine queued",
+      frame({ type: "command_lifecycle", command_uuid: "in-2" }),
+      ["in-2"],
+    ],
+    [
+      "a reply stamped with its input",
+      frame({
+        type: "assistant",
+        user_message_uuid: "in-2",
+        message: { content: [{ type: "text", text: "hi" }] },
+      }),
+      ["in-2"],
+    ],
+    [
+      "a batch of inputs, each once",
+      frame({
+        type: "result",
+        user_message_uuids: ["in-1", "in-2"],
+        user_message_uuid: "in-2",
+      }),
+      ["in-1", "in-2"],
+    ],
+    [
+      "the driver's inputs when the message names none",
+      frame({ type: "system", subtype: "status" }, ["in-3"]),
+      ["in-3"],
+    ],
+    [
+      "the message's own names over the driver's",
+      frame({ type: "result", user_message_uuid: "in-1" }, ["in-3"]),
+      ["in-1"],
+    ],
+    [
+      "nothing when neither says",
+      frame({ type: "system", subtype: "status" }),
+      null,
+    ],
+  ] as const)("public events name %s", async (_, given, expected) => {
+    expect(inputsOf(await eventsFor(given))).toEqual([expected]);
+  });
+
+  test("ends a turn after the result's public event and before native", async () => {
+    const events = await eventsFor(
+      frame({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        total_cost_usd: 0.5,
+        session_id: "s1",
+        user_message_uuid: "in-1",
+      }),
+    );
+
+    expect(events.map((event) => event.type)).toEqual([
+      "public",
+      "turn.ended",
+      "native",
+    ]);
+    expect(events[1]).toEqual({
+      type: "turn.ended",
+      turn: {
+        isError: false,
+        abortedByStop: false,
+        budgetExceeded: false,
+        engineResult: {
+          subtype: "success",
+          is_error: false,
+          stop_reason: null,
+          terminal_reason: null,
+        },
+        cost: { deltaUsd: 0.5, countRestarted: false, unknown: false },
+        engineSessionId: "s1",
+        inputs: ["in-1"],
+      },
+    });
+  });
+
+  test("costs each result from the running total across turns", async () => {
+    const result = (total: number) =>
+      frame({ type: "result", subtype: "success", total_cost_usd: total });
+    const costs = (await eventsFor(result(0.25), result(0.75))).flatMap(
+      (event) => (event.type === "turn.ended" ? [event.turn.cost] : []),
+    );
+
+    expect(costs).toEqual([
+      { deltaUsd: 0.25, countRestarted: false, unknown: false },
+      { deltaUsd: 0.5, countRestarted: false, unknown: false },
+    ]);
+  });
+
+  test.each([
+    ["the engine's words", { error: "disk full" }, "disk full"],
+    ["a stand-in for none", { error: "" }, "unspecified error"],
+  ])("warns of a dropped mirror batch with %s", async (_, fields, error) => {
+    const events = await eventsFor(
+      frame({ type: "system", subtype: "mirror_error", ...fields }),
+    );
+
+    expect(events.map((event) => event.type)).toEqual([
+      "public",
+      "runtime.warning",
+      "native",
+    ]);
+    expect(events[1]).toEqual({
+      type: "runtime.warning",
+      kind: "transcript_mirror_failed",
+      detail: { error },
+    });
   });
 });

@@ -27,10 +27,9 @@ import {
   type WorkerGateway,
 } from "@werft-ai/platform";
 import {
-  claudeContractRun,
   FakeAgentRuntime,
   type FakeStep,
-} from "@werft-ai/runtime-claude";
+} from "@werft-ai/runtime-claude/testing";
 import type { NativeSdkMessage } from "@werft-ai/runtime-core";
 import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { and, eq } from "drizzle-orm";
@@ -338,23 +337,18 @@ integration("POST /v1/sessions/{id}/interrupt end to end", () => {
       runtimes: {
         launcherFor: () => ({
           start: ({ runtimeConfig, principal, ...rest }) =>
-            claudeContractRun((hooks) =>
-              runtime.start(
-                {
-                  claudeConfigDir: "/tmp/fake/config",
-                  cwd: "/tmp/fake/workspace",
-                  home: "/tmp/fake/home",
-                  model: runtimeConfig.model,
-                  profile: {
-                    ...runtimeConfig.provider,
-                    principal: { ownerScope: principal.owner_scope },
-                  },
-                  tools: runtimeConfig.tools,
-                  ...rest,
-                },
-                hooks,
-              ),
-            ),
+            runtime.run({
+              claudeConfigDir: "/tmp/fake/config",
+              cwd: "/tmp/fake/workspace",
+              home: "/tmp/fake/home",
+              model: runtimeConfig.model,
+              profile: {
+                ...runtimeConfig.provider,
+                principal: { ownerScope: principal.owner_scope },
+              },
+              tools: runtimeConfig.tools,
+              ...rest,
+            }),
         }),
       },
       // Production cadences: the heartbeat alone would take 10s to say anything.
