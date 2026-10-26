@@ -39,13 +39,17 @@ describe("자격 연결 단계", () => {
   test("카드가 쓰는 이름을 연결하고 해제한다", async () => {
     const server = serverNaming("github/app");
     const { api, services } = renderAt(DETAIL, { ...meOk, ...server.routes });
-    // The list's summaries say what is bound, so a change marks it stale.
+    // The list's summaries say what is bound, so a change marks it stale;
+    // the overview watches the list, so it may be read again at once.
     const listed = () => {
-      services.queryClient.setQueryData(queryKeys.agents, {
+      const seeded = services.queryClient.setQueryData(queryKeys.agents, {
         items: [],
         next_cursor: null,
       });
-      return () => services.queryClient.getQueryState(queryKeys.agents);
+      return () => {
+        const state = services.queryClient.getQueryState(queryKeys.agents);
+        return state?.isInvalidated === true || state?.data !== seeded;
+      };
     };
     const user = await setupUser();
     const section = await step();
@@ -67,7 +71,7 @@ describe("자격 연결 단계", () => {
     expect(posted(api).map((c) => (c as { body?: unknown }).body)).toEqual([
       { credential_ref: "github/app" },
     ]);
-    expect(list()?.isInvalidated).toBe(true);
+    await waitFor(() => expect(list()).toBe(true));
     list = listed();
     const bound = await within(section).findByRole("list", {
       name: "연결된 자격",
@@ -92,7 +96,7 @@ describe("자격 연결 단계", () => {
       expect(document.activeElement?.contains(revoked)).toBe(true),
     );
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(list()?.isInvalidated).toBe(true);
+    await waitFor(() => expect(list()).toBe(true));
     expect(
       api.calls.some(
         (c) =>

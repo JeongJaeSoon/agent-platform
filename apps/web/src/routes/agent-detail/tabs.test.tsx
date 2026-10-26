@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
+import { queryKeys } from "../../api/queries.ts";
 import { AGENT_ID, agentServer } from "../../test-support/fake-agents.ts";
 import {
   apiError,
@@ -509,6 +510,39 @@ describe("에이전트 상세 탭", () => {
       "GET /v1/agents": () => apiError(500, "INTERNAL_ERROR", "boom"),
     });
     const glance = await screen.findByRole("list", { name: "에이전트 현황" });
+    await waitFor(() =>
+      expect(figureTexts(glance).slice(0, 2)).toEqual([
+        ["답변 대기", "—", "불러오지 못함"],
+        ["작업 중", "—", "불러오지 못함"],
+      ]),
+    );
+  });
+
+  test("다시 읽기가 실패하면 앞서 읽은 수를 그대로 두지 않고 —와 이유를 보인다", async () => {
+    let fail = false;
+    const { services } = renderAt(DETAIL, {
+      ...meOk,
+      ...agentServer().routes,
+      "GET /v1/agents": () =>
+        fail
+          ? apiError(500, "INTERNAL_ERROR", "boom")
+          : json(200, {
+              items: [
+                listed(AGENT_ID, { needs_input_count: 2, running_count: 1 }),
+              ],
+              next_cursor: null,
+            }),
+    });
+    const glance = await screen.findByRole("list", { name: "에이전트 현황" });
+    await waitFor(() =>
+      expect(figureTexts(glance)[0]).toEqual([
+        "답변 대기",
+        "2",
+        "담당자가 답할 요청",
+      ]),
+    );
+    fail = true;
+    await services.queryClient.refetchQueries({ queryKey: queryKeys.agents });
     await waitFor(() =>
       expect(figureTexts(glance).slice(0, 2)).toEqual([
         ["답변 대기", "—", "불러오지 못함"],

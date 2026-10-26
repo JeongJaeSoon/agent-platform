@@ -829,8 +829,9 @@ describe("에이전트 관리자", () => {
       (await screen.findByText("Mate")).closest("li")?.textContent,
     ).toContain("mate@example.com · 10/11부터 담당");
     await screen.findByRole("option", { name: "결제팀" });
-    // The list's summaries name the admins, so a change marks it stale.
-    services.queryClient.setQueryData(queryKeys.agents, {
+    // The list's summaries name the admins, so a change marks it stale; the
+    // overview watches the list, so it may be read again at once.
+    const seeded = services.queryClient.setQueryData(queryKeys.agents, {
       items: [],
       next_cursor: null,
     });
@@ -846,9 +847,12 @@ describe("에이전트 관리자", () => {
       api.calls.find((c) => c.method === "POST" && c.path.endsWith("/admins"))
         ?.body,
     ).toEqual({ team_id: TEAM_ID });
-    expect(
-      services.queryClient.getQueryState(queryKeys.agents)?.isInvalidated,
-    ).toBe(true);
+    await waitFor(() => {
+      const state = services.queryClient.getQueryState(queryKeys.agents);
+      expect(state?.isInvalidated === true || state?.data !== seeded).toBe(
+        true,
+      );
+    });
 
     await user.click(
       screen.getByRole("button", { name: "Mate을(를) 관리자에서 빼기" }),

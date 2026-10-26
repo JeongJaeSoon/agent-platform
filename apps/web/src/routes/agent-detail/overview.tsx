@@ -65,19 +65,13 @@ type Reading = string | { readonly missing: string } | undefined;
 /**
  * The overview's figures: who waits on an answer, what runs, what it cost.
  * The counts are the agent list's summary (GET /v1/agents, owners and admins
- * only); the cost splits the install-wide figures (owners only).
+ * only).
  */
 export function AgentGlance({ detail }: { readonly detail: AgentDetail }) {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   const { client } = useAgentPlatform();
   const lists = useHasPermission("agent.manage");
-  const operator = useHasPermission("usage.installation_read");
   const agents = useQuery({ ...agentsQuery(client), enabled: lists });
-  const { since, until } = usagePeriod(7);
-  const breakdown = useQuery({
-    ...usageBreakdownQuery(client, "installation", since, "agent", until),
-    enabled: operator,
-  });
   const failed = { missing: t("agents.cards.unavailable") };
   const summary = agents.data?.items.find(
     (item) => item.id === detail.agent.id,
@@ -94,7 +88,6 @@ export function AgentGlance({ detail }: { readonly detail: AgentDetail }) {
           : summary
             ? String(pick(summary))
             : failed;
-  const row = breakdown.data?.rows.find((item) => item.key === detail.agent.id);
   return (
     <ul
       aria-label={t("agent.glance.label")}
@@ -110,21 +103,40 @@ export function AgentGlance({ detail }: { readonly detail: AgentDetail }) {
         value={count((counts) => counts.running_count)}
         note={t("agent.glance.runningNote")}
       />
-      <Figure
-        label={t("agent.glance.cost")}
-        badge={<Badge variant="gray">{t("usage.kpi.estimated")}</Badge>}
-        value={
-          !operator
-            ? { missing: t("agent.glance.costWithheld") }
-            : breakdown.isError
-              ? failed
-              : breakdown.data
-                ? OPERATIONS_MESSAGES[locale].format.usd(row?.cost_usd ?? "0")
-                : undefined
-        }
-        note={t("usage.kpi.costNote")}
-      />
+      <WeekCost agentId={detail.agent.id} />
     </ul>
+  );
+}
+
+/**
+ * The agent's cost over the last 7 days. Only the install-wide figures split
+ * by agent, so only owners see a number.
+ */
+function WeekCost({ agentId }: { readonly agentId: string }) {
+  const { t, locale } = useI18n();
+  const { client } = useAgentPlatform();
+  const operator = useHasPermission("usage.installation_read");
+  const { since, until } = usagePeriod(7);
+  const breakdown = useQuery({
+    ...usageBreakdownQuery(client, "installation", since, "agent", until),
+    enabled: operator,
+  });
+  const row = breakdown.data?.rows.find((item) => item.key === agentId);
+  return (
+    <Figure
+      label={t("agent.glance.cost")}
+      badge={<Badge variant="gray">{t("usage.kpi.estimated")}</Badge>}
+      value={
+        !operator
+          ? { missing: t("agent.glance.costWithheld") }
+          : breakdown.isError
+            ? { missing: t("agents.cards.unavailable") }
+            : breakdown.data
+              ? OPERATIONS_MESSAGES[locale].format.usd(row?.cost_usd ?? "0")
+              : undefined
+      }
+      note={t("usage.kpi.costNote")}
+    />
   );
 }
 
