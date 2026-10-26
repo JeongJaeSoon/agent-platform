@@ -82,6 +82,15 @@ export interface SlackAppStore {
     slackAppId: string,
     events: GetSlackAppResponse["events"],
   ): Promise<void>;
+  /**
+   * Records that Slack reached the Request URL with a request signed by
+   * this app. Writes only while the app is not `verified` yet.
+   */
+  markEventsVerified(
+    workspaceId: string,
+    slackAppId: string,
+    checkedAt: Date,
+  ): Promise<void>;
   getSettings(
     workspaceId: string,
     agentId: string,

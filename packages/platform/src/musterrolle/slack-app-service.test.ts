@@ -47,8 +47,8 @@ test("event registration results persist across reads and expose only a safe err
     checked_at: null,
   });
   await service.updateAgentAppManifest(WORKSPACE, created.slack_app.id, input);
-  expect((await service.getAgentApp(caller, AGENT)).events).toMatchObject({
-    state: "verified",
+  expect((await service.getAgentApp(caller, AGENT)).events).toEqual({
+    state: "pending",
     checked_at: "2026-10-23T00:00:00.000Z",
   });
   slack.api.updateApp = async () => {
@@ -61,6 +61,32 @@ test("event registration results persist across reads and expose only a safe err
     state: "failed",
     checked_at: "2026-10-23T00:00:00.000Z",
     error: "events_registration_failed",
+  });
+});
+
+test("a challenge Slack answers during the manifest update keeps the subscription verified", async () => {
+  const { service, slack, apps } = await setup();
+  const created = await service.createAgentApp(user("owner"), AGENT, {
+    replace_uncertain: false,
+  });
+  const update = slack.api.updateApp;
+  slack.api.updateApp = async (...args) => {
+    await apps.store.markEventsVerified(
+      WORKSPACE,
+      created.slack_app.id,
+      new Date("2026-10-23T00:00:01.000Z"),
+    );
+    return update(...args);
+  };
+  await service.updateAgentAppManifest(WORKSPACE, created.slack_app.id, {
+    name: "Release notes",
+    botName: "release-notes",
+    description: "Writes the release notes",
+    eventsUrl: `https://events.example.test/v1/slack/events/${AGENT}`,
+  });
+  expect((await service.getAgentApp(user("owner"), AGENT)).events).toEqual({
+    state: "verified",
+    checked_at: "2026-10-23T00:00:01.000Z",
   });
 });
 

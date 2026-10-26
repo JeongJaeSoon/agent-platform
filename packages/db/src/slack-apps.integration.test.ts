@@ -416,6 +416,43 @@ integration("Slack apps and the config token on PostgreSQL", () => {
         (await store().findForAgent(workspaceId, agentId))?.events,
       ).toEqual(events);
     });
+
+    test("a signed receipt verifies a pending subscription once and clears its error", async () => {
+      const slack = fakeSlack();
+      const { workspaceId, owner } = await withToken(slack);
+      const agentId = await agent(workspaceId);
+      const { apps } = service(slack);
+      const created = await apps.createAgentApp(owner.principal, agentId, {
+        replace_uncertain: false,
+      });
+      await store().setEvents(workspaceId, created.slack_app.id, {
+        state: "failed",
+        checked_at: null,
+        error: "events_registration_failed",
+      });
+      const first = new Date("2026-10-26T18:15:12.000Z");
+      await store().markEventsVerified(
+        await workspace(),
+        created.slack_app.id,
+        first,
+      );
+      expect(
+        (await store().findForAgent(workspaceId, agentId))?.events?.state,
+      ).toBe("failed");
+      await store().markEventsVerified(
+        workspaceId,
+        created.slack_app.id,
+        first,
+      );
+      await store().markEventsVerified(
+        workspaceId,
+        created.slack_app.id,
+        new Date("2026-10-26T18:16:00.000Z"),
+      );
+      expect(
+        (await store().findForAgent(workspaceId, agentId))?.events,
+      ).toEqual({ state: "verified", checked_at: first.toISOString() });
+    });
     const begin = (
       workspaceId: string,
       agentId: string,

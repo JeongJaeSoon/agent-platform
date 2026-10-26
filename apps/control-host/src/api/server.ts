@@ -454,6 +454,7 @@ const slackIdentityStore = createPostgresAgentIdentityStore(db);
 const slackEvents = createSlackEventsService({
   signingSecrets: slackSigningSecrets ?? { forAgent: async () => null },
   inbox: createPostgresSlackInboundEventStore(db),
+  apps: slackAppStore ?? { markEventsVerified: async () => {} },
   identities: slackIdentityStore,
   installs: slackInstallStore,
 });
