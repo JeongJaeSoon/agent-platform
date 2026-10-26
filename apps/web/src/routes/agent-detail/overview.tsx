@@ -1,7 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link as RouterLink } from "@tanstack/react-router";
 import type { AgentDetail, SessionSummary } from "@werft-ai/contracts";
-import { agentSessionsQuery, usageBreakdownQuery } from "@werft-ai/core";
+import {
+  agentSessionsQuery,
+  agentsQuery,
+  usageBreakdownQuery,
+} from "@werft-ai/core";
 import { useAgentPlatform } from "@werft-ai/react";
 import {
   OPERATIONS_MESSAGES,
@@ -14,7 +18,6 @@ import {
   Button,
   Card,
   cn,
-  formatTimestamp,
   GridTable,
   GridTableCell,
   GridTableColumnHeader,
@@ -53,125 +56,109 @@ export function shownVersion(detail: AgentDetail) {
   );
 }
 
-/** The overview's figures: what runs, what is newest, what it cost. */
 const releasedVersion = (detail: AgentDetail, version: { id: string }) =>
   detail.releases.some((release) => release.version_id === version.id);
 
+/** A figure, nothing yet while it loads, or why there is none. */
+type Reading = string | { readonly missing: string } | undefined;
+
+/**
+ * The overview's figures: who waits on an answer, what runs, what it cost.
+ * The counts are the agent list's summary (GET /v1/agents, owners and admins
+ * only); the cost splits the install-wide figures (owners only).
+ */
 export function AgentGlance({ detail }: { readonly detail: AgentDetail }) {
   const { t, locale } = useI18n();
-  const { agent } = detail;
-  const latest = latestVersion(detail);
-  const active = detail.versions.find(
-    (version) => version.id === detail.active_release?.version_id,
-  );
+  const { client } = useAgentPlatform();
+  const lists = useHasPermission("agent.manage");
+  const operator = useHasPermission("usage.installation_read");
+  const agents = useQuery({ ...agentsQuery(client), enabled: lists });
+  const { since, until } = usagePeriod(7);
+  const breakdown = useQuery({
+    ...usageBreakdownQuery(client, "installation", since, "agent", until),
+    enabled: operator,
+  });
+  const failed = { missing: t("agents.cards.unavailable") };
+  const summary = agents.data?.items.find(
+    (item) => item.id === detail.agent.id,
+  )?.summary;
+  const count = (
+    pick: (counts: NonNullable<typeof summary>) => number,
+  ): Reading =>
+    !lists
+      ? { missing: t("agent.glance.countsWithheld") }
+      : agents.isError
+        ? failed
+        : !agents.data
+          ? undefined
+          : summary
+            ? String(pick(summary))
+            : failed;
+  const row = breakdown.data?.rows.find((item) => item.key === detail.agent.id);
   return (
     <ul
       aria-label={t("agent.glance.label")}
       className="m-0 grid list-none grid-cols-1 items-stretch gap-4 p-0 @[720px]:grid-flow-col @[720px]:auto-cols-fr @[720px]:grid-cols-none"
     >
       <Figure
-        label={t("agent.glance.active")}
-        value={
-          active && agent.active_release_id
-            ? t("agent.versionLabel", { version: active.version_no })
-            : t("agent.glance.none")
-        }
-        muted={!active}
-        note={
-          detail.active_release
-            ? t("agent.glance.activeNote", {
-                profile: detail.active_release.runtime_profile_id,
-              })
-            : t("agent.overview.notActive")
-        }
+        label={t("agent.glance.waiting")}
+        value={count((counts) => counts.needs_input_count)}
+        note={t("agent.glance.waitingNote")}
       />
       <Figure
-        label={t("agent.glance.latest")}
-        value={
-          latest
-            ? t("agent.versionLabel", { version: latest.version_no })
-            : t("agent.glance.none")
-        }
-        muted={!latest}
-        note={
-          latest
-            ? `${formatTimestamp(latest.created_at, locale)} · ${
-                !active
-                  ? releasedVersion(detail, latest)
-                    ? t("agent.glance.latestReleased")
-                    : t("agent.glance.latestDraft")
-                  : agent.status !== "active"
-                    ? t("agent.ready.notRunnable", {
-                        status: t(`agents.status.${agent.status}`),
-                      })
-                    : latest.id !== active.id
-                      ? t("agent.overview.newerVersion", {
-                          latest: latest.version_no,
-                          active: active.version_no,
-                        })
-                      : t("agent.overview.upToDate")
-              }`
-            : t("agent.noActive")
-        }
+        label={t("agent.glance.running")}
+        value={count((counts) => counts.running_count)}
+        note={t("agent.glance.runningNote")}
       />
-      <WeekCost agentId={agent.id} />
+      <Figure
+        label={t("agent.glance.cost")}
+        badge={<Badge variant="gray">{t("usage.kpi.estimated")}</Badge>}
+        value={
+          !operator
+            ? { missing: t("agent.glance.costWithheld") }
+            : breakdown.isError
+              ? failed
+              : breakdown.data
+                ? OPERATIONS_MESSAGES[locale].format.usd(row?.cost_usd ?? "0")
+                : undefined
+        }
+        note={t("usage.kpi.costNote")}
+      />
     </ul>
   );
 }
 
 function Figure({
   label,
+  badge,
   value,
-  muted,
   note,
 }: {
   readonly label: string;
-  readonly value: string;
-  readonly muted: boolean;
+  readonly badge?: ReactNode;
+  readonly value: Reading;
   readonly note: string;
 }) {
+  const { t } = useI18n();
+  const missing = typeof value === "object" ? value.missing : null;
   return (
     <li className="min-w-0">
       <StatCard
         className="h-full"
         label={label}
-        value={value}
-        muted={muted}
-        description={note}
-      />
-    </li>
-  );
-}
-
-/**
- * The agent's cost over the last 7 days. Only the install-wide figures split
- * by agent, so without them, or when the read fails, there is no card.
- */
-function WeekCost({ agentId }: { readonly agentId: string }) {
-  const { t, locale } = useI18n();
-  const { client } = useAgentPlatform();
-  const operator = useHasPermission("usage.installation_read");
-  const { since, until } = usagePeriod(7);
-  const breakdown = useQuery({
-    ...usageBreakdownQuery(client, "installation", since, "agent", until),
-    enabled: operator,
-  });
-  if (!operator || breakdown.isError) return null;
-  const row = breakdown.data?.rows.find((item) => item.key === agentId);
-  return (
-    <li className="min-w-0">
-      <StatCard
-        className="h-full"
-        label={t("agent.glance.cost")}
-        badge={<Badge variant="gray">{t("usage.kpi.estimated")}</Badge>}
+        badge={badge}
         value={
-          breakdown.data ? (
-            OPERATIONS_MESSAGES[locale].format.usd(row?.cost_usd ?? "0")
-          ) : (
+          value === undefined ? (
             <Skeleton lines={1} label={t("status.loading.title")} />
+          ) : typeof value === "object" ? (
+            // A screen reader hears the reason under it instead.
+            <span aria-hidden="true">—</span>
+          ) : (
+            value
           )
         }
-        description={t("usage.kpi.costNote")}
+        muted={missing !== null}
+        description={missing ?? note}
       />
     </li>
   );
