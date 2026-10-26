@@ -84,20 +84,19 @@ export function avatarTone(key: string): 1 | 2 | 3 | 4 {
 
 /**
  * Up to two letters: the first of the first two words, or the first two.
- * Brackets, dashes and emoji are skipped; a name with no letter or digit at
- * all keeps its leading symbols rather than an empty mark.
+ * Words with no letter or digit (brackets, emoji) are skipped; a name with
+ * none at all keeps its leading symbols rather than an empty mark.
  */
 export function avatarInitials(name: string) {
+  const words = name.trim().split(/\s+/).filter(Boolean);
   const pick = (only: (char: string) => boolean) => {
-    const words = name
-      .trim()
-      .split(/\s+/)
-      .filter(Boolean)
-      .map((word) => [...word].filter(only));
+    const kept = words
+      .map((word) => [...word].filter(only))
+      .filter((chars) => chars.length > 0);
     const letters =
       words.length > 1
-        ? (words[0] ?? []).slice(0, 1).concat((words[1] ?? []).slice(0, 1))
-        : (words[0] ?? []).slice(0, 2);
+        ? kept.slice(0, 2).map((chars) => chars[0] ?? "")
+        : (kept[0] ?? []).slice(0, 2);
     return letters.join("").toUpperCase();
   };
   return pick((char) => /[\p{L}\p{N}]/u.test(char)) || pick(() => true);
