@@ -71,7 +71,7 @@ import {
 } from "./catalog.ts";
 import { deriveSessionTitle } from "./session-title.ts";
 
-const viewerOf = (actor: Caller): SessionViewer => ({
+export const viewerOf = (actor: Caller): SessionViewer => ({
   userId: actor.actor?.userId ?? null,
   apiKeyId: actor.actor?.apiKeyId ?? null,
 });

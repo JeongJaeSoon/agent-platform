@@ -131,6 +131,13 @@ curl -sS "$API/v1/usage/summary?scope=me&since=2026-10-01" -H "Authorization: Be
 
 기간 안에 만든 세션이 대상이고, `cost_usd`는 그 세션들 `/usage`의 `cost.amount_usd` 합이다. 그 가운데 하나라도 `complete: false`면 `cost_complete`도 `false`다. 개인 key는 만든 사람의 세션을 더한다. `scope=installation`(모든 owner의 세션)과 `GET /v1/limits`는 로그인한 workspace owner만 읽고, 다른 구성원과 모든 API key는 403이다.
 
+에이전트별·사용자별로 나눠 보려면 `group_by=agent` 또는 `group_by=user`를 더한다. 응답에 `groups[{id, name, session_count, run_seconds, cost_usd, cost_complete}]`가 붙고, 그룹들의 `session_count`·`cost_usd`·`run_seconds`를 더하면 위 합계와 같다. 에이전트가 없는 세션, 사람이 만들지 않은 key가 시작한 세션은 `id`가 null인 그룹이다. `name`은 에이전트 이름이나 사용자 표시 이름이고 이메일은 싣지 않는다. `scope=me`에서 호출자가 아닌 사용자의 `name`은 null이다.
+
+```bash
+curl -sS "$API/v1/usage/summary?scope=me&since=2026-10-01&group_by=agent" -H "Authorization: Bearer $KEY" \
+  | jq '.groups[] | {name, session_count, cost_usd}'
+```
+
 ## 다음 단계
 
 - [승인 대기와 재개](/sessions/waiting-and-resume): `needs_input`에 답하기, pause와 resume

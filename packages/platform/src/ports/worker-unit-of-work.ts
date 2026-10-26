@@ -362,8 +362,7 @@ export type CheckpointStateInput = {
   now: Date;
   // A reason to record (durability.ts checkpointPendingReason); undefined
   // leaves the stored one alone, and an advisory reason never replaces a
-  // blocking one. Only a committed checkpoint clears it (finalizeAtomic /
-  // commitAtomic).
+  // blocking one. Only a committed checkpoint clears it (finalizeAtomic).
   pendingReason?: CheckpointBlockReason;
 };
 export type CheckpointStateResult =

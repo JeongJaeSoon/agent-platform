@@ -31,6 +31,7 @@ import { createPostgresAgentAdminStore } from "./agent-admins.ts";
 import { createPostgresAgentStore } from "./agents.ts";
 import { createPostgresCredentialBindingStore } from "./credential-bindings.ts";
 import { createDatabaseIdentityReader } from "./identity-reader.ts";
+import { createPostgresSessionReader } from "./postgres-unit-of-work.ts";
 import * as schema from "./schema.ts";
 import {
   agentActivationEvents,
@@ -39,12 +40,16 @@ import {
   agentReleases,
   agents,
   agentVersions,
+  attempts,
   credentialBindings,
   memberships,
   memberTeamMembers,
   memberTeams,
+  pendingRequests,
   receipts,
+  sessionShares,
   sessions,
+  turns,
   users,
   workspaces,
 } from "./schema.ts";
@@ -531,6 +536,8 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
         runtime_profile_id: null,
         bound_credential_refs: ["github"],
         admins: ["owner", "재무팀"],
+        needs_input_count: 0,
+        running_count: 0,
       },
       {
         version: {
@@ -543,6 +550,8 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
         runtime_profile_id: "coding",
         bound_credential_refs: [],
         admins: ["owner"],
+        needs_input_count: 0,
+        running_count: 0,
       },
     ]);
     // Without asking, the page is the agents as before.
@@ -553,10 +562,196 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     // Another workspace's agent is never summarised, even by id.
     const store = createPostgresAgentStore(db);
     const other = await workspace();
+    const anyone = { userId: null, apiKeyId: null };
     expect(
-      (await store.summaries(other, [draft.agent.id.toUpperCase()])).size,
+      (await store.summaries(other, [draft.agent.id.toUpperCase()], anyone))
+        .size,
     ).toBe(0);
-    expect((await store.summaries(workspaceId, [])).size).toBe(0);
+    expect((await store.summaries(workspaceId, [], anyone)).size).toBe(0);
+  });
+
+  test("a card counts the agent's waiting and working sessions the caller can list, in a fixed number of statements", async () => {
+    const workspaceId = await workspace();
+    const owner = await person(workspaceId, "owner");
+    const member = await person(workspaceId, "member");
+    const ownerId = owner.actor?.userId ?? "";
+    const memberId = member.actor?.userId ?? "";
+    const agentsService = service();
+
+    async function activeAgent() {
+      const created = await newAgent(agentsService, owner);
+      const v1 = created.versions[0];
+      if (!v1) throw new Error("no version 1");
+      const { release } = await agentsService.createRelease(
+        owner,
+        created.agent.id,
+        { version_id: v1.id, runtime_profile_id: "coding" },
+      );
+      await agentsService.activateAgent(owner, created.agent.id, {
+        release_id: release.id,
+        expected_revision: -1,
+      });
+      return { agentId: created.agent.id, releaseId: release.id };
+    }
+
+    // A session of the release in a stored status; `asking` adds a request a
+    // person can still answer, which GET /v1/sessions shows as needs_input.
+    async function session(
+      releaseId: string,
+      options: {
+        status: "running" | "idle" | "queued";
+        creator: string;
+        asking?: boolean;
+        share?: "private";
+      },
+    ) {
+      const sessionId = randomUUID();
+      await db.insert(sessions).values({
+        id: sessionId,
+        ownerId: workspaceId,
+        workspaceId,
+        repoUrl: "https://example.invalid/app.git",
+        branch: "main",
+        agentReleaseId: releaseId,
+        status: options.status,
+        createdByUserId: options.creator,
+      });
+      if (options.share)
+        await db.insert(sessionShares).values({
+          sessionId,
+          ownerId: workspaceId,
+          workspaceId,
+          scope: options.share,
+        });
+      if (!options.asking) return sessionId;
+      const attemptId = `att-${randomUUID()}`;
+      await db.insert(attempts).values({
+        id: attemptId,
+        sessionId,
+        executionId: `exec-${randomUUID()}`,
+        leaseEpoch: 0,
+        executionGeneration: 0,
+        authRevision: 0,
+        state: "running",
+        leaseExpiresAt: new Date(Date.now() + 3_600_000),
+      });
+      const [turn] = await db
+        .insert(turns)
+        .values({
+          sessionId,
+          sequence: 1,
+          message: "go",
+          status: "running",
+          attemptId,
+          startedAt: new Date(),
+        })
+        .returning({ id: turns.id });
+      if (!turn) throw new Error("no turn");
+      await db.insert(pendingRequests).values({
+        requestId: `req_${randomUUID()}`,
+        sessionId,
+        turnId: turn.id,
+        attemptId,
+        kind: "permission",
+        payload: { kind: "permission", tool: "Bash", input: null },
+        inputHash: "a".repeat(64),
+        expiresAt: new Date(Date.now() + 3_600_000),
+      });
+      return sessionId;
+    }
+
+    const busy = await activeAgent();
+    const idle = await activeAgent();
+    await session(busy.releaseId, {
+      status: "running",
+      creator: ownerId,
+      asking: true,
+    });
+    await session(busy.releaseId, { status: "running", creator: ownerId });
+    await session(busy.releaseId, { status: "running", creator: memberId });
+    // The owner's private ones: the member cannot list them.
+    await session(busy.releaseId, {
+      status: "running",
+      creator: ownerId,
+      share: "private",
+    });
+    await session(busy.releaseId, {
+      status: "running",
+      creator: ownerId,
+      asking: true,
+      share: "private",
+    });
+    // Neither waiting nor working.
+    await session(busy.releaseId, { status: "idle", creator: ownerId });
+    await session(busy.releaseId, { status: "queued", creator: ownerId });
+
+    const counts = (page: Awaited<ReturnType<AgentService["listAgents"]>>) =>
+      page.items.map((agent) => [
+        agent.id,
+        agent.summary?.needs_input_count,
+        agent.summary?.running_count,
+      ]);
+    expect(
+      counts(
+        await agentsService.listAgents(owner, { ...PAGE, include: "summary" }),
+      ),
+    ).toEqual([
+      [busy.agentId, 2, 3],
+      [idle.agentId, 0, 0],
+    ]);
+
+    // What GET /v1/sessions?agent_id=&status= lists to each of them.
+    const reader = createPostgresSessionReader(db);
+    for (const [caller, viewer] of [
+      [owner, { userId: ownerId, apiKeyId: null }],
+      [member, { userId: memberId, apiKeyId: null }],
+    ] as const) {
+      const listed = async (status: "needs_input" | "running") =>
+        (
+          await reader.listSessions(
+            workspaceId,
+            { limit: 100, status, agent_id: busy.agentId },
+            viewer,
+          )
+        ).items.length;
+      const summary = (
+        await createPostgresAgentStore(db).summaries(
+          workspaceId,
+          [busy.agentId],
+          viewer,
+        )
+      ).get(busy.agentId);
+      expect([summary?.needs_input_count, summary?.running_count]).toEqual([
+        await listed("needs_input"),
+        await listed("running"),
+      ]);
+      expect(caller.ownerId).toBe(workspaceId);
+    }
+    expect(
+      (
+        await createPostgresAgentStore(db).summaries(
+          workspaceId,
+          [busy.agentId],
+          { userId: memberId, apiKeyId: null },
+        )
+      ).get(busy.agentId),
+    ).toMatchObject({ needs_input_count: 1, running_count: 2 });
+
+    // The same statements for one agent and for a page of many.
+    const statements: string[] = [];
+    const counting = drizzle(pool, {
+      schema,
+      logger: { logQuery: (query) => statements.push(query) },
+    });
+    const many = [busy.agentId, idle.agentId];
+    for (let n = 0; n < 4; n += 1) many.push((await activeAgent()).agentId);
+    const store = createPostgresAgentStore(counting);
+    const viewer = { userId: ownerId, apiKeyId: null };
+    await store.summaries(workspaceId, [busy.agentId], viewer);
+    const one = statements.length;
+    statements.length = 0;
+    await store.summaries(workspaceId, many, viewer);
+    expect(statements.length).toBe(one);
   });
 
   test("an owner creates an agent, adds versions, releases and activates one", async () => {

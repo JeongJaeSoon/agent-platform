@@ -621,6 +621,8 @@ describe("에이전트 카드", () => {
           runtime_profile_id: PROFILE,
           bound_credential_refs: ["github"],
           admins: ["Owner", "재무팀"],
+          needs_input_count: 0,
+          running_count: 0,
         },
       }));
       viewport.show(() => false);

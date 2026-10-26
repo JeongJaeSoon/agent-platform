@@ -137,12 +137,15 @@ function checkPeriod(
   );
 }
 
+export const USAGE_SUMMARY_GROUP_BY_VALUES = ["agent", "user"] as const;
+
 /**
  * GET /v1/usage/summary. `installation` sums every owner's sessions and is
  * the installation owner's alone; `me` sums the sessions the caller started.
  */
-export const usageSummaryQuerySchema =
-  usagePeriodQuerySchema.superRefine(checkPeriod);
+export const usageSummaryQuerySchema = usagePeriodQuerySchema
+  .extend({ group_by: z.enum(USAGE_SUMMARY_GROUP_BY_VALUES).optional() })
+  .superRefine(checkPeriod);
 
 const DAY_MS = 86_400_000;
 /**
@@ -330,6 +333,29 @@ export const usageSummaryResponseSchema = z
         run_time: z.literal("turn_wall_clock"),
       })
       .strict(),
+    /**
+     * Only with `group_by`: the same sessions, each under its agent or the
+     * user holding it, largest cost first. The groups' `session_count`,
+     * `cost_usd` and `run_seconds` add up to the totals above, and
+     * `cost_complete` above is false when any group's is. `id` is null for
+     * the sessions without an agent, or without a user (a key's own). `name`
+     * is the agent's name or the user's display name, never an email; null
+     * where the caller may not see that user.
+     */
+    groups: z
+      .array(
+        z
+          .object({
+            id: z.string().nullable(),
+            name: z.string().nullable(),
+            session_count: countSchema,
+            run_seconds: countSchema,
+            cost_usd: costUsdSchema,
+            cost_complete: z.boolean(),
+          })
+          .strict(),
+      )
+      .optional(),
   })
   .strict();
 

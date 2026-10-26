@@ -131,6 +131,13 @@ curl -sS "$API/v1/usage/summary?scope=me&since=2026-10-01" -H "Authorization: Be
 
 対象は期間内に作成したセッションで、`cost_usd` はそれらの `/usage` の `cost.amount_usd` の合計である。そのうち一つでも `complete: false` なら `cost_complete` も `false` になる。個人キーは作成した人のセッションを合計する。`scope=installation`(すべての owner のセッション)と `GET /v1/limits` はログインした workspace owner だけが読め、ほかのメンバーとすべての API キーは 403 になる。
 
+エージェント別・ユーザー別に分けて見るには `group_by=agent` または `group_by=user` を加える。応答に `groups[{id, name, session_count, run_seconds, cost_usd, cost_complete}]` が付き、グループの `session_count`・`cost_usd`・`run_seconds` を足すと上の合計と一致する。エージェントのないセッションと、人が作成していないキーが始めたセッションは `id` が null のグループになる。`name` はエージェント名かユーザーの表示名で、メールアドレスは載せない。`scope=me` では呼び出し元以外のユーザーの `name` は null になる。
+
+```bash
+curl -sS "$API/v1/usage/summary?scope=me&since=2026-10-01&group_by=agent" -H "Authorization: Bearer $KEY" \
+  | jq '.groups[] | {name, session_count, cost_usd}'
+```
+
 ## 次のステップ
 
 - [承認待ちと再開](/sessions/waiting-and-resume): `needs_input` への応答、pause と resume

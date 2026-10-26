@@ -47,10 +47,10 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | @anthropic-ai/claude-agent-sdk-linux-arm64 | 0.3.270 | SEE LICENSE IN LICENSE.md | worker |
 | @anthropic-ai/claude-agent-sdk-linux-x64 | 0.3.270 | SEE LICENSE IN LICENSE.md | worker |
 | @anthropic-ai/sdk | 0.125.0 | MIT | worker |
-| @asteasolutions/zod-to-openapi | 9.1.0 | MIT | control-host, worker |
+| @asteasolutions/zod-to-openapi | 9.1.0 | MIT | control-host |
 | @aws-sdk/checksums | 3.1001.0 | Apache-2.0 | control-host, worker |
 | @aws-sdk/client-s3 | 3.1131.0 | Apache-2.0 | control-host, worker |
-| @aws-sdk/client-secrets-manager | 3.1138.0 | Apache-2.0 | control-host, worker |
+| @aws-sdk/client-secrets-manager | 3.1138.0 | Apache-2.0 | control-host |
 | @aws-sdk/core | 3.978.0 | Apache-2.0 | control-host, worker |
 | @aws-sdk/core | 3.978.1 | Apache-2.0 | control-host, worker |
 | @aws-sdk/credential-provider-env | 3.972.71 | Apache-2.0 | control-host, worker |
@@ -82,64 +82,64 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | @aws-sdk/xml-builder | 3.972.41 | Apache-2.0 | control-host, worker |
 | @aws/lambda-invoke-store | 0.3.0 | Apache-2.0 | control-host, worker |
 | @babel/runtime | 7.29.7 | MIT | worker |
-| @electric-sql/pglite | 0.3.10 | Apache-2.0 | control-host, worker |
-| @floating-ui/core | 1.8.0 | MIT | worker |
-| @floating-ui/dom | 1.8.0 | MIT | worker |
-| @floating-ui/react-dom | 2.1.9 | MIT | worker |
-| @floating-ui/utils | 0.2.12 | MIT | worker |
+| @electric-sql/pglite | 0.3.10 | Apache-2.0 | control-host |
+| @floating-ui/core | 1.8.0 | MIT | control-host |
+| @floating-ui/dom | 1.8.0 | MIT | control-host |
+| @floating-ui/react-dom | 2.1.9 | MIT | control-host |
+| @floating-ui/utils | 0.2.12 | MIT | control-host |
 | @hono/node-server | 2.1.1 | MIT | worker |
-| @hono/zod-openapi | 1.6.3 | MIT | control-host, worker |
-| @hono/zod-validator | 0.9.1 | MIT | control-host, worker |
+| @hono/zod-openapi | 1.6.3 | MIT | control-host |
+| @hono/zod-validator | 0.9.1 | MIT | control-host |
 | @modelcontextprotocol/sdk | 1.32.1 | MIT | worker |
-| @octokit/auth-app | 8.3.1 | MIT | control-host, worker |
-| @octokit/auth-oauth-app | 9.0.5 | MIT | control-host, worker |
-| @octokit/auth-oauth-device | 8.0.5 | MIT | control-host, worker |
-| @octokit/auth-oauth-user | 6.0.4 | MIT | control-host, worker |
-| @octokit/auth-token | 6.0.0 | MIT | control-host, worker |
-| @octokit/core | 7.0.8 | MIT | control-host, worker |
-| @octokit/endpoint | 11.0.5 | MIT | control-host, worker |
-| @octokit/graphql | 9.0.5 | MIT | control-host, worker |
-| @octokit/oauth-authorization-url | 8.0.0 | MIT | control-host, worker |
-| @octokit/oauth-methods | 6.0.5 | MIT | control-host, worker |
-| @octokit/openapi-types | 28.0.0 | MIT | control-host, worker |
-| @octokit/openapi-types | 29.0.1 | MIT | control-host, worker |
-| @octokit/plugin-retry | 8.1.1 | MIT | control-host, worker |
-| @octokit/plugin-throttling | 11.0.5 | MIT | control-host, worker |
-| @octokit/request | 10.0.16 | MIT | control-host, worker |
-| @octokit/request-error | 7.1.2 | MIT | control-host, worker |
-| @octokit/types | 17.0.0 | MIT | control-host, worker |
-| @octokit/types | 18.0.0 | MIT | control-host, worker |
-| @opentelemetry/api | 1.9.0 | Apache-2.0 | control-host, worker |
-| @radix-ui/primitive | 1.1.7 | MIT | worker |
-| @radix-ui/react-arrow | 1.1.15 | MIT | worker |
-| @radix-ui/react-checkbox | 1.3.11 | MIT | worker |
-| @radix-ui/react-collection | 1.1.15 | MIT | worker |
-| @radix-ui/react-compose-refs | 1.1.5 | MIT | worker |
-| @radix-ui/react-context | 1.2.2 | MIT | worker |
-| @radix-ui/react-dialog | 1.1.23 | MIT | worker |
-| @radix-ui/react-direction | 1.1.4 | MIT | worker |
-| @radix-ui/react-dismissable-layer | 1.1.19 | MIT | worker |
-| @radix-ui/react-focus-guards | 1.1.6 | MIT | worker |
-| @radix-ui/react-focus-scope | 1.1.16 | MIT | worker |
-| @radix-ui/react-id | 1.1.4 | MIT | worker |
-| @radix-ui/react-popover | 1.1.23 | MIT | worker |
-| @radix-ui/react-popper | 1.3.7 | MIT | worker |
-| @radix-ui/react-portal | 1.1.17 | MIT | worker |
-| @radix-ui/react-presence | 1.1.10 | MIT | worker |
-| @radix-ui/react-primitive | 2.1.10 | MIT | worker |
-| @radix-ui/react-radio-group | 1.4.7 | MIT | worker |
-| @radix-ui/react-roving-focus | 1.1.19 | MIT | worker |
-| @radix-ui/react-slot | 1.3.3 | MIT | worker |
-| @radix-ui/react-switch | 1.3.7 | MIT | worker |
-| @radix-ui/react-tabs | 1.1.21 | MIT | worker |
-| @radix-ui/react-use-callback-ref | 1.1.4 | MIT | worker |
-| @radix-ui/react-use-controllable-state | 1.2.6 | MIT | worker |
-| @radix-ui/react-use-effect-event | 0.0.5 | MIT | worker |
-| @radix-ui/react-use-is-hydrated | 0.1.3 | MIT | worker |
-| @radix-ui/react-use-layout-effect | 1.1.4 | MIT | worker |
-| @radix-ui/react-use-rect | 1.1.4 | MIT | worker |
-| @radix-ui/react-use-size | 1.1.4 | MIT | worker |
-| @radix-ui/rect | 1.1.3 | MIT | worker |
+| @octokit/auth-app | 8.3.1 | MIT | control-host |
+| @octokit/auth-oauth-app | 9.0.5 | MIT | control-host |
+| @octokit/auth-oauth-device | 8.0.5 | MIT | control-host |
+| @octokit/auth-oauth-user | 6.0.4 | MIT | control-host |
+| @octokit/auth-token | 6.0.0 | MIT | control-host |
+| @octokit/core | 7.0.8 | MIT | control-host |
+| @octokit/endpoint | 11.0.5 | MIT | control-host |
+| @octokit/graphql | 9.0.5 | MIT | control-host |
+| @octokit/oauth-authorization-url | 8.0.0 | MIT | control-host |
+| @octokit/oauth-methods | 6.0.5 | MIT | control-host |
+| @octokit/openapi-types | 28.0.0 | MIT | control-host |
+| @octokit/openapi-types | 29.0.1 | MIT | control-host |
+| @octokit/plugin-retry | 8.1.1 | MIT | control-host |
+| @octokit/plugin-throttling | 11.0.5 | MIT | control-host |
+| @octokit/request | 10.0.16 | MIT | control-host |
+| @octokit/request-error | 7.1.2 | MIT | control-host |
+| @octokit/types | 17.0.0 | MIT | control-host |
+| @octokit/types | 18.0.0 | MIT | control-host |
+| @opentelemetry/api | 1.9.0 | Apache-2.0 | control-host |
+| @radix-ui/primitive | 1.1.7 | MIT | control-host |
+| @radix-ui/react-arrow | 1.1.15 | MIT | control-host |
+| @radix-ui/react-checkbox | 1.3.11 | MIT | control-host |
+| @radix-ui/react-collection | 1.1.15 | MIT | control-host |
+| @radix-ui/react-compose-refs | 1.1.5 | MIT | control-host |
+| @radix-ui/react-context | 1.2.2 | MIT | control-host |
+| @radix-ui/react-dialog | 1.1.23 | MIT | control-host |
+| @radix-ui/react-direction | 1.1.4 | MIT | control-host |
+| @radix-ui/react-dismissable-layer | 1.1.19 | MIT | control-host |
+| @radix-ui/react-focus-guards | 1.1.6 | MIT | control-host |
+| @radix-ui/react-focus-scope | 1.1.16 | MIT | control-host |
+| @radix-ui/react-id | 1.1.4 | MIT | control-host |
+| @radix-ui/react-popover | 1.1.23 | MIT | control-host |
+| @radix-ui/react-popper | 1.3.7 | MIT | control-host |
+| @radix-ui/react-portal | 1.1.17 | MIT | control-host |
+| @radix-ui/react-presence | 1.1.10 | MIT | control-host |
+| @radix-ui/react-primitive | 2.1.10 | MIT | control-host |
+| @radix-ui/react-radio-group | 1.4.7 | MIT | control-host |
+| @radix-ui/react-roving-focus | 1.1.19 | MIT | control-host |
+| @radix-ui/react-slot | 1.3.3 | MIT | control-host |
+| @radix-ui/react-switch | 1.3.7 | MIT | control-host |
+| @radix-ui/react-tabs | 1.1.21 | MIT | control-host |
+| @radix-ui/react-use-callback-ref | 1.1.4 | MIT | control-host |
+| @radix-ui/react-use-controllable-state | 1.2.6 | MIT | control-host |
+| @radix-ui/react-use-effect-event | 0.0.5 | MIT | control-host |
+| @radix-ui/react-use-is-hydrated | 0.1.3 | MIT | control-host |
+| @radix-ui/react-use-layout-effect | 1.1.4 | MIT | control-host |
+| @radix-ui/react-use-rect | 1.1.4 | MIT | control-host |
+| @radix-ui/react-use-size | 1.1.4 | MIT | control-host |
+| @radix-ui/rect | 1.1.3 | MIT | control-host |
 | @smithy/core | 3.34.1 | Apache-2.0 | control-host, worker |
 | @smithy/core | 3.35.0 | Apache-2.0 | control-host, worker |
 | @smithy/credential-provider-imds | 4.5.2 | Apache-2.0 | control-host, worker |
@@ -149,37 +149,37 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | @smithy/types | 4.18.0 | Apache-2.0 | control-host, worker |
 | @smithy/types | 4.19.0 | Apache-2.0 | control-host, worker |
 | @stablelib/base64 | 1.0.1 | MIT | worker |
-| @types/node | 26.5.1 | MIT | control-host, worker |
-| @types/pg | 8.15.5 | MIT | control-host, worker |
-| @types/react | 19.3.0 | MIT | worker |
-| @types/react-dom | 19.3.0 | MIT | worker |
+| @types/node | 26.5.1 | MIT | control-host |
+| @types/pg | 8.15.5 | MIT | control-host |
+| @types/react | 19.3.0 | MIT | control-host |
+| @types/react-dom | 19.3.0 | MIT | control-host |
 | accepts | 2.0.0 | MIT | worker |
 | ajv | 8.20.0 | MIT | worker |
 | ajv-formats | 3.0.1 | MIT | worker |
-| aria-hidden | 1.2.6 | MIT | worker |
-| before-after-hook | 4.0.0 | Apache-2.0 | control-host, worker |
+| aria-hidden | 1.2.6 | MIT | control-host |
+| before-after-hook | 4.0.0 | Apache-2.0 | control-host |
 | body-parser | 2.4.0 | MIT | worker |
-| bottleneck | 2.19.5 | MIT | control-host, worker |
+| bottleneck | 2.19.5 | MIT | control-host |
 | bowser | 2.14.1 | MIT | control-host, worker |
-| bun-types | 1.3.14 | MIT | control-host, worker |
+| bun-types | 1.3.14 | MIT | control-host |
 | bytes | 3.1.2 | MIT | worker |
 | call-bind-apply-helpers | 1.0.2 | MIT | worker |
 | call-bound | 1.0.4 | MIT | worker |
-| class-variance-authority | 0.7.1 | Apache-2.0 | worker |
-| clsx | 2.1.1 | MIT | worker |
+| class-variance-authority | 0.7.1 | Apache-2.0 | control-host |
+| clsx | 2.1.1 | MIT | control-host |
 | content-disposition | 1.1.0 | MIT | worker |
 | content-type | 1.0.5 | MIT | worker |
 | content-type | 2.1.0 | MIT | worker |
-| content-type | 3.1.1 | MIT | control-host, worker |
+| content-type | 3.1.1 | MIT | control-host |
 | cookie | 0.7.2 | MIT | worker |
 | cookie-signature | 1.2.2 | MIT | worker |
 | cors | 2.8.6 | MIT | worker |
 | cross-spawn | 7.0.6 | MIT | worker |
-| csstype | 3.2.3 | MIT | worker |
+| csstype | 3.2.3 | MIT | control-host |
 | debug | 4.4.3 | MIT | worker |
 | depd | 2.0.0 | MIT | worker |
-| detect-node-es | 1.1.0 | MIT | worker |
-| drizzle-orm | 0.45.2 | Apache-2.0 | control-host, worker |
+| detect-node-es | 1.1.0 | MIT | control-host |
+| drizzle-orm | 0.45.2 | Apache-2.0 | control-host |
 | dunder-proto | 1.0.1 | MIT | worker |
 | ee-first | 1.1.1 | MIT | worker |
 | encodeurl | 2.0.0 | MIT | worker |
@@ -200,7 +200,7 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | fresh | 2.0.0 | MIT | worker |
 | function-bind | 1.1.2 | MIT | worker |
 | get-intrinsic | 1.3.0 | MIT | worker |
-| get-nonce | 1.0.1 | MIT | worker |
+| get-nonce | 1.0.1 | MIT | control-host |
 | get-proto | 1.0.1 | MIT | worker |
 | gopd | 1.2.0 | MIT | worker |
 | has-symbols | 1.1.0 | MIT | worker |
@@ -218,8 +218,8 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | json-schema-to-ts | 3.1.1 | MIT | worker |
 | json-schema-traverse | 1.0.0 | MIT | worker |
 | json-schema-typed | 8.0.2 | BSD-2-Clause | worker |
-| json-with-bigint | 3.5.12 | MIT | control-host, worker |
-| lucide-react | 1.53.0 | ISC | worker |
+| json-with-bigint | 3.5.12 | MIT | control-host |
+| lucide-react | 1.53.0 | ISC | control-host |
 | math-intrinsics | 1.1.0 | MIT | worker |
 | media-typer | 1.1.1 | MIT | worker |
 | merge-descriptors | 2.0.0 | MIT | worker |
@@ -231,38 +231,38 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | object-inspect | 1.13.4 | MIT | worker |
 | on-finished | 2.4.1 | MIT | worker |
 | once | 1.4.0 | ISC | worker |
-| openapi-fetch | 0.17.0 | MIT | worker |
-| openapi-typescript-helpers | 0.1.0 | MIT | worker |
-| openapi3-ts | 4.6.1 | MIT | control-host, worker |
+| openapi-fetch | 0.17.0 | MIT | control-host |
+| openapi-typescript-helpers | 0.1.0 | MIT | control-host |
+| openapi3-ts | 4.6.1 | MIT | control-host |
 | parseurl | 1.3.3 | MIT | worker |
 | path-key | 3.1.1 | MIT | worker |
 | path-to-regexp | 8.4.2 | MIT | worker |
-| pg | 8.16.3 | MIT | control-host, worker |
-| pg-cloudflare | 1.4.0 | MIT | control-host, worker |
-| pg-connection-string | 2.14.0 | MIT | control-host, worker |
-| pg-int8 | 1.0.1 | ISC | control-host, worker |
-| pg-pool | 3.14.0 | MIT | control-host, worker |
-| pg-protocol | 1.16.0 | MIT | control-host, worker |
-| pg-types | 2.2.0 | MIT | control-host, worker |
-| pgpass | 1.0.5 | MIT | control-host, worker |
+| pg | 8.16.3 | MIT | control-host |
+| pg-cloudflare | 1.4.0 | MIT | control-host |
+| pg-connection-string | 2.14.0 | MIT | control-host |
+| pg-int8 | 1.0.1 | ISC | control-host |
+| pg-pool | 3.14.0 | MIT | control-host |
+| pg-protocol | 1.16.0 | MIT | control-host |
+| pg-types | 2.2.0 | MIT | control-host |
+| pgpass | 1.0.5 | MIT | control-host |
 | pkce-challenge | 5.0.1 | MIT | worker |
-| postgres-array | 2.0.0 | MIT | control-host, worker |
-| postgres-bytea | 1.0.1 | MIT | control-host, worker |
-| postgres-date | 1.0.7 | MIT | control-host, worker |
-| postgres-interval | 1.2.0 | MIT | control-host, worker |
+| postgres-array | 2.0.0 | MIT | control-host |
+| postgres-bytea | 1.0.1 | MIT | control-host |
+| postgres-date | 1.0.7 | MIT | control-host |
+| postgres-interval | 1.2.0 | MIT | control-host |
 | proxy-addr | 2.0.8 | MIT | worker |
 | qs | 6.16.1 | BSD-3-Clause | worker |
 | range-parser | 1.3.0 | MIT | worker |
 | raw-body | 3.0.2 | MIT | worker |
-| react | 19.3.0 | MIT | worker |
-| react-dom | 19.3.0 | MIT | worker |
-| react-remove-scroll | 2.7.2 | MIT | worker |
-| react-remove-scroll-bar | 2.3.8 | MIT | worker |
-| react-style-singleton | 2.2.3 | MIT | worker |
+| react | 19.3.0 | MIT | control-host |
+| react-dom | 19.3.0 | MIT | control-host |
+| react-remove-scroll | 2.7.2 | MIT | control-host |
+| react-remove-scroll-bar | 2.3.8 | MIT | control-host |
+| react-style-singleton | 2.2.3 | MIT | control-host |
 | require-from-string | 2.0.2 | MIT | worker |
 | router | 2.2.0 | MIT | worker |
 | safer-buffer | 2.1.2 | MIT | worker |
-| scheduler | 0.28.0 | MIT | worker |
+| scheduler | 0.28.0 | MIT | control-host |
 | send | 1.2.1 | MIT | worker |
 | serve-static | 2.2.1 | MIT | worker |
 | setprototypeof | 1.2.0 | ISC | worker |
@@ -272,26 +272,26 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | side-channel-list | 1.0.1 | MIT | worker |
 | side-channel-map | 1.0.1 | MIT | worker |
 | side-channel-weakmap | 1.0.2 | MIT | worker |
-| split2 | 4.2.0 | ISC | control-host, worker |
+| split2 | 4.2.0 | ISC | control-host |
 | standardwebhooks | 1.1.1 | MIT | worker |
 | statuses | 2.0.2 | MIT | worker |
-| tailwind-merge | 3.5.0 | MIT | worker |
-| toad-cache | 3.7.4 | MIT | control-host, worker |
+| tailwind-merge | 3.5.0 | MIT | control-host |
+| toad-cache | 3.7.4 | MIT | control-host |
 | toidentifier | 1.0.1 | MIT | worker |
 | ts-algebra | 2.0.0 | MIT | worker |
 | tslib | 2.8.1 | 0BSD | control-host, worker |
 | type-is | 2.1.0 | MIT | worker |
-| undici-types | 8.9.0 | MIT | control-host, worker |
-| universal-github-app-jwt | 2.2.2 | MIT | control-host, worker |
-| universal-user-agent | 7.0.3 | ISC | control-host, worker |
+| undici-types | 8.9.0 | MIT | control-host |
+| universal-github-app-jwt | 2.2.2 | MIT | control-host |
+| universal-user-agent | 7.0.3 | ISC | control-host |
 | unpipe | 1.0.0 | MIT | worker |
-| use-callback-ref | 1.3.3 | MIT | worker |
-| use-sidecar | 1.1.3 | MIT | worker |
+| use-callback-ref | 1.3.3 | MIT | control-host |
+| use-sidecar | 1.1.3 | MIT | control-host |
 | vary | 1.1.2 | MIT | worker |
 | which | 2.0.2 | ISC | worker |
 | wrappy | 1.0.2 | ISC | worker |
-| xtend | 4.0.2 | MIT | control-host, worker |
-| yaml | 2.9.1 | ISC | control-host, worker |
+| xtend | 4.0.2 | MIT | control-host |
+| yaml | 2.9.1 | ISC | control-host |
 | zod | 4.6.7 | MIT | control-host, worker |
 | zod-to-json-schema | 3.25.2 | ISC | worker |
 

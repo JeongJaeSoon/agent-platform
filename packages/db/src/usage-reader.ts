@@ -21,6 +21,7 @@ import {
   sessions,
   storageUsage,
   turns,
+  users,
   workerLaunches,
 } from "./schema.ts";
 import { toolCallDays, toolCallPage } from "./tool-call-pages.ts";
@@ -202,6 +203,90 @@ function breakdownByModel(inPeriod: SQL, pairs: SQL, preMetered: SQL) {
     ORDER BY grouped.cost_usd DESC, key NULLS LAST`;
 }
 
+// The summary's figures per agent or holding user, with the totals summed
+// over the groups by window in the same statement. Run time is floored on
+// the running total as the series does, so the groups add up to the
+// totals' one floor. The one-row `one` keeps the totals when no session
+// falls in the period.
+function summaryGroups(inPeriod: SQL, until: SQL, by: "agent" | "user") {
+  const grouping =
+    by === "agent"
+      ? {
+          key: sql`${agentReleases.agentId}`,
+          from: sql`${sessions} LEFT JOIN ${agentReleases} ON ${agentReleases.id} = ${sessions.agentReleaseId}`,
+          name: sql`${agents.name}`,
+          named: sql`LEFT JOIN ${agents} ON ${agents.id}::text = grouped.key`,
+        }
+      : {
+          key: sql`${sessions.createdByUserId}`,
+          from: sql`${sessions}`,
+          name: sql`${users.displayName}`,
+          named: sql`LEFT JOIN ${users} ON ${users.id}::text = grouped.key`,
+        };
+  return sql`
+    WITH picked AS (
+      SELECT ${sessions.id} AS id, ${sessions.costUsd} AS cost_usd,
+             ${sessions.providerTokens} AS provider_tokens, ${grouping.key}::text AS key
+      FROM ${grouping.from}
+      WHERE ${inPeriod}
+    ),
+    per_key AS (
+      SELECT key, count(*) AS session_count, sum(cost_usd) AS cost_usd,
+             sum(provider_tokens) AS provider_tokens
+      FROM picked
+      GROUP BY key
+    ),
+    turn_key AS (
+      SELECT picked.key,
+             count(*) FILTER (WHERE ${incomplete}) AS incomplete,
+             sum(${runSeconds}) FILTER (WHERE ${ran}) AS seconds
+      FROM picked
+      JOIN ${turns} ON ${turns.sessionId} = picked.id
+      GROUP BY picked.key
+    ),
+    grouped AS (
+      SELECT per_key.key, per_key.session_count, per_key.cost_usd, per_key.provider_tokens,
+             coalesce(turn_key.incomplete, 0) AS incomplete,
+             coalesce(turn_key.seconds, 0) AS seconds
+      FROM per_key
+      LEFT JOIN turn_key ON turn_key.key IS NOT DISTINCT FROM per_key.key
+    )
+    SELECT now() AS read_at, ${until} AS until,
+           grouped.key, ${grouping.name} AS name,
+           grouped.session_count::int AS session_count,
+           grouped.cost_usd::text AS cost_usd,
+           grouped.incomplete::int AS incomplete,
+           (floor(sum(grouped.seconds) OVER running)
+             - floor(sum(grouped.seconds) OVER running - grouped.seconds))::bigint AS run_seconds,
+           coalesce(sum(grouped.session_count) OVER (), 0)::int AS total_session_count,
+           coalesce(sum(grouped.cost_usd) OVER (), 0)::text AS total_cost_usd,
+           coalesce(sum(grouped.provider_tokens) OVER (), 0)::bigint AS total_provider_tokens,
+           coalesce(sum(grouped.incomplete) OVER (), 0)::int AS total_incomplete,
+           coalesce(floor(sum(grouped.seconds) OVER ()), 0)::bigint AS total_run_seconds
+    FROM (SELECT 1) AS one
+    LEFT JOIN grouped ON TRUE
+    ${grouping.named}
+    WINDOW running AS (ORDER BY grouped.key NULLS LAST ROWS UNBOUNDED PRECEDING)
+    ORDER BY grouped.cost_usd DESC, grouped.key NULLS LAST`;
+}
+
+type SummaryGroupRow = {
+  read_at: Date | string;
+  until: Date | string;
+  key: string | null;
+  name: string | null;
+  // null on the lone `one` row of an empty period.
+  session_count: number | null;
+  cost_usd: string | null;
+  incomplete: number | null;
+  run_seconds: number | string | null;
+  total_session_count: number;
+  total_cost_usd: string;
+  total_provider_tokens: number | string;
+  total_incomplete: number;
+  total_run_seconds: number | string;
+};
+
 function figuresOf(row: BreakdownRow) {
   return {
     sessionCount: row.session_count,
@@ -323,6 +408,42 @@ export function createPostgresUsageReader(db: Database): UsageReader {
         .from(picked);
       if (!row) throw new Error("usage summary read returned no row");
       return row;
+    },
+
+    async usageSummaryGroups(filter, period, by) {
+      const { since, until } = periodBounds(period);
+      const inPeriod = sql`${sessions.createdAt} >= ${since}
+        AND ${sessions.createdAt} < ${until}
+        AND ${startedBy(filter) ?? sql`TRUE`}`;
+      const rows = await executeWithoutJit<SummaryGroupRow>(
+        db,
+        summaryGroups(inPeriod, until, by),
+      );
+      const [first] = rows;
+      if (!first) throw new Error("usage summary groups read returned no row");
+      return {
+        readAt: new Date(first.read_at),
+        until: new Date(first.until),
+        sessionCount: first.total_session_count,
+        costUsd: first.total_cost_usd,
+        providerTokens: Number(first.total_provider_tokens),
+        incompleteTurnCount: first.total_incomplete,
+        runSeconds: Number(first.total_run_seconds),
+        groups: rows.flatMap((row) =>
+          row.session_count === null
+            ? []
+            : [
+                {
+                  id: row.key,
+                  name: row.name,
+                  sessionCount: row.session_count,
+                  costUsd: row.cost_usd ?? "0",
+                  incompleteTurnCount: row.incomplete ?? 0,
+                  runSeconds: Number(row.run_seconds),
+                },
+              ],
+        ),
+      };
     },
 
     async usageSeries(filter, period) {

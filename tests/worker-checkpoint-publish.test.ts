@@ -15,6 +15,10 @@ import {
   createCheckpointService,
   restorePlanOnWire,
 } from "@werft-ai/platform";
+import {
+  type CommitCheckpoint,
+  finalizeCheckpoint,
+} from "@werft-ai/platform/testing/checkpoints";
 import { claudeCheckpointCodec } from "@werft-ai/runtime-claude";
 import { WorkerGatewayRequestError } from "@werft-ai/runtime-core";
 import {
@@ -110,6 +114,7 @@ function git(args: string[], cwd: string): string {
 }
 
 function memoryPointerStore(): CheckpointStore & {
+  commit: CommitCheckpoint;
   pointer(): CheckpointPointer | null;
 } {
   let pointer: CheckpointPointer | null = null;
@@ -117,7 +122,7 @@ function memoryPointerStore(): CheckpointStore & {
     async readPointer() {
       return pointer;
     },
-    async commitAtomic(input) {
+    async commit(input) {
       const revision = input.checkpoint.revision;
       if (pointer !== null && revision <= pointer.revision) {
         return {
@@ -158,6 +163,7 @@ class ApprovingGateway extends FakeWorkerGateway {
 /** The control plane's checkpoint half, as the Worker Gateway serves it. */
 function servedBy(
   service: ReturnType<typeof createCheckpointService>,
+  commit: CommitCheckpoint,
 ): FakeCheckpointProtocol {
   return {
     async requestCheckpoint(request): Promise<CheckpointRequestResponse> {
@@ -175,7 +181,7 @@ function servedBy(
         : decision;
     },
     async commit(request) {
-      const result = await service.finalize({
+      const result = await finalizeCheckpoint(service, commit, {
         checkpoint: request.checkpoint,
         fence: {
           attemptId: request.attempt_id,
@@ -333,7 +339,7 @@ describe("the worker's checkpoints against the control plane's service", () => {
       workspaceBundles: createGitWorkspaceBundleVerifier(),
     });
     const session = {
-      checkpoints: servedBy(service),
+      checkpoints: servedBy(service, pointers.commit),
       runtimeConfig,
       sessionId: SESSION_ID,
       workspace: descriptor,
@@ -484,6 +490,7 @@ describe("the worker's checkpoints against the control plane's service", () => {
           store: pointers,
           workspaceBundles: createGitWorkspaceBundleVerifier(),
         }),
+        pointers.commit,
       ),
       runtimeConfig: {
         model: MODEL,

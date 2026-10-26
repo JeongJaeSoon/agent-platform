@@ -47,7 +47,9 @@ export function SideNavLayout({
       {...props}
     >
       {nav}
-      <div className="min-w-0 max-w-180 flex-1">{children}</div>
+      {/* Runs to the page frame's edge like every other page; a form page
+          stops its own sections with `Page width="form"`. */}
+      <div className="min-w-0 flex-1">{children}</div>
     </div>
   );
 }

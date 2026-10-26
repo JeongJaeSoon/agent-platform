@@ -74,9 +74,6 @@ const store: CheckpointStore = {
   async listCheckpoints() {
     return [];
   },
-  async commitAtomic() {
-    throw new Error("not exercised");
-  },
 };
 
 function sha256(bytes: Uint8Array): string {

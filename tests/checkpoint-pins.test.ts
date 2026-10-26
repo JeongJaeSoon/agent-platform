@@ -250,9 +250,6 @@ async function restorePlan(
     objectProtection: "locked",
     objects,
     store: {
-      commitAtomic: () => {
-        throw new Error("restore does not commit");
-      },
       listCheckpoints: async () => [],
       readPointer: async () => pointer,
     },

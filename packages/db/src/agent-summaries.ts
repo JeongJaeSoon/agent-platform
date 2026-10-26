@@ -3,7 +3,9 @@ import {
   type AgentSummary,
   agentCapabilitiesSchema,
 } from "@werft-ai/contracts";
+import type { SessionViewer } from "@werft-ai/platform";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { actionableOfSession, IN_FLIGHT_STATUSES } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
 import {
   agentAdmins,
@@ -13,8 +15,10 @@ import {
   agentVersions,
   credentialBindings,
   memberTeams,
+  sessions,
   users,
 } from "./schema.ts";
+import { sessionVisibleTo } from "./session-shares.ts";
 
 // Postgres `left` counts code points; the contract counts UTF-16 units.
 function clip(text: string) {
@@ -33,13 +37,15 @@ function push<T>(map: Map<string, T[]>, key: string, value: T) {
 }
 
 /**
- * The summaries of a page of agents in six statements whatever its size,
- * matching what the agent, admins and bindings reads would show one by one.
+ * The summaries of a page of agents in seven statements whatever its size,
+ * matching what the agent, admins, bindings and session list reads would
+ * show one by one.
  */
 export async function agentSummaries(
   db: Database,
   workspaceId: string,
   agentIds: readonly string[],
+  viewer: SessionViewer,
 ): Promise<Map<string, AgentSummary>> {
   const ids = [...new Set(agentIds.map((id) => id.toLowerCase()))];
   if (ids.length === 0) return new Map();
@@ -137,6 +143,31 @@ export async function agentSummaries(
     .orderBy(asc(credentialBindings.credentialRef)))
     push(bound, row.agentId, row.ref);
 
+  // GET /v1/sessions' filter and public status, so a card's counts are that
+  // list's `?agent_id=&status=` read to the end.
+  const awaiting = sql`exists (${actionableOfSession(db)})`;
+  const live = new Map(
+    (
+      await db
+        .select({
+          agentId: agentReleases.agentId,
+          needsInput: sql<number>`(count(*) filter (where ${awaiting}))::int`,
+          running: sql<number>`(count(*) filter (where not ${awaiting}))::int`,
+        })
+        .from(sessions)
+        .innerJoin(agentReleases, eq(agentReleases.id, sessions.agentReleaseId))
+        .where(
+          and(
+            eq(sessions.ownerId, workspaceId),
+            inArray(agentReleases.agentId, found),
+            inArray(sessions.status, IN_FLIGHT_STATUSES),
+            sessionVisibleTo(viewer),
+          ),
+        )
+        .groupBy(agentReleases.agentId)
+    ).map((row) => [row.agentId, row]),
+  );
+
   const profiles = new Map(heads.map((head) => [head.id, head.profile]));
   const summaries = new Map<string, AgentSummary>();
   for (const version of versions) {
@@ -152,6 +183,8 @@ export async function agentSummaries(
       runtime_profile_id: profiles.get(version.agentId) ?? null,
       bound_credential_refs: bound.get(version.agentId) ?? [],
       admins: admins.get(version.agentId) ?? [],
+      needs_input_count: live.get(version.agentId)?.needsInput ?? 0,
+      running_count: live.get(version.agentId)?.running ?? 0,
     });
   }
   return summaries;

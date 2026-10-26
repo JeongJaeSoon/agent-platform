@@ -572,6 +572,8 @@ describe("agent list summary", () => {
     runtime_profile_id: null,
     bound_credential_refs: [],
     admins: ["Kim"],
+    needs_input_count: 1,
+    running_count: 2,
   };
 
   test("is asked for, and a page without it is the agents as before", () => {

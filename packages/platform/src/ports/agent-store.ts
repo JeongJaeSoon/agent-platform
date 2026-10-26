@@ -9,6 +9,7 @@ import type {
   PaginationQuery,
 } from "@werft-ai/contracts";
 import type { Principal } from "../musterrolle/policy.ts";
+import type { SessionViewer } from "./session-share-store.ts";
 
 /** A release as the service builds it; the store stamps the times. */
 export type NewAgentRelease = Omit<
@@ -60,6 +61,7 @@ export interface AgentStore {
   summaries(
     workspaceId: string,
     agentIds: readonly string[],
+    viewer: SessionViewer,
   ): Promise<Map<string, AgentSummary>>;
   /** What `list` holds read to the end, and how many of it `userId` administers. */
   count(

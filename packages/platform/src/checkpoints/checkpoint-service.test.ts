@@ -31,13 +31,17 @@ import {
   type CheckpointFence,
   type CheckpointPointer,
   type CheckpointStore,
-  type CommitCheckpointInput,
-  type CommitCheckpointResult,
 } from "../ports/checkpoint-store.ts";
 import {
   structuralBundleVerifier,
   type WorkspaceBundleVerifier,
 } from "../ports/workspace-bundle-verifier.ts";
+import {
+  type CommitCheckpointInput,
+  type CommitCheckpointResult,
+  type FinalizeCheckpointInput,
+  finalizeCheckpoint,
+} from "../testing/checkpoints.ts";
 import {
   createCheckpointService,
   MAX_COOLING_BUNDLES,
@@ -203,35 +207,45 @@ function memoryCheckpointStore(owner: CheckpointFence = fence()) {
         .sort((left, right) => right.revision - left.revision)
         .slice(0, limit);
     },
-    async commitAtomic(input): Promise<CommitCheckpointResult> {
-      if (
-        input.fence.attemptId !== owner.attemptId ||
-        input.fence.leaseEpoch !== owner.leaseEpoch ||
-        input.fence.executionGeneration !== owner.executionGeneration
-      ) {
-        return { outcome: "stale_epoch" };
-      }
-      if (pointer !== null && input.checkpoint.revision === pointer.revision) {
-        return pointer.manifestSha256 === input.checkpoint.manifest_sha256
-          ? { outcome: "replayed", revision: pointer.revision }
-          : { outcome: "conflict", currentRevision: pointer.revision };
-      }
-      if (pointer !== null && input.checkpoint.revision < pointer.revision) {
-        return { outcome: "conflict", currentRevision: pointer.revision };
-      }
-      committed.push(input);
-      pointer = {
-        committedAt: input.now,
-        manifestRef: input.checkpoint.manifest_ref,
-        manifestSha256: input.checkpoint.manifest_sha256,
-        revision: input.checkpoint.revision,
-        turnId: input.turnId,
-      };
-      history.push(pointer);
-      return { outcome: "committed", revision: pointer.revision };
-    },
   };
-  return { committed, history, store, pointer: () => pointer };
+  async function commit(
+    input: CommitCheckpointInput,
+  ): Promise<CommitCheckpointResult> {
+    if (
+      input.fence.attemptId !== owner.attemptId ||
+      input.fence.leaseEpoch !== owner.leaseEpoch ||
+      input.fence.executionGeneration !== owner.executionGeneration
+    ) {
+      return { outcome: "stale_epoch" };
+    }
+    if (pointer !== null && input.checkpoint.revision === pointer.revision) {
+      return pointer.manifestSha256 === input.checkpoint.manifest_sha256
+        ? { outcome: "replayed", revision: pointer.revision }
+        : { outcome: "conflict", currentRevision: pointer.revision };
+    }
+    if (pointer !== null && input.checkpoint.revision < pointer.revision) {
+      return { outcome: "conflict", currentRevision: pointer.revision };
+    }
+    committed.push(input);
+    pointer = {
+      committedAt: input.now,
+      manifestRef: input.checkpoint.manifest_ref,
+      manifestSha256: input.checkpoint.manifest_sha256,
+      revision: input.checkpoint.revision,
+      turnId: input.turnId,
+    };
+    history.push(pointer);
+    return { outcome: "committed", revision: pointer.revision };
+  }
+  return { commit, committed, history, store, pointer: () => pointer };
+}
+
+/** A turn's finalize of `input`, judged by `on`, committed to `checkpoints`. */
+function finalizeWith(
+  on: ReturnType<typeof createCheckpointService>,
+  input: FinalizeCheckpointInput,
+) {
+  return finalizeCheckpoint(on, checkpoints.commit, input);
 }
 
 let objects: MemoryCheckpointObjectStore;
@@ -322,7 +336,7 @@ describe("requestCheckpoint", () => {
 
   test("hands out the revision after the pointer", async () => {
     const first = await upload(manifest());
-    await service.finalize({
+    await finalizeWith(service, {
       ...first,
       fence: fence(),
       now: new Date(),
@@ -358,7 +372,7 @@ describe("requestCheckpoint", () => {
     expect(second.result).toEqual({ outcome: "created" });
     const replacement = serviceOwnedBy(fence({ attemptId: "attempt-2" }));
     expect(
-      await replacement.service.finalize({
+      await finalizeCheckpoint(replacement.service, replacement.store.commit, {
         ...second,
         fence: fence({ attemptId: "attempt-2" }),
         now: new Date(),
@@ -418,7 +432,7 @@ describe("requestCheckpoint", () => {
     expect(second.manifestRef).not.toBe(first.manifestRef);
     const checkpoint = await publish(second.manifestRef, "engine-session-2");
     expect(
-      await minting.finalize({
+      await finalizeWith(minting, {
         checkpoint,
         fence: fence(),
         now: new Date(),
@@ -818,7 +832,7 @@ describe("validateManifest", () => {
     });
 
     expect(
-      await capped.finalize({
+      await finalizeWith(capped, {
         checkpoint,
         fence: fence(),
         now: new Date(),
@@ -1449,7 +1463,7 @@ describe("a bundle that builds on the previous checkpoint's", () => {
 
   async function finalize(body: CheckpointManifest, turnId: string) {
     const { checkpoint } = await upload(body);
-    return service.finalize({
+    return finalizeWith(service, {
       checkpoint,
       fence: fence(),
       now: new Date(),
@@ -1655,7 +1669,7 @@ describe("finalize", () => {
     const { checkpoint } = await upload(manifest());
 
     expect(
-      await service.finalize({
+      await finalizeWith(service, {
         checkpoint,
         fence: fence(),
         now: new Date(),
@@ -1667,7 +1681,7 @@ describe("finalize", () => {
   });
 
   test("never commits a checkpoint it could not validate", async () => {
-    const result = await service.finalize({
+    const result = await finalizeWith(service, {
       checkpoint: {
         manifest_ref: manifestRefFor(sessionId, 0, attemptId, PUBLISH_ID),
         manifest_sha256: "1".repeat(64),
@@ -1689,7 +1703,7 @@ describe("finalize", () => {
     const { checkpoint } = await upload(manifest());
 
     expect(
-      await service.finalize({
+      await finalizeWith(service, {
         checkpoint,
         fence: fence(),
         now: new Date(),
@@ -1705,7 +1719,7 @@ describe("finalize", () => {
     // nothing can produce, and promoting it would retire the one checkpoint
     // the session could still have resumed from.
     const zero = await upload(manifest());
-    await service.finalize({
+    await finalizeWith(service, {
       ...zero,
       fence: fence(),
       now: new Date(),
@@ -1721,7 +1735,7 @@ describe("finalize", () => {
     );
 
     expect(
-      await service.finalize({
+      await finalizeWith(service, {
         ...one,
         fence: fence(),
         now: new Date(),
@@ -1741,7 +1755,7 @@ describe("finalize", () => {
 
   test("answers a conflict when the pointer has already moved past this revision", async () => {
     const zero = await upload(manifest());
-    await service.finalize({
+    await finalizeWith(service, {
       ...zero,
       fence: fence(),
       now: new Date(),
@@ -1751,7 +1765,7 @@ describe("finalize", () => {
     const one = await upload(
       manifest({ revision: 1, resume: "engine-session-2" }),
     );
-    await service.finalize({
+    await finalizeWith(service, {
       ...one,
       fence: fence(),
       now: new Date(),
@@ -1760,7 +1774,7 @@ describe("finalize", () => {
     });
 
     expect(
-      await service.finalize({
+      await finalizeWith(service, {
         ...zero,
         fence: fence(),
         now: new Date(),
@@ -1773,7 +1787,7 @@ describe("finalize", () => {
 
   test("replays the same finalize without moving the pointer", async () => {
     const zero = await upload(manifest());
-    await service.finalize({
+    await finalizeWith(service, {
       ...zero,
       fence: fence(),
       now: new Date(),
@@ -1782,7 +1796,7 @@ describe("finalize", () => {
     });
 
     expect(
-      await service.finalize({
+      await finalizeWith(service, {
         ...zero,
         fence: fence(),
         now: new Date(),
@@ -1804,7 +1818,7 @@ describe("finalize", () => {
     // … and still cannot advance the pointer, because the fence no longer
     // matches the session row.
     expect(
-      await service.finalize({
+      await finalizeWith(service, {
         ...stale,
         fence: fence({ attemptId: "attempt-stale", leaseEpoch: 0 }),
         now: new Date(),
@@ -1817,7 +1831,7 @@ describe("finalize", () => {
     // The live worker publishes its own manifest under its own key.
     const live = await upload(manifest({ resume: "engine-session-live" }));
     expect(
-      await service.finalize({
+      await finalizeWith(service, {
         ...live,
         fence: fence(),
         now: new Date(),
@@ -1838,7 +1852,7 @@ describe("finalize", () => {
     // The stored bytes are still the first ones, so the rewrite's digest does
     // not describe anything the store holds.
     expect(
-      await service.finalize({
+      await finalizeWith(service, {
         ...rewrite,
         fence: fence(),
         now: new Date(),
@@ -1864,7 +1878,7 @@ describe("finalize", () => {
     expect(orphan.result).toEqual({ outcome: "created" });
 
     expect(
-      await service.finalize({
+      await finalizeWith(service, {
         ...orphan,
         fence: fence(),
         now: new Date(),
@@ -1892,7 +1906,7 @@ describe("finalize", () => {
       const { bytes, sha256: digest } = codec.encode(manifest());
       await objects.overwrite(key, bytes);
       expect(
-        await service.finalize({
+        await finalizeWith(service, {
           checkpoint: {
             manifest_ref: key,
             manifest_sha256: digest,
@@ -1915,7 +1929,7 @@ describe("finalize", () => {
     const { checkpoint } = await upload(manifest());
 
     expect(
-      await service.finalize({
+      await finalizeWith(service, {
         checkpoint,
         fence: fence({ sessionId: "22222222-2222-4222-8222-222222222222" }),
         now: new Date(),
@@ -1933,7 +1947,7 @@ describe("finalize", () => {
   // checkpoint-versions.test.ts.
   test("re-reads parts the committed pointer proved when nothing pins their version", async () => {
     const zero = await upload(manifest());
-    await service.finalize({
+    await finalizeWith(service, {
       ...zero,
       fence: fence(),
       now: new Date(),
@@ -1967,7 +1981,7 @@ describe("finalize", () => {
 
     objects.resetReads();
     expect(
-      await service.finalize({
+      await finalizeWith(service, {
         ...one,
         fence: fence(),
         now: new Date(),
@@ -1992,7 +2006,7 @@ describe("getRestorePlan", () => {
 
   test("names exactly the objects the manifest pins", async () => {
     const { checkpoint } = await upload(manifest());
-    await service.finalize({
+    await finalizeWith(service, {
       checkpoint,
       fence: fence(),
       now: new Date(),
@@ -2100,7 +2114,7 @@ describe("getRestorePlan", () => {
     const { checkpoint } = await upload(
       manifest({ workspace: workspace({ untracked: [] }) }),
     );
-    await service.finalize({
+    await finalizeWith(service, {
       checkpoint,
       fence: fence(),
       now: new Date(),
@@ -2122,7 +2136,7 @@ describe("getRestorePlan", () => {
     const { checkpoint } = await upload(
       manifest({ runtime: { ...runtime, sdkVersion: "0.3.100" } }),
     );
-    await service.finalize({
+    await finalizeWith(service, {
       checkpoint,
       fence: fence(),
       now: new Date(),
@@ -2143,7 +2157,7 @@ describe("getRestorePlan", () => {
     const { checkpoint } = await upload(
       manifest({ runtime: { ...runtime, profileSha256: "9".repeat(64) } }),
     );
-    await service.finalize({
+    await finalizeWith(service, {
       checkpoint,
       fence: fence(),
       now: new Date(),
@@ -2159,7 +2173,7 @@ describe("getRestorePlan", () => {
 
   test("reports a pointer whose manifest object has gone missing", async () => {
     const { checkpoint } = await upload(manifest());
-    await service.finalize({
+    await finalizeWith(service, {
       checkpoint,
       fence: fence(),
       now: new Date(),
@@ -2176,7 +2190,7 @@ describe("getRestorePlan", () => {
 
   test("reports a pointer whose transcript parts have gone missing", async () => {
     const { checkpoint } = await upload(manifest());
-    await service.finalize({
+    await finalizeWith(service, {
       checkpoint,
       fence: fence(),
       now: new Date(),
@@ -2225,7 +2239,7 @@ describe("getRestorePlan falls back to an earlier revision", () => {
         }),
       );
       expect(
-        await service.finalize({
+        await finalizeWith(service, {
           checkpoint,
           fence: fence(),
           now: new Date(),
@@ -2601,7 +2615,7 @@ describe("getRestorePlan falls back to an earlier revision", () => {
       }),
     );
     expect(
-      await service.finalize({
+      await finalizeWith(service, {
         checkpoint,
         fence: fence(),
         now: new Date(),
