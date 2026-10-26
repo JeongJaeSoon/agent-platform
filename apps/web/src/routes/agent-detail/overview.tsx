@@ -1,16 +1,27 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link as RouterLink } from "@tanstack/react-router";
-import type { AgentDetail } from "@werft-ai/contracts";
-import { usageBreakdownQuery } from "@werft-ai/core";
+import type { AgentDetail, SessionSummary } from "@werft-ai/contracts";
+import { agentSessionsQuery, usageBreakdownQuery } from "@werft-ai/core";
 import { useAgentPlatform } from "@werft-ai/react";
-import { OPERATIONS_MESSAGES } from "@werft-ai/react/components";
+import {
+  OPERATIONS_MESSAGES,
+  SessionRowOpener,
+  SessionStatusLabel,
+  StatusLabel,
+} from "@werft-ai/react/components";
 import {
   Badge,
   Button,
   Card,
   cn,
   formatTimestamp,
+  GridTable,
+  GridTableCell,
+  GridTableColumnHeader,
+  GridTableHeader,
+  GridTableRow,
   Link,
+  RelativeTime,
   Skeleton,
   StatCard,
 } from "@werft-ai/ui";
@@ -18,8 +29,9 @@ import { Check, Copy } from "lucide-react";
 import { type ReactNode, useId, useState } from "react";
 import { useHasPermission } from "../../auth/guard.tsx";
 import { copyText } from "../../components/copy.ts";
+import { LoadFailure } from "../../components/load-failure.tsx";
 import { OutcomeLine } from "../../components/outcome.tsx";
-import { useI18n } from "../../i18n/i18n.tsx";
+import { type Locale, useI18n } from "../../i18n/i18n.tsx";
 import { usagePeriod } from "../operations.tsx";
 import { credentialBindingsQuery } from "./credentials.tsx";
 import { latestVersion } from "./versions.tsx";
@@ -330,29 +342,158 @@ export function AgentReadiness({
   );
 }
 
-/** The design's recent sessions; the API cannot pick an agent's sessions yet. */
-export function AgentRecentSessions() {
-  const { t } = useI18n();
+const RECENT_COLUMNS = "minmax(0,2fr) 136px 120px minmax(0,1fr) 96px";
+// Admission and release drop out; the title keeps the width at 390px.
+const RECENT_NARROW_COLUMNS = "minmax(0,1fr) 116px 72px";
+
+/** The newest sessions created for this agent that the reader can see. */
+export function AgentRecentSessions({ agentId }: { readonly agentId: string }) {
+  const { t, locale } = useI18n();
+  const { client } = useAgentPlatform();
   const titleId = useId();
+  const sessions = useQuery(agentSessionsQuery(client, agentId));
+  const items = sessions.data?.items;
   return (
     <section className={SECTION} aria-labelledby={titleId}>
       <div className={SECTION_HEAD}>
         <h2 id={titleId} className={SECTION_TITLE}>
           {t("agent.sessions.title")}
         </h2>
+        <Link asChild className="text-control">
+          <RouterLink to="/sessions">{t("agent.sessions.all")}</RouterLink>
+        </Link>
       </div>
-      <Card className="items-center gap-2 px-4 py-6 text-center text-control">
-        <p className="m-0 font-semibold text-body">
-          {t("agent.sessions.unavailable")}
-        </p>
-        <p className="m-0 text-muted-foreground">
-          {t("agent.sessions.unavailableBody")}{" "}
-          <Link asChild>
-            <RouterLink to="/sessions">{t("agent.sessions.all")}</RouterLink>
-          </Link>
-        </p>
-      </Card>
+      {sessions.error ? (
+        <LoadFailure
+          error={sessions.error}
+          onRetry={() => void sessions.refetch()}
+        />
+      ) : !items ? (
+        <Card className="px-4 py-3">
+          <Skeleton lines={3} label={t("status.loading.title")} />
+        </Card>
+      ) : items.length === 0 ? (
+        <Card className="px-4 py-6 text-center text-control text-muted-foreground">
+          {t("agent.sessions.empty")}
+        </Card>
+      ) : (
+        // The row opener's focus ring sits outside the row: no overflow clipping.
+        <div className="rounded-card border bg-card">
+          <GridTable
+            aria-label={t("agent.sessions.title")}
+            columns={RECENT_COLUMNS}
+            narrowAt={640}
+            narrowColumns={RECENT_NARROW_COLUMNS}
+          >
+            <GridTableHeader>
+              <GridTableColumnHeader>
+                {t("sessions.column.id")}
+              </GridTableColumnHeader>
+              <GridTableColumnHeader>
+                {t("sessions.column.status")}
+              </GridTableColumnHeader>
+              <GridTableColumnHeader hideNarrow={true}>
+                {t("sessions.column.admission")}
+              </GridTableColumnHeader>
+              <GridTableColumnHeader hideNarrow={true}>
+                {t("agent.sessions.release")}
+              </GridTableColumnHeader>
+              <GridTableColumnHeader align="end">
+                {t("sessions.column.lastEvent")}
+              </GridTableColumnHeader>
+            </GridTableHeader>
+            {items.map((session) => (
+              <AgentSessionRow
+                key={session.id}
+                session={session}
+                locale={locale}
+              />
+            ))}
+          </GridTable>
+        </div>
+      )}
     </section>
+  );
+}
+
+function AgentSessionRow({
+  session,
+  locale,
+}: {
+  readonly session: SessionSummary;
+  readonly locale: Locale;
+}) {
+  const { t } = useI18n();
+  const shortId = session.id.slice(0, 8);
+  return (
+    <GridTableRow data-status={session.status}>
+      <GridTableCell lines={true}>
+        <SessionRowOpener
+          name={t("agent.sessions.open", { name: session.title ?? shortId })}
+          title={session.id}
+          renderLink={({ children, ...link }) => (
+            <RouterLink
+              to="/sessions/$id"
+              params={{ id: session.id }}
+              {...link}
+            >
+              {children}
+            </RouterLink>
+          )}
+        />
+        <span
+          className="max-w-full truncate font-medium text-link"
+          title={session.title ?? session.id}
+        >
+          {session.title ?? shortId}
+        </span>
+        {session.title ? (
+          <span className="font-mono text-caption text-muted-foreground">
+            {shortId}
+          </span>
+        ) : null}
+      </GridTableCell>
+      <GridTableCell>
+        <SessionStatusLabel
+          status={session.status}
+          label={t(`sessions.status.${session.status}`)}
+          axisLabel={t("sessions.column.status")}
+        />
+      </GridTableCell>
+      <GridTableCell hideNarrow={true}>
+        <StatusLabel
+          className="whitespace-nowrap"
+          axis="admission"
+          state={session.admission_state}
+          label={t(`sessions.admission.${session.admission_state}`)}
+          axisLabel={t("sessions.column.admission")}
+        />
+      </GridTableCell>
+      <GridTableCell hideNarrow={true} className="text-muted-foreground">
+        <span className="sr-only">{t("agent.sessions.release")}: </span>
+        {session.agent
+          ? t("agent.versionLabel", {
+              version: session.agent.release_version_no,
+            })
+          : t("agent.panel.none")}
+      </GridTableCell>
+      <GridTableCell
+        align="end"
+        className="overflow-hidden whitespace-nowrap text-caption text-muted-foreground"
+      >
+        <span className="sr-only">
+          {session.last_event_at
+            ? t("sessions.column.lastEvent")
+            : t("sessions.column.created")}{" "}
+        </span>
+        {/* Above the row's opener, so hovering and focus reach it. */}
+        <RelativeTime
+          value={session.last_event_at ?? session.created_at}
+          locale={locale}
+          className="relative truncate focus-visible:-outline-offset-2!"
+        />
+      </GridTableCell>
+    </GridTableRow>
   );
 }
 

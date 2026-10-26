@@ -104,6 +104,8 @@ export const queryKeys = {
   sessions: ["sessions"] as const,
   // An object segment, so it never reads as a session id.
   waitingSessions: ["sessions", { status: "needs_input" }] as const,
+  agentSessions: (agentId: string) =>
+    ["sessions", { agent_id: agentId }] as const,
   session: (id: string) => ["sessions", id] as const,
   sessionUsage: (id: string) => ["sessions", id, "usage"] as const,
   pendingRequests: (id: string) =>
@@ -403,6 +405,20 @@ export function waitingSessionsQuery(client: ApiClient) {
       ) as Promise<ListSessionsResponse>,
     retry: false,
     refetchInterval: 30_000,
+  });
+}
+
+/** The newest sessions of one agent the caller can read, for its overview. */
+export function agentSessionsQuery(client: ApiClient, agentId: string) {
+  return queryOptions({
+    queryKey: queryKeys.agentSessions(agentId),
+    queryFn: () =>
+      unwrap(
+        client.GET("/v1/sessions", {
+          params: { query: { agent_id: agentId, limit: 5 } },
+        }),
+      ) as Promise<ListSessionsResponse>,
+    retry: false,
   });
 }
 

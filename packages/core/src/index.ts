@@ -2,6 +2,7 @@ export {
   administeredAgentsQuery,
   agentAdminsQuery,
   agentQuery,
+  agentSessionsQuery,
   agentsQuery,
   apiKeysQuery,
   firstMembersQuery,

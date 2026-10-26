@@ -15,6 +15,7 @@ const { renderAt, screen, waitFor, within } = await appHarness();
 
 const meOk = { "GET /v1/auth/me": () => json(200, me()) };
 const DETAIL = `/agents/${AGENT_ID}`;
+const AGENT_SESSIONS_SEARCH = `?agent_id=${AGENT_ID}&limit=5`;
 
 const selected = () =>
   screen.getByRole("tab", { selected: true }).textContent ?? "";
@@ -234,8 +235,44 @@ describe("에이전트 상세 탭", () => {
     expect(document.activeElement === releaseTab).toBe(true);
   });
 
-  test("개요는 배포된 버전·최신 버전 카드로 시작하고, 최근 세션은 API가 없다고 한다", async () => {
-    renderAt(DETAIL, { ...meOk, ...agentServer().routes });
+  test("개요는 배포된 버전·최신 버전 카드로 시작하고, 최근 세션은 이 에이전트의 세션만 묻는다", async () => {
+    const session = (id: string, rest: object) => ({
+      id,
+      title: null,
+      agent: { id: AGENT_ID, name: "agent", release_version_no: 2 },
+      created_by: null,
+      channel: "web",
+      revision: 1,
+      admission_state: "active",
+      status: "idle",
+      runtime: null,
+      repository_id: null,
+      current_turn_id: null,
+      queued_turn_count: 0,
+      model: "model-default",
+      last_event_at: null,
+      created_at: "2026-10-01T00:00:00.000Z",
+      updated_at: "2026-10-01T00:00:00.000Z",
+      ...rest,
+    });
+    const { api } = renderAt(DETAIL, {
+      ...meOk,
+      ...agentServer().routes,
+      [`GET /v1/sessions${AGENT_SESSIONS_SEARCH}`]: () =>
+        json(200, {
+          items: [
+            session("0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01", {
+              title: "배포 점검",
+              status: "running",
+              last_event_at: "2026-10-02T00:00:00.000Z",
+            }),
+            session("1a2b3c4d-3d1e-4c7a-9b2f-5e6d7c8a9b02", {
+              admission_state: "paused",
+            }),
+          ],
+          next_cursor: "c2",
+        }),
+    });
     const glance = await screen.findByRole("list", { name: "에이전트 현황" });
     const figures = within(glance)
       .getAllByRole("listitem")
@@ -243,20 +280,97 @@ describe("에이전트 상세 탭", () => {
     expect(figures[0]).toContain("배포된 버전");
     expect(figures[0]).toContain("없음");
     expect(figures[1]).toContain("version 1");
-    const recent = screen
-      .getByRole("heading", { name: "최근 세션" })
-      .closest("section") as HTMLElement;
+    const table = await screen.findByRole("table", { name: "최근 세션" });
+    const rows = within(table).getAllByRole("row").slice(1);
     expect(
-      within(recent).getByText(
-        "이 에이전트의 세션을 고르는 API가 아직 없습니다.",
+      rows.map((row) =>
+        [...row.querySelectorAll("[role=cell]")]
+          .slice(0, 4)
+          .map((cell) => cell.textContent?.replace(/\s+/g, " ").trim()),
       ),
-    ).toBeDefined();
+    ).toEqual([
+      [
+        "배포 점검0f8b6a52",
+        "작업 상태: 작업 중",
+        "세션 상태: 열림",
+        "release: version 2",
+      ],
+      [
+        "1a2b3c4d",
+        "작업 상태: 쉬는 중",
+        "세션 상태: 일시정지됨",
+        "release: version 2",
+      ],
+    ]);
+    expect(
+      within(table)
+        .getByRole("link", { name: "세션 열기: 배포 점검" })
+        .getAttribute("href"),
+    ).toBe("/sessions/0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01");
+    expect(
+      api.calls.filter((c) => c.search === AGENT_SESSIONS_SEARCH).length,
+    ).toBe(1);
+    const recent = table.closest("section") as HTMLElement;
     expect(
       within(recent)
         .getByRole("link", { name: "모든 세션" })
         .getAttribute("href"),
     ).toBe("/sessions");
     expect(screen.queryByRole("complementary")).toBeNull();
+  });
+
+  const recentSessions = async () =>
+    (await screen.findByRole("heading", { name: "최근 세션" })).closest(
+      "section",
+    ) as HTMLElement;
+
+  test("최근 세션에 볼 세션이 없으면 빈 상태를 말하고 다시 시도는 없다", async () => {
+    renderAt(DETAIL, {
+      ...meOk,
+      ...agentServer().routes,
+      [`GET /v1/sessions${AGENT_SESSIONS_SEARCH}`]: () =>
+        json(200, { items: [], next_cursor: null }),
+    });
+    const section = await recentSessions();
+    expect(
+      await within(section).findByText(
+        "이 에이전트로 만든 세션 중 볼 수 있는 세션이 없습니다.",
+      ),
+    ).toBeDefined();
+    expect(within(section).queryByRole("button")).toBeNull();
+    expect(within(section).queryByRole("table")).toBeNull();
+  });
+
+  test("최근 세션을 읽지 못하면 빈 상태가 아니라 실패를 말하고, 다시 시도한다", async () => {
+    let fail = true;
+    const { api } = renderAt(DETAIL, {
+      ...meOk,
+      ...agentServer().routes,
+      [`GET /v1/sessions${AGENT_SESSIONS_SEARCH}`]: () =>
+        fail
+          ? apiError(500, "INTERNAL", "boom")
+          : json(200, { items: [], next_cursor: null }),
+    });
+    const section = await recentSessions();
+    const retry = await within(section).findByRole("button", {
+      name: "다시 시도",
+    });
+    expect(
+      within(section).queryByText(
+        "이 에이전트로 만든 세션 중 볼 수 있는 세션이 없습니다.",
+      ),
+    ).toBeNull();
+    fail = false;
+    const user = await setupUser();
+    await user.click(retry);
+    expect(
+      await within(section).findByText(
+        "이 에이전트로 만든 세션 중 볼 수 있는 세션이 없습니다.",
+      ),
+    ).toBeDefined();
+    expect(
+      api.calls.filter((c) => c.search === AGENT_SESSIONS_SEARCH).length,
+    ).toBe(2);
   });
 
   test("설치 사용량을 읽는 사람에게는 셋째 칸에 이 에이전트의 최근 7일 추정 비용이 보인다", async () => {

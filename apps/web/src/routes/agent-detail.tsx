@@ -347,7 +347,7 @@ function AgentView({
       <TabsContent {...tabPanel("overview")}>
         <AgentGlance detail={detail} />
         <AgentReadiness detail={detail} toRelease={toRelease} />
-        <AgentRecentSessions />
+        <AgentRecentSessions agentId={detail.agent.id} />
       </TabsContent>
       <TabsContent {...tabPanel("card")}>
         {/* The panel stays mounted, so an open editor keeps its input across tabs. */}

@@ -27,6 +27,7 @@ test("query keys", () => {
     agentAdmins: queries.queryKeys.agentAdmins("id-1"),
     team: queries.queryKeys.team("id-1"),
     session: queries.queryKeys.session("id-1"),
+    agentSessions: queries.queryKeys.agentSessions("id-1"),
     sessionUsage: queries.queryKeys.sessionUsage("id-1"),
     pendingRequests: queries.queryKeys.pendingRequests("id-1"),
     usageSeries: queries.queryKeys.usageSeries(
@@ -48,7 +49,7 @@ test("query options and the request each query makes", async () => {
     (entry): entry is [string, (client: ApiClient, id: string) => object] =>
       typeof entry[1] === "function" && entry[0].endsWith("Query"),
   );
-  expect(factories.length).toBe(24);
+  expect(factories.length).toBe(25);
   const out: Record<string, unknown> = {};
   for (const [name, factory] of factories.sort(([a], [b]) =>
     a.localeCompare(b),

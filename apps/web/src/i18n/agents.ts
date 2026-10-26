@@ -233,9 +233,10 @@ export const agentsKo = {
   "agent.ready.notRunnable":
     "에이전트가 {status} 상태라 새 세션이 이 에이전트를 쓰지 않습니다.",
   "agent.sessions.title": "최근 세션",
-  "agent.sessions.unavailable":
-    "이 에이전트의 세션을 고르는 API가 아직 없습니다.",
-  "agent.sessions.unavailableBody": "그동안은 세션 목록에서 찾으세요.",
+  "agent.sessions.empty":
+    "이 에이전트로 만든 세션 중 볼 수 있는 세션이 없습니다.",
+  "agent.sessions.release": "release",
+  "agent.sessions.open": "세션 열기: {name}",
   "agent.sessions.all": "모든 세션",
   "agent.card.summaryTitle": "에이전트 카드",
   "agent.card.subActive": "새 세션에 쓰이는 version입니다. 읽기 전용.",
@@ -516,9 +517,9 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.ready.notRunnable":
     "The agent is {status}, so new sessions do not use it.",
   "agent.sessions.title": "Recent sessions",
-  "agent.sessions.unavailable": "No API picks this agent's sessions yet.",
-  "agent.sessions.unavailableBody":
-    "Until then, find them in the session list.",
+  "agent.sessions.empty": "No sessions of this agent that you can see.",
+  "agent.sessions.release": "Release",
+  "agent.sessions.open": "Open session: {name}",
   "agent.sessions.all": "All sessions",
   "agent.card.summaryTitle": "Agent card",
   "agent.card.subActive": "The version new sessions use. Read-only.",
@@ -795,10 +796,10 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.ready.notRunnable":
     "エージェントが「{status}」のため、新しいセッションはこのエージェントを使いません。",
   "agent.sessions.title": "最近のセッション",
-  "agent.sessions.unavailable":
-    "このエージェントのセッションを選ぶAPIはまだありません。",
-  "agent.sessions.unavailableBody":
-    "それまではセッション一覧で探してください。",
+  "agent.sessions.empty":
+    "このエージェントで作られたセッションのうち、表示できるものはありません。",
+  "agent.sessions.release": "リリース",
+  "agent.sessions.open": "セッションを開く: {name}",
   "agent.sessions.all": "すべてのセッション",
   "agent.card.summaryTitle": "エージェントカード",
   "agent.card.subActive":
