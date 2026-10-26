@@ -9,8 +9,11 @@ const { renderAt, screen, waitFor, within } = await appHarness();
 const PROFILES: ProfileSummary[] = [
   {
     id: "coding-claude",
+    source: "operator",
     model: "claude-sonnet-5",
+    models: ["claude-sonnet-5"],
     tools: ["Read", "Edit", "Bash"],
+    permission_mode: "default",
     runtime_kind: "claude_agent_sdk",
     runtime_version: "0.3.270",
     billing: "metered",
@@ -18,8 +21,11 @@ const PROFILES: ProfileSummary[] = [
   },
   {
     id: "general-read",
+    source: "operator",
     model: "claude-haiku-5",
+    models: ["claude-haiku-5"],
     tools: [],
+    permission_mode: "default",
     runtime_kind: "claude_agent_sdk",
     runtime_version: "0.3.270",
     billing: "none",

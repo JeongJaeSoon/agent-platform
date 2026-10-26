@@ -25,6 +25,7 @@ import type {
   SurfaceBindingService,
   TeamService,
   UsageService,
+  WorkspaceProfileService,
 } from "@werft-ai/platform";
 import { createApiApp } from "./app.ts";
 import type { BootstrapGate } from "./auth.ts";
@@ -129,7 +130,7 @@ function apiApp() {
       registerCloseRoutes(router, {} as SessionService);
       registerUsageRoutes(router, {} as UsageService);
       registerSessionOutputRoutes(router, {} as SessionOutputService);
-      registerProfileRoutes(router, { profiles: {}, repositories: {} });
+      registerProfileRoutes(router, {} as WorkspaceProfileService);
       registerWorkspaceRoutes(router, {} as WorkspaceRouteDeps);
       registerSlackSecretRoutes(router, {} as SlackSecretService);
       registerSlackAppRoutes(router, {

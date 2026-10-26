@@ -381,7 +381,7 @@ function Names({
  * credential still works is not reported, so a bound one is "connected", not
  * "healthy".
  */
-function CredentialNeed({
+export function CredentialNeed({
   refs,
   bound,
 }: {

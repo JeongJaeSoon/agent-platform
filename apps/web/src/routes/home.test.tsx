@@ -1198,6 +1198,131 @@ describe("홈 요약", () => {
     },
   );
 
+  describe("관리하는 에이전트 카드", () => {
+    const agent = agentServer().detail().agent;
+    const summary = (refs: string[], bound: string[]) => ({
+      version: {
+        version_no: 1,
+        role: "reviewer",
+        instructions: "Review.",
+        mcp_servers: [],
+        credential_refs: refs,
+      },
+      runtime_profile_id: null,
+      bound_credential_refs: bound,
+      admins: ["Owner"],
+      needs_input_count: 2,
+      running_count: 1,
+    });
+    const agentCardOf = async (
+      role: "admin" | "member",
+      agents: () => Response,
+    ) => {
+      const harness = renderAt("/", {
+        ...homeRoutes(),
+        "GET /v1/auth/me": () => json(200, me(undefined, role)),
+        "GET /v1/administered-agents": () => json(200, { items: [agent] }),
+        "GET /v1/agents": agents,
+      });
+      const overview = await screen.findByRole("region", {
+        name: "한눈에 보기",
+      });
+      await waitFor(() =>
+        expect(cards(overview).some((card) => card.title === agent.name)).toBe(
+          true,
+        ),
+      );
+      return {
+        ...harness,
+        card: () => cards(overview).find((card) => card.title === agent.name),
+      };
+    };
+
+    test.each([
+      [[], [], "필요 없음"],
+      [["github", "slack"], ["github", "slack"], "연결됨 2개"],
+      [["github", "slack"], ["github"], "연결 필요 1개"],
+    ])(
+      "admin 카드는 summary의 답 대기·작업 중·자격 증명을 보인다 (%p, %p)",
+      async (refs, bound, credentials) => {
+        const { card } = await agentCardOf("admin", () =>
+          json(200, {
+            items: [{ ...agent, summary: summary(refs, bound) }],
+            next_cursor: null,
+          }),
+        );
+        await waitFor(() => expect(card()?.value).toBe("2"));
+        expect(card()?.rows).toEqual([
+          ["작업 중", "1"],
+          ["최근 7일 세션", "—미계측"],
+          ["자격 증명", credentials],
+        ]);
+      },
+    );
+
+    test.each([
+      ["읽기가 실패하면", () => apiError(500, "INTERNAL", "boom")],
+      [
+        "summary가 없으면",
+        () => json(200, { items: [agent], next_cursor: null }),
+      ],
+      ["항목이 없으면", () => json(200, { items: [], next_cursor: null })],
+    ])(
+      "admin 카드는 %s 미계측 그대로이고 0을 만들지 않는다",
+      async (_, agents) => {
+        const { card, services } = await agentCardOf("admin", agents);
+        await waitFor(() =>
+          expect(
+            services.queryClient.getQueryState(queryKeys.agents)?.status,
+          ).not.toBe("pending"),
+        );
+        expect(card()?.value).toBe("—미계측");
+        expect(card()?.rows).toEqual([
+          ["작업 중", "—미계측"],
+          ["최근 7일 세션", "—미계측"],
+          ["자격 증명", "—미계측"],
+        ]);
+      },
+    );
+
+    test("다시 읽기가 실패하면 앞서 읽은 summary를 보이지 않는다", async () => {
+      let fails = false;
+      const { card, services } = await agentCardOf("admin", () =>
+        fails
+          ? apiError(500, "INTERNAL", "boom")
+          : json(200, {
+              items: [{ ...agent, summary: summary([], []) }],
+              next_cursor: null,
+            }),
+      );
+      await waitFor(() => expect(card()?.value).toBe("2"));
+      fails = true;
+      await act(() =>
+        services.queryClient.refetchQueries({ queryKey: queryKeys.agents }),
+      );
+      await waitFor(() => expect(card()?.value).toBe("—미계측"));
+      expect(card()?.rows).toEqual([
+        ["작업 중", "—미계측"],
+        ["최근 7일 세션", "—미계측"],
+        ["자격 증명", "—미계측"],
+      ]);
+    });
+
+    test("목록을 읽을 수 없는 구성원 관리자 카드는 미계측이고 목록을 부르지 않는다", async () => {
+      const { card, api } = await agentCardOf("member", () =>
+        apiError(403, "FORBIDDEN", "not allowed"),
+      );
+      await Bun.sleep(50);
+      expect(card()?.value).toBe("—미계측");
+      expect(card()?.rows).toEqual([
+        ["작업 중", "—미계측"],
+        ["최근 7일 세션", "—미계측"],
+        ["자격 증명", "—미계측"],
+      ]);
+      expect(api.calls.some((c) => c.path === "/v1/agents")).toBe(false);
+    });
+  });
+
   test("홈에는 새 세션 버튼과 그 사유 문구가 없다", async () => {
     renderAt("/", {
       ...homeRoutes(),

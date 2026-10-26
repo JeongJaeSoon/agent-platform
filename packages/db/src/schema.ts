@@ -6,6 +6,7 @@ import {
   BINDING_MODE_VALUES,
   MEMORY_WRITE_POLICY_VALUES,
   OPEN_PUSH_REQUEST_STATES,
+  PERMISSION_MODE_VALUES,
   PUSH_REQUEST_STATE_VALUES,
   RECEIPT_STATUS_VALUES,
   SESSION_STATUS_VALUES,
@@ -2892,6 +2893,63 @@ export const agentActivationEvents = pgTable(
     check(
       "agent_activation_events_revision_check",
       sql`(${table.kind} = 'activated') = (${table.activationRevision} IS NOT NULL)`,
+    ),
+  ],
+);
+
+// A version of a workspace profile (94S-1001): an operator profile narrowed
+// in the console. A row never changes but for its retirement; a change is
+// the next version, under a new id.
+export const workspaceProfiles = pgTable(
+  "workspace_profiles",
+  {
+    id: text().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    name: text().notNull(),
+    version: integer().notNull(),
+    baseProfileId: text("base_profile_id").notNull(),
+    baseFingerprint: text("base_fingerprint").notNull(),
+    baseRuntimeVersion: text("base_runtime_version").notNull(),
+    baseBilling: text("base_billing").notNull(),
+    baseRepositoryMode: text("base_repository_mode").notNull(),
+    model: text().notNull(),
+    models: jsonb().$type<string[]>().notNull(),
+    tools: jsonb().$type<string[]>().notNull(),
+    permissionMode: text("permission_mode").notNull(),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    retiredAt: timestamp("retired_at", { withTimezone: true }),
+    retiredBy: uuid("retired_by").references(() => users.id),
+  },
+  (table) => [
+    unique("workspace_profiles_version_key").on(
+      table.workspaceId,
+      table.name,
+      table.version,
+    ),
+    check("workspace_profiles_id_check", sql`${table.id} LIKE 'ws\\_%'`),
+    check("workspace_profiles_version_check", sql`${table.version} >= 1`),
+    check(
+      "workspace_profiles_permission_mode_check",
+      sql`${table.permissionMode} IN (${sql.raw(sqlList(PERMISSION_MODE_VALUES))})`,
+    ),
+    check(
+      "workspace_profiles_base_billing_check",
+      sql`${table.baseBilling} IN ('metered', 'none')`,
+    ),
+    check(
+      "workspace_profiles_base_repository_mode_check",
+      sql`${table.baseRepositoryMode} IN ('required', 'optional', 'none')`,
+    ),
+    check(
+      "workspace_profiles_retired_check",
+      sql`(${table.retiredAt} IS NULL) = (${table.retiredBy} IS NULL)`,
     ),
   ],
 );
