@@ -26,7 +26,7 @@ import { cleanBody, cleanTitle } from "./pull-request-text.ts";
 import {
   mayDecidePush,
   type PushActor,
-  receiptActorOf,
+  pushReceiptActor,
   requireVerified,
 } from "./push-request-service.ts";
 import { requirePermitted, SessionServiceError } from "./session-service.ts";
@@ -77,7 +77,7 @@ export function createPullRequestService(deps: {
       ownerId: actor.ownerId,
       sessionId,
       pushRequestId,
-      actor: receiptActorOf(actor.principal),
+      actor: pushReceiptActor(actor),
       operation,
     };
     const refuse = async (
