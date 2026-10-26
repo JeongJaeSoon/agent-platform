@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { type ApiClientOptions, createApiClient } from "@werft-ai/client";
 import type { PendingRequest } from "@werft-ai/contracts";
 import { setupDom, setupUser } from "@werft-ai/ui/test-support/dom";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import type { ApprovalLayout } from "./session-actions.tsx";
 
 const { render, waitFor, act } = await setupDom();
@@ -13,6 +13,7 @@ const { AgentPlatformProvider } = await import("../provider.tsx");
 const { ApprovalInbox } = await import("./approval-inbox.tsx");
 const { usePendingRail } = await import("./pending-rail.tsx");
 const { PendingAnswers } = await import("./session-actions.tsx");
+const { SessionTimeline } = await import("./session-timeline.tsx");
 type ApprovalInboxProps = import("./approval-inbox.tsx").ApprovalInboxProps;
 
 const SESSION_ID = "0192f0c4-3d1e-4c7a-9b2f-5e6d7c8a9b01";
@@ -767,6 +768,55 @@ describe("ApprovalInbox", () => {
       expect(write).toContain("Running");
       expect(write).not.toContain("Waiting for an answer");
     });
+  });
+
+  test("요청보다 먼저 시작한 대기 목록 읽기에 그 요청이 없어도, 다시 읽기 전까지는 답변 대기다", async () => {
+    type Listed = { requestIds: readonly string[]; at: number } | undefined;
+    let list: (next: Listed) => void = () => {};
+    const frames = [
+      {
+        event: "tool_use",
+        data: {
+          message: {
+            content: [
+              { type: "tool_use", id: "tu_1", name: "Bash", input: {} },
+            ],
+          },
+        },
+      },
+      {
+        event: "question",
+        data: {
+          request_id: "req_1",
+          tool_use_id: "tu_1",
+          kind: "permission",
+          tool: "Bash",
+          input: {},
+        },
+      },
+    ].map((payload, index) => ({
+      id: `ev_${index}`,
+      occurredAt: "2026-10-21T00:59:00.000Z",
+      turnId: "1",
+      attemptId: null,
+      payload,
+    })) as unknown as import("../sessions.ts").SessionEventFrame[];
+    function Host() {
+      const [pending, setPending] = useState<Listed>(undefined);
+      list = setPending;
+      return <SessionTimeline events={frames} state="open" pending={pending} />;
+    }
+    const view = renderInbox({ open: [], body: <Host /> });
+    const call = () =>
+      view.container.querySelector("li[data-kind='tool']")?.textContent ?? "";
+    await waitFor(() => expect(call()).toContain("Waiting for an answer"));
+    // The read under way when the lines arrived, done after them.
+    act(() => list({ requestIds: [], at: 1 }));
+    expect(call()).toContain("Waiting for an answer");
+    // A read begun after them: the request is gone, so it was answered.
+    act(() => list({ requestIds: [], at: 2 }));
+    expect(call()).toContain("Running");
+    expect(call()).not.toContain("Waiting for an answer");
   });
 
   test("레일은 열면 머리로 키보드를 옮기고, 닫기·Esc로 닫히면 연 버튼으로 돌려준다", async () => {

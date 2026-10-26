@@ -148,9 +148,9 @@ export function SessionTimeline({
   /** Drawn under a request's line; see `Timeline`. */
   readonly request?: ((requestId: string) => ReactNode) | undefined;
   /**
-   * The requests waiting for an answer and when they were listed: a request
-   * on the stream before then and missing from the list was answered, so
-   * its call no longer waits.
+   * The requests waiting for an answer and when the list was read
+   * (`listedRequests`): one missing from it was answered, so its call no
+   * longer waits.
    */
   readonly pending?:
     | { readonly requestIds: readonly string[]; readonly at: number }
@@ -177,24 +177,32 @@ export function SessionTimeline({
       ),
     [events, t, locale],
   );
-  // When each request's line first arrived, on the clock `pending.at` reads.
-  const [seenAt, setSeenAt] = useState<ReadonlyMap<string, number>>(
-    () => new Map(),
-  );
+  // Each new `pending.at` is one more read of the list. A read already under
+  // way when a request's line arrived may predate the request, so only a list
+  // read twice since then can say it is gone; until then its call waits.
+  const [reads, setReads] = useState({ at: pending?.at, count: 0 });
+  if (pending?.at !== reads.at)
+    setReads({ at: pending?.at, count: reads.count + 1 });
+  const [readsWhenSeen, setReadsWhenSeen] = useState<
+    ReadonlyMap<string, number>
+  >(() => new Map());
   const unseen = events.flatMap(({ payload }) =>
-    payload.event === "question" && !seenAt.has(payload.data.request_id)
+    payload.event === "question" && !readsWhenSeen.has(payload.data.request_id)
       ? [payload.data.request_id]
       : [],
   );
-  if (unseen.length > 0) {
-    const now = Date.now();
-    setSeenAt(new Map([...seenAt, ...unseen.map((id) => [id, now] as const)]));
-  }
+  if (unseen.length > 0)
+    setReadsWhenSeen(
+      new Map([
+        ...readsWhenSeen,
+        ...unseen.map((id) => [id, reads.count] as const),
+      ]),
+    );
   const answered = new Set(
     pending === undefined
       ? []
-      : [...seenAt].flatMap(([requestId, at]) =>
-          at <= pending.at && !pending.requestIds.includes(requestId)
+      : [...readsWhenSeen].flatMap(([requestId, count]) =>
+          reads.count > count + 1 && !pending.requestIds.includes(requestId)
             ? [requestId]
             : [],
         ),
