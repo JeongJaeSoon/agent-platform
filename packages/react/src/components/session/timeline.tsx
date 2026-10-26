@@ -136,6 +136,11 @@ export interface TimelineProps {
    * null leaves the line as it is, with a question's options listed.
    */
   readonly request?: ((requestId: string) => ReactNode) | undefined;
+  /**
+   * Drawn under a turn's head, before its lines, such as the message the
+   * turn was asked; null leaves the turn as it is.
+   */
+  readonly prompt?: ((turnId: string) => ReactNode) | undefined;
 }
 
 interface TimelineRow extends TimelineEntry {
@@ -382,6 +387,7 @@ export function Timeline({
   now,
   className,
   request,
+  prompt,
 }: TimelineProps): JSX.Element {
   const idBase = useId();
   const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
@@ -538,6 +544,7 @@ export function Timeline({
             if (group.turnId === null) return renderItems(group.items);
             const headId = `${idBase}-turn-${index}`;
             const tokens = turnTokens(group);
+            const asked = prompt?.(group.turnId);
             return (
               // biome-ignore lint/a11y/useSemanticElements: every <li> in the list stays one event, which the session screen's tests count
               <div
@@ -560,6 +567,9 @@ export function Timeline({
                     </span>
                   ) : null}
                 </div>
+                {asked == null ? null : (
+                  <div className="flex flex-col pt-3">{asked}</div>
+                )}
                 <ol aria-labelledby={headId} className="flex flex-col">
                   {renderItems(group.items)}
                 </ol>

@@ -13,6 +13,7 @@ import {
   queryKeys,
   sessionQuery,
   sessionsQuery,
+  sessionTurnsQuery,
   sessionUsageQuery,
   waitingSessionsQuery,
 } from "@werft-ai/core";
@@ -150,6 +151,7 @@ function harness(
     detail: sessionQuery(client, SESSION_ID).queryKey,
     pending: pendingRequestsQuery(client, SESSION_ID).queryKey,
     usage: sessionUsageQuery(client, SESSION_ID).queryKey,
+    turns: sessionTurnsQuery(client, SESSION_ID).queryKey,
   };
   /** Each invalidation as the key it names and whether it matches exactly. */
   const invalidated = () =>
@@ -434,7 +436,7 @@ describe("useSessionEvents", () => {
       h.stream.push(status, assistant, question, status, result, error);
     });
     await waitFor(() => expect(hook.result.current.events).toHaveLength(6));
-    await waitFor(() => expect(h.invalidated()).toHaveLength(6));
+    await waitFor(() => expect(h.invalidated()).toHaveLength(7));
     expect(h.invalidated()).toEqual([
       [h.keys.list, true],
       [h.keys.waiting, true],
@@ -442,6 +444,7 @@ describe("useSessionEvents", () => {
       [h.keys.detail, true],
       [h.keys.pending, false],
       [h.keys.usage, false],
+      [h.keys.turns, false],
     ]);
   });
 

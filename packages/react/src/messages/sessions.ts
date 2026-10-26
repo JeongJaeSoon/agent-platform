@@ -188,6 +188,7 @@ export const sessionsKo = {
     "이벤트 연결이 끊겼습니다. 새로고침하면 다시 연결합니다.",
   "session.events.debug": "내부 이벤트도 보기",
   "session.events.turn": "turn {turn}",
+  "session.events.prompt": "지시",
   "session.events.folded": "이벤트 {count}개",
   "session.events.running": "실행 중",
   "session.events.kind.agent": "에이전트",
@@ -421,6 +422,7 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
     "The event connection ended. Reload the page to reconnect.",
   "session.events.debug": "Show internal events",
   "session.events.turn": "turn {turn}",
+  "session.events.prompt": "Instruction",
   "session.events.folded": "{count} events",
   "session.events.running": "Running",
   "session.events.kind.agent": "Agent",
@@ -658,6 +660,7 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
     "イベントの接続が切れました。ページを再読み込みすると再接続します。",
   "session.events.debug": "内部イベントも表示",
   "session.events.turn": "ターン {turn}",
+  "session.events.prompt": "指示",
   "session.events.folded": "イベント {count} 件",
   "session.events.running": "実行中",
 
