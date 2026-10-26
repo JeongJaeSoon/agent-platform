@@ -112,6 +112,13 @@ exports[`query keys 1`] = `
       "status": "needs_input",
     },
   ],
+  "waitingSessionsBy": [
+    "sessions",
+    {
+      "relation": "shared",
+      "status": "needs_input",
+    },
+  ],
 }
 `;
 
@@ -612,6 +619,32 @@ exports[`query options and the request each query makes 1`] = `
         "me",
         "optional",
       ],
+      "retry": false,
+    },
+  },
+  "waitingSessionsByQuery": {
+    "calls": [
+      [
+        "/v1/sessions",
+        {
+          "params": {
+            "query": {
+              "relation": "id-1",
+              "status": "needs_input",
+            },
+          },
+        },
+      ],
+    ],
+    "options": {
+      "queryKey": [
+        "sessions",
+        {
+          "relation": "id-1",
+          "status": "needs_input",
+        },
+      ],
+      "refetchInterval": 30000,
       "retry": false,
     },
   },

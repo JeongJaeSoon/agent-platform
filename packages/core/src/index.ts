@@ -26,5 +26,6 @@ export {
   usageBreakdownQuery,
   usageSeriesQuery,
   viewerQuery,
+  waitingSessionsByQuery,
   waitingSessionsQuery,
 } from "./queries.ts";
