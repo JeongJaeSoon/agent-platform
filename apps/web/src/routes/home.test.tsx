@@ -1314,6 +1314,11 @@ describe("홈 요약", () => {
       );
       await Bun.sleep(50);
       expect(card()?.value).toBe("—미계측");
+      expect(card()?.rows).toEqual([
+        ["작업 중", "—미계측"],
+        ["최근 7일 세션", "—미계측"],
+        ["자격 증명", "—미계측"],
+      ]);
       expect(api.calls.some((c) => c.path === "/v1/agents")).toBe(false);
     });
   });
