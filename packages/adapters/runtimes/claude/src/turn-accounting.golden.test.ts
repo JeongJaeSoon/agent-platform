@@ -10,7 +10,7 @@ import { TurnAccounting } from "./turn-accounting.ts";
 
 const GOLDEN = join(
   import.meta.dir,
-  "../../../tests/fixtures/golden/worker/turn-accounting.json",
+  "../../../../../tests/fixtures/golden/worker/turn-accounting.json",
 );
 
 type Step = { observe: NativeSdkMessage } | "settle";

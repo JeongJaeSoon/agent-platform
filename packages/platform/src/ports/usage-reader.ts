@@ -182,7 +182,7 @@ export interface UsageReader {
   usageSummaryGroups(
     filter: UsageSummaryFilter,
     period: { since: Date; until?: Date },
-    by: "agent" | "user",
+    by: "agent" | "user" | "profile",
   ): Promise<UsageSummaryGroupsRecord>;
   usageSeries(
     filter: UsageSummaryFilter,

@@ -2170,7 +2170,9 @@ export interface paths {
          * Installation limits and installation-wide usage
          * @description Reads the limits this installation runs under (execution slots, queued input per session, storage, turn length, per-session cost and token limits, provider retries) and the usage against the installation-wide ones, summed over every owner. Use it to explain `STORAGE_LIMIT_EXCEEDED`, a full input queue, or sessions waiting in `queued` for a slot. `usage.outputs` is the bytes of session outputs kept in the object store, shown beside storage and never enforced.
          *
-         *     Only the workspace owner, signed in, reads it: any other member and every API key get 403. It changes nothing.
+         *     Without `scope`, or with `scope=installation`, only the workspace owner, signed in, reads it: any other member and every API key get 403.
+         *
+         *     `scope=me` gives any signed-in member the per-session limits alone (`queued_input_limit_per_session`, `max_turn_seconds`, `session_cost_limit_usd`, `session_token_limit`), with no `usage`; an API key gets 403. It changes nothing.
          *
          *     **Scope:** `sessions:read` (API key or cookie session).
          */
@@ -2200,7 +2202,7 @@ export interface paths {
          *
          *     `cost_usd` is the sum of `cost.amount_usd` from `GET /v1/sessions/{id}/usage` over the same sessions: an estimate, not a bill. `cost_complete: false` means one of them has a turn still open or one that ended without reporting its cost, so the true total is unknown. `run_seconds` is wall-clock turn time, waiting for an answer included; an open turn counts up to `refreshed_at`. Sessions from before tokens were metered count 0 tokens.
          *
-         *     `group_by=agent` or `group_by=user` adds `groups`: the same sessions, each once, under its agent or the user holding it, largest cost first, read in the same statement as the totals. The groups' `session_count`, `cost_usd` and `run_seconds` add up to the totals (`run_seconds` is the floor of the running total minus the floor of the one before it, so two groups of 1.5 seconds read 1 and 2), and `cost_complete` is false when any group's is. `id` is the agent id or user id; it is null for sessions without an agent, or started by a key no person created. `name` is the agent's name or the user's display name, never an email; under `scope=me` a user other than the caller is null. Without `group_by` there is no `groups`. It changes nothing.
+         *     `group_by=agent`, `group_by=user` or `group_by=profile` adds `groups`: the same sessions, each once, under its agent, the user holding it or the session's current profile (`sessions.profile_id`; a session that changed profile counts whole under the one it has now), largest cost first, read in the same statement as the totals. The groups' `session_count`, `cost_usd` and `run_seconds` add up to the totals (`run_seconds` is the floor of the running total minus the floor of the one before it, so two groups of 1.5 seconds read 1 and 2), and `cost_complete` is false when any group's is. `id` is the agent id, user id or profile id; it is null for sessions without an agent or a profile, or started by a key no person created. `name` is the agent's name, the user's display name (never an email) or, as profiles have no display name, the profile id; under `scope=me` a user other than the caller is null. Without `group_by` there is no `groups`. It changes nothing.
          *
          *     **Scope:** `sessions:read` (API key or cookie session).
          */
@@ -2430,6 +2432,13 @@ export interface components {
             /** @description Matches a session whose title contains it, ignoring case, or whose id starts with it. */
             q?: string;
         };
+        LimitsQuery: {
+            /**
+             * @default installation
+             * @enum {string}
+             */
+            scope: "installation" | "me";
+        };
         UsageSummaryQuery: {
             /** @enum {string} */
             scope: "installation" | "me" | "agent";
@@ -2438,7 +2447,7 @@ export interface components {
             /** Format: uuid */
             agent_id?: string;
             /** @enum {string} */
-            group_by?: "agent" | "user";
+            group_by?: "agent" | "user" | "profile";
         };
         UsageSeriesQuery: {
             /** @enum {string} */
@@ -4364,6 +4373,19 @@ export interface components {
                 };
             };
         };
+        MemberLimitsResponse: {
+            /** @constant */
+            scope: "me";
+            /** Format: date-time */
+            refreshed_at: string;
+            limits: {
+                queued_input_limit_per_session: number;
+                max_turn_seconds: number;
+                session_cost_limit_usd: string;
+                session_token_limit: number | null;
+            };
+        };
+        LimitsResponse: components["schemas"]["InstallationLimitsResponse"] | components["schemas"]["MemberLimitsResponse"];
         UsageSummaryResponse: {
             /** @enum {string} */
             scope: "installation" | "me" | "agent";
@@ -19388,7 +19410,9 @@ export interface operations {
     };
     getInstallationLimits: {
         parameters: {
-            query?: never;
+            query?: {
+                scope?: "installation" | "me";
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -19433,7 +19457,22 @@ export interface operations {
                      *       }
                      *     }
                      */
-                    "application/json": components["schemas"]["InstallationLimitsResponse"];
+                    "application/json": components["schemas"]["LimitsResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
                 };
             };
             /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
@@ -19492,7 +19531,7 @@ export interface operations {
                 since: string;
                 until?: string;
                 agent_id?: string;
-                group_by?: "agent" | "user";
+                group_by?: "agent" | "user" | "profile";
             };
             header?: never;
             path?: never;

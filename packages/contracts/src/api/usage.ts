@@ -73,6 +73,35 @@ export const installationLimitsResponseSchema = z
   .strict();
 
 /**
+ * GET /v1/limits?scope=me: the per-session limits every signed-in member
+ * runs under. Installation settings, so nobody else's figures; no `usage`.
+ */
+export const memberLimitsResponseSchema = z
+  .object({
+    scope: z.literal("me"),
+    refreshed_at: timestampSchema,
+    limits: z
+      .object({
+        queued_input_limit_per_session: countSchema,
+        max_turn_seconds: countSchema,
+        session_cost_limit_usd: costUsdSchema,
+        session_token_limit: countSchema.nullable(),
+      })
+      .strict(),
+  })
+  .strict();
+
+export const limitsResponseSchema = z.discriminatedUnion("scope", [
+  installationLimitsResponseSchema,
+  memberLimitsResponseSchema,
+]);
+
+/** GET /v1/limits. Without `scope` it is the installation's. */
+export const limitsQuerySchema = z.object({
+  scope: z.enum(["installation", "me"]).default("installation"),
+});
+
+/**
  * GET /v1/sessions/{id}/usage. The cost is an estimate, never a
  * bill: every Messages call the egress proxy saw, the engine's and a tool's
  * alike, priced by the platform's table. A session from before
@@ -150,7 +179,11 @@ function checkPeriod(
   );
 }
 
-export const USAGE_SUMMARY_GROUP_BY_VALUES = ["agent", "user"] as const;
+export const USAGE_SUMMARY_GROUP_BY_VALUES = [
+  "agent",
+  "user",
+  "profile",
+] as const;
 
 /** The summary's scopes: the period scopes and one agent's sessions. */
 export const USAGE_SUMMARY_TOTALS_SCOPE_VALUES = [
@@ -383,13 +416,14 @@ export const usageSummaryResponseSchema = z
       })
       .strict(),
     /**
-     * Only with `group_by`: the same sessions, each under its agent or the
-     * user holding it, largest cost first. The groups' `session_count`,
-     * `cost_usd` and `run_seconds` add up to the totals above, and
-     * `cost_complete` above is false when any group's is. `id` is null for
-     * the sessions without an agent, or without a user (a key's own). `name`
-     * is the agent's name or the user's display name, never an email; null
-     * where the caller may not see that user.
+     * Only with `group_by`: the same sessions, each under its agent, the
+     * user holding it or its current profile, largest cost first. The
+     * groups' `session_count`, `cost_usd` and `run_seconds` add up to the
+     * totals above, and `cost_complete` above is false when any group's is.
+     * `id` is null for the sessions without an agent, a user (a key's own)
+     * or a profile. `name` is the agent's name, the user's display name
+     * (never an email) or the profile id; null where the caller may not see
+     * that user.
      */
     groups: z
       .array(
@@ -498,4 +532,7 @@ export type UsageToolCallsResponse = z.infer<
 export type InstallationLimitsResponse = z.infer<
   typeof installationLimitsResponseSchema
 >;
+export type MemberLimitsResponse = z.infer<typeof memberLimitsResponseSchema>;
+export type LimitsResponse = z.infer<typeof limitsResponseSchema>;
+export type LimitsQuery = z.infer<typeof limitsQuerySchema>;
 export type SessionUsageResponse = z.infer<typeof sessionUsageResponseSchema>;
