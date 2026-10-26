@@ -11,6 +11,7 @@ import {
   authorizationRequestSchema,
   ownerScopeOf,
   type PrincipalRef,
+  type ReceiptActor,
   type SessionScope,
   SLACK_SURFACE_ACTION_VALUES,
   scopesForRole,
@@ -37,6 +38,17 @@ export type Principal = {
   actor?: RecordedActor;
   requestId?: string;
 };
+
+/** A receipt names the credential and the person the policy resolved behind it. */
+export function receiptActorOf(principal: Principal): ReceiptActor | null {
+  const actor = principal.actor;
+  if (!actor) return null;
+  return {
+    principal: actor.principal,
+    actor_user_id: actor.userId,
+    agent_id: null,
+  };
+}
 
 /**
  * Who calls a service. `ownerId` is what the stores partition on; the policy

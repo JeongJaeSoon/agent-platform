@@ -159,15 +159,7 @@ export async function actorStillMember(
   return live.length > 0;
 }
 
-export function receiptActorOf(principal: Principal): ReceiptActor | null {
-  const actor = principal.actor;
-  if (!actor) return null;
-  return {
-    principal: actor.principal,
-    actor_user_id: actor.userId,
-    agent_id: null,
-  };
-}
+export { receiptActorOf } from "@werft-ai/platform";
 
 export type ControlStageMeasure = <T>(
   stage: string,
