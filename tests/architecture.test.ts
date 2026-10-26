@@ -929,7 +929,12 @@ describe("architecture", () => {
   test("the worker runs a session through the runtime contract, never the Claude driver's types", async () => {
     const driverTypes = new Set([
       "AgentFrame",
+      "DriverConfig",
+      "DriverMode",
+      "DriverRun",
       "NativeEnvelope",
+      "PermissionDecision",
+      "PermissionRequest",
       "RuntimeHooks",
     ]);
     const named = async (files: string[]) => {

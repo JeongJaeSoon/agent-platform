@@ -57,13 +57,18 @@ function scriptedDriver() {
       ended = true;
       wake?.();
     },
-    ask(toolUseId: string, signal = new AbortController().signal) {
+    ask(
+      toolUseId: string,
+      signal = new AbortController().signal,
+      tool = "Bash",
+      input: Record<string, unknown> = { command: "ls" },
+    ) {
       if (hooks === undefined) throw new Error("not started");
       return hooks.onPermission({
-        input: { command: "ls" },
+        input,
         requestId: toolUseId,
         signal,
-        tool: "Bash",
+        tool,
         toolUseId,
       });
     },
@@ -181,7 +186,10 @@ describe("claudeContractRun", () => {
     const request = requestOf((await collect(events, 1))[0]);
     controller.abort();
 
-    expect((await decision).behavior).toBe("deny");
+    expect(await decision).toEqual({
+      behavior: "deny",
+      message: "The run stopped before this was answered",
+    });
     expect(await collect(events, 1)).toEqual([
       {
         type: "approval.resolved",
@@ -264,5 +272,48 @@ describe("claudeContractRun", () => {
       thrown = error;
     }
     expect(thrown).toEqual(new Error("engine would not stop"));
+  });
+
+  test("hands a question's answers back on the tool input, and ends the turn on a park", async () => {
+    const script = scriptedDriver();
+    const run = claudeContractRun((hooks) => script.start(hooks));
+    const events = run.events()[Symbol.asyncIterator]();
+    script.push(toolUseFrame("toolu_q"));
+    script.push(toolUseFrame("toolu_p"));
+    await collect(events, 6);
+    const questions = [{ question: "Which environment?", options: [] }];
+    const asked = script.ask("toolu_q", undefined, "AskUserQuestion", {
+      questions,
+    });
+    const question = requestOf((await collect(events, 1))[0]);
+    const parked = script.ask("toolu_p");
+    const permission = requestOf((await collect(events, 1))[0]);
+    expect(question.kind).toBe("question");
+    await run.answer({
+      localId: question.localId,
+      inputHash: question.inputHash,
+      kind: "answered",
+      answers: { "Which environment?": "production" },
+    });
+    await run.answer({
+      localId: permission.localId,
+      inputHash: permission.inputHash,
+      kind: "cancelled",
+      reason: "park",
+    });
+
+    expect(await asked).toEqual({
+      behavior: "allow",
+      updatedInput: {
+        questions,
+        answers: { "Which environment?": "production" },
+      },
+    });
+    expect(await parked).toEqual({
+      behavior: "deny",
+      message: "The approval was set aside for a later turn",
+      interrupt: true,
+    });
+    script.end();
   });
 });
