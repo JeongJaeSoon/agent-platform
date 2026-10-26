@@ -14,6 +14,12 @@ export const CHECKPOINT_BRANCH_PREFIX = "refs/checkpoint/branch/";
  * to checkpoint so a resumed engine gets the instructions it started with.
  */
 export const CHECKPOINT_INSTRUCTIONS_REF = "refs/checkpoint/instructions";
+/**
+ * Where a bundle carries the commit HEAD's branch tracks on origin, named
+ * for origin's branch (`refs/checkpoint/upstream/heads/main` for
+ * `origin/main`), so a restore sets the branch's upstream again.
+ */
+export const CHECKPOINT_UPSTREAM_PREFIX = "refs/checkpoint/upstream/";
 
 /**
  * `git for-each-ref --format` for `peeledCommits`: each ref with what it
@@ -51,6 +57,8 @@ export type CheckpointBundleRefs = {
   branch: string | null;
   head: string;
   instructions: string | null;
+  /** origin's `refs/heads/<name>` the branch tracks, at the commit it had. */
+  upstream: { commit: string; merge: string } | null;
   worktree: string;
 };
 
@@ -61,7 +69,8 @@ export type CheckpointBundleRefs = {
  * refs the chain's last bundle lists, each with the commit it peels to
  * (`peeledCommits`), null when it peels to none. A bundle is what
  * `captureWorkspace` writes or it is refused: no ref it does not write, at
- * most one branch, HEAD's and the worktree's commits present, the worktree's
+ * most one branch and one upstream of it, HEAD's and the worktree's commits
+ * present, the worktree's
  * the manifest's `gitCommit`, and the branch at HEAD's commit.
  * `scripts/lib/backup-lib.sh` `unbundle_chain` checks the worktree part.
  */
@@ -86,16 +95,33 @@ export function checkpointBundleRefs(
       name.startsWith("refs/heads/") ||
       name.startsWith(CHECKPOINT_BRANCH_PREFIX),
   );
+  const upstreams = [...commits.keys()].filter((name) =>
+    name.startsWith(CHECKPOINT_UPSTREAM_PREFIX),
+  );
   const unknown = [...commits.keys()].filter(
     (name) =>
       !branches.includes(name) &&
+      !upstreams.includes(name) &&
       name !== CHECKPOINT_HEAD_REF &&
       name !== CHECKPOINT_WORKTREE_REF &&
       name !== CHECKPOINT_INSTRUCTIONS_REF,
   );
-  if (unknown.length > 0 || branches.length > 1) {
+  if (unknown.length > 0 || branches.length > 1 || upstreams.length > 1) {
     return invalid(
-      `Checkpoint bundle carries refs a capture does not write: ${[...unknown, ...branches.slice(1)].join(", ")}`,
+      `Checkpoint bundle carries refs a capture does not write: ${[...unknown, ...branches.slice(1), ...upstreams.slice(1)].join(", ")}`,
+    );
+  }
+  const tracked = upstreams[0];
+  const merge =
+    tracked === undefined
+      ? null
+      : `refs/${tracked.slice(CHECKPOINT_UPSTREAM_PREFIX.length)}`;
+  if (
+    merge !== null &&
+    (branches.length === 0 || !merge.startsWith("refs/heads/"))
+  ) {
+    return invalid(
+      `Checkpoint bundle carries ${tracked}, which is no upstream of a branch`,
     );
   }
   const notCommit = [...commits].find(([, commit]) => commit === null);
@@ -125,12 +151,17 @@ export function checkpointBundleRefs(
   if (branch !== null && !branch.startsWith("refs/heads/")) {
     return invalid(`Checkpoint bundle carries ${carried}, which is no branch`);
   }
+  const upstreamCommit = tracked === undefined ? null : commits.get(tracked);
   return {
     status: "valid",
     refs: {
       branch,
       head,
       instructions: commits.get(CHECKPOINT_INSTRUCTIONS_REF) ?? null,
+      upstream:
+        merge === null || upstreamCommit == null
+          ? null
+          : { commit: upstreamCommit, merge },
       worktree,
     },
   };

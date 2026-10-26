@@ -203,6 +203,98 @@ describe("restoring a captured checkout", () => {
     );
   });
 
+  test("puts back the branch's upstream on origin, at the commit it tracked", async () => {
+    const tracked = await commitFiles({ "a.txt": "a\n" });
+    await git(root, "remote", "add", "origin", "https://git.example.test/a");
+    await git(root, "update-ref", "refs/remotes/origin/main", tracked);
+    await git(
+      root,
+      "switch",
+      "--quiet",
+      "-c",
+      "work",
+      "--track",
+      "origin/main",
+    );
+    await commitFiles({ "a.txt": "a, then b\n" });
+    const capture = await captured();
+
+    const restored = await restore(capture);
+
+    expect((await git(restored, "status", "-sb")).split("\n")[0]).toBe(
+      "## work...origin/main [ahead 1]",
+    );
+    expect((await git(restored, "rev-parse", "@{u}")).trim()).toBe(tracked);
+    expect(
+      await createGitWorkspaceBundleVerifier({ tempRoot: scratch }).verify({
+        bytes: capture.bundle.bytes,
+        commit: capture.gitCommit,
+        key: "k",
+        path: capture.bundle.path,
+      }),
+    ).toEqual({ status: "restorable" });
+  });
+
+  test.each(["refs/remotes/origin/cache", "refs/cache/origin"])(
+    "reads the upstream where origin's fetch refspec puts it (%s), not a stale default ref",
+    async (destination) => {
+      const stale = await commitFiles({ "a.txt": "a\n" });
+      const tracked = await commitFiles({ "a.txt": "a, then b\n" });
+      await git(root, "remote", "add", "origin", "https://git.example.test/a");
+      await git(
+        root,
+        "config",
+        "remote.origin.fetch",
+        `+refs/heads/*:${destination}/*`,
+      );
+      await git(root, "update-ref", "refs/remotes/origin/main", stale);
+      await git(root, "update-ref", `${destination}/main`, tracked);
+      await git(root, "config", "branch.main.remote", "origin");
+      await git(root, "config", "branch.main.merge", "refs/heads/main");
+
+      const restored = await restore(await captured());
+
+      expect((await git(restored, "rev-parse", "@{u}")).trim()).toBe(tracked);
+    },
+  );
+
+  test("takes the upstream's name and commit from the same merge entry when the branch lists two", async () => {
+    const main = await commitFiles({ "a.txt": "a\n" });
+    const release = await commitFiles({ "a.txt": "a, then b\n" });
+    await git(root, "remote", "add", "origin", "https://git.example.test/a");
+    await git(root, "update-ref", "refs/remotes/origin/main", main);
+    await git(root, "update-ref", "refs/remotes/origin/release", release);
+    await git(root, "config", "branch.main.remote", "origin");
+    await git(root, "config", "--add", "branch.main.merge", "refs/heads/main");
+    await git(
+      root,
+      "config",
+      "--add",
+      "branch.main.merge",
+      "refs/heads/release",
+    );
+
+    const restored = await restore(await captured());
+
+    expect(
+      (await git(restored, "rev-parse", "--symbolic-full-name", "@{u}")).trim(),
+    ).toBe("refs/remotes/origin/main");
+    expect((await git(restored, "rev-parse", "@{u}")).trim()).toBe(main);
+  });
+
+  test("leaves an upstream that is not on origin behind, and still restores", async () => {
+    const head = await commitFiles({ "a.txt": "a\n" });
+    await git(root, "remote", "add", "fork", "https://git.example.test/b");
+    await git(root, "update-ref", "refs/remotes/fork/main", head);
+    await git(root, "branch", "--quiet", "--set-upstream-to=fork/main");
+
+    const restored = await restore(await captured());
+
+    expect((await git(restored, "rev-parse", "HEAD")).trim()).toBe(head);
+    await expect(git(restored, "rev-parse", "@{u}")).rejects.toThrow();
+    expect(await git(restored, "for-each-ref", "refs/remotes/")).toBe("");
+  });
+
   test("leaves a HEAD that was detached detached", async () => {
     const head = await commitFiles({ "a.txt": "a\n" });
     await git(root, "checkout", "--quiet", "--detach");
@@ -464,6 +556,33 @@ describe("a bundle finalize and restore both refuse", () => {
       ],
     ],
     ["recorded against HEAD", ["HEAD"]],
+    [
+      "with an upstream and no branch",
+      [
+        "refs/checkpoint/head",
+        "refs/checkpoint/worktree",
+        "refs/checkpoint/upstream/heads/main",
+      ],
+    ],
+    [
+      "with two upstreams",
+      [
+        "refs/checkpoint/head",
+        "refs/checkpoint/worktree",
+        "refs/heads/main",
+        "refs/checkpoint/upstream/heads/a",
+        "refs/checkpoint/upstream/heads/b",
+      ],
+    ],
+    [
+      "with an upstream that is no branch",
+      [
+        "refs/checkpoint/head",
+        "refs/checkpoint/worktree",
+        "refs/heads/main",
+        "refs/checkpoint/upstream/tags/v1",
+      ],
+    ],
   ])(
     "%s",
     async (_, refs) => {
@@ -575,6 +694,24 @@ describe("a bundle built on the checkpoint before", () => {
     const target = await restoredFrom(second, first);
     expect((await git(target, "rev-parse", "HEAD")).trim()).toBe(head);
     expect(await git(target, "status", "--porcelain")).toBe("");
+  });
+
+  test("carries an upstream its base already has, and restores it after the base", async () => {
+    const tracked = await commitFiles({ "a.txt": "a\n" });
+    await git(root, "remote", "add", "origin", "https://git.example.test/a");
+    await git(root, "update-ref", "refs/remotes/origin/main", tracked);
+    await git(root, "branch", "--quiet", "--set-upstream-to=origin/main");
+    await commitFiles({ "a.txt": "a, then b\n" });
+    const first = await captured();
+
+    const second = await captured(root, undefined, onto(first));
+
+    expect(second.bundle.incremental).toBe(true);
+    expect(await verdict(second, first)).toEqual({ status: "restorable" });
+    const target = await restoredFrom(second, first);
+    expect((await git(target, "status", "-sb")).split("\n")[0]).toBe(
+      "## main...origin/main [ahead 1]",
+    );
   });
 
   test("chains three deep, each link needing only tips of the ones before", async () => {
