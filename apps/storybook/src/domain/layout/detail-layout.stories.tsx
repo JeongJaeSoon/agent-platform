@@ -50,7 +50,7 @@ function Rail({ sections = 3 }: { readonly sections?: number }) {
           <KeyValueList
             className={ROWS}
             items={[
-              { label: "에이전트", value: "아직 볼 수 없습니다" },
+              { label: "에이전트", value: "코드 리뷰" },
               {
                 label: "모델",
                 value: (
@@ -58,7 +58,7 @@ function Rail({ sections = 3 }: { readonly sections?: number }) {
                 ),
               },
               { label: "저장소", value: "demo" },
-              { label: "시작한 사람·경로", value: "아직 볼 수 없습니다" },
+              { label: "시작한 사람·경로", value: "Demo Owner · 웹 콘솔" },
               { label: "사용량", value: "$0.4200" },
             ]}
           />

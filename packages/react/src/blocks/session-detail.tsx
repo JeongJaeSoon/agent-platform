@@ -1,7 +1,7 @@
 import { isApiError } from "@werft-ai/client";
-import {
-  type SessionDetail as SessionDetailData,
-  type SessionUsageResponse,
+import type {
+  SessionDetail as SessionDetailData,
+  SessionUsageResponse,
 } from "@werft-ai/contracts";
 import {
   Badge,
@@ -50,7 +50,7 @@ import {
   SessionControls,
 } from "./session-actions.tsx";
 import { SessionTimeline } from "./session-timeline.tsx";
-import { useBlockText } from "./text.ts";
+import { type BlockText, useBlockText } from "./text.ts";
 
 /** A tab a host adds between the timeline and the info tab. */
 export interface SessionDetailTab {
@@ -255,7 +255,7 @@ export function SessionDetail({
           items={[
             {
               label: t("session.info.agent"),
-              value: t("session.info.notProvided"),
+              value: agentName(detail, t),
             },
             {
               label: t("session.meta.model"),
@@ -271,7 +271,7 @@ export function SessionDetail({
             },
             {
               label: t("session.info.startedBy"),
-              value: t("session.info.notProvided"),
+              value: startedBy(detail, t),
             },
             ...(usage.data
               ? [
@@ -344,9 +344,22 @@ function idleNote(status: SessionDetailData["status"]) {
   }
 }
 
+function agentName(session: SessionDetailData, t: BlockText) {
+  return session.agent?.name ?? t("session.agent.none");
+}
+
+/** The person, then the surface the session was started from. */
+function startedBy(session: SessionDetailData, t: BlockText) {
+  const person =
+    session.created_by?.display_name || t("session.startedBy.unknown");
+  return session.channel
+    ? `${person} · ${t(`session.channel.${session.channel}`)}`
+    : person;
+}
+
 /**
  * The header's one line: id to copy, agent, who started it, repository,
- * model and cost so far. What the session's API does not carry yet says so.
+ * model and cost so far.
  */
 function SessionMeta({
   session,
@@ -383,11 +396,11 @@ function SessionMeta({
           {copied ? t("session.id.copied") : null}
         </output>
       </span>
-      <MetaItem icon={Bot}>
-        {t("session.meta.unknown", { label: t("session.info.agent") })}
+      <MetaItem icon={Bot} label={t("session.info.agent")}>
+        {agentName(session, t)}
       </MetaItem>
-      <MetaItem icon={UserRound}>
-        {t("session.meta.unknown", { label: t("session.info.startedBy") })}
+      <MetaItem icon={UserRound} label={t("session.info.startedBy")}>
+        {startedBy(session, t)}
       </MetaItem>
       <MetaItem
         icon={session.repository_id === null ? Folder : GitBranch}
@@ -566,13 +579,13 @@ function Overview({ session }: { readonly session: SessionDetailData }) {
             axisLabel={t("sessions.column.admission")}
           />,
         ],
-        // Not in the session's API yet: said so rather than guessed.
-        [t("session.info.agent"), t("session.info.notProvided")],
-        [t("session.info.startedBy"), t("session.info.notProvided")],
+        [t("session.info.agent"), agentName(session, t)],
+        [t("session.info.startedBy"), startedBy(session, t)],
         [
           t("session.meta.repository"),
           session.repository_id ?? t("session.repository.none"),
         ],
+        // Not in the session's API yet: said so rather than guessed.
         [t("session.info.branch"), t("session.info.notProvided")],
         [
           t("session.meta.model"),
