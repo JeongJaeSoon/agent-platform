@@ -453,19 +453,23 @@ export function createSlackAppService(deps: {
         ...input,
         redirectUrl: record.redirectUrl,
       });
+      // A new Request URL is verified only once Slack reaches it with a
+      // signed request (slack-events-service). Written before the call so a
+      // challenge Slack sends while the update is in flight is kept.
+      if (input.eventsUrl !== undefined)
+        await apps.setEvents(workspaceId, slackAppId, {
+          state: "pending",
+          checked_at: now().toISOString(),
+        });
       try {
-        const result = await tokens.withToken(workspaceId, (token) =>
+        return await tokens.withToken(workspaceId, (token) =>
           api.updateApp(token, appId, manifest),
         );
-        if (input.eventsUrl !== undefined)
-          await apps.setEvents(workspaceId, slackAppId, {
-            state: "verified",
-            checked_at: now().toISOString(),
-          });
-        return result;
       } catch (error) {
+        // An unanswered call may still have reached Slack, whose challenge
+        // then left `verified`.
         if (input.eventsUrl !== undefined)
-          await apps.setEvents(workspaceId, slackAppId, {
+          await apps.setEventsUnlessVerified(workspaceId, slackAppId, {
             state: "failed",
             checked_at: now().toISOString(),
             error: "events_registration_failed",

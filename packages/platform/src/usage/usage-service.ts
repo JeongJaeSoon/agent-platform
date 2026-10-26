@@ -176,6 +176,11 @@ export function createUsageService(deps: {
             accounted_content: [...STORAGE_ACCOUNTED_CONTENT],
             updated_at: usage.storageUpdatedAt?.toISOString() ?? null,
           },
+          outputs: {
+            used_bytes: usage.outputsUsedBytes,
+            updated_at: usage.outputsUpdatedAt?.toISOString() ?? null,
+            complete: usage.outputsComplete,
+          },
         },
       };
     },

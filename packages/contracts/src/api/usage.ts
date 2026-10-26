@@ -54,6 +54,19 @@ export const installationLimitsResponseSchema = z
             updated_at: timestampSchema.nullable(),
           })
           .strict(),
+        // Session outputs kept in the object store, apart from `storage`:
+        // shown, never enforced. An object a later checkpoint inherits is
+        // counted once; one too large to upload is not counted.
+        outputs: z
+          .object({
+            used_bytes: countSchema,
+            // When the figure last moved; null while nothing was recorded.
+            updated_at: timestampSchema.nullable(),
+            // false while a checkpoint from before outputs were recorded may
+            // still have objects stored: they are missing from `used_bytes`.
+            complete: z.boolean(),
+          })
+          .strict(),
       })
       .strict(),
   })

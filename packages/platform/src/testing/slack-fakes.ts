@@ -314,6 +314,16 @@ export function createMemorySlackAppStore(input: {
       const row = rows.get(slackAppId);
       if (row?.workspaceId === workspaceId) touch(row, { events });
     },
+    async setEventsUnlessVerified(workspaceId, slackAppId, events) {
+      const row = rows.get(slackAppId);
+      if (
+        row?.workspaceId === workspaceId &&
+        row.state === "created" &&
+        row.events?.state !== "verified"
+      ) {
+        touch(row, { events });
+      }
+    },
     async getSettings(workspaceId, agentId) {
       const agent = input.agents.get(agentId);
       if (agent?.workspaceId !== workspaceId) return null;

@@ -83,6 +83,7 @@ function memorySession() {
   const rows: CheckpointPointer[] = [];
   const fenced = new Set<string>();
   const collected = new Set<number>();
+  const purged = new Set<number>();
   const state = {
     fallback: null as { attemptId: string; revision: number } | null,
     /** Revisions open push requests pinned. */
@@ -142,6 +143,13 @@ function memorySession() {
       }
       return marked;
     },
+    async markPurged(_session, { keep, throughRevision }) {
+      for (const revision of collected) {
+        if (revision <= throughRevision && !keep.includes(revision)) {
+          purged.add(revision);
+        }
+      }
+    },
     async listSessionIds({ after }) {
       return after === null ? [sessionId] : [];
     },
@@ -176,6 +184,7 @@ function memorySession() {
   }
   return {
     collected,
+    purged,
     commit,
     fence: (attemptId: string) => fenced.add(attemptId),
     pointer: () => pointer,
@@ -442,6 +451,40 @@ describe("superseded revisions", () => {
     expect([...session.collected]).toEqual([]);
   });
 
+  test("a revision is marked purged only by a pass whose deletes all succeeded", async () => {
+    const part = await transcriptPart(0);
+    const revision0 = await commit(0, "attempt-a", [part]);
+    await commit(1, "attempt-a", [part]);
+    const failing = createCheckpointCollector({
+      codecs: { [runtime.engine]: codec },
+      collector: {
+        listVersions: (prefix) => objects.listVersions(prefix),
+        purge: async () => {
+          throw new Error("AccessDenied");
+        },
+      },
+      maxRestoreFallbacks: 0,
+      objectProtection: "locked",
+      objects,
+      store: session.store,
+    });
+
+    await expect(
+      failing.collectSession(sessionId, { dryRun: false }),
+    ).rejects.toThrow("AccessDenied");
+    expect([...session.collected]).toEqual([0]);
+    expect(session.purged.size).toBe(0);
+
+    // The next pass lists the directory again; once it deletes it all, the
+    // revision an earlier pass collected is marked too.
+    await collector({ maxRestoreFallbacks: 0 }).collectSession(sessionId, {
+      dryRun: false,
+    });
+    for (const entry of revision0.versions)
+      expect(await present(entry)).toBe(false);
+    expect([...session.purged]).toEqual([0]);
+  });
+
   test("a dry run deletes and marks nothing", async () => {
     const part = await transcriptPart(0);
     const revision0 = await commit(0, "attempt-a", [part]);
@@ -455,6 +498,7 @@ describe("superseded revisions", () => {
     for (const entry of revision0.versions)
       expect(await present(entry)).toBe(true);
     expect(session.collected.size).toBe(0);
+    expect(session.purged.size).toBe(0);
   });
 
   test("a retained manifest that cannot be read leaves the whole session alone", async () => {
