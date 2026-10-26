@@ -15,6 +15,7 @@ import {
   unassignedSessions,
   workers,
 } from "@werft-ai/db";
+import { launchSession } from "@werft-ai/db/testing/launches";
 import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import {
   createAuthorizationPolicy,
@@ -141,20 +142,15 @@ integration("reconciler passes that overlap", () => {
       .update(unassignedSessions)
       .set({ partition })
       .where(eq(unassignedSessions.sessionId, sessionId));
-    const executionId = `exec-${crypto.randomUUID()}`;
-    const registered = await gateway.registerLaunch({
-      executionId,
-      generation: 1,
-      partition,
-      backend: "local_docker",
+    const { executionId, generation, nonce } = await launchSession(db, {
+      sessionId,
     });
-    if (registered.nonce === null) throw new Error("launch already registered");
     const claimed = await gateway.bootstrapClaim(
       { kind: "bootstrap" },
       {
         execution_id: executionId,
-        execution_generation: 1,
-        credential: { kind: "launch_nonce", nonce: registered.nonce },
+        execution_generation: generation,
+        credential: { kind: "launch_nonce", nonce },
       },
     );
     const principal: WorkerPrincipal = {

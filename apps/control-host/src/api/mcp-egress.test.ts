@@ -8,6 +8,7 @@ import {
   createPostgresSessionUnitOfWork,
   createPostgresWorkerUnitOfWork,
 } from "@werft-ai/db";
+import { launchSession } from "@werft-ai/db/testing/launches";
 import { createLogger } from "@werft-ai/observability";
 import {
   acceptAllCheckpoints,
@@ -188,17 +189,14 @@ async function seeded(slug = "default") {
     message: "hello",
   });
   if (accepted.outcome !== "accepted") throw new Error(accepted.outcome);
-  const launch = await gateway.registerLaunch({
-    executionId: "exec-1",
-    generation: 1,
-    backend: "local_docker",
+  const launch = await launchSession(db, {
+    sessionId: accepted.response.session_id,
   });
-  if (launch.nonce === null) throw new Error("launch already registered");
   const claim = await gateway.bootstrapClaim(
     { kind: "bootstrap" },
     {
-      execution_id: "exec-1",
-      execution_generation: 1,
+      execution_id: launch.executionId,
+      execution_generation: launch.generation,
       credential: { kind: "launch_nonce", nonce: launch.nonce },
     },
   );

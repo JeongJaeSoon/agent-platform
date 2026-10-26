@@ -19,7 +19,6 @@ import {
   unassignedSessions,
   workerLaunches,
 } from "./schema.ts";
-import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 let client: PGlite;
 let db: PgliteDatabase<typeof schema>;
@@ -488,7 +487,8 @@ describe("PostgresSchedulerStore", () => {
   });
 
   test("reserving and releasing in turn always comes back to zero slots", async () => {
-    const work = createPostgresWorkerUnitOfWork(db);
+    const reserved = async () =>
+      (await store.inspectDemand({ limit: 0 })).activeExecutionCount;
     const sessionId = await insertUnassigned();
     for (let round = 0; round < 4; round += 1) {
       const intent = await store.reserveLaunch({
@@ -499,16 +499,13 @@ describe("PostgresSchedulerStore", () => {
         slotLimit: 1,
       });
       if (!intent) throw new Error(`round ${round} reserved nothing`);
-      expect(await work.countReservedSlots()).toBe(1);
+      expect(await reserved()).toBe(1);
       // A launch that never came back would be counted twice by anyone
       // keeping a second ledger; with one, the limit of 1 proves it.
       await store.issueBootstrapNonce(intent);
-      expect(await work.countReservedSlots()).toBe(1);
+      expect(await reserved()).toBe(1);
       await store.confirmExecutionGone(intent.executionId, NOW, null);
-      expect(await work.countReservedSlots()).toBe(0);
-      expect(
-        (await store.inspectDemand({ limit: 0 })).activeExecutionCount,
-      ).toBe(0);
+      expect(await reserved()).toBe(0);
     }
   });
 

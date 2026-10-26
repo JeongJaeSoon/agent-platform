@@ -48,6 +48,7 @@ import {
   unassignedSessions,
 } from "./schema.ts";
 import { announceLapsedInputWaits } from "./session-events.ts";
+import { confirmExecutionGone, launchSession } from "./testing/launches.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -151,29 +152,17 @@ integration("pending requests and answers on PostgreSQL", () => {
     return `${name}-${crypto.randomUUID()}`;
   }
 
-  async function launch(partition: string) {
-    const executionId = `exec-${crypto.randomUUID()}`;
-    const registered = await gateway.registerLaunch({
-      executionId,
-      generation: 1,
-      partition,
-      backend: "local_docker",
-    });
-    if (registered.nonce === null) throw new Error("launch already registered");
-    return { executionId, nonce: registered.nonce };
-  }
-
   type Worker = {
     principal: WorkerPrincipal;
     scope: WorkerScope;
     executionId: string;
   };
 
-  async function claimAndDeliver(partition: string): Promise<Worker> {
-    const l = await launch(partition);
+  async function claimAndDeliver(sessionId: string): Promise<Worker> {
+    const l = await launchSession(db, { sessionId });
     const claimed = await gateway.bootstrapClaim(bootstrap, {
       execution_id: l.executionId,
-      execution_generation: 1,
+      execution_generation: l.generation,
       credential: { kind: "launch_nonce", nonce: l.nonce },
     });
     const principal: WorkerPrincipal = {
@@ -230,7 +219,7 @@ integration("pending requests and answers on PostgreSQL", () => {
       .update(unassignedSessions)
       .set({ partition })
       .where(eq(unassignedSessions.sessionId, sessionId));
-    const worker = await claimAndDeliver(partition);
+    const worker = await claimAndDeliver(sessionId);
     expect(worker.scope.session_id).toBe(sessionId);
     return { owner, sessionId, partition, worker };
   }
@@ -706,7 +695,7 @@ integration("pending requests and answers on PostgreSQL", () => {
         }),
       ),
     ).toBe("REQUEST_STALE");
-    await gateway.confirmExecutionGone(worker.executionId);
+    await confirmExecutionGone(db, worker.executionId);
     // It may have reached the callback before the worker died.
     const lost = await receiptOf(handedReceipt.receipt_id);
     expect(lost?.status).toBe("unknown");
@@ -740,7 +729,7 @@ integration("pending requests and answers on PostgreSQL", () => {
         target: unassignedSessions.sessionId,
         set: { partition },
       });
-    const replacement = await claimAndDeliver(partition);
+    const replacement = await claimAndDeliver(sessionId);
     expect(replacement.scope.attempt_id).not.toBe(worker.scope.attempt_id);
     expect(replacement.scope.turn_id).toBe("2");
 
