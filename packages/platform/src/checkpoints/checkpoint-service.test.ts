@@ -241,7 +241,7 @@ let service: ReturnType<typeof createCheckpointService>;
 beforeEach(async () => {
   objects = createMemoryCheckpointObjectStore();
   for (const [key, body] of Object.entries(ARTIFACTS)) {
-    await objects.put(key, encode(body));
+    await objects.overwrite(key, encode(body));
   }
   for (const [revision, attempt] of [
     [0, attemptId],
@@ -250,7 +250,10 @@ beforeEach(async () => {
     [0, "attempt-2"],
     [0, "attempt-stale"],
   ] as Array<[number, string]>) {
-    await objects.put(bundleKeyFor(revision, attempt), workspaceBundle.bytes);
+    await objects.overwrite(
+      bundleKeyFor(revision, attempt),
+      workspaceBundle.bytes,
+    );
   }
   checkpoints = memoryCheckpointStore();
   service = createCheckpointService({
@@ -384,7 +387,10 @@ describe("requestCheckpoint", () => {
     };
     const publish = async (manifestRef: string, resume: string) => {
       const directory = manifestRef.slice(0, manifestRef.lastIndexOf("/") + 1);
-      await objects.put(`${directory}workspace.bundle`, workspaceBundle.bytes);
+      await objects.overwrite(
+        `${directory}workspace.bundle`,
+        workspaceBundle.bytes,
+      );
       const body = manifest({
         resume,
         workspace: workspace({
@@ -564,7 +570,7 @@ describe("validateManifest", () => {
   });
 
   test("refuses a part whose stored size is not the size the manifest declares", async () => {
-    await objects.put(ROOT_PART, encode("truncated"));
+    await objects.overwrite(ROOT_PART, encode("truncated"));
     const { checkpoint } = await upload(manifest());
 
     expect(
@@ -579,7 +585,7 @@ describe("validateManifest", () => {
     const original = ARTIFACTS[ROOT_PART] ?? "";
     // Same length, so a size check waves it through and only a digest catches
     // it — at which point the pointer has already superseded the last good one.
-    await objects.put(ROOT_PART, encode(original.replace("r1", "XX")));
+    await objects.overwrite(ROOT_PART, encode(original.replace("r1", "XX")));
     const { checkpoint } = await upload(manifest());
 
     expect(
@@ -608,7 +614,7 @@ describe("validateManifest", () => {
 
   test("refuses a bundle that is not a bundle", async () => {
     const body = encode("not a bundle at all\n");
-    await objects.put(BUNDLE, body);
+    await objects.overwrite(BUNDLE, body);
     const { checkpoint } = await upload(
       manifest({
         workspace: workspace({
@@ -642,7 +648,7 @@ describe("validateManifest", () => {
   });
 
   test("refuses a workspace bundle whose stored size is not the declared one", async () => {
-    await objects.put(BUNDLE, workspaceBundle.bytes.slice(0, 32));
+    await objects.overwrite(BUNDLE, workspaceBundle.bytes.slice(0, 32));
     const { checkpoint } = await upload(manifest());
 
     expect(
@@ -661,7 +667,7 @@ describe("validateManifest", () => {
     // real bundle, so only a digest tells them apart.
     const firstRefLine = swapped.indexOf(0x0a) + 1;
     swapped.set([(swapped[firstRefLine] ?? 0) ^ 0x01], firstRefLine);
-    await objects.put(BUNDLE, swapped);
+    await objects.overwrite(BUNDLE, swapped);
     const { checkpoint } = await upload(manifest());
 
     expect(
@@ -677,7 +683,7 @@ describe("validateManifest", () => {
   test("refuses a workspace bundle stored outside the session namespace", async () => {
     const other = "22222222-2222-4222-8222-222222222222";
     const stolen = `${sessionObjectPrefix(other)}workspace/workspace.bundle`;
-    await objects.put(stolen, workspaceBundle.bytes);
+    await objects.overwrite(stolen, workspaceBundle.bytes);
     const { checkpoint } = await upload(
       manifest({
         workspace: workspace({ bundle: { ...bundleRef(), key: stolen } }),
@@ -915,7 +921,7 @@ describe("validateManifest", () => {
     // committed checkpoint stops describing what is stored — or refused by
     // create-only forever after the first one.
     const shared = `${sessionObjectPrefix(sessionId)}workspace/workspace.bundle`;
-    await objects.put(shared, workspaceBundle.bytes);
+    await objects.overwrite(shared, workspaceBundle.bytes);
     const { checkpoint } = await upload(
       manifest({ workspace: workspace({ bundle: bundleRef(shared) }) }),
     );
@@ -1132,7 +1138,7 @@ describe("validateManifest", () => {
   test("refuses a manifest naming another session's transcript", async () => {
     const other = "22222222-2222-4222-8222-222222222222";
     const stolen = `${sessionObjectPrefix(other)}mirror/root-0.jsonl`;
-    await objects.put(stolen, encode("{}\n"));
+    await objects.overwrite(stolen, encode("{}\n"));
     const { checkpoint } = await upload(
       manifest({
         transcripts: {
@@ -1156,7 +1162,7 @@ describe("validateManifest", () => {
 
   test("refuses a key that climbs out of the session namespace", async () => {
     const climbing = `${sessionObjectPrefix(sessionId)}../elsewhere/root.jsonl`;
-    await objects.put(climbing, encode("{}\n"));
+    await objects.overwrite(climbing, encode("{}\n"));
     const { checkpoint } = await upload(
       manifest({
         transcripts: {
@@ -1380,7 +1386,7 @@ describe("a bundle whose verification threw cools down", () => {
     const checkpointFor = async (index: number) => {
       const bytes = encode(`bundle ${index}\n`);
       const key = `${BUNDLE}.${index}`;
-      await objects.put(key, bytes);
+      await objects.overwrite(key, bytes);
       const body = manifest({
         workspace: workspace({
           bundle: {
@@ -1392,7 +1398,7 @@ describe("a bundle whose verification threw cools down", () => {
       });
       const { bytes: manifestBytes, sha256: digest } = codec.encode(body);
       const manifestRef = manifestRefFor(sessionId, 0, attemptId, PUBLISH_ID);
-      await objects.put(manifestRef, manifestBytes);
+      await objects.overwrite(manifestRef, manifestBytes);
       return {
         manifest_ref: manifestRef,
         manifest_sha256: digest,
@@ -1454,8 +1460,8 @@ describe("a bundle that builds on the previous checkpoint's", () => {
 
   /** Revision 0, standing alone, committed as the pointer. */
   async function committedBase() {
-    await objects.put(baseRef.key, chain.base.bytes);
-    await objects.put(tipRef.key, chain.tip.bytes);
+    await objects.overwrite(baseRef.key, chain.base.bytes);
+    await objects.overwrite(tipRef.key, chain.tip.bytes);
     expect(
       await finalize(
         manifest({
@@ -1520,7 +1526,7 @@ describe("a bundle that builds on the previous checkpoint's", () => {
       outcome: "committed",
     });
     const skipping: ObjectRef = { ...tipRef, key: bundleKeyFor(2, attemptId) };
-    await objects.put(skipping.key, chain.tip.bytes);
+    await objects.overwrite(skipping.key, chain.tip.bytes);
 
     expect(
       await finalize(
@@ -1544,7 +1550,7 @@ describe("a bundle that builds on the previous checkpoint's", () => {
   test("refuses bases other than the pointer's", async () => {
     await committedBase();
     const stranger = bundleKeyFor(0, "attempt-2");
-    await objects.put(stranger, chain.base.bytes);
+    await objects.overwrite(stranger, chain.base.bytes);
 
     expect(
       await finalize(
@@ -1558,8 +1564,8 @@ describe("a bundle that builds on the previous checkpoint's", () => {
   });
 
   test("refuses bases when nothing is committed to vouch for them", async () => {
-    await objects.put(baseRef.key, chain.base.bytes);
-    await objects.put(tipRef.key, chain.tip.bytes);
+    await objects.overwrite(baseRef.key, chain.base.bytes);
+    await objects.overwrite(tipRef.key, chain.tip.bytes);
 
     expect(
       await finalize(
@@ -1884,7 +1890,7 @@ describe("finalize", () => {
       `${directory}../${PUBLISH_ID}/manifest.json`,
     ]) {
       const { bytes, sha256: digest } = codec.encode(manifest());
-      await objects.put(key, bytes);
+      await objects.overwrite(key, bytes);
       expect(
         await service.finalize({
           checkpoint: {
@@ -1938,7 +1944,7 @@ describe("finalize", () => {
     // Revision 1 keeps revision 0's parts and adds one.
     const grown = `${sessionObjectPrefix(sessionId)}mirror/root-1.jsonl`;
     const body = '{"type":"user","uuid":"r2"}\n';
-    await objects.put(grown, encode(body));
+    await objects.overwrite(grown, encode(body));
     const next = manifest({ revision: 1, resume: "engine-session-2" });
     const one = await upload({
       ...next,
@@ -2193,7 +2199,7 @@ describe("getRestorePlan falls back to an earlier revision", () => {
   async function commitRevisions(last: number) {
     const committed = [];
     for (let revision = 0; revision <= last; revision += 1) {
-      await objects.put(
+      await objects.overwrite(
         bundleKeyFor(revision, attemptId),
         workspaceBundle.bytes,
       );
@@ -2201,7 +2207,7 @@ describe("getRestorePlan falls back to an earlier revision", () => {
       if (revision > 0) {
         const key = `${sessionObjectPrefix(sessionId)}mirror/root-${revision}.jsonl`;
         const body = `{"type":"user","uuid":"r${revision + 1}"}\n`;
-        await objects.put(key, encode(body));
+        await objects.overwrite(key, encode(body));
         parts.push({
           bytes: encode(body).byteLength,
           key,
@@ -2471,7 +2477,7 @@ describe("getRestorePlan falls back to an earlier revision", () => {
     await commitRevisions(1);
     objects.remove(LATER_PART);
     // Same length, different bytes: only a hash tells them apart.
-    await objects.put(ROOT_PART, encode('{"type":"user","uuid":"XX"}\n'));
+    await objects.overwrite(ROOT_PART, encode('{"type":"user","uuid":"XX"}\n'));
 
     const result = await service.getRestorePlan({ runtime, sessionId });
     expect(result).toMatchObject({
@@ -2571,7 +2577,7 @@ describe("getRestorePlan falls back to an earlier revision", () => {
     expect(next).toMatchObject({ status: "ready", request: { revision: 2 } });
     const grown = `${sessionObjectPrefix(sessionId)}mirror/root-2b.jsonl`;
     const body = '{"type":"user","uuid":"r2b"}\n';
-    await objects.put(grown, encode(body));
+    await objects.overwrite(grown, encode(body));
     const inherited = fallback.plan.artifacts[0]?.objects ?? [];
     const { checkpoint } = await upload(
       manifest({

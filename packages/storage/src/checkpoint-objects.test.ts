@@ -282,19 +282,6 @@ describe("checkpoint object store", () => {
 
     expect(await store.list("a/")).toEqual(["a/1", "a/2"]);
   });
-
-  test("put replaces freely, because mirror parts own their key uniqueness", async () => {
-    const s3 = fakeS3();
-    const store = createCheckpointObjectStore({
-      bucket: "b",
-      client: s3.client,
-    });
-
-    await store.put("part", encode("one"));
-    await store.put("part", encode("two"));
-
-    expect(await store.get("part")).toEqual(encode("two"));
-  });
 });
 
 describe("bucket holds an object version", () => {

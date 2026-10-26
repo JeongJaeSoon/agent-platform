@@ -1,9 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
-import { createApiApp } from "@werft-ai/control-host/src/api/app.ts";
-import { createEgressAuthorizer } from "@werft-ai/control-host/src/api/egress-authorizer.ts";
-import { registerWorkerRoutes } from "@werft-ai/control-host/src/api/routes/worker.ts";
-import { main } from "@werft-ai/control-host/src/scheduler/main.ts";
 import * as schema from "@werft-ai/db";
 import {
   attempts,
@@ -33,6 +29,10 @@ import {
 import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { createApiApp } from "../apps/control-host/src/api/app.ts";
+import { createEgressAuthorizer } from "../apps/control-host/src/api/egress-authorizer.ts";
+import { registerWorkerRoutes } from "../apps/control-host/src/api/routes/worker.ts";
+import { main } from "../apps/control-host/src/scheduler/main.ts";
 
 /**
  * Launch claim end to end: a container the scheduler launched trades

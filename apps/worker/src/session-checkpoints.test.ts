@@ -1664,7 +1664,7 @@ describe("SessionCheckpoints restoring a checkpoint", () => {
     expect(from.manifest.workspace.bundle.version).toBeDefined();
     expect(from.manifest.transcripts.root.parts[0]?.version).toBeDefined();
     // A later write under the same key is not what the checkpoint verified.
-    await from.objects.put(
+    await from.objects.overwrite(
       from.manifest.workspace.bundle.key,
       new TextEncoder().encode("overwritten"),
     );
@@ -2034,7 +2034,7 @@ describe("SessionCheckpoints restoring a checkpoint", () => {
 
   test("refuses a bundle whose bytes are not the ones the manifest pinned", async () => {
     const from = await published();
-    await from.objects.put(
+    await from.objects.overwrite(
       from.manifest.workspace.bundle.key,
       new TextEncoder().encode("overwritten"),
     );
@@ -2478,7 +2478,7 @@ describe("restoring a transcript over the size limit", () => {
       transcripts: { ...from.manifest.transcripts, root: revision },
     };
     const encoded = claudeCheckpointCodec.encode(oversized);
-    await from.objects.put(from.ref.manifest_ref, encoded.bytes);
+    await from.objects.overwrite(from.ref.manifest_ref, encoded.bytes);
     const ref = { ...from.ref, manifest_sha256: encoded.sha256 };
     await replaceWorkspaceWithLeftovers();
     const h = restoring({ manifest: oversized, objects: from.objects, ref });

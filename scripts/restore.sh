@@ -275,6 +275,6 @@ restore: done — project '$INTO'
              RESTORE_POSTGRES_PORT=$RESTORE_POSTGRES_PORT RESTORE_LOCALSTACK_PORT=$RESTORE_LOCALSTACK_PORT \\
              RESTORE_GITEA_HTTP_PORT=$RESTORE_GITEA_HTTP_PORT RESTORE_GITEA_SSH_PORT=$RESTORE_GITEA_SSH_PORT \\
              POSTGRES_DB=$POSTGRES_DB POSTGRES_USER=$POSTGRES_USER \\
-             docker compose -p $INTO -f infra/docker-compose.yml -f infra/docker-compose.restore.yml up -d ${SERVICES[*]}
-  tear down  docker compose -p $INTO -f infra/docker-compose.yml down -v
+             docker compose -p $INTO -f infra/compose.yml -f infra/compose.restore.yml up -d ${SERVICES[*]}
+  tear down  docker compose -p $INTO -f infra/compose.yml down -v
 EOF

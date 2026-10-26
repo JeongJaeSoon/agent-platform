@@ -219,7 +219,7 @@ manifest는 JSON 파일 하나다. 예시는 `infra/test-ops.release.example.jso
 R=<registry>   # 예: 127.0.0.1:5000
 export API_IMAGE=$R/agent-platform-control-host:rc WORKER_IMAGE=$R/agent-platform-worker:rc \
   EGRESS_PROXY_IMAGE=$R/agent-platform-egress-proxy:rc
-docker compose -f infra/docker-compose.yml --profile apps --profile worker build api worker egress-proxy
+docker compose -f infra/compose.yml --profile apps --profile worker build api worker egress-proxy
 for i in "$API_IMAGE" "$WORKER_IMAGE" "$EGRESS_PROXY_IMAGE"; do
   docker push -q "$i" && docker inspect --format '{{index .RepoDigests 0}}' "$i"
 done

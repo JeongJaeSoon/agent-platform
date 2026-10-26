@@ -13,6 +13,11 @@ export type MemoryCheckpointObjectStore = CheckpointObjectStore & {
   /** Fails the next `n` writes of any kind, to exercise mirror failures. */
   failWrites(count: number): void;
   /**
+   * Writes the key whatever it holds, past the create-only rule every real
+   * writer is held to: how a test plants an object or tampers with one.
+   */
+  overwrite(key: string, bytes: Uint8Array): Promise<void>;
+  /**
    * Drops an object, standing in for a lifecycle rule or an operator delete.
    * On a versioned store this is a delete marker, as on S3: the key reads as
    * absent while every version stays readable by id.
@@ -175,7 +180,7 @@ export function createMemoryCheckpointObjectStore(
         .sort();
     },
 
-    async put(key, bytes) {
+    async overwrite(key, bytes) {
       guardWrite(key);
       write(key, bytes);
     },

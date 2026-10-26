@@ -218,12 +218,6 @@ export function createCheckpointObjectStore(
       return keys.sort();
     },
 
-    async put(key, bytes) {
-      await client.send(
-        new PutObjectCommand({ Body: bytes, Bucket: bucket, Key: key }),
-      );
-    },
-
     async putImmutable(key, body, options) {
       const expected = isImmutableObjectSource(body)
         ? body.sha256

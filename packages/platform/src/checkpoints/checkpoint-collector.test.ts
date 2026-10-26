@@ -323,7 +323,10 @@ async function transcriptPart(
 async function rewrite(
   ref: ObjectRef,
 ): Promise<{ key: string; version: string }> {
-  await objects.put(ref.key, encode('{"type":"user","uuid":"rewritten"}\n'));
+  await objects.overwrite(
+    ref.key,
+    encode('{"type":"user","uuid":"rewritten"}\n'),
+  );
   const head = await objects.head(ref.key);
   return { key: ref.key, version: head?.version as string };
 }
@@ -800,7 +803,10 @@ describe("what the pointer vouches for", () => {
     expect(session.pointer()?.versionsHeld).toBe(false);
     // A second write under the manifest's key: only a key-level keep holds it.
     const rewrite = await (async () => {
-      await objects.put(revision0.checkpoint.manifest_ref, encode("{}\n"));
+      await objects.overwrite(
+        revision0.checkpoint.manifest_ref,
+        encode("{}\n"),
+      );
       const head = await objects.head(revision0.checkpoint.manifest_ref);
       return {
         key: revision0.checkpoint.manifest_ref,

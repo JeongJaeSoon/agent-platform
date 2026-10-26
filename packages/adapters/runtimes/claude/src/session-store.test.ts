@@ -156,7 +156,10 @@ describe("Claude session store", () => {
     if (revision === null) throw new Error("expected a revision");
     const part = revision.parts[0];
     if (part === undefined) throw new Error("expected a part");
-    await objects.put(part.key, new TextEncoder().encode('{"type":"x"}\n'));
+    await objects.overwrite(
+      part.key,
+      new TextEncoder().encode('{"type":"x"}\n'),
+    );
 
     await expect(mirror.loadRevision(revision)).rejects.toThrow(
       /integrity failure/,
@@ -456,7 +459,10 @@ describe("Claude session store", () => {
     if (revision === null) throw new Error("expected a revision");
     const part = revision.parts[0];
     if (part === undefined) throw new Error("expected a part");
-    await objects.put(part.key, new TextEncoder().encode('{"type":"x"}\n'));
+    await objects.overwrite(
+      part.key,
+      new TextEncoder().encode('{"type":"x"}\n'),
+    );
 
     // Same store instance, so a cached body would hide the corruption.
     await expect(mirror.loadRevision(revision)).rejects.toThrow(
@@ -718,7 +724,10 @@ describe("Claude session store across execution generations", () => {
     const inherited = await checkpointOf(first);
     const pinned = inherited.transcripts.root.parts[0];
     if (pinned === undefined) throw new Error("expected a part");
-    await objects.put(pinned.key, new TextEncoder().encode('{"type":"x"}\n'));
+    await objects.overwrite(
+      pinned.key,
+      new TextEncoder().encode('{"type":"x"}\n'),
+    );
 
     const second = launch(objects, 2, inherited);
 
@@ -753,7 +762,7 @@ describe("Claude session store across execution generations", () => {
 
     const pinned = inherited.transcripts.subagents["agents/reviewer"]?.parts[0];
     if (pinned === undefined) throw new Error("expected a subagent part");
-    await objects.put(pinned.key, new TextEncoder().encode("not json\n"));
+    await objects.overwrite(pinned.key, new TextEncoder().encode("not json\n"));
     await expect(
       launch(objects, 3, inherited).verifyInherited(),
     ).rejects.toThrow(/Inherited transcript part changed/);
@@ -1121,7 +1130,7 @@ describe("Claude session store merging parts", () => {
     const merged = transcripts.root.parts[0];
     if (merged === undefined) throw new Error("expected a merged part");
 
-    await objects.put(merged.key, new TextEncoder().encode("{}\n"));
+    await objects.overwrite(merged.key, new TextEncoder().encode("{}\n"));
 
     await expect(
       launch(objects, 2).loadRevision(transcripts.root),
@@ -1484,7 +1493,10 @@ describe("Claude session store writing a resumed transcript to disk", () => {
     const pinned = transcripts?.subagents[subagent.subpath]?.parts[0];
     if (pinned === undefined) throw new Error("expected a subagent part");
     const { key: damaged } = pinned;
-    await objects.put(damaged, new TextEncoder().encode('{"type":"x"}\n'));
+    await objects.overwrite(
+      damaged,
+      new TextEncoder().encode('{"type":"x"}\n'),
+    );
     const projects = await mkdtemp(join(tmpdir(), "materialize-"));
     try {
       await expect(second.materialize(projects)).rejects.toThrow(

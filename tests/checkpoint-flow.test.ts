@@ -175,7 +175,10 @@ for (const [name, enabled, createObjects] of backends) {
       const subagent = { ...root, subpath: "agents/reviewer" };
 
       for (const attempt of [attemptId, "attempt-stale"]) {
-        await objects.put(bundleKeyFor(0, attempt), workspaceBundle.bytes);
+        await objects.putImmutable(
+          bundleKeyFor(0, attempt),
+          workspaceBundle.bytes,
+        );
       }
       await mirror.append(root, [entry("r1", "first turn")]);
       await mirror.append(subagent, [entry("s1", "review")]);
@@ -319,8 +322,14 @@ for (const [name, enabled, createObjects] of backends) {
       const prefix = `sessions/${sessionId}/mirror`;
       const root = { projectKey, sessionId: engineSession };
       const subagent = { ...root, subpath: "agents/reviewer" };
-      await objects.put(bundleKeyFor(0, attemptId), workspaceBundle.bytes);
-      await objects.put(bundleKeyFor(1, "attempt-2"), workspaceBundle.bytes);
+      await objects.putImmutable(
+        bundleKeyFor(0, attemptId),
+        workspaceBundle.bytes,
+      );
+      await objects.putImmutable(
+        bundleKeyFor(1, "attempt-2"),
+        workspaceBundle.bytes,
+      );
 
       const first = new ClaudeSessionStore({ generation: 1, objects, prefix });
       await first.append(root, [entry("r1", "first turn")]);
@@ -440,7 +449,10 @@ for (const [name, enabled, createObjects] of backends) {
         objects,
         prefix: `sessions/${sessionId}/mirror`,
       });
-      await objects.put(bundleKeyFor(0, attemptId), workspaceBundle.bytes);
+      await objects.putImmutable(
+        bundleKeyFor(0, attemptId),
+        workspaceBundle.bytes,
+      );
       await mirror.append({ projectKey, sessionId: engineSession }, [
         entry("r1", "first turn"),
       ]);

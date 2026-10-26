@@ -5,13 +5,6 @@ import {
   createSessionResponseSchema,
   getReceiptResponseSchema,
 } from "@werft-ai/contracts";
-import { createApiApp } from "@werft-ai/control-host/src/api/app.ts";
-import { registerEventRoutes } from "@werft-ai/control-host/src/api/routes/events.ts";
-import { registerInterruptRoutes } from "@werft-ai/control-host/src/api/routes/interrupt.ts";
-import { registerReceiptRoutes } from "@werft-ai/control-host/src/api/routes/receipts.ts";
-import { registerSessionRoutes } from "@werft-ai/control-host/src/api/routes/sessions.ts";
-import { registerWorkerRoutes } from "@werft-ai/control-host/src/api/routes/worker.ts";
-import { PostgresSessionNotifier } from "@werft-ai/control-host/src/api/session-notifier.ts";
 import * as schema from "@werft-ai/db";
 import {
   createPostgresSessionControl,
@@ -38,6 +31,13 @@ import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { createApiApp } from "../apps/control-host/src/api/app.ts";
+import { registerEventRoutes } from "../apps/control-host/src/api/routes/events.ts";
+import { registerInterruptRoutes } from "../apps/control-host/src/api/routes/interrupt.ts";
+import { registerReceiptRoutes } from "../apps/control-host/src/api/routes/receipts.ts";
+import { registerSessionRoutes } from "../apps/control-host/src/api/routes/sessions.ts";
+import { registerWorkerRoutes } from "../apps/control-host/src/api/routes/worker.ts";
+import { PostgresSessionNotifier } from "../apps/control-host/src/api/session-notifier.ts";
 import type { WorkerCheckpointPort } from "../apps/worker/src/checkpoint.ts";
 import { HttpWorkerGatewayClient } from "../apps/worker/src/gateway-client.ts";
 import {
