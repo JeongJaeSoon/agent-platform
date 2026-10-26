@@ -337,6 +337,46 @@ describe("Slack management", () => {
     ).toHaveLength(1);
   });
 
+  test("hides the wide section list while the whole page fits the window", async () => {
+    const root = document.documentElement;
+    let pageHeight = 2000;
+    Object.defineProperty(root, "clientHeight", {
+      configurable: true,
+      get: () => 900,
+    });
+    Object.defineProperty(root, "scrollHeight", {
+      configurable: true,
+      get: () => pageHeight,
+    });
+    try {
+      renderAt(DETAIL, routes(APP, true));
+      const nav = await screen.findByRole("navigation", { name: "Slack 구역" });
+      expect(nav.classList.contains("lg:hidden")).toBe(false);
+      const link = within(nav).getByRole("link", { name: "기본" });
+      link.focus();
+      // happy-dom applies no stylesheet: lay the list out as lg:hidden would.
+      nav.getClientRects = () => [] as unknown as DOMRectList;
+      pageHeight = 900;
+      window.dispatchEvent(new Event("resize"));
+      await waitFor(() =>
+        expect(nav.classList.contains("lg:hidden")).toBe(true),
+      );
+      // Focus leaves the hidden list for the section it stands for.
+      const here = nav.querySelector("a[aria-current=location]");
+      expect(`#${document.activeElement?.id}`).toBe(
+        here?.getAttribute("href") ?? "",
+      );
+      pageHeight = 1200;
+      window.dispatchEvent(new Event("resize"));
+      await waitFor(() =>
+        expect(nav.classList.contains("lg:hidden")).toBe(false),
+      );
+    } finally {
+      Reflect.deleteProperty(root, "clientHeight");
+      Reflect.deleteProperty(root, "scrollHeight");
+    }
+  });
+
   test("folds the narrow list after a pick and leaves focus on the section", async () => {
     renderAt(DETAIL, routes(APP, true));
     const user = await setupUser();
