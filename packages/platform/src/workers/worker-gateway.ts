@@ -505,9 +505,6 @@ export function createWorkerGateway(deps: {
     ),
   ];
 
-  // A workspace version runs where its base may, and only while its base
-  // still hashes as it did when the version was made. Built again only when
-  // a read replaced the versions.
   let runnableOf: {
     records: WorkspaceProfiles["records"] | undefined;
     pairs: RunnablePair[];
@@ -550,18 +547,12 @@ export function createWorkerGateway(deps: {
     ];
   }
 
-  // Another replica's new version reaches a claim here within a second; a
-  // pinned launch of one not read yet waits for it (ClaimInput). A failed
-  // read leaves the versions already read, so a database blip never stops
-  // the operator's profiles from running.
   async function refreshForClaim(): Promise<void> {
     await catalog.workspace_profiles
       ?.refresh(WORKSPACE_PROFILE_MAX_AGE_MS)
       .catch(() => undefined);
   }
 
-  // Workspace versions are not in it: they live in the database, and a
-  // replica reads them, rather than agreeing on them at startup.
   const revision = catalogRevision(catalog);
 
   function claimedMcp(mcp: SessionMcp | null | undefined) {

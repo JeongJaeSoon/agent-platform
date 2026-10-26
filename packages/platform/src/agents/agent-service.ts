@@ -56,7 +56,6 @@ export async function resolveAgentRelease(
   assertReleaseIdentity(release);
   const profileId = release.runtime_profile_id;
   await refreshWorkspaceProfilesFor(deps.catalog, [profileId]);
-  // Retired, a version still runs the releases already made on it.
   const profile =
     workspaceProfileRefusal(deps.catalog, workspaceId, profileId, {
       retiredAllowed: true,

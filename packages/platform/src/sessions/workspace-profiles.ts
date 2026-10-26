@@ -23,10 +23,6 @@ import {
 } from "./catalog.ts";
 import { requirePermitted, SessionServiceError } from "./session-service.ts";
 
-// Workspace profiles (94S-1001): an owner or admin narrows an operator
-// profile in the console. Each save is a new version with a new id, so what
-// a release or session pinned never changes under it.
-
 /**
  * How often a process reads the versions again on its own, for the lookups
  * that do not read them first (a session's runtime in a list, for one).
@@ -44,7 +40,6 @@ export function createWorkspaceProfiles(
 ): WorkspaceProfiles {
   let records: ReadonlyMap<string, WorkspaceProfileRecord> = new Map();
   let readAt = Number.NEGATIVE_INFINITY;
-  // Reads are applied in the order they began, never the order they end.
   let begun = 0;
   let applied = 0;
   let latest: { startedAt: number; done: Promise<void> } | null = null;
@@ -91,7 +86,6 @@ function summaryOf(id: string, profile: CatalogProfileView) {
   };
 }
 
-/** A workspace version as listed; over a removed base, as the base was. */
 function workspaceSummary(
   catalog: SessionCatalogView,
   record: WorkspaceProfileRecord,
@@ -203,8 +197,6 @@ export function createWorkspaceProfileService(deps: {
 
   return {
     async list(caller: Caller): Promise<ListProfilesResponse> {
-      // Without the database the operator's profiles still list, beside
-      // the versions read last.
       await reread();
       return listCatalogProfiles(catalog, caller.actor?.workspaceId ?? null);
     },

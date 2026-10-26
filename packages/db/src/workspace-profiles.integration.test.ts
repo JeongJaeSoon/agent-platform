@@ -119,7 +119,6 @@ integration("workspace profile versions on PostgreSQL", () => {
       retired_at: null,
     });
     expect(second.record.id).toBe(`ws_${slug}_strict-review_v2`);
-    // The first version is as it was.
     const listed = (await store().listAll()).filter(
       (r) => r.workspace_id === workspaceId,
     );

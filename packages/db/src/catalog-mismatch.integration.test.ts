@@ -601,7 +601,6 @@ integration("claim against a catalog that dropped the pair", () => {
         .where(eq(sessions.id, session.session_id));
       expect((await claim(launch)).outcome).toBe("no_session");
       await untouched(session.session_id, launch.ref);
-      // Once read, a version that still is not runnable is a mismatch.
       expect(
         (await claim(launch, 1_000, new Set(["ws_acme_strict_v1"]))).outcome,
       ).toBe("catalog_mismatch");

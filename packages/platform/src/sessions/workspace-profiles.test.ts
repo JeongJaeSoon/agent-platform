@@ -104,7 +104,6 @@ describe("narrowing", () => {
     expect(narrowingRefusal(base, version({ tools: ["Write"] }))?.field).toBe(
       "tools",
     );
-    // acceptEdits leaves more to a person than bypassPermissions or auto.
     for (const mode of ["bypassPermissions", "auto", "dontAsk"] as const) {
       expect(
         narrowingRefusal(base, version({ permission_mode: mode }))?.field,
@@ -129,7 +128,6 @@ describe("a workspace version in the catalog", () => {
       permission_mode: "default",
       provider: base.provider,
     });
-    // The repository lists the base, and the version inherits that trust.
     expect(allowedPair(catalog, "ws_acme_strict_v1", "app")?.profile).toEqual(
       profile,
     );
@@ -143,8 +141,6 @@ describe("a workspace version in the catalog", () => {
     expect(catalogProfile(edited, "ws_acme_strict_v1")).toBeUndefined();
     expect(allowedPair(edited, "ws_acme_strict_v1", "app")).toBeNull();
 
-    // The fingerprint leaves the model list out; a model taken off the base
-    // stops the version all the same.
     const fewerModels = catalogWith([version()], {
       coding: { ...base, models: ["claude-haiku-5"], model: "claude-haiku-5" },
     });
@@ -323,7 +319,6 @@ describe("the registry", () => {
     clock = 500;
     await registry.refresh(1000);
     expect(reads).toBe(1);
-    // Age 0 always reads: what a write just made must be seen.
     await registry.refresh();
     expect(reads).toBe(2);
     fail = true;
@@ -430,7 +425,6 @@ describe("the service", () => {
             billing: "metered",
             repositoryMode: "required",
           },
-          // Repeats are dropped.
           narrowing: { models: ["claude-sonnet-5"], tools: ["Read"] },
         },
       ]);

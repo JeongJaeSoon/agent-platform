@@ -352,8 +352,6 @@ export function createSessionService(deps: {
     retiredAllowed: boolean,
   ) {
     if (!profileId.startsWith(WORKSPACE_PROFILE_PREFIX)) return null;
-    // A release keeps a retired version it already names; a new use of one
-    // must not go through on a stale read.
     await refreshWorkspaceProfilesFor(catalog, [profileId], {
       strict: !retiredAllowed,
     });
@@ -875,8 +873,6 @@ export function createSessionService(deps: {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
       }
       const wanted = input.body.profile_id;
-      // The current profile is read too: it says which runtime the
-      // session's checkpoints were taken on.
       await refreshWorkspaceProfilesFor(catalog, [wanted, record.profile_id]);
       const workspaceRefusal = await workspaceProfileRefusalOf(
         actor,

@@ -38,8 +38,6 @@ async function actorManages(tx: Database, actor: TeamActor) {
   return me?.live === true && PROFILE_MANAGERS.includes(me.role);
 }
 
-// A slug outside the id's alphabet falls back to the workspace id, so two
-// workspaces never share an id prefix. Neither part holds `_`.
 function idPrefix(workspace: { id: string; slug: string }): string {
   return /^[a-z0-9-]+$/.test(workspace.slug) ? workspace.slug : workspace.id;
 }
@@ -73,8 +71,6 @@ async function writeReceipt(
   });
 }
 
-// Two saves of one name read the same latest version; the second insert
-// meets the first's row.
 function isVersionTaken(error: unknown): boolean {
   const constraint = findPgError(error, "23505")?.constraint;
   return (

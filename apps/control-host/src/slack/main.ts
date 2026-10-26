@@ -140,8 +140,6 @@ export function slackSessionHandler(deps: {
       createPostgresWorkspaceProfileStore(db),
     ),
   };
-  // As the API does: a lookup that does not read them itself, such as
-  // whether a release's profile needs a repository, sees them within this.
   setInterval(() => {
     catalog.workspace_profiles
       .refresh(WORKSPACE_PROFILE_REFRESH_MS)

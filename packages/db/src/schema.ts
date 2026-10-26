@@ -2902,8 +2902,6 @@ export const workspaceProfiles = pgTable(
       table.name,
       table.version,
     ),
-    // The catalog refuses an operator id with this prefix, so the two never
-    // name one profile.
     check("workspace_profiles_id_check", sql`${table.id} LIKE 'ws\\_%'`),
     check("workspace_profiles_version_check", sql`${table.version} >= 1`),
     check(

@@ -258,7 +258,6 @@ if (checkpointStorage !== "disabled") {
 
 const pool = createApiPool(databaseUrl, logger);
 const db = drizzle(pool, { schema });
-// The services below read workspace profile versions through the catalog.
 const workspaceProfileStore = createPostgresWorkspaceProfileStore(db);
 const workspaceProfileVersions = createWorkspaceProfiles(workspaceProfileStore);
 catalog.workspace_profiles = workspaceProfileVersions;

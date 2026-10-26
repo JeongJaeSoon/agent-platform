@@ -706,8 +706,6 @@ export function workspaceProfileState(
   return baseHolds(base, record) ? "usable" : "base_changed";
 }
 
-// The fingerprint leaves the model list out, so a model the operator took
-// off the base is caught by narrowing again.
 function baseHolds(
   base: CatalogProfileView,
   record: WorkspaceProfileRecord,
@@ -785,9 +783,6 @@ export function workspaceProfileRefusal(
   };
 }
 
-// Read at once when one of them was not read yet: another replica may have
-// made it. One already read is taken as up to this old; only its retirement
-// can have changed since.
 const WORKSPACE_PROFILE_KNOWN_MAX_AGE_MS = 1000;
 
 /**
@@ -813,8 +808,6 @@ export async function refreshWorkspaceProfilesFor(
   await (options.strict ? read : read.catch(() => undefined));
 }
 
-// The id a repository's `profiles` list names for this profile: a workspace
-// version runs where its base may.
 function trustedProfileId(
   catalog: ProfileLookup<CatalogProfileView>,
   profileId: string,
@@ -1059,9 +1052,10 @@ export function repositoryBinding(
 }
 
 /**
- * The whole catalog as loaded, for audit and logs: it moves whenever any
- * profile or repository does, so it is not what a session should be matched
- * against (an unrelated edit would fail every claim).
+ * The operator's catalog as loaded, without workspace versions, for audit
+ * and logs: it moves whenever any operator profile or repository does, so it
+ * is not what a session should be matched against (an unrelated edit would
+ * fail every claim).
  */
 export function catalogRevision(catalog: SessionCatalog): string {
   return sha256({
