@@ -679,7 +679,8 @@ describe("ApprovalInbox", () => {
 
   test("레일 줄은 시안처럼 아바타·종류 배지·에이전트·내게 온 이유·대기 시간과 답하기를 보이고, 본문과 기한은 레일에 남긴다", async () => {
     const view = renderInbox({
-      open: [permission("req_1", "Write")],
+      // Bash, whose old line read "Bash: ls".
+      open: [permission("req_1", "Bash")],
       layout: "summary",
       title: "hello.txt",
       rail: true,
@@ -696,7 +697,7 @@ describe("ApprovalInbox", () => {
     expect(avatar?.textContent).toBe("RH");
     expect(avatar?.getAttribute("aria-hidden")).toBe("true");
     expect(avatar?.className).toContain("rounded-control");
-    expect(line.textContent).toContain("Permission · Write");
+    expect(line.textContent).toContain("Permission · Bash");
     // The first of the reasons, in the design's order.
     await waitFor(() =>
       expect(line.textContent).toContain(
@@ -711,7 +712,7 @@ describe("ApprovalInbox", () => {
     expect(parts).toContainEqual([" · Why you: Session you started", ""]);
     expect(parts).toContainEqual([" · Waiting 12 min", "whitespace-nowrap"]);
     expect(line.textContent).not.toContain("Bash: ls");
-    expect(line.textContent).not.toContain("Expires");
+    expect(line.textContent).not.toContain("until");
     expect(line.textContent).not.toContain(SHORT);
   });
 
