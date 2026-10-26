@@ -1,38 +1,52 @@
 import {
-  type ListProfilesResponse,
+  createWorkspaceProfileRequestSchema,
   listProfilesResponseSchema,
+  workspaceProfileChangeResponseSchema,
+  workspaceProfileIdParamsSchema,
 } from "@werft-ai/contracts";
+import type { WorkspaceProfileService } from "@werft-ai/platform";
 import {
-  isUnmetered,
-  repositoryModeOf,
-  type SessionCatalog,
-} from "@werft-ai/platform";
-import { type ApiRouter, apiRoute, jsonWithSchema } from "../app.ts";
-
-/** Picked field by field: a profile also holds its provider credential. */
-export function listProfiles(catalog: SessionCatalog): ListProfilesResponse {
-  return {
-    items: Object.entries(catalog.profiles)
-      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-      .map(([id, profile]) => ({
-        id,
-        model: profile.model,
-        tools: [...profile.tools],
-        runtime_kind: profile.runtime_kind,
-        runtime_version: profile.runtime_version,
-        billing: isUnmetered(profile) ? "none" : "metered",
-        repository_mode: repositoryModeOf(profile),
-      })),
-  };
-}
+  type ApiRouter,
+  apiRoute,
+  jsonWithSchema,
+  parseJsonBody,
+} from "../app.ts";
+import { mapped, requireParams } from "./errors.ts";
 
 export function registerProfileRoutes(
   router: ApiRouter,
-  catalog: SessionCatalog,
+  profiles: WorkspaceProfileService,
 ) {
-  // The catalog does not change while the API runs.
-  const body = listProfiles(catalog);
-  apiRoute(router, "listProfiles", (context) =>
-    Promise.resolve(jsonWithSchema(context, listProfilesResponseSchema, body)),
-  );
+  apiRoute(router, "listProfiles", async (context) => {
+    const listed = await mapped(() => profiles.list(context.get("caller")));
+    return jsonWithSchema(context, listProfilesResponseSchema, listed);
+  });
+
+  apiRoute(router, "createWorkspaceProfile", async (context) => {
+    const body = await parseJsonBody(
+      context,
+      createWorkspaceProfileRequestSchema,
+    );
+    const created = await mapped(() =>
+      profiles.create(context.get("caller"), body),
+    );
+    return jsonWithSchema(
+      context,
+      workspaceProfileChangeResponseSchema,
+      created,
+      201,
+    );
+  });
+
+  apiRoute(router, "retireWorkspaceProfile", async (context) => {
+    const params = requireParams(context, workspaceProfileIdParamsSchema);
+    const retired = await mapped(() =>
+      profiles.retire(context.get("caller"), params.profile_id),
+    );
+    return jsonWithSchema(
+      context,
+      workspaceProfileChangeResponseSchema,
+      retired,
+    );
+  });
 }

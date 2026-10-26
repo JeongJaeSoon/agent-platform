@@ -214,14 +214,17 @@ const pending: ListPendingRequestsResponse = {
 function profile(id: string, overrides: Partial<ProfileSummary> = {}) {
   return {
     id,
+    source: "operator",
     model: `model-${id}`,
+    models: [overrides.model ?? `model-${id}`],
     tools: ["Read"],
+    permission_mode: "default",
     runtime_kind: "claude_agent_sdk",
     runtime_version: "1.0.0",
     billing: "metered",
     repository_mode: "required",
     ...overrides,
-  } as ProfileSummary;
+  } satisfies ProfileSummary;
 }
 
 const profiles: ListProfilesResponse = {
