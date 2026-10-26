@@ -10,6 +10,7 @@ import { membersKo } from "./members.ts";
 import { modelsKo } from "./models.ts";
 import { outputsKo } from "./outputs.ts";
 import { preferencesKo } from "./preferences.ts";
+import { profilesKo } from "./profiles.ts";
 import { sessionListKo } from "./session-list.ts";
 import { shellKo } from "./shell.ts";
 import { teamsKo } from "./teams.ts";
@@ -150,6 +151,7 @@ export const ko = {
   ...teamsKo,
   ...agentsKo,
   ...modelsKo,
+  ...profilesKo,
   ...sessionsKo,
   ...sessionListKo,
   ...flowKo,

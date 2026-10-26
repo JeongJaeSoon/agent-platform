@@ -435,7 +435,7 @@ function OperationsScreen({
       {tab === "tools" ? (
         <ScreenShell
           current="operations"
-          crumb={["업무", "운영"]}
+          crumb={["워크스페이스", "사용량·한도"]}
           role={screen.role}
           flush
         >
@@ -448,7 +448,7 @@ function OperationsScreen({
       ) : (
         <ScreenShell
           current="operations"
-          crumb={["업무", "운영"]}
+          crumb={["워크스페이스", "사용량·한도"]}
           role={screen.role}
         >
           <Head tab={tab} viewer={screen.role} />
@@ -657,7 +657,7 @@ export const LimitsTokenLimitSet: Story = {
   name: "Limits (token limit set)",
   args: { tab: "limits" },
   render: () => (
-    <ScreenShell current="operations" crumb={["업무", "운영"]}>
+    <ScreenShell current="operations" crumb={["워크스페이스", "사용량·한도"]}>
       <Head tab="limits" viewer="owner" />
       <Limits
         limits={{

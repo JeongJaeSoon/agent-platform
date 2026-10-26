@@ -43,34 +43,77 @@ afterEach(() => {
 });
 
 describe("app shell", () => {
-  test("the sidebar groups work and the workspace, settings behind one item", async () => {
-    renderAt("/", signedIn);
-    const nav = await screen.findByRole("navigation", { name: "주요 메뉴" });
-    const groups = within(nav).getAllByRole("group");
-    expect(
-      groups.map((group) =>
-        within(group)
-          .getAllByRole("link")
-          .map((link) => link.textContent),
-      ),
-    ).toEqual([
-      ["홈", "세션", "에이전트", "운영"],
-      ["구성원", "설정"],
-    ]);
-    expect(groups[0]?.getAttribute("aria-labelledby")).toBeTruthy();
-    expect(within(nav).getByRole("group", { name: "업무" })).toBeDefined();
-  });
+  // Console v4 navWs: members and settings join the workspace group for its
+  // managers only; a member reaches their own settings from the account menu.
+  const MANAGER_NAV = [
+    [
+      ["홈", "/"],
+      ["세션", "/sessions"],
+      ["에이전트", "/agents"],
+    ],
+    [
+      ["실행 프로필", "/profiles"],
+      ["사용량·한도", "/operations"],
+      ["구성원", "/members"],
+      ["설정", "/settings/workspace"],
+    ],
+  ];
+  for (const [role, signedInAs, expected] of [
+    ["owner", me(), MANAGER_NAV],
+    ["admin", me(undefined, "admin"), MANAGER_NAV],
+    [
+      "member",
+      memberMe(),
+      [
+        MANAGER_NAV[0],
+        [
+          ["실행 프로필", "/profiles"],
+          ["사용량·한도", "/operations"],
+        ],
+      ],
+    ],
+  ] as const) {
+    test(`the sidebar an ${role} sees`, async () => {
+      renderAt("/", { "GET /v1/auth/me": () => json(200, signedInAs) });
+      const nav = await screen.findByRole("navigation", { name: "주요 메뉴" });
+      await waitFor(() =>
+        expect(
+          within(nav)
+            .getAllByRole("group")
+            .map((group) =>
+              within(group)
+                .getAllByRole("link")
+                .map((link) => [link.textContent, link.getAttribute("href")]),
+            ),
+        ).toEqual(expected as unknown as string[][][]),
+      );
+      expect(within(nav).getByRole("group", { name: "업무" })).toBeDefined();
+      expect(
+        within(nav).getByRole("group", { name: "워크스페이스" }),
+      ).toBeDefined();
+      expect(within(nav).queryByText("운영")).toBeNull();
+    });
+  }
 
-  test("a member is not offered the screens that need management rights", async () => {
+  test("a member keeps their own settings in the account menu", async () => {
     renderAt("/", { "GET /v1/auth/me": () => json(200, memberMe()) });
-    const nav = await screen.findByRole("navigation", { name: "주요 메뉴" });
-    // 구성원 holds the teams a member is in, so everyone has it.
-    await within(nav).findByRole("link", { name: "구성원" });
-    expect(within(nav).queryByRole("link", { name: "팀" })).toBeNull();
-    // Their settings open on the person's own pages.
+    const region = await screen.findByRole("region", { name: "사용자 메뉴" });
+    const user = await setupUser();
+    await user.click(
+      within(region).getByRole("button", { name: "Owner · 구성원" }),
+    );
+    const menu = screen.getByRole("menu", { name: "Owner · 구성원" });
     expect(
-      within(nav).getByRole("link", { name: "설정" }).getAttribute("href"),
-    ).toBe("/settings/linked-accounts");
+      within(menu)
+        .getAllByRole("menuitem")
+        .map((item) => [item.textContent, item.getAttribute("href")]),
+    ).toEqual([
+      ["연동 계정", "/settings/linked-accounts"],
+      ["언어한국어", null],
+      ["테마시스템 설정", null],
+      ["API key", "/settings/api-keys"],
+      ["로그아웃", null],
+    ]);
   });
 
   test("the top bar names the page with the sidebar's words", async () => {
@@ -79,6 +122,21 @@ describe("app shell", () => {
     const [header] = await screen.findAllByRole("banner");
     await waitFor(() => expect(header?.textContent).toBe("메뉴 열기API key"));
   });
+
+  for (const [path, title] of [
+    ["/operations", "사용량·한도"],
+    ["/operations/limits", "사용량·한도"],
+    ["/profiles", "실행 프로필"],
+  ] as const) {
+    test(`${path} is named ${title} in the top bar and the page head`, async () => {
+      renderAt(path, signedIn);
+      await screen.findByRole("heading", { level: 1, name: title });
+      const [header] = screen.getAllByRole("banner");
+      await waitFor(() =>
+        expect(header?.textContent).toBe(`메뉴 열기${title}`),
+      );
+    });
+  }
 
   // V4-PAGE-FRAME: settings and forms used to stop at 1100px.
   for (const [path, title] of [
