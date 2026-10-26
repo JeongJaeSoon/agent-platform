@@ -1,0 +1,54 @@
+{
+  "turns": [
+    {
+      "turnId": "1",
+      "status": "failed",
+      "reason": "budget_exceeded"
+    }
+  ],
+  "events": [
+    {
+      "turn_id": "1",
+      "event": "result",
+      "data": {
+        "type": "result",
+        "subtype": "error_max_budget_usd",
+        "session_id": "fake-session",
+        "usage": {
+          "input_tokens": 3,
+          "output_tokens": 5
+        },
+        "is_error": true,
+        "stop_reason": "end_turn"
+      },
+      "source_sequence": 1,
+      "occurred_at": "<timestamp>"
+    }
+  ],
+  "finalized": [
+    {
+      "finalize_key": "att_fake:1",
+      "final_source_sequence": 1,
+      "terminal": {
+        "status": "failed",
+        "reason": "budget_exceeded",
+        "result": {
+          "subtype": "error_max_budget_usd",
+          "is_error": true,
+          "stop_reason": "end_turn",
+          "terminal_reason": null
+        },
+        "usage": {
+          "input_tokens": 3,
+          "output_tokens": 5
+        },
+        "cost_usd": 4.75
+      },
+      "checkpoint": {
+        "revision": 0,
+        "manifest_ref": "manifests/1.json",
+        "manifest_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      }
+    }
+  ]
+}
