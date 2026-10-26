@@ -688,10 +688,11 @@ export function HomeScreen() {
             <RecentSessionTable waitingSince={requests?.since} now={now} />
           </HomeSection>
           <AdministeredAgents showEmpty={false} />
-          {/* A member has no 구성원 item in the sidebar (console v4 navWs);
-              this is their way to the teams list. */}
+          {/* Without member.manage there is no 구성원 item in the sidebar
+              (console v4 navWs); this is the way to the teams list, so it
+              stays even with no team. */}
           <MyTeams
-            showEmpty={false}
+            showEmpty={!managesMembers}
             action={
               <ArrowLink to="/members/teams">{t("home.teams.all")}</ArrowLink>
             }

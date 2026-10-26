@@ -69,8 +69,11 @@ describe("실행 프로필", () => {
         "저장소 쓰지 않음도구 없음",
       ],
     ]);
-    // DOM tests cannot see CSS clipping: no cell hides narrow or truncates.
-    expect(table.querySelector("[data-hide-narrow], .truncate")).toBeNull();
+    // DOM tests cannot see CSS clipping: no cell hides narrow or truncates
+    // (GridTableCell `lines` truncates every line after the first).
+    expect(
+      table.querySelector("[data-hide-narrow], [data-lines], .truncate"),
+    ).toBeNull();
     expect(screen.getByText("프로필 2개")).toBeDefined();
     expect(
       screen.getByText(
