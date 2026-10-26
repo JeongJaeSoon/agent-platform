@@ -36,7 +36,22 @@ export function mapSessionOf(
             Math.floor((now - Date.parse(current.since)) / 60_000),
           ),
         }
-      : undefined;
+      : summary.status === "needs_input"
+        ? // Its request is not in the activity (asked before the event
+          // window, or behind a newer open call); it still waits on a person.
+          {
+            kind: "request" as const,
+            tool: messages.openRequest,
+            waitedMinutes: Math.max(
+              0,
+              Math.floor(
+                (now -
+                  Date.parse(summary.last_event_at ?? summary.created_at)) /
+                  60_000,
+              ),
+            ),
+          }
+        : undefined;
   return {
     id: summary.id,
     title: summary.title ?? summary.id.slice(0, 8),

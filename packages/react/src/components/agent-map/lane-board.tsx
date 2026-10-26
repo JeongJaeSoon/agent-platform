@@ -94,7 +94,9 @@ export function MapSessionCard({
           <Badge variant="amber">
             {session.pending.kind === "question"
               ? messages.questions(1)
-              : messages.approvals(1)}
+              : session.pending.kind === "request"
+                ? messages.requests(1)
+                : messages.approvals(1)}
           </Badge>
         ) : null}
         {session.pinnedLane ? (
@@ -164,6 +166,8 @@ export function ApprovalStripStandIn({
 export interface ApprovalStripProps {
   readonly sessions: readonly MapSession[];
   readonly onSelect: (id: string) => void;
+  /** More requests wait than the sessions read hold. */
+  readonly more?: boolean | undefined;
   readonly messages?: Partial<AgentMapMessages> | undefined;
 }
 
@@ -171,6 +175,7 @@ export interface ApprovalStripProps {
 export function ApprovalStrip({
   sessions,
   onSelect,
+  more = false,
   messages: override,
 }: ApprovalStripProps): JSX.Element | null {
   const messages = useAgentMapMessages(override);
@@ -185,7 +190,7 @@ export function ApprovalStrip({
     <section aria-label={messages.waitingLabel} className={STRIP}>
       <h2 className={STRIP_TITLE}>
         {messages.waitingTitle(
-          waiting.length,
+          more ? `${waiting.length}+` : waiting.length,
           waiting[0]?.pending?.waitedMinutes ?? 0,
         )}
       </h2>
@@ -256,6 +261,8 @@ export interface LaneBoardProps {
   readonly selectedId: string | null;
   readonly onSelect: (id: string) => void;
   readonly onExpandDone?: (() => void) | undefined;
+  /** More requests wait than `sessions` hold; the strip counts with a plus. */
+  readonly waitingMore?: boolean | undefined;
   readonly now?: number | undefined;
   readonly messages?: Partial<AgentMapMessages> | undefined;
 }
@@ -270,6 +277,7 @@ export function LaneBoard({
   selectedId,
   onSelect,
   onExpandDone,
+  waitingMore,
   now,
   messages: override,
 }: LaneBoardProps): JSX.Element {
@@ -279,6 +287,7 @@ export function LaneBoard({
       <ApprovalStrip
         sessions={sessions}
         onSelect={onSelect}
+        more={waitingMore}
         messages={messages}
       />
       {LANES.map((lane) => {

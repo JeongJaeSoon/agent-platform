@@ -33,6 +33,8 @@ export interface AgentMapProps {
    * count), so the strip that arrives with the list does not push the lanes.
    */
   readonly waiting?: number | undefined;
+  /** More requests wait than `sessions` hold; the strip counts with a plus. */
+  readonly waitingMore?: boolean | undefined;
   readonly now?: number | undefined;
   readonly messages?: Partial<AgentMapMessages> | undefined;
 }
@@ -51,6 +53,7 @@ export function AgentMap({
   onExpandDone,
   loading = false,
   waiting = 0,
+  waitingMore,
   now,
   messages: override,
 }: AgentMapProps): JSX.Element {
@@ -97,6 +100,7 @@ export function AgentMap({
           selectedId={selected?.session.id ?? null}
           onSelect={onSelect}
           onExpandDone={onExpandDone}
+          waitingMore={waitingMore}
           now={now}
           messages={messages}
         />
