@@ -522,6 +522,48 @@ integration("parked pending requests on PostgreSQL", () => {
     expect((await request(unanswered)).deliveredAt).toBeNull();
   });
 
+  test("a revocation before the park's execution is gone still reports the wait", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    const requestId = await register(worker);
+    await parkRows(worker, [requestId]);
+    await db
+      .update(sessions)
+      .set({
+        admissionState: "pausing",
+        pauseReason: "awaiting_input",
+        status: "idle",
+      })
+      .where(eq(sessions.id, sessionId));
+    expect(
+      (
+        await revokeExecutionAtomic(db, {
+          sessionId,
+          reason: "grant revoked",
+          now: new Date(),
+        })
+      ).outcome,
+    ).toBe("revoked");
+
+    expect(await sessionRow(sessionId)).toMatchObject({
+      admissionState: "stopping",
+      inputAnnounced: true,
+    });
+    const [last] = await db
+      .select({ payload: events.payload })
+      .from(events)
+      .where(and(eq(events.sessionId, sessionId), eq(events.type, "status")))
+      .orderBy(desc(events.id))
+      .limit(1);
+    expect(last?.payload).toMatchObject({
+      phase: "needs_input",
+      admission_state: "stopping",
+    });
+    expect(await reads(owner, sessionId)).toMatchObject({
+      status: "needs_input",
+      count: 1,
+    });
+  });
+
   test("an execution revocation keeps a parked request; a terminate cancels it", async () => {
     const revoked = await parked();
     expect(

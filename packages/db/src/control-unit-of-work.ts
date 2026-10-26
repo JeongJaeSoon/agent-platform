@@ -37,7 +37,11 @@ import {
 import { dbNow, fromDbNow } from "./db-clock.ts";
 import { drainOf, openDrainReceipt } from "./drain.ts";
 import { pauseAtomic } from "./pause-control.ts";
-import { cancelParkedRequests, publicStatus } from "./pending-requests.ts";
+import {
+  awaitingInputAt,
+  cancelParkedRequests,
+  publicStatus,
+} from "./pending-requests.ts";
 import { changeProfileAtomic } from "./profile-control.ts";
 import type { Database } from "./queries.ts";
 import { decideRecoveryAtomic, resumeAtomic } from "./recovery-control.ts";
@@ -347,7 +351,8 @@ export function stoppedAdmission(
  * After the session row says where stoppedAdmission moved it: a status event
  * with the new admission, so a client following the stream does not stay at
  * the state the stop left. The stop closed every open question but a
- * parked one, so the event also ends any wait for input. A stop that moved no admission
+ * parked one, so the event also ends any wait for input that no park holds
+ * open. A stop that moved no admission
  * only reports that end, if there was one.
  */
 export async function announceStopped(
@@ -376,7 +381,10 @@ export async function announceStopped(
   }
   await recordStatus(tx, {
     sessionId: session.id,
-    phase: publicStatus(into.status ?? session.status, false),
+    phase: publicStatus(
+      into.status ?? session.status,
+      await awaitingInputAt(tx, session.id, input.inputWait.at),
+    ),
     extra: { admission_state: into.admissionState, ...input.extra },
     ...(input.measure ? { measure: input.measure } : {}),
     turnRowId: null,

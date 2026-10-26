@@ -28,7 +28,12 @@ import {
   restoreBaseRevision,
   transactionWithBindingRetry,
 } from "./control-shared.ts";
-import { cancelParkedRequests, publicStatus } from "./pending-requests.ts";
+import { dbNow } from "./db-clock.ts";
+import {
+  awaitingInputAt,
+  cancelParkedRequests,
+  publicStatus,
+} from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
 import {
   INCOMPATIBLE_CHECKPOINT_REASON,
@@ -398,7 +403,10 @@ export function decideRecoveryAtomic(
     ) {
       await recordStatus(tx, {
         sessionId,
-        phase: publicStatus(after.status, false),
+        phase: publicStatus(
+          after.status,
+          await awaitingInputAt(tx, sessionId, await dbNow(tx)),
+        ),
         extra: {
           admission_state: after.admissionState,
           decision: decision.decision,
