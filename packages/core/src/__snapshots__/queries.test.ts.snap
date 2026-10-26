@@ -14,10 +14,17 @@ exports[`query keys 1`] = `
     "id-1",
     "admins",
   ],
+  "agentSessionLists": [
+    "sessions",
+    {
+      "list": "agent",
+    },
+  ],
   "agentSessions": [
     "sessions",
     {
       "agent_id": "id-1",
+      "list": "agent",
     },
   ],
   "agents": [
@@ -180,6 +187,7 @@ exports[`query options and the request each query makes 1`] = `
         "sessions",
         {
           "agent_id": "id-1",
+          "list": "agent",
         },
       ],
       "retry": false,

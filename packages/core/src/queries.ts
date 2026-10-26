@@ -104,8 +104,11 @@ export const queryKeys = {
   sessions: ["sessions"] as const,
   // An object segment, so it never reads as a session id.
   waitingSessions: ["sessions", { status: "needs_input" }] as const,
+  // Every agent's list matches agentSessionLists, so a session change
+  // refreshes them all without knowing which agent it belongs to.
+  agentSessionLists: ["sessions", { list: "agent" }] as const,
   agentSessions: (agentId: string) =>
-    ["sessions", { agent_id: agentId }] as const,
+    ["sessions", { list: "agent", agent_id: agentId }] as const,
   session: (id: string) => ["sessions", id] as const,
   sessionUsage: (id: string) => ["sessions", id, "usage"] as const,
   pendingRequests: (id: string) =>
