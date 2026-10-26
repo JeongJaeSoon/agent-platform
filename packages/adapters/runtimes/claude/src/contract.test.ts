@@ -4,6 +4,7 @@ import type {
   ApprovalRequested,
   NativeSdkMessage,
   RuntimeEvent,
+  TurnEnded,
 } from "@werft-ai/runtime-core";
 
 import { claudeContractRun } from "./contract.ts";
@@ -485,25 +486,31 @@ describe("claudeContractRun events", () => {
   });
 
   test("keeps the provider's refusal for the result after one for another input", async () => {
-    const turns = (
-      await eventsFor(
-        frame({
-          type: "system",
-          subtype: "api_retry",
-          error: "rate_limit",
-          error_status: 429,
-        }),
-        frame({ type: "assistant", error: "rate_limit" }),
-        frame({ type: "result", subtype: "success", user_message_uuid: "b" }),
-        frame({
-          type: "result",
-          subtype: "success",
-          is_error: true,
-          terminal_reason: "api_error",
-          user_message_uuid: "a",
-        }),
-      )
-    ).flatMap((event) => (event.type === "turn.ended" ? [event.turn] : []));
+    const script = scriptedDriver();
+    const run = claudeContractRun((hooks) => script.start(hooks));
+    run.send({ uuid: "a", message: "first" });
+    for (const pushed of [
+      frame({
+        type: "system",
+        subtype: "api_retry",
+        error: "rate_limit",
+        error_status: 429,
+      }),
+      frame({ type: "assistant", error: "rate_limit" }),
+      frame({ type: "result", subtype: "success", user_message_uuid: "b" }),
+      frame({
+        type: "result",
+        subtype: "success",
+        is_error: true,
+        terminal_reason: "api_error",
+        user_message_uuid: "a",
+      }),
+    ])
+      script.push(pushed);
+    script.end();
+    const turns: TurnEnded[] = [];
+    for await (const event of run.events())
+      if (event.type === "turn.ended") turns.push(event.turn);
 
     expect(turns[1]?.engineResult).toMatchObject({
       provider_error: "rate_limit",
