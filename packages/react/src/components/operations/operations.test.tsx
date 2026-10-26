@@ -181,7 +181,9 @@ describe("1분 미만 도구 시간", () => {
         .slice(2, 4)
         .map((cell) => cell.textContent),
     ).toEqual(["1.7초", "1.7초"]);
-    expect(text("[data-slot=tools-summary]")).toContain("1.7초");
+    expect(text("[data-slot=tools-summary]")).toBe(
+      "최근 30일 동안 에이전트가 도구를 1번 불렀고 모두 1.7초 동안 실행했습니다. 0번 실패했습니다 (0.0%).",
+    );
     expect(
       [...container.querySelectorAll("aside dd")].map((dd) => dd.textContent),
     ).toEqual(["1번", "1.7초", "1.7초", "0번 (0.0%)"]);
