@@ -96,6 +96,7 @@ const signingSecrets = createSlackSigningSecrets({
 const service = createSlackEventsService({
   signingSecrets,
   inbox: inbox.store,
+  apps: apps.store,
   identities: identities.store,
   installs: installs.store,
 });
@@ -209,6 +210,46 @@ describe("POST /v1/slack/events/{agent_id}", () => {
       signSlackRequest(fakeSlackValue("wrong"), body, Date.now() / 1000),
     );
     expect(wrong.status).toBe(401);
+  });
+
+  test("a signed url_verification marks a pending subscription verified at receipt", async () => {
+    await apps.store.setEvents(WORKSPACE, APP_ROW, {
+      state: "pending",
+      checked_at: null,
+    });
+    const body = JSON.stringify({
+      challenge: "verify-me",
+      type: "url_verification",
+    });
+    const before = Date.now();
+    const ok = await post(AGENT, body, signed(body));
+    expect(ok.status).toBe(200);
+    const events = (await apps.store.find(WORKSPACE, APP_ROW))?.events;
+    expect(events?.state).toBe("verified");
+    const at = Date.parse(events?.checked_at ?? "");
+    expect(at).toBeGreaterThanOrEqual(before);
+    expect(at).toBeLessThanOrEqual(Date.now());
+  });
+
+  test("a wrongly signed url_verification is 401 and leaves the subscription pending", async () => {
+    await apps.store.setEvents(WORKSPACE, APP_ROW, {
+      state: "pending",
+      checked_at: null,
+    });
+    const body = JSON.stringify({
+      challenge: "verify-me",
+      type: "url_verification",
+    });
+    const wrong = await post(
+      AGENT,
+      body,
+      signSlackRequest(fakeSlackValue("wrong"), body, Date.now() / 1000),
+    );
+    expect(wrong.status).toBe(401);
+    expect((await apps.store.find(WORKSPACE, APP_ROW))?.events).toEqual({
+      state: "pending",
+      checked_at: null,
+    });
   });
 
   test("unknown agent, no app, no secret and a bad signature look the same", async () => {

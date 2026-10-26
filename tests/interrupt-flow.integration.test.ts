@@ -25,7 +25,11 @@ import {
   type SessionCatalog,
   type WorkerGateway,
 } from "@werft-ai/platform";
-import { FakeAgentRuntime, type FakeStep } from "@werft-ai/runtime-claude";
+import {
+  claudeContractRun,
+  FakeAgentRuntime,
+  type FakeStep,
+} from "@werft-ai/runtime-claude";
 import type { NativeSdkMessage } from "@werft-ai/runtime-core";
 import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { and, eq } from "drizzle-orm";
@@ -339,21 +343,23 @@ integration("POST /v1/sessions/{id}/interrupt end to end", () => {
       logger: silent,
       runtimes: {
         launcherFor: () => ({
-          start: ({ runtimeConfig, principal, ...rest }, hooks) =>
-            runtime.start(
-              {
-                claudeConfigDir: "/tmp/fake/config",
-                cwd: "/tmp/fake/workspace",
-                home: "/tmp/fake/home",
-                model: runtimeConfig.model,
-                profile: {
-                  ...runtimeConfig.provider,
-                  principal: { ownerScope: principal.owner_scope },
+          start: ({ runtimeConfig, principal, ...rest }) =>
+            claudeContractRun((hooks) =>
+              runtime.start(
+                {
+                  claudeConfigDir: "/tmp/fake/config",
+                  cwd: "/tmp/fake/workspace",
+                  home: "/tmp/fake/home",
+                  model: runtimeConfig.model,
+                  profile: {
+                    ...runtimeConfig.provider,
+                    principal: { ownerScope: principal.owner_scope },
+                  },
+                  tools: runtimeConfig.tools,
+                  ...rest,
                 },
-                tools: runtimeConfig.tools,
-                ...rest,
-              },
-              hooks,
+                hooks,
+              ),
             ),
         }),
       },

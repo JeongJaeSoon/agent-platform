@@ -1070,6 +1070,41 @@ describe("Slack management", () => {
     ).toBeDefined();
   });
 
+  const subscribed = (
+    events: components["schemas"]["GetSlackAppResponse"]["events"],
+    eventUrl: string | null = `https://events.test/v1/slack/events/${AGENT_ID}`,
+  ) => ({
+    ...routes(APP, true),
+    [`GET ${PATH}/slack/app`]: () =>
+      json(200, { ...appResponse(APP), event_url: eventUrl, events }),
+  });
+
+  test("asks to verify the Request URL while the subscription is pending", async () => {
+    renderAt(DETAIL, subscribed({ state: "pending", checked_at: AT }));
+    const status = await screen.findByRole("region", { name: "상태" });
+    await within(status).findByText("Slack에서 Request URL을 Verify하세요");
+    const link = within(status).getByRole("link", {
+      name: /Event Subscriptions 열기/,
+    });
+    expect(link.getAttribute("href")).toBe(
+      "https://api.slack.com/apps/A123/event-subscriptions",
+    );
+    expect(link.getAttribute("target")).toBe("_blank");
+  });
+
+  for (const [name, events, eventUrl] of [
+    ["once verified", { state: "verified", checked_at: AT }, undefined],
+    ["without an event URL", { state: "pending", checked_at: null }, null],
+  ] as const) {
+    test(`shows no Verify request ${name}`, async () => {
+      renderAt(DETAIL, subscribed(events, eventUrl));
+      const status = await screen.findByRole("region", { name: "상태" });
+      // The app card reads the same query, so the status has it too.
+      await screen.findByText("앱 ID");
+      expect(status.textContent).not.toContain("Verify");
+    });
+  }
+
   test("shows no repository warning when the profile needs none", async () => {
     renderAt(DETAIL, routes(APP, true));
     await screen.findByText("앱 ID");

@@ -25,7 +25,7 @@ import {
   type SessionCatalog,
   type WorkerGateway,
 } from "@werft-ai/platform";
-import { FakeAgentRuntime } from "@werft-ai/runtime-claude";
+import { claudeContractRun, FakeAgentRuntime } from "@werft-ai/runtime-claude";
 import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
@@ -244,21 +244,23 @@ integration("worker lease on the monotonic clock end to end", () => {
       logger: input.logger,
       runtimes: {
         launcherFor: () => ({
-          start: ({ runtimeConfig, principal, ...rest }, hooks) =>
-            runtime.start(
-              {
-                claudeConfigDir: "/tmp/fake/config",
-                cwd: "/tmp/fake/workspace",
-                home: "/tmp/fake/home",
-                model: runtimeConfig.model,
-                profile: {
-                  ...runtimeConfig.provider,
-                  principal: { ownerScope: principal.owner_scope },
+          start: ({ runtimeConfig, principal, ...rest }) =>
+            claudeContractRun((hooks) =>
+              runtime.start(
+                {
+                  claudeConfigDir: "/tmp/fake/config",
+                  cwd: "/tmp/fake/workspace",
+                  home: "/tmp/fake/home",
+                  model: runtimeConfig.model,
+                  profile: {
+                    ...runtimeConfig.provider,
+                    principal: { ownerScope: principal.owner_scope },
+                  },
+                  tools: runtimeConfig.tools,
+                  ...rest,
                 },
-                tools: runtimeConfig.tools,
-                ...rest,
-              },
-              hooks,
+                hooks,
+              ),
             ),
         }),
       },

@@ -137,6 +137,7 @@ export type SlackEventsService = ReturnType<typeof createSlackEventsService>;
 export function createSlackEventsService(deps: {
   signingSecrets: Pick<SlackSigningSecrets, "forAgent">;
   inbox: SlackInboundEventStore;
+  apps: Pick<SlackAppStore, "setEventsUnlessVerified">;
   identities: Pick<AgentIdentityStore, "resolveSlackEvent">;
   installs: Pick<SlackInstallStore, "revokeInstallation">;
   now?: () => Date;
@@ -227,7 +228,13 @@ export function createSlackEventsService(deps: {
       const parsed = slackEventEnvelopeSchema.safeParse(body);
       if (!parsed.success) return { kind: "bad_request" };
       const verification = slackUrlVerificationSchema.safeParse(parsed.data);
+      const reached = () =>
+        deps.apps.setEventsUnlessVerified(app.workspaceId, app.slackAppId, {
+          state: "verified",
+          checked_at: now().toISOString(),
+        });
       if (verification.success) {
+        await reached();
         return { kind: "challenge", challenge: verification.data.challenge };
       }
       if (parsed.data.type !== "event_callback") {
@@ -236,6 +243,9 @@ export function createSlackEventsService(deps: {
       // A malformed callback also matches the catch-all envelope member.
       const callback = slackEventCallbackSchema.safeParse(parsed.data);
       if (!callback.success) return { kind: "bad_request" };
+      // Slack sends callbacks only to a verified URL, so the first one also
+      // settles an app whose challenge was never seen here.
+      await reached();
       const envelope: SlackEventCallback = callback.data;
       const ids = { eventId: envelope.event_id, teamId: envelope.team_id };
       if (await deps.inbox.seen(envelope.api_app_id, envelope.event_id)) {

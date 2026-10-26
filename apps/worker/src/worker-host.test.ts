@@ -10,9 +10,12 @@ import {
   TURN_BUDGET_EXCEEDED_REASON,
   type WorkspaceDescriptor,
 } from "@werft-ai/contracts";
-import { FakeAgentRuntime, type FakeStep } from "@werft-ai/runtime-claude";
 import {
-  type AgentFrame,
+  claudeContractRun,
+  FakeAgentRuntime,
+  type FakeStep,
+} from "@werft-ai/runtime-claude";
+import {
   type AgentRun,
   type CheckpointPreparation,
   type NativeSdkMessage,
@@ -109,7 +112,7 @@ function harness(
   const workspaces: Array<WorkspaceDescriptor | undefined> = [];
   const runtimes: RuntimeRegistry = {
     launcherFor: () => ({
-      start: ({ runtimeConfig, principal, workspace, ...launch }, hooks) => {
+      start: ({ runtimeConfig, principal, workspace, ...launch }) => {
         launched.push(runtimeConfig);
         workspaces.push(workspace);
         budgets.push(launch.maxBudgetUsd);
@@ -117,21 +120,23 @@ function harness(
         claudeMds.push(launch.committedClaudeMd());
         const wrap = overrides.wrap ?? ((run: AgentRun) => run);
         return wrap(
-          runtime.start(
-            {
-              claudeConfigDir: "/tmp/fake/config",
-              cwd: "/tmp/fake/workspace",
-              home: "/tmp/fake/home",
-              model: runtimeConfig.model,
-              profile: engineProfile(
-                runtimeConfig.provider,
-                principal.owner_scope,
-                "http://egress-proxy.test:3129",
-              ),
-              tools: runtimeConfig.tools,
-              ...launch,
-            },
-            hooks,
+          claudeContractRun((hooks) =>
+            runtime.start(
+              {
+                claudeConfigDir: "/tmp/fake/config",
+                cwd: "/tmp/fake/workspace",
+                home: "/tmp/fake/home",
+                model: runtimeConfig.model,
+                profile: engineProfile(
+                  runtimeConfig.provider,
+                  principal.owner_scope,
+                  "http://egress-proxy.test:3129",
+                ),
+                tools: runtimeConfig.tools,
+                ...launch,
+              },
+              hooks,
+            ),
           ),
         );
       },
@@ -1901,7 +1906,8 @@ describe("WorkerHost outcomes a drain must not hide", () => {
         override async finalize(
           request: FinalizeRequest,
         ): Promise<FinalizeResponse> {
-          if (run !== undefined) during.push(await run.prepareCheckpoint());
+          if (run !== undefined)
+            during.push(await run.prepareCheckpoint("turn_end"));
           return super.finalize(request);
         }
       }
@@ -1929,7 +1935,7 @@ describe("WorkerHost outcomes a drain must not hide", () => {
           detail: "Another checkpoint holds the lease",
         },
       ]);
-      expect(await run?.prepareCheckpoint()).not.toMatchObject({
+      expect(await run?.prepareCheckpoint("turn_end")).not.toMatchObject({
         reason: "checkpoint_lease_held",
       });
     });
@@ -1964,13 +1970,13 @@ describe("WorkerHost outcomes a drain must not hide", () => {
 
       // Given up on, not answered: a CAS could still land, so no writer may
       // start before it does.
-      expect(await run?.prepareCheckpoint()).toMatchObject({
+      expect(await run?.prepareCheckpoint("turn_end")).toMatchObject({
         reason: "checkpoint_lease_held",
       });
       answer.resolve();
       await waitFor(() => gateway.finalized.length === 1, "the late finalize");
       await Bun.sleep(1);
-      expect(await run?.prepareCheckpoint()).not.toMatchObject({
+      expect(await run?.prepareCheckpoint("turn_end")).not.toMatchObject({
         reason: "checkpoint_lease_held",
       });
     });
@@ -2010,7 +2016,7 @@ describe("WorkerHost outcomes a drain must not hide", () => {
       await waitFor(() => failed, "the finalize to fail");
       await Bun.sleep(5);
 
-      expect(await run?.prepareCheckpoint()).toMatchObject({
+      expect(await run?.prepareCheckpoint("turn_end")).toMatchObject({
         reason: "checkpoint_lease_held",
       });
     });
@@ -2054,7 +2060,7 @@ describe("WorkerHost outcomes a drain must not hide", () => {
 
       expect(calls).toBe(2);
       // The refusal answers the retry, not the request that timed out.
-      expect(await run?.prepareCheckpoint()).toMatchObject({
+      expect(await run?.prepareCheckpoint("turn_end")).toMatchObject({
         reason: "checkpoint_lease_held",
       });
     });
@@ -2081,7 +2087,7 @@ describe("WorkerHost outcomes a drain must not hide", () => {
       await host.runLoop();
       await Bun.sleep(1);
 
-      expect(await run?.prepareCheckpoint()).not.toMatchObject({
+      expect(await run?.prepareCheckpoint("turn_end")).not.toMatchObject({
         reason: "checkpoint_lease_held",
       });
     });
@@ -2093,7 +2099,8 @@ describe("WorkerHost outcomes a drain must not hide", () => {
         override async finalize(
           request: FinalizeRequest,
         ): Promise<FinalizeResponse> {
-          if (run !== undefined) during.push(await run.prepareCheckpoint());
+          if (run !== undefined)
+            during.push(await run.prepareCheckpoint("turn_end"));
           return super.finalize(request);
         }
       }
@@ -2146,7 +2153,7 @@ describe("WorkerHost outcomes a drain must not hide", () => {
       let run: AgentRun | undefined;
       const engines: EngineExitWatch = {
         descendants: async () => {
-          expect(await run?.prepareCheckpoint()).toMatchObject({
+          expect(await run?.prepareCheckpoint("turn_end")).toMatchObject({
             reason: "checkpoint_lease_held",
           });
           return ++checks < 3 ? [4243] : [];
@@ -2264,7 +2271,7 @@ describe("WorkerHost outcomes a drain must not hide", () => {
           outcome: "failed",
           reason: "procfs denied",
         });
-        expect(await run?.prepareCheckpoint()).not.toMatchObject({
+        expect(await run?.prepareCheckpoint("turn_end")).not.toMatchObject({
           reason: "checkpoint_lease_held",
         });
       },
@@ -3883,14 +3890,8 @@ describe("frameTurn", () => {
   const frame = (
     message: Record<string, unknown>,
     inputs?: string[],
-  ): AgentFrame => ({
-    envelope: {
-      correlation_id: "c",
-      message: { type: "assistant", ...message },
-      schema_version: "sdk-envelope/v1",
-      sdk_version: "test",
-    },
-    events: [],
+  ): Parameters<typeof frameTurn>[0] => ({
+    message: { type: "assistant", ...message },
     ...(inputs === undefined ? {} : { inputs }),
   });
   const turn = (entered: boolean, closed = false) => ({

@@ -351,6 +351,7 @@ describe("홈 요약", () => {
         accounted_content: ["input_messages"],
         updated_at: null,
       },
+      outputs: { used_bytes: 0, updated_at: null, complete: true },
     },
   };
   const since = new Date(Date.now() - 30 * 86_400_000)
@@ -795,7 +796,7 @@ describe("홈 요약", () => {
     });
     expect(name.getAttribute("href")).toBe(`/sessions/${waitingSession.id}`);
     expect(inbox.textContent).toMatch(
-      new RegExp(`${waitingSession.id.slice(0, 8)} · \\d+분째 대기`),
+      /내게 온 이유: 내가 시작한 세션 · \d+분째 대기/,
     );
     expect(
       within(inbox)
