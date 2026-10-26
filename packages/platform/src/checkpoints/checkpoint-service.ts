@@ -27,7 +27,6 @@ import {
   runtimeFor,
   storedOutputs,
   TRANSCRIPT_LIMITS,
-  transcriptBytes,
   transcriptGenerationOf,
   transcriptParts,
   transcriptSizeProblem,
@@ -99,20 +98,6 @@ export type ManifestVerdict =
 export function sessionObjectPrefix(sessionId: string): string {
   return `sessions/${sessionId}/`;
 }
-
-export type FinalizeCheckpointInput = {
-  checkpoint: CheckpointRef;
-  fence: CheckpointFence;
-  now: Date;
-  sessionId: string;
-  turnId: string | null;
-};
-
-export type FinalizeCheckpointResult =
-  | { outcome: "committed" | "replayed"; revision: number }
-  | { currentRevision: number | null; outcome: "conflict" }
-  | { outcome: "rejected"; reason: string }
-  | { outcome: "stale_epoch" | "lease_expired" };
 
 export type RestoreArtifact =
   | {
@@ -1485,63 +1470,6 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
 
     validateManifest,
     verifyAttemptManifest,
-
-    /**
-     * Promotes a validated manifest to the session pointer on its own, with
-     * no turn to close. A checkpoint that does not validate is never
-     * committed, and a pointer that has already moved past this revision is
-     * a conflict the caller answers with 409.
-     *
-     * The fence travels into the same transaction as the pointer update, so a
-     * worker whose lease was taken over cannot win the next revision merely by
-     * uploading first — object-store ordering decides nothing here.
-     *
-     * Not the turn path. A checkpoint riding a turn's finalize commits through
-     * `WorkerUnitOfWork.finalizeAtomic`, in the same transaction as the turn's
-     * terminal, receipt and queue ACK; the gateway verifies with
-     * `verifyAttemptManifest` and never calls this. This is the turn-less
-     * commit a drain or pause needs.
-     */
-    async finalize(
-      input: FinalizeCheckpointInput,
-    ): Promise<FinalizeCheckpointResult> {
-      if (input.fence.sessionId !== input.sessionId) {
-        return {
-          outcome: "rejected",
-          reason: `fence belongs to session ${input.fence.sessionId}`,
-        };
-      }
-      const verdict = await verifyAttemptManifest({
-        checkpoint: input.checkpoint,
-        fence: input.fence,
-      });
-      if (verdict.status === "rejected") {
-        return { outcome: "rejected", reason: verdict.reason };
-      }
-      const result = await store.commitAtomic({
-        checkpoint: input.checkpoint,
-        fence: input.fence,
-        now: input.now,
-        sessionId: input.sessionId,
-        turnId: input.turnId,
-        versionsHeld: verdict.versionsHeld === true,
-        transcriptBytes: transcriptBytes(
-          transcriptParts(verdict.manifest.transcripts),
-        ),
-      });
-      switch (result.outcome) {
-        case "conflict":
-          return {
-            outcome: "conflict",
-            currentRevision: result.currentRevision,
-          };
-        case "stale_epoch":
-        case "lease_expired":
-          return { outcome: result.outcome };
-        default:
-          return { outcome: result.outcome, revision: result.revision };
-      }
-    },
 
     /**
      * The commit a push of the session's latest checkpoint would carry. Only

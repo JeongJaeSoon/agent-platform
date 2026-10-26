@@ -24,6 +24,10 @@ import type {
 import { serviceCheckpointVerifier } from "../ports/checkpoint-verifier.ts";
 import { structuralBundleVerifier } from "../ports/workspace-bundle-verifier.ts";
 import {
+  type CommitCheckpointInput,
+  finalizeCheckpoint,
+} from "../testing/checkpoints.ts";
+import {
   createCheckpointService,
   manifestRefFor,
   sessionObjectPrefix,
@@ -91,25 +95,31 @@ function memoryCheckpointStore() {
         .sort((left, right) => right.revision - left.revision)
         .slice(0, limit);
     },
-    async commitAtomic(input) {
-      if (pointer !== null && input.checkpoint.revision <= pointer.revision) {
-        return { outcome: "conflict", currentRevision: pointer.revision };
-      }
-      commits += 1;
-      pointer = {
-        committedAt: input.now,
-        manifestRef: input.checkpoint.manifest_ref,
-        manifestSha256: input.checkpoint.manifest_sha256,
-        manifestVersion: input.checkpoint.manifest_version ?? null,
-        revision: input.checkpoint.revision,
-        turnId: input.turnId,
-        versionsHeld: input.versionsHeld === true,
-      };
-      history.push(pointer);
-      return { outcome: "committed", revision: input.checkpoint.revision };
-    },
   };
-  return { commits: () => commits, pointer: () => pointer, store };
+  async function commit(input: CommitCheckpointInput) {
+    if (pointer !== null && input.checkpoint.revision <= pointer.revision) {
+      return {
+        outcome: "conflict" as const,
+        currentRevision: pointer.revision,
+      };
+    }
+    commits += 1;
+    pointer = {
+      committedAt: input.now,
+      manifestRef: input.checkpoint.manifest_ref,
+      manifestSha256: input.checkpoint.manifest_sha256,
+      manifestVersion: input.checkpoint.manifest_version ?? null,
+      revision: input.checkpoint.revision,
+      turnId: input.turnId,
+      versionsHeld: input.versionsHeld === true,
+    };
+    history.push(pointer);
+    return {
+      outcome: "committed" as const,
+      revision: input.checkpoint.revision,
+    };
+  }
+  return { commit, commits: () => commits, pointer: () => pointer, store };
 }
 
 let objects: MemoryCheckpointObjectStore;
@@ -191,7 +201,7 @@ async function publish(
 }
 
 function finalize(checkpoint: CheckpointRef) {
-  return service.finalize({
+  return finalizeCheckpoint(service, checkpoints.commit, {
     checkpoint,
     fence,
     now: new Date("2026-09-23T00:00:00.000Z"),
@@ -370,7 +380,7 @@ describe("locked (the default)", () => {
     });
 
     await expect(
-      failing.finalize({
+      finalizeCheckpoint(failing, checkpoints.commit, {
         checkpoint,
         fence,
         now: new Date(),
@@ -446,7 +456,7 @@ describe("finalize trusts what a held pointer already proved", () => {
     target: ReturnType<typeof createCheckpointService>,
     checkpoint: CheckpointRef,
   ) {
-    return target.finalize({
+    return finalizeCheckpoint(target, checkpoints.commit, {
       checkpoint,
       fence,
       now: new Date("2026-09-23T00:00:00.000Z"),
@@ -838,7 +848,7 @@ describe("locked fallback to an earlier revision", () => {
     const older = await publish(0, [part]);
     const { manifest_version: _version, ...unpinned } = older.checkpoint;
     // As an `unversioned` deployment commits it, straight through the store.
-    await checkpoints.store.commitAtomic({
+    await checkpoints.commit({
       checkpoint: unpinned,
       fence,
       now: new Date("2026-09-23T00:00:00.000Z"),
@@ -913,7 +923,7 @@ describe("unversioned", () => {
     await plain.putImmutable(manifestRef, encoded.bytes);
 
     expect(
-      await degraded.finalize({
+      await finalizeCheckpoint(degraded, checkpoints.commit, {
         checkpoint: {
           manifest_ref: manifestRef,
           manifest_sha256: encoded.sha256,

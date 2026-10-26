@@ -8,6 +8,10 @@ import {
   structuralBundleVerifier,
 } from "@werft-ai/platform";
 import {
+  type CommitCheckpoint,
+  finalizeCheckpoint,
+} from "@werft-ai/platform/testing/checkpoints";
+import {
   CLAUDE_RUNTIME_FINGERPRINT,
   ClaudeSessionStore,
   claudeCheckpointCodec,
@@ -85,6 +89,7 @@ const fence: CheckpointFence = {
 
 /** `live` names the attempt currently holding the lease. */
 function memoryCheckpointStore(live = { attemptId }): CheckpointStore & {
+  commit: CommitCheckpoint;
   pointer(): CheckpointPointer | null;
 } {
   let pointer: CheckpointPointer | null = null;
@@ -92,7 +97,7 @@ function memoryCheckpointStore(live = { attemptId }): CheckpointStore & {
     async readPointer() {
       return pointer;
     },
-    async commitAtomic(input) {
+    async commit(input) {
       if (input.fence.attemptId !== live.attemptId) {
         return { outcome: "stale_epoch" as const };
       }
@@ -210,7 +215,7 @@ for (const [name, enabled, createObjects] of backends) {
         await objects.putImmutable(request.request.manifestRef, first.bytes),
       ).toEqual({ outcome: "created" });
       expect(
-        await service.finalize({
+        await finalizeCheckpoint(service, store.commit, {
           checkpoint: {
             manifest_ref: request.request.manifestRef,
             manifest_sha256: first.sha256,
@@ -245,7 +250,7 @@ for (const [name, enabled, createObjects] of backends) {
         outcome: "created",
       });
       expect(
-        await service.finalize({
+        await finalizeCheckpoint(service, store.commit, {
           checkpoint: {
             manifest_ref: staleRef,
             manifest_sha256: stale.sha256,
@@ -340,7 +345,7 @@ for (const [name, enabled, createObjects] of backends) {
         committed.bytes,
       );
       expect(
-        await service.finalize({
+        await finalizeCheckpoint(service, store.commit, {
           checkpoint: {
             manifest_ref: manifestRefFor(sessionId, 0, attemptId, PUBLISH_ID),
             manifest_sha256: committed.sha256,
@@ -388,7 +393,7 @@ for (const [name, enabled, createObjects] of backends) {
         next.bytes,
       );
       expect(
-        await service.finalize({
+        await finalizeCheckpoint(service, store.commit, {
           checkpoint: {
             manifest_ref: manifestRefFor(sessionId, 1, "attempt-2", PUBLISH_ID),
             manifest_sha256: next.sha256,
@@ -463,7 +468,7 @@ for (const [name, enabled, createObjects] of backends) {
       });
       const ref = manifestRefFor(sessionId, 0, attemptId, PUBLISH_ID);
       await objects.putImmutable(ref, published.bytes);
-      await service.finalize({
+      await finalizeCheckpoint(service, store.commit, {
         checkpoint: {
           manifest_ref: ref,
           manifest_sha256: published.sha256,

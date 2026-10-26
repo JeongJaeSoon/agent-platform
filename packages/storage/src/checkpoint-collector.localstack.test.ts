@@ -16,6 +16,10 @@ import {
   sessionObjectPrefix,
   structuralBundleVerifier,
 } from "@werft-ai/platform";
+import {
+  type CommitCheckpoint,
+  finalizeCheckpoint,
+} from "@werft-ai/platform/testing/checkpoints";
 import type {
   CheckpointCodec,
   CheckpointManifest,
@@ -78,7 +82,7 @@ const workspaceBundle = await createGitBundle();
  */
 function memoryStore(
   generation = { current: 1 },
-): CheckpointStore & CheckpointCollectionStore {
+): CheckpointStore & CheckpointCollectionStore & { commit: CommitCheckpoint } {
   let pointer: CheckpointPointer | null = null;
   const rows: CheckpointPointer[] = [];
   return {
@@ -91,7 +95,7 @@ function memoryStore(
         .sort((left, right) => right.revision - left.revision)
         .slice(0, limit);
     },
-    async commitAtomic(input) {
+    async commit(input) {
       const next = (pointer?.revision ?? -1) + 1;
       if (input.checkpoint.revision !== next) {
         return {
@@ -228,9 +232,10 @@ async function publish(
 
 function finalize(
   service: ReturnType<typeof createCheckpointService>,
+  store: ReturnType<typeof memoryStore>,
   checkpoint: Awaited<ReturnType<typeof publish>>["checkpoint"],
 ) {
-  return service.finalize({
+  return finalizeCheckpoint(service, store.commit, {
     checkpoint,
     fence,
     now: new Date(),
@@ -273,7 +278,7 @@ localstack("checkpoint garbage collection on an Object Lock bucket", () => {
   test("revision 0 goes after 0 → 1 → 2; revision 2's plan reads back held, shared transcript parts included", async () => {
     await withLocalstackBucket(
       async (bucket) => {
-        const { collector, objects, service } = setup(bucket);
+        const { collector, objects, service, store } = setup(bucket);
         const part = await upload(
           objects,
           `${sessionObjectPrefix(sessionId)}transcripts/generation-0000000001/part-0.jsonl`,
@@ -282,7 +287,7 @@ localstack("checkpoint garbage collection on an Object Lock bucket", () => {
         const revisions = [];
         for (const revision of [0, 1, 2]) {
           const published = await publish(objects, revision, [part]);
-          expect(await finalize(service, published.checkpoint)).toEqual({
+          expect(await finalize(service, store, published.checkpoint)).toEqual({
             outcome: "committed",
             revision,
           });
@@ -321,7 +326,11 @@ localstack("checkpoint garbage collection on an Object Lock bucket", () => {
           `${sessionObjectPrefix(sessionId)}transcripts/generation-0000000001/part-0.jsonl`,
           encode('{"type":"user","uuid":"u0"}\n'),
         );
-        await finalize(service, (await publish(objects, 0, [part])).checkpoint);
+        await finalize(
+          service,
+          store,
+          (await publish(objects, 0, [part])).checkpoint,
+        );
         const next = await publish(objects, 1, [part]);
 
         expect(
@@ -332,7 +341,7 @@ localstack("checkpoint garbage collection on an Object Lock bucket", () => {
         ).toMatchObject({ status: "verified", versionsHeld: true });
         await collector.collectSession(sessionId, { dryRun: false });
         expect(
-          await store.commitAtomic({
+          await store.commit({
             checkpoint: next.checkpoint,
             fence,
             now: new Date(),
@@ -355,7 +364,8 @@ localstack("checkpoint garbage collection on an Object Lock bucket", () => {
   test("transcript parts of a generation that can no longer commit go by version unless a kept revision names them", async () => {
     await withLocalstackBucket(
       async (bucket) => {
-        const { collector, generation, objects, service } = setup(bucket);
+        const { collector, generation, objects, service, store } =
+          setup(bucket);
         const mirror = `${sessionObjectPrefix(sessionId)}transcripts`;
         const part = (name: string, generationDirectory: string) =>
           upload(
@@ -368,6 +378,7 @@ localstack("checkpoint garbage collection on an Object Lock bucket", () => {
         expect(
           await finalize(
             service,
+            store,
             (await publish(objects, 0, [inherited, abandoned])).checkpoint,
           ),
         ).toMatchObject({ outcome: "committed" });
@@ -377,7 +388,7 @@ localstack("checkpoint garbage collection on an Object Lock bucket", () => {
         for (const revision of [1, 2]) {
           const published = await publish(objects, revision, [inherited, own]);
           expect(
-            await service.finalize({
+            await finalizeCheckpoint(service, store.commit, {
               checkpoint: published.checkpoint,
               fence: { ...fence, executionGeneration: 2 },
               now: new Date(),

@@ -8,6 +8,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./testing": "./src/testing/execution-backend-contract.ts",
+    "./testing/checkpoints": "./src/testing/checkpoints.ts",
     "./testing/slack": "./src/testing/slack-fakes.ts"
   },
   "scripts": {

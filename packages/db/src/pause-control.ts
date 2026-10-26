@@ -120,10 +120,8 @@ export async function pauseBlocker(
     restoreBaseRevision(session),
   );
   if (lastRanTurn === null) return null;
-  // A turn-less checkpoint (CheckpointService.finalize, not reachable from a
-  // worker yet) records no turn it was taken after, so it is not counted as
-  // covering one. Record a watermark on checkpoints when a drain starts
-  // committing them.
+  // A checkpoint row with no turn records no turn it was taken after, so it
+  // is not counted as covering one.
   return checkpointedTurn !== null && checkpointedTurn >= lastRanTurn
     ? null
     : "checkpoint_unavailable";
