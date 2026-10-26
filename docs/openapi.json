@@ -6346,6 +6346,50 @@
                     "enable"
                   ],
                   "additionalProperties": false
+                },
+                "administered_agents": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "via": {
+                        "type": "string",
+                        "enum": [
+                          "user",
+                          "team"
+                        ],
+                        "description": "`user` when the member is the agent's admin themselves, `team` when only a team they belong to is. A member who is both is listed once, as `user`."
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "name",
+                      "via"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "description": "The agents the member administers, archived agents left out, by name. A team counts while it is not archived and the member has not left it. A disabled member keeps the grants listed here; they act again once the member is enabled."
+                },
+                "last_active_at": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "When the member last used the web console: a web sign-in, or a web request, recorded at most once an hour. API key calls, Slack and session activity do not count. It stays after the web session expires, is signed out or revoked: only the member's next sign-in removes old sessions, and that sign-in is newer. Null when the member has never signed in to the web console."
                 }
               },
               "required": [
@@ -6355,7 +6399,9 @@
                 "role",
                 "disabled_at",
                 "created_at",
-                "actions"
+                "actions",
+                "administered_agents",
+                "last_active_at"
               ],
               "additionalProperties": false
             }
@@ -8203,12 +8249,33 @@
               "checked_at"
             ],
             "additionalProperties": false
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "const": "repository_required"
+                },
+                "profile_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "code",
+                "profile_id"
+              ],
+              "additionalProperties": false
+            }
           }
         },
         "required": [
           "slack_app",
           "event_url",
-          "events"
+          "events",
+          "warnings"
         ],
         "additionalProperties": false
       },
@@ -8376,31 +8443,52 @@
           "warnings": {
             "type": "array",
             "items": {
-              "type": "object",
-              "properties": {
-                "code": {
-                  "type": "string",
-                  "const": "config_token_issuer_changed"
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "string",
+                      "const": "config_token_issuer_changed"
+                    },
+                    "previous_user_id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64,
+                      "pattern": "^[A-Z0-9]+$"
+                    },
+                    "user_id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64,
+                      "pattern": "^[A-Z0-9]+$"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "previous_user_id",
+                    "user_id"
+                  ],
+                  "additionalProperties": false
                 },
-                "previous_user_id": {
-                  "type": "string",
-                  "minLength": 1,
-                  "maxLength": 64,
-                  "pattern": "^[A-Z0-9]+$"
-                },
-                "user_id": {
-                  "type": "string",
-                  "minLength": 1,
-                  "maxLength": 64,
-                  "pattern": "^[A-Z0-9]+$"
+                {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "string",
+                      "const": "repository_required"
+                    },
+                    "profile_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "profile_id"
+                  ],
+                  "additionalProperties": false
                 }
-              },
-              "required": [
-                "code",
-                "previous_user_id",
-                "user_id"
-              ],
-              "additionalProperties": false
+              ]
             }
           }
         },
@@ -39033,7 +39121,7 @@
           "Agents"
         ],
         "summary": "The agent's Slack app, if the platform made one",
-        "description": "The agent's live Slack app (`creating`, `created` or `deleting`), or null when it has none. Secrets appear only as whether each is stored; `secrets.slack_bot_token.configured` says whether Slack handed over a bot token; an install refused after the code exchange keeps it, so the agent's `slack_bot` identity is what says the app is installed. The install link comes from `POST /v1/agents/{id}/slack/install/start`. Owners, admins and the agent's admins; API keys are refused.\n\n**Auth:** cookie session only; no scope.",
+        "description": "The agent's live Slack app (`creating`, `created` or `deleting`), or null when it has none. Secrets appear only as whether each is stored; `secrets.slack_bot_token.configured` says whether Slack handed over a bot token; an install refused after the code exchange keeps it, so the agent's `slack_bot` identity is what says the app is installed. The install link comes from `POST /v1/agents/{id}/slack/install/start`. `warnings` holds `repository_required` (with the `profile_id`) while the agent's active release runs on a profile whose sessions must name a repository: Slack names none, so every mention and DM is refused with a notice in the thread. Connecting is not blocked. Owners, admins and the agent's admins; API keys are refused.\n\n**Auth:** cookie session only; no scope.",
         "security": [
           {
             "cookieSession": []
@@ -39098,7 +39186,8 @@
                   "events": {
                     "state": "pending",
                     "checked_at": null
-                  }
+                  },
+                  "warnings": []
                 },
                 "schema": {
                   "$ref": "#/components/schemas/GetSlackAppResponse"
@@ -39260,7 +39349,7 @@
           "Agents"
         ],
         "summary": "Create the agent's Slack app",
-        "description": "Creates one Slack app for the agent with the workspace's App Configuration Token (`apps.manifest.create`): the agent's name, its bot, the agent view and the bot scopes, with no event subscriptions yet. The app is recorded as `creating` before Slack is asked; its signing and client secrets are stored by the server under the app and never returned. Asking again for an agent that has its app returns the same app with `created: false`. If Slack's answer was lost the app stays `creating` and the next request answers 409 SLACK_APP_CREATING; once `uncertain`, check api.slack.com/apps, delete any app made then, and retry with `replace_uncertain: true`. `warnings` says when the config token now belongs to another Slack user than the one who made the workspace's previous app. The agent needs an active release. Installing it into Slack starts at `POST /v1/agents/{id}/slack/install/start`. Owners, admins and the agent's admins from a signed-in console; API keys are refused.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "Creates one Slack app for the agent with the workspace's App Configuration Token (`apps.manifest.create`): the agent's name, its bot, the agent view and the bot scopes, with no event subscriptions yet. The app is recorded as `creating` before Slack is asked; its signing and client secrets are stored by the server under the app and never returned. Asking again for an agent that has its app returns the same app with `created: false`. If Slack's answer was lost the app stays `creating` and the next request answers 409 SLACK_APP_CREATING; once `uncertain`, check api.slack.com/apps, delete any app made then, and retry with `replace_uncertain: true`. `warnings` says when the config token now belongs to another Slack user than the one who made the workspace's previous app (`config_token_issuer_changed`), and, as on GET, when the active release's profile needs a repository (`repository_required`); neither stops the request. The agent needs an active release. Installing it into Slack starts at `POST /v1/agents/{id}/slack/install/start`. Owners, admins and the agent's admins from a signed-in console; API keys are refused.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -42087,7 +42176,7 @@
           "Teams"
         ],
         "summary": "A team and its members",
-        "description": "**Auth:** cookie session only; no scope.",
+        "description": "An owner or an admin reads any team. Anyone else reads only a team they are in now, read only: changing it stays with owners and admins. Any other team is 403.\n\n**Auth:** cookie session only; no scope.",
         "security": [
           {
             "cookieSession": []

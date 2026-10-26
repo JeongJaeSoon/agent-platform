@@ -167,6 +167,8 @@ export function createInviteService(deps: {
         items: page.items.map((row) => ({
           ...memberView(row),
           actions: memberActions(viewer, row),
+          administered_agents: row.administeredAgents,
+          last_active_at: row.lastActiveAt?.toISOString() ?? null,
         })),
         assignable_roles: assignableRoles(principal.role),
       };

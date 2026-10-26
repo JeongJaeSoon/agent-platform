@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.base.json",
+  // Repo-level TypeScript that no workspace package owns. tests/** is left out
+  // until its existing errors are fixed; agent-sdk-compat has its own lockfile
+  // and tsconfig, checked by the agent-sdk-compat job.
+  "include": ["scripts/**/*.ts", ".github/scripts/*.ts"],
+  "exclude": ["scripts/agent-sdk-compat/**"]
+}

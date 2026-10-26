@@ -42,7 +42,7 @@ bun 버전 고정과 `~/.bun/install/cache` 캐시는 `.github/actions/bun-setup
 
 | job | 서비스 컨테이너 | 켜지는 opt-in 변수 | 실행 명령 | 머지 차단 |
 |---|---|---|---|---|
-| `check (typecheck)` | 없음 | 없음 | `bun run typecheck` | 집계로 |
+| `check (typecheck)` | 없음 | 없음 | `bun run typecheck` (workspace 패키지 + 루트 `tsconfig.json`의 `scripts/**`·`.github/scripts/*`) | 집계로 |
 | `check (lint)` | 없음 | 없음 | `bun run lint` (Biome) | 집계로 |
 | `check (licenses)` | 없음 | 없음 | `bun scripts/third-party-notices.ts --check` | 집계로 |
 | `check (unit: packages)`, `check (unit: worker, web)`, `check (unit: other apps, tests)` | 없음 | 없음 | `bun test <unit-part.ts가 고른 파일>` (`packages/` 아래 / `apps/worker/`·`apps/web/` 아래 / 그 나머지) | 집계로 |

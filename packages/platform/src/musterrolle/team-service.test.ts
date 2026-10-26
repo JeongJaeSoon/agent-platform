@@ -125,6 +125,13 @@ function recordingStore() {
       calls.push(`joined:${workspaceId}:${userId}:${JSON.stringify(query)}`);
       return { items: [TEAM_ROW], nextCursor: null };
     },
+    async isMember(workspaceId, teamId, userId) {
+      return (
+        workspaceId === WORKSPACE &&
+        teamId === TEAM &&
+        userId === USERS.team_member
+      );
+    },
   };
   return { store, calls };
 }
@@ -333,6 +340,37 @@ describe("agent.admin.manage by role (design 4.1)", () => {
     expect(
       await refusal(service.listAdministeredAgents(keyCaller())),
     ).toMatchObject({ code: "FORBIDDEN" });
+  });
+});
+
+describe("a team's own members read it (94S-719)", () => {
+  test("a member of the team reads it, asking no policy", async () => {
+    const s = services();
+    expect(await s.teams.getTeam(caller("team_member"), TEAM)).toMatchObject({
+      id: TEAM,
+      members: [],
+    });
+    expect(s.recorded).toEqual([]);
+  });
+
+  test("anyone else is refused as before: another team, a plain member, an API key", async () => {
+    const other = "019a0000-0000-7000-8000-00000000b0b1";
+    for (const [who, teamId] of [
+      [caller("team_member"), other],
+      [caller("member"), TEAM],
+      [caller("agent_admin"), TEAM],
+      [keyCaller(), TEAM],
+    ] as const) {
+      const s = services();
+      expect(await refusal(s.teams.getTeam(who, teamId))).toMatchObject({
+        code: "FORBIDDEN",
+      });
+    }
+    const s = services();
+    await refusal(s.teams.getTeam(caller("member"), TEAM));
+    expect(s.recorded).toEqual([
+      { action: "team.manage", outcome: "deny", reason: "role" },
+    ]);
   });
 });
 

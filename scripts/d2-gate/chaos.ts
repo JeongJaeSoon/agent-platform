@@ -234,7 +234,7 @@ function forward(
   upstream: Upstream,
   request: Request,
   path: string,
-  bytes: Uint8Array,
+  bytes: Uint8Array<ArrayBuffer>,
 ): Promise<Response> {
   const headers = new Headers(request.headers);
   // S3 verifies the signed host even when this proxy changes the destination.

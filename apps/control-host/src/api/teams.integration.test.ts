@@ -266,12 +266,29 @@ integration("teams as agent admins over HTTP on PostgreSQL", () => {
       await (await send("GET", `/v1/teams/${teamId}`, admin)).json(),
     );
     expect(detail.members.map((m) => m.user_id)).toEqual([memberId]);
-    // The member sees the team they are in, but still not who else is.
     expect(await myTeams(member)).toEqual([
       { id: teamId, name: "research admins" },
     ]);
     expect(await myTeams(admin)).toEqual([]);
-    expect((await send("GET", `/v1/teams/${teamId}`, member)).status).toBe(403);
+    // The member reads their own team, read only (94S-719), and no other.
+    const own = await send("GET", `/v1/teams/${teamId}`, member);
+    expect(own.status).toBe(200);
+    expect(teamDetailSchema.parse(await own.json())).toEqual(detail);
+    const elsewhere = await send("POST", "/v1/teams", owner, {
+      name: "elsewhere",
+    });
+    const otherTeam = teamChangeResponseSchema.parse(await elsewhere.json())
+      .team.id;
+    for (const path of [`/v1/teams/${otherTeam}`, "/v1/teams"]) {
+      const refused = await send("GET", path, member);
+      expect(refused.status, path).toBe(403);
+      expect(await errorOf(refused), path).toMatchObject({
+        details: { reason_code: "role" },
+      });
+    }
+    expect((await send("DELETE", `/v1/teams/${otherTeam}`, owner)).status).toBe(
+      200,
+    );
 
     // Still nothing on the agent until the team is named its admin.
     expect((await editCard("v2")).status).toBe(403);
@@ -322,6 +339,11 @@ integration("teams as agent admins over HTTP on PostgreSQL", () => {
       ).items,
     ).toEqual([]);
     expect(await myTeams(member)).toEqual([]);
+    const gone = await send("GET", `/v1/teams/${teamId}`, member);
+    expect(gone.status).toBe(403);
+    expect(await errorOf(gone)).toMatchObject({
+      details: { reason_code: "role" },
+    });
   });
 
   test("back in, then the team deleted: refused again", async () => {
@@ -340,6 +362,7 @@ integration("teams as agent admins over HTTP on PostgreSQL", () => {
       details: { reason_code: "role" },
     });
     expect((await send("GET", `/v1/teams/${teamId}`, owner)).status).toBe(404);
+    expect((await send("GET", `/v1/teams/${teamId}`, member)).status).toBe(403);
   });
 
   test("every team change and refusal went through the decision log", async () => {
