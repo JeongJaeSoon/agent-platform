@@ -371,7 +371,7 @@ describe("홈 요약", () => {
     },
     refreshed_at: "2026-10-23T09:00:00.000Z",
     session_count: sessions,
-    cost_usd: scope === "me" ? "1.250000" : "4.500000",
+    cost_usd: scope === "me" ? "1.250000" : "69.461386",
     cost_complete: complete,
     token_count: sessions * 1200,
     run_seconds: sessions * 600,
@@ -585,7 +585,7 @@ describe("홈 요약", () => {
         {
           title: "내가 시작한 세션 기준",
           badge: undefined,
-          value: "$1.250000",
+          value: "$1.25",
           rows: [
             ["세션", "3"],
             ["실행 시간", "30분"],
@@ -615,7 +615,7 @@ describe("홈 요약", () => {
         {
           title: "전체 사용량",
           badge: undefined,
-          value: "$4.500000",
+          value: "$69.46",
           rows: [
             ["세션", "12"],
             ["동시 실행", "3 / 8 slot"],

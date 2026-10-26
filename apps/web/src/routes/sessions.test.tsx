@@ -179,7 +179,7 @@ const usage: SessionUsageResponse = {
   period: "session_lifetime",
   refreshed_at: AT,
   cost: {
-    amount_usd: "0.4200",
+    amount_usd: "0.000042",
     kind: "estimated",
     source: "provider_usage",
     completeness_scope: "turn_reports",
@@ -188,7 +188,7 @@ const usage: SessionUsageResponse = {
     unreported_turn_count: 0,
     open_turn_count: 1,
   },
-  cost_limit_usd: "5",
+  cost_limit_usd: "25",
   token_count: 1234,
   token_limit: null,
   budget_exceeded: true,
@@ -1225,8 +1225,8 @@ describe("session detail", () => {
     await setupInfo();
     expect(screen.getByText("BUDGET_EXCEEDED")).toBeTruthy();
     const info = within(screen.getByRole("tabpanel"));
-    expect(info.getByText("$0.4200")).toBeTruthy();
-    expect(screen.getByText("$5")).toBeTruthy();
+    expect(info.getByText("<$0.01")).toBeTruthy();
+    expect(screen.getByText("$25.00")).toBeTruthy();
     expect(info.getByText("1234")).toBeTruthy();
     expect(
       info.getByText(/진행 중인 turn이 있어 아직 확정되지 않았습니다/),
@@ -1607,6 +1607,22 @@ describe("session detail", () => {
         apiError(401, "UNAUTHORIZED", "Authentication required"),
     });
     await waitFor(() => expect(history.location.pathname).toBe("/login"));
+  });
+
+  test("cost reads with two decimals in the header and the info tab", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}/usage`]: () =>
+        json(200, { ...usage, cost: { ...usage.cost, amount_usd: "1.5" } }),
+    });
+    const header = (
+      await screen.findByRole("button", { name: "일시 정지" })
+    ).closest("header") as HTMLElement;
+    await waitFor(() => expect(header.textContent).toContain("$1.50"));
+    await setupInfo();
+    expect(
+      within(screen.getByRole("tabpanel")).getByText("$1.50"),
+    ).toBeTruthy();
   });
 
   test("a turn that ended without a cost report is not called running", async () => {
@@ -2545,7 +2561,7 @@ describe("세션 상세 레이아웃", () => {
     expect(heading.textContent).toContain("답변 대기");
     expect(header.textContent).toContain("demo");
     expect(header.textContent).toContain("model-default");
-    await waitFor(() => expect(header.textContent).toContain("$0.4200"));
+    await waitFor(() => expect(header.textContent).toContain("<$0.01"));
 
     const panel = screen.getByRole("complementary", { name: "세션 요약" });
     expect(within(panel).getByText("답할 수 있는 사람")).toBeTruthy();
@@ -2556,7 +2572,7 @@ describe("세션 상세 레이아웃", () => {
     const info = within(panel).getByRole("region", { name: "세션 정보" });
     expect(info.textContent).toContain("model-default");
     expect(info.textContent).toContain("demo");
-    await waitFor(() => expect(info.textContent).toContain("$0.4200"));
+    await waitFor(() => expect(info.textContent).toContain("<$0.01"));
     await setupInfo();
     // The session's API carries no branch yet.
     expect(screen.getAllByText("아직 볼 수 없습니다")).toHaveLength(1);
