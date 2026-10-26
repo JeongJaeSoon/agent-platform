@@ -235,24 +235,28 @@ describe("restoring a captured checkout", () => {
     ).toEqual({ status: "restorable" });
   });
 
-  test("reads the upstream where origin's fetch refspec puts it, not a stale default ref", async () => {
-    const stale = await commitFiles({ "a.txt": "a\n" });
-    const tracked = await commitFiles({ "a.txt": "a, then b\n" });
-    await git(root, "remote", "add", "origin", "https://git.example.test/a");
-    await git(
-      root,
-      "config",
-      "remote.origin.fetch",
-      "+refs/heads/*:refs/remotes/origin/cache/*",
-    );
-    await git(root, "update-ref", "refs/remotes/origin/main", stale);
-    await git(root, "update-ref", "refs/remotes/origin/cache/main", tracked);
-    await git(root, "branch", "--quiet", "--set-upstream-to=origin/cache/main");
+  test.each(["refs/remotes/origin/cache", "refs/cache/origin"])(
+    "reads the upstream where origin's fetch refspec puts it (%s), not a stale default ref",
+    async (destination) => {
+      const stale = await commitFiles({ "a.txt": "a\n" });
+      const tracked = await commitFiles({ "a.txt": "a, then b\n" });
+      await git(root, "remote", "add", "origin", "https://git.example.test/a");
+      await git(
+        root,
+        "config",
+        "remote.origin.fetch",
+        `+refs/heads/*:${destination}/*`,
+      );
+      await git(root, "update-ref", "refs/remotes/origin/main", stale);
+      await git(root, "update-ref", `${destination}/main`, tracked);
+      await git(root, "config", "branch.main.remote", "origin");
+      await git(root, "config", "branch.main.merge", "refs/heads/main");
 
-    const restored = await restore(await captured());
+      const restored = await restore(await captured());
 
-    expect((await git(restored, "rev-parse", "@{u}")).trim()).toBe(tracked);
-  });
+      expect((await git(restored, "rev-parse", "@{u}")).trim()).toBe(tracked);
+    },
+  );
 
   test("leaves an upstream that is not on origin behind, and still restores", async () => {
     const head = await commitFiles({ "a.txt": "a\n" });

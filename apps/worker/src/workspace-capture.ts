@@ -904,9 +904,7 @@ async function originUpstream(
     `refs/heads/${branch}`,
   ]);
   const ref = upstream.stdout.trim();
-  if (upstream.code !== 0 || !ref.startsWith("refs/remotes/")) {
-    return undefined;
-  }
+  if (upstream.code !== 0 || ref === "") return undefined;
   const commit = await workspace([
     "rev-parse",
     "--verify",
