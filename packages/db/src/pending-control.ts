@@ -237,6 +237,9 @@ export function createPostgresWorkerPendingStore(
                       pendingRequests.requestId,
                       input.settled.map((item) => item.request_id),
                     ),
+                    // A parked request left its worker behind: the answer,
+                    // the expiry or a close settles it.
+                    isNull(pendingRequests.parkedAt),
                   ),
                 )
                 .orderBy(asc(pendingRequests.requestId))
@@ -329,6 +332,22 @@ export function createPostgresWorkerPendingStore(
           });
         }
         const rows = due.filter((row) => !settledNow.has(row.requestId));
+        if (rows.length > 0) {
+          // Handed over from here: past this commit an engine may act on
+          // the answer.
+          await tx
+            .update(pendingRequests)
+            .set({ deliveredAt: at })
+            .where(
+              and(
+                inArray(
+                  pendingRequests.requestId,
+                  rows.map((row) => row.requestId),
+                ),
+                isNull(pendingRequests.deliveredAt),
+              ),
+            );
+        }
         return {
           outcome: "ok",
           control:

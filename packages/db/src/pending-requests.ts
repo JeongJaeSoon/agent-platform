@@ -22,6 +22,7 @@ import {
   isNull,
   max,
   notInArray,
+  or,
   sql,
 } from "drizzle-orm";
 import {
@@ -78,18 +79,20 @@ function askerIsLive(at: Date | typeof DB_NOW) {
 // SELECT must not straddle an expiry or a lease end.
 const STATEMENT_NOW = sql<Date>`statement_timestamp()`;
 
+// A parked request outlives the attempt that asked: its turn ended with a
+// checkpoint, and the answer is what resumes it.
 function actionable(at: Date | typeof DB_NOW) {
   return and(
     isNull(pendingRequests.resolvedAt),
     gt(pendingRequests.expiresAt, at),
-    askerIsLive(at),
+    or(isNotNull(pendingRequests.parkedAt), askerIsLive(at)),
   );
 }
 
 /**
- * What a client can still act on: open, unexpired and asked by a live
- * attempt. `pending_request_count` counts the same rows, so the summary and
- * the list never disagree.
+ * What a client can still act on: open, unexpired, and parked or asked by a
+ * live attempt. `pending_request_count` counts the same rows, so the summary
+ * and the list never disagree.
  */
 export function actionablePendingWhere(sessionId: string) {
   return and(eq(pendingRequests.sessionId, sessionId), actionable(DB_NOW));
@@ -167,15 +170,25 @@ export function publicStatus<S extends string>(
   stored: S,
   awaitingInput: boolean,
 ): S | "needs_input" | "running" {
+  // An idle session that waits on a person parked its turn on their
+  // requests: only a parked row is answerable with no turn in flight.
+  if (stored === "idle" && awaitingInput) return "needs_input";
   if (!isInFlight(stored)) return stored;
   return awaitingInput ? "needs_input" : "running";
 }
+
+// Stored statuses publicStatus can turn into needs_input.
+export const AWAITABLE_STATUSES: ("running" | "needs_input" | "idle")[] = [
+  ...IN_FLIGHT_STATUSES,
+  "idle",
+];
 
 /**
  * The execution is gone, so answers it was handed but never acknowledged
  * may or may not have reached their callbacks. Their receipts say unknown,
  * not failed: an approval could have been acted on before the worker died.
- * The rows are closed for good either way.
+ * The rows are closed for good either way. A parked row is not the gone
+ * execution's: its answer waits for the turn that resumes it.
  */
 export async function abandonUndeliveredAnswers(
   tx: Database,
@@ -190,6 +203,7 @@ export async function abandonUndeliveredAnswers(
         eq(pendingRequests.sessionId, sessionId),
         isNotNull(pendingRequests.answeredAt),
         isNull(pendingRequests.settledAt),
+        isNull(pendingRequests.parkedAt),
       ),
     )
     .returning({ receiptId: pendingRequests.answerReceiptId });
@@ -205,6 +219,54 @@ export async function abandonUndeliveredAnswers(
         code: "REQUEST_STALE",
         message:
           "the execution ended before confirming the answer reached its request",
+      },
+      updatedAt: now,
+    })
+    .where(
+      and(inArray(receipts.id, receiptIds), eq(receipts.status, "accepted")),
+    );
+}
+
+/**
+ * A person ended what a parked turn was waiting to resume: its requests,
+ * answered or not, settle as cancelled, since no worker is left to say so.
+ * An answer given to one did nothing, and its receipt says that.
+ */
+export async function cancelParkedRequests(
+  tx: Database,
+  scope: { sessionId: string; turnRowId?: number },
+  now: Date,
+) {
+  const cancelled = await tx
+    .update(pendingRequests)
+    .set({
+      resolvedAt: sql`coalesce(${pendingRequests.resolvedAt}, ${now})`,
+      settledAt: now,
+      settledOutcome: "cancelled",
+    })
+    .where(
+      and(
+        eq(pendingRequests.sessionId, scope.sessionId),
+        scope.turnRowId === undefined
+          ? undefined
+          : eq(pendingRequests.turnId, scope.turnRowId),
+        isNotNull(pendingRequests.parkedAt),
+        isNull(pendingRequests.settledAt),
+      ),
+    )
+    .returning({ receiptId: pendingRequests.answerReceiptId });
+  const receiptIds = cancelled.flatMap((row) =>
+    row.receiptId === null ? [] : [row.receiptId],
+  );
+  if (receiptIds.length === 0) return;
+  await tx
+    .update(receipts)
+    .set({
+      status: "failed",
+      error: {
+        code: "REQUEST_STALE",
+        message:
+          "the parked request was cancelled before its answer resumed the turn",
       },
       updatedAt: now,
     })
@@ -373,20 +435,29 @@ export function createPostgresPendingRequests(
           return { outcome: "expired" };
         }
         // The session row is locked, so nothing can move the epoch, the
-        // lease or the turn while this reads them.
-        const [asker] = await tx
-          .select({ attemptId: attempts.id, turnSequence: turns.sequence })
-          .from(pendingRequests)
-          .innerJoin(sessions, eq(sessions.id, pendingRequests.sessionId))
-          .innerJoin(attempts, eq(attempts.id, pendingRequests.attemptId))
-          .innerJoin(turns, eq(turns.id, pendingRequests.turnId))
-          .where(
-            and(
-              eq(pendingRequests.requestId, pending.requestId),
-              askerIsLive(at),
-            ),
-          )
-          .limit(1);
+        // lease or the turn while this reads them. A parked request is
+        // answered whatever became of its asker: only expiry and
+        // resolved_at stand in its way.
+        const [asker] =
+          pending.parkedAt !== null
+            ? await tx
+                .select({ turnSequence: turns.sequence })
+                .from(turns)
+                .where(eq(turns.id, pending.turnId))
+                .limit(1)
+            : await tx
+                .select({ turnSequence: turns.sequence })
+                .from(pendingRequests)
+                .innerJoin(sessions, eq(sessions.id, pendingRequests.sessionId))
+                .innerJoin(attempts, eq(attempts.id, pendingRequests.attemptId))
+                .innerJoin(turns, eq(turns.id, pendingRequests.turnId))
+                .where(
+                  and(
+                    eq(pendingRequests.requestId, pending.requestId),
+                    askerIsLive(at),
+                  ),
+                )
+                .limit(1);
         // A fenced-out asker's requests are closed too, so this goes before
         // resolvedAt: they are stale, not expired.
         if (!asker) return { outcome: "stale" };

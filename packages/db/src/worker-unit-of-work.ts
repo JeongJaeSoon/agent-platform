@@ -2735,6 +2735,7 @@ export function createPostgresWorkerUnitOfWork(
         }
         // Requests the gone worker raised can never be answered by it; left
         // open they would keep the session reporting pending input forever.
+        // A parked one was never the worker's to answer: it stays open.
         await tx
           .update(pendingRequests)
           .set({ resolvedAt: now })
@@ -2742,6 +2743,7 @@ export function createPostgresWorkerUnitOfWork(
             and(
               eq(pendingRequests.sessionId, session.id),
               isNull(pendingRequests.resolvedAt),
+              isNull(pendingRequests.parkedAt),
             ),
           );
         await abandonUndeliveredAnswers(tx, session.id, now);
