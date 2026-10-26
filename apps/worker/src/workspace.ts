@@ -346,10 +346,7 @@ export class GitWorkspace implements WorkspacePreparer {
       throw error;
     });
     if (entries.length === 0) return { kind: "empty" };
-    const staging = await lstat(join(this.root, CLONE_STAGING)).catch(
-      () => null,
-    );
-    if (staging?.isDirectory() === true) return { kind: "interrupted" };
+    if (await cloneStaged(this.root)) return { kind: "interrupted" };
     // A directory for a clone, a file for a linked worktree.
     if ((await stat(join(this.root, ".git")).catch(() => null)) === null) {
       return { kind: "foreign" };
@@ -419,10 +416,10 @@ export class GitWorkspace implements WorkspacePreparer {
   }
 
   /**
-   * Clones into `CLONE_STAGING` and only then moves the result up to the
-   * root, the staging directory going last. Made before anything at the root
-   * is deleted, it marks the root as this preparation's own until the clone
-   * is complete, so an attempt stopped at any point leaves `interrupted`.
+   * Clones into `.git/CLONE_STAGING` and only then moves the result up: the
+   * tree to the root, the clone's git directory into the root's `.git`, the
+   * staging directory last. It is made before anything at the root is
+   * deleted, so an attempt stopped at any point leaves `interrupted`.
    */
   private async clone(
     git: Git,
@@ -431,17 +428,25 @@ export class GitWorkspace implements WorkspacePreparer {
     signal: AbortSignal,
   ): Promise<void> {
     signal.throwIfAborted();
-    const staging = join(this.root, CLONE_STAGING);
+    const gitDirectory = join(this.root, ".git");
+    const staging = join(gitDirectory, CLONE_STAGING);
     await mkdir(this.root, { recursive: true });
-    await mkdir(staging).catch(async (error: unknown) => {
-      const found = await lstat(staging).catch(() => null);
-      if (found?.isDirectory() === true) return;
-      throw error;
-    });
+    // A `.git` file or link is the unsound checkout's; what it points at is
+    // not the root's to empty.
+    const found = await lstat(gitDirectory).catch(() => null);
+    if (found !== null && !found.isDirectory()) await rm(gitDirectory);
+    await mkdir(staging, { recursive: true });
+    if (!(await lstat(staging)).isDirectory()) {
+      throw new Error(`Workspace ${this.root} refused: ${staging} is a link`);
+    }
     // The root is the backend's mount point: empty it, keep it.
     for (const entry of await readdir(this.root)) {
-      if (entry === CLONE_STAGING) continue;
+      if (entry === ".git") continue;
       await rm(join(this.root, entry), { force: true, recursive: true });
+    }
+    for (const entry of await readdir(gitDirectory)) {
+      if (entry === CLONE_STAGING) continue;
+      await rm(join(gitDirectory, entry), { force: true, recursive: true });
     }
     for (const entry of await readdir(staging)) {
       await rm(join(staging, entry), { force: true, recursive: true });
@@ -473,9 +478,15 @@ export class GitWorkspace implements WorkspacePreparer {
         "remote set-url",
       );
     }
+    const stagedGit = join(staging, ".git");
     for (const entry of await readdir(staging)) {
+      if (entry === ".git") continue;
       await rename(join(staging, entry), join(this.root, entry));
     }
+    for (const entry of await readdir(stagedGit)) {
+      await rename(join(stagedGit, entry), join(gitDirectory, entry));
+    }
+    await rmdir(stagedGit);
     await rmdir(staging);
   }
 
@@ -526,8 +537,23 @@ export class GitWorkspace implements WorkspacePreparer {
   }
 }
 
-/** Where `GitWorkspace` clones before the result moves up to the root. */
-const CLONE_STAGING = ".agent-platform-clone";
+/**
+ * Where `GitWorkspace` clones, inside `.git`, before the result moves up.
+ * No tracked path can be there, and `.git/agent-platform-*` is the worker's
+ * own, as for `workerScratch`.
+ */
+const CLONE_STAGING = "agent-platform-clone";
+
+/** Whether a clone began at `root` and never finished. */
+async function cloneStaged(root: string): Promise<boolean> {
+  const gitDirectory = join(root, ".git");
+  const found = await lstat(gitDirectory).catch(() => null);
+  if (found?.isDirectory() !== true) return false;
+  const staging = await lstat(join(gitDirectory, CLONE_STAGING)).catch(
+    () => null,
+  );
+  return staging?.isDirectory() === true;
+}
 
 /**
  * What a session without a repository keeps out of its checkpoints, having

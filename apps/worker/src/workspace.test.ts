@@ -468,19 +468,46 @@ describe("GitWorkspace", () => {
     }
   });
 
-  test("never empties what a committed link in the clone's staging place points at", async () => {
-    const outside = join(scratch, "outside");
-    await mkdir(outside);
-    await writeFile(join(outside, "keep.txt"), "keep\n");
-    const seed = join(scratch, "seed");
-    await symlink(outside, join(seed, ".agent-platform-clone"));
-    git(["add", ".agent-platform-clone"], seed);
-    git(["commit", "--quiet", "-m", "link"], seed);
-    git(["push", "--quiet", "origin", "HEAD:main"], seed);
+  test("a directory in the tree named like the clone's staging marks nothing", async () => {
     git(["clone", "--quiet", "--depth=1", `file://${origin}`, root], scratch);
+    for (const name of [".agent-platform-clone", "agent-platform-clone"]) {
+      await mkdir(join(root, name));
+    }
+    await writeFile(join(root, "draft.txt"), "only here\n");
 
-    await expect(prepare(descriptor(`file://${origin}`))).rejects.toThrow();
-    expect(await readdir(outside)).toEqual(["keep.txt"]);
+    await expect(prepare(descriptor(`file://${origin}`))).rejects.toThrow(
+      "holds work that exists nowhere else",
+    );
+    expect(await Bun.file(join(root, "draft.txt")).text()).toBe("only here\n");
+  });
+
+  test("clones a repository that tracks paths named like the clone's staging", async () => {
+    const seed = join(scratch, "seed");
+    for (const name of [".agent-platform-clone", "agent-platform-clone"]) {
+      await mkdir(join(seed, name));
+      await writeFile(join(seed, name, "file.txt"), `${name}\n`);
+    }
+    git(["add", "-A"], seed);
+    git(["commit", "--quiet", "-m", "names"], seed);
+    git(["push", "--quiet", "origin", "HEAD:main"], seed);
+
+    expect(await prepare(descriptor())).toBe("clone");
+    expect(
+      await Bun.file(join(root, "agent-platform-clone", "file.txt")).text(),
+    ).toBe("agent-platform-clone\n");
+    expect(git(["status", "--porcelain"], root)).toBe("");
+  });
+
+  test("a recreate removes a .git link and empties nothing it points at", async () => {
+    git(["clone", "--quiet", "--depth=1", `file://${origin}`, root], scratch);
+    const elsewhere = join(scratch, "elsewhere.git");
+    await rename(join(root, ".git"), elsewhere);
+    await symlink(elsewhere, join(root, ".git"));
+    const before = readdirSync(elsewhere).sort();
+
+    expect(await prepare(descriptor(`file://${origin}`))).toBe("recreate");
+    expect(readdirSync(elsewhere).sort()).toEqual(before);
+    expect(git(["rev-parse", "--is-shallow-repository"], root)).toBe("false");
   });
 
   test("a recreate that failed while emptying the root is recreated by the next attempt", async () => {
