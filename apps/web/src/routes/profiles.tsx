@@ -5,7 +5,7 @@ import {
   Alert,
   AlertDescription,
   AlertTitle,
-  Badge,
+  cn,
   EmptyState,
   GridTable,
   GridTableCell,
@@ -88,33 +88,49 @@ export function ProfilesScreen() {
 
 function ProfileRow({ profile }: { readonly profile: ProfileSummary }) {
   const { t } = useI18n();
-  const tools = profile.tools.join(", ");
   return (
     <GridTableRow>
-      <GridTableCell lines={true}>
-        <span className="truncate font-medium font-mono text-foreground">
-          {profile.id}
-        </span>
-        <span className={`truncate ${META}`}>
-          {t("profiles.runtime", { version: profile.runtime_version })}
-        </span>
+      <GridTableCell>
+        <Stack
+          first={profile.id}
+          firstClassName="font-medium font-mono text-foreground"
+          second={t("profiles.runtime", { version: profile.runtime_version })}
+        />
       </GridTableCell>
-      <GridTableCell lines={true}>
-        <Badge variant="mono" className="max-w-full truncate">
-          {profile.model}
-        </Badge>
-        <span className={`truncate ${META}`}>
-          {t(`profiles.billing.${profile.billing}`)}
-        </span>
+      <GridTableCell>
+        <Stack
+          first={profile.model}
+          firstClassName="font-mono text-caption"
+          second={t(`profiles.billing.${profile.billing}`)}
+        />
       </GridTableCell>
-      <GridTableCell lines={true}>
-        <span className="truncate">
-          {t(`profiles.repository.${profile.repository_mode}`)}
-        </span>
-        <span className={`truncate ${META}`} title={tools || undefined}>
-          {tools || t("profiles.noTools")}
-        </span>
+      <GridTableCell>
+        <Stack
+          first={t(`profiles.repository.${profile.repository_mode}`)}
+          second={profile.tools.join(", ") || t("profiles.noTools")}
+        />
       </GridTableCell>
     </GridTableRow>
+  );
+}
+
+// Not GridTableCell `lines`, which truncates: on a phone every value wraps
+// in full instead (no detail view holds the rest).
+function Stack({
+  first,
+  firstClassName,
+  second,
+}: {
+  readonly first: string;
+  readonly firstClassName?: string;
+  readonly second: string;
+}) {
+  return (
+    <div className="flex min-w-0 flex-col gap-[var(--ap-row-line-gap)]">
+      <span className={cn("wrap-anywhere leading-5", firstClassName)}>
+        {first}
+      </span>
+      <span className={cn("wrap-anywhere leading-4", META)}>{second}</span>
+    </div>
   );
 }

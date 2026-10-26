@@ -69,7 +69,8 @@ describe("실행 프로필", () => {
         "저장소 쓰지 않음도구 없음",
       ],
     ]);
-    expect(table.querySelector("[data-hide-narrow]")).toBeNull();
+    // DOM tests cannot see CSS clipping: no cell hides narrow or truncates.
+    expect(table.querySelector("[data-hide-narrow], .truncate")).toBeNull();
     expect(screen.getByText("프로필 2개")).toBeDefined();
     expect(
       screen.getByText(
