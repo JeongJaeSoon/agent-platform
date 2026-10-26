@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { SessionEvent } from "@werft-ai/contracts";
 import {
   CLAUDE_DESCRIPTOR,
   CLAUDE_RUNTIME_FINGERPRINT,
@@ -45,6 +46,8 @@ import type {
 import { claudeProfileFingerprint } from "./profile-fingerprint.ts";
 import { remoteMcpRelay } from "./remote-mcp.ts";
 import { ClaudeSdkRuntime } from "./runtime.ts";
+import { TurnAccounting } from "./turn-accounting.ts";
+import { namedInputs, turnEndedOf } from "./turn-ended.ts";
 
 const QUESTION_TOOL = "AskUserQuestion";
 const TOOL_CALL_WAIT_MS = 10_000;
@@ -241,6 +244,7 @@ type AwaitingCall = {
 
 class ClaudeContractRun implements AgentRun {
   private readonly channel = new ApprovalChannel();
+  private readonly accounting = new TurnAccounting();
   private readonly driver: DriverRun;
   private readonly awaitingCall: AwaitingCall[] = [];
   private readonly outbox: RuntimeEvent[] = [];
@@ -249,6 +253,7 @@ class ClaudeContractRun implements AgentRun {
   private readonly answered = new Set<string>();
   private wake: (() => void) | undefined;
   private consumed = false;
+  private latestInput: string | undefined;
 
   constructor(
     start: (hooks: RuntimeHooks) => DriverRun,
@@ -297,6 +302,7 @@ class ClaudeContractRun implements AgentRun {
 
   send(input: AgentInput): void {
     this.driver.send(input);
+    this.latestInput = input.uuid;
   }
 
   finishInput(): void {
@@ -396,17 +402,63 @@ class ClaudeContractRun implements AgentRun {
 
   private eventsOf(frame: AgentFrame): RuntimeEvent[] {
     const message = frame.envelope.message;
+    this.accounting.observe(message);
+    const named = namedInputs(message);
+    const inputs = named.length > 0 ? named : frame.inputs;
     const calls = toolCallsOf(message);
     for (const call of calls) this.callEmitted(call.toolCallId);
+    // The mapper gives each content block an event of its own, so a call is
+    // named right after the one that carries it and stored no later.
+    const unplaced = [...calls];
+    const events = frame.events.flatMap((event): RuntimeEvent[] => {
+      const carried = unplaced.findIndex(
+        (call) => call.toolCallId === toolCallIdOf(event),
+      );
+      const [call] = carried === -1 ? [] : unplaced.splice(carried, 1);
+      return [
+        { type: "public", event, ...(inputs === undefined ? {} : { inputs }) },
+        ...(call === undefined
+          ? []
+          : [{ type: "tool.called", ...call } satisfies RuntimeEvent]),
+      ];
+    });
     return [
-      ...frame.events.map((event): RuntimeEvent => ({ type: "public", event })),
-      ...calls.map((call): RuntimeEvent => ({ type: "tool.called", ...call })),
-      {
-        type: "native",
-        message,
-        ...(frame.inputs === undefined ? {} : { inputs: frame.inputs }),
-      },
+      ...(events.length === 0 && inputs !== undefined && inputs.length > 0
+        ? [{ type: "inputs.named", inputs } satisfies RuntimeEvent]
+        : []),
+      ...events,
+      ...unplaced.map(
+        (call): RuntimeEvent => ({ type: "tool.called", ...call }),
+      ),
+      ...this.outcomeOf(message),
+      { type: "native", message },
     ];
+  }
+
+  private outcomeOf(message: NativeSdkMessage): RuntimeEvent[] {
+    if (message.type === "result") {
+      return [
+        {
+          type: "turn.ended",
+          turn: turnEndedOf(message, this.accounting, this.latestInput),
+        },
+      ];
+    }
+    if (message.type === "system" && message.subtype === "mirror_error") {
+      return [
+        {
+          type: "runtime.warning",
+          kind: "transcript_mirror_failed",
+          detail: {
+            error:
+              typeof message.error === "string" && message.error.length > 0
+                ? message.error
+                : "unspecified error",
+          },
+        },
+      ];
+    }
+    return [];
   }
 
   private callEmitted(toolCallId: string): void {
@@ -503,6 +555,14 @@ function decisionOf(
         ...(answer.reason === "park" ? { interrupt: true } : {}),
       };
   }
+}
+
+function toolCallIdOf(event: SessionEvent): string | undefined {
+  if (event.event !== "tool_use") return undefined;
+  const content = (event.data.message as { content?: unknown } | null)?.content;
+  const block = Array.isArray(content) ? content[0] : undefined;
+  const id = (block as { id?: unknown } | undefined)?.id;
+  return typeof id === "string" ? id : undefined;
 }
 
 function toolCallsOf(

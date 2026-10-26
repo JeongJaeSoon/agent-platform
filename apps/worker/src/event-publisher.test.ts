@@ -45,26 +45,24 @@ function accepted(request: AppendEventsRequest): AppendEventsResponse {
   return { accepted_through: last, cursor: `cursor-${last}` };
 }
 
-function toolUseEvent(toolUseId: string): SessionEvent {
-  return {
-    id: toolUseId,
-    event: "tool_use",
-    data: {
-      type: "assistant",
-      message: {
-        role: "assistant",
-        content: [{ type: "tool_use", id: toolUseId, name: "Bash", input: {} }],
-      },
-      parent_tool_use_id: null,
-    },
-  };
+/** Publishes the event carrying a call, then names the call, as the pump does. */
+function publishCall(events: EventPublisher, toolCallId: string): void {
+  events.publish([systemEvent(`call:${toolCallId}`)], "1");
+  events.toolCalled(toolCallId);
 }
+
+const carriesCall = (request: AppendEventsRequest) =>
+  request.events.some(
+    (event) =>
+      event.event === "system" &&
+      String(event.data.subtype).startsWith("call:"),
+  );
 
 describe("EventPublisher", () => {
   test("lets a permission callback wait until the frame carrying its tool call is stored", async () => {
     let release: (() => void) | undefined;
     const { publisher: events } = publisher(async (request) => {
-      if (request.events.some((event) => event.event === "tool_use")) {
+      if (carriesCall(request)) {
         await new Promise<void>((resolve) => {
           release = resolve;
         });
@@ -75,11 +73,12 @@ describe("EventPublisher", () => {
     const waiting = events.toolUseStored("toolu_1", 5_000).then(() => {
       stored = true;
     });
-    events.publish([systemEvent("a"), toolUseEvent("toolu_other")], "1");
+    events.publish([systemEvent("a")], "1");
+    publishCall(events, "toolu_other");
     await Bun.sleep(5);
     expect(stored).toBe(false);
     release?.();
-    events.publish([toolUseEvent("toolu_1")], "1");
+    publishCall(events, "toolu_1");
     // Numbered is not enough: it has to be stored.
     await Bun.sleep(5);
     expect(stored).toBe(false);
@@ -92,7 +91,7 @@ describe("EventPublisher", () => {
     const { publisher: events } = publisher(async (request) =>
       accepted(request),
     );
-    events.publish([toolUseEvent("toolu_1")], "1");
+    publishCall(events, "toolu_1");
     await events.toolUseStored("toolu_1", 5_000);
     // The engine used the id again: this wait is for a frame not seen yet.
     await expect(events.toolUseStored("toolu_1", 30)).rejects.toThrow(
@@ -103,15 +102,44 @@ describe("EventPublisher", () => {
       throw new WorkerGatewayRequestError(409, "STALE_EPOCH", "fenced", false);
     }).publisher;
     const waiting = failing.toolUseStored("toolu_2", 5_000);
-    failing.publish([toolUseEvent("toolu_2")], "1");
+    publishCall(failing, "toolu_2");
     await expect(waiting).rejects.toThrow("fenced");
     // A call stored before the stream failed does not let a request through.
-    events.publish([toolUseEvent("toolu_3")], "1");
+    publishCall(events, "toolu_3");
     await events.idle();
     events.abandon("owner lost");
     await expect(events.toolUseStored("toolu_3", 5_000)).rejects.toThrow(
       "abandoned",
     );
+  });
+
+  test("waits for the call to be named, not for an event that looks like one", async () => {
+    const { publisher: events } = publisher(async (request) =>
+      accepted(request),
+    );
+    events.publish(
+      [
+        {
+          id: "toolu_1",
+          event: "tool_use",
+          data: {
+            type: "assistant",
+            message: {
+              role: "assistant",
+              content: [{ type: "tool_use", id: "toolu_1", name: "Bash" }],
+            },
+            parent_tool_use_id: null,
+          },
+        },
+      ],
+      "1",
+    );
+
+    await expect(events.toolUseStored("toolu_1", 30)).rejects.toThrow(
+      "did not reach the event stream within 30ms",
+    );
+    events.toolCalled("toolu_1");
+    await events.toolUseStored("toolu_1", 5_000);
   });
 
   test("counts a wait from when the engine asked, not from when the host began waiting", async () => {
