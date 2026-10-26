@@ -4,7 +4,7 @@ import {
   type TurnEventPresentation,
   type TurnSummary,
 } from "@werft-ai/contracts";
-import { type ReactNode, useMemo } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import {
   Message,
   Timeline,
@@ -96,15 +96,19 @@ function questionOf(frame: SessionEventFrame) {
 /**
  * The tool calls a question or permission request holds back: asked, with
  * neither an answer nor a result yet. As in run-tree, a request is answered
- * once a later status leaves needs_input.
+ * once a later status leaves needs_input; the session stays there while any
+ * other request waits, so one known `answered` is let go sooner.
  */
 export function heldToolCalls(
   events: readonly SessionEventFrame[],
+  answered: ReadonlySet<string> = new Set(),
 ): ReadonlySet<string> {
   const held = new Set<string>();
   for (const { payload } of events) {
-    if (payload.event === "question") held.add(payload.data.tool_use_id);
-    else if (payload.event === "status") {
+    if (payload.event === "question") {
+      if (!answered.has(payload.data.request_id))
+        held.add(payload.data.tool_use_id);
+    } else if (payload.event === "status") {
       if (payload.data.phase !== "needs_input") held.clear();
     } else if (payload.event === "tool_result") {
       const id = eventToolCallId(payload);
@@ -120,6 +124,7 @@ export function SessionTimeline({
   state,
   debug = false,
   request,
+  pending,
   turns,
 }: {
   readonly events: readonly SessionEventFrame[];
@@ -127,6 +132,11 @@ export function SessionTimeline({
   readonly debug?: boolean;
   /** Drawn under a request's line; see `Timeline`. */
   readonly request?: ((requestId: string) => ReactNode) | undefined;
+  /**
+   * The requests waiting for an answer, as last listed: one listed before
+   * and gone since was answered, so its call no longer waits.
+   */
+  readonly pending?: readonly string[] | undefined;
   /** The session's turns: each one's message heads its events. */
   readonly turns?: readonly TurnSummary[] | undefined;
 }) {
@@ -149,7 +159,15 @@ export function SessionTimeline({
       ),
     [events, t, locale],
   );
-  const held = useMemo(() => heldToolCalls(events), [events]);
+  const [listed, setListed] = useState<readonly string[]>([]);
+  const fresh = pending?.filter((requestId) => !listed.includes(requestId));
+  if (fresh !== undefined && fresh.length > 0) setListed([...listed, ...fresh]);
+  const answered = new Set(
+    pending === undefined
+      ? []
+      : listed.filter((requestId) => !pending.includes(requestId)),
+  );
+  const held = heldToolCalls(events, answered);
   const asked = useMemo(
     () => new Map(turns?.map((turn) => [turn.turn_id, turn])),
     [turns],

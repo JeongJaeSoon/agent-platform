@@ -80,6 +80,21 @@ describe("heldToolCalls", () => {
     ).toBe(0);
   });
 
+  test("둘 중 하나만 답하면 세션이 needs_input이어도 그 호출은 막지 않는다", () => {
+    expect([
+      ...heldToolCalls(
+        [
+          call("c1"),
+          ask("c1", "permission"),
+          call("c2"),
+          ask("c2", "permission"),
+          status("needs_input"),
+        ],
+        new Set(["req_c1"]),
+      ),
+    ]).toEqual(["c2"]);
+  });
+
   test("거부해 실패 결과가 오면 막지 않는다", () => {
     expect(
       heldToolCalls([

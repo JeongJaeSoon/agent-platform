@@ -283,6 +283,7 @@ function RailBody({
               request={(requestId) =>
                 seen.includes(requestId) ? slot(requestId) : null
               }
+              pending={pending.data?.items.map((item) => item.request_id)}
             />
           </div>
         </div>

@@ -172,6 +172,7 @@ export function SessionDetail({
             events={events.events}
             state={events.state}
             debug={debug}
+            pending={pending.data?.items.map((item) => item.request_id)}
             turns={turns.data?.items}
           />
         </div>
