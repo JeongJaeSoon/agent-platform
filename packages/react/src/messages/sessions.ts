@@ -145,7 +145,7 @@ export const sessionsKo = {
   "session.control.cancel": "취소",
   "session.control.none": "지금 할 수 있는 제어가 없습니다.",
   "session.control.sent":
-    "요청을 보냈습니다. 바뀐 상태는 위 '상태'에 보입니다.",
+    "요청을 보냈습니다. 바뀐 상태는 제목 옆 배지에 보입니다.",
 
   "session.composer.label": "다음 지시",
   "session.composer.send": "보내기",
@@ -378,7 +378,7 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "session.control.cancel": "Cancel",
   "session.control.none": "Nothing to control right now.",
   "session.control.sent":
-    "Request sent. The new state shows under Status above.",
+    "Request sent. The new state shows in the badges beside the title.",
 
   "session.composer.label": "Next instruction",
   "session.composer.send": "Send",
@@ -614,7 +614,7 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
   "session.control.cancel": "キャンセル",
   "session.control.none": "現在実行できる操作はありません。",
   "session.control.sent":
-    "リクエストを送信しました。変更後の状態は上の「状態」に表示されます。",
+    "リクエストを送信しました。変更後の状態はタイトル横のバッジに表示されます。",
 
   "session.composer.label": "次の指示",
   "session.composer.send": "送信",

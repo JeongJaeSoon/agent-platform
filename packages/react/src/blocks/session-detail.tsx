@@ -306,6 +306,15 @@ export function SessionDetail({
               label={t(`sessions.status.${detail.status}`)}
               axisLabel={t("sessions.column.status")}
             />
+            {/* A paused session otherwise reads the same as an idle one. */}
+            {detail.admission_state === "active" ? null : (
+              <StatusLabel
+                axis="admission"
+                state={detail.admission_state}
+                label={t(`sessions.admission.${detail.admission_state}`)}
+                axisLabel={t("sessions.column.admission")}
+              />
+            )}
           </span>
         }
         description={
