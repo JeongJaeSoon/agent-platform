@@ -23,7 +23,7 @@ import {
   useSessionEvents,
 } from "../sessions.ts";
 import { PendingAnswers, type SessionActionProps } from "./session-actions.tsx";
-import { SessionTimeline } from "./session-timeline.tsx";
+import { listedRequests, SessionTimeline } from "./session-timeline.tsx";
 import { useBlockText } from "./text.ts";
 
 export interface PendingRailOptions extends SessionActionProps {
@@ -283,6 +283,7 @@ function RailBody({
               request={(requestId) =>
                 seen.includes(requestId) ? slot(requestId) : null
               }
+              pending={listedRequests(pending)}
             />
           </div>
         </div>

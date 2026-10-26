@@ -198,6 +198,43 @@ describe("Timeline 도구 호출과 결과", () => {
     expect(open?.textContent).toContain("running");
   });
 
+  test("답을 기다리는 요청이 막은 호출은 실행 중이 아니라 답변 대기다", () => {
+    render(
+      <Timeline
+        entries={[call("c1"), call("c2")]}
+        formatMessage={formatMessage}
+        messages={{ ...MESSAGES, waiting: "waiting" }}
+        held={new Set(["c1"])}
+        now={START}
+      />,
+    );
+    const [held, open] = rows();
+    expect(held?.textContent).toContain("waiting");
+    expect(held?.textContent).not.toContain("running");
+    expect(
+      [...(held?.querySelectorAll("span") ?? [])].find(
+        (span) => span.textContent === "waiting",
+      )?.className,
+    ).toContain("--ap-tone-attention-fg");
+    expect(open?.textContent).toContain("running");
+    expect(open?.textContent).not.toContain("waiting");
+  });
+
+  test("막힌 호출도 결과가 오면 대기도 실행 중도 아니다", () => {
+    render(
+      <Timeline
+        entries={[call("c1"), result("c1", true)]}
+        formatMessage={formatMessage}
+        messages={{ ...MESSAGES, waiting: "waiting" }}
+        held={new Set(["c1"])}
+        now={START}
+      />,
+    );
+    const [row] = rows();
+    expect(row?.textContent).not.toContain("waiting");
+    expect(row?.textContent).not.toContain("running");
+  });
+
   test("호출 행에 들어간 결과도 제 시각을 키보드로 닿게 둔다", () => {
     render(
       <Timeline
