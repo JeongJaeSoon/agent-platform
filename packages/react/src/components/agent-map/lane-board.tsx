@@ -94,7 +94,9 @@ export function MapSessionCard({
           <Badge variant="amber">
             {session.pending.kind === "question"
               ? messages.questions(1)
-              : messages.approvals(1)}
+              : session.pending.kind === "request"
+                ? messages.requests(1)
+                : messages.approvals(1)}
           </Badge>
         ) : null}
         {session.pinnedLane ? (

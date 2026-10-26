@@ -85,7 +85,8 @@ export interface MapSession {
   /** The open request a person has to answer. */
   readonly pending?:
     | {
-        readonly kind: "approval" | "question";
+        /** "request": waiting, but on a request the list does not show. */
+        readonly kind: "approval" | "question" | "request";
         readonly tool: string;
         readonly waitedMinutes: number;
       }

@@ -28,6 +28,7 @@ export interface AgentMapMessages {
   readonly errors: (count: number) => string;
   readonly approvals: (count: number) => string;
   readonly questions: (count: number) => string;
+  readonly requests: (count: number) => string;
   readonly pinned: string;
   readonly ownRun: string;
   readonly sessionRun: string;
@@ -59,6 +60,8 @@ export interface AgentMapMessages {
   readonly noAgent: string;
   /** Leads a pending question on the approval strip. */
   readonly question: string;
+  /** A wait whose request the list does not show. */
+  readonly openRequest: string;
 }
 
 const STATUS_KO: Record<SessionStatus, string> = {
@@ -126,6 +129,7 @@ export const AGENT_MAP_MESSAGES: Readonly<Record<Locale, AgentMapMessages>> = {
     errors: (count) => `오류 ${count}`,
     approvals: (count) => `승인 ${count}`,
     questions: (count) => `질문 ${count}`,
+    requests: (count) => `요청 ${count}`,
     pinned: "자리 정리 대기",
     ownRun: "직접 호출",
     sessionRun: "세션 실행",
@@ -163,6 +167,7 @@ export const AGENT_MAP_MESSAGES: Readonly<Record<Locale, AgentMapMessages>> = {
     noActivity: "아직 활동 없음",
     noAgent: "에이전트 없음",
     question: "질문",
+    openRequest: "답할 요청",
   },
   ja: {
     status: (status) => STATUS_JA[status],
@@ -202,6 +207,7 @@ export const AGENT_MAP_MESSAGES: Readonly<Record<Locale, AgentMapMessages>> = {
     errors: (count) => `エラー ${count}`,
     approvals: (count) => `承認 ${count}`,
     questions: (count) => `質問 ${count}`,
+    requests: (count) => `リクエスト ${count}`,
     pinned: "並べ替え待ち",
     ownRun: "直接呼び出し",
     sessionRun: "セッション実行",
@@ -239,6 +245,7 @@ export const AGENT_MAP_MESSAGES: Readonly<Record<Locale, AgentMapMessages>> = {
     noActivity: "まだ活動なし",
     noAgent: "エージェントなし",
     question: "質問",
+    openRequest: "回答待ちのリクエスト",
   },
   en: {
     status: (status) => STATUS_EN[status],
@@ -279,6 +286,7 @@ export const AGENT_MAP_MESSAGES: Readonly<Record<Locale, AgentMapMessages>> = {
     errors: (count) => `${count} errors`,
     approvals: (count) => `${count} approval`,
     questions: (count) => `${count} question`,
+    requests: (count) => `${count} request`,
     pinned: "Waiting to tidy",
     ownRun: "Direct calls",
     sessionRun: "Session run",
@@ -316,5 +324,6 @@ export const AGENT_MAP_MESSAGES: Readonly<Record<Locale, AgentMapMessages>> = {
     noActivity: "No activity yet",
     noAgent: "No agent",
     question: "Question",
+    openRequest: "Open request",
   },
 };

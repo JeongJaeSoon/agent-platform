@@ -60,7 +60,8 @@ function firstCard(sessions: readonly MapSession[]) {
 /**
  * The newest page plus the waiting sessions older than it, so the strip
  * counts what the sidebar badge counts. The waiting list is the badge's own
- * query, so it adds no read; where both list a session, the later read wins.
+ * query and polls at its pace. Where both list a session the newest page,
+ * read every BOARD_POLL_MS, wins: a response that lands late may be older.
  */
 function useBoardSessions() {
   const { client } = useAgentPlatform();
@@ -71,18 +72,12 @@ function useBoardSessions() {
   const merged = useMemo(() => {
     if (waiting.isPending) return undefined;
     if (!list.data || !waiting.data) return list.data;
-    const later = waiting.dataUpdatedAt > list.dataUpdatedAt;
-    const byId = new Map(list.data.items.map((s) => [s.id, s]));
-    for (const session of waiting.data.items)
-      if (later || !byId.has(session.id)) byId.set(session.id, session);
-    return { ...list.data, items: [...byId.values()] };
-  }, [
-    list.data,
-    list.dataUpdatedAt,
-    waiting.data,
-    waiting.dataUpdatedAt,
-    waiting.isPending,
-  ]);
+    const seen = new Set(list.data.items.map((s) => s.id));
+    const older = waiting.data.items.filter((s) => !seen.has(s.id));
+    return older.length === 0
+      ? list.data
+      : { ...list.data, items: [...list.data.items, ...older] };
+  }, [list.data, waiting.data, waiting.isPending]);
   const data = useUnseenRequests(merged);
   return {
     list,
@@ -94,7 +89,8 @@ function useBoardSessions() {
 /**
  * A waiting session whose open request the list's activity does not show
  * (asked before its event window, or behind a newer open call) reads its
- * pending requests, so it still stands on the strip. Usually none does.
+ * pending requests to say what it waits on. Until they come, or if they
+ * fail, its card still stands on the strip as an open request.
  */
 function useUnseenRequests(list: ListSessionsResponse | undefined) {
   const { client } = useAgentPlatform();
