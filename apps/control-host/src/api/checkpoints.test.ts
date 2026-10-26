@@ -91,7 +91,7 @@ beforeAll(async () => {
 
 async function checkpointWith(bytes: Uint8Array, commit: string) {
   const objects = createMemoryCheckpointObjectStore();
-  await objects.put(bundleKey, bytes);
+  await objects.overwrite(bundleKey, bytes);
   const manifest = {
     createdAt: "2026-09-23T00:00:00.000Z",
     cwd: "/workspace",
@@ -123,7 +123,7 @@ async function checkpointWith(bytes: Uint8Array, commit: string) {
   const codec = codecs.fake;
   if (!codec) throw new Error("fake codec missing");
   const encoded = codec.encode(manifest);
-  await objects.put(manifestRef, encoded.bytes);
+  await objects.overwrite(manifestRef, encoded.bytes);
   return {
     objects,
     checkpoint: {

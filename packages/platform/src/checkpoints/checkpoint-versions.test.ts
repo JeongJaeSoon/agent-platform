@@ -286,8 +286,8 @@ describe("locked (the default)", () => {
 
     // A privileged overwrite with bytes of the same length, a delete marker,
     // and a create-only write that lands again once the key reads as absent.
-    await objects.put(part.key, encode("b\n"));
-    await objects.put(checkpoint.manifest_ref, encode("{}\n"));
+    await objects.overwrite(part.key, encode("b\n"));
+    await objects.overwrite(checkpoint.manifest_ref, encode("{}\n"));
     const untracked = manifest.workspace.untracked[0] as ObjectRef;
     objects.remove(untracked.key);
     objects.remove(manifest.workspace.bundle.key);
@@ -727,7 +727,7 @@ describe("locked fallback to an earlier revision", () => {
     destroy(second);
     // The earlier manifest's key is rewritten and its part's key deleted;
     // the versions revision 0 committed are untouched.
-    await objects.put(older.checkpoint.manifest_ref, encode("{}\n"));
+    await objects.overwrite(older.checkpoint.manifest_ref, encode("{}\n"));
     objects.remove(first.key);
 
     const result = await service.getRestorePlan({ runtime, sessionId });
@@ -954,7 +954,7 @@ describe("unversioned, then locked", () => {
     // ref names holds different bytes of the same length.
     const key = `${prefix}mirror/part-0.jsonl`;
     const older = await upload(key, encode("a\n"));
-    await objects.put(key, encode("b\n"));
+    await objects.overwrite(key, encode("b\n"));
     const stranger: ObjectRef = {
       ...older,
       sha256: sha256(encode("b\n")),
@@ -982,7 +982,7 @@ describe("unversioned, then locked", () => {
   test("a hold some later candidate placed on the old manifest does not make its versions trusted", async () => {
     const key = `${prefix}mirror/part-0.jsonl`;
     const older = await upload(key, encode("a\n"));
-    await objects.put(key, encode("b\n"));
+    await objects.overwrite(key, encode("b\n"));
     const stranger: ObjectRef = { ...older, sha256: sha256(encode("b\n")) };
     const locked = service;
     service = unversionedService();
@@ -1266,7 +1266,7 @@ describe("reading outputs", () => {
   test("streams a listed output by the version the checkpoint pinned", async () => {
     const { report } = await commitReport();
     // An overwrite after the commit changes what the key reads, not the version.
-    await objects.put(report.key, encode("# swapped\n"));
+    await objects.overwrite(report.key, encode("# swapped\n"));
 
     const opened = await service.openOutput(sessionId, "out/report.md");
     expect(opened).toMatchObject({ status: "ready", output: report });
@@ -1316,7 +1316,7 @@ describe("reading outputs", () => {
       workspaceBundles: structuralBundleVerifier,
     });
     // Same length, so only the digest can tell.
-    await objects.put(report.key, encode("# Report\n"));
+    await objects.overwrite(report.key, encode("# Report\n"));
 
     const opened = await unversioned.openOutput(sessionId, "out/report.md");
     expect(opened.status).toBe("ready");

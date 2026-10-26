@@ -79,7 +79,7 @@ localstackTest(
         const manifest = "sessions/s1/checkpoints/0000000000/manifest.json";
         const part = "sessions/s1/mirror/part-0000000000.jsonl";
         await store.putImmutable(manifest, encode("{}"));
-        await store.put(part, encode("one\n"));
+        await store.putImmutable(part, encode("one\n"));
         for (const key of [manifest, part]) {
           const head = await s3.send(
             new HeadObjectCommand({ Bucket: bucket, Key: key }),
@@ -105,7 +105,7 @@ localstackTest(
             encode(`{"revision":${revision}}\n`),
           );
         }
-        await store.put(
+        await store.putImmutable(
           "sessions/s2/checkpoints/0000000000/manifest.json",
           encode("{}"),
         );
@@ -277,7 +277,7 @@ localstackTest(
         const unscoped = createCheckpointObjectStore({ bucket, client: s3 });
         const own = "sessions/s1/checkpoints/0000000000/a1/manifest.json";
         const foreign = "sessions/s2/checkpoints/0000000000/a1/manifest.json";
-        await unscoped.put(foreign, encode("{}"));
+        await unscoped.putImmutable(foreign, encode("{}"));
 
         const scoped = scopedCheckpointObjectStore(unscoped, "sessions/s1/");
         expect(
@@ -287,7 +287,7 @@ localstackTest(
         expect(await scoped.list("sessions/s1/")).toEqual([own]);
 
         await expect(scoped.get(foreign)).rejects.toThrow(ObjectScopeError);
-        await expect(scoped.put(foreign, encode("x"))).rejects.toThrow(
+        await expect(scoped.putImmutable(foreign, encode("x"))).rejects.toThrow(
           ObjectScopeError,
         );
         await expect(scoped.list("sessions/")).rejects.toThrow(
@@ -330,7 +330,13 @@ localstackTest(
           version,
         });
 
-        await store.put(key, encode("two\n"));
+        await s3.send(
+          new PutObjectCommand({
+            Body: encode("two\n"),
+            Bucket: bucket,
+            Key: key,
+          }),
+        );
         expect(await store.get(key)).toEqual(encode("two\n"));
         expect(await store.get(key, version)).toEqual(encode("one\n"));
         expect(await store.head(key, version)).toEqual({ bytes: 4, version });
