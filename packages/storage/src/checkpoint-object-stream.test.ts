@@ -6,7 +6,7 @@ import {
   type Server,
   type ServerResponse,
 } from "node:http";
-import { S3Client } from "@aws-sdk/client-s3";
+import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import type {
   CheckpointObjectStore,
   ImmutableObjectSource,
@@ -29,24 +29,34 @@ const KEY = "sessions/s1/checkpoints/0000000000/a/p/workspace.bundle";
  * early leaves the store usable.
  */
 type Harness = {
-  run(use: (store: CheckpointObjectStore) => Promise<void>): Promise<void>;
+  /** `overwrite` writes past the store, as no store method may. */
+  run(
+    use: (
+      store: CheckpointObjectStore,
+      overwrite: (key: string, bytes: Uint8Array) => Promise<unknown>,
+    ) => Promise<void>,
+  ): Promise<void>;
 };
 
 const memory: Harness = {
-  run: (use) =>
-    use(
-      createMemoryCheckpointObjectStore({
-        streamChunkBytes: 4096,
-        versioned: true,
-      }),
-    ),
+  run: (use) => {
+    const store = createMemoryCheckpointObjectStore({
+      streamChunkBytes: 4096,
+      versioned: true,
+    });
+    return use(store, store.overwrite);
+  },
 };
 
 const s3: Harness = {
   run: (use) =>
     withLocalstackBucket(
       ({ bucket, s3: client }) =>
-        use(createCheckpointObjectStore({ bucket, client })),
+        use(createCheckpointObjectStore({ bucket, client }), (key, bytes) =>
+          client.send(
+            new PutObjectCommand({ Body: bytes, Bucket: bucket, Key: key }),
+          ),
+        ),
       { objectLock: true, prefix: "object-stream-it" },
     ),
 };
@@ -75,7 +85,7 @@ function streamContract(harness: Harness) {
     await harness.run(async (store) => {
       // Larger than one chunk of either store, and not a multiple of one.
       const written = new Uint8Array(randomBytes(300 * 1024 + 17));
-      await store.put(KEY, written);
+      await store.putImmutable(KEY, written);
 
       const chunks = await store.stream(KEY);
       expect(chunks).toBeDefined();
@@ -86,12 +96,12 @@ function streamContract(harness: Harness) {
   }, 30_000);
 
   test("a pinned version keeps answering after the key moves on", async () => {
-    await harness.run(async (store) => {
+    await harness.run(async (store, overwrite) => {
       const first = await store.putImmutable(KEY, encode("first\n"));
       expect(first.outcome).toBe("created");
       const version = first.outcome === "created" ? first.version : undefined;
       expect(version).toBeDefined();
-      await store.put(KEY, encode("second\n"));
+      await overwrite(KEY, encode("second\n"));
 
       const pinned = await store.stream(KEY, version);
       const current = await store.stream(KEY);
@@ -121,7 +131,7 @@ function streamContract(harness: Harness) {
   test("stopping early leaves the store readable", async () => {
     await harness.run(async (store) => {
       const written = new Uint8Array(randomBytes(256 * 1024));
-      await store.put(KEY, written);
+      await store.putImmutable(KEY, written);
 
       for await (const _chunk of (await store.stream(KEY)) ?? empty()) break;
 
