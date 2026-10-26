@@ -398,6 +398,7 @@ describe("the agent Slack app API", () => {
       slack_app: null,
       event_url: `https://events.example.test/v1/slack/events/${IDLE_AGENT}`,
       events: { state: "pending", checked_at: null },
+      warnings: [],
     });
   });
 

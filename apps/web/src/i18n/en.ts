@@ -44,6 +44,9 @@ export const slackEn = {
   "slack.state.pending": "Awaiting installation",
   "slack.state.connected": "Connected",
   "slack.state.reinstall": "Reinstall required",
+  "slack.repositoryRequired.title": "Sessions can't start from Slack",
+  "slack.repositoryRequired.body":
+    "This agent's profile ({profile}) needs a repository for every session. Slack mentions and DMs can't pick one, so they are refused and only a notice is left in the thread. You can still connect. Switch the release to a profile that needs no repository, or start sessions from the web console.",
   "slack.state.error": "Error",
   "slack.createInstall": "Create and install Slack app",
   "slack.install": "Install Slack app",
