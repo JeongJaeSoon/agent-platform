@@ -487,6 +487,11 @@ describe("홈 요약", () => {
       "GET /v1/sessions?status=running",
       () => ({ items: [], next_cursor: null }),
     ],
+    [
+      "쉬는 세션",
+      "GET /v1/sessions?status=idle",
+      () => ({ items: [], next_cursor: null }),
+    ],
     ["연동 계정", "GET /v1/linked-accounts", () => ({ items: [] })],
   ] as const) {
     test(`${what}이 올 때까지 본문은 자리표시 하나이고, 오면 한 번에 보인다`, async () => {
@@ -1181,6 +1186,9 @@ describe("홈 요약", () => {
       await waitFor(() =>
         expect(cards(overview).map((card) => card.title)).toEqual(expected),
       );
+      // Read for this reader too, not left as unknown.
+      await waitFor(() => expect(cards(overview)[1]?.value).toBe("2"));
+      expect(cards(overview)[2]?.value).toBe("0 / 3");
       expect(
         within(overview)
           .getAllByRole("link", { name: /에이전트 보기/ })[0]
