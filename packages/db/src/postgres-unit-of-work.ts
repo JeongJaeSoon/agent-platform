@@ -766,7 +766,7 @@ export function createPostgresSessionReader(
   }
 
   // What listSessions and countSessions both read, so a count is always the
-  // list read to its end.
+  // list read to its end with the same filters; agent_id is the list's alone.
   function sessionFilter(
     ownerId: string,
     query: CountSessionsQuery,
