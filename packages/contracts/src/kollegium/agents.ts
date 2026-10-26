@@ -326,10 +326,14 @@ export const policyPinsSchema = z
 export const RELEASE_NOTE_MAX_CODE_POINTS = 200;
 
 // Counted in code points, as the column's char_length check counts them.
-const releaseNoteSchema = z.string().refine((note) => {
-  const length = [...note].length;
-  return length >= 1 && length <= RELEASE_NOTE_MAX_CODE_POINTS;
-}, `note must be 1 to ${RELEASE_NOTE_MAX_CODE_POINTS} characters`);
+// Postgres text cannot store NUL, so it is refused here rather than at insert.
+const releaseNoteSchema = z
+  .string()
+  .refine((note) => {
+    const length = [...note].length;
+    return length >= 1 && length <= RELEASE_NOTE_MAX_CODE_POINTS;
+  }, `note must be 1 to ${RELEASE_NOTE_MAX_CODE_POINTS} characters`)
+  .refine((note) => !note.includes("\u0000"), "note must not contain NUL");
 
 /**
  * A version pinned to the runtime settings it was released against.

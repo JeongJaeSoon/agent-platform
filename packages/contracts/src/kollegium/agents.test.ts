@@ -424,7 +424,15 @@ describe("agent, version and release", () => {
     expect(request(`  ${"a".repeat(200)}\n`).data?.note).toBe("a".repeat(200));
     expect(request("hotfix").data?.note).toBe("hotfix");
     expect(request().data).not.toHaveProperty("note");
-    for (const note of ["", "   ", "\n\t", "🚀".repeat(201), "a".repeat(201)]) {
+    // Postgres text cannot hold NUL; letting one through is a 500 at insert.
+    for (const note of [
+      "",
+      "   ",
+      "\n\t",
+      "🚀".repeat(201),
+      "a".repeat(201),
+      "a\u0000b",
+    ]) {
       expect(request(note).success, JSON.stringify(note.slice(0, 8))).toBe(
         false,
       );

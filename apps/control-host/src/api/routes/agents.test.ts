@@ -503,7 +503,7 @@ describe("POST /v1/agents/{id}/releases", () => {
     );
     expect(bare.release.note).toBeNull();
     expect(bare.release.id).toBe(noted.release.id);
-    for (const note of ["   ", "a".repeat(201), 7]) {
+    for (const note of ["   ", "a".repeat(201), "a\u0000b", 7]) {
       const response = await send(app(), "POST", path, { ...body, note });
       expect(response.status).toBe(400);
       expect(await codeOf(response)).toBe("BAD_REQUEST");
