@@ -63,6 +63,8 @@ const PROFILE: CatalogProfile = {
   model: "claude-sonnet-5",
   tools: ["Read", "Grep", "Edit", "Bash"],
   permission_mode: "default",
+  // Releases here name no repository; one that must is refused at release.
+  repository: "optional",
   provider: {
     kind: "litellm",
     endpoint: "https://litellm.invalid",

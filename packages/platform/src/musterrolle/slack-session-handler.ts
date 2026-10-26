@@ -99,8 +99,15 @@ export type SlackSessionHandlerDeps = {
   sessions: Pick<SessionService, "createSession" | "appendMessage">;
   /** The agent's active release, which a new thread's session runs. */
   agentDetails: Pick<AgentStore, "get">;
-  /** Slack names no repository, so such a profile's sessions are refused. */
-  profileNeedsRepository(profileId: string): boolean;
+  /**
+   * Slack names no repository, so a session gets the release's; true when
+   * that cannot start (none for a profile that needs one, or it left the
+   * catalog).
+   */
+  releaseRepositoryUnusable(
+    workspaceId: string,
+    releaseId: string,
+  ): Promise<boolean>;
   slack: SlackBotApi;
   /** The app's bot token from the secret store; null when it has none. */
   botToken(workspaceId: string, slackAppId: string): Promise<string | null>;
@@ -330,7 +337,10 @@ export function createSlackSessionHandler(
       });
       if (
         error.code === "UNSUPPORTED_CAPABILITY" &&
-        deps.profileNeedsRepository(link.profileId)
+        (await deps.releaseRepositoryUnusable(
+          agent.workspaceId,
+          link.releaseId,
+        ))
       ) {
         await notice("repository_required", {
           text: SLACK_NOTICE_MESSAGES.repositoryRequired,

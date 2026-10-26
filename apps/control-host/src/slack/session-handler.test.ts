@@ -104,6 +104,19 @@ const PROFILES = `profiles:
       auth:
         kind: api_key
         value_env: PROVIDER_KEY
+  drafting:
+    runtime_kind: claude_agent_sdk
+    runtime_version: "0.3.270"
+    model: claude-sonnet-5
+    tools: [Read]
+    permission_mode: default
+    repository: optional
+    provider:
+      kind: anthropic
+      endpoint: https://api.anthropic.invalid
+      auth:
+        kind: api_key
+        value_env: PROVIDER_KEY
 `;
 const APP_ID = "A0NOTES";
 const TEAM = "T0ACME";
@@ -661,6 +674,33 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
       notice: { text: SLACK_NOTICE_MESSAGES.repositoryRequired },
     });
     expect(await inboxStatuses()).toEqual(["processed", "processed"]);
+  });
+
+  test("a release whose repository left the catalog says so, even for a profile that may run without one", async () => {
+    const fixture = await agentInSlack("drafting", {
+      repositoryId: "old-repo",
+      releasedUnder: (loaded) => ({
+        ...loaded,
+        repositories: {
+          ...loaded.repositories,
+          "old-repo": {
+            ...(loaded.repositories[
+              "notes-repo"
+            ] as SessionCatalog["repositories"][string]),
+            profiles: ["drafting"],
+          },
+        },
+      }),
+    });
+    const { handle, notices } = handler();
+    await deliver(fixture, mention("100.000100"));
+    await drain(handle);
+    expect(await sessionsOf(fixture)).toEqual([]);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatchObject({
+      reason: "repository_required",
+      notice: { text: SLACK_NOTICE_MESSAGES.repositoryRequired },
+    });
   });
 
   test("unmentioned posts outside a linked thread and the bot's own or edited posts are ignored", async () => {

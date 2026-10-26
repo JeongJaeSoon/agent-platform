@@ -83,7 +83,6 @@ import {
   forgettingChannelsOnBindingPut,
   InstallationConfigError,
   installationLimitsFromEnv,
-  profileNeedsRepository,
   resolveAgentRelease,
   SessionServiceError,
 } from "@werft-ai/platform";
@@ -460,9 +459,11 @@ const slackApps = createSlackAppService({
       throw error;
     }
     // Missing and dropped from the catalog take the same fix: a new release.
-    return profileNeedsRepository(catalog, release.runtime_profile_id) &&
-      allowedRun(catalog, release.runtime_profile_id, release.repository_id) ===
-        null
+    return allowedRun(
+      catalog,
+      release.runtime_profile_id,
+      release.repository_id,
+    ) === null
       ? { code: "repository_required", profile_id: release.runtime_profile_id }
       : null;
   },
