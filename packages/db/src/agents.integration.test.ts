@@ -1355,6 +1355,44 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     expect(release.policy_pins.tools?.per_tool).toEqual({ Read: "allow" });
   });
 
+  test("a card stored with a tone reads without it and its release still verifies", async () => {
+    const workspaceId = await workspace();
+    const owner = await person(workspaceId, "owner");
+    const agentsService = service();
+    const created = await newAgent(agentsService, owner, cardWith("v1"));
+    // What a card written before 94S-761 holds, hashed tone included.
+    const storedCard = { ...cardWith("with tone"), tone: "공손하게" };
+    const storedSha = cardContentSha256(storedCard as AgentCard);
+    const versionId = randomUUID();
+    await db.insert(agentVersions).values({
+      id: versionId,
+      agentId: created.agent.id,
+      versionNo: 2,
+      card: storedCard,
+      contentSha256: storedSha,
+      createdBy: owner.actor?.userId ?? null,
+    });
+
+    const detail = await agentsService.getAgent(owner, created.agent.id);
+    const v2 = detail.versions.find((version) => version.id === versionId);
+    expect(v2?.card).toEqual(cardWith("with tone"));
+    expect(v2?.content_sha256).toBe(storedSha);
+
+    const { release } = await agentsService.createRelease(
+      owner,
+      created.agent.id,
+      { version_id: versionId, runtime_profile_id: "coding" },
+    );
+    expect(release.card_sha256).toBe(storedSha);
+    expect(
+      (await agentsService.resolveRelease(workspaceId, release.id)).id,
+    ).toBe(release.id);
+    await agentsService.activateAgent(owner, created.agent.id, {
+      release_id: release.id,
+      expected_revision: -1,
+    });
+  });
+
   test("members and API keys cannot manage agents; a slug is taken once", async () => {
     const workspaceId = await workspace();
     const owner = await person(workspaceId, "owner");
