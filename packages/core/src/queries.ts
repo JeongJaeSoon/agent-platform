@@ -181,29 +181,43 @@ export function profilesQuery(client: ApiClient) {
 // contracts values.
 const READ_ALL_PAGE_LIMIT = 100;
 
+/** Every item of a paged list, and its last page for any page-level fields. */
+async function readEveryPage<
+  Page extends { items: unknown[]; next_cursor: string | null },
+>(
+  read: (query: { cursor?: string; limit: number }) => Promise<Page>,
+): Promise<{ items: Page["items"]; last: Page }> {
+  const items: Page["items"] = [];
+  let cursor: string | null = null;
+  let last: Page;
+  do {
+    last = await read(
+      cursor
+        ? { cursor, limit: READ_ALL_PAGE_LIMIT }
+        : { limit: READ_ALL_PAGE_LIMIT },
+    );
+    items.push(...last.items);
+    cursor = last.next_cursor;
+  } while (cursor);
+  return { items, last };
+}
+
 /** Every member of the workspace, every page read, oldest first. */
 export function membersQuery(client: ApiClient) {
   return queryOptions({
     queryKey: queryKeys.members,
     queryFn: async (): Promise<ListMembersResponse> => {
-      const items: ListMembersResponse["items"] = [];
-      let assignable: ListMembersResponse["assignable_roles"] = [];
-      let cursor: string | null = null;
-      do {
-        const page = (await unwrap(
-          client.GET("/v1/members", {
-            params: {
-              query: cursor
-                ? { cursor, limit: READ_ALL_PAGE_LIMIT }
-                : { limit: READ_ALL_PAGE_LIMIT },
-            },
-          }),
-        )) as ListMembersResponse;
-        items.push(...page.items);
-        assignable = page.assignable_roles;
-        cursor = page.next_cursor;
-      } while (cursor);
-      return { items, next_cursor: null, assignable_roles: assignable };
+      const { items, last } = await readEveryPage(
+        (query) =>
+          unwrap(
+            client.GET("/v1/members", { params: { query } }),
+          ) as Promise<ListMembersResponse>,
+      );
+      return {
+        items,
+        next_cursor: null,
+        assignable_roles: last.assignable_roles,
+      };
     },
     retry: false,
   });
@@ -269,23 +283,14 @@ export function agentsQuery(client: ApiClient) {
   return queryOptions({
     queryKey: queryKeys.agents,
     queryFn: async (): Promise<ListAgentsResponse> => {
-      const items: ListAgentsResponse["items"] = [];
-      let cursor: string | null = null;
-      do {
-        const page = (await unwrap(
-          client.GET("/v1/agents", {
-            params: {
-              query: {
-                include: "summary",
-                limit: READ_ALL_PAGE_LIMIT,
-                ...(cursor ? { cursor } : {}),
-              },
-            },
-          }),
-        )) as ListAgentsResponse;
-        items.push(...page.items);
-        cursor = page.next_cursor;
-      } while (cursor);
+      const { items } = await readEveryPage(
+        (query) =>
+          unwrap(
+            client.GET("/v1/agents", {
+              params: { query: { include: "summary", ...query } },
+            }),
+          ) as Promise<ListAgentsResponse>,
+      );
       return { items, next_cursor: null };
     },
     retry: false,
@@ -369,12 +374,22 @@ export function linkedAccountsQuery(client: ApiClient) {
   });
 }
 
-/** The caller's personal keys and the agent keys they may revoke. */
+/**
+ * The caller's personal keys and the agent keys they may revoke, every page
+ * read, newest first.
+ */
 export function apiKeysQuery(client: ApiClient) {
   return queryOptions({
     queryKey: queryKeys.apiKeys,
-    queryFn: () =>
-      unwrap(client.GET("/v1/api-keys")) as Promise<ListApiKeysResponse>,
+    queryFn: async (): Promise<ListApiKeysResponse> => {
+      const { items } = await readEveryPage(
+        (query) =>
+          unwrap(
+            client.GET("/v1/api-keys", { params: { query } }),
+          ) as Promise<ListApiKeysResponse>,
+      );
+      return { items, next_cursor: null };
+    },
     retry: false,
     // The key tabs share this list; issuing and revoking invalidate it.
     staleTime: 30_000,

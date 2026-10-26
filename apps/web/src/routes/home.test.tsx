@@ -457,7 +457,8 @@ describe("홈 요약", () => {
       [summaryRoute("me")]: () => json(200, summary("me", 3)),
       [summaryRoute("installation")]: () =>
         json(200, summary("installation", 12, false)),
-      "GET /v1/api-keys": () => json(200, { items: [expiringKey] }),
+      "GET /v1/api-keys": () =>
+        json(200, { items: [expiringKey], next_cursor: null }),
       ...pending(waitingSession.id, "2026-10-23T09:00:00.000Z"),
     };
   };
@@ -735,6 +736,7 @@ describe("홈 요약", () => {
               revoked_at: inDays(-1),
             },
           ],
+          next_cursor: null,
         }),
     });
     const overview = await screen.findByRole("region", { name: "한눈에 보기" });
