@@ -1215,6 +1215,12 @@ describe("내가 속한 팀", () => {
     });
     const link = within(section).getByRole("link", { name: "결제팀" });
     expect(link.getAttribute("href")).toBe(`/members/teams/${TEAM.id}`);
+    // A member has no 구성원 item in the sidebar; this is their way to the list.
+    expect(
+      within(section)
+        .getByRole("link", { name: "모든 팀" })
+        .getAttribute("href"),
+    ).toBe("/members/teams");
   });
 
   test("팀을 관리하는 사람에게도 팀 화면 링크다", async () => {
