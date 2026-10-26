@@ -136,6 +136,54 @@ describe("Findings", () => {
   });
 });
 
+describe("1분 미만 도구 시간", () => {
+  const WRITE = {
+    name: "Write",
+    calls: 1,
+    failed: 0,
+    total_ms: 1700,
+    median_ms: 1700,
+    max_ms: 1700,
+  };
+
+  test("총 시간을 0분이 아니라 초로 쓴다", () => {
+    const { container } = withPlatform(
+      <>
+        <Findings
+          data={{
+            tools: [WRITE],
+            findings: [{ kind: "most_time", name: "Write" }],
+          }}
+        />
+        <ToolTable tools={[WRITE]} label="도구" />
+        <ToolsSummary tools={[WRITE]} period="최근 30일" />
+        <ToolRail
+          name="Write"
+          tool={WRITE}
+          perDay={[]}
+          calls={[]}
+          callSort="recent"
+          onCallSortChange={() => {}}
+        />
+      </>,
+    );
+    const text = (selector: string) =>
+      container.querySelector(selector)?.textContent;
+    expect(text("[data-slot=findings] li")).toBe(
+      "가장 오래 걸리는 도구: Write1.7초 · 전체 도구 시간의 100%",
+    );
+    expect(
+      [...container.querySelectorAll("[role=row]:nth-child(1) [role=cell]")]
+        .slice(1, 3)
+        .map((cell) => cell.textContent),
+    ).toEqual(["1.7초", "1.7초"]);
+    expect(text("[data-slot=tools-summary]")).toContain("1.7초");
+    expect(
+      [...container.querySelectorAll("aside dd")].map((dd) => dd.textContent),
+    ).toEqual(["1번", "1.7초", "1.7초", "0번 (0.0%)"]);
+  });
+});
+
 describe("SessionCounts", () => {
   const link = (
     status: string,
