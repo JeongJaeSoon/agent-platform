@@ -19,6 +19,7 @@ import {
   createPostgresSlackInboundEventStore,
   createPostgresSlackOutboxStore,
   createPostgresSurfaceBindingStore,
+  createPostgresWorkspaceProfileStore,
   type Database,
 } from "@werft-ai/db";
 import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
@@ -36,6 +37,7 @@ import {
   createSlackMemberJoinedHandler,
   createSlackSessionHandler,
   createSlackWelcome,
+  createWorkspaceProfiles,
   drainSlackInbox,
   drainSlackOutbox,
   installationLimitsFromEnv,
@@ -131,7 +133,12 @@ export function slackSessionHandler(deps: {
   inbox?: Pick<SlackInboundEventStore, "renew">;
 }): SlackInboundHandler {
   const { db, environment, logger } = deps;
-  const catalog = sessionCatalogView(deps.catalog);
+  const catalog = {
+    ...sessionCatalogView(deps.catalog),
+    workspace_profiles: createWorkspaceProfiles(
+      createPostgresWorkspaceProfileStore(db),
+    ),
+  };
   const credentials = createPostgresCredentialBindingStore(db);
   const authorization = createAuthorizationPolicy({
     identity: createDatabaseIdentityReader(db),

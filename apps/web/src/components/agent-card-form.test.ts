@@ -14,8 +14,11 @@ import {
 
 const profile = (id: string, model: string): ProfileSummary => ({
   id,
+  source: "operator",
   model,
+  models: [model],
   tools: [],
+  permission_mode: "default",
   runtime_kind: "claude_agent_sdk",
   runtime_version: "1",
   billing: "none",
