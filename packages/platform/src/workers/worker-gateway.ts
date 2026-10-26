@@ -77,7 +77,6 @@ import {
   mcpBinding,
   type ProfilePin,
   profileFingerprint,
-  profilePinned,
   profilePins,
   providerUpstreamOf,
   repositoryBinding,
@@ -1044,7 +1043,15 @@ export function createWorkerGateway(deps: {
         const listed = result.profileId
           ? own(catalog.profiles, result.profileId)
           : undefined;
-        if (!listed || !profilePinned(listed, result.binding)) {
+        // A model taken off the list cuts the attempt still running it here,
+        // at the proxy's next regrant.
+        if (
+          !listed ||
+          !sessionProfile(listed, {
+            fingerprint: result.binding,
+            model: result.model,
+          })
+        ) {
           moved("session's profile");
         }
         return grant(providerUpstreamOf(listed));

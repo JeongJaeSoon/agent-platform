@@ -1545,6 +1545,10 @@ export function createPostgresWorkerUnitOfWork(
           // The profile the attempt claimed: a change on the session since
           // reaches the next attempt, not the turn this one is running.
           profileId: fenced.attempt.profileId ?? fenced.session.profileId,
+          model:
+            fenced.attempt.profileId === null
+              ? fenced.session.model
+              : fenced.attempt.model,
           repository: sessionRepositoryOf(fenced.session),
           costUsd: fenced.session.costUsd,
           providerTokens: fenced.session.providerTokens,

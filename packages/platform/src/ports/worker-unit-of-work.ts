@@ -174,6 +174,8 @@ export type EgressAuthorization =
       attemptId: string;
       binding: string;
       profileId: string | null;
+      // The model the attempt claimed with; null where `binding` names it.
+      model: string | null;
       repository: { id: string | null; url: string; branch: string } | null;
       // What the session has spent as of this answer.
       costUsd: number;
