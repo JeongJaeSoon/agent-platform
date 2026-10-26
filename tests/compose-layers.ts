@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 // The compose files each installation merges: the product services
-// of compose.core.yml under the local layer (infra/docker-compose.yml) or
+// of compose.core.yml under the local layer (infra/compose.yml) or
 // the test-ops layer and its object store's.
 
 const root = join(import.meta.dir, "..");

@@ -235,7 +235,7 @@ profile의 `permission_mode`는 `default`·`acceptEdits`·`dontAsk`·`plan`·`by
 저장소의 `config/`는 로컬 예시다: `https://api.anthropic.com`을 endpoint로, API 프로세스의 `ANTHROPIC_API_KEY`를 `value_env`로, compose Gitea의 `sample-app`을 저장소로 쓴다. `config/fake-model/`은 외부 계정 없이 도는 예시다: compose `fake-messages`(fake Messages API)를 endpoint로, compose `secrets`(API 전용 LocalStack Secrets Manager, worker egress allowlist에 없음, `infra/compose.fake-model.yml`을 얹을 때만 뜬다)에 심어 둔 placeholder 키를 `secret_id`로 쓴다. Gitea의 `agent/sample-app`은 compose `gitea-init`(`infra/gitea/init-sample-repo.sh`)이 `apps` profile 기동 때 만든다(public, 이미 있으면 건너뜀).
 
 ```bash
-docker compose -f infra/docker-compose.yml up -d secrets
+docker compose -f infra/compose.yml up -d secrets
 AWS_ENDPOINT_URL_SECRETS_MANAGER=http://127.0.0.1:4567 AWS_REGION=ap-northeast-1 \
 AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test \
 AUTH_MODE=none PORT=3000 CHECKPOINT_OBJECT_STORE=disabled \
