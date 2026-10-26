@@ -568,6 +568,13 @@
       "when": 1792942860118,
       "tag": "0171_tool_calls_session_name",
       "breakpoints": true
+    },
+    {
+      "idx": 172,
+      "version": "7",
+      "when": 1793024280973,
+      "tag": "0172_await_park",
+      "breakpoints": true
     }
   ]
 }

@@ -1002,9 +1002,22 @@ export const sessions = pgTable(
     // copies it, and a claim only binds a session whose partition is the
     // launch's, so a claim never moves a session to another pool.
     partition: text().notNull().default("default"),
+    // Why the session is pausing or paused when the system, not a person,
+    // asked: 'awaiting_input' is a park on unanswered requests. Null for a
+    // person's pause. A trigger (migration await_park) clears it whenever
+    // admission_state leaves pausing and paused, on every write path.
+    pauseReason: text("pause_reason"),
+    // The session's own park and expiry waits, as given at create. Resolved
+    // against the profile and the installation cap whenever a request is
+    // registered; null means none given.
+    permissionWaitOverride: jsonb("permission_wait_override"),
   },
   (table) => [
     check("sessions_cost_usd_nonneg", sql`${table.costUsd} >= 0`),
+    check(
+      "sessions_pause_reason_check",
+      sql`${table.pauseReason} IS NULL OR (${table.pauseReason} IN ('awaiting_input') AND ${table.admissionState} IN ('pausing', 'paused'))`,
+    ),
     check(
       "sessions_channel_check",
       sql`${table.channel} IN (${sql.raw(sqlList(SURFACE_KIND_VALUES))})`,
@@ -1446,11 +1459,26 @@ export const pendingRequests = pgTable(
     // publishes the event itself.
     toolUseId: text("tool_use_id"),
     tool: text(),
+    // When the worker should park the turn on this request. Null on rows
+    // from before it and for a wait that never parks.
+    parkAt: timestamp("park_at", { withTimezone: true }),
+    // Written by the transaction that finalizes the parked turn with its
+    // checkpoint. From then the row stays answerable whatever happens to
+    // the attempt that asked, until it is answered, expires or is closed.
+    parkedAt: timestamp("parked_at", { withTimezone: true }),
+    // When pendingControl first handed the answer to a worker. An answer
+    // with none never reached an engine.
+    deliveredAt: timestamp("delivered_at", { withTimezone: true }),
   },
   (table) => [
     index("pending_requests_unresolved_session_idx")
       .on(table.sessionId)
       .where(sql`${table.resolvedAt} IS NULL`),
+    index("pending_requests_park_due")
+      .on(table.parkAt)
+      .where(
+        sql`${table.parkedAt} IS NULL AND ${table.resolvedAt} IS NULL AND ${table.parkAt} IS NOT NULL`,
+      ),
     uniqueIndex("pending_requests_session_answer_sequence_idx").on(
       table.sessionId,
       table.answerSequence,
@@ -1471,6 +1499,22 @@ export const pendingRequests = pgTable(
     ),
   ],
 );
+
+// An answer to a parked permission request, to be spent once by the turn
+// that resumes it. The tool, input hash and who answered stay on the
+// request row; copying them here would let the two disagree.
+export const permissionGrants = pgTable("permission_grants", {
+  requestId: text("request_id")
+    .primaryKey()
+    .references(() => pendingRequests.requestId, { onDelete: "cascade" }),
+  sessionId: uuid("session_id")
+    .notNull()
+    .references(() => sessions.id, { onDelete: "cascade" }),
+  turnId: bigint("turn_id", { mode: "number" })
+    .notNull()
+    .references(() => turns.id),
+  consumedAt: timestamp("consumed_at", { withTimezone: true }),
+});
 
 // A session result the platform may push to `agent/<session-id>` once a human
 // approves it. The commit is pinned when the request is made, so what is
