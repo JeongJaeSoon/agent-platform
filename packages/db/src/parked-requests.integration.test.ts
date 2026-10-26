@@ -607,7 +607,7 @@ integration("parked pending requests on PostgreSQL", () => {
     });
   });
 
-  test("a close, an interrupt or a recovery close cancels the parked requests", async () => {
+  test("a close, an interrupt or a recovery close or start_fresh cancels the parked requests", async () => {
     const closed = await parked();
     const row = await sessionRow(closed.sessionId);
     const close = await controls().closeAtomic({
@@ -666,6 +666,33 @@ integration("parked pending requests on PostgreSQL", () => {
     expect(await request(recovered.requestId)).toMatchObject({
       settledOutcome: "cancelled",
     });
+
+    // start_fresh retires the checkpoint the park would resume from; an
+    // answer already given goes with it.
+    const fresh = await parked();
+    const given = await answer(fresh.owner, fresh.sessionId, fresh.requestId);
+    await db
+      .update(sessions)
+      .set({ admissionState: "recovery_required", status: "failed" })
+      .where(eq(sessions.id, fresh.sessionId));
+    const freshBefore = await sessionRow(fresh.sessionId);
+    const started = await controls().decideRecoveryAtomic({
+      principal: fresh.owner,
+      sessionId: fresh.sessionId,
+      idempotencyKey: crypto.randomUUID(),
+      payloadHash: crypto.randomUUID(),
+      decision: {
+        decision: "start_fresh",
+        expected_revision: freshBefore.revision,
+        reason: "start over",
+      },
+      now: new Date(),
+    });
+    expect(started.outcome).toBe("accepted");
+    expect(await request(fresh.requestId)).toMatchObject({
+      settledOutcome: "cancelled",
+    });
+    expect((await receipt(given.receipt_id))?.status).toBe("failed");
   });
 
   test("the reconciler does not report a parked wait as ended", async () => {
