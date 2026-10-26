@@ -83,6 +83,8 @@ function useBoardSessions() {
     list,
     data,
     readAt: Math.max(list.dataUpdatedAt, waiting.dataUpdatedAt),
+    // As the badge says "50+": the waiting list has a page it did not read.
+    waitingMore: (waiting.data?.next_cursor ?? null) !== null,
   };
 }
 
@@ -173,7 +175,7 @@ function withRequest(
  */
 export function AgentMapScreen() {
   const navigate = useNavigate();
-  const { list, data, readAt } = useBoardSessions();
+  const { list, data, readAt, waitingMore } = useBoardSessions();
   const { board, pendingMoves, tidy, announcement } = useAgentMapBoard(
     data,
     readAt,
@@ -200,6 +202,7 @@ export function AgentMapScreen() {
       announcement={announcement}
       sessions={sessions}
       doneCount={board.doneCount}
+      waitingMore={waitingMore}
       selected={selected ? { session: selected, nodes } : null}
       onSelect={(id) => {
         setChosen(id);

@@ -16,7 +16,8 @@ export interface AgentMapMessages {
   readonly expandDone: string;
   readonly emptyLane: string;
   readonly waitingLabel: string;
-  readonly waitingTitle: (count: number, minutes: number) => string;
+  /** `count` is a number, or "50+" when more wait than were read. */
+  readonly waitingTitle: (count: number | string, minutes: number) => string;
   readonly waitingLine: (
     agent: string,
     title: string,
