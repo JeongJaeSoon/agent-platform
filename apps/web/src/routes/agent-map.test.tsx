@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { SessionSummary } from "@werft-ai/contracts";
+import { queryKeys } from "@werft-ai/core";
 import { json, me } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
@@ -225,7 +226,7 @@ describe("/sessions/map", () => {
   test("a session the newest page saw end stays ended once it leaves the page", async () => {
     const asked = summary(1, { title: "막 답한 세션", status: "needs_input" });
     const pages: ((response: Response) => void)[] = [];
-    const { api } = renderAt("/sessions/map", {
+    const { api, services } = renderAt("/sessions/map", {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/sessions": () =>
         new Promise<Response>((resolve) => {
@@ -248,14 +249,15 @@ describe("/sessions/map", () => {
       }),
     );
     await screen.findByRole("heading", { level: 1, name: "에이전트 지도" });
-    // The next poll no longer lists it: newer sessions pushed it out.
-    await waitFor(() => expect(pages.length).toBeGreaterThan(0), {
-      timeout: 8_000,
+    // The next read no longer lists it: newer sessions pushed it out.
+    void services.queryClient.refetchQueries({
+      queryKey: [...queryKeys.sessions, { view: "agent-map" }],
     });
+    await waitFor(() => expect(pages.length).toBeGreaterThan(0));
     pages.shift()?.(json(200, { items: [summary(2)], next_cursor: "older" }));
     await screen.findAllByText("세션 2");
     expect(
       screen.queryByRole("region", { name: "내 답변을 기다리는 요청" }),
     ).toBeNull();
-  }, 15_000);
+  });
 });
