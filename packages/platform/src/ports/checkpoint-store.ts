@@ -1,5 +1,3 @@
-import type { CheckpointRef } from "@werft-ai/contracts";
-
 /** CheckpointPointer.parentRevision of a checkpoint that starts a history. */
 export const CHECKPOINT_ROOT_PARENT = -1;
 
@@ -47,35 +45,14 @@ export type CheckpointFence = {
   sessionId: string;
 };
 
-export type CommitCheckpointInput = {
-  checkpoint: CheckpointRef;
-  fence: CheckpointFence;
-  now: Date;
-  sessionId: string;
-  turnId: string | null;
-  /** The verifier's `versionsHeld`, recorded on the pointer. */
-  versionsHeld?: boolean;
-  /** The verified manifest's transcript total, recorded on its row. */
-  transcriptBytes?: number;
-};
-
-export type CommitCheckpointResult =
-  | { outcome: "committed" | "replayed"; revision: number }
-  // The pointer already stands at this revision or a later one: another epoch
-  // finalized while this one was uploading.
-  | { outcome: "conflict"; currentRevision: number | null }
-  // The fence no longer matches the session row; another epoch owns it.
-  | { outcome: "stale_epoch" | "lease_expired" };
-
 /**
- * The durable half of a checkpoint. `commitAtomic` inserts the checkpoint row
- * and advances the session pointer in one transaction, conditional on the
- * pointer still standing where the caller saw it — the object store and the
+ * The durable half of a checkpoint, as the checkpoint service reads it. The
+ * pointer advances only in a turn's finalize (`WorkerUnitOfWork.finalizeAtomic`),
+ * in the same transaction as the turn's terminal — the object store and the
  * database cannot share a transaction, so the pointer is what decides which
  * uploaded manifest is the session's truth.
  */
 export interface CheckpointStore {
-  commitAtomic(input: CommitCheckpointInput): Promise<CommitCheckpointResult>;
   readPointer(sessionId: string): Promise<CheckpointPointer | null>;
   /**
    * The committed checkpoints below `belowRevision`, newest first, at most

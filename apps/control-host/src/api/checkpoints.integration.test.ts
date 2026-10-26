@@ -11,6 +11,7 @@ import {
   createPostgresSessionUnitOfWork,
   createPostgresWorkerUnitOfWork,
 } from "@werft-ai/db";
+import { commitCheckpoint } from "@werft-ai/db/testing/checkpoints";
 import {
   type CheckpointService,
   createWorkerGateway,
@@ -18,6 +19,7 @@ import {
   sessionObjectPrefix,
   type WorkerPrincipal,
 } from "@werft-ai/platform";
+import { finalizeCheckpoint } from "@werft-ai/platform/testing/checkpoints";
 import {
   CLAUDE_RUNTIME_FINGERPRINT,
   claudeCheckpointCodec,
@@ -94,8 +96,8 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
   let bundle: GitBundleFixture;
   let objects: CheckpointObjectStore;
   let gateway: ReturnType<typeof createWorkerGateway>;
-  // The protocol createApiCheckpoints binds is the service itself; the
-  // turn-less commit a drain uses is reached through it.
+  // The protocol createApiCheckpoints binds is the service itself; its
+  // manifest verifier is reached through it.
   let service: CheckpointService;
   const clock = new Date("2026-09-23T00:00:00.000Z");
 
@@ -733,13 +735,11 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
     ).toMatchObject({ checkpoint_revision: 0 });
     const newer = await publish(1, [first, second]);
     expect(
-      await service.finalize({
-        checkpoint: newer,
-        fence,
-        now: clock,
-        sessionId,
-        turnId: null,
-      }),
+      await finalizeCheckpoint(
+        service,
+        (input) => commitCheckpoint(db, input),
+        { checkpoint: newer, fence, now: clock, sessionId, turnId: null },
+      ),
     ).toEqual({ outcome: "committed", revision: 1 });
 
     // Only an operator with the hold permission can do this: lift the hold

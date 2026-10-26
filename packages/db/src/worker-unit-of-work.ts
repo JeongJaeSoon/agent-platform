@@ -441,9 +441,8 @@ async function restoreRef(
 }
 
 /**
- * The one place the checkpoint pointer advances. A turn's finalize and a
- * turn-less commit (CheckpointStore.commitAtomic) both come through here,
- * inside the caller's fenced transaction, so there is a single answer to
+ * The one place the checkpoint pointer advances. A turn's finalize comes
+ * through here, inside its fenced transaction, so there is a single answer to
  * which revision is the session's truth: the row's current pointer plus one,
  * exactly — the server handed that number out (checkpointStateAtomic), and a
  * manifest claiming a later one was written against a pointer that no longer

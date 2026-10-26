@@ -40,6 +40,7 @@ import {
   workerLaunches,
   workers,
 } from "./schema.ts";
+import { commitCheckpoint } from "./testing/checkpoints.ts";
 import {
   CHECKPOINT_RESTORE_FALLBACK,
   createPostgresWorkerUnitOfWork,
@@ -3729,7 +3730,7 @@ integration("worker gateway on PostgreSQL", () => {
       ).length;
 
     expect(
-      await createPostgresCheckpointStore(db).commitAtomic({
+      await commitCheckpoint(db, {
         checkpoint: {
           revision: 0,
           manifest_ref: "s3://bucket/small-0.json",
@@ -3989,121 +3990,28 @@ integration("worker gateway on PostgreSQL", () => {
     ).rejects.toThrow(/revision 9/);
   });
 
-  test("the store's turn-less commit judges the fence and the next revision like a finalize does", async () => {
+  test("the pointer keeps the manifest version it was committed with", async () => {
     const { session, claimed } = await claimAndDeliver();
     const store = createPostgresCheckpointStore(db);
-    const commit = (revision: number, sha: string) =>
-      store.commitAtomic({
-        checkpoint: {
-          revision,
-          manifest_ref: `s3://bucket/turnless-${revision}.json`,
-          manifest_sha256: sha.repeat(64),
-        },
-        fence: fenceOf(claimed),
-        now: clock,
-        sessionId: session.session_id,
-        turnId: null,
-      });
-    expect(await commit(1, "a")).toEqual({
-      outcome: "conflict",
-      currentRevision: null,
-    });
-    // A turn's checkpoint belongs to its finalize; this path will not attach
-    // one, not even the session's own delivered turn.
-    await expect(
-      store.commitAtomic({
+    expect(
+      await commitCheckpoint(db, {
         checkpoint: {
           revision: 0,
-          manifest_ref: "s3://bucket/turnless-0.json",
+          manifest_ref: "s3://bucket/versioned-0.json",
           manifest_sha256: "a".repeat(64),
-        },
-        fence: fenceOf(claimed),
-        now: clock,
-        sessionId: session.session_id,
-        turnId: "1",
-      }),
-    ).rejects.toThrow(/turn-less checkpoints only/);
-    expect(await commit(0, "a")).toEqual({ outcome: "committed", revision: 0 });
-    expect(await commit(0, "a")).toEqual({ outcome: "replayed", revision: 0 });
-    expect(await commit(0, "b")).toEqual({
-      outcome: "conflict",
-      currentRevision: 0,
-    });
-    expect(await store.readPointer(session.session_id)).toMatchObject({
-      revision: 0,
-      turnId: null,
-    });
-    // The turn's own finalize continues from the pointer the store moved.
-    expect(
-      await gateway.finalize(principalOf(claimed), {
-        ...scopeOf(claimed, "1"),
-        turn_id: "1",
-        finalize_key: "fin",
-        final_source_sequence: 0,
-        terminal: {
-          status: "completed",
-          reason: null,
-          result: null,
-          usage: null,
-        },
-        checkpoint: {
-          revision: 1,
-          manifest_ref: "s3://bucket/turnless-1.json",
-          manifest_sha256: "c".repeat(64),
-        },
-      }),
-    ).toMatchObject({ checkpoint_revision: 1 });
-    await db
-      .update(sessions)
-      .set({ leaseEpoch: sql`${sessions.leaseEpoch} + 1` })
-      .where(eq(sessions.id, session.session_id));
-    expect(await commit(2, "d")).toEqual({ outcome: "stale_epoch" });
-  });
-
-  test("the pointer keeps the manifest version it was committed with, and a replay must name the same one", async () => {
-    const { session, claimed } = await claimAndDeliver();
-    const store = createPostgresCheckpointStore(db);
-    const commit = (revision: number, version?: string, versionsHeld = true) =>
-      store.commitAtomic({
-        checkpoint: {
-          revision,
-          manifest_ref: `s3://bucket/versioned-${revision}.json`,
-          manifest_sha256: "a".repeat(64),
-          ...(version === undefined ? {} : { manifest_version: version }),
+          manifest_version: "v1",
         },
         fence: fenceOf(claimed),
         now: clock,
         sessionId: session.session_id,
         turnId: null,
-        versionsHeld,
-      });
-    expect(await commit(0, "v1")).toEqual({
-      outcome: "committed",
-      revision: 0,
-    });
+        versionsHeld: true,
+      }),
+    ).toEqual({ outcome: "committed", revision: 0 });
     expect(await store.readPointer(session.session_id)).toMatchObject({
       manifestVersion: "v1",
       revision: 0,
       versionsHeld: true,
-    });
-    expect(await commit(0, "v1")).toEqual({ outcome: "replayed", revision: 0 });
-    // A replay answers from the row; it never rewrites what was recorded.
-    expect(await commit(0, "v1", false)).toEqual({
-      outcome: "replayed",
-      revision: 0,
-    });
-    expect(await store.readPointer(session.session_id)).toMatchObject({
-      versionsHeld: true,
-    });
-    // The same bytes stored again are another object: the one this pointer
-    // names is the one that was verified and held.
-    expect(await commit(0, "v2")).toEqual({
-      outcome: "conflict",
-      currentRevision: 0,
-    });
-    expect(await commit(0)).toEqual({
-      outcome: "conflict",
-      currentRevision: 0,
     });
     const [row] = await db
       .select({ version: checkpoints.manifestVersion })
@@ -4117,7 +4025,7 @@ integration("worker gateway on PostgreSQL", () => {
     const store = createPostgresCheckpointStore(db);
     for (const revision of [0, 1, 2, 3]) {
       expect(
-        await store.commitAtomic({
+        await commitCheckpoint(db, {
           checkpoint: {
             revision,
             manifest_ref: `s3://bucket/listed-${revision}.json`,
@@ -4195,7 +4103,7 @@ integration("worker gateway on PostgreSQL", () => {
     const work = createPostgresWorkerUnitOfWork(db);
     // Revision 0 was taken before any turn; revision 1 closes turn 1.
     expect(
-      await store.commitAtomic({
+      await commitCheckpoint(db, {
         checkpoint: {
           revision: 0,
           manifest_ref: "s3://bucket/fallback-0.json",
@@ -4342,7 +4250,7 @@ integration("worker gateway on PostgreSQL", () => {
     });
     expect(await announced()).toHaveLength(2);
     expect(
-      await store.commitAtomic({
+      await commitCheckpoint(db, {
         checkpoint: {
           revision: 2,
           manifest_ref: "s3://bucket/fallback-2.json",
@@ -4377,7 +4285,7 @@ integration("worker gateway on PostgreSQL", () => {
       })
       .where(eq(sessions.id, sessionId));
     expect(
-      await store.commitAtomic({
+      await commitCheckpoint(db, {
         checkpoint: {
           revision: 3,
           manifest_ref: "s3://bucket/fallback-3.json",
