@@ -541,6 +541,47 @@ describe("OpenAPI document", () => {
     expect(login?.description).not.toContain("Scope:");
   });
 
+  test("413 names the `message` limit only where the body has a `message`", () => {
+    const document = buildOpenApiDocument();
+    const schemas = document.components.schemas as Record<
+      string,
+      { properties?: Record<string, unknown> }
+    >;
+    const withMessage: string[] = [];
+    let checked = 0;
+    for (const [key, method] of Object.entries(document.paths).flatMap(
+      ([path, methods]) =>
+        Object.entries(methods).map(
+          ([verb, raw]) =>
+            [
+              `${verb} ${path}`,
+              raw as {
+                requestBody?: {
+                  content: Record<string, { schema?: { $ref?: string } }>;
+                };
+                responses: Record<string, { description?: string }>;
+              },
+            ] as const,
+        ),
+    )) {
+      const description = method.responses["413"]?.description;
+      if (description === undefined) continue;
+      checked += 1;
+      const ref =
+        method.requestBody?.content["application/json"]?.schema?.$ref;
+      const body = ref ? schemas[ref.replace("#/components/schemas/", "")] : {};
+      const hasMessage = body?.properties?.message !== undefined;
+      expect(description.includes("`message`"), key).toBe(hasMessage);
+      expect(description, key).toContain("larger than 64 KiB");
+      if (hasMessage) withMessage.push(key);
+    }
+    expect(checked).toBeGreaterThan(withMessage.length);
+    expect(withMessage.sort()).toEqual([
+      "post /v1/sessions",
+      "post /v1/sessions/{id}/messages",
+    ]);
+  });
+
   test("404 says a missing and another owner's resource answer the same", () => {
     for (const [key, { responses }] of operations()) {
       if (!responses["404"]) continue;
