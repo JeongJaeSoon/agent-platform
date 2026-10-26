@@ -16,7 +16,8 @@
  *
  * The package list is each image's production closure, read from bun.lock the
  * way its Dockerfile installs it: control-host with `--filter
- * ./apps/control-host`, worker with every workspace, egress-proxy with none.
+ * ./apps/control-host`, worker with `--filter ./apps/worker`, egress-proxy
+ * with none.
  * Optional dependencies count for linux on x64 and arm64, the two arches the
  * images are built for, so the list is the same on every machine that runs
  * this. License and NOTICE come from the installed package in node_modules;
@@ -41,10 +42,15 @@ import { join } from "node:path";
 export const IMAGES = ["control-host", "worker", "egress-proxy"] as const;
 export type Image = (typeof IMAGES)[number];
 
-/** Which workspaces each image's `bun install --production` starts from. */
-const IMAGE_ROOTS: Record<Image, "all" | readonly string[]> = {
-  "control-host": ["apps/control-host"],
-  worker: "all",
+/**
+ * Which workspaces each image's `bun install --production` starts from.
+ * control-host also serves the web console bundle (apps/web/dist), which
+ * inlines the runtime dependencies of packages/ui and packages/client; apps/web
+ * lists those workspaces as devDependencies, so they are named here.
+ */
+const IMAGE_ROOTS: Record<Image, readonly string[]> = {
+  "control-host": ["apps/control-host", "packages/ui", "packages/client"],
+  worker: ["apps/worker"],
   "egress-proxy": [],
 };
 
@@ -290,16 +296,12 @@ export function imageClosure(
     }
   };
 
-  const paths =
-    roots === "all"
-      ? Object.keys(lock.workspaces)
-      : roots.map((root) => {
-          if (lock.workspaces[root] === undefined) {
-            throw new Error(`no workspace ${root} in bun.lock`);
-          }
-          return root;
-        });
-  for (const path of paths) visitWorkspace(path);
+  for (const path of roots) {
+    if (lock.workspaces[path] === undefined) {
+      throw new Error(`no workspace ${path} in bun.lock`);
+    }
+    visitWorkspace(path);
+  }
   return found;
 }
 
