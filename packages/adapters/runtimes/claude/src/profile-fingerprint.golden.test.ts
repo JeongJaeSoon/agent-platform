@@ -1,0 +1,99 @@
+import { expect, test } from "bun:test";
+import { join } from "node:path";
+import { CLAUDE_RUNTIME_FINGERPRINT } from "@werft-ai/runtime-claude-codec";
+
+import { claudeProfileFingerprint } from "./profile-fingerprint.ts";
+
+// The digests checkpoints are stamped with, pinned to the bytes main produced
+// before the runtime contract refactor (94S-827): a restore compares them, so
+// a refactor that moves this code must keep every one of them.
+// Regenerate only for an intended change: UPDATE_GOLDEN=1 bun test <file>.
+
+const GOLDEN = join(
+  import.meta.dir,
+  "../../../../../tests/fixtures/golden/claude/profile-fingerprint.json",
+);
+
+type FingerprintInput = Parameters<typeof claudeProfileFingerprint>[0];
+
+const base: FingerprintInput = {
+  model: "claude-sonnet-5",
+  permissionMode: "default",
+  profile: {
+    kind: "anthropic",
+    endpoint: "https://api.anthropic.com",
+    auth: {
+      kind: "egress_token",
+      token: "golden-token",
+      transport: "http://egress-proxy:3129/provider",
+    },
+    principal: { ownerScope: "owner-a" },
+  },
+  settingSources: [],
+  tools: ["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
+};
+
+const profiles: Record<string, FingerprintInput> = {
+  default: base,
+  "default-unset-fields": {
+    model: base.model,
+    profile: base.profile,
+    tools: base.tools,
+  },
+  "claude-md": { ...base, repositoryClaudeMd: { contents: "rules" } },
+  "remote-mcp": {
+    ...base,
+    identities: { mcpServers: { notion: "sha256:".padEnd(71, "a") } },
+    mcpServers: {
+      notion: {
+        type: "http",
+        url: "http://egress-proxy:3129/mcp/notion",
+        headers: { Authorization: "Bearer golden" },
+      },
+    },
+    tools: [...base.tools, "mcp__notion__search"],
+  },
+  "stdio-mcp-and-plugin": {
+    ...base,
+    identities: {
+      mcpServers: { review: "review-server@2" },
+      plugins: { "/plugins/review": "review@1.0.0" },
+    },
+    mcpServers: {
+      review: { command: "review-server", args: ["--safe"], env: { K: "v" } },
+    },
+    plugins: [{ path: "/plugins/review", type: "local" }],
+  },
+  "repositoryless-accept-edits": {
+    ...base,
+    appendSystemPrompt: "Put files to hand back under out/.",
+    permissionMode: "acceptEdits",
+  },
+  litellm: {
+    ...base,
+    model: "gemma4-local",
+    profile: {
+      ...base.profile,
+      kind: "litellm",
+      endpoint: "http://litellm:4000",
+    },
+  },
+};
+
+test("checkpoint fingerprints match main (golden)", async () => {
+  const actual = {
+    runtime: CLAUDE_RUNTIME_FINGERPRINT,
+    profileSha256: Object.fromEntries(
+      Object.entries(profiles).map(([name, input]) => [
+        name,
+        claudeProfileFingerprint(input),
+      ]),
+    ),
+  };
+  const text = `${JSON.stringify(actual, null, 2)}\n`;
+  if (process.env.UPDATE_GOLDEN === "1") {
+    await Bun.write(GOLDEN, text);
+    return;
+  }
+  expect(text).toBe(await Bun.file(GOLDEN).text());
+});

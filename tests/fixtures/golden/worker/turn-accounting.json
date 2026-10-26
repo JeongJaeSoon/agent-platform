@@ -1,0 +1,422 @@
+{
+  "running total differences": [
+    {
+      "observed": {
+        "type": "result",
+        "subtype": "success",
+        "is_error": false,
+        "total_cost_usd": 0.1,
+        "session_id": "s1"
+      },
+      "restarted": false
+    },
+    {
+      "settled": {
+        "costUsd": 0.1,
+        "providerFailure": null
+      },
+      "restarted": false
+    },
+    {
+      "observed": {
+        "type": "result",
+        "subtype": "success",
+        "is_error": false,
+        "total_cost_usd": 0.3,
+        "session_id": "s1"
+      },
+      "restarted": false
+    },
+    {
+      "settled": {
+        "costUsd": 0.19999999999999998,
+        "providerFailure": null
+      },
+      "restarted": false
+    },
+    {
+      "observed": {
+        "type": "result",
+        "subtype": "success",
+        "is_error": false,
+        "total_cost_usd": 0.3,
+        "session_id": "s1"
+      },
+      "restarted": false
+    },
+    {
+      "settled": {
+        "costUsd": 0,
+        "providerFailure": null
+      },
+      "restarted": false
+    }
+  ],
+  "a new session restarts the count": [
+    {
+      "observed": {
+        "type": "result",
+        "subtype": "success",
+        "is_error": false,
+        "total_cost_usd": 3,
+        "session_id": "s1"
+      },
+      "restarted": false
+    },
+    {
+      "settled": {
+        "costUsd": 3,
+        "providerFailure": null
+      },
+      "restarted": false
+    },
+    {
+      "observed": {
+        "type": "result",
+        "subtype": "success",
+        "is_error": false,
+        "total_cost_usd": 0.5,
+        "session_id": "s2"
+      },
+      "restarted": true
+    },
+    {
+      "settled": {
+        "costUsd": 0.5,
+        "providerFailure": null
+      },
+      "restarted": true
+    },
+    {
+      "observed": {
+        "type": "result",
+        "subtype": "success",
+        "is_error": false,
+        "total_cost_usd": 0.75,
+        "session_id": "s2"
+      },
+      "restarted": true
+    },
+    {
+      "settled": {
+        "costUsd": 0.25,
+        "providerFailure": null
+      },
+      "restarted": true
+    }
+  ],
+  "a total that went down restarts the count": [
+    {
+      "observed": {
+        "type": "result",
+        "subtype": "success",
+        "is_error": false,
+        "total_cost_usd": 2,
+        "session_id": "s1"
+      },
+      "restarted": false
+    },
+    {
+      "settled": {
+        "costUsd": 2,
+        "providerFailure": null
+      },
+      "restarted": false
+    },
+    {
+      "observed": {
+        "type": "result",
+        "subtype": "success",
+        "is_error": false,
+        "total_cost_usd": 1.5,
+        "session_id": "s1"
+      },
+      "restarted": true
+    },
+    {
+      "settled": {
+        "costUsd": 1.5,
+        "providerFailure": null
+      },
+      "restarted": true
+    }
+  ],
+  "a new session that has spent nothing": [
+    {
+      "observed": {
+        "type": "result",
+        "subtype": "success",
+        "is_error": false,
+        "total_cost_usd": 3,
+        "session_id": "s1"
+      },
+      "restarted": false
+    },
+    {
+      "settled": {
+        "costUsd": 3,
+        "providerFailure": null
+      },
+      "restarted": false
+    },
+    {
+      "observed": {
+        "type": "result",
+        "subtype": "success",
+        "is_error": false,
+        "total_cost_usd": 0,
+        "session_id": "after-clear"
+      },
+      "restarted": true
+    },
+    {
+      "settled": {
+        "costUsd": 0,
+        "providerFailure": null
+      },
+      "restarted": true
+    },
+    {
+      "observed": {
+        "type": "result",
+        "subtype": "success",
+        "is_error": false,
+        "total_cost_usd": 0.25,
+        "session_id": "after-clear"
+      },
+      "restarted": true
+    },
+    {
+      "settled": {
+        "costUsd": 0.25,
+        "providerFailure": null
+      },
+      "restarted": true
+    }
+  ],
+  "a result nobody settled carries over": [
+    {
+      "observed": {
+        "type": "result",
+        "subtype": "success",
+        "is_error": false,
+        "total_cost_usd": 1,
+        "session_id": "s1"
+      },
+      "restarted": false
+    },
+    {
+      "observed": {
+        "type": "result",
+        "subtype": "success",
+        "is_error": false,
+        "total_cost_usd": 1.5,
+        "session_id": "s1"
+      },
+      "restarted": false
+    },
+    {
+      "settled": {
+        "costUsd": 1.5,
+        "providerFailure": null
+      },
+      "restarted": false
+    }
+  ],
+  "unknown costs carry to the next turn that reports": [
+    {
+      "observed": {
+        "type": "result",
+        "subtype": "success",
+        "is_error": false,
+        "total_cost_usd": 1,
+        "session_id": "s1"
+      },
+      "restarted": false
+    },
+    {
+      "settled": {
+        "costUsd": 1,
+        "providerFailure": null
+      },
+      "restarted": false
+    },
+    {
+      "observed": {
+        "type": "result",
+        "subtype": "success",
+        "is_error": false,
+        "total_cost_usd": 1.5,
+        "session_id": "s1"
+      },
+      "restarted": false
+    },
+    {
+      "observed": {
+        "type": "result",
+        "subtype": "success",
+        "is_error": false,
+        "session_id": "s1"
+      },
+      "restarted": false
+    },
+    {
+      "settled": {
+        "costUsd": "<unknown>",
+        "providerFailure": null
+      },
+      "restarted": false
+    },
+    {
+      "observed": {
+        "type": "result",
+        "subtype": "success",
+        "is_error": false,
+        "total_cost_usd": 0,
+        "session_id": "s1"
+      },
+      "restarted": false
+    },
+    {
+      "settled": {
+        "costUsd": "<unknown>",
+        "providerFailure": null
+      },
+      "restarted": false
+    },
+    {
+      "observed": {
+        "type": "result",
+        "subtype": "success",
+        "is_error": false,
+        "total_cost_usd": -1,
+        "session_id": "s1"
+      },
+      "restarted": false
+    },
+    {
+      "settled": {
+        "costUsd": "<unknown>",
+        "providerFailure": null
+      },
+      "restarted": false
+    },
+    {
+      "observed": {
+        "type": "result",
+        "subtype": "success",
+        "is_error": false,
+        "total_cost_usd": "2",
+        "session_id": "s1"
+      },
+      "restarted": false
+    },
+    {
+      "settled": {
+        "costUsd": "<unknown>",
+        "providerFailure": null
+      },
+      "restarted": false
+    },
+    {
+      "observed": {
+        "type": "result",
+        "subtype": "success",
+        "is_error": false,
+        "total_cost_usd": 2,
+        "session_id": "s1"
+      },
+      "restarted": false
+    },
+    {
+      "settled": {
+        "costUsd": 1,
+        "providerFailure": null
+      },
+      "restarted": false
+    }
+  ],
+  "zero before anything was spent is a figure": [
+    {
+      "observed": {
+        "type": "result",
+        "subtype": "success",
+        "is_error": false,
+        "total_cost_usd": 0,
+        "session_id": "s1"
+      },
+      "restarted": false
+    },
+    {
+      "settled": {
+        "costUsd": 0,
+        "providerFailure": null
+      },
+      "restarted": false
+    },
+    {
+      "settled": {
+        "costUsd": "<unknown>",
+        "providerFailure": null
+      },
+      "restarted": false
+    }
+  ],
+  "provider failures": [
+    {
+      "observed": {
+        "type": "system",
+        "subtype": "api_retry",
+        "error": "rate_limit",
+        "error_status": 429
+      },
+      "restarted": false
+    },
+    {
+      "observed": {
+        "type": "system",
+        "subtype": "api_retry",
+        "error_status": 503
+      },
+      "restarted": false
+    },
+    {
+      "observed": {
+        "type": "assistant",
+        "error": "server_error"
+      },
+      "restarted": false
+    },
+    {
+      "settled": {
+        "costUsd": "<unknown>",
+        "providerFailure": {
+          "error": "server_error",
+          "status": 503
+        }
+      },
+      "restarted": false
+    },
+    {
+      "observed": {
+        "type": "system",
+        "subtype": "api_retry",
+        "error": "overloaded"
+      },
+      "restarted": false
+    },
+    {
+      "observed": {
+        "type": "assistant"
+      },
+      "restarted": false
+    },
+    {
+      "settled": {
+        "costUsd": "<unknown>",
+        "providerFailure": null
+      },
+      "restarted": false
+    }
+  ]
+}

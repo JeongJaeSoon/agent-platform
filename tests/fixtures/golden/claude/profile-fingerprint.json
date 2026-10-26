@@ -1,0 +1,16 @@
+{
+  "runtime": {
+    "cliVersion": "2.1.270",
+    "engine": "claude",
+    "sdkVersion": "0.3.270"
+  },
+  "profileSha256": {
+    "default": "574cab6e9d2c3df9ede2ef6ca103503eaf4fa2f391e444b742110816bcf771ce",
+    "default-unset-fields": "9b78a36aae443ad0108e4621a867169a879a0abcfe1b0391ceb3d209ca4b723a",
+    "claude-md": "11264a133b88785aea552a70fe41191476cde610102801b3af6f0c421b9908a0",
+    "remote-mcp": "5a0574bf22368b1e6ab398eb93d9ff579cd642779e895d0253f8be39043cf29a",
+    "stdio-mcp-and-plugin": "44156acde7baaab7b9e036dfc97850d2b3b8cc749c7b5924b451bf526d3146f1",
+    "repositoryless-accept-edits": "621cee5a33a793baf43ed1c254d173da8fe914e4eb493a5212038f38a81ac15a",
+    "litellm": "c2055df4fe8a9d63b825f200c687bf36acf0f79e54db32bb98c491d679778875"
+  }
+}
