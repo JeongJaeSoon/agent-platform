@@ -3,10 +3,16 @@ import type {
   TeamActor,
   TeamMember,
   TeamMembershipResult,
+  TeamPage,
   TeamStore,
 } from "@werft-ai/platform";
 import { and, asc, count, eq, exists, isNull, sql } from "drizzle-orm";
 import { findPgError, lockPeople, receiptActorOf } from "./control-shared.ts";
+import {
+  decodeTeamCursor,
+  encodeTeamCursor,
+  type TeamCursor,
+} from "./cursors.ts";
 import type { Database } from "./queries.ts";
 import {
   agentAdminTeams,
@@ -22,6 +28,29 @@ import {
 // member rows — the order the rest of the identity writes take.
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Team lists page by (name, id), so a team renamed mid-walk can show again
+// or not at all; the rest show exactly once.
+const after = (cursor: TeamCursor | null) =>
+  cursor
+    ? sql`(${memberTeams.name}, ${memberTeams.id}) > (${cursor.name}::text, ${cursor.id}::uuid)`
+    : undefined;
+
+// Rows read with limit + 1: the extra one only says whether another page exists.
+function pageOf<T extends { id: string; name: string }>(
+  rows: T[],
+  limit: number,
+): TeamPage<T> {
+  const items = rows.slice(0, limit);
+  const last = items[items.length - 1];
+  return {
+    items,
+    nextCursor:
+      rows.length > limit && last
+        ? encodeTeamCursor({ name: last.name, id: last.id })
+        : null,
+  };
+}
 
 // D23: changing a team is the workspace's managers' alone.
 const TEAM_MANAGERS = ["owner", "admin"];
@@ -252,8 +281,9 @@ export function createPostgresTeamStore(db: Database): TeamStore {
       return changeMember(db, input, false);
     },
 
-    async list(workspaceId, limit) {
-      if (!UUID.test(workspaceId)) return [];
+    async list(workspaceId, query) {
+      const cursor = query.cursor ? decodeTeamCursor(query.cursor) : null;
+      if (!UUID.test(workspaceId)) return { items: [], nextCursor: null };
       // Inside a select list drizzle renders a column without its table, so a
       // bare "id" here would bind to member_team_members.id.
       const outerTeamId = sql`${memberTeams}.${sql.identifier(memberTeams.id.name)}`;
@@ -271,25 +301,32 @@ export function createPostgresTeamStore(db: Database): TeamStore {
           and(
             eq(memberTeams.workspaceId, workspaceId),
             isNull(memberTeams.archivedAt),
+            after(cursor),
           ),
         )
         .orderBy(asc(memberTeams.name), asc(memberTeams.id))
-        .limit(limit);
-      return rows.map(({ team, memberCount }) => ({
-        id: team.id,
-        workspaceId: team.workspaceId,
-        name: team.name,
-        createdBy: team.createdBy,
-        createdAt: team.createdAt,
-        revision: team.revision,
-        memberCount,
-      }));
+        .limit(query.limit + 1);
+      return pageOf(
+        rows.map(({ team, memberCount }) => ({
+          id: team.id,
+          workspaceId: team.workspaceId,
+          name: team.name,
+          createdBy: team.createdBy,
+          createdAt: team.createdAt,
+          revision: team.revision,
+          memberCount,
+        })),
+        query.limit,
+      );
     },
 
-    async listJoined(workspaceId, userId, limit) {
-      if (!UUID.test(workspaceId) || !UUID.test(userId)) return [];
+    async listJoined(workspaceId, userId, query) {
+      const cursor = query.cursor ? decodeTeamCursor(query.cursor) : null;
+      if (!UUID.test(workspaceId) || !UUID.test(userId)) {
+        return { items: [], nextCursor: null };
+      }
       const user = userId.toLowerCase();
-      return db
+      const rows = await db
         .select({ id: memberTeams.id, name: memberTeams.name })
         .from(memberTeams)
         .innerJoin(
@@ -319,10 +356,12 @@ export function createPostgresTeamStore(db: Database): TeamStore {
                   ),
                 ),
             ),
+            after(cursor),
           ),
         )
         .orderBy(asc(memberTeams.name), asc(memberTeams.id))
-        .limit(limit);
+        .limit(query.limit + 1);
+      return pageOf(rows, query.limit);
     },
 
     async get(workspaceId, teamId) {

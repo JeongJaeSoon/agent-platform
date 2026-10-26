@@ -26,6 +26,7 @@ import { createTeamService } from "./team-service.ts";
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000a1";
 const AGENT = "019a0000-0000-7000-8000-00000000a0a1";
 const TEAM = "019a0000-0000-7000-8000-00000000b0a1";
+const PAGE = { limit: 50 };
 const USERS = {
   owner: "019a0000-0000-7000-8000-0000000000c1",
   admin: "019a0000-0000-7000-8000-0000000000c2",
@@ -113,15 +114,16 @@ function recordingStore() {
       calls.push(`remove:${input.userId}`);
       return { outcome: "removed", team: TEAM_ROW };
     },
-    async list() {
-      return [TEAM_ROW];
+    async list(_workspaceId, query) {
+      calls.push(`list:${JSON.stringify(query)}`);
+      return { items: [TEAM_ROW], nextCursor: "next" };
     },
     async get() {
       return { ...TEAM_ROW, members: [] };
     },
-    async listJoined(workspaceId, userId) {
-      calls.push(`joined:${workspaceId}:${userId}`);
-      return [TEAM_ROW];
+    async listJoined(workspaceId, userId, query) {
+      calls.push(`joined:${workspaceId}:${userId}:${JSON.stringify(query)}`);
+      return { items: [TEAM_ROW], nextCursor: null };
     },
   };
   return { store, calls };
@@ -210,10 +212,20 @@ describe("team.manage by role (design 4.1, D23)", () => {
 
   test("reading teams is the same right", async () => {
     const s = services();
-    expect(await refusal(s.teams.listTeams(caller("member")))).toMatchObject({
+    expect(
+      await refusal(s.teams.listTeams(caller("member"), PAGE)),
+    ).toMatchObject({
       code: "FORBIDDEN",
     });
-    expect((await s.teams.listTeams(caller("admin"))).items).toHaveLength(1);
+    const page = await s.teams.listTeams(caller("admin"), {
+      limit: 2,
+      cursor: "c",
+    });
+    expect(page.items).toHaveLength(1);
+    expect(page.next_cursor).toBe("next");
+    expect(s.calls).toContain(
+      `list:${JSON.stringify({ limit: 2, cursor: "c" })}`,
+    );
     expect(await s.teams.getTeam(caller("owner"), TEAM)).toMatchObject({
       id: TEAM,
       members: [],
@@ -327,16 +339,19 @@ describe("agent.admin.manage by role (design 4.1)", () => {
 describe("one's own teams", () => {
   test("any signed-in person reads their own, names only, asking no policy", async () => {
     const s = services();
-    expect(await s.teams.listMyTeams(caller("member"))).toEqual({
+    expect(await s.teams.listMyTeams(caller("member"), PAGE)).toEqual({
       items: [{ id: TEAM_ROW.id, name: TEAM_ROW.name }],
+      next_cursor: null,
     });
-    expect(s.calls).toEqual([`joined:${WORKSPACE}:${USERS.member}`]);
+    expect(s.calls).toEqual([
+      `joined:${WORKSPACE}:${USERS.member}:${JSON.stringify(PAGE)}`,
+    ]);
     expect(s.recorded).toEqual([]);
   });
 
   test("an API key belongs to no team", async () => {
     const s = services();
-    expect(await refusal(s.teams.listMyTeams(keyCaller()))).toEqual({
+    expect(await refusal(s.teams.listMyTeams(keyCaller(), PAGE))).toEqual({
       code: "FORBIDDEN",
       details: { reason_code: "role" },
     });

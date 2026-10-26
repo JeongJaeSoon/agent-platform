@@ -3,6 +3,8 @@ import { z } from "zod";
 import { agentSchema } from "../kollegium/agents.ts";
 import {
   agentIdSchema,
+  pageSchema,
+  paginationQuerySchema,
   receiptIdSchema,
   timestampSchema,
   userIdSchema,
@@ -13,10 +15,12 @@ import {
 // agent's admin makes every member of it one. Only an owner or an admin
 // changes a team (`team.manage`, D23), and a person added joins at once.
 
+/** How many agents GET /v1/administered-agents returns at most. */
 export const TEAM_LIST_LIMIT = 200;
 
 export const teamIdSchema = z.uuid();
-export const teamNameSchema = z.string().trim().min(1).max(100);
+export const TEAM_NAME_MAX = 100;
+export const teamNameSchema = z.string().trim().min(1).max(TEAM_NAME_MAX);
 
 export const teamIdParamsSchema = z.object({ team_id: teamIdSchema }).strict();
 export const teamMemberParamsSchema = z
@@ -69,9 +73,9 @@ export const deleteTeamResponseSchema = z
   .object({ receipt_id: receiptIdSchema })
   .strict();
 
-export const listTeamsResponseSchema = z
-  .object({ items: z.array(teamViewSchema).max(TEAM_LIST_LIMIT) })
-  .strict();
+export const listTeamsQuerySchema = paginationQuerySchema;
+/** The workspace's teams, by name then id. */
+export const listTeamsResponseSchema = pageSchema(teamViewSchema);
 
 // ---------------------------------------------------------------------------
 // Agent admins (design 4.1): people and teams
@@ -145,13 +149,10 @@ export const listAdministeredAgentsResponseSchema = z
  * The teams the caller belongs to now. Names only: who else is in a team is
  * for the people who manage teams (D23).
  */
-export const listMyTeamsResponseSchema = z
-  .object({
-    items: z
-      .array(z.object({ id: teamIdSchema, name: teamNameSchema }).strict())
-      .max(TEAM_LIST_LIMIT),
-  })
-  .strict();
+export const listMyTeamsQuerySchema = paginationQuerySchema;
+export const listMyTeamsResponseSchema = pageSchema(
+  z.object({ id: teamIdSchema, name: teamNameSchema }).strict(),
+);
 
 export type TeamView = z.infer<typeof teamViewSchema>;
 export type TeamMemberView = z.infer<typeof teamMemberViewSchema>;
@@ -162,6 +163,7 @@ export type AddTeamMemberRequest = z.infer<typeof addTeamMemberRequestSchema>;
 export type AddAgentAdminRequest = z.infer<typeof addAgentAdminRequestSchema>;
 export type TeamChangeResponse = z.infer<typeof teamChangeResponseSchema>;
 export type DeleteTeamResponse = z.infer<typeof deleteTeamResponseSchema>;
+export type ListTeamsQuery = z.infer<typeof listTeamsQuerySchema>;
 export type ListTeamsResponse = z.infer<typeof listTeamsResponseSchema>;
 export type AgentAdminKind = z.infer<typeof agentAdminKindSchema>;
 export type AgentAdminsView = z.infer<typeof agentAdminsViewSchema>;
@@ -171,4 +173,5 @@ export type AgentAdminChangeResponse = z.infer<
 export type ListAdministeredAgentsResponse = z.infer<
   typeof listAdministeredAgentsResponseSchema
 >;
+export type ListMyTeamsQuery = z.infer<typeof listMyTeamsQuerySchema>;
 export type ListMyTeamsResponse = z.infer<typeof listMyTeamsResponseSchema>;

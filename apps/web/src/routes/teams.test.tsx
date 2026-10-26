@@ -72,7 +72,8 @@ function teamServer() {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": () =>
         json(200, memberPage({ items: [owner, mate], next_cursor: null })),
-      "GET /v1/teams": () => json(200, { items: team ? [view()] : [] }),
+      "GET /v1/teams": () =>
+        json(200, { items: team ? [view()] : [], next_cursor: null }),
       "POST /v1/teams": async (request: Request) => {
         const { name } = (await request.json()) as { name: string };
         if (name === team?.name)
@@ -374,7 +375,7 @@ describe("팀 화면", () => {
       "GET /v1/auth/me": () => json(200, memberMe()),
       "GET /v1/teams": () =>
         apiError(403, "FORBIDDEN", "This principal does not hold team.manage"),
-      "GET /v1/my-teams": () => json(200, { items: [] }),
+      "GET /v1/my-teams": () => json(200, { items: [], next_cursor: null }),
     });
     expect(await screen.findByText("아직 속한 팀이 없습니다.")).toBeDefined();
     expect(screen.queryByRole("button", { name: "팀 만들기" })).toBeNull();
@@ -391,7 +392,10 @@ describe("팀 화면", () => {
       "GET /v1/auth/me": () => json(200, memberMe()),
       "GET /v1/teams": refused,
       "GET /v1/my-teams": () =>
-        json(200, { items: [{ id: TEAM_ID, name: "결제팀" }] }),
+        json(200, {
+          items: [{ id: TEAM_ID, name: "결제팀" }],
+          next_cursor: null,
+        }),
     });
     const section = await screen.findByRole("region", {
       name: "내가 속한 팀",
@@ -403,7 +407,7 @@ describe("팀 화면", () => {
     renderAt("/members/teams", {
       "GET /v1/auth/me": () => json(200, memberMe()),
       "GET /v1/teams": refused,
-      "GET /v1/my-teams": () => json(200, { items: [] }),
+      "GET /v1/my-teams": () => json(200, { items: [], next_cursor: null }),
     });
     expect(await screen.findByText("아직 속한 팀이 없습니다.")).toBeDefined();
   });
@@ -430,6 +434,46 @@ describe("팀 화면", () => {
     await screen.findByRole("link", { name: "결제팀" });
     expect(screen.queryByRole("heading", { name: "내가 속한 팀" })).toBeNull();
     expect(api.calls.some((c) => c.path === "/v1/my-teams")).toBe(false);
+  });
+
+  test("팀 목록과 내가 속한 팀은 다음 쪽까지 모두 읽는다", async () => {
+    const SECOND_ID = "1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e";
+    const server = teamServer();
+    const { items } = await server.routes["GET /v1/teams"]().json();
+    const second = { ...items[0], id: SECOND_ID, name: "지원팀" };
+    const { api } = renderAt("/members/teams", {
+      ...server.routes,
+      "GET /v1/teams?limit=100": () => json(200, { items, next_cursor: "c2" }),
+      "GET /v1/teams?cursor=c2&limit=100": () =>
+        json(200, { items: [second], next_cursor: null }),
+    });
+    await screen.findByRole("link", { name: "결제팀" });
+    expect(await screen.findByRole("link", { name: "지원팀" })).toBeDefined();
+    expect(
+      api.calls.filter((c) => c.path === "/v1/teams").map((c) => c.search),
+    ).toEqual(["?limit=100", "?cursor=c2&limit=100"]);
+    api.calls.length = 0;
+
+    renderAt("/members/teams", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/teams": () =>
+        apiError(403, "FORBIDDEN", "This principal does not hold team.manage"),
+      "GET /v1/my-teams?limit=100": () =>
+        json(200, {
+          items: [{ id: TEAM_ID, name: "결제팀" }],
+          next_cursor: "c2",
+        }),
+      "GET /v1/my-teams?cursor=c2&limit=100": () =>
+        json(200, {
+          items: [{ id: SECOND_ID, name: "지원팀" }],
+          next_cursor: null,
+        }),
+    });
+    const section = await screen.findByRole("region", {
+      name: "내가 속한 팀",
+    });
+    expect(await within(section).findByText("지원팀")).toBeDefined();
+    expect(within(section).getByText("결제팀")).toBeDefined();
   });
 
   test("예전 팀 주소는 구성원의 팀 탭으로 옮겨 간다", async () => {

@@ -1,13 +1,14 @@
-import {
-  type CreateTeamRequest,
-  type DeleteTeamResponse,
-  type ListMyTeamsResponse,
-  type ListTeamsResponse,
-  TEAM_LIST_LIMIT,
-  type TeamChangeResponse,
-  type TeamDetail as TeamDetailView,
-  type TeamView,
-  type UpdateTeamRequest,
+import type {
+  CreateTeamRequest,
+  DeleteTeamResponse,
+  ListMyTeamsQuery,
+  ListMyTeamsResponse,
+  ListTeamsQuery,
+  ListTeamsResponse,
+  TeamChangeResponse,
+  TeamDetail as TeamDetailView,
+  TeamView,
+  UpdateTeamRequest,
 } from "@werft-ai/contracts";
 import type {
   Team,
@@ -123,14 +124,20 @@ export function createTeamService(deps: {
   }
 
   return {
-    async listTeams(caller: Caller): Promise<ListTeamsResponse> {
+    async listTeams(
+      caller: Caller,
+      query: ListTeamsQuery,
+    ): Promise<ListTeamsResponse> {
       await manager(caller);
-      const items = await store.list(caller.ownerId, TEAM_LIST_LIMIT);
-      return { items: items.map(teamView) };
+      const page = await store.list(caller.ownerId, query);
+      return { items: page.items.map(teamView), next_cursor: page.nextCursor };
     },
 
     // Reading one's own membership asks no policy, as with administered agents.
-    async listMyTeams(caller: Caller): Promise<ListMyTeamsResponse> {
+    async listMyTeams(
+      caller: Caller,
+      query: ListMyTeamsQuery,
+    ): Promise<ListMyTeamsResponse> {
       const userId = caller.actor?.userId;
       const workspaceId = caller.actor?.workspaceId;
       if (
@@ -145,12 +152,11 @@ export function createTeamService(deps: {
           { reason_code: "role" },
         );
       }
-      const items = await store.listJoined(
-        workspaceId,
-        userId,
-        TEAM_LIST_LIMIT,
-      );
-      return { items: items.map(({ id, name }) => ({ id, name })) };
+      const page = await store.listJoined(workspaceId, userId, query);
+      return {
+        items: page.items.map(({ id, name }) => ({ id, name })),
+        next_cursor: page.nextCursor,
+      };
     },
 
     async getTeam(caller: Caller, teamId: string): Promise<TeamDetailView> {

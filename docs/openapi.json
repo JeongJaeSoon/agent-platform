@@ -277,6 +277,36 @@
           }
         }
       },
+      "ListTeamsQuery": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": "string",
+            "minLength": 1
+          },
+          "limit": {
+            "default": 50,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        }
+      },
+      "ListMyTeamsQuery": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": "string",
+            "minLength": 1
+          },
+          "limit": {
+            "default": 50,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        }
+      },
       "ListMembersQuery": {
         "type": "object",
         "properties": {
@@ -11923,7 +11953,6 @@
         "type": "object",
         "properties": {
           "items": {
-            "maxItems": 200,
             "type": "array",
             "items": {
               "type": "object",
@@ -11982,10 +12011,22 @@
               ],
               "additionalProperties": false
             }
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
-          "items"
+          "items",
+          "next_cursor"
         ],
         "additionalProperties": false
       },
@@ -12414,7 +12455,6 @@
         "type": "object",
         "properties": {
           "items": {
-            "maxItems": 200,
             "type": "array",
             "items": {
               "type": "object",
@@ -12436,10 +12476,22 @@
               ],
               "additionalProperties": false
             }
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
-          "items"
+          "items",
+          "next_cursor"
         ],
         "additionalProperties": false
       },
@@ -41626,13 +41678,34 @@
           "Teams"
         ],
         "summary": "The workspace's teams, by name",
-        "description": "**Auth:** cookie session only; no scope.",
+        "description": "Owners and admins. Archived teams are left out. By `name`, then `id`, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. A team renamed while the pages are read can show twice or not at all; every other team shows once.\n\n**Auth:** cookie session only; no scope.",
         "security": [
           {
             "cookieSession": []
           }
         ],
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Success",
@@ -41645,6 +41718,41 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ListTeamsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "- `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BAD_REQUEST"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
                 }
               }
             }
@@ -41770,13 +41878,34 @@
           "Teams"
         ],
         "summary": "The teams the caller belongs to",
-        "description": "Any signed-in person, as of this request: each team's id and name, never who else is in it.\n\n**Auth:** cookie session only; no scope.",
+        "description": "Any signed-in person, as of this request: each team's id and name, never who else is in it. By `name`, then `id`, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. A team renamed while the pages are read can show twice or not at all; every other team shows once.\n\n**Auth:** cookie session only; no scope.",
         "security": [
           {
             "cookieSession": []
           }
         ],
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "The caller's live teams, by name.",
@@ -41793,10 +41922,46 @@
                       "id": "019a0000-0000-7000-8000-00000000b0a1",
                       "name": "research admins"
                     }
-                  ]
+                  ],
+                  "next_cursor": null
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ListMyTeamsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "- `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BAD_REQUEST"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
                 }
               }
             }

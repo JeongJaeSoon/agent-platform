@@ -1942,7 +1942,9 @@ export interface paths {
         };
         /**
          * The workspace's teams, by name
-         * @description **Auth:** cookie session only; no scope.
+         * @description Owners and admins. Archived teams are left out. By `name`, then `id`, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. A team renamed while the pages are read can show twice or not at all; every other team shows once.
+         *
+         *     **Auth:** cookie session only; no scope.
          */
         get: operations["listTeams"];
         put?: never;
@@ -1968,7 +1970,7 @@ export interface paths {
         };
         /**
          * The teams the caller belongs to
-         * @description Any signed-in person, as of this request: each team's id and name, never who else is in it.
+         * @description Any signed-in person, as of this request: each team's id and name, never who else is in it. By `name`, then `id`, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. A team renamed while the pages are read can show twice or not at all; every other team shows once.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -2384,6 +2386,16 @@ export interface components {
             include?: "summary";
         };
         ListApiKeysQuery: {
+            cursor?: string;
+            /** @default 50 */
+            limit: number;
+        };
+        ListTeamsQuery: {
+            cursor?: string;
+            /** @default 50 */
+            limit: number;
+        };
+        ListMyTeamsQuery: {
             cursor?: string;
             /** @default 50 */
             limit: number;
@@ -4739,6 +4751,7 @@ export interface components {
                 created_at: string;
                 revision: number;
             }[];
+            next_cursor: string | null;
         };
         TeamDetail: {
             /** Format: uuid */
@@ -4828,6 +4841,7 @@ export interface components {
                 id: string;
                 name: string;
             }[];
+            next_cursor: string | null;
         };
         CreateCredentialBindingRequest: {
             credential_ref: string;
@@ -17858,7 +17872,10 @@ export interface operations {
     };
     listTeams: {
         parameters: {
-            query?: never;
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -17873,6 +17890,21 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ListTeamsResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
                 };
             };
             /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
@@ -18061,7 +18093,10 @@ export interface operations {
     };
     listMyTeams: {
         parameters: {
-            query?: never;
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -18082,10 +18117,26 @@ export interface operations {
                      *           "id": "019a0000-0000-7000-8000-00000000b0a1",
                      *           "name": "research admins"
                      *         }
-                     *       ]
+                     *       ],
+                     *       "next_cursor": null
                      *     }
                      */
                     "application/json": components["schemas"]["ListMyTeamsResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
                 };
             };
             /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
