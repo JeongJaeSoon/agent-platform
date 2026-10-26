@@ -525,9 +525,9 @@ integration("session share scopes over HTTP on PostgreSQL", () => {
 
   test("agent_id leaves out a session created without an agent, and must be an agent id", async () => {
     expect(await listed("creator")).toContain(sessionId);
-    expect(
-      await listed("creator", `?agent_id=${crypto.randomUUID()}`),
-    ).toEqual([]);
+    expect(await listed("creator", `?agent_id=${crypto.randomUUID()}`)).toEqual(
+      [],
+    );
     const bad = await send(
       "GET",
       "/v1/sessions?agent_id=not-an-agent",

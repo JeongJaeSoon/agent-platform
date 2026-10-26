@@ -370,8 +370,10 @@ integration("session list relations, search and counts on PostgreSQL", () => {
       ["alice", randomUUID(), []],
     ];
     for (const [who, agentId, names] of expected) {
-      expect([who, named(await readAll(viewer(who), { agent_id: agentId }))])
-        .toEqual([who, names]);
+      expect([
+        who,
+        named(await readAll(viewer(who), { agent_id: agentId })),
+      ]).toEqual([who, names]);
     }
     expect(
       named(
@@ -382,9 +384,7 @@ integration("session list relations, search and counts on PostgreSQL", () => {
       ),
     ).toEqual(["mine"]);
     expect(
-      named(
-        await readAll(viewer("bob"), { agent_id: agentX, status: "idle" }),
-      ),
+      named(await readAll(viewer("bob"), { agent_id: agentX, status: "idle" })),
     ).toEqual(["bobPrivateX", "bobWorkspaceX", "mine"]);
   });
 
