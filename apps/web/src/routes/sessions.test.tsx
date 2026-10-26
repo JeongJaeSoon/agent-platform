@@ -2406,19 +2406,85 @@ describe("세션 상세 레이아웃", () => {
     expect(
       await within(panel).findByText("나는 이 세션의 요청에 답할 수 있습니다."),
     ).toBeTruthy();
-    // The session's API carries no agent, starter or branch yet.
-    expect(header.textContent).toContain("에이전트 정보 없음");
-    expect(header.textContent).toContain("시작한 사람·경로 정보 없음");
     // The rail repeats the facts the header carries, as rows.
     const info = within(panel).getByRole("region", { name: "세션 정보" });
     expect(info.textContent).toContain("model-default");
     expect(info.textContent).toContain("demo");
     await waitFor(() => expect(info.textContent).toContain("$0.4200"));
-    expect(within(info).getAllByText("아직 볼 수 없습니다")).toHaveLength(2);
     await setupInfo();
-    // Two in the rail, three in the info tab.
-    expect(screen.getAllByText("아직 볼 수 없습니다")).toHaveLength(5);
+    // The session's API carries no branch yet.
+    expect(screen.getAllByText("아직 볼 수 없습니다")).toHaveLength(1);
   });
+
+  test("머리·세션 정보·정보 탭은 에이전트와 시작한 사람·경로를 보인다", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () =>
+        json(200, {
+          ...detail,
+          agent: { id: OTHER_ID, name: "코드 리뷰", release_version_no: 1 },
+          created_by: { user_id: THIRD_ID, display_name: "Demo Owner" },
+          channel: "slack",
+        }),
+    });
+    const header = (
+      await screen.findByRole("button", { name: "일시 정지" })
+    ).closest("header") as HTMLElement;
+    expect(header.textContent).toContain("에이전트: 코드 리뷰");
+    expect(header.textContent).toContain(
+      "시작한 사람·경로: Demo Owner · Slack",
+    );
+    const info = within(
+      screen.getByRole("complementary", { name: "세션 요약" }),
+    ).getByRole("region", { name: "세션 정보" });
+    expect(info.textContent).toContain("에이전트코드 리뷰");
+    expect(info.textContent).toContain("시작한 사람·경로Demo Owner · Slack");
+    await setupInfo();
+    const tab = screen.getByRole("tabpanel", { name: "정보" });
+    expect(tab.textContent).toContain("에이전트코드 리뷰");
+    expect(tab.textContent).toContain("시작한 사람·경로Demo Owner · Slack");
+  });
+
+  test.each([
+    [
+      { agent: null, created_by: null, channel: "api" },
+      "에이전트 없음",
+      "기록 없음 · API",
+    ],
+    [
+      {
+        agent: null,
+        created_by: { user_id: THIRD_ID, display_name: "" },
+        channel: null,
+      },
+      "에이전트 없음",
+      "기록 없음",
+    ],
+    [
+      {
+        agent: null,
+        created_by: { user_id: THIRD_ID, display_name: "김하나" },
+        channel: "web",
+      },
+      "에이전트 없음",
+      "김하나 · 웹 콘솔",
+    ],
+  ])(
+    "%p는 에이전트 %p, 시작한 사람·경로 %p로 쓴다",
+    async (fields, agent, startedBy) => {
+      renderAt(`/sessions/${SESSION_ID}`, {
+        ...detailRoutes,
+        [`GET /v1/sessions/${SESSION_ID}`]: () =>
+          json(200, { ...detail, ...fields }),
+      });
+      const header = (
+        await screen.findByRole("button", { name: "일시 정지" })
+      ).closest("header") as HTMLElement;
+      expect(header.textContent).toContain(`에이전트: ${agent}`);
+      expect(header.textContent).toContain(`시작한 사람·경로: ${startedBy}`);
+      expect(header.textContent).not.toContain("정보 없음");
+    },
+  );
 
   test.each([
     ["hello.txt 만들고 commit", "hello.txt 만들고 commit"],
