@@ -391,13 +391,20 @@ describe("Slack management", () => {
       await waitFor(() =>
         expect(nav.classList.contains("lg:hidden")).toBe(false),
       );
-      // Another tab's short page says nothing about this one.
-      const channels = document.getElementById("slack-channels") as HTMLElement;
-      channels.getClientRects = () => [] as unknown as DOMRectList;
+      // Another tab's short page says nothing about this one: the panel is
+      // hidden, so the measured Slack body has no boxes.
+      const body = nav.nextElementSibling?.firstElementChild as HTMLElement;
+      body.getClientRects = () => [] as unknown as DOMRectList;
       pageHeight = 900;
       window.dispatchEvent(new Event("resize"));
-      await new Promise((done) => requestAnimationFrame(done));
+      await new Promise((done) => setTimeout(done, 100));
       expect(nav.classList.contains("lg:hidden")).toBe(false);
+      // Shown again, the same resize does hide it.
+      Reflect.deleteProperty(body, "getClientRects");
+      window.dispatchEvent(new Event("resize"));
+      await waitFor(() =>
+        expect(nav.classList.contains("lg:hidden")).toBe(true),
+      );
     } finally {
       Reflect.deleteProperty(root, "clientHeight");
       Reflect.deleteProperty(root, "scrollHeight");
