@@ -6,7 +6,16 @@ import type {
   TeamPage,
   TeamStore,
 } from "@werft-ai/platform";
-import { and, asc, count, eq, exists, isNull, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  eq,
+  exists,
+  isNull,
+  type SQL,
+  sql,
+} from "drizzle-orm";
 import { findPgError, lockPeople, receiptActorOf } from "./control-shared.ts";
 import {
   decodeTeamCursor,
@@ -50,6 +59,49 @@ function pageOf<T extends { id: string; name: string }>(
         ? encodeTeamCursor({ name: last.name, id: last.id })
         : null,
   };
+}
+
+// The live teams a person is in now, narrowed by `also`.
+function joinedTeams(
+  db: Database,
+  workspaceId: string,
+  userId: string,
+  also: SQL | undefined,
+) {
+  const user = userId.toLowerCase();
+  return db
+    .select({ id: memberTeams.id, name: memberTeams.name })
+    .from(memberTeams)
+    .innerJoin(
+      memberTeamMembers,
+      and(
+        eq(memberTeamMembers.teamId, memberTeams.id),
+        eq(memberTeamMembers.userId, user),
+        isNull(memberTeamMembers.removedAt),
+      ),
+    )
+    .where(
+      and(
+        eq(memberTeams.workspaceId, workspaceId),
+        isNull(memberTeams.archivedAt),
+        // A disabled member belongs to nothing.
+        exists(
+          db
+            .select({ one: sql`1` })
+            .from(memberships)
+            .innerJoin(users, eq(users.id, memberships.userId))
+            .where(
+              and(
+                eq(memberships.workspaceId, workspaceId),
+                eq(memberships.userId, user),
+                isNull(memberships.disabledAt),
+                isNull(users.disabledAt),
+              ),
+            ),
+        ),
+        also,
+      ),
+    );
 }
 
 // D23: changing a team is the workspace's managers' alone.
@@ -325,43 +377,22 @@ export function createPostgresTeamStore(db: Database): TeamStore {
       if (!UUID.test(workspaceId) || !UUID.test(userId)) {
         return { items: [], nextCursor: null };
       }
-      const user = userId.toLowerCase();
-      const rows = await db
-        .select({ id: memberTeams.id, name: memberTeams.name })
-        .from(memberTeams)
-        .innerJoin(
-          memberTeamMembers,
-          and(
-            eq(memberTeamMembers.teamId, memberTeams.id),
-            eq(memberTeamMembers.userId, user),
-            isNull(memberTeamMembers.removedAt),
-          ),
-        )
-        .where(
-          and(
-            eq(memberTeams.workspaceId, workspaceId),
-            isNull(memberTeams.archivedAt),
-            // A disabled member belongs to nothing.
-            exists(
-              db
-                .select({ one: sql`1` })
-                .from(memberships)
-                .innerJoin(users, eq(users.id, memberships.userId))
-                .where(
-                  and(
-                    eq(memberships.workspaceId, workspaceId),
-                    eq(memberships.userId, user),
-                    isNull(memberships.disabledAt),
-                    isNull(users.disabledAt),
-                  ),
-                ),
-            ),
-            after(cursor),
-          ),
-        )
+      const rows = await joinedTeams(db, workspaceId, userId, after(cursor))
         .orderBy(asc(memberTeams.name), asc(memberTeams.id))
         .limit(query.limit + 1);
       return pageOf(rows, query.limit);
+    },
+
+    async isMember(workspaceId, teamId, userId) {
+      if (!UUID.test(workspaceId) || !UUID.test(teamId) || !UUID.test(userId))
+        return false;
+      const rows = await joinedTeams(
+        db,
+        workspaceId,
+        userId,
+        eq(memberTeams.id, teamId.toLowerCase()),
+      ).limit(1);
+      return rows.length > 0;
     },
 
     async get(workspaceId, teamId) {

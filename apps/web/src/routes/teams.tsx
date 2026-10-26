@@ -173,6 +173,8 @@ function TeamPage({ id }: { readonly id: string }) {
   const { t } = useI18n();
   const { client } = useAgentPlatform();
   const team = useQuery(teamQuery(client, id));
+  // A team's own members read it; only managers see what changes it.
+  const manages = useHasPermission("team.manage");
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const back = (
     <Link
@@ -200,9 +202,15 @@ function TeamPage({ id }: { readonly id: string }) {
       ) : (
         <>
           <OutcomeLine outcome={outcome} />
-          <TeamSettings team={team.data} onOutcome={setOutcome} />
-          <TeamMembers team={team.data} onOutcome={setOutcome} />
-          <TeamDangerZone team={team.data} onOutcome={setOutcome} />
+          {manages && <TeamSettings team={team.data} onOutcome={setOutcome} />}
+          <TeamMembers
+            team={team.data}
+            manages={manages}
+            onOutcome={setOutcome}
+          />
+          {manages && (
+            <TeamDangerZone team={team.data} onOutcome={setOutcome} />
+          )}
         </>
       )}
     </div>
@@ -349,9 +357,11 @@ function TeamDangerZone({
 
 function TeamMembers({
   team,
+  manages,
   onOutcome,
 }: {
   readonly team: TeamDetail;
+  readonly manages: boolean;
   readonly onOutcome: (outcome: Outcome | null) => void;
 }) {
   const { t, locale } = useI18n();
@@ -437,48 +447,50 @@ function TeamMembers({
       <h3 id={titleId} className={SECTION_TITLE}>
         {t("teams.members")}
       </h3>
-      <p className={`${MUTED} text-sm`}>{t("teams.addHint")}</p>
-      <form
-        className={FORM}
-        onPointerEnter={() => setPicking(true)}
-        onFocus={() => setPicking(true)}
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (chosen) add.mutate(chosen);
-        }}
-      >
-        <Field className="max-w-full">
-          <FieldLabel>{t("teams.pickMember")}</FieldLabel>
-          <NativeSelect
-            value={picked}
-            disabled={
-              picking &&
-              !members.isPending &&
-              !members.isFetching &&
-              candidates.length === 0
-            }
-            aria-busy={members.isFetching}
-            onChange={(event) => setPicked(event.target.value)}
-          >
-            <NativeSelectOption value="">
-              {t("teams.pickPlaceholder")}
-            </NativeSelectOption>
-            {candidates.map((member) => (
-              <NativeSelectOption key={member.user_id} value={member.user_id}>
-                {member.display_name} ({member.email})
-              </NativeSelectOption>
-            ))}
-          </NativeSelect>
-        </Field>
-        <ReasonButton
-          type="submit"
-          className={buttonVariants({ variant: "outline" })}
-          reason={pickReason}
-          disabled={!chosen || add.isPending}
+      {manages && <p className={`${MUTED} text-sm`}>{t("teams.addHint")}</p>}
+      {manages && (
+        <form
+          className={FORM}
+          onPointerEnter={() => setPicking(true)}
+          onFocus={() => setPicking(true)}
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (chosen) add.mutate(chosen);
+          }}
         >
-          {t("teams.addMember")}
-        </ReasonButton>
-      </form>
+          <Field className="max-w-full">
+            <FieldLabel>{t("teams.pickMember")}</FieldLabel>
+            <NativeSelect
+              value={picked}
+              disabled={
+                picking &&
+                !members.isPending &&
+                !members.isFetching &&
+                candidates.length === 0
+              }
+              aria-busy={members.isFetching}
+              onChange={(event) => setPicked(event.target.value)}
+            >
+              <NativeSelectOption value="">
+                {t("teams.pickPlaceholder")}
+              </NativeSelectOption>
+              {candidates.map((member) => (
+                <NativeSelectOption key={member.user_id} value={member.user_id}>
+                  {member.display_name} ({member.email})
+                </NativeSelectOption>
+              ))}
+            </NativeSelect>
+          </Field>
+          <ReasonButton
+            type="submit"
+            className={buttonVariants({ variant: "outline" })}
+            reason={pickReason}
+            disabled={!chosen || add.isPending}
+          >
+            {t("teams.addMember")}
+          </ReasonButton>
+        </form>
+      )}
       {team.members.length === 0 ? (
         <EmptyState title={t("teams.noMembers")} />
       ) : (
@@ -496,17 +508,19 @@ function TeamMembers({
                     at: formatTimestamp(member.added_at, locale),
                   })}
                 </span>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="ml-auto"
-                  disabled={remove.isPending}
-                  aria-label={t("teams.removeMemberFor", { name })}
-                  onClick={() => setRemoving(member)}
-                >
-                  {t("teams.removeMember")}
-                </Button>
+                {manages && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="ml-auto"
+                    disabled={remove.isPending}
+                    aria-label={t("teams.removeMemberFor", { name })}
+                    onClick={() => setRemoving(member)}
+                  >
+                    {t("teams.removeMember")}
+                  </Button>
+                )}
               </RowListItem>
             );
           })}

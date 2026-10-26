@@ -10,7 +10,6 @@ import {
 } from "@werft-ai/ui";
 import { useId } from "react";
 import { myTeamsQuery } from "../api/queries.ts";
-import { useHasPermission } from "../auth/guard.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 import { LoadFailure } from "./load-failure.tsx";
 import { OPENS_ROW, ROW_LINK } from "./row-link.ts";
@@ -20,8 +19,8 @@ export const SECTION_TITLE = "m-0 font-semibold text-body";
 export const MUTED = "m-0 text-muted-foreground";
 
 /**
- * The teams the viewer is in. A team links to its page only for those who
- * may open it; everyone else sees the name alone (D23).
+ * The teams the viewer is in, each linking to its page: a team's members
+ * read it, and only managers change it (D23, 94S-719).
  */
 export function MyTeams({
   showEmpty,
@@ -31,7 +30,6 @@ export function MyTeams({
 }) {
   const { t } = useI18n();
   const { client } = useAgentPlatform();
-  const manages = useHasPermission("team.manage");
   const teams = useQuery(myTeamsQuery(client));
   const titleId = useId();
   if (teams.isPending) return null;
@@ -54,27 +52,18 @@ export function MyTeams({
           <p className={`${MUTED} text-sm`}>{t("teams.mine.intro")}</p>
           <RowList>
             {items.map((team) => (
-              <RowListItem
-                key={team.id}
-                className={manages ? OPENS_ROW : undefined}
-              >
-                {manages ? (
-                  <TextLink
-                    asChild
-                    className={`${ROW_LINK} [overflow-wrap:anywhere]`}
+              <RowListItem key={team.id} className={OPENS_ROW}>
+                <TextLink
+                  asChild
+                  className={`${ROW_LINK} [overflow-wrap:anywhere]`}
+                >
+                  <Link
+                    to="/members/teams/$teamId"
+                    params={{ teamId: team.id }}
                   >
-                    <Link
-                      to="/members/teams/$teamId"
-                      params={{ teamId: team.id }}
-                    >
-                      {team.name}
-                    </Link>
-                  </TextLink>
-                ) : (
-                  <span className="font-medium [overflow-wrap:anywhere]">
                     {team.name}
-                  </span>
-                )}
+                  </Link>
+                </TextLink>
               </RowListItem>
             ))}
           </RowList>

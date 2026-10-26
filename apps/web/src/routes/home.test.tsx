@@ -1201,7 +1201,7 @@ describe("내가 속한 팀", () => {
   const TEAM = { id: "9e0f1a2b-3c4d-4e5f-8a6b-7c8d9e0f1a2b", name: "결제팀" };
   const forbidden = () => apiError(403, "FORBIDDEN", "not allowed");
 
-  test("구성원은 홈에서 속한 팀 이름을 본다. 팀 화면은 열 수 없으니 링크가 아니다", async () => {
+  test("구성원도 홈에서 속한 팀 이름으로 팀 화면을 연다", async () => {
     renderAt("/", {
       "GET /v1/auth/me": () => json(200, memberMe()),
       "GET /v1/members": forbidden,
@@ -1212,11 +1212,11 @@ describe("내가 속한 팀", () => {
     const section = await screen.findByRole("region", {
       name: "내가 속한 팀",
     });
-    expect(within(section).getByText("결제팀")).toBeDefined();
-    expect(within(section).queryByRole("link")).toBeNull();
+    const link = within(section).getByRole("link", { name: "결제팀" });
+    expect(link.getAttribute("href")).toBe(`/members/teams/${TEAM.id}`);
   });
 
-  test("팀을 관리하는 사람에게는 팀 화면 링크다", async () => {
+  test("팀을 관리하는 사람에게도 팀 화면 링크다", async () => {
     renderAt("/", {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": () =>

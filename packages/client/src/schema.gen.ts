@@ -1992,7 +1992,9 @@ export interface paths {
         };
         /**
          * A team and its members
-         * @description **Auth:** cookie session only; no scope.
+         * @description An owner or an admin reads any team. Anyone else reads only a team they are in now, read only: changing it stays with owners and admins. Any other team is 403.
+         *
+         *     **Auth:** cookie session only; no scope.
          */
         get: operations["getTeam"];
         put?: never;
@@ -3700,6 +3702,19 @@ export interface components {
                         reason: "self_protected" | "owner_protected" | "last_owner" | "member_disabled" | "account_disabled" | "unchanged";
                     };
                 };
+                /** @description The agents the member administers, archived agents left out, by name. A team counts while it is not archived and the member has not left it. A disabled member keeps the grants listed here; they act again once the member is enabled. */
+                administered_agents: {
+                    /** Format: uuid */
+                    id: string;
+                    name: string;
+                    /**
+                     * @description `user` when the member is the agent's admin themselves, `team` when only a team they belong to is. A member who is both is listed once, as `user`.
+                     * @enum {string}
+                     */
+                    via: "user" | "team";
+                }[];
+                /** @description When the member last used the web console: a web sign-in, or a web request, recorded at most once an hour. API key calls, Slack and session activity do not count. It stays after the web session expires, is signed out or revoked: only the member's next sign-in removes old sessions, and that sign-in is newer. Null when the member has never signed in to the web console. */
+                last_active_at: string | null;
             }[];
             next_cursor: string | null;
             /** @description The roles the caller may invite someone as now (POST /v1/invites refuses any other with OWNER_PROTECTED). The same on every page and search. */
