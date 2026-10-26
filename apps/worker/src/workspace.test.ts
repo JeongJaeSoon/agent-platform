@@ -498,16 +498,25 @@ describe("GitWorkspace", () => {
     expect(git(["status", "--porcelain"], root)).toBe("");
   });
 
-  test("a recreate removes a .git link and empties nothing it points at", async () => {
+  test("refuses a recreate whose .git is a link, and deletes nothing", async () => {
     git(["clone", "--quiet", "--depth=1", `file://${origin}`, root], scratch);
     const elsewhere = join(scratch, "elsewhere.git");
     await rename(join(root, ".git"), elsewhere);
     await symlink(elsewhere, join(root, ".git"));
     const before = readdirSync(elsewhere).sort();
 
-    expect(await prepare(descriptor(`file://${origin}`))).toBe("recreate");
+    await expect(prepare(descriptor(`file://${origin}`))).rejects.toThrow(
+      "its .git is not a directory",
+    );
     expect(readdirSync(elsewhere).sort()).toEqual(before);
-    expect(git(["rev-parse", "--is-shallow-repository"], root)).toBe("false");
+    expect((await readdir(root)).sort()).toEqual([".git", "README.md"]);
+  });
+
+  test("clones over the empty .git a clone stopped before its staging left", async () => {
+    await mkdir(join(root, ".git"));
+
+    expect(await prepare(descriptor())).toBe("clone");
+    expect(await Bun.file(join(root, "README.md")).text()).toBe("seed\n");
   });
 
   test("a recreate that failed while emptying the root is recreated by the next attempt", async () => {

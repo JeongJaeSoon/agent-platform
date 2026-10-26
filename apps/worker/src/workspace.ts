@@ -347,6 +347,16 @@ export class GitWorkspace implements WorkspacePreparer {
     });
     if (entries.length === 0) return { kind: "empty" };
     if (await cloneStaged(this.root)) return { kind: "interrupted" };
+    // What a clone stopped between making `.git` and the staging in it
+    // leaves: nothing to lose.
+    if (
+      entries.length === 1 &&
+      entries[0] === ".git" &&
+      (await lstat(join(this.root, ".git")).catch(() => null))?.isDirectory() &&
+      (await readdir(join(this.root, ".git"))).length === 0
+    ) {
+      return { kind: "empty" };
+    }
     // A directory for a clone, a file for a linked worktree.
     if ((await stat(join(this.root, ".git")).catch(() => null)) === null) {
       return { kind: "foreign" };
@@ -431,10 +441,14 @@ export class GitWorkspace implements WorkspacePreparer {
     const gitDirectory = join(this.root, ".git");
     const staging = join(gitDirectory, CLONE_STAGING);
     await mkdir(this.root, { recursive: true });
-    // A `.git` file or link is the unsound checkout's; what it points at is
-    // not the root's to empty.
+    // As for a reuse: the staging could not go in it, and what it points at
+    // is not the root's to empty.
     const found = await lstat(gitDirectory).catch(() => null);
-    if (found !== null && !found.isDirectory()) await rm(gitDirectory);
+    if (found !== null && !found.isDirectory()) {
+      throw new Error(
+        `Workspace ${this.root} refused: its .git is not a directory`,
+      );
+    }
     await mkdir(staging, { recursive: true });
     if (!(await lstat(staging)).isDirectory()) {
       throw new Error(`Workspace ${this.root} refused: ${staging} is a link`);
