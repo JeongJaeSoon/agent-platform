@@ -383,6 +383,7 @@ describe("API key", () => {
     const icon = (row: number) =>
       rows()[row]?.querySelector("[data-expiry] svg") ?? null;
     expect(icon(0)?.classList.contains("lucide-clock")).toBe(true);
+    expect(icon(1)?.classList.contains("lucide-circle-alert")).toBe(true);
     expect(icon(3)?.classList.contains("lucide-clock")).toBe(false);
     expect(icon(3)?.classList.contains("lucide-infinity")).toBe(true);
     expect(icon(3)?.getAttribute("aria-hidden")).toBe("true");
