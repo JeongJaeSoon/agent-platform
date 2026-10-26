@@ -793,11 +793,13 @@ const WORKSPACE_PROFILE_KNOWN_MAX_AGE_MS = 1000;
 /**
  * Brings the workspace versions among `profileIds` up to date enough to
  * resolve them. A failed read keeps what was read before: an operator
- * profile never waits on the database.
+ * profile never waits on the database. `strict` throws it instead, for a
+ * new use of a version, which a retirement elsewhere must stop.
  */
 export async function refreshWorkspaceProfilesFor(
   catalog: Pick<ProfileLookup<CatalogProfileView>, "workspace_profiles">,
   profileIds: ReadonlyArray<string | null | undefined>,
+  options: { strict?: boolean } = {},
 ): Promise<void> {
   const registry = catalog.workspace_profiles;
   const named = profileIds.filter(
@@ -805,9 +807,10 @@ export async function refreshWorkspaceProfilesFor(
   );
   if (!registry || named.length === 0) return;
   const unread = named.some((id) => !registry.records.has(id));
-  await registry
-    .refresh(unread ? 0 : WORKSPACE_PROFILE_KNOWN_MAX_AGE_MS)
-    .catch(() => undefined);
+  const read = registry.refresh(
+    unread ? 0 : WORKSPACE_PROFILE_KNOWN_MAX_AGE_MS,
+  );
+  await (options.strict ? read : read.catch(() => undefined));
 }
 
 // The id a repository's `profiles` list names for this profile: a workspace

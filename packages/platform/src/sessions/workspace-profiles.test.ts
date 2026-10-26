@@ -270,6 +270,13 @@ describe("refreshing for a lookup", () => {
       "ws_acme_strict_v2",
     ]);
     expect(ages).toEqual([1000, 0]);
+    await expect(
+      refreshWorkspaceProfilesFor(lookup, ["ws_acme_strict_v1"], {
+        strict: true,
+      }),
+    ).rejects.toThrow("down");
+    await refreshWorkspaceProfilesFor(lookup, ["coding"], { strict: true });
+    expect(ages).toEqual([1000, 0, 1000]);
   });
 });
 

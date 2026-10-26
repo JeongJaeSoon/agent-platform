@@ -352,7 +352,11 @@ export function createSessionService(deps: {
     retiredAllowed: boolean,
   ) {
     if (!profileId.startsWith(WORKSPACE_PROFILE_PREFIX)) return null;
-    await refreshWorkspaceProfilesFor(catalog, [profileId]);
+    // A release keeps a retired version it already names; a new use of one
+    // must not go through on a stale read.
+    await refreshWorkspaceProfilesFor(catalog, [profileId], {
+      strict: !retiredAllowed,
+    });
     return workspaceProfileRefusal(catalog, actor.ownerId, profileId, {
       retiredAllowed,
     });

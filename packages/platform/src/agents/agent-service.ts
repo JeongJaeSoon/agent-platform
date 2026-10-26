@@ -231,7 +231,7 @@ export function createAgentService(deps: {
       );
       if (!version) throw NOT_FOUND();
       const profileId = request.runtime_profile_id;
-      await refreshWorkspaceProfilesFor(catalog, [profileId]);
+      await refreshWorkspaceProfilesFor(catalog, [profileId], { strict: true });
       const workspaceRefusal = workspaceProfileRefusal(
         catalog,
         caller.ownerId,
