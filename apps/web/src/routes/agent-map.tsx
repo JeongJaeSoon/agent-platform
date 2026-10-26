@@ -22,7 +22,7 @@ import {
   useAgentMapBoard,
   useSessionRunTree,
 } from "@werft-ai/react/agent-map";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { loadError } from "./sessions.tsx";
 
@@ -67,17 +67,35 @@ function useBoardSessions() {
   const { client } = useAgentPlatform();
   const list = useBoardList();
   const waiting = useQuery(waitingSessionsQuery(client));
+  // When the newest page last read each session not waiting. A session it
+  // saw end and then lost to newer ones must not come back from a waiting
+  // list read before that.
+  const ended = useRef(new Map<string, number>());
   // Placed together on the first read, or the older cards would come in
   // as new and push the lanes down; a failed waiting read leaves them out.
   const merged = useMemo(() => {
     if (waiting.isPending) return undefined;
-    if (!list.data || !waiting.data) return list.data;
+    if (!list.data) return list.data;
+    for (const s of list.data.items)
+      if (s.status === "needs_input") ended.current.delete(s.id);
+      else ended.current.set(s.id, list.dataUpdatedAt);
+    if (!waiting.data) return list.data;
     const seen = new Set(list.data.items.map((s) => s.id));
-    const older = waiting.data.items.filter((s) => !seen.has(s.id));
+    const older = waiting.data.items.filter(
+      (s) =>
+        !seen.has(s.id) &&
+        (ended.current.get(s.id) ?? 0) <= waiting.dataUpdatedAt,
+    );
     return older.length === 0
       ? list.data
       : { ...list.data, items: [...list.data.items, ...older] };
-  }, [list.data, waiting.data, waiting.isPending]);
+  }, [
+    list.data,
+    list.dataUpdatedAt,
+    waiting.data,
+    waiting.dataUpdatedAt,
+    waiting.isPending,
+  ]);
   const data = useUnseenRequests(merged);
   return {
     list,
