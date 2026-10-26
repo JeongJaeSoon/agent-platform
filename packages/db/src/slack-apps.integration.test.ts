@@ -417,7 +417,7 @@ integration("Slack apps and the config token on PostgreSQL", () => {
       ).toEqual(events);
     });
 
-    test("a signed receipt verifies a pending subscription once and clears its error", async () => {
+    test("a signed receipt verifies a pending subscription once, clears its error and outlasts a later failure", async () => {
       const slack = fakeSlack();
       const { workspaceId, owner } = await withToken(slack);
       const agentId = await agent(workspaceId);
@@ -430,28 +430,40 @@ integration("Slack apps and the config token on PostgreSQL", () => {
         checked_at: null,
         error: "events_registration_failed",
       });
-      const first = new Date("2026-10-26T18:15:12.000Z");
-      await store().markEventsVerified(
+      const verified = {
+        state: "verified" as const,
+        checked_at: "2026-10-26T18:15:12.000Z",
+      };
+      await store().setEventsUnlessVerified(
         await workspace(),
         created.slack_app.id,
-        first,
+        verified,
       );
       expect(
         (await store().findForAgent(workspaceId, agentId))?.events?.state,
       ).toBe("failed");
-      await store().markEventsVerified(
+      await store().setEventsUnlessVerified(
         workspaceId,
         created.slack_app.id,
-        first,
+        verified,
       );
-      await store().markEventsVerified(
-        workspaceId,
-        created.slack_app.id,
-        new Date("2026-10-26T18:16:00.000Z"),
-      );
+      for (const later of [
+        { state: "verified" as const, checked_at: "2026-10-26T18:16:00.000Z" },
+        {
+          state: "failed" as const,
+          checked_at: "2026-10-26T18:16:00.000Z",
+          error: "events_registration_failed",
+        },
+      ]) {
+        await store().setEventsUnlessVerified(
+          workspaceId,
+          created.slack_app.id,
+          later,
+        );
+      }
       expect(
         (await store().findForAgent(workspaceId, agentId))?.events,
-      ).toEqual({ state: "verified", checked_at: first.toISOString() });
+      ).toEqual(verified);
     });
     const begin = (
       workspaceId: string,

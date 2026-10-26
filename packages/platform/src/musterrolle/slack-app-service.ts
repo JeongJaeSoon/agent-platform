@@ -466,8 +466,10 @@ export function createSlackAppService(deps: {
           api.updateApp(token, appId, manifest),
         );
       } catch (error) {
+        // An unanswered call may still have reached Slack, whose challenge
+        // then left `verified`.
         if (input.eventsUrl !== undefined)
-          await apps.setEvents(workspaceId, slackAppId, {
+          await apps.setEventsUnlessVerified(workspaceId, slackAppId, {
             state: "failed",
             checked_at: now().toISOString(),
             error: "events_registration_failed",

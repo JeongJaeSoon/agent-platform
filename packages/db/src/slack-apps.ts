@@ -185,13 +185,14 @@ export function createPostgresSlackAppStore(
           ),
         );
     },
-    async markEventsVerified(workspaceId, slackAppId, checkedAt) {
+    async setEventsUnlessVerified(workspaceId, slackAppId, events) {
       await db
         .update(slackApps)
         .set({
-          eventsState: "verified",
-          eventsCheckedAt: checkedAt,
-          eventsError: null,
+          eventsState: events.state,
+          eventsCheckedAt:
+            events.checked_at === null ? null : new Date(events.checked_at),
+          eventsError: events.error ?? null,
           updatedAt: DB_NOW,
         })
         .where(
