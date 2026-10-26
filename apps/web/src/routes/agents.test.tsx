@@ -12,9 +12,9 @@ import {
   agentDetailSchema,
   CREDENTIAL_REVOKE_NOTICE,
 } from "@werft-ai/contracts";
+import { avatarTone } from "@werft-ai/ui";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
 import { queryKeys } from "../api/queries.ts";
-import { avatarTone } from "../components/agent-cards.tsx";
 import { type Locale, translate } from "../i18n/i18n.tsx";
 import { AGENT_ID, agentServer, CARD } from "../test-support/fake-agents.ts";
 import {
