@@ -451,4 +451,88 @@ describe("claudeContractRun events", () => {
       detail: { error },
     });
   });
+
+  test("names each call right after the public event that carries it", async () => {
+    const events = await eventsFor(
+      frame({
+        type: "assistant",
+        message: {
+          content: [
+            { type: "tool_use", id: "call_a", name: "Bash", input: {} },
+            { type: "text", text: "and then" },
+            { type: "tool_use", id: "call_b", name: "Read", input: {} },
+          ],
+        },
+      }),
+    );
+
+    expect(
+      events.map((event) =>
+        event.type === "public"
+          ? `public:${event.event.event}`
+          : event.type === "tool.called"
+            ? `called:${event.toolCallId}`
+            : event.type,
+      ),
+    ).toEqual([
+      "public:tool_use",
+      "called:call_a",
+      "public:assistant",
+      "public:tool_use",
+      "called:call_b",
+      "native",
+    ]);
+  });
+
+  test("keeps the provider's refusal for the result after one for another input", async () => {
+    const turns = (
+      await eventsFor(
+        frame({
+          type: "system",
+          subtype: "api_retry",
+          error: "rate_limit",
+          error_status: 429,
+        }),
+        frame({ type: "assistant", error: "rate_limit" }),
+        frame({ type: "result", subtype: "success", user_message_uuid: "b" }),
+        frame({
+          type: "result",
+          subtype: "success",
+          is_error: true,
+          terminal_reason: "api_error",
+          user_message_uuid: "a",
+        }),
+      )
+    ).flatMap((event) => (event.type === "turn.ended" ? [event.turn] : []));
+
+    expect(turns[1]?.engineResult).toMatchObject({
+      provider_error: "rate_limit",
+      last_retry_status: 429,
+    });
+  });
+
+  test.each([
+    [
+      "names the input a message with no public event is for",
+      frame({ type: "assistant", user_message_uuid: "in-2", message: {} }),
+      [{ type: "inputs.named", inputs: ["in-2"] }, { type: "native" }],
+    ],
+    [
+      "names the driver's input for such a message",
+      frame({ type: "stream_event" }, ["in-3"]),
+      [{ type: "inputs.named", inputs: ["in-3"] }, { type: "native" }],
+    ],
+    [
+      "says nothing for one that names no input",
+      frame({ type: "stream_event" }),
+      [{ type: "native" }],
+    ],
+    [
+      "leaves naming to the public events when there are some",
+      frame({ type: "command_lifecycle", command_uuid: "in-2" }),
+      [{ type: "public", inputs: ["in-2"] }, { type: "native" }],
+    ],
+  ] as const)("%s", async (_, given, expected) => {
+    expect(await eventsFor(given)).toMatchObject(expected);
+  });
 });

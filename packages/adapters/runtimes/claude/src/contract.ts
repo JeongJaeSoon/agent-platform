@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { SessionEvent } from "@werft-ai/contracts";
 import {
   CLAUDE_DESCRIPTOR,
   CLAUDE_RUNTIME_FINGERPRINT,
@@ -404,15 +405,29 @@ class ClaudeContractRun implements AgentRun {
     const inputs = named.length > 0 ? named : frame.inputs;
     const calls = toolCallsOf(message);
     for (const call of calls) this.callEmitted(call.toolCallId);
+    // The mapper gives each content block an event of its own, so a call is
+    // named right after the one that carries it and stored no later.
+    const unplaced = [...calls];
+    const events = frame.events.flatMap((event): RuntimeEvent[] => {
+      const carried = unplaced.findIndex(
+        (call) => call.toolCallId === toolCallIdOf(event),
+      );
+      const [call] = carried === -1 ? [] : unplaced.splice(carried, 1);
+      return [
+        { type: "public", event, ...(inputs === undefined ? {} : { inputs }) },
+        ...(call === undefined
+          ? []
+          : [{ type: "tool.called", ...call } satisfies RuntimeEvent]),
+      ];
+    });
     return [
-      ...frame.events.map(
-        (event): RuntimeEvent => ({
-          type: "public",
-          event,
-          ...(inputs === undefined ? {} : { inputs }),
-        }),
+      ...(events.length === 0 && inputs !== undefined && inputs.length > 0
+        ? [{ type: "inputs.named", inputs } satisfies RuntimeEvent]
+        : []),
+      ...events,
+      ...unplaced.map(
+        (call): RuntimeEvent => ({ type: "tool.called", ...call }),
       ),
-      ...calls.map((call): RuntimeEvent => ({ type: "tool.called", ...call })),
       ...this.outcomeOf(message),
       { type: "native", message },
     ];
@@ -535,6 +550,14 @@ function decisionOf(
         ...(answer.reason === "park" ? { interrupt: true } : {}),
       };
   }
+}
+
+function toolCallIdOf(event: SessionEvent): string | undefined {
+  if (event.event !== "tool_use") return undefined;
+  const content = (event.data.message as { content?: unknown } | null)?.content;
+  const block = Array.isArray(content) ? content[0] : undefined;
+  const id = (block as { id?: unknown } | undefined)?.id;
+  return typeof id === "string" ? id : undefined;
 }
 
 function toolCallsOf(

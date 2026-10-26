@@ -1727,7 +1727,12 @@ export class WorkerHost {
       try {
         for await (const event of run.events()) {
           if (event.type === "public") {
-            this.publisher?.publish([event.event], this.frameTurn(event));
+            this.publisher?.publish(
+              [event.event],
+              this.frameTurn(event.inputs),
+            );
+          } else if (event.type === "inputs.named") {
+            this.frameTurn(event.inputs);
           } else if (event.type === "tool.called") {
             this.publisher?.toolCalled(event.toolCallId);
           } else if (event.type === "runtime.warning") {
@@ -1769,10 +1774,10 @@ export class WorkerHost {
     })();
   }
 
-  private frameTurn(event: PublicEvent): string | null {
+  private frameTurn(inputs: readonly string[] = []): string | null {
     const turn = this.turn;
     if (turn === undefined) return null;
-    const { entered, turnId } = frameTurn(event.inputs ?? [], turn);
+    const { entered, turnId } = frameTurn(inputs, turn);
     turn.entered = entered;
     return turnId;
   }
@@ -2326,7 +2331,6 @@ export function inputUuid(
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-type PublicEvent = Extract<RuntimeEvent, { type: "public" }>;
 type RuntimeWarning = Extract<RuntimeEvent, { type: "runtime.warning" }>;
 
 /**

@@ -32,11 +32,10 @@ export interface TurnEnded {
 }
 
 /**
- * For one engine message the run emits its public events, then its
- * `tool.called` events, then its `runtime.warning` or `turn.ended`, then
- * `native`. A `tool.called` therefore follows the public event carrying
- * that call, and precedes any `approval.requested` for the same
- * `toolCallId`.
+ * For one engine message the run emits its public events, each
+ * `tool.called` right after the public event carrying that call, then its
+ * `runtime.warning` or `turn.ended`, then `native`. A `tool.called`
+ * precedes any `approval.requested` for the same `toolCallId`.
  */
 export type RuntimeEventBody =
   | {
@@ -49,6 +48,12 @@ export type RuntimeEventBody =
        */
       inputs?: readonly string[];
     }
+  /**
+   * Only for an engine message that projects no public event yet names the
+   * inputs it is for: the host learns its turn's input was taken up, and
+   * publishes nothing.
+   */
+  | { type: "inputs.named"; inputs: readonly string[] }
   | { type: "tool.called"; toolCallId: string; tool: string }
   | { type: "tool.admitted"; toolCallId: string }
   | { type: "approval.requested"; request: ApprovalRequested }

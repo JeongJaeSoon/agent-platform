@@ -242,9 +242,31 @@ describe("WorkerHost over a run that implements the contract itself", () => {
       };
     };
     const { gateway, worker } = host(run);
+    // The batch carrying the first call is held: nothing may be registered
+    // for it until the gateway has stored it.
+    let releaseCall: (() => void) | undefined;
+    const callHeld = new Promise<void>((resolve) => {
+      releaseCall = resolve;
+    });
+    let callSent = false;
+    const append = gateway.appendEvents.bind(gateway);
+    gateway.appendEvents = async (request) => {
+      const carries = request.events.some(
+        (event) => event.event === "system" && event.data.call === "call_1",
+      );
+      if (carries) {
+        callSent = true;
+        await callHeld;
+      }
+      return append(request);
+    };
     gateway.enqueue("first");
     gateway.enqueue("second");
     const loop = worker.runLoop();
+    await until(() => callSent, "call_1 sent");
+    await Bun.sleep(50);
+    expect(gateway.registered()).toEqual([]);
+    releaseCall?.();
     for (const id of ["call_1", "call_2"]) {
       await until(
         () =>
@@ -272,14 +294,6 @@ describe("WorkerHost over a run that implements the contract itself", () => {
       { turnId: "1", status: "completed", reason: null },
       { turnId: "2", status: "completed", reason: null },
     ]);
-    // Each request was registered only once its call was stored.
-    for (const [index, id] of ["call_1", "call_2"].entries()) {
-      const stored = gateway.events.findIndex(
-        (event) => event.event === "system" && event.data.call === id,
-      );
-      expect(stored).toBeGreaterThanOrEqual(0);
-      expect(gateway.registered()[index]?.announce?.tool_use_id).toBe(id);
-    }
   });
 
   test("ends turns whose terminal reports no cost, with no cost recorded", async () => {
@@ -436,5 +450,38 @@ describe("WorkerHost over a run that implements the contract itself", () => {
       first_completed: null,
       unnamed: "2",
     });
+  });
+
+  test("enters a turn on an input named by a message that published nothing", async () => {
+    const run = new ScriptedRun();
+    const sent: AgentInput[] = [];
+    run.onSend = (input) => {
+      sent.push(input);
+      const [first, second] = sent;
+      if (second === undefined) {
+        if (first !== undefined) finish(run, first);
+        return;
+      }
+      run.push(
+        { type: "inputs.named", inputs: [second.uuid] },
+        publicEvent("unnamed", "system", {
+          type: "system",
+          subtype: "unnamed",
+        }),
+      );
+      finish(run, second);
+    };
+    const { gateway, worker } = host(run);
+    gateway.enqueue("first");
+    gateway.enqueue("second");
+
+    await worker.runLoop();
+
+    const unnamed = gateway.batches.find((batch) =>
+      batch.events.some(
+        (event) => event.event === "system" && event.data.subtype === "unnamed",
+      ),
+    );
+    expect(unnamed?.turn_id).toBe("2");
   });
 });
