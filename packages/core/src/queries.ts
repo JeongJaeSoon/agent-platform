@@ -411,6 +411,11 @@ export function waitingSessionsQuery(client: ApiClient) {
   });
 }
 
+/** Matches every agentSessionsQuery, whichever agent, to mark them stale. */
+export const agentSessionListsFilter = {
+  queryKey: queryKeys.agentSessionLists,
+} as const;
+
 /** The newest sessions of one agent the caller can read, for its overview. */
 export function agentSessionsQuery(client: ApiClient, agentId: string) {
   return queryOptions({

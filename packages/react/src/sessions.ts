@@ -25,8 +25,8 @@ import type {
   TerminateSessionResponse,
 } from "@werft-ai/contracts";
 import {
+  agentSessionListsFilter,
   pendingRequestsQuery,
-  queryKeys,
   sessionQuery,
   sessionsQuery,
   sessionUsageQuery,
@@ -122,9 +122,7 @@ function refreshSession(
           ...waitingSessionsQuery(client),
           exact: true,
         });
-        void queryClient.invalidateQueries({
-          queryKey: queryKeys.agentSessionLists,
-        });
+        void queryClient.invalidateQueries(agentSessionListsFilter);
         break;
       case "detail":
         void queryClient.invalidateQueries({
