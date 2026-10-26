@@ -27,7 +27,7 @@ compose의 `apps` profile에서는 `reconciler` 서비스가 이 pass를 기본�
 | `RECONCILER_STATUS_FILE` | `/tmp/reconciler-status.json` | 루프가 pass마다 갱신하는 상태(`lastSuccessAt`·`lastDegradedAt`·`lastFailureAt`·`lastFailureReason`·`consecutiveFailures`·`lastPassDurationMs`, 진행 중인 pass의 `passDeadlineAt`). healthcheck가 읽는다 |
 | `RECONCILER_BATCH_SIZE` | 100 | pass의 각 단계(orphan·lease·interrupt 회수, 기한을 넘긴 interrupt·terminate receipt의 `unknown` 마감, 입력 대기 알림)가 한 번에 처리하는 row 수 상한. 남은 row는 다음 pass가 처리한다. scheduler의 terminate 기한 sweep은 이 값을 읽지 않고 pass마다 고정 상한 100개씩 처리한다 |
 
-최근 성공·실패는 `docker compose -f infra/docker-compose.yml exec reconciler cat /tmp/reconciler-status.json`과 로그의 `Reconciler pass completed`/`Reconciler pass failed`로 본다. reconciler 서비스는 환경 파일을 읽지 않는다 — 환경 파일에 흔히 있는 `HEARTBEAT_TTL_SEC`를 받으면 기동을 거부하기 때문이다. 위 값은 `docker compose`를 실행하는 셸에서 준다. 단 compose는 `RECONCILER_STATUS_FILE`과 `RECONCILER_DRY_RUN`을 넘기지 않는다. 그래서 compose의 reconciler는 셸 값과 상관없이 기본 경로에 상태를 쓰고, 언제나 실제로 고친다. dry-run은 위 예시처럼 pass를 직접 한 번 돌려서 확인한다. reconciler 컨테이너에는 Docker socket이 없다. reconciler는 epoch fence와 `desired_state = terminated`만 DB에 적고, 컨테이너 제거와 부재 확인은 scheduler가 한다. 두 reconciler가 겹쳐 돌거나 pass 도중 재시작돼도 각 쓰기가 row lock 아래에서 다시 판정되므로 같은 lease·interrupt·orphan을 두 번 처리하지 않는다(`apps/control-host/src/reconciler/overlap.integration.test.ts`).
+최근 성공·실패는 `docker compose -f infra/compose.yml exec reconciler cat /tmp/reconciler-status.json`과 로그의 `Reconciler pass completed`/`Reconciler pass failed`로 본다. reconciler 서비스는 환경 파일을 읽지 않는다 — 환경 파일에 흔히 있는 `HEARTBEAT_TTL_SEC`를 받으면 기동을 거부하기 때문이다. 위 값은 `docker compose`를 실행하는 셸에서 준다. 단 compose는 `RECONCILER_STATUS_FILE`과 `RECONCILER_DRY_RUN`을 넘기지 않는다. 그래서 compose의 reconciler는 셸 값과 상관없이 기본 경로에 상태를 쓰고, 언제나 실제로 고친다. dry-run은 위 예시처럼 pass를 직접 한 번 돌려서 확인한다. reconciler 컨테이너에는 Docker socket이 없다. reconciler는 epoch fence와 `desired_state = terminated`만 DB에 적고, 컨테이너 제거와 부재 확인은 scheduler가 한다. 두 reconciler가 겹쳐 돌거나 pass 도중 재시작돼도 각 쓰기가 row lock 아래에서 다시 판정되므로 같은 lease·interrupt·orphan을 두 번 처리하지 않는다(`apps/control-host/src/reconciler/overlap.integration.test.ts`).
 
 pass의 마지막 단계는 도구 호출 투영이다. 지난 pass 뒤에 쌓인 `tool_use`·`tool_result` 이벤트를 짝지어 `tool_calls`와 일별 합계 `tool_call_days`에 적는다. 사용량 API(`GET /v1/usage/tools`)는 이벤트를 다시 파싱하지 않고 이 두 표만 읽는다. 한 트랜잭션에 이벤트 5,000개씩, pass마다 10초 동안 처리하고 남은 것은 다음 pass가 잇는다. 배치가 문장 timeout(10초)에 걸리면 배치를 10분의 1로 줄여 다시 처리하고, 줄인 크기를 `tool_call_progress.batch_size`에 바로 커밋한다. pass timeout(60초)이 pass를 끊어도 다음 pass는 그 크기에서 시작하므로 결국 한 배치는 지나간다. timeout 없이 끝난 pass는 크기를 10배씩 되돌린다(설정값에 닿으면 NULL). timeout마다 `Tool call batch timed out` 로그(`batch_size`, `retry_size`)를 바로 남기고, pass 끝의 `Tool calls projected`에는 `timed_out_batches`로 횟수를 남긴다. 진행 위치는 `tool_call_progress.applied_through`(이벤트 id)다. 이 커서는 60초보다 오래된 이벤트까지만 넘어가므로, 늦게 커밋된 낮은 id의 이벤트도 빠뜨리지 않는다. 그보다 새 이벤트는 다음 pass가 다시 읽으며, 다시 적용해도 결과는 같다. 그래서 새 호출이 API에 보이기까지는 보통 pass 하나만큼(10초 남짓) 걸린다. migration 뒤 첫 pass들은 커서 0에서 기존 이벤트를 모두 채운다(backfill). 로컬 PG16에서 이벤트 2,000만 개를 쉬지 않고 투영하는 데 약 26분이 걸렸다. pass 사이에 `RECONCILER_INTERVAL_SEC`만큼 쉬므로 실제로는 그 두 배쯤(1시간 안팎) 걸리고, 그동안 API의 도구 집계는 덜 찬 값이다. dry-run은 투영하지 않는다.
 
@@ -255,7 +255,7 @@ label이 없는 옛 volume(`ap-ws-<installationId>-<sessionId>`)이나 다른 qu
 # scheduler와 같은 환경 변수(DATABASE_URL, EXECUTION_*, DOCKER_HOST)로 실행한다
 bun run --cwd apps/control-host migrate-workspace <session-id> [<session-id>...]
 # compose(apps profile)라면
-docker compose -f infra/docker-compose.yml --profile apps run --rm scheduler \
+docker compose -f infra/compose.yml --profile apps run --rm scheduler \
   bun run apps/control-host/src/scheduler/migrate-workspace.ts <session-id>
 ```
 
@@ -320,8 +320,8 @@ compose의 proxy는 `apps/egress-proxy/Dockerfile`로 빌드한 이미지로 돈
 - compose healthcheck(`src/healthcheck.ts`)는 이 값을 `/app/src`의 현재 소스와 비교하고, 다르면 `unhealthy`로 떨어진다. 이미지로 돌 때는 둘이 늘 같다. 누군가 소스 트리를 mount해 덮어쓴 뒤 그 checkout을 옮겼을 때만 이 검사가 발동한다. 다만 Docker는 연속 실패 12회(약 60초)가 쌓여야 상태를 바꾼다.
 
 ```bash
-docker compose -f infra/docker-compose.yml up -d --wait --build egress-proxy   # checkout을 옮긴 뒤
-docker compose -f infra/docker-compose.yml exec -T egress-proxy bun run /app/src/healthcheck.ts
+docker compose -f infra/compose.yml up -d --wait --build egress-proxy   # checkout을 옮긴 뒤
+docker compose -f infra/compose.yml exec -T egress-proxy bun run /app/src/healthcheck.ts
 docker network ls --filter label=agent-platform.worker-network=true \
   --format '{{.Name}} {{.Labels}}'
 ```

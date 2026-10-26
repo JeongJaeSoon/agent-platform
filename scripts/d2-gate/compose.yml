@@ -1,4 +1,4 @@
-# Overlay on infra/docker-compose.yml for the D2 gate; run.sh is
+# Overlay on infra/compose.yml for the D2 gate; run.sh is
 # the only intended caller. Paths are relative to infra/, the project
 # directory of the base file.
 #

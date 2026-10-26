@@ -1,5 +1,5 @@
 # The local layer over compose.core.yml: what a machine without
-# test-ops' AWS account needs to run the product. docker-compose.yml merges
+# test-ops' AWS account needs to run the product. compose.yml merges
 # the two. It adds
 # - the local dependencies: persistent SeaweedFS S3 and the sample repository;
 # - the fake Messages API and a separate LocalStack Secrets Manager
