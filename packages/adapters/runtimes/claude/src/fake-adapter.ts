@@ -3,7 +3,6 @@ import type {
   AgentRun,
   CheckpointLeaseGrant,
   CheckpointPreparation,
-  NativeSdkMessage,
 } from "@werft-ai/runtime-core";
 
 import type { ClaudeRuntimeConfig } from "./config.ts";
@@ -11,6 +10,7 @@ import { claudeContractRun } from "./contract.ts";
 import type {
   AgentFrame,
   DriverRun,
+  NativeSdkMessage,
   PermissionDecision,
   PermissionRequest,
   RuntimeHooks,

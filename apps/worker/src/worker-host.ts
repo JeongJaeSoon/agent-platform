@@ -20,6 +20,7 @@ import {
 } from "@werft-ai/contracts";
 import {
   type AgentRun,
+  type AnswerResult,
   type ApprovalDecisionPayload,
   type ApprovalRequested,
   type CheckpointLease,
@@ -1895,15 +1896,25 @@ export class WorkerHost {
   }
 
   private onApprovalRequested(run: AgentRun, request: ApprovalRequested): void {
-    const answer = (decision: ApprovalDecisionPayload) => {
-      void run.answer({
+    const answer = async (
+      decision: ApprovalDecisionPayload,
+    ): Promise<AnswerResult> => {
+      const result = await run.answer({
         ...decision,
         localId: request.localId,
         inputHash: request.inputHash,
       });
+      if (result === "unknown") {
+        this.logger.warn("worker.approval.answer_unknown", {
+          local_id: request.localId,
+          tool_call_id: request.toolCallId,
+          decision: decision.kind,
+        });
+      }
+      return result;
     };
     if (this.stopping !== undefined || this.pending === undefined) {
-      answer({
+      void answer({
         kind: "cancelled",
         reason: "shutdown",
         message: "This worker is winding down and cannot ask for approval",
@@ -1913,7 +1924,7 @@ export class WorkerHost {
     // The interrupt voided the turn's callbacks; one raised after it is no
     // different, and asking would only hold the turn open again.
     if (this.turn?.interrupting === true || this.turn?.closed === true) {
-      answer({
+      void answer({
         kind: "cancelled",
         reason: "interrupt",
         message: "The turn was interrupted",
@@ -1929,6 +1940,10 @@ export class WorkerHost {
    * fails or produces nothing to commit gives the lease back at once.
    */
   private async capture(run: AgentRun): Promise<Captured> {
+    // A run that takes no checkpoints finalizes without one, not as a
+    // capture that failed.
+    const { effective } = await run.ready();
+    if (!effective.checkpoint) return { lease: null, ref: null };
     const { lease, preparation: runPreparation } =
       await run.leaseCheckpoint("turn_end");
     let ref: CheckpointRef | null;

@@ -117,8 +117,9 @@ function call(run: ScriptedRun, sent: AgentInput, id: string): void {
         toolCallId: id,
         tool: { name: "shell", input },
         inputHash: approvalInputHash("shell", input),
-        kind: "permission",
         askedAt: performance.now(),
+        kind: "permission",
+        display: input,
       },
     },
   );
@@ -127,14 +128,20 @@ function call(run: ScriptedRun, sent: AgentInput, id: string): void {
 describe("WorkerHost over a run that implements the contract itself", () => {
   test("puts a request the run calls a question to the person as one, whatever its tool is named", async () => {
     const run = new ScriptedRun();
-    const input = {
-      questions: [
-        {
-          question: "Which environment?",
-          options: [{ label: "staging" }, { label: "production" }],
-        },
-      ],
-    };
+    // Nothing like AskUserQuestion: the questions and their ids are the run's.
+    const input = { topic: "deploy target" };
+    const questions = [
+      {
+        question_id: "target",
+        prompt: "Which environment?",
+        options: [
+          { option_id: "target-staging", label: "staging" },
+          { option_id: "target-production", label: "production" },
+        ],
+        multi_select: false,
+        allow_free_text: false,
+      },
+    ];
     run.onSend = (sent) => {
       const block = { type: "tool_use", id: "call_1", name: "ask_human" };
       const message = { role: "assistant", content: [block] };
@@ -153,8 +160,9 @@ describe("WorkerHost over a run that implements the contract itself", () => {
             toolCallId: "call_1",
             tool: { name: "ask_human", input },
             inputHash: approvalInputHash("ask_human", input),
-            kind: "question",
             askedAt: performance.now(),
+            kind: "question",
+            questions,
           },
         },
       );
@@ -168,11 +176,13 @@ describe("WorkerHost over a run that implements the contract itself", () => {
       await Bun.sleep(5);
     }
     const [registration] = gateway.registered();
-    expect(registration?.request).toMatchObject({ kind: "question" });
+    expect(registration?.request).toEqual({ kind: "question", questions });
     gateway.answer({
       request_id: registration?.request_id ?? "",
       kind: "question",
-      answers: [{ question_id: "q0", selected_option_ids: ["q0o1"] }],
+      answers: [
+        { question_id: "target", selected_option_ids: ["target-production"] },
+      ],
     });
 
     const summary = await loop;
@@ -182,12 +192,53 @@ describe("WorkerHost over a run that implements the contract itself", () => {
         localId: "local-1",
         inputHash: approvalInputHash("ask_human", input),
         kind: "answered",
-        answers: { "Which environment?": "production" },
+        answers: [
+          { question_id: "target", selected_option_ids: ["target-production"] },
+        ],
       },
     ]);
     expect(summary.turns).toEqual([
       { turnId: "1", status: "completed", reason: null },
     ]);
+  });
+
+  test("finalizes without taking a checkpoint lease when the run takes no checkpoints", async () => {
+    const run = new ScriptedRun();
+    run.onSend = (sent) => finish(run, sent);
+    const warnings: string[] = [];
+    const { gateway, worker } = host(run, {
+      info: () => {},
+      warn: (event) => warnings.push(event),
+      error: () => {},
+    });
+    gateway.enqueue("hello");
+
+    const summary = await worker.runLoop();
+
+    expect(run.leases).toBe(0);
+    expect(summary.turns).toEqual([
+      { turnId: "1", status: "completed", reason: null },
+    ]);
+    expect(gateway.finalized.map((request) => request.checkpoint)).toEqual([
+      null,
+    ]);
+    // Not a checkpoint that failed: none was tried.
+    expect(warnings).not.toContain("worker.checkpoint.rejected");
+  });
+
+  test("still takes the lease when the run takes checkpoints", async () => {
+    const run = new ScriptedRun();
+    run.capabilities = {
+      ...run.capabilities,
+      effective: { ...run.capabilities.effective, checkpoint: true },
+    };
+    run.onSend = (sent) => finish(run, sent);
+    const { gateway, worker } = host(run);
+    gateway.enqueue("hello");
+
+    await worker.runLoop();
+
+    expect(run.leases).toBe(1);
   });
 
   test("waits for a run that is still closing before it releases", async () => {
@@ -390,8 +441,9 @@ describe("WorkerHost over a run that implements the contract itself", () => {
           toolCallId: "call_never",
           tool: { name: "shell", input },
           inputHash: approvalInputHash("shell", input),
-          kind: "permission",
           askedAt: pushedAt - (waitMs - 50),
+          kind: "permission",
+          display: input,
         },
       });
     };

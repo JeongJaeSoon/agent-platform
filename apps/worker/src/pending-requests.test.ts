@@ -5,6 +5,7 @@ import {
   PENDING_SETTLEMENTS_MAX,
   type PendingControlRequest,
   type PendingControlResponse,
+  type PendingQuestion,
   type PostSessionAnswerRequest,
   pendingControlRequestSchema,
   type RegisterPendingRequest,
@@ -13,6 +14,7 @@ import {
   type WorkerScope,
 } from "@werft-ai/contracts";
 import {
+  type AnswerResult,
   type ApprovalDecisionPayload,
   type ApprovalRequested,
   approvalInputHash,
@@ -106,8 +108,18 @@ function registry(
     published,
     registry: instance,
     idFor,
-    ask(request: ApprovalRequested): Promise<ApprovalDecisionPayload> {
-      return new Promise((resolve) => instance.request(request, resolve));
+    /** `result` is what the run says of the answer it is handed. */
+    ask(
+      request: ApprovalRequested,
+      result: AnswerResult | Error = "applied",
+    ): Promise<ApprovalDecisionPayload> {
+      return new Promise((resolve) =>
+        instance.request(request, async (decision) => {
+          resolve(decision);
+          if (result instanceof Error) throw result;
+          return result;
+        }),
+      );
     },
     // Answers the callback the engine knows as `request_id`.
     async answer(answer: PostSessionAnswerRequest) {
@@ -122,14 +134,16 @@ function approval(
   requestId: string,
   name: string,
   input: Record<string, unknown>,
+  display: Record<string, unknown> = input,
 ): ApprovalRequested {
   return {
     localId: `local_${requestId}`,
     toolCallId: `toolu_${requestId}`,
     tool: { name, input },
     inputHash: approvalInputHash(name, input),
-    kind: name === "AskUserQuestion" ? "question" : "permission",
     askedAt: performance.now(),
+    kind: "permission",
+    display,
   };
 }
 
@@ -137,27 +151,44 @@ function permission(requestId: string, command = "ls"): ApprovalRequested {
   return approval(requestId, "Bash", { command });
 }
 
-function question(requestId: string): ApprovalRequested {
-  return approval(requestId, "AskUserQuestion", {
-    questions: [
-      {
-        header: "deploy",
-        question: "Which environment?",
-        multiSelect: false,
-        options: [
-          { label: "staging", description: "the safe one" },
-          { label: "production", description: "the other one" },
-        ],
-      },
-    ],
-  });
+const ENVIRONMENT: PendingQuestion = {
+  question_id: "q0",
+  prompt: "Which environment?",
+  options: [
+    { option_id: "q0o0", label: "staging" },
+    { option_id: "q0o1", label: "production" },
+  ],
+  multi_select: false,
+  allow_free_text: true,
+};
+
+// No engine's question tool: the registry reads only the run's questions.
+function question(
+  requestId: string,
+  questions: PendingQuestion[] = [ENVIRONMENT],
+): ApprovalRequested {
+  const input = { ask: "environment" };
+  return {
+    localId: `local_${requestId}`,
+    toolCallId: `toolu_${requestId}`,
+    tool: { name: "ask_human", input },
+    inputHash: approvalInputHash("ask_human", input),
+    askedAt: performance.now(),
+    kind: "question",
+    questions,
+  };
 }
 
 describe("PendingRequestRegistry", () => {
   test("registers before publishing, under an id of its own and the raw arguments' hash", async () => {
     const harness = registry();
     const secret = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789";
-    const request = permission("req-allow", `curl -H 'x-api-key: ${secret}'`);
+    const request = approval(
+      "req-allow",
+      "Bash",
+      { command: `curl -H 'x-api-key: ${secret}'` },
+      { command: "curl -H 'x-api-key: [REDACTED]'" },
+    );
     const decision = harness.ask(request);
     const requestId = await harness.idFor("req-allow");
 
@@ -170,8 +201,12 @@ describe("PendingRequestRegistry", () => {
         .update(canonicalJson({ tool: "Bash", input: request.tool.input }))
         .digest("hex"),
     );
-    // What clients see is the redacted copy; the hash is not.
-    expect(JSON.stringify(registration?.request)).not.toContain(secret);
+    // What clients see is the run's redacted copy; the hash is not.
+    expect(registration?.request).toEqual({
+      kind: "permission",
+      tool: "Bash",
+      input: { command: "curl -H 'x-api-key: [REDACTED]'" },
+    });
     // The gateway writes the question event, so it is told what that event
     // needs beyond the request.
     expect(registration?.announce).toEqual({
@@ -293,7 +328,7 @@ describe("PendingRequestRegistry", () => {
     });
   });
 
-  test("turns a question answer into the input shape the SDK expects", async () => {
+  test("registers the run's questions and hands their answer back by id", async () => {
     const harness = registry();
     const decision = harness.ask(question("req-question"));
     await harness.idFor("req-question");
@@ -323,7 +358,7 @@ describe("PendingRequestRegistry", () => {
 
     expect(await decision).toEqual({
       kind: "answered",
-      answers: { "Which environment?": "production" },
+      answers: [{ question_id: "q0", selected_option_ids: ["q0o1"] }],
     });
   });
 
@@ -344,8 +379,54 @@ describe("PendingRequestRegistry", () => {
 
     expect(await decision).toEqual({
       kind: "answered",
-      answers: { "Which environment?": "somewhere else" },
+      answers: [
+        {
+          question_id: "q0",
+          selected_option_ids: [],
+          free_text: "somewhere else",
+        },
+      ],
     });
+  });
+
+  test.each([
+    ["stale", "cancelled"],
+    ["unknown", "answered"],
+    ["refused by a throw", "cancelled"],
+  ] as const)(
+    "reports an answer the run calls %s as %s",
+    async (said, outcome) => {
+      const harness = registry();
+      const decision = harness.ask(
+        permission("req-said"),
+        said === "refused by a throw" ? new Error("run closed") : said,
+      );
+      const requestId = await harness.answer({
+        request_id: "req-said",
+        kind: "permission",
+        decision: "allow",
+      });
+
+      expect((await decision).kind).toBe("selected");
+      await waitFor(() => harness.gateway.settled.length === 1, "settlement");
+      // Stale never reached the engine. Unknown may have, and a cancelled
+      // receipt would hide a tool that ran.
+      expect(harness.gateway.settled).toEqual([
+        { request_id: requestId, outcome },
+      ]);
+    },
+  );
+
+  test("refuses a question the run gave nothing to show for", async () => {
+    const harness = registry();
+    const decision = await harness.ask(question("req-empty", []));
+
+    expect(decision).toEqual({
+      kind: "cancelled",
+      reason: "refused",
+      message: "The question cannot be shown without its redacted values",
+    });
+    expect(harness.gateway.registered()).toEqual([]);
   });
 
   test.each([
@@ -641,8 +722,9 @@ describe("PendingRequestRegistry", () => {
   test("stops waiting, and answers nothing, when the run withdraws a request", async () => {
     const harness = registry();
     let answered = false;
-    harness.registry.request(permission("req-abort"), () => {
+    harness.registry.request(permission("req-abort"), async () => {
       answered = true;
+      return "applied";
     });
     const requestId = await harness.idFor("req-abort");
     harness.registry.withdraw("local_req-abort");

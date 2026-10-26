@@ -7,11 +7,9 @@ import type {
 import {
   FakeAgentRuntime,
   type FakeStep,
-} from "@werft-ai/runtime-claude/testing";
-import {
   type NativeSdkMessage,
-  WorkerGatewayRequestError,
-} from "@werft-ai/runtime-core";
+} from "@werft-ai/runtime-claude/testing";
+import { WorkerGatewayRequestError } from "@werft-ai/runtime-core";
 
 import type { WorkerCheckpointPort } from "./checkpoint.ts";
 import { engineProfile } from "./composition.ts";

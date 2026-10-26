@@ -7,12 +7,6 @@ import type {
 import type { NegotiatedCapabilities } from "./descriptor.ts";
 import type { RuntimeEvent } from "./events.ts";
 
-/** An engine's own message, as the temporary `native` event carries it. */
-export type NativeSdkMessage = {
-  [key: string]: unknown;
-  type: string;
-};
-
 export type CheckpointPoint = "turn_end" | "approval_wait";
 
 export type ParkReadiness =
