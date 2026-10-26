@@ -47,6 +47,7 @@ const sessionId = location.pathname.match(/^\/sessions\/([^/]+)$/)?.[1];
 
 function SignedIn({ children }: { children: ReactNode }) {
   const me = useMe();
+  if (me.isError) return renderError(me.error, () => void me.refetch());
   const scope = me.data ? queryScopeOf(me.data) : null;
   if (!scope) return loading;
   return <QueryScopeProvider scope={scope}>{children}</QueryScopeProvider>;
@@ -81,7 +82,7 @@ createRoot(document.getElementById("root") as HTMLElement).render(
 ```
 
 - `AgentPlatformProvider` は、ブロックと hook が読むクライアント、言語(`ko`, `ja`, `en`)、リンク関数を保持する。`QueryClientProvider` の内側に置く。
-- ブロックはログインした人とワークスペースごとにキャッシュする。`SignedIn` のように `useMe()` の応答を `queryScopeOf` でスコープに変えて `QueryScopeProvider` に渡し、ブロックはその内側に置く。外側に置くと、ブロックは最初の描画でエラーを出す。別の人がログインしてスコープが変わると、内側のツリーを描き直し、前の人のキャッシュを消す。
+- ブロックはログインした人とワークスペースごとにキャッシュする。`SignedIn` のように `useMe()` の応答を `queryScopeOf` でスコープに変えて `QueryScopeProvider` に渡し、ブロックはその内側に置く。外側に置くと、ブロックは最初の描画でエラーを出す。ログイン前で `useMe()` が 401 で失敗すると、ブロックの代わりに `renderError` で再試行を出す。別の人がログインしてスコープが変わると、内側のツリーを描き直し、前の人のキャッシュを消す。
 - `renderLink` は、ブロックがセッションへのリンクを描画するときに呼ばれる。URL はアプリが決める。ルーターを使うアプリなら、そのルーターの `Link` を返す。
 - `loading` と `renderError` はブロックごとに渡す。文言もアプリのものである。
 

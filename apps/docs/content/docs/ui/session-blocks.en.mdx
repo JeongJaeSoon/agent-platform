@@ -47,6 +47,7 @@ const sessionId = location.pathname.match(/^\/sessions\/([^/]+)$/)?.[1];
 
 function SignedIn({ children }: { children: ReactNode }) {
   const me = useMe();
+  if (me.isError) return renderError(me.error, () => void me.refetch());
   const scope = me.data ? queryScopeOf(me.data) : null;
   if (!scope) return loading;
   return <QueryScopeProvider scope={scope}>{children}</QueryScopeProvider>;
@@ -81,7 +82,7 @@ createRoot(document.getElementById("root") as HTMLElement).render(
 ```
 
 - `AgentPlatformProvider` holds the client that blocks and hooks read, the language (`ko`, `ja`, `en`), and the link function. Place it inside `QueryClientProvider`.
-- Blocks cache per signed-in person and workspace. As `SignedIn` does, turn the `useMe()` answer into a scope with `queryScopeOf`, pass it to `QueryScopeProvider`, and put the blocks inside it. Outside it, a block throws on its first render. When someone else signs in and the scope changes, the tree inside is drawn afresh and the previous person's cache is dropped.
+- Blocks cache per signed-in person and workspace. As `SignedIn` does, turn the `useMe()` answer into a scope with `queryScopeOf`, pass it to `QueryScopeProvider`, and put the blocks inside it. Outside it, a block throws on its first render. When `useMe()` fails, say with a 401 before sign-in, `renderError` shows a retry in place of the blocks. When someone else signs in and the scope changes, the tree inside is drawn afresh and the previous person's cache is dropped.
 - `renderLink` is called when a block renders a link to a session. The app decides the URL. In an app with a router, return that router's `Link`.
 - `loading` and `renderError` are passed to each block. The wording is also the app's own.
 

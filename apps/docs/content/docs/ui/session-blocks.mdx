@@ -47,6 +47,7 @@ const sessionId = location.pathname.match(/^\/sessions\/([^/]+)$/)?.[1];
 
 function SignedIn({ children }: { children: ReactNode }) {
   const me = useMe();
+  if (me.isError) return renderError(me.error, () => void me.refetch());
   const scope = me.data ? queryScopeOf(me.data) : null;
   if (!scope) return loading;
   return <QueryScopeProvider scope={scope}>{children}</QueryScopeProvider>;
@@ -81,7 +82,7 @@ createRoot(document.getElementById("root") as HTMLElement).render(
 ```
 
 - `AgentPlatformProvider`는 블록과 hook이 읽는 클라이언트, 언어(`ko`, `ja`, `en`), 링크 함수를 둔다. `QueryClientProvider` 안에 놓는다.
-- 블록은 로그인한 사람과 워크스페이스별로 캐시한다. `SignedIn`처럼 `useMe()`의 응답을 `queryScopeOf`로 바꿔 `QueryScopeProvider`에 넘기고, 블록은 그 안에 둔다. 밖에 두면 블록이 첫 렌더에서 오류를 낸다. 다른 사람이 로그인해 범위가 바뀌면 그 안의 트리를 새로 그리고 이전 사람의 캐시를 지운다.
+- 블록은 로그인한 사람과 워크스페이스별로 캐시한다. `SignedIn`처럼 `useMe()`의 응답을 `queryScopeOf`로 바꿔 `QueryScopeProvider`에 넘기고, 블록은 그 안에 둔다. 밖에 두면 블록이 첫 렌더에서 오류를 낸다. 로그인 전이라 `useMe()`가 401로 실패하면 블록 대신 `renderError`로 다시 시도를 보인다. 다른 사람이 로그인해 범위가 바뀌면 그 안의 트리를 새로 그리고 이전 사람의 캐시를 지운다.
 - `renderLink`는 블록이 세션으로 가는 링크를 그릴 때 부른다. URL은 앱이 정한다. 라우터를 쓰는 앱이면 그 라우터의 `Link`를 돌려준다.
 - `loading`과 `renderError`는 블록마다 받는다. 문구도 앱의 것이다.
 
