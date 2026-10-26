@@ -36,6 +36,7 @@ import {
   unassignedSessions,
   workerCredentials,
 } from "./schema.ts";
+import { confirmExecutionGone, launchSession } from "./testing/launches.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -146,30 +147,8 @@ integration("execution Grant revocation on PostgreSQL", () => {
     return { ...result.response, ownerId, partition };
   }
 
-  async function launch(partition: string, sessionId: string) {
-    const executionId = `exec-${crypto.randomUUID()}`;
-    const registered = await gateway.registerLaunch({
-      executionId,
-      generation: 1,
-      partition,
-      sessionId,
-      backend: "local_docker",
-    });
-    if (registered.nonce === null) throw new Error("launch already registered");
-    // What the scheduler's reservation writes; the gateway alone does not.
-    await db.insert(executions).values({
-      backend: "local_docker",
-      desiredState: "running",
-      generation: 1,
-      id: executionId,
-      observedState: "running",
-      sessionId,
-    });
-    await db
-      .update(sessions)
-      .set({ executionId })
-      .where(eq(sessions.id, sessionId));
-    return { executionId, nonce: registered.nonce, generation: 1 };
+  function launch(sessionId: string) {
+    return launchSession(db, { sessionId });
   }
 
   function claim(l: {
@@ -225,7 +204,7 @@ integration("execution Grant revocation on PostgreSQL", () => {
   /** A bound session with turn 1 delivered to its worker. */
   async function running(name: string) {
     const session = await queuedSession(`${name}-${crypto.randomUUID()}`);
-    const l = await launch(session.partition, session.session_id);
+    const l = await launch(session.session_id);
     const claimed = await claim(l);
     const next = await gateway.nextInput(
       principalOf(claimed),
@@ -473,7 +452,7 @@ integration("execution Grant revocation on PostgreSQL", () => {
 
   test("a claim replay cannot rotate a live token in after the revocation", async () => {
     const session = await queuedSession(`replay-${crypto.randomUUID()}`);
-    const l = await launch(session.partition, session.session_id);
+    const l = await launch(session.session_id);
     // Claimed and never used: the one state in which a replay rotates.
     const claimed = await claim(l);
     await revoke(session.session_id);
@@ -507,7 +486,7 @@ integration("execution Grant revocation on PostgreSQL", () => {
 
     // Once it is seen gone the receipt says so, and the turn the worker was
     // running is outcome_unknown: the revocation proves nothing about it.
-    await gateway.confirmExecutionGone(l.executionId);
+    await confirmExecutionGone(db, l.executionId);
     expect(await receiptRow(result.receiptId)).toMatchObject({
       status: "succeeded",
       result: {
@@ -561,7 +540,20 @@ integration("execution Grant revocation on PostgreSQL", () => {
         slotLimit: 1_000,
       }),
     ).toBeNull();
-    const l = await launch(session.partition, session.session_id);
+    // A launch a pass reserved just before the revocation committed: the
+    // claim refuses it on the column alone.
+    await db
+      .update(sessions)
+      .set({ executionRevokedAt: null, executionRevokedReason: null })
+      .where(eq(sessions.id, session.session_id));
+    const l = await launch(session.session_id);
+    await db
+      .update(sessions)
+      .set({
+        executionRevokedAt: stopped.executionRevokedAt,
+        executionRevokedReason: stopped.executionRevokedReason,
+      })
+      .where(eq(sessions.id, session.session_id));
     expect(await failure(claim(l))).toEqual({
       status: 404,
       code: "NOT_FOUND",
@@ -655,7 +647,7 @@ integration("execution Grant revocation on PostgreSQL", () => {
       outcome: "execution_unconfirmed",
       executionId: l.executionId,
     });
-    await gateway.confirmExecutionGone(l.executionId);
+    await confirmExecutionGone(db, l.executionId);
     expect(
       (
         await restoreExecutionAtomic(db, {

@@ -50,6 +50,7 @@ import {
   unassignedSessions,
 } from "./schema.ts";
 import { announceLapsedInputWaits } from "./session-events.ts";
+import { launchSession } from "./testing/launches.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -169,18 +170,13 @@ integration("parked pending requests on PostgreSQL", () => {
       .update(unassignedSessions)
       .set({ partition })
       .where(eq(unassignedSessions.sessionId, sessionId));
-    const executionId = `exec-${crypto.randomUUID()}`;
-    const registered = await gateway.registerLaunch({
-      executionId,
-      generation: 1,
-      partition,
-      backend: "local_docker",
+    const { executionId, generation, nonce } = await launchSession(db, {
+      sessionId,
     });
-    if (registered.nonce === null) throw new Error("launch already registered");
     const claimed = await gateway.bootstrapClaim(bootstrap, {
       execution_id: executionId,
-      execution_generation: 1,
-      credential: { kind: "launch_nonce", nonce: registered.nonce },
+      execution_generation: generation,
+      credential: { kind: "launch_nonce", nonce },
     });
     const principal: WorkerPrincipal = {
       kind: "session",

@@ -254,7 +254,7 @@ function FullChart({
         onPointerMove={point}
         onPointerDown={point}
         className={cn(
-          "relative flex touch-pan-y items-end gap-0.5 border-border-strong border-b bg-[linear-gradient(var(--ap-chart-grid)_1px,transparent_1px)]",
+          "relative flex cursor-pointer touch-pan-y items-end gap-0.5 border-border-strong border-b bg-[linear-gradient(var(--ap-chart-grid)_1px,transparent_1px)]",
           PLOT_HEIGHT.full,
         )}
       >
@@ -280,10 +280,8 @@ function FullChart({
             >
               <span
                 className={cn(
-                  "block w-full rounded-t-[4px]",
-                  datum.partial
-                    ? HATCH
-                    : "bg-chart-mark group-data-active:bg-chart-mark-active",
+                  "block w-full rounded-t-[4px] group-data-active:[--ap-chart-mark:var(--ap-chart-mark-active)]",
+                  datum.partial ? HATCH : "bg-chart-mark",
                 )}
                 style={{ height: height(datum.y) }}
               />

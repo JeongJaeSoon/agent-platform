@@ -31,6 +31,7 @@ export {
   usageBreakdownQuery,
   usageSeriesQuery,
   viewerQuery,
+  waitingSessionsByQuery,
   waitingSessionsQuery,
   withQueryScope,
 } from "./queries.ts";

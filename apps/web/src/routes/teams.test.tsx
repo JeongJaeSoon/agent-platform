@@ -829,11 +829,17 @@ describe("에이전트 관리자", () => {
       (await screen.findByText("Mate")).closest("li")?.textContent,
     ).toContain("mate@example.com · 10/11부터 담당");
     await screen.findByRole("option", { name: "결제팀" });
-    // The list's summaries name the admins, so a change marks it stale.
-    services.queryClient.setQueryData(keys.agents, {
-      items: [],
-      next_cursor: null,
-    });
+    // The list's summaries name the admins, so a change marks it stale; the
+    // overview watches the list, so it may be read again at once.
+    const listReads = () =>
+      api.calls.filter((c) => c.method === "GET" && c.path === "/v1/agents")
+        .length;
+    await waitFor(() =>
+      expect(services.queryClient.getQueryState(keys.agents)?.fetchStatus).toBe(
+        "idle",
+      ),
+    );
+    const reads = listReads();
     await user.selectOptions(
       screen.getByLabelText("관리자로 추가할 사람이나 팀"),
       `teams:${TEAM_ID}`,
@@ -846,8 +852,11 @@ describe("에이전트 관리자", () => {
       api.calls.find((c) => c.method === "POST" && c.path.endsWith("/admins"))
         ?.body,
     ).toEqual({ team_id: TEAM_ID });
-    expect(services.queryClient.getQueryState(keys.agents)?.isInvalidated).toBe(
-      true,
+    await waitFor(() =>
+      expect(
+        services.queryClient.getQueryState(keys.agents)?.isInvalidated ===
+          true || listReads() > reads,
+      ).toBe(true),
     );
 
     await user.click(

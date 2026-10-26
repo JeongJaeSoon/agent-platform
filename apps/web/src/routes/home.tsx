@@ -192,12 +192,13 @@ export function HomeScreen() {
     enabled: operator,
   });
   const keys = useQuery(apiKeysQuery(client));
-  const requester = reader === "requester";
-  const running = useQuery(statusPageQuery(client, "running", requester));
-  const idle = useQuery(statusPageQuery(client, "idle", requester));
+  // Every reader's cards count these; a session without a role has no cards.
+  const carded = reader !== undefined;
+  const running = useQuery(statusPageQuery(client, "running", carded));
+  const idle = useQuery(statusPageQuery(client, "idle", carded));
   const accounts = useQuery({
     ...linkedAccountsQuery(client),
-    enabled: requester,
+    enabled: carded,
   });
   // Either list can show the step done; to call it not done, both must answer.
   const invited: StepState =
@@ -252,9 +253,6 @@ export function HomeScreen() {
     [members, invites, agents, sessions].every((query) => !query.isPending) &&
     steps.some((step) => step.state !== "done");
 
-  const waitingCount = waiting.data
-    ? count(waiting.data.items.length, waiting.data.next_cursor !== null)
-    : null;
   // The oldest request and each session's wait are read from the same
   // per-session lists the session screen reads. They show nothing unless the
   // one page holds every waiting session and every list answered: a partial
@@ -320,6 +318,9 @@ export function HomeScreen() {
       myUsage,
       installUsage,
       limits,
+      running,
+      idle,
+      accounts,
     ].every((query) => !query.isLoading)
   )
     setSettled(true);
@@ -390,10 +391,6 @@ export function HomeScreen() {
       value={attention === null ? t("home.overview.unknown") : attention}
       note={t("home.glance.attentionNote")}
       rows={[
-        {
-          label: t("home.overview.waiting"),
-          value: waitingCount ?? t("home.overview.unknown"),
-        },
         {
           label: t("home.glance.staleWait"),
           dot: requests && requests.stale > 0 ? "wait" : undefined,
@@ -595,16 +592,19 @@ export function HomeScreen() {
       }
     />
   );
-  // The design's card set for each reader (Console.dc.html homeCards).
+  // Every reader leads with the member's three (Console.dc.html homeCards
+  // requester), then the cards of their role; the waiting count shows once,
+  // on the progress card.
+  const glance = [mineCard, progressCard, accountsCard];
   const cards =
     reader === "owner"
-      ? [installCard, oversightCard, mineCard]
+      ? [...glance, installCard, oversightCard]
       : reader === "admin"
-        ? [mineCard, ...managed.slice(0, 1).map(agentCard), oversightCard]
+        ? [...glance, ...managed.slice(0, 1).map(agentCard), oversightCard]
         : reader === "manager"
-          ? [mineCard, ...managed.slice(0, 2).map(agentCard)]
+          ? [...glance, ...managed.slice(0, 2).map(agentCard)]
           : reader === "requester"
-            ? [mineCard, progressCard, accountsCard]
+            ? glance
             : null;
 
   return (
@@ -756,7 +756,7 @@ function useReader(): {
 // waitingSessionsQuery's pace (packages/core queries.ts).
 const WAITING_REFETCH_MS = 30_000;
 
-/** One status's first page, read only for the reader whose card counts it. */
+/** One status's first page, read once the reader's cards are known. */
 export function statusPageQuery(
   client: ApiClient,
   status: "running" | "idle",

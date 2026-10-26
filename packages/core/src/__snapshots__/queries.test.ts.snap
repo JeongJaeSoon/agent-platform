@@ -214,6 +214,17 @@ exports[`query keys 1`] = `
       "status": "needs_input",
     },
   ],
+  "waitingSessionsBy": [
+    {
+      "actor": "user:u-1",
+      "workspace": "w-1",
+    },
+    "sessions",
+    {
+      "relation": "shared",
+      "status": "needs_input",
+    },
+  ],
 }
 `;
 
@@ -801,6 +812,35 @@ exports[`query options and the request each query makes 1`] = `
       "queryKey": [
         "me",
         "optional",
+      ],
+      "retry": false,
+    },
+  },
+  "waitingSessionsByQuery": {
+    "calls": [
+      [
+        "/v1/sessions",
+        {
+          "params": {
+            "query": {
+              "relation": "id-1",
+              "status": "needs_input",
+            },
+          },
+        },
+      ],
+    ],
+    "options": {
+      "queryKey": [
+        {
+          "actor": "user:u-1",
+          "workspace": "w-1",
+        },
+        "sessions",
+        {
+          "relation": "id-1",
+          "status": "needs_input",
+        },
       ],
       "retry": false,
     },

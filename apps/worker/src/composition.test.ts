@@ -1,15 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import {
   CLAUDE_AGENT_SDK_VERSION,
-  claudeProfileFingerprint,
+  claudeRuntimeModule,
 } from "@werft-ai/runtime-claude";
 
 import {
   claudeClaimFingerprint,
-  claudeRunConfig,
   claudeRuntimeRegistry,
   createWorkerHost,
   OUT_DIRECTORY_PROMPT,
+  runtimeProfile,
 } from "./composition.ts";
 import type { WorkerConfig } from "./config.ts";
 import { EngineProcesses } from "./engine-processes.ts";
@@ -101,31 +101,28 @@ describe("claudeRuntimeRegistry", () => {
     });
 
     expect(() =>
-      launcher.start(
-        {
-          committedClaudeMd: () => {
-            throw new Error(
-              "Repository CLAUDE.md refused: a restored workspace has no freshly fetched commit behind it",
-            );
-          },
-          correlationId: "s:a",
-          maxBudgetUsd: 25,
-          mode: "new",
-          principal: { owner_scope: "owner-a" },
-          runtimeConfig: {
-            model: "m",
-            tools: [],
-            permission_mode: "default",
-            provider: {
-              kind: "anthropic",
-              endpoint: "http://127.0.0.1:9",
-              auth: { kind: "egress_token", token: "placeholder" },
-            },
-            project_settings: { claude_md: true },
-          },
+      launcher.start({
+        committedClaudeMd: () => {
+          throw new Error(
+            "Repository CLAUDE.md refused: a restored workspace has no freshly fetched commit behind it",
+          );
         },
-        { onPermission: async () => ({ behavior: "deny", message: "none" }) },
-      ),
+        correlationId: "s:a",
+        maxBudgetUsd: 25,
+        mode: "new",
+        principal: { owner_scope: "owner-a" },
+        runtimeConfig: {
+          model: "m",
+          tools: [],
+          permission_mode: "default",
+          provider: {
+            kind: "anthropic",
+            endpoint: "http://127.0.0.1:9",
+            auth: { kind: "egress_token", token: "placeholder" },
+          },
+          project_settings: { claude_md: true },
+        },
+      }),
     ).toThrow("no freshly fetched commit");
   });
 });
@@ -223,32 +220,38 @@ describe("claudeClaimFingerprint", () => {
       expect(digests).toEqual(onMain);
     }
     expect(
-      claudeRunConfig(
+      runtimeProfile(
         config,
+        claudeRuntimeModule,
         {
           principal,
           runtimeConfig: shipped["claude-coding-real"],
           workspace: { repository },
         },
         () => null,
-      ),
-    ).not.toHaveProperty("appendSystemPrompt");
+      ).bundle.instructions,
+    ).toEqual([]);
   });
 
   test("a session without a repository is told about out/, and its digest says so", () => {
     for (const [id, runtimeConfig] of Object.entries(shipped)) {
-      const run = claudeRunConfig(
+      const profile = runtimeProfile(
         config,
+        claudeRuntimeModule,
         { principal, runtimeConfig, workspace: { repository: null } },
         () => null,
       );
-      expect(run.appendSystemPrompt).toBe(OUT_DIRECTORY_PROMPT);
+      expect(profile.bundle.instructions).toEqual([
+        { scope: "platform", text: OUT_DIRECTORY_PROMPT },
+      ]);
       const digest = fingerprint({
         principal,
         runtime_config: runtimeConfig,
         workspace: { repository: null },
       }).profileSha256;
-      expect(digest).toBe(claudeProfileFingerprint(run));
+      expect(digest).toBe(
+        claudeRuntimeModule.fingerprint(profile).profileSha256,
+      );
       expect(digest).not.toBe(onMain[id as keyof typeof shipped]);
     }
     expect(OUT_DIRECTORY_PROMPT).toContain("`out/`");

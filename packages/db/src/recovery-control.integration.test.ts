@@ -37,6 +37,7 @@ import {
   unassignedSessions,
   workerLaunches,
 } from "./schema.ts";
+import { confirmExecutionGone, launchSession } from "./testing/launches.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -153,28 +154,7 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
   }
 
   async function launch(partition: string, sessionId: string) {
-    const executionId = `exec-${crypto.randomUUID()}`;
-    const registered = await gateway.registerLaunch({
-      executionId,
-      generation: 1,
-      partition,
-      sessionId,
-      backend: "local_docker",
-    });
-    if (registered.nonce === null) throw new Error("launch already registered");
-    await db.insert(executions).values({
-      backend: "local_docker",
-      desiredState: "running",
-      generation: 1,
-      id: executionId,
-      observedState: "running",
-      sessionId,
-    });
-    await db
-      .update(sessions)
-      .set({ executionId })
-      .where(eq(sessions.id, sessionId));
-    return { executionId, nonce: registered.nonce, generation: 1, partition };
+    return { ...(await launchSession(db, { sessionId })), partition };
   }
 
   function claim(l: Awaited<ReturnType<typeof launch>>) {
@@ -374,7 +354,7 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
         })
         .where(eq(sessions.id, session.session_id));
     }
-    expect(await gateway.confirmExecutionGone(l.executionId)).toEqual({
+    expect(await confirmExecutionGone(db, l.executionId)).toEqual({
       sessionReleased: true,
       slotReleased: true,
     });
@@ -872,7 +852,7 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
     await finalize(second.input.turn_id, null);
 
     await terminate(session);
-    await gateway.confirmExecutionGone(l.executionId);
+    await confirmExecutionGone(db, l.executionId);
     const stopped = await sessionRow(session.session_id);
     expect(stopped).toMatchObject({
       admissionState: "stopped",
@@ -944,7 +924,7 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
     ).toMatchObject({ status: "blocked", reason: "background_writer" });
 
     await terminate(session);
-    await gateway.confirmExecutionGone(l.executionId);
+    await confirmExecutionGone(db, l.executionId);
     const stopped = await sessionRow(session.session_id);
     expect(stopped).toMatchObject({
       admissionState: "stopped",
@@ -1144,7 +1124,7 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
     // The kill is still observed and settles the binding, but the
     // superseded terminate receipt is not resurrected and the session
     // stays closed.
-    expect(await gateway.confirmExecutionGone(l.executionId)).toEqual({
+    expect(await confirmExecutionGone(db, l.executionId)).toEqual({
       sessionReleased: true,
       slotReleased: true,
     });
@@ -1489,7 +1469,7 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
         checkpoint: null,
       });
     expect((await finalize()).status).toBe("outcome_unknown");
-    expect(await gateway.confirmExecutionGone(l.executionId)).toMatchObject({
+    expect(await confirmExecutionGone(db, l.executionId)).toMatchObject({
       sessionReleased: true,
     });
     const row = await sessionRow(session.session_id);

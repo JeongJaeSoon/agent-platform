@@ -26,6 +26,7 @@ import type {
   ListTurnsResponse,
   LoginMethodsResponse,
   SessionDetail,
+  SessionRelation,
   SessionUsageResponse,
   TeamDetail,
   UsageBreakdownBy,
@@ -165,6 +166,8 @@ export function queryKeysOf(client: ApiClient) {
     sessions: [s, "sessions"] as const,
     // An object segment, so it never reads as a session id.
     waitingSessions: [s, "sessions", { status: "needs_input" }] as const,
+    waitingSessionsBy: (relation: SessionRelation) =>
+      [s, "sessions", { status: "needs_input", relation }] as const,
     // Every agent's list matches agentSessionLists, so a session change
     // refreshes them all without knowing which agent it belongs to.
     agentSessionLists: [s, "sessions", { list: "agent" }] as const,
@@ -502,6 +505,23 @@ export function waitingSessionsQuery(client: ApiClient) {
       ) as Promise<ListSessionsResponse>,
     retry: false,
     refetchInterval: 30_000,
+  });
+}
+
+/** The first page of waiting sessions that came to the caller by `relation`. */
+export function waitingSessionsByQuery(
+  client: ApiClient,
+  relation: SessionRelation,
+) {
+  return queryOptions({
+    queryKey: queryKeysOf(client).waitingSessionsBy(relation),
+    queryFn: () =>
+      unwrap(
+        client.GET("/v1/sessions", {
+          params: { query: { status: "needs_input", relation } },
+        }),
+      ) as Promise<ListSessionsResponse>,
+    retry: false,
   });
 }
 

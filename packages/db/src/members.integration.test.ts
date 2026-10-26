@@ -24,7 +24,6 @@ import * as schema from "./schema.ts";
 import {
   agents,
   apiKeys,
-  executions,
   memberships,
   receipts,
   sessions,
@@ -34,6 +33,7 @@ import {
   webSessions,
   workspaces,
 } from "./schema.ts";
+import { launchSession } from "./testing/launches.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -998,33 +998,14 @@ integration("members, identity and takeover on PostgreSQL", () => {
       const leaver = await member(ws, "member");
       const created = await createSession(asUser(ws, leaver));
       const sessionId = created.session_id;
-      const { partition } = await sessionRow(sessionId);
-      const executionId = `exec-${randomUUID()}`;
-      const registered = await gateway.registerLaunch({
-        executionId,
-        generation: 1,
-        partition,
-        sessionId,
-        backend: "local_docker",
-      });
-      if (registered.nonce === null) throw new Error("launch not registered");
-      await db.insert(executions).values({
-        backend: "local_docker",
-        desiredState: "running",
-        generation: 1,
-        id: executionId,
-        observedState: "running",
+      const { executionId, generation, nonce } = await launchSession(db, {
         sessionId,
       });
-      await db
-        .update(sessions)
-        .set({ executionId })
-        .where(eq(sessions.id, sessionId));
       const bootstrap: WorkerPrincipal = { kind: "bootstrap" };
       const claimed = await gateway.bootstrapClaim(bootstrap, {
         execution_id: executionId,
-        execution_generation: 1,
-        credential: { kind: "launch_nonce", nonce: registered.nonce },
+        execution_generation: generation,
+        credential: { kind: "launch_nonce", nonce },
       });
       const principal: WorkerPrincipal = {
         kind: "session",

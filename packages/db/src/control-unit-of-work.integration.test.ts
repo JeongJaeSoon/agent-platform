@@ -33,6 +33,11 @@ import {
   unassignedSessions,
   workerLaunches,
 } from "./schema.ts";
+import {
+  confirmExecutionGone,
+  launchSession,
+  type TestLaunch,
+} from "./testing/launches.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -137,34 +142,7 @@ integration("session terminate on PostgreSQL", () => {
     return { ...result.response, ownerId };
   }
 
-  async function launch(partition: string, sessionId: string) {
-    const executionId = `exec-${crypto.randomUUID()}`;
-    const registered = await gateway.registerLaunch({
-      executionId,
-      generation: 1,
-      partition,
-      sessionId,
-      backend: "local_docker",
-    });
-    if (registered.nonce === null) throw new Error("launch already registered");
-    // The scheduler's reservation writes these too; the gateway alone does
-    // not, and the outbox lives on the executions row.
-    await db.insert(executions).values({
-      backend: "local_docker",
-      desiredState: "running",
-      generation: 1,
-      id: executionId,
-      observedState: "running",
-      sessionId,
-    });
-    await db
-      .update(sessions)
-      .set({ executionId })
-      .where(eq(sessions.id, sessionId));
-    return { executionId, nonce: registered.nonce, generation: 1 };
-  }
-
-  function claim(l: Awaited<ReturnType<typeof launch>>) {
+  function claim(l: TestLaunch) {
     return gateway.bootstrapClaim(bootstrap, {
       execution_id: l.executionId,
       execution_generation: l.generation,
@@ -215,7 +193,7 @@ integration("session terminate on PostgreSQL", () => {
   async function bound(name: string) {
     const partition = `${name}-${crypto.randomUUID()}`;
     const session = await queuedSession(partition);
-    const l = await launch(partition, session.session_id);
+    const l = await launchSession(db, { sessionId: session.session_id });
     const claimed = await claim(l);
     return { session, launch: l, claimed };
   }
@@ -523,7 +501,7 @@ integration("session terminate on PostgreSQL", () => {
   test("terminate cancels a pending replacement so the kill's exit is confirmable", async () => {
     const partition = `replace-${crypto.randomUUID()}`;
     const session = await queuedSession(partition);
-    const l = await launch(partition, session.session_id);
+    const l = await launchSession(db, { sessionId: session.session_id });
     // The scheduler decided to rebuild this unclaimed launch.
     await db
       .update(workerLaunches)
@@ -544,7 +522,7 @@ integration("session terminate on PostgreSQL", () => {
     expect(launchRow).toEqual({ replacementCount: 1, replacementReason: null });
 
     // Without the cancellation confirmExecutionGone would refuse this.
-    expect(await gateway.confirmExecutionGone(l.executionId)).toEqual({
+    expect(await confirmExecutionGone(db, l.executionId)).toEqual({
       sessionReleased: true,
       slotReleased: true,
     });
@@ -577,7 +555,7 @@ integration("session terminate on PostgreSQL", () => {
     const result = await terminate(session, before.revision);
     if (result.outcome !== "accepted") throw new Error(result.outcome);
 
-    expect(await gateway.confirmExecutionGone(l.executionId)).toEqual({
+    expect(await confirmExecutionGone(db, l.executionId)).toEqual({
       sessionReleased: true,
       slotReleased: true,
     });
@@ -608,7 +586,7 @@ integration("session terminate on PostgreSQL", () => {
     const result = await terminate(session, before.revision);
     if (result.outcome !== "accepted") throw new Error(result.outcome);
 
-    expect(await gateway.confirmExecutionGone(l.executionId)).toEqual({
+    expect(await confirmExecutionGone(db, l.executionId)).toEqual({
       sessionReleased: true,
       slotReleased: true,
     });
@@ -706,7 +684,7 @@ integration("session terminate on PostgreSQL", () => {
     );
     let released = 0;
     for (let i = 0; i < 30; i += 1) {
-      const outcome = await gateway.confirmExecutionGone(l.executionId);
+      const outcome = await confirmExecutionGone(db, l.executionId);
       if (outcome.slotReleased) released += 1;
     }
     expect(released).toBe(1);
@@ -862,7 +840,7 @@ integration("session terminate on PostgreSQL", () => {
     // The attempt is ended by the confirmed exit, not by the command.
     expect(attempt?.state).toBe("running");
 
-    await gateway.confirmExecutionGone(l.executionId);
+    await confirmExecutionGone(db, l.executionId);
     expect((await receiptRow(first.response.receipt_id)).status).toBe(
       "succeeded",
     );
@@ -900,7 +878,7 @@ integration("session terminate on PostgreSQL", () => {
     expect((await sessionRow(session.session_id)).admissionState).toBe(
       "recovery_required",
     );
-    await gateway.confirmExecutionGone(l.executionId);
+    await confirmExecutionGone(db, l.executionId);
     const after = await sessionRow(session.session_id);
     expect(after.admissionState).toBe("recovery_required");
     expect(after.executionId).toBeNull();
@@ -948,7 +926,7 @@ integration("session terminate on PostgreSQL", () => {
       "stopped",
     );
 
-    await gateway.confirmExecutionGone(l.executionId);
+    await confirmExecutionGone(db, l.executionId);
     expect((await receiptRow(result.response.receipt_id)).status).toBe(
       "succeeded",
     );
@@ -958,14 +936,14 @@ integration("session terminate on PostgreSQL", () => {
     ]);
     expect(stopped.at(-1)).toMatchObject(await readsAs(session));
     // Seeing the same exit again settles nothing and says nothing.
-    await gateway.confirmExecutionGone(l.executionId);
+    await confirmExecutionGone(db, l.executionId);
     expect(await statusFrames(session)).toHaveLength(stopped.length);
   });
 
   test("an exit that leaves the turn unknown puts recovery_required on the stream", async () => {
     const { session, launch: l, claimed } = await bound("stream-unknown");
     await deliver(claimed);
-    await gateway.confirmExecutionGone(l.executionId);
+    await confirmExecutionGone(db, l.executionId);
     const frames = await statusFrames(session);
     expect(frames).toEqual([
       { phase: "running" },
@@ -1001,7 +979,7 @@ integration("session terminate on PostgreSQL", () => {
       (await sessionRow(session.session_id)).revision,
     );
     if (first.outcome !== "accepted") throw new Error(first.outcome);
-    await gateway.confirmExecutionGone(l.executionId);
+    await confirmExecutionGone(db, l.executionId);
     const stopped = await sessionRow(session.session_id);
     expect(stopped.admissionState).toBe("stopped");
     const framesBefore = await statusFrames(session);
@@ -1051,7 +1029,7 @@ integration("session terminate on PostgreSQL", () => {
   test("a claim that reaches the session after its terminate committed binds nothing", async () => {
     const partition = `late-claim-${crypto.randomUUID()}`;
     const session = await queuedSession(partition);
-    const l = await launch(partition, session.session_id);
+    const l = await launchSession(db, { sessionId: session.session_id });
     const before = await sessionRow(session.session_id);
     // Terminate while the container is still booting: the row is `stopping`
     // and the launch's kill is recorded.

@@ -8,6 +8,7 @@ import type {
 import { useAgentPlatform } from "@werft-ai/react";
 import {
   Avatar,
+  avatarInitials,
   Button,
   buttonVariants,
   ConfirmDialog,
@@ -38,7 +39,6 @@ import {
 } from "../auth/guard.tsx";
 import { ReasonButton } from "../auth/reason-button.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
-import { initials } from "./agent-cards.tsx";
 import { LoadFailure } from "./load-failure.tsx";
 import { MUTED, SECTION, SECTION_TITLE } from "./my-teams.tsx";
 import type { Outcome } from "./outcome.tsx";
@@ -305,7 +305,7 @@ function AdminList({
             return (
               <RowListItem key={`u:${user.user_id}`}>
                 <Avatar
-                  initials={initials(name).slice(0, 1)}
+                  initials={avatarInitials(name).slice(0, 1)}
                   tone={avatarTone(user.user_id)}
                 />
                 <RowLines>
@@ -325,7 +325,7 @@ function AdminList({
             <RowListItem key={`t:${row.team_id}`}>
               <Avatar
                 shape="square"
-                initials={initials(row.name).slice(0, 1)}
+                initials={avatarInitials(row.name).slice(0, 1)}
                 tone={avatarTone(row.team_id)}
               />
               <RowLines>
