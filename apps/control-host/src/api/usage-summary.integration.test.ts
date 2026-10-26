@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
   apiErrorResponseSchema,
+  memberLimitsResponseSchema,
   type Principal,
   scopesForRole,
   type UsageSummaryResponse,
@@ -552,20 +553,29 @@ integration("usage summary on PostgreSQL", () => {
     await halfSecond(a2, "2006-01-03T00:00:00Z");
     const b1 = await session(bob, "2006-01-04T00:00:00Z", 0.3, 3);
     await setTurn(b1, { status: "failed", resultJson: null });
-    await session(
+    const k1 = await session(
       key(agentKey, null),
       "2006-01-05T00:00:00Z",
       0.4,
       4,
       agentReleaseId,
     );
+    // A profile the session moved to, and a session with none.
+    await db
+      .update(sessions)
+      .set({ profileId: "claude-review-v1" })
+      .where(eq(sessions.id, b1));
+    await db
+      .update(sessions)
+      .set({ profileId: null })
+      .where(eq(sessions.id, k1));
 
     const whole = await summary(user("owner", "owner"), {
       scope: "installation",
       ...period,
     });
     expect(whole).toMatchObject({ session_count: 4, cost_complete: false });
-    for (const group_by of ["agent", "user"] as const) {
+    for (const group_by of ["agent", "user", "profile"] as const) {
       const grouped = await summary(user("owner", "owner"), {
         scope: "installation",
         ...period,
@@ -625,6 +635,30 @@ integration("usage summary on PostgreSQL", () => {
       [ids.alice, "alice", 2, "0.350000"],
       [ids.bob, "bob", 1, "0.300000"],
     ]);
+    const byProfile = await summary(user("owner", "owner"), {
+      scope: "installation",
+      ...period,
+      group_by: "profile",
+    });
+    expect(
+      byProfile.groups?.map((g) => [
+        g.id,
+        g.name,
+        g.session_count,
+        g.cost_usd,
+        g.cost_complete,
+      ]),
+    ).toEqual([
+      [null, null, 1, "0.400000", true],
+      ["claude-coding-v1", "claude-coding-v1", 2, "0.350000", true],
+      ["claude-review-v1", "claude-review-v1", 1, "0.300000", false],
+    ]);
+    // Under scope=me the profiles of the caller's sessions are named.
+    expect(
+      (
+        await summary(bob, { scope: "me", ...period, group_by: "profile" })
+      ).groups?.map((g) => [g.id, g.name, g.session_count]),
+    ).toEqual([["claude-review-v1", "claude-review-v1", 1]]);
 
     // scope=me groups only the caller's own sessions.
     const mine = await summary(alice, {
@@ -837,7 +871,12 @@ integration("installation figures over HTTP on PostgreSQL", () => {
       ["admin", 403],
       ["member", 403],
     ] as const) {
-      for (const path of ["/v1/limits", installation, tools]) {
+      for (const path of [
+        "/v1/limits",
+        "/v1/limits?scope=installation",
+        installation,
+        tools,
+      ]) {
         const response = await get(path, role);
         expect(response.status, `${role} ${path}`).toBe(status);
         if (status === 403) {
@@ -846,7 +885,19 @@ integration("installation figures over HTTP on PostgreSQL", () => {
           ).toBe("FORBIDDEN");
         }
       }
-      // Their own figure is everyone's.
+      // The per-session limits and their own figure are everyone's.
+      const limits = await get("/v1/limits?scope=me", role);
+      expect(limits.status, role).toBe(200);
+      expect(memberLimitsResponseSchema.parse(await limits.json())).toEqual({
+        scope: "me",
+        refreshed_at: expect.any(String),
+        limits: {
+          queued_input_limit_per_session: expect.any(Number),
+          max_turn_seconds: expect.any(Number),
+          session_cost_limit_usd: expect.any(String),
+          session_token_limit: null,
+        },
+      });
       const me = await get("/v1/usage/summary?scope=me&since=2026-10-01", role);
       expect(me.status, role).toBe(200);
       expect(usageSummaryResponseSchema.parse(await me.json())).toMatchObject({

@@ -1,5 +1,7 @@
 import {
-  installationLimitsResponseSchema,
+  type LimitsResponse,
+  limitsQuerySchema,
+  limitsResponseSchema,
   sessionIdParamsSchema,
   sessionUsageResponseSchema,
   usageBreakdownQuerySchema,
@@ -20,10 +22,14 @@ import { mapped, requireParams, requireQuery } from "./errors.ts";
 
 export function registerUsageRoutes(router: ApiRouter, service: UsageService) {
   apiRoute(router, "getInstallationLimits", async (context) => {
-    const limits = await mapped(() =>
-      service.getInstallationLimits(context.get("caller")),
+    const { scope } = requireQuery(context, limitsQuerySchema);
+    const caller = context.get("caller");
+    const limits = await mapped<LimitsResponse>(() =>
+      scope === "me"
+        ? service.getMemberLimits(caller)
+        : service.getInstallationLimits(caller),
     );
-    return jsonWithSchema(context, installationLimitsResponseSchema, limits);
+    return jsonWithSchema(context, limitsResponseSchema, limits);
   });
 
   apiRoute(router, "getUsageSummary", async (context) => {
