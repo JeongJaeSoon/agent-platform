@@ -61,6 +61,7 @@ export async function pauseBlocker(
     | "checkpointFallbackRevision"
     | "checkpointPendingReason"
     | "contextResetCheckpointRevision"
+    | "pauseReason"
   >,
   options: { closing?: boolean } = {},
 ): Promise<PauseBlockedReason | null> {
@@ -80,6 +81,9 @@ export async function pauseBlocker(
     )
     .limit(1);
   if (open) {
+    // A park pauses on the open requests themselves; what it still waits
+    // for is the turn they are in to end.
+    if (session.pauseReason === "awaiting_input") return "long_turn";
     const [asking] = await tx
       .select({ id: pendingRequests.requestId })
       .from(pendingRequests)
@@ -201,6 +205,11 @@ export function pauseAtomic(
         currentRevision: session.revision,
       };
     }
+    // A person's pause takes over a park: the session stays where the park
+    // took it, but as their pause, which only they resume.
+    if (session.pauseReason === "awaiting_input") {
+      return takeOverPark(tx, session, { scope, input, now });
+    }
     if (session.admissionState !== "active") {
       return { outcome: "rejected", admissionState: session.admissionState };
     }
@@ -291,4 +300,86 @@ export function pauseAtomic(
     });
     return { outcome: "accepted", response };
   });
+}
+
+/**
+ * pauseAtomic on a session pausing or paused for a park. A paused one is
+ * paused already and the receipt says so at once. A pausing one hands its
+ * worker a plain pause in place of the park: the park's receipt is
+ * superseded, so the person's is the open one pendingControl delivers, and
+ * the drain commits under it.
+ */
+async function takeOverPark(
+  tx: Database,
+  session: SessionRow,
+  context: {
+    scope: IdempotencyScope;
+    input: PauseSessionInput;
+    now: Date;
+  },
+): Promise<PauseSessionResult> {
+  const { scope, input, now } = context;
+  const pausing = session.admissionState === "pausing";
+  if (pausing) {
+    await tx
+      .update(receipts)
+      .set({
+        status: "failed",
+        error: {
+          code: "CONTROL_SUPERSEDED",
+          message: "superseded by a pause before the park completed",
+        },
+        updatedAt: now,
+      })
+      .where(openPauseReceipt(session.id));
+  }
+  await tx
+    .update(sessions)
+    .set({
+      revision: sql`${sessions.revision} + 1`,
+      pauseReason: null,
+      updatedAt: now,
+    })
+    .where(eq(sessions.id, session.id));
+  const receiptId = randomUUID();
+  const response: ControlAcceptedResponse = {
+    receipt_id: receiptId,
+    receipt_status: pausing ? "accepted" : "succeeded",
+  };
+  await tx.insert(receipts).values({
+    id: receiptId,
+    ownerId: scope.principal,
+    actor: scope.actor,
+    requestId: scope.requestId,
+    operation: PAUSE,
+    targetRef: { session_id: session.id, turn_id: null, request_id: null },
+    status: response.receipt_status,
+    result: pausing ? null : await pauseReceiptResult(tx, session),
+    createdAt: sql`clock_timestamp()`,
+    updatedAt: sql`clock_timestamp()`,
+  });
+  await tx.insert(idempotencyKeys).values({
+    principal: scope.principal,
+    operation: scope.operation,
+    resource: scope.resource,
+    key: input.idempotencyKey,
+    payloadHash: input.payloadHash,
+    receiptId,
+  });
+  const at = await dbNow(tx);
+  await recordStatus(tx, {
+    sessionId: session.id,
+    phase: publicStatus(
+      session.status,
+      await awaitingInputAt(tx, session.id, at),
+    ),
+    extra: {
+      admission_state: session.admissionState,
+      reason: input.reason,
+      actor: { owner_id: input.principal.ownerId },
+    },
+    turnRowId: null,
+    now,
+  });
+  return { outcome: "accepted", response };
 }

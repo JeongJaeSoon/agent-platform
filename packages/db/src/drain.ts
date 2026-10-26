@@ -61,6 +61,7 @@ type BlockerSession = Pick<
   | "checkpointFallbackRevision"
   | "checkpointPendingReason"
   | "contextResetCheckpointRevision"
+  | "pauseReason"
 >;
 
 /** pauseBlocker, judged for the drain the session is in. */

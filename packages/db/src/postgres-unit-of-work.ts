@@ -85,10 +85,10 @@ import { drainAttention } from "./drain.ts";
 import { enqueueWithin } from "./enqueue.ts";
 import { admitInput } from "./input-limits.ts";
 import {
+  AWAITABLE_STATUSES,
   actionableOfSession,
   actionableOfTurn,
   IN_FLIGHT_STATUSES,
-  isInFlight,
   publicStatus,
 } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
@@ -650,14 +650,20 @@ export function createPostgresSessionReader(
 
   // `?status=` filters on what the list shows, not on the stored column.
   function publicStatusIs(status: SessionStatus) {
-    if (!isInFlight(status)) {
-      return eq(sessions.status, status);
-    }
     const waiting = actionableOfSession(db);
-    return and(
-      inArray(sessions.status, IN_FLIGHT_STATUSES),
-      status === "needs_input" ? exists(waiting) : notExists(waiting),
-    );
+    if (status === "needs_input") {
+      return and(inArray(sessions.status, AWAITABLE_STATUSES), exists(waiting));
+    }
+    if (status === "running") {
+      return and(
+        inArray(sessions.status, IN_FLIGHT_STATUSES),
+        notExists(waiting),
+      );
+    }
+    if (status === "idle") {
+      return and(eq(sessions.status, status), notExists(waiting));
+    }
+    return eq(sessions.status, status);
   }
 
   async function summarize(

@@ -1013,6 +1013,7 @@ describe("홈 요약", () => {
               status: "stale",
               verified_at: "2026-10-01T00:00:00Z",
               revision: 1,
+              expires_at: null,
             },
           ],
         }),

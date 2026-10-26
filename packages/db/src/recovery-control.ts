@@ -28,7 +28,12 @@ import {
   restoreBaseRevision,
   transactionWithBindingRetry,
 } from "./control-shared.ts";
-import { publicStatus } from "./pending-requests.ts";
+import { dbNow } from "./db-clock.ts";
+import {
+  awaitingInputAt,
+  cancelParkedRequests,
+  publicStatus,
+} from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
 import {
   INCOMPATIBLE_CHECKPOINT_REASON,
@@ -331,6 +336,9 @@ export function decideRecoveryAtomic(
       const started = await startFresh(tx, session, now);
       if (started.outcome !== "reset") return started;
       reset = started.reset;
+      // The checkpoint a parked turn would resume from is retired with the
+      // rest.
+      await cancelParkedRequests(tx, { sessionId }, now);
     } else if (decision.decision === "retry_restore") {
       const refused = await retryRestore(tx, session, now);
       if (refused !== null) return refused;
@@ -395,7 +403,10 @@ export function decideRecoveryAtomic(
     ) {
       await recordStatus(tx, {
         sessionId,
-        phase: publicStatus(after.status, false),
+        phase: publicStatus(
+          after.status,
+          await awaitingInputAt(tx, sessionId, await dbNow(tx)),
+        ),
         extra: {
           admission_state: after.admissionState,
           decision: decision.decision,
@@ -732,6 +743,7 @@ async function close(tx: Database, session: SessionRow, now: Date) {
     },
     now,
   });
+  await cancelParkedRequests(tx, { sessionId: session.id }, now);
   await tx
     .update(pendingRequests)
     .set({ resolvedAt: now })

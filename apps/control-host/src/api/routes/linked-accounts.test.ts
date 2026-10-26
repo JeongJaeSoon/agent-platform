@@ -364,6 +364,7 @@ describe("POST /v1/linked-accounts/slack/callback", () => {
         status: "active",
         verified_at: "2026-10-11T00:00:00.000Z",
         revision: 1,
+        expires_at: null,
       },
       receipt_id: RECEIPT,
     });
@@ -579,9 +580,26 @@ describe("GET /v1/linked-accounts", () => {
       headers: owner,
     });
     expect(response.status).toBe(200);
-    expect(
-      listLinkedAccountsResponseSchema.parse(await response.json()).items,
-    ).toEqual([expect.objectContaining({ id: LINK_ID, status: "active" })]);
+    const body = await response.json();
+    expect(listLinkedAccountsResponseSchema.parse(body).items).toEqual([
+      expect.objectContaining({ id: LINK_ID, status: "active" }),
+    ]);
+    // Pinned so no token or secret field can slip into the response.
+    expect(Object.keys(body.items[0]).sort()).toEqual([
+      "expires_at",
+      "external_tenant",
+      "external_tenant_name",
+      "external_user_id",
+      "external_user_name",
+      "id",
+      "provider",
+      "revision",
+      "status",
+      "user_id",
+      "verified_at",
+    ]);
+    // Slack keeps no token, so nothing expires.
+    expect(body.items[0].expires_at).toBeNull();
   });
 
   test("an API key is refused", async () => {

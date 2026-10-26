@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-# Worker image: Bun runtime + the workspace's production closure + the Claude
+# Worker image: Bun runtime + the worker's production closure + the Claude
 # Code executable bundled with @anthropic-ai/claude-agent-sdk 0.3.270. Built
 # from the repository root (`docker build -f apps/worker/Dockerfile .`).
 #
@@ -25,13 +25,15 @@ WORKDIR /app
 COPY package.json bun.lock bunfig.toml tsconfig.base.json THIRD_PARTY_NOTICES.md ./
 COPY apps ./apps
 COPY packages ./packages
-# The lockfile carries every SDK platform package; --production keeps the
-# linux ones that match this build's arch and drops testkit, drizzle-kit and
-# the other devDependencies. Of the two linux builds, the resolver only falls
-# back to musl when the glibc one is missing, so once the glibc build is
-# proven present the ~200 MB musl twin is dropped here, before its layer is
-# copied into the runtime stage.
+# --filter limits the install to apps/worker and the workspaces it depends on,
+# which keeps the database driver, ORM and the web console's packages out. The lockfile
+# carries every SDK platform package; --production keeps the linux ones that
+# match this build's arch and drops testkit and the other devDependencies. Of
+# the two linux builds, the resolver only falls back to musl when the glibc one
+# is missing, so once the glibc build is proven present the ~200 MB musl twin
+# is dropped here, before its layer is copied into the runtime stage.
 RUN bun install --frozen-lockfile --production \
+    --filter ./apps/worker \
   && test -x "$(bun -e 'import { resolvePinnedClaudeExecutable } from "./packages/adapters/runtimes/claude/src/runtime.ts"; console.log(resolvePinnedClaudeExecutable())')" \
   && rm -rf node_modules/@anthropic-ai/claude-agent-sdk-linux-*-musl
 

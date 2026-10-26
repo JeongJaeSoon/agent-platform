@@ -134,6 +134,9 @@ const ADDED_COLUMNS: Record<string, string[]> = {
     "channel",
     // 0159
     "model",
+    // 0172
+    "pause_reason",
+    "permission_wait_override",
   ],
   turns: ["actor_id"],
   // kind arrives as 'service'

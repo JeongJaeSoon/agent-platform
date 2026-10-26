@@ -15,7 +15,7 @@
   예외는 `fonts.css`가 `@import`하는 `pretendard`다. 배포물에는 폰트를 싣지 않으므로(아래 "배포 산출물") devDependencies에 둔다.
 - Radix는 `src/primitives/` 안에서만 import한다. Dialog 구현이 둘이 되지 않게 하려는 것이다.
 - `src/package.test.ts`가 이 경계를 검사한다. 새 의존성을 넣으려면 그 테스트를 먼저 고쳐야 한다.
-  worker 이미지는 모든 workspace의 dependencies를 설치하므로, 새 의존성은 `bun scripts/third-party-notices.ts`로
+  control-host 이미지가 싣는 웹 콘솔 번들에 이 패키지의 dependencies가 들어가므로, 새 의존성은 `bun scripts/third-party-notices.ts`로
   `THIRD_PARTY_NOTICES.md`도 다시 만든다.
 
 ## shadcn/ui

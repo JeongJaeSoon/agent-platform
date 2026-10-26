@@ -86,6 +86,7 @@ describe("database schema", () => {
       "owner_workspace_map",
       "password_resets",
       "pending_requests",
+      "permission_grants",
       "provider_usage",
       "pull_requests",
       "push_requests",
