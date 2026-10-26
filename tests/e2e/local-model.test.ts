@@ -2,9 +2,9 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { chmodSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadSessionCatalog } from "@werft-ai/control-host/src/api/catalog-config.ts";
-import { egressProxyConfigFromEnv } from "@werft-ai/egress-proxy/src/config.ts";
 import { providerUpstreamOf } from "@werft-ai/platform";
+import { loadSessionCatalog } from "../../apps/control-host/src/api/catalog-config.ts";
+import { egressProxyConfigFromEnv } from "../../apps/egress-proxy/src/config.ts";
 import {
   COMPOSE_RENDER_TIMEOUT_MS,
   LOCAL_LAYERS,
