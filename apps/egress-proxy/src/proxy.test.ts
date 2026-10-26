@@ -1,4 +1,8 @@
 import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
+import {
+  clientHello,
+  EXTENSION_ENCRYPTED_CLIENT_HELLO,
+} from "@werft-ai/testkit/tls-client-hello";
 import type { TCPSocketListener } from "bun";
 import { createProxyLogger } from "./logger.ts";
 import type { EgressResolver } from "./policy.ts";
@@ -7,10 +11,6 @@ import {
   startEgressProxy,
   systemResolver,
 } from "./proxy.ts";
-import {
-  clientHello,
-  EXTENSION_ENCRYPTED_CLIENT_HELLO,
-} from "./testing/client-hello.ts";
 
 /**
  * The proxy against real sockets, with only DNS faked: the policy has to

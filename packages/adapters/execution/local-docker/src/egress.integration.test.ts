@@ -16,7 +16,7 @@ import {
   asPrintfEscapes,
   clientHello,
   EXTENSION_ENCRYPTED_CLIENT_HELLO,
-} from "../../../../../apps/egress-proxy/src/testing/client-hello.ts";
+} from "@werft-ai/testkit/tls-client-hello";
 import {
   containerNameFor,
   ENV,

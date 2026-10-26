@@ -1,10 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import type { ProxyLogger } from "@werft-ai/egress-proxy/src/logger.ts";
-import {
-  type EgressProxyServer,
-  startEgressProxy,
-} from "@werft-ai/egress-proxy/src/proxy.ts";
 import { ClaudeSdkRuntime } from "@werft-ai/runtime-claude";
 import {
   type FakeAnthropicServer,
@@ -15,6 +10,11 @@ import {
   createIsolatedWorkspace,
   type IsolatedWorkspace,
 } from "@werft-ai/testkit/workspace";
+import type { ProxyLogger } from "../apps/egress-proxy/src/logger.ts";
+import {
+  type EgressProxyServer,
+  startEgressProxy,
+} from "../apps/egress-proxy/src/proxy.ts";
 
 /**
  * The worker container learns its only route off the worker network through

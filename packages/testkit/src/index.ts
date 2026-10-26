@@ -7,4 +7,5 @@ export * from "./git-http.ts";
 export * from "./localstack.ts";
 export * from "./postgres.ts";
 export * from "./scripted-messages.ts";
+export * from "./tls-client-hello.ts";
 export * from "./workspace.ts";

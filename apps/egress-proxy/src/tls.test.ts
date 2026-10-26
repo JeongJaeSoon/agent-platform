@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   clientHello,
   EXTENSION_ENCRYPTED_CLIENT_HELLO,
-} from "./testing/client-hello.ts";
+} from "@werft-ai/testkit/tls-client-hello";
 import {
   type ClientHelloCursor,
   MAX_CLIENT_HELLO_BYTES,

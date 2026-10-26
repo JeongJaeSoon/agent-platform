@@ -6,20 +6,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PGlite } from "@electric-sql/pglite";
 import type { BootstrapClaimResponse } from "@werft-ai/contracts";
-import {
-  createEgressAuthorizer,
-  EGRESS_AUTHORIZER_PATH,
-} from "@werft-ai/control-host/src/api/egress-authorizer.ts";
 import * as schema from "@werft-ai/db";
 import {
   createPostgresSessionUnitOfWork,
   createPostgresWorkerUnitOfWork,
 } from "@werft-ai/db";
-import {
-  type CredentialProxyServer,
-  startCredentialProxy,
-} from "@werft-ai/egress-proxy/src/credential.ts";
-import { createProxyLogger } from "@werft-ai/egress-proxy/src/logger.ts";
 import { createLogger } from "@werft-ai/observability";
 import {
   acceptAllCheckpoints,
@@ -45,6 +36,15 @@ import {
 } from "@werft-ai/testkit/workspace";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
+import {
+  createEgressAuthorizer,
+  EGRESS_AUTHORIZER_PATH,
+} from "../apps/control-host/src/api/egress-authorizer.ts";
+import {
+  type CredentialProxyServer,
+  startCredentialProxy,
+} from "../apps/egress-proxy/src/credential.ts";
+import { createProxyLogger } from "../apps/egress-proxy/src/logger.ts";
 import { engineProfile } from "../apps/worker/src/composition.ts";
 import {
   claimSecrets,
