@@ -221,4 +221,41 @@ describe("/sessions/map", () => {
       screen.queryByRole("region", { name: "내 답변을 기다리는 요청" }),
     ).toBeNull();
   });
+
+  test("a session the newest page saw end stays ended once it leaves the page", async () => {
+    const asked = summary(1, { title: "막 답한 세션", status: "needs_input" });
+    const pages: ((response: Response) => void)[] = [];
+    const { api } = renderAt("/sessions/map", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/sessions": () =>
+        new Promise<Response>((resolve) => {
+          pages.push(resolve);
+        }),
+      "GET /v1/sessions?status=needs_input": () =>
+        json(200, { items: [asked], next_cursor: null }),
+    });
+    // The waiting list lands first; then the page sees the answer.
+    await waitFor(() =>
+      expect(
+        api.calls.some((call) => call.search === "?status=needs_input"),
+      ).toBe(true),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    pages.shift()?.(
+      json(200, {
+        items: [{ ...asked, status: "running" }],
+        next_cursor: null,
+      }),
+    );
+    await screen.findByRole("heading", { level: 1, name: "에이전트 지도" });
+    // The next poll no longer lists it: newer sessions pushed it out.
+    await waitFor(() => expect(pages.length).toBeGreaterThan(0), {
+      timeout: 8_000,
+    });
+    pages.shift()?.(json(200, { items: [summary(2)], next_cursor: "older" }));
+    await screen.findAllByText("세션 2");
+    expect(
+      screen.queryByRole("region", { name: "내 답변을 기다리는 요청" }),
+    ).toBeNull();
+  }, 15_000);
 });
