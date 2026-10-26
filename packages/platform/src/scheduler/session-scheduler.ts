@@ -1445,7 +1445,7 @@ async function pass(
       );
     } catch (error) {
       lock.throwIfAborted();
-      await store.recordObservation(ref, unknownObservation(now()));
+      await store.recordObservation(ref, failedEnsureObservation(error, now()));
       if (await killRequested(execution)) {
         // Asked to go while it was being built, which is also why the build
         // was refused its credential: carried out, not counted.
@@ -1725,7 +1725,7 @@ async function pass(
       );
     } catch (error) {
       lock.throwIfAborted();
-      await store.recordObservation(ref, unknownObservation(now()));
+      await store.recordObservation(ref, failedEnsureObservation(error, now()));
       if ((await store.desiredStateOf(ref)) === "terminated") {
         await kill({ ...ref, sessionId });
         continue;
@@ -1888,6 +1888,21 @@ function fieldsOf(ref: ExecutionRef) {
 
 function unknownObservation(observedAt: Date): ExecutionObservation {
   return { found: false, observedAt, providerRef: null, state: "unknown" };
+}
+
+/**
+ * A resource refused for another launch spec was found, so no create went
+ * out. Recorded as `unknown`, it would read as a create the provider never
+ * answered, and the next pass would count a failure once the foreign
+ * resource is gone.
+ */
+function failedEnsureObservation(
+  error: unknown,
+  observedAt: Date,
+): ExecutionObservation {
+  return error instanceof LaunchSpecMismatchError
+    ? { found: true, observedAt, providerRef: null, state: "pending" }
+    : unknownObservation(observedAt);
 }
 
 /**

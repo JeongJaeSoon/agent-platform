@@ -3397,6 +3397,45 @@ describe("runScheduler launch failures", () => {
     expect(row?.launchFailureCount).toBe(0);
   });
 
+  test("a resource refused for another launch spec that is gone by the next pass is not a failed launch", async () => {
+    const { backend, run, store } = harness();
+    const [sessionId] = store.addUnassigned(1);
+    if (!sessionId) throw new Error("no session");
+    await run();
+    const [row] = store.executions.values();
+    const [intent] = backend.ensureCalls;
+    if (!row || !intent) throw new Error("no launch");
+    expect(row.nonce).not.toBeNull();
+    // Ours goes away, and another hand builds under the name before the
+    // re-create gets there.
+    backend.containers.clear();
+    const other = launchSpecFingerprint("sha256:other", RESOURCES);
+    let planted = false;
+    backend.duringEnsure = (ensuring) => {
+      if (planted) return;
+      planted = true;
+      backend.containers.set(nameOf(ensuring), {
+        exited: false,
+        generation: ensuring.generation,
+        launchSpec: other,
+        operationId: ensuring.operationId,
+        sessionId,
+      });
+    };
+    const refused = await run();
+    expect(refused.failedLaunches).toHaveLength(1);
+    expect(row.launchFailureCount).toBe(0);
+
+    // The foreign resource is gone again before the next look. No create was
+    // ever sent for it, so nothing failed: the launch is simply built.
+    backend.containers.clear();
+    const next = await run();
+    expect(store.launchFailures).toEqual([]);
+    expect(row.launchFailureCount).toBe(0);
+    expect(next.reensured).toHaveLength(1);
+    expect(backend.containers.size).toBe(1);
+  });
+
   test("the backoff doubles from its base and stops at its cap", () => {
     expect([1, 2, 3, 4, 5, 6].map((n) => launchRetryDelayMs(n))).toEqual([
       30_000, 60_000, 120_000, 240_000, 480_000, 600_000,
