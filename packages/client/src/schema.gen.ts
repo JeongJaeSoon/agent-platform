@@ -1992,7 +1992,9 @@ export interface paths {
         };
         /**
          * A team and its members
-         * @description **Auth:** cookie session only; no scope.
+         * @description An owner or an admin reads any team. Anyone else reads only a team they are in now, read only: changing it stays with owners and admins. Any other team is 403.
+         *
+         *     **Auth:** cookie session only; no scope.
          */
         get: operations["getTeam"];
         put?: never;

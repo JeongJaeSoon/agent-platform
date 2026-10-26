@@ -79,4 +79,10 @@ export interface TeamStore {
     userId: string,
     query: PaginationQuery,
   ): Promise<TeamPage<Pick<Team, "id" | "name">>>;
+  /** Whether listJoined would name this team for this person. */
+  isMember(
+    workspaceId: string,
+    teamId: string,
+    userId: string,
+  ): Promise<boolean>;
 }

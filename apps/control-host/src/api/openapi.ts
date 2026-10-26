@@ -3187,6 +3187,8 @@ export const API_ROUTE_DECLARATIONS = [
     operationId: "getTeam",
     tag: "Teams",
     summary: "A team and its members",
+    description:
+      "An owner or an admin reads any team. Anyone else reads only a team they are in now, read only: changing it stays with owners and admins. Any other team is 403.",
     auth: "session",
     success: { status: 200, schema: "TeamDetail" },
     errors: [401, 403, 404, 503],

@@ -291,7 +291,7 @@ integration("teams and teams as agent admins on PostgreSQL", () => {
     ]);
   });
 
-  test("a person's joined teams are the live teams they are in now", async () => {
+  test("a person's joined teams are the live teams they are in now; isMember agrees", async () => {
     const workspaceId = await workspace();
     const owner = await person(workspaceId, "owner");
     const mine = await person(workspaceId, "member");
@@ -317,12 +317,24 @@ integration("teams and teams as agent admins on PostgreSQL", () => {
     expect(
       await teams().listJoined(await workspace(), idOf(mine), PAGE),
     ).toEqual({ items: [], nextCursor: null });
+    const isMember = (caller: Caller, teamId: string, at = workspaceId) =>
+      teams().isMember(at, teamId, idOf(caller));
+    expect(await isMember(mine, kept.id)).toBe(true);
+    expect(await isMember(mine, kept.id.toUpperCase())).toBe(true);
+    // Left, deleted, someone else's, or asked from another workspace: no.
+    expect(await isMember(mine, left.id)).toBe(false);
+    expect(await isMember(mine, deleted.id)).toBe(false);
+    expect(await isMember(mine, theirs.id)).toBe(false);
+    expect(await isMember(owner, kept.id)).toBe(false);
+    expect(await isMember(mine, kept.id, await workspace())).toBe(false);
+    expect(await isMember(mine, "not-a-team")).toBe(false);
 
     await db
       .update(memberships)
       .set({ disabledAt: new Date() })
       .where(eq(memberships.userId, idOf(mine)));
     expect(await joined(mine)).toEqual([]);
+    expect(await isMember(mine, kept.id)).toBe(false);
   });
 
   // Seeds live teams straight into the table; 200+ creates through the store
