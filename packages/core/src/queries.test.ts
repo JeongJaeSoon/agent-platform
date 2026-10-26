@@ -167,28 +167,37 @@ test("the agent list reads every page, 100 at a time with summaries, and hands b
   ]);
 });
 
-test("the API key list reads every page, 100 at a time, and hands back all of them", async () => {
-  const pages: Record<
-    string,
-    { items: { id: string }[]; next_cursor: string | null }
-  > = {
-    first: { items: [{ id: "a" }, { id: "b" }], next_cursor: "c2" },
-    c2: { items: [{ id: "c" }], next_cursor: null },
-  };
-  const calls: unknown[] = [];
-  const client = {
-    GET: (path: string, init: { params: { query: { cursor?: string } } }) => {
-      calls.push([path, init.params.query]);
-      const data = pages[init.params.query.cursor ?? "first"];
-      return Promise.resolve({ data, response: new Response(null) });
-    },
-  } as unknown as ApiClient;
-  const { queryFn } = queries.apiKeysQuery(client);
-  const all = await queryFn({} as Parameters<typeof queryFn>[0]);
-  expect(all.items.map((key) => key.id)).toEqual(["a", "b", "c"]);
-  expect(all.next_cursor).toBeNull();
-  expect(calls).toEqual([
-    ["/v1/api-keys", { limit: 100 }],
-    ["/v1/api-keys", { cursor: "c2", limit: 100 }],
-  ]);
-});
+for (const [list, path, query] of [
+  ["API key", "/v1/api-keys", queries.apiKeysQuery],
+  ["team", "/v1/teams", queries.teamsQuery],
+  ["own team", "/v1/my-teams", queries.myTeamsQuery],
+] as const) {
+  test(`the ${list} list reads every page, 100 at a time, and hands back all of them`, async () => {
+    const pages: Record<
+      string,
+      { items: { id: string }[]; next_cursor: string | null }
+    > = {
+      first: { items: [{ id: "a" }, { id: "b" }], next_cursor: "c2" },
+      c2: { items: [{ id: "c" }], next_cursor: null },
+    };
+    const calls: unknown[] = [];
+    const client = {
+      GET: (path: string, init: { params: { query: { cursor?: string } } }) => {
+        calls.push([path, init.params.query]);
+        const data = pages[init.params.query.cursor ?? "first"];
+        return Promise.resolve({ data, response: new Response(null) });
+      },
+    } as unknown as ApiClient;
+    const read = query(client).queryFn as unknown as () => Promise<{
+      items: { id: string }[];
+      next_cursor: string | null;
+    }>;
+    const all = await read();
+    expect(all.items.map((item) => item.id)).toEqual(["a", "b", "c"]);
+    expect(all.next_cursor).toBeNull();
+    expect(calls).toEqual([
+      [path, { limit: 100 }],
+      [path, { cursor: "c2", limit: 100 }],
+    ]);
+  });
+}

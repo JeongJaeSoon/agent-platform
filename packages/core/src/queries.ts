@@ -308,11 +308,19 @@ export function agentQuery(client: ApiClient, id: string) {
   });
 }
 
+/** Every team of the workspace, every page read, by name. */
 export function teamsQuery(client: ApiClient) {
   return queryOptions({
     queryKey: queryKeys.teams,
-    queryFn: () =>
-      unwrap(client.GET("/v1/teams")) as Promise<ListTeamsResponse>,
+    queryFn: async (): Promise<ListTeamsResponse> => {
+      const { items } = await readEveryPage(
+        (query) =>
+          unwrap(
+            client.GET("/v1/teams", { params: { query } }),
+          ) as Promise<ListTeamsResponse>,
+      );
+      return { items, next_cursor: null };
+    },
     retry: false,
   });
 }
@@ -354,11 +362,19 @@ export function administeredAgentsQuery(client: ApiClient) {
 }
 
 /** The teams the caller is in now, names only. */
+/** Every team the caller belongs to, every page read, by name. */
 export function myTeamsQuery(client: ApiClient) {
   return queryOptions({
     queryKey: queryKeys.myTeams,
-    queryFn: () =>
-      unwrap(client.GET("/v1/my-teams")) as Promise<ListMyTeamsResponse>,
+    queryFn: async (): Promise<ListMyTeamsResponse> => {
+      const { items } = await readEveryPage(
+        (query) =>
+          unwrap(
+            client.GET("/v1/my-teams", { params: { query } }),
+          ) as Promise<ListMyTeamsResponse>,
+      );
+      return { items, next_cursor: null };
+    },
     retry: false,
   });
 }

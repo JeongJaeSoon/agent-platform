@@ -82,6 +82,7 @@ import {
   listLinkedAccountsResponseSchema,
   listMembersQuerySchema,
   listMembersResponseSchema,
+  listMyTeamsQuerySchema,
   listMyTeamsResponseSchema,
   listPendingRequestsResponseSchema,
   listProfilesResponseSchema,
@@ -91,6 +92,7 @@ import {
   listSessionsResponseSchema,
   listSlackBindingsResponseSchema,
   listTakeoversResponseSchema,
+  listTeamsQuerySchema,
   listTeamsResponseSchema,
   listTurnsQuerySchema,
   listTurnsResponseSchema,
@@ -209,6 +211,8 @@ const requestComponents = {
   ListSessionsQuery: listSessionsQuerySchema,
   ListAgentsQuery: listAgentsQuerySchema,
   ListApiKeysQuery: listApiKeysQuerySchema,
+  ListTeamsQuery: listTeamsQuerySchema,
+  ListMyTeamsQuery: listMyTeamsQuerySchema,
   ListMembersQuery: listMembersQuerySchema,
   CountSessionsQuery: countSessionsQuerySchema,
   UsageSummaryQuery: usageSummaryQuerySchema,
@@ -606,6 +610,9 @@ const ALL_SCOPES = [
   "sessions:control",
   "sessions:recover",
 ];
+const TEAM_PAGES =
+  "By `name`, then `id`, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. A team renamed while the pages are read can show twice or not at all; every other team shows once.";
+
 const EXAMPLE_AGENT = {
   id: EXAMPLE_AGENT_ID,
   workspace_id: EXAMPLE_WORKSPACE.id,
@@ -3143,9 +3150,11 @@ export const API_ROUTE_DECLARATIONS = [
     operationId: "listTeams",
     tag: "Teams",
     summary: "The workspace's teams, by name",
+    description: `Owners and admins. Archived teams are left out. ${TEAM_PAGES}`,
     auth: "session",
+    query: "ListTeamsQuery",
     success: { status: 200, schema: "ListTeamsResponse" },
-    errors: [401, 403, 503],
+    errors: [400, 401, 403, 503],
   },
   {
     method: "get",
@@ -3153,9 +3162,9 @@ export const API_ROUTE_DECLARATIONS = [
     operationId: "listMyTeams",
     tag: "Teams",
     summary: "The teams the caller belongs to",
-    description:
-      "Any signed-in person, as of this request: each team's id and name, never who else is in it.",
+    description: `Any signed-in person, as of this request: each team's id and name, never who else is in it. ${TEAM_PAGES}`,
     auth: "session",
+    query: "ListMyTeamsQuery",
     success: {
       status: 200,
       schema: "ListMyTeamsResponse",
@@ -3167,9 +3176,10 @@ export const API_ROUTE_DECLARATIONS = [
             name: "research admins",
           },
         ],
+        next_cursor: null,
       },
     },
-    errors: [401, 403, 503],
+    errors: [400, 401, 403, 503],
   },
   {
     method: "get",

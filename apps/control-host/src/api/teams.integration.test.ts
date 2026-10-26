@@ -7,6 +7,7 @@ import {
   CSRF_HEADER_VALUE,
   listAdministeredAgentsResponseSchema,
   listMyTeamsResponseSchema,
+  listTeamsResponseSchema,
   teamChangeResponseSchema,
   teamDetailSchema,
 } from "@werft-ai/contracts";
@@ -384,6 +385,48 @@ integration("teams as agent admins over HTTP on PostgreSQL", () => {
       "delete_team",
     ]) {
       expect(operations).toContain(operation);
+    }
+  });
+
+  test("both team lists page by name; a bad cursor or limit is 400", async () => {
+    for (const name of ["c", "a", "b"]) {
+      const created = await send("POST", "/v1/teams", owner, { name });
+      expect(created.status).toBe(201);
+      const { team } = teamChangeResponseSchema.parse(await created.json());
+      if (name !== "b") {
+        await send("POST", `/v1/teams/${team.id}/members`, owner, {
+          user_id: memberId,
+        });
+      }
+    }
+    async function walk(path: string, cookie: string) {
+      const pages: string[][] = [];
+      let cursor: string | null = null;
+      do {
+        const query: string = cursor ? `&cursor=${cursor}` : "";
+        const response = await send("GET", `${path}?limit=1${query}`, cookie);
+        expect(response.status).toBe(200);
+        const page = (
+          path === "/v1/teams"
+            ? listTeamsResponseSchema
+            : listMyTeamsResponseSchema
+        ).parse(await response.json());
+        pages.push(page.items.map((team) => team.name));
+        cursor = page.next_cursor;
+      } while (cursor);
+      return pages;
+    }
+    expect(await walk("/v1/teams", admin)).toEqual([["a"], ["b"], ["c"]]);
+    expect(await walk("/v1/my-teams", member)).toEqual([["a"], ["c"]]);
+    for (const [path, cookie] of [
+      ["/v1/teams", owner],
+      ["/v1/my-teams", member],
+    ] as const) {
+      for (const bad of ["?cursor=not-a-cursor", "?limit=0", "?limit=101"]) {
+        const response = await send("GET", `${path}${bad}`, cookie);
+        expect(response.status, `${path}${bad}`).toBe(400);
+        expect((await errorOf(response)).code).toBe("BAD_REQUEST");
+      }
     }
   });
 });

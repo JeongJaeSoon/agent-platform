@@ -8,7 +8,9 @@ import {
   createTeamRequestSchema,
   deleteTeamResponseSchema,
   listAdministeredAgentsResponseSchema,
+  listMyTeamsQuerySchema,
   listMyTeamsResponseSchema,
+  listTeamsQuerySchema,
   listTeamsResponseSchema,
   teamChangeResponseSchema,
   teamDetailSchema,
@@ -23,7 +25,7 @@ import {
   jsonWithSchema,
   parseJsonBody,
 } from "../app.ts";
-import { mapped, requireParams } from "./errors.ts";
+import { mapped, requireParams, requireQuery } from "./errors.ts";
 
 export function registerTeamRoutes(
   router: ApiRouter,
@@ -39,12 +41,18 @@ export function registerTeamRoutes(
   });
 
   apiRoute(router, "listTeams", async (context) => {
-    const listed = await mapped(() => teams.listTeams(context.get("caller")));
+    const query = requireQuery(context, listTeamsQuerySchema);
+    const listed = await mapped(() =>
+      teams.listTeams(context.get("caller"), query),
+    );
     return jsonWithSchema(context, listTeamsResponseSchema, listed);
   });
 
   apiRoute(router, "listMyTeams", async (context) => {
-    const listed = await mapped(() => teams.listMyTeams(context.get("caller")));
+    const query = requireQuery(context, listMyTeamsQuerySchema);
+    const listed = await mapped(() =>
+      teams.listMyTeams(context.get("caller"), query),
+    );
     return jsonWithSchema(context, listMyTeamsResponseSchema, listed);
   });
 

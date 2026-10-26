@@ -32,7 +32,7 @@ function renderAt(path: string, routes: Routes, locale: "ko" | "en" = "ko") {
 
 const meOk = {
   "GET /v1/auth/me": () => json(200, me()),
-  "GET /v1/my-teams": () => json(200, { items: [] }),
+  "GET /v1/my-teams": () => json(200, { items: [], next_cursor: null }),
   // Home lists the waiting and recent sessions; an unrouted read would put
   // its error alert beside the one a test looks for.
   "GET /v1/sessions": () => json(200, { items: [], next_cursor: null }),

@@ -361,6 +361,13 @@ exports[`query options and the request each query makes 1`] = `
     "calls": [
       [
         "/v1/my-teams",
+        {
+          "params": {
+            "query": {
+              "limit": 100,
+            },
+          },
+        },
       ],
     ],
     "options": {
@@ -498,6 +505,13 @@ exports[`query options and the request each query makes 1`] = `
     "calls": [
       [
         "/v1/teams",
+        {
+          "params": {
+            "query": {
+              "limit": 100,
+            },
+          },
+        },
       ],
     ],
     "options": {

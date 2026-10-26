@@ -94,7 +94,7 @@ const RETRY_CASES: ReadonlyArray<{
     path: "/teams",
     routes: meOk,
     failingKey: "GET /v1/teams",
-    answer: () => json(200, { items: [] }),
+    answer: () => json(200, { items: [], next_cursor: null }),
     after: /아직 팀이 없습니다/,
   },
   {
@@ -136,6 +136,7 @@ const RETRY_CASES: ReadonlyArray<{
     answer: () =>
       json(200, {
         items: [{ id: "7c1e2d3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f", name: "결제팀" }],
+        next_cursor: null,
       }),
     after: /^결제팀$/,
   },
