@@ -1,4 +1,8 @@
-import { FakeAgentRuntime, type FakeStep } from "@werft-ai/runtime-claude";
+import {
+  claudeContractRun,
+  FakeAgentRuntime,
+  type FakeStep,
+} from "@werft-ai/runtime-claude";
 
 import { engineProfile } from "../composition.ts";
 import type { RuntimeRegistry } from "../worker-host.ts";
@@ -17,22 +21,24 @@ export function scriptedRuntimes(steps: FakeStep[]): {
   const engine = new FakeAgentRuntime(steps);
   const runtimes: RuntimeRegistry = {
     launcherFor: () => ({
-      start: ({ runtimeConfig, principal, ...launch }, hooks) =>
-        engine.start(
-          {
-            claudeConfigDir: "/tmp/fake/config",
-            cwd: "/tmp/fake/workspace",
-            home: "/tmp/fake/home",
-            model: runtimeConfig.model,
-            profile: engineProfile(
-              runtimeConfig.provider,
-              principal.owner_scope,
-              "http://egress-proxy.test:3129",
-            ),
-            tools: runtimeConfig.tools,
-            ...launch,
-          },
-          hooks,
+      start: ({ runtimeConfig, principal, ...launch }) =>
+        claudeContractRun((hooks) =>
+          engine.start(
+            {
+              claudeConfigDir: "/tmp/fake/config",
+              cwd: "/tmp/fake/workspace",
+              home: "/tmp/fake/home",
+              model: runtimeConfig.model,
+              profile: engineProfile(
+                runtimeConfig.provider,
+                principal.owner_scope,
+                "http://egress-proxy.test:3129",
+              ),
+              tools: runtimeConfig.tools,
+              ...launch,
+            },
+            hooks,
+          ),
         ),
     }),
   };

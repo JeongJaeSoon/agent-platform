@@ -13,7 +13,9 @@ import {
   type WorkerScope,
 } from "@werft-ai/contracts";
 import {
-  type PermissionRequest,
+  type ApprovalDecisionPayload,
+  type ApprovalRequested,
+  approvalInputHash,
   WorkerGatewayRequestError,
 } from "@werft-ai/runtime-core";
 
@@ -105,6 +107,9 @@ function registry(
     published,
     registry: instance,
     idFor,
+    ask(request: ApprovalRequested): Promise<ApprovalDecisionPayload> {
+      return new Promise((resolve) => instance.request(request, resolve));
+    },
     // Answers the callback the engine knows as `request_id`.
     async answer(answer: PostSessionAnswerRequest) {
       const requestId = await idFor(answer.request_id);
@@ -114,36 +119,38 @@ function registry(
   };
 }
 
-function permission(requestId: string, command = "ls"): PermissionRequest {
+function approval(
+  requestId: string,
+  name: string,
+  input: Record<string, unknown>,
+): ApprovalRequested {
   return {
-    input: { command },
-    requestId,
-    signal: new AbortController().signal,
-    tool: "Bash",
-    toolUseId: `toolu_${requestId}`,
+    localId: `local_${requestId}`,
+    toolCallId: `toolu_${requestId}`,
+    tool: { name, input },
+    inputHash: approvalInputHash(name, input),
+    kind: name === QUESTION_TOOL ? "question" : "permission",
   };
 }
 
-function question(requestId: string): PermissionRequest {
-  return {
-    input: {
-      questions: [
-        {
-          header: "deploy",
-          question: "Which environment?",
-          multiSelect: false,
-          options: [
-            { label: "staging", description: "the safe one" },
-            { label: "production", description: "the other one" },
-          ],
-        },
-      ],
-    },
-    requestId,
-    signal: new AbortController().signal,
-    tool: QUESTION_TOOL,
-    toolUseId: `toolu_${requestId}`,
-  };
+function permission(requestId: string, command = "ls"): ApprovalRequested {
+  return approval(requestId, "Bash", { command });
+}
+
+function question(requestId: string): ApprovalRequested {
+  return approval(requestId, QUESTION_TOOL, {
+    questions: [
+      {
+        header: "deploy",
+        question: "Which environment?",
+        multiSelect: false,
+        options: [
+          { label: "staging", description: "the safe one" },
+          { label: "production", description: "the other one" },
+        ],
+      },
+    ],
+  });
 }
 
 describe("PendingRequestRegistry", () => {
@@ -151,7 +158,7 @@ describe("PendingRequestRegistry", () => {
     const harness = registry();
     const secret = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789";
     const request = permission("req-allow", `curl -H 'x-api-key: ${secret}'`);
-    const decision = harness.registry.request(request);
+    const decision = harness.ask(request);
     const requestId = await harness.idFor("req-allow");
 
     expect(requestId).toMatch(/^req_[0-9a-f-]{36}$/);
@@ -160,7 +167,7 @@ describe("PendingRequestRegistry", () => {
     expect(registration?.turn_id).toBe("1");
     expect(registration?.input_hash).toBe(
       createHash("sha256")
-        .update(canonicalJson({ tool: "Bash", input: request.input }))
+        .update(canonicalJson({ tool: "Bash", input: request.tool.input }))
         .digest("hex"),
     );
     // What clients see is the redacted copy; the hash is not.
@@ -188,7 +195,10 @@ describe("PendingRequestRegistry", () => {
       kind: "permission",
       decision: "allow",
     });
-    expect(await decision).toEqual({ behavior: "allow" });
+    expect(await decision).toEqual({
+      kind: "selected",
+      optionKind: "allow_once",
+    });
     expect(harness.registry.outstanding).toBe(0);
     await waitFor(() => harness.gateway.settled.length === 1, "settlement");
     expect(harness.gateway.settled).toEqual([
@@ -199,13 +209,7 @@ describe("PendingRequestRegistry", () => {
   test("shows the file a permission request writes", async () => {
     const harness = registry();
     const input = { file_path: "/workspace/src/a.ts", content: "x" };
-    void harness.registry.request({
-      input,
-      requestId: "req-write",
-      signal: new AbortController().signal,
-      tool: "Write",
-      toolUseId: "toolu_req-write",
-    });
+    void harness.ask(approval("req-write", "Write", input));
     await harness.idFor("req-write");
 
     const [registration] = harness.gateway.registered();
@@ -228,7 +232,7 @@ describe("PendingRequestRegistry", () => {
           stored = resolve;
         }),
     });
-    const decision = harness.registry.request(permission("req-ordered"));
+    const decision = harness.ask(permission("req-ordered"));
     await waitFor(() => stored !== undefined, "the barrier");
     await Bun.sleep(5);
     // The gateway writes the question as it registers, so registering now
@@ -236,7 +240,7 @@ describe("PendingRequestRegistry", () => {
     expect(harness.gateway.calls).not.toContain("registerPending");
     stored?.();
     await harness.idFor("req-ordered");
-    harness.registry.cancelAll("done");
+    harness.registry.cancelAll("shutdown", "done");
     await decision;
   });
 
@@ -246,12 +250,12 @@ describe("PendingRequestRegistry", () => {
         throw new Error("owner lost");
       },
     });
-    const decision = await harness.registry.request(permission("req-broken"));
+    const decision = await harness.ask(permission("req-broken"));
 
-    expect(decision.behavior).toBe("deny");
-    expect(decision.behavior === "deny" ? decision.message : "").toContain(
-      "owner lost",
-    );
+    expect(decision.kind).toBe("cancelled");
+    expect(
+      decision.kind === "cancelled" ? (decision.message ?? "") : "",
+    ).toContain("owner lost");
     expect(harness.gateway.calls).not.toContain("registerPending");
     await harness.registry.flush(100);
     // There is no row, so there is nothing to settle.
@@ -260,21 +264,21 @@ describe("PendingRequestRegistry", () => {
 
   test("mints a new id for every callback, even when the engine repeats its own", async () => {
     const harness = registry();
-    const first = harness.registry.request(permission("req-same"));
+    const first = harness.ask(permission("req-same"));
     const firstId = await harness.idFor("req-same");
-    harness.registry.cancelAll("next");
+    harness.registry.cancelAll("shutdown", "next");
     await first;
     harness.published.length = 0;
-    const second = harness.registry.request(permission("req-same"));
+    const second = harness.ask(permission("req-same"));
     const secondId = await harness.idFor("req-same");
     expect(secondId).not.toBe(firstId);
-    harness.registry.cancelAll("done");
+    harness.registry.cancelAll("shutdown", "done");
     await second;
   });
 
   test("passes a denial's reason to the callback", async () => {
     const harness = registry();
-    const decision = harness.registry.request(permission("req-deny"));
+    const decision = harness.ask(permission("req-deny"));
     await harness.answer({
       request_id: "req-deny",
       kind: "permission",
@@ -283,14 +287,15 @@ describe("PendingRequestRegistry", () => {
     });
 
     expect(await decision).toEqual({
-      behavior: "deny",
+      kind: "selected",
+      optionKind: "reject_once",
       message: "Not on production",
     });
   });
 
   test("turns a question answer into the input shape the SDK expects", async () => {
     const harness = registry();
-    const decision = harness.registry.request(question("req-question"));
+    const decision = harness.ask(question("req-question"));
     await harness.idFor("req-question");
 
     const [registration] = harness.gateway.registered();
@@ -317,17 +322,14 @@ describe("PendingRequestRegistry", () => {
     });
 
     expect(await decision).toEqual({
-      behavior: "allow",
-      updatedInput: {
-        questions: expect.any(Array),
-        answers: { "Which environment?": "production" },
-      },
+      kind: "answered",
+      answers: { "Which environment?": "production" },
     });
   });
 
   test("carries free text through as the answer", async () => {
     const harness = registry();
-    const decision = harness.registry.request(question("req-free"));
+    const decision = harness.ask(question("req-free"));
     await harness.answer({
       request_id: "req-free",
       kind: "question",
@@ -341,11 +343,8 @@ describe("PendingRequestRegistry", () => {
     });
 
     expect(await decision).toEqual({
-      behavior: "allow",
-      updatedInput: {
-        questions: expect.any(Array),
-        answers: { "Which environment?": "somewhere else" },
-      },
+      kind: "answered",
+      answers: { "Which environment?": "somewhere else" },
     });
   });
 
@@ -376,7 +375,7 @@ describe("PendingRequestRegistry", () => {
     ["leaves the question unanswered", [], "q0 was not answered"],
   ] as const)("denies an answer that %s", async (_label, answers, message) => {
     const harness = registry();
-    const decision = harness.registry.request(question("req-bad"));
+    const decision = harness.ask(question("req-bad"));
     const requestId = await harness.answer({
       request_id: "req-bad",
       kind: "question",
@@ -387,10 +386,10 @@ describe("PendingRequestRegistry", () => {
     });
 
     const settled = await decision;
-    expect(settled.behavior).toBe("deny");
-    expect(settled.behavior === "deny" ? settled.message : "").toContain(
-      message,
-    );
+    expect(settled.kind).toBe("cancelled");
+    expect(
+      settled.kind === "cancelled" ? (settled.message ?? "") : "",
+    ).toContain(message);
     // Dropped, not delivered: the receipt must not read as succeeded.
     await waitFor(() => harness.gateway.settled.length === 1, "settlement");
     expect(harness.gateway.settled).toEqual([
@@ -400,7 +399,7 @@ describe("PendingRequestRegistry", () => {
 
   test("refuses an answer given for other arguments than the callback's", async () => {
     const harness = registry();
-    const decision = harness.registry.request(permission("req-swapped"));
+    const decision = harness.ask(permission("req-swapped"));
     const requestId = await harness.idFor("req-swapped");
     const [registration] = harness.gateway.registered();
     // A registration under the same id with different arguments, as a
@@ -416,7 +415,8 @@ describe("PendingRequestRegistry", () => {
     });
 
     expect(await decision).toEqual({
-      behavior: "deny",
+      kind: "cancelled",
+      reason: "refused",
       message: "The answer was given for different tool arguments",
     });
   });
@@ -442,13 +442,13 @@ describe("PendingRequestRegistry", () => {
     };
     const harness = registry({ gateway: flaky });
 
-    const decision = await harness.registry.request(permission("req-refused"));
+    const decision = await harness.ask(permission("req-refused"));
 
     expect(attempts).toBe(2);
-    expect(decision.behavior).toBe("deny");
-    expect(decision.behavior === "deny" ? decision.message : "").toContain(
-      "does not serve pending requests",
-    );
+    expect(decision.kind).toBe("cancelled");
+    expect(
+      decision.kind === "cancelled" ? (decision.message ?? "") : "",
+    ).toContain("does not serve pending requests");
     // Nobody was told about a request nobody could answer.
     expect(harness.published).toHaveLength(0);
   });
@@ -474,10 +474,11 @@ describe("PendingRequestRegistry", () => {
     };
     const harness = registry({ gateway });
 
-    const decision = await harness.registry.request(permission("req-owner"));
+    const decision = await harness.ask(permission("req-owner"));
 
     expect(decision).toEqual({
-      behavior: "deny",
+      kind: "cancelled",
+      reason: "shutdown",
       message: "This worker no longer owns the session",
     });
     expect(harness.lost.length).toBeGreaterThan(0);
@@ -485,8 +486,8 @@ describe("PendingRequestRegistry", () => {
 
   test("holds several requests independently and answers them out of order", async () => {
     const harness = registry();
-    const first = harness.registry.request(permission("req-1"));
-    const second = harness.registry.request(permission("req-2", "pwd"));
+    const first = harness.ask(permission("req-1"));
+    const second = harness.ask(permission("req-2", "pwd"));
     await harness.idFor("req-1");
     await harness.idFor("req-2");
     expect(harness.registry.outstanding).toBe(2);
@@ -496,7 +497,10 @@ describe("PendingRequestRegistry", () => {
       kind: "permission",
       decision: "allow",
     });
-    expect(await second).toEqual({ behavior: "allow" });
+    expect(await second).toEqual({
+      kind: "selected",
+      optionKind: "allow_once",
+    });
     expect(harness.registry.outstanding).toBe(1);
 
     await harness.answer({
@@ -505,7 +509,11 @@ describe("PendingRequestRegistry", () => {
       decision: "deny",
       reason: "no",
     });
-    expect(await first).toEqual({ behavior: "deny", message: "no" });
+    expect(await first).toEqual({
+      kind: "selected",
+      optionKind: "reject_once",
+      message: "no",
+    });
   });
 
   test("denies a request nobody answered before it expired, and says so", async () => {
@@ -516,12 +524,12 @@ describe("PendingRequestRegistry", () => {
       expires_in_ms: 5,
     });
     const harness = registry({ gateway });
-    const decision = await harness.registry.request(permission("req-late"));
+    const decision = await harness.ask(permission("req-late"));
 
-    expect(decision.behavior).toBe("deny");
-    expect(decision.behavior === "deny" ? decision.message : "").toContain(
-      "No answer arrived",
-    );
+    expect(decision.kind).toBe("cancelled");
+    expect(
+      decision.kind === "cancelled" ? (decision.message ?? "") : "",
+    ).toContain("No answer arrived");
     await waitFor(() => gateway.settled.length === 1, "settlement");
     expect(gateway.settled[0]?.outcome).toBe("expired");
   });
@@ -536,9 +544,9 @@ describe("PendingRequestRegistry", () => {
     const harness = registry({ gateway, timeoutMs: 60_000 });
     const started = Date.now();
 
-    const decision = await harness.registry.request(permission("req-short"));
+    const decision = await harness.ask(permission("req-short"));
 
-    expect(decision.behavior).toBe("deny");
+    expect(decision.kind).toBe("cancelled");
     expect(Date.now() - started).toBeLessThan(1_000);
   });
 
@@ -550,7 +558,7 @@ describe("PendingRequestRegistry", () => {
       expires_in_ms: 60_000,
     });
     const harness = registry({ gateway, timeoutMs: 5 });
-    const decision = harness.registry.request(permission("req-long"));
+    const decision = harness.ask(permission("req-long"));
     const requestId = await harness.idFor("req-long");
     await Bun.sleep(50);
     gateway.answer({
@@ -559,7 +567,10 @@ describe("PendingRequestRegistry", () => {
       decision: "allow",
     });
 
-    expect(await decision).toEqual({ behavior: "allow" });
+    expect(await decision).toEqual({
+      kind: "selected",
+      optionKind: "allow_once",
+    });
   });
 
   test("denies a registered request at the gateway's expiry, not at its own timeout", async () => {
@@ -572,9 +583,9 @@ describe("PendingRequestRegistry", () => {
     const harness = registry({ gateway, timeoutMs: 5 });
     const started = performance.now();
 
-    const decision = await harness.registry.request(permission("req-expiry"));
+    const decision = await harness.ask(permission("req-expiry"));
 
-    expect(decision.behavior).toBe("deny");
+    expect(decision.kind).toBe("cancelled");
     expect(performance.now() - started).toBeGreaterThanOrEqual(150);
     await waitFor(() => gateway.settled.length === 1, "settlement");
     expect(gateway.settled[0]?.outcome).toBe("expired");
@@ -585,17 +596,18 @@ describe("PendingRequestRegistry", () => {
     gateway.registerPending = () => new Promise(() => {});
     const harness = registry({ gateway, timeoutMs: 5 });
 
-    const decision = await harness.registry.request(permission("req-stuck"));
+    const decision = await harness.ask(permission("req-stuck"));
 
     expect(decision).toEqual({
-      behavior: "deny",
+      kind: "cancelled",
+      reason: "expired",
       message: "No answer arrived within 0s",
     });
   });
 
   test("refuses an answer of the wrong kind rather than applying it", async () => {
     const harness = registry();
-    const decision = harness.registry.request(permission("req-mixed"));
+    const decision = harness.ask(permission("req-mixed"));
     await harness.answer({
       request_id: "req-mixed",
       kind: "question",
@@ -603,19 +615,21 @@ describe("PendingRequestRegistry", () => {
     });
 
     expect(await decision).toEqual({
-      behavior: "deny",
+      kind: "cancelled",
+      reason: "refused",
       message: "A question answer cannot settle a permission request",
     });
   });
 
   test("denies everything still waiting when the run stops, and reports it", async () => {
     const harness = registry();
-    const decision = harness.registry.request(permission("req-cancel"));
+    const decision = harness.ask(permission("req-cancel"));
     const requestId = await harness.idFor("req-cancel");
-    harness.registry.cancelAll("Worker is shutting down");
+    harness.registry.cancelAll("shutdown", "Worker is shutting down");
 
     expect(await decision).toEqual({
-      behavior: "deny",
+      kind: "cancelled",
+      reason: "shutdown",
       message: "Worker is shutting down",
     });
     await harness.registry.flush(1_000);
@@ -624,23 +638,28 @@ describe("PendingRequestRegistry", () => {
     ]);
   });
 
-  test("stops waiting when the engine aborts the callback", async () => {
+  test("stops waiting, and answers nothing, when the run withdraws a request", async () => {
     const harness = registry();
-    const controller = new AbortController();
-    const decision = harness.registry.request({
-      ...permission("req-abort"),
-      signal: controller.signal,
+    let answered = false;
+    harness.registry.request(permission("req-abort"), () => {
+      answered = true;
     });
-    controller.abort();
+    const requestId = await harness.idFor("req-abort");
+    harness.registry.withdraw("local_req-abort");
 
-    expect((await decision).behavior).toBe("deny");
+    expect(harness.registry.outstanding).toBe(0);
+    await harness.registry.flush(1_000);
+    expect(answered).toBe(false);
+    expect(harness.gateway.settled).toEqual([
+      { request_id: requestId, outcome: "cancelled" },
+    ]);
   });
 
   test("reports an answer whose callback is already gone instead of dropping it", async () => {
     const harness = registry();
-    const decision = harness.registry.request(permission("req-gone"));
+    const decision = harness.ask(permission("req-gone"));
     const requestId = await harness.idFor("req-gone");
-    harness.registry.cancelAll("gone");
+    harness.registry.cancelAll("shutdown", "gone");
     await decision;
     await harness.registry.flush(1_000);
     harness.gateway.settled.length = 0;
@@ -651,7 +670,7 @@ describe("PendingRequestRegistry", () => {
       kind: "permission",
       decision: "allow",
     });
-    const other = harness.registry.request(permission("req-other"));
+    const other = harness.ask(permission("req-other"));
     await waitFor(
       () => harness.gateway.settled.some((s) => s.request_id === requestId),
       "the stray answer's settlement",
@@ -659,7 +678,7 @@ describe("PendingRequestRegistry", () => {
     expect(
       harness.gateway.settled.find((s) => s.request_id === requestId)?.outcome,
     ).toBe("cancelled");
-    harness.registry.cancelAll("done");
+    harness.registry.cancelAll("shutdown", "done");
     await other;
   });
 
@@ -682,14 +701,9 @@ describe("PendingRequestRegistry", () => {
       return original(request);
     };
     const harness = registry({ gateway });
-    const controller = new AbortController();
-    const decision = harness.registry.request({
-      ...permission("req-lost"),
-      signal: controller.signal,
-    });
+    void harness.ask(permission("req-lost"));
     await waitFor(() => release !== undefined, "the held registration");
-    controller.abort();
-    expect((await decision).behavior).toBe("deny");
+    harness.registry.withdraw("local_req-lost");
     await waitFor(() => harness.registry.outstanding === 0, "the close");
     expect(gateway.settled).toEqual([]);
     release?.();
@@ -717,9 +731,9 @@ describe("PendingRequestRegistry", () => {
       },
     };
     const harness = registry({ gateway: down });
-    const decision = harness.registry.request(permission("req-down"));
+    const decision = harness.ask(permission("req-down"));
     await waitFor(() => calls > 0, "the first registration");
-    harness.registry.cancelAll("drain");
+    harness.registry.cancelAll("shutdown", "drain");
     await decision;
     // The callback is gone but the row may exist: the retries go on.
     await waitFor(() => calls > 2, "the retries after the close");
@@ -728,16 +742,14 @@ describe("PendingRequestRegistry", () => {
     const settled = calls;
     await Bun.sleep(50);
     expect(calls).toBe(settled);
-    expect(
-      (await harness.registry.request(permission("req-late"))).behavior,
-    ).toBe("deny");
+    expect((await harness.ask(permission("req-late"))).kind).toBe("cancelled");
   });
 
   test("a forced poll picks up an answer for a request this worker no longer holds", async () => {
     const harness = registry();
-    const decision = harness.registry.request(permission("req-orphan"));
+    const decision = harness.ask(permission("req-orphan"));
     const requestId = await harness.idFor("req-orphan");
-    harness.registry.cancelAll("gone");
+    harness.registry.cancelAll("shutdown", "gone");
     await decision;
     await harness.registry.flush(1_000);
     // The gateway lost the settlement's effect; only its heartbeat says an
@@ -775,12 +787,12 @@ describe("PendingRequestRegistry", () => {
       return original(request);
     };
     const harness = registry({ gateway });
-    const first = harness.registry.request(permission("req-x"));
-    const second = harness.registry.request(permission("req-y", "pwd"));
+    const first = harness.ask(permission("req-x"));
+    const second = harness.ask(permission("req-y", "pwd"));
     const x = await harness.idFor("req-x");
     const y = await harness.idFor("req-y");
     await waitFor(() => release !== undefined, "the held poll");
-    harness.registry.cancelAll("stop");
+    harness.registry.cancelAll("shutdown", "stop");
     await first;
     await second;
     release?.();
@@ -793,7 +805,7 @@ describe("PendingRequestRegistry", () => {
 
   test("never replays an answer it already consumed", async () => {
     const harness = registry();
-    const first = harness.registry.request(permission("req-a"));
+    const first = harness.ask(permission("req-a"));
     await harness.answer({
       request_id: "req-a",
       kind: "permission",
@@ -807,7 +819,7 @@ describe("PendingRequestRegistry", () => {
       polls.push(request.answers_after);
       return original(request);
     };
-    const second = harness.registry.request(permission("req-b", "pwd"));
+    const second = harness.ask(permission("req-b", "pwd"));
     await harness.idFor("req-b");
     expect(harness.registry.outstanding).toBe(1);
     await harness.answer({
@@ -815,7 +827,10 @@ describe("PendingRequestRegistry", () => {
       kind: "permission",
       decision: "allow",
     });
-    expect(await second).toEqual({ behavior: "allow" });
+    expect(await second).toEqual({
+      kind: "selected",
+      optionKind: "allow_once",
+    });
     // The second poll cycle starts past the answer the first request consumed.
     expect(polls.every((after) => after >= 1)).toBe(true);
   });
@@ -840,15 +855,13 @@ describe("PendingRequestRegistry", () => {
     const harness = registry({ gateway });
     const count = PENDING_SETTLEMENTS_MAX + 1;
     const decisions = Array.from({ length: count }, (_, index) =>
-      harness.registry.request(
-        permission(`req-many-${index}`, `echo ${index}`),
-      ),
+      harness.ask(permission(`req-many-${index}`, `echo ${index}`)),
     );
     await waitFor(
       () => gateway.registered().length === count,
       "every registration",
     );
-    harness.registry.cancelAll("stop");
+    harness.registry.cancelAll("shutdown", "stop");
     await Promise.all(decisions);
     await harness.registry.flush(2_000);
 

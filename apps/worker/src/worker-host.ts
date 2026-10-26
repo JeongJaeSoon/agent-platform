@@ -8,6 +8,7 @@ import type {
   NextInputResponse,
   ReleaseRequest,
   RuntimeConfig,
+  SessionEvent,
   SessionRuntime,
   TerminalTurnStatus,
   TranscriptReport,
@@ -20,16 +21,15 @@ import {
 } from "@werft-ai/contracts";
 import { endedByAbort } from "@werft-ai/runtime-claude";
 import {
-  type AgentFrame,
   type AgentRun,
+  type ApprovalDecisionPayload,
+  type ApprovalRequested,
   type CheckpointLease,
   type CheckpointPreparation,
   isOwnershipLost,
   isRetryable,
   type NativeSdkMessage,
-  type PermissionDecision,
-  type PermissionRequest,
-  type RuntimeHooks,
+  type RuntimeEvent,
   type WorkerGatewayClient,
   WorkerGatewayRequestError,
 } from "@werft-ai/runtime-core";
@@ -82,7 +82,7 @@ export type RuntimeLaunch = RuntimeResumePlan & {
 };
 
 export type RuntimeLauncher = {
-  start(launch: RuntimeLaunch, hooks: RuntimeHooks): AgentRun;
+  start(launch: RuntimeLaunch): AgentRun;
 };
 
 export interface RuntimeRegistry {
@@ -367,7 +367,10 @@ export class WorkerHost {
         }
         // Nothing the engine does from here is recorded, so nothing waiting
         // on a person may be allowed to run.
-        this.pending?.cancelAll("The session's events can no longer be stored");
+        this.pending?.cancelAll(
+          "refused",
+          "The session's events can no longer be stored",
+        );
         this.fail(`Events could not be stored: ${describe(error)}`);
       },
     });
@@ -412,23 +415,20 @@ export class WorkerHost {
         const plan = await this.startUp(claim);
         if (plan !== undefined && this.stopping === undefined) {
           this.engineBudgeted = claim.remaining_budget_usd !== null;
-          run = launcher.start(
-            {
-              ...plan,
-              committedClaudeMd:
-                plan.mode === "resume" && plan.committedClaudeMd !== undefined
-                  ? plan.committedClaudeMd
-                  : () => this.options.workspace.committedClaudeMd(),
-              correlationId: `${claim.session_id}:${claim.attempt_id}`,
-              ...(claim.remaining_budget_usd === null
-                ? {}
-                : { maxBudgetUsd: claim.remaining_budget_usd }),
-              principal: claim.principal,
-              runtimeConfig: claim.runtime_config,
-              workspace: claim.workspace,
-            },
-            { onPermission: (request) => this.onPermission(request) },
-          );
+          run = launcher.start({
+            ...plan,
+            committedClaudeMd:
+              plan.mode === "resume" && plan.committedClaudeMd !== undefined
+                ? plan.committedClaudeMd
+                : () => this.options.workspace.committedClaudeMd(),
+            correlationId: `${claim.session_id}:${claim.attempt_id}`,
+            ...(claim.remaining_budget_usd === null
+              ? {}
+              : { maxBudgetUsd: claim.remaining_budget_usd }),
+            principal: claim.principal,
+            runtimeConfig: claim.runtime_config,
+            workspace: claim.workspace,
+          });
           this.engine = run;
           this.attemptState = "running";
           this.pumping = this.pump(run);
@@ -648,7 +648,10 @@ export class WorkerHost {
     // Owner loss means no further durable writes from this attempt, so the
     // queued tail is dropped rather than retried against someone else's lease.
     this.publisher?.abandon(reason);
-    this.pending?.cancelAll("This worker no longer owns the session");
+    this.pending?.cancelAll(
+      "shutdown",
+      "This worker no longer owns the session",
+    );
     this.pending?.stop();
   }
 
@@ -1114,7 +1117,7 @@ export class WorkerHost {
         max_turn_ms: budget,
       });
       this.stop({ kind: "drain", reason });
-      this.pending?.cancelAll("The turn ran out of time");
+      this.pending?.cancelAll("interrupt", "The turn ran out of time");
       run.interrupt().catch((error) => {
         this.logger.warn("worker.interrupt.failed", {
           reason: describe(error),
@@ -1534,7 +1537,7 @@ export class WorkerHost {
     );
     // What the turn was waiting on is void: an answer landing now must not
     // let the engine carry the interrupted turn on.
-    this.pending?.cancelAll("The turn was interrupted");
+    this.pending?.cancelAll("interrupt", "The turn was interrupted");
     // The grace runs from here, not from the send: an input check that
     // hangs must not hold the interrupt open until the turn budget ends.
     const graceMs = this.interruptGraceMs();
@@ -1720,9 +1723,18 @@ export class WorkerHost {
   private pump(run: AgentRun): Promise<void> {
     return (async () => {
       try {
-        for await (const frame of run.events()) {
-          this.publisher?.publish(frame.events, this.frameTurn(frame));
-          await this.observe(frame.envelope.message);
+        const projected: SessionEvent[] = [];
+        for await (const event of run.events()) {
+          if (event.type === "public") {
+            projected.push(event.event);
+          } else if (event.type === "native") {
+            this.publisher?.publish(projected.splice(0), this.frameTurn(event));
+            await this.observe(event.message);
+          } else if (event.type === "approval.requested") {
+            this.onApprovalRequested(run, event.request);
+          } else if (event.type === "approval.resolved") {
+            this.pending?.withdraw(event.localId);
+          }
         }
       } catch (error) {
         this.logger.warn("worker.stream.ended", { reason: describe(error) });
@@ -1753,10 +1765,10 @@ export class WorkerHost {
     })();
   }
 
-  private frameTurn(frame: AgentFrame): string | null {
+  private frameTurn(native: NativeEvent): string | null {
     const turn = this.turn;
     if (turn === undefined) return null;
-    const { entered, turnId } = frameTurn(frame, turn);
+    const { entered, turnId } = frameTurn(native, turn);
     turn.entered = entered;
     return turnId;
   }
@@ -1868,21 +1880,33 @@ export class WorkerHost {
     });
   }
 
-  private async onPermission(
-    request: PermissionRequest,
-  ): Promise<PermissionDecision> {
+  private onApprovalRequested(run: AgentRun, request: ApprovalRequested): void {
+    const answer = (decision: ApprovalDecisionPayload) => {
+      void run.answer({
+        ...decision,
+        localId: request.localId,
+        inputHash: request.inputHash,
+      });
+    };
     if (this.stopping !== undefined || this.pending === undefined) {
-      return {
-        behavior: "deny",
+      answer({
+        kind: "cancelled",
+        reason: "shutdown",
         message: "This worker is winding down and cannot ask for approval",
-      };
+      });
+      return;
     }
     // The interrupt voided the turn's callbacks; one raised after it is no
     // different, and asking would only hold the turn open again.
     if (this.turn?.interrupting === true || this.turn?.closed === true) {
-      return { behavior: "deny", message: "The turn was interrupted" };
+      answer({
+        kind: "cancelled",
+        reason: "interrupt",
+        message: "The turn was interrupted",
+      });
+      return;
     }
-    return this.pending.request(request);
+    this.pending.request(request, answer);
   }
 
   /**
@@ -1891,7 +1915,8 @@ export class WorkerHost {
    * fails or produces nothing to commit gives the lease back at once.
    */
   private async capture(run: AgentRun): Promise<Captured> {
-    const { lease, preparation: runPreparation } = await run.leaseCheckpoint();
+    const { lease, preparation: runPreparation } =
+      await run.leaseCheckpoint("turn_end");
     let ref: CheckpointRef | null;
     try {
       const deadline = performance.now() + CHECKPOINT_PROCESS_GRACE_MS;
@@ -1923,7 +1948,7 @@ export class WorkerHost {
       }
       ref = await this.checkpoints.capture(preparation, {
         scope: { ...this.scope },
-        recheck: () => run.prepareCheckpoint(),
+        recheck: () => run.prepareCheckpoint("turn_end"),
       });
     } catch (error) {
       lease?.release();
@@ -1940,6 +1965,7 @@ export class WorkerHost {
    */
   private async shutdown(run: AgentRun | undefined): Promise<void> {
     this.pending?.cancelAll(
+      "shutdown",
       this.ownerLost
         ? "This worker no longer owns the session"
         : "This worker is shutting down",
@@ -1967,7 +1993,7 @@ export class WorkerHost {
     // finalize, and a turn given up on the way out is not finalized; an idle
     // worker leaves the last committed checkpoint as the one to resume from.
     // A session-level checkpoint commit would change that, and alpha has none.
-    run?.close();
+    void run?.close();
     // Bounded for the same reason: a wedged engine may never end its stream,
     // and the exit check below is what deals with that.
     if (this.pumping !== undefined) {
@@ -2286,6 +2312,8 @@ export function inputUuid(
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
+type NativeEvent = Extract<RuntimeEvent, { type: "native" }>;
+
 /** The inputs a result says it consumed, the way TurnLedger reads them. */
 /**
  * The turn a frame's events are stored under, and whether the engine has
@@ -2297,10 +2325,10 @@ export function inputUuid(
  * named and after, and so does one past the terminal.
  */
 export function frameTurn(
-  frame: AgentFrame,
+  frame: Pick<NativeEvent, "inputs" | "message">,
   turn: { closed: boolean; entered: boolean; turnId: string; uuid: string },
 ): { entered: boolean; turnId: string | null } {
-  const native = frame.envelope.message;
+  const native = frame.message;
   const named = [
     ...(native.type === "command_lifecycle" &&
     typeof native.command_uuid === "string"
