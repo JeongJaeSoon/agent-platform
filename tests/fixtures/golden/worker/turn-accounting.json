@@ -336,6 +336,142 @@
       "restarted": false
     }
   ],
+  "totals that are not finite numbers": [
+    {
+      "observed": {
+        "type": "result",
+        "subtype": "success",
+        "is_error": false,
+        "total_cost_usd": 1,
+        "session_id": "s1"
+      },
+      "restarted": false
+    },
+    {
+      "settled": {
+        "costUsd": 1,
+        "providerFailure": null
+      },
+      "restarted": false
+    },
+    {
+      "observed": {
+        "type": "result",
+        "subtype": "success",
+        "is_error": false,
+        "total_cost_usd": null,
+        "session_id": "s1"
+      },
+      "restarted": false
+    },
+    {
+      "settled": {
+        "costUsd": "<unknown>",
+        "providerFailure": null
+      },
+      "restarted": false
+    },
+    {
+      "observed": {
+        "type": "result",
+        "subtype": "success",
+        "is_error": false,
+        "total_cost_usd": null,
+        "session_id": "s1"
+      },
+      "restarted": false
+    },
+    {
+      "settled": {
+        "costUsd": "<unknown>",
+        "providerFailure": null
+      },
+      "restarted": false
+    },
+    {
+      "observed": {
+        "type": "result",
+        "subtype": "success",
+        "is_error": false,
+        "total_cost_usd": null,
+        "session_id": "s1"
+      },
+      "restarted": false
+    },
+    {
+      "settled": {
+        "costUsd": "<unknown>",
+        "providerFailure": null
+      },
+      "restarted": false
+    },
+    {
+      "observed": {
+        "type": "result",
+        "subtype": "success",
+        "is_error": false,
+        "total_cost_usd": 1.25,
+        "session_id": "s1"
+      },
+      "restarted": false
+    },
+    {
+      "settled": {
+        "costUsd": 0.25,
+        "providerFailure": null
+      },
+      "restarted": false
+    }
+  ],
+  "a result without a session id": [
+    {
+      "observed": {
+        "type": "result",
+        "subtype": "success",
+        "total_cost_usd": 1
+      },
+      "restarted": false
+    },
+    {
+      "settled": {
+        "costUsd": 1,
+        "providerFailure": null
+      },
+      "restarted": false
+    },
+    {
+      "observed": {
+        "type": "result",
+        "subtype": "success",
+        "total_cost_usd": 1.5
+      },
+      "restarted": false
+    },
+    {
+      "settled": {
+        "costUsd": 0.5,
+        "providerFailure": null
+      },
+      "restarted": false
+    },
+    {
+      "observed": {
+        "type": "result",
+        "subtype": "success",
+        "is_error": false,
+        "total_cost_usd": 0.25,
+        "session_id": "s9"
+      },
+      "restarted": true
+    },
+    {
+      "settled": {
+        "costUsd": 0.25,
+        "providerFailure": null
+      },
+      "restarted": true
+    }
+  ],
   "zero before anything was spent is a figure": [
     {
       "observed": {

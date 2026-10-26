@@ -17,6 +17,11 @@ import {
   createPostgresWorkerUnitOfWork,
   unassignedSessions,
 } from "@werft-ai/db";
+import {
+  confirmExecutionGone,
+  launchSession,
+  type TestLaunch,
+} from "@werft-ai/db/testing/launches";
 import { createLogger } from "@werft-ai/observability";
 import {
   createAuthorizationPolicy,
@@ -25,7 +30,7 @@ import {
   type SessionCatalog,
   type WorkerGateway,
 } from "@werft-ai/platform";
-import { FakeAgentRuntime } from "@werft-ai/runtime-claude";
+import { claudeContractRun, FakeAgentRuntime } from "@werft-ai/runtime-claude";
 import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
@@ -178,10 +183,7 @@ integration("worker lease on the monotonic clock end to end", () => {
   }
 
   /** A session waiting in a partition of its own, and the launch to claim it. */
-  async function launchSession(): Promise<{
-    executionId: string;
-    nonce: string;
-  }> {
+  async function queuedLaunch(): Promise<TestLaunch> {
     const created = await fetch(`http://127.0.0.1:${server.port}/v1/sessions`, {
       method: "POST",
       headers: {
@@ -208,15 +210,7 @@ integration("worker lease on the monotonic clock end to end", () => {
       .update(unassignedSessions)
       .set({ partition })
       .where(eq(unassignedSessions.sessionId, sessionId));
-    const executionId = `exec-${crypto.randomUUID()}`;
-    const launch = await gateway.registerLaunch({
-      executionId,
-      generation: 1,
-      partition,
-      backend: "local_docker",
-    });
-    if (launch.nonce === null) throw new Error("launch already registered");
-    return { executionId, nonce: launch.nonce };
+    return launchSession(db, { sessionId });
   }
 
   function workerHost(input: {
@@ -244,21 +238,23 @@ integration("worker lease on the monotonic clock end to end", () => {
       logger: input.logger,
       runtimes: {
         launcherFor: () => ({
-          start: ({ runtimeConfig, principal, ...rest }, hooks) =>
-            runtime.start(
-              {
-                claudeConfigDir: "/tmp/fake/config",
-                cwd: "/tmp/fake/workspace",
-                home: "/tmp/fake/home",
-                model: runtimeConfig.model,
-                profile: {
-                  ...runtimeConfig.provider,
-                  principal: { ownerScope: principal.owner_scope },
+          start: ({ runtimeConfig, principal, ...rest }) =>
+            claudeContractRun((hooks) =>
+              runtime.start(
+                {
+                  claudeConfigDir: "/tmp/fake/config",
+                  cwd: "/tmp/fake/workspace",
+                  home: "/tmp/fake/home",
+                  model: runtimeConfig.model,
+                  profile: {
+                    ...runtimeConfig.provider,
+                    principal: { ownerScope: principal.owner_scope },
+                  },
+                  tools: runtimeConfig.tools,
+                  ...rest,
                 },
-                tools: runtimeConfig.tools,
-                ...rest,
-              },
-              hooks,
+                hooks,
+              ),
             ),
         }),
       },
@@ -281,7 +277,7 @@ integration("worker lease on the monotonic clock end to end", () => {
   }
 
   test("a wall clock jump moves nothing; an unreachable gateway loses the lease a margin before the database does", async () => {
-    const { executionId, nonce } = await launchSession();
+    const { executionId, nonce } = await queuedLaunch();
 
     // The first turn runs for a minute: only the lease can end this attempt.
     const runtime = new FakeAgentRuntime([
@@ -387,7 +383,7 @@ integration("worker lease on the monotonic clock end to end", () => {
   }, 90_000);
 
   test("beats sent while the API is down and delivered after it is back cost no lease; one delivered after the exit is 401", async () => {
-    const { executionId, nonce } = await launchSession();
+    const { executionId, nonce } = await queuedLaunch();
     const runtime = new FakeAgentRuntime([
       { type: "await-input" },
       { type: "delay", delayMs: 60_000 },
@@ -469,7 +465,7 @@ integration("worker lease on the monotonic clock end to end", () => {
     // The scheduler observes the execution gone and ends the attempt, which
     // revokes its token; a beat the network only now lets through is
     // answered 401, proving the late beat cannot revive the attempt.
-    await gateway.confirmExecutionGone(executionId);
+    await confirmExecutionGone(db, executionId);
     const late = await last.deliver();
     expect(late.status).toBe(401);
     expect(late.body).toContain("Worker token is missing, expired or revoked");

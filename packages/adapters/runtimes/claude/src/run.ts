@@ -6,14 +6,13 @@ import type {
   TerminalReason,
 } from "@anthropic-ai/claude-agent-sdk";
 import type {
-  AgentFrame,
   AgentInput,
-  AgentRun,
   CheckpointLeaseGrant,
   CheckpointPreparation,
   NativeSdkMessage,
 } from "@werft-ai/runtime-core";
 
+import type { AgentFrame, DriverRun } from "./driver.ts";
 import { frameFromNativeMessage } from "./mapper.ts";
 import type { ResumedHistory } from "./resumed-history.ts";
 import type { TurnLedger } from "./turn-ledger.ts";
@@ -123,7 +122,7 @@ export class InputStream implements AsyncIterable<SDKUserMessage> {
   }
 }
 
-export class ClaudeSdkRun implements AgentRun {
+export class ClaudeSdkRun implements DriverRun {
   constructor(
     private readonly correlationId: string,
     private readonly input: InputStream,

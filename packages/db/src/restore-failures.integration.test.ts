@@ -33,6 +33,7 @@ import {
   turns,
   unassignedSessions,
 } from "./schema.ts";
+import { confirmExecutionGone } from "./testing/launches.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -305,7 +306,7 @@ integration("startup failures before ready on PostgreSQL", () => {
       ...worker.scope,
       reason: "idle",
     });
-    await gateway.confirmExecutionGone(worker.executionId);
+    await confirmExecutionGone(db, worker.executionId);
     const appended = await inputs().appendInputAtomic({
       principal: { ownerId: session.ownerId },
       sessionId: session.sessionId,
@@ -337,7 +338,7 @@ integration("startup failures before ready on PostgreSQL", () => {
         reason: REFUSED,
       });
     }
-    await gateway.confirmExecutionGone(worker.executionId);
+    await confirmExecutionGone(db, worker.executionId);
     return claimed;
   }
 
@@ -475,7 +476,7 @@ integration("startup failures before ready on PostgreSQL", () => {
       ...worker.scope,
       reason: INCOMPATIBLE,
     });
-    await gateway.confirmExecutionGone(worker.executionId);
+    await confirmExecutionGone(db, worker.executionId);
 
     const held = await sessionRow(session.sessionId);
     expect(held.admissionState).toBe("recovery_required");
@@ -646,7 +647,7 @@ integration("startup failures before ready on PostgreSQL", () => {
       ...worker.scope,
       reason: "drain",
     });
-    await gateway.confirmExecutionGone(worker.executionId);
+    await confirmExecutionGone(db, worker.executionId);
     const after = await sessionRow(session.sessionId);
     expect(after.restoreFailureCount).toBe(0);
     expect(after.restoreRetryAt).toBeNull();
@@ -660,7 +661,7 @@ integration("startup failures before ready on PostgreSQL", () => {
       ...worker.scope,
       reason: `${"x".repeat(5_000)}\r\n    at restorePlan (session-checkpoints.ts:1:1)`,
     });
-    await gateway.confirmExecutionGone(worker.executionId);
+    await confirmExecutionGone(db, worker.executionId);
 
     const [attempt] = await db
       .select({ endReason: attempts.endReason })
@@ -690,7 +691,7 @@ integration("startup failures before ready on PostgreSQL", () => {
         reason: CLONE_FAILED,
       });
     }
-    await gateway.confirmExecutionGone(worker.executionId);
+    await confirmExecutionGone(db, worker.executionId);
     return claimed;
   }
 
@@ -814,7 +815,7 @@ integration("startup failures before ready on PostgreSQL", () => {
       ...worker.scope,
       reason: "idle",
     });
-    await gateway.confirmExecutionGone(worker.executionId);
+    await confirmExecutionGone(db, worker.executionId);
     const after = await sessionRow(session.sessionId);
     expect(after.restoreFailureCount).toBe(0);
     expect(after.admissionState).toBe("active");
@@ -833,7 +834,7 @@ integration("startup failures before ready on PostgreSQL", () => {
       reason: "received SIGTERM",
       stop_kind: "drain",
     });
-    await gateway.confirmExecutionGone(worker.executionId);
+    await confirmExecutionGone(db, worker.executionId);
     const row = await sessionRow(session.sessionId);
     expect(row.admissionState).toBe("active");
     expect(row.restoreFailureCount).toBe(1);
@@ -854,7 +855,7 @@ integration("startup failures before ready on PostgreSQL", () => {
       ...worker.scope,
       reason: "The engine stream ended",
     });
-    await gateway.confirmExecutionGone(worker.executionId);
+    await confirmExecutionGone(db, worker.executionId);
     const row = await sessionRow(session.sessionId);
     expect(row.admissionState).toBe("recovery_required");
     expect(row.restoreFailureCount).toBe(0);
@@ -879,7 +880,7 @@ integration("startup failures before ready on PostgreSQL", () => {
     });
     expect(terminated.outcome).toBe("accepted");
     // The kill lands mid-startup; the fenced worker cannot release.
-    await gateway.confirmExecutionGone(worker.executionId);
+    await confirmExecutionGone(db, worker.executionId);
     const after = await sessionRow(session.sessionId);
     expect(after.admissionState).toBe("stopped");
     expect(after.restoreFailureCount).toBe(0);

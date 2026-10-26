@@ -29,13 +29,9 @@ import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Pool } from "pg";
 import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
 import * as schema from "./schema.ts";
-import {
-  attempts,
-  executions,
-  sessions,
-  unassignedSessions,
-} from "./schema.ts";
+import { attempts, sessions, unassignedSessions } from "./schema.ts";
 import { backfillSessionModels } from "./session-model-backfill.ts";
+import { launchSession } from "./testing/launches.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -233,29 +229,15 @@ integration("sessions.model", () => {
         .update(unassignedSessions)
         .set({ partition })
         .where(eq(unassignedSessions.sessionId, sessionId));
-      const executionId = `exec-${randomUUID()}`;
-      const registered = await gateway.registerLaunch({
-        executionId,
-        generation: 1,
-        partition,
-        sessionId,
-        backend: "local_docker",
-      });
-      if (registered.nonce === null) throw new Error("launch not registered");
-      await db.insert(executions).values({
-        backend: "local_docker",
-        desiredState: "running",
-        generation: 1,
-        id: executionId,
-        observedState: "running",
+      const { executionId, generation, nonce } = await launchSession(db, {
         sessionId,
       });
       const claimed = await gateway.bootstrapClaim(
         { kind: "bootstrap" },
         {
           execution_id: executionId,
-          execution_generation: 1,
-          credential: { kind: "launch_nonce", nonce: registered.nonce },
+          execution_generation: generation,
+          credential: { kind: "launch_nonce", nonce },
         },
       );
       const [row] = await db

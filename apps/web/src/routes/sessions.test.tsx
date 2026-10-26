@@ -244,7 +244,7 @@ const detailRoutes = {
 
 describe("approval inbox", () => {
   // A line names its session on its one button.
-  const DETAIL = `${SESSION_ID.slice(0, 8)} 상세 보기`;
+  const DETAIL = `${SESSION_ID.slice(0, 8)} 답하기`;
   // The line opens the session in the rail, where the request is answered.
   const allowInRail = async (user: Awaited<ReturnType<typeof setupUser>>) => {
     await user.click(await screen.findByRole("button", { name: DETAIL }));

@@ -33,6 +33,7 @@ import {
   unassignedSessions,
   workerLaunches,
 } from "./schema.ts";
+import { confirmExecutionGone, launchSession } from "./testing/launches.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -142,18 +143,13 @@ integration("close on PostgreSQL", () => {
   }
 
   async function claim(session: Session): Promise<Worker> {
-    const executionId = `exec-${crypto.randomUUID()}`;
-    const registered = await gateway.registerLaunch({
-      executionId,
-      generation: 1,
-      partition: session.partition,
-      backend: "local_docker",
+    const { executionId, generation, nonce } = await launchSession(db, {
+      sessionId: session.sessionId,
     });
-    if (registered.nonce === null) throw new Error("launch already registered");
     const claimed = await gateway.bootstrapClaim(bootstrap, {
       execution_id: executionId,
-      execution_generation: 1,
-      credential: { kind: "launch_nonce", nonce: registered.nonce },
+      execution_generation: generation,
+      credential: { kind: "launch_nonce", nonce },
     });
     expect(claimed.session_id).toBe(session.sessionId);
     return {
@@ -215,7 +211,7 @@ integration("close on PostgreSQL", () => {
       ...worker.scope,
       reason: "idle",
     });
-    await gateway.confirmExecutionGone(worker.executionId);
+    await confirmExecutionGone(db, worker.executionId);
     return session;
   }
 
@@ -468,7 +464,7 @@ integration("close on PostgreSQL", () => {
     );
     expect((await receiptRow(response.receipt_id)).status).toBe("accepted");
 
-    await gateway.confirmExecutionGone(worker.executionId);
+    await confirmExecutionGone(db, worker.executionId);
 
     const closed = await sessionRow(session.sessionId);
     expect(closed.admissionState).toBe("closed");
@@ -626,7 +622,7 @@ integration("close on PostgreSQL", () => {
       code: "CLOSE_BLOCKED",
       reason: "execution_pending",
     });
-    await gateway.confirmExecutionGone(worker.executionId);
+    await confirmExecutionGone(db, worker.executionId);
     expect((await sessionRow(session.sessionId)).admissionState).toBe("closed");
     expect((await receiptRow(response.receipt_id)).status).toBe("succeeded");
     expect(await detail()).toBeNull();
@@ -645,7 +641,7 @@ integration("close on PostgreSQL", () => {
       ...worker.scope,
       reason: "SIGTERM",
     });
-    await gateway.confirmExecutionGone(worker.executionId);
+    await confirmExecutionGone(db, worker.executionId);
     const back = await sessionRow(session.sessionId);
     expect(back.admissionState).not.toBe("closed");
     expect(back.admissionState).not.toBe("closing");
@@ -734,7 +730,7 @@ integration("close on PostgreSQL", () => {
       expect(await closeReceipts(live.session)).toEqual([]);
       // The way out the guide names: terminate, then recovery close.
       expect((await terminate(live.session)).outcome).toBe("accepted");
-      await gateway.confirmExecutionGone(live.worker.executionId);
+      await confirmExecutionGone(db, live.worker.executionId);
       const stopped = await sessionRow(live.session.sessionId);
       expect(stopped.admissionState).toBe("stopped");
       expect(await close(live.session, stopped.revision)).toEqual({
@@ -759,7 +755,7 @@ integration("close on PostgreSQL", () => {
       });
       expect(await closeReceipts(gone.session)).toEqual([]);
       // Once it is, the uncovered turn hands the session to recovery.
-      await gateway.confirmExecutionGone(gone.worker.executionId);
+      await confirmExecutionGone(db, gone.worker.executionId);
       const idle = await sessionRow(gone.session.sessionId);
       expect(idle.admissionState).toBe("recovery_required");
       expect(await close(gone.session, idle.revision)).toEqual({
@@ -793,7 +789,7 @@ integration("close on PostgreSQL", () => {
       ...worker.scope,
       reason: "SIGTERM",
     });
-    await gateway.confirmExecutionGone(worker.executionId);
+    await confirmExecutionGone(db, worker.executionId);
     expect((await sessionRow(session.sessionId)).admissionState).toBe(
       "recovery_required",
     );
@@ -863,7 +859,7 @@ integration("close on PostgreSQL", () => {
     const recovering = await newSession("recovering");
     const w3 = await claim(recovering);
     await deliver(w3);
-    await gateway.confirmExecutionGone(w3.executionId);
+    await confirmExecutionGone(db, w3.executionId);
     expect((await sessionRow(recovering.sessionId)).admissionState).toBe(
       "recovery_required",
     );
@@ -925,26 +921,9 @@ integration("close on PostgreSQL", () => {
   test("a bound session with no drainer closes at once with the kill intent, and its receipt succeeds on the gone observation", async () => {
     const session = await idleCovered("unclaimed");
     await append(session, "queued behind");
-    const executionId = `exec-${crypto.randomUUID()}`;
-    await gateway.registerLaunch({
-      executionId,
-      generation: 2,
-      partition: session.partition,
-      sessionId: session.sessionId,
-      backend: "local_docker",
-    });
-    await db.insert(executions).values({
-      backend: "local_docker",
-      desiredState: "running",
-      generation: 2,
-      id: executionId,
-      observedState: "pending",
+    const { executionId } = await launchSession(db, {
       sessionId: session.sessionId,
     });
-    await db
-      .update(sessions)
-      .set({ executionId })
-      .where(eq(sessions.id, session.sessionId));
     await db
       .update(workerLaunches)
       .set({ replacementReason: "nonce_expired" })
@@ -971,7 +950,7 @@ integration("close on PostgreSQL", () => {
       },
     });
 
-    await gateway.confirmExecutionGone(executionId);
+    await confirmExecutionGone(db, executionId);
     expect((await sessionRow(session.sessionId)).admissionState).toBe("closed");
     expect((await receiptRow(response.receipt_id)).status).toBe("succeeded");
   });
@@ -1024,7 +1003,7 @@ integration("close on PostgreSQL", () => {
     const response = await accepted(inside);
     await finalize(worker, last, 1);
     await releaseForDrain(worker, response.receipt_id);
-    await gateway.confirmExecutionGone(worker.executionId);
+    await confirmExecutionGone(db, worker.executionId);
     expect((await receiptRow(response.receipt_id)).result).toMatchObject({
       checkpoint_revision: 1,
     });
@@ -1038,7 +1017,7 @@ integration("close on PostgreSQL", () => {
     const recovering = await newSession("recovery-close");
     const w = await claim(recovering);
     await deliver(w);
-    await gateway.confirmExecutionGone(w.executionId);
+    await confirmExecutionGone(db, w.executionId);
     const decided = await recoveryClose(recovering);
     if (decided.outcome !== "accepted") throw new Error(decided.outcome);
     expect((await receiptRow(decided.response.receipt_id)).operation).toBe(

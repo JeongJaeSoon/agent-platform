@@ -33,6 +33,7 @@ import {
   unassignedSessions,
   workerLaunches,
 } from "./schema.ts";
+import { insertUnreservedLaunch } from "./testing/launches.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -600,21 +601,8 @@ integration("claim against a catalog that dropped the pair", () => {
 
     test("a launch not reserved for one session", async () => {
       const session = await queuedSession(MOVED_TO);
-      const executionId = `exec-${randomUUID()}`;
-      const nonce = `nonce-${randomUUID()}`;
-      await createPostgresWorkerUnitOfWork(db).registerLaunchAtomic({
-        executionId,
-        generation: 1,
-        partition: "default",
-        sessionId: null,
-        backend: "local_docker",
-        nonceHash: hashWorkerToken(nonce),
-        nonceTtlMs: 60_000,
-      });
-      const result = await claim({
-        ref: { executionId, generation: 1 },
-        nonce,
-      });
+      const pool = await insertUnreservedLaunch(db, { partition: "default" });
+      const result = await claim({ ref: pool, nonce: pool.nonce });
       // Another session may be claimable; this one never is, and stays put.
       if (result.outcome === "claimed") {
         expect(result.binding.sessionId).not.toBe(session.session_id);

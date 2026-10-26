@@ -17,14 +17,13 @@ description: エージェントカードのフィールド、バージョンが�
 | `capabilities.forbidden` | | 禁止するツール名 |
 | `capabilities.tool_policy` | | ツールごとの `allow`・`ask`・`deny` |
 | `capabilities.credential_refs` | | 使う認証情報の名前 (値ではない)。[権限](/agents/permissions) |
-| `tone` | | 口調。200 文字まで |
 | `language` | | `ko` (デフォルト) または `en` |
 | `rules` | | `{id, text, source}` の一覧。`source` は `user` または `correction` |
 
 ## 現在モデルが読むもの
 
 <Callout type="warn">
-カードの `role`・`instructions`・`tone`・`rules` はバージョンとリリースに保存されセッションに固定されるが、まだモデルには渡されない。
+カードの `role`・`instructions`・`rules` はバージョンとリリースに保存されセッションに固定されるが、まだモデルには渡されない。
 </Callout>
 
 現在 worker がモデルに追加する指示は 2 つである。

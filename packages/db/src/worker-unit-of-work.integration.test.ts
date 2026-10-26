@@ -15,7 +15,7 @@ import {
   type TempDatabase,
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
-import { and, count, eq, isNotNull, sql } from "drizzle-orm";
+import { and, count, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresCheckpointStore } from "./checkpoint-store.ts";
@@ -42,6 +42,12 @@ import {
   workers,
 } from "./schema.ts";
 import { commitCheckpoint } from "./testing/checkpoints.ts";
+import {
+  confirmExecutionGone,
+  insertUnreservedLaunch,
+  launchSession,
+  type TestLaunch,
+} from "./testing/launches.ts";
 import {
   CHECKPOINT_RESTORE_FALLBACK,
   createPostgresWorkerUnitOfWork,
@@ -190,17 +196,8 @@ integration("worker gateway on PostgreSQL", () => {
       },
     });
 
-  async function launch(partition: string, sessionId?: string) {
-    const executionId = `exec-${crypto.randomUUID()}`;
-    const registered = await gateway.registerLaunch({
-      executionId,
-      generation: 1,
-      partition,
-      ...(sessionId === undefined ? {} : { sessionId }),
-      backend: "local_docker",
-    });
-    if (registered.nonce === null) throw new Error("launch already registered");
-    return { executionId, nonce: registered.nonce, generation: 1 };
+  function launch(sessionId: string) {
+    return launchSession(db, { sessionId });
   }
 
   // Every test owns a partition so leftovers from other tests never compete.
@@ -374,7 +371,7 @@ integration("worker gateway on PostgreSQL", () => {
   // Runs a full attempt so later tests start from a clean queue head.
   async function claimAndDeliver(partition = partitionFor("run")) {
     const session = await queuedSession(partition);
-    const l = await launch(partition);
+    const l = await launch(session.session_id);
     const claimed = await claim(l);
     expect(claimed.session_id).toBe(session.session_id);
     const next = await gateway.nextInput(principalOf(claimed), {
@@ -387,7 +384,7 @@ integration("worker gateway on PostgreSQL", () => {
   test("bootstrapClaim binds one unassigned session per launch and replays the same binding", async () => {
     const partition = partitionFor("bind");
     const session = await queuedSession(partition);
-    const l = await launch(partition);
+    const l = await launch(session.session_id);
     const first = await claim(l);
     expect(first.session_id).toBe(session.session_id);
     expect(first.lease_epoch).toBe(1);
@@ -466,7 +463,7 @@ integration("worker gateway on PostgreSQL", () => {
   test("egress tokens live and die with the attempt, each for its own route only", async () => {
     const partition = partitionFor("egress");
     const session = await queuedSession(partition);
-    const l = await launch(partition);
+    const l = await launch(session.session_id);
     const first = await claim(l);
     const providerOf = (claimed: typeof first) =>
       claimed.runtime_config.provider.auth.token;
@@ -621,8 +618,8 @@ integration("worker gateway on PostgreSQL", () => {
 
   test("a nonce is rejected for another execution identity, when expired, and when unknown", async () => {
     const partition = partitionFor("nonce");
-    await queuedSession(partition);
-    const l = await launch(partition);
+    const queued = await queuedSession(partition);
+    const l = await launch(queued.session_id);
     expect(
       await failure(
         gateway.bootstrapClaim(bootstrap, {
@@ -660,24 +657,10 @@ integration("worker gateway on PostgreSQL", () => {
     });
   });
 
-  test("two launches racing for one session: exactly one binds, the other waits", async () => {
-    const partition = partitionFor("race");
-    await queuedSession(partition);
-    const [a, b] = await Promise.all([launch(partition), launch(partition)]);
-    const results = await Promise.allSettled([claim(a), claim(b)]);
-    const fulfilled = results.filter((r) => r.status === "fulfilled");
-    const rejected = results.filter((r) => r.status === "rejected");
-    expect(fulfilled).toHaveLength(1);
-    expect(rejected).toHaveLength(1);
-    const reason = (rejected[0] as PromiseRejectedResult).reason;
-    expect(reason).toBeInstanceOf(WorkerGatewayError);
-    expect(reason.code).toBe("NOT_FOUND");
-  });
-
   test("the same nonce presented by two workers concurrently yields one binding and one live token", async () => {
     const partition = partitionFor("leak");
-    await queuedSession(partition);
-    const l = await launch(partition);
+    const queued = await queuedSession(partition);
+    const l = await launch(queued.session_id);
     const [x, y] = await Promise.all([claim(l), claim(l)]);
     expect(x.attempt_id).toBe(y.attempt_id);
     expect(x.session_id).toBe(y.session_id);
@@ -744,8 +727,8 @@ integration("worker gateway on PostgreSQL", () => {
 
   test("heartbeat extends the lease and answers 409 LEASE_EXPIRED once the TTL passed", async () => {
     const partition = partitionFor("beat");
-    await queuedSession(partition);
-    const claimed = await claim(await launch(partition));
+    const queued = await queuedSession(partition);
+    const claimed = await claim(await launch(queued.session_id));
     await gateway.nextInput(principalOf(claimed), { ...scopeOf(claimed) });
     const before = new Date(claimed.lease_expires_at).getTime();
     await sleep(100);
@@ -835,8 +818,8 @@ integration("worker gateway on PostgreSQL", () => {
 
   test("a nonce stops working once its lifetime passes, including on the replay path", async () => {
     const partition = partitionFor("expiry");
-    await queuedSession(partition);
-    const l = await launch(partition);
+    const queued = await queuedSession(partition);
+    const l = await launch(queued.session_id);
     const first = await claim(l);
     // The attempt is alive, but the bootstrap door closes with the nonce.
     await db
@@ -856,39 +839,17 @@ integration("worker gateway on PostgreSQL", () => {
 
   test("a claim is refused once the backend has taken the launch slot back", async () => {
     const partition = partitionFor("slotgone");
-    await queuedSession(partition);
-    const l = await launch(partition);
+    const queued = await queuedSession(partition);
+    const l = await launch(queued.session_id);
     // The execution died before claiming; the backend observed it.
-    expect(await gateway.confirmExecutionGone(l.executionId)).toEqual({
-      sessionReleased: false,
+    expect(await confirmExecutionGone(db, l.executionId)).toEqual({
+      sessionReleased: true,
       slotReleased: true,
     });
     expect(await failure(claim(l))).toEqual({
       status: 401,
       code: "UNAUTHORIZED",
     });
-  });
-
-  test("registerLaunch hands out a nonce only when it registered the execution", async () => {
-    const partition = partitionFor("reg");
-    const executionId = `exec-${crypto.randomUUID()}`;
-    const first = await gateway.registerLaunch({
-      executionId,
-      generation: 1,
-      partition,
-      backend: "local_docker",
-    });
-    expect(first.outcome).toBe("registered");
-    expect(first.nonce).not.toBeNull();
-    const again = await gateway.registerLaunch({
-      executionId,
-      generation: 1,
-      partition,
-      backend: "local_docker",
-    });
-    // The stored hash still belongs to the first nonce, so handing back a
-    // freshly generated one would only produce claims that never work.
-    expect(again).toEqual({ nonce: null, outcome: "exists" });
   });
 
   test("events are refused for a turn this attempt is not running", async () => {
@@ -908,7 +869,7 @@ integration("worker gateway on PostgreSQL", () => {
       payloadHash: crypto.randomUUID(),
       message: "queued behind the head",
     });
-    const l = await launch(partition);
+    const l = await launch(session.session_id);
     const claimed = await claim(l);
     await gateway.nextInput(principalOf(claimed), scopeOf(claimed));
     // Turn 2 exists and belongs to the session, but no attempt runs it.
@@ -1160,8 +1121,8 @@ integration("worker gateway on PostgreSQL", () => {
 
   test("a claim replay is refused once the attempt has used its token", async () => {
     const partition = partitionFor("used");
-    await queuedSession(partition);
-    const l = await launch(partition);
+    const queued = await queuedSession(partition);
+    const l = await launch(queued.session_id);
     const first = await claim(l);
     // nextInput is the worker using the binding: the claim response was not
     // lost, so a further exchange is someone else rotating the token away.
@@ -1509,7 +1470,7 @@ integration("worker gateway on PostgreSQL", () => {
   test("a checkpoint verification that outlives the lease commits nothing", async () => {
     const partition = partitionFor("slow");
     const session = await queuedSession(partition);
-    const claimed = await claim(await launch(partition));
+    const claimed = await claim(await launch(session.session_id));
     await gateway.nextInput(principalOf(claimed), { ...scopeOf(claimed) });
     await leaseEndsIn(claimed.attempt_id, 400);
     // The verifier is a network call. If it returns after the lease is gone,
@@ -1593,7 +1554,8 @@ integration("worker gateway on PostgreSQL", () => {
   test("a session whose profile this host does not know is not claimed", async () => {
     const partition = partitionFor("profile");
     const session = await queuedSession(partition);
-    const l = await launch(partition);
+    // A pool worker: the host it lands on chooses among what is queued.
+    const l = await insertUnreservedLaunch(db, { partition });
     const stranger = createWorkerGateway({
       work: createPostgresWorkerUnitOfWork(db),
       catalog: { profiles: {}, repositories: {} },
@@ -1692,7 +1654,10 @@ integration("worker gateway on PostgreSQL", () => {
       .update(sessions)
       .set({ repositoryId: null })
       .where(eq(sessions.id, old.session_id));
-    expect(await failure(claimOn(await launch(oldPartition)))).toEqual({
+    const pooled = await insertUnreservedLaunch(db, {
+      partition: oldPartition,
+    });
+    expect(await failure(claimOn(pooled))).toEqual({
       status: 404,
       code: "NOT_FOUND",
     });
@@ -1722,7 +1687,7 @@ integration("worker gateway on PostgreSQL", () => {
       .set({ partition })
       .where(eq(unassignedSessions.sessionId, sessionId));
 
-    const claimed = await claimOn(await launch(partition));
+    const claimed = await claimOn(await launch(sessionId));
     expect(claimed.session_id).toBe(sessionId);
     expect(claimed.workspace).toEqual({ repository: null });
     expect(claimed.runtime_config.tools).toEqual(["Read", "Write"]);
@@ -1740,8 +1705,8 @@ integration("worker gateway on PostgreSQL", () => {
   test("an exit observation racing the last heartbeats never deadlocks", async () => {
     for (let round = 0; round < 5; round += 1) {
       const partition = partitionFor(`race${round}`);
-      await queuedSession(partition);
-      const l = await launch(partition);
+      const queued = await queuedSession(partition);
+      const l = await launch(queued.session_id);
       const claimed = await claim(l);
       const beats = [0, 1, 2].map(() =>
         gateway
@@ -1752,7 +1717,7 @@ integration("worker gateway on PostgreSQL", () => {
           .catch((error: unknown) => error),
       );
       const settled = await Promise.all([
-        gateway.confirmExecutionGone(l.executionId),
+        confirmExecutionGone(db, l.executionId),
         ...beats,
       ]);
       for (const outcome of settled) {
@@ -1806,8 +1771,8 @@ integration("worker gateway on PostgreSQL", () => {
 
   test("a heartbeat keeps the session credential alive with the lease", async () => {
     const partition = partitionFor("cred");
-    await queuedSession(partition);
-    const l = await launch(partition);
+    const queued = await queuedSession(partition);
+    const l = await launch(queued.session_id);
     const uow = createPostgresWorkerUnitOfWork(db);
     const withTokenTtl = (sessionTokenTtlMs: number) =>
       createWorkerGateway({
@@ -1879,8 +1844,8 @@ integration("worker gateway on PostgreSQL", () => {
 
   test("a worker holding the token that lost a claim race recovers by claiming again", async () => {
     const partition = partitionFor("lostrace");
-    await queuedSession(partition);
-    const l = await launch(partition);
+    const queued = await queuedSession(partition);
+    const l = await launch(queued.session_id);
     const first = await claim(l);
     const second = await claim(l);
     // The worker received the responses out of order and kept the first
@@ -1908,8 +1873,8 @@ integration("worker gateway on PostgreSQL", () => {
 
   test("a request that waits out its lease on the row lock is refused", async () => {
     const partition = partitionFor("lockwait");
-    await queuedSession(partition);
-    const l = await launch(partition);
+    const queued = await queuedSession(partition);
+    const l = await launch(queued.session_id);
     const brief = briefGateway(150);
     const claimed = await brief.bootstrapClaim(bootstrap, {
       execution_id: l.executionId,
@@ -1940,8 +1905,8 @@ integration("worker gateway on PostgreSQL", () => {
 
   test("a claim that waits out its TTL on the launch row still hands out a live lease", async () => {
     const partition = partitionFor("claimwait");
-    await queuedSession(partition);
-    const l = await launch(partition);
+    const queued = await queuedSession(partition);
+    const l = await launch(queued.session_id);
     const blocker = await pool.connect();
     await blocker.query("BEGIN");
     await blocker.query(
@@ -1972,7 +1937,7 @@ integration("worker gateway on PostgreSQL", () => {
   test("a claim that waits out the nonce window on the launch row is refused and binds nothing", async () => {
     const partition = partitionFor("noncewait");
     const session = await queuedSession(partition);
-    const l = await launch(partition);
+    const l = await launch(session.session_id);
     // The deadline is set on the database clock so that it passes while the
     // claim is blocked on the row, not before it asks for the lock.
     await db
@@ -2013,7 +1978,7 @@ integration("worker gateway on PostgreSQL", () => {
   test("a finalize that waits out its lease on the turn row commits nothing", async () => {
     const partition = partitionFor("finwait");
     const session = await queuedSession(partition);
-    const claimed = await claim(await launch(partition));
+    const claimed = await claim(await launch(session.session_id));
     await gateway.nextInput(principalOf(claimed), { ...scopeOf(claimed) });
     const [turn] = await db
       .select({ id: turns.id })
@@ -2059,7 +2024,7 @@ integration("worker gateway on PostgreSQL", () => {
   test("a nextInput that waits out its lease on the queue head delivers nothing", async () => {
     const partition = partitionFor("headwait");
     const session = await queuedSession(partition);
-    const l = await launch(partition);
+    const l = await launch(session.session_id);
     const brief = briefGateway(400);
     const claimed = await brief.bootstrapClaim(bootstrap, {
       execution_id: l.executionId,
@@ -2094,8 +2059,8 @@ integration("worker gateway on PostgreSQL", () => {
 
   test("a claim replayed on a host without the profile rotates nothing", async () => {
     const partition = partitionFor("replayprofile");
-    await queuedSession(partition);
-    const l = await launch(partition);
+    const queued = await queuedSession(partition);
+    const l = await launch(queued.session_id);
     const claimed = await claim(l);
     const stranger = createWorkerGateway({
       work: createPostgresWorkerUnitOfWork(db),
@@ -2146,7 +2111,7 @@ integration("worker gateway on PostgreSQL", () => {
     // The backend that started this execution gave it the second session's
     // workspace; taking the older head would run one session's input in
     // another one's directory.
-    const claimed = await claim(await launch(partition, second.session_id));
+    const claimed = await claim(await launch(second.session_id));
     expect(claimed.session_id).toBe(second.session_id);
     const next = await gateway.nextInput(principalOf(claimed), {
       ...scopeOf(claimed),
@@ -2160,16 +2125,14 @@ integration("worker gateway on PostgreSQL", () => {
     expect(waiting).toHaveLength(1);
   });
 
-  test("a launch reserved for a session that is already bound claims nothing", async () => {
+  test("a session that is already bound gets no second launch", async () => {
     const partition = partitionFor("taken");
     const session = await queuedSession(partition);
     const other = await queuedSession(partition);
-    await claim(await launch(partition, session.session_id));
+    await claim(await launch(session.session_id));
     // Another execution for the same session must wait rather than fall
     // through to whatever else happens to be queued.
-    expect(
-      await failure(claim(await launch(partition, session.session_id))),
-    ).toEqual({ status: 404, code: "NOT_FOUND" });
+    await expect(launch(session.session_id)).rejects.toThrow("not launchable");
     const waiting = await db
       .select()
       .from(unassignedSessions)
@@ -2213,8 +2176,8 @@ integration("worker gateway on PostgreSQL", () => {
 
   test("a claim replayed after the lease lapsed comes back with a fresh one", async () => {
     const partition = partitionFor("lapsed");
-    await queuedSession(partition);
-    const l = await launch(partition);
+    const queued = await queuedSession(partition);
+    const l = await launch(queued.session_id);
     const brief = briefGateway(300);
     const request = {
       execution_id: l.executionId,
@@ -2242,22 +2205,14 @@ integration("worker gateway on PostgreSQL", () => {
 
   test("the database clock judges the lease, not the clock of the replica handling the request", async () => {
     const partition = partitionFor("skew");
-    await queuedSession(partition);
-    const real = skewedGateway(0, LEASE_TTL_MS);
+    const queued = await queuedSession(partition);
     const behind = skewedGateway(-60_000, LEASE_TTL_MS);
     const ahead = skewedGateway(60_000, LEASE_TTL_MS);
-    const executionId = `exec-${crypto.randomUUID()}`;
-    const registered = await real.registerLaunch({
-      executionId,
-      generation: 1,
-      partition,
-      backend: "local_docker",
-    });
-    if (registered.nonce === null) throw new Error("launch already registered");
+    const l = await launch(queued.session_id);
     const claimed = await behind.bootstrapClaim(bootstrap, {
-      execution_id: executionId,
-      execution_generation: 1,
-      credential: { kind: "launch_nonce", nonce: registered.nonce },
+      execution_id: l.executionId,
+      execution_generation: l.generation,
+      credential: { kind: "launch_nonce", nonce: l.nonce },
     });
     // Judged by its own clock the replica running a minute ahead would call
     // this lease long gone; the database says it is live.
@@ -2304,23 +2259,15 @@ integration("worker gateway on PostgreSQL", () => {
     // Long enough that a loaded runner does not see it lapse mid-test.
     const TTL = 5_000;
     const partition = partitionFor("remaining");
-    await queuedSession(partition);
-    const real = skewedGateway(0, TTL);
+    const queued = await queuedSession(partition);
     const behind = skewedGateway(-60_000, TTL);
     const ahead = skewedGateway(60_000, TTL);
-    const executionId = `exec-${crypto.randomUUID()}`;
-    const registered = await real.registerLaunch({
-      executionId,
-      generation: 1,
-      partition,
-      backend: "local_docker",
-    });
-    if (registered.nonce === null) throw new Error("launch already registered");
+    const l = await launch(queued.session_id);
     const claim = () =>
       behind.bootstrapClaim(bootstrap, {
-        execution_id: executionId,
-        execution_generation: 1,
-        credential: { kind: "launch_nonce", nonce: registered.nonce ?? "" },
+        execution_id: l.executionId,
+        execution_generation: l.generation,
+        credential: { kind: "launch_nonce", nonce: l.nonce },
       });
     // A worker counts the remainder from its own send: whatever instant that
     // stands for on the database clock, the sum may not pass the deadline
@@ -2356,54 +2303,43 @@ integration("worker gateway on PostgreSQL", () => {
     }
   });
 
-  test("the database clock judges the launch nonce, not the clock of the replica that registered or claims it", async () => {
+  test("the database clock judges the launch nonce, not the clock of the replica that claims it", async () => {
     const partition = partitionFor("nonce-skew");
-    await queuedSession(partition);
     const behind = skewedGateway(-60_000, 300);
     const ahead = skewedGateway(60_000, 300);
-    const launchFrom = async (from: ReturnType<typeof skewedGateway>) => {
-      const executionId = `exec-${crypto.randomUUID()}`;
+    const launchNew = async () => {
+      const queued = await queuedSession(partition);
       const floor = await dbNowMs();
-      const registered = await from.registerLaunch({
-        executionId,
-        generation: 1,
-        partition,
-        backend: "local_docker",
-      });
+      const l = await launch(queued.session_id);
       const ceiling = await dbNowMs();
-      if (registered.nonce === null) throw new Error("already registered");
-      // The stored deadline follows the database clock plus the TTL, not the
-      // registering replica's clock.
+      // The stored deadline follows the database clock plus the TTL.
       const [row] = await db
         .select({ nonceExpiresAt: workerLaunches.nonceExpiresAt })
         .from(workerLaunches)
-        .where(eq(workerLaunches.executionId, executionId));
+        .where(eq(workerLaunches.executionId, l.executionId));
       const expiresAt = row?.nonceExpiresAt?.getTime() ?? Number.NaN;
       // The column keeps microseconds; the Date read back is floored to ms.
       expect(expiresAt).toBeGreaterThanOrEqual(
         Math.floor(floor) + DEFAULT_NONCE_TTL_MS,
       );
       expect(expiresAt).toBeLessThanOrEqual(ceiling + DEFAULT_NONCE_TTL_MS);
-      return { executionId, nonce: registered.nonce, generation: 1 };
+      return l;
     };
-    const claimWith = (
-      from: ReturnType<typeof skewedGateway>,
-      l: Awaited<ReturnType<typeof launchFrom>>,
-    ) =>
+    const claimWith = (from: ReturnType<typeof skewedGateway>, l: TestLaunch) =>
       from.bootstrapClaim(bootstrap, {
         execution_id: l.executionId,
         execution_generation: l.generation,
         credential: { kind: "launch_nonce", nonce: l.nonce },
       });
 
-    // Registered a minute behind, claimed a minute ahead: on either replica's
-    // clock the ten-minute window is still open, and so it is in the database.
-    const first = await launchFrom(behind);
+    // Claimed a minute ahead: on that replica's clock the ten-minute window
+    // is still open, and so it is in the database.
+    const first = await launchNew();
     expect((await claimWith(ahead, first)).attempt_id).toMatch(/^att_/);
 
     // A deadline that the database has passed is refused even by the replica
     // whose own clock would still call it open.
-    const second = await launchFrom(ahead);
+    const second = await launchNew();
     await db
       .update(workerLaunches)
       .set({ nonceExpiresAt: new Date(Date.now() - 1) })
@@ -2415,8 +2351,8 @@ integration("worker gateway on PostgreSQL", () => {
   });
   test("any accepted call closes the claim replay window, not just the first input", async () => {
     const partition = partitionFor("used");
-    await queuedSession(partition);
-    const l = await launch(partition);
+    const queued = await queuedSession(partition);
+    const l = await launch(queued.session_id);
     const claimed = await claim(l);
     // An event on no turn is the worker's first sign of life. It leaves the
     // attempt with no input and no turn, and it still has to count.
@@ -2444,8 +2380,8 @@ integration("worker gateway on PostgreSQL", () => {
 
   test("a late heartbeat cannot walk the reported phase backwards", async () => {
     const partition = partitionFor("hborder");
-    await queuedSession(partition);
-    const l = await launch(partition);
+    const queued = await queuedSession(partition);
+    const l = await launch(queued.session_id);
     const claimed = await claim(l);
     const beat = (attempt_state: "starting" | "running" | "draining") =>
       gateway.heartbeat(principalOf(claimed), {
@@ -2468,8 +2404,8 @@ integration("worker gateway on PostgreSQL", () => {
 
   test("a replayed claim moves the auth revision so an older token's requests are fenced", async () => {
     const partition = partitionFor("authrev");
-    await queuedSession(partition);
-    const l = await launch(partition);
+    const queued = await queuedSession(partition);
+    const l = await launch(queued.session_id);
     const first = await claim(l);
     const second = await claim(l);
     expect(second.attempt_id).toBe(first.attempt_id);
@@ -2675,7 +2611,7 @@ integration("worker gateway on PostgreSQL", () => {
       .update(unassignedSessions)
       .set({ partition })
       .where(eq(unassignedSessions.sessionId, sessionId));
-    const claimed = await claim(await launch(partition));
+    const claimed = await claim(await launch(sessionId));
     const finalizeTurn = async (
       turnId: string,
       status: "completed" | "failed",
@@ -2826,7 +2762,7 @@ integration("worker gateway on PostgreSQL", () => {
       ...scopeOf(claimed),
       reason: "idle_timeout",
     });
-    await gateway.confirmExecutionGone(l.executionId);
+    await confirmExecutionGone(db, l.executionId);
     await createPostgresSessionUnitOfWork(db).appendInputAtomic({
       limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
       principal: {
@@ -2859,13 +2795,13 @@ integration("worker gateway on PostgreSQL", () => {
       .set({ repositoryId: null })
       .where(eq(sessions.id, session.session_id));
     await expect(
-      claim(await launch(partition, session.session_id)),
+      claim(await insertUnreservedLaunch(db, { partition })),
     ).rejects.toMatchObject({ status: 404, code: "NOT_FOUND" });
     await db
       .update(sessions)
       .set({ repositoryId: "sample-app" })
       .where(eq(sessions.id, session.session_id));
-    const again = await claim(await launch(partition, session.session_id));
+    const again = await claim(await launch(session.session_id));
     expect(again.session_id).toBe(session.session_id);
     expect(again.restore).toEqual(checkpoint);
     expect(again.workspace).toEqual({
@@ -2956,7 +2892,7 @@ integration("worker gateway on PostgreSQL", () => {
     for (const [label, repositories] of refused) {
       const partition = partitionFor("pair");
       const session = await queuedSession(partition);
-      const l = await launch(partition, session.session_id);
+      const l = await insertUnreservedLaunch(db, { partition });
       await expect(
         claimOn(gatewayFor(repositories), l),
         label,
@@ -2978,7 +2914,7 @@ integration("worker gateway on PostgreSQL", () => {
     // longer allows the pair is refused before the token rotates.
     const partition = partitionFor("pair-replay");
     const session = await queuedSession(partition);
-    const l = await launch(partition, session.session_id);
+    const l = await launch(session.session_id);
     const first = await claimOn(gatewayFor({ "sample-app": registered }), l);
     await expect(
       claimOn(
@@ -3087,12 +3023,8 @@ integration("worker gateway on PostgreSQL", () => {
       await work.resolveCredential(hashWorkerToken(claimed.session_credential)),
     ).toBeNull();
 
-    // No new claim while the execution may still be alive.
-    const next = await launch(partition);
-    expect(await failure(claim(next))).toEqual({
-      status: 404,
-      code: "NOT_FOUND",
-    });
+    // No new launch while the execution may still be alive.
+    await expect(launch(session.session_id)).rejects.toThrow("not launchable");
     const [bound] = await db
       .select({ podId: sessions.podId, leaseEpoch: sessions.leaseEpoch })
       .from(sessions)
@@ -3100,11 +3032,11 @@ integration("worker gateway on PostgreSQL", () => {
     expect(bound?.podId).toBe(l.executionId);
     expect(bound?.leaseEpoch).toBe(claimed.lease_epoch + 1);
 
-    expect(await gateway.confirmExecutionGone(l.executionId)).toEqual({
+    expect(await confirmExecutionGone(db, l.executionId)).toEqual({
       sessionReleased: true,
       slotReleased: true,
     });
-    const reclaimed = await claim(next);
+    const reclaimed = await claim(await launch(session.session_id));
     expect(reclaimed.session_id).toBe(session.session_id);
     expect(reclaimed.lease_epoch).toBe(claimed.lease_epoch + 3);
     expect(reclaimed.restore?.revision).toBe(0);
@@ -3119,7 +3051,7 @@ integration("worker gateway on PostgreSQL", () => {
   test("an execution that ends mid-turn leaves an unknown outcome, not work in progress", async () => {
     const partition = partitionFor("unk");
     const { session, launch: l } = await claimAndDeliver(partition);
-    expect(await gateway.confirmExecutionGone(l.executionId)).toEqual({
+    expect(await confirmExecutionGone(db, l.executionId)).toEqual({
       sessionReleased: true,
       slotReleased: true,
     });
@@ -3171,8 +3103,8 @@ integration("worker gateway on PostgreSQL", () => {
 
   test("a heartbeat cannot walk the attempt back to allocated or end it", async () => {
     const partition = partitionFor("hbstate");
-    await queuedSession(partition);
-    const l = await launch(partition);
+    const queued = await queuedSession(partition);
+    const l = await launch(queued.session_id);
     const claimed = await claim(l);
     await gateway.nextInput(principalOf(claimed), scopeOf(claimed));
     for (const state of ["allocated", "exited", "lost"] as const) {
@@ -3199,13 +3131,24 @@ integration("worker gateway on PostgreSQL", () => {
 
   test("launch slots: bootstrapClaim inherits the reservation and each exit returns it exactly once", async () => {
     const partition = partitionFor("slots");
-    const work = createPostgresWorkerUnitOfWork(db);
+    const reserved = async () => {
+      const [row] = await db
+        .select({ reserved: count() })
+        .from(workerLaunches)
+        .where(
+          and(
+            eq(workerLaunches.partition, partition),
+            isNull(workerLaunches.slotReleasedAt),
+          ),
+        );
+      return row?.reserved;
+    };
     const launches = [];
     for (let i = 0; i < 30; i += 1) {
-      await queuedSession(partition);
-      launches.push(await launch(partition));
+      const queued = await queuedSession(partition);
+      launches.push(await launch(queued.session_id));
     }
-    expect(await work.countReservedSlots(partition)).toBe(30);
+    expect(await reserved()).toBe(30);
     for (const l of launches) {
       const claimed = await claim(l);
       await claim(l);
@@ -3214,16 +3157,16 @@ integration("worker gateway on PostgreSQL", () => {
         reason: "done",
       });
     }
-    expect(await work.countReservedSlots(partition)).toBe(30);
+    expect(await reserved()).toBe(30);
     for (const l of launches) {
-      expect(
-        (await gateway.confirmExecutionGone(l.executionId)).slotReleased,
-      ).toBe(true);
-      expect(
-        (await gateway.confirmExecutionGone(l.executionId)).slotReleased,
-      ).toBe(false);
+      expect((await confirmExecutionGone(db, l.executionId)).slotReleased).toBe(
+        true,
+      );
+      expect((await confirmExecutionGone(db, l.executionId)).slotReleased).toBe(
+        false,
+      );
     }
-    expect(await work.countReservedSlots(partition)).toBe(0);
+    expect(await reserved()).toBe(0);
   });
 
   // every worker with a mirror beats this way until its first batch
@@ -3383,7 +3326,7 @@ integration("worker gateway on PostgreSQL", () => {
       ...scopeOf(claimed),
       reason: "mirror_error",
     });
-    await gateway.confirmExecutionGone(l.executionId);
+    await confirmExecutionGone(db, l.executionId);
     const [held] = await db
       .select({
         admission: sessions.admissionState,

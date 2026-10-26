@@ -147,7 +147,6 @@ describe("a step form", () => {
     const card = agentCardStep().parse({
       role: "Support",
       instructions: "Answer.",
-      tone: "",
       language: "ko",
       model: "claude-sonnet-5",
       toolsMode: "all",
@@ -197,7 +196,6 @@ describe("a step form", () => {
     const draft: AgentCardDraft = {
       role: "Support",
       instructions: "Answer.",
-      tone: "",
       language: "ko",
       model: "claude-sonnet-5",
       toolsMode: "list",
