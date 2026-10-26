@@ -138,9 +138,27 @@ describe("/sessions/map", () => {
     expect(strip.textContent).toContain("답변 대기 1");
   });
 
-  test("a session both lists name is drawn as the later read says", async () => {
+  test("a waiting session whose requests fail to read still stands on the strip", async () => {
+    const hidden = summary(0, { title: "창 밖의 질문", status: "needs_input" });
+    renderAt("/sessions/map", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/sessions": () =>
+        json(200, { items: [summary(1)], next_cursor: "older" }),
+      "GET /v1/sessions?status=needs_input": () =>
+        json(200, { items: [hidden], next_cursor: null }),
+      [`GET /v1/sessions/${hidden.id}/pending-requests`]: () =>
+        json(500, { error: { code: "INTERNAL", message: "boom" } }),
+    });
+    const strip = await screen.findByRole("region", {
+      name: "내 답변을 기다리는 요청",
+    });
+    expect(strip.textContent).toContain("답변 대기 1");
+    expect(strip.textContent).toContain("답할 요청");
+  });
+
+  test("a waiting list that lands late does not bring back a request the newest page saw end", async () => {
     const asked = summary(1, {
-      title: "막 물어본 세션",
+      title: "막 답한 세션",
       status: "needs_input",
       activity: {
         last: null,
@@ -172,14 +190,13 @@ describe("/sessions/map", () => {
         }),
     });
     await waitFor(() => expect(held.length).toBeGreaterThan(0));
-    // The newest page is read first; the waiting list comes after it.
+    // The waiting list was asked before the answer and lands after the page.
     await new Promise((resolve) => setTimeout(resolve, 20));
     for (const answer of held)
       answer(json(200, { items: [asked], next_cursor: null }));
-    const strip = await screen.findByRole("region", {
-      name: "내 답변을 기다리는 요청",
-    });
-    expect(strip.textContent).toContain("답변 대기 1");
-    expect(strip.textContent).toContain("Bash · git push");
+    await screen.findByRole("heading", { level: 1, name: "에이전트 지도" });
+    expect(
+      screen.queryByRole("region", { name: "내 답변을 기다리는 요청" }),
+    ).toBeNull();
   });
 });

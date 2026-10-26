@@ -121,6 +121,23 @@ describe("mapSessionOf", () => {
     expect(waiting({ kind: "question", prompt: null })?.tool).toBe("질문");
   });
 
+  test("a waiting session whose request the activity does not show still waits", () => {
+    const card = mapSessionOf(
+      summary({
+        status: "needs_input",
+        last_event_at: ago(7.5),
+        activity: activity({}),
+      }),
+      NOW,
+      KO,
+    );
+    expect(card.pending).toEqual({
+      kind: "request",
+      tool: "답할 요청",
+      waitedMinutes: 7,
+    });
+  });
+
   test("a waiting card says what it waits on, not its last line", () => {
     const note = (current: {
       name: string;
