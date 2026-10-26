@@ -1640,6 +1640,83 @@ describe("session profile", () => {
     );
   });
 
+  async function answerTheOnlyRequest(
+    next: () => {
+      readonly session: SessionDetail;
+      readonly items: ListPendingRequestsResponse["items"];
+    },
+  ) {
+    const user = await setupUser();
+    let session: SessionDetail = detail;
+    let open: ListPendingRequestsResponse["items"] = [
+      { ...pending.items[0], expires_at: LATER },
+    ] as ListPendingRequestsResponse["items"];
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () => json(200, session),
+      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+        json(200, { answerable: true, items: open }),
+      [`POST /v1/sessions/${SESSION_ID}/answers`]: () => {
+        open = [];
+        session = { ...detail, status: "running" };
+        return json(202, {
+          receipt_id: RECEIPT_ID,
+          receipt_status: "accepted",
+        });
+      },
+    });
+    await waitFor(() => expect(stream.requests).toHaveLength(1));
+    await act(async () => stream.open());
+    const allow = await screen.findByRole("button", { name: "허용" });
+    allow.focus();
+    await user.keyboard("{Enter}");
+    await waitFor(() =>
+      expect(document.activeElement?.textContent).toBe("답을 보냈습니다."),
+    );
+    // Still running on the answer: the notice holds.
+    act(() => stream.emit("ev_1", "status", { phase: "running" }));
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { level: 1 }).textContent).toContain(
+        "작업 중",
+      ),
+    );
+    expect(screen.getByText("답을 보냈습니다.")).toBeTruthy();
+    ({ session, items: open } = next());
+    act(() => stream.emit("ev_2", "status", { phase: "idle" }));
+    // The stream batches its refetches; let the reads land.
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 500)));
+    await waitFor(() =>
+      expect(screen.queryByText("답을 보냈습니다.")).toBeNull(),
+    );
+  }
+
+  test("the sent notice leaves once the run it started ends, handing the keyboard to the list's title", async () => {
+    await answerTheOnlyRequest(() => ({
+      session: { ...detail, status: "idle", current_turn_id: null },
+      items: [],
+    }));
+    expect(document.activeElement).not.toBe(document.body);
+    expect(document.activeElement?.textContent).toBe("답변 대기 요청");
+  });
+
+  test("the sent notice leaves when a new request arrives, which takes the keyboard", async () => {
+    const second = {
+      ...pending.items[0],
+      request_id: "req_2",
+      tool: "Write",
+      expires_at: LATER,
+    } as ListPendingRequestsResponse["items"][number];
+    await answerTheOnlyRequest(() => ({
+      session: { ...detail, status: "needs_input" },
+      items: [second],
+    }));
+    await waitFor(() =>
+      expect(document.activeElement?.closest("article")?.textContent).toContain(
+        "권한 요청: Write",
+      ),
+    );
+  });
+
   test("after an answer the keyboard moves on to the next request", async () => {
     const user = await setupUser();
     const second = {

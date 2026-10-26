@@ -100,6 +100,30 @@ export function focusLost(node: Element | null): boolean {
   return page !== undefined && page.activeElement === page.body;
 }
 
+// While another answer is on its way the buttons are off; the next card's
+// folded input still takes focus.
+function nextRequest(root: HTMLElement | null) {
+  return (
+    root?.querySelector<HTMLElement>(
+      "li button:not(:disabled), li input:not(:disabled)",
+    ) ?? root?.querySelector<HTMLElement>("li summary")
+  );
+}
+
+/** The title of the section the list sits in, made able to take focus. */
+function listTitle(root: HTMLElement | null) {
+  const title = root?.closest("section")?.querySelector<HTMLElement>("h2, h3");
+  if (title && !title.hasAttribute("tabindex")) title.tabIndex = -1;
+  return title ?? undefined;
+}
+
+// The run an answer started is over; "the session continues" no longer holds.
+const RUN_ENDED: ReadonlySet<SessionDetailData["status"]> = new Set([
+  "idle",
+  "failed",
+  "stopped",
+]);
+
 function Reason({ text }: { readonly text: string }) {
   return <p className="m-0 text-muted-foreground text-body">{text}</p>;
 }
@@ -253,9 +277,12 @@ export function PendingAnswers({
   heading,
   meta,
   announceSent = true,
+  status,
 }: SessionActionProps & {
   readonly sessionId: string;
   readonly items: readonly PendingRequest[];
+  /** The session's work status: the sent notice leaves once its run ends. */
+  readonly status?: SessionDetailData["status"] | undefined;
   /** False when the reader only sees the session and may not answer for it. */
   readonly answerable?: boolean;
   readonly onAnswered?: () => void;
@@ -280,7 +307,12 @@ export function PendingAnswers({
   const answer = useAnswer(sessionId);
   const refused = useRefusal(refusal);
   const [outcome, setOutcome] = useState<
-    (Outcome & { readonly requestId: string }) | null
+    | (Outcome & {
+        readonly requestId: string;
+        /** The requests listed when the answer went. */
+        readonly listed: ReadonlySet<string>;
+      })
+    | null
   >(null);
   const reason =
     unavailable?.answer ??
@@ -315,14 +347,9 @@ export function PendingAnswers({
     }
     answered.current = null;
     if (!focusLost(listRef.current)) return;
-    // While another answer is on its way the buttons are off; the next
-    // card's folded input still takes focus.
     const root = listRef.current;
     const next =
-      root?.querySelector<HTMLElement>(
-        "li button:not(:disabled), li input:not(:disabled)",
-      ) ??
-      root?.querySelector<HTMLElement>("li summary") ??
+      nextRequest(root) ??
       (announceSent
         ? noticeRef.current
         : // The notice line stays empty when the host announces the answer
@@ -334,6 +361,24 @@ export function PendingAnswers({
     next?.focus();
   }, [items, announceSent]);
 
+  // The sent notice holds until the run it started ends or a new request
+  // comes; an error stays on its card.
+  const passed =
+    outcome?.kind === "notice" &&
+    ((status !== undefined && RUN_ENDED.has(status)) ||
+      items.some((request) => !outcome.listed.has(request.request_id)));
+  // After the effect above, which may have handed the notice the keyboard.
+  useLayoutEffect(() => {
+    if (!passed) return;
+    const notice = noticeRef.current;
+    const held =
+      notice !== null && notice.ownerDocument.activeElement === notice;
+    setOutcome(null);
+    if (!held) return;
+    const root = listRef.current;
+    (nextRequest(root) ?? listTitle(root))?.focus();
+  }, [passed]);
+
   const send = (body: Parameters<typeof answer.mutate>[0]) => {
     // The buttons are off while an answer is on its way; a second press
     // that beats the render must not send twice.
@@ -342,11 +387,13 @@ export function PendingAnswers({
     // Marked before the request: an event can take the card away before
     // the answer's receipt comes back.
     answered.current = body.request_id;
+    const listed = new Set(items.map((request) => request.request_id));
     answer.mutate(body, {
       onSuccess: () => {
         setOutcome({
           kind: "notice",
           requestId: body.request_id,
+          listed,
           text: t("session.answer.sent"),
         });
         onAnswered?.();
@@ -356,6 +403,7 @@ export function PendingAnswers({
         setOutcome({
           kind: "error",
           requestId: body.request_id,
+          listed,
           text: refused(error),
         });
       },
@@ -398,7 +446,7 @@ export function PendingAnswers({
   const shownHere =
     outcome !== null &&
     (outcome.kind === "notice"
-      ? announceSent
+      ? announceSent && !passed
       : !items.some((request) => request.request_id === outcome.requestId));
 
   return (
