@@ -742,9 +742,7 @@ function ReleaseForm({
       {picked === undefined ||
       picked.repository_mode === "none" ? null : repositories.length === 0 &&
         picked.repository_mode === "required" ? (
-        <p className="m-0 text-destructive text-sm" role="alert">
-          {t("agent.releases.repositoryMissing")}
-        </p>
+        <FieldError>{t("agent.releases.repositoryMissing")}</FieldError>
       ) : (
         <Field>
           <FieldLabel>{t("agent.releases.repository")}</FieldLabel>

@@ -22,6 +22,7 @@ import {
   EmptyState,
   Field,
   FieldDescription,
+  FieldError,
   FieldLabel,
   formatTimestamp,
   NativeSelect,
@@ -226,9 +227,7 @@ export function Releases({
               {repositoryMode === undefined ||
               repositoryMode === "none" ? null : repositories.length === 0 &&
                 repositoryMode === "required" ? (
-                <p className="m-0 text-destructive text-sm" role="alert">
-                  {t("agent.releases.repositoryMissing")}
-                </p>
+                <FieldError>{t("agent.releases.repositoryMissing")}</FieldError>
               ) : (
                 <RepositorySelect
                   label={t("agent.releases.repository")}
