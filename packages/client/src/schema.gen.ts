@@ -3711,7 +3711,7 @@ export interface components {
                      */
                     via: "user" | "team";
                 }[];
-                /** @description When the member last used the web console: a web sign-in, or a web request, recorded at most once an hour. API key calls, Slack and session activity do not count. Null when the member has never signed in to the web console. */
+                /** @description When the member last used the web console: a web sign-in, or a web request, recorded at most once an hour. API key calls, Slack and session activity do not count. It stays after the web session expires, is signed out or revoked: only the member's next sign-in removes old sessions, and that sign-in is newer. Null when the member has never signed in to the web console. */
                 last_active_at: string | null;
             }[];
             next_cursor: string | null;

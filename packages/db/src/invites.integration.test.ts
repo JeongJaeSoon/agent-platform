@@ -17,7 +17,8 @@ import { and, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { encodeMemberCursor } from "./cursors.ts";
-import { bootstrapOwner } from "./identity.ts";
+import { dbNow } from "./db-clock.ts";
+import { bootstrapOwner, createWebSession } from "./identity.ts";
 import { createPostgresInviteStore } from "./invites.ts";
 import * as schema from "./schema.ts";
 import {
@@ -714,6 +715,48 @@ integration("invite store on PostgreSQL", () => {
     );
     expect(rows.get(never)).toBeNull();
     expect(rows.get(active)?.toISOString()).toBe(newer.toISOString());
+  });
+
+  test("last_active_at outlives an expired session and survives the next login's pruning", async () => {
+    const ws = await workspace();
+    const person = await account();
+    await db
+      .insert(memberships)
+      .values({ workspaceId: ws, userId: person.userId, role: "member" });
+    const expired = new Date("2026-09-01T00:00:00.000Z");
+    await db.insert(webSessions).values({
+      id: randomUUID(),
+      userId: person.userId,
+      tokenHash: hashOf(randomUUID()),
+      expiresAt: new Date("2026-09-02T00:00:00.000Z"),
+      lastSeenAt: expired,
+    });
+    const activeOf = async () =>
+      (await store.listMembers(ws, { limit: 100 })).items.find(
+        (row) => row.userId === person.userId,
+      )?.lastActiveAt;
+    expect((await activeOf())?.toISOString()).toBe(expired.toISOString());
+
+    const before = await dbNow(db);
+    expect(
+      await createWebSession(db, {
+        id: randomUUID(),
+        userId: person.userId,
+        verifiedPasswordHash: person.passwordHash,
+        tokenHash: hashOf(randomUUID()),
+        ttlMs: DAY_MS,
+        userAgent: null,
+        maxLive: 1,
+      }),
+    ).not.toBeNull();
+    const rows = await db
+      .select({ id: webSessions.id })
+      .from(webSessions)
+      .where(eq(webSessions.userId, person.userId));
+    expect(rows).toHaveLength(1);
+    expect((await activeOf())?.getTime()).toBeGreaterThanOrEqual(
+      before.getTime(),
+    );
   });
 
   test("a member list shows the earlier of membership and account disabling", async () => {

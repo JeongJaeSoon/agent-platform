@@ -175,7 +175,7 @@ export const memberRowSchema = memberViewSchema
     }),
     last_active_at: timestampSchema.nullable().meta({
       description:
-        "When the member last used the web console: a web sign-in, or a web request, recorded at most once an hour. API key calls, Slack and session activity do not count. Null when the member has never signed in to the web console.",
+        "When the member last used the web console: a web sign-in, or a web request, recorded at most once an hour. API key calls, Slack and session activity do not count. It stays after the web session expires, is signed out or revoked: only the member's next sign-in removes old sessions, and that sign-in is newer. Null when the member has never signed in to the web console.",
     }),
   })
   .strict();
