@@ -3691,8 +3691,15 @@ function errorContext(route: RouteDeclaration): ErrorContext {
     idempotencyKey: takesIdempotencyKey(route),
     lastEventId: route.lastEventId === true,
     body: route.body !== undefined,
+    message:
+      route.body !== undefined &&
+      "message" in requestShape(OPENAPI_COMPONENT_SCHEMAS[route.body]),
     query: route.query !== undefined,
   };
+}
+
+function requestShape(schema: z.ZodType): Record<string, unknown> {
+  return schema instanceof z.ZodObject ? schema.shape : {};
 }
 
 // The /v1 middleware refuses a cookie-authenticated mutation without the

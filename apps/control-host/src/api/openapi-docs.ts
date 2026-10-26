@@ -18,6 +18,8 @@ export type ErrorContext = {
   idempotencyKey: boolean;
   lastEventId: boolean;
   body: boolean;
+  // The body has a `message` field, which carries its own size limit.
+  message: boolean;
   query: boolean;
 };
 
@@ -136,8 +138,10 @@ export const ERROR_CODE_WHEN: Partial<Record<ApiErrorCode, When>> = {
     "The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists.",
   REQUEST_TIMEOUT:
     "The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`).",
-  PAYLOAD_TOO_LARGE:
-    "The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8.",
+  PAYLOAD_TOO_LARGE: (context) =>
+    context.message
+      ? "The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8."
+      : "The body is larger than 64 KiB.",
   STORAGE_LIMIT_EXCEEDED:
     "Accepting this message would exceed the installation's storage limit (`GET /v1/limits`). Retrying does not free space.",
   UNSUPPORTED_CAPABILITY:
