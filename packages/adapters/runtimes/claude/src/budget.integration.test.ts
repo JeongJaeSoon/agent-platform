@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import type { AgentRun } from "@werft-ai/runtime-core";
 import {
   type FakeAnthropicServer,
   type FakeReply,
@@ -12,6 +11,7 @@ import {
   type IsolatedWorkspace,
 } from "@werft-ai/testkit/workspace";
 import type { ClaudeRuntimeConfig } from "./config.ts";
+import type { DriverRun as AgentRun } from "./driver.ts";
 import { ClaudeSdkRuntime } from "./runtime.ts";
 
 let isolated: IsolatedWorkspace | undefined;

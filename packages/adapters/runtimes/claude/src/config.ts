@@ -2,19 +2,11 @@ import {
   CLAUDE_AGENT_SDK_VERSION,
   CLAUDE_CODE_VERSION,
 } from "@werft-ai/runtime-claude-codec";
-import type {
-  RuntimeCapabilities,
-  RuntimeConfig,
-  TranscriptMirror,
-} from "@werft-ai/runtime-core";
+import type { TranscriptMirror } from "@werft-ai/runtime-core";
+
+import type { DriverConfig } from "./driver.ts";
 
 export { CLAUDE_AGENT_SDK_VERSION, CLAUDE_CODE_VERSION };
-
-export const CLAUDE_RUNTIME_CAPABILITIES: RuntimeCapabilities = {
-  checkpoint: true,
-  interrupt: true,
-  resume: true,
-};
 
 export type PermissionMode =
   | "default"
@@ -79,7 +71,7 @@ export type ComponentIdentities = {
   plugins?: Record<string, string>;
 };
 
-export type ClaudeRuntimeConfig = RuntimeConfig & {
+export type ClaudeRuntimeConfig = DriverConfig & {
   appendSystemPrompt?: string;
   claudeConfigDir: string;
   /**

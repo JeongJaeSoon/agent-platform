@@ -11,6 +11,7 @@ import type {
 import type { PricedBy, ProviderUsage } from "../limits/model-prices.ts";
 import type { SessionMcp } from "../sessions/catalog.ts";
 import type { CheckpointPointer } from "./checkpoint-store.ts";
+import type { CheckpointOutputObject } from "./checkpoint-verifier.ts";
 
 // The identity every post-claim write is fenced on. The storage adapter puts
 // these values in the WHERE clause of each write; a row that no longer
@@ -317,6 +318,7 @@ export type FinalizeInput = {
   // The verifier's verdict on `checkpoint`, never the worker's say.
   checkpointVersionsHeld?: boolean;
   checkpointTranscriptBytes?: number;
+  checkpointOutputs?: readonly CheckpointOutputObject[];
 };
 export type FinalizeOutcome = {
   turnId: string;

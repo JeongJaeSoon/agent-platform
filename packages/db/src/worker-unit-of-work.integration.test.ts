@@ -29,6 +29,7 @@ import { reconcileOrphanedSessions } from "./queries.ts";
 import * as schema from "./schema.ts";
 import {
   attempts,
+  checkpointOutputs,
   checkpoints,
   events,
   queueMessages,
@@ -119,6 +120,15 @@ integration("worker gateway on PostgreSQL", () => {
               status: "rejected",
               reason: "the transcript is over the limit",
               limit: "transcript_too_large",
+            };
+          }
+          if (checkpoint.manifest_ref.startsWith("outputs/")) {
+            return {
+              status: "verified",
+              outputs: [
+                { key: `${checkpoint.manifest_ref}/a`, bytes: 7 },
+                { key: "outputs/inherited", bytes: 11 },
+              ],
             };
           }
           const sized = /\/bytes-(\d+)\//.exec(checkpoint.manifest_ref);
@@ -3334,6 +3344,50 @@ integration("worker gateway on PostgreSQL", () => {
       ).length,
     ).toBe(0);
     expect(await row()).toMatchObject({ pending: "mirror_error", revision: 0 });
+  });
+
+  test("finalize records the verified checkpoint's output objects beside its row", async () => {
+    const partition = partitionFor("checkpoint-outputs");
+    const { session, claimed, input } = await claimAndDeliver(partition);
+    const ref = `outputs/${session.session_id}/manifest.json`;
+    expect(
+      await gateway.finalize(principalOf(claimed), {
+        ...scopeOf(claimed, input.turn_id),
+        turn_id: input.turn_id,
+        finalize_key: `fin-${input.turn_id}`,
+        final_source_sequence: 0,
+        terminal: {
+          status: "completed",
+          reason: null,
+          result: null,
+          usage: null,
+        },
+        checkpoint: {
+          revision: 0,
+          manifest_ref: ref,
+          manifest_sha256: "a".repeat(64),
+        },
+      }),
+    ).toMatchObject({ status: "completed", checkpoint_revision: 0 });
+    const [row] = await db
+      .select({ recorded: checkpoints.outputsRecorded })
+      .from(checkpoints)
+      .where(eq(checkpoints.sessionId, session.session_id));
+    expect(row).toEqual({ recorded: true });
+    expect(
+      await db
+        .select({
+          revision: checkpointOutputs.revision,
+          key: checkpointOutputs.objectKey,
+          bytes: checkpointOutputs.bytes,
+        })
+        .from(checkpointOutputs)
+        .where(eq(checkpointOutputs.sessionId, session.session_id))
+        .orderBy(checkpointOutputs.bytes),
+    ).toEqual([
+      { revision: 0, key: `${ref}/a`, bytes: 7 },
+      { revision: 0, key: "outputs/inherited", bytes: 11 },
+    ]);
   });
 
   test("a transcript past the limit keeps the turn that crossed it and the last checkpoint, and takes no new turn", async () => {

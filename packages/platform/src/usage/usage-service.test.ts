@@ -107,6 +107,9 @@ function service(
         queuedInputCount: 0,
         storageUsedBytes: 0,
         storageUpdatedAt: null,
+        outputsUsedBytes: 0,
+        outputsUpdatedAt: null,
+        outputsComplete: true,
       }),
       sessionUsage: async () => session,
       usageSummary: async (filter, period) => {
