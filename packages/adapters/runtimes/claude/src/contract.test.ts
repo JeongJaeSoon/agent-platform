@@ -4,6 +4,7 @@ import type {
   ApprovalRequested,
   NativeSdkMessage,
   RuntimeEvent,
+  TurnEnded,
 } from "@werft-ai/runtime-core";
 
 import { claudeContractRun } from "./contract.ts";
@@ -13,6 +14,7 @@ import type {
   PermissionDecision,
   RuntimeHooks,
 } from "./driver.ts";
+import { frameFromNativeMessage } from "./mapper.ts";
 
 function scriptedDriver() {
   const frames: AgentFrame[] = [];
@@ -315,5 +317,271 @@ describe("claudeContractRun", () => {
       interrupt: true,
     });
     script.end();
+  });
+});
+
+describe("claudeContractRun events", () => {
+  function frame(message: NativeSdkMessage, inputs?: string[]): AgentFrame {
+    const built = frameFromNativeMessage(message, "c", "cursor");
+    return inputs === undefined ? built : { ...built, inputs };
+  }
+
+  async function eventsFor(...frames: AgentFrame[]): Promise<RuntimeEvent[]> {
+    const script = scriptedDriver();
+    const run = claudeContractRun((hooks) => script.start(hooks));
+    for (const pushed of frames) script.push(pushed);
+    script.end();
+    const events: RuntimeEvent[] = [];
+    for await (const event of run.events()) events.push(event);
+    return events;
+  }
+
+  const inputsOf = (events: RuntimeEvent[]) =>
+    events.flatMap((event) =>
+      event.type === "public" ? [event.inputs ?? null] : [],
+    );
+
+  test.each([
+    [
+      "an input the engine queued",
+      frame({ type: "command_lifecycle", command_uuid: "in-2" }),
+      ["in-2"],
+    ],
+    [
+      "a reply stamped with its input",
+      frame({
+        type: "assistant",
+        user_message_uuid: "in-2",
+        message: { content: [{ type: "text", text: "hi" }] },
+      }),
+      ["in-2"],
+    ],
+    [
+      "a batch of inputs, each once",
+      frame({
+        type: "result",
+        user_message_uuids: ["in-1", "in-2"],
+        user_message_uuid: "in-2",
+      }),
+      ["in-1", "in-2"],
+    ],
+    [
+      "the driver's inputs when the message names none",
+      frame({ type: "system", subtype: "status" }, ["in-3"]),
+      ["in-3"],
+    ],
+    [
+      "the message's own names over the driver's",
+      frame({ type: "result", user_message_uuid: "in-1" }, ["in-3"]),
+      ["in-1"],
+    ],
+    [
+      "nothing when neither says",
+      frame({ type: "system", subtype: "status" }),
+      null,
+    ],
+  ] as const)("public events name %s", async (_, given, expected) => {
+    expect(inputsOf(await eventsFor(given))).toEqual([expected]);
+  });
+
+  test("ends a turn after the result's public event and before native", async () => {
+    const events = await eventsFor(
+      frame({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        total_cost_usd: 0.5,
+        session_id: "s1",
+        user_message_uuid: "in-1",
+      }),
+    );
+
+    expect(events.map((event) => event.type)).toEqual([
+      "public",
+      "turn.ended",
+      "native",
+    ]);
+    expect(events[1]).toEqual({
+      type: "turn.ended",
+      turn: {
+        isError: false,
+        abortedByStop: false,
+        budgetExceeded: false,
+        engineResult: {
+          subtype: "success",
+          is_error: false,
+          stop_reason: null,
+          terminal_reason: null,
+        },
+        cost: { deltaUsd: 0.5, countRestarted: false, unknown: false },
+        engineSessionId: "s1",
+        inputs: ["in-1"],
+      },
+    });
+  });
+
+  test("costs each result from the running total across turns", async () => {
+    const result = (total: number) =>
+      frame({ type: "result", subtype: "success", total_cost_usd: total });
+    const costs = (await eventsFor(result(0.25), result(0.75))).flatMap(
+      (event) => (event.type === "turn.ended" ? [event.turn.cost] : []),
+    );
+
+    expect(costs).toEqual([
+      { deltaUsd: 0.25, countRestarted: false, unknown: false },
+      { deltaUsd: 0.5, countRestarted: false, unknown: false },
+    ]);
+  });
+
+  test.each([
+    ["the engine's words", { error: "disk full" }, "disk full"],
+    ["a stand-in for none", { error: "" }, "unspecified error"],
+  ])("warns of a dropped mirror batch with %s", async (_, fields, error) => {
+    const events = await eventsFor(
+      frame({ type: "system", subtype: "mirror_error", ...fields }),
+    );
+
+    expect(events.map((event) => event.type)).toEqual([
+      "public",
+      "runtime.warning",
+      "native",
+    ]);
+    expect(events[1]).toEqual({
+      type: "runtime.warning",
+      kind: "transcript_mirror_failed",
+      detail: { error },
+    });
+  });
+
+  test("names each call right after the public event that carries it", async () => {
+    const events = await eventsFor(
+      frame({
+        type: "assistant",
+        message: {
+          content: [
+            { type: "tool_use", id: "call_a", name: "Bash", input: {} },
+            { type: "text", text: "and then" },
+            { type: "tool_use", id: "call_b", name: "Read", input: {} },
+          ],
+        },
+      }),
+    );
+
+    expect(
+      events.map((event) =>
+        event.type === "public"
+          ? `public:${event.event.event}`
+          : event.type === "tool.called"
+            ? `called:${event.toolCallId}`
+            : event.type,
+      ),
+    ).toEqual([
+      "public:tool_use",
+      "called:call_a",
+      "public:assistant",
+      "public:tool_use",
+      "called:call_b",
+      "native",
+    ]);
+  });
+
+  test("keeps the provider's refusal for the result after one for another input", async () => {
+    const script = scriptedDriver();
+    const run = claudeContractRun((hooks) => script.start(hooks));
+    run.send({ uuid: "a", message: "first" });
+    for (const pushed of [
+      frame({
+        type: "system",
+        subtype: "api_retry",
+        error: "rate_limit",
+        error_status: 429,
+      }),
+      frame({ type: "assistant", error: "rate_limit" }),
+      frame({ type: "result", subtype: "success", user_message_uuid: "b" }),
+      frame({
+        type: "result",
+        subtype: "success",
+        is_error: true,
+        terminal_reason: "api_error",
+        user_message_uuid: "a",
+      }),
+    ])
+      script.push(pushed);
+    script.end();
+    const turns: TurnEnded[] = [];
+    for await (const event of run.events())
+      if (event.type === "turn.ended") turns.push(event.turn);
+
+    expect(turns[1]?.engineResult).toMatchObject({
+      provider_error: "rate_limit",
+      last_retry_status: 429,
+    });
+  });
+
+  test.each([
+    [
+      "names the input a message with no public event is for",
+      frame({ type: "assistant", user_message_uuid: "in-2", message: {} }),
+      [{ type: "inputs.named", inputs: ["in-2"] }, { type: "native" }],
+    ],
+    [
+      "names the driver's input for such a message",
+      frame({ type: "stream_event" }, ["in-3"]),
+      [{ type: "inputs.named", inputs: ["in-3"] }, { type: "native" }],
+    ],
+    [
+      "says nothing for one that names no input",
+      frame({ type: "stream_event" }),
+      [{ type: "native" }],
+    ],
+    [
+      "leaves naming to the public events when there are some",
+      frame({ type: "command_lifecycle", command_uuid: "in-2" }),
+      [{ type: "public", inputs: ["in-2"] }, { type: "native" }],
+    ],
+  ] as const)("%s", async (_, given, expected) => {
+    expect(await eventsFor(given)).toMatchObject(expected);
+  });
+
+  test("leaves no refusal from a settled turn on the next one's result", async () => {
+    const script = scriptedDriver();
+    const run = claudeContractRun((hooks) => script.start(hooks));
+    const events = run.events()[Symbol.asyncIterator]();
+    const ended = async () => {
+      for (;;) {
+        const next = await events.next();
+        if (next.done === true) throw new Error("the run ended");
+        if (next.value.type === "turn.ended") return next.value.turn;
+      }
+    };
+    const refused = (input: string) =>
+      frame({
+        type: "result",
+        subtype: "success",
+        is_error: true,
+        terminal_reason: "api_error",
+        user_message_uuid: input,
+      });
+    run.send({ uuid: "a", message: "first" });
+    script.push(
+      frame({ type: "system", subtype: "api_retry", error_status: 429 }),
+    );
+    script.push(frame({ type: "assistant", error: "rate_limit" }));
+    script.push(refused("a"));
+    const first = await ended();
+    run.send({ uuid: "b", message: "second" });
+    script.push(frame({ type: "assistant", error: "authentication_failed" }));
+    script.push(refused("b"));
+    const second = await ended();
+    script.end();
+
+    expect(first.engineResult).toMatchObject({
+      provider_error: "rate_limit",
+      last_retry_status: 429,
+    });
+    expect(second.engineResult).toMatchObject({
+      provider_error: "authentication_failed",
+      last_retry_status: null,
+    });
   });
 });

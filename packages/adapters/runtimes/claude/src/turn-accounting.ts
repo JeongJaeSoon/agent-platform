@@ -107,6 +107,14 @@ export class TurnAccounting {
   }
 
   /**
+   * Why the provider last refused a request: cleared by the next request that
+   * succeeds, not by a result.
+   */
+  get lastProviderFailure(): ProviderFailure | undefined {
+    return this.providerFailure;
+  }
+
+  /**
    * What the turn now settling owes, and the provider failure seen since the
    * previous one. A cost with no turn to carry it — a result nobody was
    * waiting for — rides on the next one instead of being dropped.
@@ -115,13 +123,16 @@ export class TurnAccounting {
     costUsd: number | undefined;
     providerFailure: ProviderFailure | undefined;
   } {
-    const settled = {
-      costUsd: this.lastResultReported ? this.unsettledUsd : undefined,
-      providerFailure: this.providerFailure,
-    };
+    const providerFailure = this.providerFailure;
+    this.providerFailure = undefined;
+    return { costUsd: this.settleCost(), providerFailure };
+  }
+
+  /** `settle` without touching the provider failure. */
+  settleCost(): number | undefined {
+    const costUsd = this.lastResultReported ? this.unsettledUsd : undefined;
     if (this.lastResultReported) this.unsettledUsd = 0;
     this.lastResultReported = false;
-    this.providerFailure = undefined;
-    return settled;
+    return costUsd;
   }
 }

@@ -369,7 +369,7 @@ OpenAPI: [`getSessionUsage`](api/index.html), [`getUsageSummary`](api/index.html
 
 **목적.** 세션의 추정 provider 비용과 입력 queue 상태, 기간 동안 내가 시작한 세션의 합계, 설치 전체의 실행 slot·저장소·turn 상한을 읽는다.
 
-**순서.** 세션별 `/usage`, 기간 합계 `/v1/usage/summary`, 설치별 `/v1/limits`를 각각 읽는다. `/v1/limits`와 `scope=installation`은 로그인한 workspace owner만 읽는다(웹 콘솔의 cookie). API key는 403이다. 비용은 청구액이 아니라 platform 가격표로 계산한 추정치이며, `cost.complete`가 false면 아직 열린 turn이 있거나 보고가 빠져 실제 합계를 알 수 없다. `/v1/limits`의 `usage.outputs.used_bytes`는 보존 중인 세션 결과물의 바이트로, `usage.storage`와 따로 세고 상한 집행에 쓰지 않는다. `outputs.complete`가 false면 결과물을 기록하기 전 checkpoint가 남아 그만큼 빠져 있다.
+**순서.** 세션별 `/usage`, 기간 합계 `/v1/usage/summary`, 설치별 `/v1/limits`를 각각 읽는다. `/v1/limits`와 `scope=installation`은 로그인한 workspace owner만 읽는다(웹 콘솔의 cookie). API key는 403이다. 에이전트 하나의 합계는 `scope=agent&agent_id=…`로 읽고, workspace owner·admin과 그 에이전트의 관리자만 읽는다(API key는 403, 다른 workspace의 에이전트는 404). 구성원은 `GET /v1/limits?scope=me`로 세션 단위 한도 네 개만 읽고, 기간 합계를 실행 프로필별로 나누려면 `group_by=profile`을 더한다(세션의 현재 프로필 기준). 비용은 청구액이 아니라 platform 가격표로 계산한 추정치이며, `cost.complete`가 false면 아직 열린 turn이 있거나 보고가 빠져 실제 합계를 알 수 없다. `/v1/limits`의 `usage.outputs.used_bytes`는 보존 중인 세션 결과물의 바이트로, `usage.storage`와 따로 세고 상한 집행에 쓰지 않는다. `outputs.complete`가 false면 결과물을 기록하기 전 checkpoint가 남아 그만큼 빠져 있다.
 
 ```bash
 usage=$(curl -sS "$API/v1/sessions/$SID/usage" "${AUTH[@]}")

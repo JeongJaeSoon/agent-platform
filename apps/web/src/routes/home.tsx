@@ -17,7 +17,7 @@ import {
 } from "@werft-ai/core";
 import { useAgentPlatform, useSessions } from "@werft-ai/react";
 import { ApprovalInbox, usePendingRail } from "@werft-ai/react/blocks";
-import { DetailLayout } from "@werft-ai/react/components";
+import { DetailLayout, OPERATIONS_MESSAGES } from "@werft-ai/react/components";
 import {
   Badge,
   Button,
@@ -338,6 +338,7 @@ export function HomeScreen() {
   const unmeasured = <Unmeasured />;
   const unknown = t("home.overview.unknown");
   const number = new Intl.NumberFormat(locale);
+  const { usd } = OPERATIONS_MESSAGES[locale].format;
   // A partial sum must not pass for the whole spend.
   const costNote = (summary: UsageSummaryResponse | undefined) =>
     t(
@@ -352,7 +353,7 @@ export function HomeScreen() {
       key="install"
       eyebrow={t("home.glance.installation")}
       title={t("home.glance.installationTitle")}
-      value={installSummary ? `$${installSummary.cost_usd}` : unknown}
+      value={installSummary ? usd(installSummary.cost_usd) : unknown}
       note={costNote(installSummary)}
       rows={[
         {
@@ -455,7 +456,7 @@ export function HomeScreen() {
       key="mine"
       eyebrow={t("home.glance.mine")}
       title={t("home.glance.mineTitle")}
-      value={mySummary ? `$${mySummary.cost_usd}` : unknown}
+      value={mySummary ? usd(mySummary.cost_usd) : unknown}
       note={costNote(mySummary)}
       rows={[
         {
@@ -688,7 +689,15 @@ export function HomeScreen() {
             <RecentSessionTable waitingSince={requests?.since} now={now} />
           </HomeSection>
           <AdministeredAgents showEmpty={false} />
-          <MyTeams showEmpty={false} />
+          {/* Without member.manage there is no 구성원 item in the sidebar
+              (console v4 navWs); this is the way to the teams list, so it
+              stays even with no team. */}
+          <MyTeams
+            showEmpty={!managesMembers}
+            action={
+              <ArrowLink to="/members/teams">{t("home.teams.all")}</ArrowLink>
+            }
+          />
         </div>
       </Page>
     </DetailLayout>
@@ -862,7 +871,7 @@ function ArrowLink({
   search,
   children,
 }: {
-  readonly to: "/sessions" | "/settings/linked-accounts";
+  readonly to: "/sessions" | "/settings/linked-accounts" | "/members/teams";
   readonly search?: { readonly status: "needs_input" };
   readonly children: ReactNode;
 }) {

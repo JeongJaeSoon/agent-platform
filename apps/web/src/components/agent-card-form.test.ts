@@ -25,7 +25,6 @@ const profile = (id: string, model: string): ProfileSummary => ({
 const CARD: AgentCard = {
   role: "결제 문의 담당",
   instructions: "결제 문의에 답한다.",
-  tone: "공손하게",
   language: "ko",
   model: "claude-sonnet-5",
   capabilities: { tools: ["Read", "Grep"], mcp: null, forbidden: ["Bash"] },
@@ -56,7 +55,6 @@ describe("카드 폼 변환", () => {
       forbidden: [],
     });
     expect(card.role).toBe("역할");
-    expect("tone" in card).toBe(false);
     expect(
       cardFromDraft({ ...EMPTY_DRAFT, toolsMode: "all", tools: "Read" })
         .capabilities.tools,
@@ -153,7 +151,6 @@ describe("카드 폼 변환", () => {
       {
         role: "새 역할",
         instructions: "새 지시",
-        tone: "짧게",
         language: "en",
         model: "claude-haiku-5",
         toolsMode: "list",
@@ -165,7 +162,6 @@ describe("카드 폼 변환", () => {
     expect<unknown>(card).toEqual({
       role: "새 역할",
       instructions: "새 지시",
-      tone: base.tone,
       language: "en",
       model: "claude-haiku-5",
       capabilities: {
@@ -177,18 +173,6 @@ describe("카드 폼 변환", () => {
       },
       rules,
     });
-  });
-
-  test("말투는 입력칸이 없어 원래 카드의 값을 그대로 둔다", () => {
-    const card = cardFromDraft(
-      { ...draftFromCard(CARD), tone: "", toolsMode: "all" },
-      CARD,
-    );
-    expect(card.tone).toBe("공손하게");
-    expect(card.capabilities.tools).toBeNull();
-    expect("tone" in cardFromDraft({ ...EMPTY_DRAFT, tone: "짧게" })).toBe(
-      false,
-    );
   });
 
   test("새 카드(base 없음)는 편집기 칸과 기본값만 싣는다", () => {

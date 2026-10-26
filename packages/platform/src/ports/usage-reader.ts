@@ -45,6 +45,11 @@ export type UsageSummaryFilter =
   | { kind: "user"; ownerId: string; userId: string }
   | { kind: "api_key"; ownerId: string; apiKeyId: string };
 
+export type UsageTotalsFilter =
+  | UsageSummaryFilter
+  // Started from any release of the agent, whoever started them.
+  | { kind: "agent"; ownerId: string; agentId: string };
+
 /** Sessions created in [since, until), read in one statement. */
 export type UsageSummaryRecord = {
   readAt: Date;
@@ -162,20 +167,22 @@ export type UsageToolCallsFilter = UsageToolsFilter & {
 
 export interface UsageReader {
   installationUsage(): Promise<InstallationUsage>;
+  /** Whether the workspace has this agent, archived or not. */
+  agentExists(ownerId: string, agentId: string): Promise<boolean>;
   /** null when the session is not visible to the owner. */
   sessionUsage(
     ownerId: string,
     sessionId: string,
   ): Promise<SessionUsageRecord | null>;
   usageSummary(
-    filter: UsageSummaryFilter,
+    filter: UsageTotalsFilter,
     period: { since: Date; until?: Date },
   ): Promise<UsageSummaryRecord>;
   /** Largest cost first. */
   usageSummaryGroups(
     filter: UsageSummaryFilter,
     period: { since: Date; until?: Date },
-    by: "agent" | "user",
+    by: "agent" | "user" | "profile",
   ): Promise<UsageSummaryGroupsRecord>;
   usageSeries(
     filter: UsageSummaryFilter,

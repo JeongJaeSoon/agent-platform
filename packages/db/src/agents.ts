@@ -4,10 +4,10 @@ import {
   type AgentDetail,
   type AgentRelease,
   type AgentVersion,
-  agentCardSchema,
   agentReleaseSchema,
   type ListAgentsResponse,
   type ReceiptOperation,
+  storedAgentCardSchema,
 } from "@werft-ai/contracts";
 import type { ActivateResult, AgentStore, Principal } from "@werft-ai/platform";
 import { and, asc, eq, gt, isNotNull, max, sql } from "drizzle-orm";
@@ -89,7 +89,7 @@ function versionOf(row: VersionRow): AgentVersion {
     id: row.id,
     agent_id: row.agentId,
     version_no: row.versionNo,
-    card: agentCardSchema.parse(row.card),
+    card: storedAgentCardSchema.parse(row.card),
     content_sha256: row.contentSha256,
     created_by: row.createdBy,
     created_at: row.createdAt.toISOString(),

@@ -17,14 +17,13 @@ A card is the definition that says who an agent is and what it should do. Editin
 | `capabilities.forbidden` | | Tool names to forbid |
 | `capabilities.tool_policy` | | `allow`, `ask`, or `deny` per tool |
 | `capabilities.credential_refs` | | Names of the credentials to use (not the values). [Permissions](/agents/permissions) |
-| `tone` | | Tone of voice. Up to 200 characters |
 | `language` | | `ko` (default) or `en` |
 | `rules` | | List of `{id, text, source}`. `source` is `user` or `correction` |
 
 ## What the model reads today
 
 <Callout type="warn">
-A card's `role`, `instructions`, `tone`, and `rules` are stored in the version and the release and pinned to the session, but they are not passed to the model yet.
+A card's `role`, `instructions`, and `rules` are stored in the version and the release and pinned to the session, but they are not passed to the model yet.
 </Callout>
 
 The worker currently adds two instructions to the model.
