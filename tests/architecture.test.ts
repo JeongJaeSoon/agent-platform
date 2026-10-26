@@ -428,13 +428,23 @@ async function testingHelperImports(
     )
       continue;
     walk(await parse(file), (node) => {
-      if (!ts.isStringLiteralLike(node)) return;
-      const required =
-        ts.isCallExpression(node.parent) &&
-        ts.isIdentifier(node.parent.expression) &&
-        node.parent.expression.text === "require";
-      if (!required && !isModuleSpecifier(node)) return;
-      const specifier = node.text;
+      let reference: ts.Node | undefined;
+      if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node))
+        reference = node.moduleSpecifier;
+      else if (ts.isExternalModuleReference(node)) reference = node.expression;
+      else if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument))
+        reference = node.argument.literal;
+      else if (
+        ts.isCallExpression(node) &&
+        (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+          (ts.isIdentifier(node.expression) &&
+            node.expression.text === "require"))
+      )
+        reference = node.arguments[0];
+      while (reference && ts.isParenthesizedExpression(reference))
+        reference = reference.expression;
+      if (!reference || !ts.isStringLiteralLike(reference)) return;
+      const specifier = reference.text;
       const segments = specifier.startsWith(".")
         ? posix.normalize(specifier).split("/")
         : specifier.startsWith("@werft-ai/")
@@ -709,7 +719,7 @@ describe("architecture", () => {
     expect(offenders).toEqual([]);
   });
 
-  test("the testing-helper scan sees every import form and skips comments", async () => {
+  test("the testing-helper scan sees every literal import form and skips comments and plain strings", async () => {
     const fixture = await mkdtemp(join(tmpdir(), "arch-"));
     try {
       await mkdir(join(fixture, "src", "testing"), { recursive: true });
@@ -722,6 +732,9 @@ describe("architecture", () => {
         ["commented.ts", '// import "@werft-ai/db/testing/a";'],
         ["climbs.ts", 'import "./testing/../runtime.ts";'],
         ["external.ts", 'import "react-dom/testing/utils";'],
+        ["literal.ts", 'export type Route = "./testing/a";'],
+        ["wrapped.ts", 'export const g = () => require(("./testing/w"));'],
+        ["typed.ts", 'export type T = typeof import("./testing/t");'],
         ["unit.test.tsx", 'import "./testing/a.ts";'],
         [join("testing", "a.ts"), 'import "@werft-ai/db/testing/b";'],
       ];
@@ -738,7 +751,9 @@ describe("architecture", () => {
         `${join("src", "reexport.mts")} @werft-ai/db/testing/a`,
         `${join("src", "required.js")} ../src/testing/a`,
         `${join("src", "static.ts")} @werft-ai/db/testing/a`,
+        `${join("src", "typed.ts")} ./testing/t`,
         `${join("src", "view.tsx")} ./testing/a.ts`,
+        `${join("src", "wrapped.ts")} ./testing/w`,
       ]);
     } finally {
       await rm(fixture, { recursive: true, force: true });
