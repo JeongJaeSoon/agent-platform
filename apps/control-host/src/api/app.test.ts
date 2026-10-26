@@ -8,6 +8,7 @@ import {
   postSessionMessageRequestSchema,
 } from "@werft-ai/contracts";
 import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
+import { INTERACTIVE_CONFIGURATION_ATTRIBUTE } from "./api-reference.ts";
 import {
   BODY_IDLE_TIMEOUT_SECONDS,
   jsonWithSchema,
@@ -31,14 +32,14 @@ test("serves the generated OpenAPI document without authentication", async () =>
   expect(await response.json()).toEqual(buildOpenApiDocument());
 });
 
-test("serves the offline API reference without authentication", async () => {
+test("serves the API reference with same-origin test requests and no authentication", async () => {
   const app = createApiApp({ authMode: "api-key" });
   const html = await app.request("/docs");
   expect(html.status).toBe(200);
   expect(html.headers.get("Content-Type")).toBe("text/html; charset=utf-8");
   expect(html.headers.get("Cache-Control")).toBe("no-cache");
   const csp = html.headers.get("Content-Security-Policy");
-  expect(csp).toContain("connect-src 'none'");
+  expect(csp).toContain("connect-src 'self';");
   expect(csp).not.toContain("unsafe-inline");
   expect(html.headers.get("X-Content-Type-Options")).toBe("nosniff");
   expect(html.headers.get("X-Frame-Options")).toBe("DENY");
@@ -48,8 +49,14 @@ test("serves the offline API reference without authentication", async () => {
   const nonce = body.match(/property="csp-nonce" content="([^"]+)"/)?.[1];
   expect(nonce).toBeDefined();
   expect(csp).toContain(`style-src 'nonce-${nonce}'`);
-  expect(body).toContain("&quot;hideTestRequestButton&quot;:true");
+  expect(body).toContain(INTERACTIVE_CONFIGURATION_ATTRIBUTE);
+  expect(body).toContain("&quot;hideTestRequestButton&quot;:false");
+  expect(body).toContain(
+    "&quot;preferredSecurityScheme&quot;:&quot;bearerApiKey&quot;",
+  );
+  expect(body).toContain("&quot;persistAuth&quot;:false");
   expect(body).toContain("&quot;telemetry&quot;:false");
+  expect(body).not.toContain("proxyUrl");
   expect(body).not.toMatch(/(?:src|href)="https?:\/\//);
 
   const scalar = await app.request("/docs/scalar.js");

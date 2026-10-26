@@ -129,7 +129,7 @@
       "bearerApiKey": {
         "type": "http",
         "scheme": "bearer",
-        "description": "For servers and scripts: an API key sent as an HTTP bearer token, `Bearer <key>`. It holds exactly the scopes it was issued with; a key issued before scopes existed holds none. It never needs the CSRF header, and it cannot manage agents, members, teams or API keys."
+        "description": "For servers and scripts: an API key sent as an HTTP bearer token, `Bearer <key>`. It holds exactly the scopes it was issued with; a key issued before scopes existed holds none. It never needs the CSRF header, and it cannot manage agents, members, teams or API keys. Issue one in the web console under Settings → API keys; each operation names the scope it needs."
       },
       "cookieSession": {
         "type": "apiKey",
