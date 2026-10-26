@@ -355,6 +355,9 @@ export const AUTHORIZATION_ACTION_VALUES = [
   // Figures summed over every owner: GET /v1/limits and the installation
   // usage summary (94S-762: the owner's alone).
   "usage.installation_read",
+  // One agent's summed usage: its workspace's managers and its admins
+  // (94S-1016), recorded under its own name rather than agent.manage.
+  "usage.agent_read",
   "memory.read",
   "memory.write",
   "artifact.read",
@@ -402,6 +405,7 @@ const ACTION_RESOURCE_KINDS: Record<
   "session.audit_read": new Set(["session"]),
   "session.admin_list": new Set(["workspace"]),
   "usage.installation_read": new Set(["workspace"]),
+  "usage.agent_read": new Set(["agent"]),
   "memory.read": new Set(["workspace", "agent", "memory"]),
   "memory.write": new Set(["workspace", "agent", "memory"]),
   "artifact.read": new Set(["artifact", "session"]),

@@ -1,5 +1,5 @@
 import type { TurnStatus } from "@werft-ai/contracts";
-import type { UsageReader, UsageSummaryFilter } from "@werft-ai/platform";
+import type { UsageReader, UsageTotalsFilter } from "@werft-ai/platform";
 import {
   type AnyColumn,
   and,
@@ -68,7 +68,7 @@ const ran = and(
   ),
 );
 
-function startedBy(filter: UsageSummaryFilter): SQL | undefined {
+function startedBy(filter: UsageTotalsFilter): SQL | undefined {
   switch (filter.kind) {
     case "installation":
       return undefined;
@@ -81,6 +81,11 @@ function startedBy(filter: UsageSummaryFilter): SQL | undefined {
       return and(
         eq(sessions.ownerId, filter.ownerId),
         eq(sessions.createdByApiKeyId, filter.apiKeyId),
+      );
+    case "agent":
+      return and(
+        eq(sessions.ownerId, filter.ownerId),
+        sql`EXISTS (SELECT 1 FROM ${agentReleases} WHERE ${agentReleases.id} = ${sessions.agentReleaseId} AND ${agentReleases.agentId} = ${filter.agentId})`,
       );
   }
 }
@@ -358,6 +363,14 @@ export function createPostgresUsageReader(db: Database): UsageReader {
         );
       if (!row) throw new Error("installation usage read returned no row");
       return row;
+    },
+
+    async agentExists(ownerId, agentId) {
+      const [row] = await db
+        .select({ id: agents.id })
+        .from(agents)
+        .where(and(eq(agents.workspaceId, ownerId), eq(agents.id, agentId)));
+      return row !== undefined;
     },
 
     async sessionUsage(ownerId, sessionId) {

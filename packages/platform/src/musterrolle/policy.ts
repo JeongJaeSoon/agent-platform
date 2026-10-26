@@ -254,6 +254,7 @@ export const MANAGEMENT_ROLES: Partial<
   "session.audit_read": ["owner", "admin"],
   "session.admin_list": ["owner", "admin"],
   "usage.installation_read": ["owner"],
+  "usage.agent_read": ["owner", "admin"],
 };
 
 const WORKSPACE_MANAGERS: readonly WorkspaceRole[] = ["owner", "admin"];
@@ -274,6 +275,7 @@ export const AGENT_ADMIN_ACTIONS: ReadonlySet<AuthorizationAction> = new Set([
   "agent.admin.manage",
   "credential.bind",
   "binding.manage",
+  "usage.agent_read",
 ]);
 
 // D26 5: automation bound to an agent never stands in for a person's approval.
