@@ -69,12 +69,16 @@ function questionEvent(
   };
 }
 
+// A parked request's answer is not for the attempt that asked, even one
+// still up between the park's finalize and its release: it goes to the turn
+// that resumes the park.
 function undelivered(fence: WorkerFence) {
   return and(
     eq(pendingRequests.sessionId, fence.sessionId),
     eq(pendingRequests.attemptId, fence.attemptId),
     isNotNull(pendingRequests.answeredAt),
     isNull(pendingRequests.settledAt),
+    isNull(pendingRequests.parkedAt),
   );
 }
 
@@ -237,6 +241,8 @@ export function createPostgresWorkerPendingStore(
                       pendingRequests.requestId,
                       input.settled.map((item) => item.request_id),
                     ),
+                    // The answer, the expiry or a close settles a parked one.
+                    isNull(pendingRequests.parkedAt),
                   ),
                 )
                 .orderBy(asc(pendingRequests.requestId))
@@ -329,6 +335,22 @@ export function createPostgresWorkerPendingStore(
           });
         }
         const rows = due.filter((row) => !settledNow.has(row.requestId));
+        if (rows.length > 0) {
+          // Handed over from here: past this commit an engine may act on
+          // the answer.
+          await tx
+            .update(pendingRequests)
+            .set({ deliveredAt: at })
+            .where(
+              and(
+                inArray(
+                  pendingRequests.requestId,
+                  rows.map((row) => row.requestId),
+                ),
+                isNull(pendingRequests.deliveredAt),
+              ),
+            );
+        }
         return {
           outcome: "ok",
           control:
