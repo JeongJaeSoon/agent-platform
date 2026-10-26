@@ -580,7 +580,7 @@ describe("워크스페이스 설정", () => {
     ).toBe("/settings/workspace");
   });
 
-  test("구성원의 사이드바에는 설정이 없고, 내 설정은 계정 메뉴에서 연다", async () => {
+  test("구성원의 사이드바에는 설정이 없다(내 설정은 계정 메뉴: layout.test)", async () => {
     renderAt("/", { "GET /v1/auth/me": () => json(200, memberMe()) });
     const nav = await screen.findByRole("navigation", { name: "주요 메뉴" });
     await within(nav).findByRole("link", { name: "실행 프로필" });

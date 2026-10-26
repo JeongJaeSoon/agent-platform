@@ -123,6 +123,17 @@ describe("app shell", () => {
     await waitFor(() => expect(header?.textContent).toBe("메뉴 열기API key"));
   });
 
+  test("a member on their teams still reads 구성원 in the top bar", async () => {
+    renderAt("/members/teams", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+    });
+    const nav = await screen.findByRole("navigation", { name: "주요 메뉴" });
+    await within(nav).findByRole("link", { name: "실행 프로필" });
+    expect(within(nav).queryByRole("link", { name: "구성원" })).toBeNull();
+    const [header] = screen.getAllByRole("banner");
+    await waitFor(() => expect(header?.textContent).toBe("메뉴 열기구성원"));
+  });
+
   for (const [path, title] of [
     ["/operations", "사용량·한도"],
     ["/operations/limits", "사용량·한도"],

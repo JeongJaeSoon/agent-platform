@@ -24,6 +24,7 @@ import { agentQuery } from "../api/queries.ts";
 import { useMe } from "../auth/guard.tsx";
 import {
   AppSidebar,
+  MANAGER_NAV_GROUP,
   type NavGroup,
   navItemFor,
   useNavGroups,
@@ -219,7 +220,10 @@ function PageTrail({
   const pathname = usePathname();
   // A settings page reads as its own name, not the one sidebar item.
   const settingsGroups = useSettingsNavGroups();
-  const here = navItemFor([...settingsGroups, ...groups], pathname);
+  const here = navItemFor(
+    [...settingsGroups, ...groups, MANAGER_NAV_GROUP],
+    pathname,
+  );
   const leaf = useLeafTitle(pathname);
   if (!here) {
     return (

@@ -430,7 +430,7 @@ function OperationsScreen({
   return (
     <Loading.Provider value={screen.loading ?? false}>
       <output className="sr-only">
-        {screen.loading ? "운영 화면을 읽는 중" : ""}
+        {screen.loading ? "사용량·한도 화면을 읽는 중" : ""}
       </output>
       {tab === "tools" ? (
         <ScreenShell
@@ -545,7 +545,7 @@ export const OverviewLoading: Story = {
     expect(canvas.queryAllByRole("meter")).toHaveLength(0);
     expect(
       canvas.getAllByRole("status").map((status) => status.textContent),
-    ).toEqual(["운영 화면을 읽는 중"]);
+    ).toEqual(["사용량·한도 화면을 읽는 중"]);
   },
 };
 export const OverviewLoadingToLoaded = loadingToLoaded("overview");

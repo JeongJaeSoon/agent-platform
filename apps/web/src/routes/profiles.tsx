@@ -20,9 +20,8 @@ import { useHasPermission } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 
-const PROFILE_COLUMNS =
-  "minmax(0,1.4fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1.4fr) 96px";
-const PROFILE_NARROW_COLUMNS = "minmax(0,1fr) minmax(0,1fr)";
+// No column drops on a phone: each cell stacks two values instead.
+const PROFILE_COLUMNS = "minmax(0,1.2fr) minmax(0,1fr) minmax(0,1.4fr)";
 const META = "text-caption text-muted-foreground";
 
 /**
@@ -61,8 +60,6 @@ export function ProfilesScreen() {
             <GridTable
               aria-label={t("profiles.title")}
               columns={PROFILE_COLUMNS}
-              narrowAt={640}
-              narrowColumns={PROFILE_NARROW_COLUMNS}
             >
               <GridTableHeader>
                 <GridTableColumnHeader>
@@ -71,14 +68,8 @@ export function ProfilesScreen() {
                 <GridTableColumnHeader>
                   {t("profiles.column.model")}
                 </GridTableColumnHeader>
-                <GridTableColumnHeader hideNarrow={true}>
-                  {t("profiles.column.repository")}
-                </GridTableColumnHeader>
-                <GridTableColumnHeader hideNarrow={true}>
-                  {t("profiles.column.tools")}
-                </GridTableColumnHeader>
-                <GridTableColumnHeader hideNarrow={true}>
-                  {t("profiles.column.billing")}
+                <GridTableColumnHeader>
+                  {t("profiles.column.environment")}
                 </GridTableColumnHeader>
               </GridTableHeader>
               {items.map((profile) => (
@@ -108,24 +99,20 @@ function ProfileRow({ profile }: { readonly profile: ProfileSummary }) {
           {t("profiles.runtime", { version: profile.runtime_version })}
         </span>
       </GridTableCell>
-      <GridTableCell>
+      <GridTableCell lines={true}>
         <Badge variant="mono" className="max-w-full truncate">
           {profile.model}
         </Badge>
+        <span className={`truncate ${META}`}>
+          {t(`profiles.billing.${profile.billing}`)}
+        </span>
       </GridTableCell>
-      <GridTableCell hideNarrow={true}>
+      <GridTableCell lines={true}>
         <span className="truncate">
           {t(`profiles.repository.${profile.repository_mode}`)}
         </span>
-      </GridTableCell>
-      <GridTableCell hideNarrow={true}>
-        <span className="truncate" title={tools || undefined}>
+        <span className={`truncate ${META}`} title={tools || undefined}>
           {tools || t("profiles.noTools")}
-        </span>
-      </GridTableCell>
-      <GridTableCell hideNarrow={true}>
-        <span className="truncate">
-          {t(`profiles.billing.${profile.billing}`)}
         </span>
       </GridTableCell>
     </GridTableRow>

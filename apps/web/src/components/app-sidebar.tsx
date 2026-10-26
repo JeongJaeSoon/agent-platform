@@ -113,31 +113,43 @@ export interface NavGroup {
   readonly items: readonly NavItem[];
 }
 
+const MEMBERS_ITEM: NavItem = {
+  to: "/members",
+  label: "nav.members",
+  icon: Users,
+};
+// Every settings page sits behind one item (V4-SETTINGS-LAYOUT A); the
+// settings nav beside the page lists them.
+const SETTINGS_ITEM: NavItem = {
+  to: "/settings/workspace",
+  match: "/settings",
+  label: "nav.settings",
+  icon: SettingsIcon,
+};
+
+/**
+ * The items only the workspace managers see in the sidebar. The top bar
+ * still names their pages for anyone who opens one by address, such as a
+ * member on the teams they are in.
+ */
+export const MANAGER_NAV_GROUP: NavGroup = {
+  label: "shell.group.workspace",
+  items: [MEMBERS_ITEM, SETTINGS_ITEM],
+};
+
 export function useNavGroups(): readonly NavGroup[] {
   const workspaceManage = useHasPermission("workspace.manage");
   const retentionManage = useHasPermission("audit_retention.manage");
   const memberManage = useHasPermission("member.manage");
   // Console v4 navWs: members and settings are the workspace managers'. A
-  // member's own settings open from the account menu; /members/teams and
-  // /settings/* still open by address, and the screens and the server keep
-  // the rights.
+  // member's own settings open from the account menu; the screens and the
+  // server keep the rights.
   const workspace: NavItem[] = [
     { to: "/profiles", label: "nav.profiles", icon: SlidersHorizontal },
     { to: "/operations", label: "nav.operations", icon: Gauge },
   ];
-  if (memberManage) {
-    workspace.push({ to: "/members", label: "nav.members", icon: Users });
-  }
-  if (workspaceManage || retentionManage) {
-    // Every settings page sits behind one item (V4-SETTINGS-LAYOUT A); the
-    // settings nav beside the page lists them.
-    workspace.push({
-      to: "/settings/workspace",
-      match: "/settings",
-      label: "nav.settings",
-      icon: SettingsIcon,
-    });
-  }
+  if (memberManage) workspace.push(MEMBERS_ITEM);
+  if (workspaceManage || retentionManage) workspace.push(SETTINGS_ITEM);
   return [
     {
       label: "shell.group.work",
