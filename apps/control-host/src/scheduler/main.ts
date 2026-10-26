@@ -6,7 +6,7 @@ import { runScheduler, type SchedulerRunSummary } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { PASS_DEGRADED_EXIT, PASS_SKIPPED_EXIT } from "../pass-loop/loop.ts";
 import { schedulerBackendFor } from "./backend.ts";
-import { schedulerConfigFromEnv } from "./config.ts";
+import { schedulerConfigFromEnv, stopDeadlineMsOf } from "./config.ts";
 import { latchOnConnectionLoss } from "./connection-latch.ts";
 import { QUOTA_PREFLIGHT_MARKER_ENV } from "./quota-preflight.ts";
 
@@ -63,6 +63,7 @@ export async function main(
       logger,
       resources: config.resources,
       slotLimit: config.slotLimit,
+      stopDeadlineMs: stopDeadlineMsOf(config.execution),
       stoppedWorkspaceTtlMs: config.stoppedWorkspaceTtlMs,
       store,
       ...(options.stop === undefined ? {} : { stop: options.stop }),

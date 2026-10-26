@@ -89,6 +89,7 @@ function world(options: { linkTo?: string; withSecret?: boolean } = {}) {
   const service = createSlackEventsService({
     signingSecrets,
     inbox: inbox.store,
+    apps: apps.store,
     identities: identities.store,
     installs: installs.store,
     now: () => clock,
@@ -249,6 +250,35 @@ describe("Slack events service", () => {
       kind: "challenge",
       challenge: "challenge-value",
     });
+  });
+
+  test("the first signed callback verifies a pending or failed subscription once", async () => {
+    const w = world();
+    await w.install();
+    const events = async () =>
+      (await w.apps.store.find(WORKSPACE, APP_ROW))?.events;
+    await w.apps.store.setEvents(WORKSPACE, APP_ROW, {
+      state: "failed",
+      checked_at: null,
+      error: "events_registration_failed",
+    });
+    expect(
+      (
+        await w.service.receive(
+          w.signed(w.event(MENTION), { secret: fakeSlackValue("wrong") }),
+        )
+      ).kind,
+    ).toBe("unauthorized");
+    expect((await events())?.state).toBe("failed");
+
+    await w.service.receive(w.signed(w.event(MENTION, { eventId: "Ev0A" })));
+    expect(await events()).toEqual({
+      state: "verified",
+      checked_at: NOW.toISOString(),
+    });
+    w.advance(60_000);
+    await w.service.receive(w.signed(w.event(MENTION, { eventId: "Ev0B" })));
+    expect((await events())?.checked_at).toBe(NOW.toISOString());
   });
 
   test("no app, no secret or an unknown agent answer as a bad signature; misses are not cached", async () => {

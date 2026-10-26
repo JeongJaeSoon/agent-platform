@@ -485,6 +485,7 @@ integration(
           secrets: createPostgresSecretStore(db, key),
         }),
         inbox: createPostgresSlackInboundEventStore(db),
+        apps: createPostgresSlackAppStore(db, key),
         identities: createPostgresAgentIdentityStore(db),
         installs: createPostgresSlackInstallStore(db),
       });

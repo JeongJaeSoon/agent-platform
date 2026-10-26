@@ -82,6 +82,16 @@ export interface SlackAppStore {
     slackAppId: string,
     events: GetSlackAppResponse["events"],
   ): Promise<void>;
+  /**
+   * `setEvents`, skipped once the app is `verified`: only a request signed
+   * by this app sets that, and nothing later in the same registration may
+   * take it back.
+   */
+  setEventsUnlessVerified(
+    workspaceId: string,
+    slackAppId: string,
+    events: GetSlackAppResponse["events"],
+  ): Promise<void>;
   getSettings(
     workspaceId: string,
     agentId: string,

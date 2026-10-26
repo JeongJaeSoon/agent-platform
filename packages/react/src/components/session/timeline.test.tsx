@@ -124,6 +124,30 @@ describe("Timeline turn 묶음", () => {
     expect(top[2]?.textContent).toContain("loose");
   });
 
+  test("prompt 슬롯은 turn 머리와 그 줄 목록 사이에 그리고, null이면 아무것도 두지 않는다", () => {
+    render(
+      <Timeline
+        entries={[reply("one", { turnId: "a" }), reply("two", { turnId: "b" })]}
+        formatMessage={formatMessage}
+        messages={MESSAGES}
+        now={START}
+        prompt={(turnId) =>
+          turnId === "a" ? <p data-testid="asked">asked a</p> : null
+        }
+      />,
+    );
+    const [first, second] = [
+      ...document.querySelectorAll<HTMLElement>('[data-slot="timeline-turn"]'),
+    ];
+    expect(
+      [...(first?.children ?? [])].map((child) => child.tagName.toLowerCase()),
+    ).toEqual(["div", "div", "ol"]);
+    expect(first?.children[1]?.textContent).toBe("asked a");
+    expect(
+      [...(second?.children ?? [])].map((child) => child.tagName.toLowerCase()),
+    ).toEqual(["div", "ol"]);
+  });
+
   test("turn 없는 줄이 한 turn 사이에 끼어도 turn은 한 묶음이다", () => {
     const { getByRole } = render(
       <Timeline

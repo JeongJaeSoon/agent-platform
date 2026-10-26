@@ -77,6 +77,12 @@ export type ActiveExecution = Omit<StoredLaunchIntent, "operationId"> & {
    */
   desiredState: "running" | "terminated";
   observedState: ExecutionObservation["state"];
+  /**
+   * When `observedState` was recorded, on the scheduler's clock; null until
+   * a pass records one. For a kill left `terminating`, when its first stop
+   * went out.
+   */
+  observedAt: Date | null;
   providerRef: string | null;
   /**
    * A worker already traded this launch's nonce for a binding. Its resource

@@ -5,7 +5,8 @@
 # that port (e.g. a `tailscale serve` of the console) goes public too, so
 # give the console another port.
 #
-#   on      https://<host>.ts.net[:<https>]/v1/slack/events → http://127.0.0.1:$PORT/v1/slack/events
+#   on      https://<host>.ts.net[:<https>]/v1/slack/events → http://127.0.0.1:$PORT/v1/slack/events,
+#           then warns if <host>.ts.net does not resolve in public DNS yet
 #   off     removes that mapping (the same --https and --set-path as on)
 #   status  tailscale funnel status
 #
@@ -24,6 +25,31 @@ HTTPS_PORT="${SLACK_FUNNEL_HTTPS_PORT:-443}"
 usage() {
   sed -n '/^# Usage:/,/^# the ports/p' "$0" | sed 's/^# \{0,1\}//' >&2
   exit 2
+}
+
+# A Funnel name can take a while to appear in public DNS. Until it does,
+# Slack cannot reach the Request URL, so warn before an app is created.
+# Warns only; never fails the command.
+public_dns_check() {
+  local name=$1 resolver answer failed=""
+  for resolver in https://dns.google/resolve https://cloudflare-dns.com/dns-query; do
+    answer=$(curl -fsS --max-time 5 -H 'accept: application/dns-json' \
+      "$resolver?name=$name&type=A" 2>/dev/null || true)
+    if [[ "$answer" =~ \"Status\":[[:space:]]*0[,}] ]]; then
+      [[ "$answer" == *'"Answer"'* ]] ||
+        failed+=" ${resolver#https://}: no address;"
+    elif [[ "$answer" =~ \"Status\":[[:space:]]*3[,}] ]]; then
+      failed+=" ${resolver#https://}: NXDOMAIN;"
+    else
+      failed+=" ${resolver#https://}: no answer;"
+    fi
+  done
+  if [[ -z "$failed" ]]; then
+    echo "slack-funnel: $name resolves in public DNS (dns.google, cloudflare-dns.com)"
+  else
+    failed=${failed# }
+    echo "slack-funnel: warning: $name does not resolve in public DNS yet (${failed%;}). Slack cannot reach the Request URL until it does; wait before creating the Slack app." >&2
+  fi
 }
 
 [[ $# -eq 1 ]] || usage
@@ -48,6 +74,14 @@ case "$1" in
     tailscale funnel --bg "--https=$HTTPS_PORT" "--set-path=$EVENTS_PATH" \
       "http://127.0.0.1:$PORT$EVENTS_PATH"
     tailscale funnel status
+    # Without peers, the only DNSName in the answer is this machine's.
+    name=$(tailscale status --json --peers=false |
+      sed -n 's/.*"DNSName": *"\([^"]*\)\.".*/\1/p' | head -n 1 || true)
+    if [[ -n "$name" ]]; then
+      public_dns_check "$name"
+    else
+      echo "slack-funnel: warning: could not read this machine's Tailscale name to check public DNS" >&2
+    fi
     ;;
   off)
     tailscale funnel "--https=$HTTPS_PORT" "--set-path=$EVENTS_PATH" off
