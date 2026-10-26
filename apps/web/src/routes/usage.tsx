@@ -3,6 +3,7 @@ import type {
   UsageSummaryResponse,
   UsageSummaryScope,
 } from "@werft-ai/contracts";
+import { scopedKey } from "../api/queries.ts";
 import type { Translate } from "../i18n/i18n.tsx";
 
 export function usageSummaryQuery(
@@ -11,7 +12,7 @@ export function usageSummaryQuery(
   since: string,
 ) {
   return {
-    queryKey: ["usage-summary", scope, since],
+    queryKey: scopedKey(client, "usage-summary", scope, since),
     queryFn: () =>
       unwrap(
         client.GET("/v1/usage/summary", {

@@ -1,5 +1,19 @@
+import { useQueryClient } from "@tanstack/react-query";
 import type { ApiClient, RetryTiming } from "@werft-ai/client";
-import { createContext, type ReactNode, useContext, useMemo } from "react";
+import {
+  type QueryScope,
+  queryScopeFilter,
+  withQueryScope,
+} from "@werft-ai/core";
+import {
+  createContext,
+  Fragment,
+  type ReactNode,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+} from "react";
 import {
   defaultMessages,
   type Locale,
@@ -74,6 +88,44 @@ export function AgentPlatformProvider({
     [client, locale, messages, renderLink, onUnauthorized, eventRetry],
   );
   return <AgentPlatformContext value={value}>{children}</AgentPlatformContext>;
+}
+
+/**
+ * Gives the tree below a client whose queries are cached under `scope`, the
+ * signed-in principal and its workspace. When the scope changes, the tree
+ * mounts afresh, so no observer's kept data or component state carries the
+ * previous scope over, and what the previous one cached is dropped.
+ */
+export function QueryScopeProvider({
+  scope,
+  children,
+}: {
+  readonly scope: QueryScope;
+  readonly children: ReactNode;
+}) {
+  const parent = useAgentPlatform();
+  const queryClient = useQueryClient();
+  const { actor, workspace } = scope;
+  const value = useMemo<AgentPlatform>(
+    () => ({
+      ...parent,
+      client: withQueryScope(parent.client, { actor, workspace }),
+    }),
+    [parent, actor, workspace],
+  );
+  const previous = useRef<QueryScope | null>(null);
+  useEffect(() => {
+    const before = previous.current;
+    if (before && (before.actor !== actor || before.workspace !== workspace)) {
+      queryClient.removeQueries(queryScopeFilter(before));
+    }
+    previous.current = { actor, workspace };
+  }, [queryClient, actor, workspace]);
+  return (
+    <AgentPlatformContext value={value}>
+      <Fragment key={`${actor}\n${workspace}`}>{children}</Fragment>
+    </AgentPlatformContext>
+  );
 }
 
 export function useAgentPlatform(): AgentPlatform {

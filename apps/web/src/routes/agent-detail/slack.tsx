@@ -6,7 +6,8 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "@tanstack/react-router";
-import { type components, unwrap } from "@werft-ai/client";
+import { type ApiClient, type components, unwrap } from "@werft-ai/client";
+import { queryKeysOf } from "@werft-ai/core";
 import { useAgentPlatform } from "@werft-ai/react";
 import {
   Alert,
@@ -111,9 +112,13 @@ export function SlackSkeleton() {
   );
 }
 
+/** Under the agent's key, so whatever refreshes the agent refreshes these. */
+export const slackKey = (client: ApiClient, agentId: string) =>
+  [...queryKeysOf(client).agent(agentId), "slack"] as const;
+
 function useSlackState(agentId: string) {
   const { client } = useAgentPlatform();
-  const key = ["agents", agentId, "slack"];
+  const key = slackKey(client, agentId);
   const app = useQuery({
     queryKey: [...key, "app"],
     queryFn: () =>
@@ -142,7 +147,7 @@ function useSlackState(agentId: string) {
 function useSlackBindings(agentId: string) {
   const { client } = useAgentPlatform();
   return useQuery({
-    queryKey: ["agents", agentId, "slack", "bindings"],
+    queryKey: [...slackKey(client, agentId), "bindings"],
     queryFn: () =>
       unwrap(
         client.GET("/v1/agents/{id}/slack-bindings", {
@@ -157,7 +162,7 @@ function useSlackBindings(agentId: string) {
 function useSlackSettings(agentId: string) {
   const { client } = useAgentPlatform();
   return useQuery({
-    queryKey: ["agents", agentId, "slack", "settings"],
+    queryKey: [...slackKey(client, agentId), "settings"],
     queryFn: () =>
       unwrap(
         client.GET("/v1/agents/{id}/slack/app/settings", {
@@ -172,7 +177,7 @@ function useSlackSettings(agentId: string) {
 function useSlackChannels(agentId: string, query: string) {
   const { client } = useAgentPlatform();
   return useInfiniteQuery({
-    queryKey: ["agents", agentId, "slack", "channels", query],
+    queryKey: [...slackKey(client, agentId), "channels", query],
     initialPageParam: undefined as string | undefined,
     queryFn: ({ pageParam }) =>
       unwrap(
@@ -778,7 +783,7 @@ function SlackChannels({
   const { t } = useI18n();
   const { client } = useAgentPlatform();
   const cache = useQueryClient();
-  const key = ["agents", agentId, "slack"];
+  const key = slackKey(client, agentId);
   const [input, setInput] = useState("");
   const [query, setQuery] = useState("");
   const [picking, setPicking] = useState(false);
@@ -1121,7 +1126,7 @@ function SlackDmSetting({ agentId }: { readonly agentId: string }) {
   const { t } = useI18n();
   const { client } = useAgentPlatform();
   const cache = useQueryClient();
-  const key = ["agents", agentId, "slack", "bindings"];
+  const key = [...slackKey(client, agentId), "bindings"];
   const bindings = useSlackBindings(agentId);
   const dm = bindings.data?.items.find((row) => row.surface_kind === "dm");
   const [notice, setNotice] = useState("");
@@ -1194,7 +1199,7 @@ function SlackDefaultReaction({ agentId }: { readonly agentId: string }) {
       setNotice("");
       // A read still in flight would land after the save and undo it.
       await cache.cancelQueries({
-        queryKey: ["agents", agentId, "slack", "settings"],
+        queryKey: [...slackKey(client, agentId), "settings"],
       });
     },
     mutationFn: (checked: boolean) =>
@@ -1208,7 +1213,7 @@ function SlackDefaultReaction({ agentId }: { readonly agentId: string }) {
         }),
       ),
     onSuccess: (saved) => {
-      cache.setQueryData(["agents", agentId, "slack", "settings"], saved);
+      cache.setQueryData([...slackKey(client, agentId), "settings"], saved);
       setNotice(
         t("slack.defaultSaved", {
           mode: t(
@@ -1221,7 +1226,7 @@ function SlackDefaultReaction({ agentId }: { readonly agentId: string }) {
     // read again now that the save is done.
     onSettled: () =>
       cache.invalidateQueries({
-        queryKey: ["agents", agentId, "slack", "settings"],
+        queryKey: [...slackKey(client, agentId), "settings"],
       }),
   });
   const lost = settings.isError && !settings.data;

@@ -4,6 +4,7 @@ import type {
   ListSessionOutputsResponse,
   SessionDetail,
 } from "@werft-ai/contracts";
+import { queryKeysOf } from "@werft-ai/core";
 import { useAgentPlatform } from "@werft-ai/react";
 import {
   buttonVariants,
@@ -40,7 +41,11 @@ function useSessionOutputs(session: SessionDetail) {
   const { client } = useAgentPlatform();
   return useQuery({
     // A new checkpoint is a new list.
-    queryKey: ["sessions", session.id, "outputs", session.checkpoint_revision],
+    queryKey: [
+      ...queryKeysOf(client).session(session.id),
+      "outputs",
+      session.checkpoint_revision,
+    ],
     queryFn: () =>
       unwrap(
         client.GET("/v1/sessions/{id}/outputs", {

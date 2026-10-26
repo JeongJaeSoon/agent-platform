@@ -18,10 +18,16 @@ description: "SessionList와 SessionDetail로 세션 목록과 세션 화면을 
 ```tsx title="ui-demo/src/main.tsx"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createApiClient } from "@werft-ai/client";
-import { AgentPlatformProvider, type RenderLink } from "@werft-ai/react";
+import {
+  AgentPlatformProvider,
+  QueryScopeProvider,
+  queryScopeOf,
+  type RenderLink,
+  useMe,
+} from "@werft-ai/react";
 import { SessionDetail, SessionList } from "@werft-ai/react/blocks";
 import { ErrorState, Skeleton } from "@werft-ai/ui";
-import { StrictMode } from "react";
+import { type ReactNode, StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 
@@ -39,6 +45,14 @@ const renderError = (_error: unknown, retry: () => void) => (
 );
 const sessionId = location.pathname.match(/^\/sessions\/([^/]+)$/)?.[1];
 
+function SignedIn({ children }: { children: ReactNode }) {
+  const me = useMe();
+  if (me.isError) return renderError(me.error, () => void me.refetch());
+  const scope = me.data ? queryScopeOf(me.data) : null;
+  if (!scope) return loading;
+  return <QueryScopeProvider scope={scope}>{children}</QueryScopeProvider>;
+}
+
 createRoot(document.getElementById("root") as HTMLElement).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
@@ -48,16 +62,18 @@ createRoot(document.getElementById("root") as HTMLElement).render(
         renderLink={renderLink}
       >
         <main className="mx-auto max-w-4xl p-6">
-          {sessionId ? (
-            <SessionDetail
-              id={sessionId}
-              back={<a href="/">세션 목록</a>}
-              loading={loading}
-              renderError={renderError}
-            />
-          ) : (
-            <SessionList loading={loading} renderError={renderError} />
-          )}
+          <SignedIn>
+            {sessionId ? (
+              <SessionDetail
+                id={sessionId}
+                back={<a href="/">세션 목록</a>}
+                loading={loading}
+                renderError={renderError}
+              />
+            ) : (
+              <SessionList loading={loading} renderError={renderError} />
+            )}
+          </SignedIn>
         </main>
       </AgentPlatformProvider>
     </QueryClientProvider>
@@ -66,6 +82,7 @@ createRoot(document.getElementById("root") as HTMLElement).render(
 ```
 
 - `AgentPlatformProvider`는 블록과 hook이 읽는 클라이언트, 언어(`ko`, `ja`, `en`), 링크 함수를 둔다. `QueryClientProvider` 안에 놓는다.
+- 블록은 로그인한 사람과 워크스페이스별로 캐시한다. `SignedIn`처럼 `useMe()`의 응답을 `queryScopeOf`로 바꿔 `QueryScopeProvider`에 넘기고, 블록은 그 안에 둔다. 밖에 두면 블록이 첫 렌더에서 오류를 낸다. 로그인 전이라 `useMe()`가 401로 실패하면 블록 대신 `renderError`로 다시 시도를 보인다. 다른 사람이 로그인해 범위가 바뀌면 그 안의 트리를 새로 그리고 이전 사람의 캐시를 지운다.
 - `renderLink`는 블록이 세션으로 가는 링크를 그릴 때 부른다. URL은 앱이 정한다. 라우터를 쓰는 앱이면 그 라우터의 `Link`를 돌려준다.
 - `loading`과 `renderError`는 블록마다 받는다. 문구도 앱의 것이다.
 

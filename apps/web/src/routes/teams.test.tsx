@@ -7,13 +7,13 @@ import {
   type TeamDetail,
   teamDetailSchema,
 } from "@werft-ai/contracts";
-import { queryKeys } from "@werft-ai/core";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
 import { ADMINISTERED_LIST_LIMIT } from "../components/agent-admins.tsx";
 import { AGENT_ID, agentServer } from "../test-support/fake-agents.ts";
 import {
   apiError,
   json,
+  keys,
   me,
   memberMe,
   memberPage,
@@ -576,7 +576,7 @@ describe("팀 화면", () => {
     });
     await screen.findByRole("link", { name: "결제팀" });
     // An earlier visit read a list with nobody to add; Mate joined since.
-    services.queryClient.setQueryData(queryKeys.members, {
+    services.queryClient.setQueryData(keys.members, {
       items: [],
       next_cursor: null,
     });
@@ -793,7 +793,7 @@ describe("에이전트 관리자", () => {
     ];
     act(() => {
       void services.queryClient.invalidateQueries({
-        queryKey: queryKeys.teams,
+        queryKey: keys.teams,
       });
     });
     await waitFor(() =>
@@ -843,9 +843,9 @@ describe("에이전트 관리자", () => {
       api.calls.filter((c) => c.method === "GET" && c.path === "/v1/agents")
         .length;
     await waitFor(() =>
-      expect(
-        services.queryClient.getQueryState(queryKeys.agents)?.fetchStatus,
-      ).toBe("idle"),
+      expect(services.queryClient.getQueryState(keys.agents)?.fetchStatus).toBe(
+        "idle",
+      ),
     );
     const reads = listReads();
     await user.selectOptions(
@@ -862,7 +862,7 @@ describe("에이전트 관리자", () => {
     ).toEqual({ team_id: TEAM_ID });
     await waitFor(() =>
       expect(
-        services.queryClient.getQueryState(queryKeys.agents)?.isInvalidated ===
+        services.queryClient.getQueryState(keys.agents)?.isInvalidated ===
           true || listReads() > reads,
       ).toBe(true),
     );

@@ -32,7 +32,7 @@ import {
   RowListItem,
 } from "@werft-ai/ui";
 import { type ReactNode, type RefObject, useId, useState } from "react";
-import { queryKeys } from "../../api/queries.ts";
+import { queryKeysOf } from "../../api/queries.ts";
 import { permissionReason, useRole } from "../../auth/guard.tsx";
 import { LoadFailure } from "../../components/load-failure.tsx";
 import type { Outcome } from "../../components/outcome.tsx";
@@ -50,12 +50,12 @@ import {
 import { latestVersion } from "./versions.tsx";
 
 /** Under the agent's key, so whatever refreshes the agent refreshes these. */
-const bindingsKey = (agentId: string) =>
-  [...queryKeys.agent(agentId), "credential-bindings"] as const;
+const bindingsKey = (client: ApiClient, agentId: string) =>
+  [...queryKeysOf(client).agent(agentId), "credential-bindings"] as const;
 
 export function credentialBindingsQuery(client: ApiClient, agentId: string) {
   return queryOptions({
-    queryKey: bindingsKey(agentId),
+    queryKey: bindingsKey(client, agentId),
     queryFn: () =>
       unwrap(
         client.GET("/v1/agents/{id}/credential-bindings", {
@@ -96,9 +96,9 @@ export function Credentials({
   // The list's summaries say which names are bound.
   const invalidateBindings = () =>
     Promise.all([
-      queryClient.invalidateQueries({ queryKey: bindingsKey(agentId) }),
+      queryClient.invalidateQueries({ queryKey: bindingsKey(client, agentId) }),
       queryClient.invalidateQueries({
-        queryKey: queryKeys.agents,
+        queryKey: queryKeysOf(client).agents,
         exact: true,
       }),
     ]);

@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { SessionSummary } from "@werft-ai/contracts";
-import { queryKeys } from "@werft-ai/core";
-import { json, me } from "../test-support/fake-api.ts";
+import { json, keys, me } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
 const { renderAt, screen, waitFor } = await appHarness();
@@ -251,7 +250,7 @@ describe("/sessions/map", () => {
     await screen.findByRole("heading", { level: 1, name: "에이전트 지도" });
     // The next read no longer lists it: newer sessions pushed it out.
     void services.queryClient.refetchQueries({
-      queryKey: [...queryKeys.sessions, { view: "agent-map" }],
+      queryKey: [...keys.sessions, { view: "agent-map" }],
     });
     await waitFor(() => expect(pages.length).toBeGreaterThan(0));
     pages.shift()?.(json(200, { items: [summary(2)], next_cursor: "older" }));

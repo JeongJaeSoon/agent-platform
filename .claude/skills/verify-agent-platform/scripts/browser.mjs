@@ -7,7 +7,7 @@
 //
 //   browser.mjs <run> start | stop
 //   browser.mjs <run> open <path|url>            prints path and title
-//   browser.mjs <run> login <who> | accept <who>  web-user.mjs credentials, typed, never printed
+//   browser.mjs <run> login <who> [--here] | accept <who>  web-user.mjs credentials, typed, never printed
 //   browser.mjs <run> bootstrap <who>            /bootstrap form from state.env's token and users/<who>
 //   browser.mjs <run> shot <name> [full]         evidence/<name>.png, prints scrollWidth/innerWidth
 //   browser.mjs <run> blockshot <path> <url pattern> <name>   that request fails (error state)
@@ -330,7 +330,8 @@ switch (cmd) {
     break;
   case "login": {
     const c = JSON.parse(readFileSync(userFile(args[0]), "utf8"));
-    await navigate("/login");
+    // --here keeps the page (and its in-memory cache) of a tab already on /login.
+    if (args[1] !== "--here") await navigate("/login");
     await fill("input[name=email]", c.email);
     await fill("input[name=password]", c.password);
     await submit();
