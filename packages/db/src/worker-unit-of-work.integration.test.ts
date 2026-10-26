@@ -2611,6 +2611,16 @@ integration("worker gateway on PostgreSQL", () => {
     expect(row?.checkpointCommittedAt?.toISOString()).toBe(clock.toISOString());
 
     expect(await gateway.finalize(principalOf(claimed), request)).toEqual(done);
+    // The same bytes stored again are another object version: a retry naming
+    // one is a different body, not a replay.
+    expect(
+      await failure(
+        gateway.finalize(principalOf(claimed), {
+          ...request,
+          checkpoint: { ...checkpoint, manifest_version: "v2" },
+        }),
+      ),
+    ).toEqual({ status: 409, code: "IDEMPOTENCY_CONFLICT" });
     expect(
       await failure(
         gateway.finalize(principalOf(claimed), {

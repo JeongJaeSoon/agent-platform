@@ -652,6 +652,28 @@ describe("architecture", () => {
     expect(offenders).toEqual([]);
   });
 
+  // `src/testing/` helpers can bypass production invariants (commitCheckpoint
+  // moves the checkpoint pointer with no turn), so only tests and other
+  // helpers may reach them.
+  test("no runtime source imports a package's testing helpers", async () => {
+    const offenders: string[] = [];
+    for (const directory of await workspacePackages()) {
+      for (const file of await sourceFiles(join(directory, "src"))) {
+        if (file.includes(`${sep}src${sep}testing${sep}`)) continue;
+        const source = await readFile(file, "utf8");
+        const testing = specifiers(source).filter((s) =>
+          s
+            .split("/")
+            .slice(s.startsWith(".") ? 0 : s.startsWith("@") ? 2 : 1)
+            .includes("testing"),
+        );
+        for (const specifier of testing)
+          offenders.push(`${relative(root, file)}: ${specifier}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
   test("the import scan sees single-quoted and template-literal specifiers", async () => {
     const fixture = await mkdtemp(join(tmpdir(), "arch-"));
     try {
