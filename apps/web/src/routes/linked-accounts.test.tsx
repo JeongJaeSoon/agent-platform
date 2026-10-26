@@ -30,6 +30,7 @@ const slack: LinkedAccount = {
   status: "active",
   verified_at: "2026-10-11T00:00:00.000Z",
   revision: 1,
+  expires_at: null,
 };
 const meOk = { "GET /v1/auth/me": () => json(200, me()) };
 
