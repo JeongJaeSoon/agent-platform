@@ -246,6 +246,23 @@ export async function restoreCheckpointTree(input: {
     git(["reset", "--quiet", "--mixed", "--intent-to-add", staged.head]),
     "reset",
   );
+  const upstream =
+    staged.branch === null || staged.upstream === null || input.origin === null
+      ? null
+      : {
+          ...staged.upstream,
+          branch: staged.branch.slice("refs/heads/".length),
+        };
+  if (upstream !== null) {
+    await check(
+      git([
+        "update-ref",
+        `refs/remotes/origin/${upstream.merge.slice("refs/heads/".length)}`,
+        upstream.commit,
+      ]),
+      "update-ref",
+    );
+  }
   const restoring = await required(
     git(["for-each-ref", "--format=%(refname)", RESTORING]),
     "for-each-ref",
@@ -257,6 +274,16 @@ export async function restoreCheckpointTree(input: {
     await writeLocalExcludes(root);
   } else {
     await check(git(["remote", "add", "origin", input.origin]), "remote add");
+    if (upstream !== null) {
+      await check(
+        git(["config", `branch.${upstream.branch}.remote`, "origin"]),
+        "config",
+      );
+      await check(
+        git(["config", `branch.${upstream.branch}.merge`, upstream.merge]),
+        "config",
+      );
+    }
   }
   return kept === undefined ? { staged } : { kept, staged };
 }
