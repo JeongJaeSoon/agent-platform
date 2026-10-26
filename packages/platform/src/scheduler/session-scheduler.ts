@@ -1298,11 +1298,16 @@ async function pass(
       backingOff(execution);
       return;
     }
-    // An earlier pass recorded this replacement and its old resource is
-    // still there: counted and fenced already, so only the teardown and the
-    // create are left to finish.
-    const resumed = execution.pendingReplacement;
-    if (resumed === null && execution.replacementCount >= replacementLimit) {
+    // An earlier pass recorded this replacement and its old resource is still
+    // there: counted already, and the record shut the door on the credential
+    // it holds, so no worker can bind to it and only the teardown and the
+    // create are left to finish. A resource holding the credential the launch
+    // accepts is the rebuild, and replacing that is a new replacement.
+    const resumed =
+      execution.pendingReplacement !== null &&
+      observed.credentialFingerprint != null &&
+      observed.credentialFingerprint !== execution.nonceFingerprint;
+    if (!resumed && execution.replacementCount >= replacementLimit) {
       // Whatever gets built keeps being rejected, so building it once more
       // is not the answer. Nothing is touched: the resource stays, the slot
       // stays, and every pass reports it until someone looks. Closing the
@@ -1359,15 +1364,14 @@ async function pass(
     // write shuts the bootstrap door, so a worker cannot bind to the
     // resource while it is on its way out.
     lock.throwIfAborted();
-    const attempts =
-      resumed === null
-        ? await store.requestReplacement(
-            ref,
-            reason,
-            execution.replacementCount,
-            acceptedFingerprint,
-          )
-        : execution.replacementCount;
+    const attempts = resumed
+      ? execution.replacementCount
+      : await store.requestReplacement(
+          ref,
+          reason,
+          execution.replacementCount,
+          acceptedFingerprint,
+        );
     if (attempts === null) {
       // A worker claimed, the launch gave its slot back, or another pass
       // got here first, since the rows were read. Either way the resource

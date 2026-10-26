@@ -1392,7 +1392,9 @@ describe("runScheduler", () => {
     const [again] = backend.ensureCalls.slice(-1);
     expect(again?.operationId).toBe(row.operationId ?? undefined);
     expect(row.pendingReplacement).toBeNull();
-    expect(row.replacementCount).toBe(1);
+    // Unlabelled, it cannot be shown to be the old resource, so the
+    // replacement is asked for, and counted, again.
+    expect(row.replacementCount).toBe(2);
   });
 
   test("a control host that died after the teardown rebuilds instead of closing the launch", async () => {
@@ -1467,7 +1469,7 @@ describe("runScheduler", () => {
     expect(summary.reensured).toEqual([ref]);
     expect(store.confirmedGone).toEqual([]);
     expect(row.pendingReplacement).toBeNull();
-    expect(row.replacementCount).toBe(1);
+    expect(row.replacementCount).toBe(2);
     expect(backend.containers.get("exec-1#1")?.removing).toBeUndefined();
   });
 
@@ -1666,6 +1668,47 @@ describe("runScheduler", () => {
       expect(row.pendingReplacement).toBeNull();
       expect(row.replacementCount).toBe(1);
     }
+  });
+
+  /** A replacement rebuilt but not yet seen running, so still pending. */
+  async function unsettledRebuild() {
+    const fixture = harness();
+    const { backend, run, store } = fixture;
+    const [sessionId] = store.addUnassigned(1);
+    await run();
+    const [intent] = backend.ensureCalls;
+    if (!intent || !sessionId) throw new Error("no intent");
+    const name = `${intent.executionId}#1`;
+    const row = store.executions.get(intent.executionId);
+    if (!row) throw new Error("no row");
+    backend.staleFor.add(name);
+    backend.createPendingFor.add(sessionId);
+    await run();
+    backend.createPendingFor.clear();
+    expect(row.pendingReplacement).toBe("stale_isolation");
+    expect(row.replacementCount).toBe(1);
+    expect(row.nonce).not.toBeNull();
+    return { ...fixture, name, row };
+  }
+
+  test("a rebuilt replacement judged again is a new replacement and is counted", async () => {
+    const { backend, run, name, row } = await unsettledRebuild();
+    backend.staleFor.add(name);
+    const again = await run();
+    expect(again.replaced).toHaveLength(1);
+    expect(row.replacementCount).toBe(2);
+  });
+
+  test("a rebuilt replacement a worker binds to while it is judged again is left to it", async () => {
+    const { backend, run, store, name, row } = await unsettledRebuild();
+    backend.staleFor.add(name);
+    backend.duringInspect = () => {
+      claimLaunchOf(store, name);
+    };
+    const raced = await run();
+    expect(raced.replaced).toEqual([]);
+    expect(backend.containers.has(name)).toBe(true);
+    expect(row.replacementCount).toBe(1);
   });
 
   test("a created-but-never-started resource is started through the same intent", async () => {
