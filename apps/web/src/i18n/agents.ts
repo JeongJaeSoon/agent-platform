@@ -275,6 +275,8 @@ export const agentsKo = {
   "agentAdmins.pick": "관리자로 추가할 사람이나 팀",
   "agentAdmins.pickPlaceholder": "사람이나 팀 고르기",
   "agentAdmins.add": "관리자로 추가",
+  "agentAdmins.nothingLeft":
+    "추가할 수 있는 사람이나 팀이 없습니다. 활성 구성원과 팀이 모두 이미 관리자입니다.",
   "agentAdmins.since": "{date}부터 담당",
   "agentAdmins.added": "{name}을(를) 관리자로 추가했습니다.",
   "agentAdmins.removed": "{name}을(를) 관리자에서 뺐습니다.",
@@ -557,6 +559,8 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agentAdmins.pick": "Person or team to add as admin",
   "agentAdmins.pickPlaceholder": "Choose a person or team",
   "agentAdmins.add": "Add as admin",
+  "agentAdmins.nothingLeft":
+    "There is no one left to add. Every active member and team is already an admin.",
   "agentAdmins.since": "Admin since {date}",
   "agentAdmins.added": "Added {name} as an admin.",
   "agentAdmins.removed": "{name} is no longer an admin.",
@@ -840,6 +844,8 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agentAdmins.pick": "管理者に追加する人またはチーム",
   "agentAdmins.pickPlaceholder": "人またはチームを選択",
   "agentAdmins.add": "管理者に追加",
+  "agentAdmins.nothingLeft":
+    "追加できる人やチームがいません。有効なメンバーとチームはすべて管理者です。",
   "agentAdmins.since": "{date}から担当",
   "agentAdmins.added": "{name}を管理者に追加しました。",
   "agentAdmins.removed": "{name}を管理者から外しました。",

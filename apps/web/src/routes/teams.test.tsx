@@ -723,6 +723,53 @@ describe("에이전트 관리자", () => {
     );
   });
 
+  test("더 고를 사람·팀이 없으면 칸을 끄지 않고 포커스를 둔 채 이유를 보인다", async () => {
+    let answer: () => void = () => {};
+    const asked = new Promise<void>((resolve) => {
+      answer = resolve;
+    });
+    const everyone = admins({
+      users: [owner, mate].map((member) => ({
+        user_id: member.user_id,
+        email: member.email,
+        display_name: member.display_name,
+        created_by: USER_ID,
+        created_at: AT,
+      })),
+    });
+    const { api } = renderAt(`/agents/${AGENT_ID}?tab=admins`, {
+      ...agentServer().routes,
+      ...teamServer().routes,
+      "GET /v1/teams": async () => {
+        await asked;
+        return json(200, { items: [], next_cursor: null });
+      },
+      [`GET /v1/agents/${AGENT_ID}/admins`]: () => json(200, everyone),
+    });
+    const picker = (await screen.findByLabelText(
+      "관리자로 추가할 사람이나 팀",
+    )) as HTMLSelectElement;
+    act(() => picker.focus());
+    await waitFor(() =>
+      expect(api.calls.some((c) => c.path === "/v1/members")).toBe(true),
+    );
+    await waitFor(() => expect(picker.getAttribute("aria-busy")).toBe("false"));
+    // Teams are still on their way, so nothing is known to be left out yet.
+    expect(picker.disabled).toBe(false);
+    expect(picker.getAttribute("aria-describedby")).toBeNull();
+
+    act(() => answer());
+    const reason = "추가할 수 있는 사람이나 팀이 없습니다.";
+    await waitFor(() =>
+      expect(
+        document.getElementById(picker.getAttribute("aria-describedby") ?? "")
+          ?.textContent,
+      ).toContain(reason),
+    );
+    expect(picker.disabled).toBe(false);
+    expect(document.activeElement === picker).toBe(true);
+  });
+
   test("owner는 사람·팀을 지정하고 해제한다", async () => {
     const agentsApi = agentServer();
     const teams = teamServer();

@@ -249,20 +249,24 @@ function AdminList({
         ? personReason
         : `${personReason} ${teamReason}`
       : undefined;
+  // Said, not shown by disabling the picker: a picker disabled under the
+  // pointer or focus greys out and drops focus to the page.
+  const nothingLeft =
+    picking &&
+    (!listsMembers || (members.isSuccess && !members.isFetching)) &&
+    (!listsTeams || teams.isSuccess) &&
+    people.length === 0 &&
+    groups.length === 0;
   const partial =
     addReason === undefined
       ? members.error
         ? personReason
         : teams.error
           ? teamReason
-          : undefined
+          : nothingLeft
+            ? t("agentAdmins.nothingLeft")
+            : undefined
       : undefined;
-  const nothingLeft =
-    picking &&
-    !members.isPending &&
-    !members.isFetching &&
-    people.length === 0 &&
-    groups.length === 0;
   const since = (at: string) => {
     const parts = new Map(
       DAY.formatToParts(new Date(at)).map((p) => [p.type, p.value] as const),
@@ -360,7 +364,7 @@ function AdminList({
             id={pickerId}
             className="w-60 max-w-full"
             value={picked}
-            disabled={addReason !== undefined || nothingLeft}
+            disabled={addReason !== undefined}
             aria-busy={members.isFetching}
             aria-describedby={partial ? hintId : undefined}
             onChange={(event) => setPicked(event.target.value)}
