@@ -29,6 +29,7 @@ import {
   pendingRequestsQuery,
   sessionQuery,
   sessionsQuery,
+  sessionTurnsQuery,
   sessionUsageQuery,
   waitingSessionsQuery,
 } from "@werft-ai/core";
@@ -62,6 +63,11 @@ export function useSessionUsage(id: string, enabled: boolean) {
 export function usePendingRequests(id: string, enabled: boolean) {
   const { client } = useAgentPlatform();
   return useQuery({ ...pendingRequestsQuery(client, id), enabled });
+}
+
+export function useSessionTurns(id: string, enabled: boolean) {
+  const { client } = useAgentPlatform();
+  return useQuery({ ...sessionTurnsQuery(client, id), enabled });
 }
 
 // One key per mutate call, kept across its retries: under a new key the
@@ -101,7 +107,7 @@ export function useChangeSessionProfile(id: string) {
 }
 
 /** A part of a session's server state that an event or a command can make stale. */
-type SessionPart = "list" | "detail" | "pending" | "usage";
+type SessionPart = "list" | "detail" | "pending" | "usage" | "turns";
 
 function refreshSession(
   queryClient: QueryClient,
@@ -135,6 +141,9 @@ function refreshSession(
         break;
       case "usage":
         void queryClient.invalidateQueries(sessionUsageQuery(client, id));
+        break;
+      case "turns":
+        void queryClient.invalidateQueries(sessionTurnsQuery(client, id));
         break;
     }
   }
@@ -260,7 +269,7 @@ const EVENT_STALES: Partial<
   Record<SessionEventPayload["event"], readonly SessionPart[]>
 > = {
   question: ["detail", "pending"],
-  status: ["list", "detail", "pending", "usage"],
+  status: ["list", "detail", "pending", "usage", "turns"],
   result: ["detail", "usage"],
   error: ["detail"],
 };
