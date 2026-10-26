@@ -51,6 +51,8 @@ integration("session list relations, search and counts on PostgreSQL", () => {
   const agentX = randomUUID();
   const agentY = randomUUID();
   const releaseX = `rel-x-${randomUUID()}`;
+  // A second release of X: the agent filter takes every release of it.
+  const releaseX2 = `rel-x2-${randomUUID()}`;
   const releaseY = `rel-y-${randomUUID()}`;
   const serviceKey = randomUUID();
   const ids = {} as Record<string, string>;
@@ -65,6 +67,7 @@ integration("session list relations, search and counts on PostgreSQL", () => {
     as: SessionViewer,
     query: CountSessionsQuery & {
       status?: (typeof SESSION_STATUS_VALUES)[number];
+      agent_id?: string;
     },
   ) {
     const found: string[] = [];
@@ -160,6 +163,18 @@ integration("session list relations, search and counts on PostgreSQL", () => {
         runtimeConfigSnapshot: {},
         effectiveTools: [],
       });
+      if (agentId === agentX) {
+        await db.insert(agentReleases).values({
+          id: releaseX2,
+          agentId,
+          versionId,
+          cardSha256: "card",
+          runtimeProfileId: "review",
+          profileDigest: "digest",
+          runtimeConfigSnapshot: {},
+          effectiveTools: [],
+        });
+      }
     }
     // alice administers X directly, dave through a team; nobody Y.
     await db
@@ -259,7 +274,7 @@ integration("session list relations, search and counts on PostgreSQL", () => {
     await session("bobWorkspaceX", {
       by: "bob",
       title: "fix_flaky",
-      release: releaseX,
+      release: releaseX2,
     });
     await session("toFormer", {
       by: "bob",
@@ -341,6 +356,36 @@ integration("session list relations, search and counts on PostgreSQL", () => {
     const prefix = (ids.toAlice ?? "").slice(0, 8).toUpperCase();
     expect(named(await readAll(as, { q: prefix }))).toEqual(["toAlice"]);
     expect(await readAll(viewer("dave"), { q: prefix })).toEqual([]);
+  });
+
+  test("agent_id keeps the sessions of every release of that agent the viewer reads, page by page", async () => {
+    const expected: [keyof typeof people, string, string[]][] = [
+      // bob reads three, so limit 2 needs a second page.
+      ["bob", agentX, ["bobPrivateX", "bobWorkspaceX", "mine"]],
+      // bobPrivateX is X's too, but outside alice's and dave's share.
+      ["alice", agentX, ["bobWorkspaceX", "mine"]],
+      ["dave", agentX, ["bobWorkspaceX", "mine"]],
+      ["alice", agentY, ["toAlice"]],
+      ["dave", agentY, []],
+      ["alice", randomUUID(), []],
+    ];
+    for (const [who, agentId, names] of expected) {
+      expect([
+        who,
+        named(await readAll(viewer(who), { agent_id: agentId })),
+      ]).toEqual([who, names]);
+    }
+    expect(
+      named(
+        await readAll(viewer("alice"), {
+          agent_id: agentX,
+          relation: "started",
+        }),
+      ),
+    ).toEqual(["mine"]);
+    expect(
+      named(await readAll(viewer("bob"), { agent_id: agentX, status: "idle" })),
+    ).toEqual(["bobPrivateX", "bobWorkspaceX", "mine"]);
   });
 
   test("counts equal the list read to its end, per status, for every filter", async () => {

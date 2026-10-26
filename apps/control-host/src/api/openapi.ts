@@ -1273,7 +1273,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Sessions",
     summary: "List the owner's sessions, newest first",
     description:
-      "Lists the sessions of the credential's owner that the caller can read, newest `created_at` first, closed ones included, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. `status` keeps only sessions reporting that status, `needs_input` included; `relation` keeps the ones the caller started, was shared or administers the agent of; `q` searches titles and id prefixes. Every filter only narrows what the caller can read. It changes nothing.",
+      "Lists the sessions of the credential's owner that the caller can read, newest `created_at` first, closed ones included, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. `status` keeps only sessions reporting that status, `needs_input` included; `relation` keeps the ones the caller started, was shared or administers the agent of; `q` searches titles and id prefixes; `agent_id` keeps the sessions of one agent, any of its releases. Every filter only narrows what the caller can read. It changes nothing.",
     scope: "read",
     query: "ListSessionsQuery",
     success: {

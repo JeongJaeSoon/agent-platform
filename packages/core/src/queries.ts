@@ -104,6 +104,11 @@ export const queryKeys = {
   sessions: ["sessions"] as const,
   // An object segment, so it never reads as a session id.
   waitingSessions: ["sessions", { status: "needs_input" }] as const,
+  // Every agent's list matches agentSessionLists, so a session change
+  // refreshes them all without knowing which agent it belongs to.
+  agentSessionLists: ["sessions", { list: "agent" }] as const,
+  agentSessions: (agentId: string) =>
+    ["sessions", { list: "agent", agent_id: agentId }] as const,
   session: (id: string) => ["sessions", id] as const,
   sessionUsage: (id: string) => ["sessions", id, "usage"] as const,
   pendingRequests: (id: string) =>
@@ -403,6 +408,25 @@ export function waitingSessionsQuery(client: ApiClient) {
       ) as Promise<ListSessionsResponse>,
     retry: false,
     refetchInterval: 30_000,
+  });
+}
+
+/** Matches every agentSessionsQuery, whichever agent, to mark them stale. */
+export const agentSessionListsFilter = {
+  queryKey: queryKeys.agentSessionLists,
+} as const;
+
+/** The newest sessions of one agent the caller can read, for its overview. */
+export function agentSessionsQuery(client: ApiClient, agentId: string) {
+  return queryOptions({
+    queryKey: queryKeys.agentSessions(agentId),
+    queryFn: () =>
+      unwrap(
+        client.GET("/v1/sessions", {
+          params: { query: { agent_id: agentId, limit: 5 } },
+        }),
+      ) as Promise<ListSessionsResponse>,
+    retry: false,
   });
 }
 

@@ -429,6 +429,8 @@ integration("API keys by authority over HTTP on PostgreSQL", () => {
       `/v1/sessions/${ownersId}/turns`,
       // A list spans agents, and a receipt names no session to check.
       "/v1/sessions",
+      // Narrowing to its own agent does not lift the list's refusal.
+      `/v1/sessions?agent_id=${agentIds.mine}`,
       `/v1/receipts/${receipt_id}`,
     ]) {
       expect((await send("GET", path, bearer(agentKey))).status).toBe(403);

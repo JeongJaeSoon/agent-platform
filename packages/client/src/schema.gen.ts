@@ -419,7 +419,7 @@ export interface paths {
         };
         /**
          * List the owner's sessions, newest first
-         * @description Lists the sessions of the credential's owner that the caller can read, newest `created_at` first, closed ones included, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. `status` keeps only sessions reporting that status, `needs_input` included; `relation` keeps the ones the caller started, was shared or administers the agent of; `q` searches titles and id prefixes. Every filter only narrows what the caller can read. It changes nothing.
+         * @description Lists the sessions of the credential's owner that the caller can read, newest `created_at` first, closed ones included, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. `status` keeps only sessions reporting that status, `needs_input` included; `relation` keeps the ones the caller started, was shared or administers the agent of; `q` searches titles and id prefixes; `agent_id` keeps the sessions of one agent, any of its releases. Every filter only narrows what the caller can read. It changes nothing.
          *
          *     **Scope:** `sessions:read` (API key or cookie session).
          */
@@ -2363,6 +2363,11 @@ export interface components {
              * @enum {string}
              */
             status?: "queued" | "running" | "needs_input" | "idle" | "failed" | "stopped";
+            /**
+             * Format: uuid
+             * @description Keeps the sessions created for this agent, whichever of its releases they are pinned to. An agent with no session the caller can read, or no such agent, gives an empty page.
+             */
+            agent_id?: string;
             /**
              * @description Narrows the sessions the caller can read, never widens them; omitted, `all`. `started`: the caller started it (for an API key, the key or the person who created it). `shared`: someone else's session shared with the caller by name or through a team the caller is a member of; sessions every workspace member sees appear only under `all`. `administered`: a session of an agent the caller administers, directly or through a team.
              * @enum {string}
@@ -7279,6 +7284,7 @@ export interface operations {
                 cursor?: string;
                 limit?: number;
                 status?: "queued" | "running" | "needs_input" | "idle" | "failed" | "stopped";
+                agent_id?: string;
                 relation?: "all" | "started" | "shared" | "administered";
                 q?: string;
             };

@@ -14,6 +14,19 @@ exports[`query keys 1`] = `
     "id-1",
     "admins",
   ],
+  "agentSessionLists": [
+    "sessions",
+    {
+      "list": "agent",
+    },
+  ],
+  "agentSessions": [
+    "sessions",
+    {
+      "agent_id": "id-1",
+      "list": "agent",
+    },
+  ],
   "agents": [
     "agents",
   ],
@@ -151,6 +164,31 @@ exports[`query options and the request each query makes 1`] = `
       "queryKey": [
         "agents",
         "id-1",
+      ],
+      "retry": false,
+    },
+  },
+  "agentSessionsQuery": {
+    "calls": [
+      [
+        "/v1/sessions",
+        {
+          "params": {
+            "query": {
+              "agent_id": "id-1",
+              "limit": 5,
+            },
+          },
+        },
+      ],
+    ],
+    "options": {
+      "queryKey": [
+        "sessions",
+        {
+          "agent_id": "id-1",
+          "list": "agent",
+        },
       ],
       "retry": false,
     },

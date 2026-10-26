@@ -8,7 +8,9 @@ import {
   createApiClient,
 } from "@werft-ai/client";
 import {
+  agentSessionsQuery,
   pendingRequestsQuery,
+  queryKeys,
   sessionQuery,
   sessionsQuery,
   sessionUsageQuery,
@@ -144,6 +146,7 @@ function harness(
   const keys = {
     list: sessionsQuery(client).queryKey,
     waiting: waitingSessionsQuery(client).queryKey,
+    agentLists: queryKeys.agentSessionLists,
     detail: sessionQuery(client, SESSION_ID).queryKey,
     pending: pendingRequestsQuery(client, SESSION_ID).queryKey,
     usage: sessionUsageQuery(client, SESSION_ID).queryKey,
@@ -221,6 +224,7 @@ describe("useSendMessage", () => {
     expect(h.invalidated()).toEqual([
       [h.keys.list, true],
       [h.keys.waiting, true],
+      [h.keys.agentLists, false],
       [h.keys.detail, true],
     ]);
   });
@@ -246,9 +250,10 @@ describe("useSessionControl", () => {
       commands.map(({ action, body }) => ["POST", `${BASE}/${action}`, body]),
     );
     expect(new Set(h.sent.map((s) => s.idempotencyKey)).size).toBe(4);
-    expect(h.invalidated().slice(0, 4)).toEqual([
+    expect(h.invalidated().slice(0, 5)).toEqual([
       [h.keys.list, true],
       [h.keys.waiting, true],
+      [h.keys.agentLists, false],
       [h.keys.detail, true],
       [h.keys.pending, false],
     ]);
@@ -429,10 +434,11 @@ describe("useSessionEvents", () => {
       h.stream.push(status, assistant, question, status, result, error);
     });
     await waitFor(() => expect(hook.result.current.events).toHaveLength(6));
-    await waitFor(() => expect(h.invalidated()).toHaveLength(5));
+    await waitFor(() => expect(h.invalidated()).toHaveLength(6));
     expect(h.invalidated()).toEqual([
       [h.keys.list, true],
       [h.keys.waiting, true],
+      [h.keys.agentLists, false],
       [h.keys.detail, true],
       [h.keys.pending, false],
       [h.keys.usage, false],
@@ -454,6 +460,29 @@ describe("useSessionEvents", () => {
         true,
       ),
     );
+  });
+
+  test("a status event marks every agent's session list stale, and no session detail", async () => {
+    const { h, hook } = open();
+    const page = { items: [], next_cursor: null };
+    const agentList = (agentId: string) =>
+      agentSessionsQuery(h.client, agentId).queryKey;
+    h.queryClient.setQueryData(agentList("agent-a"), page);
+    h.queryClient.setQueryData(agentList("agent-b"), page);
+    const other = sessionQuery(h.client, "other-session").queryKey;
+    h.queryClient.setQueryData(other, { id: "other-session" } as never);
+    await waitFor(() => expect(hook.result.current.state).toBe("open"));
+    act(() => {
+      h.stream.push(status);
+    });
+    await waitFor(() =>
+      expect(
+        ["agent-a", "agent-b"].map(
+          (id) => h.queryClient.getQueryState(agentList(id))?.isInvalidated,
+        ),
+      ).toEqual([true, true]),
+    );
+    expect(h.queryClient.getQueryState(other)?.isInvalidated).toBe(false);
   });
 
   test("each event kind refreshes what it can change", async () => {
