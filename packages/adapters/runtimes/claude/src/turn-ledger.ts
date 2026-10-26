@@ -47,6 +47,7 @@ export class TurnLedger {
   private mirrorError: string | undefined;
   private readonly pending = new Set<string>();
   private permissionCallbacks = 0;
+  private readonly awaitingPermission = new Set<string>();
   /** Every uuid that reached the engine on this run, settled or not. */
   private readonly sent = new Set<string>();
   private sessionId: string | undefined;
@@ -141,14 +142,28 @@ export class TurnLedger {
   }
 
   /** A permission callback opened; pair an admitted one with permissionSettled(). */
-  permissionStarting(): ToolAdmission {
+  permissionStarting(toolUseId?: string): ToolAdmission {
     if (this.lease !== undefined) return leasedAdmission;
     this.permissionCallbacks += 1;
+    if (toolUseId !== undefined) this.awaitingPermission.add(toolUseId);
     return { allowed: true };
   }
 
-  permissionSettled(): void {
+  permissionSettled(toolUseId?: string): void {
     this.permissionCallbacks = Math.max(0, this.permissionCallbacks - 1);
+    if (toolUseId !== undefined) this.awaitingPermission.delete(toolUseId);
+  }
+
+  /** SPIKE 94S-853: tool calls parked in canUseTool right now. */
+  waitingToolUseIds(): string[] {
+    return [...this.awaitingPermission];
+  }
+
+  /** SPIKE 94S-853: admitted by PreToolUse and not settled, minus the parked ones. */
+  runningToolUseIds(): string[] {
+    return [...this.toolsInFlight].filter(
+      (id) => !this.awaitingPermission.has(id),
+    );
   }
 
   claimConsumer(): void {
@@ -158,7 +173,10 @@ export class TurnLedger {
     this.consumed = true;
   }
 
-  prepareCheckpoint(): CheckpointPreparation {
+  prepareCheckpoint(
+    at: "turn_end" | "approval_wait" = "turn_end",
+  ): CheckpointPreparation {
+    if (at === "approval_wait") return this.prepareApprovalCheckpoint();
     if (this.mirrorError !== undefined) {
       return {
         status: "rejected",
@@ -216,8 +234,70 @@ export class TurnLedger {
    * Judges the run and, when it is quiescent, takes the lease in the same
    * synchronous step: no hook answer can land between the two.
    */
-  leaseCheckpoint(): CheckpointLeaseGrant {
-    const preparation = this.prepareCheckpoint();
+  /**
+   * SPIKE 94S-853: mid-turn, the turn is in flight by definition; what must
+   * hold is that every call the engine admitted is either settled or parked
+   * in canUseTool. Whether the mirror holds those results is the caller's
+   * barrier, not the ledger's.
+   */
+  private prepareApprovalCheckpoint(): CheckpointPreparation {
+    if (this.mirrorError !== undefined) {
+      return {
+        status: "rejected",
+        reason: "mirror_error",
+        detail: this.mirrorError,
+      };
+    }
+    if (this.lease !== undefined) {
+      return {
+        status: "rejected",
+        reason: "checkpoint_lease_held",
+        detail: "Another checkpoint holds the lease",
+      };
+    }
+    if (this.awaitingPermission.size === 0) {
+      return {
+        status: "rejected",
+        reason: "turn_in_flight",
+        detail: "No permission callback is waiting",
+      };
+    }
+    const running = this.runningToolUseIds();
+    if (running.length > 0) {
+      return {
+        status: "rejected",
+        reason: "tool_in_flight",
+        detail: `${running.length} tool call(s) still running`,
+      };
+    }
+    if (this.backgroundTasks.length > 0) {
+      return {
+        status: "rejected",
+        reason: "background_writer",
+        detail: `Background task(s) still running: ${this.backgroundTasks.join(", ")}`,
+      };
+    }
+    if (this.sessionId === undefined) {
+      return {
+        status: "rejected",
+        reason: "no_engine_session",
+        detail: "No SDK session has started",
+      };
+    }
+    return {
+      status: "ready",
+      checkpoint: {
+        engine: "claude",
+        resume: this.sessionId,
+        sdkVersion: CLAUDE_AGENT_SDK_VERSION,
+      },
+    };
+  }
+
+  leaseCheckpoint(
+    at: "turn_end" | "approval_wait" = "turn_end",
+  ): CheckpointLeaseGrant {
+    const preparation = this.prepareCheckpoint(at);
     if (preparation.status === "rejected") return { lease: null, preparation };
     const held = {};
     this.lease = held;
