@@ -896,11 +896,22 @@ async function originUpstream(
   ) {
     return undefined;
   }
+  // Where origin's fetch refspec maps the branch, which need not be
+  // `refs/remotes/origin/<name>`; empty when no refspec maps it.
+  const upstream = await workspace([
+    "for-each-ref",
+    "--format=%(upstream)",
+    `refs/heads/${branch}`,
+  ]);
+  const ref = upstream.stdout.trim();
+  if (upstream.code !== 0 || !ref.startsWith("refs/remotes/")) {
+    return undefined;
+  }
   const commit = await workspace([
     "rev-parse",
     "--verify",
     "--quiet",
-    `refs/remotes/origin/${tracked.slice("refs/heads/".length)}^{commit}`,
+    `${ref}^{commit}`,
   ]);
   if (commit.code !== 0) return undefined;
   return [
