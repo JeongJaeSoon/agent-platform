@@ -127,6 +127,7 @@ import {
 import {
   attempts,
   catalogAuthority,
+  checkpointOutputs,
   checkpoints,
   events,
   executions,
@@ -486,6 +487,8 @@ function parentRevisionOf(session: SessionRow, attemptId: string) {
     : base;
 }
 
+const OUTPUT_ROWS_PER_INSERT = 5_000;
+
 export async function advanceCheckpointPointer(
   tx: Database,
   input: {
@@ -496,6 +499,9 @@ export async function advanceCheckpointPointer(
     now: Date;
     versionsHeld: boolean;
     transcriptBytes?: number;
+    // Absent when the verifier did not read the manifest's outputs; the row
+    // then stays outputs_recorded = false and usage reports itself partial.
+    outputs?: readonly { key: string; bytes: number }[];
   },
 ): Promise<
   | { outcome: "committed"; revision: number }
@@ -525,7 +531,23 @@ export async function advanceCheckpointPointer(
     profileFingerprint: sql`(SELECT ${attempts.profileFingerprint} FROM ${attempts} WHERE ${attempts.id} = ${input.fence.attemptId})`,
     model: sql`(SELECT ${attempts.model} FROM ${attempts} WHERE ${attempts.id} = ${input.fence.attemptId})`,
     transcriptBytes: input.transcriptBytes ?? null,
+    outputsRecorded: input.outputs !== undefined,
   });
+  // A manifest may name up to DEFAULT_MAX_MANIFEST_OBJECTS objects; one
+  // statement for all of them would pass PostgreSQL's 65,535 bind parameters.
+  const outputs = input.outputs ?? [];
+  for (let start = 0; start < outputs.length; start += OUTPUT_ROWS_PER_INSERT) {
+    await tx.insert(checkpointOutputs).values(
+      outputs
+        .slice(start, start + OUTPUT_ROWS_PER_INSERT)
+        .map(({ key, bytes }) => ({
+          sessionId: input.fence.sessionId,
+          revision: input.checkpoint.revision,
+          objectKey: key,
+          bytes,
+        })),
+    );
+  }
   if (input.transcriptBytes !== undefined) {
     await warnNearTranscriptLimit(tx, input, input.transcriptBytes);
   }
@@ -2128,6 +2150,9 @@ export function createPostgresWorkerUnitOfWork(
             ...(input.checkpointTranscriptBytes === undefined
               ? {}
               : { transcriptBytes: input.checkpointTranscriptBytes }),
+            ...(input.checkpointOutputs === undefined
+              ? {}
+              : { outputs: input.checkpointOutputs }),
           });
           if (advanced.outcome === "not_next") {
             // An interrupt has no second capture to wait for: its checkpoint

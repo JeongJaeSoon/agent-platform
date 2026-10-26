@@ -12,6 +12,7 @@ import {
 } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
+  checkpointOutputs,
   checkpoints,
   createPostgresSessionControl,
   createPostgresSessionReader,
@@ -157,6 +158,9 @@ integration("sessions API on PostgreSQL", () => {
         await db
           .delete(unassignedSessions)
           .where(eq(unassignedSessions.sessionId, id));
+        await db
+          .delete(checkpointOutputs)
+          .where(eq(checkpointOutputs.sessionId, id));
         await db.delete(checkpoints).where(eq(checkpoints.sessionId, id));
         await db.delete(events).where(eq(events.sessionId, id));
         await db.delete(turns).where(eq(turns.sessionId, id));

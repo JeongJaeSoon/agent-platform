@@ -181,6 +181,37 @@ integration("checkpoint collection store on PostgreSQL", () => {
     expect(marked.map((row) => row.revision).sort()).toEqual([0, 1, 2]);
   });
 
+  test("markPurged stamps the collected rows the same options name, including an earlier pass's", async () => {
+    const sessionId = await session({ checkpointRevision: 3 });
+    for (const revision of [0, 1, 2, 3]) {
+      await db.insert(checkpoints).values({
+        manifestRef: `sessions/${sessionId}/checkpoints/${revision}/manifest.json`,
+        manifestSha256: "a".repeat(64),
+        revision,
+        sessionId,
+      });
+    }
+    const store = createPostgresCheckpointStore(db);
+    // An earlier pass collected 0 and failed before its deletes finished.
+    await store.markCollected(sessionId, {
+      keep: [1, 2, 3],
+      throughRevision: 3,
+    });
+    await store.markCollected(sessionId, { keep: [2, 3], throughRevision: 3 });
+    await store.markPurged(sessionId, { keep: [2, 3], throughRevision: 3 });
+
+    const stamped = await db
+      .select({ revision: checkpoints.revision })
+      .from(checkpoints)
+      .where(
+        and(
+          eq(checkpoints.sessionId, sessionId),
+          isNotNull(checkpoints.objectsPurgedAt),
+        ),
+      );
+    expect(stamped.map((row) => row.revision).sort()).toEqual([0, 1]);
+  });
+
   test("listSessionIds pages through every session in id order", async () => {
     const store = createPostgresCheckpointStore(db);
     const all = (await db.select({ id: sessions.id }).from(sessions))

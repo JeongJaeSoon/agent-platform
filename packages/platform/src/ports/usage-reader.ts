@@ -9,6 +9,12 @@ export type InstallationUsage = {
   storageUsedBytes: number;
   /** null until the storage counter row exists. */
   storageUpdatedAt: Date | null;
+  /** Distinct output objects named by an uncollected checkpoint. */
+  outputsUsedBytes: number;
+  /** null while no checkpoint has recorded an output. */
+  outputsUpdatedAt: Date | null;
+  /** false while an uncollected checkpoint predates output recording. */
+  outputsComplete: boolean;
 };
 
 /**
