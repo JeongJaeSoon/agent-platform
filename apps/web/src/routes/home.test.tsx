@@ -351,6 +351,7 @@ describe("홈 요약", () => {
         accounted_content: ["input_messages"],
         updated_at: null,
       },
+      outputs: { used_bytes: 0, updated_at: null, complete: true },
     },
   };
   const since = new Date(Date.now() - 30 * 86_400_000)

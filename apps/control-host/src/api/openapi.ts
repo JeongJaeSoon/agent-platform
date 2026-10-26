@@ -3337,7 +3337,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Limits & receipts",
     summary: "Installation limits and installation-wide usage",
     description:
-      "Reads the limits this installation runs under (execution slots, queued input per session, storage, turn length, per-session cost and token limits, provider retries) and the usage against the installation-wide ones, summed over every owner. Use it to explain `STORAGE_LIMIT_EXCEEDED`, a full input queue, or sessions waiting in `queued` for a slot.\n\nOnly the workspace owner, signed in, reads it: any other member and every API key get 403. It changes nothing.",
+      "Reads the limits this installation runs under (execution slots, queued input per session, storage, turn length, per-session cost and token limits, provider retries) and the usage against the installation-wide ones, summed over every owner. Use it to explain `STORAGE_LIMIT_EXCEEDED`, a full input queue, or sessions waiting in `queued` for a slot. `usage.outputs` is the bytes of session outputs kept in the object store, shown beside storage and never enforced.\n\nOnly the workspace owner, signed in, reads it: any other member and every API key get 403. It changes nothing.",
     scope: "read",
     success: {
       status: 200,
@@ -3362,6 +3362,11 @@ export const API_ROUTE_DECLARATIONS = [
             used_bytes: 524288,
             accounted_content: ["input_messages"],
             updated_at: "2026-10-11T08:14:00Z",
+          },
+          outputs: {
+            used_bytes: 3145728,
+            updated_at: "2026-10-11T08:12:30Z",
+            complete: true,
           },
         },
       },
