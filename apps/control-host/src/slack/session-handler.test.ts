@@ -15,6 +15,7 @@ import {
   agentCardSchema,
   DEFAULT_SURFACE_CEILING,
   SESSION_SCOPE_VALUES,
+  SLACK_NOTICE_MESSAGES,
 } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
@@ -82,6 +83,19 @@ const PROFILES = `profiles:
     tools: [Read]
     permission_mode: default
     repository: none
+    provider:
+      kind: anthropic
+      endpoint: https://api.anthropic.invalid
+      auth:
+        kind: api_key
+        value_env: PROVIDER_KEY
+  coding:
+    runtime_kind: claude_agent_sdk
+    runtime_version: "0.3.270"
+    model: claude-sonnet-5
+    tools: [Read]
+    permission_mode: default
+    repository: required
     provider:
       kind: anthropic
       endpoint: https://api.anthropic.invalid
@@ -177,7 +191,7 @@ async function loadCatalog() {
 
 type Fixture = Awaited<ReturnType<typeof agentInSlack>>;
 
-async function agentInSlack() {
+async function agentInSlack(profileId = "general") {
   const workspaceId = randomUUID();
   await db.insert(workspaces).values({
     id: workspaceId,
@@ -230,7 +244,7 @@ async function agentInSlack() {
   const agentId = created.agent.id;
   const { release } = await agentsService.createRelease(owner, agentId, {
     version_id: created.versions[0]?.id ?? "",
-    runtime_profile_id: "general",
+    runtime_profile_id: profileId,
   });
   await agentsService.activateAgent(owner, agentId, {
     release_id: release.id,
@@ -542,6 +556,25 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
       reason: "unlinked",
     });
     expect(notices[0]?.notice.text).toBeString();
+    expect(await inboxStatuses()).toEqual(["processed", "processed"]);
+  });
+
+  test("an agent whose profile needs a repository says so in the thread, once", async () => {
+    const fixture = await agentInSlack("coding");
+    const { handle, notices } = handler();
+    await deliver(fixture, mention("100.000100"));
+    await deliver(fixture, mention("100.000200", { thread_ts: "100.000100" }));
+    await drain(handle);
+    expect(await sessionsOf(fixture)).toEqual([]);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatchObject({
+      agentId: fixture.agentId,
+      channelId: CHANNEL,
+      threadTs: "100.000100",
+      slackUserId: PERSON,
+      reason: "repository_required",
+      notice: { text: SLACK_NOTICE_MESSAGES.repositoryRequired },
+    });
     expect(await inboxStatuses()).toEqual(["processed", "processed"]);
   });
 

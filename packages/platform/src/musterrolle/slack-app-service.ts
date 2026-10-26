@@ -3,6 +3,7 @@ import type {
   CreateSlackAppResponse,
   DeleteSlackAppResponse,
   GetSlackAppResponse,
+  SlackAgentWarning,
   SlackApp,
   SlackAppSettings,
   SlackWarning,
@@ -120,12 +121,28 @@ export function createSlackAppService(deps: {
   consoleOrigin: string | null;
   eventsPublicUrl?: string | null;
   onAgentAppChanged?: (agentId: string) => void;
+  /** The active release's profile when its sessions must name a repository; else null. */
+  repositoryRequiredProfile?: (
+    workspaceId: string,
+    agentId: string,
+  ) => Promise<string | null>;
   now?: () => Date;
   newId?: () => string;
 }) {
   const { authorization, api } = deps;
   const now = deps.now ?? (() => new Date());
   const newId = deps.newId ?? (() => crypto.randomUUID());
+
+  async function agentWarnings(
+    workspaceId: string,
+    agentId: string,
+  ): Promise<SlackAgentWarning[]> {
+    const profileId =
+      (await deps.repositoryRequiredProfile?.(workspaceId, agentId)) ?? null;
+    return profileId === null
+      ? []
+      : [{ code: "repository_required", profile_id: profileId }];
+  }
 
   function ready() {
     if (deps.apps === null || deps.tokens === null) throw STORE_OFF();
@@ -212,7 +229,7 @@ export function createSlackAppService(deps: {
         return {
           slack_app: slackAppView(begun.app),
           created: false,
-          warnings: [],
+          warnings: await agentWarnings(workspaceId, agentId),
         };
       }
     }
@@ -264,7 +281,7 @@ export function createSlackAppService(deps: {
     return {
       slack_app: slackAppView(record),
       created: true,
-      warnings,
+      warnings: [...warnings, ...(await agentWarnings(workspaceId, agentId))],
     };
   }
 
@@ -311,6 +328,7 @@ export function createSlackAppService(deps: {
             ? null
             : slackEventsUrl(deps.eventsPublicUrl, agentId),
         events: record?.events ?? { state: "pending", checked_at: null },
+        warnings: await agentWarnings(caller.ownerId, agentId),
       };
     },
 

@@ -99,6 +99,8 @@ export type SlackSessionHandlerDeps = {
   sessions: Pick<SessionService, "createSession" | "appendMessage">;
   /** The agent's active release, which a new thread's session runs. */
   agentDetails: Pick<AgentStore, "get">;
+  /** Slack names no repository, so such a profile's sessions are refused. */
+  profileNeedsRepository(profileId: string): boolean;
   slack: SlackBotApi;
   /** The app's bot token from the secret store; null when it has none. */
   botToken(workspaceId: string, slackAppId: string): Promise<string | null>;
@@ -323,7 +325,16 @@ export function createSlackSessionHandler(
         ...ids,
         code: error.code,
       });
-      await notice(error.code, { text: SLACK_NOTICE_MESSAGES.failed });
+      if (
+        error.code === "UNSUPPORTED_CAPABILITY" &&
+        deps.profileNeedsRepository(link.profileId)
+      ) {
+        await notice("repository_required", {
+          text: SLACK_NOTICE_MESSAGES.repositoryRequired,
+        });
+      } else {
+        await notice(error.code, { text: SLACK_NOTICE_MESSAGES.failed });
+      }
     }
   };
 

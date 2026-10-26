@@ -1798,7 +1798,7 @@ export interface paths {
         };
         /**
          * The agent's Slack app, if the platform made one
-         * @description The agent's live Slack app (`creating`, `created` or `deleting`), or null when it has none. Secrets appear only as whether each is stored; `secrets.slack_bot_token.configured` says whether Slack handed over a bot token; an install refused after the code exchange keeps it, so the agent's `slack_bot` identity is what says the app is installed. The install link comes from `POST /v1/agents/{id}/slack/install/start`. Owners, admins and the agent's admins; API keys are refused.
+         * @description The agent's live Slack app (`creating`, `created` or `deleting`), or null when it has none. Secrets appear only as whether each is stored; `secrets.slack_bot_token.configured` says whether Slack handed over a bot token; an install refused after the code exchange keeps it, so the agent's `slack_bot` identity is what says the app is installed. The install link comes from `POST /v1/agents/{id}/slack/install/start`. `warnings` holds `repository_required` (with the `profile_id`) while the agent's active release runs on a profile whose sessions must name a repository: Slack names none, so every mention and DM is refused with a notice in the thread. Connecting is not blocked. Owners, admins and the agent's admins; API keys are refused.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -1806,7 +1806,7 @@ export interface paths {
         put?: never;
         /**
          * Create the agent's Slack app
-         * @description Creates one Slack app for the agent with the workspace's App Configuration Token (`apps.manifest.create`): the agent's name, its bot, the agent view and the bot scopes, with no event subscriptions yet. The app is recorded as `creating` before Slack is asked; its signing and client secrets are stored by the server under the app and never returned. Asking again for an agent that has its app returns the same app with `created: false`. If Slack's answer was lost the app stays `creating` and the next request answers 409 SLACK_APP_CREATING; once `uncertain`, check api.slack.com/apps, delete any app made then, and retry with `replace_uncertain: true`. `warnings` says when the config token now belongs to another Slack user than the one who made the workspace's previous app. The agent needs an active release. Installing it into Slack starts at `POST /v1/agents/{id}/slack/install/start`. Owners, admins and the agent's admins from a signed-in console; API keys are refused.
+         * @description Creates one Slack app for the agent with the workspace's App Configuration Token (`apps.manifest.create`): the agent's name, its bot, the agent view and the bot scopes, with no event subscriptions yet. The app is recorded as `creating` before Slack is asked; its signing and client secrets are stored by the server under the app and never returned. Asking again for an agent that has its app returns the same app with `created: false`. If Slack's answer was lost the app stays `creating` and the next request answers 409 SLACK_APP_CREATING; once `uncertain`, check api.slack.com/apps, delete any app made then, and retry with `replace_uncertain: true`. `warnings` says when the config token now belongs to another Slack user than the one who made the workspace's previous app (`config_token_issuer_changed`), and, as on GET, when the active release's profile needs a repository (`repository_required`); neither stops the request. The agent needs an active release. Installing it into Slack starts at `POST /v1/agents/{id}/slack/install/start`. Owners, admins and the agent's admins from a signed-in console; API keys are refused.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -4047,6 +4047,11 @@ export interface components {
                 checked_at: string | null;
                 error?: string;
             };
+            warnings: {
+                /** @constant */
+                code: "repository_required";
+                profile_id: string;
+            }[];
         };
         GetSlackAppManifestResponse: {
             manifest_yaml: string;
@@ -4080,12 +4085,16 @@ export interface components {
                 };
             };
             created: boolean;
-            warnings: {
+            warnings: ({
                 /** @constant */
                 code: "config_token_issuer_changed";
                 previous_user_id: string;
                 user_id: string;
-            }[];
+            } | {
+                /** @constant */
+                code: "repository_required";
+                profile_id: string;
+            })[];
         };
         DeleteSlackAppResponse: {
             slack_app: {
@@ -16793,7 +16802,8 @@ export interface operations {
                      *       "events": {
                      *         "state": "pending",
                      *         "checked_at": null
-                     *       }
+                     *       },
+                     *       "warnings": []
                      *     }
                      */
                     "application/json": components["schemas"]["GetSlackAppResponse"];

@@ -39,6 +39,7 @@ import {
   drainSlackInbox,
   drainSlackOutbox,
   installationLimitsFromEnv,
+  profileNeedsRepository,
   resolveAgentRelease,
   type SecretKey,
   type SessionCatalogConfig,
@@ -177,6 +178,8 @@ export function slackSessionHandler(deps: {
     sessionLinks: createPostgresSessionLinkStore(db),
     sessions,
     agentDetails: agentStore,
+    profileNeedsRepository: (profileId) =>
+      profileNeedsRepository(catalog, profileId),
     slack: createSlackBotApi({
       apiUrl: deps.slackApiUrl ?? slackApiUrlFrom(environment),
     }),

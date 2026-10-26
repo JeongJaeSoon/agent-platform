@@ -17,6 +17,8 @@ export const SLACK_NOTICE_MESSAGES = {
   credentialUnbound:
     "연결 설정이 바뀌어 시작하지 못했어요. 에이전트 관리자에게 문의하세요",
   failed: "지금은 요청을 처리하지 못했어요. 잠시 뒤 다시 시도해 주세요",
+  repositoryRequired:
+    "이 에이전트는 저장소를 골라야 시작할 수 있어 Slack에서는 쓸 수 없어요. 웹 콘솔에서 저장소를 골라 세션을 시작해 주세요",
 } as const;
 
 type NoticeKey = keyof typeof SLACK_NOTICE_MESSAGES;

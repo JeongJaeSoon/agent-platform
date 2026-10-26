@@ -89,6 +89,7 @@ describe("Slack install callback", () => {
           slack_app: null,
           event_url: null,
           events: { state: "pending", checked_at: null },
+          warnings: [],
         }),
       [`GET /v1/agents/${AGENT_ID}/identities`]: () => json(200, { items: [] }),
     });
