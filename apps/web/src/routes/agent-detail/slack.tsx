@@ -37,7 +37,7 @@ import {
   Switch,
 } from "@werft-ai/ui";
 import { Copy, Plus } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useMe } from "../../auth/guard.tsx";
 import { copyText } from "../../components/copy.ts";
 import { errorKey, type Translate, useI18n } from "../../i18n/i18n.tsx";
@@ -45,6 +45,7 @@ import { useAppServices } from "../../services.tsx";
 import { storeOff } from "../workspace-slack.tsx";
 import { type Notify, useToast } from "./toast.tsx";
 import { useCurrentSection } from "./use-current-section.ts";
+import { usePageFits } from "./use-page-fits.ts";
 
 type Binding =
   components["schemas"]["ListSlackBindingsResponse"]["items"][number];
@@ -1303,6 +1304,20 @@ export default function SlackTab({
     keys.map((key) => SECTION[key]),
   );
   const jumped = useRef<string>(undefined);
+  // With nothing to scroll to, the wide list only takes room from the page.
+  const [fits, watchPage] = usePageFits();
+  // The list also hides when the window widens past lg while the page fits.
+  useLayoutEffect(() => {
+    if (!fits) return;
+    const leave = () => {
+      const nav = document.activeElement?.closest("[data-slot=side-nav]");
+      if (!nav || nav.getClientRects().length > 0) return;
+      document.getElementById(current ?? "")?.focus({ preventScroll: true });
+    };
+    leave();
+    window.addEventListener("resize", leave);
+    return () => window.removeEventListener("resize", leave);
+  }, [fits, current]);
   const installed =
     identities.data?.items.some((item) => item.status === "active") ?? false;
   const [wasConnected, setWasConnected] = useState(installed);
@@ -1347,6 +1362,7 @@ export default function SlackTab({
         nav={
           <SideNav
             aria-label={t("slack.sectionNav")}
+            className={fits ? "lg:hidden" : undefined}
             current={here ? t(SECTION_LABEL[here]) : undefined}
             // Folding the list sends focus to its button; take it back to
             // the section the link jumped to.
@@ -1367,7 +1383,7 @@ export default function SlackTab({
           </SideNav>
         }
       >
-        <div className="flex flex-col gap-8">
+        <div ref={watchPage} className="flex flex-col gap-8">
           <SlackStatus agentId={agentId} />
           <SlackChannels
             agentId={agentId}
