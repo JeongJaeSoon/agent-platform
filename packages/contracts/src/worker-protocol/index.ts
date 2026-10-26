@@ -363,7 +363,10 @@ export const heartbeatRequestSchema = workerScopeSchema
 export const heartbeatResponseSchema = z.object({
   lease_expires_at: timestampSchema,
   lease_remaining_ms: leaseRemainingMsSchema,
-  auth_revision: epochSchema,
+  // Nothing reads it: the write is fenced on the request's auth_revision, so
+  // this only echoes it. Optional so the server can stop sending it once no
+  // worker image that requires it is still running.
+  auth_revision: epochSchema.optional(),
   control_pending: z.boolean(),
 });
 
