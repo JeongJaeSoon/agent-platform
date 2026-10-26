@@ -47,11 +47,13 @@ import {
 import { createLogger } from "@werft-ai/observability";
 import {
   type Caller,
+  type CatalogProfile,
   callerFor,
   createAgentService,
   createAuthorizationPolicy,
   drainSlackInbox,
   SecretKey,
+  type SessionCatalog,
   type SessionCatalogConfig,
   type SlackInboundClaim,
   type SlackInboundEventStore,
@@ -178,7 +180,10 @@ async function loadCatalog() {
   if (root) return;
   root = await mkdtemp(join(tmpdir(), "slack-session-"));
   await writeFile(join(root, PROFILES_FILE), PROFILES);
-  await writeFile(join(root, REPOSITORIES_FILE), "repositories: {}\n");
+  await writeFile(
+    join(root, REPOSITORIES_FILE),
+    "repositories:\n  notes-repo:\n    url: https://github.com/acme/notes\n    branch: main\n    profiles: [coding]\n",
+  );
   const started = await slackRoleStartup(
     {
       DATABASE_URL: "postgres://nobody@127.0.0.1:1/none",
@@ -191,7 +196,15 @@ async function loadCatalog() {
 
 type Fixture = Awaited<ReturnType<typeof agentInSlack>>;
 
-async function agentInSlack(profileId = "general") {
+async function agentInSlack(
+  profileId = "general",
+  options: {
+    repositoryId?: string;
+    /** The catalog the release is made against; the handler's stays as loaded. */
+    releasedUnder?: (catalog: SessionCatalog) => SessionCatalog;
+    activate?: boolean;
+  } = {},
+) {
   const workspaceId = randomUUID();
   await db.insert(workspaces).values({
     id: workspaceId,
@@ -224,11 +237,13 @@ async function agentInSlack(profileId = "general") {
       identity: createDatabaseIdentityReader(db),
     }),
     store: createPostgresAgentStore(db),
-    catalog: await loadSessionCatalog({
-      dir: root,
-      env: { PROVIDER_KEY: "api-side-only" },
-      readSecret: noSecret,
-    }),
+    catalog: (options.releasedUnder ?? ((same) => same))(
+      await loadSessionCatalog({
+        dir: root,
+        env: { PROVIDER_KEY: "api-side-only" },
+        readSecret: noSecret,
+      }),
+    ),
     credentials: createPostgresCredentialBindingStore(db),
   });
   const created = await agentsService.createAgent(owner, {
@@ -245,11 +260,14 @@ async function agentInSlack(profileId = "general") {
   const { release } = await agentsService.createRelease(owner, agentId, {
     version_id: created.versions[0]?.id ?? "",
     runtime_profile_id: profileId,
+    ...(options.repositoryId ? { repository_id: options.repositoryId } : {}),
   });
-  await agentsService.activateAgent(owner, agentId, {
-    release_id: release.id,
-    expected_revision: -1,
-  });
+  if (options.activate !== false) {
+    await agentsService.activateAgent(owner, agentId, {
+      release_id: release.id,
+      expected_revision: -1,
+    });
+  }
 
   const slackAppId = randomUUID();
   await db.insert(slackApps).values({
@@ -559,8 +577,75 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     expect(await inboxStatuses()).toEqual(["processed", "processed"]);
   });
 
-  test("an agent whose profile needs a repository says so in the thread, once", async () => {
-    const fixture = await agentInSlack("coding");
+  test("a release with a repository opens the thread's session on it", async () => {
+    const fixture = await agentInSlack("coding", {
+      repositoryId: "notes-repo",
+    });
+    const { handle, notices } = handler();
+    await deliver(fixture, mention("100.000100"));
+    await drain(handle);
+    expect(notices).toEqual([]);
+    const opened = await sessionsOf(fixture);
+    expect(opened).toHaveLength(1);
+    expect(opened[0]).toMatchObject({
+      profileId: "coding",
+      repositoryId: "notes-repo",
+      repoUrl: "https://github.com/acme/notes",
+      agentReleaseId: fixture.releaseId,
+    });
+  });
+
+  test("an agent with no active release says so in the thread", async () => {
+    const fixture = await agentInSlack("general", { activate: false });
+    const { handle, notices } = handler();
+    await deliver(fixture, mention("100.000100"));
+    await drain(handle);
+    expect(await sessionsOf(fixture)).toEqual([]);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatchObject({
+      reason: "no_active_release",
+      notice: { text: SLACK_NOTICE_MESSAGES.noActiveRelease },
+    });
+    expect(await inboxStatuses()).toEqual(["processed"]);
+  });
+
+  test("a release whose profile left the catalog says so in the thread", async () => {
+    const fixture = await agentInSlack("retired", {
+      releasedUnder: (loaded) => ({
+        ...loaded,
+        profiles: {
+          ...loaded.profiles,
+          retired: loaded.profiles.general as CatalogProfile,
+        },
+      }),
+    });
+    const { handle, notices } = handler();
+    await deliver(fixture, mention("100.000100"));
+    await drain(handle);
+    expect(await sessionsOf(fixture)).toEqual([]);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatchObject({
+      reason: "profile_unavailable",
+      notice: { text: SLACK_NOTICE_MESSAGES.profileUnavailable },
+    });
+    expect(await inboxStatuses()).toEqual(["processed"]);
+  });
+
+  test("a release made before its profile needed a repository says so in the thread, once", async () => {
+    // The repository mode is not part of the profile's fingerprint, so the
+    // release still verifies once the catalog requires one.
+    const fixture = await agentInSlack("coding", {
+      releasedUnder: (loaded) => ({
+        ...loaded,
+        profiles: {
+          ...loaded.profiles,
+          coding: {
+            ...(loaded.profiles.coding as CatalogProfile),
+            repository: "optional",
+          },
+        },
+      }),
+    });
     const { handle, notices } = handler();
     await deliver(fixture, mention("100.000100"));
     await deliver(fixture, mention("100.000200", { thread_ts: "100.000100" }));

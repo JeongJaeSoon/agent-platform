@@ -57,13 +57,22 @@ describe("steps validate trimmed values", () => {
     ).toEqual(["slug", "name"]);
   });
 
-  test("the release step needs a profile and sends it trimmed", () => {
+  test("the release step needs a profile and sends it and the repository trimmed", () => {
     expect(
-      agentReleaseStep.safeParse({ runtime_profile_id: "  " }).success,
+      agentReleaseStep.safeParse({
+        runtime_profile_id: "  ",
+        repository_id: "",
+      }).success,
     ).toBe(false);
     expect(
-      agentReleaseStep.parse({ runtime_profile_id: " claude-coding-local " }),
-    ).toEqual({ runtime_profile_id: "claude-coding-local" });
+      agentReleaseStep.parse({
+        runtime_profile_id: " claude-coding-local ",
+        repository_id: " sample-app ",
+      }),
+    ).toEqual({
+      runtime_profile_id: "claude-coding-local",
+      repository_id: "sample-app",
+    });
   });
 
   test("the value sent is the trimmed one", () => {

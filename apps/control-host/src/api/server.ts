@@ -83,6 +83,8 @@ import {
   InstallationConfigError,
   installationLimitsFromEnv,
   profileNeedsRepository,
+  resolveAgentRelease,
+  SessionServiceError,
 } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import {
@@ -434,11 +436,31 @@ const slackApps = createSlackAppService({
   consoleOrigin,
   eventsPublicUrl: slackEventsPublicUrlFrom(process.env),
   onAgentAppChanged: (agentId) => slackSigningSecrets?.invalidate(agentId),
-  repositoryRequiredProfile: async (workspaceId, agentId) => {
-    const profileId = (await agentStore.get(workspaceId, agentId))
-      ?.active_release?.runtime_profile_id;
-    return profileId !== undefined && profileNeedsRepository(catalog, profileId)
-      ? profileId
+  activeReleaseWarning: async (workspaceId, agentId) => {
+    const release = (await agentStore.get(workspaceId, agentId))
+      ?.active_release;
+    if (!release) return { code: "no_active_release" };
+    try {
+      await resolveAgentRelease(
+        { store: agentStore, catalog },
+        workspaceId,
+        release.id,
+      );
+    } catch (error) {
+      if (
+        error instanceof SessionServiceError &&
+        error.code === "PROFILE_DIGEST_MISMATCH"
+      ) {
+        return {
+          code: "profile_unavailable",
+          profile_id: release.runtime_profile_id,
+        };
+      }
+      throw error;
+    }
+    return release.repository_id === null &&
+      profileNeedsRepository(catalog, release.runtime_profile_id)
+      ? { code: "repository_required", profile_id: release.runtime_profile_id }
       : null;
   },
 });

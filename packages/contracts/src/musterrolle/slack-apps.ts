@@ -119,16 +119,28 @@ export const slackWarningSchema = z
   .strict();
 
 /**
- * The agent's active release runs on a profile whose sessions must name a
- * repository. Slack names none, so every mention and DM is refused with a
- * notice; connecting still goes ahead.
+ * Why the agent's Slack mentions and DMs are refused with a notice while
+ * connecting still goes ahead. `repository_required`: the active release
+ * runs on a profile whose sessions must name a repository and names none.
+ * `profile_unavailable`: the catalog no longer has the active release's
+ * profile, or defines it otherwise than it was released. `no_active_release`:
+ * nothing is activated yet.
  */
-export const slackAgentWarningSchema = z
-  .object({
-    code: z.literal("repository_required"),
-    profile_id: z.string(),
-  })
-  .strict();
+export const slackAgentWarningSchema = z.discriminatedUnion("code", [
+  z
+    .object({
+      code: z.literal("repository_required"),
+      profile_id: z.string(),
+    })
+    .strict(),
+  z
+    .object({
+      code: z.literal("profile_unavailable"),
+      profile_id: z.string(),
+    })
+    .strict(),
+  z.object({ code: z.literal("no_active_release") }).strict(),
+]);
 
 export const createSlackAppRequestSchema = z
   .object({
@@ -149,7 +161,7 @@ export const createSlackAppResponseSchema = z
     warnings: z.array(
       z.discriminatedUnion("code", [
         slackWarningSchema,
-        slackAgentWarningSchema,
+        ...slackAgentWarningSchema.options,
       ]),
     ),
   })

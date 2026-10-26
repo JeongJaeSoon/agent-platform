@@ -92,6 +92,7 @@ function storedRelease(profile: CatalogProfile = PROFILE): AgentRelease {
     agent_id: AGENT,
     card_sha256: "a".repeat(64),
     runtime_profile_id: "coding",
+    repository_id: null,
     profile_digest: profileFingerprint(profile),
     runtime_config_snapshot: { model: "claude-sonnet-5" },
     effective_tools: { tools: ["Read"], mcp: [] },
@@ -183,7 +184,16 @@ function app(
   const service = createAgentService({
     authorization: options.authorization ?? allowing,
     store: agentStore,
-    catalog: { profiles: { coding: PROFILE }, repositories: {} },
+    catalog: {
+      profiles: { coding: PROFILE },
+      repositories: {
+        "sample-app": {
+          url: "https://github.com/acme/sample-app",
+          branch: "main",
+          profiles: ["coding"],
+        },
+      },
+    },
     credentials: { unboundRefs: async () => options.unbound ?? [] },
   });
   const routed: Routed =
@@ -468,7 +478,11 @@ describe("PATCH /v1/agents/{id}", () => {
 
 describe("POST /v1/agents/{id}/releases", () => {
   const path = `/v1/agents/${AGENT}/releases`;
-  const body = { version_id: VERSION, runtime_profile_id: "coding" };
+  const body = {
+    version_id: VERSION,
+    runtime_profile_id: "coding",
+    repository_id: "sample-app",
+  };
 
   test("releases a version with a hash id and no credential", async () => {
     const response = await send(app(), "POST", path, body);
@@ -478,8 +492,22 @@ describe("POST /v1/agents/{id}/releases", () => {
     );
     expect(released.created).toBe(true);
     expect(released.release.id).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(released.release.repository_id).toBe("sample-app");
     expect(released.release.approved_by).toBeNull();
     expect(JSON.stringify(released)).not.toContain("catalog-provider-key");
+  });
+
+  test("a release without a repository for a profile that needs one is 422 and says why", async () => {
+    const { repository_id: _, ...bare } = body;
+    const response = await send(app(), "POST", path, bare);
+    expect(response.status).toBe(422);
+    expect(await response.json()).toMatchObject({
+      error: {
+        code: "UNSUPPORTED_CAPABILITY",
+        message:
+          "repository_id: Profile coding needs a repository: send repository_id",
+      },
+    });
   });
 
   test("a card tool outside the profile or an unknown profile is 422", async () => {

@@ -29,6 +29,8 @@ export const agentReleaseStep = z.object({
   runtime_profile_id: trimmed(
     createAgentReleaseRequestSchema.shape.runtime_profile_id,
   ),
+  /** Empty for none, which only a profile that may go without one takes. */
+  repository_id: z.string().trim(),
 });
 
 export const inviteStep = z.object({

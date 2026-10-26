@@ -49,7 +49,13 @@ const catalog: SessionCatalog = {
       },
     },
   },
-  repositories: {},
+  repositories: {
+    "sample-app": {
+      url: "https://github.com/acme/sample-app",
+      branch: "main",
+      profiles: ["alpha-real"],
+    },
+  },
 };
 
 function appWithKey(scopes: SessionScope[]) {
@@ -92,6 +98,7 @@ test("lists every profile by id with the model, and nothing of the provider", as
         runtime_version: "0.3.270",
         billing: "metered",
         repository_mode: "required",
+        repository_ids: ["sample-app"],
       },
       {
         id: "zeta-local",
@@ -101,6 +108,7 @@ test("lists every profile by id with the model, and nothing of the provider", as
         runtime_version: "0.3.270",
         billing: "none",
         repository_mode: "none",
+        repository_ids: [],
       },
     ],
   });

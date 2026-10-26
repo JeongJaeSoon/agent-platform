@@ -56,6 +56,7 @@ function identityOf(
   return {
     agent_id: AGENT_ID,
     card_sha256: cardContentSha256(value),
+    repository_id: null,
     ...resolved.content,
   };
 }
@@ -92,6 +93,7 @@ describe("deriveReleaseId", () => {
         agent_id: AGENT_ID,
         card_sha256: "a".repeat(64),
         runtime_profile_id: "coding",
+        repository_id: null,
         profile_digest: `sha256:${"c".repeat(64)}`,
         runtime_config_snapshot: { model: "claude-sonnet-5", tools: ["Read"] },
         effective_tools: { tools: ["Read"], mcp: [] },
@@ -108,6 +110,7 @@ describe("deriveReleaseId", () => {
         agent_id: AGENT_ID,
         card_sha256: "a".repeat(64),
         runtime_profile_id: "coding",
+        repository_id: null,
         profile_digest: `sha256:${"c".repeat(64)}`,
         runtime_config_snapshot: { model: "claude-sonnet-5", tools: ["Read"] },
         effective_tools: { tools: ["Read"], mcp: [] },
@@ -143,6 +146,7 @@ describe("deriveReleaseId", () => {
       { ...base, agent_id: "019a0000-0000-7000-8000-0000000000ff" },
       { ...base, card_sha256: "b".repeat(64) },
       { ...base, runtime_profile_id: "other" },
+      { ...base, repository_id: "sample-app" },
       { ...base, profile_digest: "sha256:other" },
       {
         ...base,

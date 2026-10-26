@@ -225,7 +225,10 @@ export function createSlackSessionHandler(
         agent.agentId,
       );
       if (!detail?.active_release) {
-        deps.logger.warn("Slack agent has no active release; ignored", ids);
+        deps.logger.warn("Slack agent has no active release; refused", ids);
+        await notice("no_active_release", {
+          text: SLACK_NOTICE_MESSAGES.noActiveRelease,
+        });
         return;
       }
       release = detail.active_release;
@@ -331,6 +334,10 @@ export function createSlackSessionHandler(
       ) {
         await notice("repository_required", {
           text: SLACK_NOTICE_MESSAGES.repositoryRequired,
+        });
+      } else if (error.code === "PROFILE_DIGEST_MISMATCH") {
+        await notice("profile_unavailable", {
+          text: SLACK_NOTICE_MESSAGES.profileUnavailable,
         });
       } else {
         await notice(error.code, { text: SLACK_NOTICE_MESSAGES.failed });

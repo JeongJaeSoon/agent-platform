@@ -360,6 +360,7 @@ describe("agent, version and release", () => {
       version_id: VERSION_ID,
       card_sha256: "a".repeat(64),
       runtime_profile_id: "claude-coding-v1",
+      repository_id: null,
       profile_digest: "sha256:fp",
       runtime_config_snapshot: {
         model: "claude-sonnet-5",
@@ -388,6 +389,7 @@ describe("agent, version and release", () => {
       version_id: VERSION_ID,
       card_sha256: "a".repeat(64),
       runtime_profile_id: "claude-coding-v1",
+      repository_id: null,
       profile_digest: "sha256:fp",
       runtime_config_snapshot: { model: "claude-sonnet-5" },
       effective_tools: { tools: ["Read"], mcp: [] },
@@ -478,6 +480,7 @@ describe("agent, version and release", () => {
       version_id: VERSION_ID,
       card_sha256: "a".repeat(64),
       runtime_profile_id: "claude-coding-v1",
+      repository_id: null,
       profile_digest: "sha256:fp",
       runtime_config_snapshot: { model: "claude-sonnet-5" },
       effective_tools: { tools: ["Read"], mcp: [] },

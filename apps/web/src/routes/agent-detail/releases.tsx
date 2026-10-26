@@ -86,6 +86,21 @@ export function Releases({
   const profile = items.some((item) => item.id === chosen)
     ? chosen
     : ((items.find((item) => item.model === cardModel) ?? items[0])?.id ?? "");
+  const [chosenRepository, setRepository] = useState(
+    detail.releases.at(-1)?.repository_id ?? "",
+  );
+  const pickedProfile = items.find((item) => item.id === profile);
+  const repositoryMode = pickedProfile?.repository_mode;
+  const repositories = pickedProfile?.repository_ids ?? [];
+  // "" is no repository, which only an optional profile offers.
+  const repository =
+    repositoryMode === undefined || repositoryMode === "none"
+      ? ""
+      : repositories.includes(chosenRepository)
+        ? chosenRepository
+        : repositoryMode === "required"
+          ? (repositories[0] ?? "")
+          : "";
   const [open, setOpen] = useState(false);
   const submitted = useRef(false);
   // Only roles that list members get names; anyone else reads "a member".
@@ -114,7 +129,11 @@ export function Releases({
       unwrap(
         client.POST("/v1/agents/{id}/releases", {
           params: { path: { id: detail.agent.id } },
-          body: { version_id: versionId, runtime_profile_id: profile },
+          body: {
+            version_id: versionId,
+            runtime_profile_id: profile,
+            ...(repository === "" ? {} : { repository_id: repository }),
+          },
         }),
       ),
     onMutate: () => onOutcome(null),
@@ -204,6 +223,22 @@ export function Releases({
                   onChange={setProfile}
                 />
               )}
+              {repositoryMode === undefined ||
+              repositoryMode === "none" ? null : repositories.length === 0 &&
+                repositoryMode === "required" ? (
+                <p className="m-0 text-destructive text-sm" role="alert">
+                  {t("agent.releases.repositoryMissing")}
+                </p>
+              ) : (
+                <RepositorySelect
+                  label={t("agent.releases.repository")}
+                  hint={t("agent.releases.repositoryHint")}
+                  repositories={repositories}
+                  optional={repositoryMode === "optional"}
+                  value={repository}
+                  onChange={setRepository}
+                />
+              )}
               {mismatch ? (
                 <Alert asChild variant="amber">
                   <output>
@@ -223,7 +258,10 @@ export function Releases({
                 <Button
                   type="submit"
                   disabled={
-                    release.isPending || versionId === "" || profile === ""
+                    release.isPending ||
+                    versionId === "" ||
+                    profile === "" ||
+                    (repositoryMode === "required" && repository === "")
                   }
                 >
                   {release.isPending
@@ -253,6 +291,7 @@ export function Releases({
                   {t("agent.releases.colStatus")}
                 </TableHead>
                 <TableHead>{t("agent.releases.profile")}</TableHead>
+                <TableHead>{t("agent.releases.repository")}</TableHead>
                 <TableHead className="whitespace-nowrap">
                   {t("agent.releases.colBy")}
                 </TableHead>
@@ -289,8 +328,21 @@ export function Releases({
                             : t("agent.releases.never")}
                       </Badge>
                     </TableCell>
+                    <TableCell>
+                      <span className="font-mono text-caption">
+                        {item.runtime_profile_id}
+                      </span>
+                      {profiles.isSuccess &&
+                      !items.some(
+                        (listed) => listed.id === item.runtime_profile_id,
+                      ) ? (
+                        <Badge variant="amber" className="ml-2">
+                          {t("agent.releases.profileGone")}
+                        </Badge>
+                      ) : null}
+                    </TableCell>
                     <TableCell className="font-mono text-caption">
-                      {item.runtime_profile_id}
+                      {item.repository_id ?? t("agent.releases.repositoryNone")}
                     </TableCell>
                     <TableCell>
                       {(item.created_by
@@ -366,6 +418,47 @@ function ProfileSelect({
       </NativeSelect>
       <FieldDescription>{hint}</FieldDescription>
       <FieldDescription>{t("agent.releases.profileUnlisted")}</FieldDescription>
+    </Field>
+  );
+}
+
+function RepositorySelect({
+  label,
+  hint,
+  repositories,
+  optional,
+  value,
+  onChange,
+}: {
+  readonly label: string;
+  readonly hint: string;
+  readonly repositories: readonly string[];
+  /** Offers no repository, for a profile whose sessions may go without one. */
+  readonly optional: boolean;
+  readonly value: string;
+  readonly onChange: (id: string) => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <Field className="w-auto max-w-full">
+      <FieldLabel>{label}</FieldLabel>
+      <NativeSelect
+        required={!optional}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        {optional ? (
+          <NativeSelectOption value="">
+            {t("agent.releases.repositoryNone")}
+          </NativeSelectOption>
+        ) : null}
+        {repositories.map((id) => (
+          <NativeSelectOption key={id} value={id}>
+            {id}
+          </NativeSelectOption>
+        ))}
+      </NativeSelect>
+      <FieldDescription>{hint}</FieldDescription>
     </Field>
   );
 }

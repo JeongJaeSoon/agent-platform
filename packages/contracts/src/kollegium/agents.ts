@@ -329,6 +329,11 @@ export const agentReleaseSchema = z
     version_id: agentVersionIdSchema,
     card_sha256: sha256HexSchema,
     runtime_profile_id: z.string().min(1).max(128),
+    /**
+     * The catalog repository the release's sessions work on unless one
+     * names another; null runs them without one, as the profile allows.
+     */
+    repository_id: z.string().min(1).max(128).nullable(),
     profile_digest: z.string().min(1).max(128),
     runtime_config_snapshot: runtimeConfigSnapshotSchema,
     effective_tools: effectiveToolsSchema,
@@ -450,6 +455,8 @@ export const createAgentReleaseRequestSchema = z
   .object({
     version_id: agentVersionIdSchema,
     runtime_profile_id: z.string().min(1).max(128),
+    /** Required when the profile's `repository_mode` is `required`, refused when `none`. */
+    repository_id: z.string().min(1).max(128).optional(),
   })
   .strict();
 /** `created: false` when the same content was released before. */

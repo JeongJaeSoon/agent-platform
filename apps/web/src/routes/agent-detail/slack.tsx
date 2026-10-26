@@ -40,7 +40,12 @@ import { Copy, Plus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useMe } from "../../auth/guard.tsx";
 import { copyText } from "../../components/copy.ts";
-import { errorKey, type Translate, useI18n } from "../../i18n/i18n.tsx";
+import {
+  errorKey,
+  type MessageKey,
+  type Translate,
+  useI18n,
+} from "../../i18n/i18n.tsx";
 import { useAppServices } from "../../services.tsx";
 import { storeOff } from "../workspace-slack.tsx";
 import { type Notify, useToast } from "./toast.tsx";
@@ -80,6 +85,23 @@ const SECTION_LABEL = {
   advanced: "slack.advanced",
   danger: "slack.danger",
 } as const;
+const SLACK_WARNING_KEY = {
+  repository_required: {
+    title: "slack.repositoryRequired.title",
+    body: "slack.repositoryRequired.body",
+  },
+  profile_unavailable: {
+    title: "slack.profileUnavailable.title",
+    body: "slack.profileUnavailable.body",
+  },
+  no_active_release: {
+    title: "slack.noActiveRelease.title",
+    body: "slack.noActiveRelease.body",
+  },
+} as const satisfies Record<
+  components["schemas"]["GetSlackAppResponse"]["warnings"][number]["code"],
+  { title: MessageKey; body: MessageKey }
+>;
 const SECTION_BOX =
   "flex scroll-mt-4 flex-col gap-[var(--ap-space-block)] outline-none";
 const HEADING = "m-0 font-semibold text-body leading-5";
@@ -433,9 +455,8 @@ export function SlackConnect({
     (item) => item.provider === "slack_bot" && item.status === "active",
   );
   const record = app.data?.slack_app;
-  const needsRepository = app.data?.warnings.find(
-    (warning) => warning.code === "repository_required",
-  );
+  // At most one: the server reports the first reason sessions would fail.
+  const warning = app.data?.warnings[0];
   const refresh = () => cache.invalidateQueries({ queryKey: key });
   const connect = useMutation({
     mutationFn: async () => {
@@ -532,12 +553,12 @@ export function SlackConnect({
             </Badge>
           )}
         </div>
-        {needsRepository ? (
+        {warning ? (
           <Alert variant="amber">
-            <AlertTitle>{t("slack.repositoryRequired.title")}</AlertTitle>
+            <AlertTitle>{t(SLACK_WARNING_KEY[warning.code].title)}</AlertTitle>
             <AlertDescription>
-              {t("slack.repositoryRequired.body", {
-                profile: needsRepository.profile_id,
+              {t(SLACK_WARNING_KEY[warning.code].body, {
+                profile: "profile_id" in warning ? warning.profile_id : "",
               })}
             </AlertDescription>
           </Alert>

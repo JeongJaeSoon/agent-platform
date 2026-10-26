@@ -370,6 +370,7 @@ describe("에이전트 카드", () => {
       version_id: version.id,
       card_sha256: "0".repeat(64),
       runtime_profile_id: PROFILE,
+      repository_id: null,
       profile_digest: "digest-1",
       runtime_config_snapshot: {},
       effective_tools: { tools: ["Read"], mcp: [] },
@@ -940,12 +941,17 @@ describe("새 에이전트", () => {
       "프로필",
     )) as HTMLSelectElement;
     expect(profile.value).toBe(PROFILE);
+    // The profile needs a repository: the first one that allows it is offered.
+    expect((screen.getByLabelText("저장소") as HTMLSelectElement).value).toBe(
+      "sample-app",
+    );
     await user.click(screen.getByRole("button", { name: "배포 판 만들기" }));
 
     await atStep("켜기");
     expect(posted(api, `/v1/agents/${AGENT_ID}/releases`)).toEqual({
       version_id: server.versions[0]?.id,
       runtime_profile_id: PROFILE,
+      repository_id: "sample-app",
     });
     await user.click(screen.getByRole("button", { name: "에이전트 켜기" }));
     await atStep("채널 연결");
@@ -1393,12 +1399,24 @@ describe("에이전트 상세", () => {
     // A settled request closes the dialog; the choice is kept for the retry.
     dialog = await openRelease(user);
     await user.selectOptions(dialog.getByLabelText("프로필"), PROFILE);
+    // The profile needs a repository; the release names the one offered.
+    expect((dialog.getByLabelText("저장소") as HTMLSelectElement).value).toBe(
+      "sample-app",
+    );
     await user.click(dialog.getByRole("button", { name: "release 만들기" }));
     expect(
       await screen.findByText(
         "release를 만들었습니다(version 1). 아직 활성화되지 않았습니다.",
       ),
     ).toBeDefined();
+    expect(
+      api.calls.filter((c) => c.path.endsWith("/releases")).at(-1)?.body,
+    ).toMatchObject({
+      runtime_profile_id: PROFILE,
+      repository_id: "sample-app",
+    });
+    const row = (await screen.findAllByRole("row"))[1] as HTMLElement;
+    expect(row.textContent).toContain("sample-app");
     await user.click(
       await screen.findByRole("button", {
         name: `version 1 · ${PROFILE} 활성화`,

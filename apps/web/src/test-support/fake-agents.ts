@@ -144,6 +144,7 @@ export function agentServer() {
       const body = (await request.json()) as {
         version_id: string;
         runtime_profile_id: string;
+        repository_id?: string;
       };
       if (body.runtime_profile_id !== "claude-coding-local")
         return apiError(
@@ -160,6 +161,7 @@ export function agentServer() {
         version_id: body.version_id,
         card_sha256: sha(releases.length + 10),
         runtime_profile_id: body.runtime_profile_id,
+        repository_id: body.repository_id ?? null,
         profile_digest: "digest-1",
         runtime_config_snapshot: {},
         effective_tools: { tools: ["Read"], mcp: [] },
@@ -250,5 +252,6 @@ function profile(id: string, model: string): ProfileSummary {
     runtime_version: "0.3.270",
     billing: "metered",
     repository_mode: "required",
+    repository_ids: ["sample-app"],
   };
 }

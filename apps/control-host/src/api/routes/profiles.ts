@@ -22,6 +22,13 @@ export function listProfiles(catalog: SessionCatalog): ListProfilesResponse {
         runtime_version: profile.runtime_version,
         billing: isUnmetered(profile) ? "none" : "metered",
         repository_mode: repositoryModeOf(profile),
+        repository_ids:
+          repositoryModeOf(profile) === "none"
+            ? []
+            : Object.entries(catalog.repositories)
+                .filter(([, repository]) => repository.profiles.includes(id))
+                .map(([repositoryId]) => repositoryId)
+                .sort(),
       })),
   };
 }
