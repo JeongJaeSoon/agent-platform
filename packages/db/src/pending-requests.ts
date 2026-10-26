@@ -88,6 +88,10 @@ function askerIsLive(at: Date | typeof DB_NOW) {
 // SELECT must not straddle an expiry or a lease end.
 const STATEMENT_NOW = sql<Date>`statement_timestamp()`;
 
+// That instant as text, selected beside a status so a later read can judge
+// at it: a JS Date would drop the microseconds and miss a boundary row.
+export const READ_AT = sql<string>`statement_timestamp()::text`;
+
 // A parked request outlives the attempt that asked: its turn ended with a
 // checkpoint, and the answer is what resumes it.
 function actionable(at: Date | typeof DB_NOW) {
@@ -377,11 +381,14 @@ function inputWaitOf(
  * parked row makes it `parked`, a park the platform is draining `parking`,
  * anything else open `waiting`. With nothing open, a session still paused
  * for its park reads `expired` when every request of the turn it parked
- * expired, the group it would resume on.
+ * expired, the group it would resume on. Judged at `readAt` (`READ_AT` of
+ * the statement that projected the rows' status), so a session never reads
+ * needs_input beside a wait of null.
  */
 export async function readInputWaits(
   executor: Database,
   rows: Pick<SessionRow, "id" | "admissionState" | "pauseReason">[],
+  readAt: string,
 ): Promise<Map<string, InputWait | null>> {
   const result = new Map<string, InputWait | null>();
   if (rows.length === 0) return result;
@@ -406,7 +413,7 @@ export async function readInputWaits(
           pendingRequests.sessionId,
           rows.map((row) => row.id),
         ),
-        actionable(STATEMENT_NOW),
+        actionable(sql<Date>`${readAt}::timestamptz`),
       ),
     )
     .orderBy(asc(pendingRequests.createdAt), asc(pendingRequests.requestId));

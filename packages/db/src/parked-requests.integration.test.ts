@@ -29,7 +29,10 @@ import { revokeExecutionAtomic } from "./execution-revocation.ts";
 import { createPostgresTurnInterrupts } from "./interrupt-control.ts";
 import { pauseBlocker } from "./pause-control.ts";
 import { createPostgresWorkerPendingStore } from "./pending-control.ts";
-import { createPostgresPendingRequests } from "./pending-requests.ts";
+import {
+  createPostgresPendingRequests,
+  readInputWaits,
+} from "./pending-requests.ts";
 import {
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,
@@ -1178,6 +1181,35 @@ integration("parked pending requests on PostgreSQL", () => {
       (await reader().getSession(answered.owner.ownerId, answered.sessionId))
         ?.input_wait,
     ).toBeNull();
+  });
+
+  test("a wait is judged at the instant its session's status was", async () => {
+    const { sessionId, worker } = await runningSession();
+    const requestId = await register(worker, HASH_A);
+    // Inside the asker's lease, so only the expiry decides.
+    await db
+      .update(pendingRequests)
+      .set({ expiresAt: sql`clock_timestamp() + interval '1 second'` })
+      .where(eq(pendingRequests.requestId, requestId));
+    const [row] = await db
+      .select()
+      .from(sessions)
+      .where(eq(sessions.id, sessionId));
+    if (!row) throw new Error("session row missing");
+    const waitAt = async (at: string) =>
+      (await readInputWaits(db, [row], at)).get(sessionId) ?? null;
+    // Microseconds kept: a row expiring 1µs after the read still counted.
+    const [bounds] = await db
+      .select({
+        before: sql<string>`(${pendingRequests.expiresAt} - interval '1 microsecond')::text`,
+        after: sql<string>`${pendingRequests.expiresAt}::text`,
+      })
+      .from(pendingRequests)
+      .where(eq(pendingRequests.requestId, requestId));
+    if (!bounds) throw new Error("request row missing");
+    const { before, after } = bounds;
+    expect((await waitAt(before))?.request_ids).toEqual([requestId]);
+    expect(await waitAt(after)).toBeNull();
   });
 
   test("a session keeps the waits it was created with", async () => {

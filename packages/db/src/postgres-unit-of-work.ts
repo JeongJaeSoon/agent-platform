@@ -91,6 +91,7 @@ import {
   actionableOfTurn,
   IN_FLIGHT_STATUSES,
   publicStatus,
+  READ_AT,
   readInputWaits,
 } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
@@ -681,6 +682,8 @@ export function createPostgresSessionReader(
       awaitingInput: boolean;
       lastEventAt: Date | null;
     }[],
+    // READ_AT of the statement that read awaitingInput.
+    readAt: string,
   ): Promise<SessionRecord[]> {
     if (rows.length === 0) return [];
     const ids = rows.map(({ session }) => session.id);
@@ -727,6 +730,7 @@ export function createPostgresSessionReader(
     const inputWaits = await readInputWaits(
       executor,
       rows.map(({ session }) => session),
+      readAt,
     );
     const openTurns = await executor
       .select({
@@ -857,6 +861,7 @@ export function createPostgresSessionReader(
           cursorAt: CREATED_AT_TEXT,
           awaitingInput: sql<boolean>`exists (${actionableOfSession(db)})`,
           lastEventAt: LAST_EVENT_AT,
+          readAt: READ_AT,
         })
         .from(sessions)
         .where(
@@ -883,7 +888,7 @@ export function createPostgresSessionReader(
       const page = rows.slice(0, query.limit);
       const last = page[page.length - 1];
       return {
-        items: await summarize(db, page),
+        items: last ? await summarize(db, page, last.readAt) : [],
         next_cursor:
           rows.length > query.limit && last
             ? encodeCreatedAtCursor({
@@ -911,6 +916,7 @@ export function createPostgresSessionReader(
               session: sessions,
               pendingCount: sql<number>`(SELECT count(*)::int FROM (${actionableOfSession(tx)}) AS actionable)`,
               lastEventAt: LAST_EVENT_AT,
+              readAt: READ_AT,
               isolation: sql<string>`current_setting('transaction_isolation')`,
             })
             .from(sessions)
@@ -923,13 +929,17 @@ export function createPostgresSessionReader(
             throw new Error("Session detail needs a snapshot transaction");
           }
           const row = read.session;
-          const [summary] = await summarize(tx, [
-            {
-              session: row,
-              awaitingInput: read.pendingCount > 0,
-              lastEventAt: read.lastEventAt,
-            },
-          ]);
+          const [summary] = await summarize(
+            tx,
+            [
+              {
+                session: row,
+                awaitingInput: read.pendingCount > 0,
+                lastEventAt: read.lastEventAt,
+              },
+            ],
+            read.readAt,
+          );
           if (!summary) return null;
           // A pool launch carries whatever generation its backend picked, so
           // the highest generation need not be the execution that claimed
@@ -999,7 +1009,9 @@ export function createPostgresSessionReader(
                 })
               : null,
             checkpoint_revision: row.checkpointRevision,
-            input_wait: (await readInputWaits(tx, [row])).get(row.id) ?? null,
+            input_wait:
+              (await readInputWaits(tx, [row], read.readAt)).get(row.id) ??
+              null,
             pause_reason:
               row.pauseReason === "awaiting_input" ? row.pauseReason : null,
             pending_request_count: read.pendingCount,
