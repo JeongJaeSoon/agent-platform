@@ -107,12 +107,14 @@ describe("mapSessionOf", () => {
         KO,
       ).pending;
     expect(waiting({ kind: "permission", prompt: null })).toEqual({
+      kind: "approval",
       tool: "Bash · git push origin fix/webhook-retry",
       waitedMinutes: 12,
     });
     expect(
       waiting({ kind: "question", prompt: "'workspace'를 어떻게 옮길까요?" }),
     ).toEqual({
+      kind: "question",
       tool: "질문 · 'workspace'를 어떻게 옮길까요?",
       waitedMinutes: 12,
     });
