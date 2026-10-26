@@ -6,6 +6,8 @@ const BASE_CONFIGURATION = {
   agent: { disabled: true },
   hideClientButton: true,
   isEditable: false,
+  // Scalar offers its MCP generator on localhost unless told not to.
+  mcp: { disabled: true },
   showDeveloperTools: "never",
   showToolbar: "never",
   telemetry: false,

@@ -55,6 +55,7 @@ test("serves the API reference with same-origin test requests and no authenticat
     "&quot;preferredSecurityScheme&quot;:&quot;bearerApiKey&quot;",
   );
   expect(body).toContain("&quot;persistAuth&quot;:false");
+  expect(body).toContain("&quot;mcp&quot;:{&quot;disabled&quot;:true}");
   expect(body).toContain("&quot;telemetry&quot;:false");
   expect(body).not.toContain("proxyUrl");
   expect(body).not.toMatch(/(?:src|href)="https?:\/\//);
