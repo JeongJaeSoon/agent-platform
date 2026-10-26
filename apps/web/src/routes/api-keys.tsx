@@ -40,6 +40,7 @@ import {
   PageBreadcrumb,
   PageBreadcrumbCurrent,
   PageBreadcrumbLink,
+  Link as TextLink,
 } from "@werft-ai/ui";
 import { Check, CircleAlert, Clock, Copy, Plus } from "lucide-react";
 import {
@@ -203,6 +204,17 @@ function KeyKindGuide({ kind }: { readonly kind: KeyKind }) {
               ))}
             </ul>
           </div>
+          <p className="m-0">
+            {t("apiKeys.docs")}{" "}
+            {/* Served by the API itself, outside the console's router. */}
+            <TextLink
+              href="/docs"
+              target="_blank"
+              newTabLabel={t("apiKeys.docsNewTab")}
+            >
+              {t("apiKeys.docsLink")}
+            </TextLink>
+          </p>
         </AlertDescription>
       </section>
     </Alert>
