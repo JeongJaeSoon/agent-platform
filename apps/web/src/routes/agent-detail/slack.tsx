@@ -1281,7 +1281,7 @@ export default function SlackTab({
   );
   const jumped = useRef<string>(undefined);
   // With nothing to scroll to, the wide list only takes room from the page.
-  const fits = usePageFits(SECTION.channels);
+  const [fits, watchPage] = usePageFits();
   // The list also hides when the window widens past lg while the page fits.
   useLayoutEffect(() => {
     if (!fits) return;
@@ -1359,7 +1359,7 @@ export default function SlackTab({
           </SideNav>
         }
       >
-        <div className="flex flex-col gap-8">
+        <div ref={watchPage} className="flex flex-col gap-8">
           <SlackStatus agentId={agentId} />
           <SlackChannels
             agentId={agentId}

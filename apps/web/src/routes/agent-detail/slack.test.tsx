@@ -339,7 +339,7 @@ describe("Slack management", () => {
 
   test("hides the wide section list while the whole page fits the window", async () => {
     const root = document.documentElement;
-    let pageHeight = 2000;
+    let pageHeight = 900;
     Object.defineProperty(root, "clientHeight", {
       configurable: true,
       get: () => 900,
@@ -351,7 +351,13 @@ describe("Slack management", () => {
     try {
       renderAt(DETAIL, routes(APP, true));
       const nav = await screen.findByRole("navigation", { name: "Slack 구역" });
-      expect(nav.classList.contains("lg:hidden")).toBe(false);
+      // A page that fits from the start never shows the list.
+      expect(nav.classList.contains("lg:hidden")).toBe(true);
+      pageHeight = 2000;
+      window.dispatchEvent(new Event("resize"));
+      await waitFor(() =>
+        expect(nav.classList.contains("lg:hidden")).toBe(false),
+      );
       const link = within(nav).getByRole("link", { name: "기본" });
       link.focus();
       // happy-dom applies no stylesheet: lay the list out as lg:hidden would.
