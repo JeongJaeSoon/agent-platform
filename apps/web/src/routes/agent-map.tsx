@@ -1,8 +1,17 @@
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQueries, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { unwrap } from "@werft-ai/client";
-import type { ListSessionsResponse } from "@werft-ai/contracts";
-import { queryKeys, waitingSessionsQuery } from "@werft-ai/core";
+import type {
+  ListPendingRequestsResponse,
+  ListSessionsResponse,
+  PendingRequest,
+  SessionSummary,
+} from "@werft-ai/contracts";
+import {
+  pendingRequestsQuery,
+  queryKeys,
+  waitingSessionsQuery,
+} from "@werft-ai/core";
 import { useAgentPlatform } from "@werft-ai/react";
 import {
   AgentMapPage,
@@ -51,7 +60,7 @@ function firstCard(sessions: readonly MapSession[]) {
 /**
  * The newest page plus the waiting sessions older than it, so the strip
  * counts what the sidebar badge counts. The waiting list is the badge's own
- * query: no read of its own, and the newest page wins where both list one.
+ * query, so it adds no read; where both list a session, the later read wins.
  */
 function useBoardSessions() {
   const { client } = useAgentPlatform();
@@ -59,19 +68,106 @@ function useBoardSessions() {
   const waiting = useQuery(waitingSessionsQuery(client));
   // Placed together on the first read, or the older cards would come in
   // as new and push the lanes down; a failed waiting read leaves them out.
-  const data = useMemo(() => {
+  const merged = useMemo(() => {
     if (waiting.isPending) return undefined;
     if (!list.data || !waiting.data) return list.data;
-    const seen = new Set(list.data.items.map((session) => session.id));
-    const older = waiting.data.items.filter((session) => !seen.has(session.id));
-    return older.length === 0
-      ? list.data
-      : { ...list.data, items: [...list.data.items, ...older] };
-  }, [list.data, waiting.data, waiting.isPending]);
+    const later = waiting.dataUpdatedAt > list.dataUpdatedAt;
+    const byId = new Map(list.data.items.map((s) => [s.id, s]));
+    for (const session of waiting.data.items)
+      if (later || !byId.has(session.id)) byId.set(session.id, session);
+    return { ...list.data, items: [...byId.values()] };
+  }, [
+    list.data,
+    list.dataUpdatedAt,
+    waiting.data,
+    waiting.dataUpdatedAt,
+    waiting.isPending,
+  ]);
+  const data = useUnseenRequests(merged);
   return {
     list,
     data,
     readAt: Math.max(list.dataUpdatedAt, waiting.dataUpdatedAt),
+  };
+}
+
+/**
+ * A waiting session whose open request the list's activity does not show
+ * (asked before its event window, or behind a newer open call) reads its
+ * pending requests, so it still stands on the strip. Usually none does.
+ */
+function useUnseenRequests(list: ListSessionsResponse | undefined) {
+  const { client } = useAgentPlatform();
+  const unseen = useMemo(
+    () =>
+      (list?.items ?? []).filter(
+        (s) =>
+          s.status === "needs_input" &&
+          s.activity?.current_tool?.state !== "waiting",
+      ),
+    [list],
+  );
+  // combine's result is structurally shared, so it changes only with data.
+  const requests = useQueries({
+    queries: unseen.map((s) => pendingRequestsQuery(client, s.id)),
+    combine: firstRequests,
+  });
+  return useMemo(() => {
+    if (!list || unseen.length === 0) return list;
+    const found = new Map(
+      unseen.flatMap((s, i) => {
+        const request = requests[i];
+        return request ? [[s.id, request] as const] : [];
+      }),
+    );
+    if (found.size === 0) return list;
+    return {
+      ...list,
+      items: list.items.map((s) => {
+        const request = found.get(s.id);
+        return request ? withRequest(s, request) : s;
+      }),
+    };
+  }, [list, unseen, requests]);
+}
+
+function firstRequests(
+  results: readonly { data?: ListPendingRequestsResponse | undefined }[],
+) {
+  return results.map((result) => result.data?.items[0] ?? null);
+}
+
+function withRequest(
+  summary: SessionSummary,
+  request: PendingRequest,
+): SessionSummary {
+  const activity = summary.activity ?? {
+    last: null,
+    tool_count: 0,
+    error_count: 0,
+    subagent_count: 0,
+    current_tool: null,
+    window: { events: 0, complete: true, since: null },
+  };
+  return {
+    ...summary,
+    activity: {
+      ...activity,
+      current_tool: {
+        id: request.request_id,
+        name: request.kind === "permission" ? request.tool : "AskUserQuestion",
+        target: "",
+        state: "waiting",
+        since: request.created_at,
+        request: {
+          kind: request.kind,
+          prompt:
+            request.kind === "question"
+              ? (request.questions[0]?.prompt ?? null)
+              : null,
+        },
+      },
+    },
   };
 }
 
