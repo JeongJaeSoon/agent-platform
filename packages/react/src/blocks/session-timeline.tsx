@@ -181,8 +181,10 @@ export function SessionTimeline({
   // way when a request's line arrived may predate the request, so only a list
   // read twice since then can say it is gone; until then its call waits.
   const [reads, setReads] = useState({ at: pending?.at, count: 0 });
-  if (pending?.at !== reads.at)
-    setReads({ at: pending?.at, count: reads.count + 1 });
+  const read = pending !== undefined && pending.at !== reads.at;
+  // A read that lands with a line counts as under way before it.
+  const count = read ? reads.count + 1 : reads.count;
+  if (read) setReads({ at: pending.at, count });
   const [readsWhenSeen, setReadsWhenSeen] = useState<
     ReadonlyMap<string, number>
   >(() => new Map());
@@ -193,16 +195,13 @@ export function SessionTimeline({
   );
   if (unseen.length > 0)
     setReadsWhenSeen(
-      new Map([
-        ...readsWhenSeen,
-        ...unseen.map((id) => [id, reads.count] as const),
-      ]),
+      new Map([...readsWhenSeen, ...unseen.map((id) => [id, count] as const)]),
     );
   const answered = new Set(
     pending === undefined
       ? []
-      : [...readsWhenSeen].flatMap(([requestId, count]) =>
-          reads.count > count + 1 && !pending.requestIds.includes(requestId)
+      : [...readsWhenSeen].flatMap(([requestId, seen]) =>
+          count > seen + 1 && !pending.requestIds.includes(requestId)
             ? [requestId]
             : [],
         ),

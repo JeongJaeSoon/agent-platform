@@ -753,6 +753,9 @@ describe("ApprovalInbox", () => {
       [...panel.querySelectorAll("ol li[data-kind='tool']")].map(
         (row) => row.textContent ?? "",
       );
+    await waitFor(() => expect(calls()).toHaveLength(2));
+    // The list's next live read, begun after the lines arrived.
+    await act(() => view.second([]));
     await waitFor(() => {
       const [bash, write] = calls();
       expect(bash).toContain("Running");
@@ -772,7 +775,6 @@ describe("ApprovalInbox", () => {
 
   test("요청보다 먼저 시작한 대기 목록 읽기에 그 요청이 없어도, 다시 읽기 전까지는 답변 대기다", async () => {
     type Listed = { requestIds: readonly string[]; at: number } | undefined;
-    let list: (next: Listed) => void = () => {};
     const frames = [
       {
         event: "tool_use",
@@ -801,20 +803,37 @@ describe("ApprovalInbox", () => {
       attemptId: null,
       payload,
     })) as unknown as import("../sessions.ts").SessionEventFrame[];
+    type Shown = { events: typeof frames; pending: Listed };
+    let show: (next: Shown) => void = () => {};
     function Host() {
-      const [pending, setPending] = useState<Listed>(undefined);
-      list = setPending;
-      return <SessionTimeline events={frames} state="open" pending={pending} />;
+      const [shown, setShown] = useState<Shown>({
+        events: [],
+        pending: { requestIds: [], at: 1 },
+      });
+      show = setShown;
+      return (
+        <SessionTimeline
+          events={shown.events}
+          state="open"
+          pending={shown.pending}
+        />
+      );
     }
     const view = renderInbox({ open: [], body: <Host /> });
     const call = () =>
       view.container.querySelector("li[data-kind='tool']")?.textContent ?? "";
-    await waitFor(() => expect(call()).toContain("Waiting for an answer"));
-    // The read under way when the lines arrived, done after them.
-    act(() => list({ requestIds: [], at: 1 }));
+    // A read lands in the same render as the lines: it was under way before
+    // them, so it cannot say the request is gone.
+    act(() => show({ events: frames, pending: { requestIds: [], at: 2 } }));
     expect(call()).toContain("Waiting for an answer");
-    // A read begun after them: the request is gone, so it was answered.
-    act(() => list({ requestIds: [], at: 2 }));
+    // The cache is reset: that is no read at all.
+    act(() => show({ events: frames, pending: undefined }));
+    expect(call()).toContain("Waiting for an answer");
+    // The read the line's own refresh may have joined.
+    act(() => show({ events: frames, pending: { requestIds: [], at: 3 } }));
+    expect(call()).toContain("Waiting for an answer");
+    // A read begun after the lines: the request is gone, so it was answered.
+    act(() => show({ events: frames, pending: { requestIds: [], at: 4 } }));
     expect(call()).toContain("Running");
     expect(call()).not.toContain("Waiting for an answer");
   });
