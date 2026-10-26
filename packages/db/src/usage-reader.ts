@@ -347,7 +347,9 @@ export function createPostgresUsageReader(db: Database): UsageReader {
             sql<Date | null>`(SELECT greatest(max(first_at), max(released_at) FILTER (WHERE NOT kept)) FROM ${outputObjects})`.mapWith(
               (value) => new Date(value),
             ),
-          outputsComplete: sql<boolean>`NOT EXISTS (SELECT 1 FROM ${checkpoints} WHERE ${checkpoints.collectedAt} IS NULL AND NOT ${checkpoints.outputsRecorded})`,
+          // Rows collected before objects_purged_at existed are stamped by
+          // the next collection pass that deletes cleanly.
+          outputsComplete: sql<boolean>`NOT EXISTS (SELECT 1 FROM ${checkpoints} WHERE ${checkpoints.objectsPurgedAt} IS NULL AND NOT ${checkpoints.outputsRecorded})`,
         })
         .from(sql`(SELECT 1) AS one`)
         .leftJoin(

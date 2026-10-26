@@ -62,8 +62,8 @@ export const installationLimitsResponseSchema = z
             used_bytes: countSchema,
             // When the figure last moved; null while nothing was recorded.
             updated_at: timestampSchema.nullable(),
-            // false while a kept checkpoint from before outputs were recorded
-            // exists: its outputs are missing from `used_bytes`.
+            // false while a checkpoint from before outputs were recorded may
+            // still have objects stored: they are missing from `used_bytes`.
             complete: z.boolean(),
           })
           .strict(),

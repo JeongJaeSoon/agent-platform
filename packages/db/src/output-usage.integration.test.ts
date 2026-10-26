@@ -168,12 +168,14 @@ integration("installation output usage on PostgreSQL", () => {
     expect(partial.outputsComplete).toBe(false);
     expect(partial.outputsUsedBytes).toBe(before.outputsUsedBytes);
 
-    // Once collection releases that revision, nothing unrecorded is kept.
+    // Collected but not yet deleted, its outputs may still be stored; once a
+    // pass deletes them, nothing unrecorded is kept.
     await commit(1, []);
-    await createPostgresCheckpointStore(db).markCollected(sessionId, {
-      keep: [1],
-      throughRevision: 1,
-    });
+    const store = createPostgresCheckpointStore(db);
+    const collected = { keep: [1], throughRevision: 1 };
+    await store.markCollected(sessionId, collected);
+    expect((await usage()).outputsComplete).toBe(false);
+    await store.markPurged(sessionId, collected);
     expect((await usage()).outputsComplete).toBe(true);
   });
 });
