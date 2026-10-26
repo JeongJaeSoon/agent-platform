@@ -83,8 +83,11 @@ class FakeRun implements AgentRun {
   private readonly ledger: TurnLedger;
   private closed = false;
   private consumedInputs = 0;
-  /** Inputs the engine took; a deduplicated send is not one. */
-  private acceptedInputs = 0;
+  /** Inputs the engine took, in send order; a deduplicated send is not one. */
+  private readonly accepted: string[] = [];
+  private get acceptedInputs(): number {
+    return this.accepted.length;
+  }
   /** Sends the engine ignored because the session already held them. */
   private readonly deduplicated = new Set<string>();
   // First accepted terminal action wins: an interrupt that already returned
@@ -122,7 +125,7 @@ class FakeRun implements AgentRun {
       this.deduplicated.add(input.uuid);
       return;
     }
-    this.acceptedInputs += 1;
+    this.accepted.push(input.uuid);
     this.wakeArrivals();
   }
 
@@ -191,9 +194,8 @@ class FakeRun implements AgentRun {
             // The real engine streams the assistant message carrying a call
             // before it asks whether the call may run.
             if (step.type === "permissions") {
-              yield frameFromNativeMessage(
+              yield this.frame(
                 toolCallMessage(step.requests),
-                this.correlationId,
                 `fake:${cursor}:calls`,
               );
             }
@@ -207,11 +209,7 @@ class FakeRun implements AgentRun {
               if (typeof step.message.session_id === "string") {
                 this.sessionId = step.message.session_id;
               }
-              yield frameFromNativeMessage(
-                step.message,
-                this.correlationId,
-                `fake:${cursor}`,
-              );
+              yield this.frame(step.message, `fake:${cursor}`);
             }
           } catch (error) {
             if (this.terminal !== "interrupted") throw error;
@@ -325,7 +323,18 @@ class FakeRun implements AgentRun {
       this.sessionId,
     );
     this.ledger.observe(message);
-    return frameFromNativeMessage(message, this.correlationId, cursor);
+    return this.frame(message, cursor);
+  }
+
+  /**
+   * Scripted messages mostly name no input, so each frame says which one the
+   * script is on: the input the last `await-input` took, or the first one
+   * sent before any did.
+   */
+  private frame(message: NativeSdkMessage, cursor: string): AgentFrame {
+    const frame = frameFromNativeMessage(message, this.correlationId, cursor);
+    const current = this.accepted[Math.max(this.consumedInputs - 1, 0)];
+    return current === undefined ? frame : { ...frame, inputs: [current] };
   }
 
   /**

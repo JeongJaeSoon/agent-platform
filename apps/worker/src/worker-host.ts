@@ -20,6 +20,7 @@ import {
 } from "@werft-ai/contracts";
 import { endedByAbort } from "@werft-ai/runtime-claude";
 import {
+  type AgentFrame,
   type AgentRun,
   type CheckpointLease,
   type CheckpointPreparation,
@@ -172,6 +173,11 @@ type Turn = {
   closed: boolean;
   /** Its settlement is decided and its stream cut; later ones are ignored. */
   cut: boolean;
+  /**
+   * A frame named this turn's input: before one does, what the engine
+   * emits may still be the previous turn's and belongs to no turn.
+   */
+  entered: boolean;
   /** An interrupt intent for this turn has been taken. */
   interrupting: boolean;
   /** The intent that interrupted the turn, named by its engine_stopped event. */
@@ -1403,6 +1409,7 @@ export class WorkerHost {
     const turn: Turn = {
       closed: false,
       cut: false,
+      entered: false,
       interrupting: false,
       sent: false,
       settled,
@@ -1714,10 +1721,7 @@ export class WorkerHost {
     return (async () => {
       try {
         for await (const frame of run.events()) {
-          this.publisher?.publish(
-            frame.events,
-            this.turn?.closed === true ? null : this.scope.turn_id,
-          );
+          this.publisher?.publish(frame.events, this.frameTurn(frame));
           await this.observe(frame.envelope.message);
         }
       } catch (error) {
@@ -1747,6 +1751,14 @@ export class WorkerHost {
         this.stop({ kind: "failed", reason: "The engine stream ended" });
       }
     })();
+  }
+
+  private frameTurn(frame: AgentFrame): string | null {
+    const turn = this.turn;
+    if (turn === undefined) return null;
+    const { entered, turnId } = frameTurn(frame, turn);
+    turn.entered = entered;
+    return turnId;
   }
 
   /** Absent while the port binds no mirror, so such a worker beats unchanged. */
@@ -2275,6 +2287,36 @@ export function inputUuid(
 }
 
 /** The inputs a result says it consumed, the way TurnLedger reads them. */
+/**
+ * The turn a frame's events are stored under, and whether the engine has
+ * shown it took the turn's input up. The SDK names an input on
+ * `command_lifecycle` from the moment it queues one, and on the first reply
+ * and the result of the turn that answers it; a frame naming none says
+ * nothing of its own and falls back to what the runtime says (`inputs`).
+ * A frame for another input belongs to no turn, before this one's input is
+ * named and after, and so does one past the terminal.
+ */
+export function frameTurn(
+  frame: AgentFrame,
+  turn: { closed: boolean; entered: boolean; turnId: string; uuid: string },
+): { entered: boolean; turnId: string | null } {
+  const native = frame.envelope.message;
+  const named = [
+    ...(native.type === "command_lifecycle" &&
+    typeof native.command_uuid === "string"
+      ? [native.command_uuid]
+      : []),
+    ...attributedUuids(native),
+  ];
+  const inputs = named.length > 0 ? named : (frame.inputs ?? []);
+  const entered = turn.entered || (!turn.closed && inputs.includes(turn.uuid));
+  const ours =
+    !turn.closed &&
+    entered &&
+    (inputs.length === 0 || inputs.includes(turn.uuid));
+  return { entered, turnId: ours ? turn.turnId : null };
+}
+
 function attributedUuids(native: NativeSdkMessage): string[] {
   const listed = Array.isArray(native.user_message_uuids)
     ? native.user_message_uuids.filter(

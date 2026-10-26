@@ -12,6 +12,7 @@ import {
 } from "@werft-ai/contracts";
 import { FakeAgentRuntime, type FakeStep } from "@werft-ai/runtime-claude";
 import {
+  type AgentFrame,
   type AgentRun,
   type CheckpointPreparation,
   type NativeSdkMessage,
@@ -24,6 +25,7 @@ import type { WorkerTimeouts } from "./config.ts";
 import type { EngineExitWatch } from "./engine-processes.ts";
 import { FakeWorkerGateway } from "./testing/fake-gateway.ts";
 import {
+  frameTurn,
   inputUuid,
   type RuntimeRegistry,
   WorkerHost,
@@ -285,6 +287,88 @@ describe("WorkerHost turn loop", () => {
     expect(gateway.calls.lastIndexOf("appendEvents")).toBeGreaterThan(
       gateway.calls.indexOf("finalize"),
     );
+  });
+
+  test("keeps a frame the engine emits for a turn after the next one began out of the next one", async () => {
+    const { gateway, host, runtime } = harness([
+      { type: "await-input" },
+      { type: "emit", message: resultMessage(uuidForTurn(1)) },
+      // Long enough for turn 1 to finalize and turn 2's input to go out.
+      { type: "delay", delayMs: 50 },
+      { type: "emit", message: assistantMessage("late, for turn 1") },
+      { type: "await-input" },
+      { type: "emit", message: assistantMessage("second answer") },
+      { type: "emit", message: resultMessage(uuidForTurn(2)) },
+      { type: "await-input" },
+    ]);
+    gateway.enqueue("first message");
+    gateway.enqueue("second message");
+
+    const summary = await host.runLoop();
+
+    expect(summary.turns).toEqual([
+      { turnId: "1", status: "completed", reason: null },
+      { turnId: "2", status: "completed", reason: null },
+    ]);
+    // The late frame really did arrive once turn 2's input was out.
+    expect(runtime.inputs).toHaveLength(2);
+    const turnOf = new Map(
+      gateway.batches.flatMap((batch) =>
+        batch.events.map((event) => [event.source_sequence, batch.turn_id]),
+      ),
+    );
+    expect(
+      gateway.events.map((event) => [
+        event.event,
+        turnOf.get(event.source_sequence),
+      ]),
+    ).toEqual([
+      ["result", "1"],
+      ["assistant", null],
+      ["assistant", "2"],
+      ["result", "2"],
+    ]);
+  });
+
+  test("keeps the previous input's lifecycle out of the next turn after that turn's input is named", async () => {
+    const { gateway, host } = harness([
+      { type: "await-input" },
+      { type: "emit", message: resultMessage(uuidForTurn(1)) },
+      { type: "await-input" },
+      { type: "emit", message: assistantMessage("second answer") },
+      {
+        type: "emit",
+        message: {
+          type: "command_lifecycle",
+          command_uuid: uuidForTurn(1),
+          state: "completed",
+          session_id: "fake-session",
+        },
+      },
+      { type: "emit", message: resultMessage(uuidForTurn(2)) },
+      { type: "await-input" },
+    ]);
+    gateway.enqueue("first message");
+    gateway.enqueue("second message");
+
+    await host.runLoop();
+
+    const turnOf = new Map(
+      gateway.batches.flatMap((batch) =>
+        batch.events.map((event) => [event.source_sequence, batch.turn_id]),
+      ),
+    );
+    expect(
+      gateway.events.map((event) => [
+        event.event,
+        turnOf.get(event.source_sequence),
+      ]),
+    ).toEqual([
+      ["result", "1"],
+      ["assistant", "2"],
+      ["system", null],
+      ["result", "2"],
+    ]);
   });
 
   test("reports a failed engine result as a failed turn", async () => {
@@ -3790,5 +3874,98 @@ describe("secrets in what the engine prints", () => {
     ]) {
       expect(stored).not.toContain(held);
     }
+  });
+});
+
+describe("frameTurn", () => {
+  const ours = "input-2";
+  const before = "input-1";
+  const frame = (
+    message: Record<string, unknown>,
+    inputs?: string[],
+  ): AgentFrame => ({
+    envelope: {
+      correlation_id: "c",
+      message: { type: "assistant", ...message },
+      schema_version: "sdk-envelope/v1",
+      sdk_version: "test",
+    },
+    events: [],
+    ...(inputs === undefined ? {} : { inputs }),
+  });
+  const turn = (entered: boolean, closed = false) => ({
+    closed,
+    entered,
+    turnId: "2",
+    uuid: ours,
+  });
+
+  test.each([
+    [
+      "the input's queued lifecycle enters the turn",
+      frame({ type: "command_lifecycle", command_uuid: ours, state: "queued" }),
+      turn(false),
+      { entered: true, turnId: "2" },
+    ],
+    [
+      "a reply stamped with the input enters it",
+      frame({ user_message_uuid: ours }),
+      turn(false),
+      { entered: true, turnId: "2" },
+    ],
+    [
+      "a batch naming the input among others enters it",
+      frame({ user_message_uuids: [before, ours] }),
+      turn(false),
+      { entered: true, turnId: "2" },
+    ],
+    [
+      "an unnamed frame before the input is named stays out",
+      frame({}),
+      turn(false),
+      { entered: false, turnId: null },
+    ],
+    [
+      "an unnamed frame once it is named is the turn's",
+      frame({}),
+      turn(true),
+      { entered: true, turnId: "2" },
+    ],
+    [
+      "the previous input's completed lifecycle stays out, entered or not",
+      frame({
+        type: "command_lifecycle",
+        command_uuid: before,
+        state: "completed",
+      }),
+      turn(true),
+      { entered: true, turnId: null },
+    ],
+    [
+      "a result for the previous input stays out",
+      frame({ type: "result", user_message_uuid: before }),
+      turn(true),
+      { entered: true, turnId: null },
+    ],
+    [
+      "the runtime's word counts when the message names nothing",
+      frame({}, [ours]),
+      turn(false),
+      { entered: true, turnId: "2" },
+    ],
+    [
+      "the message's own names win over the runtime's",
+      frame({ user_message_uuid: before }, [ours]),
+      turn(false),
+      { entered: false, turnId: null },
+    ],
+    [
+      "nothing is the turn's past its terminal",
+      frame({ user_message_uuid: ours }),
+      turn(true, true),
+      { entered: true, turnId: null },
+    ],
+  ] as const)("%s", (_, given, current, expected) => {
+    expect(frameTurn(given, current)).toEqual(expected);
   });
 });
