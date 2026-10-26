@@ -33,10 +33,9 @@ import {
   type TerminateExecutionResult,
 } from "@werft-ai/platform";
 import {
-  claudeContractRun,
   FakeAgentRuntime,
   type FakeStep,
-} from "@werft-ai/runtime-claude";
+} from "@werft-ai/runtime-claude/testing";
 import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
@@ -204,23 +203,18 @@ class WorkerBackend implements ExecutionBackend {
           runtimes: {
             launcherFor: () => ({
               start: ({ runtimeConfig, principal, ...rest }) =>
-                claudeContractRun((hooks) =>
-                  runtime.start(
-                    {
-                      claudeConfigDir: "/tmp/fake/config",
-                      cwd: "/tmp/fake/workspace",
-                      home: "/tmp/fake/home",
-                      model: runtimeConfig.model,
-                      profile: {
-                        ...runtimeConfig.provider,
-                        principal: { ownerScope: principal.owner_scope },
-                      },
-                      tools: runtimeConfig.tools,
-                      ...rest,
-                    },
-                    hooks,
-                  ),
-                ),
+                runtime.run({
+                  claudeConfigDir: "/tmp/fake/config",
+                  cwd: "/tmp/fake/workspace",
+                  home: "/tmp/fake/home",
+                  model: runtimeConfig.model,
+                  profile: {
+                    ...runtimeConfig.provider,
+                    principal: { ownerScope: principal.owner_scope },
+                  },
+                  tools: runtimeConfig.tools,
+                  ...rest,
+                }),
             }),
           },
           timeouts: {

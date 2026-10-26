@@ -1,11 +1,13 @@
 import type {
   AgentInput,
+  AgentRun,
   CheckpointLeaseGrant,
   CheckpointPreparation,
   NativeSdkMessage,
 } from "@werft-ai/runtime-core";
 
 import type { ClaudeRuntimeConfig } from "./config.ts";
+import { claudeContractRun } from "./contract.ts";
 import type {
   AgentFrame,
   DriverRun,
@@ -41,7 +43,7 @@ export type FakeRuntimeOptions = {
   resumeFailure?: string;
 };
 
-/** A scripted driver: wrap a run it starts with `claudeContractRun`. */
+/** A scripted engine: `run` gives the contract run the real runtime would. */
 export class FakeAgentRuntime {
   /** Every input the host sent, including ones the engine deduplicated. */
   readonly inputs: AgentInput[] = [];
@@ -57,6 +59,14 @@ export class FakeAgentRuntime {
     private readonly options: FakeRuntimeOptions = {},
   ) {}
 
+  run(
+    config: ClaudeRuntimeConfig,
+    options: { toolCallWaitMs?: number } = {},
+  ): AgentRun {
+    return claudeContractRun((hooks) => this.start(config, hooks), options);
+  }
+
+  /** The driver run itself, for this package's own driver tests. */
   start(config: ClaudeRuntimeConfig, hooks: RuntimeHooks): DriverRun {
     return new FakeRun(
       this,
