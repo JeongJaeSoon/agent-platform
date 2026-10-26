@@ -1414,15 +1414,9 @@ describe("에이전트 상세", () => {
       release_id: server.releases[0]?.id,
       expected_revision: -1,
     });
-    // The overview panel stays mounted behind the release tab.
-    const glance = screen.getByRole("list", {
-      name: "에이전트 현황",
-      hidden: true,
-    });
+    const heading = screen.getByRole("heading", { level: 1 });
     await waitFor(() =>
-      expect(glance.firstElementChild?.textContent).toContain(
-        `version 1실행 프로필 ${PROFILE}`,
-      ),
+      expect(heading.nextElementSibling?.textContent).toBe("v1 · 활성"),
     );
     expect(agentDetailSchema.safeParse(server.detail()).success).toBe(true);
   });
