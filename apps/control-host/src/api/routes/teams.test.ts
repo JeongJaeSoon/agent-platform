@@ -9,6 +9,7 @@ import {
 } from "@werft-ai/contracts";
 import {
   type AgentAdminService,
+  InvalidCursorError,
   SessionServiceError,
   type TeamService,
 } from "@werft-ai/platform";
@@ -143,10 +144,39 @@ describe("POST /v1/teams", () => {
   });
 });
 
+// Both team lists read a page and answer a bad query or cursor with 400.
+async function pages(list: "listTeams" | "listMyTeams", path: string) {
+  const queries: unknown[] = [];
+  const paged = app({
+    [list]: async (_caller: unknown, query: { cursor?: string }) => {
+      queries.push(query);
+      if (query.cursor === "forged") throw new InvalidCursorError();
+      return { items: [], next_cursor: "next" };
+    },
+  });
+  const listed = await call(paged, "GET", path);
+  expect(listed.status).toBe(200);
+  expect(await listed.json()).toEqual({ items: [], next_cursor: "next" });
+  expect((await call(paged, "GET", `${path}?limit=2&cursor=abc`)).status).toBe(
+    200,
+  );
+  expect(queries).toEqual([{ limit: 50 }, { limit: 2, cursor: "abc" }]);
+  for (const bad of ["?cursor=forged", "?limit=0", "?limit=101"]) {
+    const response = await call(paged, "GET", `${path}${bad}`);
+    expect(response.status, bad).toBe(400);
+    expect((await errorOf(response)).code, bad).toBe("BAD_REQUEST");
+  }
+}
+
 describe("GET /v1/teams", () => {
+  test("reads a page; a bad query or cursor is 400", () =>
+    pages("listTeams", "/v1/teams"));
+
   test("lists, refuses and fails closed", async () => {
     const listed = await call(
-      app({ listTeams: async () => ({ items: [TEAM_VIEW] }) }),
+      app({
+        listTeams: async () => ({ items: [TEAM_VIEW], next_cursor: null }),
+      }),
       "GET",
       "/v1/teams",
     );
@@ -453,10 +483,16 @@ describe("GET /v1/administered-agents", () => {
 });
 
 describe("GET /v1/my-teams", () => {
+  test("reads a page; a bad query or cursor is 400", () =>
+    pages("listMyTeams", "/v1/my-teams"));
+
   test("lists, refuses and fails closed", async () => {
     const listed = await call(
       app({
-        listMyTeams: async () => ({ items: [{ id: TEAM, name: "research" }] }),
+        listMyTeams: async () => ({
+          items: [{ id: TEAM, name: "research" }],
+          next_cursor: null,
+        }),
       }),
       "GET",
       "/v1/my-teams",
@@ -464,6 +500,7 @@ describe("GET /v1/my-teams", () => {
     expect(listed.status).toBe(200);
     expect(await listed.json()).toEqual({
       items: [{ id: TEAM, name: "research" }],
+      next_cursor: null,
     });
     for (const [fail, status] of [
       [forbidden, 403],

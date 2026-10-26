@@ -1,6 +1,7 @@
 // Every public page cursor is minted and checked here. Anything a decoder
 // does not recognise is InvalidCursorError, which the routes answer with 400.
 import {
+  TEAM_NAME_MAX,
   userIdSchema,
   sessionIdSchema as uuidSchema,
 } from "@werft-ai/contracts";
@@ -150,6 +151,26 @@ export function decodeMemberCursor(value: string): MemberCursor {
     PG_TIMESTAMPTZ_TEXT.test(parsed.created_at) &&
     userIdSchema.safeParse(parsed.user_id).success
       ? { created_at: parsed.created_at, user_id: parsed.user_id as string }
+      : undefined,
+  );
+}
+
+// Teams page by name, then id. A NUL never reaches the query: PostgreSQL text
+// cannot hold one and would answer 500 instead of 400.
+export type TeamCursor = { name: string; id: string };
+
+export function encodeTeamCursor(cursor: TeamCursor): string {
+  return encodeJsonCursor({ name: cursor.name, id: cursor.id });
+}
+
+export function decodeTeamCursor(value: string): TeamCursor {
+  return decodeJsonCursor(value, (parsed) =>
+    typeof parsed.name === "string" &&
+    parsed.name.length >= 1 &&
+    parsed.name.length <= TEAM_NAME_MAX &&
+    !parsed.name.includes("\0") &&
+    uuidSchema.safeParse(parsed.id).success
+      ? { name: parsed.name, id: parsed.id as string }
       : undefined,
   );
 }

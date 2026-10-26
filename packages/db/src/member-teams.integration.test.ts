@@ -1,7 +1,12 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { scopesForRole, type WorkspaceRole } from "@werft-ai/contracts";
-import { type Caller, callerFor, type TeamActor } from "@werft-ai/platform";
+import {
+  type Caller,
+  callerFor,
+  InvalidCursorError,
+  type TeamActor,
+} from "@werft-ai/platform";
 import {
   createTempDatabase,
   type TempDatabase,
@@ -15,12 +20,14 @@ import * as schema from "./schema.ts";
 import {
   memberships,
   memberTeamMembers,
+  memberTeams,
   receipts,
   users,
   workspaces,
 } from "./schema.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
+const PAGE = { limit: 50 };
 
 integration("teams and teams as agent admins on PostgreSQL", () => {
   let database: TempDatabase;
@@ -175,10 +182,9 @@ integration("teams and teams as agent admins on PostgreSQL", () => {
     ).toEqual({ outcome: "not_found" });
     // A deleted team's name is free again.
     await newTeam(owner, "research");
-    expect((await teams().list(workspaceId, 50)).map((t) => t.name)).toEqual([
-      "operations",
-      "research",
-    ]);
+    expect(
+      (await teams().list(workspaceId, PAGE)).items.map((t) => t.name),
+    ).toEqual(["operations", "research"]);
 
     // Another workspace's team does not exist here.
     const elsewhere = await workspace();
@@ -275,7 +281,10 @@ integration("teams and teams as agent admins on PostgreSQL", () => {
     await member(owner, team.id, first, false);
 
     expect(
-      (await teams().list(workspaceId, 50)).map((t) => [t.id, t.memberCount]),
+      (await teams().list(workspaceId, PAGE)).items.map((t) => [
+        t.id,
+        t.memberCount,
+      ]),
     ).toEqual([
       [team.id, 1],
       [empty.id, 0],
@@ -301,19 +310,152 @@ integration("teams and teams as agent admins on PostgreSQL", () => {
       teamId: deleted.id,
     });
 
-    const joined = (caller: Caller) =>
-      teams().listJoined(workspaceId, idOf(caller), 50);
+    const joined = async (caller: Caller) =>
+      (await teams().listJoined(workspaceId, idOf(caller), PAGE)).items;
     expect(await joined(mine)).toEqual([{ id: kept.id, name: "b-kept" }]);
     expect(await joined(other)).toEqual([{ id: theirs.id, name: "d-theirs" }]);
-    expect(await teams().listJoined(await workspace(), idOf(mine), 50)).toEqual(
-      [],
-    );
+    expect(
+      await teams().listJoined(await workspace(), idOf(mine), PAGE),
+    ).toEqual({ items: [], nextCursor: null });
 
     await db
       .update(memberships)
       .set({ disabledAt: new Date() })
       .where(eq(memberships.userId, idOf(mine)));
     expect(await joined(mine)).toEqual([]);
+  });
+
+  // Seeds live teams straight into the table; 200+ creates through the store
+  // would spend a receipt each.
+  async function seedTeams(workspaceId: string, names: string[]) {
+    const rows = names.map((name) => ({ id: randomUUID(), workspaceId, name }));
+    await db.insert(memberTeams).values(rows);
+    return rows;
+  }
+
+  type Page = {
+    items: { id: string; name: string }[];
+    nextCursor: string | null;
+  };
+
+  async function walk(read: (cursor?: string) => Promise<Page>) {
+    const pages: string[][] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await read(cursor);
+      pages.push(page.items.map((team) => team.name));
+      cursor = page.nextCursor ?? undefined;
+    } while (cursor);
+    return pages;
+  }
+
+  const names = (count: number) =>
+    Array.from(
+      { length: count },
+      (_, i) => `team-${String(i).padStart(3, "0")}`,
+    );
+
+  test("the team list pages past 200 by name, each live team once", async () => {
+    const workspaceId = await workspace();
+    const all = names(205);
+    await seedTeams(workspaceId, [...all].reverse());
+    await db.insert(memberTeams).values({
+      id: randomUUID(),
+      workspaceId,
+      name: "team-100",
+      archivedAt: new Date(),
+    });
+
+    const list = (limit: number) => (cursor?: string) =>
+      teams().list(workspaceId, { limit, cursor });
+    const byHundred = await walk(list(100));
+    expect(byHundred.map((page) => page.length)).toEqual([100, 100, 5]);
+    expect(byHundred.flat()).toEqual(all);
+    // A last page that is exactly full says there is no next one.
+    const byFortyOne = await walk(list(41));
+    expect(byFortyOne.map((page) => page.length)).toEqual([41, 41, 41, 41, 41]);
+    expect(byFortyOne.flat()).toEqual(all);
+  });
+
+  test("one's own teams page by name too", async () => {
+    const workspaceId = await workspace();
+    const owner = await person(workspaceId, "owner");
+    const mine = await person(workspaceId, "member");
+    const joined = await seedTeams(workspaceId, ["c", "a", "e", "b", "d"]);
+    for (const team of joined)
+      if (team.name !== "b") await member(owner, team.id, mine);
+
+    expect(
+      await walk((cursor) =>
+        teams().listJoined(workspaceId, idOf(mine), { limit: 2, cursor }),
+      ),
+    ).toEqual([
+      ["a", "c"],
+      ["d", "e"],
+    ]);
+  });
+
+  test("a rename mid-walk moves that team only; the others show once", async () => {
+    const workspaceId = await workspace();
+    const owner = await person(workspaceId, "owner");
+    const [, , early] = await seedTeams(workspaceId, ["b", "c", "a", "d", "e"]);
+    const first = await teams().list(workspaceId, { limit: 2 });
+    expect(first.items.map((team) => team.name)).toEqual(["a", "b"]);
+
+    // "a" was read; renamed past the cursor it shows a second time.
+    await teams().rename({
+      actor: acting(owner),
+      receiptId: randomUUID(),
+      teamId: early?.id ?? "",
+      name: "z",
+    });
+    const rest = await walk((cursor) =>
+      teams().list(workspaceId, {
+        limit: 2,
+        cursor: cursor ?? first.nextCursor ?? "",
+      }),
+    );
+    expect(rest).toEqual([
+      ["c", "d"],
+      ["e", "z"],
+    ]);
+  });
+
+  test("a cursor reads only the caller's workspace, and a forged one is refused", async () => {
+    const mine = await workspace();
+    const theirs = await workspace();
+    await seedTeams(mine, ["a", "m", "z"]);
+    await seedTeams(theirs, ["k", "n"]);
+    const theirCursor = (await teams().list(theirs, { limit: 1 })).nextCursor;
+    expect(theirCursor).not.toBeNull();
+    expect(
+      (
+        await teams().list(mine, { limit: 50, cursor: theirCursor ?? "" })
+      ).items.map((team) => team.name),
+    ).toEqual(["m", "z"]);
+
+    const encode = (value: unknown) =>
+      Buffer.from(JSON.stringify(value)).toString("base64url");
+    const reads: ((cursor: string) => Promise<unknown>)[] = [
+      (cursor) => teams().list(mine, { limit: 1, cursor }),
+      (cursor) => teams().listJoined(mine, randomUUID(), { limit: 1, cursor }),
+    ];
+    for (const read of reads) {
+      for (const forged of [
+        "not-a-cursor",
+        encode({ name: "a", id: "x" }),
+        encode({ name: "", id: randomUUID() }),
+        encode({ name: "a\0", id: randomUUID() }),
+        encode({ name: "x".repeat(101), id: randomUUID() }),
+        encode({ name: 1, id: randomUUID() }),
+      ]) {
+        const refused = await read(forged).then(
+          () => null,
+          (error: unknown) => error,
+        );
+        expect(refused, forged).toBeInstanceOf(InvalidCursorError);
+      }
+    }
   });
 
   test("adding a member queues behind a suspension of them instead of deadlocking it", async () => {
