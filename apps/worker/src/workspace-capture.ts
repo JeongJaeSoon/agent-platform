@@ -6,6 +6,7 @@ import {
   CHECKPOINT_BRANCH_PREFIX,
   CHECKPOINT_HEAD_REF,
   CHECKPOINT_INSTRUCTIONS_REF,
+  CHECKPOINT_UPSTREAM_PREFIX,
   CHECKPOINT_WORKTREE_REF,
   DEFAULT_MAX_WORKSPACE_BUNDLE_BYTES,
   gitBundleOffersFrom,
@@ -214,6 +215,8 @@ const SNAPSHOT_IDENTITY = {
  *   of HEAD when it differs and HEAD itself when it does not. This is the
  *   manifest's `gitCommit`.
  * - `refs/heads/<branch>`: HEAD's branch, when HEAD is on one.
+ * - `refs/checkpoint/upstream/heads/<name>`: the commit `origin/<name>` is
+ *   at, when HEAD's branch tracks it (`originUpstream`).
  * - `refs/checkpoint/instructions`: the `instructions` commit, when given.
  *   It comes from the caller's memory, never from a ref the engine can move.
  *
@@ -578,6 +581,11 @@ async function captureWorkspaceOnce(
         return refused(`HEAD is on a ref git would not restore: ${name}`);
       }
       refs.push([name, headCommit]);
+      const upstream = await originUpstream(
+        workspace,
+        name.slice("refs/heads/".length),
+      );
+      if (upstream !== undefined) refs.push(upstream);
     }
     const bundling = (args: string[]) => run(args, { GIT_DIR: repository });
     if (pin !== undefined) {
@@ -860,6 +868,49 @@ async function workspaceMarker(
   } finally {
     await rm(scratch, { force: true, recursive: true });
   }
+}
+
+/**
+ * The `CHECKPOINT_UPSTREAM_PREFIX` ref for what `branch` tracks, when that
+ * is a branch on origin the checkout has a commit for. Only origin's: it is
+ * the one remote a restore adds back. Anything else is left out rather than
+ * refused, the checkout restoring without an upstream as before.
+ */
+async function originUpstream(
+  workspace: Git,
+  branch: string,
+): Promise<[string, string] | undefined> {
+  // One read, so the remote, origin's branch and the ref origin's fetch
+  // refspec maps it to (not always `refs/remotes/origin/<name>`) come from
+  // the same `branch.<name>.merge` entry when the config lists several.
+  const upstream = await workspace([
+    "for-each-ref",
+    "--format=%(upstream:remotename)%00%(upstream:remoteref)%00%(upstream)",
+    `refs/heads/${branch}`,
+  ]);
+  const [remote, tracked = "", ref = ""] = upstream.stdout
+    .replace(/\n$/, "")
+    .split("\0");
+  if (
+    upstream.code !== 0 ||
+    remote !== "origin" ||
+    ref === "" ||
+    !tracked.startsWith("refs/heads/") ||
+    (await workspace(["check-ref-format", tracked])).code !== 0
+  ) {
+    return undefined;
+  }
+  const commit = await workspace([
+    "rev-parse",
+    "--verify",
+    "--quiet",
+    `${ref}^{commit}`,
+  ]);
+  if (commit.code !== 0) return undefined;
+  return [
+    `${CHECKPOINT_UPSTREAM_PREFIX}${tracked.slice("refs/".length)}`,
+    commit.stdout.trim(),
+  ];
 }
 
 async function digestFile(

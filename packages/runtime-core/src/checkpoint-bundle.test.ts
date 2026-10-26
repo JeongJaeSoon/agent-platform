@@ -18,7 +18,30 @@ describe("checkpoint bundle refs", () => {
       ),
     ).toEqual({
       status: "valid",
-      refs: { branch: "refs/heads/main", head, instructions: null, worktree },
+      refs: {
+        branch: "refs/heads/main",
+        head,
+        instructions: null,
+        upstream: null,
+        worktree,
+      },
+    });
+  });
+
+  test("reads the branch's upstream on origin", () => {
+    expect(
+      checkpointBundleRefs(
+        [
+          ["refs/checkpoint/head", head],
+          ["refs/checkpoint/worktree", worktree],
+          ["refs/heads/work", head],
+          ["refs/checkpoint/upstream/heads/main", worktree],
+        ],
+        worktree,
+      ),
+    ).toMatchObject({
+      status: "valid",
+      refs: { upstream: { commit: worktree, merge: "refs/heads/main" } },
     });
   });
 
@@ -50,6 +73,19 @@ describe("checkpoint bundle refs", () => {
       "an instructions ref that is not a commit",
       [["refs/checkpoint/instructions", null]],
       "refs/checkpoint/instructions is not a commit",
+    ],
+    [
+      "an upstream without a branch",
+      [["refs/checkpoint/upstream/heads/main", head]],
+      "which is no upstream of a branch",
+    ],
+    [
+      "an upstream that is not a commit",
+      [
+        ["refs/heads/main", head],
+        ["refs/checkpoint/upstream/heads/main", null],
+      ],
+      "refs/checkpoint/upstream/heads/main is not a commit",
     ],
     [
       "a ref listed twice",
