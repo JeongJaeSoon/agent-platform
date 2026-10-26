@@ -1,0 +1,192 @@
+{
+  "turns": [
+    {
+      "turnId": "1",
+      "status": "completed",
+      "reason": null
+    },
+    {
+      "turnId": "2",
+      "status": "completed",
+      "reason": null
+    },
+    {
+      "turnId": "3",
+      "status": "completed",
+      "reason": null
+    },
+    {
+      "turnId": "4",
+      "status": "completed",
+      "reason": null
+    }
+  ],
+  "events": [
+    {
+      "turn_id": "1",
+      "event": "result",
+      "data": {
+        "type": "result",
+        "subtype": "success",
+        "session_id": "fake-session",
+        "usage": {
+          "input_tokens": 3,
+          "output_tokens": 5
+        },
+        "is_error": false,
+        "stop_reason": "end_turn"
+      },
+      "source_sequence": 1,
+      "occurred_at": "<timestamp>"
+    },
+    {
+      "turn_id": "2",
+      "event": "result",
+      "data": {
+        "type": "result",
+        "subtype": "success",
+        "session_id": "fake-session",
+        "usage": {
+          "input_tokens": 3,
+          "output_tokens": 5
+        },
+        "is_error": false,
+        "stop_reason": "end_turn"
+      },
+      "source_sequence": 2,
+      "occurred_at": "<timestamp>"
+    },
+    {
+      "turn_id": "3",
+      "event": "result",
+      "data": {
+        "type": "result",
+        "subtype": "success",
+        "session_id": "fake-session",
+        "usage": {
+          "input_tokens": 3,
+          "output_tokens": 5
+        },
+        "is_error": false,
+        "stop_reason": "end_turn"
+      },
+      "source_sequence": 3,
+      "occurred_at": "<timestamp>"
+    },
+    {
+      "turn_id": "4",
+      "event": "result",
+      "data": {
+        "type": "result",
+        "subtype": "success",
+        "session_id": "fake-session",
+        "usage": {
+          "input_tokens": 3,
+          "output_tokens": 5
+        },
+        "is_error": false,
+        "stop_reason": "end_turn"
+      },
+      "source_sequence": 4,
+      "occurred_at": "<timestamp>"
+    }
+  ],
+  "finalized": [
+    {
+      "finalize_key": "att_fake:1",
+      "final_source_sequence": 1,
+      "terminal": {
+        "status": "completed",
+        "reason": null,
+        "result": {
+          "subtype": "success",
+          "is_error": false,
+          "stop_reason": "end_turn",
+          "terminal_reason": null
+        },
+        "usage": {
+          "input_tokens": 3,
+          "output_tokens": 5
+        },
+        "cost_usd": 0.5
+      },
+      "checkpoint": {
+        "revision": 0,
+        "manifest_ref": "manifests/1.json",
+        "manifest_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      }
+    },
+    {
+      "finalize_key": "att_fake:2",
+      "final_source_sequence": 2,
+      "terminal": {
+        "status": "completed",
+        "reason": null,
+        "result": {
+          "subtype": "success",
+          "is_error": false,
+          "stop_reason": "end_turn",
+          "terminal_reason": null
+        },
+        "usage": {
+          "input_tokens": 3,
+          "output_tokens": 5
+        },
+        "cost_usd": null
+      },
+      "checkpoint": {
+        "revision": 1,
+        "manifest_ref": "manifests/2.json",
+        "manifest_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      }
+    },
+    {
+      "finalize_key": "att_fake:3",
+      "final_source_sequence": 3,
+      "terminal": {
+        "status": "completed",
+        "reason": null,
+        "result": {
+          "subtype": "success",
+          "is_error": false,
+          "stop_reason": "end_turn",
+          "terminal_reason": null
+        },
+        "usage": {
+          "input_tokens": 3,
+          "output_tokens": 5
+        },
+        "cost_usd": null
+      },
+      "checkpoint": {
+        "revision": 2,
+        "manifest_ref": "manifests/3.json",
+        "manifest_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      }
+    },
+    {
+      "finalize_key": "att_fake:4",
+      "final_source_sequence": 4,
+      "terminal": {
+        "status": "completed",
+        "reason": null,
+        "result": {
+          "subtype": "success",
+          "is_error": false,
+          "stop_reason": "end_turn",
+          "terminal_reason": null
+        },
+        "usage": {
+          "input_tokens": 3,
+          "output_tokens": 5
+        },
+        "cost_usd": 0.25
+      },
+      "checkpoint": {
+        "revision": 3,
+        "manifest_ref": "manifests/4.json",
+        "manifest_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      }
+    }
+  ]
+}

@@ -4,22 +4,21 @@ import type {
   SessionRuntime,
 } from "@werft-ai/contracts";
 import {
-  CLAUDE_AGENT_SDK_VERSION,
-  CLAUDE_CODE_VERSION,
-  CLAUDE_RUNTIME_FINGERPRINT,
-  type ClaudeRuntimeConfig,
-  ClaudeSdkRuntime,
-  claudeProfileFingerprint,
+  claudeRuntimeModule,
   type RuntimeProfile,
-  remoteMcpRelay,
 } from "@werft-ai/runtime-claude";
-import type {
-  CheckpointObjectStore,
-  RuntimeFingerprint,
+import {
+  type CheckpointObjectStore,
+  RuntimeRegistry as InstalledRuntimes,
+  type PlatformMcpServer,
+  type RuntimeFingerprint,
+  type RuntimeModule,
+  type RuntimeProfileInput,
+  type RuntimeStart,
 } from "@werft-ai/runtime-core";
 
 import type { WorkerCheckpointPort } from "./checkpoint.ts";
-import type { WorkerConfig } from "./config.ts";
+import type { WorkerConfig, WorkerTimeouts } from "./config.ts";
 import { consoleLogger } from "./console-logger.ts";
 import { EngineProcesses } from "./engine-processes.ts";
 import { HttpWorkerGatewayClient } from "./gateway-client.ts";
@@ -114,68 +113,67 @@ export function createWorkerHost(
  * replayable on the build that wrote it.
  */
 export function claudeRuntimeRegistry(
-  config: WorkerConfig,
+  config: Pick<WorkerConfig, "egressCredentialUrl" | "runtime"> & {
+    timeouts?: Pick<WorkerTimeouts, "toolUseFrameWaitMs">;
+  },
   engines: EngineProcesses,
 ): RuntimeRegistry {
-  const launcher: RuntimeLauncher = {
-    start(launch, hooks) {
-      const {
-        committedClaudeMd,
-        correlationId,
-        maxBudgetUsd,
-        // Read by claudeRunConfig; kept out of the resume plan spread below.
-        principal: _principal,
-        // The host's to report, not the engine's to read.
-        restoredRevision: _restoredRevision,
-        runtimeConfig,
-        // Read by claudeRunConfig.
-        workspace: _workspace,
-        ...plan
-      } = launch;
-      // The claim is the only source of what to run, so the adapter's
-      // allowlist is that one endpoint and model. Left out: an allowlist
-      // baked into the image to check the server against — worth adding
-      // once one image serves tenants that must not share a provider.
-      const runtime = new ClaudeSdkRuntime(
-        {
-          endpoints: [runtimeConfig.provider.endpoint],
-          models: [runtimeConfig.model],
-        },
-        engines,
-      );
-      return runtime.start(
-        {
-          ...claudeRunConfig(config, launch, committedClaudeMd),
-          correlationId,
-          // Not part of the fingerprint: how often a provider call is retried
-          // changes nothing a checkpoint resumes.
-          providerMaxRetries: config.runtime.providerMaxRetries,
-          // Nor is this: it is what the session had left at the claim, so
-          // it differs on every resume of the same run.
-          ...(maxBudgetUsd === undefined ? {} : { maxBudgetUsd }),
-          ...plan,
-        },
-        hooks,
-      );
-    },
-  };
+  const installed = new InstalledRuntimes([claudeRuntimeModule]);
   return {
     launcherFor(session: SessionRuntime): RuntimeLauncher {
-      if (session.kind !== "claude_agent_sdk") {
-        throw new Error(
-          `This worker runs claude_agent_sdk, not ${session.kind}`,
-        );
-      }
-      if (
-        session.version !== CLAUDE_AGENT_SDK_VERSION &&
-        session.version !== CLAUDE_CODE_VERSION
-      ) {
-        throw new Error(
-          `Session needs runtime version ${session.version}; this worker ships Agent SDK ${CLAUDE_AGENT_SDK_VERSION} (Claude Code ${CLAUDE_CODE_VERSION})`,
-        );
-      }
-      return launcher;
+      const module = installed.require(session.kind);
+      module.assertCompatible(session);
+      const runtime = module.createRuntime({
+        processObserver: engines,
+        stateDir: config.runtime.claudeConfigDir,
+        providerMaxRetries: config.runtime.providerMaxRetries,
+        ...(config.timeouts?.toolUseFrameWaitMs === undefined
+          ? {}
+          : { toolCallWaitMs: config.timeouts.toolUseFrameWaitMs }),
+      });
+      return {
+        start: (launch) => runtime.start(runtimeStart(config, module, launch)),
+      };
     },
+  };
+}
+
+export function runtimeStart(
+  config: Pick<WorkerConfig, "egressCredentialUrl" | "runtime">,
+  module: Pick<RuntimeModule, "descriptor">,
+  launch: RuntimeLaunch,
+): RuntimeStart {
+  const profile = runtimeProfile(
+    config,
+    module,
+    launch,
+    launch.committedClaudeMd,
+  );
+  const { correlationId, maxBudgetUsd } = launch;
+  const mode =
+    launch.mode === "new"
+      ? { mode: "new" as const }
+      : {
+          mode: "resume" as const,
+          resume: launch.resume,
+          ...(launch.localTranscriptResume === true
+            ? { localTranscriptResume: true as const }
+            : {}),
+        };
+  return {
+    config: {
+      ...profile.config,
+      ...mode,
+      correlationId,
+      ...(maxBudgetUsd === undefined ? {} : { maxBudgetUsd }),
+    },
+    bindings: {
+      ...profile.bindings,
+      ...(launch.sessionStore === undefined
+        ? {}
+        : { transcript: launch.sessionStore }),
+    },
+    bundle: profile.bundle,
   };
 }
 
@@ -188,87 +186,59 @@ export function claudeRuntimeRegistry(
 export const OUT_DIRECTORY_PROMPT =
   "This workspace has no repository. Put files meant for people in `out/` at the workspace root.";
 
-type ClaudeRunConfig = Pick<
-  Extract<ClaudeRuntimeConfig, { mode: "new" }>,
-  | "appendSystemPrompt"
-  | "claudeConfigDir"
-  | "cwd"
-  | "home"
-  | "identities"
-  | "mcpServers"
-  | "model"
-  | "permissionMode"
-  | "profile"
-  | "repositoryClaudeMd"
-  | "settingSources"
-  | "tools"
->;
-
 /**
  * What a claim runs, short of how it resumes: shared by the launcher and by
  * the fingerprint a checkpoint is stamped with, so the two cannot describe
  * different runs.
  */
-export function claudeRunConfig(
+export function runtimeProfile(
   config: Pick<WorkerConfig, "egressCredentialUrl" | "runtime">,
+  module: Pick<RuntimeModule, "descriptor">,
   launch: Pick<RuntimeLaunch, "principal" | "runtimeConfig" | "workspace">,
-  committedClaudeMd: () => string | null,
-): ClaudeRunConfig {
+  committedInstructions: () => string | null,
+): RuntimeProfileInput {
   const { principal, runtimeConfig } = launch;
+  const { principal: owner, ...provider } = engineProfile(
+    runtimeConfig.provider,
+    principal.owner_scope,
+    config.egressCredentialUrl,
+  );
+  const instructionsFile = module.descriptor.instructionFiles[0];
   return {
-    // Only then: a repository session's digest stays the one its
-    // checkpoints were taken under.
-    ...(launch.workspace?.repository === null
-      ? { appendSystemPrompt: OUT_DIRECTORY_PROMPT }
-      : {}),
-    claudeConfigDir: config.runtime.claudeConfigDir,
-    cwd: config.runtime.cwd,
-    home: config.runtime.home,
-    model: runtimeConfig.model,
-    permissionMode: runtimeConfig.permission_mode,
-    // The catalog provider is shared across partitions; the claim's
-    // principal is what makes this session's checkpoints its own.
-    profile: engineProfile(
-      runtimeConfig.provider,
-      principal.owner_scope,
-      config.egressCredentialUrl,
-    ),
-    // None of the repository's own Claude settings: its hooks would run
-    // commands no permission callback sees, with the egress token in reach,
-    // and the claim's profile is the only policy reviewed. Its CLAUDE.md
-    // comes back only when that profile says so, as committed on the branch
-    // rather than as the checkout now reads (`projectSettingsSchema`).
-    ...(runtimeConfig.project_settings?.claude_md === true
-      ? { repositoryClaudeMd: { contents: committedClaudeMd() } }
-      : {}),
-    settingSources: [],
-    tools: runtimeConfig.tools,
-    ...mcpRunConfig(runtimeConfig, config.egressCredentialUrl),
+    config: {
+      cwd: config.runtime.cwd,
+      home: config.runtime.home,
+      model: runtimeConfig.model,
+      permissionMode: runtimeConfig.permission_mode,
+      tools: runtimeConfig.tools,
+    },
+    bindings: { principal: owner, provider },
+    bundle: {
+      instructions:
+        launch.workspace?.repository === null
+          ? [{ scope: "platform", text: OUT_DIRECTORY_PROMPT }]
+          : [],
+      repoInstructions:
+        runtimeConfig.project_settings?.claude_md === true &&
+        instructionsFile !== undefined
+          ? { file: instructionsFile, text: committedInstructions() }
+          : null,
+      mcpServers: mcpServersOf(runtimeConfig, config.egressCredentialUrl),
+    },
   };
 }
 
-function mcpRunConfig(
+function mcpServersOf(
   runtimeConfig: RuntimeConfig,
   egressCredentialUrl: string,
-): Pick<ClaudeRunConfig, "identities" | "mcpServers"> {
-  const servers = runtimeConfig.mcp_servers ?? [];
-  if (servers.length === 0) return {};
-  return {
-    identities: {
-      mcpServers: Object.fromEntries(servers.map((s) => [s.name, s.binding])),
-    },
-    mcpServers: Object.fromEntries(
-      servers.map((s) => [
-        s.name,
-        remoteMcpRelay({
-          name: s.name,
-          url: `${egressCredentialUrl}/mcp/${s.name}`,
-          token: s.access.token,
-          tools: runtimeConfig.tools,
-        }),
-      ]),
-    ),
-  };
+): PlatformMcpServer[] {
+  return (runtimeConfig.mcp_servers ?? []).map((s) => ({
+    name: s.name,
+    binding: s.binding,
+    url: `${egressCredentialUrl}/mcp/${s.name}`,
+    token: s.access.token,
+    tools: runtimeConfig.tools,
+  }));
 }
 
 /**
@@ -285,11 +255,11 @@ export function claudeClaimFingerprint(
     workspace?: BootstrapClaimResponse["workspace"] | undefined;
   },
 ) => RuntimeFingerprint {
-  return (claim) => ({
-    ...CLAUDE_RUNTIME_FINGERPRINT,
-    profileSha256: claudeProfileFingerprint(
-      claudeRunConfig(
+  return (claim) =>
+    claudeRuntimeModule.fingerprint(
+      runtimeProfile(
         config,
+        claudeRuntimeModule,
         {
           principal: claim.principal,
           runtimeConfig: claim.runtime_config,
@@ -299,8 +269,7 @@ export function claudeClaimFingerprint(
         },
         () => null,
       ),
-    ),
-  });
+    );
 }
 
 /**

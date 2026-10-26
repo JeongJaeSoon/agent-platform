@@ -2,6 +2,7 @@ import { describe, expect, setSystemTime, spyOn, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { type ApiClientOptions, createApiClient } from "@werft-ai/client";
 import type { PendingRequest } from "@werft-ai/contracts";
+import { queryKeys } from "@werft-ai/core";
 import { setupDom, setupUser } from "@werft-ai/ui/test-support/dom";
 import type { ReactNode } from "react";
 import type { ApprovalLayout } from "./session-actions.tsx";
@@ -77,6 +78,9 @@ function renderInbox({
   hold = false,
   events = [],
   rail = false,
+  agent,
+  startedBy,
+  relations: related = [],
 }: {
   open: PendingRequest[];
   layout?: ApprovalLayout;
@@ -94,6 +98,12 @@ function renderInbox({
   events?: (readonly [event: string, data: unknown])[];
   /** Lines open the session in a rail the host draws beside the inbox. */
   rail?: boolean;
+  /** SESSION_ID's agent name. */
+  agent?: string;
+  /** SESSION_ID's starter name. */
+  startedBy?: string;
+  /** The relation filters whose waiting list names SESSION_ID. */
+  relations?: string[];
 }) {
   /** STALE_ID's requests, listed after SESSION_ID until `jump`. */
   let ahead: PendingRequest[] = [];
@@ -114,11 +124,34 @@ function renderInbox({
     })}\n\n`;
   };
   let items = open;
+  let relations = related;
   // Set by `addNewer`: a session that starts waiting ahead of SESSION_ID.
   let newer = false;
+  const waitingSession = {
+    id: SESSION_ID,
+    title,
+    status: "needs_input",
+    ...(agent
+      ? { agent: { id: "agt_1", name: agent, release_version_no: 1 } }
+      : {}),
+    ...(startedBy
+      ? { created_by: { user_id: "usr_1", display_name: startedBy } }
+      : {}),
+  };
   const fakeFetch = async (request: Request) => {
     const url = new URL(request.url);
     const route = `${request.method} ${url.pathname}${url.search}`;
+    const relation =
+      /^GET \/v1\/sessions\?status=needs_input&relation=(\w+)$/.exec(
+        route,
+      )?.[1];
+    if (relation !== undefined) {
+      return json(200, {
+        items:
+          items.length && relations.includes(relation) ? [waitingSession] : [],
+        next_cursor: null,
+      });
+    }
     if (route === "GET /v1/sessions?status=needs_input") {
       waitingReads += 1;
       return json(200, {
@@ -129,9 +162,7 @@ function renderInbox({
           ...(jumped
             ? [{ id: STALE_ID, title: null, status: "needs_input" }]
             : []),
-          ...(items.length
-            ? [{ id: SESSION_ID, title, status: "needs_input" }]
-            : []),
+          ...(items.length ? [waitingSession] : []),
           ...(stale || (ahead.length && !jumped)
             ? [{ id: STALE_ID, title: null, status: "needs_input" }]
             : []),
@@ -219,6 +250,19 @@ function renderInbox({
     },
     posted,
     waitingReads: () => waitingReads,
+    /**
+     * Names SESSION_ID in `next` relation lists and reads the waiting list
+     * again, as an answer elsewhere does, leaving the rest of the cache.
+     */
+    relate: async (next: string[]) => {
+      relations = next;
+      await act(() =>
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.waitingSessions,
+          exact: true,
+        }),
+      );
+    },
     addNewer: async () => {
       newer = true;
       await act(() => queryClient.invalidateQueries());
@@ -633,7 +677,106 @@ describe("ApprovalInbox", () => {
     }
   });
 
-  test("레일 배치는 줄마다 상세 보기 하나를 두고, 오른쪽 레일의 타임라인 질문 행에서 답한다", async () => {
+  test("레일 줄은 시안처럼 아바타·종류 배지·에이전트·내게 온 이유·대기 시간과 답하기를 보이고, 본문과 기한은 레일에 남긴다", async () => {
+    const view = renderInbox({
+      // Bash, whose old line read "Bash: ls".
+      open: [permission("req_1", "Bash")],
+      layout: "summary",
+      title: "hello.txt",
+      rail: true,
+      agent: "Repo Helper",
+      relations: ["administered", "shared", "started"],
+      extra: { now: Date.parse("2026-10-21T01:11:00.000Z") },
+    });
+    const answer = await view.findByRole("button", {
+      name: "Answer hello.txt",
+    });
+    expect(answer.textContent).toBe("Answer");
+    const line = answer.parentElement as HTMLElement;
+    const avatar = line.querySelector("[data-slot='avatar']");
+    expect(avatar?.textContent).toBe("RH");
+    expect(avatar?.getAttribute("aria-hidden")).toBe("true");
+    expect(avatar?.className).toContain("rounded-control");
+    expect(line.textContent).toContain("Permission · Bash");
+    // The first of the reasons, in the design's order.
+    await waitFor(() =>
+      expect(line.textContent).toContain(
+        "Repo Helper · Why you: Session you started · Waiting 12 min",
+      ),
+    );
+    // A long reason wraps; only the wait stays whole.
+    const parts = [...line.querySelectorAll("p > span")].map((part) => [
+      part.textContent,
+      part.className,
+    ]);
+    expect(parts).toContainEqual([" · Why you: Session you started", ""]);
+    expect(parts).toContainEqual([" · Waiting 12 min", "whitespace-nowrap"]);
+    expect(line.textContent).not.toContain("Bash: ls");
+    expect(line.textContent).not.toContain("until");
+    expect(line.textContent).not.toContain(SHORT);
+  });
+
+  for (const [relations, reason] of [
+    [["administered", "shared"], "Shared with you"],
+    [["administered"], "An agent you manage"],
+  ] as const) {
+    test(`레일 줄의 내게 온 이유: ${relations.join("+")} → ${reason}`, async () => {
+      const view = renderInbox({
+        open: [QUESTION],
+        layout: "summary",
+        title: "README",
+        rail: true,
+        agent: "Repo Helper",
+        relations: [...relations],
+      });
+      const answer = await view.findByRole("button", {
+        name: "Answer README",
+      });
+      const line = answer.parentElement as HTMLElement;
+      expect(line.textContent).toContain("Question");
+      await waitFor(() =>
+        expect(line.textContent).toContain(`Why you: ${reason} · `),
+      );
+    });
+  }
+
+  test("대기 목록을 다시 읽으면 내게 온 이유도 다시 읽는다", async () => {
+    const view = renderInbox({
+      open: [QUESTION],
+      layout: "summary",
+      title: "README",
+      rail: true,
+    });
+    const answer = await view.findByRole("button", { name: "Answer README" });
+    const line = answer.parentElement as HTMLElement;
+    await waitFor(() => expect(line.textContent).toContain("Waiting"));
+    expect(line.textContent).not.toContain("Why you");
+    await view.relate(["shared"]);
+    await waitFor(() =>
+      expect(line.textContent).toContain("Why you: Shared with you"),
+    );
+  });
+
+  test("레일 줄은 관계를 모르면 이유를 빼고, 에이전트 없는 세션은 시작한 사람의 기본 아바타를 쓴다", async () => {
+    const view = renderInbox({
+      open: [QUESTION],
+      layout: "summary",
+      title: "README",
+      rail: true,
+      startedBy: "Jaesoon Jeong",
+    });
+    const answer = await view.findByRole("button", { name: "Answer README" });
+    const line = answer.parentElement as HTMLElement;
+    const avatar = line.querySelector("[data-slot='avatar']");
+    expect(avatar?.textContent).toBe("JJ");
+    expect(avatar?.className).toContain("bg-active");
+    // The starter's name is not in the meta, so the avatar says it.
+    expect(avatar?.getAttribute("aria-label")).toBe("Jaesoon Jeong");
+    await waitFor(() => expect(line.textContent).toContain("Waiting"));
+    expect(line.textContent).not.toContain("Why you");
+  });
+
+  test("레일 배치는 줄마다 답하기 하나를 두고, 오른쪽 레일의 타임라인 질문 행에서 답한다", async () => {
     const user = await setupUser();
     const view = renderInbox({
       open: [QUESTION],
@@ -657,11 +800,11 @@ describe("ApprovalInbox", () => {
       ],
     });
     const opener = await view.findByRole("button", {
-      name: "View details of Fix README",
+      name: "Answer Fix README",
     });
-    // The line answers nothing itself.
-    expect(view.queryByRole("button", { name: "Answer" })).toBeNull();
-    expect(view.getByText("Which branch?").className).toContain("truncate");
+    // The line answers nothing itself, and leaves what is asked to the rail.
+    expect(view.queryByRole("button", { name: "Allow" })).toBeNull();
+    expect(view.queryByText("Which branch?")).toBeNull();
     await user.click(opener);
     const panel = await view.findByRole("complementary", {
       name: "Fix README",
@@ -715,9 +858,8 @@ describe("ApprovalInbox", () => {
       rail: true,
     });
     const opener = await view.findByRole("button", {
-      name: `View details of ${SHORT}`,
+      name: `Answer ${SHORT}`,
     });
-    expect(view.getByText("Bash: ls")).toBeTruthy();
     expect(opener.getAttribute("aria-expanded")).toBe("false");
     await user.click(opener);
     const rail = await view.findByRole("complementary");
@@ -738,7 +880,7 @@ describe("ApprovalInbox", () => {
     await waitFor(() => expect(document.activeElement === opener).toBe(true));
   });
 
-  test("레일에 이미 연 세션의 상세 보기를 다시 누르면 키보드가 다시 레일 제목으로 간다", async () => {
+  test("레일에 이미 연 세션의 답하기를 다시 누르면 키보드가 다시 레일 제목으로 간다", async () => {
     const user = await setupUser();
     const view = renderInbox({
       open: [permission("req_1", "Bash")],
@@ -746,7 +888,7 @@ describe("ApprovalInbox", () => {
       rail: true,
     });
     const opener = await view.findByRole("button", {
-      name: `View details of ${SHORT}`,
+      name: `Answer ${SHORT}`,
     });
     await user.click(opener);
     const rail = await view.findByRole("complementary");
@@ -764,7 +906,7 @@ describe("ApprovalInbox", () => {
       rail: true,
     });
     const opener = await view.findByRole("button", {
-      name: `View details of ${SHORT}`,
+      name: `Answer ${SHORT}`,
     });
     opener.click();
     const rail = await view.findByRole("complementary");
@@ -791,7 +933,7 @@ describe("ApprovalInbox", () => {
       rail: true,
     });
     const [first] = await view.findAllByRole("button", {
-      name: `View details of ${SHORT}`,
+      name: `Answer ${SHORT}`,
     });
     if (!first) throw new Error("no line");
     first.click();
@@ -809,7 +951,7 @@ describe("ApprovalInbox", () => {
     await act(async () => allow.click());
     await waitFor(() => expect(first.isConnected).toBe(false));
     expect(
-      view.getAllByRole("button", { name: `View details of ${SHORT}` }),
+      view.getAllByRole("button", { name: `Answer ${SHORT}` }),
     ).toHaveLength(1);
     await waitFor(() =>
       expect(document.activeElement?.textContent).toBe("Waiting for an answer"),
@@ -824,7 +966,7 @@ describe("ApprovalInbox", () => {
       extra: { limit: 1 },
     });
     const opener = await view.findByRole("button", {
-      name: `View details of ${SHORT}`,
+      name: `Answer ${SHORT}`,
     });
     // A second session, past the one line there is room for.
     await act(() => view.second([permission("req_2", "Edit")]));
@@ -848,7 +990,7 @@ describe("ApprovalInbox", () => {
       rail: true,
     });
     await user.click(
-      await view.findByRole("button", { name: `View details of ${SHORT}` }),
+      await view.findByRole("button", { name: `Answer ${SHORT}` }),
     );
     const panel = await view.findByRole("complementary");
     const radio = await waitFor(() => {
@@ -904,7 +1046,7 @@ describe("ApprovalInbox", () => {
       events: [asked],
     });
     await user.click(
-      await view.findByRole("button", { name: `View details of ${SHORT}` }),
+      await view.findByRole("button", { name: `Answer ${SHORT}` }),
     );
     const panel = await view.findByRole("complementary");
     const radio = await waitFor(() => {

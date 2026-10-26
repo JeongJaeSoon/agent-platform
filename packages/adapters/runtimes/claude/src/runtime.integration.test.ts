@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, readdir, stat, symlink } from "node:fs/promises";
 import { join } from "node:path";
 import { type Options, query } from "@anthropic-ai/claude-agent-sdk";
-import type { AgentFrame, TranscriptKey } from "@werft-ai/runtime-core";
+import type { TranscriptKey } from "@werft-ai/runtime-core";
 import { createMemoryCheckpointObjectStore } from "@werft-ai/testkit/checkpoint-objects";
 import {
   type FakeAnthropicServer,
@@ -15,6 +15,7 @@ import {
   type IsolatedWorkspace,
 } from "@werft-ai/testkit/workspace";
 import type { ClaudeRuntimeConfig } from "./config.ts";
+import type { AgentFrame } from "./driver.ts";
 import { InputStream } from "./run.ts";
 import { buildSdkOptions, ClaudeSdkRuntime } from "./runtime.ts";
 import { ClaudeSessionStore } from "./session-store.ts";

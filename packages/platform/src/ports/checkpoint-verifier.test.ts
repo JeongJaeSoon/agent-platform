@@ -72,6 +72,31 @@ describe("serviceCheckpointVerifier", () => {
     // The total the session detail judges TRANSCRIPT_LIMIT on.
     expect(
       await verifier.verify({ fence, turnId: "1", checkpoint, at }),
-    ).toEqual({ status: "verified", transcriptBytes: 22 });
+    ).toEqual({ status: "verified", outputs: [], transcriptBytes: 22 });
+
+    // Outputs: two paths of the same content are one object, an inherited
+    // ref is named like any other, and an omitted file has no object at all.
+    verdict = {
+      status: "verified",
+      manifest: {
+        transcripts: { root: { parts: [] }, subagents: {} },
+        outputs: [
+          { ...part("s/checkpoints/1/att_1/outputs/aa", 100), path: "out/a" },
+          { ...part("s/checkpoints/1/att_1/outputs/aa", 100), path: "out/b" },
+          { ...part("s/checkpoints/0/att_0/outputs/cc", 30), path: "out/c" },
+          { bytes: 5_000_000_000, omitted: "too_large", path: "out/big" },
+        ],
+      } as unknown as CheckpointManifest,
+    };
+    expect(
+      await verifier.verify({ fence, turnId: "1", checkpoint, at }),
+    ).toEqual({
+      status: "verified",
+      outputs: [
+        { key: "s/checkpoints/1/att_1/outputs/aa", bytes: 100 },
+        { key: "s/checkpoints/0/att_0/outputs/cc", bytes: 30 },
+      ],
+      transcriptBytes: 0,
+    });
   });
 });

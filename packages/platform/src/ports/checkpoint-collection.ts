@@ -63,6 +63,16 @@ export interface CheckpointCollectionStore
     sessionId: string,
     options: { keep: readonly number[]; throughRevision: number },
   ): Promise<number>;
+  /**
+   * Records that the objects of the collected revisions `markCollected`
+   * names with the same options are deleted, once every delete of the pass
+   * succeeded: output usage stops counting them only then. A pass that fails
+   * leaves them counted until one succeeds.
+   */
+  markPurged(
+    sessionId: string,
+    options: { keep: readonly number[]; throughRevision: number },
+  ): Promise<void>;
   /** Session ids in ascending order, strictly after `after` when given. */
   listSessionIds(options: {
     after: string | null;

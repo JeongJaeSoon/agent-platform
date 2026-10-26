@@ -114,6 +114,18 @@ describe("EventPublisher", () => {
     );
   });
 
+  test("counts a wait from when the engine asked, not from when the host began waiting", async () => {
+    const { publisher: events } = publisher(async (request) =>
+      accepted(request),
+    );
+    const started = performance.now();
+
+    await expect(
+      events.toolUseStored("toolu_late", 1_000, performance.now() - 990),
+    ).rejects.toThrow("did not reach the event stream within 1000ms");
+    expect(performance.now() - started).toBeLessThan(500);
+  });
+
   test("numbers the attempt's stream from one and keeps frame order", async () => {
     const { batches, publisher: events } = publisher(async (request) =>
       accepted(request),

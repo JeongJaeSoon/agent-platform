@@ -1,7 +1,6 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import {
   type ControlIntent,
-  canonicalJson,
   PENDING_SETTLEMENTS_MAX,
   type PendingQuestion,
   type PendingSettlement,
@@ -14,15 +13,12 @@ import {
 } from "@werft-ai/contracts";
 import { pendingRequestEvent } from "@werft-ai/runtime-claude";
 import {
+  type ApprovalDecisionPayload,
+  type ApprovalRequested,
   isOwnershipLost,
   isRetryable,
-  type PermissionDecision,
-  type PermissionRequest,
   type WorkerGatewayClient,
 } from "@werft-ai/runtime-core";
-
-/** The tool the engine uses to put a question to the person, not to use a capability. */
-export const QUESTION_TOOL = "AskUserQuestion";
 
 export type PendingRequestsOptions = {
   gateway: Pick<WorkerGatewayClient, "registerPending" | "pendingControl">;
@@ -32,7 +28,7 @@ export type PendingRequestsOptions = {
    * itself when it registers the request, so without this it could land
    * ahead of the call that raised it.
    */
-  eventsStored: (toolUseId: string) => Promise<void>;
+  eventsStored: (toolUseId: string, askedAt: number) => Promise<void>;
   scope: () => WorkerScope;
   /**
    * How long this worker holds a callback the gateway has not registered.
@@ -54,7 +50,8 @@ type Pending = {
   questions: PendingQuestion[];
   input: Record<string, unknown>;
   inputHash: string;
-  settle: (decision: PermissionDecision) => void;
+  localId: string;
+  settle: (decision: ApprovalDecisionPayload) => void;
   /** On `performance.now`: a wall-clock jump must not move it. */
   openedAt: number;
   deadline: number;
@@ -97,69 +94,64 @@ export class PendingRequestRegistry {
     return this.pending.size;
   }
 
-  /** Registers one callback and resolves with the decision the SDK gets back. */
-  async request(request: PermissionRequest): Promise<PermissionDecision> {
+  /**
+   * Registers one approval the run asked for; `answer` is called at most
+   * once, with whatever settles it, and never after `withdraw`.
+   */
+  request(
+    request: ApprovalRequested,
+    answer: (decision: ApprovalDecisionPayload) => void,
+  ): void {
     if (this.stopped) {
-      return {
-        behavior: "deny",
+      answer({
+        kind: "cancelled",
+        reason: "shutdown",
         message: "This worker is no longer taking requests",
-      };
-    }
-    const questions = questionsOf(request);
-    const kind = questions === null ? "permission" : "question";
-    const inputHash = hashOf(request);
-    if (inputHash === null) {
-      return {
-        behavior: "deny",
-        message: "The tool arguments cannot be identified for an approval",
-      };
-    }
-    // Fresh per callback: an engine-side id can come round again, and an
-    // answer given for one call must never land on another.
-    const requestId = `req_${randomUUID()}`;
-    const decision = new Promise<PermissionDecision>((resolve) => {
-      this.pending.set(requestId, {
-        kind,
-        questions: questions ?? [],
-        input: request.input,
-        inputHash,
-        settle: resolve,
-        openedAt: performance.now(),
-        deadline: performance.now() + this.options.timeoutMs,
-        timer: undefined,
       });
+      return;
+    }
+    const questions = request.kind === "question" ? questionsOf(request) : null;
+    const kind = questions === null ? "permission" : "question";
+    const requestId = `req_${randomUUID()}`;
+    this.pending.set(requestId, {
+      kind,
+      questions: questions ?? [],
+      input: inputOf(request),
+      inputHash: request.inputHash,
+      localId: request.localId,
+      settle: answer,
+      openedAt: performance.now(),
+      deadline: performance.now() + this.options.timeoutMs,
+      timer: undefined,
     });
     this.arm(requestId);
-    // An aborted run must not leave the engine waiting on a person.
-    const onAbort = () =>
-      this.close(
-        requestId,
-        {
-          behavior: "deny",
-          message: "The run stopped before this was answered",
-        },
-        "cancelled",
-      );
-    request.signal.addEventListener("abort", onAbort, { once: true });
-    if (request.signal.aborted) onAbort();
-    const registration = this.register(
-      requestId,
-      request,
-      questions,
-      inputHash,
-    ).finally(() => this.registering.delete(registration));
+    const registration = this.register(requestId, request, questions).finally(
+      () => this.registering.delete(registration),
+    );
     this.registering.add(registration);
-    try {
-      return await decision;
-    } finally {
-      request.signal.removeEventListener("abort", onAbort);
+  }
+
+  /** The run settled one itself, its call aborted: nothing is answered, the gateway is told. */
+  withdraw(localId: string): void {
+    for (const [requestId, entry] of this.pending) {
+      if (entry.localId === localId) {
+        this.drop(requestId, "cancelled");
+        return;
+      }
     }
   }
 
-  /** Denies everything still waiting; used by drain and by ownership loss. */
-  cancelAll(reason: string): void {
+  /** Cancels everything still waiting; used by drain and by ownership loss. */
+  cancelAll(
+    reason: "interrupt" | "refused" | "shutdown",
+    message: string,
+  ): void {
     for (const requestId of [...this.pending.keys()]) {
-      this.close(requestId, { behavior: "deny", message: reason }, "cancelled");
+      this.close(
+        requestId,
+        { kind: "cancelled", reason, message },
+        "cancelled",
+      );
     }
   }
 
@@ -222,7 +214,8 @@ export class PendingRequestRegistry {
         this.close(
           requestId,
           {
-            behavior: "deny",
+            kind: "cancelled",
+            reason: "expired",
             message: `No answer arrived within ${Math.round((entry.deadline - entry.openedAt) / 1000)}s`,
           },
           "expired",
@@ -234,35 +227,39 @@ export class PendingRequestRegistry {
 
   private close(
     requestId: string,
-    decision: PermissionDecision,
+    decision: ApprovalDecisionPayload,
     outcome: Outcome,
   ): void {
+    this.drop(requestId, outcome)?.settle(decision);
+  }
+
+  /** Ends the request without answering the run; returns what it held. */
+  private drop(requestId: string, outcome: Outcome): Pending | undefined {
     const entry = this.pending.get(requestId);
-    if (entry === undefined) return;
+    if (entry === undefined) return undefined;
     this.pending.delete(requestId);
     clearTimeout(entry.timer);
     this.settlements.set(requestId, outcome);
-    entry.settle(decision);
     this.poll();
+    return entry;
   }
 
   private async register(
     requestId: string,
-    request: PermissionRequest,
+    request: ApprovalRequested,
     questions: PendingQuestion[] | null,
-    inputHash: string,
   ): Promise<void> {
+    const tool = request.tool.name;
+    const toolUseId = request.toolCallId;
     const sleep = this.options.sleep ?? ((ms: number) => Bun.sleep(ms));
     const interval = this.options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
-    // The display copy is the redacted one the event carries; the hash above
-    // was taken over the real arguments.
     const event = pendingRequestEvent(
       {
-        input: questions === null ? request.input : { questions },
+        input: questions === null ? inputOf(request) : { questions },
         kind: questions === null ? "permission" : "question",
         requestId,
-        tool: request.tool,
-        toolUseId: request.toolUseId,
+        tool,
+        toolUseId,
       },
       `pending:${requestId}`,
     );
@@ -282,7 +279,8 @@ export class PendingRequestRegistry {
       this.close(
         requestId,
         {
-          behavior: "deny",
+          kind: "cancelled",
+          reason: "refused",
           message: "The question cannot be shown without its redacted values",
         },
         "cancelled",
@@ -291,24 +289,29 @@ export class PendingRequestRegistry {
     }
     const body: RegisterPendingRequest["request"] =
       shown === null || shown === undefined
-        ? { kind: "permission", tool: request.tool, input: display }
+        ? { kind: "permission", tool, input: display }
         : { kind: "question", questions: shown };
     const turnId = this.options.scope().turn_id;
     if (turnId === null) {
       this.close(
         requestId,
-        { behavior: "deny", message: "No turn is running to ask in" },
+        {
+          kind: "cancelled",
+          reason: "refused",
+          message: "No turn is running to ask in",
+        },
         "cancelled",
       );
       return;
     }
     try {
-      await this.options.eventsStored(request.toolUseId);
+      await this.options.eventsStored(toolUseId, request.askedAt);
     } catch (error) {
       this.close(
         requestId,
         {
-          behavior: "deny",
+          kind: "cancelled",
+          reason: "refused",
           message: `The events before this request could not be stored: ${error instanceof Error ? error.message : String(error)}`,
         },
         "cancelled",
@@ -329,12 +332,12 @@ export class PendingRequestRegistry {
           ...this.options.scope(),
           turn_id: turnId,
           request_id: requestId,
-          input_hash: inputHash,
+          input_hash: request.inputHash,
           request: body,
           // Hands the question event to the gateway, so it needs one that
           // reads `announce`: the API ships before the worker image that
           // sends it (the request schema is strict).
-          announce: { tool_use_id: request.toolUseId, tool: request.tool },
+          announce: { tool_use_id: toolUseId, tool },
         });
         const entry = this.pending.get(requestId);
         if (entry === undefined) {
@@ -358,7 +361,7 @@ export class PendingRequestRegistry {
       } catch (error) {
         if (isOwnershipLost(error)) {
           this.options.onOwnershipLost?.(error);
-          this.cancelAll("This worker no longer owns the session");
+          this.cancelAll("shutdown", "This worker no longer owns the session");
           this.stop();
           return;
         }
@@ -367,7 +370,8 @@ export class PendingRequestRegistry {
           this.close(
             requestId,
             {
-              behavior: "deny",
+              kind: "cancelled",
+              reason: "refused",
               message: `The control plane did not take this request: ${error instanceof Error ? error.message : String(error)}`,
             },
             "cancelled",
@@ -423,7 +427,7 @@ export class PendingRequestRegistry {
           // Nothing this attempt says will be accepted any more, and the
           // gateway settles what it handed out when the execution is gone.
           this.options.onOwnershipLost?.(error);
-          this.cancelAll("This worker no longer owns the session");
+          this.cancelAll("shutdown", "This worker no longer owns the session");
           this.settlements.clear();
           this.stop();
           return;
@@ -464,7 +468,8 @@ export class PendingRequestRegistry {
       this.close(
         answer.request_id,
         {
-          behavior: "deny",
+          kind: "cancelled",
+          reason: "refused",
           message: "The answer was given for different tool arguments",
         },
         "cancelled",
@@ -475,7 +480,8 @@ export class PendingRequestRegistry {
       this.close(
         answer.request_id,
         {
-          behavior: "deny",
+          kind: "cancelled",
+          reason: "refused",
           message: `A ${answer.kind} answer cannot settle a ${entry.kind} request`,
         },
         "cancelled",
@@ -486,9 +492,10 @@ export class PendingRequestRegistry {
       this.close(
         answer.request_id,
         answer.decision === "allow"
-          ? { behavior: "allow" }
+          ? { kind: "selected", optionKind: "allow_once" }
           : {
-              behavior: "deny",
+              kind: "selected",
+              optionKind: "reject_once",
               message: answer.reason ?? "Denied without a reason",
             },
         "answered",
@@ -501,7 +508,7 @@ export class PendingRequestRegistry {
       // would let the engine act on something nobody chose.
       this.close(
         answer.request_id,
-        { behavior: "deny", message: invalid },
+        { kind: "cancelled", reason: "refused", message: invalid },
         "cancelled",
       );
       return;
@@ -509,23 +516,18 @@ export class PendingRequestRegistry {
     this.close(
       answer.request_id,
       {
-        behavior: "allow",
-        updatedInput: {
-          ...entry.input,
-          // The SDK carries answers on the tool input, keyed by the question
-          // they answer.
-          answers: Object.fromEntries(
-            entry.questions.map((question) => [
-              question.prompt,
-              answerText(
-                question,
-                answer.answers.find(
-                  (item) => item.question_id === question.question_id,
-                ) as QuestionAnswer,
-              ),
-            ]),
-          ),
-        },
+        kind: "answered",
+        answers: Object.fromEntries(
+          entry.questions.map((question) => [
+            question.prompt,
+            answerText(
+              question,
+              answer.answers.find(
+                (item) => item.question_id === question.question_id,
+              ) as QuestionAnswer,
+            ),
+          ]),
+        ),
       },
       "answered",
     );
@@ -543,17 +545,11 @@ async function within(work: Promise<unknown>, ms: number): Promise<void> {
   clearTimeout(timer);
 }
 
-// Over the arguments the engine will act on, before any redaction: an
-// approval is for exactly these, and the display copy cannot tell apart two
-// calls that differ only in a redacted value.
-function hashOf(request: PermissionRequest): string | null {
-  try {
-    return createHash("sha256")
-      .update(canonicalJson({ tool: request.tool, input: request.input }))
-      .digest("hex");
-  } catch {
-    return null;
-  }
+function inputOf(request: ApprovalRequested): Record<string, unknown> {
+  const input = request.tool.input;
+  return input !== null && typeof input === "object" && !Array.isArray(input)
+    ? (input as Record<string, unknown>)
+    : {};
 }
 
 function answerText(question: PendingQuestion, answer: QuestionAnswer): string {
@@ -568,13 +564,12 @@ function answerText(question: PendingQuestion, answer: QuestionAnswer): string {
 }
 
 /**
- * The questions an `AskUserQuestion` call is asking, or null when the callback
- * is an ordinary permission request. Ids are positional so an answer can only
- * name a question and an option this worker actually offered.
+ * The questions a question request is asking, or null when its input carries
+ * none this worker can show. Ids are positional so an answer can only name a
+ * question and an option this worker actually offered.
  */
-function questionsOf(request: PermissionRequest): PendingQuestion[] | null {
-  if (request.tool !== QUESTION_TOOL) return null;
-  const raw = request.input.questions;
+function questionsOf(request: ApprovalRequested): PendingQuestion[] | null {
+  const raw = inputOf(request).questions;
   if (!Array.isArray(raw)) return null;
   const questions = raw.flatMap((value, index) => {
     if (value === null || typeof value !== "object") return [];

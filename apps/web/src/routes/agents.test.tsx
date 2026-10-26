@@ -12,9 +12,9 @@ import {
   agentDetailSchema,
   CREDENTIAL_REVOKE_NOTICE,
 } from "@werft-ai/contracts";
+import { avatarTone } from "@werft-ai/ui";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
 import { queryKeys } from "../api/queries.ts";
-import { avatarTone } from "../components/agent-cards.tsx";
 import { type Locale, translate } from "../i18n/i18n.tsx";
 import { AGENT_ID, agentServer, CARD } from "../test-support/fake-agents.ts";
 import {
@@ -1414,15 +1414,9 @@ describe("에이전트 상세", () => {
       release_id: server.releases[0]?.id,
       expected_revision: -1,
     });
-    // The overview panel stays mounted behind the release tab.
-    const glance = screen.getByRole("list", {
-      name: "에이전트 현황",
-      hidden: true,
-    });
+    const heading = screen.getByRole("heading", { level: 1 });
     await waitFor(() =>
-      expect(glance.firstElementChild?.textContent).toContain(
-        `version 1실행 프로필 ${PROFILE}`,
-      ),
+      expect(heading.nextElementSibling?.textContent).toBe("v1 · 활성"),
     );
     expect(agentDetailSchema.safeParse(server.detail()).success).toBe(true);
   });

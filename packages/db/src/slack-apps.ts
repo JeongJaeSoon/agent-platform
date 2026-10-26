@@ -11,7 +11,7 @@ import {
   type SlackAppStore,
   secretOwnerRef,
 } from "@werft-ai/platform";
-import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, ne } from "drizzle-orm";
 import { holdsRight, lockedRole } from "./api-keys.ts";
 import { DB_NOW } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
@@ -182,6 +182,25 @@ export function createPostgresSlackAppStore(
             eq(slackApps.workspaceId, workspaceId),
             eq(slackApps.id, slackAppId),
             eq(slackApps.state, "created"),
+          ),
+        );
+    },
+    async setEventsUnlessVerified(workspaceId, slackAppId, events) {
+      await db
+        .update(slackApps)
+        .set({
+          eventsState: events.state,
+          eventsCheckedAt:
+            events.checked_at === null ? null : new Date(events.checked_at),
+          eventsError: events.error ?? null,
+          updatedAt: DB_NOW,
+        })
+        .where(
+          and(
+            eq(slackApps.workspaceId, workspaceId),
+            eq(slackApps.id, slackAppId),
+            eq(slackApps.state, "created"),
+            ne(slackApps.eventsState, "verified"),
           ),
         );
     },

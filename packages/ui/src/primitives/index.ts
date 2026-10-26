@@ -10,6 +10,8 @@ export {
 export {
   Avatar,
   type AvatarProps,
+  avatarInitials,
+  avatarTone,
   avatarVariants,
 } from "./avatar.tsx";
 export { Badge, type BadgeProps } from "./badge.tsx";

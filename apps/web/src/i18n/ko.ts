@@ -51,6 +51,10 @@ export const slackKo = {
   "slack.state.pending": "설치 대기",
   "slack.state.connected": "연결됨",
   "slack.state.reinstall": "재설치 필요",
+  "slack.eventsPending.title": "Slack에서 Request URL을 Verify하세요",
+  "slack.eventsPending.body":
+    "Slack이 이 앱의 Request URL을 확인하기 전에는 초대·멘션·DM 이벤트가 오지 않습니다. 앱 설정의 Event Subscriptions에서 Verify(또는 Retry)를 누르세요. 확인 요청이 도착하면 이 안내는 사라집니다.",
+  "slack.eventsPending.open": "Event Subscriptions 열기",
   "slack.repositoryRequired.title": "Slack에서는 세션을 시작할 수 없습니다",
   "slack.repositoryRequired.body":
     "이 에이전트의 프로필({profile})은 세션마다 저장소를 골라야 합니다. Slack 멘션과 DM은 저장소를 고를 수 없어 거절되고, 스레드에 안내만 남습니다. 연결은 할 수 있습니다. 저장소가 필요 없는 프로필로 release를 바꾸거나 웹 콘솔에서 세션을 시작하세요.",
