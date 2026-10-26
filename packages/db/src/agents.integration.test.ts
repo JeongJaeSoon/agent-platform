@@ -39,6 +39,7 @@ import {
   agentReleases,
   agents,
   agentVersions,
+  credentialBindings,
   memberships,
   memberTeamMembers,
   memberTeams,
@@ -438,6 +439,124 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     expect(
       await codeOf(agentsService.countAgents(serviceKey(workspaceId))),
     ).toBe("FORBIDDEN");
+  });
+
+  test("a page's summaries say what reading each agent, its admins and bindings one by one says", async () => {
+    const workspaceId = await workspace();
+    const owner = await person(workspaceId, "owner");
+    const userId = owner.actor?.userId ?? "";
+    const agentsService = service();
+
+    // A draft with a newer draft, asking for two names, one bound live.
+    const longest = `${"a".repeat(299)}😀b`;
+    const draft = await newAgent(agentsService, owner, {
+      ...cardWith("v1"),
+      capabilities: {
+        ...cardWith("v1").capabilities,
+        credential_refs: ["github", "slack"],
+      },
+    });
+    await agentsService.updateAgent(owner, draft.agent.id, {
+      card: {
+        ...cardWith(longest),
+        capabilities: {
+          ...cardWith(longest).capabilities,
+          credential_refs: ["github", "slack"],
+        },
+      },
+    });
+    await db.insert(credentialBindings).values([
+      {
+        id: randomUUID(),
+        workspaceId,
+        credentialRef: "github",
+        target: "agent",
+        targetId: draft.agent.id,
+        boundBy: userId,
+      },
+      {
+        id: randomUUID(),
+        workspaceId,
+        credentialRef: "slack",
+        target: "agent",
+        targetId: draft.agent.id,
+        boundBy: userId,
+        revokedAt: new Date(),
+      },
+    ]);
+    // Its creator administers it already; a team is added.
+    const teamId = randomUUID();
+    await db
+      .insert(memberTeams)
+      .values({ id: teamId, workspaceId, name: "재무팀" });
+    await db
+      .insert(agentAdminTeams)
+      .values({ workspaceId, agentId: draft.agent.id, teamId });
+
+    // Released at v1, then edited: people still talk to v1.
+    const released = await newAgent(agentsService, owner);
+    const v1 = released.versions[0];
+    if (!v1) throw new Error("no version 1");
+    const release = await agentsService.createRelease(
+      owner,
+      released.agent.id,
+      { version_id: v1.id, runtime_profile_id: "coding" },
+    );
+    await agentsService.activateAgent(owner, released.agent.id, {
+      release_id: release.release.id,
+      expected_revision: -1,
+    });
+    await agentsService.updateAgent(owner, released.agent.id, {
+      card: cardWith("v2"),
+    });
+    await newAgent(agentsService, await person(await workspace(), "owner"));
+
+    const page = await agentsService.listAgents(owner, {
+      ...PAGE,
+      include: "summary",
+    });
+    expect(page.items.map((agent) => agent.id)).toEqual([
+      draft.agent.id,
+      released.agent.id,
+    ]);
+    expect(page.items.map((agent) => agent.summary)).toEqual([
+      {
+        version: {
+          version_no: 2,
+          role: "재무 분석가",
+          instructions: "a".repeat(299),
+          mcp_servers: [],
+          credential_refs: ["github", "slack"],
+        },
+        runtime_profile_id: null,
+        bound_credential_refs: ["github"],
+        admins: ["owner", "재무팀"],
+      },
+      {
+        version: {
+          version_no: 1,
+          role: "재무 분석가",
+          instructions: "v1",
+          mcp_servers: [],
+          credential_refs: [],
+        },
+        runtime_profile_id: "coding",
+        bound_credential_refs: [],
+        admins: ["owner"],
+      },
+    ]);
+    // Without asking, the page is the agents as before.
+    const plain = await agentsService.listAgents(owner, PAGE);
+    expect(plain.items.map((agent) => Object.hasOwn(agent, "summary"))).toEqual(
+      [false, false],
+    );
+    // Another workspace's agent is never summarised, even by id.
+    const store = createPostgresAgentStore(db);
+    const other = await workspace();
+    expect(
+      (await store.summaries(other, [draft.agent.id.toUpperCase()])).size,
+    ).toBe(0);
+    expect((await store.summaries(workspaceId, [])).size).toBe(0);
   });
 
   test("an owner creates an agent, adds versions, releases and activates one", async () => {

@@ -607,6 +607,41 @@ describe("에이전트 카드", () => {
       expect(detailCalls(api).length).toBe(42);
     });
 
+    test("목록이 요약을 함께 주면 카드는 에이전트마다 따로 부르지 않는다", async () => {
+      const agents = items(14).map((agent) => ({
+        ...agent,
+        summary: {
+          version: {
+            version_no: 3,
+            role: CARD.role,
+            instructions: CARD.instructions,
+            mcp_servers: ["linear"],
+            credential_refs: ["github", "slack"],
+          },
+          runtime_profile_id: PROFILE,
+          bound_credential_refs: ["github"],
+          admins: ["Owner", "재무팀"],
+        },
+      }));
+      viewport.show(() => false);
+      const { api } = renderAt("/agents", {
+        ...meOk,
+        "GET /v1/agents": () => json(200, { items: agents, next_cursor: null }),
+      });
+      const card = await cardFor("에이전트 13");
+      expect(fact(card, "실행 프로필")).toBe(PROFILE);
+      expect(fact(card, "MCP")).toBe("linear");
+      expect(fact(card, "자격 증명")).toBe("연결 필요 1개");
+      expect(card.textContent).toContain(CARD.instructions);
+      expect(card.textContent).toContain("담당 Owner, 재무팀");
+      expect(api.calls.find((c) => c.path === "/v1/agents")?.search).toContain(
+        "include=summary",
+      );
+      act(() => viewport.show(() => true));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(detailCalls(api)).toEqual([]);
+    });
+
     test("창이나 네트워크로 돌아와도 이미 불러온 카드를 다시 부르지 않는다", async () => {
       const { api } = renderAt("/agents", { ...meOk, ...releasedServer() });
       const card = await cardFor("결제 담당");

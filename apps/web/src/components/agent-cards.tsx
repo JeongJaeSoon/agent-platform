@@ -4,6 +4,8 @@ import type {
   Agent,
   AgentAdminsView,
   AgentDetail,
+  AgentListItem,
+  AgentSummary,
   ListCredentialBindingsResponse,
 } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
@@ -32,7 +34,11 @@ import { OPENS_ROW, ROW_LINK } from "./row-link.ts";
 import { useSeen } from "./seen.ts";
 
 /** The design's cards: what each agent is and what it still needs. */
-export function AgentCards({ agents }: { readonly agents: readonly Agent[] }) {
+export function AgentCards({
+  agents,
+}: {
+  readonly agents: readonly AgentListItem[];
+}) {
   return (
     <ul className="m-0 grid list-none grid-cols-1 gap-4 p-0 md:grid-cols-2 xl:grid-cols-3">
       {agents.map((agent) => (
@@ -42,14 +48,46 @@ export function AgentCards({ agents }: { readonly agents: readonly Agent[] }) {
   );
 }
 
+/** One value a card shows, read with the list or on its own. */
+type Part<T> = Pick<UseQueryResult<T>, "data" | "isError" | "isPending">;
+
+interface Facts {
+  /** The version people talk to, or the newest draft before any release. */
+  readonly version: AgentSummary["version"] | undefined;
+  readonly runtime_profile_id: string | null;
+}
+
+function ready<T>(data: T): Part<T> {
+  return { data, isError: false, isPending: false };
+}
+
+function AgentCardItem({ agent }: { readonly agent: AgentListItem }) {
+  const summary = agent.summary;
+  if (!summary) return <ReadingCard agent={agent} />;
+  return (
+    <li className="flex">
+      <AgentCard
+        agent={agent}
+        facts={ready({
+          version: summary.version,
+          runtime_profile_id: summary.runtime_profile_id,
+        })}
+        bound={ready(summary.bound_credential_refs)}
+        admins={ready(summary.admins)}
+      />
+    </li>
+  );
+}
+
 /**
- * The list has no card fields, so each card reads three more resources:
- * the agent, its admins and its credential bindings. Only a card that has
- * come into view reads them, so a long list does not fire three requests per
- * agent to draw one screen. The keys are the detail screen's, so opening an
- * agent reuses what its card read.
+ * A list without summaries (the agents a person administers) has no card
+ * fields, so each card reads three more resources: the agent, its admins and
+ * its credential bindings. Only a card that has come into view reads them,
+ * so a long list does not fire three requests per agent to draw one screen.
+ * The keys are the detail screen's, so opening an agent reuses what its card
+ * read.
  */
-function AgentCardItem({ agent }: { readonly agent: Agent }) {
+function ReadingCard({ agent }: { readonly agent: Agent }) {
   const { client } = useAgentPlatform();
   const [ref, seen] = useSeen<HTMLLIElement>();
   // A card scrolled past stays subscribed, so coming back to the window or
@@ -59,45 +97,70 @@ function AgentCardItem({ agent }: { readonly agent: Agent }) {
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
   };
-  const detail = useQuery({ ...agentQuery(client, agent.id), ...options });
+  const facts = useQuery({
+    ...agentQuery(client, agent.id),
+    ...options,
+    select: factsOf,
+  });
   const admins = useQuery({
     ...agentAdminsQuery(client, agent.id),
     ...options,
+    select: adminNames,
   });
-  const bindings = useQuery({
+  const bound = useQuery({
     ...credentialBindingsQuery(client, agent.id),
     ...options,
+    select: liveRefs,
   });
   return (
     <li ref={ref} className="flex">
-      <AgentCard
-        agent={agent}
-        detail={detail}
-        admins={admins}
-        bindings={bindings}
-      />
+      <AgentCard agent={agent} facts={facts} bound={bound} admins={admins} />
     </li>
   );
 }
 
+function factsOf(data: AgentDetail): Facts {
+  const version =
+    data.versions.find((v) => v.id === data.active_release?.version_id) ??
+    data.versions.at(-1);
+  return {
+    version: version && {
+      version_no: version.version_no,
+      role: version.card.role,
+      instructions: version.card.instructions,
+      mcp_servers: (version.card.capabilities.mcp ?? []).map((m) => m.server),
+      credential_refs: version.card.capabilities.credential_refs ?? [],
+    },
+    runtime_profile_id: data.active_release?.runtime_profile_id ?? null,
+  };
+}
+
+function liveRefs(page: ListCredentialBindingsResponse) {
+  return page.items
+    .filter((binding) => binding.revoked_at === null)
+    .map((binding) => binding.credential_ref);
+}
+
+function adminNames(view: AgentAdminsView) {
+  return [
+    ...view.users.map((user) => user.display_name ?? user.email),
+    ...view.teams.map((team) => team.name),
+  ];
+}
+
 function AgentCard({
   agent,
-  detail,
+  facts,
+  bound,
   admins,
-  bindings,
 }: {
   readonly agent: Agent;
-  readonly detail: UseQueryResult<AgentDetail>;
-  readonly admins: UseQueryResult<AgentAdminsView>;
-  readonly bindings: UseQueryResult<ListCredentialBindingsResponse>;
+  readonly facts: Part<Facts>;
+  readonly bound: Part<readonly string[]>;
+  readonly admins: Part<readonly string[]>;
 }) {
   const { t } = useI18n();
-  const data = detail.data;
-  // The version people talk to, or the newest draft before any release.
-  const version =
-    data?.versions.find((v) => v.id === data.active_release?.version_id) ??
-    data?.versions.at(-1);
-  const card = version?.card;
+  const version = facts.data?.version;
   const released = agentState(agent) === "active" && version !== undefined;
 
   return (
@@ -142,8 +205,10 @@ function AgentCard({
       <CardContent className="flex flex-1 flex-col gap-3">
         {/* Two lines whether read or not, so the card never grows as it loads. */}
         <div className="h-[2lh] text-control">
-          <Detail query={detail} lines={2}>
-            {card ? <p className="m-0 line-clamp-2">{card.role}</p> : null}
+          <Detail query={facts} lines={2}>
+            {version ? (
+              <p className="m-0 line-clamp-2">{version.role}</p>
+            ) : null}
           </Detail>
         </div>
         <div className="flex flex-col gap-1 rounded-control bg-muted px-3 py-2">
@@ -151,10 +216,10 @@ function AgentCard({
             {t("agents.cards.instructions")}
           </span>
           <div className="h-[2lh] text-control">
-            <Detail query={detail} lines={2}>
-              {card ? (
+            <Detail query={facts} lines={2}>
+              {version ? (
                 <p className="m-0 line-clamp-2 [overflow-wrap:anywhere]">
-                  {card.instructions}
+                  {version.instructions}
                 </p>
               ) : null}
             </Detail>
@@ -162,18 +227,18 @@ function AgentCard({
         </div>
         <dl className="m-0 grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-4 gap-y-2 text-control">
           <Fact term={t("agents.cards.profile")}>
-            <Detail query={detail}>
-              {data
-                ? (data.active_release?.runtime_profile_id ??
+            <Detail query={facts}>
+              {facts.data
+                ? (facts.data.runtime_profile_id ??
                   t("agents.cards.notReleased"))
                 : null}
             </Detail>
           </Fact>
           <Fact term={t("agents.cards.mcp")}>
-            <Detail query={detail}>
-              {data ? (
+            <Detail query={facts}>
+              {facts.data ? (
                 <Names
-                  names={(card?.capabilities.mcp ?? []).map((m) => m.server)}
+                  names={version?.mcp_servers ?? []}
                   none={t("agent.panel.none")}
                 />
               ) : null}
@@ -181,13 +246,11 @@ function AgentCard({
           </Fact>
           <Fact term={t("agents.cards.credentials")}>
             {/* What the card asks for and what is bound: both must answer. */}
-            <Detail query={[detail, bindings]}>
-              {bindings.data && card ? (
+            <Detail query={[facts, bound]}>
+              {bound.data && version ? (
                 <CredentialNeed
-                  refs={card.capabilities.credential_refs ?? []}
-                  bound={bindings.data.items
-                    .filter((binding) => binding.revoked_at === null)
-                    .map((binding) => binding.credential_ref)}
+                  refs={version.credential_refs}
+                  bound={bound.data}
                 />
               ) : null}
             </Detail>
@@ -199,7 +262,9 @@ function AgentCard({
           {t("agents.cards.admins")}{" "}
           <Detail query={admins} inline>
             {admins.data
-              ? adminNames(admins.data, t("agent.panel.none"))
+              ? admins.data.length === 0
+                ? t("agent.panel.none")
+                : admins.data.join(", ")
               : null}
           </Detail>
         </span>
@@ -219,7 +284,7 @@ function AgentCard({
   );
 }
 
-type Read = UseQueryResult<unknown>;
+type Read = Part<unknown>;
 
 /**
  * One value read per agent: a placeholder until it is read, a dash when it
@@ -333,14 +398,6 @@ function CredentialNeed({
           : t("agents.cards.credentialsBound", { count: refs.length })}
     </span>
   );
-}
-
-function adminNames(view: AgentAdminsView, none: string) {
-  const names = [
-    ...view.users.map((user) => user.display_name ?? user.email),
-    ...view.teams.map((team) => team.name),
-  ];
-  return names.length === 0 ? none : names.join(", ");
 }
 
 /** The design's 32px square initials mark, one colour per name. */

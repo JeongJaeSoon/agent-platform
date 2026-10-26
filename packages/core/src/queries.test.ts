@@ -138,7 +138,7 @@ test("a member page asks the server for one page, the search going with it", asy
   expect(found.getNextPageParam(page, [page], null, [null])).toBe("cursor-3");
 });
 
-test("the agent list reads every page, 100 at a time, and hands back all of them", async () => {
+test("the agent list reads every page, 100 at a time with summaries, and hands back all of them", async () => {
   const pages: Record<
     string,
     { items: { id: string }[]; next_cursor: string | null }
@@ -160,8 +160,8 @@ test("the agent list reads every page, 100 at a time, and hands back all of them
   expect(all.items.map((agent) => agent.id)).toEqual(["a", "b", "c"]);
   expect(all.next_cursor).toBeNull();
   expect(calls).toEqual([
-    { limit: 100 },
-    { cursor: "c2", limit: 100 },
-    { cursor: "c3", limit: 100 },
+    { include: "summary", limit: 100 },
+    { include: "summary", cursor: "c2", limit: 100 },
+    { include: "summary", cursor: "c3", limit: 100 },
   ]);
 });

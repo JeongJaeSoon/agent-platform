@@ -1456,7 +1456,7 @@ export interface paths {
         };
         /**
          * The workspace's agents
-         * @description Lists the workspace's agents oldest `created_at` first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. API keys are refused.
+         * @description Lists the workspace's agents oldest `created_at` first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. `include=summary` adds to each item a `summary` of what a card shows (the version people talk to, its runtime profile, live credential bindings and admins), read for the whole page at once; without it the items are as before. API keys are refused.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -2375,6 +2375,8 @@ export interface components {
             cursor?: string;
             /** @default 50 */
             limit: number;
+            /** @constant */
+            include?: "summary";
         };
         ListMembersQuery: {
             cursor?: string;
@@ -4390,6 +4392,18 @@ export interface components {
                 created_at: string;
                 /** Format: date-time */
                 updated_at: string;
+                summary?: {
+                    version: {
+                        version_no: number;
+                        role: string;
+                        instructions: string;
+                        mcp_servers: string[];
+                        credential_refs: string[];
+                    };
+                    runtime_profile_id: string | null;
+                    bound_credential_refs: string[];
+                    admins: string[];
+                };
             }[];
             next_cursor: string | null;
         };
@@ -14313,6 +14327,7 @@ export interface operations {
             query?: {
                 cursor?: string;
                 limit?: number;
+                include?: "summary";
             };
             header?: never;
             path?: never;

@@ -642,7 +642,7 @@ describe("에이전트 관리자", () => {
     const agentsApi = agentServer();
     const teams = teamServer();
     let current = admins();
-    const { api } = renderAt(`/agents/${AGENT_ID}?tab=admins`, {
+    const { api, services } = renderAt(`/agents/${AGENT_ID}?tab=admins`, {
       ...agentsApi.routes,
       ...teams.routes,
       [`GET /v1/agents/${AGENT_ID}/admins`]: () => json(200, current),
@@ -670,6 +670,11 @@ describe("에이전트 관리자", () => {
       (await screen.findByText("Mate")).closest("li")?.textContent,
     ).toContain("mate@example.com · 10/11부터 담당");
     await screen.findByRole("option", { name: "결제팀" });
+    // The list's summaries name the admins, so a change marks it stale.
+    services.queryClient.setQueryData(queryKeys.agents, {
+      items: [],
+      next_cursor: null,
+    });
     await user.selectOptions(
       screen.getByLabelText("관리자로 추가할 사람이나 팀"),
       `teams:${TEAM_ID}`,
@@ -682,6 +687,9 @@ describe("에이전트 관리자", () => {
       api.calls.find((c) => c.method === "POST" && c.path.endsWith("/admins"))
         ?.body,
     ).toEqual({ team_id: TEAM_ID });
+    expect(
+      services.queryClient.getQueryState(queryKeys.agents)?.isInvalidated,
+    ).toBe(true);
 
     await user.click(
       screen.getByRole("button", { name: "Mate을(를) 관리자에서 빼기" }),

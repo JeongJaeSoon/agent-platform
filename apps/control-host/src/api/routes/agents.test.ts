@@ -132,6 +132,7 @@ function store(overrides: Partial<AgentStore> = {}): AgentStore {
   return {
     list: async () => ({ items: [detail.agent], next_cursor: null }),
     count: async () => ({ all: 1, administered: 0 }),
+    summaries: async () => new Map(),
     get: async () => detail,
     findVersion: async () => detail.versions[0] ?? null,
     findRelease: async () => storedRelease(),

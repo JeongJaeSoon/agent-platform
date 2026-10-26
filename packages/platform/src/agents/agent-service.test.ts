@@ -80,6 +80,7 @@ function memoryStore(tools: string[] = ["Read"]) {
   const store: AgentStore = {
     list: async () => ({ items: [detail.agent], next_cursor: null }),
     count: async () => ({ all: 1, administered: 0 }),
+    summaries: async () => new Map(),
     get: async () => detail,
     findVersion: async () => ({
       id: VERSION,
@@ -199,6 +200,38 @@ describe("agent service", () => {
     expect(await codeOf(service.countAgents(key))).toBe("FORBIDDEN");
     expect(reached).toBe(false);
     expect((await service.listAgents(owner, PAGE)).items).toEqual([]);
+  });
+
+  test("a summary is read for the whole page only when asked for", async () => {
+    const asked: (readonly string[])[] = [];
+    const { store } = memoryStore();
+    const summary = {
+      version: {
+        version_no: 1,
+        role: "r",
+        instructions: "i",
+        mcp_servers: [],
+        credential_refs: [],
+      },
+      runtime_profile_id: null,
+      bound_credential_refs: [],
+      admins: [],
+    };
+    const service = serviceOver({
+      ...store,
+      summaries: async (_workspace, ids) => {
+        asked.push(ids);
+        return new Map([[AGENT, summary]]);
+      },
+    });
+    expect((await service.listAgents(owner, PAGE)).items).toEqual([
+      detail.agent,
+    ]);
+    expect(asked).toEqual([]);
+    expect(
+      (await service.listAgents(owner, { ...PAGE, include: "summary" })).items,
+    ).toEqual([{ ...detail.agent, summary }]);
+    expect(asked).toEqual([[AGENT]]);
   });
 
   test("a release is named by its content, and the same content again is the same release", async () => {
