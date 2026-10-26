@@ -413,7 +413,11 @@ export function createPostgresWorkerPendingStore(
         if (pause?.id !== input.pauseControlId) {
           return { outcome: "ok", reverted: false };
         }
+        // After the receipt lock's wait, before the first write.
         const now = await dbNow(tx);
+        if (!leaseHeld(fenced.attempt, now)) {
+          return { outcome: "lease_expired" };
+        }
         // The worker keeps its epoch and lease, as when a resume cancels a
         // pause still draining; pause_reason clears with the admission.
         await tx

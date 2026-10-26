@@ -855,48 +855,55 @@ export function createPostgresSessionReader(
       viewer: SessionViewer,
     ) {
       const cursor = query.cursor ? decodeCreatedAtCursor(query.cursor) : null;
-      const rows = await db
-        .select({
-          session: sessions,
-          cursorAt: CREATED_AT_TEXT,
-          awaitingInput: sql<boolean>`exists (${actionableOfSession(db)})`,
-          lastEventAt: LAST_EVENT_AT,
-          readAt: READ_AT,
-        })
-        .from(sessions)
-        .where(
-          and(
-            sessionFilter(ownerId, query, viewer),
-            query.status ? publicStatusIs(query.status) : undefined,
-            query.agent_id
-              ? inArray(
-                  sessions.agentReleaseId,
-                  db
-                    .select({ id: agentReleases.id })
-                    .from(agentReleases)
-                    .where(eq(agentReleases.agentId, query.agent_id)),
-                )
-              : undefined,
-            cursor
-              ? sql`(${sessions.createdAt}, ${sessions.id}) < (${cursor.created_at}::timestamptz, ${cursor.id}::uuid)`
-              : undefined,
-          ),
-        )
-        .orderBy(desc(sessions.createdAt), desc(sessions.id))
-        .limit(query.limit + 1)
-        .catch(rethrowCursorCastError);
-      const page = rows.slice(0, query.limit);
-      const last = page[page.length - 1];
-      return {
-        items: last ? await summarize(db, page, last.readAt) : [],
-        next_cursor:
-          rows.length > query.limit && last
-            ? encodeCreatedAtCursor({
-                created_at: last.cursorAt,
-                id: last.session.id,
-              })
-            : null,
-      };
+      // One snapshot, as the detail: an answer committed between the page
+      // and its summary read showed needs_input beside input_wait null.
+      return db.transaction(
+        async (tx) => {
+          const rows = await tx
+            .select({
+              session: sessions,
+              cursorAt: CREATED_AT_TEXT,
+              awaitingInput: sql<boolean>`exists (${actionableOfSession(db)})`,
+              lastEventAt: LAST_EVENT_AT,
+              readAt: READ_AT,
+            })
+            .from(sessions)
+            .where(
+              and(
+                sessionFilter(ownerId, query, viewer),
+                query.status ? publicStatusIs(query.status) : undefined,
+                query.agent_id
+                  ? inArray(
+                      sessions.agentReleaseId,
+                      db
+                        .select({ id: agentReleases.id })
+                        .from(agentReleases)
+                        .where(eq(agentReleases.agentId, query.agent_id)),
+                    )
+                  : undefined,
+                cursor
+                  ? sql`(${sessions.createdAt}, ${sessions.id}) < (${cursor.created_at}::timestamptz, ${cursor.id}::uuid)`
+                  : undefined,
+              ),
+            )
+            .orderBy(desc(sessions.createdAt), desc(sessions.id))
+            .limit(query.limit + 1)
+            .catch(rethrowCursorCastError);
+          const page = rows.slice(0, query.limit);
+          const last = page[page.length - 1];
+          return {
+            items: last ? await summarize(tx, page, last.readAt) : [],
+            next_cursor:
+              rows.length > query.limit && last
+                ? encodeCreatedAtCursor({
+                    created_at: last.cursorAt,
+                    id: last.session.id,
+                  })
+                : null,
+          };
+        },
+        { isolationLevel: "repeatable read", accessMode: "read only" },
+      );
     },
 
     getSession(

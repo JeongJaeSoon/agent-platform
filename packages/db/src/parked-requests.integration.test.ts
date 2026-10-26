@@ -1037,6 +1037,50 @@ integration("parked pending requests on PostgreSQL", () => {
     }
   });
 
+  test("a declined park whose lease ends while it waits on the receipt changes nothing", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    await register(worker);
+    const parkReceipt = await openPark(owner, sessionId);
+    await db
+      .update(attempts)
+      .set({
+        leaseExpiresAt: sql`clock_timestamp() + interval '300 milliseconds'`,
+      })
+      .where(eq(attempts.id, worker.scope.attempt_id));
+    let release = () => {};
+    let locked = () => {};
+    const holding = new Promise<void>((resolve) => {
+      locked = resolve;
+    });
+    const holder = db.transaction(async (tx) => {
+      await tx
+        .select({ id: receipts.id })
+        .from(receipts)
+        .where(eq(receipts.id, parkReceipt))
+        .for("update");
+      locked();
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+    });
+    await holding;
+    const declined = declinePark(worker, parkReceipt).then(
+      () => null,
+      (error: unknown) => error,
+    );
+    await Bun.sleep(600);
+    release();
+    await holder;
+    const error = await declined;
+    expect(error).toBeInstanceOf(WorkerGatewayError);
+    expect((error as WorkerGatewayError).code).toBe("LEASE_EXPIRED");
+    expect(await sessionRow(sessionId)).toMatchObject({
+      admissionState: "pausing",
+      pauseReason: "awaiting_input",
+    });
+    expect((await receipt(parkReceipt))?.status).toBe("accepted");
+  });
+
   test("execution-gone and a revocation report the waits they lose; a terminate does not", async () => {
     const gone = await runningSession();
     const lost = await register(gone.worker, HASH_A);
