@@ -3,7 +3,9 @@ import {
   mkdir,
   mkdtemp,
   readdir,
+  rename,
   rm,
+  rmdir,
   stat,
   writeFile,
 } from "node:fs/promises";
@@ -198,18 +200,8 @@ export class GitWorkspace implements WorkspacePreparer {
       case "refuse":
         throw new Error(`Workspace ${this.root} refused: ${plan.reason}`);
       case "recreate":
-        await this.empty();
-        await this.clone(git, remote, plan.branch);
-        // A fresh clone nothing has run in yet.
-        this.instructions = await pinInstructions(
-          git,
-          this.root,
-          `refs/remotes/origin/${plan.branch}`,
-          input.signal,
-        );
-        return plan.action;
       case "clone":
-        await this.clone(git, remote, plan.branch);
+        await this.clone(git, remote, plan.branch, input.signal);
         // A fresh clone nothing has run in yet.
         this.instructions = await pinInstructions(
           git,
@@ -223,7 +215,7 @@ export class GitWorkspace implements WorkspacePreparer {
         // space that write needs, and a `.git` that is not the checkout's
         // own directory is refused before anything changes it.
         await sweepWorkerScratch(this.root);
-        // Only a reuse needs a mirror; a clone writes straight into the root.
+        // Only a reuse needs a mirror; a clone writes into its own staging.
         const scratch = await workerScratch(this.root, "fetch");
         if (scratch === undefined) {
           throw new Error(
@@ -354,6 +346,10 @@ export class GitWorkspace implements WorkspacePreparer {
       throw error;
     });
     if (entries.length === 0) return { kind: "empty" };
+    const staging = await lstat(join(this.root, CLONE_STAGING)).catch(
+      () => null,
+    );
+    if (staging?.isDirectory() === true) return { kind: "interrupted" };
     // A directory for a clone, a file for a linked worktree.
     if ((await stat(join(this.root, ".git")).catch(() => null)) === null) {
       return { kind: "foreign" };
@@ -422,8 +418,34 @@ export class GitWorkspace implements WorkspacePreparer {
     );
   }
 
-  private async clone(git: Git, remote: Remote, branch: string): Promise<void> {
-    // Not from the root: it may not exist yet, and git creates it.
+  /**
+   * Clones into `CLONE_STAGING` and only then moves the result up to the
+   * root, the staging directory going last. Made before anything at the root
+   * is deleted, it marks the root as this preparation's own until the clone
+   * is complete, so an attempt stopped at any point leaves `interrupted`.
+   */
+  private async clone(
+    git: Git,
+    remote: Remote,
+    branch: string,
+    signal: AbortSignal,
+  ): Promise<void> {
+    signal.throwIfAborted();
+    const staging = join(this.root, CLONE_STAGING);
+    await mkdir(this.root, { recursive: true });
+    await mkdir(staging).catch(async (error: unknown) => {
+      const found = await lstat(staging).catch(() => null);
+      if (found?.isDirectory() === true) return;
+      throw error;
+    });
+    // The root is the backend's mount point: empty it, keep it.
+    for (const entry of await readdir(this.root)) {
+      if (entry === CLONE_STAGING) continue;
+      await rm(join(this.root, entry), { force: true, recursive: true });
+    }
+    for (const entry of await readdir(staging)) {
+      await rm(join(staging, entry), { force: true, recursive: true });
+    }
     await check(
       git(
         [
@@ -433,7 +455,7 @@ export class GitWorkspace implements WorkspacePreparer {
           branch,
           "--",
           remote.route?.url ?? remote.url,
-          this.root,
+          staging,
         ],
         // `/`, read-only: the mount above the root is the engine's to write
         // (the Kubernetes backend), so a git looking for a repository from
@@ -447,10 +469,14 @@ export class GitWorkspace implements WorkspacePreparer {
     // should see.
     if (remote.route !== undefined) {
       await check(
-        git(["remote", "set-url", "origin", remote.url]),
+        git(["remote", "set-url", "origin", remote.url], { cwd: staging }),
         "remote set-url",
       );
     }
+    for (const entry of await readdir(staging)) {
+      await rename(join(staging, entry), join(this.root, entry));
+    }
+    await rmdir(staging);
   }
 
   /**
@@ -498,14 +524,10 @@ export class GitWorkspace implements WorkspacePreparer {
       signal,
     );
   }
-
-  /** The root is the backend's mount point: empty it, keep it. */
-  private async empty(): Promise<void> {
-    for (const entry of await readdir(this.root)) {
-      await rm(join(this.root, entry), { force: true, recursive: true });
-    }
-  }
 }
+
+/** Where `GitWorkspace` clones before the result moves up to the root. */
+const CLONE_STAGING = ".agent-platform-clone";
 
 /**
  * What a session without a repository keeps out of its checkpoints, having

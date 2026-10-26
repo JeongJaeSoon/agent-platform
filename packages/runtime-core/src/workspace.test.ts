@@ -104,6 +104,9 @@ describe("planWorkspacePreparation", () => {
       expect(planLocal({ kind: "foreign" })).toMatchObject({
         action: "refuse",
       });
+      expect(planLocal({ kind: "interrupted" })).toMatchObject({
+        action: "refuse",
+      });
     });
   });
 
@@ -138,6 +141,15 @@ describe("planWorkspacePreparation", () => {
     // Unpushed commits count as local work even with a clean tree.
     expect(plan({ ...sound, healthy: false, localWork: true })).toMatchObject({
       action: "refuse",
+    });
+  });
+
+  test("a clone an earlier attempt never finished is recreated", () => {
+    expect(plan({ kind: "interrupted" })).toEqual({
+      action: "recreate",
+      branch: "main",
+      reason: "an earlier attempt's clone never finished",
+      url: workspace.repository.url,
     });
   });
 
