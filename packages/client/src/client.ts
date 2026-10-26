@@ -86,7 +86,15 @@ const policies = new WeakMap<ApiClient, ContractPolicy>();
 
 /** The contract policy a client was made with; streams apply it too. */
 export function policyOf(client: ApiClient): ContractPolicy {
-  const policy = policies.get(client);
+  let policy: ContractPolicy | undefined;
+  // A client derived with Object.create (a query scope) keeps its source's.
+  for (
+    let c: object | null = client;
+    c && !policy;
+    c = Object.getPrototypeOf(c)
+  ) {
+    policy = policies.get(c as ApiClient);
+  }
   // Falling back to "off" would turn a strict test client into an unchecked
   // one without a word.
   if (!policy) throw new TypeError("client was not made by createApiClient");
