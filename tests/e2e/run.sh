@@ -54,11 +54,15 @@ model_overlay=infra/compose.fake-model.yml
 local_model=""
 # E2E_MODEL_MODE is set here alone, over whatever the shell (say, a sourced
 # vars.sh of another run) left: tests/e2e/real-model.e2e.ts picks its
-# profiles from it.
+# profiles from it. A model run sets the session cost limit itself, the same
+# default its overlay or compose.core.yml has, so the suite compares the
+# session's limit with what the stack was given rather than a default.
 case "$*" in
   "") unset E2E_MODEL_MODE ;;
-  --real-model) real_model=1; model_overlay=infra/compose.real-model.yml; export E2E_MODEL_MODE=real ;;
-  --local-model) local_model=1; model_overlay=infra/compose.local-model.yml; export E2E_MODEL_MODE=local ;;
+  --real-model) real_model=1; model_overlay=infra/compose.real-model.yml; export E2E_MODEL_MODE=real
+    export SESSION_COST_LIMIT_USD="${SESSION_COST_LIMIT_USD:-1}" ;;
+  --local-model) local_model=1; model_overlay=infra/compose.local-model.yml; export E2E_MODEL_MODE=local
+    export SESSION_COST_LIMIT_USD="${SESSION_COST_LIMIT_USD:-25}" ;;
   *) echo "usage: tests/e2e/run.sh [--real-model | --local-model]" >&2; exit 2 ;;
 esac
 if [ -n "$local_model" ]; then
@@ -217,7 +221,9 @@ sdk_version="$(sed -n 's/.*"@anthropic-ai\/claude-agent-sdk": "\([^"]*\)".*/\1/p
   if [ -n "$real_model" ]; then
     echo "model: $(sed -n 's/^ *model: //p' config/profiles.yaml)"
     echo "provider_endpoint: $(sed -n 's/^ *endpoint: //p' config/profiles.yaml)"
-    echo "session_cost_limit_usd: ${SESSION_COST_LIMIT_USD:-$(sed -n 's/^ *SESSION_COST_LIMIT_USD: ${SESSION_COST_LIMIT_USD:-\(.*\)}$/\1/p' infra/compose.real-model.yml)}"
+  fi
+  if [ -n "$real_model$local_model" ]; then
+    echo "session_cost_limit_usd: ${SESSION_COST_LIMIT_USD}"
   fi
   if [ -n "$local_model" ]; then
     echo "ollama: $(curl -s http://127.0.0.1:11434/api/version)"

@@ -21,6 +21,10 @@ if (!Object.hasOwn(PROFILES, MODE)) {
   throw new Error(`E2E_MODEL_MODE ${MODE} is neither real nor local`);
 }
 const PROFILE_IDS = PROFILES[MODE as keyof typeof PROFILES];
+const SESSION_COST_LIMIT_USD = process.env.SESSION_COST_LIMIT_USD;
+if (!SESSION_COST_LIMIT_USD) {
+  throw new Error("SESSION_COST_LIMIT_USD is unset; run tests/e2e/run.sh");
+}
 const TURN_TIMEOUT = 300_000;
 
 const nonce = crypto.randomUUID().slice(0, 8);
@@ -186,8 +190,9 @@ test.each(PROFILE_IDS)(
     expect(spent).toBeGreaterThan(0);
     expect(spent).toBeLessThanOrEqual(Number(usage.cost_limit_usd));
     expect(usage.budget_exceeded).toBe(false);
-    // /v1/limits is the signed-in owner's alone, so a key cannot compare the
-    // limit against it.
+    // The session runs under the limit run.sh gave the stack. A key cannot
+    // read it back from /v1/limits, the signed-in owner's alone.
+    expect(Number(usage.cost_limit_usd)).toBe(Number(SESSION_COST_LIMIT_USD));
     await api.expect(403, "GET", "/v1/limits");
 
     // One line for the run record.
