@@ -258,6 +258,30 @@ describe("restoring a captured checkout", () => {
     },
   );
 
+  test("takes the upstream's name and commit from the same merge entry when the branch lists two", async () => {
+    const main = await commitFiles({ "a.txt": "a\n" });
+    const release = await commitFiles({ "a.txt": "a, then b\n" });
+    await git(root, "remote", "add", "origin", "https://git.example.test/a");
+    await git(root, "update-ref", "refs/remotes/origin/main", main);
+    await git(root, "update-ref", "refs/remotes/origin/release", release);
+    await git(root, "config", "branch.main.remote", "origin");
+    await git(root, "config", "--add", "branch.main.merge", "refs/heads/main");
+    await git(
+      root,
+      "config",
+      "--add",
+      "branch.main.merge",
+      "refs/heads/release",
+    );
+
+    const restored = await restore(await captured());
+
+    expect(
+      (await git(restored, "rev-parse", "--symbolic-full-name", "@{u}")).trim(),
+    ).toBe("refs/remotes/origin/main");
+    expect((await git(restored, "rev-parse", "@{u}")).trim()).toBe(main);
+  });
+
   test("leaves an upstream that is not on origin behind, and still restores", async () => {
     const head = await commitFiles({ "a.txt": "a\n" });
     await git(root, "remote", "add", "fork", "https://git.example.test/b");

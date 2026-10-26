@@ -880,31 +880,26 @@ async function originUpstream(
   workspace: Git,
   branch: string,
 ): Promise<[string, string] | undefined> {
-  const remote = await workspace([
-    "config",
-    "--get",
-    `branch.${branch}.remote`,
+  // One read, so the remote, origin's branch and the ref origin's fetch
+  // refspec maps it to (not always `refs/remotes/origin/<name>`) come from
+  // the same `branch.<name>.merge` entry when the config lists several.
+  const upstream = await workspace([
+    "for-each-ref",
+    "--format=%(upstream:remotename)%00%(upstream:remoteref)%00%(upstream)",
+    `refs/heads/${branch}`,
   ]);
-  const merge = await workspace(["config", "--get", `branch.${branch}.merge`]);
-  const tracked = merge.stdout.trim();
+  const [remote, tracked = "", ref = ""] = upstream.stdout
+    .replace(/\n$/, "")
+    .split("\0");
   if (
-    remote.code !== 0 ||
-    remote.stdout.trim() !== "origin" ||
-    merge.code !== 0 ||
+    upstream.code !== 0 ||
+    remote !== "origin" ||
+    ref === "" ||
     !tracked.startsWith("refs/heads/") ||
     (await workspace(["check-ref-format", tracked])).code !== 0
   ) {
     return undefined;
   }
-  // Where origin's fetch refspec maps the branch, which need not be
-  // `refs/remotes/origin/<name>`; empty when no refspec maps it.
-  const upstream = await workspace([
-    "for-each-ref",
-    "--format=%(upstream)",
-    `refs/heads/${branch}`,
-  ]);
-  const ref = upstream.stdout.trim();
-  if (upstream.code !== 0 || ref === "") return undefined;
   const commit = await workspace([
     "rev-parse",
     "--verify",
