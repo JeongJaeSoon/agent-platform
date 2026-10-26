@@ -21,6 +21,13 @@ export type NativeEnvelope = {
 export type AgentFrame = {
   envelope: NativeEnvelope;
   events: SessionEvent[];
+  /**
+   * The input uuids this frame shows the engine taking up or answering. A
+   * host keeps a new turn's frames out of it until one names its input, as
+   * the engine may still be emitting for the input before. Absent when the
+   * runtime cannot tell, and then every frame goes to the turn in flight.
+   */
+  inputs?: readonly string[];
 };
 
 /**

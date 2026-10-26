@@ -20,6 +20,7 @@ import {
 } from "@werft-ai/contracts";
 import { endedByAbort } from "@werft-ai/runtime-claude";
 import {
+  type AgentFrame,
   type AgentRun,
   type CheckpointLease,
   type CheckpointPreparation,
@@ -172,6 +173,11 @@ type Turn = {
   closed: boolean;
   /** Its settlement is decided and its stream cut; later ones are ignored. */
   cut: boolean;
+  /**
+   * A frame named this turn's input: before one does, what the engine
+   * emits may still be the previous turn's and belongs to no turn.
+   */
+  entered: boolean;
   /** An interrupt intent for this turn has been taken. */
   interrupting: boolean;
   /** The intent that interrupted the turn, named by its engine_stopped event. */
@@ -1403,6 +1409,7 @@ export class WorkerHost {
     const turn: Turn = {
       closed: false,
       cut: false,
+      entered: false,
       interrupting: false,
       sent: false,
       settled,
@@ -1714,10 +1721,7 @@ export class WorkerHost {
     return (async () => {
       try {
         for await (const frame of run.events()) {
-          this.publisher?.publish(
-            frame.events,
-            this.turn?.closed === true ? null : this.scope.turn_id,
-          );
+          this.publisher?.publish(frame.events, this.frameTurn(frame));
           await this.observe(frame.envelope.message);
         }
       } catch (error) {
@@ -1747,6 +1751,24 @@ export class WorkerHost {
         this.stop({ kind: "failed", reason: "The engine stream ended" });
       }
     })();
+  }
+
+  /**
+   * The turn a frame's events are stored under: none past the turn's
+   * terminal, and none before a frame names its input, which a runtime that
+   * names no inputs leaves to the turn in flight.
+   */
+  private frameTurn(frame: AgentFrame): string | null {
+    const turn = this.turn;
+    if (turn === undefined) return this.scope.turn_id;
+    if (turn.closed) return null;
+    if (!turn.entered) {
+      if (frame.inputs !== undefined && !frame.inputs.includes(turn.uuid)) {
+        return null;
+      }
+      turn.entered = true;
+    }
+    return turn.turnId;
   }
 
   /** Absent while the port binds no mirror, so such a worker beats unchanged. */
