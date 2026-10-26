@@ -1,6 +1,11 @@
 /// <reference lib="dom" />
 import { expect, test } from "bun:test";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  QueryClient,
+  QueryClientProvider,
+  useQuery,
+} from "@tanstack/react-query";
 import type { ApiClient } from "@werft-ai/client";
 import { type QueryScope, queryKeysOf } from "@werft-ai/core";
 import { setupDom } from "@werft-ai/ui/test-support/dom";
@@ -10,7 +15,7 @@ import {
   useAgentPlatform,
 } from "./index.ts";
 
-const { render } = await setupDom();
+const { render, waitFor } = await setupDom();
 
 const OWNER = { actor: "user:owner", workspace: "w-1" };
 const MEMBER = { actor: "user:member", workspace: "w-1" };
@@ -50,5 +55,43 @@ test("the client below caches under the scope, and a new scope drops the old one
   expect<unknown>(queryClient.getQueryData(["me"])).toEqual({
     signed_in: true,
   });
+  view.unmount();
+});
+
+test("a screen that keeps its previous data shows none of the old scope's while the new one loads", async () => {
+  const queryClient = new QueryClient();
+  function Agents() {
+    const { client } = useAgentPlatform();
+    const key = queryKeysOf(client).agents;
+    const agents = useQuery({
+      queryKey: key,
+      // The new scope's answer never comes, so only a leftover could show.
+      queryFn: () =>
+        key[0].actor === OWNER.actor
+          ? Promise.resolve("owner's agents")
+          : new Promise<string>(() => {}),
+      placeholderData: keepPreviousData,
+    });
+    return <p>{agents.data ?? "loading"}</p>;
+  }
+  const tree = (scope: QueryScope) => (
+    <QueryClientProvider client={queryClient}>
+      <AgentPlatformProvider
+        client={{} as ApiClient}
+        locale="en"
+        renderLink={() => null}
+      >
+        <QueryScopeProvider scope={scope}>
+          <Agents />
+        </QueryScopeProvider>
+      </AgentPlatformProvider>
+    </QueryClientProvider>
+  );
+  const view = render(tree(OWNER));
+  await waitFor(() =>
+    expect(view.container.textContent).toBe("owner's agents"),
+  );
+  view.rerender(tree(MEMBER));
+  expect(view.container.textContent).toBe("loading");
   view.unmount();
 });

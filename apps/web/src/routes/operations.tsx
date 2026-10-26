@@ -568,7 +568,7 @@ export function OperationsToolsScreen() {
     ),
     enabled: tool !== undefined,
     placeholderData: (previous, previousQuery) =>
-      previousQuery?.queryKey[1] === tool?.name ? previous : undefined,
+      previousQuery?.queryKey[2] === tool?.name ? previous : undefined,
     staleTime: USAGE_STALE_MS,
   });
   const shown = rows && findTools(sortTools(rows, sort), query);

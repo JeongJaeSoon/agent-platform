@@ -519,6 +519,23 @@ describe("who the cache belongs to", () => {
     ).toBeNull();
   });
 
+  test("a list that keeps its rows while it reloads drops the last person's rows when someone else signs in", async () => {
+    let who: "owner" | "mate" = "owner";
+    const { services } = renderAt("/sessions", {
+      "GET /v1/auth/me": () => json(200, who === "owner" ? me() : mate()),
+      // Mate's own list never arrives, so only a leftover could show.
+      "GET /v1/sessions": () =>
+        who === "owner" ? ownerWaiting() : new Promise<Response>(() => {}),
+    });
+    await screen.findByRole("link", { name: `세션 열기: ${FIRST}` });
+    who = "mate";
+    await services.queryClient.refetchQueries({ queryKey: ["me"] });
+    await screen.findByRole("button", { name: /^Mate · / });
+    expect(
+      screen.queryByRole("link", { name: `세션 열기: ${FIRST}` }),
+    ).toBeNull();
+  });
+
   test("after a logout the next person reads their own data, none of the last one's", async () => {
     let who: "owner" | "mate" | null = "owner";
     const { api, history, services } = renderAt("/", {

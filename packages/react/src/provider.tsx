@@ -7,6 +7,7 @@ import {
 } from "@werft-ai/core";
 import {
   createContext,
+  Fragment,
   type ReactNode,
   useContext,
   useEffect,
@@ -91,8 +92,9 @@ export function AgentPlatformProvider({
 
 /**
  * Gives the tree below a client whose queries are cached under `scope`, the
- * signed-in principal and its workspace. When the scope changes, what the
- * previous one cached is dropped.
+ * signed-in principal and its workspace. When the scope changes, the tree
+ * mounts afresh, so no observer's kept data or component state carries the
+ * previous scope over, and what the previous one cached is dropped.
  */
 export function QueryScopeProvider({
   scope,
@@ -119,7 +121,11 @@ export function QueryScopeProvider({
     }
     previous.current = { actor, workspace };
   }, [queryClient, actor, workspace]);
-  return <AgentPlatformContext value={value}>{children}</AgentPlatformContext>;
+  return (
+    <AgentPlatformContext value={value}>
+      <Fragment key={`${actor}\n${workspace}`}>{children}</Fragment>
+    </AgentPlatformContext>
+  );
 }
 
 export function useAgentPlatform(): AgentPlatform {

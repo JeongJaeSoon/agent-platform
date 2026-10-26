@@ -1,3 +1,4 @@
+export { type QueryScope, queryScopeOf } from "@werft-ai/core";
 export {
   type FormMessageKey,
   type IssueFacts,
