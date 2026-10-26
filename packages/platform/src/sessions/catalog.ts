@@ -725,8 +725,8 @@ function pinnedModel(
 
 /**
  * Whether `fingerprint` still names this profile's settings, under either
- * version, whichever model it was taken with. What a release digest and a
- * provider egress token are held to: neither runs a model of its own.
+ * version, whichever model it was taken with. What a release digest is held
+ * to: it runs no model of its own.
  */
 export function profilePinned(
   profile: CatalogProfileView,

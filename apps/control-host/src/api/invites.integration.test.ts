@@ -389,6 +389,42 @@ integration("invites and roles over HTTP on PostgreSQL", () => {
     ]);
   });
 
+  test("an agent admin still may not list members; owners see what each administers", async () => {
+    const agentId = crypto.randomUUID();
+    await db.insert(schema.agents).values({
+      id: agentId,
+      workspaceId,
+      slug: `listed-${agentId.slice(0, 8)}`,
+      name: "Listed agent",
+    });
+    await db
+      .insert(schema.agentAdmins)
+      .values({ workspaceId, agentId, userId: memberId });
+    const refused = await send(
+      "GET",
+      "/v1/members",
+      undefined,
+      as(memberCookie),
+    );
+    expect(refused.status).toBe(403);
+
+    const listed = listMembersResponseSchema.parse(
+      await (
+        await send("GET", "/v1/members", undefined, as(ownerCookie))
+      ).json(),
+    );
+    const member = listed.items.find((item) => item.user_id === memberId);
+    expect(member?.administered_agents).toEqual([
+      { id: agentId, name: "Listed agent", via: "user" },
+    ]);
+    // Both signed in above, so both have a web session touch.
+    expect(Date.parse(member?.last_active_at ?? "")).toBeGreaterThan(
+      Date.now() - 10 * 60_000,
+    );
+    const owner = listed.items.find((item) => item.user_id === ownerId);
+    expect(owner?.last_active_at).not.toBeNull();
+  });
+
   test("members page by cursor and filter by q", async () => {
     const extra = Array.from({ length: 5 }, () => crypto.randomUUID());
     await db.insert(users).values(

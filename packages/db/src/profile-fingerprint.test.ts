@@ -516,4 +516,32 @@ describe("a model named at create", () => {
       await refusal(claim(narrowed, await launch(narrowed, sessionId, true))),
     ).toEqual({ status: 409, code: "CATALOG_MISMATCH" });
   });
+
+  test("taking a running attempt's model off the list cuts its next provider grant, and only its", async () => {
+    const gateway = gatewayOf(OFFERS);
+    const providerAuth = async (model?: string) => {
+      const { session_id } = await create(OFFERS, model);
+      const claimed = await claim(
+        gateway,
+        await launch(gateway, session_id, false),
+      );
+      const auth = claimed.runtime_config.provider.auth;
+      if (auth.kind !== "egress_token") throw new Error(auth.kind);
+      return { token: auth.token, purpose: "provider" as const };
+    };
+    const opusRun = await providerAuth("claude-opus-5-5");
+    const defaultRun = await providerAuth();
+    expect((await gateway.authorizeEgress(opusRun)).upstream.url).toBe(
+      "https://litellm.invalid",
+    );
+
+    const narrowed = gatewayOf(ORIGINAL);
+    expect(await refusal(narrowed.authorizeEgress(opusRun))).toEqual({
+      status: 409,
+      code: "CATALOG_MISMATCH",
+    });
+    expect((await narrowed.authorizeEgress(defaultRun)).upstream.url).toBe(
+      "https://litellm.invalid",
+    );
+  });
 });

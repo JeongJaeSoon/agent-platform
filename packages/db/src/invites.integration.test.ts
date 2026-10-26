@@ -17,13 +17,19 @@ import { and, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { encodeMemberCursor } from "./cursors.ts";
-import { bootstrapOwner } from "./identity.ts";
+import { dbNow } from "./db-clock.ts";
+import { bootstrapOwner, createWebSession } from "./identity.ts";
 import { createPostgresInviteStore } from "./invites.ts";
 import * as schema from "./schema.ts";
 import {
+  agentAdmins,
+  agentAdminTeams,
+  agents,
   invites,
   loginMethods,
   memberships,
+  memberTeamMembers,
+  memberTeams,
   receipts,
   users,
   webSessions,
@@ -593,6 +599,164 @@ integration("invite store on PostgreSQL", () => {
       (m) => m.role === "owner",
     );
     expect(owners).toHaveLength(1);
+  });
+
+  async function agent(
+    workspaceId: string,
+    name: string,
+    status: "active" | "paused" | "archived" = "active",
+  ) {
+    const id = randomUUID();
+    await db
+      .insert(agents)
+      .values({ id, workspaceId, slug: `a-${id.slice(0, 8)}`, name, status });
+    return id;
+  }
+
+  async function team(workspaceId: string, people: string[], archived = false) {
+    const id = randomUUID();
+    await db.insert(memberTeams).values({
+      id,
+      workspaceId,
+      name: `t-${id.slice(0, 8)}`,
+      archivedAt: archived ? new Date() : null,
+    });
+    for (const userId of people) {
+      await db
+        .insert(memberTeamMembers)
+        .values({ id: randomUUID(), workspaceId, teamId: id, userId });
+    }
+    return id;
+  }
+
+  test("a member row lists the agents they administer, telling direct from team", async () => {
+    const ws = await workspace();
+    const other = await workspace();
+    const [direct, viaTeam, both, left, none] = [
+      await member(ws, "member"),
+      await member(ws, "member"),
+      await member(ws, "member"),
+      await member(ws, "member"),
+      await member(ws, "member"),
+    ];
+    const zeta = await agent(ws, "Zeta");
+    const alpha = await agent(ws, "Alpha", "paused");
+    const gone = await agent(ws, "Gone", "archived");
+    const shelved = await agent(ws, "Shelved");
+    const elsewhere = await agent(other, "Elsewhere");
+    await db.insert(agentAdmins).values([
+      { workspaceId: ws, agentId: zeta, userId: direct },
+      { workspaceId: ws, agentId: alpha, userId: direct },
+      { workspaceId: ws, agentId: gone, userId: direct },
+      { workspaceId: ws, agentId: zeta, userId: both },
+    ]);
+    const crew = await team(ws, [viaTeam, both, left]);
+    await db
+      .update(memberTeamMembers)
+      .set({ removedAt: new Date() })
+      .where(eq(memberTeamMembers.userId, left));
+    const archivedTeam = await team(ws, [viaTeam], true);
+    await db.insert(agentAdminTeams).values([
+      { workspaceId: ws, agentId: zeta, teamId: crew },
+      { workspaceId: ws, agentId: alpha, teamId: crew },
+      { workspaceId: ws, agentId: shelved, teamId: archivedTeam },
+    ]);
+    const outsider = await member(other, "member");
+    await db
+      .insert(agentAdmins)
+      .values({ workspaceId: other, agentId: elsewhere, userId: outsider });
+
+    const rows = new Map(
+      (await store.listMembers(ws, { limit: 100 })).items.map((row) => [
+        row.userId,
+        row.administeredAgents,
+      ]),
+    );
+    expect(rows.get(direct)).toEqual([
+      { id: alpha, name: "Alpha", via: "user" },
+      { id: zeta, name: "Zeta", via: "user" },
+    ]);
+    expect(rows.get(viaTeam)).toEqual([
+      { id: alpha, name: "Alpha", via: "team" },
+      { id: zeta, name: "Zeta", via: "team" },
+    ]);
+    expect(rows.get(both)).toEqual([
+      { id: alpha, name: "Alpha", via: "team" },
+      { id: zeta, name: "Zeta", via: "user" },
+    ]);
+    expect(rows.get(left)).toEqual([]);
+    expect(rows.get(none)).toEqual([]);
+  });
+
+  test("last_active_at is the newest web session touch, null without one", async () => {
+    const ws = await workspace();
+    const never = await member(ws, "member");
+    const active = await member(ws, "member");
+    const older = new Date("2026-10-01T00:00:00.000Z");
+    const newer = new Date("2026-10-20T12:34:56.000Z");
+    for (const [lastSeenAt, revokedAt] of [
+      [newer, new Date("2026-10-21T00:00:00.000Z")],
+      [older, null],
+    ] as const) {
+      await db.insert(webSessions).values({
+        id: randomUUID(),
+        userId: active,
+        tokenHash: hashOf(randomUUID()),
+        expiresAt: new Date(Date.now() + DAY_MS),
+        revokedAt,
+        lastSeenAt,
+      });
+    }
+    const rows = new Map(
+      (await store.listMembers(ws, { limit: 100 })).items.map((row) => [
+        row.userId,
+        row.lastActiveAt,
+      ]),
+    );
+    expect(rows.get(never)).toBeNull();
+    expect(rows.get(active)?.toISOString()).toBe(newer.toISOString());
+  });
+
+  test("last_active_at outlives an expired session and survives the next login's pruning", async () => {
+    const ws = await workspace();
+    const person = await account();
+    await db
+      .insert(memberships)
+      .values({ workspaceId: ws, userId: person.userId, role: "member" });
+    const expired = new Date("2026-09-01T00:00:00.000Z");
+    await db.insert(webSessions).values({
+      id: randomUUID(),
+      userId: person.userId,
+      tokenHash: hashOf(randomUUID()),
+      expiresAt: new Date("2026-09-02T00:00:00.000Z"),
+      lastSeenAt: expired,
+    });
+    const activeOf = async () =>
+      (await store.listMembers(ws, { limit: 100 })).items.find(
+        (row) => row.userId === person.userId,
+      )?.lastActiveAt;
+    expect((await activeOf())?.toISOString()).toBe(expired.toISOString());
+
+    const before = await dbNow(db);
+    expect(
+      await createWebSession(db, {
+        id: randomUUID(),
+        userId: person.userId,
+        verifiedPasswordHash: person.passwordHash,
+        tokenHash: hashOf(randomUUID()),
+        ttlMs: DAY_MS,
+        userAgent: null,
+        maxLive: 1,
+      }),
+    ).not.toBeNull();
+    const rows = await db
+      .select({ id: webSessions.id })
+      .from(webSessions)
+      .where(eq(webSessions.userId, person.userId));
+    expect(rows).toHaveLength(1);
+    expect((await activeOf())?.getTime()).toBeGreaterThanOrEqual(
+      before.getTime(),
+    );
   });
 
   test("a member list shows the earlier of membership and account disabling", async () => {

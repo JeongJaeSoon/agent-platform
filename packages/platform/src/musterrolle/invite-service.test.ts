@@ -219,6 +219,8 @@ describe("invite service", () => {
                   ...MEMBER_ROW,
                   membershipDisabled: false,
                   accountDisabled: false,
+                  administeredAgents: [],
+                  lastActiveAt: null,
                 },
               ]
             : [],

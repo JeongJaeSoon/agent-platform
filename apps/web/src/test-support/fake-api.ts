@@ -189,10 +189,16 @@ export function openActions(view: MemberView): MemberActions {
  * A GET /v1/members page. A row without `actions` gets them: the signed-in
  * user's own is refused as `self_protected`, as the server always does, and
  * any other is open. Without `assignable_roles` an invite may carry any role,
- * as an owner's may.
+ * as an owner's may. A row without `administered_agents` or
+ * `last_active_at` administers nothing and has never signed in.
  */
 export function memberPage(page: {
-  items: readonly (MemberView | MemberRow)[];
+  items: readonly (
+    | MemberView
+    | (MemberView &
+        Pick<MemberRow, "actions"> &
+        Partial<Pick<MemberRow, "administered_agents" | "last_active_at">>)
+  )[];
   next_cursor: string | null;
   assignable_roles?: readonly WorkspaceRole[];
 }) {
@@ -200,16 +206,15 @@ export function memberPage(page: {
     ...page,
     assignable_roles: page.assignable_roles ?? ["owner", "admin", "member"],
     items: page.items.map(
-      (item): MemberRow =>
-        "actions" in item
-          ? item
-          : {
-              ...item,
-              actions:
-                item.user_id === USER_ID
-                  ? refusedActions("self_protected")
-                  : openActions(item),
-            },
+      (item): MemberRow => ({
+        administered_agents: [],
+        last_active_at: null,
+        actions:
+          item.user_id === USER_ID
+            ? refusedActions("self_protected")
+            : openActions(item),
+        ...item,
+      }),
     ),
   };
 }
